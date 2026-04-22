@@ -58,9 +58,10 @@
 
 기준 장비:
 
-- VRAM 8GB
-- RAM 64GB
-- Ollama Gemma 4 계열 모델
+- 프론트엔드와 백엔드: AWS EC2 서버에서 실행
+- LLM: Google AI Studio / Gemini API의 호스팅 Gemma 4 모델
+- 기본 모델: `gemma-4-31b-it`
+- 선택 대체 경로: Ollama 로컬 Gemma 4 계열 모델
 
 목표:
 
@@ -68,6 +69,7 @@
 - Interpreter timeout rate: 10% 이하
 - Narrator timeout rate: 10% 이하
 - 전체 fallback rate: 15% 이하
+- rate limit 또는 quota로 인한 fallback도 전체 fallback rate에 포함
 - 서버 엔진 처리 시간: 1초 이내
 
 ## 5. AI 품질 기준
@@ -79,6 +81,7 @@
 - Narrator schema pass rate: 90% 이상
 - Narrator no-new-facts violation rate: 5% 이하
 - rule validator가 차단한 위험 출력은 모두 FailureLog에 남아야 한다.
+- Google AI Studio API 오류, rate limit, quota 오류는 세션 중단 없이 fallback으로 처리되어야 한다.
 
 ## 6. 라이선스 기준
 
