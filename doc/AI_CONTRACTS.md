@@ -1,31 +1,69 @@
-# AI Contracts - Ollama 기반 AI GM 입출력 계약
+# AI Contracts - Google AI Studio 기반 AI GM 입출력 계약
 
 ## 1. 목적
 
-이 문서는 Ollama 로컬 LLM이 담당하는 역할과 JSON 입출력 계약을 정의한다.
+이 문서는 Google AI Studio / Gemini API로 호출하는 호스팅 Gemma 4 모델이 담당하는 역할과 JSON 입출력 계약을 정의한다.
 
 MVP에서는 Interpreter와 Narrator를 필수로 구현한다.
 Actor는 제한적으로 구현하고, Director는 후순위로 둔다.
 
 ## 2. 공통 운영 조건
 
-- 모델: Ollama Gemma 4 계열 모델
-- 기준 장비: VRAM 8GB, RAM 64GB
+- 기본 제공자: Google AI Studio / Gemini API
+- 기본 모델: `gemma-4-31b-it`
+- 선택 제공자: Ollama 로컬 Gemma 4 계열 모델
 - 전체 응답 목표: 30초 이내
-- 출력 형식: JSON Schema 기반 structured output
+- 출력 형식: JSON 객체. 서버 하네스가 JSON 파싱, JSON Schema 또는 Zod 검증, 규칙 검증을 수행한다.
 - 재시도: 역할별 최대 1회
-- timeout: 역할별 제한 시간 초과 시 fallback
+- timeout: 역할별 제한 시간 초과, API 오류, rate limit, quota 오류 시 fallback
 - 로깅: 모든 AI 호출은 `AiTrace`로 저장
+
+## 2.1 Provider 계약
+
+LLM 제공자는 백엔드 내부 인터페이스 뒤에 둔다.
+
+```ts
+type AiProvider = 'google-ai-studio' | 'ollama';
+
+type AiCallRequest = {
+  provider: AiProvider;
+  model: string;
+  role: 'interpreter' | 'actor' | 'narrator' | 'director' | 'summarizer';
+  promptVersion: string;
+  contents: string;
+  timeoutMs: number;
+  responseSchemaName: string;
+};
+
+type AiCallResult = {
+  rawOutput: string;
+  parsedJson?: unknown;
+  latencyMs: number;
+  providerRequestId?: string;
+  finishReason?: string;
+};
+```
+
+환경변수 기준:
+
+- `AI_PROVIDER=google-ai-studio`
+- `GOOGLE_API_KEY`
+- `AI_MODEL_INTERPRETER=gemma-4-26b-a4b-it`
+- `AI_MODEL_NARRATOR=gemma-4-26b-a4b-it`
+- `AI_MODEL_ACTOR=gemma-4-26b-a4b-it`
+- `AI_TIMEOUT_MS=30000`
+
+API 키는 서버에서만 사용하고 클라이언트 번들, 세션 로그, `AiTrace.rawOutput` 외 메타데이터에 기록하지 않는다.
 
 ## 3. 역할 구분
 
-| 역할 | MVP 필수 | 상태 변경 가능 | 설명 |
-| --- | --- | --- | --- |
-| Interpreter | 예 | 아니오 | 자연어 입력을 구조화 액션으로 변환 |
-| Narrator | 예 | 아니오 | 확정된 결과를 GM 서사로 표현 |
-| Actor | 일부 | 아니오 | NPC 행동 후보 중 하나 선택 |
-| Director | 아니오 | 아니오 | 정체 상황에서 힌트/전개 제안 |
-| Summarizer | 후순위 | 아니오 | 장기 요약 메모리 생성 |
+| 역할        | MVP 필수 | 상태 변경 가능 | 설명                               |
+| ----------- | -------- | -------------- | ---------------------------------- |
+| Interpreter | 예       | 아니오         | 자연어 입력을 구조화 액션으로 변환 |
+| Narrator    | 예       | 아니오         | 확정된 결과를 GM 서사로 표현       |
+| Actor       | 일부     | 아니오         | NPC 행동 후보 중 하나 선택         |
+| Director    | 아니오   | 아니오         | 정체 상황에서 힌트/전개 제안       |
+| Summarizer  | 후순위   | 아니오         | 장기 요약 메모리 생성              |
 
 ## 4. Interpreter
 
@@ -35,7 +73,7 @@ Actor는 제한적으로 구현하고, Director는 후순위로 둔다.
 type InterpreterInput = {
   session: {
     id: string;
-    phase: "exploration" | "combat" | "dialogue" | "rest";
+    phase: 'exploration' | 'combat' | 'dialogue' | 'rest';
     currentNodeId: string;
   };
   actor: {
@@ -48,7 +86,7 @@ type InterpreterInput = {
   scene: {
     title: string;
     summary: string;
-    availableTargets: { id: string; name: string; kind: "npc" | "object" | "location" | "enemy" }[];
+    availableTargets: { id: string; name: string; kind: 'npc' | 'object' | 'location' | 'enemy' }[];
     checkOptions: CheckOption[];
   };
   recentLogs: string[];
@@ -77,12 +115,14 @@ type InterpreterOutput = {
 
 ### 실패 처리
 
-| 실패 | 처리 |
-| --- | --- |
-| JSON parse 실패 | 같은 입력으로 1회 재시도 |
-| schema 실패 | schema 오류를 포함해 1회 재시도 |
-| confidence < 0.5 | 확인 질문 또는 선택지 fallback |
-| timeout | 선택지 fallback |
+| 실패                                  | 처리                                               |
+| ------------------------------------- | -------------------------------------------------- |
+| JSON parse 실패                       | 같은 입력으로 1회 재시도                           |
+| schema 실패                           | schema 오류를 포함해 1회 재시도                    |
+| confidence < 0.5                      | 확인 질문 또는 선택지 fallback                     |
+| timeout                               | 선택지 fallback                                    |
+| Gemini API rate limit 또는 quota 오류 | 재시도하지 않고 선택지 fallback, `FailureLog` 기록 |
+| 네트워크 오류                         | 짧은 연결 오류 메시지와 선택지 fallback            |
 
 ## 5. Narrator
 
@@ -98,10 +138,10 @@ type NarratorInput = {
   scene: {
     title: string;
     summary: string;
-    tone: "neutral" | "tense" | "mysterious" | "heroic";
+    tone: 'neutral' | 'tense' | 'mysterious' | 'heroic';
   };
   constraints: {
-    language: "ko";
+    language: 'ko';
     maxLength: number;
     noNewFacts: boolean;
   };
@@ -127,11 +167,13 @@ type NarratorOutput = {
 
 ### 실패 처리
 
-| 실패 | 처리 |
-| --- | --- |
-| JSON parse 실패 | 1회 재시도 |
-| timeout | 템플릿 서술 사용 |
-| 새 사실 추가 | rule validator 실패 후 템플릿 서술 사용 |
+| 실패                                  | 처리                                    |
+| ------------------------------------- | --------------------------------------- |
+| JSON parse 실패                       | 1회 재시도                              |
+| timeout                               | 템플릿 서술 사용                        |
+| 새 사실 추가                          | rule validator 실패 후 템플릿 서술 사용 |
+| Gemini API rate limit 또는 quota 오류 | 템플릿 서술 사용, `FailureLog` 기록     |
+| 네트워크 오류                         | 템플릿 서술 사용                        |
 
 ## 6. Actor
 
@@ -144,14 +186,14 @@ type ActorInput = {
   npc: {
     id: string;
     name: string;
-    disposition: "hostile" | "neutral" | "friendly";
+    disposition: 'hostile' | 'neutral' | 'friendly';
     currentHp?: number;
     conditions: ConditionName[];
   };
   sceneSummary: string;
   allowedActions: {
     id: string;
-    type: "attack" | "move" | "talk" | "flee" | "defend";
+    type: 'attack' | 'move' | 'talk' | 'flee' | 'defend';
     description: string;
   }[];
 };
@@ -211,5 +253,16 @@ MVP에서 추적할 지표:
 - fallback rate
 - average latency
 - p95 latency
+- provider error rate
+- rate limit fallback rate
+- token usage per role if API metadata is available
 
 기본 목표는 `MVP_ACCEPTANCE_CRITERIA.md`를 따른다.
+
+## 10. Google AI Studio 적용 메모
+
+- Google AI Studio에서 API 키를 발급하고 Gemini API로 Gemma 4 모델을 호출한다.
+- 공식 문서 기준 Gemma 4 호출 모델명은 `gemma-4-31b-it`이다.
+- free tier는 개발과 시연에는 사용할 수 있지만, 실제 rate limit은 프로젝트별로 Google AI Studio에서 확인한다.
+- Gemma 4 경로는 모델 출력이 JSON 텍스트라는 전제로 받고, 서버 하네스가 형식과 의미를 검증한다.
+- Gemini API의 structured output 보장이 반드시 필요한 실험은 동일 Provider 인터페이스에서 structured output 지원 Gemini 모델로 교체해 A/B 테스트한다.
