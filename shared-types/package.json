@@ -1,0 +1,18 @@
+{
+  "name": "@trpg/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@nestjs/swagger": "^8.1.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1"
+  }
+}

@@ -2,14 +2,16 @@
 
 ## 1. 확정된 전제
 
-본 프로젝트는 로컬 Ollama와 연동하여, 로컬 LLM이 TRPG의 GM 역할 일부를 대신하는 온라인 TRPG 플랫폼을 목표로 한다.
+본 프로젝트는 Google AI Studio에서 발급한 Gemini API 키로 호스팅 Gemma 4 모델을 호출하여, LLM이 TRPG의 GM 역할 일부를 대신하는 온라인 TRPG 플랫폼을 목표로 한다.
 
 현재 확정된 제약은 다음과 같다.
 
 - 룰셋: D&D 5e 계열의 공개 SRD 기반 룰을 사용한다.
 - 콘텐츠: 공개 SRD와 무료 공개 시나리오만 사용한다.
-- 로컬 LLM: Ollama 기반 Gemma 4 계열 모델을 사용한다.
-- 추론 장비: VRAM 8GB, RAM 64GB 노트북을 기준으로 한다.
+- LLM 제공자: Google AI Studio / Gemini API의 호스팅 Gemma 4 모델을 기본값으로 사용한다.
+- 기준 모델: `gemma-4-31b-it`를 사용한다.
+- 로컬 추론 장비: MVP 필수 전제가 아니다. 프론트엔드와 백엔드는 EC2 서버에서 실행하되, LLM 추론은 Google API에 위임한다.
+- 로컬 Ollama: 오프라인 개발 또는 API 장애 대응을 위한 선택적 대체 제공자로만 둔다.
 - 응답 시간 목표: 사용자 액션 1회당 30초 이내 응답을 목표로 한다.
 - MVP 범위: 여러 플레이어가 같은 세션에 접속하는 온라인 플레이를 포함한다.
 - 핵심 구조: AI가 게임의 진실값을 직접 결정하지 않고, 규칙 엔진과 상태 엔진이 최종 상태를 확정한다.
@@ -73,25 +75,35 @@ MVP는 "AI 채팅 앱"이 아니라, 여러 플레이어가 접속 가능한 최
 - 권한이 복잡한 공개 방 목록
 - 모바일 앱
 
-## 4. 로컬 LLM 제약
+## 4. Google AI Studio / Gemini API LLM 제약
 
-VRAM 8GB 기준에서는 모델 응답 품질과 속도 편차를 전제로 설계해야 한다.
+Gemini API는 Gemma 4 모델의 호스팅 호출을 지원하므로, 별도 로컬 추론 서버 없이 MVP 하네스를 구축할 수 있다. 다만 free tier의 실제 한도와 사용 가능 용량은 프로젝트와 계정 상태에 따라 달라지므로, Google AI Studio의 rate limit 화면에서 현재 한도를 확인하고 운영 기준을 보수적으로 잡는다.
 
 ### 운영 기준
 
 - LLM 호출은 한 턴에 최소화한다.
 - MVP 기본 루프는 Interpreter 1회, Narrator 1회 호출을 기준으로 한다.
 - Actor와 Director는 MVP 이후 또는 제한된 상황에서만 호출한다.
-- 30초를 넘기면 timeout으로 처리하고 fallback 응답을 제공한다.
+- 30초를 넘기면 timeout으로 처리하고 fallback 응답을 제공한다. 이 timeout은 API 지연, rate limit, 네트워크 오류를 모두 포함한다.
+- rate limit 또는 quota 오류가 발생하면 즉시 재시도하지 않고 세션 진행을 방해하지 않는 fallback으로 전환한다.
 - structured output 실패 시 최대 1회 재시도한다.
 - 재시도 후에도 실패하면 "판정 후보 선택 UI" 또는 "기본 판정 요청"으로 대체한다.
+- API 키는 백엔드 서버 환경변수에만 저장하고 프론트엔드에 노출하지 않는다.
+- `AI_PROVIDER=google-ai-studio`를 기본값으로 두고, `AI_MODEL_INTERPRETER`, `AI_MODEL_NARRATOR`, `AI_TIMEOUT_MS`로 역할별 모델과 timeout을 조정한다.
 
 ### 프롬프트 기준
 
 - 긴 룰북 전문을 넣지 않는다.
 - 현재 상태, 현재 노드, 최근 로그, 필요한 룰 조각만 전달한다.
-- 출력은 JSON Schema로 제한한다.
+- 출력은 JSON 객체만 허용하고 서버에서 JSON Schema 또는 Zod로 검증한다.
+- Gemma 4 호출은 앱 레벨 하네스가 파싱과 검증을 보장한다. Gemini API의 structured output 기능을 반드시 써야 하는 경로는 structured output 공식 지원 모델로 교체 가능한 provider 인터페이스 뒤에 둔다.
 - Narrator는 상태를 변경하지 못한다.
+
+### 가능성 검토 결론
+
+- 가능: Google AI Studio free tier의 Gemini API를 이용해 Gemma 4를 호출하는 방식은 MVP 개발과 시연에 충분히 적용 가능하다.
+- 조건: free tier는 보장된 운영 용량이 아니므로, rate limit 확인, timeout, fallback, 실패 로그, provider 교체 가능 구조가 필수다.
+- 주의: 호스팅 Gemma 4를 사용하더라도 AI는 여전히 게임 상태를 확정하지 않는다. 규칙 엔진과 상태 엔진이 최종 authority를 가진다.
 
 ## 5. 온라인 멀티플레이 기준
 

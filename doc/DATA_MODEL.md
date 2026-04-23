@@ -247,13 +247,25 @@ type AiTrace = {
   id: string;
   sessionId: string;
   role: "interpreter" | "actor" | "narrator" | "director" | "summarizer";
+  provider: "google-ai-studio" | "ollama";
   model: string;
   promptVersion: string;
   inputSummary: string;
   rawOutput: string;
   parsedOutput?: unknown;
-  validationStatus: "passed" | "schema_failed" | "rule_failed" | "timeout" | "fallback";
+  validationStatus:
+    | "passed"
+    | "schema_failed"
+    | "rule_failed"
+    | "timeout"
+    | "rate_limited"
+    | "quota_exceeded"
+    | "provider_error"
+    | "fallback";
   latencyMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  providerRequestId?: string;
   createdAt: string;
 };
 ```

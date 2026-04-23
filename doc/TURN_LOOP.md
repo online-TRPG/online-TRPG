@@ -21,7 +21,7 @@ sequenceDiagram
     participant P as Player Client
     participant API as Backend API
     participant Q as Session Action Queue
-    participant AI as Ollama AI Layer
+    participant AI as Google AI Studio AI Layer
     participant ENG as Game Engine
     participant DB as Database
     participant WS as Realtime Channel
@@ -83,12 +83,21 @@ Interpreter에 전달할 컨텍스트는 다음으로 제한한다.
 
 Interpreter는 자연어를 `StructuredAction`으로 변환한다.
 
+기본 호출 경로:
+
+- 백엔드가 `AI_PROVIDER=google-ai-studio` 설정을 읽는다.
+- Google AI Studio에서 발급한 API 키로 Gemini API의 Gemma 4 모델을 호출한다.
+- raw 응답은 먼저 JSON으로 파싱하고, 그 다음 역할별 스키마로 검증한다.
+- API 키와 원문 프롬프트 전문은 클라이언트로 보내지 않는다.
+
 실패 정책:
 
 - JSON parse 실패: 1회 재시도
 - schema 실패: 1회 재시도
 - confidence가 낮음: `freeform`으로 처리하고 확인 질문 생성
 - timeout: fallback으로 "어떤 판정을 원하는지 선택" 응답
+- rate limit 또는 quota 오류: 즉시 fallback으로 전환하고 `FailureLog`에 저장
+- 네트워크 오류: 즉시 fallback으로 전환하고 `AiTrace.validationStatus`를 `fallback`으로 저장
 
 ### 5단계: 액션 검증
 
@@ -174,6 +183,8 @@ type SessionEvent =
 
 - Interpreter timeout: 선택지 기반 fallback
 - Narrator timeout: 템플릿 기반 결과 서술
+- Google AI Studio rate limit/quota 오류: LLM 재호출 없이 fallback
+- Google AI Studio 일시 장애 또는 네트워크 오류: LLM 재호출 없이 fallback
 - 저장 실패: 상태 적용 중단 후 오류 로그
 
 ## 7. Fallback 예시

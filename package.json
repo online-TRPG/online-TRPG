@@ -1,0 +1,17 @@
+{
+  "name": "trpg-platform",
+  "private": true,
+  "workspaces": [
+    "be",
+    "shared-types"
+  ],
+  "scripts": {
+    "build": "npm run build -w @trpg/shared-types && npm run build -w @trpg/be",
+    "dev": "npm run build -w @trpg/shared-types && npm run start:dev -w @trpg/be",
+    "test": "npm run test -w @trpg/be",
+    "test:e2e": "npm run test:e2e -w @trpg/be",
+    "prisma:generate": "npm run prisma:generate -w @trpg/be",
+    "prisma:push": "npm run prisma:push -w @trpg/be",
+    "seed": "npm run seed -w @trpg/be"
+  }
+}
