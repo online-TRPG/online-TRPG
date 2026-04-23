@@ -48,61 +48,89 @@ model User {
 }
 
 model Session {
-  id            String               @id @default(cuid())
-  title         String
-  ownerUserId   String
-  inviteCode    String               @unique
-  status        SessionStatus        @default(LOBBY)
-  scenarioId    String
-  currentNodeId String
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
-  owner         User                 @relation("SessionOwner", fields: [ownerUserId], references: [id])
-  scenario      Scenario             @relation(fields: [scenarioId], references: [id])
-  participants  SessionParticipant[]
-  characters    Character[]
-  gameState     GameState?
+  id               String               @id @default(cuid())
+  title            String
+  description      String               @default("")
+  ownerUserId      String
+  captainUserId    String?
+  inviteCode       String               @unique
+  status           SessionStatus        @default(LOBBY)
+  maxParticipants  Int                  @default(4)
+  isPublic         Boolean              @default(true)
+  scenarioId       String
+  currentNodeId    String
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  owner            User                 @relation("SessionOwner", fields: [ownerUserId], references: [id])
+  scenario         Scenario             @relation(fields: [scenarioId], references: [id])
+  participants     SessionParticipant[]
+  sessionCharacters SessionCharacter[]
+  gameState        GameState?
 }
 
 model SessionParticipant {
   id               String           @id @default(cuid())
   sessionId        String
   userId           String
-  characterId      String?
   role             ParticipantRole  @default(PLAYER)
   connectionStatus ConnectionStatus @default(ONLINE)
   joinedAt         DateTime         @default(now())
   session          Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionCharacter SessionCharacter?
 
   @@unique([sessionId, userId])
 }
 
 model Character {
-  id                  String   @id @default(cuid())
-  sessionId           String
-  ownerUserId         String
-  name                String
-  ancestry            String
-  className           String
-  level               Int
-  abilitiesJson       String
-  proficiencyBonus    Int
+  id                   String             @id @default(cuid())
+  ownerUserId          String
+  name                 String
+  ancestry             String
+  className            String
+  level                Int
+  abilitiesJson        String
+  proficiencyBonus     Int
   proficientSkillsJson String
-  maxHp               Int
-  currentHp           Int
-  tempHp              Int
-  armorClass          Int
-  speed               Int
-  inventoryJson       String
-  equippedWeaponId    String?
-  conditionsJson      String
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  session             Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  owner               User     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  maxHp                Int
+  armorClass           Int
+  speed                Int
+  inventoryJson        String
+  equippedWeaponId     String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  owner                User               @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  sessionCharacters    SessionCharacter[]
+}
 
-  @@unique([sessionId, ownerUserId])
+model SessionCharacter {
+  id                   String             @id @default(cuid())
+  sessionId            String
+  participantId        String             @unique
+  characterId          String
+  name                 String
+  ancestry             String
+  className            String
+  level                Int
+  abilitiesJson        String
+  proficiencyBonus     Int
+  proficientSkillsJson String
+  maxHp                Int
+  currentHp            Int
+  tempHp               Int
+  armorClass           Int
+  speed                Int
+  inventoryJson        String
+  equippedWeaponId     String?
+  conditionsJson       String
+  initiative           Int?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  session              Session            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  participant          SessionParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  character            Character          @relation(fields: [characterId], references: [id])
+
+  @@unique([sessionId, characterId])
 }
 
 model Scenario {
@@ -118,26 +146,26 @@ model Scenario {
 }
 
 model ScenarioNode {
-  id              String   @id
-  scenarioId      String
-  title           String
-  sceneText       String
-  visibleToPlayers Boolean @default(true)
+  id               String   @id
+  scenarioId       String
+  title            String
+  sceneText        String
+  visibleToPlayers Boolean  @default(true)
   checkOptionsJson String
-  transitionsJson String
-  cluesJson       String
-  fallbackNodeId  String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  scenario        Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  transitionsJson  String
+  cluesJson        String
+  fallbackNodeId   String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  scenario         Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
 }
 
 model GameState {
-  sessionId      String    @id
-  version        Int       @default(1)
-  currentNodeId  String
-  phase          GamePhase @default(EXPLORATION)
-  stateJson      String
-  updatedAt      DateTime  @updatedAt
-  session        Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId     String    @id
+  version       Int       @default(1)
+  currentNodeId String
+  phase         GamePhase @default(EXPLORATION)
+  stateJson     String
+  updatedAt     DateTime  @updatedAt
+  session       Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
