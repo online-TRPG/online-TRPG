@@ -66,11 +66,6 @@ export class CreateCharacterDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  sessionId!: string;
-
-  @ApiProperty()
-  @IsString()
-  @IsNotEmpty()
   @MaxLength(50)
   name!: string;
 
@@ -116,18 +111,6 @@ export class CreateCharacterDto {
   @Min(1)
   maxHp?: number;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  currentHp?: number;
-
-  @ApiPropertyOptional({ default: 0 })
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  tempHp?: number;
-
   @ApiPropertyOptional({ default: 10 })
   @IsOptional()
   @IsInt()
@@ -152,12 +135,6 @@ export class CreateCharacterDto {
   @IsOptional()
   @IsString()
   equippedWeaponId?: string;
-
-  @ApiPropertyOptional({ type: [String] })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  conditions?: string[];
 }
 
 export class UpdateCharacterDto {
@@ -215,18 +192,6 @@ export class UpdateCharacterDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsInt()
-  @Min(0)
-  currentHp?: number;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  tempHp?: number;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsInt()
   @Min(1)
   armorClass?: number;
 
@@ -248,12 +213,24 @@ export class UpdateCharacterDto {
   @IsOptional()
   @IsString()
   equippedWeaponId?: string | null;
+}
 
-  @ApiPropertyOptional({ type: [String] })
+export class UpdateCharacterEquipmentDto {
+  @ApiPropertyOptional({ nullable: true })
   @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  conditions?: string[];
+  @IsString()
+  equippedWeaponId?: string | null;
+}
+
+export class CharacterInventoryResponseDto {
+  @ApiProperty()
+  characterId!: string;
+
+  @ApiProperty({ type: [InventoryItemDto] })
+  inventory!: InventoryItemDto[];
+
+  @ApiPropertyOptional({ nullable: true })
+  equippedWeaponId!: string | null;
 }
 
 export class CharacterResponseDto {
@@ -261,7 +238,69 @@ export class CharacterResponseDto {
   id!: string;
 
   @ApiProperty()
+  ownerUserId!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty()
+  ancestry!: string;
+
+  @ApiProperty()
+  className!: string;
+
+  @ApiProperty()
+  level!: number;
+
+  @ApiProperty({ type: AbilityScoresDto })
+  abilities!: AbilityScoresDto;
+
+  @ApiProperty()
+  proficiencyBonus!: number;
+
+  @ApiProperty({ type: [String] })
+  proficientSkills!: string[];
+
+  @ApiProperty()
+  maxHp!: number;
+
+  @ApiProperty()
+  armorClass!: number;
+
+  @ApiProperty()
+  speed!: number;
+
+  @ApiProperty({ type: [InventoryItemDto] })
+  inventory!: InventoryItemDto[];
+
+  @ApiPropertyOptional({ nullable: true })
+  equippedWeaponId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  activeSessionId!: string | null;
+
+  @ApiProperty()
+  isSelectable!: boolean;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  @ApiProperty()
+  updatedAt!: string;
+}
+
+export class SessionCharacterResponseDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
   sessionId!: string;
+
+  @ApiProperty()
+  participantId!: string;
+
+  @ApiProperty()
+  characterId!: string;
 
   @ApiProperty()
   ownerUserId!: string;
@@ -305,11 +344,14 @@ export class CharacterResponseDto {
   @ApiProperty({ type: [InventoryItemDto] })
   inventory!: InventoryItemDto[];
 
-  @ApiPropertyOptional()
-  equippedWeaponId?: string | null;
+  @ApiPropertyOptional({ nullable: true })
+  equippedWeaponId!: string | null;
 
   @ApiProperty({ type: [String] })
   conditions!: string[];
+
+  @ApiPropertyOptional({ nullable: true })
+  initiative!: number | null;
 
   @ApiProperty()
   createdAt!: string;

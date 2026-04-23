@@ -19,6 +19,7 @@ async function bootstrap(): Promise<void> {
   );
   app.useGlobalFilters(new HttpExceptionFilter());
   app.enableCors();
+  app.setGlobalPrefix("api/v1");
 
   const config = new DocumentBuilder()
     .setTitle("TRPG Platform API")
