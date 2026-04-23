@@ -26,7 +26,7 @@ type User = {
 };
 ```
 
-MVP에서는 게스트 사용자를 허용한다.
+MVP에서는 로그인한 사용자만 세션 생성, 참가, 캐릭터 선택, GM 기능 사용을 수행한다.
 
 ### Session
 
@@ -34,11 +34,16 @@ MVP에서는 게스트 사용자를 허용한다.
 type Session = {
   id: string;
   title: string;
-  ownerUserId: string;
-  inviteCode: string;
-  status: "lobby" | "playing" | "paused" | "completed";
+  hostUserId: string;
+  gmMode: "ai" | "human";
+  mode: "single" | "multi";
+  visibility: "public" | "private";
+  inviteCode?: string;
+  status: "waiting" | "playing" | "ended";
+  maxPlayers: number;
   currentScenarioId: string;
   currentNodeId: string;
+  captainUserId?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -52,7 +57,7 @@ type SessionParticipant = {
   sessionId: string;
   userId: string;
   characterId?: string;
-  role: "host" | "player" | "spectator";
+  role: "host" | "gm" | "player" | "observer";
   connectionStatus: "online" | "offline";
   joinedAt: string;
 };
@@ -63,23 +68,36 @@ type SessionParticipant = {
 ```ts
 type Character = {
   id: string;
-  sessionId: string;
   ownerUserId: string;
   name: string;
-  ancestry: string;
+  race: string;
   className: string;
   level: number;
   abilities: AbilityScores;
   proficiencyBonus: number;
-  proficientSkills: SkillName[];
   maxHp: number;
-  currentHp: number;
-  tempHp: number;
   armorClass: number;
   speed: number;
+  proficientSkills: SkillName[];
   inventory: InventoryItem[];
   equippedWeaponId?: string;
+  bio?: string;
+  imageUrl?: string;
+};
+```
+
+`Character`는 계정 소유 영속 데이터다. 세션 중 변하는 HP, 임시 HP, 조건, 버프는 별도 세션 상태에서 관리한다.
+
+### SessionCharacterState
+
+```ts
+type SessionCharacterState = {
+  sessionId: string;
+  characterId: string;
+  currentHp: number;
+  tempHp: number;
   conditions: ConditionName[];
+  statusFlags: Record<string, boolean | number | string>;
 };
 ```
 
@@ -138,8 +156,27 @@ type PlayerAction = {
   sessionId: string;
   actorCharacterId: string;
   userId: string;
+  channel: "main";
+  inputType: "natural" | "command" | "select";
+  actionScope: "party_shared" | "individual_turn";
   rawText: string;
+  clientActionId?: string;
   clientCreatedAt: string;
+};
+```
+
+일반 채팅은 `PlayerAction`과 분리된 `ChatMessage`로 관리한다.
+
+### ChatMessage
+
+```ts
+type ChatMessage = {
+  id: string;
+  sessionId: string;
+  senderUserId: string;
+  messageType: "chat" | "gm_text" | "narration" | "npc_dialogue" | "system";
+  content: string;
+  createdAt: string;
 };
 ```
 

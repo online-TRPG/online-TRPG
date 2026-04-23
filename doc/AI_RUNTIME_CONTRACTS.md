@@ -7,6 +7,12 @@
 MVP에서는 Interpreter와 Narrator를 필수로 구현한다.
 Actor는 제한적으로 구현하고, Director는 후순위로 둔다.
 
+범위 메모:
+
+- 이 문서는 `AI GM 세션` 또는 `사람 GM 세션에서의 AI 보조 호출`에만 적용한다.
+- 사람 GM의 직접 메시지 입력, NPC 대사 입력, 노드 변경, 자료 공개는 이 문서의 계약 대상이 아니다.
+- AI는 상태를 확정하지 않고, 사람 GM 세션에서도 보조 기능으로만 사용된다.
+
 ## 2. 공통 운영 조건
 
 - 기본 제공자: Google AI Studio / Gemini API
@@ -257,7 +263,7 @@ MVP에서 추적할 지표:
 - rate limit fallback rate
 - token usage per role if API metadata is available
 
-기본 목표는 `MVP_ACCEPTANCE_CRITERIA.md`를 따른다.
+기본 목표는 `QUALITY_MVP_ACCEPTANCE.md`를 따른다.
 
 ## 10. Google AI Studio 적용 메모
 

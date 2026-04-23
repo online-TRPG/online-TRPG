@@ -1,8 +1,8 @@
-# TRPG Platform with AI GM - 확정 제약 및 범위
+# TRPG Platform with AI/Human GM - 확정 제약 및 범위
 
 ## 1. 확정된 전제
 
-본 프로젝트는 Google AI Studio에서 발급한 Gemini API 키로 호스팅 Gemma 4 모델을 호출하여, LLM이 TRPG의 GM 역할 일부를 대신하는 온라인 TRPG 플랫폼을 목표로 한다.
+본 프로젝트는 Google AI Studio에서 발급한 Gemini API 키로 호스팅 Gemma 4 모델을 호출하는 AI GM 기능과, 사람이 직접 세션을 진행하는 사람 GM 기능을 함께 지원하는 온라인 TRPG 플랫폼을 목표로 한다.
 
 현재 확정된 제약은 다음과 같다.
 
@@ -15,6 +15,8 @@
 - 응답 시간 목표: 사용자 액션 1회당 30초 이내 응답을 목표로 한다.
 - MVP 범위: 여러 플레이어가 같은 세션에 접속하는 온라인 플레이를 포함한다.
 - 핵심 구조: AI가 게임의 진실값을 직접 결정하지 않고, 규칙 엔진과 상태 엔진이 최종 상태를 확정한다.
+- 세션 모드: 모든 세션은 `gmMode = AI | HUMAN`을 가진다.
+- 공통 화면 원칙: 플레이어 화면은 공통으로 유지하고, 사람 GM은 별도 운영 패널을 추가 사용한다.
 
 ## 2. 라이선스 및 콘텐츠 정책
 
@@ -47,19 +49,24 @@ This work includes material taken from the System Reference Document 5.1 ("SRD 5
 
 ## 3. MVP 범위
 
-MVP는 "AI 채팅 앱"이 아니라, 여러 플레이어가 접속 가능한 최소 TRPG 세션을 완주하는 것을 목표로 한다.
+MVP는 "AI 채팅 앱"이 아니라, 여러 플레이어가 접속 가능한 최소 TRPG 세션을 완주하는 것을 목표로 한다. 이때 AI GM 세션과 사람 GM 세션 모두가 플랫폼 구조 안에서 성립해야 한다.
 
 ### MVP에 포함
 
 - 세션 생성, 참가, 재입장
+- 공개 세션 목록 조회와 기본 필터링
 - 세션 초대 코드 또는 링크
+- 세션 생성 시 `gmMode = AI | HUMAN` 선택
 - 여러 플레이어의 캐릭터 생성 및 세션 참여
+- 세션 참가 시 캐릭터 선택 및 연결
 - 캐릭터 시트 조회 및 기본 수정
 - 공용 세션 로그
+- 일반 채팅과 행동 입력 분리
 - 디지털 주사위 굴림
 - SRD 5e 기반 기본 판정
 - 기본 전투 상태 관리
 - 시나리오 노드 진행
+- 사람 GM 메시지 입력, NPC 대사 입력, 노드 변경, 자료 공개, 전투 시작
 - 사용자 자연어 입력을 구조화 액션으로 변환하는 Interpreter
 - 확정된 판정 결과를 서술하는 Narrator
 - LLM 출력 검증, 재시도, fallback
@@ -72,7 +79,7 @@ MVP는 "AI 채팅 앱"이 아니라, 여러 플레이어가 접속 가능한 최
 - 복잡한 자동 전투 AI
 - 고급 Director 자동 연출
 - 유료 콘텐츠 마켓
-- 권한이 복잡한 공개 방 목록
+- 고급 권한 정책이 필요한 공개 방 운영 기능
 - 모바일 앱
 
 ## 4. Google AI Studio / Gemini API LLM 제약
@@ -131,8 +138,9 @@ MVP에서는 WebSocket 또는 Server-Sent Events 중 하나를 사용한다.
 
 구현 전 다음 문서를 기준으로 삼는다.
 
-- `MVP_RULESET_SRD5E.md`: MVP에서 구현할 SRD 5e 기반 룰 범위
-- `DATA_MODEL.md`: 핵심 엔티티와 스키마 초안
-- `TURN_LOOP.md`: 한 턴이 처리되는 서버 흐름
-- `AI_CONTRACTS.md`: Interpreter, Narrator, Actor의 입출력 계약
-- `MVP_ACCEPTANCE_CRITERIA.md`: MVP 완료 판정 기준
+- `RULESET_SRD5E_MVP.md`: MVP에서 구현할 SRD 5e 기반 룰 범위
+- `DOMAIN_MODEL.md`: 핵심 엔티티와 스키마 초안
+- `RUNTIME_SESSION_TURN_FLOW.md`: 한 턴이 처리되는 서버 흐름
+- `AI_RUNTIME_CONTRACTS.md`: Interpreter, Narrator, Actor의 입출력 계약
+- `QUALITY_MVP_ACCEPTANCE.md`: MVP 완료 판정 기준
+- `UX_SCREEN_DESIGN.md`: 로그인부터 세션 플레이와 사람 GM 운영 패널까지의 화면 설계
