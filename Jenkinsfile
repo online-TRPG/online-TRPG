@@ -53,18 +53,18 @@ pipeline {
 
         stage('Compose: build images') {
             steps {
-                // nginx 이미지 빌드 시 내부적으로 FE(node:20-alpine)도 빌드되어 dist 포함됨.
-                // fe/ 스캐폴딩 단계(package.json 없음)에서는 nginx 빌드만 실패.
-                // 그 경우 backend/ai-server 만 선별 빌드:
-                //   sh 'docker compose build --pull backend ai-server'
-                sh 'docker compose build --pull'
+                // TEMP: FE 코드 타입 에러로 nginx 이미지(멀티스테이지: FE 빌더 포함) 빌드 실패 중.
+                // FE 수정 후 `docker compose build --pull` 로 복구.
+                sh 'docker compose build --pull backend ai-server'
             }
         }
 
         stage('Deploy (develop only)') {
             when { branch 'develop' }
             steps {
-                sh 'docker compose up -d'
+                // TEMP: nginx/certbot 제외하고 백엔드/AI/DB만 기동.
+                // 외부 80/443 접근은 nginx 복구 후 가능.
+                sh 'docker compose up -d postgres redis ollama ai-server backend'
                 sh 'docker compose ps'
             }
         }
