@@ -3,14 +3,26 @@ doc/dnd_essentials_rulebook.pdf
 doc/Dragon-of-Icespire-Peak-pdf.pdf
 doc/SRD-OGL_V5.1.pdf
 doc/SRD-OGL_V5.1.md
-
 # env
 .env
 .env.*
 !.env.example
+.env.local
+.env.test
 
 # certbot (발급된 인증서, 계정, ACME 챌린지 임시파일은 버전관리 제외)
 infra/certbot/conf/*
 !infra/certbot/conf/.gitkeep
 infra/certbot/www/*
 !infra/certbot/www/.gitkeep
+
+# conflict
+.vscode/
+.idea/
+*.code-workspace
+node_modules/
+dist/
+coverage/
+*.log
+*.db
+*.db-journal
