@@ -43,7 +43,10 @@ COPY --from=builder --chown=node:node /app/shared-types/dist ./shared-types/dist
 COPY --from=builder --chown=node:node /app/be/dist ./be/dist
 # Prisma generated client (schema 기반 생성 코드)
 COPY --from=builder --chown=node:node /app/node_modules/.prisma ./node_modules/.prisma
-# Prisma schema (마이그레이션/seed 필요 시 대비)
+# Prisma CLI 도 포함 — `docker compose exec backend npx prisma db push` 등 마이그레이션 명령을 위해
+COPY --from=builder --chown=node:node /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder --chown=node:node /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
+# Prisma schema
 COPY --from=builder --chown=node:node /app/be/prisma ./be/prisma
 
 WORKDIR /app/be

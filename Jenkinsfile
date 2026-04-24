@@ -64,7 +64,16 @@ pipeline {
             steps {
                 // TEMP: nginx/certbot 제외하고 백엔드/AI/DB만 기동.
                 // 외부 80/443 접근은 nginx 복구 후 가능.
-                sh 'docker compose up -d postgres redis ollama ai-server backend'
+
+                // 1) 데이터 계층부터 기동 (postgres healthy 까지 대기)
+                sh 'docker compose up -d --wait postgres redis ollama ai-server'
+
+                // 2) Prisma schema → DB 동기화 (backend 컨테이너 임시 실행 후 삭제)
+                //    마이그레이션 파일이 없어 `db push` 사용. 초기 개발 단계라 허용.
+                sh 'docker compose run --rm --entrypoint "" backend sh -c "cd /app/be && npx prisma db push --schema prisma/schema.prisma --skip-generate --accept-data-loss"'
+
+                // 3) backend 기동
+                sh 'docker compose up -d backend'
                 sh 'docker compose ps'
             }
         }
