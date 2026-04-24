@@ -277,4 +277,98 @@ describe("Session and Character APIs (e2e)", () => {
         expect(response.body.activeSessionId).toBeNull();
       });
   });
+
+  it("stores gmMode on sessions and supports gmMode filtering", async () => {
+    const host = await request(baseUrl)
+      .post("/api/v1/users/guest")
+      .send({ displayName: "GM Host" })
+      .expect(201);
+
+    await request(baseUrl)
+      .post("/api/v1/sessions")
+      .set("x-user-id", host.body.id)
+      .send({
+        title: "AI Session",
+        gmMode: "ai",
+      })
+      .expect(201);
+
+    await request(baseUrl)
+      .post("/api/v1/sessions")
+      .set("x-user-id", host.body.id)
+      .send({
+        title: "Human Session",
+        gmMode: "human",
+      })
+      .expect(201)
+      .expect((response) => {
+        expect(response.body.session.gmMode).toBe("human");
+      });
+
+    await request(baseUrl)
+      .get("/api/v1/sessions?gmMode=human")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0].session.gmMode).toBe("human");
+      });
+  });
+
+  it("allows a human GM session owner to control node, combat, and gm messages", async () => {
+    const host = await request(baseUrl)
+      .post("/api/v1/users/guest")
+      .send({ displayName: "Human GM" })
+      .expect(201);
+
+    const created = await request(baseUrl)
+      .post("/api/v1/sessions")
+      .set("x-user-id", host.body.id)
+      .send({
+        title: "GM Session",
+        gmMode: "human",
+      })
+      .expect(201);
+
+    const sessionId = created.body.session.id as string;
+
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/gm/messages`)
+      .set("x-user-id", host.body.id)
+      .send({
+        content: "여관 주인이 손짓하며 안쪽 방을 가리킨다.",
+        speakerName: "Innkeeper",
+        asNpc: true,
+      })
+      .expect(201)
+      .expect((response) => {
+        expect(response.body.state.state.gmMessages).toHaveLength(1);
+        expect(response.body.state.state.gmMessages[0].type).toBe("npc");
+      });
+
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/gm/combat/start`)
+      .set("x-user-id", host.body.id)
+      .expect(201)
+      .expect((response) => {
+        expect(response.body.state.phase).toBe("combat");
+      });
+
+    await request(baseUrl)
+      .patch(`/api/v1/sessions/${sessionId}/gm/node`)
+      .set("x-user-id", host.body.id)
+      .send({ nodeId: "node_inner_tunnel" })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.session.currentNodeId).toBe("node_inner_tunnel");
+        expect(response.body.state.currentNodeId).toBe("node_inner_tunnel");
+      });
+
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/gm/combat/end`)
+      .set("x-user-id", host.body.id)
+      .expect(201)
+      .expect((response) => {
+        expect(response.body.state.phase).toBe("exploration");
+      });
+  });
 });

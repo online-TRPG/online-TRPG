@@ -5,6 +5,11 @@ export enum SessionStatus {
   COMPLETED = "completed",
 }
 
+export enum SessionGmMode {
+  AI = "ai",
+  HUMAN = "human",
+}
+
 export enum ParticipantRole {
   HOST = "host",
   PLAYER = "player",

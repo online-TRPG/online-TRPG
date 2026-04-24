@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { ScenarioNode } from "@prisma/client";
 import {
   ScenarioQueryDto,
   ScenarioResponseDto,
@@ -54,5 +55,20 @@ export class ScenariosService {
     }
 
     return scenario;
+  }
+
+  async getScenarioNodeEntityById(scenarioId: string, nodeId: string): Promise<ScenarioNode> {
+    const node = await this.prisma.scenarioNode.findFirst({
+      where: {
+        scenarioId,
+        id: nodeId,
+      },
+    });
+
+    if (!node) {
+      throw new NotFoundException(`Scenario node ${nodeId} was not found in scenario ${scenarioId}.`);
+    }
+
+    return node;
   }
 }

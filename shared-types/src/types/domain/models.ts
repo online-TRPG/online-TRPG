@@ -3,6 +3,7 @@ import type {
   GamePhase,
   ParticipantRole,
   ScenarioLicense,
+  SessionGmMode,
   SessionStatus,
 } from "../../constants/enums";
 import type { AbilityScores, InventoryItem } from "../common/ability-scores";
@@ -20,6 +21,7 @@ export type SessionModel = {
   ownerUserId: string;
   captainUserId?: string | null;
   inviteCode: string;
+  gmMode: SessionGmMode;
   status: SessionStatus;
   maxParticipants: number;
   isPublic: boolean;
