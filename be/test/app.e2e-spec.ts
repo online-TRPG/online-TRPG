@@ -5,7 +5,10 @@ import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { HttpExceptionFilter } from "../src/common/filters/http-exception.filter";
 import { PrismaService } from "../src/database/prisma.service";
-import { seedDefaultScenario } from "../src/database/seed/default-scenario";
+import {
+  DEFAULT_SCENARIO_ID,
+  seedDefaultScenario,
+} from "../src/database/seed/default-scenario";
 
 describe("Session and Character APIs (e2e)", () => {
   let app: INestApplication;
@@ -54,6 +57,84 @@ describe("Session and Character APIs (e2e)", () => {
     await prisma.session.deleteMany();
     await prisma.user.deleteMany();
     await app.close();
+  });
+
+  it("supports member auth token flow and bearer-authenticated session creation", async () => {
+    const email = `member-${Date.now()}@example.com`;
+    const password = "P@ssword123";
+
+    await request(baseUrl)
+      .get("/api/v1/users/email-check")
+      .query({ email })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.code).toBe("USER_200");
+        expect(response.body.data.available).toBe(true);
+      });
+
+    const registered = await request(baseUrl)
+      .post("/api/v1/users/register")
+      .send({ email, password, name: "홍길동" })
+      .expect(201);
+
+    expect(registered.body.code).toBe("USER_201");
+    expect(registered.body.data.email).toBe(email);
+
+    const agent = request.agent(baseUrl);
+    const loggedIn = await agent
+      .post("/api/v1/users/login")
+      .send({ email, password })
+      .expect(200)
+      .expect((response) => {
+        const cookies = response.headers["set-cookie"];
+        const cookieText = Array.isArray(cookies) ? cookies.join(";") : String(cookies ?? "");
+        expect(response.body.code).toBe("USER_200");
+        expect(cookieText).toContain("refreshToken=");
+      });
+
+    const accessToken = loggedIn.body.data.accessToken as string;
+
+    await agent
+      .get("/api/v1/users/me")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.data.email).toBe(email);
+      });
+
+    await agent
+      .post("/api/v1/sessions")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        title: "Bearer Session",
+        scenarioId: DEFAULT_SCENARIO_ID,
+        ruleSetId: "dnd5e",
+        maxPlayers: 4,
+        gmMode: "AI",
+      })
+      .expect(201)
+      .expect((response) => {
+        expect(response.body.code).toBe("SESSION_201");
+        expect(response.body.data.status).toBe("lobby");
+      });
+
+    await agent
+      .post("/api/v1/users/reissue")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.data.tokenType).toBe("Bearer");
+        expect(response.body.data.accessToken).toEqual(expect.any(String));
+      });
+
+    await agent
+      .post("/api/v1/users/logout")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.data).toBeNull();
+      });
+
+    await agent.post("/api/v1/users/reissue").expect(401);
   });
 
   it("supports persistent characters and session character assignment lifecycle", async () => {
@@ -127,18 +208,23 @@ describe("Session and Character APIs (e2e)", () => {
       .send({
         title: "Goblin Cave",
         description: "Persistent character test",
-        maxParticipants: 2,
+        scenarioId: DEFAULT_SCENARIO_ID,
+        ruleSetId: "dnd5e",
+        maxPlayers: 2,
+        gmMode: "AI",
       })
       .expect(201);
 
-    const sessionId = session.body.session.id as string;
-    const inviteCode = session.body.session.inviteCode as string;
+    const sessionId = session.body.data.sessionId as string;
+    const inviteCode = session.body.data.inviteCode as string;
 
     await request(baseUrl)
       .get("/api/v1/sessions")
+      .set("x-user-id", host.body.id)
       .expect(200)
       .expect((response) => {
-        expect(response.body).toHaveLength(1);
+        expect(response.body.code).toBe("SESSION_200");
+        expect(response.body.data.content).toHaveLength(1);
       });
 
     await request(baseUrl)
@@ -151,9 +237,9 @@ describe("Session and Character APIs (e2e)", () => {
       .post(`/api/v1/sessions/${sessionId}/character-selection`)
       .set("x-user-id", guest.body.id)
       .send({ characterId: persistentCharacter.body.id })
-      .expect(201)
+      .expect(200)
       .expect((response) => {
-        expect(response.body.characterId).toBe(persistentCharacter.body.id);
+        expect(response.body.data.characterId).toBe(persistentCharacter.body.id);
       });
 
     await request(baseUrl)
@@ -161,9 +247,9 @@ describe("Session and Character APIs (e2e)", () => {
       .set("x-user-id", host.body.id)
       .expect(200)
       .expect((response) => {
-        expect(response.body.participants).toHaveLength(2);
-        expect(response.body.sessionCharacters).toHaveLength(1);
-        expect(response.body.sessionCharacters[0].characterId).toBe(persistentCharacter.body.id);
+        expect(response.body.data.participants).toHaveLength(2);
+        expect(response.body.data.sessionCharacters).toHaveLength(1);
+        expect(response.body.data.sessionCharacters[0].characterId).toBe(persistentCharacter.body.id);
       });
 
     await request(baseUrl)
@@ -189,16 +275,24 @@ describe("Session and Character APIs (e2e)", () => {
     const secondSession = await request(baseUrl)
       .post("/api/v1/sessions")
       .set("x-user-id", host.body.id)
-      .send({ title: "Second Session" })
+      .send({
+        title: "Second Session",
+        scenarioId: DEFAULT_SCENARIO_ID,
+        ruleSetId: "dnd5e",
+        maxPlayers: 2,
+        gmMode: "AI",
+      })
       .expect(201);
 
+    const secondSessionId = secondSession.body.data.sessionId as string;
+
     await request(baseUrl)
-      .post(`/api/v1/sessions/${secondSession.body.session.id}/join`)
+      .post(`/api/v1/sessions/${secondSessionId}/join`)
       .set("x-user-id", guest.body.id)
       .expect(201);
 
     await request(baseUrl)
-      .post(`/api/v1/sessions/${secondSession.body.session.id}/character-selection`)
+      .post(`/api/v1/sessions/${secondSessionId}/character-selection`)
       .set("x-user-id", guest.body.id)
       .send({ characterId: persistentCharacter.body.id })
       .expect(409);
@@ -209,15 +303,9 @@ describe("Session and Character APIs (e2e)", () => {
       .expect(409);
 
     await request(baseUrl)
-      .patch(`/api/v1/sessions/${sessionId}`)
-      .set("x-user-id", host.body.id)
-      .send({ status: "playing" })
-      .expect(200);
-
-    await request(baseUrl)
       .delete(`/api/v1/sessions/${sessionId}`)
       .set("x-user-id", host.body.id)
-      .expect(204);
+      .expect(200);
 
     await request(baseUrl)
       .get(`/api/v1/characters/${persistentCharacter.body.id}`)
@@ -229,10 +317,10 @@ describe("Session and Character APIs (e2e)", () => {
       });
 
     await request(baseUrl)
-      .post(`/api/v1/sessions/${secondSession.body.session.id}/character-selection`)
+      .post(`/api/v1/sessions/${secondSessionId}/character-selection`)
       .set("x-user-id", guest.body.id)
       .send({ characterId: persistentCharacter.body.id })
-      .expect(201);
+      .expect(200);
   });
 
   it("keeps persistent characters when a lobby session is deleted", async () => {
@@ -254,19 +342,27 @@ describe("Session and Character APIs (e2e)", () => {
     const lobbySession = await request(baseUrl)
       .post("/api/v1/sessions")
       .set("x-user-id", owner.body.id)
-      .send({ title: "Delete Me" })
+      .send({
+        title: "Delete Me",
+        scenarioId: DEFAULT_SCENARIO_ID,
+        ruleSetId: "dnd5e",
+        maxPlayers: 4,
+        gmMode: "AI",
+      })
       .expect(201);
 
+    const lobbySessionId = lobbySession.body.data.sessionId as string;
+
     await request(baseUrl)
-      .post(`/api/v1/sessions/${lobbySession.body.session.id}/character-selection`)
+      .post(`/api/v1/sessions/${lobbySessionId}/character-selection`)
       .set("x-user-id", owner.body.id)
       .send({ characterId: persistentCharacter.body.id })
-      .expect(201);
+      .expect(200);
 
     await request(baseUrl)
-      .delete(`/api/v1/sessions/${lobbySession.body.session.id}`)
+      .delete(`/api/v1/sessions/${lobbySessionId}`)
       .set("x-user-id", owner.body.id)
-      .expect(204);
+      .expect(200);
 
     await request(baseUrl)
       .get(`/api/v1/characters/${persistentCharacter.body.id}`)

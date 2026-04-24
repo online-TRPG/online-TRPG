@@ -2,8 +2,8 @@ import {
   Character,
   ConnectionStatus as PrismaConnectionStatus,
   GamePhase as PrismaGamePhase,
+  GmMode as PrismaGmMode,
   GameState,
-  SessionGmMode as PrismaSessionGmMode,
   ParticipantRole as PrismaParticipantRole,
   Scenario,
   ScenarioLicense as PrismaScenarioLicense,
@@ -16,9 +16,11 @@ import {
 } from "@prisma/client";
 import {
   AbilityScoresDto,
+  AuthProvider,
   CharacterResponseDto,
   ConnectionStatus,
   GamePhase,
+  GmMode,
   GameStateResponseDto,
   InventoryItemDto,
   ParticipantRole,
@@ -27,7 +29,6 @@ import {
   ScenarioResponseDto,
   ScenarioSummaryResponseDto,
   SessionCharacterResponseDto,
-  SessionGmMode,
   SessionParticipantResponseDto,
   SessionResponseDto,
   SessionStatus,
@@ -54,11 +55,6 @@ const sessionStatusMap: Record<PrismaSessionStatus, SessionStatus> = {
   COMPLETED: SessionStatus.COMPLETED,
 };
 
-const sessionGmModeMap: Record<PrismaSessionGmMode, SessionGmMode> = {
-  AI: SessionGmMode.AI,
-  HUMAN: SessionGmMode.HUMAN,
-};
-
 const participantRoleMap: Record<PrismaParticipantRole, ParticipantRole> = {
   HOST: ParticipantRole.HOST,
   PLAYER: ParticipantRole.PLAYER,
@@ -77,6 +73,18 @@ const gamePhaseMap: Record<PrismaGamePhase, GamePhase> = {
   REST: GamePhase.REST,
 };
 
+const gmModeMap: Record<PrismaGmMode, GmMode> = {
+  AI: GmMode.AI,
+  HUMAN: GmMode.HUMAN,
+};
+
+const authProviderMap = {
+  LOCAL: AuthProvider.LOCAL,
+  KAKAO: AuthProvider.KAKAO,
+  DISCORD: AuthProvider.DISCORD,
+  GUEST: AuthProvider.GUEST,
+} as const;
+
 const scenarioLicenseMap: Record<PrismaScenarioLicense, ScenarioLicense> = {
   ORIGINAL: ScenarioLicense.ORIGINAL,
   CC_BY_4_0: ScenarioLicense.CC_BY_4_0,
@@ -92,9 +100,15 @@ function toIsoString(value: Date): string {
 }
 
 export function mapUser(user: User): UserResponseDto {
+  const displayName = user.displayName || user.email || user.id;
   return {
     id: user.id,
-    displayName: user.displayName,
+    userId: user.id,
+    email: user.email,
+    name: displayName,
+    nickname: displayName,
+    authProvider: authProviderMap[user.authProvider],
+    displayName,
     createdAt: toIsoString(user.createdAt),
   };
 }
@@ -102,15 +116,21 @@ export function mapUser(user: User): UserResponseDto {
 export function mapSession(session: Session): SessionResponseDto {
   return {
     id: session.id,
+    sessionId: session.id,
     title: session.title,
     description: session.description,
     ownerUserId: session.ownerUserId,
+    hostUserId: session.ownerUserId,
     captainUserId: session.captainUserId,
+    gmMode: gmModeMap[session.gmMode],
+    gmUserId: session.gmUserId,
     inviteCode: session.inviteCode,
-    gmMode: sessionGmModeMap[session.gmMode],
     status: sessionStatusMap[session.status],
     maxParticipants: session.maxParticipants,
+    maxPlayers: session.maxParticipants,
     isPublic: session.isPublic,
+    isPrivate: !session.isPublic,
+    ruleSetId: session.ruleSetId,
     scenarioId: session.scenarioId,
     currentNodeId: session.currentNodeId,
     createdAt: toIsoString(session.createdAt),

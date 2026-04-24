@@ -11,14 +11,14 @@ export enum SessionGmMode {
 }
 
 export enum ParticipantRole {
-  HOST = "host",
-  PLAYER = "player",
-  SPECTATOR = "spectator",
+  HOST = "HOST",
+  PLAYER = "PLAYER",
+  SPECTATOR = "SPECTATOR",
 }
 
 export enum ConnectionStatus {
-  ONLINE = "online",
-  OFFLINE = "offline",
+  ONLINE = "ONLINE",
+  OFFLINE = "OFFLINE",
 }
 
 export enum ScenarioLicense {
@@ -32,4 +32,16 @@ export enum GamePhase {
   COMBAT = "combat",
   DIALOGUE = "dialogue",
   REST = "rest",
+}
+
+export enum AuthProvider {
+  LOCAL = "LOCAL",
+  KAKAO = "KAKAO",
+  DISCORD = "DISCORD",
+  GUEST = "GUEST",
+}
+
+export enum GmMode {
+  AI = "AI",
+  HUMAN = "HUMAN",
 }

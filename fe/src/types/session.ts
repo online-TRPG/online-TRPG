@@ -38,8 +38,10 @@ export function normalizeSessionSnapshot(
 }
 
 export interface ApiErrorBody {
+  code?: string;
   statusCode?: number;
   message?: string | string[];
+  data?: unknown;
   timestamp?: string;
   path?: string;
 }

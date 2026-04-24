@@ -1,30 +1,41 @@
 import type {
   ConnectionStatus,
   GamePhase,
+  GmMode,
   ParticipantRole,
   ScenarioLicense,
-  SessionGmMode,
   SessionStatus,
 } from "../../constants/enums";
 import type { AbilityScores, InventoryItem } from "../common/ability-scores";
 
 export type UserModel = {
   id: string;
+  userId: string;
+  email?: string | null;
+  name: string;
+  nickname: string;
+  authProvider: string;
   displayName: string;
   createdAt: string;
 };
 
 export type SessionModel = {
   id: string;
+  sessionId: string;
   title: string;
   description: string;
   ownerUserId: string;
+  hostUserId: string;
   captainUserId?: string | null;
+  gmMode: GmMode;
+  gmUserId?: string | null;
   inviteCode: string;
-  gmMode: SessionGmMode;
   status: SessionStatus;
   maxParticipants: number;
+  maxPlayers: number;
   isPublic: boolean;
+  isPrivate: boolean;
+  ruleSetId?: string | null;
   scenarioId: string;
   currentNodeId: string;
   createdAt: string;
@@ -39,6 +50,8 @@ export type SessionParticipantModel = {
   sessionCharacterId?: string | null;
   role: ParticipantRole;
   connectionStatus: ConnectionStatus;
+  isReady: boolean;
+  readyAt?: string | null;
   joinedAt: string;
 };
 

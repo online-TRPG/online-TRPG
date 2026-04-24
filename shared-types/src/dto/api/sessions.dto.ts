@@ -14,13 +14,13 @@ import {
 import {
   ConnectionStatus,
   GamePhase,
-  SessionGmMode,
+  GmMode,
   ParticipantRole,
   SessionStatus,
 } from "../../constants/enums";
+import { SessionCharacterResponseDto } from "./characters.dto";
 import { ScenarioSummaryResponseDto } from "./scenarios.dto";
 import { UserResponseDto } from "./users.dto";
-import { SessionCharacterResponseDto } from "./characters.dto";
 
 export class CreateSessionDto {
   @ApiProperty({ example: "Goblin Cave Run" })
@@ -35,29 +35,51 @@ export class CreateSessionDto {
   @MaxLength(500)
   description?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty()
   @IsString()
-  scenarioId?: string;
+  @IsNotEmpty()
+  scenarioId!: string;
 
-  @ApiPropertyOptional({ default: 4 })
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  ruleSetId!: string;
+
+  @ApiProperty({ default: 4 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  maxPlayers!: number;
+
+  @ApiPropertyOptional({ default: 4, deprecated: true })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(12)
+  @Max(8)
   maxParticipants?: number;
 
-  @ApiPropertyOptional({ default: true })
+  @ApiProperty({ enum: GmMode, default: GmMode.AI })
+  @IsEnum(GmMode)
+  gmMode!: GmMode;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  gmUserId?: string;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isPrivate?: boolean;
+
+  @ApiPropertyOptional({ default: true, deprecated: true })
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
   isPublic?: boolean;
-
-  @ApiPropertyOptional({ enum: SessionGmMode, default: SessionGmMode.AI })
-  @IsOptional()
-  @IsEnum(SessionGmMode)
-  gmMode?: SessionGmMode;
 }
 
 export class UpdateSessionDto {
@@ -79,60 +101,65 @@ export class UpdateSessionDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(12)
+  @Max(8)
+  maxPlayers?: number;
+
+  @ApiPropertyOptional({ deprecated: true })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8)
   maxParticipants?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
-  isPublic?: boolean;
+  isPrivate?: boolean;
 
+  @ApiPropertyOptional({ deprecated: true })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isPublic?: boolean;
+}
+
+export class SessionListQueryDto {
   @ApiPropertyOptional({ enum: SessionStatus })
   @IsOptional()
   @IsEnum(SessionStatus)
   status?: SessionStatus;
-
-  @ApiPropertyOptional({ enum: SessionGmMode })
-  @IsOptional()
-  @IsEnum(SessionGmMode)
-  gmMode?: SessionGmMode;
-}
-
-export class SessionListQueryDto {
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  search?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   scenarioId?: string;
 
-  @ApiPropertyOptional({ enum: SessionStatus })
-  @IsOptional()
-  @IsEnum(SessionStatus)
-  status?: SessionStatus;
-
-  @ApiPropertyOptional({ enum: SessionGmMode })
-  @IsOptional()
-  @IsEnum(SessionGmMode)
-  gmMode?: SessionGmMode;
-
   @ApiPropertyOptional()
   @IsOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
-  isPublic?: boolean;
+  @IsString()
+  ruleSetId?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ enum: ParticipantRole })
+  @IsOptional()
+  @IsEnum(ParticipantRole)
+  role?: ParticipantRole;
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  page?: number;
+
+  @ApiPropertyOptional({ default: 10 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  openSlotsAtLeast?: number;
+  @Max(100)
+  size?: number;
 }
 
 export class JoinSessionDto {
@@ -168,6 +195,9 @@ export class SessionResponseDto {
   id!: string;
 
   @ApiProperty()
+  sessionId!: string;
+
+  @ApiProperty()
   title!: string;
 
   @ApiProperty()
@@ -176,15 +206,21 @@ export class SessionResponseDto {
   @ApiProperty()
   ownerUserId!: string;
 
+  @ApiProperty()
+  hostUserId!: string;
+
   @ApiPropertyOptional({ nullable: true })
   captainUserId!: string | null;
 
+  @ApiProperty({ enum: GmMode })
+  @IsEnum(GmMode)
+  gmMode!: GmMode;
+
+  @ApiPropertyOptional({ nullable: true })
+  gmUserId!: string | null;
+
   @ApiProperty()
   inviteCode!: string;
-
-  @ApiProperty({ enum: SessionGmMode })
-  @IsEnum(SessionGmMode)
-  gmMode!: SessionGmMode;
 
   @ApiProperty({ enum: SessionStatus })
   @IsEnum(SessionStatus)
@@ -194,7 +230,16 @@ export class SessionResponseDto {
   maxParticipants!: number;
 
   @ApiProperty()
+  maxPlayers!: number;
+
+  @ApiProperty()
   isPublic!: boolean;
+
+  @ApiProperty()
+  isPrivate!: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  ruleSetId!: string | null;
 
   @ApiProperty()
   scenarioId!: string;
@@ -307,6 +352,9 @@ export class SessionListItemResponseDto {
 
   @ApiProperty()
   availableSlots!: number;
+
+  @ApiPropertyOptional({ enum: ParticipantRole })
+  role?: ParticipantRole;
 }
 
 export class SessionDetailResponseDto extends SessionSnapshotDto {
@@ -332,7 +380,7 @@ export class SessionInviteResponseDto {
 }
 
 export class HumanGmMessageDto {
-  @ApiProperty({ example: "문이 천천히 열리며 차가운 바람이 스민다." })
+  @ApiProperty({ example: "The innkeeper leans forward and lowers their voice." })
   @IsString()
   @IsNotEmpty()
   @MaxLength(2000)
