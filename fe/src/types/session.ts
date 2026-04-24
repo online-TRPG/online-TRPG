@@ -2,6 +2,7 @@ import type {
   CharacterResponseDto,
   GameStateResponseDto,
   ScenarioSummaryResponseDto,
+  SessionCharacterResponseDto,
   SessionParticipantResponseDto,
   SessionResponseDto,
   SessionSnapshotDto,
@@ -12,11 +13,27 @@ export type User = UserResponseDto;
 export type Scenario = ScenarioSummaryResponseDto;
 export type Session = SessionResponseDto;
 export type Participant = SessionParticipantResponseDto;
-export type Character = CharacterResponseDto;
+export type PersistentCharacter = CharacterResponseDto;
+export type Character = SessionCharacterResponseDto;
 export type GameState = GameStateResponseDto;
-export type SessionSnapshot = SessionSnapshotDto;
+export type SessionSnapshot = Omit<SessionSnapshotDto, "sessionCharacters"> & {
+  sessionCharacters: SessionCharacterResponseDto[];
+  characters: SessionCharacterResponseDto[];
+};
 
 export type StoredUser = Pick<User, "id" | "displayName" | "createdAt">;
+
+export function normalizeSessionSnapshot(
+  snapshot: SessionSnapshotDto & { characters?: SessionCharacterResponseDto[] },
+): SessionSnapshot {
+  const characters = snapshot.characters ?? snapshot.sessionCharacters ?? [];
+
+  return {
+    ...snapshot,
+    sessionCharacters: characters,
+    characters,
+  };
+}
 
 export interface ApiErrorBody {
   statusCode?: number;

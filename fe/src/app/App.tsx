@@ -802,7 +802,13 @@ export function App() {
           ...current,
           characters: [...current.characters, character],
           participants: current.participants.map((participant) =>
-            participant.userId === user.id ? { ...participant, characterId: character.id } : participant,
+            participant.userId === user.id
+              ? {
+                  ...participant,
+                  characterId: character.characterId,
+                  sessionCharacterId: character.id,
+                }
+              : participant,
           ),
         };
         saveStoredSnapshot(next);

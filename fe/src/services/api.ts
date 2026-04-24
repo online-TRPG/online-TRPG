@@ -1,15 +1,26 @@
 import type {
   Character,
+  Participant,
+  PersistentCharacter,
   Scenario,
   SessionSnapshot,
   StoredUser,
   User,
   ApiErrorBody,
 } from "../types/session";
+import type { SessionSnapshotDto } from "@trpg/shared-types";
+import { normalizeSessionSnapshot } from "../types/session";
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
+const configuredWsBaseUrl = import.meta.env.VITE_WS_BASE_URL as string | undefined;
 
-export const API_BASE_URL = (configuredBaseUrl || "http://localhost:3000").replace(/\/$/, "");
+export const API_BASE_URL = (configuredBaseUrl || "http://localhost:3000/api/v1").replace(
+  /\/$/,
+  "",
+);
+export const WS_BASE_URL = (
+  configuredWsBaseUrl || API_BASE_URL.replace(/\/api\/v\d+$/, "")
+).replace(/\/$/, "");
 
 type HttpMethod = "GET" | "POST" | "PATCH";
 
@@ -67,22 +78,22 @@ export function createSession(
   title: string,
   scenarioId?: string,
 ): Promise<SessionSnapshot> {
-  return requestJson<SessionSnapshot>("/sessions", {
+  return requestJson<SessionSnapshotDto>("/sessions", {
     method: "POST",
     user,
     body: {
       title,
       ...(scenarioId ? { scenarioId } : {}),
     },
-  });
+  }).then(normalizeSessionSnapshot);
 }
 
 export function joinSession(user: StoredUser, inviteCode: string): Promise<SessionSnapshot> {
-  return requestJson<SessionSnapshot>("/sessions/join", {
+  return requestJson<SessionSnapshotDto>("/sessions/join", {
     method: "POST",
     user,
     body: { inviteCode },
-  });
+  }).then(normalizeSessionSnapshot);
 }
 
 export function getSessionState(user: StoredUser, sessionId: string) {
@@ -101,9 +112,31 @@ export function createCharacter(
     maxHp?: number;
   },
 ): Promise<Character> {
-  return requestJson<Character>("/characters", {
+  const { sessionId, ...characterPayload } = payload;
+
+  return requestJson<PersistentCharacter>("/characters", {
     method: "POST",
     user,
-    body: payload,
+    body: characterPayload,
+  }).then(async (persistentCharacter) => {
+    const participant = await requestJson<Participant>(`/sessions/${sessionId}/character-selection`, {
+      method: "POST",
+      user,
+      body: { characterId: persistentCharacter.id },
+    });
+    const sessionCharacters = await requestJson<Character[]>(`/sessions/${sessionId}/characters`, {
+      user,
+    });
+    const selectedCharacter = sessionCharacters.find(
+      (character) =>
+        character.id === participant.sessionCharacterId ||
+        character.characterId === persistentCharacter.id,
+    );
+
+    if (!selectedCharacter) {
+      throw new Error("세션에 선택된 캐릭터를 찾을 수 없습니다.");
+    }
+
+    return selectedCharacter;
   });
 }
