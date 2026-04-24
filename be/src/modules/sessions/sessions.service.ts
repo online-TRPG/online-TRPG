@@ -179,6 +179,80 @@ export class SessionsService {
     return this.joinSessionEntity(userId, session);
   }
 
+  async leaveSession(userId: string, sessionId: string): Promise<void> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const participant = await this.prisma.sessionParticipant.findUnique({
+      where: {
+        sessionId_userId: {
+          sessionId,
+          userId,
+        },
+      },
+    });
+
+    if (!participant) {
+      throw new ForbiddenException("You must join the session before leaving it.");
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const participants = await tx.sessionParticipant.findMany({
+        where: { sessionId },
+        orderBy: { joinedAt: "asc" },
+      });
+
+      if (participants.length <= 1) {
+        await tx.session.delete({
+          where: { id: sessionId },
+        });
+
+        return { deletedSession: true };
+      }
+
+      const remainingParticipants = participants.filter((item) => item.userId !== userId);
+      const nextOwnerUserId =
+        session.ownerUserId === userId ? remainingParticipants[0]?.userId ?? null : session.ownerUserId;
+      const nextCaptainUserId =
+        session.captainUserId === userId ? nextOwnerUserId : session.captainUserId;
+
+      await tx.sessionParticipant.delete({
+        where: { id: participant.id },
+      });
+
+      if (!nextOwnerUserId) {
+        throw new ConflictException("A replacement owner could not be resolved for this session.");
+      }
+
+      await tx.session.update({
+        where: { id: sessionId },
+        data: {
+          ownerUserId: nextOwnerUserId,
+          captainUserId: nextCaptainUserId,
+        },
+      });
+
+      if (session.ownerUserId === userId) {
+        await tx.sessionParticipant.update({
+          where: {
+            sessionId_userId: {
+              sessionId,
+              userId: nextOwnerUserId,
+            },
+          },
+          data: {
+            role: PrismaParticipantRole.HOST,
+          },
+        });
+      }
+
+      return { deletedSession: false };
+    });
+
+    if (!result.deletedSession) {
+      const snapshot = await this.buildSnapshot(sessionId);
+      this.realtimeEvents.emitSessionSnapshot(sessionId, snapshot);
+    }
+  }
+
   async getSessionForUser(userId: string, sessionId: string): Promise<SessionDetailResponseDto> {
     const session = await this.getSessionEntityOrThrow(sessionId);
     if (!session.isPublic) {

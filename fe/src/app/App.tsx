@@ -1,11 +1,20 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 import {
-  createCharacter,
+  API_BASE_URL,
+  WS_BASE_URL,
   createGuest,
+  createPersistentCharacter,
   createSession,
-  joinSession,
+  joinSessionById,
+  joinSessionByInvite,
+  leaveSession,
+  listMyCharacters,
+  listMySessions,
   listScenarios,
+  listSessions,
+  resumeSession,
+  selectCharacterForSession,
 } from "../services/api";
 import { connectSessionSocket } from "../services/realtime";
 import {
@@ -20,44 +29,45 @@ import type {
   Character,
   LogEntry,
   Participant,
+  PersistentCharacter,
   Scenario,
+  SessionListItem,
   SessionSnapshot,
   StoredUser,
 } from "../types/session";
 
-const quickActions = [
-  { label: "동굴 조사", icon: "eye" },
-  { label: "방어 태세", icon: "shield" },
-  { label: "마법 탐지", icon: "spark" },
-  { label: "휴식", icon: "rest" },
+type NavView = "main" | "characters" | "rulebook" | "settings" | "profile" | "session";
+type SessionGmMode = "ai" | "human";
+type ModalType = "create-session" | "join-invite" | null;
+
+const SESSION_STATUS_LOBBY = "lobby";
+const GM_MODE_AI: SessionGmMode = "ai";
+const GM_MODE_HUMAN: SessionGmMode = "human";
+
+const navItems: Array<{ id: Exclude<NavView, "session">; label: string }> = [
+  { id: "main", label: "메인" },
+  { id: "characters", label: "캐릭터" },
+  { id: "rulebook", label: "룰북" },
+  { id: "settings", label: "설정" },
+  { id: "profile", label: "프로필" },
 ];
 
-const sampleRooms = [
-  {
-    title: "얼어붙은 협곡",
-    system: "D&D 5e",
-    players: "2 / 4",
-    note: "휴식할 때마다 첩탑 구조가 바뀌는 초보자 환영 세션",
-  },
-  {
-    title: "검은 로의 하강",
-    system: "Pathfinder 2e",
-    players: "3 / 4",
-    note: "전투 위주 단편. 캐릭터 생성 후 바로 참가 가능",
-  },
-  {
-    title: "데드 선즈: 역슬롯 사건",
-    system: "Starfinder",
-    players: "5 / 5",
-    note: "관전 가능. 우주 정거장 수사 시나리오",
-  },
-];
+const testLoginNames = ["Amber Fox", "Cinder Vale", "Dawn Pike", "River Thorn", "Sable Rune"];
 
 function nowTime(): string {
   return new Intl.DateTimeFormat("ko-KR", {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date());
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function makeLog(kind: LogEntry["kind"], title: string, message: string): LogEntry {
@@ -68,6 +78,21 @@ function makeLog(kind: LogEntry["kind"], title: string, message: string): LogEnt
     message,
     time: nowTime(),
   };
+}
+
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function generateTestName(): string {
+  const base = testLoginNames[Math.floor(Math.random() * testLoginNames.length)];
+  const suffix = Math.floor(1000 + Math.random() * 9000);
+  return `${base} ${suffix}`;
 }
 
 function Icon({ name }: { name: string }) {
@@ -105,6 +130,13 @@ function Icon({ name }: { name: string }) {
           <path d="M21 4v16" />
         </svg>
       );
+    case "refresh":
+      return (
+        <svg {...common}>
+          <path d="M20 11a8 8 0 1 0 2 5.3" />
+          <path d="M20 4v7h-7" />
+        </svg>
+      );
     case "copy":
       return (
         <svg {...common}>
@@ -120,30 +152,11 @@ function Icon({ name }: { name: string }) {
           <path d="M21 4v16" />
         </svg>
       );
-    case "eye":
+    case "close":
       return (
         <svg {...common}>
-          <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z" />
-          <circle cx="12" cy="12" r="2.5" />
-        </svg>
-      );
-    case "shield":
-      return (
-        <svg {...common}>
-          <path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" />
-        </svg>
-      );
-    case "spark":
-      return (
-        <svg {...common}>
-          <path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8L12 2z" />
-          <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z" />
-        </svg>
-      );
-    case "rest":
-      return (
-        <svg {...common}>
-          <path d="M4 14a8 8 0 0 0 13.6 5.7A8.5 8.5 0 0 1 13 3a8 8 0 0 0-9 11z" />
+          <path d="M18 6L6 18" />
+          <path d="M6 6l12 12" />
         </svg>
       );
     default:
@@ -156,473 +169,1301 @@ function Icon({ name }: { name: string }) {
 }
 
 function LoginView({
-  onLogin,
   busy,
   error,
+  onLogin,
 }: {
-  onLogin: (displayName: string) => void;
   busy: boolean;
   error: string | null;
+  onLogin: () => void;
 }) {
-  const [displayName, setDisplayName] = useState("");
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    onLogin(displayName);
-  }
-
   return (
     <main className="login-page">
-      <section className="login-shell" aria-label="로그인">
+      <section className="login-shell">
         <div className="brand-mark">
           <Icon name="logo" />
         </div>
-        <h1>모두의 TRPG</h1>
-        <p>모험의 세계로 입장하세요.</p>
+        <p className="login-eyebrow">TRPG Session Console</p>
+        <h1>임시 게스트 로그인</h1>
+        <p className="login-copy">
+          버튼을 누르면 백엔드 `POST /users/guest` 로 테스트 유저를 만들고 `x-user-id` 기준 계정을
+          로컬에 저장합니다.
+        </p>
 
-        <form className="login-card" onSubmit={submit}>
-          <label htmlFor="displayName">모험가 이름</label>
-          <input
-            id="displayName"
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-            placeholder="예: 던전 마스터"
-            maxLength={50}
-            autoComplete="nickname"
-          />
-          <button type="submit" disabled={busy}>
+        <div className="login-card">
+          <button type="button" className="primary" disabled={busy} onClick={onLogin}>
             <Icon name="enter" />
-            {busy ? "입장 중..." : "게스트로 입장"}
+            {busy ? "로그인 처리 중..." : "테스트 로그인"}
           </button>
-          <div className="login-divider">
-            <span />
-            <strong>또는 다음으로 계속</strong>
-            <span />
-          </div>
-          <div className="social-row" aria-label="추후 로그인 제공자">
-            <button type="button" disabled>
-              Kakao
-            </button>
-            <button type="button" disabled>
-              Discord
-            </button>
+          <div className="login-hint">
+            <span>생성 예시</span>
+            <strong>{generateTestName()}</strong>
           </div>
           {error ? <p className="form-error">{error}</p> : null}
-        </form>
+        </div>
       </section>
     </main>
   );
 }
 
-function Sidebar({
-  user,
+function TopNavigation({
   activeView,
-  onViewChange,
+  user,
+  socketConnected,
+  onNavigate,
   onLogout,
 }: {
+  activeView: NavView;
   user: StoredUser;
-  activeView: "lobby" | "play";
-  onViewChange: (view: "lobby" | "play") => void;
+  socketConnected: boolean;
+  onNavigate: (view: Exclude<NavView, "session">) => void;
   onLogout: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+
   return (
-    <aside className="sidebar">
-      <div className="sidebar-brand">
-        <Icon name="logo" />
-        <span>모두의 TRPG</span>
+    <header className="topbar">
+      <div className="topbar-left">
+        <div className="topbar-brand">
+          <Icon name="logo" />
+          <div>
+            <strong>TRPG</strong>
+            <span>session dashboard</span>
+          </div>
+        </div>
+
+        <nav className="top-nav" aria-label="Main navigation">
+          {navItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={activeView === item.id ? "active" : ""}
+              onClick={() => onNavigate(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
       </div>
-      <div className="profile">
-        <div className="portrait">{user.displayName.slice(0, 1)}</div>
-        <div>
-          <strong>{user.displayName}</strong>
-          <span>게스트 모험가</span>
+
+      <div className="topbar-right">
+        <span className={socketConnected ? "status-pill online" : "status-pill"}>
+          {socketConnected ? "Realtime connected" : "Realtime standby"}
+        </span>
+
+        <div className="profile-menu">
+          <button type="button" className="profile-trigger" onClick={() => setOpen((current) => !current)}>
+            <div className="avatar">{initials(user.displayName)}</div>
+          </button>
+          {open ? (
+            <div className="profile-dropdown">
+              <div className="profile-dropdown-header">
+                <strong>{user.displayName}</strong>
+                <span>Temporary guest account</span>
+              </div>
+              <button type="button" className="profile-dropdown-action" onClick={onLogout}>
+                <Icon name="logout" />
+                로그아웃
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
-      <nav className="side-nav" aria-label="주 메뉴">
-        <button
-          type="button"
-          className={activeView === "lobby" ? "active" : ""}
-          onClick={() => onViewChange("lobby")}
-        >
-          <Icon name="eye" />
-          로비
+    </header>
+  );
+}
+
+function MainSidebar({
+  currentSnapshot,
+  joinableCount,
+  mySessionCount,
+  logs,
+  onScrollTo,
+}: {
+  currentSnapshot: SessionSnapshot | null;
+  joinableCount: number;
+  mySessionCount: number;
+  logs: LogEntry[];
+  onScrollTo: (section: string) => void;
+}) {
+  return (
+    <aside className="page-sidebar">
+      <div className="page-sidebar-block">
+        <span className="eyebrow">Sidebar</span>
+        <h2>Main console</h2>
+        <p>메인 대시보드의 핵심 섹션으로 바로 이동합니다.</p>
+      </div>
+
+      <nav className="section-nav" aria-label="Main page sections">
+        <button type="button" onClick={() => onScrollTo("main-console")}>
+          Main console
         </button>
-        <button
-          type="button"
-          className={activeView === "play" ? "active" : ""}
-          onClick={() => onViewChange("play")}
-        >
-          <Icon name="spark" />
-          세션
+        <button type="button" onClick={() => onScrollTo("current-room")}>
+          Current room
+        </button>
+        <button type="button" onClick={() => onScrollTo("joinable-rooms")}>
+          Joinable rooms
+          <span>{joinableCount}</span>
+        </button>
+        <button type="button" onClick={() => onScrollTo("my-rooms")}>
+          My rooms
+          <span>{mySessionCount}</span>
         </button>
       </nav>
-      <button type="button" className="logout-button" onClick={onLogout}>
-        <Icon name="logout" />
-        로그아웃
-      </button>
+
+      <div className="sidebar-status-card">
+        <span className="eyebrow">Current room</span>
+        <strong>{currentSnapshot?.session.title ?? "세션 없음"}</strong>
+        <p>{currentSnapshot ? currentSnapshot.session.inviteCode : "아직 연결된 방이 없습니다."}</p>
+      </div>
+
+      <div className="sidebar-log-dock">
+        <LogPanel logs={logs} compact />
+      </div>
     </aside>
   );
 }
 
-function LobbyView({
-  user,
-  scenarios,
-  snapshot,
-  logs,
-  busy,
-  error,
-  onCreateSession,
-  onJoinSession,
-  onCreateCharacter,
-  onOpenPlay,
+function SessionCard({
+  item,
+  actionLabel,
+  onAction,
 }: {
-  user: StoredUser;
-  scenarios: Scenario[];
-  snapshot: SessionSnapshot | null;
-  logs: LogEntry[];
-  busy: boolean;
-  error: string | null;
-  onCreateSession: (title: string, scenarioId?: string) => void;
-  onJoinSession: (inviteCode: string) => void;
-  onCreateCharacter: (payload: {
-    name: string;
-    ancestry: string;
-    className: string;
-    maxHp?: number;
-  }) => void;
-  onOpenPlay: () => void;
+  item: SessionListItem;
+  actionLabel: string;
+  onAction: (sessionId: string) => void;
 }) {
-  const [sessionTitle, setSessionTitle] = useState("얼어붙은 황무지의 메아리");
-  const [scenarioId, setScenarioId] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
-  const [characterName, setCharacterName] = useState(`${user.displayName}의 캐릭터`);
-  const [ancestry, setAncestry] = useState("Human");
-  const [className, setClassName] = useState("Rogue");
-
-  const myCharacter = snapshot?.characters.find((character) => character.ownerUserId === user.id);
-
-  function submitSession(event: FormEvent) {
-    event.preventDefault();
-    onCreateSession(sessionTitle, scenarioId || undefined);
-  }
-
-  function submitJoin(event: FormEvent) {
-    event.preventDefault();
-    onJoinSession(inviteCode);
-  }
-
-  function submitCharacter(event: FormEvent) {
-    event.preventDefault();
-    onCreateCharacter({
-      name: characterName,
-      ancestry,
-      className,
-      maxHp: 12,
-    });
-  }
-
   return (
-    <main className="content-grid">
-      <section className="lobby-main">
-        <div className="page-title">
-          <div>
-            <span className="eyebrow">로비 탐색기</span>
-            <h2>진행 중인 모험을 발견하거나 새 세션을 시작하세요.</h2>
-          </div>
-          {snapshot ? (
-            <button type="button" className="primary small" onClick={onOpenPlay}>
-              <Icon name="enter" />
-              세션 입장
-            </button>
-          ) : null}
+    <article className="session-card">
+      <div className="session-card-top">
+        <span className="status-chip">{item.session.gmMode.toUpperCase()} GM</span>
+        <span className="status-chip muted">{item.session.status}</span>
+      </div>
+      <h3>{item.session.title}</h3>
+      <p>{item.session.description || item.scenario.attribution || "설명이 아직 없습니다."}</p>
+      <dl className="session-meta">
+        <div>
+          <dt>시나리오</dt>
+          <dd>{item.scenario.title}</dd>
         </div>
-
-        <article className="featured-room">
-          <div>
-            <span className="badge">추천 캠페인</span>
-            <h3>{snapshot?.session.title ?? "얼어붙은 황무지의 메아리"}</h3>
-            <p>
-              초대 코드로 동료를 불러오고, 캐릭터를 만든 뒤 같은 세션 상태와 실시간 변경
-              이벤트를 확인할 수 있습니다.
-            </p>
-            <div className="meta-row">
-              <span>참가자 {snapshot?.participants.length ?? 0}명</span>
-              <span>캐릭터 {snapshot?.characters.length ?? 0}명</span>
-              <span>{snapshot?.state.phase ?? "대기 중"}</span>
-            </div>
-          </div>
-          {snapshot ? (
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => navigator.clipboard.writeText(snapshot.session.inviteCode)}
-            >
-              <Icon name="copy" />
-              {snapshot.session.inviteCode}
-            </button>
-          ) : null}
-        </article>
-
-        <div className="room-list">
-          {sampleRooms.map((room) => (
-            <article className="room-card" key={room.title}>
-              <div className="room-top">
-                <span>{room.system}</span>
-                <strong>{room.players}</strong>
-              </div>
-              <h3>{room.title}</h3>
-              <p>{room.note}</p>
-              <button type="button">상세 보기</button>
-            </article>
-          ))}
+        <div>
+          <dt>참가</dt>
+          <dd>
+            {item.participantCount} / {item.session.maxParticipants}
+          </dd>
         </div>
-      </section>
-
-      <aside className="control-panel">
-        <form className="action-card" onSubmit={submitSession}>
-          <h3>새 세션</h3>
-          <label htmlFor="sessionTitle">세션 제목</label>
-          <input
-            id="sessionTitle"
-            value={sessionTitle}
-            onChange={(event) => setSessionTitle(event.target.value)}
-            maxLength={100}
-          />
-          <label htmlFor="scenarioId">시나리오</label>
-          <select
-            id="scenarioId"
-            value={scenarioId}
-            onChange={(event) => setScenarioId(event.target.value)}
-          >
-            <option value="">기본 시나리오</option>
-            {scenarios.map((scenario) => (
-              <option value={scenario.id} key={scenario.id}>
-                {scenario.title}
-              </option>
-            ))}
-          </select>
-          <button type="submit" className="primary" disabled={busy}>
-            <Icon name="plus" />
-            세션 만들기
-          </button>
-        </form>
-
-        <form className="action-card" onSubmit={submitJoin}>
-          <h3>초대 코드 참가</h3>
-          <label htmlFor="inviteCode">초대 코드</label>
-          <input
-            id="inviteCode"
-            value={inviteCode}
-            onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
-            placeholder="ABC123"
-            maxLength={12}
-          />
-          <button type="submit" disabled={busy}>
-            <Icon name="enter" />
-            참가하기
-          </button>
-        </form>
-
-        {snapshot ? (
-          <form className="action-card" onSubmit={submitCharacter}>
-            <h3>{myCharacter ? "내 캐릭터" : "캐릭터 생성"}</h3>
-            {myCharacter ? (
-              <div className="character-summary">
-                <strong>{myCharacter.name}</strong>
-                <span>
-                  {myCharacter.ancestry} · {myCharacter.className} · HP {myCharacter.currentHp}/
-                  {myCharacter.maxHp}
-                </span>
-              </div>
-            ) : (
-              <>
-                <label htmlFor="characterName">이름</label>
-                <input
-                  id="characterName"
-                  value={characterName}
-                  onChange={(event) => setCharacterName(event.target.value)}
-                  maxLength={50}
-                />
-                <div className="form-pair">
-                  <div>
-                    <label htmlFor="ancestry">종족</label>
-                    <input
-                      id="ancestry"
-                      value={ancestry}
-                      onChange={(event) => setAncestry(event.target.value)}
-                      maxLength={50}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="className">직업</label>
-                    <input
-                      id="className"
-                      value={className}
-                      onChange={(event) => setClassName(event.target.value)}
-                      maxLength={50}
-                    />
-                  </div>
-                </div>
-                <button type="submit" className="primary" disabled={busy}>
-                  <Icon name="spark" />
-                  캐릭터 생성
-                </button>
-              </>
-            )}
-          </form>
-        ) : null}
-
-        {error ? <p className="panel-error">{error}</p> : null}
-        <LogPanel logs={logs} compact />
-      </aside>
-    </main>
+        <div>
+          <dt>빈 자리</dt>
+          <dd>{item.availableSlots}</dd>
+        </div>
+        <div>
+          <dt>호스트</dt>
+          <dd>{item.owner.displayName}</dd>
+        </div>
+      </dl>
+      <button type="button" onClick={() => onAction(item.session.id)}>
+        <Icon name="enter" />
+        {actionLabel}
+      </button>
+    </article>
   );
 }
 
-function BattleMap({ characters }: { characters: Character[] }) {
+function SessionModal({
+  type,
+  busy,
+  scenarios,
+  onClose,
+  onCreateSession,
+  onJoinByInvite,
+}: {
+  type: ModalType;
+  busy: boolean;
+  scenarios: Scenario[];
+  onClose: () => void;
+  onCreateSession: (payload: {
+    title: string;
+    scenarioId?: string;
+    gmMode: SessionGmMode;
+    maxParticipants: number;
+  }) => void;
+  onJoinByInvite: (inviteCode: string) => void;
+}) {
+  const [sessionTitle, setSessionTitle] = useState("Crimson Wharf: Opening Scene");
+  const [scenarioId, setScenarioId] = useState("");
+  const [gmMode, setGmMode] = useState<SessionGmMode>(GM_MODE_AI);
+  const [maxParticipants, setMaxParticipants] = useState("4");
+  const [inviteCode, setInviteCode] = useState("");
+
+  if (!type) {
+    return null;
+  }
+
+  function submitCreateSession(event: FormEvent) {
+    event.preventDefault();
+    onCreateSession({
+      title: sessionTitle,
+      scenarioId: scenarioId || undefined,
+      gmMode,
+      maxParticipants: Number(maxParticipants) || 4,
+    });
+  }
+
+  function submitJoinByInvite(event: FormEvent) {
+    event.preventDefault();
+    onJoinByInvite(inviteCode.trim().toUpperCase());
+  }
+
   return (
-    <div className="battle-map" aria-label="세션 맵">
-      <svg viewBox="0 0 900 520" role="img" aria-label="얼어붙은 협곡 지도">
-        <rect width="900" height="520" rx="22" />
-        <path d="M50 380C150 330 220 360 310 286C390 220 460 240 540 170C640 80 740 130 850 80" />
-        <path d="M92 160C190 120 270 160 350 130C450 92 520 110 610 130C706 150 750 210 840 190" />
-        <path d="M180 420C250 390 315 414 380 360C442 310 500 326 565 290C650 240 715 255 790 232" />
-        {[140, 240, 330, 520, 610, 720].map((x, index) => (
-          <g key={x} transform={`translate(${x} ${index % 2 ? 210 : 300})`}>
-            <path d="M0 42l28-70 40 70z" />
-            <path d="M30 42l24-58 36 58z" />
-          </g>
-        ))}
-        <line x1="530" y1="265" x2="318" y2="214" />
-        <text x="382" y="226">
-          15 ft
-        </text>
-      </svg>
-      {characters.slice(0, 4).map((character, index) => (
-        <div
-          className={`map-token tone-${index + 1}`}
-          style={{
-            left: `${42 + index * 9}%`,
-            top: `${48 - index * 8}%`,
-          }}
-          key={character.id}
-          title={character.name}
-        >
-          {character.name.slice(0, 1)}
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <div className="modal-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <span className="eyebrow">{type === "create-session" ? "Create room" : "Join room"}</span>
+            <h2>{type === "create-session" ? "새 방 생성" : "초대 코드 입장"}</h2>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose}>
+            <Icon name="close" />
+          </button>
         </div>
-      ))}
-      <div className="map-token hostile">!</div>
+
+        {type === "create-session" ? (
+          <form className="modal-form" onSubmit={submitCreateSession}>
+            <label htmlFor="modal-session-title">방 제목</label>
+            <input
+              id="modal-session-title"
+              value={sessionTitle}
+              onChange={(event) => setSessionTitle(event.target.value)}
+              maxLength={100}
+            />
+
+            <label htmlFor="modal-session-scenario">시나리오</label>
+            <select
+              id="modal-session-scenario"
+              value={scenarioId}
+              onChange={(event) => setScenarioId(event.target.value)}
+            >
+              <option value="">기본 시나리오 사용</option>
+              {scenarios.map((scenario) => (
+                <option key={scenario.id} value={scenario.id}>
+                  {scenario.title}
+                </option>
+              ))}
+            </select>
+
+            <div className="field-row">
+              <div>
+                <label htmlFor="modal-gm-mode">GM 모드</label>
+                <select
+                  id="modal-gm-mode"
+                  value={gmMode}
+                  onChange={(event) => setGmMode(event.target.value as SessionGmMode)}
+                >
+                  <option value={GM_MODE_AI}>AI GM</option>
+                  <option value={GM_MODE_HUMAN}>HUMAN GM</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="modal-max-participants">인원</label>
+                <input
+                  id="modal-max-participants"
+                  value={maxParticipants}
+                  onChange={(event) => setMaxParticipants(event.target.value)}
+                  inputMode="numeric"
+                />
+              </div>
+            </div>
+
+            <button type="submit" className="primary" disabled={busy}>
+              <Icon name="plus" />
+              방 생성
+            </button>
+          </form>
+        ) : (
+          <form className="modal-form" onSubmit={submitJoinByInvite}>
+            <label htmlFor="modal-invite-code">Invite code</label>
+            <input
+              id="modal-invite-code"
+              value={inviteCode}
+              onChange={(event) => setInviteCode(event.target.value)}
+              placeholder="ABC123"
+              maxLength={12}
+            />
+            <button type="submit" disabled={busy}>
+              <Icon name="enter" />
+              초대 코드로 입장
+            </button>
+          </form>
+        )}
+      </div>
     </div>
   );
 }
 
-function PlayView({
-  user,
-  snapshot,
+function MainView({
+  busy,
+  error,
+  currentSnapshot,
+  joinableSessions,
+  mySessions,
+  myCharacters,
   logs,
   socketConnected,
-  onAction,
+  onOpenCreateModal,
+  onOpenJoinModal,
+  onJoinSession,
+  onResumeSession,
 }: {
-  user: StoredUser;
-  snapshot: SessionSnapshot | null;
+  busy: boolean;
+  error: string | null;
+  currentSnapshot: SessionSnapshot | null;
+  joinableSessions: SessionListItem[];
+  mySessions: SessionListItem[];
+  myCharacters: PersistentCharacter[];
   logs: LogEntry[];
   socketConnected: boolean;
-  onAction: (label: string) => void;
+  onOpenCreateModal: () => void;
+  onOpenJoinModal: () => void;
+  onJoinSession: (sessionId: string) => void;
+  onResumeSession: (sessionId: string) => void;
 }) {
-  const characters = snapshot?.characters ?? [];
-  const participants = snapshot?.participants ?? [];
-  const myCharacter = characters.find((character) => character.ownerUserId === user.id);
+  const mainRef = useRef<HTMLElement | null>(null);
+  const currentRoomRef = useRef<HTMLElement | null>(null);
+  const joinableRef = useRef<HTMLElement | null>(null);
+  const myRoomsRef = useRef<HTMLElement | null>(null);
+
+  const sectionRefs: Record<string, React.RefObject<HTMLElement | null>> = {
+    "main-console": mainRef,
+    "current-room": currentRoomRef,
+    "joinable-rooms": joinableRef,
+    "my-rooms": myRoomsRef,
+  };
+
+  function scrollToSection(section: string) {
+    sectionRefs[section]?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
-    <main className="play-layout">
-      <section className="initiative-panel">
-        <h2>우선권</h2>
-        <div className="initiative-list">
-          {characters.length ? (
-            characters.map((character, index) => (
-              <div className="initiative-item" key={character.id}>
-                <div className={`portrait mini tone-${(index % 4) + 1}`}>{character.name.slice(0, 1)}</div>
-                <div>
-                  <strong>{character.name}</strong>
-                  <span>
-                    HP {character.currentHp}/{character.maxHp}
-                  </span>
-                </div>
-                <b>{21 - index * 3}</b>
-              </div>
-            ))
-          ) : (
-            <p className="empty-text">로비에서 캐릭터를 만들면 여기에 표시됩니다.</p>
-          )}
-        </div>
-      </section>
+    <div className="page-with-sidebar">
+      <MainSidebar
+        currentSnapshot={currentSnapshot}
+        joinableCount={joinableSessions.length}
+        mySessionCount={mySessions.length}
+        logs={logs}
+        onScrollTo={scrollToSection}
+      />
 
-      <section className="scene-panel">
-        <div className="scene-header">
-          <div>
-            <span className="eyebrow">
-              {snapshot?.session.title ?? "세션을 선택하세요"} · {socketConnected ? "온라인" : "대기"}
-            </span>
-            <h2>얼어붙은 협곡</h2>
-          </div>
-          <span className="round-pill">턴 4 · 라운드 2</span>
-        </div>
-        <BattleMap characters={characters} />
-        <div className="scene-bottom">
-          <article className="scene-text">
-            <h3>{myCharacter?.name ?? "파티"}</h3>
+      <section className="main-column">
+        <section ref={mainRef} className="hero-panel">
+          <div className="hero-copy">
+            <span className="eyebrow">Main console</span>
+            <h1>메인 대시보드</h1>
             <p>
-              매서운 바람 사이로 오래된 룬 문양이 희미하게 빛납니다. 동료들과 현재
-              세션 상태를 공유하고, 아래 행동 버튼으로 로그를 남기며 흐름을 확인하세요.
+              상단 네비게이션으로 주요 화면을 이동하고, 메인에서는 공개 세션 탐색과 세션 복귀에
+              집중합니다. 방 생성과 초대 코드 입장은 모달에서 처리합니다.
             </p>
-            <div className="action-row">
-              {quickActions.map((action) => (
-                <button type="button" key={action.label} onClick={() => onAction(action.label)}>
-                  <Icon name={action.icon} />
-                  {action.label}
-                </button>
-              ))}
+            <div className="hero-stats">
+              <div>
+                <strong>{joinableSessions.length}</strong>
+                <span>Joinable sessions</span>
+              </div>
+              <div>
+                <strong>{mySessions.length}</strong>
+                <span>My rooms</span>
+              </div>
+              <div>
+                <strong>{myCharacters.length}</strong>
+                <span>Stored characters</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="hero-aside">
+            <div className="status-panel">
+              <span className={socketConnected ? "status-pill online" : "status-pill"}>
+                {socketConnected ? "Realtime on" : "Realtime idle"}
+              </span>
+              <strong>{currentSnapshot?.session.title ?? "현재 연결된 세션 없음"}</strong>
+              <p>
+                {currentSnapshot
+                  ? `${currentSnapshot.participants.length}명 참가, ${currentSnapshot.characters.length}개 세션 캐릭터`
+                  : "방을 생성하거나 입장하면 현재 세션 스냅샷이 유지됩니다."}
+              </p>
+            </div>
+
+            <div className="quick-action-panel">
+              <button type="button" className="primary" disabled={busy} onClick={onOpenCreateModal}>
+                <Icon name="plus" />
+                방 생성
+              </button>
+              <button type="button" disabled={busy} onClick={onOpenJoinModal}>
+                <Icon name="enter" />
+                초대 코드 입장
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section ref={currentRoomRef} className="current-session-banner">
+          <div>
+            <span className="eyebrow">Current room</span>
+            <h2>{currentSnapshot?.session.title ?? "현재 방이 없습니다."}</h2>
+            <p>
+              {currentSnapshot
+                ? `초대 코드 ${currentSnapshot.session.inviteCode} · 상태 ${currentSnapshot.session.status} · phase ${currentSnapshot.state.phase}`
+                : "세션을 만들거나 입장하면 여기서 현재 방 상태를 확인할 수 있습니다."}
+            </p>
+          </div>
+          {currentSnapshot ? (
+            <div className="banner-actions">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => navigator.clipboard.writeText(currentSnapshot.session.inviteCode)}
+              >
+                <Icon name="copy" />
+                코드 복사
+              </button>
+              <button type="button" onClick={() => onResumeSession(currentSnapshot.session.id)} disabled={busy}>
+                <Icon name="refresh" />
+                세션 열기
+              </button>
+            </div>
+          ) : null}
+        </section>
+
+        <section ref={joinableRef} className="section-block">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">Joinable rooms</span>
+              <h2>입장 가능한 방</h2>
+            </div>
+          </div>
+
+          <div className="card-grid">
+            {joinableSessions.length ? (
+              joinableSessions.map((item) => (
+                <SessionCard
+                  key={item.session.id}
+                  item={item}
+                  actionLabel="방 입장"
+                  onAction={onJoinSession}
+                />
+              ))
+            ) : (
+              <EmptyState
+                title="입장 가능한 공개 세션이 없습니다."
+                description="새 방을 만들거나 초대 코드로 세션에 입장해보세요."
+              />
+            )}
+          </div>
+        </section>
+
+        <section ref={myRoomsRef} className="section-block">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">My rooms</span>
+              <h2>내 방</h2>
+            </div>
+          </div>
+
+          <div className="card-grid">
+            {mySessions.length ? (
+              mySessions.map((item) => (
+                <SessionCard
+                  key={item.session.id}
+                  item={item}
+                  actionLabel="세션 열기"
+                  onAction={onResumeSession}
+                />
+              ))
+            ) : (
+              <EmptyState
+                title="아직 참가한 세션이 없습니다."
+                description="세션을 생성하거나 목록에서 참가하면 여기에서 다시 열 수 있습니다."
+              />
+            )}
+          </div>
+        </section>
+
+        {error ? <p className="panel-error">{error}</p> : null}
+      </section>
+    </div>
+  );
+}
+
+function SessionParticipantStrip({
+  participantSlots,
+  gmMode,
+}: {
+  participantSlots: Array<{
+    id: string;
+    participant: Participant | null;
+    participantCharacter: Character | null;
+    isHost: boolean;
+    isAiGm: boolean;
+  }>;
+  gmMode: SessionSnapshot["session"]["gmMode"];
+}) {
+  return (
+    <>
+      {participantSlots.map((slot, index) => {
+        const roleLabel = slot.isAiGm
+          ? "AI GM"
+          : slot.isHost
+            ? "Host"
+            : slot.participant
+              ? "Player"
+              : "Open slot";
+        const readyLabel = slot.isAiGm
+          ? "ACTIVE"
+          : slot.participant?.connectionStatus === "online"
+            ? "READY"
+            : slot.participant
+              ? "WAITING"
+              : "EMPTY";
+
+        return (
+          <article
+            className={`session-participant-card ${!slot.participant && !slot.isAiGm ? "empty" : ""}`}
+            key={slot.id}
+          >
+            <div className="session-profile-card">
+              <div className="session-avatar-wrap">
+                <div className={`avatar avatar-large ${slot.isAiGm ? "avatar-ai" : ""}`}>
+                  {slot.isAiGm ? "AI" : slot.participant ? initials(slot.participant.user.displayName) : "--"}
+                </div>
+                <div className="session-avatar-badges">
+                  {slot.isHost ? <span className="session-avatar-badge host" title="Host" /> : null}
+                  {slot.isAiGm || (slot.isHost && gmMode === "human") ? (
+                    <span className="session-avatar-badge gm" title="GM" />
+                  ) : null}
+                </div>
+              </div>
+              <div className="session-profile-copy">
+                <strong>{slot.isAiGm ? "AI GM" : slot.participant?.user.displayName ?? `Slot ${index + 1}`}</strong>
+                <span>{roleLabel}</span>
+                <span>{slot.participantCharacter?.name ?? (slot.isAiGm ? "Narration channel" : "No character yet")}</span>
+              </div>
+            </div>
+
+            <div className="session-ready-card">
+              <span className="session-ready-label">Ready</span>
+              <button
+                type="button"
+                className={`session-ready-button ${slot.isAiGm || slot.participant ? "active" : ""}`}
+                disabled
+              >
+                {readyLabel}
+              </button>
             </div>
           </article>
-          <div className="party-strip">
-            {participants.map((participant) => (
-              <div className="party-member" key={participant.id}>
-                <strong>{participant.user.displayName}</strong>
-                <span>{participant.role} · {participant.connectionStatus}</span>
-              </div>
-            ))}
+        );
+      })}
+    </>
+  );
+}
+
+function SessionChatSidebar({
+  messages,
+  chatDraft,
+  onChatDraftChange,
+}: {
+  messages: Array<{
+    id: string;
+    sender: string;
+    body: string;
+    direction: "incoming" | "outgoing" | "notice";
+    time: string;
+  }>;
+  chatDraft: string;
+  onChatDraftChange: (value: string) => void;
+}) {
+  return (
+    <div className="session-chat-body">
+      <div className="session-chat-log">
+        {messages.map((message) => (
+          <div key={message.id} className={`chat-row ${message.direction}`}>
+            {message.direction === "incoming" ? (
+              <div className="chat-avatar">{message.sender.slice(0, 1).toUpperCase()}</div>
+            ) : null}
+            <div className="chat-stack">
+              {message.direction !== "outgoing" ? <span className="chat-sender">{message.sender}</span> : null}
+              <div className="chat-bubble">{message.body}</div>
+            </div>
+            <span className="chat-time">{message.time}</span>
           </div>
+        ))}
+      </div>
+
+      <div className="session-chat-input">
+        <input
+          value={chatDraft}
+          onChange={(event) => onChatDraftChange(event.target.value)}
+          placeholder="Message input will be wired later."
+        />
+        <button type="button" disabled>
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SessionView({
+  user,
+  busy,
+  snapshot,
+  socketConnected,
+  onLeaveSession,
+}: {
+  user: StoredUser;
+  busy: boolean;
+  snapshot: SessionSnapshot | null;
+  socketConnected: boolean;
+  onLeaveSession: (sessionId: string) => void;
+}) {
+  if (!snapshot) {
+    return (
+      <div className="page-grid single-column">
+        <section className="main-column">
+          <EmptyState
+            title="연결된 세션이 없습니다."
+            description="메인에서 방을 만들거나 입장하면 세션 페이지로 이동합니다."
+          />
+        </section>
+      </div>
+    );
+  }
+
+  const [activePanel, setActivePanel] = useState<"main" | "chatting" | "info" | "settings">(
+    "main",
+  );
+  const [headerExpanded, setHeaderExpanded] = useState(true);
+  const [chatDraft, setChatDraft] = useState("");
+  const sortedParticipants = [...snapshot.participants].sort((left, right) => {
+    const leftIsHost = left.userId === snapshot.session.ownerUserId;
+    const rightIsHost = right.userId === snapshot.session.ownerUserId;
+
+    if (leftIsHost && !rightIsHost) {
+      return -1;
+    }
+
+    if (!leftIsHost && rightIsHost) {
+      return 1;
+    }
+
+    return new Date(left.joinedAt).getTime() - new Date(right.joinedAt).getTime();
+  });
+
+  const participantCards = sortedParticipants.map((participant) => {
+    const participantCharacter =
+      snapshot.characters.find((character) => character.id === participant.sessionCharacterId) ??
+      snapshot.characters.find((character) => character.participantId === participant.id) ??
+      snapshot.characters.find((character) => character.ownerUserId === participant.userId) ??
+      null;
+
+    return {
+      participant,
+      participantCharacter,
+      isHost: participant.userId === snapshot.session.ownerUserId,
+    };
+  });
+
+  const participantSlots: Array<{
+    id: string;
+    participant: Participant | null;
+    participantCharacter: Character | null;
+    isHost: boolean;
+    isAiGm: boolean;
+  }> = [];
+
+  if (snapshot.session.gmMode === "ai") {
+    participantSlots.push({
+      id: "ai-gm",
+      participant: null,
+      participantCharacter: null,
+      isHost: true,
+      isAiGm: true,
+    });
+  }
+
+  participantCards.forEach(({ participant, participantCharacter, isHost }) => {
+    participantSlots.push({
+      id: participant.id,
+      participant,
+      participantCharacter,
+      isHost,
+      isAiGm: false,
+    });
+  });
+
+  const playerSlotCount = Math.max(4, snapshot.session.maxParticipants);
+  while (participantSlots.filter((slot) => !slot.isAiGm).length < playerSlotCount) {
+    participantSlots.push({
+      id: `empty-slot-${participantSlots.length}`,
+      participant: null,
+      participantCharacter: null,
+      isHost: false,
+      isAiGm: false,
+    });
+  }
+
+  const panelMessages: Record<
+    "main" | "chatting" | "info" | "settings",
+    Array<{
+      id: string;
+      sender: string;
+      body: string;
+      direction: "incoming" | "outgoing" | "notice";
+      time: string;
+    }>
+  > = {
+    main: [
+      {
+        id: "main-notice",
+        sender: "Room overview",
+        body: `${snapshot.session.title} · ${snapshot.session.gmMode.toUpperCase()} GM · status ${snapshot.session.status}`,
+        direction: "notice",
+        time: "Now",
+      },
+      {
+        id: "main-gm",
+        sender: snapshot.session.gmMode === "ai" ? "AI GM" : "GM Console",
+        body: "Main panel summary and room-level prompts can live here later.",
+        direction: "incoming",
+        time: "09:12",
+      },
+      {
+        id: "main-user",
+        sender: user.displayName,
+        body: "The message input is UI-only for now and does not send.",
+        direction: "outgoing",
+        time: "09:13",
+      },
+    ],
+    chatting: [
+      {
+        id: "chat-notice",
+        sender: "System",
+        body: "Chat transport is not connected yet. This panel is a layout placeholder.",
+        direction: "notice",
+        time: "Today",
+      },
+      {
+        id: "chat-gm",
+        sender: snapshot.session.gmMode === "ai" ? "AI GM" : "GM",
+        body: "Future room chat, narration, and action prompts will render in this stream.",
+        direction: "incoming",
+        time: "09:18",
+      },
+      {
+        id: "chat-user",
+        sender: user.displayName,
+        body: "The sidebar already behaves like a messenger view.",
+        direction: "outgoing",
+        time: "09:19",
+      },
+    ],
+    info: [
+      {
+        id: "info-notice",
+        sender: "Session info",
+        body: `${snapshot.participants.length} participants joined, ${snapshot.characters.length} characters assigned, phase ${snapshot.state.phase}.`,
+        direction: "notice",
+        time: "Now",
+      },
+      {
+        id: "info-gm",
+        sender: "Scenario",
+        body: `Invite code ${snapshot.session.inviteCode} is active and the owner id is ${snapshot.session.ownerUserId}.`,
+        direction: "incoming",
+        time: "09:21",
+      },
+    ],
+    settings: [
+      {
+        id: "settings-notice",
+        sender: "Room settings",
+        body: "Room options and session-level controls can expand from this shell later.",
+        direction: "notice",
+        time: "Now",
+      },
+      {
+        id: "settings-user",
+        sender: user.displayName,
+        body: "Current controls are limited to invite copy and leaving the room.",
+        direction: "outgoing",
+        time: "09:24",
+      },
+    ],
+  };
+
+  const activeMessages = panelMessages[activePanel];
+
+  return (
+    <div className="session-layout">
+      <section className={`session-room-header ${headerExpanded ? "expanded" : "collapsed"}`}>
+        <div>
+          <span className="eyebrow">Room overview</span>
+          <h1>{snapshot.session.title}</h1>
+          {headerExpanded ? (
+            <p>
+              초대 코드 {snapshot.session.inviteCode} · {snapshot.session.gmMode.toUpperCase()} GM ·
+              상태 {snapshot.session.status}
+            </p>
+          ) : null}
+        </div>
+        <div className="banner-actions">
+          {headerExpanded ? (
+            <>
+              <div className="invite-inline">
+                <span>{snapshot.session.inviteCode}</span>
+                <button
+                  type="button"
+                  className="invite-copy-button"
+                  onClick={() => navigator.clipboard.writeText(snapshot.session.inviteCode)}
+                  aria-label="초대 코드 복사"
+                >
+                  <Icon name="copy" />
+                </button>
+              </div>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => onLeaveSession(snapshot.session.id)}
+                disabled={busy}
+              >
+                나가기
+              </button>
+            </>
+          ) : null}
+          <button
+            type="button"
+            className="ghost session-header-toggle"
+            onClick={() => setHeaderExpanded((current) => !current)}
+          >
+            {headerExpanded ? "축소" : "확대"}
+          </button>
         </div>
       </section>
 
-      <aside className="log-dock">
-        <LogPanel logs={logs} />
-      </aside>
-    </main>
+      <div className="session-stage">
+        <section className="session-main-board">
+          <div className="session-main-canvas">
+            <span className="eyebrow">Main</span>
+            <strong>캐릭터 선택용 창</strong>
+            <p>
+              현재 세션 참가자 {snapshot.participants.length}명 · 세션 캐릭터 {snapshot.characters.length}명 ·
+              phase {snapshot.state.phase}
+            </p>
+          </div>
+
+          <div className="session-bottom-row">
+            <div className="session-participant-strip">
+              <SessionParticipantStrip participantSlots={participantSlots} gmMode={snapshot.session.gmMode} />{/*
+                return (
+                  <article
+                    className={`session-participant-card ${!slot.participant && !slot.isAiGm ? "empty" : ""}`}
+                    key={slot.id}
+                  >
+                  <div className="session-profile-card">
+                    <div className="session-avatar-wrap">
+                      <div className="avatar avatar-large">{initials(participant.user.displayName)}</div>
+                      <div className="session-avatar-badges">
+                        {isHost ? <span className="session-avatar-badge host" title="방장" /> : null}
+                        {isHost && snapshot.session.gmMode === "human" ? (
+                          <span className="session-avatar-badge gm" title="GM" />
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="session-profile-copy">
+                      <strong>{participant.user.displayName}</strong>
+                      <span>{isHost ? "방장" : "플레이어"}</span>
+                      <span>{participantCharacter?.name ?? "캐릭터 미선택"}</span>
+                    </div>
+                  </div>
+
+                  <div className="session-ready-card">
+                    <span className="session-ready-label">Ready</span>
+                    <button type="button" className="session-ready-button" disabled>
+                      {participant.connectionStatus === "online" ? "대기중" : "오프라인"}
+                    </button>
+                  </div>
+                </article>
+              */}
+            </div>
+          </div>
+        </section>
+
+        <aside className="session-chat-panel">
+          <div className="session-chat-tabs">
+            {["main", "chatting", "info", "settings"].map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                className={activePanel === tab ? "active" : ""}
+                onClick={() => setActivePanel(tab as "main" | "chatting" | "info" | "settings")}
+              >
+                {tab === "main" && "Main"}
+                {tab === "chatting" && "Chatting"}
+                {tab === "info" && "Info"}
+                {tab === "settings" && "Settings"}
+              </button>
+            ))}
+          </div>
+
+          <SessionChatSidebar
+            messages={activeMessages}
+            chatDraft={chatDraft}
+            onChatDraftChange={setChatDraft}
+          />{/*
+            <div className="session-chat-avatar" />
+            <div className="session-chat-box">
+              {activePanel === "main" && <strong>메시지 상자</strong>}
+              {activePanel === "chatting" && <strong>채팅 로그 자리</strong>}
+              {activePanel === "info" && <strong>방 정보 / 참가자 정보</strong>}
+              {activePanel === "settings" && <strong>세션 설정 자리</strong>}
+            </div>
+          */}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function CharacterView({
+  busy,
+  currentSnapshot,
+  characters,
+  onCreateCharacter,
+  onSelectCharacter,
+}: {
+  busy: boolean;
+  currentSnapshot: SessionSnapshot | null;
+  characters: PersistentCharacter[];
+  onCreateCharacter: (payload: {
+    name: string;
+    ancestry: string;
+    className: string;
+    maxHp: number;
+    armorClass: number;
+    speed: number;
+  }) => void;
+  onSelectCharacter: (characterId: string) => void;
+}) {
+  const [name, setName] = useState("Ash Walker");
+  const [ancestry, setAncestry] = useState("Human");
+  const [className, setClassName] = useState("Rogue");
+  const [maxHp, setMaxHp] = useState("12");
+  const [armorClass, setArmorClass] = useState("14");
+  const [speed, setSpeed] = useState("30");
+
+  function submitCharacter(event: FormEvent) {
+    event.preventDefault();
+    onCreateCharacter({
+      name,
+      ancestry,
+      className,
+      maxHp: Number(maxHp) || 10,
+      armorClass: Number(armorClass) || 10,
+      speed: Number(speed) || 30,
+    });
+  }
+
+  return (
+    <div className="page-grid single-column">
+      <section className="main-column">
+        <section className="section-block">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">Character builder</span>
+              <h2>영속 캐릭터 생성</h2>
+            </div>
+          </div>
+
+          <form className="form-card wide" onSubmit={submitCharacter}>
+            <div className="field-row triple">
+              <div>
+                <label htmlFor="character-name">이름</label>
+                <input
+                  id="character-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  maxLength={50}
+                />
+              </div>
+              <div>
+                <label htmlFor="character-ancestry">종족</label>
+                <input
+                  id="character-ancestry"
+                  value={ancestry}
+                  onChange={(event) => setAncestry(event.target.value)}
+                  maxLength={50}
+                />
+              </div>
+              <div>
+                <label htmlFor="character-class">직업</label>
+                <input
+                  id="character-class"
+                  value={className}
+                  onChange={(event) => setClassName(event.target.value)}
+                  maxLength={50}
+                />
+              </div>
+            </div>
+
+            <div className="field-row triple">
+              <div>
+                <label htmlFor="character-hp">최대 HP</label>
+                <input
+                  id="character-hp"
+                  value={maxHp}
+                  onChange={(event) => setMaxHp(event.target.value)}
+                  inputMode="numeric"
+                />
+              </div>
+              <div>
+                <label htmlFor="character-ac">AC</label>
+                <input
+                  id="character-ac"
+                  value={armorClass}
+                  onChange={(event) => setArmorClass(event.target.value)}
+                  inputMode="numeric"
+                />
+              </div>
+              <div>
+                <label htmlFor="character-speed">속도</label>
+                <input
+                  id="character-speed"
+                  value={speed}
+                  onChange={(event) => setSpeed(event.target.value)}
+                  inputMode="numeric"
+                />
+              </div>
+            </div>
+
+            <button type="submit" className="primary" disabled={busy}>
+              <Icon name="plus" />
+              캐릭터 저장
+            </button>
+          </form>
+        </section>
+
+        <section className="section-block">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">My roster</span>
+              <h2>보유 캐릭터</h2>
+            </div>
+          </div>
+
+          <div className="card-grid">
+            {characters.length ? (
+              characters.map((character) => (
+                <article className="character-card" key={character.id}>
+                  <div className="character-head">
+                    <div className="avatar">{initials(character.name)}</div>
+                    <div>
+                      <h3>{character.name}</h3>
+                      <p>
+                        {character.ancestry} · {character.className} · Lv {character.level}
+                      </p>
+                    </div>
+                  </div>
+
+                  <dl className="session-meta">
+                    <div>
+                      <dt>HP</dt>
+                      <dd>{character.maxHp}</dd>
+                    </div>
+                    <div>
+                      <dt>AC</dt>
+                      <dd>{character.armorClass}</dd>
+                    </div>
+                    <div>
+                      <dt>Speed</dt>
+                      <dd>{character.speed}</dd>
+                    </div>
+                    <div>
+                      <dt>Status</dt>
+                      <dd>{character.isSelectable ? "available" : "in session"}</dd>
+                    </div>
+                  </dl>
+
+                  {currentSnapshot ? (
+                    <button
+                      type="button"
+                      disabled={busy || !character.isSelectable}
+                      onClick={() => onSelectCharacter(character.id)}
+                    >
+                      <Icon name="enter" />
+                      현재 세션에 선택
+                    </button>
+                  ) : null}
+                </article>
+              ))
+            ) : (
+              <EmptyState
+                title="아직 저장된 캐릭터가 없습니다."
+                description="먼저 캐릭터를 만든 뒤 세션에 입장해서 선택할 수 있습니다."
+              />
+            )}
+          </div>
+        </section>
+      </section>
+    </div>
+  );
+}
+
+function RulebookView() {
+  return (
+    <div className="page-grid single-column">
+      <section className="main-column">
+        <section className="detail-grid">
+          <article className="info-card">
+            <span className="eyebrow">Rulebook</span>
+            <h2>룰북 자리</h2>
+            <p>최종 버전에서는 룰 요약, 판정 기준, 전투 흐름, 자주 쓰는 참조 문서를 여기에 배치하면 됩니다.</p>
+            <ul className="plain-list">
+              <li>기본 판정 절차</li>
+              <li>전투 흐름</li>
+              <li>능력치와 스킬 참조</li>
+              <li>세션 운영 가이드</li>
+            </ul>
+          </article>
+        </section>
+      </section>
+    </div>
+  );
+}
+
+function ProfileView({
+  user,
+  mySessions,
+  currentSnapshot,
+}: {
+  user: StoredUser;
+  mySessions: SessionListItem[];
+  currentSnapshot: SessionSnapshot | null;
+}) {
+  return (
+    <div className="page-grid single-column">
+      <section className="main-column">
+        <section className="detail-grid">
+          <article className="info-card">
+            <span className="eyebrow">Profile</span>
+            <h2>{user.displayName}</h2>
+            <p>테스트용 임시 프로필입니다. 실제 계정 시스템이 붙으면 이 화면을 확장하면 됩니다.</p>
+            <dl className="detail-list">
+              <div>
+                <dt>User ID</dt>
+                <dd>{user.id}</dd>
+              </div>
+              <div>
+                <dt>Created</dt>
+                <dd>{formatDate(user.createdAt)}</dd>
+              </div>
+              <div>
+                <dt>Header</dt>
+                <dd>x-user-id: {user.id}</dd>
+              </div>
+            </dl>
+          </article>
+
+          <article className="info-card">
+            <span className="eyebrow">Session summary</span>
+            <h2>현재 연결 정보</h2>
+            <dl className="detail-list">
+              <div>
+                <dt>My sessions</dt>
+                <dd>{mySessions.length}</dd>
+              </div>
+              <div>
+                <dt>Connected room</dt>
+                <dd>{currentSnapshot?.session.title ?? "없음"}</dd>
+              </div>
+              <div>
+                <dt>Invite code</dt>
+                <dd>{currentSnapshot?.session.inviteCode ?? "-"}</dd>
+              </div>
+            </dl>
+          </article>
+        </section>
+      </section>
+    </div>
+  );
+}
+
+function SettingsView() {
+  return (
+    <div className="page-grid single-column">
+      <section className="main-column">
+        <section className="detail-grid">
+          <article className="info-card">
+            <span className="eyebrow">Environment</span>
+            <h2>프론트 연결 설정</h2>
+            <dl className="detail-list">
+              <div>
+                <dt>API base</dt>
+                <dd>{API_BASE_URL}</dd>
+              </div>
+              <div>
+                <dt>WebSocket base</dt>
+                <dd>{WS_BASE_URL}</dd>
+              </div>
+              <div>
+                <dt>Storage</dt>
+                <dd>localStorage</dd>
+              </div>
+            </dl>
+          </article>
+
+          <article className="info-card">
+            <span className="eyebrow">Current scope</span>
+            <h2>현재 제공 기능</h2>
+            <ul className="plain-list">
+              <li>공개 세션 목록 조회</li>
+              <li>방 생성 및 초대 코드 입장</li>
+              <li>내 세션 복귀</li>
+              <li>영속 캐릭터 생성</li>
+              <li>현재 세션에 캐릭터 선택</li>
+            </ul>
+          </article>
+        </section>
+      </section>
+    </div>
+  );
+}
+
+function EmptyState({ title, description }: { title: string; description: string }) {
+  return (
+    <article className="empty-card">
+      <h3>{title}</h3>
+      <p>{description}</p>
+    </article>
   );
 }
 
 function LogPanel({ logs, compact = false }: { logs: LogEntry[]; compact?: boolean }) {
   return (
     <section className={compact ? "log-panel compact" : "log-panel"}>
-      <div className="log-tabs">
-        <strong>게임 로그</strong>
-        <span>{logs.length}</span>
+      <div className="section-heading compact">
+        <div>
+          <span className="eyebrow">Activity</span>
+          <h2>최근 로그</h2>
+        </div>
       </div>
       <div className="log-list">
-        {logs.length ? (
-          logs.map((log) => (
-            <article className={`log-entry ${log.kind}`} key={log.id}>
-              <div>
-                <strong>{log.title}</strong>
-                <time>{log.time}</time>
-              </div>
-              <p>{log.message}</p>
-            </article>
-          ))
-        ) : (
-          <p className="empty-text">API 응답과 실시간 이벤트가 여기에 쌓입니다.</p>
-        )}
+        {logs.map((log) => (
+          <article key={log.id} className={`log-entry ${log.kind}`}>
+            <div className="log-entry-head">
+              <strong>{log.title}</strong>
+              <time>{log.time}</time>
+            </div>
+            <p>{log.message}</p>
+          </article>
+        ))}
       </div>
     </section>
   );
@@ -632,37 +1473,63 @@ export function App() {
   const [user, setUser] = useState<StoredUser | null>(() => loadStoredUser());
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(() => loadStoredSnapshot());
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
-  const [logs, setLogs] = useState<LogEntry[]>(() => [
-    makeLog("system", "준비 완료", "게스트 로그인 후 세션을 만들거나 초대 코드로 참가하세요."),
+  const [joinableSessions, setJoinableSessions] = useState<SessionListItem[]>([]);
+  const [mySessions, setMySessions] = useState<SessionListItem[]>([]);
+  const [characters, setCharacters] = useState<PersistentCharacter[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([
+    makeLog("system", "Dashboard ready", "Sign in with the test login button to load live data."),
   ]);
-  const [activeView, setActiveView] = useState<"lobby" | "play">("lobby");
+  const [activeView, setActiveView] = useState<NavView>("main");
+  const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [socketConnected, setSocketConnected] = useState(false);
 
-  const currentSessionId = snapshot?.session.id;
+  function appendLog(kind: LogEntry["kind"], title: string, message: string) {
+    setLogs((current) => [makeLog(kind, title, message), ...current].slice(0, 24));
+  }
 
-  const appendLog = (kind: LogEntry["kind"], title: string, message: string) => {
-    setLogs((current) => [makeLog(kind, title, message), ...current].slice(0, 30));
-  };
-
-  const updateSnapshot = (nextSnapshot: SessionSnapshot) => {
+  function updateSnapshot(nextSnapshot: SessionSnapshot) {
     setSnapshot(nextSnapshot);
     saveStoredSnapshot(nextSnapshot);
-  };
+  }
+
+  async function refreshDashboardData(currentUser: StoredUser) {
+    const [nextScenarios, nextJoinableSessions, nextMySessions, nextCharacters] = await Promise.all([
+      listScenarios(),
+      listSessions({
+        status: SESSION_STATUS_LOBBY,
+        isPublic: true,
+        openSlotsAtLeast: 1,
+      }),
+      listMySessions(currentUser),
+      listMyCharacters(currentUser),
+    ]);
+
+    setScenarios(nextScenarios);
+    setJoinableSessions(nextJoinableSessions);
+    setMySessions(nextMySessions);
+    setCharacters(nextCharacters);
+  }
 
   useEffect(() => {
-    listScenarios()
-      .then(setScenarios)
-      .catch((caught: Error) => appendLog("rest", "시나리오 조회 실패", caught.message));
-  }, []);
+    if (!user) {
+      return;
+    }
+
+    setError(null);
+    refreshDashboardData(user).catch((caught: Error) => {
+      setError(caught.message);
+      appendLog("rest", "Load failed", caught.message);
+    });
+  }, [user?.id]);
 
   useEffect(() => {
-    if (!user || !currentSessionId) {
+    if (!user || !snapshot?.session.id) {
       return undefined;
     }
 
-    const socket: Socket = connectSessionSocket(user, currentSessionId, {
+    const socket: Socket = connectSessionSocket(user, snapshot.session.id, {
       onSnapshot: updateSnapshot,
       onParticipantUpdated: (participant: Participant) => {
         setSnapshot((current) => {
@@ -684,10 +1551,10 @@ export function App() {
             return current;
           }
 
-          const characters = current.characters.some((item) => item.id === character.id)
+          const sessionCharacters = current.characters.some((item) => item.id === character.id)
             ? current.characters.map((item) => (item.id === character.id ? character : item))
             : [...current.characters, character];
-          const next = { ...current, characters };
+          const next = { ...current, characters: sessionCharacters, sessionCharacters };
           saveStoredSnapshot(next);
           return next;
         });
@@ -699,32 +1566,19 @@ export function App() {
     return () => {
       socket.disconnect();
     };
-  }, [user?.id, currentSessionId]);
+  }, [user?.id, snapshot?.session.id]);
 
-  const statusText = useMemo(() => {
-    if (!snapshot) {
-      return "세션 없음";
-    }
-
-    return `${snapshot.participants.length}명 참가 · ${snapshot.characters.length}개 캐릭터`;
-  }, [snapshot]);
-
-  async function handleLogin(displayName: string) {
-    setError(null);
-    const name = displayName.trim();
-    if (!name) {
-      setError("모험가 이름을 입력해주세요.");
-      return;
-    }
-
+  async function handleTestLogin() {
     setBusy(true);
+    setError(null);
+
     try {
-      const nextUser = await createGuest(name);
+      const nextUser = await createGuest(generateTestName());
       saveStoredUser(nextUser);
       setUser(nextUser);
-      appendLog("rest", "게스트 로그인", `${nextUser.displayName} 님으로 입장했습니다.`);
+      appendLog("rest", "Guest issued", `Created temporary user ${nextUser.displayName}.`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "로그인에 실패했습니다.");
+      setError(caught instanceof Error ? caught.message : "Test login failed.");
     } finally {
       setBusy(false);
     }
@@ -735,42 +1589,101 @@ export function App() {
     clearStoredSnapshot();
     setUser(null);
     setSnapshot(null);
-    setActiveView("lobby");
+    setJoinableSessions([]);
+    setMySessions([]);
+    setCharacters([]);
     setSocketConnected(false);
-    appendLog("system", "로그아웃", "브라우저에 저장된 게스트 상태를 삭제했습니다.");
+    setActiveView("main");
+    setActiveModal(null);
+    appendLog("system", "Logged out", "Cleared the temporary guest session from local storage.");
   }
 
-  async function handleCreateSession(title: string, scenarioId?: string) {
+  async function handleCreateSession(payload: {
+    title: string;
+    scenarioId?: string;
+    gmMode: SessionGmMode;
+    maxParticipants: number;
+  }) {
     if (!user) {
       return;
     }
 
-    setError(null);
     setBusy(true);
+    setError(null);
+
     try {
-      const nextSnapshot = await createSession(user, title, scenarioId);
+      const nextSnapshot = await createSession(user, payload);
       updateSnapshot(nextSnapshot);
-      appendLog("rest", "세션 생성", `${nextSnapshot.session.title} 세션을 만들었습니다.`);
+      await refreshDashboardData(user);
+      setActiveModal(null);
+      setActiveView("session");
+      appendLog("rest", "Session created", `${nextSnapshot.session.title} room is ready.`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "세션 생성에 실패했습니다.");
+      setError(caught instanceof Error ? caught.message : "Could not create the session.");
     } finally {
       setBusy(false);
     }
   }
 
-  async function handleJoinSession(inviteCode: string) {
+  async function handleJoinByInvite(inviteCode: string) {
+    if (!user || !inviteCode) {
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      const nextSnapshot = await joinSessionByInvite(user, inviteCode);
+      updateSnapshot(nextSnapshot);
+      await refreshDashboardData(user);
+      setActiveModal(null);
+      setActiveView("session");
+      appendLog("rest", "Joined by invite", `${nextSnapshot.session.title} room joined with code.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not join the room.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleJoinSession(sessionId: string) {
     if (!user) {
       return;
     }
 
-    setError(null);
     setBusy(true);
+    setError(null);
+
     try {
-      const nextSnapshot = await joinSession(user, inviteCode);
+      const nextSnapshot = await joinSessionById(user, sessionId);
       updateSnapshot(nextSnapshot);
-      appendLog("rest", "세션 참가", `${nextSnapshot.session.title} 세션에 참가했습니다.`);
+      await refreshDashboardData(user);
+      setActiveView("session");
+      appendLog("rest", "Joined room", `${nextSnapshot.session.title} room joined from list.`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "세션 참가에 실패했습니다.");
+      setError(caught instanceof Error ? caught.message : "Could not join the selected room.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleResumeSession(sessionId: string) {
+    if (!user) {
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      const nextSnapshot = await resumeSession(user, sessionId);
+      updateSnapshot(nextSnapshot);
+      await refreshDashboardData(user);
+      setActiveView("session");
+      appendLog("rest", "Session resumed", `${nextSnapshot.session.title} snapshot restored.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not resume the room.");
     } finally {
       setBusy(false);
     }
@@ -780,99 +1693,142 @@ export function App() {
     name: string;
     ancestry: string;
     className: string;
-    maxHp?: number;
+    maxHp: number;
+    armorClass: number;
+    speed: number;
   }) {
+    if (!user) {
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      const character = await createPersistentCharacter(user, payload);
+      setCharacters((current) => [character, ...current]);
+      await refreshDashboardData(user);
+      appendLog("rest", "Character created", `${character.name} was saved to your roster.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not create the character.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSelectCharacter(characterId: string) {
     if (!user || !snapshot) {
       return;
     }
 
-    setError(null);
     setBusy(true);
-    try {
-      const character = await createCharacter(user, {
-        ...payload,
-        sessionId: snapshot.session.id,
-      });
-      setSnapshot((current) => {
-        if (!current) {
-          return current;
-        }
+    setError(null);
 
-        const next = {
-          ...current,
-          characters: [...current.characters, character],
-          participants: current.participants.map((participant) =>
-            participant.userId === user.id
-              ? {
-                  ...participant,
-                  characterId: character.characterId,
-                  sessionCharacterId: character.id,
-                }
-              : participant,
-          ),
-        };
-        saveStoredSnapshot(next);
-        return next;
-      });
-      appendLog("rest", "캐릭터 생성", `${character.name} 캐릭터를 만들었습니다.`);
+    try {
+      await selectCharacterForSession(user, snapshot.session.id, characterId);
+      const nextSnapshot = await resumeSession(user, snapshot.session.id);
+      updateSnapshot(nextSnapshot);
+      await refreshDashboardData(user);
+      setActiveView("session");
+      appendLog("rest", "Character assigned", "Selected character was applied to the current room.");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "캐릭터 생성에 실패했습니다.");
+      setError(caught instanceof Error ? caught.message : "Could not assign the character.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleLeaveSession(sessionId: string) {
+    if (!user) {
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      await leaveSession(user, sessionId);
+      clearStoredSnapshot();
+      setSnapshot(null);
+      await refreshDashboardData(user);
+      setActiveView("main");
+      appendLog("rest", "Left session", "You left the room and released your current session assignment.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not leave the room.");
     } finally {
       setBusy(false);
     }
   }
 
   if (!user) {
-    return <LoginView onLogin={handleLogin} busy={busy} error={error} />;
+    return <LoginView busy={busy} error={error} onLogin={handleTestLogin} />;
   }
 
   return (
-    <div className="app-shell">
-      <Sidebar
-        user={user}
-        activeView={activeView}
-        onViewChange={setActiveView}
-        onLogout={handleLogout}
-      />
-      <div className="workspace">
-        <header className="topbar">
-          <div>
-            <strong>{snapshot?.session.title ?? "로비"}</strong>
-            <span>{statusText}</span>
-          </div>
-          <div className="topbar-right">
-            <span className={socketConnected ? "status online" : "status"}>
-              {socketConnected ? "실시간 연결" : "실시간 대기"}
-            </span>
-            <div className="avatar">{user.displayName.slice(0, 1)}</div>
-          </div>
-        </header>
+    <div className="app-shell app-shell-topnav">
+      {activeView !== "session" ? (
+        <TopNavigation
+          activeView={activeView}
+          user={user}
+          socketConnected={socketConnected}
+          onNavigate={setActiveView}
+          onLogout={handleLogout}
+        />
+      ) : null}
 
-        {activeView === "lobby" ? (
-          <LobbyView
-            user={user}
-            scenarios={scenarios}
-            snapshot={snapshot}
-            logs={logs}
+      <div className="workspace workspace-topnav">
+        {activeView === "main" ? (
+          <MainView
             busy={busy}
             error={error}
-            onCreateSession={handleCreateSession}
-            onJoinSession={handleJoinSession}
-            onCreateCharacter={handleCreateCharacter}
-            onOpenPlay={() => setActiveView("play")}
-          />
-        ) : (
-          <PlayView
-            user={user}
-            snapshot={snapshot}
+            currentSnapshot={snapshot}
+            joinableSessions={joinableSessions}
+            mySessions={mySessions}
+            myCharacters={characters}
             logs={logs}
             socketConnected={socketConnected}
-            onAction={(label) =>
-              appendLog("action", label, `${user.displayName} 님이 "${label}" 행동을 선언했습니다.`)
-            }
+            onOpenCreateModal={() => setActiveModal("create-session")}
+            onOpenJoinModal={() => setActiveModal("join-invite")}
+            onJoinSession={handleJoinSession}
+            onResumeSession={handleResumeSession}
           />
-        )}
+        ) : null}
+
+        {activeView === "session" ? (
+          <SessionView
+            user={user}
+            busy={busy}
+            snapshot={snapshot}
+            socketConnected={socketConnected}
+            onLeaveSession={handleLeaveSession}
+          />
+        ) : null}
+
+        {activeView === "characters" ? (
+          <CharacterView
+            busy={busy}
+            currentSnapshot={snapshot}
+            characters={characters}
+            onCreateCharacter={handleCreateCharacter}
+            onSelectCharacter={handleSelectCharacter}
+          />
+        ) : null}
+
+        {activeView === "rulebook" ? <RulebookView /> : null}
+        {activeView === "profile" ? (
+          <ProfileView user={user} mySessions={mySessions} currentSnapshot={snapshot} />
+        ) : null}
+        {activeView === "settings" ? <SettingsView /> : null}
       </div>
+
+      <SessionModal
+        type={activeModal}
+        busy={busy}
+        scenarios={scenarios}
+        onClose={() => setActiveModal(null)}
+        onCreateSession={handleCreateSession}
+        onJoinByInvite={handleJoinByInvite}
+      />
     </div>
   );
 }

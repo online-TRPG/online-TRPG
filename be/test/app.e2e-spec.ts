@@ -314,6 +314,79 @@ describe("Session and Character APIs (e2e)", () => {
       });
   });
 
+  it("releases a character when a participant leaves a session and transfers ownership if needed", async () => {
+    const owner = await request(baseUrl)
+      .post("/api/v1/users/guest")
+      .send({ displayName: "Owner" })
+      .expect(201);
+    const guest = await request(baseUrl)
+      .post("/api/v1/users/guest")
+      .send({ displayName: "Guest" })
+      .expect(201);
+
+    const guestCharacter = await request(baseUrl)
+      .post("/api/v1/characters")
+      .set("x-user-id", guest.body.id)
+      .send({
+        name: "Mira",
+        ancestry: "Elf",
+        className: "Wizard",
+      })
+      .expect(201);
+
+    const created = await request(baseUrl)
+      .post("/api/v1/sessions")
+      .set("x-user-id", owner.body.id)
+      .send({ title: "Leave Flow" })
+      .expect(201);
+
+    const sessionId = created.body.session.id as string;
+
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/join`)
+      .set("x-user-id", guest.body.id)
+      .expect(201);
+
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/character-selection`)
+      .set("x-user-id", guest.body.id)
+      .send({ characterId: guestCharacter.body.id })
+      .expect(201);
+
+    await request(baseUrl)
+      .delete(`/api/v1/sessions/${sessionId}/leave`)
+      .set("x-user-id", guest.body.id)
+      .expect(204);
+
+    await request(baseUrl)
+      .get(`/api/v1/characters/${guestCharacter.body.id}`)
+      .set("x-user-id", guest.body.id)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.activeSessionId).toBeNull();
+        expect(response.body.isSelectable).toBe(true);
+      });
+
+    await request(baseUrl)
+      .get(`/api/v1/sessions/${sessionId}`)
+      .set("x-user-id", owner.body.id)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.participants).toHaveLength(1);
+        expect(response.body.sessionCharacters).toHaveLength(0);
+      });
+
+    await request(baseUrl)
+      .delete(`/api/v1/sessions/${sessionId}/leave`)
+      .set("x-user-id", owner.body.id)
+      .expect(204);
+
+    await request(baseUrl)
+      .get(`/api/v1/sessions/${sessionId}`)
+      .set("x-user-id", owner.body.id)
+      .expect(404);
+  });
+
   it("allows a human GM session owner to control node, combat, and gm messages", async () => {
     const host = await request(baseUrl)
       .post("/api/v1/users/guest")
