@@ -5,7 +5,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # workspace 정의 + 루트 lock + 각 workspace 의 package.json 만 먼저 복사 (의존성 레이어 캐시)
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json tsconfig.base.json ./
 COPY shared-types/package.json ./shared-types/
 COPY be/package.json ./be/
 COPY fe/package.json ./fe/

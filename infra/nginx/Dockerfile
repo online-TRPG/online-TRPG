@@ -6,8 +6,8 @@
 FROM node:20-alpine AS fe-builder
 WORKDIR /app
 
-# workspace 정의 + 루트 lock + 각 workspace package.json (의존성 레이어 캐시)
-COPY package.json package-lock.json ./
+# workspace 정의 + 루트 lock + 루트 tsconfig + 각 workspace package.json (의존성 레이어 캐시)
+COPY package.json package-lock.json tsconfig.base.json ./
 COPY shared-types/package.json ./shared-types/
 COPY be/package.json ./be/
 COPY fe/package.json ./fe/
