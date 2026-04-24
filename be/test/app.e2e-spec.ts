@@ -137,6 +137,210 @@ describe("Session and Character APIs (e2e)", () => {
     await agent.post("/api/v1/users/reissue").expect(401);
   });
 
+  it("exchanges Kakao authorization code and signs in with provider user info", async () => {
+    const previousRestApiKey = process.env.KAKAO_REST_API_KEY;
+    const previousClientSecret = process.env.KAKAO_CLIENT_SECRET;
+    process.env.KAKAO_REST_API_KEY = "test-rest-api-key";
+    process.env.KAKAO_CLIENT_SECRET = "test-client-secret";
+
+    const fetchMock = jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "https://kauth.kakao.com/oauth/token") {
+        const body = init?.body as URLSearchParams;
+        expect(body.get("grant_type")).toBe("authorization_code");
+        expect(body.get("client_id")).toBe("test-rest-api-key");
+        expect(body.get("redirect_uri")).toBe("http://localhost:5173/oauth/callback");
+        expect(body.get("code")).toBe("kakao-auth-code");
+        expect(body.get("client_secret")).toBe("test-client-secret");
+
+        return new Response(
+          JSON.stringify({
+            token_type: "bearer",
+            access_token: "kakao-access-token",
+            expires_in: 21599,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      if (url === "https://kapi.kakao.com/v2/user/me") {
+        expect((init?.headers as Record<string, string>).Authorization).toBe(
+          "Bearer kakao-access-token",
+        );
+
+        return new Response(
+          JSON.stringify({
+            id: 123456789,
+            kakao_account: {
+              email: "KAKAO_USER@example.com",
+              is_email_valid: true,
+              is_email_verified: true,
+              profile: {
+                nickname: "카카오모험가",
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+
+    try {
+      const response = await request(baseUrl)
+        .post("/api/v1/users/oauth/kakao/login")
+        .send({
+          code: "kakao-auth-code",
+          redirectUri: "http://localhost:5173/oauth/callback",
+        })
+        .expect(200);
+
+      expect(response.body.code).toBe("USER_200");
+      expect(response.body.data.accessToken).toEqual(expect.any(String));
+      expect(response.body.data.user.email).toBe("kakao_user@example.com");
+      expect(response.body.data.user.displayName).toBe("카카오모험가");
+      expect(response.body.data.user.authProvider).toBe("KAKAO");
+
+      const socialAccount = await prisma.socialAccount.findFirstOrThrow({
+        where: {
+          provider: "KAKAO",
+          providerUserId: "123456789",
+        },
+        include: { user: true },
+      });
+      expect(socialAccount.email).toBe("kakao_user@example.com");
+      expect(socialAccount.user.email).toBe("kakao_user@example.com");
+    } finally {
+      fetchMock.mockRestore();
+      if (previousRestApiKey === undefined) {
+        delete process.env.KAKAO_REST_API_KEY;
+      } else {
+        process.env.KAKAO_REST_API_KEY = previousRestApiKey;
+      }
+      if (previousClientSecret === undefined) {
+        delete process.env.KAKAO_CLIENT_SECRET;
+      } else {
+        process.env.KAKAO_CLIENT_SECRET = previousClientSecret;
+      }
+    }
+  });
+
+  it("exchanges Discord authorization code and signs in with provider user info", async () => {
+    const previousClientId = process.env.DISCORD_CLIENT_ID;
+    const previousClientSecret = process.env.DISCORD_CLIENT_SECRET;
+    process.env.DISCORD_CLIENT_ID = "test-discord-client-id";
+    process.env.DISCORD_CLIENT_SECRET = "test-discord-client-secret";
+
+    const urlResponse = await request(baseUrl)
+      .get("/api/v1/users/oauth/discord/url")
+      .query({
+        redirectUri: "http://localhost:5173/oauth/callback",
+        state: "discord-state",
+      })
+      .expect(200);
+
+    expect(urlResponse.body.data.provider).toBe("DISCORD");
+    expect(urlResponse.body.data.authUrl).toContain("scope=identify+email");
+    const authUrl = new URL(urlResponse.body.data.authUrl);
+    expect(authUrl.searchParams.get("client_id")).toBe("test-discord-client-id");
+    expect(authUrl.searchParams.get("redirect_uri")).toBe("http://localhost:5173/oauth/callback");
+    expect(authUrl.searchParams.get("scope")).toBe("identify email");
+    expect(authUrl.searchParams.get("state")).toBe("discord-state");
+
+    const fetchMock = jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "https://discord.com/api/v10/oauth2/token") {
+        const body = init?.body as URLSearchParams;
+        expect(body.get("grant_type")).toBe("authorization_code");
+        expect(body.get("client_id")).toBe("test-discord-client-id");
+        expect(body.get("client_secret")).toBe("test-discord-client-secret");
+        expect(body.get("redirect_uri")).toBe("http://localhost:5173/oauth/callback");
+        expect(body.get("code")).toBe("discord-auth-code");
+
+        return new Response(
+          JSON.stringify({
+            access_token: "discord-access-token",
+            token_type: "Bearer",
+            expires_in: 604800,
+            refresh_token: "discord-refresh-token",
+            scope: "identify email",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      if (url === "https://discord.com/api/v10/users/@me") {
+        expect((init?.headers as Record<string, string>).Authorization).toBe(
+          "Bearer discord-access-token",
+        );
+
+        return new Response(
+          JSON.stringify({
+            id: "987654321",
+            username: "discord_user",
+            global_name: "디스코드모험가",
+            email: "DISCORD_USER@example.com",
+            verified: true,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+
+    try {
+      const response = await request(baseUrl)
+        .post("/api/v1/users/oauth/discord/login")
+        .send({
+          code: "discord-auth-code",
+          redirectUri: "http://localhost:5173/oauth/callback",
+        })
+        .expect(200);
+
+      expect(response.body.code).toBe("USER_200");
+      expect(response.body.data.accessToken).toEqual(expect.any(String));
+      expect(response.body.data.user.email).toBe("discord_user@example.com");
+      expect(response.body.data.user.displayName).toBe("디스코드모험가");
+      expect(response.body.data.user.authProvider).toBe("DISCORD");
+
+      const socialAccount = await prisma.socialAccount.findFirstOrThrow({
+        where: {
+          provider: "DISCORD",
+          providerUserId: "987654321",
+        },
+        include: { user: true },
+      });
+      expect(socialAccount.email).toBe("discord_user@example.com");
+      expect(socialAccount.user.email).toBe("discord_user@example.com");
+    } finally {
+      fetchMock.mockRestore();
+      if (previousClientId === undefined) {
+        delete process.env.DISCORD_CLIENT_ID;
+      } else {
+        process.env.DISCORD_CLIENT_ID = previousClientId;
+      }
+      if (previousClientSecret === undefined) {
+        delete process.env.DISCORD_CLIENT_SECRET;
+      } else {
+        process.env.DISCORD_CLIENT_SECRET = previousClientSecret;
+      }
+    }
+  });
+
   it("supports persistent characters and session character assignment lifecycle", async () => {
     const host = await request(baseUrl)
       .post("/api/v1/users/guest")

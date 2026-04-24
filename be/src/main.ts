@@ -18,7 +18,10 @@ async function bootstrap(): Promise<void> {
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
-  app.enableCors();
+  app.enableCors({
+    origin: true,       // 요청의 Origin을 그대로 허용 (로컬 개발용)
+    credentials: true,  // refresh token 쿠키 전송 허용
+  });
   app.setGlobalPrefix("api/v1");
 
   const config = new DocumentBuilder()
