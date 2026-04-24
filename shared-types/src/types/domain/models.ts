@@ -16,9 +16,13 @@ export type UserModel = {
 export type SessionModel = {
   id: string;
   title: string;
+  description: string;
   ownerUserId: string;
+  captainUserId?: string | null;
   inviteCode: string;
   status: SessionStatus;
+  maxParticipants: number;
+  isPublic: boolean;
   scenarioId: string;
   currentNodeId: string;
   createdAt: string;
@@ -30,6 +34,7 @@ export type SessionParticipantModel = {
   sessionId: string;
   userId: string;
   characterId?: string | null;
+  sessionCharacterId?: string | null;
   role: ParticipantRole;
   connectionStatus: ConnectionStatus;
   joinedAt: string;
@@ -37,7 +42,30 @@ export type SessionParticipantModel = {
 
 export type CharacterModel = {
   id: string;
+  ownerUserId: string;
+  name: string;
+  ancestry: string;
+  className: string;
+  level: number;
+  abilities: AbilityScores;
+  proficiencyBonus: number;
+  proficientSkills: string[];
+  maxHp: number;
+  armorClass: number;
+  speed: number;
+  inventory: InventoryItem[];
+  equippedWeaponId?: string | null;
+  activeSessionId?: string | null;
+  isSelectable: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SessionCharacterModel = {
+  id: string;
   sessionId: string;
+  participantId: string;
+  characterId: string;
   ownerUserId: string;
   name: string;
   ancestry: string;
@@ -54,6 +82,7 @@ export type CharacterModel = {
   inventory: InventoryItem[];
   equippedWeaponId?: string | null;
   conditions: string[];
+  initiative?: number | null;
   createdAt: string;
   updatedAt: string;
 };

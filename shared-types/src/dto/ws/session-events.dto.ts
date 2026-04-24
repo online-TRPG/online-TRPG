@@ -1,6 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { IsString } from "class-validator";
-import { CharacterResponseDto } from "../api/characters.dto";
+import { SessionCharacterResponseDto } from "../api/characters.dto";
 import {
   SessionParticipantResponseDto,
   SessionResponseDto,
@@ -33,8 +33,8 @@ export class CharacterUpdatedEventDto {
   @ApiProperty()
   sessionId!: string;
 
-  @ApiProperty({ type: CharacterResponseDto })
-  character!: CharacterResponseDto;
+  @ApiProperty({ type: SessionCharacterResponseDto })
+  character!: SessionCharacterResponseDto;
 }
 
 export class SessionStatusUpdatedEventDto {

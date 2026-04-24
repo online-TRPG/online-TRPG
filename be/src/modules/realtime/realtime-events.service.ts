@@ -1,8 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import {
-  CharacterResponseDto,
   CharacterUpdatedEventDto,
   ParticipantUpdatedEventDto,
+  SessionCharacterResponseDto,
   SessionParticipantResponseDto,
   SessionResponseDto,
   SessionSnapshotDto,
@@ -41,7 +41,7 @@ export class RealtimeEventsService {
     this.server.to(this.getRoomName(sessionId)).emit("participant.updated", payload);
   }
 
-  emitCharacterUpdated(sessionId: string, character: CharacterResponseDto): void {
+  emitCharacterUpdated(sessionId: string, character: SessionCharacterResponseDto): void {
     if (!this.server) {
       return;
     }

@@ -1,15 +1,16 @@
 import {
+  Character,
   ConnectionStatus as PrismaConnectionStatus,
   GamePhase as PrismaGamePhase,
-  ScenarioLicense as PrismaScenarioLicense,
-  ParticipantRole as PrismaParticipantRole,
-  SessionStatus as PrismaSessionStatus,
-  Character,
   GameState,
+  ParticipantRole as PrismaParticipantRole,
   Scenario,
+  ScenarioLicense as PrismaScenarioLicense,
   ScenarioNode,
   Session,
+  SessionCharacter,
   SessionParticipant,
+  SessionStatus as PrismaSessionStatus,
   User,
 } from "@prisma/client";
 import {
@@ -24,13 +25,25 @@ import {
   ScenarioNodeResponseDto,
   ScenarioResponseDto,
   ScenarioSummaryResponseDto,
+  SessionCharacterResponseDto,
   SessionParticipantResponseDto,
   SessionResponseDto,
   SessionStatus,
   UserResponseDto,
 } from "@trpg/shared-types";
 
-type ParticipantWithUser = SessionParticipant & { user: User };
+type ParticipantWithUserAndCharacter = SessionParticipant & {
+  user: User;
+  sessionCharacter?: (SessionCharacter & { character: Character }) | null;
+};
+
+type CharacterWithAssignments = Character & {
+  sessionCharacters?: Array<SessionCharacter & { session: Session }>;
+};
+
+type SessionCharacterWithBase = SessionCharacter & {
+  character: Character;
+};
 
 const sessionStatusMap: Record<PrismaSessionStatus, SessionStatus> = {
   LOBBY: SessionStatus.LOBBY,
@@ -83,9 +96,13 @@ export function mapSession(session: Session): SessionResponseDto {
   return {
     id: session.id,
     title: session.title,
+    description: session.description,
     ownerUserId: session.ownerUserId,
+    captainUserId: session.captainUserId,
     inviteCode: session.inviteCode,
     status: sessionStatusMap[session.status],
+    maxParticipants: session.maxParticipants,
+    isPublic: session.isPublic,
     scenarioId: session.scenarioId,
     currentNodeId: session.currentNodeId,
     createdAt: toIsoString(session.createdAt),
@@ -93,12 +110,15 @@ export function mapSession(session: Session): SessionResponseDto {
   };
 }
 
-export function mapParticipant(participant: ParticipantWithUser): SessionParticipantResponseDto {
+export function mapParticipant(
+  participant: ParticipantWithUserAndCharacter,
+): SessionParticipantResponseDto {
   return {
     id: participant.id,
     sessionId: participant.sessionId,
     userId: participant.userId,
-    characterId: participant.characterId,
+    characterId: participant.sessionCharacter?.characterId ?? null,
+    sessionCharacterId: participant.sessionCharacter?.id ?? null,
     role: participantRoleMap[participant.role],
     connectionStatus: connectionStatusMap[participant.connectionStatus],
     joinedAt: toIsoString(participant.joinedAt),
@@ -106,10 +126,14 @@ export function mapParticipant(participant: ParticipantWithUser): SessionPartici
   };
 }
 
-export function mapCharacter(character: Character): CharacterResponseDto {
+export function mapCharacter(character: CharacterWithAssignments): CharacterResponseDto {
+  const activeAssignment =
+    character.sessionCharacters?.find(
+      (assignment) => assignment.session.status !== PrismaSessionStatus.COMPLETED,
+    ) ?? null;
+
   return {
     id: character.id,
-    sessionId: character.sessionId,
     ownerUserId: character.ownerUserId,
     name: character.name,
     ancestry: character.ancestry,
@@ -119,15 +143,44 @@ export function mapCharacter(character: Character): CharacterResponseDto {
     proficiencyBonus: character.proficiencyBonus,
     proficientSkills: parseJson<string[]>(character.proficientSkillsJson),
     maxHp: character.maxHp,
-    currentHp: character.currentHp,
-    tempHp: character.tempHp,
     armorClass: character.armorClass,
     speed: character.speed,
     inventory: parseJson<InventoryItemDto[]>(character.inventoryJson),
-    equippedWeaponId: character.equippedWeaponId,
-    conditions: parseJson<string[]>(character.conditionsJson),
+    equippedWeaponId: character.equippedWeaponId ?? null,
+    activeSessionId: activeAssignment?.sessionId ?? null,
+    isSelectable: !activeAssignment,
     createdAt: toIsoString(character.createdAt),
     updatedAt: toIsoString(character.updatedAt),
+  };
+}
+
+export function mapSessionCharacter(
+  sessionCharacter: SessionCharacterWithBase,
+): SessionCharacterResponseDto {
+  return {
+    id: sessionCharacter.id,
+    sessionId: sessionCharacter.sessionId,
+    participantId: sessionCharacter.participantId,
+    characterId: sessionCharacter.characterId,
+    ownerUserId: sessionCharacter.character.ownerUserId,
+    name: sessionCharacter.name,
+    ancestry: sessionCharacter.ancestry,
+    className: sessionCharacter.className,
+    level: sessionCharacter.level,
+    abilities: parseJson<AbilityScoresDto>(sessionCharacter.abilitiesJson),
+    proficiencyBonus: sessionCharacter.proficiencyBonus,
+    proficientSkills: parseJson<string[]>(sessionCharacter.proficientSkillsJson),
+    maxHp: sessionCharacter.maxHp,
+    currentHp: sessionCharacter.currentHp,
+    tempHp: sessionCharacter.tempHp,
+    armorClass: sessionCharacter.armorClass,
+    speed: sessionCharacter.speed,
+    inventory: parseJson<InventoryItemDto[]>(sessionCharacter.inventoryJson),
+    equippedWeaponId: sessionCharacter.equippedWeaponId ?? null,
+    conditions: parseJson<string[]>(sessionCharacter.conditionsJson),
+    initiative: sessionCharacter.initiative ?? null,
+    createdAt: toIsoString(sessionCharacter.createdAt),
+    updatedAt: toIsoString(sessionCharacter.updatedAt),
   };
 }
 
