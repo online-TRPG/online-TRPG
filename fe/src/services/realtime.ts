@@ -25,33 +25,36 @@ export function connectSessionSocket(
 
   socket.on("connect", () => {
     handlers.onStatusChange(true);
-    handlers.onLog("실시간 연결", "세션 방에 입장했습니다.");
+    handlers.onLog("Realtime connected", "Joined the live session channel.");
     socket.emit("session.join", { sessionId });
   });
 
   socket.on("disconnect", () => {
     handlers.onStatusChange(false);
-    handlers.onLog("실시간 연결 종료", "WebSocket 연결이 끊겼습니다.");
+    handlers.onLog("Realtime disconnected", "The websocket connection was closed.");
   });
 
   socket.on("connect_error", (error) => {
     handlers.onStatusChange(false);
-    handlers.onLog("실시간 연결 실패", error.message);
+    handlers.onLog("Realtime error", error.message);
   });
 
   socket.on("session.snapshot", (payload: { snapshot: SessionSnapshot }) => {
     handlers.onSnapshot(normalizeSessionSnapshot(payload.snapshot));
-    handlers.onLog("스냅샷 수신", "현재 세션 상태를 불러왔습니다.");
+    handlers.onLog("Session synced", "Loaded the latest room snapshot.");
   });
 
   socket.on("participant.updated", (payload: { participant: Participant }) => {
     handlers.onParticipantUpdated(payload.participant);
-    handlers.onLog("참가자 변경", `${payload.participant.user.displayName} 님의 참가 정보가 갱신되었습니다.`);
+    handlers.onLog(
+      "Participant updated",
+      `${payload.participant.user.displayName} participant state changed.`,
+    );
   });
 
   socket.on("character.updated", (payload: { character: Character }) => {
     handlers.onCharacterUpdated(payload.character);
-    handlers.onLog("캐릭터 변경", `${payload.character.name} 캐릭터 정보가 갱신되었습니다.`);
+    handlers.onLog("Character updated", `${payload.character.name} stats were refreshed.`);
   });
 
   return socket;

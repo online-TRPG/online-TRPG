@@ -125,6 +125,18 @@ export class SessionsController {
     return this.sessionsService.joinSessionById(userId, sessionId);
   }
 
+  @Delete(":id/leave")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiNoContentResponse()
+  @HttpCode(204)
+  async leaveSession(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<void> {
+    await this.sessionsService.leaveSession(userId, sessionId);
+  }
+
   @Get(":id/participants")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })

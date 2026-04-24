@@ -3,6 +3,7 @@ import type {
   GameStateResponseDto,
   ScenarioSummaryResponseDto,
   SessionCharacterResponseDto,
+  SessionListItemResponseDto,
   SessionParticipantResponseDto,
   SessionResponseDto,
   SessionSnapshotDto,
@@ -12,6 +13,7 @@ import type {
 export type User = UserResponseDto;
 export type Scenario = ScenarioSummaryResponseDto;
 export type Session = SessionResponseDto;
+export type SessionListItem = SessionListItemResponseDto;
 export type Participant = SessionParticipantResponseDto;
 export type PersistentCharacter = CharacterResponseDto;
 export type Character = SessionCharacterResponseDto;
