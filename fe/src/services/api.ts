@@ -1,4 +1,5 @@
 import type {
+  ApiErrorBody,
   Character,
   Participant,
   PersistentCharacter,
@@ -7,8 +8,8 @@ import type {
   SessionSnapshot,
   StoredUser,
   User,
-  ApiErrorBody,
 } from "../types/session";
+import { GmMode } from "@trpg/shared-types";
 import type { CharacterResponseDto, SessionSnapshotDto } from "@trpg/shared-types";
 import { normalizeSessionSnapshot } from "../types/session";
 
@@ -27,13 +28,16 @@ interface SessionListQuery {
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
 const configuredWsBaseUrl = import.meta.env.VITE_WS_BASE_URL as string | undefined;
 
-export const API_BASE_URL = (configuredBaseUrl || "http://localhost:3000/api/v1").replace(
+const rawBaseUrl = (configuredBaseUrl || "http://localhost:3000").replace(/\/$/, "");
+export const API_BASE_URL = rawBaseUrl.endsWith("/api/v1") ? rawBaseUrl : `${rawBaseUrl}/api/v1`;
+export const SOCKET_BASE_URL = (configuredWsBaseUrl || API_BASE_URL.replace(/\/api\/v1$/, "")).replace(
   /\/$/,
   "",
 );
-export const WS_BASE_URL = (
-  configuredWsBaseUrl || API_BASE_URL.replace(/\/api\/v\d+$/, "")
-).replace(/\/$/, "");
+export const WS_BASE_URL = SOCKET_BASE_URL;
+
+const DEFAULT_SCENARIO_ID = "scenario_goblin_cave";
+const DEFAULT_RULE_SET_ID = "dnd5e";
 
 type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
@@ -62,6 +66,14 @@ interface CreateCharacterPayload {
   speed?: number;
 }
 
+type PageResponse<T> = {
+  content: T[];
+  page?: number;
+  size?: number;
+  totalElements?: number;
+  totalPages?: number;
+};
+
 function formatApiError(body: ApiErrorBody | null, fallback: string): string {
   if (!body?.message) {
     return fallback;
@@ -83,6 +95,28 @@ function buildQuery(query: Record<string, string | number | boolean | undefined>
 
   const serialized = params.toString();
   return serialized ? `?${serialized}` : "";
+}
+
+function unwrapApiResponse<T>(body: unknown): T {
+  if (
+    body &&
+    typeof body === "object" &&
+    "code" in body &&
+    "message" in body &&
+    "data" in body
+  ) {
+    return (body as { data: T }).data;
+  }
+
+  return body as T;
+}
+
+function extractPageContent<T>(body: PageResponse<T> | T[]): T[] {
+  return Array.isArray(body) ? body : body.content;
+}
+
+function toGmMode(value: SessionGmMode | undefined): GmMode {
+  return value === "human" ? GmMode.HUMAN : GmMode.AI;
 }
 
 async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -111,7 +145,8 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
     return undefined as T;
   }
 
-  return (await response.json()) as T;
+  const body = (await response.json()) as unknown;
+  return unwrapApiResponse<T>(body);
 }
 
 export function createGuest(displayName: string): Promise<User> {
@@ -126,7 +161,7 @@ export function listScenarios(): Promise<Scenario[]> {
 }
 
 export function listSessions(query: SessionListQuery = {}): Promise<SessionListItem[]> {
-  return requestJson<SessionListItem[]>(
+  return requestJson<PageResponse<SessionListItem> | SessionListItem[]>(
     `/sessions${buildQuery({
       search: query.search,
       scenarioId: query.scenarioId,
@@ -135,11 +170,13 @@ export function listSessions(query: SessionListQuery = {}): Promise<SessionListI
       isPublic: query.isPublic,
       openSlotsAtLeast: query.openSlotsAtLeast,
     })}`,
-  );
+  ).then(extractPageContent);
 }
 
 export function listMySessions(user: StoredUser): Promise<SessionListItem[]> {
-  return requestJson<SessionListItem[]>("/users/me/sessions", { user });
+  return requestJson<PageResponse<SessionListItem> | SessionListItem[]>("/users/me/sessions", {
+    user,
+  }).then(extractPageContent);
 }
 
 export function listMyCharacters(user: StoredUser): Promise<CharacterResponseDto[]> {
@@ -153,7 +190,15 @@ export function createSession(
   return requestJson<SessionSnapshotDto>("/sessions", {
     method: "POST",
     user,
-    body: payload,
+    body: {
+      title: payload.title,
+      description: payload.description,
+      scenarioId: payload.scenarioId ?? DEFAULT_SCENARIO_ID,
+      ruleSetId: DEFAULT_RULE_SET_ID,
+      maxPlayers: payload.maxParticipants ?? 4,
+      gmMode: toGmMode(payload.gmMode),
+      isPrivate: payload.isPublic === undefined ? undefined : !payload.isPublic,
+    },
   }).then(normalizeSessionSnapshot);
 }
 

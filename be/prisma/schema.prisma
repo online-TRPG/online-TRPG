@@ -14,11 +14,6 @@ enum SessionStatus {
   COMPLETED
 }
 
-enum SessionGmMode {
-  AI
-  HUMAN
-}
-
 enum ParticipantRole {
   HOST
   PLAYER
@@ -37,6 +32,18 @@ enum GamePhase {
   REST
 }
 
+enum AuthProvider {
+  LOCAL
+  KAKAO
+  DISCORD
+  GUEST
+}
+
+enum GmMode {
+  AI
+  HUMAN
+}
+
 enum ScenarioLicense {
   ORIGINAL
   CC_BY_4_0
@@ -46,10 +53,17 @@ enum ScenarioLicense {
 model User {
   id            String               @id @default(cuid())
   displayName   String
+  email         String?              @unique
+  passwordHash  String?
+  authProvider  AuthProvider         @default(GUEST)
+  deletedAt     DateTime?
   createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @default(now()) @updatedAt
   ownedSessions Session[]            @relation("SessionOwner")
   participants  SessionParticipant[]
   characters    Character[]
+  refreshTokens RefreshToken[]
+  socialAccounts SocialAccount[]
 }
 
 model Session {
@@ -59,19 +73,43 @@ model Session {
   ownerUserId      String
   captainUserId    String?
   inviteCode       String               @unique
-  gmMode           SessionGmMode        @default(AI)
   status           SessionStatus        @default(LOBBY)
   maxParticipants  Int                  @default(4)
   isPublic         Boolean              @default(true)
+  ruleSetId        String?
+  gmMode           GmMode               @default(AI)
+  gmUserId         String?
   scenarioId       String
   currentNodeId    String
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
   owner            User                 @relation("SessionOwner", fields: [ownerUserId], references: [id])
   scenario         Scenario             @relation(fields: [scenarioId], references: [id])
-  participants     SessionParticipant[]
+  participants      SessionParticipant[]
   sessionCharacters SessionCharacter[]
   gameState        GameState?
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SocialAccount {
+  id             String       @id @default(cuid())
+  userId         String
+  provider       AuthProvider
+  providerUserId String
+  email          String?
+  createdAt      DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
 }
 
 model SessionParticipant {

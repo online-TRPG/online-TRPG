@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+﻿import { FormEvent, useEffect, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 import {
   API_BASE_URL,
@@ -717,7 +717,7 @@ function SessionParticipantStrip({
               : "Open slot";
         const readyLabel = slot.isAiGm
           ? "ACTIVE"
-          : slot.participant?.connectionStatus === "online"
+          : slot.participant?.connectionStatus === "ONLINE"
             ? "READY"
             : slot.participant
               ? "WAITING"
@@ -735,7 +735,7 @@ function SessionParticipantStrip({
                 </div>
                 <div className="session-avatar-badges">
                   {slot.isHost ? <span className="session-avatar-badge host" title="Host" /> : null}
-                  {slot.isAiGm || (slot.isHost && gmMode === "human") ? (
+                  {slot.isAiGm || (slot.isHost && gmMode === "HUMAN") ? (
                     <span className="session-avatar-badge gm" title="GM" />
                   ) : null}
                 </div>
@@ -878,7 +878,7 @@ function SessionView({
     isAiGm: boolean;
   }> = [];
 
-  if (snapshot.session.gmMode === "ai") {
+  if (snapshot.session.gmMode === "AI") {
     participantSlots.push({
       id: "ai-gm",
       participant: null,
@@ -929,7 +929,7 @@ function SessionView({
       },
       {
         id: "main-gm",
-        sender: snapshot.session.gmMode === "ai" ? "AI GM" : "GM Console",
+        sender: snapshot.session.gmMode === "AI" ? "AI GM" : "GM Console",
         body: "Main panel summary and room-level prompts can live here later.",
         direction: "incoming",
         time: "09:12",
@@ -952,7 +952,7 @@ function SessionView({
       },
       {
         id: "chat-gm",
-        sender: snapshot.session.gmMode === "ai" ? "AI GM" : "GM",
+        sender: snapshot.session.gmMode === "AI" ? "AI GM" : "GM",
         body: "Future room chat, narration, and action prompts will render in this stream.",
         direction: "incoming",
         time: "09:18",
@@ -1072,7 +1072,7 @@ function SessionView({
                       <div className="avatar avatar-large">{initials(participant.user.displayName)}</div>
                       <div className="session-avatar-badges">
                         {isHost ? <span className="session-avatar-badge host" title="방장" /> : null}
-                        {isHost && snapshot.session.gmMode === "human" ? (
+                        {isHost && snapshot.session.gmMode === "HUMAN" ? (
                           <span className="session-avatar-badge gm" title="GM" />
                         ) : null}
                       </div>
@@ -1087,7 +1087,7 @@ function SessionView({
                   <div className="session-ready-card">
                     <span className="session-ready-label">Ready</span>
                     <button type="button" className="session-ready-button" disabled>
-                      {participant.connectionStatus === "online" ? "대기중" : "오프라인"}
+                      {participant.connectionStatus === "ONLINE" ? "대기중" : "오프라인"}
                     </button>
                   </div>
                 </article>
@@ -1832,3 +1832,4 @@ export function App() {
     </div>
   );
 }
+
