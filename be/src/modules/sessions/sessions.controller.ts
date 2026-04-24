@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from "@nestjs/common";
 import {
   ApiCreatedResponse,
@@ -19,15 +20,18 @@ import {
 import {
   CreateSessionDto,
   GameStateResponseDto,
+  HumanGmMessageDto,
   JoinSessionDto,
   ParticipantStatusResponseDto,
   SelectSessionCharacterDto,
   SessionDetailResponseDto,
   SessionInviteResponseDto,
   SessionListItemResponseDto,
+  SessionListQueryDto,
   SessionParticipantResponseDto,
   SessionResponseDto,
   SessionSnapshotDto,
+  UpdateSessionNodeDto,
   UpdateSessionCaptainDto,
   UpdateSessionDto,
 } from "@trpg/shared-types";
@@ -41,8 +45,8 @@ export class SessionsController {
 
   @Get()
   @ApiOkResponse({ type: [SessionListItemResponseDto] })
-  listSessions(): Promise<SessionListItemResponseDto[]> {
-    return this.sessionsService.listAvailableSessions();
+  listSessions(@Query() query: SessionListQueryDto): Promise<SessionListItemResponseDto[]> {
+    return this.sessionsService.listAvailableSessions(query);
   }
 
   @Post()
@@ -198,5 +202,51 @@ export class SessionsController {
     @Param("id") sessionId: string,
   ): Promise<SessionInviteResponseDto> {
     return this.sessionsService.getInviteInfo(userId, sessionId);
+  }
+
+  @Post(":id/gm/messages")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  createHumanGmMessage(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: HumanGmMessageDto,
+  ): Promise<SessionSnapshotDto> {
+    return this.sessionsService.createHumanGmMessage(userId, sessionId, dto);
+  }
+
+  @Patch(":id/gm/node")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: SessionSnapshotDto })
+  updateSessionNode(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: UpdateSessionNodeDto,
+  ): Promise<SessionSnapshotDto> {
+    return this.sessionsService.updateSessionNode(userId, sessionId, dto);
+  }
+
+  @Post(":id/gm/combat/start")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  startCombat(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<SessionSnapshotDto> {
+    return this.sessionsService.startCombat(userId, sessionId);
+  }
+
+  @Post(":id/gm/combat/end")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  endCombat(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<SessionSnapshotDto> {
+    return this.sessionsService.endCombat(userId, sessionId);
   }
 }

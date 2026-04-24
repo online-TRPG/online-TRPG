@@ -14,6 +14,7 @@ import {
 import {
   ConnectionStatus,
   GamePhase,
+  SessionGmMode,
   ParticipantRole,
   SessionStatus,
 } from "../../constants/enums";
@@ -52,6 +53,11 @@ export class CreateSessionDto {
   @Type(() => Boolean)
   @IsBoolean()
   isPublic?: boolean;
+
+  @ApiPropertyOptional({ enum: SessionGmMode, default: SessionGmMode.AI })
+  @IsOptional()
+  @IsEnum(SessionGmMode)
+  gmMode?: SessionGmMode;
 }
 
 export class UpdateSessionDto {
@@ -86,6 +92,47 @@ export class UpdateSessionDto {
   @IsOptional()
   @IsEnum(SessionStatus)
   status?: SessionStatus;
+
+  @ApiPropertyOptional({ enum: SessionGmMode })
+  @IsOptional()
+  @IsEnum(SessionGmMode)
+  gmMode?: SessionGmMode;
+}
+
+export class SessionListQueryDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  scenarioId?: string;
+
+  @ApiPropertyOptional({ enum: SessionStatus })
+  @IsOptional()
+  @IsEnum(SessionStatus)
+  status?: SessionStatus;
+
+  @ApiPropertyOptional({ enum: SessionGmMode })
+  @IsOptional()
+  @IsEnum(SessionGmMode)
+  gmMode?: SessionGmMode;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isPublic?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  openSlotsAtLeast?: number;
 }
 
 export class JoinSessionDto {
@@ -127,6 +174,10 @@ export class SessionResponseDto {
 
   @ApiProperty()
   inviteCode!: string;
+
+  @ApiProperty({ enum: SessionGmMode })
+  @IsEnum(SessionGmMode)
+  gmMode!: SessionGmMode;
 
   @ApiProperty({ enum: SessionStatus })
   @IsEnum(SessionStatus)
@@ -263,4 +314,31 @@ export class SessionInviteResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   shareUrl!: string | null;
+}
+
+export class HumanGmMessageDto {
+  @ApiProperty({ example: "문이 천천히 열리며 차가운 바람이 스민다." })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  content!: string;
+
+  @ApiPropertyOptional({ example: "Innkeeper" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  speakerName?: string;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  asNpc?: boolean;
+}
+
+export class UpdateSessionNodeDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  nodeId!: string;
 }

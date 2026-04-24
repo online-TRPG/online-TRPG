@@ -3,6 +3,7 @@ import {
   ConnectionStatus as PrismaConnectionStatus,
   GamePhase as PrismaGamePhase,
   GameState,
+  SessionGmMode as PrismaSessionGmMode,
   ParticipantRole as PrismaParticipantRole,
   Scenario,
   ScenarioLicense as PrismaScenarioLicense,
@@ -26,6 +27,7 @@ import {
   ScenarioResponseDto,
   ScenarioSummaryResponseDto,
   SessionCharacterResponseDto,
+  SessionGmMode,
   SessionParticipantResponseDto,
   SessionResponseDto,
   SessionStatus,
@@ -50,6 +52,11 @@ const sessionStatusMap: Record<PrismaSessionStatus, SessionStatus> = {
   PLAYING: SessionStatus.PLAYING,
   PAUSED: SessionStatus.PAUSED,
   COMPLETED: SessionStatus.COMPLETED,
+};
+
+const sessionGmModeMap: Record<PrismaSessionGmMode, SessionGmMode> = {
+  AI: SessionGmMode.AI,
+  HUMAN: SessionGmMode.HUMAN,
 };
 
 const participantRoleMap: Record<PrismaParticipantRole, ParticipantRole> = {
@@ -100,6 +107,7 @@ export function mapSession(session: Session): SessionResponseDto {
     ownerUserId: session.ownerUserId,
     captainUserId: session.captainUserId,
     inviteCode: session.inviteCode,
+    gmMode: sessionGmModeMap[session.gmMode],
     status: sessionStatusMap[session.status],
     maxParticipants: session.maxParticipants,
     isPublic: session.isPublic,
