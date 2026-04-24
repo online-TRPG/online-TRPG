@@ -1,4 +1,4 @@
-import type { SessionSnapshot, StoredUser } from "../types/session";
+import { normalizeSessionSnapshot, type SessionSnapshot, type StoredUser } from "../types/session";
 
 const USER_KEY = "trpg.currentUser";
 const SNAPSHOT_KEY = "trpg.currentSnapshot";
@@ -32,7 +32,7 @@ export function loadStoredSnapshot(): SessionSnapshot | null {
   }
 
   try {
-    return JSON.parse(raw) as SessionSnapshot;
+    return normalizeSessionSnapshot(JSON.parse(raw) as SessionSnapshot);
   } catch {
     localStorage.removeItem(SNAPSHOT_KEY);
     return null;

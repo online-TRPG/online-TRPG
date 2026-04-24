@@ -1,6 +1,7 @@
 import { io, Socket } from "socket.io-client";
-import { API_BASE_URL } from "./api";
+import { WS_BASE_URL } from "./api";
 import type { Character, Participant, SessionSnapshot, StoredUser } from "../types/session";
+import { normalizeSessionSnapshot } from "../types/session";
 
 export interface RealtimeHandlers {
   onSnapshot(snapshot: SessionSnapshot): void;
@@ -15,7 +16,7 @@ export function connectSessionSocket(
   sessionId: string,
   handlers: RealtimeHandlers,
 ): Socket {
-  const socket = io(`${API_BASE_URL}/ws`, {
+  const socket = io(`${WS_BASE_URL}/ws`, {
     transports: ["websocket"],
     extraHeaders: {
       "x-user-id": user.id,
@@ -39,7 +40,7 @@ export function connectSessionSocket(
   });
 
   socket.on("session.snapshot", (payload: { snapshot: SessionSnapshot }) => {
-    handlers.onSnapshot(payload.snapshot);
+    handlers.onSnapshot(normalizeSessionSnapshot(payload.snapshot));
     handlers.onLog("스냅샷 수신", "현재 세션 상태를 불러왔습니다.");
   });
 
