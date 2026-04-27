@@ -1,11 +1,11 @@
-import {
+import type {
+  AuthTokenResponseDto,
+  CharacterResponseDto,
   GmMode,
-  type AuthTokenResponseDto,
-  type CharacterResponseDto,
-  type LoginResponseDto,
-  type OAuthUrlResponseDto,
-  type SessionSnapshotDto,
-  type UserResponseDto,
+  LoginResponseDto,
+  OAuthUrlResponseDto,
+  SessionSnapshotDto,
+  UserResponseDto,
 } from "@trpg/shared-types";
 import type {
   ApiErrorBody,
@@ -58,7 +58,7 @@ function unwrapApiResponse<T>(body: unknown): T {
 }
 
 function toGmMode(value: "ai" | "human" | undefined): GmMode {
-  return value === "human" ? GmMode.HUMAN : GmMode.AI;
+  return (value === "human" ? "HUMAN" : "AI") as GmMode;
 }
 
 async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
