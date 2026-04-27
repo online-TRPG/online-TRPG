@@ -129,6 +129,8 @@ export function mapParticipant(
     sessionCharacterId: participant.sessionCharacter?.id ?? null,
     role: participantRoleMap[participant.role],
     connectionStatus: connectionStatusMap[participant.connectionStatus],
+    isReady: participant.isReady,
+    readyAt: participant.readyAt ? toIsoString(participant.readyAt) : null,
     joinedAt: toIsoString(participant.joinedAt),
     user: mapUser(participant.user),
   };

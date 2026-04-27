@@ -80,6 +80,8 @@ model SessionParticipant {
   userId           String
   role             ParticipantRole  @default(PLAYER)
   connectionStatus ConnectionStatus @default(ONLINE)
+  isReady          Boolean          @default(false)
+  readyAt          DateTime?
   joinedAt         DateTime         @default(now())
   session          Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)

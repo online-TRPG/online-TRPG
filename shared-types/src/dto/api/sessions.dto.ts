@@ -149,6 +149,13 @@ export class SelectSessionCharacterDto {
   characterId!: string;
 }
 
+export class UpdateParticipantReadyDto {
+  @ApiProperty()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isReady!: boolean;
+}
+
 export class UpdateSessionCaptainDto {
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
@@ -225,6 +232,14 @@ export class SessionParticipantResponseDto {
   @ApiProperty({ enum: ConnectionStatus })
   @IsEnum(ConnectionStatus)
   connectionStatus!: ConnectionStatus;
+
+  @ApiProperty()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isReady!: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  readyAt!: string | null;
 
   @ApiProperty()
   joinedAt!: string;

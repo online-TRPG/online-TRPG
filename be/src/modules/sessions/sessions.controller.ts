@@ -31,6 +31,7 @@ import {
   SessionParticipantResponseDto,
   SessionResponseDto,
   SessionSnapshotDto,
+  UpdateParticipantReadyDto,
   UpdateSessionNodeDto,
   UpdateSessionCaptainDto,
   UpdateSessionDto,
@@ -182,6 +183,18 @@ export class SessionsController {
     return this.sessionsService.selectCharacterForSession(userId, sessionId, dto);
   }
 
+  @Patch(":id/participants/me/ready")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: SessionParticipantResponseDto })
+  updateReadyState(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: UpdateParticipantReadyDto,
+  ): Promise<SessionParticipantResponseDto> {
+    return this.sessionsService.updateParticipantReadyState(userId, sessionId, dto);
+  }
+
   @Patch(":id/captain")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
@@ -203,6 +216,17 @@ export class SessionsController {
     @Param("id") sessionId: string,
   ): Promise<SessionSnapshotDto> {
     return this.sessionsService.resumeSession(userId, sessionId);
+  }
+
+  @Post(":id/start")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  startSession(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<SessionSnapshotDto> {
+    return this.sessionsService.startSession(userId, sessionId);
   }
 
   @Get(":id/invite")
