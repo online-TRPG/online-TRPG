@@ -23,6 +23,17 @@ export type SessionSnapshot = Omit<SessionSnapshotDto, "sessionCharacters"> & {
   characters: SessionCharacterResponseDto[];
 };
 
+export interface AvailableSessionListItem {
+  sessionId: string;
+  title: string;
+  scenarioTitle: string;
+  ruleSetName: string;
+  currentPlayers: number;
+  maxPlayers: number;
+  status: string;
+  role?: string;
+}
+
 export type StoredUser = Pick<User, "id" | "displayName" | "createdAt">;
 
 export function normalizeSessionSnapshot(
@@ -38,8 +49,10 @@ export function normalizeSessionSnapshot(
 }
 
 export interface ApiErrorBody {
+  code?: string;
   statusCode?: number;
   message?: string | string[];
+  data?: unknown;
   timestamp?: string;
   path?: string;
 }

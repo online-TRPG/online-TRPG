@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -18,24 +19,27 @@ import {
   ApiTags,
 } from "@nestjs/swagger";
 import {
+  ConnectionStatus,
   CreateSessionDto,
   GameStateResponseDto,
   HumanGmMessageDto,
   JoinSessionDto,
+  ParticipantRole,
   ParticipantStatusResponseDto,
   SelectSessionCharacterDto,
   SessionDetailResponseDto,
   SessionInviteResponseDto,
   SessionListItemResponseDto,
-  SessionListQueryDto,
   SessionParticipantResponseDto,
   SessionResponseDto,
   SessionSnapshotDto,
+  SessionStatus,
   UpdateParticipantReadyDto,
-  UpdateSessionNodeDto,
   UpdateSessionCaptainDto,
   UpdateSessionDto,
+  UpdateSessionNodeDto,
 } from "@trpg/shared-types";
+import { ApiResponse, apiResponse } from "../../common/api-response";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
 import { SessionsService } from "./sessions.service";
 
@@ -45,85 +49,135 @@ export class SessionsController {
   constructor(private readonly sessionsService: SessionsService) {}
 
   @Get()
+  @ApiSecurity("x-user-id")
   @ApiOkResponse({ type: [SessionListItemResponseDto] })
-  listSessions(@Query() query: SessionListQueryDto): Promise<SessionListItemResponseDto[]> {
-    return this.sessionsService.listAvailableSessions(query);
+  async listSessions(
+    @CurrentUserId() userId: string,
+    @Query("status") status?: string,
+    @Query("scenarioId") scenarioId?: string,
+    @Query("ruleSetId") ruleSetId?: string,
+    @Query("page") page = "0",
+    @Query("size") size = "10",
+  ): Promise<ApiResponse<Record<string, unknown>>> {
+    const currentPage = this.toPageNumber(page);
+    const pageSize = this.toPageSize(size);
+    const result = await this.sessionsService.listAvailableSessions({
+      status: this.toSessionStatus(status),
+      scenarioId,
+      ruleSetId,
+      requesterUserId: userId,
+      page: currentPage,
+      size: pageSize,
+    });
+
+    return apiResponse("SESSION_200", "Sessions fetched.", {
+      content: result.items,
+      page: currentPage,
+      size: pageSize,
+      totalElements: result.totalElements,
+      totalPages: Math.ceil(result.totalElements / pageSize),
+    });
   }
 
   @Post()
   @ApiSecurity("x-user-id")
   @ApiCreatedResponse({ type: SessionSnapshotDto })
-  createSession(
+  async createSession(
     @CurrentUserId() userId: string,
     @Body() dto: CreateSessionDto,
-  ): Promise<SessionSnapshotDto> {
-    return this.sessionsService.createSession(userId, dto);
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_201",
+      "Session created.",
+      await this.sessionsService.createSession(userId, dto),
+    );
   }
 
   @Post("join")
   @ApiSecurity("x-user-id")
   @ApiCreatedResponse({ type: SessionSnapshotDto })
-  joinSessionLegacy(
+  async joinSessionLegacy(
     @CurrentUserId() userId: string,
     @Body() dto: JoinSessionDto,
-  ): Promise<SessionSnapshotDto> {
-    return this.sessionsService.joinSessionByInvite(userId, dto);
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_201",
+      "Session joined.",
+      await this.sessionsService.joinSessionByInvite(userId, dto),
+    );
   }
 
   @Post("join-by-invite")
   @ApiSecurity("x-user-id")
   @ApiCreatedResponse({ type: SessionSnapshotDto })
-  joinSessionByInvite(
+  async joinSessionByInvite(
     @CurrentUserId() userId: string,
     @Body() dto: JoinSessionDto,
-  ): Promise<SessionSnapshotDto> {
-    return this.sessionsService.joinSessionByInvite(userId, dto);
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_201",
+      "Session joined.",
+      await this.sessionsService.joinSessionByInvite(userId, dto),
+    );
   }
 
   @Get(":id")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: SessionDetailResponseDto })
-  getSession(
+  async getSession(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<SessionDetailResponseDto> {
-    return this.sessionsService.getSessionForUser(userId, sessionId);
+  ): Promise<ApiResponse<SessionDetailResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Session fetched.",
+      await this.sessionsService.getSessionForUser(userId, sessionId),
+    );
   }
 
   @Patch(":id")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: SessionResponseDto })
-  updateSession(
+  async updateSession(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
     @Body() dto: UpdateSessionDto,
-  ): Promise<SessionResponseDto> {
-    return this.sessionsService.updateSession(userId, sessionId, dto);
+  ): Promise<ApiResponse<SessionResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Session updated.",
+      await this.sessionsService.updateSession(userId, sessionId, dto),
+    );
   }
 
   @Delete(":id")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiNoContentResponse()
-  @HttpCode(204)
+  @HttpCode(200)
   async deleteSession(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<void> {
+  ): Promise<ApiResponse<null>> {
     await this.sessionsService.deleteSession(userId, sessionId);
+    return apiResponse("SESSION_200", "Session deleted.", null);
   }
 
   @Post(":id/join")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
-  joinSessionById(
+  async joinSessionById(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<SessionSnapshotDto> {
-    return this.sessionsService.joinSessionById(userId, sessionId);
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_201",
+      "Session joined.",
+      await this.sessionsService.joinSessionById(userId, sessionId),
+    );
   }
 
   @Delete(":id/leave")
@@ -142,147 +196,227 @@ export class SessionsController {
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: [SessionParticipantResponseDto] })
-  getParticipants(
+  async getParticipants(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<SessionParticipantResponseDto[]> {
-    return this.sessionsService.getParticipantsForUser(userId, sessionId);
+  ): Promise<ApiResponse<SessionParticipantResponseDto[]>> {
+    return apiResponse(
+      "SESSION_200",
+      "Participants fetched.",
+      await this.sessionsService.getParticipantsForUser(userId, sessionId),
+    );
   }
 
   @Get(":id/participants/status")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: [ParticipantStatusResponseDto] })
-  getParticipantStatuses(
+  async getParticipantStatuses(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<ParticipantStatusResponseDto[]> {
-    return this.sessionsService.getParticipantStatusesForUser(userId, sessionId);
+  ): Promise<ApiResponse<{ participants: ParticipantStatusResponseDto[] }>> {
+    return apiResponse("SESSION_200", "Participant statuses fetched.", {
+      participants: await this.sessionsService.getParticipantStatusesForUser(userId, sessionId),
+    });
   }
 
   @Get(":id/state")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: GameStateResponseDto })
-  getState(
+  async getState(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<GameStateResponseDto> {
-    return this.sessionsService.getStateForUser(userId, sessionId);
+  ): Promise<ApiResponse<GameStateResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Game state fetched.",
+      await this.sessionsService.getStateForUser(userId, sessionId),
+    );
   }
 
   @Post(":id/character-selection")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionParticipantResponseDto })
-  selectCharacter(
+  @HttpCode(200)
+  async selectCharacter(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
     @Body() dto: SelectSessionCharacterDto,
-  ): Promise<SessionParticipantResponseDto> {
-    return this.sessionsService.selectCharacterForSession(userId, sessionId, dto);
+  ): Promise<ApiResponse<SessionParticipantResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Character selected.",
+      await this.sessionsService.selectCharacterForSession(userId, sessionId, dto),
+    );
   }
 
   @Patch(":id/participants/me/ready")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: SessionParticipantResponseDto })
-  updateReadyState(
+  async updateReadyState(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
     @Body() dto: UpdateParticipantReadyDto,
-  ): Promise<SessionParticipantResponseDto> {
-    return this.sessionsService.updateParticipantReadyState(userId, sessionId, dto);
+  ): Promise<ApiResponse<SessionParticipantResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Ready state updated.",
+      await this.sessionsService.updateParticipantReadyState(userId, sessionId, dto),
+    );
   }
 
   @Patch(":id/captain")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: SessionResponseDto })
-  updateCaptain(
+  async updateCaptain(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
     @Body() dto: UpdateSessionCaptainDto,
-  ): Promise<SessionResponseDto> {
-    return this.sessionsService.updateCaptain(userId, sessionId, dto);
+  ): Promise<ApiResponse<SessionResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Captain updated.",
+      await this.sessionsService.updateCaptain(userId, sessionId, dto),
+    );
   }
 
   @Post(":id/resume")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
-  resumeSession(
+  async resumeSession(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<SessionSnapshotDto> {
-    return this.sessionsService.resumeSession(userId, sessionId);
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Session resumed.",
+      await this.sessionsService.resumeSession(userId, sessionId),
+    );
   }
 
   @Post(":id/start")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
-  startSession(
+  async startSession(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<SessionSnapshotDto> {
-    return this.sessionsService.startSession(userId, sessionId);
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Session started.",
+      await this.sessionsService.startSession(userId, sessionId),
+    );
   }
 
   @Get(":id/invite")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: SessionInviteResponseDto })
-  getInvite(
+  async getInvite(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<SessionInviteResponseDto> {
-    return this.sessionsService.getInviteInfo(userId, sessionId);
+  ): Promise<ApiResponse<SessionInviteResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Invite fetched.",
+      await this.sessionsService.getInviteInfo(userId, sessionId),
+    );
   }
 
   @Post(":id/gm/messages")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
-  createHumanGmMessage(
+  async createHumanGmMessage(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
     @Body() dto: HumanGmMessageDto,
-  ): Promise<SessionSnapshotDto> {
-    return this.sessionsService.createHumanGmMessage(userId, sessionId, dto);
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM message created.",
+      await this.sessionsService.createHumanGmMessage(userId, sessionId, dto),
+    );
   }
 
   @Patch(":id/gm/node")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: SessionSnapshotDto })
-  updateSessionNode(
+  async updateSessionNode(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
     @Body() dto: UpdateSessionNodeDto,
-  ): Promise<SessionSnapshotDto> {
-    return this.sessionsService.updateSessionNode(userId, sessionId, dto);
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Session node updated.",
+      await this.sessionsService.updateSessionNode(userId, sessionId, dto),
+    );
   }
 
   @Post(":id/gm/combat/start")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
-  startCombat(
+  async startCombat(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<SessionSnapshotDto> {
-    return this.sessionsService.startCombat(userId, sessionId);
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Combat started.",
+      await this.sessionsService.startCombat(userId, sessionId),
+    );
   }
 
   @Post(":id/gm/combat/end")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiCreatedResponse({ type: SessionSnapshotDto })
-  endCombat(
+  async endCombat(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<SessionSnapshotDto> {
-    return this.sessionsService.endCombat(userId, sessionId);
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Combat ended.",
+      await this.sessionsService.endCombat(userId, sessionId),
+    );
+  }
+
+  private toSessionStatus(value: string | undefined): SessionStatus | undefined {
+    if (!value) {
+      return undefined;
+    }
+
+    const match = Object.values(SessionStatus).find((status) => status === value.toLowerCase());
+    if (!match) {
+      throw new BadRequestException("Invalid session status.");
+    }
+
+    return match;
+  }
+
+  private toPageNumber(value: string): number {
+    const page = Number(value);
+    if (!Number.isInteger(page) || page < 0) {
+      throw new BadRequestException("Invalid page value.");
+    }
+    return page;
+  }
+
+  private toPageSize(value: string): number {
+    const size = Number(value);
+    if (!Number.isInteger(size) || size < 1 || size > 100) {
+      throw new BadRequestException("Invalid size value.");
+    }
+    return size;
   }
 }

@@ -1,5 +1,5 @@
 import { io, Socket } from "socket.io-client";
-import { WS_BASE_URL } from "./api";
+import { SOCKET_BASE_URL } from "./api";
 import type { Character, Participant, SessionSnapshot, StoredUser } from "../types/session";
 import { normalizeSessionSnapshot } from "../types/session";
 
@@ -16,7 +16,7 @@ export function connectSessionSocket(
   sessionId: string,
   handlers: RealtimeHandlers,
 ): Socket {
-  const socket = io(`${WS_BASE_URL}/ws`, {
+  const socket = io(`${SOCKET_BASE_URL}/ws`, {
     transports: ["websocket"],
     extraHeaders: {
       "x-user-id": user.id,
