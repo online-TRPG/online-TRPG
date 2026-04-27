@@ -1,6 +1,6 @@
-# Nginx 이미지: FE 정적파일을 빌드해서 포함 + 프록시 게이트웨이
+# Nginx 이미지: FE 정적파일 + 설정 파일을 모두 이미지에 포함
 # 빌드 컨텍스트는 레포 루트 (docker-compose.yml 에서 지정)
-# npm workspaces 모노레포 — fe 는 @trpg/shared-types 에 의존
+# 런타임 bind mount 없음 → DooD(Jenkins) 환경에서도 안전하게 동작
 
 # =============== 1. FE 빌더 ===============
 FROM node:20-alpine AS fe-builder
@@ -27,7 +27,12 @@ RUN npm run build -w @trpg/fe
 # =============== 2. Nginx 런타임 ===============
 FROM nginx:alpine
 
-# 빌드된 정적파일을 기본 Nginx html 경로에 배치
+# FE 정적파일
 COPY --from=fe-builder /app/fe/dist /usr/share/nginx/html
 
-# default.conf 는 compose 에서 볼륨으로 마운트 → 설정만 바꿀 땐 이미지 재빌드 불필요
+# nginx 설정 템플릿 (HTTP-only / HTTPS 두 가지) + 선택 스크립트
+# /docker-entrypoint.d/ 의 *.sh 는 nginx 공식 이미지가 기동 직전 자동 실행
+COPY infra/nginx/default.conf      /etc/nginx/templates/http-only.conf
+COPY infra/nginx/default-ssl.conf  /etc/nginx/templates/https.conf
+COPY infra/nginx/select-config.sh  /docker-entrypoint.d/40-select-config.sh
+RUN chmod +x /docker-entrypoint.d/40-select-config.sh
