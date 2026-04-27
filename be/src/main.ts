@@ -18,16 +18,24 @@ async function bootstrap(): Promise<void> {
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
-  app.enableCors();
+  app.enableCors({
+    origin: true,       // 요청의 Origin을 그대로 허용 (로컬 개발용)
+    credentials: true,  // refresh token 쿠키 전송 허용
+  });
   app.setGlobalPrefix("api/v1");
 
   const config = new DocumentBuilder()
     .setTitle("TRPG Platform API")
-    .setDescription("Guest user, session, character, state, and WebSocket APIs.")
+    .setDescription("Member, session, character, state, and WebSocket APIs.")
     .setVersion("0.1.0")
-    // 아직 정식 로그인 기능은 붙이지 않았기 때문에,
-    // Swagger에서는 x-user-id 헤더를 직접 넣어서 게스트 사용자를 구분한다.
-    // Swagger UI의 Authorize 버튼에 값을 넣으면 이후 요청에 자동으로 포함된다.
+    .addBearerAuth(
+      {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "JWT",
+      },
+      "bearer",
+    )
     .addApiKey(
       {
         type: "apiKey",

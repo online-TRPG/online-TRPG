@@ -1,39 +1,31 @@
+import {
+  GmMode,
+  type AuthTokenResponseDto,
+  type CharacterResponseDto,
+  type LoginResponseDto,
+  type OAuthUrlResponseDto,
+  type SessionSnapshotDto,
+  type UserResponseDto,
+} from "@trpg/shared-types";
 import type {
+  ApiErrorBody,
+  AvailableSessionListItem,
   Character,
-  Participant,
-  PersistentCharacter,
   Scenario,
-  SessionListItem,
   SessionSnapshot,
   StoredUser,
   User,
-  ApiErrorBody,
 } from "../types/session";
-import type { CharacterResponseDto, SessionSnapshotDto } from "@trpg/shared-types";
 import { normalizeSessionSnapshot } from "../types/session";
-
-type SessionGmMode = "ai" | "human";
-type SessionStatus = "lobby" | "playing" | "paused" | "completed";
-
-interface SessionListQuery {
-  search?: string;
-  scenarioId?: string;
-  status?: SessionStatus;
-  gmMode?: SessionGmMode;
-  isPublic?: boolean;
-  openSlotsAtLeast?: number;
-}
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
 const configuredWsBaseUrl = import.meta.env.VITE_WS_BASE_URL as string | undefined;
+const rawBaseUrl = (configuredBaseUrl || "http://localhost:3000").replace(/\/$/, "");
+export const API_BASE_URL = rawBaseUrl.endsWith("/api/v1") ? rawBaseUrl : `${rawBaseUrl}/api/v1`;
+export const SOCKET_BASE_URL = (configuredWsBaseUrl || API_BASE_URL.replace(/\/api\/v1$/, "")).replace(/\/$/, "");
 
-export const API_BASE_URL = (configuredBaseUrl || "http://localhost:3000/api/v1").replace(
-  /\/$/,
-  "",
-);
-export const WS_BASE_URL = (
-  configuredWsBaseUrl || API_BASE_URL.replace(/\/api\/v\d+$/, "")
-).replace(/\/$/, "");
+const DEFAULT_SCENARIO_ID = "scenario_goblin_cave";
+const DEFAULT_RULE_SET_ID = "dnd5e";
 
 type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
@@ -41,77 +33,68 @@ interface RequestOptions {
   method?: HttpMethod;
   body?: unknown;
   user?: StoredUser | null;
+  accessToken?: string | null;
+  withCredentials?: boolean;
 }
 
-interface CreateSessionPayload {
-  title: string;
-  scenarioId?: string;
-  gmMode?: SessionGmMode;
-  maxParticipants?: number;
-  description?: string;
-  isPublic?: boolean;
-}
-
-interface CreateCharacterPayload {
-  name: string;
-  ancestry: string;
-  className: string;
-  level?: number;
-  maxHp?: number;
-  armorClass?: number;
-  speed?: number;
+export interface PaginatedList<T> {
+  content: T[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
 }
 
 function formatApiError(body: ApiErrorBody | null, fallback: string): string {
-  if (!body?.message) {
-    return fallback;
-  }
-
+  if (!body?.message) return fallback;
   return Array.isArray(body.message) ? body.message.join(", ") : body.message;
 }
 
-function buildQuery(query: Record<string, string | number | boolean | undefined>): string {
-  const params = new URLSearchParams();
+function unwrapApiResponse<T>(body: unknown): T {
+  if (body && typeof body === "object" && "code" in body && "data" in body) {
+    return (body as { data: T }).data;
+  }
+  return body as T;
+}
 
-  Object.entries(query).forEach(([key, value]) => {
-    if (value === undefined || value === "") {
-      return;
-    }
-
-    params.set(key, String(value));
-  });
-
-  const serialized = params.toString();
-  return serialized ? `?${serialized}` : "";
+function toGmMode(value: "ai" | "human" | undefined): GmMode {
+  return value === "human" ? GmMode.HUMAN : GmMode.AI;
 }
 
 async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (options.accessToken) {
+    headers.Authorization = `Bearer ${options.accessToken}`;
+  } else if (options.user) {
+    headers["x-user-id"] = options.user.id;
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.user ? { "x-user-id": options.user.id } : {}),
-    },
+    headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
+    credentials: options.withCredentials ? "include" : "same-origin",
   });
 
   if (!response.ok) {
     let body: ApiErrorBody | null = null;
-
     try {
       body = (await response.json()) as ApiErrorBody;
     } catch {
       body = null;
     }
-
-    throw new Error(formatApiError(body, `Request failed. (${response.status})`));
+    throw new Error(formatApiError(body, `요청에 실패했습니다. (${response.status})`));
   }
 
   if (response.status === 204) {
     return undefined as T;
   }
 
-  return (await response.json()) as T;
+  const body = (await response.json()) as unknown;
+  return unwrapApiResponse<T>(body);
 }
 
 export function createGuest(displayName: string): Promise<User> {
@@ -121,105 +104,182 @@ export function createGuest(displayName: string): Promise<User> {
   });
 }
 
+export function register(email: string, password: string, name: string): Promise<UserResponseDto> {
+  return requestJson<UserResponseDto>("/users/register", {
+    method: "POST",
+    body: { email, password, name },
+  });
+}
+
+export function login(email: string, password: string): Promise<LoginResponseDto> {
+  return requestJson<LoginResponseDto>("/users/login", {
+    method: "POST",
+    body: { email, password },
+    withCredentials: true,
+  });
+}
+
+export function logout(accessToken: string): Promise<void> {
+  return requestJson<void>("/users/logout", {
+    method: "POST",
+    accessToken,
+    withCredentials: true,
+  });
+}
+
+export function reissue(): Promise<AuthTokenResponseDto> {
+  return requestJson<AuthTokenResponseDto>("/users/reissue", {
+    method: "POST",
+    withCredentials: true,
+  });
+}
+
+export function getMe(accessToken: string): Promise<UserResponseDto> {
+  return requestJson<UserResponseDto>("/users/me", { accessToken });
+}
+
+export function deleteMe(accessToken: string, password: string): Promise<void> {
+  return requestJson<void>("/users/me", {
+    method: "DELETE",
+    accessToken,
+    body: { password },
+  });
+}
+
+export function getOAuthUrl(
+  provider: "kakao" | "discord",
+  redirectUri: string,
+): Promise<OAuthUrlResponseDto> {
+  const params = new URLSearchParams({ redirectUri });
+  return requestJson<OAuthUrlResponseDto>(`/users/oauth/${provider}/url?${params.toString()}`);
+}
+
+export function oauthLogin(
+  provider: "kakao" | "discord",
+  code: string,
+  redirectUri: string,
+): Promise<LoginResponseDto> {
+  return requestJson<LoginResponseDto>(`/users/oauth/${provider}/login`, {
+    method: "POST",
+    body: { code, redirectUri },
+    withCredentials: true,
+  });
+}
+
 export function listScenarios(): Promise<Scenario[]> {
   return requestJson<Scenario[]>("/scenarios");
 }
 
-export function listSessions(query: SessionListQuery = {}): Promise<SessionListItem[]> {
-  return requestJson<SessionListItem[]>(
-    `/sessions${buildQuery({
-      search: query.search,
-      scenarioId: query.scenarioId,
-      status: query.status,
-      gmMode: query.gmMode,
-      isPublic: query.isPublic,
-      openSlotsAtLeast: query.openSlotsAtLeast,
-    })}`,
-  );
+export function listSessions(
+  user?: StoredUser | null,
+  accessToken?: string | null,
+): Promise<PaginatedList<AvailableSessionListItem>> {
+  return requestJson<PaginatedList<AvailableSessionListItem>>("/sessions", {
+    user,
+    accessToken,
+  });
 }
 
-export function listMySessions(user: StoredUser): Promise<SessionListItem[]> {
-  return requestJson<SessionListItem[]>("/users/me/sessions", { user });
-}
-
-export function listMyCharacters(user: StoredUser): Promise<CharacterResponseDto[]> {
-  return requestJson<CharacterResponseDto[]>("/users/me/characters", { user });
-}
-
-export function createSession(
+export async function createSession(
   user: StoredUser,
-  payload: CreateSessionPayload,
+  title: string,
+  scenarioId?: string,
+  accessToken?: string | null,
 ): Promise<SessionSnapshot> {
-  return requestJson<SessionSnapshotDto>("/sessions", {
+  const created = await requestJson<SessionSnapshotDto | { sessionId: string; snapshot?: SessionSnapshotDto }>("/sessions", {
     method: "POST",
     user,
-    body: payload,
-  }).then(normalizeSessionSnapshot);
+    accessToken,
+    body: {
+      title,
+      scenarioId: scenarioId || DEFAULT_SCENARIO_ID,
+      ruleSetId: DEFAULT_RULE_SET_ID,
+      maxPlayers: 4,
+      gmMode: toGmMode(undefined),
+    },
+  });
+
+  if ("session" in created) {
+    return normalizeSessionSnapshot(created);
+  }
+
+  if ("snapshot" in created && created.snapshot) {
+    return normalizeSessionSnapshot(created.snapshot);
+  }
+
+  return getSession(user, created.sessionId, accessToken);
 }
 
-export function joinSessionByInvite(
+export async function joinSession(
   user: StoredUser,
   inviteCode: string,
+  accessToken?: string | null,
 ): Promise<SessionSnapshot> {
-  return requestJson<SessionSnapshotDto>("/sessions/join-by-invite", {
-    method: "POST",
-    user,
-    body: { inviteCode },
-  }).then(normalizeSessionSnapshot);
+  const joined = await requestJson<SessionSnapshotDto | { sessionId: string; snapshot?: SessionSnapshotDto }>(
+    "/sessions/join-by-invite",
+    {
+      method: "POST",
+      user,
+      accessToken,
+      body: { inviteCode },
+    },
+  );
+
+  if ("session" in joined) {
+    return normalizeSessionSnapshot(joined);
+  }
+
+  if ("snapshot" in joined && joined.snapshot) {
+    return normalizeSessionSnapshot(joined.snapshot);
+  }
+
+  return getSession(user, joined.sessionId, accessToken);
 }
 
-export function joinSessionById(user: StoredUser, sessionId: string): Promise<SessionSnapshot> {
-  return requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/join`, {
-    method: "POST",
-    user,
-  }).then(normalizeSessionSnapshot);
-}
-
-export function resumeSession(user: StoredUser, sessionId: string): Promise<SessionSnapshot> {
-  return requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/resume`, {
-    method: "POST",
-    user,
-  }).then(normalizeSessionSnapshot);
-}
-
-export function leaveSession(user: StoredUser, sessionId: string): Promise<void> {
-  return requestJson<void>(`/sessions/${sessionId}/leave`, {
-    method: "DELETE",
-    user,
-  });
-}
-
-export function createPersistentCharacter(
-  user: StoredUser,
-  payload: CreateCharacterPayload,
-): Promise<PersistentCharacter> {
-  return requestJson<PersistentCharacter>("/characters", {
-    method: "POST",
-    user,
-    body: payload,
-  });
-}
-
-export function selectCharacterForSession(
+export function getSession(
   user: StoredUser,
   sessionId: string,
-  characterId: string,
-): Promise<Participant> {
-  return requestJson<Participant>(`/sessions/${sessionId}/character-selection`, {
-    method: "POST",
+  accessToken?: string | null,
+): Promise<SessionSnapshot> {
+  return requestJson<SessionSnapshotDto>(`/sessions/${sessionId}`, {
     user,
-    body: { characterId },
-  });
+    accessToken,
+  }).then(normalizeSessionSnapshot);
 }
 
 export function getSessionState(user: StoredUser, sessionId: string) {
-  return requestJson(`/sessions/${sessionId}/state`, {
-    user,
-  });
+  return requestJson(`/sessions/${sessionId}/state`, { user });
 }
 
-export function listSessionCharacters(user: StoredUser, sessionId: string): Promise<Character[]> {
-  return requestJson<Character[]>(`/sessions/${sessionId}/characters`, {
+export function createCharacter(
+  user: StoredUser,
+  payload: {
+    sessionId: string;
+    name: string;
+    ancestry: string;
+    className: string;
+    maxHp?: number;
+  },
+  accessToken?: string | null,
+): Promise<SessionSnapshot> {
+  return requestJson<CharacterResponseDto | Character>("/characters", {
+    method: "POST",
     user,
-  });
+    accessToken,
+    body: {
+      name: payload.name,
+      ancestry: payload.ancestry,
+      className: payload.className,
+      maxHp: payload.maxHp,
+    },
+  })
+    .then((character) =>
+      requestJson(`/sessions/${payload.sessionId}/character-selection`, {
+        method: "POST",
+        user,
+        accessToken,
+        body: { characterId: character.id },
+      }),
+    )
+    .then(() => getSession(user, payload.sessionId, accessToken));
 }

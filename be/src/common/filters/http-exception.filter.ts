@@ -22,7 +22,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const exceptionResponse =
       exception instanceof HttpException ? exception.getResponse() : null;
 
-    const message =
+    const rawMessage =
       typeof exceptionResponse === "string"
         ? exceptionResponse
         : typeof exceptionResponse === "object" &&
@@ -30,12 +30,39 @@ export class HttpExceptionFilter implements ExceptionFilter {
             "message" in exceptionResponse
           ? exceptionResponse.message
           : "Internal server error";
+    const message = Array.isArray(rawMessage) ? "잘못된 요청입니다." : String(rawMessage);
+    const data =
+      Array.isArray(rawMessage)
+        ? {
+            fieldErrors: rawMessage.map((reason) => ({
+              field: "request",
+              reason: String(reason),
+            })),
+          }
+        : null;
 
     response.status(status).json({
-      statusCode: status,
+      code: resolveErrorCode(request.url, status),
       message,
-      timestamp: new Date().toISOString(),
-      path: request.url,
+      data,
     });
   }
+}
+
+function resolveErrorCode(path: string, status: number): string {
+  if (status === HttpStatus.UNAUTHORIZED) {
+    return "AUTH_401";
+  }
+
+  const domain = path.includes("/sessions")
+    ? "SESSION"
+    : path.includes("/characters")
+      ? "CHARACTER"
+      : path.includes("/scenarios")
+        ? "SCENARIO"
+        : path.includes("/users")
+          ? "USER"
+          : "COMMON";
+
+  return `${domain}_${status}`;
 }
