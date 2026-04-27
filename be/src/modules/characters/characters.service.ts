@@ -15,6 +15,7 @@ import {
 } from "@trpg/shared-types";
 import { mapCharacter, mapSessionCharacter } from "../../common/mappers/domain.mapper";
 import { PrismaService } from "../../database/prisma.service";
+import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { SessionsService } from "../sessions/sessions.service";
 
 const defaultAbilityScores = {
@@ -31,6 +32,7 @@ export class CharactersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessionsService: SessionsService,
+    private readonly realtimeEvents: RealtimeEventsService,
   ) {}
 
   async createCharacter(userId: string, dto: CreateCharacterDto): Promise<CharacterResponseDto> {
@@ -115,6 +117,44 @@ export class CharactersService {
         },
       },
     });
+
+    const lobbyAssignments = updated.sessionCharacters.filter(
+      (assignment) => assignment.session.status === PrismaSessionStatus.LOBBY,
+    );
+
+    for (const assignment of lobbyAssignments) {
+      await this.prisma.sessionCharacter.update({
+        where: { id: assignment.id },
+        data: {
+          name: updated.name,
+          ancestry: updated.ancestry,
+          className: updated.className,
+          level: updated.level,
+          abilitiesJson: updated.abilitiesJson,
+          proficiencyBonus: updated.proficiencyBonus,
+          proficientSkillsJson: updated.proficientSkillsJson,
+          maxHp: updated.maxHp,
+          currentHp: updated.maxHp,
+          armorClass: updated.armorClass,
+          speed: updated.speed,
+          inventoryJson: updated.inventoryJson,
+          equippedWeaponId: updated.equippedWeaponId,
+        },
+      });
+
+      await this.prisma.sessionParticipant.update({
+        where: { id: assignment.participantId },
+        data: {
+          isReady: false,
+          readyAt: null,
+        },
+      });
+
+      this.realtimeEvents.emitSessionSnapshot(
+        assignment.sessionId,
+        await this.sessionsService.buildSnapshot(assignment.sessionId),
+      );
+    }
 
     return mapCharacter(updated);
   }

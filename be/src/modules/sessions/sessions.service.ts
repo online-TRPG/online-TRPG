@@ -29,6 +29,7 @@ import {
   SessionResponseDto,
   SessionSnapshotDto,
   SessionStatus,
+  UpdateParticipantReadyDto,
   UpdateSessionNodeDto,
   UpdateSessionCaptainDto,
   UpdateSessionDto,
@@ -57,12 +58,6 @@ const sessionGmModeToPrisma: Record<SessionGmMode, PrismaSessionGmMode> = {
   [SessionGmMode.AI]: PrismaSessionGmMode.AI,
   [SessionGmMode.HUMAN]: PrismaSessionGmMode.HUMAN,
 };
-
-const activeSessionStatuses = [
-  PrismaSessionStatus.LOBBY,
-  PrismaSessionStatus.PLAYING,
-  PrismaSessionStatus.PAUSED,
-];
 
 @Injectable()
 export class SessionsService {
@@ -490,9 +485,77 @@ export class SessionsService {
       },
     });
 
-    const mappedParticipant = mapParticipant(refreshedParticipant);
+    const resetReadyParticipant = await this.prisma.sessionParticipant.update({
+      where: { id: refreshedParticipant.id },
+      data: {
+        isReady: false,
+        readyAt: null,
+      },
+      include: {
+        user: true,
+        sessionCharacter: {
+          include: { character: true },
+        },
+      },
+    });
+
+    const mappedParticipant = mapParticipant(resetReadyParticipant);
     this.realtimeEvents.emitParticipantUpdated(sessionId, mappedParticipant);
     this.realtimeEvents.emitCharacterUpdated(sessionId, mapSessionCharacter(sessionCharacter));
+    this.realtimeEvents.emitSessionSnapshot(sessionId, await this.buildSnapshot(sessionId));
+    return mappedParticipant;
+  }
+
+  async updateParticipantReadyState(
+    userId: string,
+    sessionId: string,
+    dto: UpdateParticipantReadyDto,
+  ): Promise<SessionParticipantResponseDto> {
+    const participant = await this.prisma.sessionParticipant.findUnique({
+      where: {
+        sessionId_userId: {
+          sessionId,
+          userId,
+        },
+      },
+      include: {
+        user: true,
+        sessionCharacter: {
+          include: { character: true },
+        },
+      },
+    });
+
+    if (!participant) {
+      throw new ForbiddenException("You must join the session before updating ready state.");
+    }
+
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    if (session.status !== PrismaSessionStatus.LOBBY) {
+      throw new ConflictException("Ready state can only be changed while the session is in lobby.");
+    }
+
+    if (dto.isReady && !participant.sessionCharacter) {
+      throw new ConflictException("Select a character before marking yourself ready.");
+    }
+
+    const updatedParticipant = await this.prisma.sessionParticipant.update({
+      where: { id: participant.id },
+      data: {
+        isReady: dto.isReady,
+        readyAt: dto.isReady ? new Date() : null,
+      },
+      include: {
+        user: true,
+        sessionCharacter: {
+          include: { character: true },
+        },
+      },
+    });
+
+    const mappedParticipant = mapParticipant(updatedParticipant);
+    this.realtimeEvents.emitParticipantUpdated(sessionId, mappedParticipant);
+    this.realtimeEvents.emitSessionSnapshot(sessionId, await this.buildSnapshot(sessionId));
     return mappedParticipant;
   }
 
@@ -559,6 +622,57 @@ export class SessionsService {
       inviteCode: session.inviteCode,
       shareUrl: appBaseUrl ? `${appBaseUrl}/join/${session.inviteCode}` : null,
     };
+  }
+
+  async startSession(userId: string, sessionId: string): Promise<SessionSnapshotDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    this.ensureSessionOperator(userId, session.ownerUserId, session.captainUserId);
+
+    if (session.status !== PrismaSessionStatus.LOBBY) {
+      throw new ConflictException("Only lobby sessions can be started.");
+    }
+
+    const participants = await this.prisma.sessionParticipant.findMany({
+      where: { sessionId },
+      include: {
+        sessionCharacter: true,
+      },
+      orderBy: { joinedAt: "asc" },
+    });
+
+    if (!participants.length) {
+      throw new ConflictException("At least one participant is required to start the session.");
+    }
+
+    const participantWithoutCharacter = participants.find((participant) => !participant.sessionCharacter);
+    if (participantWithoutCharacter) {
+      throw new ConflictException("All participants must select a character before the session starts.");
+    }
+
+    const participantNotReady = participants.find((participant) => !participant.isReady);
+    if (participantNotReady) {
+      throw new ConflictException("All participants must be ready before the session starts.");
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.session.update({
+        where: { id: sessionId },
+        data: {
+          status: PrismaSessionStatus.PLAYING,
+        },
+      }),
+      this.prisma.gameState.update({
+        where: { sessionId },
+        data: {
+          phase: PrismaGamePhase.EXPLORATION,
+        },
+      }),
+    ]);
+
+    const snapshot = await this.buildSnapshot(sessionId);
+    this.realtimeEvents.emitSessionStatusUpdated(sessionId, snapshot.session);
+    this.realtimeEvents.emitSessionSnapshot(sessionId, snapshot);
+    return snapshot;
   }
 
   async createHumanGmMessage(
@@ -740,6 +854,46 @@ export class SessionsService {
     }
   }
 
+  async updateParticipantConnectionStatus(
+    userId: string,
+    sessionId: string,
+    status: PrismaConnectionStatus,
+  ): Promise<void> {
+    const participant = await this.prisma.sessionParticipant.findUnique({
+      where: {
+        sessionId_userId: {
+          sessionId,
+          userId,
+        },
+      },
+      include: {
+        user: true,
+        sessionCharacter: {
+          include: { character: true },
+        },
+      },
+    });
+
+    if (!participant || participant.connectionStatus === status) {
+      return;
+    }
+
+    const updatedParticipant = await this.prisma.sessionParticipant.update({
+      where: { id: participant.id },
+      data: {
+        connectionStatus: status,
+      },
+      include: {
+        user: true,
+        sessionCharacter: {
+          include: { character: true },
+        },
+      },
+    });
+
+    this.realtimeEvents.emitParticipantUpdated(sessionId, mapParticipant(updatedParticipant));
+  }
+
   async getSessionEntityOrThrow(sessionId: string) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -827,6 +981,16 @@ export class SessionsService {
   private ensureOwner(userId: string, ownerUserId: string): void {
     if (userId !== ownerUserId) {
       throw new ForbiddenException("Only the session owner can perform this action.");
+    }
+  }
+
+  private ensureSessionOperator(
+    userId: string,
+    ownerUserId: string,
+    captainUserId: string | null,
+  ): void {
+    if (userId !== ownerUserId && userId !== captainUserId) {
+      throw new ForbiddenException("Only the GM or captain can perform this action.");
     }
   }
 
