@@ -44,9 +44,5 @@ DOC/
 Jenkinsfile
 .claude/
 
-# certbot 발급 산출물 (볼륨 마운트로 제공됨)
-infra/certbot/conf/
-infra/certbot/www/
-
 # e2e 테스트 디렉터리만 제외 (소스와 인접한 *.spec.ts 는 nest build 에서 참조될 수 있어 포함)
 be/test
