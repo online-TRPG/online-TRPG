@@ -1,0 +1,481 @@
+{
+  "sourceRoot": "translated",
+  "files": [
+    {
+      "path": "translated/classes/드루이드.md",
+      "domain": "classes",
+      "bytes": 6939,
+      "sha256": "b4bd9d8074186fade16f09487e641d8d1411021de7c0edb09c28d3c1392c6a42"
+    },
+    {
+      "path": "translated/classes/레인저.md",
+      "domain": "classes",
+      "bytes": 4741,
+      "sha256": "bb3de84e1b878ea8665ac863ffd69d9d5839a2af932dac7acb7226571dd55a3b"
+    },
+    {
+      "path": "translated/classes/로그.md",
+      "domain": "classes",
+      "bytes": 3965,
+      "sha256": "818a1a8558ed531045e3d0fdd0b79cd55cf0a95d43d39f0f222a5f9d43ca7d6c"
+    },
+    {
+      "path": "translated/classes/몽크.md",
+      "domain": "classes",
+      "bytes": 4653,
+      "sha256": "6715f0649f00edf2cf8aa6caeedf1da7ab08e5b7116cb86176111849277caf57"
+    },
+    {
+      "path": "translated/classes/바드.md",
+      "domain": "classes",
+      "bytes": 5881,
+      "sha256": "44a0d7e8728faf62e830c00b7f0807edb5228b5d5f1dc1f3d5ae845eb5d5e377"
+    },
+    {
+      "path": "translated/classes/바바리안.md",
+      "domain": "classes",
+      "bytes": 4820,
+      "sha256": "221af4aa6c1ede0670958dcaecda24e67efe9122872f29fb62b9f94534bef730"
+    },
+    {
+      "path": "translated/classes/소서러.md",
+      "domain": "classes",
+      "bytes": 6785,
+      "sha256": "8bcb47440b96a02afffcbf7295c31011425ef6e8c1086e63469dba0ce99414ee"
+    },
+    {
+      "path": "translated/classes/워락.md",
+      "domain": "classes",
+      "bytes": 9832,
+      "sha256": "8b3312f70d3b99d17e0aba88af8ddc3ab9b8dc72d574db51405c8a8bc2aca2a5"
+    },
+    {
+      "path": "translated/classes/위저드.md",
+      "domain": "classes",
+      "bytes": 5597,
+      "sha256": "99b54d3a496e2d045e9919efcb06ddfd8014039291b88cda65352125b889f3e4"
+    },
+    {
+      "path": "translated/classes/직업_검수_기준.md",
+      "domain": "classes",
+      "bytes": 3130,
+      "sha256": "f25cbe626604719e2f164dd100ca0737beeb6009967539339a7bb8a690fa6335"
+    },
+    {
+      "path": "translated/classes/클레릭.md",
+      "domain": "classes",
+      "bytes": 6310,
+      "sha256": "f7fa781fc8453a5415168bc321e47d5ec5127c808ec731ea39f58441ad6b8bb6"
+    },
+    {
+      "path": "translated/classes/파이터.md",
+      "domain": "classes",
+      "bytes": 4550,
+      "sha256": "c9c6a62e4f53dee76b6f42f0d74c8509f4c8fdedfd5bdf7f9f5f2f5990caa242"
+    },
+    {
+      "path": "translated/classes/팔라딘.md",
+      "domain": "classes",
+      "bytes": 5583,
+      "sha256": "9d640d0465b2b3bf392b3dd98b1a0c33c5e2dd40af97370cb0ba6f60f1503929"
+    },
+    {
+      "path": "translated/items/general-equipment-reference.md",
+      "domain": "items",
+      "bytes": 4936,
+      "sha256": "d280237e01744d9d61551744585d02686eae71651eca63fadf9969d16ce67552"
+    },
+    {
+      "path": "translated/items/item-translation-progress.md",
+      "domain": "items",
+      "bytes": 1499,
+      "sha256": "4259e743e87acb5196110c9ba751ce614c4bbe0be206ce56f7b445f4d020746c"
+    },
+    {
+      "path": "translated/items/magic-item-details-a-c.md",
+      "domain": "items",
+      "bytes": 54737,
+      "sha256": "91b8e6995cfb981c71213f276aa3a64c2abe6b6871d851772324f90f125f6bdd"
+    },
+    {
+      "path": "translated/items/magic-item-details-d-h.md",
+      "domain": "items",
+      "bytes": 70040,
+      "sha256": "e2140b8c77188cfcbf837baa983f355fdfd55b29d70c2709a633f973bfa4abb2"
+    },
+    {
+      "path": "translated/items/magic-item-details-i-p.md",
+      "domain": "items",
+      "bytes": 61520,
+      "sha256": "f4f26593f35ff280d7084b67e49efa15ea44b149877cae8cc2d6240376669681"
+    },
+    {
+      "path": "translated/items/magic-item-details-r-s.md",
+      "domain": "items",
+      "bytes": 80090,
+      "sha256": "d1a5265a9d4bc776d222cf934a3990e64b33e2de04d6df9b1edd31ed5a31a98f"
+    },
+    {
+      "path": "translated/items/magic-item-details-t-z.md",
+      "domain": "items",
+      "bytes": 40375,
+      "sha256": "58911579c5c7224696f6d68ea0f53d8aeb4c5bbfaa9182fd10c66d6988a88103"
+    },
+    {
+      "path": "translated/items/magic-item-play-reference-a-c.md",
+      "domain": "items",
+      "bytes": 25227,
+      "sha256": "814cfe513a1d70fbf6722bd3f6186c4b3f4ce3e612b66e531707f6aa9fc0181d"
+    },
+    {
+      "path": "translated/items/magic-item-play-reference-d-h.md",
+      "domain": "items",
+      "bytes": 26229,
+      "sha256": "cf43030199b6cfca98d91442ebef1f136f63210c994c593442e4454c468a8afe"
+    },
+    {
+      "path": "translated/items/magic-item-play-reference-i-p.md",
+      "domain": "items",
+      "bytes": 27552,
+      "sha256": "b4080067ae65fe8f7b56fcc5ce0df1142ec7b486a9adfbe19e6ef0b4828ff60e"
+    },
+    {
+      "path": "translated/items/magic-item-play-reference-r-s.md",
+      "domain": "items",
+      "bytes": 39468,
+      "sha256": "be7e8e1315131804fa5f3213bd37322c88d8b1940dd67251189b596d620d0df5"
+    },
+    {
+      "path": "translated/items/magic-item-play-reference-t-z.md",
+      "domain": "items",
+      "bytes": 17350,
+      "sha256": "7aa3d9cfde455e60422bdcb2c8333cded68df064ae7284e709ae6e00d3009293"
+    },
+    {
+      "path": "translated/items/magic-items-index.md",
+      "domain": "items",
+      "bytes": 18755,
+      "sha256": "f8d8290aaaf1146e5be9cb79ff5539e39110da0ea9437540ef6c0dead9d2ab09"
+    },
+    {
+      "path": "translated/items/아이템_검수_기준.md",
+      "domain": "items",
+      "bytes": 1433,
+      "sha256": "6fb7e0f42c5520a0bf0be67768361a625e50a80942d5211fc028fca3794167c4"
+    },
+    {
+      "path": "translated/monsters/INDEX.md",
+      "domain": "monsters",
+      "bytes": 29348,
+      "sha256": "cd887d840b6828a4817e9a8a47476c62e466edaf39b2d242182359aeffe9960c"
+    },
+    {
+      "path": "translated/monsters/monster-details-a-c.md",
+      "domain": "monsters",
+      "bytes": 166605,
+      "sha256": "ae5efc91b0735e5608440921ae15fdb5a7876eb33faf269a79f4df09b0353b39"
+    },
+    {
+      "path": "translated/monsters/monster-details-d-g.md",
+      "domain": "monsters",
+      "bytes": 138670,
+      "sha256": "f07f46c77e2fc3bb266a83bbfa75627b34a18d0ff558205cd2252e5f80827d73"
+    },
+    {
+      "path": "translated/monsters/monster-details-h-m.md",
+      "domain": "monsters",
+      "bytes": 82555,
+      "sha256": "8e72e6b41f32f801c7ad62173677b392486c5a6452831f3ac37128ec03693e3a"
+    },
+    {
+      "path": "translated/monsters/monster-details-n-s.md",
+      "domain": "monsters",
+      "bytes": 123214,
+      "sha256": "6fb1121a476426eca3a9260c0f4eaa2aeba19cc2a91b4ae5efcad1b8b9f73932"
+    },
+    {
+      "path": "translated/monsters/monster-details-t-z.md",
+      "domain": "monsters",
+      "bytes": 89268,
+      "sha256": "37e2b6f8c0f3dc2a3794468c22d854d17bbc20d57e8a76b8169b2d20d9bfd5d0"
+    },
+    {
+      "path": "translated/monsters/monster-play-reference-a-c.md",
+      "domain": "monsters",
+      "bytes": 69825,
+      "sha256": "e386b35a17426165afae28b6820b5e7c2108e6815e10eddfcae34f1ac7089588"
+    },
+    {
+      "path": "translated/monsters/monster-play-reference-d-g.md",
+      "domain": "monsters",
+      "bytes": 68971,
+      "sha256": "7927f02be6680cf7b3e08e99fea16a6985ae3bf7f5212c7f16816104acae8179"
+    },
+    {
+      "path": "translated/monsters/monster-play-reference-h-m.md",
+      "domain": "monsters",
+      "bytes": 39803,
+      "sha256": "f34c49b4140376f12da54ffba2c791d35fb3399bd447805ab68d81e52cd1f3db"
+    },
+    {
+      "path": "translated/monsters/monster-play-reference-n-s.md",
+      "domain": "monsters",
+      "bytes": 62010,
+      "sha256": "722f865bbbfafb854bc400c9439b2ff8d9b5f58f65527679adefad19b7cfdb38"
+    },
+    {
+      "path": "translated/monsters/monster-play-reference-t-z.md",
+      "domain": "monsters",
+      "bytes": 41723,
+      "sha256": "3c210d4b236a4d7c9de2cab07b8b03fefee061dd04f9e73c5d01e4405e50db66"
+    },
+    {
+      "path": "translated/monsters/monster-translation-progress.md",
+      "domain": "monsters",
+      "bytes": 1432,
+      "sha256": "3a1a91c9140f48554ef0ce82d9d1698142fbbf6d80eeba823889b6d528afe0d5"
+    },
+    {
+      "path": "translated/monsters/몬스터_검수_기준.md",
+      "domain": "monsters",
+      "bytes": 1192,
+      "sha256": "1d3ef81d31dfe886456b134bfe627bb67b73b3d6ba2ad85907f2af13fd99ba08"
+    },
+    {
+      "path": "translated/races/노움.md",
+      "domain": "races",
+      "bytes": 3660,
+      "sha256": "a797fd7f187d5c09b250e44bc4e3308483e7a792576f1151502f0ab6b13ba5b7"
+    },
+    {
+      "path": "translated/races/드래곤본.md",
+      "domain": "races",
+      "bytes": 2999,
+      "sha256": "ad77630aa714e24753a9f9710be4c1c079fcd24cda599a13148557a5dd232e8b"
+    },
+    {
+      "path": "translated/races/드워프.md",
+      "domain": "races",
+      "bytes": 3160,
+      "sha256": "e6fb953c8cfd21d2bacda3df2ad33ea94d07bc6898a0dfc4bb810b71a1cd1890"
+    },
+    {
+      "path": "translated/races/엘프.md",
+      "domain": "races",
+      "bytes": 3047,
+      "sha256": "18c4de4b7fa161ce7027c0648a9b4a545031016d00ae6228e105ea532062b821"
+    },
+    {
+      "path": "translated/races/인간.md",
+      "domain": "races",
+      "bytes": 1395,
+      "sha256": "f2398b911094587691faaf367fd5e3528914939cbe72ead6addac216d0588747"
+    },
+    {
+      "path": "translated/races/종족_검수_기준.md",
+      "domain": "races",
+      "bytes": 2029,
+      "sha256": "6575fee155effe7b466712cdc3707969d305138507f64592fda77abd263e0972"
+    },
+    {
+      "path": "translated/races/종족_공통_규칙.md",
+      "domain": "races",
+      "bytes": 3025,
+      "sha256": "5b4c70632e53d7c0015f2c9721045fc457172b1ba05f8702e9140fb42ac8968b"
+    },
+    {
+      "path": "translated/races/티플링.md",
+      "domain": "races",
+      "bytes": 2186,
+      "sha256": "94ff93e7313c5849598352a4011c2a7a3383918ffb4c9cab9d059279c9c292e0"
+    },
+    {
+      "path": "translated/races/하프엘프.md",
+      "domain": "races",
+      "bytes": 2172,
+      "sha256": "043bf49a82353def94bc6f4ffc642c74da583b082b3489ca325aa9e2ac52fde5"
+    },
+    {
+      "path": "translated/races/하프오크.md",
+      "domain": "races",
+      "bytes": 2388,
+      "sha256": "1451865454259a44e88120142ea3bfc077487f4401d63a35e50ea567f99fa816"
+    },
+    {
+      "path": "translated/races/하플링.md",
+      "domain": "races",
+      "bytes": 2413,
+      "sha256": "6d55673dd3892a0bae5a574fb15d3e108936f47ad7894e8cdbd94f7844b50d96"
+    },
+    {
+      "path": "translated/README.md",
+      "domain": "root",
+      "bytes": 7640,
+      "sha256": "4f48a3b4cad46a911aad53cd714b7055dbaec7036f04bbaca918b22662e94a1a"
+    },
+    {
+      "path": "translated/rules/GM_운영_규칙.md",
+      "domain": "rules",
+      "bytes": 12975,
+      "sha256": "72cd4bbf4761b170848c1e20d8115b8f569ec6bbb947318cd4985f120f2e7a68"
+    },
+    {
+      "path": "translated/rules/능력_판정과_d20_규칙.md",
+      "domain": "rules",
+      "bytes": 9191,
+      "sha256": "92c7992bb457ef68020018284ed62e28d3b4798967025a3f74ec28274a6f1c18"
+    },
+    {
+      "path": "translated/rules/룰_검수_기준.md",
+      "domain": "rules",
+      "bytes": 2065,
+      "sha256": "5f27e3a601b94111cd38d591e3254fac7b943615c85fdb3fc3a3295346604e28"
+    },
+    {
+      "path": "translated/rules/상태_이상.md",
+      "domain": "rules",
+      "bytes": 7744,
+      "sha256": "a268394a21e65c25b575e62e58b2c9fe027d56f582e4f0e5cf69026943f1b769"
+    },
+    {
+      "path": "translated/rules/전투_기본_규칙.md",
+      "domain": "rules",
+      "bytes": 10188,
+      "sha256": "156834e1f990881b2e2e18bfbeb9337a38372446c2c6ebc023a8f35ef9d7a2e8"
+    },
+    {
+      "path": "translated/rules/주문시전_규칙.md",
+      "domain": "rules",
+      "bytes": 8375,
+      "sha256": "554e1585c9ccf5b8e8ed6238d51697ae2ae8c4d58d0a28a9de4e49d365bc4bf8"
+    },
+    {
+      "path": "translated/rules/캐릭터_생성_기본_선택.md",
+      "domain": "rules",
+      "bytes": 13671,
+      "sha256": "5b00df08a25f1d4c1f6a7d6d2ca014a928279533bd21c442cfc1bfbf7431606d"
+    },
+    {
+      "path": "translated/rules/탐험과_휴식.md",
+      "domain": "rules",
+      "bytes": 7037,
+      "sha256": "3ea32cccd06c8e12a97d2a243030786d69cda37e4f54f18d001c427a80ef8ecd"
+    },
+    {
+      "path": "translated/rules/피해와_회복.md",
+      "domain": "rules",
+      "bytes": 6542,
+      "sha256": "12bc400c0cb80b2537dd861ca299afbf265ef9fd85b42042a1133420a5c6620b"
+    },
+    {
+      "path": "translated/spells/INDEX.md",
+      "domain": "spells",
+      "bytes": 20591,
+      "sha256": "8f192ff2553a5dc62880f712017d90f25d056bd250b7e028f1c9d2c526643edc"
+    },
+    {
+      "path": "translated/spells/play-reference-a.md",
+      "domain": "spells",
+      "bytes": 28724,
+      "sha256": "4621846cab151dde16befc04b5a2a405c2da67c2f90bd4b946dfcee589f508f5"
+    },
+    {
+      "path": "translated/spells/play-reference-b-c.md",
+      "domain": "spells",
+      "bytes": 48273,
+      "sha256": "a6ac08dd8995c493994fc9c6453097e7df0467c670dca7570d98a231718c5695"
+    },
+    {
+      "path": "translated/spells/play-reference-d-f.md",
+      "domain": "spells",
+      "bytes": 48935,
+      "sha256": "9c3da6df3c5fd8814fb76b28e35442d55e9a6bc8dce57da11942d65a20b5d20c"
+    },
+    {
+      "path": "translated/spells/play-reference-g-l.md",
+      "domain": "spells",
+      "bytes": 39586,
+      "sha256": "9a6e385751a10858da331bdcfc06dae757fd38d7784d545b3b3f9f23dac18c2d"
+    },
+    {
+      "path": "translated/spells/play-reference-m-p.md",
+      "domain": "spells",
+      "bytes": 36714,
+      "sha256": "f12b3bd6f4c6a921534840165e8534df6de56410cacbec3d4e6325688196175c"
+    },
+    {
+      "path": "translated/spells/play-reference-progress.md",
+      "domain": "spells",
+      "bytes": 1240,
+      "sha256": "2dc5d4d97415eb09b35a75ad87aed2fc1a376e7c63f92799be083b346a5ce682"
+    },
+    {
+      "path": "translated/spells/play-reference-r-s.md",
+      "domain": "spells",
+      "bytes": 34516,
+      "sha256": "08556c8ff5a5764da769d327117c4b88f0280b76533bea0908e43008cf52d587"
+    },
+    {
+      "path": "translated/spells/play-reference-t-z.md",
+      "domain": "spells",
+      "bytes": 24037,
+      "sha256": "d438e017b247f29c3fe3bf533a1f40e1054d2279495fc765999b73ebe08ca9c6"
+    },
+    {
+      "path": "translated/spells/spell-details-a-c.md",
+      "domain": "spells",
+      "bytes": 117763,
+      "sha256": "d2d994492528ab60fd0fc974a1d66cb597531e6fd8eeb357984784eed511c9f8"
+    },
+    {
+      "path": "translated/spells/spell-details-d-f.md",
+      "domain": "spells",
+      "bytes": 94438,
+      "sha256": "a73059f0447f68f8ab4bbe42dc9869d4d0f285cbb269a8f0992bc3a0f2f48ded"
+    },
+    {
+      "path": "translated/spells/spell-details-g-l.md",
+      "domain": "spells",
+      "bytes": 79220,
+      "sha256": "e77f62b75480e0fa9344526d78087fdcae066e573490eb551f713612e4b570c2"
+    },
+    {
+      "path": "translated/spells/spell-details-m-p.md",
+      "domain": "spells",
+      "bytes": 83850,
+      "sha256": "070061993e24f737c0e7cf09413cd09536b3e2c3a3e8bd0a28b0bda8e1e629fe"
+    },
+    {
+      "path": "translated/spells/spell-details-r-s.md",
+      "domain": "spells",
+      "bytes": 73936,
+      "sha256": "c8f9cc0eff1ae07478df23fbfbb9f21a17c93e39161b25133a896e49bd1779cc"
+    },
+    {
+      "path": "translated/spells/spell-details-t-z.md",
+      "domain": "spells",
+      "bytes": 55405,
+      "sha256": "b91f8085bd50587505bb6f51c74cea7ac12bf4934778701a82026ab06a7bae45"
+    },
+    {
+      "path": "translated/spells/주문_검수_기준.md",
+      "domain": "spells",
+      "bytes": 1487,
+      "sha256": "48549cabf129bc9d69961623a82656bfbbf59064034adeef1c1dd789ab2118a9"
+    },
+    {
+      "path": "translated/spells/주문_번역_품질_전략.md",
+      "domain": "spells",
+      "bytes": 3210,
+      "sha256": "006839877ad4d655911e1e0e1fff40e9fcb2b17c4244dc4883c142e15be7a76a"
+    }
+  ],
+  "expectedCounts": {
+    "spells": 319,
+    "conditions": 15,
+    "magic_items": 239,
+    "monsters": 317,
+    "classes": 12,
+    "races": 9
+  }
+}

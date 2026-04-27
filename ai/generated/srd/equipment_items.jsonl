@@ -1,0 +1,27 @@
+{"id":"equipment.가죽_갑옷","nameKo":"가죽 갑옷","kind":"armor","quantityRaw":null,"aliasesKo":["가죽 갑옷"],"sourceClassIds":["class.rogue","class.bard","class.fighter"]}
+{"id":"equipment.군용_근접_무기","nameKo":"군용 근접 무기","kind":"weapon","quantityRaw":"하나","aliasesKo":["군용 근접 무기"],"sourceClassIds":["class.barbarian"]}
+{"id":"equipment.군용_무기","nameKo":"군용 무기","kind":"weapon","quantityRaw":null,"aliasesKo":["군용 무기"],"sourceClassIds":["class.fighter"]}
+{"id":"equipment.그레이트액스","nameKo":"그레이트액스","kind":"weapon","quantityRaw":null,"aliasesKo":["그레이트액스"],"sourceClassIds":["class.barbarian"]}
+{"id":"equipment.다트","nameKo":"다트","kind":"weapon","quantityRaw":"10개","aliasesKo":["다트"],"sourceClassIds":["class.monk"]}
+{"id":"equipment.단검","nameKo":"단검","kind":"weapon","quantityRaw":"2개","aliasesKo":["단검"],"sourceClassIds":["class.rogue","class.bard"]}
+{"id":"equipment.단순_무기","nameKo":"단순 무기","kind":"weapon","quantityRaw":"하나","aliasesKo":["단순 무기"],"sourceClassIds":["class.monk","class.bard","class.barbarian"]}
+{"id":"equipment.던전_탐험가_꾸러미","nameKo":"던전 탐험가 꾸러미","kind":"pack","quantityRaw":null,"aliasesKo":["던전 탐험가 꾸러미"],"sourceClassIds":["class.rogue","class.monk","class.fighter"]}
+{"id":"equipment.도둑_꾸러미","nameKo":"도둑 꾸러미","kind":"pack","quantityRaw":null,"aliasesKo":["도둑 꾸러미"],"sourceClassIds":["class.rogue"]}
+{"id":"equipment.도둑_도구","nameKo":"도둑 도구","kind":"tool","quantityRaw":null,"aliasesKo":["도둑 도구"],"sourceClassIds":["class.rogue"]}
+{"id":"equipment.라이트_크로스보우","nameKo":"라이트 크로스보우","kind":"weapon","quantityRaw":null,"aliasesKo":["라이트 크로스보우"],"sourceClassIds":["class.fighter"]}
+{"id":"equipment.레이피어","nameKo":"레이피어","kind":"weapon","quantityRaw":null,"aliasesKo":["레이피어"],"sourceClassIds":["class.rogue","class.bard"]}
+{"id":"equipment.롱보우","nameKo":"롱보우","kind":"weapon","quantityRaw":null,"aliasesKo":["롱보우"],"sourceClassIds":["class.fighter"]}
+{"id":"equipment.롱소드","nameKo":"롱소드","kind":"weapon","quantityRaw":null,"aliasesKo":["롱소드"],"sourceClassIds":["class.bard"]}
+{"id":"equipment.류트","nameKo":"류트","kind":"tool","quantityRaw":null,"aliasesKo":["류트"],"sourceClassIds":["class.bard"]}
+{"id":"equipment.방패","nameKo":"방패","kind":"armor","quantityRaw":null,"aliasesKo":["방패"],"sourceClassIds":["class.fighter"]}
+{"id":"equipment.볼트","nameKo":"볼트","kind":"ammunition","quantityRaw":"20개","aliasesKo":["볼트"],"sourceClassIds":["class.fighter"]}
+{"id":"equipment.쇼트보우","nameKo":"쇼트보우","kind":"weapon","quantityRaw":null,"aliasesKo":["쇼트보우"],"sourceClassIds":["class.rogue"]}
+{"id":"equipment.쇼트소드","nameKo":"쇼트소드","kind":"weapon","quantityRaw":null,"aliasesKo":["쇼트소드"],"sourceClassIds":["class.rogue","class.monk"]}
+{"id":"equipment.악기","nameKo":"악기","kind":"tool","quantityRaw":"하나","aliasesKo":["악기"],"sourceClassIds":["class.bard"]}
+{"id":"equipment.연예인_꾸러미","nameKo":"연예인 꾸러미","kind":"pack","quantityRaw":null,"aliasesKo":["연예인 꾸러미"],"sourceClassIds":["class.bard"]}
+{"id":"equipment.외교관_꾸러미","nameKo":"외교관 꾸러미","kind":"pack","quantityRaw":null,"aliasesKo":["외교관 꾸러미"],"sourceClassIds":["class.bard"]}
+{"id":"equipment.재블린","nameKo":"재블린","kind":"weapon","quantityRaw":"4개","aliasesKo":["재블린"],"sourceClassIds":["class.barbarian"]}
+{"id":"equipment.체인_메일","nameKo":"체인 메일","kind":"armor","quantityRaw":null,"aliasesKo":["체인 메일"],"sourceClassIds":["class.fighter"]}
+{"id":"equipment.탐험가_꾸러미","nameKo":"탐험가 꾸러미","kind":"pack","quantityRaw":null,"aliasesKo":["탐험가 꾸러미"],"sourceClassIds":["class.rogue","class.monk","class.barbarian","class.fighter"]}
+{"id":"equipment.핸드액스","nameKo":"핸드액스","kind":"weapon","quantityRaw":"2개","aliasesKo":["핸드액스"],"sourceClassIds":["class.barbarian","class.fighter"]}
+{"id":"equipment.화살","nameKo":"화살","kind":"ammunition","quantityRaw":"20개","aliasesKo":["화살"],"sourceClassIds":["class.rogue","class.fighter"]}
