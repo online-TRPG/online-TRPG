@@ -25,16 +25,19 @@ services:
     environment:
       TZ: Asia/Seoul
       NGINX_DOMAIN: k14a201.p.ssafy.io
-    # 6시간마다: 인증서 존재 여부 재평가 → 설정 갱신 → reload (HTTP→HTTPS 자동 전환)
+    # 기동 직후 select-config 1회 실행 후, 6시간마다 재평가→reload (HTTP→HTTPS 자동 전환)
+    # nginx 공식 entrypoint 는 CMD[0]==nginx 일 때만 /docker-entrypoint.d/* 를 돌리므로 직접 호출
     command:
       - /bin/sh
       - -c
       - |
+        /docker-entrypoint.d/40-select-config.sh
         while :; do
           sleep 6h & wait $${!}
           /docker-entrypoint.d/40-select-config.sh
           nginx -s reload
-        done & nginx -g "daemon off;"
+        done &
+        nginx -g "daemon off;"
     depends_on:
       backend:
         condition: service_started
