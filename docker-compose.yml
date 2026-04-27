@@ -8,7 +8,8 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
-  # 1. Nginx (웹 서버 & 프록시) — FE 정적파일을 이미지에 포함 (멀티스테이지 빌드)
+  # 1. Nginx (웹 서버 & 프록시) — FE 정적파일 + 설정 모두 이미지에 포함
+  # 인증서·ACME 챌린지는 certbot 과 named volume 으로 공유 (host bind mount 없음 → DooD 안전)
   nginx:
     build:
       context: .
@@ -17,20 +18,26 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      # default.conf 만 런타임 마운트 (설정 변경 시 이미지 재빌드 없이 reload 가능)
-      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-      # Let's Encrypt ACME 챌린지 경로 (/.well-known/acme-challenge/) 공유
-      - ./infra/certbot/www:/var/www/certbot:ro
-      # 발급된 인증서 읽기 전용 마운트
-      - ./infra/certbot/conf:/etc/letsencrypt:ro
+      # ACME 챌린지 경로 — certbot 이 쓰고 nginx 가 서빙
+      - certbot_www:/var/www/certbot:ro
+      # Let's Encrypt 인증서 — certbot 이 발급/갱신, nginx 가 읽음
+      - certbot_conf:/etc/letsencrypt:ro
     environment:
       TZ: Asia/Seoul
-    # 6시간마다 nginx reload 해서 갱신된 인증서를 반영
+      NGINX_DOMAIN: k14a201.p.ssafy.io
+    # 기동 직후 select-config 1회 실행 후, 6시간마다 재평가→reload (HTTP→HTTPS 자동 전환)
+    # nginx 공식 entrypoint 는 CMD[0]==nginx 일 때만 /docker-entrypoint.d/* 를 돌리므로 직접 호출
     command:
       - /bin/sh
       - -c
       - |
-        while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g "daemon off;"
+        /docker-entrypoint.d/40-select-config.sh
+        while :; do
+          sleep 6h & wait $${!}
+          /docker-entrypoint.d/40-select-config.sh
+          nginx -s reload
+        done &
+        nginx -g "daemon off;"
     depends_on:
       backend:
         condition: service_started
@@ -120,11 +127,15 @@ services:
       - app-net
 
   # 6a. Certbot — Let's Encrypt 인증서 자동 갱신 (12시간 주기 체크)
+  # 최초 발급은 수동 1회 필요:
+  #   docker compose run --rm --entrypoint "" certbot \
+  #     certbot certonly --webroot -w /var/www/certbot \
+  #     -d k14a201.p.ssafy.io --email <ADMIN_EMAIL> --agree-tos --no-eff-email
   certbot:
     image: certbot/certbot:latest
     volumes:
-      - ./infra/certbot/conf:/etc/letsencrypt
-      - ./infra/certbot/www:/var/www/certbot
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
     environment:
       TZ: Asia/Seoul
     # 컨테이너 시작 시 즉시 renew 시도 후 12시간마다 반복
@@ -167,3 +178,5 @@ volumes:
   ollama_data:
   postgres_data:
   redis_data:
+  certbot_conf:
+  certbot_www:
