@@ -66,7 +66,7 @@ export function App() {
 
   async function handleCreateSession(
     title: string,
-    options?: { scenarioId?: string; maxPlayers?: number; useAiGm?: boolean },
+    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
   ) {
     await session.createSession(title, options);
     setActiveView("play");

@@ -60,7 +60,7 @@ export interface UseSessionReturn {
   error: string | null;
   createSession: (
     title: string,
-    options?: { scenarioId?: string; maxPlayers?: number; useAiGm?: boolean },
+    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
   ) => Promise<void>;
   joinSession: (inviteCode: string) => Promise<void>;
   joinSessionById: (sessionId: string) => Promise<void>;
@@ -177,7 +177,7 @@ export function useSession(
 
   async function createSession(
     title: string,
-    options?: { scenarioId?: string; maxPlayers?: number; useAiGm?: boolean },
+    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
   ) {
     if (!user) return;
     setError(null);
