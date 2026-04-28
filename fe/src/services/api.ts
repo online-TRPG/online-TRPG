@@ -22,7 +22,8 @@ import { normalizeSessionSnapshot } from "../types/session";
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
 const configuredWsBaseUrl = import.meta.env.VITE_WS_BASE_URL as string | undefined;
-const rawBaseUrl = (configuredBaseUrl || "http://localhost:3000").replace(/\/$/, "");
+const defaultBase = import.meta.env.PROD ? "" : "http://localhost:3000";
+const rawBaseUrl = (configuredBaseUrl || defaultBase).replace(/\/$/, "");
 export const API_BASE_URL = rawBaseUrl.endsWith("/api/v1") ? rawBaseUrl : `${rawBaseUrl}/api/v1`;
 export const SOCKET_BASE_URL = (configuredWsBaseUrl || API_BASE_URL.replace(/\/api\/v1$/, "")).replace(/\/$/, "");
 
