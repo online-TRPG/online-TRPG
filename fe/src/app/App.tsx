@@ -201,8 +201,6 @@ export function App() {
             snapshot={session.snapshot}
             error={error}
             onCreateCharacter={(payload) => void session.createCharacter(payload)}
-            onBackToMain={() => setActiveView("main")}
-            onOpenPlay={() => setActiveView("play")}
           />
         ) : null}
 
