@@ -152,8 +152,6 @@ type StructuredAction = {
     | "skill_check"
     | "saving_throw"
     | "attack"
-    | "cast_spell"
-    | "use_class_feature"
     | "use_item"
     | "move"
     | "interact"
@@ -162,9 +160,6 @@ type StructuredAction = {
     | "freeform";
   actorCharacterId: string;
   targetId?: string;
-  spellId?: string;
-  featureId?: string;
-  attackKind?: "weapon_attack" | "melee_spell_attack" | "ranged_spell_attack";
   ability?: AbilityName;
   skill?: SkillName;
   approach: string;
@@ -251,27 +246,22 @@ type TurnLog = {
 type AiTrace = {
   id: string;
   sessionId: string;
-  role: "interpreter" | "actor" | "npc_dialogue" | "narrator" | "director" | "summarizer" | "smoke";
-  provider: "google-ai-studio" | "ollama" | "template-fallback";
+  role: "interpreter" | "actor" | "narrator" | "director" | "summarizer";
+  provider: "google-ai-studio" | "ollama";
   model: string;
   promptVersion: string;
   inputSummary: string;
   rawOutput: string;
   parsedOutput?: unknown;
-  status: "success" | "failure" | "fallback";
-  validationStatus: "passed" | "failed" | "fallback";
-  failureType?:
+  validationStatus:
+    | "passed"
+    | "schema_failed"
+    | "rule_failed"
     | "timeout"
-    | "rate_limit"
-    | "quota"
-    | "network"
-    | "auth"
-    | "invalid_response"
-    | "schema_validation"
-    | "upstream_error";
-  turnId?: string;
-  actorCharacterId?: string;
-  endpoint?: string;
+    | "rate_limited"
+    | "quota_exceeded"
+    | "provider_error"
+    | "fallback";
   latencyMs: number;
   inputTokens?: number;
   outputTokens?: number;
@@ -279,8 +269,6 @@ type AiTrace = {
   createdAt: string;
 };
 ```
-
-`AiTrace.status`는 하네스 row 상태값이며 `success`, `failure`, `fallback`으로 고정한다. 백엔드 검증 상태가 필요하면 adapter에서 `success -> passed`, `failure -> failed`, `fallback -> fallback`으로 변환해 `validationStatus`에 저장한다.
 
 ## 4. 공통 타입
 
