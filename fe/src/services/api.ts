@@ -203,7 +203,7 @@ export async function createSession(
   title: string,
   options?: {
     scenarioId?: string;
-    maxPlayers?: number;
+    maxParticipants?: number;
     useAiGm?: boolean;
   },
   accessToken?: string | null,
@@ -216,9 +216,9 @@ export async function createSession(
       title,
       scenarioId: options?.scenarioId || DEFAULT_SCENARIO_ID,
       ruleSetId: DEFAULT_RULE_SET_ID,
-      maxPlayers: options?.maxPlayers ?? 4,
+      maxParticipants: options?.maxParticipants ?? 4,
       gmMode: toGmMode(options?.useAiGm === false ? "human" : "ai"),
-      gmUserId: options?.useAiGm === false ? user.id : undefined,
+      visibility: "PUBLIC",
     },
   });
 
