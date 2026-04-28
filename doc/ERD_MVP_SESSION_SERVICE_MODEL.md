@@ -1,4 +1,9 @@
+# ERD
+
+수정일: 2026년 4월 28일 오후 1:56
+
 # MVP ERD 초안 - 세션 외부 서비스 모델
+
 
 ## 1. 목적
 
@@ -11,8 +16,6 @@
 - 시나리오 선택 및 진행 이력
 - 영속 캐릭터 / 세션 런타임 캐릭터
 - 최소한의 게임 상태 연결
-
-
 
 ## 2. 이번 합의의 핵심
 
@@ -53,9 +56,9 @@
 
 - AI GM 모드에서는 시스템이 제공하는 짧은 기본 시나리오를 우선 사용한다.
 - Human GM 모드에서는 아래 세 가지 흐름을 허용하는 방향으로 본다.
-  1. 기존 시나리오를 그대로 사용
-  2. 기존 시나리오를 불러와 복제 후 수정
-  3. 시나리오와 노드를 처음부터 직접 생성
+    1. 기존 시나리오를 그대로 사용
+    2. 기존 시나리오를 불러와 복제 후 수정
+    3. 시나리오와 노드를 처음부터 직접 생성
 - 원본 공유 시나리오를 세션별 커스텀 과정에서 직접 수정하지 않도록, 시나리오 원본과 파생본을 구분할 수 있어야 한다.
 
 ## 3. 테이블별 컬럼 초안
@@ -65,7 +68,7 @@
 ### 3.1 User
 
 | 컬럼명 | 타입 | 설명 |
-|---|---|---|
+| --- | --- | --- |
 | id | string PK | 사용자 ID |
 | email | string unique nullable | 로컬 로그인용 이메일. guest 계정은 null 가능 |
 | passwordHash | string nullable | 로컬 로그인용 비밀번호 해시 |
@@ -78,7 +81,7 @@
 ### 3.2 UserProfile
 
 | 컬럼명 | 타입 | 설명 |
-|---|---|---|
+| --- | --- | --- |
 | userId | string PK, FK -> User.id | 사용자와 1:1 |
 | nickname | string unique | 공개 닉네임 |
 | bio | text nullable | 자기소개 |
@@ -91,7 +94,7 @@
 ### 3.3 SocialAccount
 
 | 컬럼명 | 타입 | 설명 |
-|---|---|---|
+| --- | --- | --- |
 | id | string PK | 소셜 계정 연결 ID |
 | userId | string FK -> User.id | 연결된 사용자 |
 | provider | enum | `KAKAO`, `DISCORD` |
@@ -106,7 +109,7 @@
 ### 3.4 Session
 
 | 컬럼명 | 타입 | 설명 |
-|---|---|---|
+| --- | --- | --- |
 | id | string PK | 세션 ID |
 | title | string | 세션 제목 |
 | description | text nullable | 세션 설명 |
@@ -129,7 +132,7 @@
 ### 3.5 Scenario
 
 | 컬럼명 | 타입 | 설명 |
-|---|---|---|
+| --- | --- | --- |
 | id | string PK | 시나리오 ID |
 | title | string | 시나리오 제목 |
 | description | text nullable | 시나리오 소개 |
@@ -148,7 +151,7 @@
 ### 3.6 SessionScenario
 
 | 컬럼명 | 타입 | 설명 |
-|---|---|---|
+| --- | --- | --- |
 | id | string PK | 세션-시나리오 연결 ID |
 | sessionId | string FK -> Session.id | 소속 세션 |
 | scenarioId | string FK -> Scenario.id | 플레이할 시나리오 |
@@ -166,7 +169,7 @@
 ### 3.7 SessionParticipant
 
 | 컬럼명 | 타입 | 설명 |
-|---|---|---|
+| --- | --- | --- |
 | id | string PK | 참가 레코드 ID |
 | sessionId | string FK -> Session.id | 참가한 세션 |
 | userId | string FK -> User.id | 참가 사용자 |
@@ -182,7 +185,7 @@
 ### 3.8 Character
 
 | 컬럼명 | 타입 | 설명 |
-|---|---|---|
+| --- | --- | --- |
 | id | string PK | 캐릭터 ID |
 | ownerUserId | string FK -> User.id | 캐릭터 소유자 |
 | name | string | 캐릭터 이름 |
@@ -202,7 +205,7 @@
 ### 3.9 SessionCharacter
 
 | 컬럼명 | 타입 | 설명 |
-|---|---|---|
+| --- | --- | --- |
 | id | string PK | 세션 캐릭터 ID |
 | sessionId | string FK -> Session.id | 소속 세션 |
 | characterId | string FK -> Character.id | 원본 영속 캐릭터 |
@@ -223,7 +226,7 @@
 ### 3.10 GameState
 
 | 컬럼명 | 타입 | 설명 |
-|---|---|---|
+| --- | --- | --- |
 | sessionScenarioId | string PK, FK -> SessionScenario.id | 현재 시나리오 진행 상태 |
 | version | int | 상태 버전 |
 | currentNodeId | string nullable | 현재 시나리오 노드 |
@@ -438,7 +441,7 @@ erDiagram
 
 - 하나의 시스템 시나리오를 여러 세션이 공유해서 사용할 수 있다.
 - Human GM이 기존 시나리오를 바꿀 때 원본을 직접 수정하면 다른 세션까지 영향받을 수 있다.
-- 따라서 "기존 시나리오 불러와 수정" 흐름은 원본 수정이 아니라 복제본 생성 후 수정 방식으로 본다.
+- 따라서 “기존 시나리오 불러와 수정” 흐름은 원본 수정이 아니라 복제본 생성 후 수정 방식으로 본다.
 
 ## 6. 현재 구현과의 주요 차이
 
@@ -453,7 +456,7 @@ erDiagram
 7. `Character` 이미지 컬럼 추가
 8. `Scenario.createdByUserId`, `sourceType`, `baseScenarioId` 등 작성/복제 흐름용 메타데이터 추가 검토
 
-즉, 이 문서는 "현재 코드와 완전히 일치하는 상태 문서"가 아니라, 팀이 합의한 MVP 방향을 ERD 관점으로 정리한 기준안이다.
+즉, 이 문서는 “현재 코드와 완전히 일치하는 상태 문서”가 아니라, 팀이 합의한 MVP 방향을 ERD 관점으로 정리한 기준안이다.
 
 ## 7. 후속 작업 추천 순서
 
