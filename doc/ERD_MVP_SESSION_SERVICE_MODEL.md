@@ -49,6 +49,15 @@
 - 프리셋 이미지 선택 + 사용자 업로드 이미지를 모두 허용한다.
 - 복잡한 별도 미디어 테이블 대신 `Character`에 직접 컬럼을 둔다.
 
+### 2.6 시나리오 작성 흐름
+
+- AI GM 모드에서는 시스템이 제공하는 짧은 기본 시나리오를 우선 사용한다.
+- Human GM 모드에서는 아래 세 가지 흐름을 허용하는 방향으로 본다.
+  1. 기존 시나리오를 그대로 사용
+  2. 기존 시나리오를 불러와 복제 후 수정
+  3. 시나리오와 노드를 처음부터 직접 생성
+- 원본 공유 시나리오를 세션별 커스텀 과정에서 직접 수정하지 않도록, 시나리오 원본과 파생본을 구분할 수 있어야 한다.
+
 ## 3. 테이블별 컬럼 초안
 
 아래 표는 MVP 기준 권장 컬럼이다. 실제 구현 시 타입명이나 enum 명은 코드 컨벤션에 맞게 조정할 수 있다.
@@ -124,6 +133,9 @@
 | id | string PK | 시나리오 ID |
 | title | string | 시나리오 제목 |
 | description | text nullable | 시나리오 소개 |
+| createdByUserId | string nullable FK -> User.id | 작성자. 시스템 시나리오면 null 가능 |
+| sourceType | enum | `SYSTEM`, `USER`, `CLONED` |
+| baseScenarioId | string nullable FK -> Scenario.id | 복제 기반이 된 원본 시나리오 |
 | thumbnailUrl | string nullable | 대표 이미지 |
 | ruleSetId | string nullable | 적용 룰셋 |
 | difficulty | string nullable | 난이도 |
@@ -282,6 +294,9 @@ erDiagram
         string id PK
         string title
         text description
+        string createdByUserId FK
+        string sourceType
+        string baseScenarioId FK
         string thumbnailUrl
         string ruleSetId
         string difficulty
@@ -364,6 +379,8 @@ erDiagram
     SESSION ||--o{ SESSION_SCENARIO : plays
     SCENARIO ||--o{ SESSION_SCENARIO : selected_as
     SESSION_SCENARIO ||--|| GAME_STATE : owns
+    USER ||--o{ SCENARIO : authors
+    SCENARIO o|--o{ SCENARIO : derived_from
 
     USER ||--o{ CHARACTER : owns
     CHARACTER ||--o{ SESSION_CHARACTER : instantiated_as
@@ -411,16 +428,30 @@ erDiagram
 - 이미지 전용 테이블까지 분리하면 구현 복잡도가 커진다.
 - 우선 `Character`에 직접 `avatarType`, `avatarPresetId`, `avatarUrl`을 둔다.
 
+### 5.6 왜 Scenario 와 ScenarioNode 를 별도 테이블로 유지하는가
+
+- 시나리오는 콘텐츠 전체이고, 노드는 그 안의 개별 장면 / 분기 / 전이 지점이다.
+- 따라서 `Scenario`와 `ScenarioNode`를 분리하는 편이 구조적으로 자연스럽다.
+- AI GM 기본 시나리오든, Human GM의 커스텀 시나리오든 모두 같은 저장 구조를 재사용할 수 있다.
+
+### 5.7 왜 시나리오 커스텀 시 원본을 직접 수정하지 않는가
+
+- 하나의 시스템 시나리오를 여러 세션이 공유해서 사용할 수 있다.
+- Human GM이 기존 시나리오를 바꿀 때 원본을 직접 수정하면 다른 세션까지 영향받을 수 있다.
+- 따라서 "기존 시나리오 불러와 수정" 흐름은 원본 수정이 아니라 복제본 생성 후 수정 방식으로 본다.
+
 ## 6. 현재 구현과의 주요 차이
 
-현재 Prisma / API 구현과 비교하면 아래 정렬 작업이 필요할 수 있다.
+현재 Prisma / API 구현과 비교하면 아래는 새 구조 반영을 위해 실제로 정렬되어야 하는 핵심 변경 사항이다.
 
-1. `Session.scenarioId` 직접 참조 제거 여부 검토
-2. `SessionScenario` 신규 도입
-3. `GameState`를 `Session` 기준이 아니라 `SessionScenario` 기준으로 옮길지 검토
-4. `ownerUserId`, `captainUserId`, `gmUserId`를 `hostUserId` 중심 구조로 단순화할지 검토
-5. `UserProfile` 분리 여부 반영
-6. `Character` 이미지 컬럼 추가
+1. `Session.scenarioId` 직접 참조 제거
+2. `Session.currentNodeId` 제거
+3. `SessionScenario` 신규 도입
+4. `GameState.sessionId`를 `GameState.sessionScenarioId` 구조로 변경
+5. `ownerUserId`, `captainUserId`, `gmUserId`를 `hostUserId` 중심 구조로 단순화
+6. `UserProfile` 분리 반영
+7. `Character` 이미지 컬럼 추가
+8. `Scenario.createdByUserId`, `sourceType`, `baseScenarioId` 등 작성/복제 흐름용 메타데이터 추가 검토
 
 즉, 이 문서는 "현재 코드와 완전히 일치하는 상태 문서"가 아니라, 팀이 합의한 MVP 방향을 ERD 관점으로 정리한 기준안이다.
 
