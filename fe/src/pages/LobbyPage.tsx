@@ -1,242 +1,399 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { Icon } from "../components/Icon";
-import { LogPanel } from "../components/LogPanel";
-import type {
-  AvailableSessionListItem,
-  LogEntry,
-  Scenario,
-  SessionSnapshot,
-  StoredUser,
-} from "../types/session";
-
-const STATUS_LABEL: Record<string, string> = {
-  lobby: "참가 가능",
-  playing: "진행 중",
-  paused: "일시정지",
-  completed: "완료",
-};
+import type { AvailableSessionListItem, LogEntry, Scenario, SessionSnapshot, StoredUser } from "../types/session";
 
 interface LobbyPageProps {
   user: StoredUser;
   scenarios: Scenario[];
   snapshot: SessionSnapshot | null;
   sessionList: AvailableSessionListItem[];
+  mySessionList: AvailableSessionListItem[];
   logs: LogEntry[];
   busy: boolean;
   error: string | null;
-  onCreateSession: (title: string, scenarioId?: string) => void;
-  onJoinSession: (inviteCode: string) => void;
-  onCreateCharacter: (payload: {
-    name: string;
-    ancestry: string;
-    className: string;
-    maxHp?: number;
-  }) => void;
+  onCreateSession: (
+    title: string,
+    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
+  ) => void | Promise<void>;
+  onJoinSession: (inviteCode: string) => void | Promise<void>;
+  onJoinSessionById: (sessionId: string) => void | Promise<void>;
   onOpenPlay: () => void;
+  onLeaveCurrentSession: () => void | Promise<void>;
+}
+
+type LobbyModal = "create-room" | "join-room" | null;
+type SidebarSection = "current" | "joinable" | "my-sessions";
+
+const STATUS_LABEL: Record<string, string> = {
+  lobby: "Lobby",
+  recruiting: "Recruiting",
+  playing: "Playing",
+  paused: "Paused",
+  completed: "Completed",
+  disbanded: "Disbanded",
+};
+
+const PAGE_SIZE = 10;
+
+function getSessionListItemKey(item: AvailableSessionListItem, index: number): string {
+  return item.sessionId || `${item.title}-${item.scenarioTitle}-${index}`;
+}
+
+function renderSessionCard(
+  item: AvailableSessionListItem,
+  index: number,
+  disabled: boolean,
+  onJoin: (sessionId: string) => void | Promise<void>,
+) {
+  return (
+    <article className="session-card" key={getSessionListItemKey(item, index)}>
+      <div className="session-card-top">
+        <span className="status-chip">{item.ruleSetName || "TRPG"}</span>
+        <span className="status-chip muted">{STATUS_LABEL[item.status] ?? item.status}</span>
+      </div>
+      <h3>{item.title}</h3>
+      <p>{item.scenarioTitle}</p>
+      <dl className="session-meta">
+        <div>
+          <dt>Players</dt>
+          <dd>
+            {item.currentPlayers} / {item.maxPlayers}
+          </dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>{STATUS_LABEL[item.status] ?? item.status}</dd>
+        </div>
+      </dl>
+      <button type="button" disabled={disabled} onClick={() => void onJoin(item.sessionId)}>
+        <Icon name="enter" />
+        Join
+      </button>
+    </article>
+  );
 }
 
 export function LobbyPage({
-  user,
   scenarios,
   snapshot,
   sessionList,
-  logs,
+  mySessionList,
   busy,
   error,
   onCreateSession,
   onJoinSession,
-  onCreateCharacter,
+  onJoinSessionById,
   onOpenPlay,
+  onLeaveCurrentSession,
 }: LobbyPageProps) {
-  const [sessionTitle, setSessionTitle] = useState("얼어붙은 황무지의 메아리");
+  const [activeModal, setActiveModal] = useState<LobbyModal>(null);
+  const [activeSection, setActiveSection] = useState<SidebarSection>(() => (snapshot ? "current" : "joinable"));
+  const [sessionTitle, setSessionTitle] = useState("New session");
   const [scenarioId, setScenarioId] = useState("");
   const [inviteCode, setInviteCode] = useState("");
-  const [characterName, setCharacterName] = useState(`${user.displayName}의 캐릭터`);
-  const [ancestry, setAncestry] = useState("Human");
-  const [className, setClassName] = useState("Rogue");
+  const [maxPlayers, setMaxPlayers] = useState(4);
+  const [useAiGm, setUseAiGm] = useState(true);
+  const [page, setPage] = useState(0);
 
-  const myCharacter = snapshot?.characters.find((c) => c.ownerUserId === user.id);
+  const hasRecruitingSession = snapshot?.session.status === "recruiting";
+  const totalPages = Math.max(1, Math.ceil(sessionList.length / PAGE_SIZE));
+  const pagedSessions = useMemo(
+    () => sessionList.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE),
+    [page, sessionList],
+  );
 
-  function submitSession(e: FormEvent) {
-    e.preventDefault();
-    onCreateSession(sessionTitle, scenarioId || undefined);
+  function submitSession(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (hasRecruitingSession) return;
+
+    void onCreateSession(sessionTitle, {
+      scenarioId: scenarioId || undefined,
+      maxParticipants: maxPlayers,
+      useAiGm,
+    });
+    setActiveModal(null);
   }
 
-  function submitJoin(e: FormEvent) {
-    e.preventDefault();
-    onJoinSession(inviteCode);
-  }
+  function submitJoin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (hasRecruitingSession) return;
 
-  function submitCharacter(e: FormEvent) {
-    e.preventDefault();
-    onCreateCharacter({ name: characterName, ancestry, className, maxHp: 12 });
+    void onJoinSession(inviteCode.trim().toUpperCase());
+    setActiveModal(null);
   }
 
   return (
-    <main className="content-grid">
-      <section className="lobby-main">
-        <div className="page-title">
-          <div>
-            <span className="eyebrow">로비 탐색기</span>
-            <h2>진행 중인 모험을 발견하거나 새 세션을 시작하세요.</h2>
-          </div>
-          {snapshot ? (
-            <button type="button" className="primary small" onClick={onOpenPlay}>
-              <Icon name="enter" />
-              세션 입장
-            </button>
-          ) : null}
-        </div>
-
-        <article className="featured-room">
-          <div>
-            <span className="badge">{snapshot ? "내 세션" : "추천 캠페인"}</span>
-            <h3>{snapshot?.session.title ?? "얼어붙은 황무지의 메아리"}</h3>
-            <p>
-              {snapshot
-                ? "초대 코드를 공유해 동료를 초대하고, 캐릭터를 선택하면 플레이를 시작할 수 있습니다."
-                : "초대 코드로 동료를 불러오고, 캐릭터를 만든 뒤 같은 세션 상태와 실시간 변경 이벤트를 확인할 수 있습니다."}
-            </p>
-            <div className="meta-row">
-              <span>참가자 {snapshot?.participants.length ?? 0}명</span>
-              <span>캐릭터 {snapshot?.characters.length ?? 0}명</span>
-              <span>{snapshot?.state?.phase ?? "대기 중"}</span>
-            </div>
-          </div>
-          {snapshot ? (
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => void navigator.clipboard.writeText(snapshot.session.inviteCode)}
-            >
-              <Icon name="copy" />
-              {snapshot.session.inviteCode}
-            </button>
-          ) : null}
-        </article>
-
-        <div className="room-list">
-          {sessionList.length > 0 ? (
-            sessionList.map((item) => (
-              <article className="room-card" key={item.sessionId}>
-                <div className="room-top">
-                  <span>{item.scenarioTitle}</span>
-                  <strong style={{ color: "var(--gold)" }}>
-                    {item.currentPlayers} / {item.maxPlayers}
-                  </strong>
-                </div>
-                <h3>{item.title}</h3>
-                <p>{STATUS_LABEL[item.status] ?? item.status}</p>
-                <button type="button" style={{ color: "var(--cyan)" }}>
-                  상세 보기
-                </button>
-              </article>
-            ))
-          ) : (
-            <p className="empty-text" style={{ gridColumn: "1 / -1", padding: "24px 0" }}>
-              공개 세션이 없습니다. 새 세션을 만들거나 초대 코드로 참가해보세요.
-            </p>
-          )}
-        </div>
-      </section>
-
-      <aside className="control-panel">
-        <form className="action-card" onSubmit={submitSession}>
-          <h3>새 세션</h3>
-          <label htmlFor="sessionTitle">세션 제목</label>
-          <input
-            id="sessionTitle"
-            value={sessionTitle}
-            onChange={(e) => setSessionTitle(e.target.value)}
-            maxLength={100}
-          />
-          <label htmlFor="scenarioId">시나리오</label>
-          <select
-            id="scenarioId"
-            value={scenarioId}
-            onChange={(e) => setScenarioId(e.target.value)}
+    <main className="page-with-sidebar">
+      <aside className="page-sidebar">
+        <nav className="section-nav" aria-label="Lobby sections">
+          <button
+            type="button"
+            className={activeSection === "current" ? "active" : ""}
+            onClick={() => setActiveSection("current")}
           >
-            <option value="">기본 시나리오</option>
-            {scenarios.map((s) => (
-              <option value={s.id} key={s.id}>
-                {s.title}
-              </option>
-            ))}
-          </select>
-          <button type="submit" className="primary" disabled={busy}>
+            현재 세션
+            <span>{snapshot ? 1 : 0}</span>
+          </button>
+          <button
+            type="button"
+            className={activeSection === "joinable" ? "active" : ""}
+            onClick={() => setActiveSection("joinable")}
+          >
+            참가 가능 세션
+            <span>{sessionList.length}</span>
+          </button>
+          <button
+            type="button"
+            className={activeSection === "my-sessions" ? "active" : ""}
+            onClick={() => setActiveSection("my-sessions")}
+          >
+            진행 중인 세션
+            <span>{mySessionList.length}</span>
+          </button>
+        </nav>
+
+        <div className="quick-action-panel">
+          {snapshot ? (
+            <button type="button" className="primary" onClick={onOpenPlay}>
+              <Icon name="enter" />
+              세션 로비 복귀
+            </button>
+          ) : null}
+          {snapshot ? (
+            <button type="button" disabled={busy} onClick={onLeaveCurrentSession}>
+              <Icon name="close" />
+              세션 나가기
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className={snapshot ? "" : "primary"}
+            disabled={busy || hasRecruitingSession}
+            onClick={() => setActiveModal("join-room")}
+          >
+            <Icon name="enter" />
+            세션 참가
+          </button>
+          <button
+            type="button"
+            disabled={busy || hasRecruitingSession}
+            onClick={() => setActiveModal("create-room")}
+          >
             <Icon name="plus" />
             세션 만들기
           </button>
-        </form>
+        </div>
+      </aside>
 
-        <form className="action-card" onSubmit={submitJoin}>
-          <h3>초대 코드 참가</h3>
-          <label htmlFor="inviteCode">초대 코드</label>
-          <input
-            id="inviteCode"
-            value={inviteCode}
-            onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-            placeholder="ABC123"
-            maxLength={12}
-          />
-          <button type="submit" disabled={busy}>
-            <Icon name="enter" />
-            참가하기
-          </button>
-        </form>
-
-        {snapshot ? (
-          <form className="action-card" onSubmit={submitCharacter}>
-            <h3>{myCharacter ? "내 캐릭터" : "캐릭터 생성"}</h3>
-            {myCharacter ? (
-              <div className="character-summary">
-                <strong>{myCharacter.name}</strong>
-                <span>
-                  {myCharacter.ancestry} · {myCharacter.className} · HP {myCharacter.currentHp}/
-                  {myCharacter.maxHp}
-                </span>
+      <section className="main-column main-column-wide">
+        {activeSection === "current" ? (
+          <section className="section-block">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Current room</span>
+                <h2>현재 세션</h2>
               </div>
-            ) : (
-              <>
-                <label htmlFor="characterName">이름</label>
-                <input
-                  id="characterName"
-                  value={characterName}
-                  onChange={(e) => setCharacterName(e.target.value)}
-                  maxLength={50}
-                />
-                <div className="form-pair">
-                  <div>
-                    <label htmlFor="ancestry">종족</label>
-                    <input
-                      id="ancestry"
-                      value={ancestry}
-                      onChange={(e) => setAncestry(e.target.value)}
-                      maxLength={50}
-                    />
+            </div>
+
+            <div className="card-grid">
+              {snapshot ? (
+                <article className="session-card">
+                  <div className="session-card-top">
+                    <span className="status-chip">{snapshot.session.gmMode} GM</span>
+                    <span className="status-chip muted">
+                      {STATUS_LABEL[snapshot.session.status] ?? snapshot.session.status}
+                    </span>
                   </div>
-                  <div>
-                    <label htmlFor="className">직업</label>
-                    <input
-                      id="className"
-                      value={className}
-                      onChange={(e) => setClassName(e.target.value)}
-                      maxLength={50}
-                    />
-                  </div>
-                </div>
-                <button type="submit" className="primary" disabled={busy}>
-                  <Icon name="spark" />
-                  캐릭터 생성
+                  <h3>{snapshot.session.title}</h3>
+                  <p>{snapshot.session.description || "현재 참가 중인 세션입니다."}</p>
+                  <dl className="session-meta">
+                    <div>
+                      <dt>Invite</dt>
+                      <dd>{snapshot.session.inviteCode}</dd>
+                    </div>
+                    <div>
+                      <dt>Party</dt>
+                      <dd>{snapshot.participants.length}</dd>
+                    </div>
+                  </dl>
+                  <button type="button" onClick={onOpenPlay}>
+                    세션 열기
+                  </button>
+                  <button type="button" className="ghost" disabled={busy} onClick={onLeaveCurrentSession}>
+                    세션 나가기
+                  </button>
+                </article>
+              ) : (
+                <article className="empty-card">
+                  <h3>현재 참가 중인 세션이 없습니다.</h3>
+                  <p>좌측 메뉴에서 참가 가능한 세션을 확인하거나 새 세션을 만드세요.</p>
+                </article>
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {activeSection === "joinable" ? (
+          <section className="section-block">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Joinable rooms</span>
+                <h2>참가 가능 세션</h2>
+              </div>
+            </div>
+
+            <div className="card-grid joinable-room-grid">
+              {pagedSessions.length ? (
+                pagedSessions.map((item, index) =>
+                  renderSessionCard(item, index, busy || hasRecruitingSession, onJoinSessionById),
+                )
+              ) : (
+                <article className="empty-card">
+                  <h3>현재 공개 세션이 없습니다.</h3>
+                  <p>새 세션을 만들거나 나중에 다시 확인하세요.</p>
+                </article>
+              )}
+            </div>
+
+            {sessionList.length > PAGE_SIZE ? (
+              <div className="pagination-row">
+                <button type="button" disabled={page === 0} onClick={() => setPage((current) => current - 1)}>
+                  Prev
                 </button>
-              </>
-            )}
-          </form>
+                <span>
+                  {page + 1} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={page >= totalPages - 1}
+                  onClick={() => setPage((current) => current + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {activeSection === "my-sessions" ? (
+          <section className="section-block">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">My sessions</span>
+                <h2>진행 중인 세션</h2>
+              </div>
+            </div>
+
+            <div className="card-grid joinable-room-grid">
+              {mySessionList.length ? (
+                mySessionList.map((item, index) =>
+                  renderSessionCard(item, index, busy, onJoinSessionById),
+                )
+              ) : (
+                <article className="empty-card">
+                  <h3>참여한 세션이 없습니다.</h3>
+                  <p>진행 중, 일시정지, 완료된 세션이 여기에 표시됩니다.</p>
+                </article>
+              )}
+            </div>
+          </section>
         ) : null}
 
         {error ? <p className="panel-error">{error}</p> : null}
-        <LogPanel logs={logs} compact />
-      </aside>
+      </section>
+
+      {activeModal === "create-room" ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setActiveModal(null)}>
+          <div className="modal-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <span className="eyebrow">Create room</span>
+                <h2>Create session</h2>
+              </div>
+              <button type="button" className="modal-close" onClick={() => setActiveModal(null)}>
+                Close
+              </button>
+            </div>
+
+            <form className="modal-form" onSubmit={submitSession}>
+              <label htmlFor="session-title">Title</label>
+              <input
+                id="session-title"
+                value={sessionTitle}
+                onChange={(event) => setSessionTitle(event.target.value)}
+                maxLength={100}
+                required
+              />
+
+              <label htmlFor="scenario-id">Scenario</label>
+              <select id="scenario-id" value={scenarioId} onChange={(event) => setScenarioId(event.target.value)}>
+                <option value="">Select a scenario</option>
+                {scenarios.map((scenario) => (
+                  <option key={scenario.id} value={scenario.id}>
+                    {scenario.title}
+                  </option>
+                ))}
+              </select>
+
+              <label htmlFor="max-players">Max participants</label>
+              <input
+                id="max-players"
+                type="number"
+                min={1}
+                max={8}
+                value={maxPlayers}
+                onChange={(event) => setMaxPlayers(Math.min(8, Math.max(1, Number(event.target.value) || 1)))}
+              />
+
+              <label className="toggle-field" htmlFor="use-ai-gm">
+                <input
+                  id="use-ai-gm"
+                  type="checkbox"
+                  checked={useAiGm}
+                  onChange={(event) => setUseAiGm(event.target.checked)}
+                />
+                <span>Use AI GM</span>
+              </label>
+
+              <button type="submit" className="primary" disabled={busy || hasRecruitingSession}>
+                Create
+              </button>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {activeModal === "join-room" ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setActiveModal(null)}>
+          <div className="modal-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <span className="eyebrow">Invite access</span>
+                <h2>Join by invite code</h2>
+              </div>
+              <button type="button" className="modal-close" onClick={() => setActiveModal(null)}>
+                Close
+              </button>
+            </div>
+
+            <form className="modal-form" onSubmit={submitJoin}>
+              <label htmlFor="invite-code">Invite code</label>
+              <input
+                id="invite-code"
+                value={inviteCode}
+                onChange={(event) => setInviteCode(event.target.value)}
+                placeholder="ABC123"
+                maxLength={12}
+                required
+              />
+
+              <button type="submit" className="primary" disabled={busy || hasRecruitingSession}>
+                Join
+              </button>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

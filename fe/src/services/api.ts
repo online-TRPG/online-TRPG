@@ -6,6 +6,8 @@ import type {
   OAuthUrlResponseDto,
   SessionSnapshotDto,
   UserResponseDto,
+  SessionListItemResponseDto,
+  SessionParticipantResponseDto,
 } from "@trpg/shared-types";
 import type {
   ApiErrorBody,
@@ -43,6 +45,19 @@ export interface PaginatedList<T> {
   size: number;
   totalElements: number;
   totalPages: number;
+}
+
+function normalizeSessionListItem(item: SessionListItemResponseDto): AvailableSessionListItem {
+  return {
+    sessionId: item.session.id,
+    title: item.session.title,
+    scenarioTitle: item.scenario.title,
+    ruleSetName: item.session.ruleSetId ?? "TRPG",
+    currentPlayers: item.participantCount,
+    maxPlayers: item.session.maxPlayers,
+    status: item.session.status,
+    role: item.role,
+  };
 }
 
 function formatApiError(body: ApiErrorBody | null, fallback: string): string {
@@ -174,16 +189,36 @@ export function listSessions(
   user?: StoredUser | null,
   accessToken?: string | null,
 ): Promise<PaginatedList<AvailableSessionListItem>> {
-  return requestJson<PaginatedList<AvailableSessionListItem>>("/sessions", {
+  return requestJson<PaginatedList<SessionListItemResponseDto>>("/sessions", {
     user,
     accessToken,
-  });
+  }).then((result) => ({
+    ...result,
+    content: result.content.map(normalizeSessionListItem),
+  }));
+}
+
+export function listMySessions(
+  user: StoredUser,
+  accessToken?: string | null,
+): Promise<PaginatedList<AvailableSessionListItem>> {
+  return requestJson<PaginatedList<SessionListItemResponseDto>>("/users/me/sessions", {
+    user,
+    accessToken,
+  }).then((result) => ({
+    ...result,
+    content: result.content.map(normalizeSessionListItem),
+  }));
 }
 
 export async function createSession(
   user: StoredUser,
   title: string,
-  scenarioId?: string,
+  options?: {
+    scenarioId?: string;
+    maxParticipants?: number;
+    useAiGm?: boolean;
+  },
   accessToken?: string | null,
 ): Promise<SessionSnapshot> {
   const created = await requestJson<SessionSnapshotDto | { sessionId: string; snapshot?: SessionSnapshotDto }>("/sessions", {
@@ -192,10 +227,11 @@ export async function createSession(
     accessToken,
     body: {
       title,
-      scenarioId: scenarioId || DEFAULT_SCENARIO_ID,
+      scenarioId: options?.scenarioId || DEFAULT_SCENARIO_ID,
       ruleSetId: DEFAULT_RULE_SET_ID,
-      maxPlayers: 4,
-      gmMode: toGmMode(undefined),
+      maxParticipants: options?.maxParticipants ?? 4,
+      gmMode: toGmMode(options?.useAiGm === false ? "human" : "ai"),
+      visibility: "PUBLIC",
     },
   });
 
@@ -236,6 +272,20 @@ export async function joinSession(
   return getSession(user, joined.sessionId, accessToken);
 }
 
+export async function joinSessionById(
+  user: StoredUser,
+  sessionId: string,
+  accessToken?: string | null,
+): Promise<SessionSnapshot> {
+  const joined = await requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/join`, {
+    method: "POST",
+    user,
+    accessToken,
+  });
+
+  return normalizeSessionSnapshot(joined);
+}
+
 export function getSession(
   user: StoredUser,
   sessionId: string,
@@ -254,14 +304,33 @@ export function getSessionState(user: StoredUser, sessionId: string) {
 export function createCharacter(
   user: StoredUser,
   payload: {
-    sessionId: string;
+    sessionId?: string;
+    assignToSession?: boolean;
     name: string;
     ancestry: string;
     className: string;
+    level?: number;
+    abilities?: {
+      str: number;
+      dex: number;
+      con: number;
+      int: number;
+      wis: number;
+      cha: number;
+    };
+    proficiencyBonus?: number;
+    proficientSkills?: string[];
     maxHp?: number;
+    armorClass?: number;
+    speed?: number;
+    inventory?: Array<{
+      id: string;
+      name: string;
+      quantity: number;
+    }>;
   },
   accessToken?: string | null,
-): Promise<SessionSnapshot> {
+): Promise<SessionSnapshot | null> {
   return requestJson<CharacterResponseDto | Character>("/characters", {
     method: "POST",
     user,
@@ -270,16 +339,90 @@ export function createCharacter(
       name: payload.name,
       ancestry: payload.ancestry,
       className: payload.className,
+      level: payload.level,
+      abilities: payload.abilities,
+      proficiencyBonus: payload.proficiencyBonus,
+      proficientSkills: payload.proficientSkills,
       maxHp: payload.maxHp,
+      armorClass: payload.armorClass,
+      speed: payload.speed,
+      inventory: payload.inventory,
     },
   })
-    .then((character) =>
-      requestJson(`/sessions/${payload.sessionId}/character-selection`, {
+    .then((character) => {
+      if (!payload.sessionId || payload.assignToSession !== true) {
+        return null;
+      }
+
+      return requestJson(`/sessions/${payload.sessionId}/character-selection`, {
         method: "POST",
         user,
         accessToken,
         body: { characterId: character.id },
-      }),
-    )
-    .then(() => getSession(user, payload.sessionId, accessToken));
+      }).then(() => getSession(user, payload.sessionId!, accessToken));
+    });
+}
+
+export function listMyCharacters(
+  user: StoredUser,
+  accessToken?: string | null,
+): Promise<CharacterResponseDto[]> {
+  return requestJson<CharacterResponseDto[]>("/users/me/characters", {
+    user,
+    accessToken,
+  });
+}
+
+export async function selectSessionCharacter(
+  user: StoredUser,
+  sessionId: string,
+  characterId: string | null,
+  accessToken?: string | null,
+): Promise<SessionParticipantResponseDto> {
+  return requestJson<SessionParticipantResponseDto>(`/sessions/${sessionId}/character-selection`, {
+    method: "POST",
+    user,
+    accessToken,
+    body: { characterId },
+  });
+}
+
+export async function updateReadyState(
+  user: StoredUser,
+  sessionId: string,
+  isReady: boolean,
+  accessToken?: string | null,
+): Promise<SessionParticipantResponseDto> {
+  return requestJson<SessionParticipantResponseDto>(`/sessions/${sessionId}/participants/me/ready`, {
+    method: "PATCH",
+    user,
+    accessToken,
+    body: { isReady },
+  });
+}
+
+export async function startSession(
+  user: StoredUser,
+  sessionId: string,
+  accessToken?: string | null,
+): Promise<SessionSnapshot> {
+  const started = await requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/start`, {
+    method: "POST",
+    user,
+    accessToken,
+  });
+
+  return normalizeSessionSnapshot(started);
+}
+
+export function leaveSession(
+  user: StoredUser,
+  sessionId: string,
+  accessToken?: string | null,
+): Promise<void> {
+  return requestJson<void>(`/sessions/${sessionId}/leave`, {
+    method: "DELETE",
+    user,
+    accessToken,
+  });
 }

@@ -35,15 +35,33 @@ export class ScenarioSummaryResponseDto {
   @ApiProperty()
   title!: string;
 
+  @ApiPropertyOptional({ nullable: true })
+  description!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  thumbnailUrl!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  ruleSetId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  difficulty!: string | null;
+
   @ApiProperty({ enum: ScenarioLicense })
   @IsEnum(ScenarioLicense)
   license!: ScenarioLicense;
 
-  @ApiProperty()
-  attribution!: string;
+  @ApiPropertyOptional({ nullable: true })
+  attribution!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  startNodeId!: string | null;
 
   @ApiProperty()
-  startNodeId!: string;
+  createdAt!: string;
+
+  @ApiProperty()
+  updatedAt!: string;
 }
 
 export class ScenarioResponseDto extends ScenarioSummaryResponseDto {

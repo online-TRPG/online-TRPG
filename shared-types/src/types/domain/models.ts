@@ -1,10 +1,15 @@
 import type {
+  CharacterAvatarType,
   ConnectionStatus,
   GamePhase,
   GmMode,
   ParticipantRole,
   ScenarioLicense,
+  SessionCharacterStatus,
+  SessionParticipantStatus,
+  SessionScenarioStatus,
   SessionStatus,
+  SessionVisibility,
 } from "../../constants/enums";
 import type { AbilityScores, InventoryItem } from "../common/ability-scores";
 
@@ -24,22 +29,36 @@ export type SessionModel = {
   sessionId: string;
   title: string;
   description: string;
-  ownerUserId: string;
   hostUserId: string;
+  ownerUserId: string;
   captainUserId?: string | null;
   gmMode: GmMode;
   gmUserId?: string | null;
   inviteCode: string;
   status: SessionStatus;
+  visibility: SessionVisibility;
   maxParticipants: number;
   maxPlayers: number;
   isPublic: boolean;
   isPrivate: boolean;
   ruleSetId?: string | null;
-  scenarioId: string;
-  currentNodeId: string;
+  nextSessionAt?: string | null;
+  scenarioId?: string | null;
+  currentNodeId?: string | null;
+  activeSessionScenarioId?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type SessionScenarioModel = {
+  id: string;
+  sessionId: string;
+  scenarioId: string;
+  sequence: number;
+  status: SessionScenarioStatus;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  createdAt: string;
 };
 
 export type SessionParticipantModel = {
@@ -49,10 +68,12 @@ export type SessionParticipantModel = {
   characterId?: string | null;
   sessionCharacterId?: string | null;
   role: ParticipantRole;
+  status: SessionParticipantStatus;
   connectionStatus: ConnectionStatus;
   isReady: boolean;
   readyAt?: string | null;
   joinedAt: string;
+  leftAt?: string | null;
 };
 
 export type CharacterModel = {
@@ -62,6 +83,7 @@ export type CharacterModel = {
   ancestry: string;
   className: string;
   level: number;
+  bio?: string | null;
   abilities: AbilityScores;
   proficiencyBonus: number;
   proficientSkills: string[];
@@ -70,6 +92,10 @@ export type CharacterModel = {
   speed: number;
   inventory: InventoryItem[];
   equippedWeaponId?: string | null;
+  avatarType: CharacterAvatarType;
+  avatarPresetId?: string | null;
+  avatarUrl?: string | null;
+  avatarUpdatedAt?: string | null;
   activeSessionId?: string | null;
   isSelectable: boolean;
   createdAt: string;
@@ -79,13 +105,15 @@ export type CharacterModel = {
 export type SessionCharacterModel = {
   id: string;
   sessionId: string;
-  participantId: string;
+  userId: string;
   characterId: string;
   ownerUserId: string;
+  status: SessionCharacterStatus;
   name: string;
   ancestry: string;
   className: string;
   level: number;
+  bio?: string | null;
   abilities: AbilityScores;
   proficiencyBonus: number;
   proficientSkills: string[];
@@ -96,8 +124,10 @@ export type SessionCharacterModel = {
   speed: number;
   inventory: InventoryItem[];
   equippedWeaponId?: string | null;
+  avatarType: CharacterAvatarType;
+  avatarPresetId?: string | null;
+  avatarUrl?: string | null;
   conditions: string[];
-  initiative?: number | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -116,17 +146,26 @@ export type ScenarioNodeModel = {
 export type ScenarioModel = {
   id: string;
   title: string;
+  description?: string | null;
+  thumbnailUrl?: string | null;
+  ruleSetId?: string | null;
+  difficulty?: string | null;
   license: ScenarioLicense;
-  attribution: string;
-  startNodeId: string;
+  attribution?: string | null;
+  startNodeId?: string | null;
+  createdAt: string;
+  updatedAt: string;
   nodes?: ScenarioNodeModel[];
 };
 
 export type GameStateModel = {
-  sessionId: string;
+  sessionScenarioId: string;
+  sessionId?: string | null;
   version: number;
-  currentNodeId: string;
+  currentNodeId?: string | null;
   phase: GamePhase;
+  flags: Record<string, unknown>;
+  discoveredClues: Record<string, unknown>[];
   state: Record<string, unknown>;
   updatedAt: string;
 };
