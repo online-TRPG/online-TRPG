@@ -43,6 +43,7 @@ export function normalizeSessionSnapshot(
 
   return {
     ...snapshot,
+    sessionScenarios: snapshot.sessionScenarios ?? [],
     sessionCharacters: characters,
     characters,
   };

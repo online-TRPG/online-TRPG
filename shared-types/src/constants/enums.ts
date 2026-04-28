@@ -1,13 +1,26 @@
 export enum SessionStatus {
-  LOBBY = "lobby",
+  RECRUITING = "recruiting",
   PLAYING = "playing",
   PAUSED = "paused",
   COMPLETED = "completed",
+  DISBANDED = "disbanded",
 }
 
 export enum SessionGmMode {
   AI = "ai",
   HUMAN = "human",
+}
+
+export enum SessionVisibility {
+  PUBLIC = "PUBLIC",
+  PRIVATE = "PRIVATE",
+}
+
+export enum SessionScenarioStatus {
+  PLANNED = "PLANNED",
+  ACTIVE = "ACTIVE",
+  COMPLETED = "COMPLETED",
+  ABANDONED = "ABANDONED",
 }
 
 export enum ParticipantRole {
@@ -16,9 +29,22 @@ export enum ParticipantRole {
   SPECTATOR = "SPECTATOR",
 }
 
+export enum SessionParticipantStatus {
+  JOINED = "JOINED",
+  LEFT = "LEFT",
+  KICKED = "KICKED",
+}
+
 export enum ConnectionStatus {
   ONLINE = "ONLINE",
   OFFLINE = "OFFLINE",
+}
+
+export enum SessionCharacterStatus {
+  ACTIVE = "ACTIVE",
+  RETIRED = "RETIRED",
+  DEAD = "DEAD",
+  LEFT = "LEFT",
 }
 
 export enum ScenarioLicense {
@@ -28,6 +54,7 @@ export enum ScenarioLicense {
 }
 
 export enum GamePhase {
+  LOBBY = "lobby",
   EXPLORATION = "exploration",
   COMBAT = "combat",
   DIALOGUE = "dialogue",
@@ -58,4 +85,10 @@ export enum AiTraceStatus {
   SUCCESS = "SUCCESS",
   TIMEOUT = "TIMEOUT",
   ERROR = "ERROR",
+}
+
+export enum CharacterAvatarType {
+  DEFAULT = "DEFAULT",
+  PRESET = "PRESET",
+  UPLOAD = "UPLOAD",
 }

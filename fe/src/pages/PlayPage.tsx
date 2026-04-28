@@ -1,98 +1,555 @@
-import { BattleMap } from "../components/BattleMap";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
-import { LogPanel } from "../components/LogPanel";
-import type { LogEntry, SessionSnapshot, StoredUser } from "../types/session";
+import type { CharacterPayload } from "../hooks/useSession";
+import type { LogEntry, PersistentCharacter, SessionSnapshot, StoredUser } from "../types/session";
 
-const quickActions = [
-  { label: "동굴 조사", icon: "eye" },
-  { label: "방어 태세", icon: "shield" },
-  { label: "마법 탐지", icon: "spark" },
-  { label: "휴식", icon: "rest" },
-];
+const sessionTabs = ["Main", "Chat", "Info", "Settings"] as const;
 
 interface PlayPageProps {
   user: StoredUser;
   snapshot: SessionSnapshot | null;
+  characters: PersistentCharacter[];
   logs: LogEntry[];
   socketConnected: boolean;
+  busy: boolean;
+  error: string | null;
+  onCreateCharacter: (payload: CharacterPayload) => void;
+  onSelectCharacter: (characterId: string | null) => void;
+  onSetReady: (isReady: boolean) => void;
+  onStartSession: () => void;
+  onLeaveSession: () => void;
+  onBackToLobby: () => void;
   onAction: (label: string) => void;
 }
 
-export function PlayPage({ user, snapshot, logs, socketConnected, onAction }: PlayPageProps) {
-  const characters = snapshot?.characters ?? [];
+const defaultCharacter = {
+  name: "",
+  ancestry: "Human",
+  className: "Wizard",
+  maxHp: 12,
+};
+
+function stripScopePrefix(message: string) {
+  return message.replace(/^\[(MAIN|CHAT)\]/, "").trim();
+}
+
+function isChatScoped(message: string) {
+  return message.startsWith("[CHAT]");
+}
+
+function getAvatarLabel(title: string, userName: string) {
+  const trimmed = title.trim();
+  if (!trimmed) return "?";
+  if (trimmed === userName) return userName.slice(0, 1).toUpperCase();
+  return trimmed.slice(0, 1).toUpperCase();
+}
+
+function getConnectionLabel(connected: boolean) {
+  return connected ? "Connected" : "Offline";
+}
+
+export function PlayPage({
+  user,
+  snapshot,
+  characters,
+  logs,
+  socketConnected,
+  busy,
+  error,
+  onCreateCharacter,
+  onSelectCharacter,
+  onSetReady,
+  onStartSession,
+  onLeaveSession,
+  onBackToLobby,
+  onAction,
+}: PlayPageProps) {
+  const [activeTab, setActiveTab] = useState<(typeof sessionTabs)[number]>("Main");
+  const [isCreateModalOpen, setCreateModalOpen] = useState(false);
+  const [mainMessage, setMainMessage] = useState("");
+  const [chatMessage, setChatMessage] = useState("");
+  const [infoText, setInfoText] = useState("");
+  const [formState, setFormState] = useState(defaultCharacter);
+  const [localSelectedCharacterId, setLocalSelectedCharacterId] = useState<string | null>(null);
+  const [isStatusMinimized, setStatusMinimized] = useState(false);
+  const logEndRef = useRef<HTMLDivElement | null>(null);
+
+  const session = snapshot?.session ?? null;
   const participants = snapshot?.participants ?? [];
-  const myCharacter = characters.find((c) => c.ownerUserId === user.id);
+  const sessionCharacters = snapshot?.characters ?? [];
+  const myParticipant = participants.find((participant) => participant.userId === user.id) ?? null;
+  const serverSelectedCharacterId = myParticipant?.characterId ?? null;
+  const selectedCharacterId = localSelectedCharacterId;
+  const selectedCharacter = characters.find((character) => character.id === selectedCharacterId) ?? null;
+  const readyLocked = Boolean(myParticipant?.isReady);
+  const allPlayersReady = participants.length > 0 && participants.every((participant) => participant.isReady);
+  const isHost = session?.hostUserId === user.id;
+  const isRecruiting = session?.status === "recruiting";
+  const canShowCharacterSelection = Boolean(session && isRecruiting);
+  const canStartSession = Boolean(isHost && isRecruiting && allPlayersReady && participants.length > 0);
+  const activeScenario =
+    snapshot?.sessionScenarios.find((item) => item.status === "ACTIVE") ?? snapshot?.sessionScenarios[0];
+
+  useEffect(() => {
+    setLocalSelectedCharacterId(serverSelectedCharacterId);
+  }, [serverSelectedCharacterId]);
+
+  useEffect(() => {
+    if (!allPlayersReady) {
+      setStatusMinimized(false);
+    }
+  }, [allPlayersReady]);
+
+  const joinableCharacters = useMemo(
+    () =>
+      characters.map((character) => ({
+        ...character,
+        isSelected: character.id === selectedCharacterId,
+        isDisabled: !character.isSelectable || (readyLocked && character.id !== selectedCharacterId),
+      })),
+    [characters, readyLocked, selectedCharacterId],
+  );
+
+  const scopedLogs = useMemo(() => {
+    if (activeTab === "Chat") {
+      return logs.filter((log) => log.kind === "action" && isChatScoped(log.message));
+    }
+
+    if (activeTab === "Main") {
+      return logs.filter((log) => log.kind === "action" && !isChatScoped(log.message));
+    }
+
+    return [];
+  }, [activeTab, logs]);
+
+  const renderedRows = useMemo(
+    () =>
+      [...scopedLogs].reverse().map((log) => {
+        const normalizedMessage = stripScopePrefix(log.message);
+        const isMine = log.title === user.displayName;
+        const rowClass = log.kind === "system" ? "notice" : isMine ? "outgoing" : "incoming";
+
+        return {
+          ...log,
+          message: normalizedMessage,
+          rowClass,
+        };
+      }),
+    [scopedLogs, user.displayName],
+  );
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ block: "end" });
+  }, [activeTab, renderedRows.length]);
+
+  function handleCreateCharacter(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onCreateCharacter(formState);
+    setCreateModalOpen(false);
+    setFormState(defaultCharacter);
+  }
+
+  function handleMainSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const next = mainMessage.trim();
+    if (!next) return;
+    onAction(`MAIN:${next}`);
+    setMainMessage("");
+  }
+
+  function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const next = chatMessage.trim();
+    if (!next) return;
+    onAction(`CHAT:${next}`);
+    setChatMessage("");
+  }
+
+  function handleCharacterClick(characterId: string) {
+    if (busy || readyLocked) return;
+    if (selectedCharacterId === characterId) {
+      setLocalSelectedCharacterId(null);
+      onSelectCharacter(null);
+      return;
+    }
+
+    setLocalSelectedCharacterId(characterId);
+    onSelectCharacter(characterId);
+  }
+
+  function getParticipantBadge(participantUserId: string): string | null {
+    if (!session) return null;
+    if (participantUserId === session.hostUserId) {
+      return session.gmMode === "HUMAN" ? "GM" : "HOST";
+    }
+    return null;
+  }
 
   return (
-    <main className="play-layout">
-      <section className="initiative-panel">
-        <h2>우선권</h2>
-        <div className="initiative-list">
-          {characters.length ? (
-            characters.map((character, index) => (
-              <div className="initiative-item" key={character.id}>
-                <div className={`portrait mini tone-${(index % 4) + 1}`}>
-                  {character.name.slice(0, 1)}
+    <main className="session-prep-layout session-prep-layout-tight">
+      <section className="session-prep-stage">
+        <div className="session-stage-canvas">
+          <section className="session-room-overlay">
+            <div className="session-room-overlay-row">
+              <div className="session-room-overlay-title">
+                <span className="eyebrow">Session room</span>
+                <strong>{session?.title ?? "No active session"}</strong>
+              </div>
+
+              <span className={socketConnected ? "status-pill online" : "status-pill"}>
+                {getConnectionLabel(socketConnected)}
+              </span>
+
+              <div className="invite-inline">
+                <strong>{session?.inviteCode ?? "------"}</strong>
+                <button
+                  type="button"
+                  className="invite-copy-button"
+                  onClick={() => session?.inviteCode && navigator.clipboard.writeText(session.inviteCode)}
+                  aria-label="Copy invite code"
+                >
+                  <Icon name="copy" />
+                </button>
+              </div>
+
+              <div className="session-room-overlay-actions">
+                <button type="button" className="ghost" onClick={onBackToLobby}>
+                  Lobby
+                </button>
+                <button type="button" className="ghost" onClick={onLeaveSession}>
+                  Leave
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {canShowCharacterSelection ? (
+            <section className="character-selection-board player-ready-board">
+              <div className="section-heading">
+                <div>
+                  <span className="eyebrow">Character selection</span>
+                  <h2>Choose your character</h2>
+                </div>
+                <button
+                  type="button"
+                  className={`ready-toggle-button${myParticipant?.isReady ? " active" : ""}`}
+                  disabled={busy || !selectedCharacter}
+                  onClick={() => onSetReady(!myParticipant?.isReady)}
+                >
+                  {myParticipant?.isReady ? "READY" : "Set READY"}
+                </button>
+              </div>
+
+              <div className="character-selection-grid">
+                <button
+                  type="button"
+                  className="character-selection-create"
+                  onClick={() => setCreateModalOpen(true)}
+                  disabled={readyLocked}
+                >
+                  <Icon name="plus" />
+                  <strong>Create character</strong>
+                  <span>Create a new character and use it in this session.</span>
+                </button>
+
+                {joinableCharacters.map((character) => (
+                  <button
+                    type="button"
+                    key={character.id}
+                    className={`character-selection-card${character.isSelected ? " active" : ""}`}
+                    disabled={busy || character.isDisabled}
+                    onClick={() => handleCharacterClick(character.id)}
+                  >
+                    <div className="character-selection-head">
+                      <div className="avatar avatar-large">{character.name.slice(0, 1)}</div>
+                      <div>
+                        <strong>{character.name}</strong>
+                        <span>
+                          {character.ancestry} / {character.className}
+                        </span>
+                      </div>
+                    </div>
+                    <dl className="character-selection-meta">
+                      <div>
+                        <dt>LV</dt>
+                        <dd>{character.level}</dd>
+                      </div>
+                      <div>
+                        <dt>HP</dt>
+                        <dd>{character.maxHp}</dd>
+                      </div>
+                      <div>
+                        <dt>AC</dt>
+                        <dd>{character.armorClass}</dd>
+                      </div>
+                      <div>
+                        <dt>SPD</dt>
+                        <dd>{character.speed}</dd>
+                      </div>
+                    </dl>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+        </div>
+
+        {allPlayersReady ? (
+          <div className={`session-status-floating-layer${isStatusMinimized ? " minimized" : " expanded"}`}>
+            {isStatusMinimized ? (
+              <section
+                className="session-main-ready-minimized session-status-toggle-surface"
+                onClick={() => setStatusMinimized(false)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setStatusMinimized(false);
+                  }
+                }}
+              >
+                <span className="eyebrow">Session status</span>
+                <strong>All players ready</strong>
+              </section>
+            ) : (
+              <section
+                className="session-ready-card session-main-ready-overlay session-status-toggle-surface"
+                onClick={() => setStatusMinimized(true)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setStatusMinimized(true);
+                  }
+                }}
+              >
+                <span className="eyebrow">Session status</span>
+                <h2>{isRecruiting ? "Recruiting lobby" : "Session in progress"}</h2>
+                <p>
+                  {activeScenario
+                    ? `${activeScenario.scenario.title} / ${activeScenario.scenario.ruleSetId ?? "TRPG"}`
+                    : "Scenario not assigned"}
+                </p>
+                <p>All participants are READY. The host can start the session.</p>
+                {isHost ? (
+                  <div className="ready-actions">
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={!canStartSession || busy}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onStartSession();
+                      }}
+                    >
+                      Start session
+                    </button>
+                  </div>
+                ) : null}
+              </section>
+            )}
+          </div>
+        ) : null}
+
+        <section className="participant-strip participant-strip-four-up">
+          {participants.length ? (
+            participants.map((participant, index) => {
+              const linkedCharacter = sessionCharacters.find((character) => character.userId === participant.userId) ?? null;
+              const badgeLabel = getParticipantBadge(participant.userId);
+              const stateLabel = participant.isReady ? "READY" : participant.connectionStatus;
+
+              return (
+                <article key={participant.id} className="participant-strip-card">
+                  {badgeLabel ? <div className="participant-special-badge">{badgeLabel}</div> : null}
+                  <div className="participant-avatar tone-1">
+                    {(linkedCharacter?.name ?? participant.user.displayName).slice(0, 1)}
+                  </div>
+                  <div className="participant-card-body">
+                    <strong>{participant.user.displayName}</strong>
+                    <span>
+                      {linkedCharacter
+                        ? `${linkedCharacter.name} / ${linkedCharacter.className}`
+                        : participant.userId === user.id
+                          ? "No character selected"
+                          : "Waiting for character"}
+                    </span>
+                  </div>
+                  <div className={`participant-state${participant.isReady ? " ready" : ""}`}>{stateLabel}</div>
+                  <div className="participant-index">{index + 1}</div>
+                </article>
+              );
+            })
+          ) : (
+            <article className="participant-strip-card empty">
+              <strong>No participants in this session.</strong>
+              <span>Invite players or return to the lobby to create a new room.</span>
+            </article>
+          )}
+        </section>
+
+        {error ? <p className="panel-error">{error}</p> : null}
+      </section>
+
+      <aside className="session-sidebar">
+        <div className="session-sidebar-tabs">
+          {sessionTabs.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              className={activeTab === tab ? "active" : ""}
+              onClick={() => setActiveTab(tab)}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        <div className="session-sidebar-panel">
+          {activeTab === "Main" || activeTab === "Chat" ? (
+            <>
+              <div className="session-log-stack">
+                {renderedRows.length ? (
+                  renderedRows.map((log) => (
+                    <article key={log.id} className={`chat-thread-row ${log.rowClass}`}>
+                      {log.rowClass === "incoming" ? (
+                        <div className="chat-thread-avatar">{getAvatarLabel(log.title, user.displayName)}</div>
+                      ) : null}
+                      <div className="chat-thread-stack">
+                        <div className="chat-thread-bubble">{log.message}</div>
+                        {log.rowClass !== "notice" ? <span className="chat-thread-time">{log.time}</span> : null}
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <article className="chat-thread-row notice">
+                    <div className="chat-thread-bubble">No messages yet.</div>
+                  </article>
+                )}
+                <div ref={logEndRef} />
+              </div>
+
+              <form
+                className="session-sidebar-input"
+                onSubmit={activeTab === "Main" ? handleMainSubmit : handleChatSubmit}
+              >
+                <input
+                  value={activeTab === "Main" ? mainMessage : chatMessage}
+                  onChange={(event) =>
+                    activeTab === "Main" ? setMainMessage(event.target.value) : setChatMessage(event.target.value)
+                  }
+                  placeholder={activeTab === "Main" ? "Send a main action" : "Send a chat message"}
+                />
+                <button type="submit" disabled={busy}>
+                  Send
+                </button>
+              </form>
+            </>
+          ) : null}
+
+          {activeTab === "Info" ? (
+            <div className="session-info-panel">
+              <div className="section-heading">
+                <div>
+                  <span className="eyebrow">Scenario info</span>
+                  <h2>{activeScenario?.scenario.title ?? "No scenario"}</h2>
+                </div>
+              </div>
+              <textarea
+                value={infoText || activeScenario?.scenario.description || ""}
+                onChange={(event) => setInfoText(event.target.value)}
+              />
+            </div>
+          ) : null}
+
+          {activeTab === "Settings" ? (
+            <div className="session-settings-panel">
+              <span className="eyebrow">Room settings</span>
+              <dl className="session-meta">
+                <div>
+                  <dt>Status</dt>
+                  <dd>{session?.status ?? "unknown"}</dd>
                 </div>
                 <div>
-                  <strong>{character.name}</strong>
-                  <span>
-                    HP {character.currentHp ?? character.maxHp}/{character.maxHp}
-                  </span>
+                  <dt>Phase</dt>
+                  <dd>{snapshot?.state.phase ?? "unknown"}</dd>
                 </div>
-                <b>{21 - index * 3}</b>
-              </div>
-            ))
-          ) : (
-            <p className="empty-text">로비에서 캐릭터를 만들면 여기에 표시됩니다.</p>
-          )}
-        </div>
-      </section>
-
-      <section className="scene-panel">
-        <div className="scene-header">
-          <div>
-            <span className="eyebrow">
-              {snapshot?.session.title ?? "세션을 선택하세요"} ·{" "}
-              {socketConnected ? "온라인" : "대기"}
-            </span>
-            <h2>얼어붙은 협곡</h2>
-          </div>
-          <span className="round-pill">턴 4 · 라운드 2</span>
-        </div>
-        <BattleMap characters={characters} />
-        <div className="scene-bottom">
-          <article className="scene-text">
-            <h3>{myCharacter?.name ?? "파티"}</h3>
-            <p>
-              매서운 바람 사이로 오래된 룬 문양이 희미하게 빛납니다. 동료들과 현재 세션 상태를
-              공유하고, 아래 행동 버튼으로 로그를 남기며 흐름을 확인하세요.
-            </p>
-            <div className="action-row">
-              {quickActions.map((action) => (
-                <button type="button" key={action.label} onClick={() => onAction(action.label)}>
-                  <Icon name={action.icon} />
-                  {action.label}
-                </button>
-              ))}
+                <div>
+                  <dt>Visibility</dt>
+                  <dd>{session?.visibility ?? "unknown"}</dd>
+                </div>
+              </dl>
             </div>
-          </article>
-          <div className="party-strip">
-            {participants.map((p) => (
-              <div className="party-member" key={p.id}>
-                <strong>{p.user.displayName}</strong>
-                <span>
-                  {p.role} · {p.connectionStatus}
-                </span>
-              </div>
-            ))}
-          </div>
+          ) : null}
         </div>
-      </section>
-
-      <aside className="log-dock">
-        <LogPanel logs={logs} />
       </aside>
+
+      {isCreateModalOpen ? (
+        <div className="modal-shell" role="dialog" aria-modal="true">
+          <form className="modal-card" onSubmit={handleCreateCharacter}>
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Character creator</span>
+                <h2>Create a new character</h2>
+              </div>
+              <button type="button" className="ghost" onClick={() => setCreateModalOpen(false)}>
+                Close
+              </button>
+            </div>
+
+            <label>
+              Name
+              <input
+                value={formState.name}
+                onChange={(event) => setFormState((current) => ({ ...current, name: event.target.value }))}
+                required
+              />
+            </label>
+
+            <label>
+              Ancestry
+              <input
+                value={formState.ancestry}
+                onChange={(event) => setFormState((current) => ({ ...current, ancestry: event.target.value }))}
+                required
+              />
+            </label>
+
+            <label>
+              Class
+              <input
+                value={formState.className}
+                onChange={(event) => setFormState((current) => ({ ...current, className: event.target.value }))}
+                required
+              />
+            </label>
+
+            <label>
+              Max HP
+              <input
+                type="number"
+                min={1}
+                value={formState.maxHp}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, maxHp: Number(event.target.value) || 1 }))
+                }
+                required
+              />
+            </label>
+
+            <div className="modal-actions">
+              <button type="button" className="ghost" onClick={() => setCreateModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" className="primary" disabled={busy}>
+                Save
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </main>
   );
 }

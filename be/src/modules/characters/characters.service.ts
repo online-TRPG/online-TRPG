@@ -4,8 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { SessionStatus as PrismaSessionStatus } from "@prisma/client";
 import {
+  CharacterAvatarType as PrismaCharacterAvatarType,
+  SessionCharacterStatus as PrismaSessionCharacterStatus,
+  SessionStatus as PrismaSessionStatus,
+} from "@prisma/client";
+import {
+  CharacterAvatarType,
   CharacterInventoryResponseDto,
   CharacterResponseDto,
   CreateCharacterDto,
@@ -45,6 +50,7 @@ export class CharactersService {
         ancestry: dto.ancestry.trim(),
         className: dto.className.trim(),
         level: dto.level ?? 1,
+        bio: dto.bio?.trim() ?? null,
         abilitiesJson: JSON.stringify(dto.abilities ?? defaultAbilityScores),
         proficiencyBonus: dto.proficiencyBonus ?? 2,
         proficientSkillsJson: JSON.stringify(dto.proficientSkills ?? []),
@@ -53,6 +59,10 @@ export class CharactersService {
         speed: dto.speed ?? 30,
         inventoryJson: JSON.stringify(dto.inventory ?? []),
         equippedWeaponId: dto.equippedWeaponId ?? null,
+        avatarType: this.toAvatarType(dto.avatarType),
+        avatarPresetId: dto.avatarPresetId ?? null,
+        avatarUrl: dto.avatarUrl ?? null,
+        avatarUpdatedAt: dto.avatarPresetId || dto.avatarUrl ? new Date() : null,
       },
       include: {
         sessionCharacters: {
@@ -99,6 +109,7 @@ export class CharactersService {
         ancestry: dto.ancestry?.trim() ?? existing.ancestry,
         className: dto.className?.trim() ?? existing.className,
         level: dto.level ?? existing.level,
+        bio: dto.bio === undefined ? existing.bio : dto.bio.trim(),
         abilitiesJson: JSON.stringify(dto.abilities ?? JSON.parse(existing.abilitiesJson)),
         proficiencyBonus: dto.proficiencyBonus ?? existing.proficiencyBonus,
         proficientSkillsJson: JSON.stringify(
@@ -110,6 +121,15 @@ export class CharactersService {
         inventoryJson: JSON.stringify(dto.inventory ?? JSON.parse(existing.inventoryJson)),
         equippedWeaponId:
           dto.equippedWeaponId === undefined ? existing.equippedWeaponId : dto.equippedWeaponId,
+        avatarType:
+          dto.avatarType === undefined ? existing.avatarType : this.toAvatarType(dto.avatarType),
+        avatarPresetId:
+          dto.avatarPresetId === undefined ? existing.avatarPresetId : dto.avatarPresetId,
+        avatarUrl: dto.avatarUrl === undefined ? existing.avatarUrl : dto.avatarUrl,
+        avatarUpdatedAt:
+          dto.avatarType !== undefined || dto.avatarPresetId !== undefined || dto.avatarUrl !== undefined
+            ? new Date()
+            : existing.avatarUpdatedAt,
       },
       include: {
         sessionCharacters: {
@@ -119,31 +139,25 @@ export class CharactersService {
     });
 
     const lobbyAssignments = updated.sessionCharacters.filter(
-      (assignment) => assignment.session.status === PrismaSessionStatus.LOBBY,
+      (assignment) => assignment.session.status === PrismaSessionStatus.RECRUITING,
     );
 
     for (const assignment of lobbyAssignments) {
       await this.prisma.sessionCharacter.update({
         where: { id: assignment.id },
         data: {
-          name: updated.name,
-          ancestry: updated.ancestry,
-          className: updated.className,
-          level: updated.level,
-          abilitiesJson: updated.abilitiesJson,
-          proficiencyBonus: updated.proficiencyBonus,
-          proficientSkillsJson: updated.proficientSkillsJson,
-          maxHp: updated.maxHp,
           currentHp: updated.maxHp,
-          armorClass: updated.armorClass,
-          speed: updated.speed,
-          inventoryJson: updated.inventoryJson,
-          equippedWeaponId: updated.equippedWeaponId,
+          inventorySnapshotJson: updated.inventoryJson,
         },
       });
 
       await this.prisma.sessionParticipant.update({
-        where: { id: assignment.participantId },
+        where: {
+          sessionId_userId: {
+            sessionId: assignment.sessionId,
+            userId: assignment.userId,
+          },
+        },
         data: {
           isReady: false,
           readyAt: null,
@@ -163,7 +177,8 @@ export class CharactersService {
     const character = await this.getOwnedCharacterOrThrow(userId, characterId);
 
     const activeAssignment = character.sessionCharacters.find((assignment) =>
-      assignment.session.status !== PrismaSessionStatus.COMPLETED,
+      assignment.session.status !== PrismaSessionStatus.COMPLETED &&
+      assignment.session.status !== PrismaSessionStatus.DISBANDED,
     );
 
     if (activeAssignment) {
@@ -193,6 +208,11 @@ export class CharactersService {
         speed: source.speed,
         inventoryJson: source.inventoryJson,
         equippedWeaponId: source.equippedWeaponId,
+        bio: source.bio,
+        avatarType: source.avatarType,
+        avatarPresetId: source.avatarPresetId,
+        avatarUrl: source.avatarUrl,
+        avatarUpdatedAt: source.avatarUpdatedAt,
       },
       include: {
         sessionCharacters: {
@@ -247,7 +267,10 @@ export class CharactersService {
     await this.sessionsService.ensureMembership(userId, sessionId);
 
     const sessionCharacters = await this.prisma.sessionCharacter.findMany({
-      where: { sessionId },
+      where: {
+        sessionId,
+        status: PrismaSessionCharacterStatus.ACTIVE,
+      },
       include: { character: true },
       orderBy: { createdAt: "asc" },
     });
@@ -282,5 +305,17 @@ export class CharactersService {
     }).catch(() => {
       throw new NotFoundException(`User ${userId} was not found.`);
     });
+  }
+
+  private toAvatarType(value?: CharacterAvatarType): PrismaCharacterAvatarType {
+    switch (value) {
+      case CharacterAvatarType.PRESET:
+        return PrismaCharacterAvatarType.PRESET;
+      case CharacterAvatarType.UPLOAD:
+        return PrismaCharacterAvatarType.UPLOAD;
+      case CharacterAvatarType.DEFAULT:
+      default:
+        return PrismaCharacterAvatarType.DEFAULT;
+    }
   }
 }

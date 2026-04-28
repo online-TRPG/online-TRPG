@@ -1,13 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
-import { Sidebar } from "../components/Sidebar";
+import { Icon } from "../components/Icon";
 import { useAuth } from "../hooks/useAuth";
 import { useLogs } from "../hooks/useLogs";
 import { useSession } from "../hooks/useSession";
 import { getOAuthUrl, listScenarios } from "../services/api";
-import { LoginPage } from "../pages/LoginPage";
+import { CharacterPage } from "../pages/CharacterPage";
 import { LobbyPage } from "../pages/LobbyPage";
+import { LoginPage } from "../pages/LoginPage";
 import { PlayPage } from "../pages/PlayPage";
 import type { Scenario } from "../types/session";
+
+type MainView = "main" | "characters" | "rulebook" | "settings" | "profile" | "play";
+
+const topNavItems: Array<{ id: Exclude<MainView, "play">; label: string }> = [
+  { id: "main", label: "메인" },
+  { id: "characters", label: "캐릭터" },
+  { id: "rulebook", label: "룰북" },
+  { id: "settings", label: "설정" },
+  { id: "profile", label: "프로필" },
+];
 
 export function App() {
   const { logs, appendLog } = useLogs();
@@ -15,7 +26,7 @@ export function App() {
   const session = useSession(auth.user, auth.accessToken, appendLog);
 
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
-  const [activeView, setActiveView] = useState<"lobby" | "play">("lobby");
+  const [activeView, setActiveView] = useState<MainView>("main");
 
   useEffect(() => {
     listScenarios()
@@ -36,14 +47,14 @@ export function App() {
       localStorage.removeItem("trpg.oauthProvider");
       void auth.handleOAuthCallback(provider, code);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [auth]);
 
   const busy = auth.busy || session.busy;
   const error = auth.error ?? session.error;
 
   async function handleOAuthLogin(provider: "kakao" | "discord") {
     const redirectUri = `${window.location.origin}/oauth/callback`;
+
     try {
       localStorage.setItem("trpg.oauthProvider", provider);
       const { authUrl } = await getOAuthUrl(provider, redirectUri);
@@ -53,15 +64,62 @@ export function App() {
     }
   }
 
+  async function handleCreateSession(
+    title: string,
+    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
+  ) {
+    const success = await session.createSession(title, options);
+    if (success) {
+      setActiveView("play");
+    }
+  }
+
+  async function handleJoinSession(inviteCode: string) {
+    const success = await session.joinSession(inviteCode);
+    if (success) {
+      setActiveView("play");
+    }
+  }
+
+  async function handleJoinSessionById(sessionId: string) {
+    const success = await session.joinSessionById(sessionId);
+    if (success) {
+      setActiveView("play");
+    }
+  }
+
   function handleLogout() {
     session.clearSnapshot();
     void auth.signOut();
-    setActiveView("lobby");
+    setActiveView("main");
+  }
+
+  function handleSessionMessage(displayName: string, input: string) {
+    const [scopePart, ...restParts] = input.split(":");
+    const scoped = scopePart === "CHAT" || scopePart === "MAIN";
+    const scope = scoped ? scopePart : "MAIN";
+    const message = (scoped ? restParts.join(":") : input).trim();
+
+    if (!message) return;
+
+    if (scope === "CHAT") {
+      appendLog("action", displayName, `[CHAT]${message}`);
+      return;
+    }
+
+    const commandMatch = message.match(/^\/(roll|hint)\b/i);
+    if (commandMatch) {
+      const command = commandMatch[1].toLowerCase();
+      appendLog("action", displayName, `[MAIN]${displayName}님이 "${command}" 액션을 실행했습니다.`);
+      return;
+    }
+
+    appendLog("action", displayName, `[MAIN]${message}`);
   }
 
   const statusText = useMemo(() => {
-    if (!session.snapshot) return "세션 없음";
-    return `${session.snapshot.participants.length}명 참가 · ${session.snapshot.characters.length}개 캐릭터`;
+    if (!session.snapshot) return "Realtime standby";
+    return `${session.snapshot.participants.length}명 참가, ${session.snapshot.characters.length}개 캐릭터`;
   }, [session.snapshot]);
 
   if (!auth.user) {
@@ -78,59 +136,105 @@ export function App() {
   }
 
   const currentUser = auth.user;
+  const isPlayView = activeView === "play";
 
   return (
-    <div className="app-shell">
-      <Sidebar
-        user={currentUser}
-        authMode={auth.authMode}
-        activeView={activeView}
-        onViewChange={setActiveView}
-        onLogout={handleLogout}
-      />
-      <div className="workspace">
-        <header className="topbar">
-          <div>
-            <strong>{session.snapshot?.session.title ?? "로비"}</strong>
-            <span>{statusText}</span>
+    <div className={isPlayView ? "app-shell app-shell-session" : "app-shell app-shell-topnav"}>
+      {!isPlayView ? (
+        <header className="topbar topbar-shell">
+          <div className="topbar-left">
+            <div className="topbar-brand">
+              <Icon name="logo" />
+              <div>
+                <strong>TRPG</strong>
+                <span>session dashboard</span>
+              </div>
+            </div>
+
+            <nav className="top-nav" aria-label="Main navigation">
+              {topNavItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={activeView === item.id ? "active" : ""}
+                  onClick={() => setActiveView(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
           </div>
+
           <div className="topbar-right">
-            <span className={session.socketConnected ? "status online" : "status"}>
-              {session.socketConnected ? "실시간 연결" : "실시간 대기"}
-            </span>
-            <div className="avatar">{auth.user.displayName.slice(0, 1)}</div>
+            <span className={session.socketConnected ? "status-pill online" : "status-pill"}>{statusText}</span>
+            <button type="button" className="profile-trigger" onClick={handleLogout} aria-label="로그아웃">
+              <div className="avatar">{currentUser.displayName.slice(0, 1)}</div>
+            </button>
           </div>
         </header>
+      ) : null}
 
-        {activeView === "lobby" ? (
+      <div className={isPlayView ? "workspace workspace-session" : "workspace workspace-topnav"}>
+        {!isPlayView && activeView === "main" ? (
           <LobbyPage
-            user={auth.user}
+            user={currentUser}
             scenarios={scenarios}
             snapshot={session.snapshot}
             sessionList={session.sessionList}
+            mySessionList={session.mySessionList}
             logs={logs}
             busy={busy}
             error={error}
-            onCreateSession={(title, scenarioId) => void session.createSession(title, scenarioId)}
-            onJoinSession={(code) => void session.joinSession(code)}
+            onCreateSession={handleCreateSession}
+            onJoinSession={handleJoinSession}
+            onJoinSessionById={handleJoinSessionById}
+            onOpenPlay={() => setActiveView("play")}
+            onLeaveCurrentSession={() => void session.leaveSession()}
+          />
+        ) : null}
+
+        {!isPlayView && activeView === "characters" ? (
+          <CharacterPage
+            user={currentUser}
+            busy={busy}
+            characters={session.myCharacters}
+            snapshot={session.snapshot}
+            error={error}
             onCreateCharacter={(payload) => void session.createCharacter(payload)}
+            onBackToMain={() => setActiveView("main")}
             onOpenPlay={() => setActiveView("play")}
           />
-        ) : (
+        ) : null}
+
+        {!isPlayView && activeView !== "main" && activeView !== "characters" ? (
+          <section className="placeholder-view">
+            <span className="eyebrow">Coming soon</span>
+            <h1>{topNavItems.find((item) => item.id === activeView)?.label}</h1>
+            <p>이 화면은 아직 준비 중입니다. 메인 대시보드와 캐릭터, 세션 플레이 흐름을 우선 정리한 상태입니다.</p>
+          </section>
+        ) : null}
+
+        {isPlayView ? (
           <PlayPage
-            user={auth.user}
+            user={currentUser}
             snapshot={session.snapshot}
+            characters={session.myCharacters}
             logs={logs}
             socketConnected={session.socketConnected}
-            onAction={(label) =>
-              appendLog(
-                "action",
-                label,
-                `${currentUser.displayName} 님이 "${label}" 행동을 선언했습니다.`,
-              )
-            }
+            busy={busy}
+            error={error}
+            onCreateCharacter={(payload) => void session.createCharacter(payload)}
+            onSelectCharacter={(characterId) => void session.selectCharacter(characterId)}
+            onSetReady={(isReady) => void session.setReadyState(isReady)}
+            onStartSession={() => void session.startSession()}
+            onLeaveSession={() => {
+              void session.leaveSession();
+              setActiveView("main");
+            }}
+            onBackToLobby={() => setActiveView("main")}
+            onAction={(input) => handleSessionMessage(currentUser.displayName, input)}
           />
-        )}
+        ) : null}
       </div>
     </div>
   );

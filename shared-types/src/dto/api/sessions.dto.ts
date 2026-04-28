@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Type } from "class-transformer";
 import {
   IsBoolean,
+  IsDateString,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -16,7 +17,11 @@ import {
   GamePhase,
   GmMode,
   ParticipantRole,
+  SessionCharacterStatus,
+  SessionParticipantStatus,
+  SessionScenarioStatus,
   SessionStatus,
+  SessionVisibility,
 } from "../../constants/enums";
 import { SessionCharacterResponseDto } from "./characters.dto";
 import { ScenarioSummaryResponseDto } from "./scenarios.dto";
@@ -35,22 +40,24 @@ export class CreateSessionDto {
   @MaxLength(500)
   description?: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional({ example: "scenario_goblin_cave" })
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  scenarioId!: string;
+  scenarioId?: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  ruleSetId!: string;
+  ruleSetId?: string;
 
   @ApiProperty({ default: 4 })
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(8)
-  maxPlayers!: number;
+  maxParticipants!: number;
 
   @ApiPropertyOptional({ default: 4, deprecated: true })
   @IsOptional()
@@ -58,18 +65,18 @@ export class CreateSessionDto {
   @IsInt()
   @Min(1)
   @Max(8)
-  maxParticipants?: number;
+  maxPlayers?: number;
 
   @ApiProperty({ enum: GmMode, default: GmMode.AI })
   @IsEnum(GmMode)
   gmMode!: GmMode;
 
-  @ApiPropertyOptional({ nullable: true })
+  @ApiPropertyOptional({ enum: SessionVisibility, default: SessionVisibility.PUBLIC })
   @IsOptional()
-  @IsString()
-  gmUserId?: string;
+  @IsEnum(SessionVisibility)
+  visibility?: SessionVisibility;
 
-  @ApiPropertyOptional({ default: false })
+  @ApiPropertyOptional({ default: false, deprecated: true })
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
@@ -80,6 +87,11 @@ export class CreateSessionDto {
   @Type(() => Boolean)
   @IsBoolean()
   isPublic?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsDateString()
+  nextSessionAt?: string;
 }
 
 export class UpdateSessionDto {
@@ -102,7 +114,7 @@ export class UpdateSessionDto {
   @IsInt()
   @Min(1)
   @Max(8)
-  maxPlayers?: number;
+  maxParticipants?: number;
 
   @ApiPropertyOptional({ deprecated: true })
   @IsOptional()
@@ -110,9 +122,14 @@ export class UpdateSessionDto {
   @IsInt()
   @Min(1)
   @Max(8)
-  maxParticipants?: number;
+  maxPlayers?: number;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ enum: SessionVisibility })
+  @IsOptional()
+  @IsEnum(SessionVisibility)
+  visibility?: SessionVisibility;
+
+  @ApiPropertyOptional({ deprecated: true })
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
@@ -123,6 +140,11 @@ export class UpdateSessionDto {
   @Type(() => Boolean)
   @IsBoolean()
   isPublic?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsDateString()
+  nextSessionAt?: string | null;
 }
 
 export class SessionListQueryDto {
@@ -170,10 +192,10 @@ export class JoinSessionDto {
 }
 
 export class SelectSessionCharacterDto {
-  @ApiProperty()
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  characterId!: string;
+  characterId!: string | null;
 }
 
 export class UpdateParticipantReadyDto {
@@ -183,11 +205,34 @@ export class UpdateParticipantReadyDto {
   isReady!: boolean;
 }
 
-export class UpdateSessionCaptainDto {
+export class SessionScenarioResponseDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  sessionId!: string;
+
+  @ApiProperty()
+  scenarioId!: string;
+
+  @ApiProperty()
+  sequence!: number;
+
+  @ApiProperty({ enum: SessionScenarioStatus })
+  @IsEnum(SessionScenarioStatus)
+  status!: SessionScenarioStatus;
+
   @ApiPropertyOptional({ nullable: true })
-  @IsOptional()
-  @IsString()
-  captainUserId?: string | null;
+  startedAt!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  endedAt!: string | null;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  @ApiProperty({ type: ScenarioSummaryResponseDto })
+  scenario!: ScenarioSummaryResponseDto;
 }
 
 export class SessionResponseDto {
@@ -204,19 +249,19 @@ export class SessionResponseDto {
   description!: string;
 
   @ApiProperty()
-  ownerUserId!: string;
-
-  @ApiProperty()
   hostUserId!: string;
 
-  @ApiPropertyOptional({ nullable: true })
+  @ApiProperty({ deprecated: true })
+  ownerUserId!: string;
+
+  @ApiPropertyOptional({ nullable: true, deprecated: true })
   captainUserId!: string | null;
 
   @ApiProperty({ enum: GmMode })
   @IsEnum(GmMode)
   gmMode!: GmMode;
 
-  @ApiPropertyOptional({ nullable: true })
+  @ApiPropertyOptional({ nullable: true, deprecated: true })
   gmUserId!: string | null;
 
   @ApiProperty()
@@ -226,26 +271,36 @@ export class SessionResponseDto {
   @IsEnum(SessionStatus)
   status!: SessionStatus;
 
+  @ApiProperty({ enum: SessionVisibility })
+  @IsEnum(SessionVisibility)
+  visibility!: SessionVisibility;
+
   @ApiProperty()
   maxParticipants!: number;
 
-  @ApiProperty()
+  @ApiProperty({ deprecated: true })
   maxPlayers!: number;
 
-  @ApiProperty()
+  @ApiProperty({ deprecated: true })
   isPublic!: boolean;
 
-  @ApiProperty()
+  @ApiProperty({ deprecated: true })
   isPrivate!: boolean;
 
   @ApiPropertyOptional({ nullable: true })
   ruleSetId!: string | null;
 
-  @ApiProperty()
-  scenarioId!: string;
+  @ApiPropertyOptional({ nullable: true })
+  nextSessionAt!: string | null;
 
-  @ApiProperty()
-  currentNodeId!: string;
+  @ApiPropertyOptional({ nullable: true, deprecated: true })
+  scenarioId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true, deprecated: true })
+  currentNodeId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  activeSessionScenarioId!: string | null;
 
   @ApiProperty()
   createdAt!: string;
@@ -274,6 +329,10 @@ export class SessionParticipantResponseDto {
   @IsEnum(ParticipantRole)
   role!: ParticipantRole;
 
+  @ApiProperty({ enum: SessionParticipantStatus })
+  @IsEnum(SessionParticipantStatus)
+  status!: SessionParticipantStatus;
+
   @ApiProperty({ enum: ConnectionStatus })
   @IsEnum(ConnectionStatus)
   connectionStatus!: ConnectionStatus;
@@ -288,6 +347,9 @@ export class SessionParticipantResponseDto {
 
   @ApiProperty()
   joinedAt!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  leftAt!: string | null;
 
   @ApiProperty({ type: UserResponseDto })
   user!: UserResponseDto;
@@ -304,19 +366,28 @@ export class ParticipantStatusResponseDto {
 
 export class GameStateResponseDto {
   @ApiProperty()
-  sessionId!: string;
+  sessionScenarioId!: string;
+
+  @ApiPropertyOptional({ nullable: true, deprecated: true })
+  sessionId!: string | null;
 
   @ApiProperty()
   version!: number;
 
-  @ApiProperty()
-  currentNodeId!: string;
+  @ApiPropertyOptional({ nullable: true })
+  currentNodeId!: string | null;
 
   @ApiProperty({ enum: GamePhase })
   @IsEnum(GamePhase)
   phase!: GamePhase;
 
   @ApiProperty({ type: Object })
+  flags!: Record<string, unknown>;
+
+  @ApiProperty({ type: [Object] })
+  discoveredClues!: Record<string, unknown>[];
+
+  @ApiProperty({ type: Object, deprecated: true })
   state!: Record<string, unknown>;
 
   @ApiProperty()
@@ -326,6 +397,9 @@ export class GameStateResponseDto {
 export class SessionSnapshotDto {
   @ApiProperty({ type: SessionResponseDto })
   session!: SessionResponseDto;
+
+  @ApiProperty({ type: [SessionScenarioResponseDto] })
+  sessionScenarios!: SessionScenarioResponseDto[];
 
   @ApiProperty({ type: [SessionParticipantResponseDto] })
   participants!: SessionParticipantResponseDto[];
@@ -345,6 +419,9 @@ export class SessionListItemResponseDto {
   scenario!: ScenarioSummaryResponseDto;
 
   @ApiProperty({ type: UserResponseDto })
+  host!: UserResponseDto;
+
+  @ApiProperty({ type: UserResponseDto, deprecated: true })
   owner!: UserResponseDto;
 
   @ApiProperty()
@@ -362,9 +439,12 @@ export class SessionDetailResponseDto extends SessionSnapshotDto {
   scenario!: ScenarioSummaryResponseDto;
 
   @ApiProperty({ type: UserResponseDto })
+  host!: UserResponseDto;
+
+  @ApiProperty({ type: UserResponseDto, deprecated: true })
   owner!: UserResponseDto;
 
-  @ApiPropertyOptional({ type: UserResponseDto, nullable: true })
+  @ApiPropertyOptional({ type: UserResponseDto, nullable: true, deprecated: true })
   captain!: UserResponseDto | null;
 }
 
