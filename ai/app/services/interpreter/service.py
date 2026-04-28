@@ -7,8 +7,8 @@ from app.clients.google_ai_studio import GoogleAiStudioClient
 from app.core.config import Settings
 from app.core.errors import AiClientError
 from app.schemas.harness import InterpreterHarnessRequest, InterpreterHarnessResponse
-from app.schemas.interpreter import InterpreterOutput
-from app.srd.models import RuleFragment, Spell
+from app.schemas.interpreter import InterpreterOutput, StructuredAction
+from app.srd.models import RuleFragment, Spell, SrdEntityMatch
 from app.srd.retrieval import SrdRetriever
 
 
@@ -38,6 +38,7 @@ class InterpreterService:
                     temperature=self._settings.ai_temperature_interpreter,
                 )
                 parsed = InterpreterOutput.model_validate(result.parsed_json)
+                parsed = self._normalize_class_feature_output(parsed, prompt_context, request.rawText)
                 self._validate_output_contract(parsed, request, prompt_context)
                 break
             except (ValidationError, ValueError) as exc:
@@ -80,7 +81,9 @@ class InterpreterService:
 
     def _build_prompt_context(self, request: InterpreterHarnessRequest) -> dict[str, object]:
         matched_spells = self._srd_retriever.find_spells(request.rawText, limit=3)
+        related_entity_matches = self._srd_retriever.related_entities_for_text(request.rawText, limit=8)
         related_entities = []
+        added_entity_ids: set[str] = set()
         for spell in matched_spells:
             related_entities.append(
                 {
@@ -99,18 +102,12 @@ class InterpreterService:
                     "source": spell.source.model_dump(),
                 }
             )
-        for entity in self._srd_retriever.related_entities_for_text(request.rawText, limit=5):
-            if entity.kind == "condition":
-                related_entities.append(
-                    {
-                        "id": entity.id,
-                        "kind": entity.kind,
-                        "nameEn": entity.nameEn,
-                        "nameKo": entity.nameKo,
-                        "summaryKo": entity.summaryKo[:240],
-                        "source": entity.source.model_dump(),
-                    }
-                )
+            added_entity_ids.add(spell.id)
+        for entity in related_entity_matches:
+            if entity.id in added_entity_ids:
+                continue
+            related_entities.append(self._entity_payload(entity))
+            added_entity_ids.add(entity.id)
         related_rule_fragments = self._srd_retriever.related_rule_fragments_for_text(
             request.rawText,
             spells=matched_spells,
@@ -120,8 +117,8 @@ class InterpreterService:
             request.rawText,
             entities=[
                 entity
-                for entity in self._srd_retriever.related_entities_for_text(request.rawText, limit=5)
-                if entity.kind in {"spell", "magic_item", "condition"}
+                for entity in related_entity_matches
+                if entity.kind in {"spell", "magic_item", "condition", "class", "race"}
             ],
             rule_fragments=related_rule_fragments,
             limit=4,
@@ -152,6 +149,7 @@ class InterpreterService:
         ]
         return {
             "matched_spells": matched_spells,
+            "related_entity_matches": related_entity_matches,
             "related_rule_fragments": related_rule_fragments,
             "related_rule_hooks": related_rule_hooks,
             "related_entities_payload": related_entities,
@@ -175,6 +173,8 @@ class InterpreterService:
             "relatedRules는 현재 행동에 필요한 작은 SRD 규칙 조각일 뿐이다. "
             "relatedEngineHooks는 백엔드가 나중에 확정해야 할 deterministic 처리 계약일 뿐이다. "
             "AI는 이 후보를 근거로 상태 변화, 명중, 피해, DC, 슬롯 소비를 확정하면 안 된다.\n"
+            "relatedEngineHooks 중 domain이 class_feature인 항목이 플레이어 입력과 직접 맞으면 "
+            "action.type='use_class_feature'로 두고 sourceEntityIds의 class feature ID를 action.featureId에 복사하라.\n"
             f"relatedEntities: {json.dumps(related_entities, ensure_ascii=False)}\n"
             f"relatedRules: {json.dumps(related_rules, ensure_ascii=False)}\n"
             f"relatedEngineHooks: {json.dumps(related_engine_hooks, ensure_ascii=False)}\n"
@@ -192,31 +192,117 @@ class InterpreterService:
             raise ValueError("action.targetId must be one of availableTargets")
 
         matched_spells = prompt_context["matched_spells"]
+        related_entity_matches = prompt_context["related_entity_matches"]
         related_rule_fragments = prompt_context["related_rule_fragments"]
         if not isinstance(matched_spells, list) or not all(isinstance(spell, Spell) for spell in matched_spells):
             raise ValueError("prompt context matched_spells is invalid")
+        if not isinstance(related_entity_matches, list) or not all(
+            isinstance(entity, SrdEntityMatch) for entity in related_entity_matches
+        ):
+            raise ValueError("prompt context related_entity_matches is invalid")
         if not isinstance(related_rule_fragments, list) or not all(
             isinstance(fragment, RuleFragment) for fragment in related_rule_fragments
         ):
             raise ValueError("prompt context related_rule_fragments is invalid")
         allowed_spell_ids = {spell.id for spell in matched_spells}
+        allowed_item_ids = {entity.id for entity in related_entity_matches if entity.kind == "magic_item"}
+        allowed_condition_ids = {entity.id for entity in related_entity_matches if entity.kind == "condition"}
         allowed_rule_ids = {fragment.id for fragment in related_rule_fragments}
+        related_rule_hooks = prompt_context["related_rule_hooks"]
+        allowed_feature_ids = {
+            source_id
+            for hook in related_rule_hooks
+            for source_id in hook.sourceEntityIds
+            if source_id.startswith("class.")
+        }
 
         if parsed.action.type == "cast_spell":
             if parsed.action.spellId is None:
                 raise ValueError("cast_spell action requires action.spellId")
+            if parsed.action.featureId is not None:
+                raise ValueError("cast_spell action cannot include action.featureId")
             if parsed.mentionedSpellId != parsed.action.spellId:
                 raise ValueError("cast_spell action requires mentionedSpellId to match action.spellId")
             if parsed.action.spellId not in allowed_spell_ids:
                 raise ValueError("cast_spell action.spellId must be one of retrieved spell IDs")
             if parsed.action.attackKind is None and any("spell_attack" in rule_id for rule_id in allowed_rule_ids):
                 raise ValueError("spell attack actions require action.attackKind")
+        elif parsed.action.type == "use_class_feature":
+            if parsed.action.featureId is None:
+                raise ValueError("use_class_feature action requires action.featureId")
+            if parsed.action.featureId not in allowed_feature_ids:
+                raise ValueError("use_class_feature action.featureId must be one of retrieved class feature IDs")
+            if parsed.action.spellId is not None:
+                raise ValueError("use_class_feature action cannot include action.spellId")
         elif parsed.action.spellId is not None:
             raise ValueError("action.spellId is only allowed for cast_spell actions")
+        elif parsed.action.featureId is not None:
+            raise ValueError("action.featureId is only allowed for use_class_feature actions")
+
+        if parsed.mentionedItemId is not None and parsed.mentionedItemId not in allowed_item_ids:
+            raise ValueError("mentionedItemId must be one of retrieved magic item IDs")
+
+        unexpected_condition_ids = set(parsed.mentionedConditionIds) - allowed_condition_ids
+        if unexpected_condition_ids:
+            raise ValueError(
+                f"mentionedConditionIds include unavailable condition IDs: {sorted(unexpected_condition_ids)}"
+            )
 
         unexpected_rule_ids = set(parsed.requiredRuleCheckIds) - allowed_rule_ids
         if unexpected_rule_ids:
             raise ValueError(f"requiredRuleCheckIds include unavailable rule IDs: {sorted(unexpected_rule_ids)}")
+
+    @staticmethod
+    def _normalize_class_feature_output(
+        parsed: InterpreterOutput,
+        prompt_context: dict[str, object],
+        raw_text: str,
+    ) -> InterpreterOutput:
+        if parsed.action.type == "cast_spell":
+            return parsed
+        related_rule_hooks = prompt_context["related_rule_hooks"]
+        seen_feature_ids: set[str] = set()
+        class_feature_ids: list[str] = []
+        for hook in related_rule_hooks:
+            if hook.domain != "class_feature":
+                continue
+            for source_id in hook.sourceEntityIds:
+                if source_id.startswith("class.") and source_id not in seen_feature_ids:
+                    class_feature_ids.append(source_id)
+                    seen_feature_ids.add(source_id)
+        matched_feature_ids = [
+            feature_id
+            for feature_id in class_feature_ids
+            if InterpreterService._feature_id_matches_text(feature_id, raw_text)
+        ]
+        if matched_feature_ids:
+            chosen_feature_id = matched_feature_ids[0]
+        elif len(class_feature_ids) == 1:
+            chosen_feature_id = class_feature_ids[0]
+        else:
+            return parsed
+        if parsed.action.type == "use_class_feature" and parsed.action.featureId == chosen_feature_id:
+            return parsed
+
+        normalized_action = StructuredAction(
+            **{
+                **parsed.action.model_dump(),
+                "type": "use_class_feature",
+                "spellId": None,
+                "featureId": chosen_feature_id,
+                "attackKind": None,
+            }
+        )
+        safety_notes = list(parsed.safetyNotes)
+        if not safety_notes:
+            safety_notes.append("class feature result and state changes are backend engine owned")
+        return parsed.model_copy(update={"action": normalized_action, "safetyNotes": safety_notes})
+
+    @staticmethod
+    def _feature_id_matches_text(feature_id: str, raw_text: str) -> bool:
+        feature_name = feature_id.rsplit(".", 1)[-1].replace("_", "")
+        normalized_text = "".join(ch for ch in raw_text.casefold() if ch.isalnum())
+        return feature_name.casefold() in normalized_text
 
     @staticmethod
     def _spell_mechanic_hints(play_reference: str) -> list[str]:
@@ -234,6 +320,17 @@ class InterpreterService:
         if "히트 포인트를 회복할 수 없다" in play_reference:
             hints.append("blocks_hit_point_recovery")
         return hints
+
+    @staticmethod
+    def _entity_payload(entity: SrdEntityMatch) -> dict[str, object]:
+        return {
+            "id": entity.id,
+            "kind": entity.kind,
+            "nameEn": entity.nameEn,
+            "nameKo": entity.nameKo,
+            "summaryKo": entity.summaryKo[:320],
+            "source": entity.source.model_dump(),
+        }
 
     @staticmethod
     def _spell_attack_kind(play_reference: str) -> str | None:

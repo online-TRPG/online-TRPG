@@ -10,6 +10,7 @@ class StructuredAction(BaseModel):
         "saving_throw",
         "attack",
         "cast_spell",
+        "use_class_feature",
         "use_item",
         "move",
         "interact",
@@ -20,6 +21,7 @@ class StructuredAction(BaseModel):
     actorCharacterId: str = Field(min_length=1)
     targetId: str | None = None
     spellId: str | None = None
+    featureId: str | None = None
     attackKind: Literal["weapon_attack", "melee_spell_attack", "ranged_spell_attack"] | None = None
     ability: str | None = None
     skill: str | None = None
