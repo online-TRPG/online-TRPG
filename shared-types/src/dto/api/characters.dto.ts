@@ -3,6 +3,7 @@ import { Type } from "class-transformer";
 import {
   ArrayMaxSize,
   IsArray,
+  IsEnum,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -11,6 +12,10 @@ import {
   Min,
   ValidateNested,
 } from "class-validator";
+import {
+  CharacterAvatarType,
+  SessionCharacterStatus,
+} from "../../constants/enums";
 
 export class AbilityScoresDto {
   @ApiProperty({ example: 10 })
@@ -87,6 +92,12 @@ export class CreateCharacterDto {
   @Min(1)
   level?: number;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  bio?: string;
+
   @ApiPropertyOptional({ type: AbilityScoresDto })
   @IsOptional()
   @ValidateNested()
@@ -135,6 +146,21 @@ export class CreateCharacterDto {
   @IsOptional()
   @IsString()
   equippedWeaponId?: string;
+
+  @ApiPropertyOptional({ enum: CharacterAvatarType, default: CharacterAvatarType.DEFAULT })
+  @IsOptional()
+  @IsEnum(CharacterAvatarType)
+  avatarType?: CharacterAvatarType;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  avatarPresetId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string;
 }
 
 export class UpdateCharacterDto {
@@ -164,6 +190,12 @@ export class UpdateCharacterDto {
   @IsInt()
   @Min(1)
   level?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  bio?: string;
 
   @ApiPropertyOptional({ type: AbilityScoresDto })
   @IsOptional()
@@ -213,6 +245,21 @@ export class UpdateCharacterDto {
   @IsOptional()
   @IsString()
   equippedWeaponId?: string | null;
+
+  @ApiPropertyOptional({ enum: CharacterAvatarType })
+  @IsOptional()
+  @IsEnum(CharacterAvatarType)
+  avatarType?: CharacterAvatarType;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  avatarPresetId?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string | null;
 }
 
 export class UpdateCharacterEquipmentDto {
@@ -252,6 +299,9 @@ export class CharacterResponseDto {
   @ApiProperty()
   level!: number;
 
+  @ApiPropertyOptional({ nullable: true })
+  bio!: string | null;
+
   @ApiProperty({ type: AbilityScoresDto })
   abilities!: AbilityScoresDto;
 
@@ -276,6 +326,19 @@ export class CharacterResponseDto {
   @ApiPropertyOptional({ nullable: true })
   equippedWeaponId!: string | null;
 
+  @ApiProperty({ enum: CharacterAvatarType })
+  @IsEnum(CharacterAvatarType)
+  avatarType!: CharacterAvatarType;
+
+  @ApiPropertyOptional({ nullable: true })
+  avatarPresetId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  avatarUrl!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  avatarUpdatedAt!: string | null;
+
   @ApiPropertyOptional({ nullable: true })
   activeSessionId!: string | null;
 
@@ -297,13 +360,17 @@ export class SessionCharacterResponseDto {
   sessionId!: string;
 
   @ApiProperty()
-  participantId!: string;
+  userId!: string;
 
   @ApiProperty()
   characterId!: string;
 
   @ApiProperty()
   ownerUserId!: string;
+
+  @ApiProperty({ enum: SessionCharacterStatus })
+  @IsEnum(SessionCharacterStatus)
+  status!: SessionCharacterStatus;
 
   @ApiProperty()
   name!: string;
@@ -346,6 +413,19 @@ export class SessionCharacterResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   equippedWeaponId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  bio!: string | null;
+
+  @ApiProperty({ enum: CharacterAvatarType })
+  @IsEnum(CharacterAvatarType)
+  avatarType!: CharacterAvatarType;
+
+  @ApiPropertyOptional({ nullable: true })
+  avatarPresetId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  avatarUrl!: string | null;
 
   @ApiProperty({ type: [String] })
   conditions!: string[];

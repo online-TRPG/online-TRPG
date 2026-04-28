@@ -8,6 +8,10 @@ export const DEFAULT_START_NODE_ID = "node_cave_entrance";
 const defaultScenario = {
   id: DEFAULT_SCENARIO_ID,
   title: "Goblin Cave Run",
+  description: "A short introductory cave scenario for MVP session-service verification.",
+  thumbnailUrl: null,
+  ruleSetId: "dnd5e",
+  difficulty: "easy",
   license: ScenarioLicense.ORIGINAL,
   attribution: "Original scenario seed for development and API verification.",
   startNodeId: DEFAULT_START_NODE_ID,
@@ -64,6 +68,10 @@ export async function seedDefaultScenario(prisma: PrismaClient): Promise<void> {
     where: { id: defaultScenario.id },
     update: {
       title: defaultScenario.title,
+      description: defaultScenario.description,
+      thumbnailUrl: defaultScenario.thumbnailUrl,
+      ruleSetId: defaultScenario.ruleSetId,
+      difficulty: defaultScenario.difficulty,
       license: defaultScenario.license,
       attribution: defaultScenario.attribution,
       startNodeId: defaultScenario.startNodeId,
