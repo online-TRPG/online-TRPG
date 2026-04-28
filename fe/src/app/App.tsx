@@ -68,18 +68,24 @@ export function App() {
     title: string,
     options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
   ) {
-    await session.createSession(title, options);
-    setActiveView("play");
+    const success = await session.createSession(title, options);
+    if (success) {
+      setActiveView("play");
+    }
   }
 
   async function handleJoinSession(inviteCode: string) {
-    await session.joinSession(inviteCode);
-    setActiveView("play");
+    const success = await session.joinSession(inviteCode);
+    if (success) {
+      setActiveView("play");
+    }
   }
 
   async function handleJoinSessionById(sessionId: string) {
-    await session.joinSessionById(sessionId);
-    setActiveView("play");
+    const success = await session.joinSessionById(sessionId);
+    if (success) {
+      setActiveView("play");
+    }
   }
 
   function handleLogout() {
@@ -175,6 +181,7 @@ export function App() {
             scenarios={scenarios}
             snapshot={session.snapshot}
             sessionList={session.sessionList}
+            mySessionList={session.mySessionList}
             logs={logs}
             busy={busy}
             error={error}
@@ -182,6 +189,7 @@ export function App() {
             onJoinSession={handleJoinSession}
             onJoinSessionById={handleJoinSessionById}
             onOpenPlay={() => setActiveView("play")}
+            onLeaveCurrentSession={() => void session.leaveSession()}
           />
         ) : null}
 

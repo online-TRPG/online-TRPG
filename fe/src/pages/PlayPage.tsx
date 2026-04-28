@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import type { CharacterPayload } from "../hooks/useSession";
 import type { LogEntry, PersistentCharacter, SessionSnapshot, StoredUser } from "../types/session";
@@ -14,7 +14,7 @@ interface PlayPageProps {
   busy: boolean;
   error: string | null;
   onCreateCharacter: (payload: CharacterPayload) => void;
-  onSelectCharacter: (characterId: string) => void;
+  onSelectCharacter: (characterId: string | null) => void;
   onSetReady: (isReady: boolean) => void;
   onStartSession: () => void;
   onLeaveSession: () => void;
@@ -71,6 +71,8 @@ export function PlayPage({
   const [infoText, setInfoText] = useState("");
   const [formState, setFormState] = useState(defaultCharacter);
   const [localSelectedCharacterId, setLocalSelectedCharacterId] = useState<string | null>(null);
+  const [isStatusMinimized, setStatusMinimized] = useState(false);
+  const logEndRef = useRef<HTMLDivElement | null>(null);
 
   const session = snapshot?.session ?? null;
   const participants = snapshot?.participants ?? [];
@@ -92,6 +94,12 @@ export function PlayPage({
     setLocalSelectedCharacterId(serverSelectedCharacterId);
   }, [serverSelectedCharacterId]);
 
+  useEffect(() => {
+    if (!allPlayersReady) {
+      setStatusMinimized(false);
+    }
+  }, [allPlayersReady]);
+
   const joinableCharacters = useMemo(
     () =>
       characters.map((character) => ({
@@ -104,11 +112,11 @@ export function PlayPage({
 
   const scopedLogs = useMemo(() => {
     if (activeTab === "Chat") {
-      return logs.filter((log) => isChatScoped(log.message));
+      return logs.filter((log) => log.kind === "action" && isChatScoped(log.message));
     }
 
     if (activeTab === "Main") {
-      return logs.filter((log) => !isChatScoped(log.message));
+      return logs.filter((log) => log.kind === "action" && !isChatScoped(log.message));
     }
 
     return [];
@@ -129,6 +137,10 @@ export function PlayPage({
       }),
     [scopedLogs, user.displayName],
   );
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ block: "end" });
+  }, [activeTab, renderedRows.length]);
 
   function handleCreateCharacter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -155,6 +167,12 @@ export function PlayPage({
 
   function handleCharacterClick(characterId: string) {
     if (busy || readyLocked) return;
+    if (selectedCharacterId === characterId) {
+      setLocalSelectedCharacterId(null);
+      onSelectCharacter(null);
+      return;
+    }
+
     setLocalSelectedCharacterId(characterId);
     onSelectCharacter(characterId);
   }
@@ -203,33 +221,6 @@ export function PlayPage({
                 </button>
               </div>
             </div>
-          </section>
-
-          <section className="session-ready-card gm-ready-card session-main-ready">
-            <span className="eyebrow">Session status</span>
-            <h2>{isRecruiting ? "Recruiting lobby" : "Session in progress"}</h2>
-            <p>
-              {activeScenario
-                ? `${activeScenario.scenario.title} / ${activeScenario.scenario.ruleSetId ?? "TRPG"}`
-                : "Scenario not assigned"}
-            </p>
-            <p>
-              {allPlayersReady
-                ? "All participants are READY. The host can start the session."
-                : "Players must choose a character and press READY before the host can start."}
-            </p>
-            {isHost ? (
-              <div className="ready-actions">
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={!canStartSession || busy}
-                  onClick={onStartSession}
-                >
-                  Start session
-                </button>
-              </div>
-            ) : null}
           </section>
 
           {canShowCharacterSelection ? (
@@ -301,7 +292,67 @@ export function PlayPage({
               </div>
             </section>
           ) : null}
+
         </div>
+
+        {allPlayersReady ? (
+          <div className={`session-status-floating-layer${isStatusMinimized ? " minimized" : " expanded"}`}>
+            {isStatusMinimized ? (
+              <section
+                className="session-main-ready-minimized session-status-toggle-surface"
+                onClick={() => setStatusMinimized(false)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setStatusMinimized(false);
+                  }
+                }}
+              >
+                <span className="eyebrow">Session status</span>
+                <strong>All players ready</strong>
+              </section>
+            ) : (
+              <section
+                className="session-ready-card session-main-ready-overlay session-status-toggle-surface"
+                onClick={() => setStatusMinimized(true)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setStatusMinimized(true);
+                  }
+                }}
+              >
+                <span className="eyebrow">Session status</span>
+                <h2>{isRecruiting ? "Recruiting lobby" : "Session in progress"}</h2>
+                <p>
+                  {activeScenario
+                    ? `${activeScenario.scenario.title} / ${activeScenario.scenario.ruleSetId ?? "TRPG"}`
+                    : "Scenario not assigned"}
+                </p>
+                <p>All participants are READY. The host can start the session.</p>
+                {isHost ? (
+                  <div className="ready-actions">
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={!canStartSession || busy}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onStartSession();
+                      }}
+                    >
+                      Start session
+                    </button>
+                  </div>
+                ) : null}
+              </section>
+            )}
+          </div>
+        ) : null}
 
         <section className="participant-strip participant-strip-four-up">
           {participants.length ? (
@@ -368,8 +419,8 @@ export function PlayPage({
                       ) : null}
                       <div className="chat-thread-stack">
                         <div className="chat-thread-bubble">{log.message}</div>
+                        {log.rowClass !== "notice" ? <span className="chat-thread-time">{log.time}</span> : null}
                       </div>
-                      {log.rowClass !== "notice" ? <span className="chat-thread-time">{log.time}</span> : null}
                     </article>
                   ))
                 ) : (
@@ -377,6 +428,7 @@ export function PlayPage({
                     <div className="chat-thread-bubble">No messages yet.</div>
                   </article>
                 )}
+                <div ref={logEndRef} />
               </div>
 
               <form

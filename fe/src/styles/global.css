@@ -1769,6 +1769,7 @@ label {
   grid-template-rows: minmax(0, 1fr) auto auto;
   gap: 12px;
   overflow: hidden;
+  position: relative;
 }
 
 .session-prep-layout-tight .session-prep-stage {
@@ -1782,14 +1783,15 @@ label {
   background:
     radial-gradient(circle at top, rgba(120, 217, 255, 0.09), transparent 38%),
     linear-gradient(180deg, rgba(11, 17, 29, 0.96), rgba(8, 13, 22, 0.98));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  padding: 24px;
+  overflow: auto;
   position: relative;
-  overflow: hidden;
 }
 
 .session-room-overlay {
-  position: absolute;
-  inset: 24px 24px auto 24px;
-  z-index: 2;
   border-radius: 20px;
   border: 1px solid rgba(38, 52, 73, 0.9);
   background: rgba(13, 21, 34, 0.92);
@@ -1865,25 +1867,74 @@ label {
   place-items: center;
 }
 
-.gm-ready-card {
-  width: min(880px, calc(100% - 80px));
-  min-height: 280px;
-  margin: 0 auto;
-  align-content: center;
+.session-status-floating-layer {
+  position: absolute;
+  inset: 24px;
+  z-index: 5;
+  pointer-events: none;
+  display: grid;
 }
 
-.session-main-ready {
-  position: absolute;
-  inset: 50% auto auto 50%;
-  transform: translate(-50%, -50%);
-  z-index: 1;
+.session-status-floating-layer.expanded {
+  place-items: center;
+}
+
+.session-status-floating-layer.minimized {
+  justify-items: center;
+  align-items: start;
+}
+
+.session-status-floating-layer > * {
+  pointer-events: auto;
+}
+
+.session-main-ready-overlay {
+  width: min(420px, calc(100vw - 96px));
+  max-width: 420px;
+  margin: 0;
+}
+
+.session-main-ready-minimized {
+  min-width: 220px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  background: rgba(14, 21, 34, 0.94);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 4px;
 }
 
 .session-ready-card {
+  position: relative;
   border-radius: 28px;
   padding: 32px 28px;
   background: rgba(14, 21, 34, 0.92);
   text-align: center;
+  overflow: hidden;
+}
+
+.session-main-ready-overlay h2 {
+  margin: 10px 0;
+  font-size: clamp(22px, 2.6vw, 34px);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.session-main-ready-overlay p,
+.session-main-ready-overlay strong,
+.session-main-ready-minimized strong {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.session-status-toggle-surface {
+  cursor: pointer;
+}
+
+.session-status-toggle-surface:focus-visible {
+  outline: 2px solid rgba(120, 217, 255, 0.7);
+  outline-offset: 2px;
 }
 
 .session-ready-card h2 {
@@ -1893,15 +1944,16 @@ label {
 }
 
 .character-selection-board {
-  position: absolute;
-  inset: 24px;
+  position: static;
+  inset: auto;
   border-radius: 28px;
   padding: 20px;
   overflow: auto;
+  min-height: 0;
 }
 
 .player-ready-board {
-  padding-top: 28px;
+  padding-top: 20px;
 }
 
 .session-stage-placeholder {
@@ -2217,19 +2269,17 @@ label {
 }
 
 .chat-thread-row {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
+  display: flex;
   gap: 10px;
-  align-items: end;
+  align-items: flex-end;
 }
 
 .chat-thread-row.outgoing {
-  grid-template-columns: minmax(0, 1fr) auto;
-  justify-items: end;
+  justify-content: flex-end;
 }
 
 .chat-thread-row.notice {
-  grid-template-columns: 1fr;
+  justify-content: center;
 }
 
 .chat-thread-avatar {
@@ -2245,27 +2295,33 @@ label {
 }
 
 .chat-thread-stack {
-  display: grid;
-  gap: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
-  max-width: min(82%, 320px);
+  width: fit-content;
+  max-width: min(88%, 420px);
 }
 
 .chat-thread-bubble {
+  display: inline-block;
+  width: auto;
   max-width: 100%;
   padding: 12px 14px;
   border-radius: 18px;
   line-height: 1.55;
-  word-break: break-word;
+  word-break: normal;
+  overflow-wrap: break-word;
   border: 1px solid rgba(38, 52, 73, 0.9);
   background: rgba(12, 20, 33, 0.92);
+  white-space: pre-wrap;
 }
 
 .chat-thread-time {
   font-size: 11px;
   color: var(--faint);
   white-space: nowrap;
-  align-self: end;
+  align-self: flex-end;
 }
 
 .chat-thread-row.incoming .chat-thread-bubble {
@@ -2274,23 +2330,14 @@ label {
 }
 
 .chat-thread-row.outgoing .chat-thread-stack {
-  justify-items: end;
   text-align: right;
+  align-items: flex-end;
 }
 
 .chat-thread-row.outgoing .chat-thread-bubble {
   border-top-right-radius: 8px;
   background: linear-gradient(180deg, rgba(28, 82, 109, 0.98), rgba(19, 62, 86, 0.98));
   color: #effcff;
-}
-
-.chat-thread-row.outgoing .chat-thread-time {
-  order: -1;
-  margin-right: 2px;
-}
-
-.chat-thread-row.notice {
-  justify-items: center;
 }
 
 .chat-thread-row.notice .chat-thread-bubble {

@@ -555,6 +555,34 @@ export class SessionsService {
       throw new ConflictException("Characters can only be selected while the session is recruiting.");
     }
 
+    if (!dto.characterId) {
+      await this.prisma.sessionCharacter.deleteMany({
+        where: {
+          sessionId,
+          userId,
+        },
+      });
+
+      const updatedParticipant = await this.prisma.sessionParticipant.update({
+        where: { id: participant.id },
+        data: {
+          isReady: false,
+          readyAt: null,
+        },
+        include: {
+          user: true,
+          sessionCharacter: {
+            include: { character: true },
+          },
+        },
+      });
+
+      const mappedParticipant = mapParticipant(updatedParticipant);
+      this.realtimeEvents.emitParticipantUpdated(sessionId, mappedParticipant);
+      this.realtimeEvents.emitSessionSnapshot(sessionId, await this.buildSnapshot(sessionId));
+      return mappedParticipant;
+    }
+
     const character = await this.prisma.character.findUnique({
       where: { id: dto.characterId },
       include: {
