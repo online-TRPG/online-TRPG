@@ -40,7 +40,6 @@
 - 콘텐츠는 공개 SRD와 무료 공개 시나리오, 또는 팀이 직접 작성한 오리지널 시나리오만 사용한다.
 - 기본 LLM은 Google AI Studio / Gemini API의 호스팅 Gemma 4 모델을 사용한다.
 - 우선 모델은 `gemma-4-31b-it`이다.
-- 로컬 Ollama는 오프라인 개발 또는 API 장애 대응을 위한 선택적 대체 경로로 둔다.
 - 사용자 액션 1회당 응답 시간 목표는 30초 이내다.
 - 로컬 룰북 PDF는 개발 참고 자료로만 두고, 저장소에는 커밋하지 않는다.
 
@@ -298,10 +297,9 @@ flowchart TB
 ### AI / LLM
 
 - Google AI Studio / Gemini API
-- Gemma 4 호스팅 instruct 모델
-- Ollama 로컬 Gemma 4 모델(선택 대체 경로)
+- Gemma 4 호스팅 instruct 모델 (`gemma-4-31b-it`)
 - JSON Schema / Zod 기반 출력 검증
-- Provider 추상화
+- Provider 추상화 (현재 단일 provider, 확장 여지)
 
 ### 검증 / 하네스
 

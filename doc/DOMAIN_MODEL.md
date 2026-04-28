@@ -284,7 +284,7 @@ type AiTrace = {
   id: string;
   sessionId: string;
   role: "interpreter" | "actor" | "narrator" | "director" | "summarizer";
-  provider: "google-ai-studio" | "ollama";
+  provider: "google-ai-studio";
   model: string;
   promptVersion: string;
   inputSummary: string;

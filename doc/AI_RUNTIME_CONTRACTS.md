@@ -15,9 +15,8 @@ Actor는 제한적으로 구현하고, Director는 후순위로 둔다.
 
 ## 2. 공통 운영 조건
 
-- 기본 제공자: Google AI Studio / Gemini API
+- 제공자: Google AI Studio / Gemini API
 - 기본 모델: `gemma-4-31b-it`
-- 선택 제공자: Ollama 로컬 Gemma 4 계열 모델
 - 전체 응답 목표: 30초 이내
 - 출력 형식: JSON 객체. 서버 하네스가 JSON 파싱, JSON Schema 또는 Zod 검증, 규칙 검증을 수행한다.
 - 재시도: 역할별 최대 1회
@@ -29,7 +28,7 @@ Actor는 제한적으로 구현하고, Director는 후순위로 둔다.
 LLM 제공자는 백엔드 내부 인터페이스 뒤에 둔다.
 
 ```ts
-type AiProvider = 'google-ai-studio' | 'ollama';
+type AiProvider = 'google-ai-studio';
 
 type AiCallRequest = {
   provider: AiProvider;
