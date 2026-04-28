@@ -81,6 +81,42 @@ def run_contract_case(payload: dict):
     )
 
 
+def run_second_wind_contract_case(payload: dict):
+    service = InterpreterService(StaticInterpreterClient(payload), settings())
+    return service.run(
+        InterpreterHarnessRequest(
+            rawText="파이터가 재기의 숨결을 사용한다.",
+            actorCharacterId="fighter-1",
+            sceneSummary="전투 중.",
+            availableTargets=["fighter-1"],
+        )
+    )
+
+
+def run_frenzy_contract_case(payload: dict):
+    service = InterpreterService(StaticInterpreterClient(payload), settings())
+    return service.run(
+        InterpreterHarnessRequest(
+            rawText="바바리안이 격노에 들어가면서 광분을 선언한다.",
+            actorCharacterId="barbarian-1",
+            sceneSummary="전투 중.",
+            availableTargets=["barbarian-1"],
+        )
+    )
+
+
+def run_plain_contract_case(payload: dict):
+    service = InterpreterService(StaticInterpreterClient(payload), settings())
+    return service.run(
+        InterpreterHarnessRequest(
+            rawText="잠시 주변을 살핀다.",
+            actorCharacterId="fighter-1",
+            sceneSummary="전투 중.",
+            availableTargets=["fighter-1"],
+        )
+    )
+
+
 def test_contract_accepts_valid_spell_cast_output():
     response = run_contract_case(valid_spell_cast_payload())
 
@@ -96,6 +132,164 @@ def test_contract_rejects_spell_id_that_was_not_retrieved():
 
     with pytest.raises(AiClientError, match="retrieved spell IDs"):
         run_contract_case(payload)
+
+
+def test_contract_accepts_valid_class_feature_output():
+    response = run_second_wind_contract_case(
+        {
+            "action": {
+                "type": "use_class_feature",
+                "actorCharacterId": "fighter-1",
+                "targetId": None,
+                "spellId": None,
+                "featureId": "class.fighter.feature.재기의_숨결",
+                "attackKind": None,
+                "ability": None,
+                "skill": None,
+                "approach": "재기의 숨결을 사용한다.",
+                "confidence": 0.94,
+                "requiresRoll": True,
+                "suggestedDifficulty": None,
+            },
+            "needsClarification": False,
+            "clarificationQuestion": None,
+            "mentionedSpellId": None,
+            "mentionedItemId": None,
+            "mentionedConditionIds": [],
+            "requiredRuleCheckIds": [],
+            "rulesConfidence": 0.9,
+            "safetyNotes": ["회복량과 HP 변경은 백엔드 엔진이 확정해야 함"],
+        }
+    )
+
+    assert response.parsed.action.type == "use_class_feature"
+    assert response.parsed.action.featureId == "class.fighter.feature.재기의_숨결"
+
+
+def test_contract_rejects_class_feature_id_that_was_not_retrieved():
+    payload = {
+        "action": {
+            "type": "use_class_feature",
+            "actorCharacterId": "fighter-1",
+            "targetId": None,
+            "spellId": None,
+            "featureId": "class.fighter.feature.행동_연쇄",
+            "attackKind": None,
+            "ability": None,
+            "skill": None,
+            "approach": "행동 연쇄를 사용한다.",
+            "confidence": 0.94,
+            "requiresRoll": False,
+            "suggestedDifficulty": None,
+        },
+        "needsClarification": False,
+        "clarificationQuestion": None,
+        "mentionedSpellId": None,
+        "mentionedItemId": None,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [],
+        "rulesConfidence": 0.9,
+        "safetyNotes": ["추가 행동 부여는 백엔드 엔진이 확정해야 함"],
+    }
+
+    with pytest.raises(AiClientError, match="retrieved class feature IDs"):
+        run_plain_contract_case(payload)
+
+
+def test_contract_normalizes_single_retrieved_class_feature_from_freeform_output():
+    response = run_second_wind_contract_case(
+        {
+            "action": {
+                "type": "freeform",
+                "actorCharacterId": "fighter-1",
+                "targetId": None,
+                "spellId": None,
+                "featureId": None,
+                "attackKind": None,
+                "ability": None,
+                "skill": None,
+                "approach": "재기의 숨결을 사용한다.",
+                "confidence": 0.84,
+                "requiresRoll": True,
+                "suggestedDifficulty": None,
+            },
+            "needsClarification": False,
+            "clarificationQuestion": None,
+            "mentionedSpellId": None,
+            "mentionedItemId": None,
+            "mentionedConditionIds": [],
+            "requiredRuleCheckIds": [],
+            "rulesConfidence": None,
+            "safetyNotes": [],
+        }
+    )
+
+    assert response.parsed.action.type == "use_class_feature"
+    assert response.parsed.action.featureId == "class.fighter.feature.재기의_숨결"
+    assert response.parsed.safetyNotes
+
+
+def test_contract_normalizes_class_feature_with_empty_feature_id():
+    response = run_second_wind_contract_case(
+        {
+            "action": {
+                "type": "use_class_feature",
+                "actorCharacterId": "fighter-1",
+                "targetId": None,
+                "spellId": None,
+                "featureId": "",
+                "attackKind": None,
+                "ability": None,
+                "skill": None,
+                "approach": "재기의 숨결을 사용한다.",
+                "confidence": 0.84,
+                "requiresRoll": True,
+                "suggestedDifficulty": None,
+            },
+            "needsClarification": False,
+            "clarificationQuestion": None,
+            "mentionedSpellId": None,
+            "mentionedItemId": None,
+            "mentionedConditionIds": [],
+            "requiredRuleCheckIds": [],
+            "rulesConfidence": None,
+            "safetyNotes": [],
+        }
+    )
+
+    assert response.parsed.action.featureId == "class.fighter.feature.재기의_숨결"
+
+
+def test_contract_normalizes_ambiguous_class_feature_to_highest_ranked_hook_match():
+    response = run_frenzy_contract_case(
+        {
+            "action": {
+                "type": "use_class_feature",
+                "actorCharacterId": "barbarian-1",
+                "targetId": None,
+                "spellId": None,
+                "featureId": "class.barbarian.feature.격노",
+                "attackKind": None,
+                "ability": None,
+                "skill": None,
+                "approach": "격노에 들어가며 광분을 선언한다.",
+                "confidence": 0.84,
+                "requiresRoll": False,
+                "suggestedDifficulty": None,
+            },
+            "needsClarification": False,
+            "clarificationQuestion": None,
+            "mentionedSpellId": None,
+            "mentionedItemId": None,
+            "mentionedConditionIds": [],
+            "requiredRuleCheckIds": [],
+            "rulesConfidence": None,
+            "safetyNotes": [],
+        }
+    )
+
+    assert response.parsed.action.type == "use_class_feature"
+    assert response.parsed.action.featureId == "class.barbarian.subclass_feature.광분"
 
 
 def test_contract_rejects_target_outside_available_targets():

@@ -35,11 +35,11 @@ type Session = {
   id: string;
   title: string;
   hostUserId: string;
-  gmMode: "ai" | "human";
-  mode: "single" | "multi";
-  visibility: "public" | "private";
+  gmMode: 'ai' | 'human';
+  mode: 'single' | 'multi';
+  visibility: 'public' | 'private';
   inviteCode?: string;
-  status: "waiting" | "playing" | "ended";
+  status: 'waiting' | 'playing' | 'ended';
   maxPlayers: number;
   currentScenarioId: string;
   currentNodeId: string;
@@ -57,8 +57,8 @@ type SessionParticipant = {
   sessionId: string;
   userId: string;
   characterId?: string;
-  role: "host" | "gm" | "player" | "observer";
-  connectionStatus: "online" | "offline";
+  role: 'host' | 'gm' | 'player' | 'observer';
+  connectionStatus: 'online' | 'offline';
   joinedAt: string;
 };
 ```
@@ -108,7 +108,7 @@ type GameState = {
   sessionId: string;
   version: number;
   currentNodeId: string;
-  phase: "exploration" | "combat" | "dialogue" | "rest";
+  phase: 'exploration' | 'combat' | 'dialogue' | 'rest';
   characters: CharacterSnapshot[];
   npcs: NpcSnapshot[];
   combat?: CombatState;
@@ -126,7 +126,7 @@ type GameState = {
 type Scenario = {
   id: string;
   title: string;
-  license: "original" | "cc-by-4.0" | "other-free";
+  license: 'original' | 'cc-by-4.0' | 'other-free';
   attribution: string;
   startNodeId: string;
   nodes: ScenarioNode[];
@@ -156,9 +156,9 @@ type PlayerAction = {
   sessionId: string;
   actorCharacterId: string;
   userId: string;
-  channel: "main";
-  inputType: "natural" | "command" | "select";
-  actionScope: "party_shared" | "individual_turn";
+  channel: 'main';
+  inputType: 'natural' | 'command' | 'select';
+  actionScope: 'party_shared' | 'individual_turn';
   rawText: string;
   clientActionId?: string;
   clientCreatedAt: string;
@@ -174,7 +174,7 @@ type ChatMessage = {
   id: string;
   sessionId: string;
   senderUserId: string;
-  messageType: "chat" | "gm_text" | "narration" | "npc_dialogue" | "system";
+  messageType: 'chat' | 'gm_text' | 'narration' | 'npc_dialogue' | 'system';
   content: string;
   createdAt: string;
 };
@@ -185,24 +185,29 @@ type ChatMessage = {
 ```ts
 type StructuredAction = {
   type:
-    | "ability_check"
-    | "skill_check"
-    | "saving_throw"
-    | "attack"
-    | "use_item"
-    | "move"
-    | "interact"
-    | "talk"
-    | "request_hint"
-    | "freeform";
+    | 'ability_check'
+    | 'skill_check'
+    | 'saving_throw'
+    | 'attack'
+    | 'cast_spell'
+    | 'use_class_feature'
+    | 'use_item'
+    | 'move'
+    | 'interact'
+    | 'talk'
+    | 'request_hint'
+    | 'freeform';
   actorCharacterId: string;
   targetId?: string;
+  spellId?: string;
+  featureId?: string;
+  attackKind?: 'weapon_attack' | 'melee_spell_attack' | 'ranged_spell_attack';
   ability?: AbilityName;
   skill?: SkillName;
   approach: string;
   confidence: number;
   requiresRoll: boolean;
-  suggestedDifficulty?: "easy" | "medium" | "hard";
+  suggestedDifficulty?: 'easy' | 'medium' | 'hard';
 };
 ```
 
@@ -213,12 +218,12 @@ type CheckRequest = {
   id: string;
   sessionId: string;
   actorCharacterId: string;
-  kind: "ability" | "skill" | "saving_throw" | "attack";
+  kind: 'ability' | 'skill' | 'saving_throw' | 'attack';
   ability?: AbilityName;
   skill?: SkillName;
   dc?: number;
   targetArmorClass?: number;
-  advantageState: "normal" | "advantage" | "disadvantage";
+  advantageState: 'normal' | 'advantage' | 'disadvantage';
 };
 ```
 
@@ -248,13 +253,13 @@ type StateDiff = {
 
 ```ts
 type StateOperation =
-  | { op: "set_hp"; characterId: string; value: number }
-  | { op: "add_condition"; entityId: string; condition: ConditionName }
-  | { op: "remove_condition"; entityId: string; condition: ConditionName }
-  | { op: "set_flag"; key: string; value: boolean | number | string }
-  | { op: "add_clue"; clueId: string }
-  | { op: "move_node"; nodeId: string }
-  | { op: "set_phase"; phase: GameState["phase"] };
+  | { op: 'set_hp'; characterId: string; value: number }
+  | { op: 'add_condition'; entityId: string; condition: ConditionName }
+  | { op: 'remove_condition'; entityId: string; condition: ConditionName }
+  | { op: 'set_flag'; key: string; value: boolean | number | string }
+  | { op: 'add_clue'; clueId: string }
+  | { op: 'move_node'; nodeId: string }
+  | { op: 'set_phase'; phase: GameState['phase'] };
 ```
 
 ### TurnLog
@@ -283,22 +288,27 @@ type TurnLog = {
 type AiTrace = {
   id: string;
   sessionId: string;
-  role: "interpreter" | "actor" | "narrator" | "director" | "summarizer";
-  provider: "google-ai-studio";
+  role: 'interpreter' | 'actor' | 'npc_dialogue' | 'narrator' | 'director' | 'summarizer' | 'smoke';
+  provider: 'google-ai-studio' | 'ollama' | 'template-fallback';
   model: string;
   promptVersion: string;
   inputSummary: string;
   rawOutput: string;
   parsedOutput?: unknown;
-  validationStatus:
-    | "passed"
-    | "schema_failed"
-    | "rule_failed"
-    | "timeout"
-    | "rate_limited"
-    | "quota_exceeded"
-    | "provider_error"
-    | "fallback";
+  status: 'success' | 'failure' | 'fallback';
+  validationStatus: 'passed' | 'failed' | 'fallback';
+  failureType?:
+    | 'timeout'
+    | 'rate_limit'
+    | 'quota'
+    | 'network'
+    | 'auth'
+    | 'invalid_response'
+    | 'schema_validation'
+    | 'upstream_error';
+  turnId?: string;
+  actorCharacterId?: string;
+  endpoint?: string;
   latencyMs: number;
   inputTokens?: number;
   outputTokens?: number;
@@ -307,10 +317,12 @@ type AiTrace = {
 };
 ```
 
+`AiTrace.status`는 하네스 row 상태값이며 `success`, `failure`, `fallback`으로 고정한다. 백엔드 검증 상태가 필요하면 adapter에서 `success -> passed`, `failure -> failed`, `fallback -> fallback`으로 변환해 `validationStatus`에 저장한다.
+
 ## 4. 공통 타입
 
 ```ts
-type AbilityName = "str" | "dex" | "con" | "int" | "wis" | "cha";
+type AbilityName = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
 
 type AbilityScores = {
   str: number;
@@ -322,20 +334,15 @@ type AbilityScores = {
 };
 
 type SkillName =
-  | "perception"
-  | "investigation"
-  | "stealth"
-  | "persuasion"
-  | "insight"
-  | "athletics"
-  | "acrobatics";
+  | 'perception'
+  | 'investigation'
+  | 'stealth'
+  | 'persuasion'
+  | 'insight'
+  | 'athletics'
+  | 'acrobatics';
 
-type ConditionName =
-  | "prone"
-  | "poisoned"
-  | "unconscious"
-  | "frightened"
-  | "restrained";
+type ConditionName = 'prone' | 'poisoned' | 'unconscious' | 'frightened' | 'restrained';
 ```
 
 ## 5. DB 구현 메모

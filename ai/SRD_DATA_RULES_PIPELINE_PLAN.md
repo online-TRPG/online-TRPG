@@ -17,6 +17,13 @@
 
 현재 사용자는 백엔드 엔진 구현은 아직 진행하지 않고, `ai/` 폴더 안에서 할 수 있는 데이터 정제, fixture 작성, 테스트, 문서화에 집중한다.
 
+<<<<<<< HEAD
+Google AI Studio로 보내거나 받는 필드, prompt context, JSON schema, 역할별 DTO에 새 항목을 추가할 때는 반드시 `AI_STUDIO_IO_FIELD_REFERENCE.md`에 필드 의미와 책임 경계를 함께 추가한다. 이 기준서 갱신 없이 새 필드를 설계/구현하지 않는다.
+
+=======
+
+> > > > > > > develop
+
 ## 2. 현재 원천 자료 구조
 
 원천 폴더는 `ai/translated/`이다.
@@ -42,19 +49,31 @@
 
 현재/목표 산출물:
 
-| 파일 | 형식 | 주 소비자 | 목적 |
-| --- | --- | --- | --- |
-| `spells.jsonl` | JSONL | 엔진 + AI | 주문 검색, 시전 검증, 내레이션 사실 |
-| `magic_items.jsonl` | JSONL | 엔진 + AI | 아이템 검색, 조율/효과 메타데이터 |
-| `equipment.jsonl` | JSONL | 엔진 | 일반 장비, 방어구/무기/장비 규칙 참조 |
-| `monsters.jsonl` | JSONL | 엔진 + AI | 몬스터 이름, AC/HP/속도/CR, 감각, 행동 참조 |
-| `conditions.jsonl` | JSONL | 엔진 + AI | 상태 이상 효과와 제거 조건 |
+| 파일                | 형식  | 주 소비자 | 목적                                        |
+| ------------------- | ----- | --------- | ------------------------------------------- |
+| `spells.jsonl`      | JSONL | 엔진 + AI | 주문 검색, 시전 검증, 내레이션 사실         |
+| `magic_items.jsonl` | JSONL | 엔진 + AI | 아이템 검색, 조율/효과 메타데이터           |
+| `equipment.jsonl`   | JSONL | 엔진      | 일반 장비, 방어구/무기/장비 규칙 참조       |
+| `monsters.jsonl`    | JSONL | 엔진 + AI | 몬스터 이름, AC/HP/속도/CR, 감각, 행동 참조 |
+| `conditions.jsonl`  | JSONL | 엔진 + AI | 상태 이상 효과와 제거 조건                  |
+
+<<<<<<< HEAD
+| `equipment_items.jsonl` | JSONL | 캐릭터 생성 + AI | SRD 장비표 기반 방어구/무기/탄약/모험 장비/도구/탈것/차량/교역품 + 시작 장비 선택지 item ID |
+| `rules_cards.jsonl` | JSONL | AI 하네스 | 검색 가능한 짧은 규칙 설명 |
+| `rule_fragments.jsonl` | JSONL | AI 하네스 | 특정 행동에 필요한 더 작은 규칙 조각 |
+| `rules_hooks.json` | JSON | 향후 백엔드 엔진 | deterministic 엔진 구현을 위한 hook fixture |
+| `backend_engine_p0_contracts.json` | JSON | 향후 백엔드 엔진 | P0 hook 4개 pure function 테스트용 정상/경계/거절 요청/응답 계약 예제 |
+| `interpreter_backend_handoff_cases.json` | JSON | 향후 백엔드 엔진 | Interpreter 출력에서 P0 hook 요청으로 이어지는 integration test seed |
+| `narrator_input_fixtures.json` | JSON | 향후 백엔드 엔진 + AI | P0 hook 결과를 Narrator 요청으로 조립하는 서술 입력 fixture |
+=======
 | `equipment_items.jsonl` | JSONL | 캐릭터 생성 + AI | 시작 장비 선택지에서 추출한 일반 장비 item ID |
 | `rules_cards.jsonl` | JSONL | AI 하네스 | 검색 가능한 짧은 규칙 설명 |
 | `rule_fragments.jsonl` | JSONL | AI 하네스 | 특정 행동에 필요한 더 작은 규칙 조각 |
 | `rules_hooks.json` | JSON | 향후 백엔드 엔진 | deterministic 엔진 구현을 위한 hook fixture |
-| `source_manifest.json` | JSON | 테스트 + 운영 | 원천 파일 hash, 크기, 영역, 기대 개수 |
-| `srd_qa_report.json` | JSON | 검수 | 필드 coverage와 누락 항목 리포트 |
+
+> > > > > > > develop
+> > > > > > > | `source_manifest.json` | JSON | 테스트 + 운영 | 원천 파일 hash, 크기, 영역, 기대 개수 |
+> > > > > > > | `srd_qa_report.json` | JSON | 검수 | 필드 coverage와 누락 항목 리포트 |
 
 턴 처리 중에는 긴 Markdown 파일을 읽지 않는다. 런타임은 생성된 작은 데이터만 읽고, AI 프롬프트에는 현재 행동과 관련된 작은 조각만 넣는다.
 
@@ -110,15 +129,15 @@ AI는 규칙을 인용하거나 설명할 수 있지만, HP, DC, 명중 여부, 
   "nameKo": "산성 화살",
   "level": 2,
   "schoolKo": "방출술",
-  "castingTime": {"raw": "1 행동"},
-  "range": {"raw": "90피트"},
+  "castingTime": { "raw": "1 행동" },
+  "range": { "raw": "90피트" },
   "components": {
     "verbal": true,
     "somatic": true,
     "material": "물질 구성요소 원문",
     "raw": "음성, 동작, 물질..."
   },
-  "duration": {"raw": "즉시"},
+  "duration": { "raw": "즉시" },
   "concentration": false,
   "playReference": "거리 안의 목표 하나를 향해 산성 화살을 쏜다...",
   "source": {
@@ -230,7 +249,12 @@ AI는 규칙을 인용하거나 설명할 수 있지만, HP, DC, 명중 여부, 
 
 규칙 카드와 카탈로그 엔티티를 deterministic 엔진 영역에 연결하는 fixture를 만든다.
 
+<<<<<<< HEAD
+현재 `generated/srd/rules_hooks.json`에 고정된 fixture는 12개다.
+=======
 현재 `generated/srd/rules_hooks.json`에 고정된 fixture는 8개다.
+
+> > > > > > > develop
 
 - `hook.combat.resolve_attack_roll`: 공격 명중 판정
 - `hook.damage.apply_resistance_vulnerability`: 피해 면역/저항/취약 적용
@@ -240,6 +264,12 @@ AI는 규칙을 인용하거나 설명할 수 있지만, HP, DC, 명중 여부, 
 - `hook.class.fighter.second_wind`: 파이터 `재기의 숨결` 회복량/자원 소비 검증
 - `hook.class.fighter.action_surge`: 파이터 `행동 연쇄` 추가 행동/자원 소비 검증
 - `hook.class.fighter.champion_critical_threshold`: 챔피언 치명타 기준 변경 검증
+  <<<<<<< HEAD
+- `hook.class.barbarian.rage`: 바바리안 `격노` 이점/저항/피해 보너스/집중 제한 검증
+- `hook.class.rogue.sneak_attack`: 로그 `암습` 1턴 1회 추가 피해와 조건 검증
+- `hook.class.rogue.cunning_action`: 로그 `교활한 행동` 추가 행동 사용 범위 검증
+- # `hook.class.barbarian.frenzy`: 광전사 바바리안 `광분` 추가 공격과 탈진 예약 검증
+  > > > > > > > develop
 
 현재 검색 상태:
 
@@ -284,6 +314,13 @@ AI 프롬프트에는 전체 SRD Markdown을 넣지 않는다. `Interpreter`, `N
 - prompt payload가 설정한 길이 예산을 넘지 않음
 - 몬스터 `nameKo`에 영어 placeholder가 남지 않음
 - rule hook fixture의 `sourceRuleIds`, `sourceEntityIds`가 실제 생성 catalog에 존재함
+  <<<<<<< HEAD
+- 실제 Google AI Studio 검증은 기본 테스트에서는 skip하고, `RUN_LIVE_GOOGLE_AI_STUDIO=1`과 `GOOGLE_API_KEY`가 있을 때만 실행함
+  - 주문 공격: `Chill Touch` + 주문 공격/공격 굴림 hook
+  - 마법 아이템: `Bag of Holding` + 용량 검증 hook
+  - 상태 이상: `Prone` + 넘어짐/공격 굴림 hook
+  - # 직업 기능: 파이터 `재기의 숨결`, `행동 연쇄`, 바바리안 `격노`, 로그 `암습`, 로그 `교활한 행동`, 바바리안 `광분` + class feature hook
+    > > > > > > > develop
 
 ## 7. 백엔드와 AI의 책임 경계
 
@@ -403,35 +440,55 @@ python -m app.srd.build --output-dir generated\srd
 - 종족은 크기, 속도, 능력치 증가, 언어, 하위 종족, trait 요약, 드래곤본 혈통 선택지를 1차 추출
 - 직업은 hit die, 주요 능력치, 내성 굴림, 방어구/무기/도구 숙련, 기술 선택, 시작 장비, 주문시전 공식, SRD 하위 직업, 레벨별 핵심 기능, 전체 레벨 진행표를 1차 추출
 - 시작 장비는 기존 raw bullet을 유지하면서 `startingEquipmentChoices`에 선택 그룹 단위로 추가 구조화
-- 시작 장비 option 안에는 `itemRefs`와 분해된 `items`를 넣고, 실제 등장 장비 27개를 `equipment_items.jsonl`로 생성
+- 시작 장비 option 안에는 `itemRefs`와 분해된 `items`를 넣는다.
+- `equipment_items.jsonl`은 SRD 방어구/무기/탄약/모험 장비/도구/탈것/차량/교역품 seed와 시작 장비 선택지 item을 병합해 145개 생성
+  - 방어구는 `armorCategory`, `armorClassRaw`, `strengthRequirementRaw`, `stealthRaw`, `costRaw`, `weightRaw`를 가진다.
+  - 무기는 `weaponCategory`, `weaponRange`, `damageRaw`, `damageType`, `rangeRaw`, `propertiesRaw`, `costRaw`, `weightRaw`를 가진다.
+  - 탄약은 표준 묶음 가격/무게와 시작 장비 수량을 함께 보존한다.
+  - 모험 장비/도구/탈것/차량/교역품은 SRD 영문 표 이름, 한국어 표시명, 가격, 무게, 분류, source table을 보존한다.
+  - 한국어 시작 장비명이 SRD 영문 seed와 같은 항목을 가리키면 canonical seed ID로 병합한다. 예: `도둑 도구` -> `equipment.thieves__tools`, `주문책` -> `equipment.spellbook`.
 - 직업 기능은 `featureReferences`에 class/subclass feature id, source heading, 획득 레벨, 요약을 추가 구조화
 - 주문시전 진행표는 `spellcastingProgression`에 캔트립, 알고 있는 주문, pact magic 슬롯, 주문 슬롯 레벨별 값을 추가 구조화
 - 파이터/챔피언 feature 중 엔진 책임이 명확한 3개를 deterministic hook fixture로 추가
+- 바바리안 `격노`, 로그 `암습`, 로그 `교활한 행동`, 바바리안 `광분`을 deterministic hook fixture로 추가
 - 한국어/영어 이름 검색 지원
+- `srd_qa_report.json`에 `characterOptionValidation`을 추가해 캐릭터 생성 validator 입력 준비 상태를 검수
+
+현재 검수 결과:
+
+- 종족 validator 입력: 준비됨. 9개 종족 모두 이름, 크기, 속도, 능력치 증가, 언어, trait, source page를 가진다.
+- 직업 core validator 입력: 준비됨. 12개 직업 모두 이름, hit die, 주요 능력치, 내성, 숙련, 기술 선택, 1-20레벨 진행표, feature reference, source page를 가진다.
+- 시작 장비 validator 입력: 준비됨. `translated/classes/` 원천 누락에 대비해 SRD 시작 장비 fallback을 빌더에 고정했고, 12개 직업 모두 `startingEquipmentChoices`를 가진다.
+- 장비 item validator 입력: 준비됨. SRD 방어구/무기/탄약 표, 모험 장비, 도구, 탈것/차량, 교역품과 class 시작 장비 item ref가 `equipment_items.jsonl`에서 같은 ID 체계로 병합된다.
+- 주문시전 진행표 validator 입력: 1차 준비됨. `spellcastingProgression`은 class level, cantrip/spell known, pact magic slot, spell slot count를 정수 기반 typed row로 생성한다.
 
 남은 일:
 
-- 시작 장비에서 추출한 `equipment_items.jsonl`을 전체 SRD 장비표 기반 catalog로 확장할지 결정하기
-- 주문시전 표의 class별 차이를 더 엄격한 공통 enum/타입 스키마로 정리하기
-- 다른 직업 feature도 동일 기준으로 hook fixture 후보를 좁게 선별할지 결정하기
-- 캐릭터 생성 validator와 연결할 때 필요한 필드명 확정
+- 장비 한국어 alias/UI 표시명: 1차 완료. 현재 확장 seed는 SRD 영문 표 이름을 source-of-truth로 보존하고, `nameKo`와 `aliasesKo`에 한국어 표시명을 함께 둔다.
+- 캐릭터 생성 validator와 연결할 때 필요한 필드명 확정. `ClassSpellcastingProgression`은 `AI_SHARED_TYPES_ALIGNMENT.md` 기준으로 유지한다.
+- `CheckRequest`, `DiceResult`, `AiTrace`, `StructuredAction`의 shared-types adapter는 `AI_SHARED_TYPES_ALIGNMENT.md` 기준으로 구현한다.
+- 실제 interpreter/narrator 프롬프트 고도화: 1차 완료. 플레이 로그 기반 후속 지시, outcome narration 차단, `stateDiffSummary.summary` 중심 visible summary 규칙을 추가했다.
 
 ## 9. AI 하네스 쪽 변경 지점
 
 현재 또는 권장 파일:
 
+- `AI_STUDIO_IO_FIELD_REFERENCE.md`: Google AI Studio 요청/응답 및 prompt context 필드 의미 기준서. 새 입출력 필드 추가 시 반드시 갱신
 - `app/srd/models.py`: 생성 SRD 엔티티와 fixture 모델
 - `app/srd/build.py`: Markdown에서 JSONL/JSON을 생성하는 entrypoint
 - `app/srd/retrieval.py`: 이름/domain/action 기반 검색과 로딩
 - `app/tests/test_srd_build.py`: build count와 schema 테스트
 - `app/tests/test_srd_retrieval.py`: 좁은 검색 테스트
 - `app/tests/test_srd_rule_hooks.py`: hook fixture 계약 테스트
+- `app/tests/test_live_google_ai_studio.py`: 실제 Google AI Studio 호출 smoke test. 기본은 skip, live 검증 때만 실행
 
 프롬프트 쪽 원칙:
 
 - `interpreter.v1.md`는 `relatedEntities`, `relatedRules`를 받는다.
 - 인식된 주문/아이템/상태는 ID로 반환하게 한다.
 - `narrator.v1.md`는 백엔드가 확정한 결과에 대해서만 규칙 설명과 내레이션을 한다.
+- `interpreter.v1.md`는 플레이 로그의 `rawText`를 플레이어 선언으로 보고, 결과 서술처럼 들리는 입력이나 불명확한 후속 지시는 확인 질문으로 돌린다.
+- `narrator.v1.md`는 `CheckRequest`, `DiceResult`, `NarratorStateDiffSummary`의 확정 사실만 과거형 한국어로 표현하고, `stateDiffSummary.summary`를 `visibleSummary`의 앵커로 삼는다.
 - 향후 `actor`/`director` prompt에서도 rule card는 advisory context일 뿐이다.
 
 스키마/validator 원칙:
@@ -465,12 +522,12 @@ python -m app.srd.build --output-dir generated\srd
 - API 응답에서 한국어 표시명과 영어 canonical name 중 무엇을 primary로 둘지
 - 불규칙한 주문/아이템/몬스터에 수동 patch를 어느 정도 허용할지
 - 몬스터 데이터를 MVP 전투 자동화까지 쓸지, GM/AI 참조용으로만 둘지
-- `rules_hooks.json`을 백엔드 엔진 테스트로 옮기는 시점과 범위
+- `rules_hooks.json`을 백엔드 엔진 테스트로 옮기는 시점과 범위. 1차 연결 계획은 `BACKEND_ENGINE_INTEGRATION_PLAN.md`에 분리했다.
 
 권장 기본값:
 
 - 현재는 `ai/` 안에서 generated catalog, fixture, 테스트를 안정화한다.
-- 백엔드 연결은 계획에 남기되, 이번 단계에서는 구현하지 않는다.
+- 백엔드 연결은 `BACKEND_ENGINE_INTEGRATION_PLAN.md`의 P0/P1/P2 순서로 진행하되, 이번 단계에서는 구현하지 않는다.
 - vector DB 없이 exact name/entity/rule-card 검색으로 MVP를 진행한다.
 - compact JSONL/JSON catalog는 런타임에 필요하므로 repo에 포함한다.
 - debug/raw 생성물은 커밋하지 않는다.
@@ -481,10 +538,9 @@ python -m app.srd.build --output-dir generated\srd
 
 우선순위:
 
-1. class/race catalog의 구조화 필드를 캐릭터 생성 validator 입력으로 쓸 수 있는지 검수한다. 현재는 캐릭터 생성/AI 설명용 2차 구조화 catalog다.
-2. hook fixture를 더 넓힐 경우, 새 hook마다 source ID 연결과 검색 테스트를 먼저 추가한다. 다음 후보는 `격노`, `암습`, `교활한 행동`, `광분`처럼 자원/행동경제/피해/상태 변경에 직접 닿는 기능이다.
-3. `relatedEngineHooks`를 다른 역할의 prompt에도 넣을지 결정한다. 현재는 `Interpreter`에만 들어간다.
-4. 백엔드 엔진 연결은 별도 계획으로 남긴다. 연결 대상은 현재 fixture 기준으로 공격 굴림, 피해 보정, 넘어짐, `Chill Touch`, `Bag of Holding`이다.
+1. 백엔드 엔진 구현을 시작할 때는 `BACKEND_ENGINE_INTEGRATION_PLAN.md`의 P0 hook부터 옮긴다.
+2. shared-types adapter 구현을 시작할 때는 `AI_SHARED_TYPES_ALIGNMENT.md`의 필드 매핑표를 따른다.
+3. live Google AI Studio 회귀는 프롬프트/스키마 변경 뒤 다시 실행한다.
 
 현재 생성 명령:
 
@@ -492,16 +548,39 @@ python -m app.srd.build --output-dir generated\srd
 python -m app.srd.build --output-dir generated\srd
 ```
 
+실제 Google AI Studio 검증 명령:
+
+```powershell
+$env:RUN_LIVE_GOOGLE_AI_STUDIO='1'; python -m pytest app\tests\test_live_google_ai_studio.py -s
+```
+
+현재 live 검증은 9개 시나리오를 실행한다.
+
+2026-04-28 실행 결과: 9개 모두 통과.
+
+- `chill_touch_spell_attack`
+- `bag_of_holding_item_capacity`
+- `prone_condition_context`
+- `fighter_second_wind_feature`
+- `fighter_action_surge_feature`
+- `barbarian_rage_feature`
+- `rogue_sneak_attack_feature`
+- `rogue_cunning_action_feature`
+- `barbarian_frenzy_feature`
+
 현재 생성 개수:
 
 - 주문: 319
 - 상태 이상: 15
 - 규칙 카드: 80
 - 규칙 fragment: 11
-- 규칙 hook fixture: 8
+- 규칙 hook fixture: 12
+- 백엔드 P0 contract case: 12
+- Interpreter -> backend handoff case: 3
+- Narrator input fixture: 3
 - 마법 아이템: 239
 - 몬스터/NPC: 317
 - 종족 option: 9
 - 직업 option: 12
-- 시작 장비 item: 27
+- 장비 item: 145
 - 장비 참조 섹션: 8

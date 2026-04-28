@@ -367,9 +367,14 @@ class SrdRetriever:
         scored: list[tuple[int, RuleHookFixture]] = []
         for hook in self._rule_hooks:
             score = 0
-            if set(hook.sourceEntityIds) & entity_ids:
+            entity_match = set(hook.sourceEntityIds) & entity_ids
+            if entity_match:
                 score += 8
-            if hook.domain != "class_feature" and set(hook.sourceRuleIds) & rule_ids:
+            if (
+                hook.domain != "class_feature"
+                and set(hook.sourceRuleIds) & rule_ids
+                and (not hook.sourceEntityIds or entity_match)
+            ):
                 score += 6
             for term in {hook.domain, hook.titleKo, hook.engineFunction}:
                 normalized = normalize_lookup_text(term)
@@ -403,6 +408,22 @@ class SrdRetriever:
                 term in haystack for term in ["향상된치명타", "우월한치명타", "champion", "치명타", "critical"]
             ):
                 score += 4
+            if hook.id == "hook.class.barbarian.rage" and any(
+                term in haystack for term in ["격노", "rage"]
+            ):
+                score += 4
+            if hook.id == "hook.class.rogue.sneak_attack" and any(
+                term in haystack for term in ["암습", "sneakattack"]
+            ):
+                score += 4
+            if hook.id == "hook.class.rogue.cunning_action" and any(
+                term in haystack for term in ["교활한행동", "cunningaction", "질주", "이탈", "숨기"]
+            ):
+                score += 4
+            if hook.id == "hook.class.barbarian.frenzy" and any(
+                term in haystack for term in ["광분", "frenzy"]
+            ):
+                score += 5
             if score:
                 scored.append((score, hook))
 

@@ -1,0 +1,243 @@
+{
+  "cases": [
+    {
+      "caseId": "narrator.chill_touch_hit",
+      "sourceHandoffCaseId": "handoff.chill_touch_spell_attack",
+      "backendHookResults": [
+        {
+          "hookId": "hook.combat.resolve_attack_roll",
+          "accepted": true,
+          "produced": {
+            "attackRollTotal": 20,
+            "hit": true,
+            "criticalHit": false,
+            "criticalMiss": false
+          },
+          "rejectedReason": null
+        },
+        {
+          "hookId": "hook.spell.cast_chill_touch",
+          "accepted": true,
+          "produced": {
+            "validatedSpellCast": true,
+            "damagePacket.necrotic": {
+              "rolledDamage": 4
+            },
+            "healingBlockedUntil": "caster_next_turn_start",
+            "undeadAttackDisadvantage": false
+          },
+          "rejectedReason": null
+        },
+        {
+          "hookId": "hook.damage.apply_resistance_vulnerability",
+          "accepted": true,
+          "produced": {
+            "finalDamage": 4,
+            "appliedDamageModifiers": []
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "싸늘한 손길을 적 고블린에게 시전한다.",
+        "action": {
+          "type": "cast_spell",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "spellId": "spell.chill_touch",
+          "attackKind": "ranged_spell_attack",
+          "approach": "싸늘한 손길을 적 고블린에게 시전한다.",
+          "confidence": 0.96,
+          "requiresRoll": true
+        },
+        "checkRequest": {
+          "checkType": "attack_roll",
+          "ability": "intelligence",
+          "skill": null,
+          "difficultyClass": 13,
+          "targetId": "goblin-1",
+          "reason": "싸늘한 손길의 원거리 주문 공격 명중 여부를 확인한다."
+        },
+        "diceResult": {
+          "rollerId": "wizard-1",
+          "formula": "1d20+5",
+          "total": 20,
+          "naturalD20": 15,
+          "success": true
+        },
+        "stateDiffSummary": {
+          "summary": "싸늘한 손길이 고블린에게 명중해 사령 피해 4점을 주고, 다음 시전자 턴 시작까지 치유를 막았다.",
+          "changedFlags": [
+            "goblin-1.healing_blocked_until.caster_next_turn_start"
+          ],
+          "hpChanges": [
+            "goblin-1:-4"
+          ],
+          "inventoryChanges": [],
+          "conditionChanges": [],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "전투 중",
+          "summary": "마법사와 고블린이 90피트 거리에서 교전 중이다.",
+          "tone": "tense"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "싸늘한 손길이 고블린에게 명중했다.",
+      "forbiddenNarrationFacts": [
+        "고블린 사망",
+        "추가 적 등장",
+        "숨겨진 단서"
+      ],
+      "notes": [
+        "Narrator may mention only confirmed hit, damage, and healing block."
+      ]
+    },
+    {
+      "caseId": "narrator.weapon_attack_hit",
+      "sourceHandoffCaseId": "handoff.weapon_attack_with_damage",
+      "backendHookResults": [
+        {
+          "hookId": "hook.combat.resolve_attack_roll",
+          "accepted": true,
+          "produced": {
+            "attackRollTotal": 22,
+            "hit": true,
+            "criticalHit": false,
+            "criticalMiss": false
+          },
+          "rejectedReason": null
+        },
+        {
+          "hookId": "hook.damage.apply_resistance_vulnerability",
+          "accepted": true,
+          "produced": {
+            "finalDamage": 9,
+            "appliedDamageModifiers": []
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "파이터가 롱소드로 고블린을 공격한다.",
+        "action": {
+          "type": "attack",
+          "actorCharacterId": "fighter-1",
+          "targetId": "goblin-1",
+          "attackKind": "weapon_attack",
+          "approach": "롱소드로 고블린을 공격한다.",
+          "confidence": 0.92,
+          "requiresRoll": true
+        },
+        "checkRequest": {
+          "checkType": "attack_roll",
+          "ability": "strength",
+          "skill": null,
+          "difficultyClass": 15,
+          "targetId": "goblin-1",
+          "reason": "롱소드 공격 명중 여부를 확인한다."
+        },
+        "diceResult": {
+          "rollerId": "fighter-1",
+          "formula": "1d20+5",
+          "total": 22,
+          "naturalD20": 17,
+          "success": true
+        },
+        "stateDiffSummary": {
+          "summary": "롱소드 공격이 고블린에게 명중해 참격 피해 9점을 주었다.",
+          "changedFlags": [],
+          "hpChanges": [
+            "goblin-1:-9"
+          ],
+          "inventoryChanges": [],
+          "conditionChanges": [],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "전투 중",
+          "summary": "파이터가 근접 거리에서 고블린과 맞붙어 있다.",
+          "tone": "heroic"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "롱소드 공격이 고블린에게 명중했다.",
+      "forbiddenNarrationFacts": [
+        "고블린 사망",
+        "치명타",
+        "무기 파손"
+      ],
+      "notes": [
+        "Narrator must not infer death unless hp change confirms it."
+      ]
+    },
+    {
+      "caseId": "narrator.prone_stand_rejected",
+      "sourceHandoffCaseId": "handoff.prone_stand_then_attack",
+      "backendHookResults": [
+        {
+          "hookId": "hook.condition.apply_prone_modifiers",
+          "accepted": false,
+          "produced": {
+            "movementCostFt": 15,
+            "selfAttackDisadvantage": true,
+            "incomingAttackAdvantageState": "advantage"
+          },
+          "rejectedReason": "not_enough_movement_to_stand"
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "넘어짐 상태에서 일어나서 적을 공격하려고 한다.",
+        "action": {
+          "type": "attack",
+          "actorCharacterId": "fighter-1",
+          "targetId": "goblin-1",
+          "attackKind": "weapon_attack",
+          "approach": "넘어짐 상태에서 일어나 적을 공격하려고 한다.",
+          "confidence": 0.88,
+          "requiresRoll": true
+        },
+        "checkRequest": null,
+        "diceResult": null,
+        "stateDiffSummary": {
+          "summary": "파이터는 일어서려 했지만 남은 이동력이 부족해 넘어짐 상태를 유지했다. 공격 굴림은 진행되지 않았다.",
+          "changedFlags": [],
+          "hpChanges": [],
+          "inventoryChanges": [],
+          "conditionChanges": [
+            "fighter-1:prone remains"
+          ],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "전투 중",
+          "summary": "파이터가 넘어진 채 고블린과 가까운 거리에 있다.",
+          "tone": "tense"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "파이터는 이동력 부족으로 일어서지 못했다.",
+      "forbiddenNarrationFacts": [
+        "공격 명중",
+        "피해",
+        "넘어짐 해제"
+      ],
+      "notes": [
+        "Rejected hook results still become factual narration inputs."
+      ]
+    }
+  ]
+}
