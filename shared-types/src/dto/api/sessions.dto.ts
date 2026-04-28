@@ -192,10 +192,10 @@ export class JoinSessionDto {
 }
 
 export class SelectSessionCharacterDto {
-  @ApiProperty()
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  characterId!: string;
+  characterId!: string | null;
 }
 
 export class UpdateParticipantReadyDto {

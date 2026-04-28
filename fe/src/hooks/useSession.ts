@@ -8,6 +8,7 @@ import {
   joinSessionById as apiJoinSessionById,
   leaveSession as apiLeaveSession,
   listMyCharacters as apiListMyCharacters,
+  listMySessions as apiListMySessions,
   listSessions,
   selectSessionCharacter as apiSelectSessionCharacter,
   startSession as apiStartSession,
@@ -54,6 +55,7 @@ export interface CharacterPayload {
 export interface UseSessionReturn {
   snapshot: SessionSnapshot | null;
   sessionList: AvailableSessionListItem[];
+  mySessionList: AvailableSessionListItem[];
   myCharacters: PersistentCharacter[];
   socketConnected: boolean;
   busy: boolean;
@@ -61,11 +63,11 @@ export interface UseSessionReturn {
   createSession: (
     title: string,
     options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
-  ) => Promise<void>;
-  joinSession: (inviteCode: string) => Promise<void>;
-  joinSessionById: (sessionId: string) => Promise<void>;
+  ) => Promise<boolean>;
+  joinSession: (inviteCode: string) => Promise<boolean>;
+  joinSessionById: (sessionId: string) => Promise<boolean>;
   createCharacter: (payload: CharacterPayload) => Promise<void>;
-  selectCharacter: (characterId: string) => Promise<void>;
+  selectCharacter: (characterId: string | null) => Promise<void>;
   setReadyState: (isReady: boolean) => Promise<void>;
   startSession: () => Promise<void>;
   leaveSession: () => Promise<void>;
@@ -82,6 +84,7 @@ export function useSession(
 ): UseSessionReturn {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(() => loadStoredSnapshot());
   const [sessionList, setSessionList] = useState<AvailableSessionListItem[]>([]);
+  const [mySessionList, setMySessionList] = useState<AvailableSessionListItem[]>([]);
   const [myCharacters, setMyCharacters] = useState<PersistentCharacter[]>([]);
   const [socketConnected, setSocketConnected] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -92,15 +95,22 @@ export function useSession(
     saveStoredSnapshot(next);
   }, []);
 
+  const hasRecruitingSession = useCallback(() => snapshot?.session.status === "recruiting", [snapshot]);
+
   useEffect(() => {
     if (!user) {
       setSessionList([]);
+      setMySessionList([]);
       setMyCharacters([]);
       return;
     }
 
     void listSessions(user, accessToken)
       .then((result) => setSessionList(result.content))
+      .catch(() => undefined);
+
+    void apiListMySessions(user, accessToken)
+      .then((result) => setMySessionList(result.content))
       .catch(() => undefined);
 
     void apiListMyCharacters(user, accessToken)
@@ -152,8 +162,12 @@ export function useSession(
     if (!user) return;
 
     try {
-      const result = await listSessions(user, accessToken);
-      setSessionList(result.content);
+      const [publicSessions, mySessions] = await Promise.all([
+        listSessions(user, accessToken),
+        apiListMySessions(user, accessToken),
+      ]);
+      setSessionList(publicSessions.content);
+      setMySessionList(mySessions.content);
     } catch {
       // ignore
     }
@@ -178,8 +192,13 @@ export function useSession(
   async function createSession(
     title: string,
     options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
-  ) {
-    if (!user) return;
+  ): Promise<boolean> {
+    if (!user) return false;
+    if (hasRecruitingSession()) {
+      setError("모집 중인 세션에는 하나만 참가할 수 있습니다.");
+      return false;
+    }
+
     setError(null);
     setBusy(true);
 
@@ -188,15 +207,22 @@ export function useSession(
       updateSnapshot(next);
       appendLog("rest", "세션 생성", `${next.session.title} 세션을 생성했습니다.`);
       await refreshSessionList();
+      return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "세션 생성에 실패했습니다.");
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
-  async function joinSession(inviteCode: string) {
-    if (!user) return;
+  async function joinSession(inviteCode: string): Promise<boolean> {
+    if (!user) return false;
+    if (hasRecruitingSession()) {
+      setError("모집 중인 세션에는 하나만 참가할 수 있습니다.");
+      return false;
+    }
+
     setError(null);
     setBusy(true);
 
@@ -205,25 +231,34 @@ export function useSession(
       updateSnapshot(next);
       appendLog("rest", "세션 입장", `${next.session.title} 세션에 입장했습니다.`);
       await refreshSessionList();
+      return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "세션 입장에 실패했습니다.");
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
-  async function joinSessionById(sessionId: string) {
-    if (!user) return;
+  async function joinSessionById(sessionId: string): Promise<boolean> {
+    if (!user) return false;
+    if (hasRecruitingSession()) {
+      setError("모집 중인 세션에는 하나만 참가할 수 있습니다.");
+      return false;
+    }
+
     setError(null);
     setBusy(true);
 
     try {
       const next = await apiJoinSessionById(user, sessionId, accessToken);
       updateSnapshot(next);
-      appendLog("rest", "세션 합류", `${next.session.title} 세션에 합류했습니다.`);
+      appendLog("rest", "세션 입장", `${next.session.title} 세션에 입장했습니다.`);
       await refreshSessionList();
+      return true;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "세션 합류에 실패했습니다.");
+      setError(caught instanceof Error ? caught.message : "세션 입장에 실패했습니다.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -235,7 +270,7 @@ export function useSession(
     setBusy(true);
 
     try {
-      const shouldAssignToSession = payload.assignToSession !== false && Boolean(snapshot);
+      const shouldAssignToSession = payload.assignToSession === true && Boolean(snapshot);
       const next = await apiCreateCharacter(
         user,
         {
@@ -258,7 +293,7 @@ export function useSession(
     }
   }
 
-  async function selectCharacter(characterId: string) {
+  async function selectCharacter(characterId: string | null) {
     if (!user || !snapshot) return;
     setError(null);
     setBusy(true);
@@ -267,7 +302,11 @@ export function useSession(
       await apiSelectSessionCharacter(user, snapshot.session.id, characterId, accessToken);
       await syncSession(snapshot.session.id);
       const selected = myCharacters.find((character) => character.id === characterId);
-      appendLog("rest", "캐릭터 선택", `${selected?.name ?? "캐릭터"}를 선택했습니다.`);
+      appendLog(
+        "rest",
+        characterId ? "캐릭터 선택" : "캐릭터 선택 해제",
+        characterId ? `${selected?.name ?? "캐릭터"}를 선택했습니다.` : "캐릭터 선택을 해제했습니다.",
+      );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "캐릭터 선택에 실패했습니다.");
     } finally {
@@ -283,9 +322,9 @@ export function useSession(
     try {
       await apiUpdateReadyState(user, snapshot.session.id, isReady, accessToken);
       await syncSession(snapshot.session.id);
-      appendLog("rest", isReady ? "준비 완료" : "준비 해제", isReady ? "준비를 완료했습니다." : "준비를 해제했습니다.");
+      appendLog("rest", isReady ? "READY" : "READY 해제", isReady ? "READY 상태로 변경했습니다." : "READY를 해제했습니다.");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "준비 상태 변경에 실패했습니다.");
+      setError(caught instanceof Error ? caught.message : "READY 상태 변경에 실패했습니다.");
     } finally {
       setBusy(false);
     }
@@ -337,6 +376,7 @@ export function useSession(
   return {
     snapshot,
     sessionList,
+    mySessionList,
     myCharacters,
     socketConnected,
     busy,

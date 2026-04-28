@@ -198,6 +198,19 @@ export function listSessions(
   }));
 }
 
+export function listMySessions(
+  user: StoredUser,
+  accessToken?: string | null,
+): Promise<PaginatedList<AvailableSessionListItem>> {
+  return requestJson<PaginatedList<SessionListItemResponseDto>>("/users/me/sessions", {
+    user,
+    accessToken,
+  }).then((result) => ({
+    ...result,
+    content: result.content.map(normalizeSessionListItem),
+  }));
+}
+
 export async function createSession(
   user: StoredUser,
   title: string,
@@ -292,6 +305,7 @@ export function createCharacter(
   user: StoredUser,
   payload: {
     sessionId?: string;
+    assignToSession?: boolean;
     name: string;
     ancestry: string;
     className: string;
@@ -336,7 +350,7 @@ export function createCharacter(
     },
   })
     .then((character) => {
-      if (!payload.sessionId) {
+      if (!payload.sessionId || payload.assignToSession !== true) {
         return null;
       }
 
@@ -362,7 +376,7 @@ export function listMyCharacters(
 export async function selectSessionCharacter(
   user: StoredUser,
   sessionId: string,
-  characterId: string,
+  characterId: string | null,
   accessToken?: string | null,
 ): Promise<SessionParticipantResponseDto> {
   return requestJson<SessionParticipantResponseDto>(`/sessions/${sessionId}/character-selection`, {
