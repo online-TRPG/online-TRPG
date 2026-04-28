@@ -24,16 +24,25 @@ ai/
 │  ├─ clients/google_ai_studio.py
 │  ├─ core/config.py
 │  ├─ prompts/
+│  │  ├─ actor.v1.md
+│  │  ├─ director.v1.md
 │  │  ├─ interpreter.v1.md
-│  │  └─ narrator.v1.md
+│  │  ├─ narrator.v1.md
+│  │  └─ summarizer.v1.md
 │  ├─ schemas/
+│  │  ├─ actor.py
+│  │  ├─ director.py
 │  │  ├─ harness.py
 │  │  ├─ interpreter.py
-│  │  └─ narrator.py
+│  │  ├─ narrator.py
+│  │  └─ summarizer.py
 │  ├─ services/
+│  │  ├─ actor/service.py
+│  │  ├─ director/service.py
 │  │  ├─ harness.py
 │  │  ├─ interpreter/service.py
-│  │  └─ narrator/service.py
+│  │  ├─ narrator/service.py
+│  │  └─ summarizer/service.py
 │  └─ main.py
 └─ pyproject.toml
 ```
@@ -79,6 +88,11 @@ Invoke-RestMethod `
 - `POST /api/harness/smoke`
 - `POST /api/harness/interpreter`
 - `POST /api/harness/narrator`
+- `POST /api/harness/director`
+- `POST /api/harness/summarizer`
+- `POST /api/harness/actor`
+- `POST /api/harness/npc-dialogue`
+- `GET /api/harness/traces`
 
 성공 응답에는 아래 trace가 포함된다.
 
@@ -103,14 +117,30 @@ Invoke-RestMethod `
 - `smoke.latest.json`
 - `interpreter.latest.json`
 - `narrator.latest.json`
+- `director.latest.json`
+- `summarizer.latest.json`
+- `actor.latest.json`
+- `npc-dialogue.latest.json`
 - `harness_history.jsonl`
 
 응답을 한 번 호출한 뒤 이 파일들을 열면 요청, 응답, 에러를 바로 확인할 수 있다.
+각 history row에는 백엔드 `AiTrace` 저장 포맷의 1차 기준인 `aiTrace` 객체가 함께 저장된다.
 
 ## 다음 단계
 
 - 상세 요청 목록과 제한 기준은 `ai/AI_REQUEST_INVENTORY.md`를 우선 기준으로 본다.
-- `shared-types`와 AI 입출력 DTO 정렬
-- 응답 trace를 `AiTrace` 저장 포맷으로 매핑
-- 실패 유형별 fallback 정책과 백엔드 연동
-- 실제 interpreter/narrator 프롬프트 고도화
+- Google AI Studio로 보내거나 받는 필드, prompt context, JSON schema를 추가할 때는 `ai/AI_STUDIO_IO_FIELD_REFERENCE.md`에 필드 의미를 반드시 함께 추가한다.
+- 백엔드 엔진 연결 순서는 `ai/BACKEND_ENGINE_INTEGRATION_PLAN.md`에 분리했다.
+- `shared-types`와 AI 입출력 DTO 정렬 기준은 `ai/AI_SHARED_TYPES_ALIGNMENT.md`에 분리했다.
+- 실패 유형별 fallback 정책과 백엔드 연동은 하네스 기준 1차 준비됨
+- 실제 interpreter/narrator 프롬프트는 플레이 로그 기반 해석/서술 규칙을 1차 반영함
+- 2026-04-28 live Google AI Studio 프롬프트 회귀 검증 9개 시나리오 통과
+- 백엔드 엔진 P0 연결 준비 산출물은 `generated/srd/backend_engine_p0_contracts.json`에 생성됨
+- shared-types adapter 준비 산출물은 `app/adapters/shared_types.py`에 생성됨
+- P0 contract edge case는 12개 정상/경계/거절 case로 확장됨
+- Interpreter -> backend hook handoff 샘플은 `generated/srd/interpreter_backend_handoff_cases.json`에 생성됨
+- Narrator 입력 fixture는 `generated/srd/narrator_input_fixtures.json`에 생성됨
+- AI Narrator의 상태 요약 DTO 이름은 `NarratorStateDiffSummary`/`stateDiffSummary`로 고정됨
+- trace row 상태값은 `success`, `failure`, `fallback`으로 고정됨
+- `Actor`는 NPC 행동 선택, `NpcDialogue`는 NPC 대사 생성 역할로 분리되고 `/api/harness/npc-dialogue`로 구현됨
+- 다음 실행 후보는 운영 로그/trace fixture 정리다.

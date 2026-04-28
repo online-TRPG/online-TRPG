@@ -56,7 +56,7 @@
     "rowsMissingSource": []
   },
   "ruleHookFixtures": {
-    "actual": 8,
+    "actual": 12,
     "rowsMissingContractFields": []
   },
   "magicItems": {
@@ -149,11 +149,23 @@
     "rowsMissingCoreFields": []
   },
   "equipmentItems": {
-    "actual": 27,
+    "actual": 145,
     "rowsMissingCoreFields": []
   },
   "equipmentReferences": {
     "actual": 8,
     "rowsMissingSummary": []
+  },
+  "characterOptionValidation": {
+    "racesMissingRequiredFields": [],
+    "classesMissingRequiredFields": [],
+    "classesMissingStartingEquipmentChoices": [],
+    "invalidStartingEquipmentChoices": [],
+    "duplicateFeatureIds": [],
+    "readiness": {
+      "raceValidatorInputReady": true,
+      "classCoreValidatorInputReady": true,
+      "startingEquipmentValidatorInputReady": true
+    }
   }
 }

@@ -1,7 +1,14 @@
 import json
 from pathlib import Path
 
-from app.srd.build import EXPECTED_COUNTS, build, build_equipment_references, build_magic_items
+from app.srd.build import (
+    EXPECTED_COUNTS,
+    build,
+    build_class_options,
+    build_equipment_items,
+    build_equipment_references,
+    build_magic_items,
+)
 from app.srd.retrieval import SrdRetriever
 
 
@@ -51,3 +58,29 @@ def test_build_writes_magic_item_and_equipment_jsonl():
     assert equipment_path.exists()
     assert len([line for line in magic_items_path.read_text(encoding="utf-8").splitlines() if line.strip()]) == 239
     assert json.loads(equipment_path.read_text(encoding="utf-8").splitlines()[0])["id"].startswith("equipment_rule.")
+
+
+def test_equipment_items_include_expanded_srd_tables():
+    items = build_equipment_items(build_class_options())
+    by_source_table = {}
+    by_name_en = {item.nameEn: item for item in items if item.nameEn}
+    for item in items:
+        by_source_table[item.sourceTable] = by_source_table.get(item.sourceTable, 0) + 1
+
+    assert len(items) >= 140
+    assert by_source_table["srd_adventuring_gear_table"] >= 30
+    assert by_source_table["srd_tool_table"] >= 15
+    assert by_source_table["srd_mount_and_vehicle_table"] >= 15
+    assert by_source_table["srd_trade_goods_table"] >= 10
+
+    assert by_name_en["Acid (vial)"].costRaw == "25 gp"
+    assert by_name_en["Acid (vial)"].nameKo == "산성 약병"
+    assert "Acid (vial)" in by_name_en["Acid (vial)"].aliasesKo
+    assert by_name_en["Thieves' tools"].kind == "tool"
+    assert by_name_en["Thieves' tools"].nameKo == "도둑 도구"
+    assert "class.rogue" in by_name_en["Thieves' tools"].sourceClassIds
+    assert not any(item.id == "equipment.도둑_도구" for item in items)
+    assert by_name_en["Warhorse"].equipmentCategory == "mount"
+    assert by_name_en["Warhorse"].nameKo == "전투마"
+    assert by_name_en["Gold (1 lb.)"].kind == "trade_good"
+    assert by_name_en["Gold (1 lb.)"].nameKo == "금(1파운드)"
