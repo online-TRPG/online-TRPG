@@ -11,8 +11,12 @@ import {
   GamePhase as PrismaGamePhase,
   GmMode as PrismaGmMode,
   ParticipantRole as PrismaParticipantRole,
+  ParticipantStatus as PrismaParticipantStatus,
   Prisma,
+  SessionCharacterStatus as PrismaSessionCharacterStatus,
+  SessionScenarioStatus as PrismaSessionScenarioStatus,
   SessionStatus as PrismaSessionStatus,
+  SessionVisibility as PrismaSessionVisibility,
 } from "@prisma/client";
 import {
   ConnectionStatus,
@@ -31,8 +35,8 @@ import {
   SessionResponseDto,
   SessionSnapshotDto,
   SessionStatus,
+  SessionVisibility,
   UpdateParticipantReadyDto,
-  UpdateSessionCaptainDto,
   UpdateSessionDto,
   UpdateSessionNodeDto,
 } from "@trpg/shared-types";
@@ -42,6 +46,7 @@ import {
   mapScenarioSummary,
   mapSession,
   mapSessionCharacter,
+  mapSessionScenario,
   mapUser,
 } from "../../common/mappers/domain.mapper";
 import { PrismaService } from "../../database/prisma.service";
@@ -50,10 +55,11 @@ import { ScenariosService } from "../scenarios/scenarios.service";
 import { UsersService } from "../users/users.service";
 
 const sessionStatusToPrisma: Record<SessionStatus, PrismaSessionStatus> = {
-  [SessionStatus.LOBBY]: PrismaSessionStatus.LOBBY,
+  [SessionStatus.RECRUITING]: PrismaSessionStatus.RECRUITING,
   [SessionStatus.PLAYING]: PrismaSessionStatus.PLAYING,
   [SessionStatus.PAUSED]: PrismaSessionStatus.PAUSED,
   [SessionStatus.COMPLETED]: PrismaSessionStatus.COMPLETED,
+  [SessionStatus.DISBANDED]: PrismaSessionStatus.DISBANDED,
 };
 
 const gmModeToPrisma: Record<GmMode, PrismaGmMode> = {
@@ -100,35 +106,38 @@ export class SessionsService {
   async createSession(userId: string, dto: CreateSessionDto): Promise<SessionSnapshotDto> {
     await this.usersService.getUserEntityOrThrow(userId);
 
-    if (dto.gmMode === GmMode.HUMAN && !dto.gmUserId) {
-      throw new UnprocessableEntityException("A HUMAN GM session requires gmUserId.");
-    }
-
-    if (dto.gmUserId) {
-      await this.usersService.getUserEntityOrThrow(dto.gmUserId);
-    }
-
     const scenario = dto.scenarioId
       ? await this.scenariosService.getScenarioEntityById(dto.scenarioId)
       : await this.scenariosService.getDefaultScenarioEntity();
 
+    if (!scenario.startNodeId) {
+      throw new UnprocessableEntityException("The selected scenario does not have a start node.");
+    }
+
     const inviteCode = await this.generateInviteCode();
+    const visibility = this.resolveVisibility(dto.visibility, dto.isPrivate, dto.isPublic);
 
     const session = await this.prisma.$transaction(async (tx) => {
       const createdSession = await tx.session.create({
         data: {
           title: dto.title.trim(),
           description: dto.description?.trim() ?? "",
-          ownerUserId: userId,
-          captainUserId: userId,
+          hostUserId: userId,
           inviteCode,
-          maxParticipants: dto.maxPlayers ?? dto.maxParticipants ?? 4,
-          isPublic: dto.isPrivate !== undefined ? !dto.isPrivate : (dto.isPublic ?? true),
-          ruleSetId: dto.ruleSetId,
+          maxParticipants: dto.maxParticipants ?? dto.maxPlayers ?? 4,
+          visibility,
+          ruleSetId: dto.ruleSetId ?? scenario.ruleSetId ?? null,
           gmMode: gmModeToPrisma[dto.gmMode],
-          gmUserId: dto.gmUserId ?? null,
+          nextSessionAt: dto.nextSessionAt ? new Date(dto.nextSessionAt) : null,
+        },
+      });
+
+      const sessionScenario = await tx.sessionScenario.create({
+        data: {
+          sessionId: createdSession.id,
           scenarioId: scenario.id,
-          currentNodeId: scenario.startNodeId,
+          sequence: 1,
+          status: PrismaSessionScenarioStatus.ACTIVE,
         },
       });
 
@@ -137,20 +146,19 @@ export class SessionsService {
           sessionId: createdSession.id,
           userId,
           role: PrismaParticipantRole.HOST,
+          status: PrismaParticipantStatus.JOINED,
           connectionStatus: PrismaConnectionStatus.ONLINE,
         },
       });
 
       await tx.gameState.create({
         data: {
-          sessionId: createdSession.id,
+          sessionScenarioId: sessionScenario.id,
           version: 1,
           currentNodeId: scenario.startNodeId,
-          phase: PrismaGamePhase.EXPLORATION,
-          stateJson: JSON.stringify({
-            discoveredClues: [],
-            flags: {},
-          }),
+          phase: PrismaGamePhase.LOBBY,
+          flagsJson: JSON.stringify({}),
+          discoveredCluesJson: JSON.stringify([]),
         },
       });
 
@@ -162,10 +170,19 @@ export class SessionsService {
 
   async listAvailableSessions(params: SessionPageParams = {}): Promise<SessionPageResult> {
     const where: Prisma.SessionWhereInput = {
-      isPublic: true,
-      status: params.status ? sessionStatusToPrisma[params.status] : PrismaSessionStatus.LOBBY,
-      scenarioId: params.scenarioId,
+      visibility: PrismaSessionVisibility.PUBLIC,
+      status: params.status
+        ? sessionStatusToPrisma[params.status]
+        : PrismaSessionStatus.RECRUITING,
       ruleSetId: params.ruleSetId,
+      sessionScenarios: params.scenarioId
+        ? {
+            some: {
+              scenarioId: params.scenarioId,
+              status: PrismaSessionScenarioStatus.ACTIVE,
+            },
+          }
+        : undefined,
     };
 
     const [totalElements, sessions] = await this.prisma.$transaction([
@@ -173,9 +190,17 @@ export class SessionsService {
       this.prisma.session.findMany({
         where,
         include: {
-          owner: true,
-          scenario: true,
-          participants: true,
+          host: true,
+          participants: {
+            where: { status: PrismaParticipantStatus.JOINED },
+          },
+          sessionScenarios: {
+            include: {
+              scenario: true,
+              gameState: true,
+            },
+            orderBy: { sequence: "asc" },
+          },
         },
         orderBy: { createdAt: "desc" },
         skip: (params.page ?? 0) * (params.size ?? 10),
@@ -183,14 +208,22 @@ export class SessionsService {
       }),
     ]);
 
-    const items = sessions.map((session) => ({
-      session: mapSession(session),
-      scenario: mapScenarioSummary(session.scenario),
-      owner: mapUser(session.owner),
-      participantCount: session.participants.length,
-      availableSlots: Math.max(session.maxParticipants - session.participants.length, 0),
-      role: this.getParticipantRoleForUser(session.participants, params.requesterUserId),
-    }));
+    const items = sessions.map((session) => {
+      const activeScenario = this.getActiveSessionScenario(session.sessionScenarios);
+      if (!activeScenario) {
+        throw new NotFoundException(`Session ${session.id} does not have an active scenario.`);
+      }
+
+      return {
+        session: mapSession(session),
+        scenario: mapScenarioSummary(activeScenario.scenario),
+        host: mapUser(session.host),
+        owner: mapUser(session.host),
+        participantCount: session.participants.length,
+        availableSlots: Math.max(session.maxParticipants - session.participants.length, 0),
+        role: this.getParticipantRoleForUser(session.participants, params.requesterUserId),
+      };
+    });
 
     return { items, totalElements };
   }
@@ -217,82 +250,70 @@ export class SessionsService {
 
   async leaveSession(userId: string, sessionId: string): Promise<void> {
     const session = await this.getSessionEntityOrThrow(sessionId);
-    const participant = await this.prisma.sessionParticipant.findUnique({
-      where: {
-        sessionId_userId: {
+    const participant = await this.getJoinedParticipantOrThrow(userId, sessionId);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.sessionParticipant.update({
+        where: { id: participant.id },
+        data: {
+          status: PrismaParticipantStatus.LEFT,
+          leftAt: new Date(),
+          connectionStatus: PrismaConnectionStatus.OFFLINE,
+          isReady: false,
+          readyAt: null,
+        },
+      });
+
+      await tx.sessionCharacter.deleteMany({
+        where: {
           sessionId,
           userId,
         },
-      },
-    });
+      });
 
-    if (!participant) {
-      throw new ForbiddenException("You must join the session before leaving it.");
-    }
-
-    const result = await this.prisma.$transaction(async (tx) => {
-      const participants = await tx.sessionParticipant.findMany({
-        where: { sessionId },
+      const remainingParticipants = await tx.sessionParticipant.findMany({
+        where: {
+          sessionId,
+          status: PrismaParticipantStatus.JOINED,
+        },
         orderBy: { joinedAt: "asc" },
       });
 
-      if (participants.length <= 1) {
-        await tx.session.delete({
+      if (!remainingParticipants.length) {
+        await tx.session.update({
           where: { id: sessionId },
+          data: { status: PrismaSessionStatus.DISBANDED },
+        });
+        return;
+      }
+
+      if (session.hostUserId === userId) {
+        const nextHost = remainingParticipants[0];
+
+        await tx.session.update({
+          where: { id: sessionId },
+          data: { hostUserId: nextHost.userId },
         });
 
-        return { deletedSession: true };
-      }
-
-      const remainingParticipants = participants.filter((item) => item.userId !== userId);
-      const nextOwnerUserId =
-        session.ownerUserId === userId ? remainingParticipants[0]?.userId ?? null : session.ownerUserId;
-      const nextCaptainUserId =
-        session.captainUserId === userId ? nextOwnerUserId : session.captainUserId;
-
-      await tx.sessionParticipant.delete({
-        where: { id: participant.id },
-      });
-
-      if (!nextOwnerUserId) {
-        throw new ConflictException("A replacement owner could not be resolved for this session.");
-      }
-
-      await tx.session.update({
-        where: { id: sessionId },
-        data: {
-          ownerUserId: nextOwnerUserId,
-          captainUserId: nextCaptainUserId,
-        },
-      });
-
-      if (session.ownerUserId === userId) {
         await tx.sessionParticipant.update({
           where: {
             sessionId_userId: {
               sessionId,
-              userId: nextOwnerUserId,
+              userId: nextHost.userId,
             },
           },
-          data: {
-            role: PrismaParticipantRole.HOST,
-          },
+          data: { role: PrismaParticipantRole.HOST },
         });
       }
-
-      return { deletedSession: false };
     });
 
-    if (!result.deletedSession) {
-      const snapshot = await this.buildSnapshot(sessionId);
-      this.realtimeEvents.emitSessionSnapshot(sessionId, snapshot);
-    }
+    this.realtimeEvents.emitSessionSnapshot(sessionId, await this.buildSnapshot(sessionId));
   }
 
   async getSessionForUser(userId: string, sessionId: string): Promise<SessionDetailResponseDto> {
     const session = await this.getSessionEntityOrThrow(sessionId);
 
-    if (!session.isPublic) {
+    if (session.visibility === PrismaSessionVisibility.PRIVATE) {
       await this.ensureMembership(userId, sessionId);
     }
 
@@ -305,7 +326,10 @@ export class SessionsService {
   ): Promise<SessionParticipantResponseDto[]> {
     await this.ensureMembership(userId, sessionId);
     const participants = await this.prisma.sessionParticipant.findMany({
-      where: { sessionId },
+      where: {
+        sessionId,
+        status: PrismaParticipantStatus.JOINED,
+      },
       include: {
         user: true,
         sessionCharacter: {
@@ -324,7 +348,10 @@ export class SessionsService {
   ): Promise<ParticipantStatusResponseDto[]> {
     await this.ensureMembership(userId, sessionId);
     const participants = await this.prisma.sessionParticipant.findMany({
-      where: { sessionId },
+      where: {
+        sessionId,
+        status: PrismaParticipantStatus.JOINED,
+      },
       select: {
         userId: true,
         connectionStatus: true,
@@ -343,8 +370,8 @@ export class SessionsService {
 
   async getStateForUser(userId: string, sessionId: string): Promise<GameStateResponseDto> {
     await this.ensureMembership(userId, sessionId);
-    const state = await this.getGameStateEntityOrThrow(sessionId);
-    return mapGameState(state);
+    const { state } = await this.getGameStateEntityOrThrow(sessionId);
+    return mapGameState(state, sessionId);
   }
 
   async updateSession(
@@ -353,20 +380,22 @@ export class SessionsService {
     dto: UpdateSessionDto,
   ): Promise<SessionResponseDto> {
     const session = await this.getSessionEntityOrThrow(sessionId);
-    this.ensureOwner(userId, session.ownerUserId);
+    this.ensureHost(userId, session.hostUserId);
 
-    const nextMaxPlayers = dto.maxPlayers ?? dto.maxParticipants;
-
-    if (session.status !== PrismaSessionStatus.LOBBY) {
-      throw new ConflictException("Only lobby sessions can be updated.");
+    if (session.status !== PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("Only recruiting sessions can be updated.");
     }
 
-    if (nextMaxPlayers !== undefined) {
+    const nextMaxParticipants = dto.maxParticipants ?? dto.maxPlayers;
+    if (nextMaxParticipants !== undefined) {
       const participantCount = await this.prisma.sessionParticipant.count({
-        where: { sessionId },
+        where: {
+          sessionId,
+          status: PrismaParticipantStatus.JOINED,
+        },
       });
 
-      if (nextMaxPlayers < participantCount) {
+      if (nextMaxParticipants < participantCount) {
         throw new ConflictException("maxParticipants cannot be smaller than the participant count.");
       }
     }
@@ -376,26 +405,59 @@ export class SessionsService {
       data: {
         title: dto.title?.trim() ?? session.title,
         description: dto.description?.trim() ?? session.description,
-        maxParticipants: nextMaxPlayers ?? session.maxParticipants,
-        isPublic: dto.isPrivate !== undefined ? !dto.isPrivate : (dto.isPublic ?? session.isPublic),
+        maxParticipants: nextMaxParticipants ?? session.maxParticipants,
+        visibility: this.resolveVisibility(dto.visibility, dto.isPrivate, dto.isPublic, session.visibility),
+        nextSessionAt:
+          dto.nextSessionAt === undefined
+            ? session.nextSessionAt
+            : dto.nextSessionAt === null
+              ? null
+              : new Date(dto.nextSessionAt),
+      },
+      include: {
+        sessionScenarios: {
+          include: {
+            scenario: true,
+            gameState: true,
+          },
+          orderBy: { sequence: "asc" },
+        },
       },
     });
 
-    this.realtimeEvents.emitSessionStatusUpdated(sessionId, mapSession(updated));
-    return mapSession(updated);
+    const mapped = mapSession(updated);
+    this.realtimeEvents.emitSessionStatusUpdated(sessionId, mapped);
+    return mapped;
   }
 
   async deleteSession(userId: string, sessionId: string): Promise<void> {
     const session = await this.getSessionEntityOrThrow(sessionId);
-    this.ensureOwner(userId, session.ownerUserId);
+    this.ensureHost(userId, session.hostUserId);
 
-    if (session.status !== PrismaSessionStatus.LOBBY) {
-      throw new ConflictException("Only lobby sessions can be deleted.");
+    if (session.status !== PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("Only recruiting sessions can be deleted.");
     }
 
-    await this.prisma.session.delete({
-      where: { id: sessionId },
-    });
+    await this.prisma.$transaction([
+      this.prisma.sessionCharacter.deleteMany({ where: { sessionId } }),
+      this.prisma.sessionParticipant.updateMany({
+        where: {
+          sessionId,
+          status: PrismaParticipantStatus.JOINED,
+        },
+        data: {
+          status: PrismaParticipantStatus.LEFT,
+          leftAt: new Date(),
+          connectionStatus: PrismaConnectionStatus.OFFLINE,
+          isReady: false,
+          readyAt: null,
+        },
+      }),
+      this.prisma.session.update({
+        where: { id: sessionId },
+        data: { status: PrismaSessionStatus.DISBANDED },
+      }),
+    ]);
   }
 
   async listMySessions(userId: string, params: SessionPageParams = {}): Promise<SessionPageResult> {
@@ -403,11 +465,19 @@ export class SessionsService {
 
     const where: Prisma.SessionWhereInput = {
       status: params.status ? sessionStatusToPrisma[params.status] : undefined,
-      scenarioId: params.scenarioId,
       ruleSetId: params.ruleSetId,
+      sessionScenarios: params.scenarioId
+        ? {
+            some: {
+              scenarioId: params.scenarioId,
+              status: PrismaSessionScenarioStatus.ACTIVE,
+            },
+          }
+        : undefined,
       participants: {
         some: {
           userId,
+          status: PrismaParticipantStatus.JOINED,
           role: params.role ? participantRoleToPrisma[params.role] : undefined,
         },
       },
@@ -418,9 +488,17 @@ export class SessionsService {
       this.prisma.session.findMany({
         where,
         include: {
-          owner: true,
-          scenario: true,
-          participants: true,
+          host: true,
+          participants: {
+            where: { status: PrismaParticipantStatus.JOINED },
+          },
+          sessionScenarios: {
+            include: {
+              scenario: true,
+              gameState: true,
+            },
+            orderBy: { sequence: "asc" },
+          },
         },
         orderBy: { updatedAt: "desc" },
         skip: (params.page ?? 0) * (params.size ?? 10),
@@ -428,14 +506,22 @@ export class SessionsService {
       }),
     ]);
 
-    const items = sessions.map((session) => ({
-      session: mapSession(session),
-      scenario: mapScenarioSummary(session.scenario),
-      owner: mapUser(session.owner),
-      participantCount: session.participants.length,
-      availableSlots: Math.max(session.maxParticipants - session.participants.length, 0),
-      role: this.getParticipantRoleForUser(session.participants, userId),
-    }));
+    const items = sessions.map((session) => {
+      const activeScenario = this.getActiveSessionScenario(session.sessionScenarios);
+      if (!activeScenario) {
+        throw new NotFoundException(`Session ${session.id} does not have an active scenario.`);
+      }
+
+      return {
+        session: mapSession(session),
+        scenario: mapScenarioSummary(activeScenario.scenario),
+        host: mapUser(session.host),
+        owner: mapUser(session.host),
+        participantCount: session.participants.length,
+        availableSlots: Math.max(session.maxParticipants - session.participants.length, 0),
+        role: this.getParticipantRoleForUser(session.participants, userId),
+      };
+    });
 
     return { items, totalElements };
   }
@@ -460,8 +546,13 @@ export class SessionsService {
       },
     });
 
-    if (!participant) {
+    if (!participant || participant.status !== PrismaParticipantStatus.JOINED) {
       throw new ForbiddenException("You must join the session before selecting a character.");
+    }
+
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    if (session.status !== PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("Characters can only be selected while the session is recruiting.");
     }
 
     const character = await this.prisma.character.findUnique({
@@ -484,45 +575,41 @@ export class SessionsService {
     const activeAssignment = character.sessionCharacters.find(
       (assignment) =>
         assignment.sessionId !== sessionId &&
-        assignment.session.status !== PrismaSessionStatus.COMPLETED,
+        assignment.session.status !== PrismaSessionStatus.COMPLETED &&
+        assignment.session.status !== PrismaSessionStatus.DISBANDED,
     );
 
     if (activeAssignment) {
       throw new ConflictException("This character is already assigned to another active session.");
     }
 
-    const runtimeData = {
-      sessionId,
-      participantId: participant.id,
-      characterId: character.id,
-      name: character.name,
-      ancestry: character.ancestry,
-      className: character.className,
-      level: character.level,
-      abilitiesJson: character.abilitiesJson,
-      proficiencyBonus: character.proficiencyBonus,
-      proficientSkillsJson: character.proficientSkillsJson,
-      maxHp: character.maxHp,
-      currentHp: character.maxHp,
-      tempHp: 0,
-      armorClass: character.armorClass,
-      speed: character.speed,
-      inventoryJson: character.inventoryJson,
-      equippedWeaponId: character.equippedWeaponId,
-      conditionsJson: JSON.stringify([]),
-      initiative: null,
-    };
-
-    const sessionCharacter = participant.sessionCharacter
-      ? await this.prisma.sessionCharacter.update({
-          where: { id: participant.sessionCharacter.id },
-          data: runtimeData,
-          include: { character: true },
-        })
-      : await this.prisma.sessionCharacter.create({
-          data: runtimeData,
-          include: { character: true },
-        });
+    const sessionCharacter = await this.prisma.sessionCharacter.upsert({
+      where: {
+        sessionId_userId: {
+          sessionId,
+          userId,
+        },
+      },
+      update: {
+        characterId: character.id,
+        status: PrismaSessionCharacterStatus.ACTIVE,
+        currentHp: character.maxHp,
+        tempHp: 0,
+        conditionsJson: JSON.stringify([]),
+        inventorySnapshotJson: character.inventoryJson,
+      },
+      create: {
+        sessionId,
+        userId,
+        characterId: character.id,
+        status: PrismaSessionCharacterStatus.ACTIVE,
+        currentHp: character.maxHp,
+        tempHp: 0,
+        conditionsJson: JSON.stringify([]),
+        inventorySnapshotJson: character.inventoryJson,
+      },
+      include: { character: true },
+    });
 
     const updatedParticipant = await this.prisma.sessionParticipant.update({
       where: { id: participant.id },
@@ -565,13 +652,13 @@ export class SessionsService {
       },
     });
 
-    if (!participant) {
+    if (!participant || participant.status !== PrismaParticipantStatus.JOINED) {
       throw new ForbiddenException("You must join the session before updating ready state.");
     }
 
     const session = await this.getSessionEntityOrThrow(sessionId);
-    if (session.status !== PrismaSessionStatus.LOBBY) {
-      throw new ConflictException("Ready state can only be changed while the session is in lobby.");
+    if (session.status !== PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("Ready state can only be changed while the session is recruiting.");
     }
 
     if (dto.isReady && !participant.sessionCharacter) {
@@ -598,32 +685,6 @@ export class SessionsService {
     return mappedParticipant;
   }
 
-  async updateCaptain(
-    userId: string,
-    sessionId: string,
-    dto: UpdateSessionCaptainDto,
-  ): Promise<SessionResponseDto> {
-    const session = await this.getSessionEntityOrThrow(sessionId);
-    this.ensureOwner(userId, session.ownerUserId);
-
-    const nextCaptainUserId =
-      dto.captainUserId === undefined ? session.captainUserId : dto.captainUserId;
-
-    if (nextCaptainUserId) {
-      await this.ensureMembership(nextCaptainUserId, sessionId);
-    }
-
-    const updated = await this.prisma.session.update({
-      where: { id: sessionId },
-      data: {
-        captainUserId: nextCaptainUserId ?? null,
-      },
-    });
-
-    this.realtimeEvents.emitSessionStatusUpdated(sessionId, mapSession(updated));
-    return mapSession(updated);
-  }
-
   async resumeSession(userId: string, sessionId: string): Promise<SessionSnapshotDto> {
     const participant = await this.prisma.sessionParticipant
       .update({
@@ -634,6 +695,8 @@ export class SessionsService {
           },
         },
         data: {
+          status: PrismaParticipantStatus.JOINED,
+          leftAt: null,
           connectionStatus: PrismaConnectionStatus.ONLINE,
         },
         include: {
@@ -647,7 +710,9 @@ export class SessionsService {
         throw new ForbiddenException("You must join the session before resuming it.");
       });
 
-    this.realtimeEvents.emitParticipantUpdated(sessionId, mapParticipant(participant));
+    const mapped = mapParticipant(participant);
+    this.realtimeEvents.emitParticipantUpdated(sessionId, mapped);
+    this.realtimeEvents.emitSessionSnapshot(sessionId, await this.buildSnapshot(sessionId));
     return this.buildSnapshot(sessionId);
   }
 
@@ -665,14 +730,17 @@ export class SessionsService {
 
   async startSession(userId: string, sessionId: string): Promise<SessionSnapshotDto> {
     const session = await this.getSessionEntityOrThrow(sessionId);
-    this.ensureSessionOperator(userId, session.ownerUserId, session.captainUserId);
+    this.ensureHost(userId, session.hostUserId);
 
-    if (session.status !== PrismaSessionStatus.LOBBY) {
-      throw new ConflictException("Only lobby sessions can be started.");
+    if (session.status !== PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("Only recruiting sessions can be started.");
     }
 
     const participants = await this.prisma.sessionParticipant.findMany({
-      where: { sessionId },
+      where: {
+        sessionId,
+        status: PrismaParticipantStatus.JOINED,
+      },
       include: {
         sessionCharacter: true,
       },
@@ -693,6 +761,8 @@ export class SessionsService {
       throw new ConflictException("All participants must be ready before the session starts.");
     }
 
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(sessionId);
+
     await this.prisma.$transaction([
       this.prisma.session.update({
         where: { id: sessionId },
@@ -700,8 +770,14 @@ export class SessionsService {
           status: PrismaSessionStatus.PLAYING,
         },
       }),
+      this.prisma.sessionScenario.update({
+        where: { id: activeScenario.id },
+        data: {
+          startedAt: activeScenario.startedAt ?? new Date(),
+        },
+      }),
       this.prisma.gameState.update({
-        where: { sessionId },
+        where: { sessionScenarioId: activeScenario.id },
         data: {
           phase: PrismaGamePhase.EXPLORATION,
         },
@@ -720,36 +796,39 @@ export class SessionsService {
     dto: HumanGmMessageDto,
   ): Promise<SessionSnapshotDto> {
     const session = await this.getHumanGmSessionForOperator(userId, sessionId);
-    const state = await this.getGameStateEntityOrThrow(sessionId);
-    const stateData = this.parseState(state.stateJson);
-    const nextMessages = [
-      ...(Array.isArray(stateData.gmMessages) ? stateData.gmMessages : []),
-      {
-        id: randomUUID(),
-        type: dto.asNpc ? "npc" : "gm",
-        speakerName: dto.speakerName?.trim() || null,
-        content: dto.content.trim(),
-        createdAt: new Date().toISOString(),
-        authorUserId: userId,
-      },
-    ].slice(-50);
+    const { state, sessionScenario } = await this.getGameStateEntityOrThrow(sessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const gmMessages = Array.isArray(flags.gmMessages) ? [...(flags.gmMessages as unknown[])] : [];
 
-    await this.prisma.gameState.update({
-      where: { sessionId },
-      data: {
-        stateJson: JSON.stringify({
-          ...stateData,
-          gmMessages: nextMessages,
-        }),
-      },
+    gmMessages.push({
+      id: randomUUID(),
+      type: dto.asNpc ? "npc" : "gm",
+      speakerName: dto.speakerName?.trim() || null,
+      content: dto.content.trim(),
+      createdAt: new Date().toISOString(),
+      authorUserId: userId,
     });
 
-    if (session.status === PrismaSessionStatus.LOBBY) {
-      await this.prisma.session.update({
+    await this.prisma.$transaction([
+      this.prisma.gameState.update({
+        where: { sessionScenarioId: sessionScenario.id },
+        data: {
+          flagsJson: JSON.stringify({
+            ...flags,
+            gmMessages: gmMessages.slice(-50),
+          }),
+        },
+      }),
+      this.prisma.session.update({
         where: { id: sessionId },
-        data: { status: PrismaSessionStatus.PLAYING },
-      });
-    }
+        data: {
+          status:
+            session.status === PrismaSessionStatus.RECRUITING
+              ? PrismaSessionStatus.PLAYING
+              : session.status,
+        },
+      }),
+    ]);
 
     const snapshot = await this.buildSnapshot(sessionId);
     this.realtimeEvents.emitSessionSnapshot(sessionId, snapshot);
@@ -762,21 +841,24 @@ export class SessionsService {
     dto: UpdateSessionNodeDto,
   ): Promise<SessionSnapshotDto> {
     const session = await this.getHumanGmSessionForOperator(userId, sessionId);
-    const targetNode = await this.scenariosService.getScenarioNodeEntityById(session.scenarioId, dto.nodeId);
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(sessionId);
+    const targetNode = await this.scenariosService.getScenarioNodeEntityById(
+      activeScenario.scenarioId,
+      dto.nodeId,
+    );
 
     await this.prisma.$transaction([
       this.prisma.session.update({
         where: { id: sessionId },
         data: {
-          currentNodeId: targetNode.id,
           status:
-            session.status === PrismaSessionStatus.LOBBY
+            session.status === PrismaSessionStatus.RECRUITING
               ? PrismaSessionStatus.PLAYING
               : session.status,
         },
       }),
       this.prisma.gameState.update({
-        where: { sessionId },
+        where: { sessionScenarioId: activeScenario.id },
         data: {
           currentNodeId: targetNode.id,
           phase: PrismaGamePhase.DIALOGUE,
@@ -808,6 +890,7 @@ export class SessionsService {
       where: { id: sessionId },
       include: {
         participants: {
+          where: { status: PrismaParticipantStatus.JOINED },
           include: {
             user: true,
             sessionCharacter: {
@@ -817,22 +900,37 @@ export class SessionsService {
           orderBy: { joinedAt: "asc" },
         },
         sessionCharacters: {
+          where: {
+            status: PrismaSessionCharacterStatus.ACTIVE,
+          },
           include: { character: true },
           orderBy: { createdAt: "asc" },
         },
-        gameState: true,
+        sessionScenarios: {
+          include: {
+            scenario: true,
+            gameState: true,
+          },
+          orderBy: { sequence: "asc" },
+        },
       },
     });
 
-    if (!session || !session.gameState) {
+    if (!session) {
       throw new NotFoundException(`Session ${sessionId} was not found.`);
+    }
+
+    const activeScenario = this.getActiveSessionScenario(session.sessionScenarios);
+    if (!activeScenario?.gameState) {
+      throw new NotFoundException(`Game state for session ${sessionId} was not found.`);
     }
 
     return {
       session: mapSession(session),
+      sessionScenarios: session.sessionScenarios.map(mapSessionScenario),
       participants: session.participants.map(mapParticipant),
       sessionCharacters: session.sessionCharacters.map(mapSessionCharacter),
-      state: mapGameState(session.gameState),
+      state: mapGameState(activeScenario.gameState, sessionId),
     };
   }
 
@@ -840,9 +938,9 @@ export class SessionsService {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
       include: {
-        owner: true,
-        scenario: true,
+        host: true,
         participants: {
+          where: { status: PrismaParticipantStatus.JOINED },
           include: {
             user: true,
             sessionCharacter: {
@@ -852,29 +950,41 @@ export class SessionsService {
           orderBy: { joinedAt: "asc" },
         },
         sessionCharacters: {
+          where: {
+            status: PrismaSessionCharacterStatus.ACTIVE,
+          },
           include: { character: true },
           orderBy: { createdAt: "asc" },
         },
-        gameState: true,
+        sessionScenarios: {
+          include: {
+            scenario: true,
+            gameState: true,
+          },
+          orderBy: { sequence: "asc" },
+        },
       },
     });
 
-    if (!session || !session.gameState) {
+    if (!session) {
       throw new NotFoundException(`Session ${sessionId} was not found.`);
     }
 
-    const captain = session.captainUserId
-      ? session.participants.find((participant) => participant.userId === session.captainUserId)?.user
-      : null;
+    const activeScenario = this.getActiveSessionScenario(session.sessionScenarios);
+    if (!activeScenario?.gameState) {
+      throw new NotFoundException(`Game state for session ${sessionId} was not found.`);
+    }
 
     return {
       session: mapSession(session),
+      sessionScenarios: session.sessionScenarios.map(mapSessionScenario),
       participants: session.participants.map(mapParticipant),
       sessionCharacters: session.sessionCharacters.map(mapSessionCharacter),
-      state: mapGameState(session.gameState),
-      scenario: mapScenarioSummary(session.scenario),
-      owner: mapUser(session.owner),
-      captain: captain ? mapUser(captain) : null,
+      state: mapGameState(activeScenario.gameState, sessionId),
+      scenario: mapScenarioSummary(activeScenario.scenario),
+      host: mapUser(session.host),
+      owner: mapUser(session.host),
+      captain: null,
     };
   }
 
@@ -888,7 +998,7 @@ export class SessionsService {
       },
     });
 
-    if (!participant) {
+    if (!participant || participant.status !== PrismaParticipantStatus.JOINED) {
       throw new ForbiddenException("You must join the session before accessing it.");
     }
   }
@@ -913,7 +1023,11 @@ export class SessionsService {
       },
     });
 
-    if (!participant || participant.connectionStatus === status) {
+    if (!participant || participant.status !== PrismaParticipantStatus.JOINED) {
+      return;
+    }
+
+    if (participant.connectionStatus === status) {
       return;
     }
 
@@ -946,15 +1060,33 @@ export class SessionsService {
   }
 
   async getGameStateEntityOrThrow(sessionId: string) {
+    const sessionScenario = await this.getActiveSessionScenarioEntityOrThrow(sessionId);
     const state = await this.prisma.gameState.findUnique({
-      where: { sessionId },
+      where: { sessionScenarioId: sessionScenario.id },
     });
 
     if (!state) {
       throw new NotFoundException(`Game state for session ${sessionId} was not found.`);
     }
 
-    return state;
+    return { sessionScenario, state };
+  }
+
+  private async getJoinedParticipantOrThrow(userId: string, sessionId: string) {
+    const participant = await this.prisma.sessionParticipant.findUnique({
+      where: {
+        sessionId_userId: {
+          sessionId,
+          userId,
+        },
+      },
+    });
+
+    if (!participant || participant.status !== PrismaParticipantStatus.JOINED) {
+      throw new ForbiddenException("You must join the session before accessing it.");
+    }
+
+    return participant;
   }
 
   private async joinSessionEntity(
@@ -965,8 +1097,8 @@ export class SessionsService {
       maxParticipants: number;
     },
   ): Promise<SessionSnapshotDto> {
-    if (session.status !== PrismaSessionStatus.LOBBY) {
-      throw new UnprocessableEntityException("Only lobby sessions can be joined.");
+    if (session.status !== PrismaSessionStatus.RECRUITING) {
+      throw new UnprocessableEntityException("Only recruiting sessions can be joined.");
     }
 
     const existingParticipant = await this.prisma.sessionParticipant.findUnique({
@@ -976,28 +1108,6 @@ export class SessionsService {
           userId,
         },
       },
-      include: { user: true },
-    });
-
-    if (existingParticipant) {
-      throw new ConflictException("You already joined this session.");
-    }
-
-    const participantCount = await this.prisma.sessionParticipant.count({
-      where: { sessionId: session.id },
-    });
-
-    if (participantCount >= session.maxParticipants) {
-      throw new UnprocessableEntityException("This session is already full.");
-    }
-
-    const participant = await this.prisma.sessionParticipant.create({
-      data: {
-        sessionId: session.id,
-        userId,
-        role: PrismaParticipantRole.PLAYER,
-        connectionStatus: PrismaConnectionStatus.ONLINE,
-      },
       include: {
         user: true,
         sessionCharacter: {
@@ -1006,23 +1116,65 @@ export class SessionsService {
       },
     });
 
+    if (existingParticipant?.status === PrismaParticipantStatus.JOINED) {
+      throw new ConflictException("You already joined this session.");
+    }
+
+    const participantCount = await this.prisma.sessionParticipant.count({
+      where: {
+        sessionId: session.id,
+        status: PrismaParticipantStatus.JOINED,
+      },
+    });
+
+    if (participantCount >= session.maxParticipants) {
+      throw new UnprocessableEntityException("This session is already full.");
+    }
+
+    const participant = existingParticipant
+      ? await this.prisma.sessionParticipant.update({
+          where: { id: existingParticipant.id },
+          data: {
+            role:
+              existingParticipant.role === PrismaParticipantRole.HOST
+                ? PrismaParticipantRole.HOST
+                : PrismaParticipantRole.PLAYER,
+            status: PrismaParticipantStatus.JOINED,
+            joinedAt: new Date(),
+            leftAt: null,
+            connectionStatus: PrismaConnectionStatus.ONLINE,
+          },
+          include: {
+            user: true,
+            sessionCharacter: {
+              include: { character: true },
+            },
+          },
+        })
+      : await this.prisma.sessionParticipant.create({
+          data: {
+            sessionId: session.id,
+            userId,
+            role: PrismaParticipantRole.PLAYER,
+            status: PrismaParticipantStatus.JOINED,
+            connectionStatus: PrismaConnectionStatus.ONLINE,
+          },
+          include: {
+            user: true,
+            sessionCharacter: {
+              include: { character: true },
+            },
+          },
+        });
+
     this.realtimeEvents.emitParticipantUpdated(session.id, mapParticipant(participant));
+    this.realtimeEvents.emitSessionSnapshot(session.id, await this.buildSnapshot(session.id));
     return this.buildSnapshot(session.id);
   }
 
-  private ensureOwner(userId: string, ownerUserId: string): void {
-    if (userId !== ownerUserId) {
-      throw new ForbiddenException("Only the session owner can perform this action.");
-    }
-  }
-
-  private ensureSessionOperator(
-    userId: string,
-    ownerUserId: string,
-    captainUserId: string | null,
-  ): void {
-    if (userId !== ownerUserId && userId !== captainUserId) {
-      throw new ForbiddenException("Only the owner or captain can perform this action.");
+  private ensureHost(userId: string, hostUserId: string): void {
+    if (userId !== hostUserId) {
+      throw new ForbiddenException("Only the session host can perform this action.");
     }
   }
 
@@ -1033,10 +1185,7 @@ export class SessionsService {
       throw new ConflictException("This endpoint is only available for HUMAN GM sessions.");
     }
 
-    if (session.ownerUserId !== userId && session.captainUserId !== userId) {
-      throw new ForbiddenException("Only the owner or captain can control a HUMAN GM session.");
-    }
-
+    this.ensureHost(userId, session.hostUserId);
     return session;
   }
 
@@ -1046,6 +1195,7 @@ export class SessionsService {
     phase: PrismaGamePhase,
   ): Promise<void> {
     const session = await this.getHumanGmSessionForOperator(userId, sessionId);
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(sessionId);
 
     await this.prisma.$transaction([
       this.prisma.session.update({
@@ -1058,14 +1208,17 @@ export class SessionsService {
         },
       }),
       this.prisma.gameState.update({
-        where: { sessionId },
+        where: { sessionScenarioId: activeScenario.id },
         data: { phase },
       }),
     ]);
   }
 
-  private parseState(value: string): Record<string, unknown> {
-    return JSON.parse(value) as Record<string, unknown>;
+  private parseJson<T>(value: string | null | undefined, fallback: T): T {
+    if (!value) {
+      return fallback;
+    }
+    return JSON.parse(value) as T;
   }
 
   private getParticipantRoleForUser(
@@ -1078,6 +1231,70 @@ export class SessionsService {
 
     const participant = participants.find((candidate) => candidate.userId === userId);
     return participant ? participantRoleToApi[participant.role] : undefined;
+  }
+
+  private async getActiveSessionScenarioEntityOrThrow(sessionId: string) {
+    const sessionScenario = await this.prisma.sessionScenario.findFirst({
+      where: {
+        sessionId,
+        status: PrismaSessionScenarioStatus.ACTIVE,
+      },
+      include: {
+        scenario: true,
+        gameState: true,
+      },
+      orderBy: { sequence: "asc" },
+    });
+
+    if (sessionScenario) {
+      return sessionScenario;
+    }
+
+    const fallbackScenario = await this.prisma.sessionScenario.findFirst({
+      where: { sessionId },
+      include: {
+        scenario: true,
+        gameState: true,
+      },
+      orderBy: { sequence: "asc" },
+    });
+
+    if (!fallbackScenario) {
+      throw new NotFoundException(`Session ${sessionId} does not have a scenario.`);
+    }
+
+    return fallbackScenario;
+  }
+
+  private getActiveSessionScenario<T extends { status: PrismaSessionScenarioStatus }>(sessionScenarios: T[]): T | null {
+    return (
+      sessionScenarios.find((candidate) => candidate.status === PrismaSessionScenarioStatus.ACTIVE) ??
+      sessionScenarios[0] ??
+      null
+    );
+  }
+
+  private resolveVisibility(
+    visibility?: SessionVisibility,
+    isPrivate?: boolean,
+    isPublic?: boolean,
+    fallback: PrismaSessionVisibility = PrismaSessionVisibility.PUBLIC,
+  ): PrismaSessionVisibility {
+    if (visibility) {
+      return visibility === SessionVisibility.PRIVATE
+        ? PrismaSessionVisibility.PRIVATE
+        : PrismaSessionVisibility.PUBLIC;
+    }
+
+    if (isPrivate !== undefined) {
+      return isPrivate ? PrismaSessionVisibility.PRIVATE : PrismaSessionVisibility.PUBLIC;
+    }
+
+    if (isPublic !== undefined) {
+      return isPublic ? PrismaSessionVisibility.PUBLIC : PrismaSessionVisibility.PRIVATE;
+    }
+
+    return fallback;
   }
 
   private async generateInviteCode(): Promise<string> {

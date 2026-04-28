@@ -35,7 +35,6 @@ import {
   SessionSnapshotDto,
   SessionStatus,
   UpdateParticipantReadyDto,
-  UpdateSessionCaptainDto,
   UpdateSessionDto,
   UpdateSessionNodeDto,
 } from "@trpg/shared-types";
@@ -265,22 +264,6 @@ export class SessionsController {
       "SESSION_200",
       "Ready state updated.",
       await this.sessionsService.updateParticipantReadyState(userId, sessionId, dto),
-    );
-  }
-
-  @Patch(":id/captain")
-  @ApiSecurity("x-user-id")
-  @ApiParam({ name: "id" })
-  @ApiOkResponse({ type: SessionResponseDto })
-  async updateCaptain(
-    @CurrentUserId() userId: string,
-    @Param("id") sessionId: string,
-    @Body() dto: UpdateSessionCaptainDto,
-  ): Promise<ApiResponse<SessionResponseDto>> {
-    return apiResponse(
-      "SESSION_200",
-      "Captain updated.",
-      await this.sessionsService.updateCaptain(userId, sessionId, dto),
     );
   }
 

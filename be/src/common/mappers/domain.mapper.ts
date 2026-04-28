@@ -1,27 +1,34 @@
 import {
   Character,
+  CharacterAvatarType as PrismaCharacterAvatarType,
   ConnectionStatus as PrismaConnectionStatus,
   GamePhase as PrismaGamePhase,
-  GmMode as PrismaGmMode,
   GameState,
+  GmMode as PrismaGmMode,
   ParticipantRole as PrismaParticipantRole,
+  ParticipantStatus as PrismaParticipantStatus,
   Scenario,
   ScenarioLicense as PrismaScenarioLicense,
   ScenarioNode,
   Session,
   SessionCharacter,
+  SessionCharacterStatus as PrismaSessionCharacterStatus,
   SessionParticipant,
+  SessionScenario,
+  SessionScenarioStatus as PrismaSessionScenarioStatus,
   SessionStatus as PrismaSessionStatus,
+  SessionVisibility as PrismaSessionVisibility,
   User,
 } from "@prisma/client";
 import {
   AbilityScoresDto,
   AuthProvider,
+  CharacterAvatarType,
   CharacterResponseDto,
   ConnectionStatus,
   GamePhase,
-  GmMode,
   GameStateResponseDto,
+  GmMode,
   InventoryItemDto,
   ParticipantRole,
   ScenarioLicense,
@@ -29,11 +36,21 @@ import {
   ScenarioResponseDto,
   ScenarioSummaryResponseDto,
   SessionCharacterResponseDto,
+  SessionCharacterStatus,
   SessionParticipantResponseDto,
+  SessionParticipantStatus,
   SessionResponseDto,
+  SessionScenarioResponseDto,
+  SessionScenarioStatus,
   SessionStatus,
+  SessionVisibility,
   UserResponseDto,
 } from "@trpg/shared-types";
+
+type SessionScenarioWithScenario = SessionScenario & {
+  scenario: Scenario;
+  gameState?: GameState | null;
+};
 
 type ParticipantWithUserAndCharacter = SessionParticipant & {
   user: User;
@@ -48,11 +65,28 @@ type SessionCharacterWithBase = SessionCharacter & {
   character: Character;
 };
 
+type SessionWithRelations = Session & {
+  sessionScenarios?: SessionScenarioWithScenario[];
+};
+
 const sessionStatusMap: Record<PrismaSessionStatus, SessionStatus> = {
-  LOBBY: SessionStatus.LOBBY,
+  RECRUITING: SessionStatus.RECRUITING,
   PLAYING: SessionStatus.PLAYING,
   PAUSED: SessionStatus.PAUSED,
   COMPLETED: SessionStatus.COMPLETED,
+  DISBANDED: SessionStatus.DISBANDED,
+};
+
+const sessionVisibilityMap: Record<PrismaSessionVisibility, SessionVisibility> = {
+  PUBLIC: SessionVisibility.PUBLIC,
+  PRIVATE: SessionVisibility.PRIVATE,
+};
+
+const sessionScenarioStatusMap: Record<PrismaSessionScenarioStatus, SessionScenarioStatus> = {
+  PLANNED: SessionScenarioStatus.PLANNED,
+  ACTIVE: SessionScenarioStatus.ACTIVE,
+  COMPLETED: SessionScenarioStatus.COMPLETED,
+  ABANDONED: SessionScenarioStatus.ABANDONED,
 };
 
 const participantRoleMap: Record<PrismaParticipantRole, ParticipantRole> = {
@@ -61,12 +95,19 @@ const participantRoleMap: Record<PrismaParticipantRole, ParticipantRole> = {
   SPECTATOR: ParticipantRole.SPECTATOR,
 };
 
+const participantStatusMap: Record<PrismaParticipantStatus, SessionParticipantStatus> = {
+  JOINED: SessionParticipantStatus.JOINED,
+  LEFT: SessionParticipantStatus.LEFT,
+  KICKED: SessionParticipantStatus.KICKED,
+};
+
 const connectionStatusMap: Record<PrismaConnectionStatus, ConnectionStatus> = {
   ONLINE: ConnectionStatus.ONLINE,
   OFFLINE: ConnectionStatus.OFFLINE,
 };
 
 const gamePhaseMap: Record<PrismaGamePhase, GamePhase> = {
+  LOBBY: GamePhase.LOBBY,
   EXPLORATION: GamePhase.EXPLORATION,
   COMBAT: GamePhase.COMBAT,
   DIALOGUE: GamePhase.DIALOGUE,
@@ -91,12 +132,36 @@ const scenarioLicenseMap: Record<PrismaScenarioLicense, ScenarioLicense> = {
   OTHER_FREE: ScenarioLicense.OTHER_FREE,
 };
 
-function parseJson<T>(value: string): T {
+const sessionCharacterStatusMap: Record<PrismaSessionCharacterStatus, SessionCharacterStatus> = {
+  ACTIVE: SessionCharacterStatus.ACTIVE,
+  RETIRED: SessionCharacterStatus.RETIRED,
+  DEAD: SessionCharacterStatus.DEAD,
+  LEFT: SessionCharacterStatus.LEFT,
+};
+
+const characterAvatarTypeMap: Record<PrismaCharacterAvatarType, CharacterAvatarType> = {
+  DEFAULT: CharacterAvatarType.DEFAULT,
+  PRESET: CharacterAvatarType.PRESET,
+  UPLOAD: CharacterAvatarType.UPLOAD,
+};
+
+function parseJson<T>(value: string | null | undefined, fallback: T): T {
+  if (!value) {
+    return fallback;
+  }
   return JSON.parse(value) as T;
 }
 
 function toIsoString(value: Date): string {
   return value.toISOString();
+}
+
+function getActiveSessionScenario(session: SessionWithRelations): SessionScenarioWithScenario | null {
+  return (
+    session.sessionScenarios?.find((candidate) => candidate.status === "ACTIVE") ??
+    session.sessionScenarios?.[0] ??
+    null
+  );
 }
 
 export function mapUser(user: User): UserResponseDto {
@@ -113,26 +178,49 @@ export function mapUser(user: User): UserResponseDto {
   };
 }
 
-export function mapSession(session: Session): SessionResponseDto {
+export function mapSessionScenario(
+  sessionScenario: SessionScenarioWithScenario,
+): SessionScenarioResponseDto {
+  return {
+    id: sessionScenario.id,
+    sessionId: sessionScenario.sessionId,
+    scenarioId: sessionScenario.scenarioId,
+    sequence: sessionScenario.sequence,
+    status: sessionScenarioStatusMap[sessionScenario.status],
+    startedAt: sessionScenario.startedAt ? toIsoString(sessionScenario.startedAt) : null,
+    endedAt: sessionScenario.endedAt ? toIsoString(sessionScenario.endedAt) : null,
+    createdAt: toIsoString(sessionScenario.createdAt),
+    scenario: mapScenarioSummary(sessionScenario.scenario),
+  };
+}
+
+export function mapSession(session: SessionWithRelations): SessionResponseDto {
+  const activeScenario = getActiveSessionScenario(session);
+  const activeGameState = activeScenario?.gameState ?? null;
+  const visibility = sessionVisibilityMap[session.visibility];
+
   return {
     id: session.id,
     sessionId: session.id,
     title: session.title,
     description: session.description,
-    ownerUserId: session.ownerUserId,
-    hostUserId: session.ownerUserId,
-    captainUserId: session.captainUserId,
+    hostUserId: session.hostUserId,
+    ownerUserId: session.hostUserId,
+    captainUserId: null,
     gmMode: gmModeMap[session.gmMode],
-    gmUserId: session.gmUserId,
+    gmUserId: session.gmMode === "HUMAN" ? session.hostUserId : null,
     inviteCode: session.inviteCode,
     status: sessionStatusMap[session.status],
+    visibility,
     maxParticipants: session.maxParticipants,
     maxPlayers: session.maxParticipants,
-    isPublic: session.isPublic,
-    isPrivate: !session.isPublic,
+    isPublic: visibility === SessionVisibility.PUBLIC,
+    isPrivate: visibility === SessionVisibility.PRIVATE,
     ruleSetId: session.ruleSetId,
-    scenarioId: session.scenarioId,
-    currentNodeId: session.currentNodeId,
+    nextSessionAt: session.nextSessionAt ? toIsoString(session.nextSessionAt) : null,
+    scenarioId: activeScenario?.scenarioId ?? null,
+    currentNodeId: activeGameState?.currentNodeId ?? null,
+    activeSessionScenarioId: activeScenario?.id ?? null,
     createdAt: toIsoString(session.createdAt),
     updatedAt: toIsoString(session.updatedAt),
   };
@@ -148,10 +236,12 @@ export function mapParticipant(
     characterId: participant.sessionCharacter?.characterId ?? null,
     sessionCharacterId: participant.sessionCharacter?.id ?? null,
     role: participantRoleMap[participant.role],
+    status: participantStatusMap[participant.status],
     connectionStatus: connectionStatusMap[participant.connectionStatus],
     isReady: participant.isReady,
     readyAt: participant.readyAt ? toIsoString(participant.readyAt) : null,
     joinedAt: toIsoString(participant.joinedAt),
+    leftAt: participant.leftAt ? toIsoString(participant.leftAt) : null,
     user: mapUser(participant.user),
   };
 }
@@ -159,7 +249,9 @@ export function mapParticipant(
 export function mapCharacter(character: CharacterWithAssignments): CharacterResponseDto {
   const activeAssignment =
     character.sessionCharacters?.find(
-      (assignment) => assignment.session.status !== PrismaSessionStatus.COMPLETED,
+      (assignment) =>
+        assignment.session.status !== PrismaSessionStatus.COMPLETED &&
+        assignment.session.status !== PrismaSessionStatus.DISBANDED,
     ) ?? null;
 
   return {
@@ -169,14 +261,26 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
     ancestry: character.ancestry,
     className: character.className,
     level: character.level,
-    abilities: parseJson<AbilityScoresDto>(character.abilitiesJson),
+    bio: character.bio ?? null,
+    abilities: parseJson<AbilityScoresDto>(character.abilitiesJson, {
+      str: 10,
+      dex: 10,
+      con: 10,
+      int: 10,
+      wis: 10,
+      cha: 10,
+    }),
     proficiencyBonus: character.proficiencyBonus,
-    proficientSkills: parseJson<string[]>(character.proficientSkillsJson),
+    proficientSkills: parseJson<string[]>(character.proficientSkillsJson, []),
     maxHp: character.maxHp,
     armorClass: character.armorClass,
     speed: character.speed,
-    inventory: parseJson<InventoryItemDto[]>(character.inventoryJson),
+    inventory: parseJson<InventoryItemDto[]>(character.inventoryJson, []),
     equippedWeaponId: character.equippedWeaponId ?? null,
+    avatarType: characterAvatarTypeMap[character.avatarType],
+    avatarPresetId: character.avatarPresetId ?? null,
+    avatarUrl: character.avatarUrl ?? null,
+    avatarUpdatedAt: character.avatarUpdatedAt ? toIsoString(character.avatarUpdatedAt) : null,
     activeSessionId: activeAssignment?.sessionId ?? null,
     isSelectable: !activeAssignment,
     createdAt: toIsoString(character.createdAt),
@@ -190,37 +294,65 @@ export function mapSessionCharacter(
   return {
     id: sessionCharacter.id,
     sessionId: sessionCharacter.sessionId,
-    participantId: sessionCharacter.participantId,
+    userId: sessionCharacter.userId,
     characterId: sessionCharacter.characterId,
     ownerUserId: sessionCharacter.character.ownerUserId,
-    name: sessionCharacter.name,
-    ancestry: sessionCharacter.ancestry,
-    className: sessionCharacter.className,
-    level: sessionCharacter.level,
-    abilities: parseJson<AbilityScoresDto>(sessionCharacter.abilitiesJson),
-    proficiencyBonus: sessionCharacter.proficiencyBonus,
-    proficientSkills: parseJson<string[]>(sessionCharacter.proficientSkillsJson),
-    maxHp: sessionCharacter.maxHp,
+    status: sessionCharacterStatusMap[sessionCharacter.status],
+    name: sessionCharacter.character.name,
+    ancestry: sessionCharacter.character.ancestry,
+    className: sessionCharacter.character.className,
+    level: sessionCharacter.character.level,
+    bio: sessionCharacter.character.bio ?? null,
+    abilities: parseJson<AbilityScoresDto>(sessionCharacter.character.abilitiesJson, {
+      str: 10,
+      dex: 10,
+      con: 10,
+      int: 10,
+      wis: 10,
+      cha: 10,
+    }),
+    proficiencyBonus: sessionCharacter.character.proficiencyBonus,
+    proficientSkills: parseJson<string[]>(sessionCharacter.character.proficientSkillsJson, []),
+    maxHp: sessionCharacter.character.maxHp,
     currentHp: sessionCharacter.currentHp,
     tempHp: sessionCharacter.tempHp,
-    armorClass: sessionCharacter.armorClass,
-    speed: sessionCharacter.speed,
-    inventory: parseJson<InventoryItemDto[]>(sessionCharacter.inventoryJson),
-    equippedWeaponId: sessionCharacter.equippedWeaponId ?? null,
-    conditions: parseJson<string[]>(sessionCharacter.conditionsJson),
-    initiative: sessionCharacter.initiative ?? null,
+    armorClass: sessionCharacter.character.armorClass,
+    speed: sessionCharacter.character.speed,
+    inventory: parseJson<InventoryItemDto[]>(
+      sessionCharacter.inventorySnapshotJson ?? sessionCharacter.character.inventoryJson,
+      [],
+    ),
+    equippedWeaponId: sessionCharacter.character.equippedWeaponId ?? null,
+    avatarType: characterAvatarTypeMap[sessionCharacter.character.avatarType],
+    avatarPresetId: sessionCharacter.character.avatarPresetId ?? null,
+    avatarUrl: sessionCharacter.character.avatarUrl ?? null,
+    conditions: parseJson<string[]>(sessionCharacter.conditionsJson, []),
+    initiative: null,
     createdAt: toIsoString(sessionCharacter.createdAt),
     updatedAt: toIsoString(sessionCharacter.updatedAt),
   };
 }
 
-export function mapGameState(state: GameState): GameStateResponseDto {
+export function mapGameState(
+  state: GameState,
+  sessionId: string | null = null,
+): GameStateResponseDto {
+  const flags = parseJson<Record<string, unknown>>(state.flagsJson, {});
+  const discoveredClues = parseJson<Record<string, unknown>[]>(state.discoveredCluesJson, []);
+
   return {
-    sessionId: state.sessionId,
+    sessionScenarioId: state.sessionScenarioId,
+    sessionId,
     version: state.version,
-    currentNodeId: state.currentNodeId,
+    currentNodeId: state.currentNodeId ?? null,
     phase: gamePhaseMap[state.phase],
-    state: parseJson<Record<string, unknown>>(state.stateJson),
+    flags,
+    discoveredClues,
+    state: {
+      ...flags,
+      flags,
+      discoveredClues,
+    },
     updatedAt: toIsoString(state.updatedAt),
   };
 }
@@ -229,9 +361,15 @@ export function mapScenarioSummary(scenario: Scenario): ScenarioSummaryResponseD
   return {
     id: scenario.id,
     title: scenario.title,
+    description: scenario.description ?? null,
+    thumbnailUrl: scenario.thumbnailUrl ?? null,
+    ruleSetId: scenario.ruleSetId ?? null,
+    difficulty: scenario.difficulty ?? null,
     license: scenarioLicenseMap[scenario.license],
-    attribution: scenario.attribution,
-    startNodeId: scenario.startNodeId,
+    attribution: scenario.attribution ?? null,
+    startNodeId: scenario.startNodeId ?? null,
+    createdAt: toIsoString(scenario.createdAt),
+    updatedAt: toIsoString(scenario.updatedAt),
   };
 }
 
@@ -241,9 +379,9 @@ export function mapScenarioNode(node: ScenarioNode): ScenarioNodeResponseDto {
     title: node.title,
     sceneText: node.sceneText,
     visibleToPlayers: node.visibleToPlayers,
-    checkOptions: parseJson<Record<string, unknown>[]>(node.checkOptionsJson),
-    transitions: parseJson<Record<string, unknown>[]>(node.transitionsJson),
-    clues: parseJson<Record<string, unknown>[]>(node.cluesJson),
+    checkOptions: parseJson<Record<string, unknown>[]>(node.checkOptionsJson, []),
+    transitions: parseJson<Record<string, unknown>[]>(node.transitionsJson, []),
+    clues: parseJson<Record<string, unknown>[]>(node.cluesJson, []),
     fallbackNodeId: node.fallbackNodeId,
   };
 }
