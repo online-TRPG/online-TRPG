@@ -50,6 +50,20 @@ enum ScenarioLicense {
   OTHER_FREE
 }
 
+enum AiTraceKind {
+  NARRATION
+  HINT
+  SUMMARY
+  NPC_DIALOGUE
+  INTERPRETER
+}
+
+enum AiTraceStatus {
+  SUCCESS
+  TIMEOUT
+  ERROR
+}
+
 model User {
   id            String               @id @default(cuid())
   displayName   String
@@ -64,6 +78,7 @@ model User {
   characters    Character[]
   refreshTokens RefreshToken[]
   socialAccounts SocialAccount[]
+  aiTraces       AiTrace[]
 }
 
 model Session {
@@ -88,6 +103,7 @@ model Session {
   participants      SessionParticipant[]
   sessionCharacters SessionCharacter[]
   gameState        GameState?
+  aiTraces         AiTrace[]
 }
 
 model RefreshToken {
@@ -214,4 +230,30 @@ model GameState {
   stateJson     String
   updatedAt     DateTime  @updatedAt
   session       Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model AiTrace {
+  id                String         @id @default(cuid())
+  sessionId         String
+  userId            String
+  kind              AiTraceKind
+  status            AiTraceStatus
+  latencyMs         Int
+  provider          String?
+  model             String?
+  promptVersion     String?
+  attempts          Int?
+  finishReason      String?
+  providerRequestId String?
+  failureType       String?
+  errorMessage      String?
+  requestJson       String
+  responseJson      String?
+  createdAt         DateTime       @default(now())
+  session           Session        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
 }
