@@ -8,10 +8,23 @@ datasource db {
 }
 
 enum SessionStatus {
-  LOBBY
+  RECRUITING
   PLAYING
   PAUSED
   COMPLETED
+  DISBANDED
+}
+
+enum SessionVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum SessionScenarioStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+  ABANDONED
 }
 
 enum ParticipantRole {
@@ -20,12 +33,19 @@ enum ParticipantRole {
   SPECTATOR
 }
 
+enum ParticipantStatus {
+  JOINED
+  LEFT
+  KICKED
+}
+
 enum ConnectionStatus {
   ONLINE
   OFFLINE
 }
 
 enum GamePhase {
+  LOBBY
   EXPLORATION
   COMBAT
   DIALOGUE
@@ -50,44 +70,54 @@ enum ScenarioLicense {
   OTHER_FREE
 }
 
+enum SessionCharacterStatus {
+  ACTIVE
+  RETIRED
+  DEAD
+  LEFT
+}
+
+enum CharacterAvatarType {
+  DEFAULT
+  PRESET
+  UPLOAD
+}
+
 model User {
-  id            String               @id @default(cuid())
-  displayName   String
-  email         String?              @unique
-  passwordHash  String?
-  authProvider  AuthProvider         @default(GUEST)
-  deletedAt     DateTime?
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @default(now()) @updatedAt
-  ownedSessions Session[]            @relation("SessionOwner")
-  participants  SessionParticipant[]
-  characters    Character[]
-  refreshTokens RefreshToken[]
-  socialAccounts SocialAccount[]
+  id                     String               @id @default(cuid())
+  displayName            String
+  email                  String?              @unique
+  passwordHash           String?
+  authProvider           AuthProvider         @default(GUEST)
+  deletedAt              DateTime?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @default(now()) @updatedAt
+  hostedSessions         Session[]            @relation("SessionHost")
+  participants           SessionParticipant[]
+  characters             Character[]
+  refreshTokens          RefreshToken[]
+  socialAccounts         SocialAccount[]
+  controlledCharacters   SessionCharacter[]
 }
 
 model Session {
   id               String               @id @default(cuid())
   title            String
   description      String               @default("")
-  ownerUserId      String
-  captainUserId    String?
+  hostUserId       String
   inviteCode       String               @unique
-  status           SessionStatus        @default(LOBBY)
+  status           SessionStatus        @default(RECRUITING)
+  visibility       SessionVisibility    @default(PUBLIC)
   maxParticipants  Int                  @default(4)
-  isPublic         Boolean              @default(true)
   ruleSetId        String?
   gmMode           GmMode               @default(AI)
-  gmUserId         String?
-  scenarioId       String
-  currentNodeId    String
+  nextSessionAt    DateTime?
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
-  owner            User                 @relation("SessionOwner", fields: [ownerUserId], references: [id])
-  scenario         Scenario             @relation(fields: [scenarioId], references: [id])
-  participants      SessionParticipant[]
+  host             User                 @relation("SessionHost", fields: [hostUserId], references: [id])
+  participants     SessionParticipant[]
+  sessionScenarios SessionScenario[]
   sessionCharacters SessionCharacter[]
-  gameState        GameState?
 }
 
 model RefreshToken {
@@ -113,28 +143,31 @@ model SocialAccount {
 }
 
 model SessionParticipant {
-  id               String           @id @default(cuid())
+  id               String             @id @default(cuid())
   sessionId        String
   userId           String
-  role             ParticipantRole  @default(PLAYER)
-  connectionStatus ConnectionStatus @default(ONLINE)
-  isReady          Boolean          @default(false)
+  role             ParticipantRole    @default(PLAYER)
+  status           ParticipantStatus  @default(JOINED)
+  connectionStatus ConnectionStatus   @default(ONLINE)
+  isReady          Boolean            @default(false)
   readyAt          DateTime?
-  joinedAt         DateTime         @default(now())
-  session          Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sessionCharacter SessionCharacter?
+  joinedAt         DateTime           @default(now())
+  leftAt           DateTime?
+  session          Session            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionCharacter SessionCharacter?  @relation("ParticipantSessionCharacter")
 
   @@unique([sessionId, userId])
 }
 
 model Character {
-  id                   String             @id @default(cuid())
+  id                   String               @id @default(cuid())
   ownerUserId          String
   name                 String
   ancestry             String
   className            String
   level                Int
+  bio                  String?
   abilitiesJson        String
   proficiencyBonus     Int
   proficientSkillsJson String
@@ -143,52 +176,51 @@ model Character {
   speed                Int
   inventoryJson        String
   equippedWeaponId     String?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-  owner                User               @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  avatarType           CharacterAvatarType  @default(DEFAULT)
+  avatarPresetId       String?
+  avatarUrl            String?
+  avatarUpdatedAt      DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  owner                User                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   sessionCharacters    SessionCharacter[]
 }
 
 model SessionCharacter {
-  id                   String             @id @default(cuid())
-  sessionId            String
-  participantId        String             @unique
-  characterId          String
-  name                 String
-  ancestry             String
-  className            String
-  level                Int
-  abilitiesJson        String
-  proficiencyBonus     Int
-  proficientSkillsJson String
-  maxHp                Int
-  currentHp            Int
-  tempHp               Int
-  armorClass           Int
-  speed                Int
-  inventoryJson        String
-  equippedWeaponId     String?
-  conditionsJson       String
-  initiative           Int?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-  session              Session            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  participant          SessionParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
-  character            Character          @relation(fields: [characterId], references: [id])
+  id                    String                  @id @default(cuid())
+  sessionId             String
+  userId                String
+  characterId           String
+  status                SessionCharacterStatus  @default(ACTIVE)
+  currentHp             Int
+  tempHp                Int
+  conditionsJson        String
+  inventorySnapshotJson String?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  session               Session                 @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  participant           SessionParticipant      @relation("ParticipantSessionCharacter", fields: [sessionId, userId], references: [sessionId, userId], onDelete: Cascade)
+  user                  User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character             Character               @relation(fields: [characterId], references: [id])
 
+  @@unique([sessionId, userId])
   @@unique([sessionId, characterId])
 }
 
 model Scenario {
-  id          String            @id
-  title       String
-  license     ScenarioLicense
-  attribution String
-  startNodeId String
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  nodes       ScenarioNode[]
-  sessions    Session[]
+  id           String            @id
+  title        String
+  description  String?
+  thumbnailUrl String?
+  ruleSetId    String?
+  difficulty   String?
+  license      ScenarioLicense
+  attribution  String?
+  startNodeId  String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  nodes        ScenarioNode[]
+  sessions     SessionScenario[]
 }
 
 model ScenarioNode {
@@ -206,12 +238,29 @@ model ScenarioNode {
   scenario         Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
 }
 
+model SessionScenario {
+  id         String                @id @default(cuid())
+  sessionId  String
+  scenarioId String
+  sequence   Int
+  status     SessionScenarioStatus @default(PLANNED)
+  startedAt  DateTime?
+  endedAt    DateTime?
+  createdAt  DateTime              @default(now())
+  session    Session               @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  scenario   Scenario              @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  gameState  GameState?
+
+  @@unique([sessionId, sequence])
+}
+
 model GameState {
-  sessionId     String    @id
-  version       Int       @default(1)
-  currentNodeId String
-  phase         GamePhase @default(EXPLORATION)
-  stateJson     String
-  updatedAt     DateTime  @updatedAt
-  session       Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionScenarioId   String    @id
+  version             Int       @default(1)
+  currentNodeId       String?
+  phase               GamePhase @default(LOBBY)
+  flagsJson           String?
+  discoveredCluesJson String?
+  updatedAt           DateTime  @updatedAt
+  sessionScenario     SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
 }
