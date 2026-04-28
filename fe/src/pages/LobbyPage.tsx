@@ -19,7 +19,7 @@ interface LobbyPageProps {
   error: string | null;
   onCreateSession: (
     title: string,
-    options?: { scenarioId?: string; maxPlayers?: number; useAiGm?: boolean },
+    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
   ) => void | Promise<void>;
   onJoinSession: (inviteCode: string) => void | Promise<void>;
   onJoinSessionById: (sessionId: string) => void | Promise<void>;
@@ -77,7 +77,7 @@ export function LobbyPage({
     event.preventDefault();
     void onCreateSession(sessionTitle, {
       scenarioId: scenarioId || undefined,
-      maxPlayers,
+      maxParticipants: maxPlayers,
       useAiGm,
     });
     setActiveModal(null);
