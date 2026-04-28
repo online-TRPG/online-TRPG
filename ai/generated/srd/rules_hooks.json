@@ -1,0 +1,496 @@
+{
+  "hooks": [
+    {
+      "id": "hook.combat.resolve_attack_roll",
+      "domain": "combat",
+      "titleKo": "공격 명중 판정",
+      "engineFunction": "resolve_attack_roll",
+      "trigger": "action.requiresRoll == true and action.attackKind in weapon_attack|melee_spell_attack|ranged_spell_attack",
+      "consumes": [
+        "naturalD20",
+        "attackBonus",
+        "targetArmorClass",
+        "advantageState"
+      ],
+      "produces": [
+        "attackRollTotal",
+        "hit",
+        "criticalHit",
+        "criticalMiss"
+      ],
+      "sourceRuleIds": [
+        "rule.combat.공격_굴림",
+        "rule.spellcasting.공격_굴림",
+        "rule.combat.attack_roll",
+        "rule.spellcasting.spell_attack"
+      ],
+      "sourceEntityIds": [],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "naturalD20 == 1 always produces hit=false",
+        "naturalD20 == 20 always produces hit=true and criticalHit=true",
+        "otherwise hit is attackRollTotal >= targetArmorClass",
+        "AI output may request the roll but must not decide hit or miss"
+      ]
+    },
+    {
+      "id": "hook.damage.apply_resistance_vulnerability",
+      "domain": "damage",
+      "titleKo": "피해 저항/취약 적용",
+      "engineFunction": "apply_damage_modifiers",
+      "trigger": "confirmedDamagePacket exists before HP mutation",
+      "consumes": [
+        "baseDamage",
+        "damageType",
+        "targetImmunities",
+        "targetResistances",
+        "targetVulnerabilities"
+      ],
+      "produces": [
+        "finalDamage",
+        "appliedDamageModifiers"
+      ],
+      "sourceRuleIds": [
+        "rule.damage.저항과_취약"
+      ],
+      "sourceEntityIds": [],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "immunity reduces matching damage type to 0",
+        "resistance halves matching damage type after other flat modifiers",
+        "vulnerability doubles matching damage type after other flat modifiers",
+        "duplicate resistance or vulnerability for the same type applies only once"
+      ]
+    },
+    {
+      "id": "hook.condition.apply_prone_modifiers",
+      "domain": "condition",
+      "titleKo": "넘어짐 상태 전투 보정",
+      "engineFunction": "apply_condition_modifiers",
+      "trigger": "target.conditions contains condition.prone or movement declares stand_up/crawl",
+      "consumes": [
+        "condition.prone",
+        "attackerDistanceFt",
+        "remainingMovementFt",
+        "baseSpeedFt"
+      ],
+      "produces": [
+        "movementCostFt",
+        "selfAttackDisadvantage",
+        "incomingAttackAdvantageState"
+      ],
+      "sourceRuleIds": [
+        "rule.combat.넘어짐"
+      ],
+      "sourceEntityIds": [
+        "condition.prone"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "standing up costs half of baseSpeedFt and removes prone only after engine accepts the cost",
+        "a prone creature has disadvantage on its attack rolls",
+        "attacks against prone targets within 5 feet have advantage",
+        "attacks against prone targets farther than 5 feet have disadvantage"
+      ]
+    },
+    {
+      "id": "hook.spell.cast_chill_touch",
+      "domain": "spellcasting",
+      "titleKo": "싸늘한 손길 시전 처리",
+      "engineFunction": "resolve_spell_cast",
+      "trigger": "action.type == cast_spell and action.spellId == spell.chill_touch",
+      "consumes": [
+        "spell.chill_touch",
+        "casterKnownCantrips",
+        "actionAvailable",
+        "targetDistanceFt",
+        "componentAvailability",
+        "spellAttackRollResult"
+      ],
+      "produces": [
+        "validatedSpellCast",
+        "damagePacket.necrotic",
+        "healingBlockedUntil",
+        "undeadAttackDisadvantage"
+      ],
+      "sourceRuleIds": [
+        "rule.spellcasting.casting_time.action",
+        "rule.spellcasting.range",
+        "rule.spellcasting.components",
+        "rule.spellcasting.cantrip",
+        "rule.spellcasting.spell_attack",
+        "rule.combat.attack_roll"
+      ],
+      "sourceEntityIds": [
+        "spell.chill_touch"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "spell.chill_touch consumes an action and no spell slot because it is a cantrip",
+        "target must be within 120 feet when the spell is cast",
+        "verbal and somatic components must be available",
+        "hit requires a ranged spell attack resolved by hook.combat.resolve_attack_roll",
+        "on hit, healing is blocked until the caster's next turn starts"
+      ]
+    },
+    {
+      "id": "hook.item.bag_of_holding_capacity",
+      "domain": "item",
+      "titleKo": "보유의 주머니 용량 검증",
+      "engineFunction": "validate_container_capacity",
+      "trigger": "inventoryMutation targets magic_item.bag_of_holding",
+      "consumes": [
+        "itemCurrentWeightLb",
+        "itemCurrentVolumeCuFt",
+        "addedWeightLb",
+        "addedVolumeCuFt",
+        "containerIntegrity"
+      ],
+      "produces": [
+        "acceptedInventoryMutation",
+        "capacityViolation",
+        "containerDestroyed"
+      ],
+      "sourceRuleIds": [],
+      "sourceEntityIds": [
+        "magic_item.bag_of_holding"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "capacity must not exceed 500 pounds",
+        "capacity must not exceed 64 cubic feet",
+        "the bag weighs 15 pounds regardless of contents",
+        "piercing, tearing, or overload must be represented as an engine event, not an AI state mutation"
+      ]
+    },
+    {
+      "id": "hook.class.fighter.second_wind",
+      "domain": "class_feature",
+      "titleKo": "파이터 재기의 숨결 회복",
+      "engineFunction": "apply_second_wind",
+      "trigger": "action.type == use_class_feature and action.featureId == class.fighter.feature.재기의_숨결",
+      "consumes": [
+        "fighterLevel",
+        "bonusActionAvailable",
+        "secondWindAvailable",
+        "healingRoll.d10",
+        "currentHitPoints",
+        "maxHitPoints"
+      ],
+      "produces": [
+        "hitPointsRestored",
+        "newHitPoints",
+        "secondWindExpended",
+        "bonusActionSpent"
+      ],
+      "sourceRuleIds": [],
+      "sourceEntityIds": [
+        "class.fighter.feature.재기의_숨결"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "feature use requires an available bonus action",
+        "healing amount is 1d10 + fighterLevel",
+        "newHitPoints must not exceed maxHitPoints",
+        "feature cannot be used again until the required rest recovery is accepted by the engine",
+        "AI may identify the feature but must not roll healing or mutate hit points"
+      ]
+    },
+    {
+      "id": "hook.class.fighter.action_surge",
+      "domain": "class_feature",
+      "titleKo": "파이터 행동 연쇄 추가 행동",
+      "engineFunction": "apply_action_surge",
+      "trigger": "action.type == use_class_feature and action.featureId == class.fighter.feature.행동_연쇄",
+      "consumes": [
+        "fighterLevel",
+        "actionSurgeAvailableUses",
+        "turnActionState"
+      ],
+      "produces": [
+        "additionalActionGranted",
+        "actionSurgeExpended",
+        "remainingActionSurgeUses"
+      ],
+      "sourceRuleIds": [
+        "rule.combat.행동"
+      ],
+      "sourceEntityIds": [
+        "class.fighter.feature.행동_연쇄"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "feature grants one additional action on the user's turn",
+        "feature use spends one action surge use",
+        "fighterLevel >= 17 allows two uses between rests but still only one use on the same turn",
+        "AI may request action surge but must not grant extra actions directly"
+      ]
+    },
+    {
+      "id": "hook.class.fighter.champion_critical_threshold",
+      "domain": "class_feature",
+      "titleKo": "챔피언 치명타 기준",
+      "engineFunction": "apply_critical_threshold_modifier",
+      "trigger": "attackRoll.naturalD20 exists and attacker has Champion critical feature",
+      "consumes": [
+        "naturalD20",
+        "attackKind",
+        "fighterLevel",
+        "subclassFeatureIds"
+      ],
+      "produces": [
+        "criticalThreshold",
+        "criticalHit"
+      ],
+      "sourceRuleIds": [
+        "rule.combat.attack_roll"
+      ],
+      "sourceEntityIds": [
+        "class.fighter.subclass_feature.향상된_치명타",
+        "class.fighter.subclass_feature.우월한_치명타"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "Champion level 3 feature sets weapon attack critical threshold to 19-20",
+        "Champion level 15 feature sets weapon attack critical threshold to 18-20",
+        "critical threshold modifier applies only to qualifying weapon attacks",
+        "AI may mention the feature but must not decide whether an attack is critical"
+      ]
+    },
+    {
+      "id": "hook.class.barbarian.rage",
+      "domain": "class_feature",
+      "titleKo": "바바리안 격노",
+      "engineFunction": "apply_rage",
+      "trigger": "action.type == use_class_feature and action.featureId == class.barbarian.feature.격노",
+      "consumes": [
+        "barbarianLevel",
+        "bonusActionAvailable",
+        "rageAvailableUses",
+        "armorCategory",
+        "strengthAttackDamagePacket",
+        "currentConcentrationState"
+      ],
+      "produces": [
+        "rageActive",
+        "rageExpended",
+        "bonusActionSpent",
+        "strengthCheckAdvantage",
+        "strengthSaveAdvantage",
+        "rageDamageBonus",
+        "bludgeoningResistance",
+        "piercingResistance",
+        "slashingResistance",
+        "concentrationEnded"
+      ],
+      "sourceRuleIds": [
+        "rule.damage.저항과_취약"
+      ],
+      "sourceEntityIds": [
+        "class.barbarian.feature.격노"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "feature use requires an available bonus action and an available rage use",
+        "rage benefits do not apply while wearing heavy armor",
+        "rage grants advantage on Strength checks and Strength saving throws",
+        "melee weapon damage using Strength gains the barbarian rage damage bonus",
+        "rage grants resistance to bludgeoning, piercing, and slashing damage",
+        "rage prevents spellcasting and concentration while active",
+        "AI may identify rage but must not apply resistance, bonus damage, or concentration state directly"
+      ]
+    },
+    {
+      "id": "hook.class.rogue.sneak_attack",
+      "domain": "class_feature",
+      "titleKo": "로그 암습 추가 피해",
+      "engineFunction": "apply_sneak_attack",
+      "trigger": "confirmedAttackHit exists and attacker has class.rogue.feature.암습",
+      "consumes": [
+        "rogueLevel",
+        "attackKind",
+        "weaponProperties",
+        "hasAdvantage",
+        "hasDisadvantage",
+        "targetEnemyWithin5Ft",
+        "sneakAttackAvailableThisTurn",
+        "baseDamage"
+      ],
+      "produces": [
+        "sneakAttackDice",
+        "sneakAttackDamage",
+        "sneakAttackExpendedThisTurn",
+        "damagePacket"
+      ],
+      "sourceRuleIds": [
+        "rule.combat.attack_roll"
+      ],
+      "sourceEntityIds": [
+        "class.rogue.feature.암습"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "sneak attack applies at most once per turn",
+        "attack must use a finesse weapon or ranged weapon",
+        "attack must have advantage or satisfy the nearby enemy exception",
+        "nearby enemy exception fails if the attack has disadvantage",
+        "sneak attack dice come from rogue level progression",
+        "AI may request sneak attack but must not add extra damage directly"
+      ]
+    },
+    {
+      "id": "hook.class.rogue.cunning_action",
+      "domain": "class_feature",
+      "titleKo": "로그 교활한 행동",
+      "engineFunction": "apply_cunning_action",
+      "trigger": "action.type == use_class_feature and action.featureId == class.rogue.feature.교활한_행동",
+      "consumes": [
+        "rogueLevel",
+        "bonusActionAvailable",
+        "declaredCunningAction"
+      ],
+      "produces": [
+        "bonusActionSpent",
+        "grantedActionType"
+      ],
+      "sourceRuleIds": [],
+      "sourceEntityIds": [
+        "class.rogue.feature.교활한_행동"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "feature requires rogueLevel >= 2",
+        "feature use requires an available bonus action",
+        "declaredCunningAction must be Dash, Disengage, or Hide",
+        "the selected action's own movement, opportunity attack, or stealth rules remain engine-validated",
+        "AI may identify cunning action but must not spend the bonus action or grant the action directly"
+      ]
+    },
+    {
+      "id": "hook.class.barbarian.frenzy",
+      "domain": "class_feature",
+      "titleKo": "바바리안 광분",
+      "engineFunction": "apply_frenzy",
+      "trigger": "action.type == use_class_feature and action.featureId == class.barbarian.subclass_feature.광분",
+      "consumes": [
+        "rageActivationAccepted",
+        "bonusActionAvailableOnFollowingTurns",
+        "frenzyDeclared",
+        "exhaustionState"
+      ],
+      "produces": [
+        "frenzyActive",
+        "bonusActionMeleeAttackAvailable",
+        "exhaustionIncreaseOnRageEnd"
+      ],
+      "sourceRuleIds": [],
+      "sourceEntityIds": [
+        "class.barbarian.subclass_feature.광분"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "frenzy can be declared only when entering rage",
+        "while frenzy is active, each turn after activation can grant one bonus action melee weapon attack",
+        "frenzy exhaustion increases by 1 when rage ends",
+        "the bonus action attack still requires the engine to validate weapon attack rules",
+        "AI may identify frenzy but must not grant attacks or apply exhaustion directly"
+      ]
+    }
+  ]
+}
