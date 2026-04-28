@@ -45,3 +45,17 @@ export enum GmMode {
   AI = "AI",
   HUMAN = "HUMAN",
 }
+
+export enum AiTraceKind {
+  NARRATION = "NARRATION",
+  HINT = "HINT",
+  SUMMARY = "SUMMARY",
+  NPC_DIALOGUE = "NPC_DIALOGUE",
+  INTERPRETER = "INTERPRETER",
+}
+
+export enum AiTraceStatus {
+  SUCCESS = "SUCCESS",
+  TIMEOUT = "TIMEOUT",
+  ERROR = "ERROR",
+}

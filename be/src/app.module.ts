@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { DatabaseModule } from "./database/database.module";
+import { AiModule } from "./modules/ai/ai.module";
 import { CharactersModule } from "./modules/characters/characters.module";
 import { RealtimeModule } from "./modules/realtime/realtime.module";
 import { ScenariosModule } from "./modules/scenarios/scenarios.module";
@@ -19,6 +20,7 @@ import { UsersModule } from "./modules/users/users.module";
     RealtimeModule,
     SessionsModule,
     CharactersModule,
+    AiModule,
   ],
 })
 export class AppModule {}
