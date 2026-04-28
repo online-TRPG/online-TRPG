@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -17,6 +18,7 @@ class NarratorService:
         self._settings = settings
 
     def run(self, request: NarratorHarnessRequest) -> NarratorHarnessResponse:
+        self._validate_request_constraints(request)
         prompt_path = Path(__file__).resolve().parents[2] / "prompts" / self.PROMPT_VERSION
         system_prompt = prompt_path.read_text(encoding="utf-8")
         model = request.model or self._settings.model_for_role("narrator")
@@ -73,13 +75,37 @@ class NarratorService:
         )
 
     @staticmethod
+    def _validate_request_constraints(request: NarratorHarnessRequest) -> None:
+        if request.constraints.noNewFacts is not True:
+            raise AiClientError(
+                message="Narrator requires constraints.noNewFacts=true",
+                failure_type="schema_validation",
+                retryable=False,
+                status_code=400,
+                attempts=1,
+            )
+
+    @staticmethod
     def _build_prompt(request: NarratorHarnessRequest) -> str:
+        payload = {
+            "rawInput": request.rawInput,
+            "action": request.action.model_dump() if request.action else None,
+            "checkRequest": request.checkRequest.model_dump() if request.checkRequest else None,
+            "diceResult": request.diceResult.model_dump() if request.diceResult else None,
+            "stateDiffSummary": request.stateDiffSummary.model_dump() if request.stateDiffSummary else None,
+            "scene": request.scene.model_dump(),
+            "constraints": request.constraints.model_dump(),
+            "legacy": {
+                "actionSummary": request.actionSummary,
+                "diceSummary": request.diceSummary,
+                "sceneTone": request.sceneTone,
+            },
+        }
         lines = [
             "다음 확정 결과를 한국어 GM 서술로 요약하라.",
-            f"- rawInput: {request.rawInput}",
-            f"- actionSummary: {request.actionSummary}",
-            f"- sceneTone: {request.sceneTone}",
+            "JSON 입력:",
+            json.dumps(payload, ensure_ascii=False, indent=2),
         ]
         if request.diceSummary:
-            lines.append(f"- diceSummary: {request.diceSummary}")
+            lines.append("legacy diceSummary는 diceResult가 없을 때만 참고한다.")
         return "\n".join(lines)

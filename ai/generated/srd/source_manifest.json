@@ -4,14 +4,14 @@
     {
       "path": "translated/classes/드루이드.md",
       "domain": "classes",
-      "bytes": 6939,
-      "sha256": "b4bd9d8074186fade16f09487e641d8d1411021de7c0edb09c28d3c1392c6a42"
+      "bytes": 7103,
+      "sha256": "85644aed180c1e3d7312ad437dc71a44792f5470bbc82f581966e806b9e3933e"
     },
     {
       "path": "translated/classes/레인저.md",
       "domain": "classes",
-      "bytes": 4741,
-      "sha256": "bb3de84e1b878ea8665ac863ffd69d9d5839a2af932dac7acb7226571dd55a3b"
+      "bytes": 4937,
+      "sha256": "962cee84203756cdadbc56282039d31521e00a4e8d1cb25d0e9e279eca87f05d"
     },
     {
       "path": "translated/classes/로그.md",
@@ -40,20 +40,20 @@
     {
       "path": "translated/classes/소서러.md",
       "domain": "classes",
-      "bytes": 6785,
-      "sha256": "8bcb47440b96a02afffcbf7295c31011425ef6e8c1086e63469dba0ce99414ee"
+      "bytes": 6995,
+      "sha256": "d50d372a256af523a4f73b024edaf9b14752e3ea6a07058fe4f9d862a1b9b984"
     },
     {
       "path": "translated/classes/워락.md",
       "domain": "classes",
-      "bytes": 9832,
-      "sha256": "8b3312f70d3b99d17e0aba88af8ddc3ab9b8dc72d574db51405c8a8bc2aca2a5"
+      "bytes": 10076,
+      "sha256": "68a0c5fb6a02863414712be46c2272436e7a9d77c3a63706b18133a1f4745fc6"
     },
     {
       "path": "translated/classes/위저드.md",
       "domain": "classes",
-      "bytes": 5597,
-      "sha256": "99b54d3a496e2d045e9919efcb06ddfd8014039291b88cda65352125b889f3e4"
+      "bytes": 5755,
+      "sha256": "ac9d5fecffa1ed41441c30de4b4e67cb460eeb0ef67fb78abf8709b81c5d54ab"
     },
     {
       "path": "translated/classes/직업_검수_기준.md",
@@ -64,8 +64,8 @@
     {
       "path": "translated/classes/클레릭.md",
       "domain": "classes",
-      "bytes": 6310,
-      "sha256": "f7fa781fc8453a5415168bc321e47d5ec5127c808ec731ea39f58441ad6b8bb6"
+      "bytes": 6555,
+      "sha256": "cc43ff5db5f485f8e291c9c0e1243a4e5b59cbe31d11a2e6719517b7a743d191"
     },
     {
       "path": "translated/classes/파이터.md",
@@ -76,8 +76,8 @@
     {
       "path": "translated/classes/팔라딘.md",
       "domain": "classes",
-      "bytes": 5583,
-      "sha256": "9d640d0465b2b3bf392b3dd98b1a0c33c5e2dd40af97370cb0ba6f60f1503929"
+      "bytes": 5778,
+      "sha256": "0b76c57e72b731db9c7f3b833dde075664c8975b04a90a1b6254d2285831d0bd"
     },
     {
       "path": "translated/items/general-equipment-reference.md",

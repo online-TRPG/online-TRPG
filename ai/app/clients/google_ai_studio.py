@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import json
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from typing import Any
@@ -88,6 +89,8 @@ class GoogleAiStudioClient:
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         raw_text = response.text or "{}"
         parsed_json = getattr(response, "parsed", None)
+        if parsed_json is None and raw_text:
+            parsed_json = self._parse_json_text(raw_text)
         if isinstance(parsed_json, list):
             raise AiClientError(
                 message="Expected object JSON output but received a list.",
@@ -122,6 +125,30 @@ class GoogleAiStudioClient:
             finish_reason=str(finish_reason) if finish_reason is not None else None,
             provider_request_id=str(provider_request_id) if provider_request_id is not None else None,
         )
+
+    @staticmethod
+    def _parse_json_text(raw_text: str) -> dict[str, Any] | list[Any] | None:
+        candidates = [raw_text.strip()]
+        stripped = raw_text.strip()
+        if stripped.startswith("```"):
+            lines = stripped.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            candidates.append("\n".join(lines).strip())
+        start = raw_text.find("{")
+        end = raw_text.rfind("}")
+        if start != -1 and end != -1 and start < end:
+            candidates.append(raw_text[start : end + 1])
+        for candidate in candidates:
+            if not candidate:
+                continue
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+        return None
 
     def _get_genai_types(self):
         try:

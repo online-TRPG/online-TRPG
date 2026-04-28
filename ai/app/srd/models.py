@@ -114,6 +114,36 @@ class RuleHookFixture(BaseModel):
     acceptanceChecks: list[str] = Field(default_factory=list)
 
 
+class BackendEngineContractCase(BaseModel):
+    caseId: str
+    hookId: str
+    priority: str
+    engineFunction: str
+    request: dict[str, object]
+    expectedResponse: dict[str, object]
+    assertions: list[str] = Field(default_factory=list)
+
+
+class InterpreterBackendHandoffCase(BaseModel):
+    caseId: str
+    rawText: str
+    interpreterOutput: dict[str, object]
+    backendState: dict[str, object]
+    expectedHookIds: list[str]
+    hookRequests: list[dict[str, object]]
+    notes: list[str] = Field(default_factory=list)
+
+
+class NarratorInputFixtureCase(BaseModel):
+    caseId: str
+    sourceHandoffCaseId: str
+    backendHookResults: list[dict[str, object]]
+    narratorRequest: dict[str, object]
+    expectedVisibleSummary: str
+    forbiddenNarrationFacts: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class MagicItem(BaseModel):
     id: str
     nameEn: str
@@ -166,6 +196,15 @@ class RaceOption(BaseModel):
     source: SpellSource
 
 
+class ClassSpellcastingProgression(BaseModel):
+    classLevel: int
+    cantripsKnown: int | None = None
+    spellsKnown: int | None = None
+    pactMagicSlots: int | None = None
+    pactMagicSlotLevel: int | None = None
+    spellSlotsByLevel: dict[str, int] = Field(default_factory=dict)
+
+
 class ClassOption(BaseModel):
     id: str
     nameKo: str
@@ -180,7 +219,7 @@ class ClassOption(BaseModel):
     startingEquipment: list[str] = Field(default_factory=list)
     startingEquipmentChoices: list[dict[str, object]] = Field(default_factory=list)
     spellcasting: dict[str, object] = Field(default_factory=dict)
-    spellcastingProgression: list[dict[str, object]] = Field(default_factory=list)
+    spellcastingProgression: list[ClassSpellcastingProgression] = Field(default_factory=list)
     srdSubclassRaw: str | None = None
     levelFeatures: list[dict[str, str]] = Field(default_factory=list)
     featureReferences: list[dict[str, object]] = Field(default_factory=list)
@@ -193,9 +232,24 @@ class EquipmentItem(BaseModel):
     id: str
     nameKo: str
     kind: str
+    nameEn: str | None = None
+    costRaw: str | None = None
+    weightRaw: str | None = None
+    equipmentCategory: str | None = None
+    armorCategory: str | None = None
+    armorClassRaw: str | None = None
+    strengthRequirementRaw: str | None = None
+    stealthRaw: str | None = None
+    weaponCategory: str | None = None
+    weaponRange: str | None = None
+    damageRaw: str | None = None
+    damageType: str | None = None
+    rangeRaw: str | None = None
+    propertiesRaw: str | None = None
     quantityRaw: str | None = None
     aliasesKo: list[str] = Field(default_factory=list)
     sourceClassIds: list[str] = Field(default_factory=list)
+    sourceTable: str | None = None
 
 
 class EquipmentReference(BaseModel):

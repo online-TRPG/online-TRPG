@@ -13,8 +13,12 @@ from app.core.config import Settings
 from app.core.response_logger import HarnessResponseLogger
 from app.schemas.harness import InterpreterHarnessRequest
 from app.services.harness import AiHarnessService
+from app.services.actor.service import ActorService
+from app.services.director.service import DirectorService
 from app.services.interpreter.service import InterpreterService
 from app.services.narrator.service import NarratorService
+from app.services.npc_dialogue.service import NpcDialogueService
+from app.services.summarizer.service import SummarizerService
 
 
 def pretty_print(title: str, payload) -> None:
@@ -111,6 +115,10 @@ def build_chill_touch_scenario_service(log_dir: Path):
         ai_model_default="gemma-4-31b-it",
         ai_model_interpreter="gemma-4-31b-it",
         ai_model_narrator="gemma-4-31b-it",
+        ai_model_director="gemma-4-31b-it",
+        ai_model_summarizer="gemma-4-31b-it",
+        ai_model_actor="gemma-4-31b-it",
+        ai_model_npc_dialogue="gemma-4-31b-it",
         ai_log_dir=str(log_dir),
     )
     client = ChillTouchScenarioClient()
@@ -119,6 +127,10 @@ def build_chill_touch_scenario_service(log_dir: Path):
         client=client,
         interpreter_service=InterpreterService(client, settings),
         narrator_service=NarratorService(client, settings),
+        director_service=DirectorService(client, settings),
+        summarizer_service=SummarizerService(client, settings),
+        actor_service=ActorService(client, settings),
+        npc_dialogue_service=NpcDialogueService(client, settings),
         response_logger=HarnessResponseLogger(settings),
     )
     return service, client

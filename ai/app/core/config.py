@@ -19,10 +19,18 @@ class Settings(BaseSettings):
     ai_model_default: str = "gemma-4-31b-it"
     ai_model_interpreter: str | None = None
     ai_model_narrator: str | None = None
+    ai_model_director: str | None = None
+    ai_model_summarizer: str | None = None
+    ai_model_actor: str | None = None
+    ai_model_npc_dialogue: str | None = None
     ai_timeout_ms: int = 30_000
     ai_max_retries: int = Field(default=1, ge=0, le=3)
     ai_temperature_interpreter: float = Field(default=0.1, ge=0.0, le=2.0)
     ai_temperature_narrator: float = Field(default=0.4, ge=0.0, le=2.0)
+    ai_temperature_director: float = Field(default=0.3, ge=0.0, le=2.0)
+    ai_temperature_summarizer: float = Field(default=0.2, ge=0.0, le=2.0)
+    ai_temperature_actor: float = Field(default=0.2, ge=0.0, le=2.0)
+    ai_temperature_npc_dialogue: float = Field(default=0.4, ge=0.0, le=2.0)
     ai_thinking_level: str | None = None
     ai_log_dir: str = "runtime_logs"
 
@@ -30,6 +38,10 @@ class Settings(BaseSettings):
         role_map = {
             "interpreter": self.ai_model_interpreter,
             "narrator": self.ai_model_narrator,
+            "director": self.ai_model_director,
+            "summarizer": self.ai_model_summarizer,
+            "actor": self.ai_model_actor,
+            "npc_dialogue": self.ai_model_npc_dialogue,
         }
         return role_map.get(role) or self.ai_model_default
 
