@@ -44,13 +44,13 @@
 │     ├─ database/               # ORM 스키마, 마이그레이션, 시드 데이터
 │     └─ tests/                  # API 통합 테스트, e2e 테스트
 │
-├─ ai/                           # FastAPI + Ollama AI 서비스
+├─ ai/                           # FastAPI 기반 AI 서비스 (Google AI Studio 게이트)
 │  ├─ app/
 │  │  ├─ main.py                 # FastAPI 엔트리 포인트
 │  │  ├─ api/                    # HTTP 라우터
 │  │  │  └─ routes/              # interpreter, narrator, health 등
 │  │  ├─ core/                   # 설정, 로깅, 공통 예외 처리
-│  │  ├─ clients/                # Ollama, 외부 모델/서비스 클라이언트
+│  │  ├─ clients/                # Google AI Studio 등 외부 모델 클라이언트
 │  │  ├─ services/               # 역할별 실행 서비스
 │  │  │  ├─ interpreter/         # 행동 해석
 │  │  │  ├─ narrator/            # 결과 서술 생성
@@ -141,7 +141,7 @@ NestJS가 게임 상태를 확정하고, `ai/`는 자연어 해석과 서술 생
 분리 기준은 아래와 같다.
 
 - `api/routes/`: 외부에서 호출하는 엔드포인트
-- `clients/`: Ollama 호출
+- `clients/`: Google AI Studio (`google-genai`) 호출
 - `services/interpreter/`: 유저 행동을 구조화 액션으로 변환
 - `services/narrator/`: 확정된 결과를 GM 문장으로 생성
 - `prompts/`: 프롬프트 버전 파일

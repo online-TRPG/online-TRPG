@@ -69,7 +69,7 @@ services:
     networks:
       - app-net
 
-  # 3. FastAPI AI
+  # 3. FastAPI AI (Google AI Studio 게이트)
   ai-server:
     build:
       context: .
@@ -80,30 +80,12 @@ services:
       - .env.ai
     environment:
       TZ: Asia/Seoul
-    depends_on:
-      ollama:
-        condition: service_started
     restart: unless-stopped
     logging: *default-logging
     networks:
       - app-net
 
-  # 4. Ollama 로컬 LLM
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      # 외부 노출을 막고 호스트 로컬에서만 접근 가능하도록 바인딩
-      - "127.0.0.1:11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      TZ: Asia/Seoul
-    restart: unless-stopped
-    logging: *default-logging
-    networks:
-      - app-net
-
-  # 5. PostgreSQL
+  # 4. PostgreSQL
   postgres:
     image: postgres:16-alpine
     expose:
@@ -126,7 +108,7 @@ services:
     networks:
       - app-net
 
-  # 6a. Certbot — Let's Encrypt 인증서 자동 갱신 (12시간 주기 체크)
+  # 5a. Certbot — Let's Encrypt 인증서 자동 갱신 (12시간 주기 체크)
   # 최초 발급은 수동 1회 필요:
   #   docker compose run --rm --entrypoint "" certbot \
   #     certbot certonly --webroot -w /var/www/certbot \
@@ -150,7 +132,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
-  # 7. Redis (비밀번호 보호, 영속화)
+  # 6. Redis (비밀번호 보호, 영속화)
   redis:
     image: redis:7-alpine
     expose:
@@ -175,7 +157,6 @@ networks:
     driver: bridge
 
 volumes:
-  ollama_data:
   postgres_data:
   redis_data:
   certbot_conf:

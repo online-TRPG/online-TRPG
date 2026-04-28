@@ -74,7 +74,6 @@
 - 프론트엔드와 백엔드: AWS EC2 서버에서 실행
 - LLM: Google AI Studio / Gemini API의 호스팅 Gemma 4 모델
 - 기본 모델: `gemma-4-31b-it`
-- 선택 대체 경로: Ollama 로컬 Gemma 4 계열 모델
 
 목표:
 

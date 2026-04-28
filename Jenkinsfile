@@ -61,7 +61,7 @@ pipeline {
             when { branch 'develop' }
             steps {
                 // 1) 데이터 계층부터 기동 (postgres healthy 까지 대기)
-                sh 'docker compose up -d --wait postgres redis ollama ai-server'
+                sh 'docker compose up -d --wait postgres redis ai-server'
 
                 // 2) Prisma schema → DB 동기화 (backend 컨테이너 임시 실행 후 삭제)
                 //    마이그레이션 파일이 없어 `db push` 사용. 초기 개발 단계라 허용.
