@@ -10,8 +10,6 @@ interface CharacterPageProps {
   busy: boolean;
   error: string | null;
   onCreateCharacter: (payload: CharacterPayload) => void;
-  onBackToMain: () => void;
-  onOpenPlay: () => void;
 }
 
 type AbilityKey = "str" | "dex" | "con" | "int" | "wis" | "cha";
@@ -81,8 +79,6 @@ export function CharacterPage({
   busy,
   error,
   onCreateCharacter,
-  onBackToMain,
-  onOpenPlay,
 }: CharacterPageProps) {
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
@@ -110,7 +106,7 @@ export function CharacterPage({
       return;
     }
 
-    if (activeCharacterId) {
+    if (activeCharacterId && characters.some((character) => character.id === activeCharacterId)) {
       setSelectedCharacterId(activeCharacterId);
       return;
     }
@@ -123,8 +119,6 @@ export function CharacterPage({
     [characters, selectedCharacterId],
   );
 
-  const activeSessionTitle = snapshot?.session.title ?? null;
-  const selectableCount = characters.filter((character) => character.isSelectable).length;
   const equippedItem =
     selectedCharacter?.inventory.find((item) => item.id === selectedCharacter.equippedWeaponId) ?? null;
 
@@ -215,66 +209,20 @@ export function CharacterPage({
 
   return (
     <main className="character-page character-screen">
-      <section className="character-hero character-screen-hero">
-        <div>
-          <span className="eyebrow">Character management</span>
-          <h1>캐릭터 관리</h1>
-          <p>
-            내 캐릭터를 생성하고, 현재 세션에서 사용할 후보를 확인하는 화면입니다. 생성은 여기서만 하고,
-            실제 세션 배치는 세션 준비 화면에서 따로 진행합니다.
-          </p>
-        </div>
-
-        <div className="character-hero-actions">
-          <button type="button" className="ghost" onClick={onBackToMain}>
-            메인으로
-          </button>
-          {snapshot ? (
-            <button type="button" onClick={onOpenPlay}>
-              세션으로 복귀
-            </button>
-          ) : null}
-          <button type="button" className="primary" onClick={openCreateModal}>
-            <Icon name="plus" />
-            캐릭터 생성
-          </button>
-        </div>
-      </section>
-
-      <section className="character-overview-grid">
-        <article className="character-overview-card">
-          <span className="eyebrow">Roster</span>
-          <strong>{characters.length}</strong>
-          <p>보유 중인 캐릭터 수</p>
-        </article>
-        <article className="character-overview-card">
-          <span className="eyebrow">Selectable</span>
-          <strong>{selectableCount}</strong>
-          <p>현재 선택 가능한 캐릭터</p>
-        </article>
-        <article className="character-overview-card">
-          <span className="eyebrow">Session</span>
-          <strong>{activeSessionTitle ? "ACTIVE" : "IDLE"}</strong>
-          <p>{activeSessionTitle ? `${activeSessionTitle} 참여 중` : "참여 중인 세션 없음"}</p>
-        </article>
-      </section>
-
       <section className="character-screen-grid">
         <section className="character-library character-library-panel">
           <div className="section-heading">
             <div>
               <span className="eyebrow">My roster</span>
-              <h2>캐릭터 목록</h2>
+              <h2>{characters.length} characters</h2>
             </div>
+            <button type="button" className="primary compact-action" onClick={openCreateModal}>
+              <Icon name="plus" />
+              New character
+            </button>
           </div>
 
           <div className="character-library-grid">
-            <button type="button" className="character-create-card" onClick={openCreateModal}>
-              <Icon name="plus" />
-              <strong>새 캐릭터 만들기</strong>
-              <span>이름, 종족, 클래스, 능력치와 인벤토리를 직접 설정할 수 있습니다.</span>
-            </button>
-
             {characters.map((character) => (
               <button
                 type="button"
@@ -282,15 +230,14 @@ export function CharacterPage({
                 className={`character-library-card${character.id === selectedCharacterId ? " active" : ""}`}
                 onClick={() => setSelectedCharacterId(character.id)}
               >
-                <div className="character-library-head">
-                  <div className="avatar">{character.name.slice(0, 1)}</div>
-                  <div>
-                    <h3>{character.name}</h3>
-                    <p>
-                      {character.ancestry} · {character.className}
-                    </p>
-                  </div>
+                <div className="character-profile-card">
+                  <div className="character-profile-avatar">{character.name.slice(0, 1)}</div>
+                  <strong>{character.name}</strong>
+                  <span>
+                    {character.ancestry} / {character.className}
+                  </span>
                 </div>
+
                 <dl className="character-library-meta">
                   <div>
                     <dt>LV</dt>
@@ -309,11 +256,12 @@ export function CharacterPage({
                     <dd>{character.speed}</dd>
                   </div>
                 </dl>
+
                 <div className="character-card-tags">
                   <span className={`status-chip${character.isSelectable ? "" : " muted"}`}>
-                    {character.isSelectable ? "선택 가능" : "잠김"}
+                    {character.isSelectable ? "Selectable" : "Locked"}
                   </span>
-                  {character.activeSessionId ? <span className="status-chip muted">세션 사용 중</span> : null}
+                  {character.activeSessionId ? <span className="status-chip muted">In session</span> : null}
                 </div>
               </button>
             ))}
@@ -322,50 +270,50 @@ export function CharacterPage({
 
         <section className="character-detail-shell">
           {selectedCharacter ? (
-            <>
-              <article className="character-focus-card character-detail-hero">
+            <article className="character-focus-card character-detail-panel">
+              <div className="character-detail-panel-top">
                 <div className="character-detail-hero-head">
                   <div className="avatar avatar-xl">{selectedCharacter.name.slice(0, 1)}</div>
                   <div>
                     <span className="eyebrow">Character detail</span>
                     <h2>{selectedCharacter.name}</h2>
                     <p>
-                      {selectedCharacter.ancestry} · {selectedCharacter.className} · Lv {selectedCharacter.level}
+                      {selectedCharacter.ancestry} / {selectedCharacter.className} / Lv {selectedCharacter.level}
                     </p>
                   </div>
                 </div>
 
                 <div className="character-detail-actions">
                   <button type="button" disabled>
-                    수정 준비 중
+                    Edit
                   </button>
                   <button type="button" disabled>
-                    복제 준비 중
+                    Duplicate
                   </button>
                   <button type="button" className="danger-button" disabled>
-                    삭제 준비 중
+                    Delete
                   </button>
                 </div>
-              </article>
+              </div>
 
               <div className="character-detail-grid">
                 <article className="character-detail-card">
                   <span className="eyebrow">Combat sheet</span>
                   <div className="character-combat-grid">
                     <div>
-                      <dt>최대 HP</dt>
+                      <dt>Max HP</dt>
                       <dd>{selectedCharacter.maxHp}</dd>
                     </div>
                     <div>
-                      <dt>방어도</dt>
+                      <dt>Armor Class</dt>
                       <dd>{selectedCharacter.armorClass}</dd>
                     </div>
                     <div>
-                      <dt>이동 속도</dt>
+                      <dt>Speed</dt>
                       <dd>{selectedCharacter.speed}</dd>
                     </div>
                     <div>
-                      <dt>숙련 보너스</dt>
+                      <dt>Proficiency</dt>
                       <dd>+{selectedCharacter.proficiencyBonus}</dd>
                     </div>
                   </div>
@@ -390,7 +338,7 @@ export function CharacterPage({
                     {selectedCharacter.proficientSkills.length ? (
                       selectedCharacter.proficientSkills.map((skill) => <span key={skill}>{skill}</span>)
                     ) : (
-                      <span>숙련 스킬 없음</span>
+                      <span>No skills selected</span>
                     )}
                   </div>
                 </article>
@@ -407,19 +355,19 @@ export function CharacterPage({
                       ))}
                     </ul>
                   ) : (
-                    <p className="character-empty-note">등록된 인벤토리가 없습니다.</p>
+                    <p className="character-empty-note">No inventory items yet.</p>
                   )}
                   <p className="character-equipped-note">
-                    장착 무기: {equippedItem ? equippedItem.name : "없음"}
+                    Equipped weapon: {equippedItem ? equippedItem.name : "None"}
                   </p>
                 </article>
               </div>
-            </>
+            </article>
           ) : (
             <article className="character-focus-card">
               <span className="eyebrow">Character detail</span>
-              <h2>캐릭터를 선택해 주세요.</h2>
-              <p>왼쪽 목록에서 캐릭터를 고르면 상세 정보와 스탯이 여기에 표시됩니다.</p>
+              <h2>Select a character</h2>
+              <p>Choose a card from My roster to inspect that character here.</p>
             </article>
           )}
         </section>
@@ -438,10 +386,10 @@ export function CharacterPage({
             <div className="modal-header">
               <div>
                 <span className="eyebrow">Create character</span>
-                <h2>캐릭터 생성</h2>
+                <h2>New character</h2>
               </div>
               <button type="button" className="modal-close" onClick={closeCreateModal}>
-                닫기
+                Close
               </button>
             </div>
 
@@ -450,13 +398,13 @@ export function CharacterPage({
                 <div className="section-heading compact">
                   <div>
                     <span className="eyebrow">Identity</span>
-                    <h2>기본 정보</h2>
+                    <h2>Profile</h2>
                   </div>
                 </div>
 
                 <div className="field-row">
                   <div>
-                    <label htmlFor="character-name-create">이름</label>
+                    <label htmlFor="character-name-create">Name</label>
                     <input
                       id="character-name-create"
                       value={formState.name}
@@ -466,7 +414,7 @@ export function CharacterPage({
                     />
                   </div>
                   <div>
-                    <label htmlFor="character-level-create">레벨</label>
+                    <label htmlFor="character-level-create">Level</label>
                     <input
                       id="character-level-create"
                       type="number"
@@ -481,7 +429,7 @@ export function CharacterPage({
 
                 <div className="field-row">
                   <div>
-                    <label htmlFor="character-ancestry-create">종족</label>
+                    <label htmlFor="character-ancestry-create">Ancestry</label>
                     <input
                       id="character-ancestry-create"
                       value={formState.ancestry}
@@ -491,7 +439,7 @@ export function CharacterPage({
                     />
                   </div>
                   <div>
-                    <label htmlFor="character-class-create">클래스</label>
+                    <label htmlFor="character-class-create">Class</label>
                     <input
                       id="character-class-create"
                       value={formState.className}
@@ -507,7 +455,7 @@ export function CharacterPage({
                 <div className="section-heading compact">
                   <div>
                     <span className="eyebrow">Combat stats</span>
-                    <h2>전투 수치</h2>
+                    <h2>Core stats</h2>
                   </div>
                 </div>
 
@@ -549,7 +497,7 @@ export function CharacterPage({
                     />
                   </div>
                   <div>
-                    <label htmlFor="character-prof-create">숙련 보너스</label>
+                    <label htmlFor="character-prof-create">Proficiency</label>
                     <input
                       id="character-prof-create"
                       type="number"
@@ -570,7 +518,7 @@ export function CharacterPage({
                 <div className="section-heading compact">
                   <div>
                     <span className="eyebrow">Ability scores</span>
-                    <h2>능력치</h2>
+                    <h2>Abilities</h2>
                   </div>
                 </div>
 
@@ -594,7 +542,7 @@ export function CharacterPage({
                 <div className="section-heading compact">
                   <div>
                     <span className="eyebrow">Skills</span>
-                    <h2>숙련 스킬</h2>
+                    <h2>Proficiencies</h2>
                   </div>
                 </div>
 
@@ -602,10 +550,10 @@ export function CharacterPage({
                   <input
                     value={skillInput}
                     onChange={(event) => setSkillInput(event.target.value)}
-                    placeholder="직접 입력 후 추가"
+                    placeholder="Add a skill"
                   />
                   <button type="button" onClick={() => addSkill(skillInput)}>
-                    추가
+                    Add
                   </button>
                 </div>
 
@@ -622,13 +570,13 @@ export function CharacterPage({
                     (formState.proficientSkills ?? []).map((skill) => (
                       <span key={skill} className="character-selected-chip">
                         {skill}
-                        <button type="button" onClick={() => removeSkill(skill)} aria-label={`${skill} 제거`}>
-                          ×
+                        <button type="button" onClick={() => removeSkill(skill)} aria-label={`Remove ${skill}`}>
+                          x
                         </button>
                       </span>
                     ))
                   ) : (
-                    <span className="status-chip muted">선택된 스킬 없음</span>
+                    <span className="status-chip muted">No skills selected</span>
                   )}
                 </div>
               </section>
@@ -637,10 +585,10 @@ export function CharacterPage({
                 <div className="section-heading compact">
                   <div>
                     <span className="eyebrow">Inventory</span>
-                    <h2>인벤토리</h2>
+                    <h2>Items</h2>
                   </div>
                   <button type="button" onClick={addInventoryRow}>
-                    아이템 추가
+                    Add item
                   </button>
                 </div>
 
@@ -651,28 +599,28 @@ export function CharacterPage({
                         <input
                           value={item.name}
                           onChange={(event) => updateInventoryRow(item.id, "name", event.target.value)}
-                          placeholder="아이템 이름"
+                          placeholder="Item name"
                         />
                         <input
                           type="number"
                           min={1}
                           value={item.quantity}
                           onChange={(event) => updateInventoryRow(item.id, "quantity", event.target.value)}
-                          placeholder="수량"
+                          placeholder="Qty"
                         />
                         <button type="button" className="ghost" onClick={() => removeInventoryRow(item.id)}>
-                          제거
+                          Remove
                         </button>
                       </div>
                     ))
                   ) : (
-                    <p className="character-empty-note">추가된 아이템이 없습니다.</p>
+                    <p className="character-empty-note">No items added yet.</p>
                   )}
                 </div>
               </section>
 
               <button type="submit" className="primary" disabled={busy}>
-                생성
+                Create
               </button>
             </form>
           </div>
