@@ -11,12 +11,25 @@ import { LoginPage } from "../pages/LoginPage";
 import { PlayPage } from "../pages/PlayPage";
 import { ProfilePage } from "../pages/ProfilePage";
 import { AccountPage } from "../pages/AccountPage";
+import { SessionCreatePage } from "../pages/SessionCreatePage";
+import { SessionDiscoverPage } from "../pages/SessionDiscoverPage";
 import type { Scenario } from "../types/session";
 
-type MainView = "main" | "characters" | "rulebook" | "settings" | "profile" | "account" | "play";
+type MainView =
+  | "main"
+  | "characters"
+  | "rulebook"
+  | "settings"
+  | "profile"
+  | "account"
+  | "sessionsDiscover"
+  | "sessionsNew"
+  | "play";
 
 const topNavItems: Array<{ id: Exclude<MainView, "play">; label: string }> = [
   { id: "main", label: "메인" },
+  { id: "sessionsDiscover", label: "세션 찾기" },
+  { id: "sessionsNew", label: "새 게임" },
   { id: "characters", label: "캐릭터" },
   { id: "rulebook", label: "룰북" },
   { id: "settings", label: "설정" },
@@ -31,6 +44,8 @@ const pathByView: Record<MainView, string> = {
   settings: "/settings",
   profile: "/profile",
   account: "/account",
+  sessionsDiscover: "/sessions/discover",
+  sessionsNew: "/sessions/new",
   play: "/play",
 };
 
@@ -49,6 +64,10 @@ function viewFromPathname(pathname: string): MainView | null {
       return "profile";
     case "/account":
       return "account";
+    case "/sessions/discover":
+      return "sessionsDiscover";
+    case "/sessions/new":
+      return "sessionsNew";
     case "/play":
       return "play";
     default:
@@ -239,16 +258,14 @@ export function App() {
         {!isPlayView && activeView === "main" ? (
           <LobbyPage
             user={currentUser}
-            scenarios={scenarios}
             snapshot={session.snapshot}
             sessionList={session.sessionList}
             mySessionList={session.mySessionList}
             logs={logs}
             busy={busy}
             error={error}
-            onCreateSession={handleCreateSession}
-            onJoinSession={handleJoinSession}
-            onJoinSessionById={handleJoinSessionById}
+            onOpenDiscover={() => navigate("/sessions/discover")}
+            onOpenCreate={() => navigate("/sessions/new")}
             onOpenPlay={() => navigate("/play")}
             onLeaveCurrentSession={() => void session.leaveSession()}
           />
@@ -289,11 +306,38 @@ export function App() {
           />
         ) : null}
 
+        {!isPlayView && activeView === "sessionsDiscover" ? (
+          <SessionDiscoverPage
+            snapshot={session.snapshot}
+            sessionList={session.sessionList}
+            mySessionList={session.mySessionList}
+            busy={busy}
+            error={error}
+            onJoinSession={handleJoinSession}
+            onJoinSessionById={handleJoinSessionById}
+            onOpenCreate={() => navigate("/sessions/new")}
+            onOpenPlay={() => navigate("/play")}
+          />
+        ) : null}
+
+        {!isPlayView && activeView === "sessionsNew" ? (
+          <SessionCreatePage
+            scenarios={scenarios}
+            snapshot={session.snapshot}
+            busy={busy}
+            error={error}
+            onCreateSession={handleCreateSession}
+            onOpenDiscover={() => navigate("/sessions/discover")}
+          />
+        ) : null}
+
         {!isPlayView &&
         activeView !== "main" &&
         activeView !== "characters" &&
         activeView !== "profile" &&
-        activeView !== "account" ? (
+        activeView !== "account" &&
+        activeView !== "sessionsDiscover" &&
+        activeView !== "sessionsNew" ? (
           <section className="placeholder-view">
             <span className="eyebrow">Coming soon</span>
             <h1>{topNavItems.find((item) => item.id === activeView)?.label}</h1>
