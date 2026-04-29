@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { AuthProvider } from "@trpg/shared-types";
 import { getMe } from "../services/api";
 import type { AuthMode } from "../types/auth";
 import type { StoredUser, User } from "../types/session";
@@ -21,7 +20,7 @@ function fallbackProfile(user: StoredUser, authMode: AuthMode | null): User {
     email: null,
     name: user.displayName,
     nickname: user.displayName,
-    authProvider: authMode === "guest" ? AuthProvider.GUEST : AuthProvider.LOCAL,
+    authProvider: (authMode === "guest" ? "GUEST" : "LOCAL") as User["authProvider"],
     displayName: user.displayName,
     createdAt: user.createdAt,
   };
