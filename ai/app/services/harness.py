@@ -71,20 +71,12 @@ class AiHarnessService:
         summarizer_service: SummarizerService,
         actor_service: ActorService,
         npc_dialogue_service: NpcDialogueService,
-        director_service: DirectorService,
-        summarizer_service: SummarizerService,
-        actor_service: ActorService,
-        npc_dialogue_service: NpcDialogueService,
         response_logger: HarnessResponseLogger,
     ):
         self._settings = settings
         self._client = client
         self._interpreter_service = interpreter_service
         self._narrator_service = narrator_service
-        self._director_service = director_service
-        self._summarizer_service = summarizer_service
-        self._actor_service = actor_service
-        self._npc_dialogue_service = npc_dialogue_service
         self._director_service = director_service
         self._summarizer_service = summarizer_service
         self._actor_service = actor_service
@@ -800,20 +792,12 @@ def get_ai_harness_service() -> AiHarnessService:
     summarizer_service = SummarizerService(client=client, settings=settings)
     actor_service = ActorService(client=client, settings=settings)
     npc_dialogue_service = NpcDialogueService(client=client, settings=settings)
-    director_service = DirectorService(client=client, settings=settings)
-    summarizer_service = SummarizerService(client=client, settings=settings)
-    actor_service = ActorService(client=client, settings=settings)
-    npc_dialogue_service = NpcDialogueService(client=client, settings=settings)
     response_logger = HarnessResponseLogger(settings)
     return AiHarnessService(
         settings=settings,
         client=client,
         interpreter_service=interpreter_service,
         narrator_service=narrator_service,
-        director_service=director_service,
-        summarizer_service=summarizer_service,
-        actor_service=actor_service,
-        npc_dialogue_service=npc_dialogue_service,
         director_service=director_service,
         summarizer_service=summarizer_service,
         actor_service=actor_service,
