@@ -158,6 +158,11 @@ export function useSession(
     };
   }, [appendLog, snapshot?.session.id, updateSnapshot, user]);
 
+  useEffect(() => {
+    if (!user || !snapshot?.session.id) return;
+    void refreshSessionList();
+  }, [accessToken, snapshot?.session.id, snapshot?.session.status, user]);
+
   async function refreshSessionList() {
     if (!user) return;
 
@@ -338,6 +343,7 @@ export function useSession(
     try {
       const next = await apiStartSession(user, snapshot.session.id, accessToken);
       updateSnapshot(next);
+      await refreshSessionList();
       appendLog("rest", "세션 시작", `${next.session.title} 세션을 시작했습니다.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "세션 시작에 실패했습니다.");
