@@ -1,5 +1,6 @@
 from functools import lru_cache
 import json
+import json
 
 from pydantic import ValidationError
 
@@ -12,13 +13,23 @@ from app.schemas.harness import (
     ActorHarnessResponse,
     DirectorHarnessRequest,
     DirectorHarnessResponse,
+    ActorHarnessRequest,
+    ActorHarnessResponse,
+    DirectorHarnessRequest,
+    DirectorHarnessResponse,
     InterpreterHarnessRequest,
     InterpreterHarnessResponse,
     NarratorHarnessRequest,
     NarratorHarnessResponse,
     NpcDialogueHarnessRequest,
     NpcDialogueHarnessResponse,
+    NpcDialogueHarnessRequest,
+    NpcDialogueHarnessResponse,
     SmokeHarnessRequest,
+    SummarizerHarnessRequest,
+    SummarizerHarnessResponse,
+    TraceListItem,
+    TraceListResponse,
     SummarizerHarnessRequest,
     SummarizerHarnessResponse,
     TraceListItem,
@@ -33,8 +44,18 @@ from app.schemas.summarizer import SummarizerOutput
 from app.schemas.actor import ActorOutput
 from app.services.actor.service import ActorService
 from app.services.director.service import DirectorService
+from app.schemas.interpreter import StructuredAction
+from app.schemas.narrator import NarratorOutput
+from app.schemas.npc_dialogue import NpcDialogueOutput
+from app.schemas.director import DirectorOutput
+from app.schemas.summarizer import SummarizerOutput
+from app.schemas.actor import ActorOutput
+from app.services.actor.service import ActorService
+from app.services.director.service import DirectorService
 from app.services.interpreter.service import InterpreterService
 from app.services.narrator.service import NarratorService
+from app.services.npc_dialogue.service import NpcDialogueService
+from app.services.summarizer.service import SummarizerService
 from app.services.npc_dialogue.service import NpcDialogueService
 from app.services.summarizer.service import SummarizerService
 
@@ -50,12 +71,20 @@ class AiHarnessService:
         summarizer_service: SummarizerService,
         actor_service: ActorService,
         npc_dialogue_service: NpcDialogueService,
+        director_service: DirectorService,
+        summarizer_service: SummarizerService,
+        actor_service: ActorService,
+        npc_dialogue_service: NpcDialogueService,
         response_logger: HarnessResponseLogger,
     ):
         self._settings = settings
         self._client = client
         self._interpreter_service = interpreter_service
         self._narrator_service = narrator_service
+        self._director_service = director_service
+        self._summarizer_service = summarizer_service
+        self._actor_service = actor_service
+        self._npc_dialogue_service = npc_dialogue_service
         self._director_service = director_service
         self._summarizer_service = summarizer_service
         self._actor_service = actor_service
@@ -136,6 +165,17 @@ class AiHarnessService:
                 response=self._fallback_interpreter(request, exc),
                 error=exc,
             )
+        try:
+            response = self._interpreter_service.run(request)
+        except AiClientError as exc:
+            if not self._should_fallback(exc):
+                raise
+            return self._log_and_return_fallback(
+                endpoint="interpreter",
+                request_payload=request.model_dump(),
+                response=self._fallback_interpreter(request, exc),
+                error=exc,
+            )
         log_paths = self._response_logger.log_success(
             endpoint="interpreter",
             request_payload=request.model_dump(),
@@ -145,6 +185,17 @@ class AiHarnessService:
         return response
 
     def run_narrator(self, request: NarratorHarnessRequest) -> NarratorHarnessResponse:
+        try:
+            response = self._narrator_service.run(request)
+        except AiClientError as exc:
+            if not self._should_fallback(exc):
+                raise
+            return self._log_and_return_fallback(
+                endpoint="narrator",
+                request_payload=request.model_dump(),
+                response=self._fallback_narrator(request, exc),
+                error=exc,
+            )
         try:
             response = self._narrator_service.run(request)
         except AiClientError as exc:
@@ -419,6 +470,261 @@ class AiHarnessService:
             fallbackReason=error.message,
         )
 
+    def run_director(self, request: DirectorHarnessRequest) -> DirectorHarnessResponse:
+        try:
+            response = self._director_service.run(request)
+        except AiClientError as exc:
+            if not self._should_fallback(exc):
+                raise
+            return self._log_and_return_fallback(
+                endpoint="director",
+                request_payload=request.model_dump(),
+                response=self._fallback_director(request, exc),
+                error=exc,
+            )
+        log_paths = self._response_logger.log_success(
+            endpoint="director",
+            request_payload=request.model_dump(),
+            response_payload=response.model_dump(),
+        )
+        response.logPaths = log_paths
+        return response
+
+    def run_summarizer(self, request: SummarizerHarnessRequest) -> SummarizerHarnessResponse:
+        try:
+            response = self._summarizer_service.run(request)
+        except AiClientError as exc:
+            if not self._should_fallback(exc):
+                raise
+            return self._log_and_return_fallback(
+                endpoint="summarizer",
+                request_payload=request.model_dump(),
+                response=self._fallback_summarizer(request, exc),
+                error=exc,
+            )
+        log_paths = self._response_logger.log_success(
+            endpoint="summarizer",
+            request_payload=request.model_dump(),
+            response_payload=response.model_dump(),
+        )
+        response.logPaths = log_paths
+        return response
+
+    def run_actor(self, request: ActorHarnessRequest) -> ActorHarnessResponse:
+        try:
+            response = self._actor_service.run(request)
+        except AiClientError as exc:
+            if not self._should_fallback(exc):
+                raise
+            return self._log_and_return_fallback(
+                endpoint="actor",
+                request_payload=request.model_dump(),
+                response=self._fallback_actor(request, exc),
+                error=exc,
+            )
+        log_paths = self._response_logger.log_success(
+            endpoint="actor",
+            request_payload=request.model_dump(),
+            response_payload=response.model_dump(),
+        )
+        response.logPaths = log_paths
+        return response
+
+    def run_npc_dialogue(self, request: NpcDialogueHarnessRequest) -> NpcDialogueHarnessResponse:
+        try:
+            response = self._npc_dialogue_service.run(request)
+        except AiClientError as exc:
+            if not self._should_fallback(exc):
+                raise
+            return self._log_and_return_fallback(
+                endpoint="npc-dialogue",
+                request_payload=request.model_dump(),
+                response=self._fallback_npc_dialogue(request, exc),
+                error=exc,
+            )
+        log_paths = self._response_logger.log_success(
+            endpoint="npc-dialogue",
+            request_payload=request.model_dump(),
+            response_payload=response.model_dump(),
+        )
+        response.logPaths = log_paths
+        return response
+
+    def _should_fallback(self, error: AiClientError) -> bool:
+        if error.status_code < 500:
+            return False
+        return error.failure_type in {
+            "timeout",
+            "rate_limit",
+            "quota",
+            "network",
+            "invalid_response",
+            "schema_validation",
+            "upstream_error",
+        }
+
+    def _fallback_trace(self, *, role: str, error: AiClientError) -> dict[str, object]:
+        return {
+            "role": role,
+            "provider": "template-fallback",
+            "model": "local-template",
+            "promptVersion": f"{role}.fallback.v1",
+            "latencyMs": 0,
+            "attempts": max(1, error.attempts),
+            "failureType": error.failure_type,
+            "finishReason": "FALLBACK",
+            "providerRequestId": None,
+        }
+
+    def _log_and_return_fallback(self, *, endpoint: str, request_payload: dict, response, error: AiClientError):
+        log_paths = self._response_logger.log_fallback(
+            endpoint=endpoint,
+            request_payload=request_payload,
+            response_payload=response.model_dump(),
+            error=error,
+        )
+        response.logPaths = log_paths
+        return response
+
+    def _fallback_interpreter(
+        self, request: InterpreterHarnessRequest, error: AiClientError
+    ) -> InterpreterHarnessResponse:
+        parsed = InterpreterOutput(
+            action=StructuredAction(
+                type="freeform",
+                actorCharacterId=request.actorCharacterId,
+                approach=request.rawText,
+                confidence=0.0,
+                requiresRoll=False,
+            ),
+            needsClarification=True,
+            clarificationQuestion="행동을 조금 더 구체적으로 선택해 주세요.",
+            safetyNotes=["AI 해석 실패로 템플릿 fallback을 사용함", "게임 상태는 변경하지 않음"],
+        )
+        return InterpreterHarnessResponse(
+            provider="template-fallback",
+            model="local-template",
+            latencyMs=0,
+            promptVersion="interpreter.fallback.v1",
+            rawOutput="",
+            finishReason="FALLBACK",
+            trace=self._fallback_trace(role="interpreter", error=error),
+            parsed=parsed,
+            fallback=True,
+            fallbackReason=error.message,
+        )
+
+    def _fallback_narrator(self, request: NarratorHarnessRequest, error: AiClientError) -> NarratorHarnessResponse:
+        summary = (
+            request.stateDiffSummary.summary
+            if request.stateDiffSummary
+            else request.actionSummary or "결과가 확정되었습니다."
+        )
+        narration = f"{summary} 자세한 묘사는 잠시 생략하고, 확정된 결과만 반영합니다."
+        parsed = NarratorOutput(narration=narration, visibleSummary=summary[:120])
+        return NarratorHarnessResponse(
+            provider="template-fallback",
+            model="local-template",
+            latencyMs=0,
+            promptVersion="narrator.fallback.v1",
+            rawOutput="",
+            finishReason="FALLBACK",
+            trace=self._fallback_trace(role="narrator", error=error),
+            parsed=parsed,
+            fallback=True,
+            fallbackReason=error.message,
+        )
+
+    def _fallback_director(self, request: DirectorHarnessRequest, error: AiClientError) -> DirectorHarnessResponse:
+        suggestion = request.publicClues[0] if request.publicClues else "이미 드러난 단서를 한 번 더 살펴보세요."
+        parsed = DirectorOutput(
+            hintLevel=request.hintLevel,
+            content="AI 힌트를 만들지 못했습니다. 공개된 단서 안에서 다음 시도 후보만 제안합니다.",
+            sourceScope="scene",
+            spoilerLevel="low",
+            suggestions=[suggestion],
+            safetyNotes=["새 사실을 추가하지 않는 fallback 힌트"],
+        )
+        return DirectorHarnessResponse(
+            provider="template-fallback",
+            model="local-template",
+            latencyMs=0,
+            promptVersion="director.fallback.v1",
+            rawOutput="",
+            finishReason="FALLBACK",
+            trace=self._fallback_trace(role="director", error=error),
+            parsed=parsed,
+            fallback=True,
+            fallbackReason=error.message,
+        )
+
+    def _fallback_summarizer(
+        self, request: SummarizerHarnessRequest, error: AiClientError
+    ) -> SummarizerHarnessResponse:
+        selected_logs = request.logs[-(request.lastLogCount or min(3, len(request.logs))) :]
+        content = " / ".join(selected_logs)[:1000]
+        parsed = SummarizerOutput(
+            summaryType=request.summaryType,
+            coveredTurnRange=request.rangeType,
+            content=content,
+            keyFacts=selected_logs[:5],
+            safetyNotes=["원문 로그를 압축한 fallback 요약"],
+        )
+        return SummarizerHarnessResponse(
+            provider="template-fallback",
+            model="local-template",
+            latencyMs=0,
+            promptVersion="summarizer.fallback.v1",
+            rawOutput="",
+            finishReason="FALLBACK",
+            trace=self._fallback_trace(role="summarizer", error=error),
+            parsed=parsed,
+            fallback=True,
+            fallbackReason=error.message,
+        )
+
+    def _fallback_actor(self, request: ActorHarnessRequest, error: AiClientError) -> ActorHarnessResponse:
+        selected = request.allowedActions[0]
+        parsed = ActorOutput(
+            selectedActionId=selected.id,
+            reason="AI 판단 실패로 허용된 첫 행동 후보를 안전 fallback으로 선택합니다.",
+            safetyNotes=["허용된 action ID만 선택함", "상태 변경은 백엔드가 확정해야 함"],
+        )
+        return ActorHarnessResponse(
+            provider="template-fallback",
+            model="local-template",
+            latencyMs=0,
+            promptVersion="actor.fallback.v1",
+            rawOutput="",
+            finishReason="FALLBACK",
+            trace=self._fallback_trace(role="actor", error=error),
+            parsed=parsed,
+            fallback=True,
+            fallbackReason=error.message,
+        )
+
+    def _fallback_npc_dialogue(
+        self, request: NpcDialogueHarnessRequest, error: AiClientError
+    ) -> NpcDialogueHarnessResponse:
+        npc_name = request.npcName or request.npcEntityId
+        parsed = NpcDialogueOutput(
+            dialogue=f"{npc_name}: 지금은 말보다 행동으로 답하겠다.",
+            tone=request.disposition,
+            safetyNotes=["NPC 대사 fallback이며 행동 선택이나 상태 변경은 포함하지 않음"],
+        )
+        return NpcDialogueHarnessResponse(
+            provider="template-fallback",
+            model="local-template",
+            latencyMs=0,
+            promptVersion="npc_dialogue.fallback.v1",
+            rawOutput="",
+            finishReason="FALLBACK",
+            trace=self._fallback_trace(role="npc_dialogue", error=error),
+            parsed=parsed,
+            fallback=True,
+            fallbackReason=error.message,
+        )
+
     def log_failure(self, endpoint: str, request_payload: dict, error: AiClientError) -> dict[str, str]:
         return self._response_logger.log_failure(
             endpoint=endpoint,
@@ -431,6 +737,7 @@ class AiHarnessService:
         *,
         role: str | None = None,
         status: str | None = None,
+        session_id: str | None = None,
         size: int = 20,
     ) -> TraceListResponse:
         history_path = self._settings.ai_log_path / "harness_history.jsonl"
@@ -446,6 +753,8 @@ class AiHarnessService:
         for row in rows:
             trace = row.get("aiTrace") or (row.get("response") or {}).get("trace") or {}
             row_role = trace.get("role") or row.get("endpoint")
+            if session_id and trace.get("sessionId") != session_id:
+                continue
             if role and row_role != role:
                 continue
             if status and row.get("status") != status:
@@ -491,12 +800,20 @@ def get_ai_harness_service() -> AiHarnessService:
     summarizer_service = SummarizerService(client=client, settings=settings)
     actor_service = ActorService(client=client, settings=settings)
     npc_dialogue_service = NpcDialogueService(client=client, settings=settings)
+    director_service = DirectorService(client=client, settings=settings)
+    summarizer_service = SummarizerService(client=client, settings=settings)
+    actor_service = ActorService(client=client, settings=settings)
+    npc_dialogue_service = NpcDialogueService(client=client, settings=settings)
     response_logger = HarnessResponseLogger(settings)
     return AiHarnessService(
         settings=settings,
         client=client,
         interpreter_service=interpreter_service,
         narrator_service=narrator_service,
+        director_service=director_service,
+        summarizer_service=summarizer_service,
+        actor_service=actor_service,
+        npc_dialogue_service=npc_dialogue_service,
         director_service=director_service,
         summarizer_service=summarizer_service,
         actor_service=actor_service,
