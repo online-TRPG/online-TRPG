@@ -1,146 +1,121 @@
-# AI Harness
+# AI 폴더 한눈에 보기
 
-이 폴더는 Google AI Studio 기반 Gemma 호출을 빠르게 시험하고, 이후 프로젝트용 역할별 하네스로 확장하기 위한 최소 FastAPI 서비스를 담는다.
+이 폴더는 TRPG 플랫폼의 AI GM 기능을 검증하는 FastAPI 하네스다.
 
-## 확인 기준
+AI는 말을 만들고, 의도를 해석하고, 후보를 제안한다. 게임 상태를 확정하는 쪽은 항상 백엔드 엔진이다.
 
-- 2026-04-23 기준 Google 공식 문서에서 Gemini API가 지원하는 Gemma 4 모델은 `gemma-4-31b-it`, `gemma-4-26b-a4b-it`이다.
-- 따라서 이 하네스의 기본값은 `gemma-4-31b-it`로 맞춘다.
-- 필요하면 역할별로 `AI_MODEL_INTERPRETER`, `AI_MODEL_NARRATOR`를 분리해 다른 Gemma 4 모델을 지정할 수 있다.
+## 지금 기준
 
-공식 참고:
+- 기본 provider: Google AI Studio
+- 기본 모델: `gemma-4-31b-it`
+- 서버 코드: `app/`
+- 프롬프트: `app/prompts/*.md`
+- 생성된 SRD 런타임 데이터: `generated/srd/`
+- 사람이 읽는 SRD 번역 원천: `translated/`
+- 실행 로그: `runtime_logs/`
 
-- [Run Gemma with the Gemini API](https://ai.google.dev/gemma/docs/core/gemma_on_gemini_api)
-- [Structured outputs](https://ai.google.dev/gemini-api/docs/structured-output)
+## 가장 중요한 규칙
 
-## 구성
+1. AI는 HP, 피해, 명중, DC, 상태 변경, 보상, 노드 이동을 확정하지 않는다.
+2. AI 출력은 JSON Schema를 통과해야 한다.
+3. LLM 실패는 세션 실패가 아니다. 역할별 fallback으로 계속 진행한다.
+4. 긴 SRD Markdown을 prompt에 넣지 않는다. `generated/srd/`의 작은 catalog와 rule fragment만 넣는다.
+5. 새 입출력 필드를 추가하면 `AI_STUDIO_IO_FIELD_REFERENCE.md`, schema, test를 같이 고친다.
 
-```text
-ai/
-├─ app/
-│  ├─ api/routes/
-│  │  ├─ harness.py
-│  │  └─ health.py
-│  ├─ clients/google_ai_studio.py
-│  ├─ core/config.py
-│  ├─ prompts/
-│  │  ├─ actor.v1.md
-│  │  ├─ director.v1.md
-│  │  ├─ interpreter.v1.md
-│  │  ├─ narrator.v1.md
-│  │  └─ summarizer.v1.md
-│  ├─ schemas/
-│  │  ├─ actor.py
-│  │  ├─ director.py
-│  │  ├─ harness.py
-│  │  ├─ interpreter.py
-│  │  ├─ narrator.py
-│  │  └─ summarizer.py
-│  ├─ services/
-│  │  ├─ actor/service.py
-│  │  ├─ director/service.py
-│  │  ├─ harness.py
-│  │  ├─ interpreter/service.py
-│  │  ├─ narrator/service.py
-│  │  └─ summarizer/service.py
-│  └─ main.py
-└─ pyproject.toml
-```
+## 문서 읽는 순서
 
-## 빠른 시작
+| 먼저 볼 문서                         | 용도                                       |
+| ------------------------------------ | ------------------------------------------ |
+| `README.md`                          | 현재 구조와 실행법                         |
+| `AI_REQUEST_INVENTORY.md`            | 어떤 AI 요청이 있고 누가 책임지는지        |
+| `AI_STUDIO_IO_FIELD_REFERENCE.md`    | Google AI Studio와 하네스 DTO 필드 뜻      |
+| `SRD_DATA_RULES_PIPELINE_PLAN.md`    | SRD Markdown이 런타임 JSON으로 바뀌는 방식 |
+| `BACKEND_ENGINE_INTEGRATION_PLAN.md` | 백엔드 룰 엔진으로 옮길 hook 순서          |
+| `AI_SHARED_TYPES_ALIGNMENT.md`       | AI DTO와 백엔드/shared-types 매핑          |
+| `translated/README.md`               | SRD 번역 원천 자료 지도                    |
 
-1. 의존성 설치
+## 역할
+
+| 역할          | 하는 일                                   | 하지 않는 일                    |
+| ------------- | ----------------------------------------- | ------------------------------- |
+| `Interpreter` | 플레이어 자연어를 구조화 행동 후보로 바꿈 | 성공/실패, 피해, 상태 변경 확정 |
+| `Narrator`    | 백엔드가 확정한 결과를 한국어로 서술      | 새 사실 추가                    |
+| `Director`    | 공개 정보 안에서 힌트 제안                | 정답 강제, 숨김 단서 공개       |
+| `Summarizer`  | 로그를 플레이어용/AI 문맥용으로 요약      | 새 사실 생성                    |
+| `Actor`       | 허용된 NPC 행동 후보 중 하나 선택         | NPC 대사 작성, 새 행동 생성     |
+| `NpcDialogue` | 이미 허용된 상황 안에서 NPC 대사 작성     | 행동 선택, 결과 확정            |
+
+## API
+
+하네스 직접 호출:
+
+- `GET /api/health`
+- `POST /api/harness/smoke`
+- `POST /api/harness/interpreter`
+- `POST /api/harness/narrator`
+- `POST /api/harness/director`
+- `POST /api/harness/summarizer`
+- `POST /api/harness/actor`
+- `POST /api/harness/npc-dialogue`
+- `GET /api/harness/traces`
+
+백엔드 세션 API 모양으로 재사용하는 경로:
+
+- `POST /api/v1/sessions/{sessionId}/ai/hint`
+- `POST /api/v1/sessions/{sessionId}/ai/npc-dialogue`
+- `POST /api/v1/sessions/{sessionId}/ai/narration`
+- `POST /api/v1/sessions/{sessionId}/ai/summary`
+- `GET /api/v1/sessions/{sessionId}/ai-traces`
+
+현재 AI 서버 자체는 최종 세션 권한/모드 검증자가 아니다. 실제 제품에서는 백엔드가 세션, 권한, GM 모드를 검증한 뒤 호출한다.
+
+## 빠른 실행
 
 ```powershell
 cd C:\Users\SSAFY\work\S14P31A201\ai
 python -m pip install -e .[dev]
-```
-
-2. 환경변수 설정
-
-```powershell
 Copy-Item .env.example .env
-```
-
-`.env`에 `GOOGLE_API_KEY`를 넣는다.
-
-3. 서버 실행
-
-```powershell
 uvicorn app.main:app --reload --port 8100
 ```
 
-4. 스모크 테스트
+`.env`에는 `GOOGLE_API_KEY`를 넣는다.
+
+## 자주 쓰는 검증
 
 ```powershell
-Invoke-RestMethod `
-  -Uri http://127.0.0.1:8100/internal/ai/smoke `
-  -Method Post `
-  -ContentType 'application/json' `
-  -Body (@{
-    prompt = '플레이어가 "문을 조사한다"라고 말했다. 이를 구조화 액션으로 바꿔라.'
-  } | ConvertTo-Json)
+python -m pytest
+python -m app.srd.build --output-dir generated\srd
 ```
 
-## 엔드포인트
+실제 Google AI Studio 호출 검증은 키가 있을 때만 실행한다.
 
-- `GET /internal/ai/health`
-- `POST /internal/ai/smoke`
-- `POST /internal/ai/interpreter`
-- `POST /internal/ai/narrator`
-- `POST /internal/ai/director`
-- `POST /internal/ai/summarizer`
-- `POST /internal/ai/actor`
-- `POST /internal/ai/npc-dialogue`
-- `GET /internal/ai/traces`
+```powershell
+$env:RUN_LIVE_GOOGLE_AI_STUDIO='1'; python -m pytest app\tests\test_live_google_ai_studio.py -s
+```
 
-성공 응답에는 아래 trace가 포함된다.
+## 현재 생성 데이터
 
-- `attempts`: 실제 호출 시도 횟수
-- `finishReason`: Google 응답 종료 사유
-- `providerRequestId`: 제공자 요청 식별자
-- `logPaths.latest`: 마지막 응답 전체 JSON 파일
-- `logPaths.history`: 누적 JSONL 로그 파일
+`generated/srd/`는 런타임에 필요한 compact catalog라서 repo에 포함한다.
 
-실패 응답은 HTTP 에러와 함께 아래 detail을 반환한다.
+| 데이터                              | 현재 개수 |
+| ----------------------------------- | --------: |
+| 주문                                |       319 |
+| 상태 이상                           |        15 |
+| 규칙 카드                           |        80 |
+| 규칙 조각                           |        11 |
+| 규칙 hook fixture                   |        12 |
+| 마법 아이템                         |       239 |
+| 장비 item                           |       145 |
+| 장비 참조 섹션                      |         8 |
+| 몬스터/NPC                          |       317 |
+| 종족                                |         9 |
+| 직업                                |        12 |
+| 백엔드 P0 contract case             |        12 |
+| Interpreter -> backend handoff case |         3 |
+| Narrator input fixture              |         3 |
 
-- `failureType`: `timeout`, `rate_limit`, `quota`, `network`, `auth`, `invalid_response`, `schema_validation`, `upstream_error`
-- `retryable`: 재시도 가능 여부
-- `attempts`: 실패 시점까지의 시도 횟수
-- `logPaths.latest`: 마지막 실패 전체 JSON 파일
-- `logPaths.history`: 누적 JSONL 로그 파일
+## 다음에 할 일
 
-## 로그 파일
-
-기본 저장 위치는 `ai/runtime_logs/`다.
-
-- `smoke.latest.json`
-- `interpreter.latest.json`
-- `narrator.latest.json`
-- `director.latest.json`
-- `summarizer.latest.json`
-- `actor.latest.json`
-- `npc-dialogue.latest.json`
-- `harness_history.jsonl`
-
-응답을 한 번 호출한 뒤 이 파일들을 열면 요청, 응답, 에러를 바로 확인할 수 있다.
-각 history row에는 백엔드 `AiTrace` 저장 포맷의 1차 기준인 `aiTrace` 객체가 함께 저장된다.
-
-## 다음 단계
-
-- 상세 요청 목록과 제한 기준은 `ai/AI_REQUEST_INVENTORY.md`를 우선 기준으로 본다.
-- Google AI Studio로 보내거나 받는 필드, prompt context, JSON schema를 추가할 때는 `ai/AI_STUDIO_IO_FIELD_REFERENCE.md`에 필드 의미를 반드시 함께 추가한다.
-- 백엔드 엔진 연결 순서는 `ai/BACKEND_ENGINE_INTEGRATION_PLAN.md`에 분리했다.
-- `shared-types`와 AI 입출력 DTO 정렬 기준은 `ai/AI_SHARED_TYPES_ALIGNMENT.md`에 분리했다.
-- 실패 유형별 fallback 정책과 백엔드 연동은 하네스 기준 1차 준비됨
-- 실제 interpreter/narrator 프롬프트는 플레이 로그 기반 해석/서술 규칙을 1차 반영함
-- 2026-04-28 live Google AI Studio 프롬프트 회귀 검증 9개 시나리오 통과
-- 백엔드 엔진 P0 연결 준비 산출물은 `generated/srd/backend_engine_p0_contracts.json`에 생성됨
-- shared-types adapter 준비 산출물은 `app/adapters/shared_types.py`에 생성됨
-- P0 contract edge case는 12개 정상/경계/거절 case로 확장됨
-- Interpreter -> backend hook handoff 샘플은 `generated/srd/interpreter_backend_handoff_cases.json`에 생성됨
-- Narrator 입력 fixture는 `generated/srd/narrator_input_fixtures.json`에 생성됨
-- AI Narrator의 상태 요약 DTO 이름은 `NarratorStateDiffSummary`/`stateDiffSummary`로 고정됨
-- trace row 상태값은 `success`, `failure`, `fallback`으로 고정됨
-- `Actor`는 NPC 행동 선택, `NpcDialogue`는 NPC 대사 생성 역할로 분리되고 `/internal/ai/npc-dialogue`로 구현됨
-- 다음 실행 후보는 운영 로그/trace fixture 정리다.
+1. 백엔드 구현을 시작하면 `BACKEND_ENGINE_INTEGRATION_PLAN.md`의 P0 hook부터 옮긴다.
+2. shared-types를 만들면 `AI_SHARED_TYPES_ALIGNMENT.md`의 adapter 기준을 옮긴다.
+3. prompt나 schema를 바꾸면 일반 test와 live smoke를 다시 돌린다.
