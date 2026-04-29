@@ -10,9 +10,10 @@ import { LobbyPage } from "../pages/LobbyPage";
 import { LoginPage } from "../pages/LoginPage";
 import { PlayPage } from "../pages/PlayPage";
 import { ProfilePage } from "../pages/ProfilePage";
+import { AccountPage } from "../pages/AccountPage";
 import type { Scenario } from "../types/session";
 
-type MainView = "main" | "characters" | "rulebook" | "settings" | "profile" | "play";
+type MainView = "main" | "characters" | "rulebook" | "settings" | "profile" | "account" | "play";
 
 const topNavItems: Array<{ id: Exclude<MainView, "play">; label: string }> = [
   { id: "main", label: "메인" },
@@ -20,6 +21,7 @@ const topNavItems: Array<{ id: Exclude<MainView, "play">; label: string }> = [
   { id: "rulebook", label: "룰북" },
   { id: "settings", label: "설정" },
   { id: "profile", label: "프로필" },
+  { id: "account", label: "계정" },
 ];
 
 const pathByView: Record<MainView, string> = {
@@ -28,6 +30,7 @@ const pathByView: Record<MainView, string> = {
   rulebook: "/rulebook",
   settings: "/settings",
   profile: "/profile",
+  account: "/account",
   play: "/play",
 };
 
@@ -44,6 +47,8 @@ function viewFromPathname(pathname: string): MainView | null {
     case "/profile":
     case "/users/me/profile":
       return "profile";
+    case "/account":
+      return "account";
     case "/play":
       return "play";
     default:
@@ -268,10 +273,27 @@ export function App() {
             busy={busy}
             error={error}
             onLogout={handleLogout}
+            onOpenAccount={() => navigate("/account")}
           />
         ) : null}
 
-        {!isPlayView && activeView !== "main" && activeView !== "characters" && activeView !== "profile" ? (
+        {!isPlayView && activeView === "account" ? (
+          <AccountPage
+            user={currentUser}
+            accessToken={auth.accessToken}
+            authMode={auth.authMode}
+            busy={busy}
+            error={error}
+            onLogout={handleLogout}
+            onOpenProfile={() => navigate("/users/me/profile")}
+          />
+        ) : null}
+
+        {!isPlayView &&
+        activeView !== "main" &&
+        activeView !== "characters" &&
+        activeView !== "profile" &&
+        activeView !== "account" ? (
           <section className="placeholder-view">
             <span className="eyebrow">Coming soon</span>
             <h1>{topNavItems.find((item) => item.id === activeView)?.label}</h1>
