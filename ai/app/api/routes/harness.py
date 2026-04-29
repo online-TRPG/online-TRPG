@@ -14,7 +14,7 @@ from app.schemas.harness import (
 from app.services.harness import AiHarnessService, get_ai_harness_service
 
 
-router = APIRouter(prefix="/api/harness", tags=["harness"])
+router = APIRouter(prefix="/internal/ai", tags=["internal-ai"])
 
 
 @router.post("/smoke")

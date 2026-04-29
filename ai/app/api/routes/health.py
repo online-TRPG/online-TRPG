@@ -6,7 +6,7 @@ from app.core.config import get_settings
 router = APIRouter(tags=["health"])
 
 
-@router.get("/api/health")
+@router.get("/internal/ai/health")
 def health() -> dict[str, str | bool]:
     settings = get_settings()
     return {

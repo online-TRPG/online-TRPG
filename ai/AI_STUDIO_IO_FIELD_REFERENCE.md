@@ -333,7 +333,7 @@ NpcDialogue 검증 규칙:
 
 ### 9.2 Trace 조회 필드
 
-`GET /api/harness/traces`는 Google AI Studio를 호출하지 않고 `harness_history.jsonl`을 조회한다.
+`GET /internal/ai/traces`는 Google AI Studio를 호출하지 않고 `harness_history.jsonl`을 조회한다.
 
 `harness_history.jsonl`의 각 row에는 백엔드 `AiTrace` 저장 포맷으로 옮길 수 있는 `aiTrace` 객체가 포함된다. 기존 `response.trace`는 응답 요약이고, `aiTrace`는 세션/턴/로그 경로까지 포함하는 저장 기준이다.
 

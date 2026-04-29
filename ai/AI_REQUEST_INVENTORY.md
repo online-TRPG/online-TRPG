@@ -489,14 +489,14 @@ LLM 실패가 세션 정지를 의미하면 안 된다.
 
 현재 `ai/` 구현은 아래만 있다.
 
-- `POST /api/harness/smoke`
-- `POST /api/harness/interpreter`
-- `POST /api/harness/narrator`
-- `POST /api/harness/director`
-- `POST /api/harness/summarizer`
-- `POST /api/harness/actor`
-- `POST /api/harness/npc-dialogue`
-- `GET /api/harness/traces`
+- `POST /internal/ai/smoke`
+- `POST /internal/ai/interpreter`
+- `POST /internal/ai/narrator`
+- `POST /internal/ai/director`
+- `POST /internal/ai/summarizer`
+- `POST /internal/ai/actor`
+- `POST /internal/ai/npc-dialogue`
+- `GET /internal/ai/traces`
 
 현재 입출력 필드 기준 문서는 `AI_STUDIO_IO_FIELD_REFERENCE.md`다. 새 요청 DTO, 응답 DTO, prompt context 필드를 추가하는 설계는 이 기준서 갱신 없이는 완료로 보지 않는다.
 
@@ -512,7 +512,7 @@ LLM 실패가 세션 정지를 의미하면 안 된다.
 - `NpcDialogue`는 `Actor`와 합치지 않고 별도 역할/스키마/프롬프트/서비스/엔드포인트로 구현되어 있다.
 - 역할별 fallback 템플릿 체계는 하네스 기준으로 1차 준비됨. 5xx/provider/schema 런타임 실패는 세션 지속 fallback으로 응답하고, 4xx 요청 위반은 에러로 유지한다.
 - `AiTrace` 저장 포맷 매핑은 `harness_history.jsonl`의 `aiTrace` 객체 기준으로 1차 준비됨
-- 운영용 trace 조회/필터 DTO는 `/api/harness/traces` 기준으로 1차 준비됨
+- 운영용 trace 조회/필터 DTO는 `/internal/ai/traces` 기준으로 1차 준비됨
 - 캐릭터 생성용 SRD catalog는 1차 준비됨. 12개 직업 시작 장비, typed 주문시전 진행표, 한국어 표시명/alias가 들어간 145개 장비 item은 `generated/srd/classes.jsonl`, `equipment_items.jsonl`, `srd_qa_report.json`에서 검증한다.
 - deterministic rule hook의 백엔드 연결 순서는 `BACKEND_ENGINE_INTEGRATION_PLAN.md`에 분리됨
 - fallback 응답은 `fallback=true`, `fallbackReason`, `trace.failureType`, `finishReason=FALLBACK`를 포함하고 `harness_history.jsonl`에 status=`fallback`으로 기록한다.

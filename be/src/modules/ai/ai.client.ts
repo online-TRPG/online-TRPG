@@ -60,7 +60,7 @@ export class AiClient {
   }
 
   async runNarrator(payload: NarratorRequestPayload): Promise<NarratorResponsePayload> {
-    return this.postJson<NarratorResponsePayload>("/api/harness/narrator", payload);
+    return this.postJson<NarratorResponsePayload>("/internal/ai/narrator", payload);
   }
 
   private async postJson<T>(path: string, body: unknown): Promise<T> {

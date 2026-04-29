@@ -74,7 +74,7 @@ uvicorn app.main:app --reload --port 8100
 
 ```powershell
 Invoke-RestMethod `
-  -Uri http://127.0.0.1:8100/api/harness/smoke `
+  -Uri http://127.0.0.1:8100/internal/ai/smoke `
   -Method Post `
   -ContentType 'application/json' `
   -Body (@{
@@ -84,15 +84,15 @@ Invoke-RestMethod `
 
 ## 엔드포인트
 
-- `GET /api/health`
-- `POST /api/harness/smoke`
-- `POST /api/harness/interpreter`
-- `POST /api/harness/narrator`
-- `POST /api/harness/director`
-- `POST /api/harness/summarizer`
-- `POST /api/harness/actor`
-- `POST /api/harness/npc-dialogue`
-- `GET /api/harness/traces`
+- `GET /internal/ai/health`
+- `POST /internal/ai/smoke`
+- `POST /internal/ai/interpreter`
+- `POST /internal/ai/narrator`
+- `POST /internal/ai/director`
+- `POST /internal/ai/summarizer`
+- `POST /internal/ai/actor`
+- `POST /internal/ai/npc-dialogue`
+- `GET /internal/ai/traces`
 
 성공 응답에는 아래 trace가 포함된다.
 
@@ -142,5 +142,5 @@ Invoke-RestMethod `
 - Narrator 입력 fixture는 `generated/srd/narrator_input_fixtures.json`에 생성됨
 - AI Narrator의 상태 요약 DTO 이름은 `NarratorStateDiffSummary`/`stateDiffSummary`로 고정됨
 - trace row 상태값은 `success`, `failure`, `fallback`으로 고정됨
-- `Actor`는 NPC 행동 선택, `NpcDialogue`는 NPC 대사 생성 역할로 분리되고 `/api/harness/npc-dialogue`로 구현됨
+- `Actor`는 NPC 행동 선택, `NpcDialogue`는 NPC 대사 생성 역할로 분리되고 `/internal/ai/npc-dialogue`로 구현됨
 - 다음 실행 후보는 운영 로그/trace fixture 정리다.
