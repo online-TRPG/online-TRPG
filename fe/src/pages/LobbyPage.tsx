@@ -47,7 +47,7 @@ export function LobbyPage({
         <section className="page-sidebar-block">
           <span className="eyebrow">Welcome back</span>
           <h2>{user.displayName}</h2>
-          <p>오늘 진행할 세션을 확인하거나, 새 모험을 바로 열어보세요.</p>
+          <p>메인 대시보드에서 현재 세션, 참여 가능한 세션, 최근 활동 로그를 확인할 수 있습니다.</p>
         </section>
 
         <div className="quick-action-panel">
@@ -60,18 +60,18 @@ export function LobbyPage({
 
           <button type="button" onClick={onOpenDiscover}>
             <Icon name="eye" />
-            세션 찾기
+            세션 탐색
           </button>
 
           <button type="button" onClick={onOpenCreate}>
             <Icon name="plus" />
-            새 세션 만들기
+            새 세션 생성
           </button>
 
           {snapshot ? (
             <button type="button" disabled={busy} onClick={onLeaveCurrentSession}>
               <Icon name="close" />
-              세션 나가기
+              현재 세션 나가기
             </button>
           ) : null}
         </div>
@@ -91,10 +91,12 @@ export function LobbyPage({
               <article className="session-card">
                 <div className="session-card-top">
                   <span className="status-chip">{snapshot.session.gmMode} GM</span>
-                  <span className="status-chip muted">{STATUS_LABEL[snapshot.session.status] ?? snapshot.session.status}</span>
+                  <span className="status-chip muted">
+                    {STATUS_LABEL[snapshot.session.status] ?? snapshot.session.status}
+                  </span>
                 </div>
                 <h3>{snapshot.session.title}</h3>
-                <p>{snapshot.session.description || "현재 참가 중인 세션입니다."}</p>
+                <p>{snapshot.session.description || "현재 참여 중인 세션입니다."}</p>
                 <dl className="session-meta">
                   <div>
                     <dt>Invite</dt>
@@ -111,8 +113,8 @@ export function LobbyPage({
               </article>
             ) : (
               <article className="empty-card">
-                <h3>현재 참가 중인 세션이 없습니다.</h3>
-                <p>공개 세션을 둘러보거나 새 모험을 만들어 첫 파티를 시작해보세요.</p>
+                <h3>현재 참여 중인 세션이 없습니다.</h3>
+                <p>새 세션을 만들거나 초대 코드로 참가한 뒤 여기에서 다시 열 수 있습니다.</p>
               </article>
             )}
           </div>
@@ -122,25 +124,25 @@ export function LobbyPage({
           <div className="section-heading">
             <div>
               <span className="eyebrow">Overview</span>
-              <h2>세션 현황</h2>
+              <h2>세션 개요</h2>
             </div>
           </div>
 
           <div className="dashboard-grid">
             <article className="dashboard-card">
-              <strong>공개 세션</strong>
+              <strong>참가 가능 세션</strong>
               <span>{sessionList.length}개</span>
-              <p>지금 바로 참가 가능한 세션 수입니다.</p>
+              <p>공개 상태로 열려 있는 세션 목록입니다.</p>
             </article>
             <article className="dashboard-card">
               <strong>내 세션</strong>
               <span>{mySessionList.length}개</span>
-              <p>내가 참여 중이거나 기록이 남아 있는 세션입니다.</p>
+              <p>내가 만든 세션과 참여 중인 세션입니다.</p>
             </article>
             <article className="dashboard-card">
-              <strong>실시간 로그</strong>
+              <strong>최근 활동 로그</strong>
               <span>{logs.length}건</span>
-              <p>현재 앱 세션에서 수집된 이벤트 로그 수입니다.</p>
+              <p>최근 인증, 세션 참여, 실시간 연결 이벤트를 보여줍니다.</p>
             </article>
           </div>
         </section>
@@ -149,7 +151,7 @@ export function LobbyPage({
           <div className="section-heading">
             <div>
               <span className="eyebrow">Recent</span>
-              <h2>내 최근 세션</h2>
+              <h2>최근 세션</h2>
             </div>
           </div>
 
@@ -179,8 +181,8 @@ export function LobbyPage({
               ))
             ) : (
               <article className="empty-card">
-                <h3>아직 참여한 세션이 없습니다.</h3>
-                <p>세션을 시작하면 여기서 최근 활동을 빠르게 확인할 수 있습니다.</p>
+                <h3>아직 참가한 세션이 없습니다.</h3>
+                <p>세션을 생성하거나 목록에서 참가하면 여기에 다시 볼 수 있습니다.</p>
               </article>
             )}
           </div>
