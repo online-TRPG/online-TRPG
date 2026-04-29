@@ -1,4 +1,12 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import defaultArcherImage from "../assets/images/Profile_Default_Archer.png";
+import defaultRogueImage from "../assets/images/Profile_Default_Rouge.png";
+import defaultWarriorImage from "../assets/images/Profile_Default_Warrior.png";
+import defaultWizardImage from "../assets/images/Profile_Default_Wizard.png";
+import boxBulletinNarrow from "../components/Box_Bulletin_Narrow.png";
+import navbarImage from "../components/Navbar.png";
+import profileBorderCharacter from "../components/Profile_Border_Character.png";
+import profileBorderStats from "../components/Profile_Border_Stats.png";
 import { Icon } from "../components/Icon";
 import type { CharacterPayload } from "../hooks/useSession";
 import type { PersistentCharacter, SessionSnapshot, StoredUser } from "../types/session";
@@ -72,6 +80,32 @@ function formatModifier(score: number) {
   return modifier >= 0 ? `+${modifier}` : `${modifier}`;
 }
 
+function getCharacterArt(className: string) {
+  const normalized = className.toLowerCase();
+  if (normalized.includes("wizard") || normalized.includes("mage") || normalized.includes("sorcer")) {
+    return defaultWizardImage;
+  }
+  if (normalized.includes("archer") || normalized.includes("ranger") || normalized.includes("bow")) {
+    return defaultArcherImage;
+  }
+  if (normalized.includes("rogue") || normalized.includes("rouge") || normalized.includes("thief")) {
+    return defaultRogueImage;
+  }
+  if (normalized.includes("fighter") || normalized.includes("warrior") || normalized.includes("knight")) {
+    return defaultWarriorImage;
+  }
+  return defaultWizardImage;
+}
+
+function getCharacterClassLabel(className: string) {
+  const normalized = className.toLowerCase();
+  if (normalized.includes("wizard") || normalized.includes("mage") || normalized.includes("sorcer")) return "마법사";
+  if (normalized.includes("archer") || normalized.includes("ranger") || normalized.includes("bow")) return "궁수";
+  if (normalized.includes("rogue") || normalized.includes("rouge") || normalized.includes("thief")) return "도적";
+  if (normalized.includes("fighter") || normalized.includes("warrior") || normalized.includes("knight")) return "전사";
+  return className;
+}
+
 export function CharacterPage({
   user,
   characters,
@@ -85,9 +119,6 @@ export function CharacterPage({
   const [skillInput, setSkillInput] = useState("");
   const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftItem[]>([]);
   const [formState, setFormState] = useState<CharacterPayload>(defaultCharacter);
-
-  const activeCharacterId =
-    snapshot?.participants.find((participant) => participant.userId === user.id)?.characterId ?? null;
 
   useEffect(() => {
     if (!isCreateModalOpen) return undefined;
@@ -106,21 +137,27 @@ export function CharacterPage({
       return;
     }
 
-    if (activeCharacterId && characters.some((character) => character.id === activeCharacterId)) {
-      setSelectedCharacterId(activeCharacterId);
-      return;
-    }
-
     setSelectedCharacterId((current) => current ?? characters[0].id);
-  }, [activeCharacterId, characters]);
+  }, [characters]);
 
   const selectedCharacter = useMemo(
     () => characters.find((character) => character.id === selectedCharacterId) ?? null,
     [characters, selectedCharacterId],
   );
 
-  const equippedItem =
-    selectedCharacter?.inventory.find((item) => item.id === selectedCharacter.equippedWeaponId) ?? null;
+  const usedCharacterIds = useMemo(() => {
+    const ids = new Set<string>();
+
+    snapshot?.participants.forEach((participant) => {
+      if (participant.characterId) ids.add(participant.characterId);
+    });
+
+    characters.forEach((character) => {
+      if (character.activeSessionId) ids.add(character.id);
+    });
+
+    return ids;
+  }, [characters, snapshot]);
 
   function resetCreateForm() {
     setFormState(defaultCharacter);
@@ -208,166 +245,167 @@ export function CharacterPage({
   }
 
   return (
-    <main className="character-page character-screen">
-      <section className="character-screen-grid">
-        <section className="character-library character-library-panel">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">My roster</span>
-              <h2>{characters.length} characters</h2>
+    <main className="character-page fantasy-character-page">
+      <section className="fantasy-character-layout">
+        <aside className="fantasy-character-sidebar">
+          <button
+            type="button"
+            className="fantasy-character-sidebutton"
+            style={{ backgroundImage: `url(${navbarImage})` }}
+            onClick={openCreateModal}
+          >
+            새 캐릭터 생성
+          </button>
+          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${navbarImage})` }} disabled>
+            캐릭터 복제
+          </button>
+          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${navbarImage})` }} disabled>
+            캐릭터 수정
+          </button>
+          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${navbarImage})` }} disabled>
+            캐릭터 삭제
+          </button>
+        </aside>
+
+        <section className="fantasy-character-board" style={{ backgroundImage: `url(${boxBulletinNarrow})` }}>
+          <div className="fantasy-character-board-scroll fantasy-scroll-hidden">
+            <div className="fantasy-character-grid">
+              {characters.map((character) => {
+                const isSelected = character.id === selectedCharacterId;
+                const isInUse = usedCharacterIds.has(character.id);
+                const art = getCharacterArt(character.className);
+
+                return (
+                  <button
+                    type="button"
+                    key={character.id}
+                    className={`fantasy-character-card${isSelected ? " selected" : ""}`}
+                    onClick={() => setSelectedCharacterId(character.id)}
+                  >
+                    <div
+                      className="fantasy-character-card-frame"
+                      style={{ ["--frame-image" as string]: `url(${profileBorderCharacter})` }}
+                    >
+                      <img src={art} alt={character.name} className="fantasy-character-card-art" />
+                      {isInUse ? <div className="fantasy-character-card-overlay">사용 중...</div> : null}
+                      <div className="fantasy-character-card-nameplate">{character.name}</div>
+                      <div className="fantasy-character-card-class">{getCharacterClassLabel(character.className)}</div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
-            <button type="button" className="primary compact-action" onClick={openCreateModal}>
-              <Icon name="plus" />
-              New character
-            </button>
           </div>
-
-          <div className="character-library-grid">
-            {characters.map((character) => (
-              <button
-                type="button"
-                key={character.id}
-                className={`character-library-card${character.id === selectedCharacterId ? " active" : ""}`}
-                onClick={() => setSelectedCharacterId(character.id)}
-              >
-                <div className="character-profile-card">
-                  <div className="character-profile-avatar">{character.name.slice(0, 1)}</div>
-                  <strong>{character.name}</strong>
-                  <span>
-                    {character.ancestry} / {character.className}
-                  </span>
-                </div>
-
-                <dl className="character-library-meta">
-                  <div>
-                    <dt>LV</dt>
-                    <dd>{character.level}</dd>
-                  </div>
-                  <div>
-                    <dt>HP</dt>
-                    <dd>{character.maxHp}</dd>
-                  </div>
-                  <div>
-                    <dt>AC</dt>
-                    <dd>{character.armorClass}</dd>
-                  </div>
-                  <div>
-                    <dt>SPD</dt>
-                    <dd>{character.speed}</dd>
-                  </div>
-                </dl>
-
-                <div className="character-card-tags">
-                  <span className={`status-chip${character.isSelectable ? "" : " muted"}`}>
-                    {character.isSelectable ? "Selectable" : "Locked"}
-                  </span>
-                  {character.activeSessionId ? <span className="status-chip muted">In session</span> : null}
-                </div>
-              </button>
-            ))}
-          </div>
+          <div className="fantasy-scroll-indicator">⌄</div>
         </section>
 
-        <section className="character-detail-shell">
+        <section className="fantasy-character-detail">
           {selectedCharacter ? (
-            <article className="character-focus-card character-detail-panel">
-              <div className="character-detail-panel-top">
-                <div className="character-detail-hero-head">
-                  <div className="avatar avatar-xl">{selectedCharacter.name.slice(0, 1)}</div>
-                  <div>
-                    <span className="eyebrow">Character detail</span>
+            <>
+              <article
+                className="fantasy-character-profile-frame"
+                style={{ ["--frame-image" as string]: `url(${profileBorderCharacter})` }}
+              >
+                <img
+                  src={getCharacterArt(selectedCharacter.className)}
+                  alt={selectedCharacter.name}
+                  className="fantasy-character-profile-art"
+                />
+                <div className="fantasy-character-profile-name">{selectedCharacter.name}</div>
+                <div className="fantasy-character-profile-class">{getCharacterClassLabel(selectedCharacter.className)}</div>
+              </article>
+
+              <article
+                className="fantasy-character-stats-frame"
+                style={{ ["--frame-image" as string]: `url(${profileBorderStats})` }}
+              >
+                <div className="fantasy-character-stats-scroll fantasy-scroll-hidden">
+                  <div className="fantasy-character-stats-content">
                     <h2>{selectedCharacter.name}</h2>
-                    <p>
-                      {selectedCharacter.ancestry} / {selectedCharacter.className} / Lv {selectedCharacter.level}
-                    </p>
-                  </div>
-                </div>
 
-                <div className="character-detail-actions">
-                  <button type="button" disabled>
-                    Edit
-                  </button>
-                  <button type="button" disabled>
-                    Duplicate
-                  </button>
-                  <button type="button" className="danger-button" disabled>
-                    Delete
-                  </button>
-                </div>
-              </div>
-
-              <div className="character-detail-grid">
-                <article className="character-detail-card">
-                  <span className="eyebrow">Combat sheet</span>
-                  <div className="character-combat-grid">
-                    <div>
-                      <dt>Max HP</dt>
-                      <dd>{selectedCharacter.maxHp}</dd>
-                    </div>
-                    <div>
-                      <dt>Armor Class</dt>
-                      <dd>{selectedCharacter.armorClass}</dd>
-                    </div>
-                    <div>
-                      <dt>Speed</dt>
-                      <dd>{selectedCharacter.speed}</dd>
-                    </div>
-                    <div>
-                      <dt>Proficiency</dt>
-                      <dd>+{selectedCharacter.proficiencyBonus}</dd>
-                    </div>
-                  </div>
-                </article>
-
-                <article className="character-detail-card">
-                  <span className="eyebrow">Ability scores</span>
-                  <div className="character-ability-grid">
-                    {(Object.keys(abilityLabels) as AbilityKey[]).map((ability) => (
-                      <div key={ability}>
-                        <dt>{abilityLabels[ability]}</dt>
-                        <dd>{selectedCharacter.abilities[ability]}</dd>
-                        <span>{formatModifier(selectedCharacter.abilities[ability])}</span>
+                    <dl className="fantasy-character-summary-list">
+                      <div>
+                        <dt>종족</dt>
+                        <dd>{selectedCharacter.ancestry}</dd>
                       </div>
-                    ))}
-                  </div>
-                </article>
+                      <div>
+                        <dt>직업</dt>
+                        <dd>{getCharacterClassLabel(selectedCharacter.className)}</dd>
+                      </div>
+                      <div>
+                        <dt>레벨</dt>
+                        <dd>{selectedCharacter.level}</dd>
+                      </div>
+                      <div>
+                        <dt>HP</dt>
+                        <dd>
+                          {selectedCharacter.maxHp}/{selectedCharacter.maxHp}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>AC</dt>
+                        <dd>{selectedCharacter.armorClass}</dd>
+                      </div>
+                      <div>
+                        <dt>속도</dt>
+                        <dd>{selectedCharacter.speed}</dd>
+                      </div>
+                      <div>
+                        <dt>Proficiency</dt>
+                        <dd>{selectedCharacter.proficiencyBonus}</dd>
+                      </div>
+                    </dl>
 
-                <article className="character-detail-card">
-                  <span className="eyebrow">Skills & traits</span>
-                  <div className="character-chip-row">
-                    {selectedCharacter.proficientSkills.length ? (
-                      selectedCharacter.proficientSkills.map((skill) => <span key={skill}>{skill}</span>)
-                    ) : (
-                      <span>No skills selected</span>
-                    )}
-                  </div>
-                </article>
+                    <section className="fantasy-character-stats-section">
+                      <h3>기본 스탯</h3>
+                      <div className="fantasy-character-abilities-grid">
+                        {(Object.keys(abilityLabels) as AbilityKey[]).map((ability) => (
+                          <div key={ability}>
+                            <strong>{abilityLabels[ability]}</strong>
+                            <span>{selectedCharacter.abilities[ability]}</span>
+                            <small>{formatModifier(selectedCharacter.abilities[ability])}</small>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
 
-                <article className="character-detail-card">
-                  <span className="eyebrow">Inventory</span>
-                  {selectedCharacter.inventory.length ? (
-                    <ul className="character-inventory-list">
-                      {selectedCharacter.inventory.map((item) => (
-                        <li key={item.id}>
-                          <strong>{item.name}</strong>
-                          <span>x{item.quantity}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="character-empty-note">No inventory items yet.</p>
-                  )}
-                  <p className="character-equipped-note">
-                    Equipped weapon: {equippedItem ? equippedItem.name : "None"}
-                  </p>
-                </article>
-              </div>
-            </article>
+                    <section className="fantasy-character-stats-section">
+                      <h3>스킬 / 특성</h3>
+                      {selectedCharacter.proficientSkills.length ? (
+                        <ul className="fantasy-character-text-list">
+                          {selectedCharacter.proficientSkills.map((skill) => (
+                            <li key={skill}>{skill}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>아직 없음</p>
+                      )}
+                    </section>
+
+                    <section className="fantasy-character-stats-section">
+                      <h3>인벤토리</h3>
+                      {selectedCharacter.inventory.length ? (
+                        <ul className="fantasy-character-text-list">
+                          {selectedCharacter.inventory.map((item) => (
+                            <li key={item.id}>
+                              {item.name} x{item.quantity}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>비어 있음</p>
+                      )}
+                    </section>
+                  </div>
+                </div>
+                <div className="fantasy-scroll-indicator fantasy-scroll-indicator-stats">⌄</div>
+              </article>
+            </>
           ) : (
             <article className="character-focus-card">
               <span className="eyebrow">Character detail</span>
-              <h2>Select a character</h2>
-              <p>Choose a card from My roster to inspect that character here.</p>
+              <h2>캐릭터를 선택해 주세요</h2>
+              <p>왼쪽 목록에서 캐릭터 카드를 선택하면 상세 정보가 표시됩니다.</p>
             </article>
           )}
         </section>

@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import logoImage from "../assets/images/Logo.png";
 import { Icon } from "../components/Icon";
 import { useAuth } from "../hooks/useAuth";
 import { useLogs } from "../hooks/useLogs";
 import { useSession } from "../hooks/useSession";
 import { getOAuthUrl, listScenarios } from "../services/api";
+import { AccountPage } from "../pages/AccountPage";
 import { CharacterPage } from "../pages/CharacterPage";
 import { LobbyPage } from "../pages/LobbyPage";
 import { LoginPage } from "../pages/LoginPage";
 import { PlayPage } from "../pages/PlayPage";
 import { ProfilePage } from "../pages/ProfilePage";
-import { AccountPage } from "../pages/AccountPage";
 import { SessionCreatePage } from "../pages/SessionCreatePage";
 import { SessionDiscoverPage } from "../pages/SessionDiscoverPage";
 import type { Scenario } from "../types/session";
@@ -28,8 +29,8 @@ type MainView =
 
 const topNavItems: Array<{ id: Exclude<MainView, "play">; label: string }> = [
   { id: "main", label: "메인" },
-  { id: "sessionsDiscover", label: "세션 찾기" },
-  { id: "sessionsNew", label: "새 게임" },
+  { id: "sessionsDiscover", label: "세션 탐색" },
+  { id: "sessionsNew", label: "세션 생성" },
   { id: "characters", label: "캐릭터" },
   { id: "rulebook", label: "룰북" },
   { id: "settings", label: "설정" },
@@ -189,7 +190,7 @@ export function App() {
 
   const statusText = useMemo(() => {
     if (!session.snapshot) return "Realtime standby";
-    return `${session.snapshot.participants.length}명 참가, ${session.snapshot.characters.length}개 캐릭터`;
+    return `${session.snapshot.participants.length}명 참여, ${session.snapshot.characters.length}개 캐릭터`;
   }, [session.snapshot]);
 
   if (!auth.user) {
@@ -214,7 +215,7 @@ export function App() {
         <header className="topbar topbar-shell">
           <div className="topbar-left">
             <div className="topbar-brand">
-              <Icon name="logo" />
+              <img src={logoImage} alt="모두의 TRPG" className="topbar-logo-image" />
               <div>
                 <strong>TRPG</strong>
                 <span>session dashboard</span>
@@ -341,7 +342,7 @@ export function App() {
           <section className="placeholder-view">
             <span className="eyebrow">Coming soon</span>
             <h1>{topNavItems.find((item) => item.id === activeView)?.label}</h1>
-            <p>이 화면은 아직 준비 중입니다. 메인 대시보드와 캐릭터, 세션 플레이 흐름을 우선 정리한 상태입니다.</p>
+            <p>이 화면은 아직 준비 중입니다. 현재는 메인, 캐릭터, 세션 탐색, 세션 생성 흐름이 우선 연결되어 있습니다.</p>
           </section>
         ) : null}
 
