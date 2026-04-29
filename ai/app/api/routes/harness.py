@@ -1,14 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Annotated
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Annotated
 
 from app.core.errors import AiClientError
 from app.schemas.harness import (
     ActorHarnessRequest,
     DirectorHarnessRequest,
+    ActorHarnessRequest,
+    DirectorHarnessRequest,
     InterpreterHarnessRequest,
     NarratorHarnessRequest,
     NpcDialogueHarnessRequest,
+    NpcDialogueHarnessRequest,
     SmokeHarnessRequest,
+    SummarizerHarnessRequest,
     SummarizerHarnessRequest,
 )
 from app.services.harness import AiHarnessService, get_ai_harness_service
@@ -63,10 +69,11 @@ def run_narrator(
 def list_traces(
     role: str | None = None,
     status: str | None = None,
+    sessionId: str | None = None,
     size: Annotated[int, Query(ge=1, le=100)] = 20,
     service: AiHarnessService = Depends(get_ai_harness_service),
 ):
-    return service.list_traces(role=role, status=status, size=size)
+    return service.list_traces(role=role, status=status, session_id=sessionId, size=size)
 
 
 @router.post("/director")
