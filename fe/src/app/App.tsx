@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Icon } from "../components/Icon";
 import { useAuth } from "../hooks/useAuth";
 import { useLogs } from "../hooks/useLogs";
@@ -8,25 +9,82 @@ import { CharacterPage } from "../pages/CharacterPage";
 import { LobbyPage } from "../pages/LobbyPage";
 import { LoginPage } from "../pages/LoginPage";
 import { PlayPage } from "../pages/PlayPage";
+import { ProfilePage } from "../pages/ProfilePage";
+import { AccountPage } from "../pages/AccountPage";
+import { SessionCreatePage } from "../pages/SessionCreatePage";
+import { SessionDiscoverPage } from "../pages/SessionDiscoverPage";
 import type { Scenario } from "../types/session";
 
-type MainView = "main" | "characters" | "rulebook" | "settings" | "profile" | "play";
+type MainView =
+  | "main"
+  | "characters"
+  | "rulebook"
+  | "settings"
+  | "profile"
+  | "account"
+  | "sessionsDiscover"
+  | "sessionsNew"
+  | "play";
 
 const topNavItems: Array<{ id: Exclude<MainView, "play">; label: string }> = [
   { id: "main", label: "메인" },
+  { id: "sessionsDiscover", label: "세션 찾기" },
+  { id: "sessionsNew", label: "새 게임" },
   { id: "characters", label: "캐릭터" },
   { id: "rulebook", label: "룰북" },
   { id: "settings", label: "설정" },
   { id: "profile", label: "프로필" },
+  { id: "account", label: "계정" },
 ];
 
+const pathByView: Record<MainView, string> = {
+  main: "/",
+  characters: "/characters",
+  rulebook: "/rulebook",
+  settings: "/settings",
+  profile: "/profile",
+  account: "/account",
+  sessionsDiscover: "/sessions/discover",
+  sessionsNew: "/sessions/new",
+  play: "/play",
+};
+
+function viewFromPathname(pathname: string): MainView | null {
+  switch (pathname) {
+    case "/":
+      return "main";
+    case "/characters":
+      return "characters";
+    case "/rulebook":
+      return "rulebook";
+    case "/settings":
+      return "settings";
+    case "/profile":
+    case "/users/me/profile":
+      return "profile";
+    case "/account":
+      return "account";
+    case "/sessions/discover":
+      return "sessionsDiscover";
+    case "/sessions/new":
+      return "sessionsNew";
+    case "/play":
+      return "play";
+    default:
+      return null;
+  }
+}
+
 export function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { logs, appendLog } = useLogs();
   const auth = useAuth(appendLog);
   const session = useSession(auth.user, auth.accessToken, appendLog);
 
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
-  const [activeView, setActiveView] = useState<MainView>("main");
+  const activeView =
+    location.pathname === "/oauth/callback" ? "main" : (viewFromPathname(location.pathname) ?? "main");
 
   useEffect(() => {
     listScenarios()
@@ -41,13 +99,25 @@ export function App() {
     const code = url.searchParams.get("code");
     const provider = localStorage.getItem("trpg.oauthProvider") as "kakao" | "discord" | null;
 
-    window.history.replaceState({}, "", "/");
-
     if (code && provider) {
       localStorage.removeItem("trpg.oauthProvider");
+      navigate("/", { replace: true });
       void auth.handleOAuthCallback(provider, code);
     }
-  }, [auth]);
+  }, [auth, navigate]);
+
+  useEffect(() => {
+    if (location.pathname === "/oauth/callback") return;
+    if (viewFromPathname(location.pathname)) return;
+    navigate("/", { replace: true });
+  }, [location.pathname, navigate]);
+
+  useEffect(() => {
+    if (location.pathname !== "/play") return;
+    if (!auth.user) return;
+    if (session.snapshot) return;
+    navigate("/", { replace: true });
+  }, [auth.user, location.pathname, navigate, session.snapshot]);
 
   const busy = auth.busy || session.busy;
   const error = auth.error ?? session.error;
@@ -70,28 +140,28 @@ export function App() {
   ) {
     const success = await session.createSession(title, options);
     if (success) {
-      setActiveView("play");
+      navigate("/play");
     }
   }
 
   async function handleJoinSession(inviteCode: string) {
     const success = await session.joinSession(inviteCode);
     if (success) {
-      setActiveView("play");
+      navigate("/play");
     }
   }
 
   async function handleJoinSessionById(sessionId: string) {
     const success = await session.joinSessionById(sessionId);
     if (success) {
-      setActiveView("play");
+      navigate("/play");
     }
   }
 
   function handleLogout() {
     session.clearSnapshot();
     void auth.signOut();
-    setActiveView("main");
+    navigate("/");
   }
 
   function handleSessionMessage(displayName: string, input: string) {
@@ -157,7 +227,7 @@ export function App() {
                   key={item.id}
                   type="button"
                   className={activeView === item.id ? "active" : ""}
-                  onClick={() => setActiveView(item.id)}
+                  onClick={() => navigate(pathByView[item.id])}
                 >
                   {item.label}
                 </button>
@@ -167,9 +237,19 @@ export function App() {
 
           <div className="topbar-right">
             <span className={session.socketConnected ? "status-pill online" : "status-pill"}>{statusText}</span>
-            <button type="button" className="profile-trigger" onClick={handleLogout} aria-label="로그아웃">
-              <div className="avatar">{currentUser.displayName.slice(0, 1)}</div>
-            </button>
+            <div className="topbar-actions">
+              <button
+                type="button"
+                className={activeView === "profile" ? "icon-button active" : "icon-button"}
+                onClick={() => navigate("/profile")}
+                aria-label="프로필 열기"
+              >
+                <div className="avatar">{currentUser.displayName.slice(0, 1)}</div>
+              </button>
+              <button type="button" className="icon-button" onClick={handleLogout} aria-label="로그아웃">
+                <Icon name="logout" />
+              </button>
+            </div>
           </div>
         </header>
       ) : null}
@@ -178,17 +258,15 @@ export function App() {
         {!isPlayView && activeView === "main" ? (
           <LobbyPage
             user={currentUser}
-            scenarios={scenarios}
             snapshot={session.snapshot}
             sessionList={session.sessionList}
             mySessionList={session.mySessionList}
             logs={logs}
             busy={busy}
             error={error}
-            onCreateSession={handleCreateSession}
-            onJoinSession={handleJoinSession}
-            onJoinSessionById={handleJoinSessionById}
-            onOpenPlay={() => setActiveView("play")}
+            onOpenDiscover={() => navigate("/sessions/discover")}
+            onOpenCreate={() => navigate("/sessions/new")}
+            onOpenPlay={() => navigate("/play")}
             onLeaveCurrentSession={() => void session.leaveSession()}
           />
         ) : null}
@@ -204,7 +282,62 @@ export function App() {
           />
         ) : null}
 
-        {!isPlayView && activeView !== "main" && activeView !== "characters" ? (
+        {!isPlayView && activeView === "profile" ? (
+          <ProfilePage
+            user={currentUser}
+            accessToken={auth.accessToken}
+            authMode={auth.authMode}
+            busy={busy}
+            error={error}
+            onLogout={handleLogout}
+            onOpenAccount={() => navigate("/account")}
+          />
+        ) : null}
+
+        {!isPlayView && activeView === "account" ? (
+          <AccountPage
+            user={currentUser}
+            accessToken={auth.accessToken}
+            authMode={auth.authMode}
+            busy={busy}
+            error={error}
+            onLogout={handleLogout}
+            onOpenProfile={() => navigate("/users/me/profile")}
+          />
+        ) : null}
+
+        {!isPlayView && activeView === "sessionsDiscover" ? (
+          <SessionDiscoverPage
+            snapshot={session.snapshot}
+            sessionList={session.sessionList}
+            mySessionList={session.mySessionList}
+            busy={busy}
+            error={error}
+            onJoinSession={handleJoinSession}
+            onJoinSessionById={handleJoinSessionById}
+            onOpenCreate={() => navigate("/sessions/new")}
+            onOpenPlay={() => navigate("/play")}
+          />
+        ) : null}
+
+        {!isPlayView && activeView === "sessionsNew" ? (
+          <SessionCreatePage
+            scenarios={scenarios}
+            snapshot={session.snapshot}
+            busy={busy}
+            error={error}
+            onCreateSession={handleCreateSession}
+            onOpenDiscover={() => navigate("/sessions/discover")}
+          />
+        ) : null}
+
+        {!isPlayView &&
+        activeView !== "main" &&
+        activeView !== "characters" &&
+        activeView !== "profile" &&
+        activeView !== "account" &&
+        activeView !== "sessionsDiscover" &&
+        activeView !== "sessionsNew" ? (
           <section className="placeholder-view">
             <span className="eyebrow">Coming soon</span>
             <h1>{topNavItems.find((item) => item.id === activeView)?.label}</h1>
@@ -227,9 +360,9 @@ export function App() {
             onStartSession={() => void session.startSession()}
             onLeaveSession={() => {
               void session.leaveSession();
-              setActiveView("main");
+              navigate("/");
             }}
-            onBackToLobby={() => setActiveView("main")}
+            onBackToLobby={() => navigate("/")}
             onAction={(input) => handleSessionMessage(currentUser.displayName, input)}
           />
         ) : null}
