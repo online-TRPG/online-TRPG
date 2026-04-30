@@ -3,10 +3,11 @@ import defaultArcherImage from "../assets/images/Profile_Default_Archer.png";
 import defaultRogueImage from "../assets/images/Profile_Default_Rouge.png";
 import defaultWarriorImage from "../assets/images/Profile_Default_Warrior.png";
 import defaultWizardImage from "../assets/images/Profile_Default_Wizard.png";
-import boxBulletinNarrow from "../components/Box_Bulletin_Narrow.png";
-import navbarImage from "../components/Navbar.png";
+import boxBulletinNarrowFrame from "../components/Box_Bulletin_Narrow_Frame.png";
+import boxBulletinNarrowPlanks from "../components/Box_Bulletin_Narrow_Planks.png";
 import profileBorderCharacter from "../components/Profile_Border_Character.png";
 import profileBorderStats from "../components/Profile_Border_Stats.png";
+import sidePanelImage from "../components/Side_Panel.png";
 import { Icon } from "../components/Icon";
 import type { CharacterPayload } from "../hooks/useSession";
 import type { PersistentCharacter, SessionSnapshot, StoredUser } from "../types/session";
@@ -28,10 +29,20 @@ interface InventoryDraftItem {
   quantity: number;
 }
 
+const avatarPresets = [
+  { id: "preset_wizard", label: "Wizard", image: defaultWizardImage },
+  { id: "preset_archer", label: "Archer", image: defaultArcherImage },
+  { id: "preset_rogue", label: "Rogue", image: defaultRogueImage },
+  { id: "preset_warrior", label: "Warrior", image: defaultWarriorImage },
+] as const;
+
 const defaultCharacter: CharacterPayload = {
   name: "",
   ancestry: "Human",
   className: "Wizard",
+  avatarType: "PRESET",
+  avatarPresetId: "preset_wizard",
+  avatarUrl: null,
   level: 1,
   abilities: {
     str: 10,
@@ -97,13 +108,16 @@ function getCharacterArt(className: string) {
   return defaultWizardImage;
 }
 
+function getAvatarPresetImage(avatarPresetId?: string | null) {
+  return avatarPresets.find((preset) => preset.id === avatarPresetId)?.image ?? null;
+}
+
+function getCharacterImage(character: Pick<PersistentCharacter, "avatarPresetId" | "className">) {
+  return getAvatarPresetImage(character.avatarPresetId) ?? getCharacterArt(character.className);
+}
+
 function getCharacterClassLabel(className: string) {
-  const normalized = className.toLowerCase();
-  if (normalized.includes("wizard") || normalized.includes("mage") || normalized.includes("sorcer")) return "마법사";
-  if (normalized.includes("archer") || normalized.includes("ranger") || normalized.includes("bow")) return "궁수";
-  if (normalized.includes("rogue") || normalized.includes("rouge") || normalized.includes("thief")) return "도적";
-  if (normalized.includes("fighter") || normalized.includes("warrior") || normalized.includes("knight")) return "전사";
-  return className;
+  return className.trim() || "Adventurer";
 }
 
 export function CharacterPage({
@@ -251,29 +265,34 @@ export function CharacterPage({
           <button
             type="button"
             className="fantasy-character-sidebutton"
-            style={{ backgroundImage: `url(${navbarImage})` }}
+            style={{ backgroundImage: `url(${sidePanelImage})` }}
             onClick={openCreateModal}
           >
             새 캐릭터 생성
           </button>
-          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${navbarImage})` }} disabled>
+          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${sidePanelImage})` }} disabled>
             캐릭터 복제
           </button>
-          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${navbarImage})` }} disabled>
+          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${sidePanelImage})` }} disabled>
             캐릭터 수정
           </button>
-          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${navbarImage})` }} disabled>
+          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${sidePanelImage})` }} disabled>
             캐릭터 삭제
           </button>
         </aside>
 
-        <section className="fantasy-character-board" style={{ backgroundImage: `url(${boxBulletinNarrow})` }}>
+        <section className="fantasy-character-board">
+          <div
+            className="fantasy-character-board-planks"
+            style={{ backgroundImage: `url(${boxBulletinNarrowPlanks})` }}
+            aria-hidden="true"
+          />
           <div className="fantasy-character-board-scroll fantasy-scroll-hidden">
             <div className="fantasy-character-grid">
               {characters.map((character) => {
                 const isSelected = character.id === selectedCharacterId;
                 const isInUse = usedCharacterIds.has(character.id);
-                const art = getCharacterArt(character.className);
+                const art = getCharacterImage(character);
 
                 return (
                   <button
@@ -296,7 +315,11 @@ export function CharacterPage({
               })}
             </div>
           </div>
-          <div className="fantasy-scroll-indicator">⌄</div>
+          <div
+            className="fantasy-character-board-frame"
+            style={{ backgroundImage: `url(${boxBulletinNarrowFrame})` }}
+            aria-hidden="true"
+          />
         </section>
 
         <section className="fantasy-character-detail">
@@ -307,7 +330,7 @@ export function CharacterPage({
                 style={{ ["--frame-image" as string]: `url(${profileBorderCharacter})` }}
               >
                 <img
-                  src={getCharacterArt(selectedCharacter.className)}
+                  src={getCharacterImage(selectedCharacter)}
                   alt={selectedCharacter.name}
                   className="fantasy-character-profile-art"
                 />
@@ -398,14 +421,11 @@ export function CharacterPage({
                     </section>
                   </div>
                 </div>
-                <div className="fantasy-scroll-indicator fantasy-scroll-indicator-stats">⌄</div>
               </article>
             </>
           ) : (
             <article className="character-focus-card">
-              <span className="eyebrow">Character detail</span>
-              <h2>캐릭터를 선택해 주세요</h2>
-              <p>왼쪽 목록에서 캐릭터 카드를 선택하면 상세 정보가 표시됩니다.</p>
+              <h2>캐릭터를 생성해 보세요</h2>
             </article>
           )}
         </section>
@@ -416,7 +436,7 @@ export function CharacterPage({
       {isCreateModalOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={closeCreateModal}>
           <div
-            className="modal-card modal-card-wide"
+            className="modal-card modal-card-wide character-create-modal"
             role="dialog"
             aria-modal="true"
             onClick={(event) => event.stopPropagation()}
@@ -485,6 +505,34 @@ export function CharacterPage({
                       maxLength={50}
                       required
                     />
+                  </div>
+                </div>
+
+                <div className="character-avatar-picker">
+                  <label>Profile portrait</label>
+                  <div className="character-avatar-grid" role="radiogroup" aria-label="Character portrait presets">
+                    {avatarPresets.map((preset) => {
+                      const isSelected = formState.avatarPresetId === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          className={`character-avatar-option${isSelected ? " selected" : ""}`}
+                          onClick={() =>
+                            setFormState((current) => ({
+                              ...current,
+                              avatarType: "PRESET",
+                              avatarPresetId: preset.id,
+                              avatarUrl: null,
+                            }))
+                          }
+                          aria-pressed={isSelected}
+                        >
+                          <img src={preset.image} alt={preset.label} className="character-avatar-option-image" />
+                          <span>{preset.label}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </section>
