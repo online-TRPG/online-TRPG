@@ -16,6 +16,7 @@ export interface EffectiveProfile extends User {
 function fallbackProfile(user: StoredUser, authMode: AuthMode | null): User {
   return {
     id: user.id,
+    publicId: user.publicId,
     userId: user.id,
     email: null,
     name: user.displayName,

@@ -14,8 +14,10 @@ import { PlayPage } from "../pages/PlayPage";
 import { ProfilePage } from "../pages/ProfilePage";
 import { PublicProfilePage } from "../pages/PublicProfilePage";
 import { SessionCreatePage } from "../pages/SessionCreatePage";
+import { SessionDetailPage } from "../pages/SessionDetailPage";
 import { SessionDiscoverPage } from "../pages/SessionDiscoverPage";
 import type { Scenario, User } from "../types/session";
+import { buildGameroomPath, buildPublicProfilePath } from "../utils/routes";
 
 type MainView =
   | "main"
@@ -27,9 +29,10 @@ type MainView =
   | "account"
   | "sessionsDiscover"
   | "sessionsNew"
-  | "play";
+  | "sessionDetail"
+  | "gameroom";
 
-const topNavItems: Array<{ id: Exclude<MainView, "play" | "publicProfile">; label: string }> = [
+const topNavItems: Array<{ id: Exclude<MainView, "gameroom" | "publicProfile" | "sessionDetail">; label: string }> = [
   { id: "main", label: "메인" },
   { id: "sessionsDiscover", label: "세션 탐색" },
   { id: "sessionsNew", label: "세션 생성" },
@@ -50,12 +53,21 @@ const pathByView: Record<MainView, string> = {
   account: "/account",
   sessionsDiscover: "/sessions/discover",
   sessionsNew: "/sessions/new",
-  play: "/play",
+  sessionDetail: "/sessions",
+  gameroom: "/gameroom",
 };
 
 function viewFromPathname(pathname: string): MainView | null {
-  if (/^\/users\/[^/]+\/profile$/.test(pathname) && pathname !== "/users/me/profile") {
+  if (/^\/users\/[^/]+\/[^/]+$/.test(pathname) && pathname !== "/users/me/profile") {
     return "publicProfile";
+  }
+
+  if (/^\/sessions\/[^/]+\/[^/]+$/.test(pathname)) {
+    return "sessionDetail";
+  }
+
+  if (/^\/gameroom\/[^/]+\/[^/]+$/.test(pathname)) {
+    return "gameroom";
   }
 
   switch (pathname) {
@@ -76,8 +88,6 @@ function viewFromPathname(pathname: string): MainView | null {
       return "sessionsDiscover";
     case "/sessions/new":
       return "sessionsNew";
-    case "/play":
-      return "play";
     default:
       return null;
   }
@@ -89,8 +99,12 @@ export function App() {
   const { logs, appendLog } = useLogs();
   const auth = useAuth(appendLog);
   const session = useSession(auth.user, auth.accessToken, appendLog);
-  const publicProfileMatch = /^\/users\/([^/]+)\/profile$/.exec(location.pathname);
-  const publicProfileUserId = publicProfileMatch?.[1] ?? null;
+  const publicProfileMatch = /^\/users\/([^/]+)\/[^/]+$/.exec(location.pathname);
+  const publicProfileId = publicProfileMatch?.[1] ?? null;
+  const sessionDetailMatch = /^\/sessions\/([^/]+)\/[^/]+$/.exec(location.pathname);
+  const sessionDetailId = sessionDetailMatch?.[1] ?? null;
+  const gameroomMatch = /^\/gameroom\/([^/]+)\/[^/]+$/.exec(location.pathname);
+  const gameroomId = gameroomMatch?.[1] ?? null;
   const publicProfileState = location.state as { profilePreview?: User | null } | null;
 
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
@@ -124,11 +138,17 @@ export function App() {
   }, [location.pathname, navigate]);
 
   useEffect(() => {
-    if (location.pathname !== "/play") return;
+    if (activeView !== "gameroom") return;
     if (!auth.user) return;
-    if (session.snapshot) return;
-    navigate("/", { replace: true });
-  }, [auth.user, location.pathname, navigate, session.snapshot]);
+    if (!session.snapshot) {
+      navigate("/", { replace: true });
+      return;
+    }
+
+    if (gameroomId && session.snapshot.session.publicId !== gameroomId) {
+      navigate(buildGameroomPath(session.snapshot.session), { replace: true });
+    }
+  }, [activeView, auth.user, gameroomId, navigate, session.snapshot]);
 
   const busy = auth.busy || session.busy;
   const error = auth.error ?? session.error;
@@ -149,25 +169,21 @@ export function App() {
     title: string,
     options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
   ) {
-    const success = await session.createSession(title, options);
-    if (success) {
-      navigate("/play");
+    const nextSnapshot = await session.createSession(title, options);
+    if (nextSnapshot) {
+      navigate(buildGameroomPath(nextSnapshot.session));
     }
   }
 
   async function handleJoinSession(inviteCode: string) {
-    const success = await session.joinSession(inviteCode);
-    if (success) {
-      navigate("/play");
+    const nextSnapshot = await session.joinSession(inviteCode);
+    if (nextSnapshot) {
+      navigate(buildGameroomPath(nextSnapshot.session));
     }
   }
 
   async function handleJoinSessionById(sessionId: string) {
-    const success = await session.joinSessionById(sessionId);
-    if (success) {
-      navigate("/play");
-    }
-    return success;
+    return session.joinSessionById(sessionId);
   }
 
   async function handleRequestSessionDetail(sessionId: string) {
@@ -221,7 +237,7 @@ export function App() {
   }
 
   const currentUser = auth.user;
-  const isPlayView = activeView === "play";
+  const isPlayView = activeView === "gameroom";
 
   return (
     <div className={isPlayView ? "app-shell app-shell-session" : "app-shell app-shell-topnav"}>
@@ -277,7 +293,7 @@ export function App() {
             error={error}
             onOpenDiscover={() => navigate("/sessions/discover")}
             onOpenCreate={() => navigate("/sessions/new")}
-            onOpenPlay={() => navigate("/play")}
+            onOpenPlay={() => session.snapshot && navigate(buildGameroomPath(session.snapshot.session))}
             onLeaveCurrentSession={() => void session.leaveSession()}
           />
         ) : null}
@@ -313,7 +329,7 @@ export function App() {
             busy={busy}
             error={error}
             onLogout={handleLogout}
-            onOpenProfile={() => navigate("/users/me/profile")}
+            onOpenProfile={() => navigate("/profile")}
           />
         ) : null}
 
@@ -328,20 +344,37 @@ export function App() {
             onJoinSessionById={handleJoinSessionById}
             onRequestSessionDetail={handleRequestSessionDetail}
             onOpenHostProfile={(host) =>
-              navigate(`/users/${host.userId}/profile`, {
+              navigate(buildPublicProfilePath(host), {
                 state: { profilePreview: host },
               })
             }
             onOpenCreate={() => navigate("/sessions/new")}
-            onOpenPlay={() => navigate("/play")}
+            onOpenPlay={() => session.snapshot && navigate(buildGameroomPath(session.snapshot.session))}
           />
         ) : null}
 
-        {!isPlayView && activeView === "publicProfile" && publicProfileUserId ? (
+        {!isPlayView && activeView === "publicProfile" && publicProfileId ? (
           <PublicProfilePage
-            userId={publicProfileUserId}
+            publicId={publicProfileId}
             previewUser={publicProfileState?.profilePreview ?? null}
             onOpenOwnProfile={() => navigate("/profile")}
+          />
+        ) : null}
+
+        {!isPlayView && activeView === "sessionDetail" && sessionDetailId ? (
+          <SessionDetailPage
+            user={currentUser}
+            accessToken={auth.accessToken}
+            sessionPublicId={sessionDetailId}
+            snapshot={session.snapshot}
+            busy={busy}
+            onJoinSessionById={handleJoinSessionById}
+            onOpenPlay={() => session.snapshot && navigate(buildGameroomPath(session.snapshot.session))}
+            onOpenHostProfile={(host) =>
+              navigate(buildPublicProfilePath(host), {
+                state: { profilePreview: host },
+              })
+            }
           />
         ) : null}
 
@@ -363,7 +396,8 @@ export function App() {
         activeView !== "publicProfile" &&
         activeView !== "account" &&
         activeView !== "sessionsDiscover" &&
-        activeView !== "sessionsNew" ? (
+        activeView !== "sessionsNew" &&
+        activeView !== "sessionDetail" ? (
           <section className="placeholder-view">
             <span className="eyebrow">Coming soon</span>
             <h1>{topNavItems.find((item) => item.id === activeView)?.label}</h1>

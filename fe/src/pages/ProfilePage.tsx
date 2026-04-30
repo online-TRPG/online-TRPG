@@ -1,6 +1,7 @@
 import type { AuthMode } from "../types/auth";
 import { formatDate, useCurrentProfile } from "../hooks/useCurrentProfile";
 import type { StoredUser } from "../types/session";
+import { buildPublicProfilePath } from "../utils/routes";
 
 interface ProfilePageProps {
   user: StoredUser;
@@ -27,7 +28,7 @@ export function ProfilePage({
     { label: "표시 이름", value: effectiveProfile.displayName },
     { label: "닉네임", value: effectiveProfile.nickname || "-" },
     { label: "이름", value: effectiveProfile.name || "-" },
-    { label: "프로필 주소", value: `/users/${effectiveProfile.userId}/profile` },
+    { label: "프로필 주소", value: buildPublicProfilePath(effectiveProfile) },
     { label: "대표 상태", value: authMode === "guest" ? "게스트 프로필" : "회원 프로필" },
     { label: "가입일", value: formatDate(effectiveProfile.createdAt) },
   ];

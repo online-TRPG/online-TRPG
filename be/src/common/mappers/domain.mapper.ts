@@ -168,6 +168,7 @@ export function mapUser(user: User): UserResponseDto {
   const displayName = user.displayName || user.email || user.id;
   return {
     id: user.id,
+    publicId: user.publicId ?? user.id,
     userId: user.id,
     email: user.email,
     name: displayName,
@@ -201,6 +202,7 @@ export function mapSession(session: SessionWithRelations): SessionResponseDto {
 
   return {
     id: session.id,
+    publicId: session.publicId ?? session.id,
     sessionId: session.id,
     title: session.title,
     description: session.description,

@@ -34,6 +34,7 @@ export type SessionDetail = Omit<SessionDetailResponseDto, "sessionCharacters"> 
 
 export interface AvailableSessionListItem {
   sessionId: string;
+  sessionPublicId: string;
   title: string;
   scenarioTitle: string;
   ruleSetName: string;
@@ -43,7 +44,21 @@ export interface AvailableSessionListItem {
   role?: string;
 }
 
-export type StoredUser = Pick<User, "id" | "displayName" | "createdAt">;
+export type StoredUser = Pick<User, "id" | "publicId" | "displayName" | "createdAt">;
+
+function normalizeUserPublicId(user: User): User {
+  return {
+    ...user,
+    publicId: user.publicId ?? user.id,
+  };
+}
+
+function normalizeSessionPublicId(session: Session): Session {
+  return {
+    ...session,
+    publicId: session.publicId ?? session.id,
+  };
+}
 
 export function normalizeSessionSnapshot(
   snapshot: SessionSnapshotDto & { characters?: SessionCharacterResponseDto[] },
@@ -52,6 +67,11 @@ export function normalizeSessionSnapshot(
 
   return {
     ...snapshot,
+    session: normalizeSessionPublicId(snapshot.session),
+    participants: snapshot.participants.map((participant) => ({
+      ...participant,
+      user: normalizeUserPublicId(participant.user),
+    })),
     sessionScenarios: snapshot.sessionScenarios ?? [],
     sessionCharacters: characters,
     characters,
@@ -65,10 +85,10 @@ export function normalizeSessionDetail(
 
   return {
     ...snapshot,
+    host: normalizeUserPublicId(detail.host),
+    owner: normalizeUserPublicId(detail.owner),
+    captain: detail.captain ? normalizeUserPublicId(detail.captain) : detail.captain,
     scenario: detail.scenario,
-    host: detail.host,
-    owner: detail.owner,
-    captain: detail.captain,
   };
 }
 
