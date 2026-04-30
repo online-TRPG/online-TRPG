@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Param,
   Post,
   Query,
   Req,
@@ -98,6 +99,12 @@ export class UsersController {
   @ApiOkResponse({ type: UserResponseDto })
   async getMe(@CurrentUserId() userId: string): Promise<ApiResponse<UserResponseDto>> {
     return apiResponse("USER_200", "내 정보 조회에 성공했습니다.", await this.usersService.getMe(userId));
+  }
+
+  @Get("public/:publicId")
+  @ApiOkResponse({ type: UserResponseDto })
+  async getPublicProfile(@Param("publicId") publicId: string): Promise<ApiResponse<UserResponseDto>> {
+    return apiResponse("USER_200", "공개 프로필 조회에 성공했습니다.", await this.usersService.getPublicProfile(publicId));
   }
 
   @Delete("me")

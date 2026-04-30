@@ -57,6 +57,7 @@ export interface PaginatedList<T> {
 function normalizeSessionListItem(item: SessionListItemResponseDto): AvailableSessionListItem {
   return {
     sessionId: item.session.id,
+    sessionPublicId: item.session.publicId,
     title: item.session.title,
     scenarioTitle: item.scenario.title,
     ruleSetName: item.session.ruleSetId ?? 'TRPG',
@@ -158,6 +159,10 @@ export function reissue(): Promise<AuthTokenResponseDto> {
 
 export function getMe(accessToken: string): Promise<UserResponseDto> {
   return requestJson<UserResponseDto>('/users/me', { accessToken });
+}
+
+export function getPublicProfile(publicId: string): Promise<UserResponseDto> {
+  return requestJson<UserResponseDto>(`/users/public/${publicId}`);
 }
 
 export function deleteMe(accessToken: string, password: string): Promise<void> {
