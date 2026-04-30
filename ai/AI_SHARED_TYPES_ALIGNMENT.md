@@ -4,6 +4,10 @@
 
 현재 shared-types 구현은 이 폴더 밖에 있다. 이 문서는 AI 폴더 안에서 이름, 책임, 변환 규칙을 먼저 고정한다.
 
+현재 `shared-types/src/dto/api/ai.dto.ts`의 공개 DTO는 Narrator 호출과 `AiTraceResponseDto`만 가진 좁은 계약이다. 아래의 공유 후보들은 아직 shared-types에 그대로 존재하지 않으며, 백엔드가 deterministic 엔진 호출을 붙일 때 `app/adapters/shared_types.py`를 통해 변환한다.
+
+## 원칙
+
 ## 원칙
 
 1. AI DTO는 게임 상태의 source of truth가 아니다.
@@ -29,6 +33,39 @@
 | `SummarizerOutput`             | `app/schemas/summarizer.py`   | AI-only 후보                    |
 | `ClassSpellcastingProgression` | `app/srd/models.py`           | 캐릭터 생성 shared-types 후보   |
 
+## 현재 AI DTO 필드 인벤토리
+
+이 목록은 `ai/app/schemas/`의 현재 Pydantic 필드를 기준으로 한다. 필드를 추가하거나 제거하면 이 목록과 관련 테스트를 함께 고친다.
+
+| 타입                           | 현재 필드                                                                                                                                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `StructuredAction`             | `type`, `actorCharacterId`, `targetId`, `spellId`, `featureId`, `attackKind`, `ability`, `skill`, `approach`, `confidence`, `requiresRoll`, `suggestedDifficulty`                                                         |
+| `InterpreterOutput`            | `action`, `needsClarification`, `clarificationQuestion`, `mentionedSpellId`, `mentionedItemId`, `mentionedConditionIds`, `requiredRuleCheckIds`, `rulesConfidence`, `safetyNotes`                                         |
+| `CheckRequest`                 | `checkType`, `ability`, `skill`, `difficultyClass`, `targetId`, `reason`                                                                                                                                                  |
+| `DiceResult`                   | `rollerId`, `formula`, `total`, `naturalD20`, `success`                                                                                                                                                                   |
+| `NarratorStateDiffSummary`     | `summary`, `changedFlags`, `hpChanges`, `inventoryChanges`, `conditionChanges`, `nodeChange`                                                                                                                              |
+| `NarratorScene`                | `title`, `summary`, `tone`                                                                                                                                                                                                |
+| `NarrationConstraints`         | `language`, `maxLength`, `noNewFacts`                                                                                                                                                                                     |
+| `NarratorOutput`               | `narration`, `visibleSummary`                                                                                                                                                                                             |
+| `AiTraceSummary`               | `role`, `provider`, `model`, `promptVersion`, `latencyMs`, `attempts`, `failureType`, `finishReason`, `providerRequestId`                                                                                                 |
+| `TraceListItem`                | `id`, `timestamp`, `endpoint`, `status`, `sessionId`, `turnId`, `actorCharacterId`, `role`, `provider`, `model`, `promptVersion`, `latencyMs`, `attempts`, `failureType`, `finishReason`, `providerRequestId`, `logPaths` |
+| `TraceListResponse`            | `items`, `total`, `filtered`                                                                                                                                                                                              |
+| `ActorAllowedAction`           | `id`, `label`, `actionType`                                                                                                                                                                                               |
+| `ActorOutput`                  | `selectedActionId`, `reason`, `safetyNotes`                                                                                                                                                                               |
+| `NpcDialogueOutput`            | `dialogue`, `tone`, `safetyNotes`                                                                                                                                                                                         |
+| `DirectorOutput`               | `hintLevel`, `content`, `sourceScope`, `spoilerLevel`, `suggestions`, `safetyNotes`                                                                                                                                       |
+| `SummarizerOutput`             | `summaryType`, `coveredTurnRange`, `content`, `keyFacts`, `safetyNotes`                                                                                                                                                   |
+| `ClassSpellcastingProgression` | `classLevel`, `cantripsKnown`, `spellsKnown`, `pactMagicSlots`, `pactMagicSlotLevel`, `spellSlotsByLevel`                                                                                                                 |
+
+현재 `shared-types` 공개 API DTO 필드:
+
+| shared-types DTO         | 현재 필드                                                                                                                   |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `AiNarrationRequestDto`  | `rawInput`, `actionSummary`, `diceSummary`, `sceneTone`                                                                     |
+| `AiNarrationParsedDto`   | `narration`, `visibleSummary`                                                                                               |
+| `AiNarrationResponseDto` | `parsed`, `model`, `latencyMs`, `traceId`                                                                                   |
+| `AiTraceResponseDto`     | `id`, `sessionId`, `userId`, `kind`, `status`, `latencyMs`, `provider`, `model`, `failureType`, `errorMessage`, `createdAt` |
+
 ## 주요 매핑
 
 ### `StructuredAction`
@@ -38,9 +75,9 @@
 | `type`                | 유지                             |
 | `actorCharacterId`    | 유지                             |
 | `targetId`            | 유지                             |
-| `spellId`             | 백엔드에도 추가 필요             |
-| `featureId`           | 백엔드에도 추가 필요             |
-| `attackKind`          | 백엔드에도 추가 필요             |
+| `spellId`             | 공유 타입 도입 시 포함 필수      |
+| `featureId`           | 공유 타입 도입 시 포함 필수      |
+| `attackKind`          | 공유 타입 도입 시 포함 필수      |
 | `ability`, `skill`    | enum 정렬 필요                   |
 | `approach`            | 유지                             |
 | `confidence`          | 유지                             |
@@ -84,11 +121,17 @@ AI Narrator 입력에서 `StateDiff`라는 이름은 쓰지 않는다.
 
 하네스 내부 상태값:
 
-| 하네스     | 백엔드 validation 후보 |
-| ---------- | ---------------------- |
-| `success`  | `passed`               |
-| `failure`  | `failed`               |
-| `fallback` | `fallback`             |
+| AI 필드  | 백엔드 후보        |
+| -------- | ------------------ |
+| `status` | `validationStatus` |
+
+상태값 변환:
+
+| 하네스 `status` | 백엔드 `validationStatus` |
+| --------------- | ------------------------- |
+| `success`       | `passed`                  |
+| `failure`       | `failed`                  |
+| `fallback`      | `fallback`                |
 
 `template-fallback` provider와 `local-template` model은 fallback 추적용 값이다.
 
@@ -114,6 +157,15 @@ AI Narrator 입력에서 `StateDiff`라는 이름은 쓰지 않는다.
 - `trace_summary_to_backend(trace, status=...)`
 - `trace_list_item_to_backend(item)`
 
+Adapter 필드명 차이 요약:
+
+| AI 필드           | 백엔드 필드        |
+| ----------------- | ------------------ |
+| `checkType`       | `kind`             |
+| `difficultyClass` | `dc`               |
+| `formula`         | `expression`       |
+| `status`          | `validationStatus` |
+
 ## 금지 변경
 
 - AI DTO에 HP, AC, 피해량, 명중 여부, 상태 적용을 authoritative 필드로 추가하지 않는다.
@@ -124,6 +176,6 @@ AI Narrator 입력에서 `StateDiff`라는 이름은 쓰지 않는다.
 ## 다음 작업
 
 1. 백엔드 shared-types 패키지를 확정하면 이 문서의 공유 후보만 옮긴다.
-2. `StructuredAction`에는 `spellId`, `featureId`, `attackKind`를 반영한다.
-3. `AiTrace`에는 `turnId`, `actorCharacterId`, fallback provider/status 변환을 반영한다.
+2. `StructuredAction`을 shared-types에 도입할 때 `spellId`, `featureId`, `attackKind`를 포함한다.
+3. `AiTrace`를 shared-types에 확장할 때 `turnId`, `actorCharacterId`, fallback provider/status 변환을 반영한다.
 4. `NarratorStateDiffSummary`는 계속 공개 요약 DTO로 유지한다.
