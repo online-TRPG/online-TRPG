@@ -307,7 +307,6 @@ export function App() {
             error={error}
             onJoinSession={handleJoinSession}
             onJoinSessionById={handleJoinSessionById}
-            onOpenCreate={() => navigate("/sessions/new")}
             onOpenPlay={() => navigate("/play")}
           />
         ) : null}
