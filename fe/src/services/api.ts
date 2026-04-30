@@ -4,6 +4,7 @@ import type {
   GmMode,
   LoginResponseDto,
   OAuthUrlResponseDto,
+  SessionDetailResponseDto,
   SessionSnapshotDto,
   UserResponseDto,
   SessionListItemResponseDto,
@@ -14,11 +15,12 @@ import type {
   AvailableSessionListItem,
   Character,
   Scenario,
+  SessionDetail,
   SessionSnapshot,
   StoredUser,
   User,
 } from "../types/session";
-import { normalizeSessionSnapshot } from "../types/session";
+import { normalizeSessionDetail, normalizeSessionSnapshot } from "../types/session";
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
 const configuredWsBaseUrl = import.meta.env.VITE_WS_BASE_URL as string | undefined;
@@ -296,6 +298,17 @@ export function getSession(
     user,
     accessToken,
   }).then(normalizeSessionSnapshot);
+}
+
+export function getSessionDetail(
+  user: StoredUser,
+  sessionId: string,
+  accessToken?: string | null,
+): Promise<SessionDetail> {
+  return requestJson<SessionDetailResponseDto>(`/sessions/${sessionId}`, {
+    user,
+    accessToken,
+  }).then(normalizeSessionDetail);
 }
 
 export function getSessionState(user: StoredUser, sessionId: string) {
