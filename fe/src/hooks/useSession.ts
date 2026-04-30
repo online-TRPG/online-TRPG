@@ -30,6 +30,9 @@ export interface CharacterPayload {
   name: string;
   ancestry: string;
   className: string;
+  avatarType?: "DEFAULT" | "PRESET" | "UPLOAD";
+  avatarPresetId?: string | null;
+  avatarUrl?: string | null;
   level?: number;
   abilities?: {
     str: number;

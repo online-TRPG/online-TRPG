@@ -310,6 +310,9 @@ export function createCharacter(
     name: string;
     ancestry: string;
     className: string;
+    avatarType?: "DEFAULT" | "PRESET" | "UPLOAD";
+    avatarPresetId?: string | null;
+    avatarUrl?: string | null;
     level?: number;
     abilities?: {
       str: number;
@@ -340,6 +343,9 @@ export function createCharacter(
       name: payload.name,
       ancestry: payload.ancestry,
       className: payload.className,
+      avatarType: payload.avatarType,
+      avatarPresetId: payload.avatarPresetId,
+      avatarUrl: payload.avatarUrl,
       level: payload.level,
       abilities: payload.abilities,
       proficiencyBonus: payload.proficiencyBonus,

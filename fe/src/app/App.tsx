@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import logoImage from "../assets/images/Logo.png";
 import { Icon } from "../components/Icon";
@@ -188,11 +188,6 @@ export function App() {
     appendLog("action", displayName, `[MAIN]${message}`);
   }
 
-  const statusText = useMemo(() => {
-    if (!session.snapshot) return "Realtime standby";
-    return `${session.snapshot.participants.length}명 참여, ${session.snapshot.characters.length}개 캐릭터`;
-  }, [session.snapshot]);
-
   if (!auth.user) {
     return (
       <LoginPage
@@ -216,10 +211,6 @@ export function App() {
           <div className="topbar-left">
             <div className="topbar-brand">
               <img src={logoImage} alt="모두의 TRPG" className="topbar-logo-image" />
-              <div>
-                <strong>TRPG</strong>
-                <span>session dashboard</span>
-              </div>
             </div>
 
             <nav className="top-nav" aria-label="Main navigation">
@@ -237,15 +228,15 @@ export function App() {
           </div>
 
           <div className="topbar-right">
-            <span className={session.socketConnected ? "status-pill online" : "status-pill"}>{statusText}</span>
             <div className="topbar-actions">
               <button
                 type="button"
-                className={activeView === "profile" ? "icon-button active" : "icon-button"}
+                className={activeView === "profile" ? "icon-button profile-chip active" : "icon-button profile-chip"}
                 onClick={() => navigate("/profile")}
                 aria-label="프로필 열기"
               >
                 <div className="avatar">{currentUser.displayName.slice(0, 1)}</div>
+                <strong>{currentUser.displayName}</strong>
               </button>
               <button type="button" className="icon-button" onClick={handleLogout} aria-label="로그아웃">
                 <Icon name="logout" />
