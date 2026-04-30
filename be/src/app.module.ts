@@ -12,7 +12,7 @@ import { UsersModule } from "./modules/users/users.module";
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [".env", ".env.local"],
+      envFilePath: ["be/.env.local", "be/.env", ".env.local", ".env"],
     }),
     DatabaseModule,
     UsersModule,
