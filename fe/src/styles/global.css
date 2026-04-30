@@ -542,6 +542,12 @@ label {
   color: var(--cyan);
 }
 
+.session-card-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: auto;
+}
+
 .control-panel {
   min-width: 0;
   display: grid;
@@ -994,6 +1000,12 @@ label {
 
   .form-pair,
   .social-row {
+    grid-template-columns: 1fr;
+  }
+
+  .session-detail-hero,
+  .session-detail-grid {
+    display: grid;
     grid-template-columns: 1fr;
   }
 }
@@ -2169,6 +2181,77 @@ label {
 .modal-form {
   display: grid;
   gap: 14px;
+}
+
+.session-detail-modal {
+  width: min(820px, 100%);
+}
+
+.session-detail-skeleton {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.session-detail-content {
+  display: grid;
+  gap: 18px;
+}
+
+.session-detail-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  padding: 18px;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  border-radius: 20px;
+  background: rgba(9, 15, 24, 0.72);
+}
+
+.session-detail-description {
+  margin: 14px 0 0;
+  color: #c8d2dd;
+  line-height: 1.7;
+}
+
+.session-detail-actions {
+  display: grid;
+  gap: 10px;
+  min-width: 180px;
+}
+
+.session-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.session-detail-kv {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.session-detail-host-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.session-detail-host-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.session-detail-host-copy span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.session-detail-host-copy p {
+  margin: 0;
+  color: #c8d2dd;
+  line-height: 1.7;
 }
 
 .toggle-field {
@@ -3534,6 +3617,90 @@ label {
   gap: 8px;
 }
 
+.scenario-node-board {
+  min-height: 0;
+  border-radius: 28px;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  background: rgba(10, 16, 27, 0.74);
+  padding: 24px;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 20px;
+  overflow: auto;
+}
+
+.scenario-node-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.scenario-node-header h1 {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 48px);
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.scenario-node-text {
+  max-width: 920px;
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(18px, 2vw, 24px);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.scenario-node-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+
+.scenario-node-panel {
+  border-radius: 20px;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  background: rgba(7, 14, 24, 0.68);
+  padding: 16px;
+  min-width: 0;
+}
+
+.scenario-node-panel p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.scenario-node-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  gap: 10px;
+}
+
+.scenario-node-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(13, 26, 42, 0.72);
+  color: var(--muted);
+}
+
+.scenario-node-list strong,
+.scenario-node-list span {
+  overflow-wrap: anywhere;
+}
+
+.scenario-node-list strong {
+  color: var(--text);
+}
+
 .character-selection-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -4003,6 +4170,7 @@ label {
 
   .participant-strip-card,
   .session-sidebar-input,
+  .scenario-node-grid,
   .field-row {
     grid-template-columns: 1fr;
   }
