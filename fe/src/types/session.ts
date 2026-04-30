@@ -3,6 +3,7 @@ import type {
   GameStateResponseDto,
   ScenarioSummaryResponseDto,
   SessionCharacterResponseDto,
+  SessionDetailResponseDto,
   SessionListItemResponseDto,
   SessionParticipantResponseDto,
   SessionResponseDto,
@@ -19,6 +20,10 @@ export type PersistentCharacter = CharacterResponseDto;
 export type Character = SessionCharacterResponseDto;
 export type GameState = GameStateResponseDto;
 export type SessionSnapshot = Omit<SessionSnapshotDto, "sessionCharacters"> & {
+  sessionCharacters: SessionCharacterResponseDto[];
+  characters: SessionCharacterResponseDto[];
+};
+export type SessionDetail = Omit<SessionDetailResponseDto, "sessionCharacters"> & {
   sessionCharacters: SessionCharacterResponseDto[];
   characters: SessionCharacterResponseDto[];
 };
@@ -46,6 +51,20 @@ export function normalizeSessionSnapshot(
     sessionScenarios: snapshot.sessionScenarios ?? [],
     sessionCharacters: characters,
     characters,
+  };
+}
+
+export function normalizeSessionDetail(
+  detail: SessionDetailResponseDto & { characters?: SessionCharacterResponseDto[] },
+): SessionDetail {
+  const snapshot = normalizeSessionSnapshot(detail);
+
+  return {
+    ...snapshot,
+    scenario: detail.scenario,
+    host: detail.host,
+    owner: detail.owner,
+    captain: detail.captain,
   };
 }
 

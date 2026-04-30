@@ -1,6 +1,7 @@
 import { FormEvent, useMemo, useState } from "react";
+import { SessionDetailModal } from "../components/SessionDetailModal";
 import { Icon } from "../components/Icon";
-import type { AvailableSessionListItem, SessionSnapshot } from "../types/session";
+import type { AvailableSessionListItem, SessionDetail, SessionSnapshot, User } from "../types/session";
 
 interface SessionDiscoverPageProps {
   snapshot: SessionSnapshot | null;
@@ -9,7 +10,9 @@ interface SessionDiscoverPageProps {
   busy: boolean;
   error: string | null;
   onJoinSession: (inviteCode: string) => void | Promise<void>;
-  onJoinSessionById: (sessionId: string) => void | Promise<void>;
+  onJoinSessionById: (sessionId: string) => boolean | Promise<boolean>;
+  onRequestSessionDetail: (sessionId: string) => Promise<SessionDetail>;
+  onOpenHostProfile: (host: User) => void;
   onOpenCreate: () => void;
   onOpenPlay: () => void;
 }
@@ -37,14 +40,20 @@ export function SessionDiscoverPage({
   error,
   onJoinSession,
   onJoinSessionById,
+  onRequestSessionDetail,
+  onOpenHostProfile,
   onOpenCreate,
   onOpenPlay,
 }: SessionDiscoverPageProps) {
   const [inviteCode, setInviteCode] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
+  const [selectedSessionDetail, setSelectedSessionDetail] = useState<SessionDetail | null>(null);
+  const [detailBusy, setDetailBusy] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const hasRecruitingSession = snapshot?.session.status === "recruiting";
+  const joinedSessionIds = useMemo(() => new Set(mySessionList.map((item) => item.sessionId)), [mySessionList]);
 
   const filteredSessions = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -65,6 +74,57 @@ export function SessionDiscoverPage({
     if (hasRecruitingSession) return;
     void onJoinSession(inviteCode.trim().toUpperCase());
   }
+
+  async function openSessionDetail(sessionId: string) {
+    setSelectedSessionDetail(null);
+    setDetailBusy(true);
+    setDetailError(null);
+
+    try {
+      const detail = await onRequestSessionDetail(sessionId);
+      setSelectedSessionDetail(detail);
+    } catch (caught) {
+      setDetailError(caught instanceof Error ? caught.message : "세션 상세 정보를 불러오지 못했습니다.");
+    } finally {
+      setDetailBusy(false);
+    }
+  }
+
+  function closeSessionDetail() {
+    setSelectedSessionDetail(null);
+    setDetailBusy(false);
+    setDetailError(null);
+  }
+
+  async function enterSelectedSession() {
+    if (!selectedSessionDetail) return;
+
+    const targetSessionId = selectedSessionDetail.session.id;
+    const isCurrentSession = snapshot?.session.id === targetSessionId;
+
+    if (isCurrentSession) {
+      closeSessionDetail();
+      onOpenPlay();
+      return;
+    }
+
+    const success = await onJoinSessionById(targetSessionId);
+    if (success !== false) {
+      closeSessionDetail();
+      onOpenPlay();
+    }
+  }
+
+  function openSelectedHostProfile(host: User) {
+    closeSessionDetail();
+    onOpenHostProfile(host);
+  }
+
+  const isCurrentSelectedSession = selectedSessionDetail?.session.id === snapshot?.session.id;
+  const isKnownSelectedSession =
+    (selectedSessionDetail ? joinedSessionIds.has(selectedSessionDetail.session.id) : false) || isCurrentSelectedSession;
+  const canEnterSelectedSession =
+    isCurrentSelectedSession || isKnownSelectedSession || !hasRecruitingSession;
 
   return (
     <main className="session-page">
@@ -165,10 +225,12 @@ export function SessionDiscoverPage({
                     <dd>{STATUS_LABEL[item.status] ?? item.status}</dd>
                   </div>
                 </dl>
-                <button type="button" disabled={busy || hasRecruitingSession} onClick={() => void onJoinSessionById(item.sessionId)}>
-                  <Icon name="enter" />
-                  Join
-                </button>
+                <div className="session-card-actions">
+                  <button type="button" className="ghost" onClick={() => void openSessionDetail(item.sessionId)}>
+                    <Icon name="eye" />
+                    상세 보기
+                  </button>
+                </div>
               </article>
             ))
           ) : (
@@ -224,6 +286,12 @@ export function SessionDiscoverPage({
                     <dd>{item.role ?? "-"}</dd>
                   </div>
                 </dl>
+                <div className="session-card-actions">
+                  <button type="button" className="ghost" onClick={() => void openSessionDetail(item.sessionId)}>
+                    <Icon name="eye" />
+                    상세 보기
+                  </button>
+                </div>
               </article>
             ))
           ) : (
@@ -236,6 +304,19 @@ export function SessionDiscoverPage({
       </section>
 
       {error ? <p className="panel-error">{error}</p> : null}
+
+      <SessionDetailModal
+        detail={selectedSessionDetail}
+        loading={detailBusy}
+        error={detailError}
+        busy={busy}
+        canEnter={canEnterSelectedSession}
+        isCurrentSession={isCurrentSelectedSession}
+        isKnownMember={isKnownSelectedSession}
+        onClose={closeSessionDetail}
+        onEnter={enterSelectedSession}
+        onOpenHostProfile={openSelectedHostProfile}
+      />
     </main>
   );
 }
