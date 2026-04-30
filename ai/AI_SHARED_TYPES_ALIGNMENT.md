@@ -159,12 +159,12 @@ AI Narrator 입력에서 `StateDiff`라는 이름은 쓰지 않는다.
 
 Adapter 필드명 차이 요약:
 
-| AI 필드           | 백엔드 필드        |
-| ----------------- | ------------------ |
-| `checkType`       | `kind`             |
-| `difficultyClass` | `dc`               |
-| `formula`         | `expression`       |
-| `status`          | `validationStatus` |
+| AI 필드 | 백엔드 필드 |
+| --- | --- |
+| `checkType` | `kind` |
+| `difficultyClass` | `dc` |
+| `formula` | `expression` |
+| `status` | `validationStatus` |
 
 ## 금지 변경
 
