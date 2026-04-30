@@ -1,6 +1,8 @@
 import type {
   CharacterResponseDto,
   GameStateResponseDto,
+  ScenarioNodeResponseDto,
+  ScenarioResponseDto,
   ScenarioSummaryResponseDto,
   SessionCharacterResponseDto,
   SessionDetailResponseDto,
@@ -13,6 +15,8 @@ import type {
 
 export type User = UserResponseDto;
 export type Scenario = ScenarioSummaryResponseDto;
+export type ScenarioDetail = ScenarioResponseDto;
+export type ScenarioNode = ScenarioNodeResponseDto;
 export type Session = SessionResponseDto;
 export type SessionListItem = SessionListItemResponseDto;
 export type Participant = SessionParticipantResponseDto;
