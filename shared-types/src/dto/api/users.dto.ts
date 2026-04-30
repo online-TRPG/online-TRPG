@@ -93,6 +93,9 @@ export class UserResponseDto {
   id!: string;
 
   @ApiProperty()
+  publicId!: string;
+
+  @ApiProperty()
   userId!: string;
 
   @ApiProperty({ required: false, nullable: true })
