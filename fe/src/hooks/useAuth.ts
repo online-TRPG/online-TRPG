@@ -54,7 +54,16 @@ export function useAuth(
     setBusy(true);
     try {
       const nextUser = await createGuest(name);
-      persist({ id: nextUser.id, displayName: nextUser.displayName, createdAt: nextUser.createdAt }, null, "guest");
+      persist(
+        {
+          id: nextUser.id,
+          publicId: nextUser.publicId,
+          displayName: nextUser.displayName,
+          createdAt: nextUser.createdAt,
+        },
+        null,
+        "guest",
+      );
       appendLog("rest", "게스트 로그인", `${nextUser.displayName} 님으로 입장했습니다.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "로그인에 실패했습니다.");
@@ -73,7 +82,12 @@ export function useAuth(
     try {
       const response = await login(email, password);
       persist(
-        { id: response.user.id, displayName: response.user.displayName, createdAt: response.user.createdAt },
+        {
+          id: response.user.id,
+          publicId: response.user.publicId,
+          displayName: response.user.displayName,
+          createdAt: response.user.createdAt,
+        },
         response.accessToken,
         "member",
       );
@@ -108,7 +122,12 @@ export function useAuth(
     try {
       const response = await oauthLogin(provider, code, redirectUri);
       persist(
-        { id: response.user.id, displayName: response.user.displayName, createdAt: response.user.createdAt },
+        {
+          id: response.user.id,
+          publicId: response.user.publicId,
+          displayName: response.user.displayName,
+          createdAt: response.user.createdAt,
+        },
         response.accessToken,
         "member",
       );

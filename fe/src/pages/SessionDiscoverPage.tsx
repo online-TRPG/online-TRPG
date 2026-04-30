@@ -1,10 +1,15 @@
 import { FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useState } from "react";
-import { SessionDetailModal } from "../components/SessionDetailModal";
 import { Icon } from "../components/Icon";
+import { SessionDetailModal } from "../components/SessionDetailModal";
 import sidePanelImage from "../components/Side_Panel.png";
 import sidebarFooterImage from "../assets/images/Sidebar_Footer_Image.png";
 import { findSessionVisualByTitle, sessionVisualPresets } from "../data/sessionVisuals";
-import type { AvailableSessionListItem, SessionDetail, SessionSnapshot, User } from "../types/session";
+import type {
+  AvailableSessionListItem,
+  SessionDetail,
+  SessionSnapshot,
+  User,
+} from "../types/session";
 
 interface SessionDiscoverPageProps {
   snapshot: SessionSnapshot | null;
@@ -13,7 +18,7 @@ interface SessionDiscoverPageProps {
   busy: boolean;
   error: string | null;
   onJoinSession: (inviteCode: string) => void | Promise<void>;
-  onJoinSessionById: (sessionId: string) => boolean | Promise<boolean>;
+  onJoinSessionById: (sessionId: string) => Promise<SessionSnapshot | null>;
   onRequestSessionDetail: (sessionId: string) => Promise<SessionDetail>;
   onOpenHostProfile: (host: User) => void;
   onOpenCreate: () => void;
@@ -28,14 +33,14 @@ const STATUS_LABEL: Record<string, string> = {
   recruiting: "모집 중",
   playing: "진행 중",
   paused: "일시 정지",
-  completed: "종료",
+  completed: "완료",
   disbanded: "해산",
 };
 
 const PAGE_SIZE = 4;
 
 function getSessionListItemKey(item: AvailableSessionListItem, index: number): string {
-  return item.sessionId || `${item.title}-${item.scenarioTitle}-${index}`;
+  return item.sessionPublicId || item.sessionId || `${item.title}-${item.scenarioTitle}-${index}`;
 }
 
 export function SessionDiscoverPage({
@@ -66,7 +71,10 @@ export function SessionDiscoverPage({
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const hasRecruitingSession = snapshot?.session.status === "recruiting";
-  const joinedSessionIds = useMemo(() => new Set(mySessionList.map((item) => item.sessionId)), [mySessionList]);
+  const joinedSessionIds = useMemo(
+    () => new Set(mySessionList.map((item) => item.sessionId)),
+    [mySessionList],
+  );
 
   useEffect(() => {
     document.body.classList.add("session-discover-body");
@@ -132,10 +140,6 @@ export function SessionDiscoverPage({
     }
   }
 
-  function switchSection(section: DiscoverSection) {
-    setActiveSection(section);
-  }
-
   function openInviteModal() {
     setIsInviteModalOpen(true);
   }
@@ -186,8 +190,8 @@ export function SessionDiscoverPage({
       return;
     }
 
-    const success = await onJoinSessionById(targetSessionId);
-    if (success !== false) {
+    const nextSnapshot = await onJoinSessionById(targetSessionId);
+    if (nextSnapshot) {
       closeSessionDetail();
       onOpenPlay();
     }
@@ -200,7 +204,10 @@ export function SessionDiscoverPage({
 
   async function handleJoinClick(event: MouseEvent<HTMLButtonElement>, sessionId: string) {
     event.stopPropagation();
-    await onJoinSessionById(sessionId);
+    const nextSnapshot = await onJoinSessionById(sessionId);
+    if (nextSnapshot) {
+      onOpenPlay();
+    }
   }
 
   function handleRowKeyDown(event: KeyboardEvent<HTMLElement>, sessionId: string) {
@@ -211,9 +218,9 @@ export function SessionDiscoverPage({
 
   const isCurrentSelectedSession = selectedSessionDetail?.session.id === snapshot?.session.id;
   const isKnownSelectedSession =
-    (selectedSessionDetail ? joinedSessionIds.has(selectedSessionDetail.session.id) : false) || isCurrentSelectedSession;
-  const canEnterSelectedSession =
-    isCurrentSelectedSession || isKnownSelectedSession || !hasRecruitingSession;
+    (selectedSessionDetail ? joinedSessionIds.has(selectedSessionDetail.session.id) : false) ||
+    isCurrentSelectedSession;
+  const canEnterSelectedSession = isCurrentSelectedSession || isKnownSelectedSession || !hasRecruitingSession;
 
   return (
     <main className="session-discover-shell">
@@ -223,7 +230,7 @@ export function SessionDiscoverPage({
             <button
               type="button"
               className={`session-discover-sidebutton${activeSection === "public" ? " active" : ""}`}
-              onClick={() => switchSection("public")}
+              onClick={() => setActiveSection("public")}
             >
               <img src={sidePanelImage} alt="" aria-hidden="true" />
               <span>공개 세션 탐색</span>
@@ -232,7 +239,7 @@ export function SessionDiscoverPage({
             <button
               type="button"
               className={`session-discover-sidebutton${activeSection === "my" ? " active" : ""}`}
-              onClick={() => switchSection("my")}
+              onClick={() => setActiveSection("my")}
             >
               <img src={sidePanelImage} alt="" aria-hidden="true" />
               <span>내 세션 목록</span>
@@ -347,13 +354,14 @@ export function SessionDiscoverPage({
                 const visual =
                   findSessionVisualByTitle(item.scenarioTitle) ??
                   sessionVisualPresets[(safePage * PAGE_SIZE + index) % sessionVisualPresets.length];
+                const detailId = item.sessionPublicId || item.sessionId;
 
                 return (
                   <article
                     className="session-discover-row"
                     key={getSessionListItemKey(item, safePage * PAGE_SIZE + index)}
-                    onClick={() => void openSessionDetail(item.sessionId)}
-                    onKeyDown={(event) => handleRowKeyDown(event, item.sessionId)}
+                    onClick={() => void openSessionDetail(detailId)}
+                    onKeyDown={(event) => handleRowKeyDown(event, detailId)}
                     role="button"
                     tabIndex={0}
                   >
@@ -379,7 +387,9 @@ export function SessionDiscoverPage({
                           </strong>
                         </span>
                         <span className="session-discover-meta-pill">{visual.theme}</span>
-                        <span className="session-discover-meta-pill muted">{STATUS_LABEL[item.status] ?? item.status}</span>
+                        <span className="session-discover-meta-pill muted">
+                          {STATUS_LABEL[item.status] ?? item.status}
+                        </span>
                       </div>
                     </div>
 

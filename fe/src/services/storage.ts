@@ -10,7 +10,17 @@ export function loadStoredUser(): StoredUser | null {
   const raw = localStorage.getItem(USER_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as StoredUser;
+    const parsed = JSON.parse(raw) as Partial<StoredUser>;
+    if (
+      typeof parsed.id !== "string" ||
+      typeof parsed.publicId !== "string" ||
+      typeof parsed.displayName !== "string" ||
+      typeof parsed.createdAt !== "string"
+    ) {
+      localStorage.removeItem(USER_KEY);
+      return null;
+    }
+    return parsed as StoredUser;
   } catch {
     localStorage.removeItem(USER_KEY);
     return null;
