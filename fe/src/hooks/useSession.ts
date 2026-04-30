@@ -66,9 +66,9 @@ export interface UseSessionReturn {
   createSession: (
     title: string,
     options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
-  ) => Promise<boolean>;
-  joinSession: (inviteCode: string) => Promise<boolean>;
-  joinSessionById: (sessionId: string) => Promise<boolean>;
+  ) => Promise<SessionSnapshot | null>;
+  joinSession: (inviteCode: string) => Promise<SessionSnapshot | null>;
+  joinSessionById: (sessionId: string) => Promise<SessionSnapshot | null>;
   createCharacter: (payload: CharacterPayload) => Promise<void>;
   selectCharacter: (characterId: string | null) => Promise<void>;
   setReadyState: (isReady: boolean) => Promise<void>;
@@ -200,11 +200,11 @@ export function useSession(
   async function createSession(
     title: string,
     options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
-  ): Promise<boolean> {
-    if (!user) return false;
+  ): Promise<SessionSnapshot | null> {
+    if (!user) return null;
     if (hasRecruitingSession()) {
       setError("모집 중인 세션에는 하나만 참가할 수 있습니다.");
-      return false;
+      return null;
     }
 
     setError(null);
@@ -215,20 +215,20 @@ export function useSession(
       updateSnapshot(next);
       appendLog("rest", "세션 생성", `${next.session.title} 세션을 생성했습니다.`);
       await refreshSessionList();
-      return true;
+      return next;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "세션 생성에 실패했습니다.");
-      return false;
+      return null;
     } finally {
       setBusy(false);
     }
   }
 
-  async function joinSession(inviteCode: string): Promise<boolean> {
-    if (!user) return false;
+  async function joinSession(inviteCode: string): Promise<SessionSnapshot | null> {
+    if (!user) return null;
     if (hasRecruitingSession()) {
       setError("모집 중인 세션에는 하나만 참가할 수 있습니다.");
-      return false;
+      return null;
     }
 
     setError(null);
@@ -239,20 +239,20 @@ export function useSession(
       updateSnapshot(next);
       appendLog("rest", "세션 입장", `${next.session.title} 세션에 입장했습니다.`);
       await refreshSessionList();
-      return true;
+      return next;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "세션 입장에 실패했습니다.");
-      return false;
+      return null;
     } finally {
       setBusy(false);
     }
   }
 
-  async function joinSessionById(sessionId: string): Promise<boolean> {
-    if (!user) return false;
+  async function joinSessionById(sessionId: string): Promise<SessionSnapshot | null> {
+    if (!user) return null;
     if (hasRecruitingSession()) {
       setError("모집 중인 세션에는 하나만 참가할 수 있습니다.");
-      return false;
+      return null;
     }
 
     setError(null);
@@ -263,10 +263,10 @@ export function useSession(
       updateSnapshot(next);
       appendLog("rest", "세션 입장", `${next.session.title} 세션에 입장했습니다.`);
       await refreshSessionList();
-      return true;
+      return next;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "세션 입장에 실패했습니다.");
-      return false;
+      return null;
     } finally {
       setBusy(false);
     }

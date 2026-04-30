@@ -240,6 +240,9 @@ export class SessionResponseDto {
   id!: string;
 
   @ApiProperty()
+  publicId!: string;
+
+  @ApiProperty()
   sessionId!: string;
 
   @ApiProperty()

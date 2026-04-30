@@ -7,7 +7,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
-import { AuthProvider as PrismaAuthProvider } from "@prisma/client";
+import { AuthProvider as PrismaAuthProvider, User as PrismaUser } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { createHash } from "crypto";
 import {
@@ -23,6 +23,7 @@ import {
   UserResponseDto,
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
+import { generateEightDigitPublicId } from "../../common/utils/public-id";
 import { mapUser } from "../../common/mappers/domain.mapper";
 import {
   createAccessToken,
@@ -81,6 +82,7 @@ export class UsersService {
   async createGuest(dto: CreateGuestUserDto): Promise<UserResponseDto> {
     const user = await this.prisma.user.create({
       data: {
+        publicId: await this.generateUserPublicId(),
         displayName: dto.displayName.trim(),
       },
     });
@@ -98,6 +100,7 @@ export class UsersService {
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const user = await this.prisma.user.create({
       data: {
+        publicId: await this.generateUserPublicId(),
         email,
         passwordHash,
         displayName: dto.name.trim(),
@@ -130,13 +133,14 @@ export class UsersService {
       throw new UnauthorizedException("이메일 또는 비밀번호가 올바르지 않습니다.");
     }
 
-    const refreshToken = await this.issueRefreshToken(user.id, user.email);
+    const ensuredUser = await this.ensureUserPublicId(user);
+    const refreshToken = await this.issueRefreshToken(ensuredUser.id, ensuredUser.email);
     return {
       body: {
-        accessToken: createAccessToken(user.id, user.email),
+        accessToken: createAccessToken(ensuredUser.id, ensuredUser.email),
         tokenType: "Bearer",
         expiresIn: getAccessTokenExpiresIn(),
-        user: mapUser(user),
+        user: mapUser(ensuredUser),
       },
       refreshToken,
     };
@@ -190,6 +194,21 @@ export class UsersService {
 
   async getMe(userId: string): Promise<UserResponseDto> {
     return mapUser(await this.getUserEntityOrThrow(userId));
+  }
+
+  async getPublicProfile(publicId: string): Promise<UserResponseDto> {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        publicId,
+        deletedAt: null,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User ${publicId} was not found.`);
+    }
+
+    return mapUser(await this.ensureUserPublicId(user));
   }
 
   async deleteMe(userId: string, dto: DeleteMeDto): Promise<void> {
@@ -266,7 +285,7 @@ export class UsersService {
       throw new NotFoundException(`User ${userId} was not found.`);
     }
 
-    return user;
+    return this.ensureUserPublicId(user);
   }
 
   private async issueRefreshToken(userId: string, email: string | null): Promise<string> {
@@ -457,7 +476,7 @@ export class UsersService {
     }
 
     if (socialAccount) {
-      return socialAccount.user;
+      return this.ensureUserPublicId(socialAccount.user);
     }
 
     const existingUser = email
@@ -465,7 +484,7 @@ export class UsersService {
       : null;
 
     if (existingUser && !existingUser.deletedAt) {
-      return this.prisma.user.update({
+      const linked = await this.prisma.user.update({
         where: { id: existingUser.id },
         data: {
           socialAccounts: {
@@ -477,12 +496,14 @@ export class UsersService {
           },
         },
       });
+      return this.ensureUserPublicId(linked);
     }
 
     // 탈퇴 계정의 이메일은 unique 제약에 남아 있을 수 있어 신규 OAuth 계정에는 안전하게 비워둔다.
     const usableEmail = existingUser?.deletedAt ? null : email;
     return this.prisma.user.create({
       data: {
+        publicId: await this.generateUserPublicId(),
         email: usableEmail,
         displayName,
         authProvider: PrismaAuthProvider.KAKAO,
@@ -517,7 +538,7 @@ export class UsersService {
     }
 
     if (socialAccount) {
-      return socialAccount.user;
+      return this.ensureUserPublicId(socialAccount.user);
     }
 
     const existingUser = email
@@ -525,7 +546,7 @@ export class UsersService {
       : null;
 
     if (existingUser && !existingUser.deletedAt) {
-      return this.prisma.user.update({
+      const linked = await this.prisma.user.update({
         where: { id: existingUser.id },
         data: {
           socialAccounts: {
@@ -537,12 +558,14 @@ export class UsersService {
           },
         },
       });
+      return this.ensureUserPublicId(linked);
     }
 
     // 탈퇴 계정의 이메일은 unique 제약에 남아 있을 수 있어 신규 OAuth 계정에는 안전하게 비워둔다.
     const usableEmail = existingUser?.deletedAt ? null : email;
     return this.prisma.user.create({
       data: {
+        publicId: await this.generateUserPublicId(),
         email: usableEmail,
         displayName,
         authProvider: PrismaAuthProvider.DISCORD,
@@ -613,5 +636,40 @@ export class UsersService {
     if (!emailPattern.test(email)) {
       throw new BadRequestException("email 형식이 올바르지 않습니다.");
     }
+  }
+
+  private async ensureUserPublicId(user: PrismaUser): Promise<PrismaUser> {
+    if (user.publicId) {
+      return user;
+    }
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      try {
+        return await this.prisma.user.update({
+          where: { id: user.id },
+          data: { publicId: generateEightDigitPublicId() },
+        });
+      } catch {
+        // unique collision: retry with a new random value
+      }
+    }
+
+    throw new ConflictException("사용자 공개 식별자를 생성하지 못했습니다.");
+  }
+
+  private async generateUserPublicId(): Promise<string> {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const publicId = generateEightDigitPublicId();
+      const existing = await this.prisma.user.findUnique({
+        where: { publicId },
+        select: { id: true },
+      });
+
+      if (!existing) {
+        return publicId;
+      }
+    }
+
+    throw new ConflictException("사용자 공개 식별자를 생성하지 못했습니다.");
   }
 }
