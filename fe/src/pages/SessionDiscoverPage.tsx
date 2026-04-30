@@ -1,7 +1,12 @@
 import { FormEvent, useMemo, useState } from "react";
-import { SessionDetailModal } from "../components/SessionDetailModal";
 import { Icon } from "../components/Icon";
-import type { AvailableSessionListItem, SessionDetail, SessionSnapshot, User } from "../types/session";
+import { SessionDetailModal } from "../components/SessionDetailModal";
+import type {
+  AvailableSessionListItem,
+  SessionDetail,
+  SessionSnapshot,
+  User,
+} from "../types/session";
 
 interface SessionDiscoverPageProps {
   snapshot: SessionSnapshot | null;
@@ -10,7 +15,7 @@ interface SessionDiscoverPageProps {
   busy: boolean;
   error: string | null;
   onJoinSession: (inviteCode: string) => void | Promise<void>;
-  onJoinSessionById: (sessionId: string) => boolean | Promise<boolean>;
+  onJoinSessionById: (sessionId: string) => Promise<SessionSnapshot | null>;
   onRequestSessionDetail: (sessionId: string) => Promise<SessionDetail>;
   onOpenHostProfile: (host: User) => void;
   onOpenCreate: () => void;
@@ -29,7 +34,7 @@ const STATUS_LABEL: Record<string, string> = {
 const PAGE_SIZE = 12;
 
 function getSessionListItemKey(item: AvailableSessionListItem, index: number): string {
-  return item.sessionId || `${item.title}-${item.scenarioTitle}-${index}`;
+  return item.sessionPublicId || item.sessionId || `${item.title}-${item.scenarioTitle}-${index}`;
 }
 
 export function SessionDiscoverPage({
@@ -108,8 +113,8 @@ export function SessionDiscoverPage({
       return;
     }
 
-    const success = await onJoinSessionById(targetSessionId);
-    if (success !== false) {
+    const nextSnapshot = await onJoinSessionById(targetSessionId);
+    if (nextSnapshot) {
       closeSessionDetail();
       onOpenPlay();
     }
@@ -226,7 +231,11 @@ export function SessionDiscoverPage({
                   </div>
                 </dl>
                 <div className="session-card-actions">
-                  <button type="button" className="ghost" onClick={() => void openSessionDetail(item.sessionId)}>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => void openSessionDetail(item.sessionPublicId || item.sessionId)}
+                  >
                     <Icon name="eye" />
                     상세 보기
                   </button>
@@ -287,7 +296,11 @@ export function SessionDiscoverPage({
                   </div>
                 </dl>
                 <div className="session-card-actions">
-                  <button type="button" className="ghost" onClick={() => void openSessionDetail(item.sessionId)}>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => void openSessionDetail(item.sessionPublicId || item.sessionId)}
+                  >
                     <Icon name="eye" />
                     상세 보기
                   </button>
