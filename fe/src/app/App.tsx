@@ -5,16 +5,17 @@ import { Icon } from "../components/Icon";
 import { useAuth } from "../hooks/useAuth";
 import { useLogs } from "../hooks/useLogs";
 import { useSession } from "../hooks/useSession";
-import { getOAuthUrl, listScenarios } from "../services/api";
+import { getOAuthUrl, getSessionDetail, listScenarios } from "../services/api";
 import { AccountPage } from "../pages/AccountPage";
 import { CharacterPage } from "../pages/CharacterPage";
 import { LobbyPage } from "../pages/LobbyPage";
 import { LoginPage } from "../pages/LoginPage";
 import { PlayPage } from "../pages/PlayPage";
 import { ProfilePage } from "../pages/ProfilePage";
+import { PublicProfilePage } from "../pages/PublicProfilePage";
 import { SessionCreatePage } from "../pages/SessionCreatePage";
 import { SessionDiscoverPage } from "../pages/SessionDiscoverPage";
-import type { Scenario } from "../types/session";
+import type { Scenario, User } from "../types/session";
 
 type MainView =
   | "main"
@@ -22,12 +23,13 @@ type MainView =
   | "rulebook"
   | "settings"
   | "profile"
+  | "publicProfile"
   | "account"
   | "sessionsDiscover"
   | "sessionsNew"
   | "play";
 
-const topNavItems: Array<{ id: Exclude<MainView, "play">; label: string }> = [
+const topNavItems: Array<{ id: Exclude<MainView, "play" | "publicProfile">; label: string }> = [
   { id: "main", label: "메인" },
   { id: "sessionsDiscover", label: "세션 탐색" },
   { id: "sessionsNew", label: "세션 생성" },
@@ -44,6 +46,7 @@ const pathByView: Record<MainView, string> = {
   rulebook: "/rulebook",
   settings: "/settings",
   profile: "/profile",
+  publicProfile: "/profile",
   account: "/account",
   sessionsDiscover: "/sessions/discover",
   sessionsNew: "/sessions/new",
@@ -51,6 +54,10 @@ const pathByView: Record<MainView, string> = {
 };
 
 function viewFromPathname(pathname: string): MainView | null {
+  if (/^\/users\/[^/]+\/profile$/.test(pathname) && pathname !== "/users/me/profile") {
+    return "publicProfile";
+  }
+
   switch (pathname) {
     case "/":
       return "main";
@@ -82,6 +89,9 @@ export function App() {
   const { logs, appendLog } = useLogs();
   const auth = useAuth(appendLog);
   const session = useSession(auth.user, auth.accessToken, appendLog);
+  const publicProfileMatch = /^\/users\/([^/]+)\/profile$/.exec(location.pathname);
+  const publicProfileUserId = publicProfileMatch?.[1] ?? null;
+  const publicProfileState = location.state as { profilePreview?: User | null } | null;
 
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const activeView =
@@ -157,6 +167,15 @@ export function App() {
     if (success) {
       navigate("/play");
     }
+    return success;
+  }
+
+  async function handleRequestSessionDetail(sessionId: string) {
+    if (!auth.user) {
+      throw new Error("로그인이 필요합니다.");
+    }
+
+    return getSessionDetail(auth.user, sessionId, auth.accessToken);
   }
 
   function handleLogout() {
@@ -307,7 +326,22 @@ export function App() {
             error={error}
             onJoinSession={handleJoinSession}
             onJoinSessionById={handleJoinSessionById}
+            onRequestSessionDetail={handleRequestSessionDetail}
+            onOpenHostProfile={(host) =>
+              navigate(`/users/${host.userId}/profile`, {
+                state: { profilePreview: host },
+              })
+            }
+            onOpenCreate={() => navigate("/sessions/new")}
             onOpenPlay={() => navigate("/play")}
+          />
+        ) : null}
+
+        {!isPlayView && activeView === "publicProfile" && publicProfileUserId ? (
+          <PublicProfilePage
+            userId={publicProfileUserId}
+            previewUser={publicProfileState?.profilePreview ?? null}
+            onOpenOwnProfile={() => navigate("/profile")}
           />
         ) : null}
 
@@ -326,6 +360,7 @@ export function App() {
         activeView !== "main" &&
         activeView !== "characters" &&
         activeView !== "profile" &&
+        activeView !== "publicProfile" &&
         activeView !== "account" &&
         activeView !== "sessionsDiscover" &&
         activeView !== "sessionsNew" ? (

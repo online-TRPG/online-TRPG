@@ -170,6 +170,26 @@ NestJS가 게임 상태를 확정하고, `ai/`는 자연어 해석과 서술 생
 - `schemas/`: zod 기반 런타임 검증 스키마
 - `constants/`: phase, condition, action type 상수
 
+## 서버 PostgreSQL 연결 테스트
+
+### 1. `.env.backend`에 추가할 코드 예시
+
+```env
+SERVER_DATABASE_URL=postgresql://DB_USER:URL_ENCODED_DB_PASSWORD@127.0.0.1:LOCAL_TUNNEL_PORT/DB_NAME?schema=public
+```
+
+### 2. SSH 열 때 커맨드창에 칠 예시 코드
+
+```powershell
+ssh -i "C:\path\to\key.pem" -L LOCAL_TUNNEL_PORT:SERVER_INTERNAL_DB_HOST:SERVER_INTERNAL_DB_PORT SSH_USER@SSH_HOST
+```
+
+### 3. 접속 확인 테스트 실행 코드
+
+```powershell
+npm run test:server-db -w @trpg/be
+```
+
 ## 루트 폴더 운영 원칙
 
 - `doc/`에는 기획 문서와 설계 문서를 모은다.

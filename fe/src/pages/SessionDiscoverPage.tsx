@@ -1,9 +1,10 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useState } from "react";
+import { SessionDetailModal } from "../components/SessionDetailModal";
 import { Icon } from "../components/Icon";
 import sidePanelImage from "../components/Side_Panel.png";
 import sidebarFooterImage from "../assets/images/Sidebar_Footer_Image.png";
 import { findSessionVisualByTitle, sessionVisualPresets } from "../data/sessionVisuals";
-import type { AvailableSessionListItem, SessionSnapshot } from "../types/session";
+import type { AvailableSessionListItem, SessionDetail, SessionSnapshot, User } from "../types/session";
 
 interface SessionDiscoverPageProps {
   snapshot: SessionSnapshot | null;
@@ -12,7 +13,10 @@ interface SessionDiscoverPageProps {
   busy: boolean;
   error: string | null;
   onJoinSession: (inviteCode: string) => void | Promise<void>;
-  onJoinSessionById: (sessionId: string) => void | Promise<void>;
+  onJoinSessionById: (sessionId: string) => boolean | Promise<boolean>;
+  onRequestSessionDetail: (sessionId: string) => Promise<SessionDetail>;
+  onOpenHostProfile: (host: User) => void;
+  onOpenCreate: () => void;
   onOpenPlay: () => void;
 }
 
@@ -23,7 +27,7 @@ const STATUS_LABEL: Record<string, string> = {
   lobby: "대기 중",
   recruiting: "모집 중",
   playing: "진행 중",
-  paused: "일시정지",
+  paused: "일시 정지",
   completed: "종료",
   disbanded: "해산",
 };
@@ -42,6 +46,9 @@ export function SessionDiscoverPage({
   error,
   onJoinSession,
   onJoinSessionById,
+  onRequestSessionDetail,
+  onOpenHostProfile,
+  onOpenCreate: _onOpenCreate,
   onOpenPlay,
 }: SessionDiscoverPageProps) {
   const [activeSection, setActiveSection] = useState<DiscoverSection>("public");
@@ -54,8 +61,12 @@ export function SessionDiscoverPage({
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [publicPage, setPublicPage] = useState(0);
   const [myPage, setMyPage] = useState(0);
+  const [selectedSessionDetail, setSelectedSessionDetail] = useState<SessionDetail | null>(null);
+  const [detailBusy, setDetailBusy] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const hasRecruitingSession = snapshot?.session.status === "recruiting";
+  const joinedSessionIds = useMemo(() => new Set(mySessionList.map((item) => item.sessionId)), [mySessionList]);
 
   useEffect(() => {
     document.body.classList.add("session-discover-body");
@@ -66,17 +77,6 @@ export function SessionDiscoverPage({
 
   const currentSource = activeSection === "public" ? sessionList : mySessionList;
   const currentPage = activeSection === "public" ? publicPage : myPage;
-
-  useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(currentSource.length / PAGE_SIZE));
-    if (currentPage >= totalPages) {
-      if (activeSection === "public") {
-        setPublicPage(Math.max(0, totalPages - 1));
-      } else {
-        setMyPage(Math.max(0, totalPages - 1));
-      }
-    }
-  }, [activeSection, currentPage, currentSource.length]);
 
   const filteredSessions = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -113,11 +113,16 @@ export function SessionDiscoverPage({
     () => filteredSessions.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE),
     [filteredSessions, safePage],
   );
+  const pageNumbers = useMemo(() => Array.from({ length: totalPages }, (_, index) => index), [totalPages]);
 
-  const pageNumbers = useMemo(
-    () => Array.from({ length: totalPages }, (_, index) => index),
-    [totalPages],
-  );
+  useEffect(() => {
+    if (safePage === currentPage) return;
+    if (activeSection === "public") {
+      setPublicPage(safePage);
+    } else {
+      setMyPage(safePage);
+    }
+  }, [activeSection, currentPage, safePage]);
 
   function updatePage(nextPage: number) {
     if (activeSection === "public") {
@@ -125,6 +130,10 @@ export function SessionDiscoverPage({
     } else {
       setMyPage(nextPage);
     }
+  }
+
+  function switchSection(section: DiscoverSection) {
+    setActiveSection(section);
   }
 
   function openInviteModal() {
@@ -137,11 +146,74 @@ export function SessionDiscoverPage({
 
   function submitJoinByInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (hasRecruitingSession) return;
-    void onJoinSession(inviteCode.trim().toUpperCase());
+    const trimmedCode = inviteCode.trim().toUpperCase();
+    if (!trimmedCode || hasRecruitingSession) return;
+    void onJoinSession(trimmedCode);
     setInviteCode("");
-    setIsInviteModalOpen(false);
+    closeInviteModal();
   }
+
+  async function openSessionDetail(sessionId: string) {
+    setSelectedSessionDetail(null);
+    setDetailBusy(true);
+    setDetailError(null);
+
+    try {
+      const detail = await onRequestSessionDetail(sessionId);
+      setSelectedSessionDetail(detail);
+    } catch (caught) {
+      setDetailError(caught instanceof Error ? caught.message : "세션 정보를 불러오지 못했습니다.");
+    } finally {
+      setDetailBusy(false);
+    }
+  }
+
+  function closeSessionDetail() {
+    setSelectedSessionDetail(null);
+    setDetailBusy(false);
+    setDetailError(null);
+  }
+
+  async function enterSelectedSession() {
+    if (!selectedSessionDetail) return;
+
+    const targetSessionId = selectedSessionDetail.session.id;
+    const isCurrentSession = snapshot?.session.id === targetSessionId;
+
+    if (isCurrentSession) {
+      closeSessionDetail();
+      onOpenPlay();
+      return;
+    }
+
+    const success = await onJoinSessionById(targetSessionId);
+    if (success !== false) {
+      closeSessionDetail();
+      onOpenPlay();
+    }
+  }
+
+  function openSelectedHostProfile(host: User) {
+    closeSessionDetail();
+    onOpenHostProfile(host);
+  }
+
+  async function handleJoinClick(event: MouseEvent<HTMLButtonElement>, sessionId: string) {
+    event.stopPropagation();
+    await onJoinSessionById(sessionId);
+  }
+
+  function handleRowKeyDown(event: KeyboardEvent<HTMLElement>, sessionId: string) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    void openSessionDetail(sessionId);
+  }
+
+  const isCurrentSelectedSession = selectedSessionDetail?.session.id === snapshot?.session.id;
+  const isKnownSelectedSession =
+    (selectedSessionDetail ? joinedSessionIds.has(selectedSessionDetail.session.id) : false) || isCurrentSelectedSession;
+  const canEnterSelectedSession =
+    isCurrentSelectedSession || isKnownSelectedSession || !hasRecruitingSession;
 
   return (
     <main className="session-discover-shell">
@@ -151,7 +223,7 @@ export function SessionDiscoverPage({
             <button
               type="button"
               className={`session-discover-sidebutton${activeSection === "public" ? " active" : ""}`}
-              onClick={() => setActiveSection("public")}
+              onClick={() => switchSection("public")}
             >
               <img src={sidePanelImage} alt="" aria-hidden="true" />
               <span>공개 세션 탐색</span>
@@ -160,7 +232,7 @@ export function SessionDiscoverPage({
             <button
               type="button"
               className={`session-discover-sidebutton${activeSection === "my" ? " active" : ""}`}
-              onClick={() => setActiveSection("my")}
+              onClick={() => switchSection("my")}
             >
               <img src={sidePanelImage} alt="" aria-hidden="true" />
               <span>내 세션 목록</span>
@@ -173,7 +245,7 @@ export function SessionDiscoverPage({
 
             {snapshot ? (
               <div className="session-discover-sidebar-action">
-                <button type="button" className="session-discover-sidebutton session-discover-sidebutton-secondary" onClick={onOpenPlay}>
+                <button type="button" className="session-discover-sidebutton" onClick={onOpenPlay}>
                   <img src={sidePanelImage} alt="" aria-hidden="true" />
                   <span>현재 세션으로 이동</span>
                 </button>
@@ -187,6 +259,10 @@ export function SessionDiscoverPage({
         </aside>
 
         <section className="session-discover-content">
+          <header className="session-discover-header">
+            <h1>{activeSection === "public" ? "공개 세션 탐색" : "내 세션 목록"}</h1>
+          </header>
+
           <section className="session-discover-toolbar">
             <div className="session-discover-search">
               <Icon name="eye" />
@@ -227,8 +303,11 @@ export function SessionDiscoverPage({
                 aria-label="GM 필터"
               >
                 <option value="all">모든 GM</option>
-                <option value="일반 GM">일반 GM</option>
-                <option value="AI GM">AI GM</option>
+                {[...new Set(sessionVisualPresets.map((preset) => preset.gmLabel))].map((gmLabel) => (
+                  <option key={gmLabel} value={gmLabel}>
+                    {gmLabel}
+                  </option>
+                ))}
               </select>
 
               <select
@@ -240,11 +319,11 @@ export function SessionDiscoverPage({
                 aria-label="상태 필터"
               >
                 <option value="all">모든 상태</option>
-                <option value="lobby">대기 중</option>
-                <option value="recruiting">모집 중</option>
-                <option value="playing">진행 중</option>
-                <option value="paused">일시정지</option>
-                <option value="completed">종료</option>
+                {Object.entries(STATUS_LABEL).map(([status, label]) => (
+                  <option key={status} value={status}>
+                    {label}
+                  </option>
+                ))}
               </select>
 
               <select
@@ -256,7 +335,7 @@ export function SessionDiscoverPage({
                 aria-label="정렬"
               >
                 <option value="latest">최신순</option>
-                <option value="title">이름순</option>
+                <option value="title">제목순</option>
                 <option value="players">인원순</option>
               </select>
             </div>
@@ -270,13 +349,16 @@ export function SessionDiscoverPage({
                   sessionVisualPresets[(safePage * PAGE_SIZE + index) % sessionVisualPresets.length];
 
                 return (
-                  <article className="session-discover-row" key={getSessionListItemKey(item, safePage * PAGE_SIZE + index)}>
+                  <article
+                    className="session-discover-row"
+                    key={getSessionListItemKey(item, safePage * PAGE_SIZE + index)}
+                    onClick={() => void openSessionDetail(item.sessionId)}
+                    onKeyDown={(event) => handleRowKeyDown(event, item.sessionId)}
+                    role="button"
+                    tabIndex={0}
+                  >
                     <div className="session-discover-thumbnail-frame">
-                      <img
-                        src={visual.image}
-                        alt={`${visual.title} thumbnail`}
-                        className="session-discover-thumbnail"
-                      />
+                      <img src={visual.image} alt={`${visual.title} thumbnail`} className="session-discover-thumbnail" />
                     </div>
 
                     <div className="session-discover-row-copy">
@@ -306,7 +388,7 @@ export function SessionDiscoverPage({
                         type="button"
                         className="session-discover-join"
                         disabled={busy || hasRecruitingSession}
-                        onClick={() => void onJoinSessionById(item.sessionId)}
+                        onClick={(event) => void handleJoinClick(event, item.sessionId)}
                       >
                         {activeSection === "public" ? "참여하기" : "입장하기"}
                       </button>
@@ -316,11 +398,11 @@ export function SessionDiscoverPage({
               })
             ) : (
               <article className="session-discover-empty">
-                <h2>{activeSection === "public" ? "표시할 공개 세션이 없습니다" : "아직 참여 중인 세션이 없습니다"}</h2>
+                <h2>{activeSection === "public" ? "공개 세션이 없습니다" : "내 세션이 없습니다"}</h2>
                 <p>
                   {activeSection === "public"
-                    ? "검색어나 필터를 조정하거나 새 세션을 만들어 보세요."
-                    : "공개 세션 목록에서 참가하거나 직접 세션을 생성해 보세요."}
+                    ? "검색 조건을 조정하거나 다른 테마의 세션을 찾아보세요."
+                    : "참여 중인 세션이 생기면 이 목록에 표시됩니다."}
                 </p>
               </article>
             )}
@@ -329,7 +411,7 @@ export function SessionDiscoverPage({
           {filteredSessions.length > PAGE_SIZE ? (
             <nav className="session-discover-pagination" aria-label="세션 페이지네이션">
               <button type="button" onClick={() => updatePage(Math.max(0, safePage - 1))} disabled={safePage === 0}>
-                ‹
+                {"<"}
               </button>
               {pageNumbers.map((pageNumber) => (
                 <button
@@ -346,7 +428,7 @@ export function SessionDiscoverPage({
                 onClick={() => updatePage(Math.min(totalPages - 1, safePage + 1))}
                 disabled={safePage >= totalPages - 1}
               >
-                ›
+                {">"}
               </button>
             </nav>
           ) : null}
@@ -357,7 +439,12 @@ export function SessionDiscoverPage({
 
       {isInviteModalOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={closeInviteModal}>
-          <div className="modal-card session-invite-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="modal-card session-invite-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="modal-header">
               <div>
                 <span className="eyebrow">Invite code</span>
@@ -378,7 +465,7 @@ export function SessionDiscoverPage({
                 maxLength={12}
                 required
               />
-              <p className="helper-copy">세션 호스트에게 받은 초대 코드를 입력하면 바로 해당 세션에 참가할 수 있습니다.</p>
+              <p className="helper-copy">세션에서 받은 초대 코드를 입력하면 바로 참가할 수 있습니다.</p>
               <button type="submit" className="primary" disabled={busy || hasRecruitingSession}>
                 참가하기
               </button>
@@ -386,6 +473,19 @@ export function SessionDiscoverPage({
           </div>
         </div>
       ) : null}
+
+      <SessionDetailModal
+        detail={selectedSessionDetail}
+        loading={detailBusy}
+        error={detailError}
+        busy={busy}
+        canEnter={canEnterSelectedSession}
+        isCurrentSession={isCurrentSelectedSession}
+        isKnownMember={isKnownSelectedSession}
+        onClose={closeSessionDetail}
+        onEnter={enterSelectedSession}
+        onOpenHostProfile={openSelectedHostProfile}
+      />
     </main>
   );
 }

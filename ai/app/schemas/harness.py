@@ -1,23 +1,9 @@
 from pydantic import BaseModel, Field
 from typing import Literal
-from typing import Literal
 
 from app.schemas.actor import ActorAllowedAction, ActorOutput
 from app.schemas.director import DirectorOutput
-from app.schemas.actor import ActorAllowedAction, ActorOutput
-from app.schemas.director import DirectorOutput
 from app.schemas.interpreter import InterpreterOutput
-from app.schemas.interpreter import StructuredAction
-from app.schemas.narrator import (
-    CheckRequest,
-    DiceResult,
-    NarrationConstraints,
-    NarratorStateDiffSummary,
-    NarratorOutput,
-    NarratorScene,
-)
-from app.schemas.npc_dialogue import NpcDialogueOutput
-from app.schemas.summarizer import SummarizerOutput
 from app.schemas.interpreter import StructuredAction
 from app.schemas.narrator import (
     CheckRequest,
@@ -55,13 +41,6 @@ class NarratorHarnessRequest(BaseModel):
     turnId: str | None = Field(default=None, min_length=1, max_length=100)
     actorCharacterId: str | None = Field(default=None, min_length=1, max_length=100)
     rawInput: str = Field(min_length=1, max_length=2000)
-    action: StructuredAction | None = None
-    checkRequest: CheckRequest | None = None
-    diceResult: DiceResult | None = None
-    stateDiffSummary: NarratorStateDiffSummary | None = None
-    scene: NarratorScene = Field(default_factory=NarratorScene)
-    constraints: NarrationConstraints = Field(default_factory=NarrationConstraints)
-    actionSummary: str | None = Field(default=None, max_length=1000)
     action: StructuredAction | None = None
     checkRequest: CheckRequest | None = None
     diceResult: DiceResult | None = None
@@ -165,34 +144,6 @@ class TraceListResponse(BaseModel):
     items: list[TraceListItem]
     total: int
     filtered: int
-    fallback: bool = False
-    fallbackReason: str | None = None
-
-
-class TraceListItem(BaseModel):
-    id: str | None = None
-    timestamp: str
-    endpoint: str
-    status: Literal["success", "failure", "fallback"]
-    sessionId: str | None = None
-    turnId: str | None = None
-    actorCharacterId: str | None = None
-    role: str | None = None
-    provider: str | None = None
-    model: str | None = None
-    promptVersion: str | None = None
-    latencyMs: int | None = None
-    attempts: int | None = None
-    failureType: str | None = None
-    finishReason: str | None = None
-    providerRequestId: str | None = None
-    logPaths: dict[str, str] | None = None
-
-
-class TraceListResponse(BaseModel):
-    items: list[TraceListItem]
-    total: int
-    filtered: int
 
 
 class AiTraceSummary(BaseModel):
@@ -213,22 +164,6 @@ class InterpreterHarnessResponse(HarnessResponse):
 
 class NarratorHarnessResponse(HarnessResponse):
     parsed: NarratorOutput
-
-
-class DirectorHarnessResponse(HarnessResponse):
-    parsed: DirectorOutput
-
-
-class SummarizerHarnessResponse(HarnessResponse):
-    parsed: SummarizerOutput
-
-
-class ActorHarnessResponse(HarnessResponse):
-    parsed: ActorOutput
-
-
-class NpcDialogueHarnessResponse(HarnessResponse):
-    parsed: NpcDialogueOutput
 
 
 class DirectorHarnessResponse(HarnessResponse):
