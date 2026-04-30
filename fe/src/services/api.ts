@@ -1,12 +1,14 @@
 import type {
   AuthTokenResponseDto,
   CharacterResponseDto,
+  CreateScenarioDto,
   GmMode,
   LoginResponseDto,
   OAuthUrlResponseDto,
   ScenarioResponseDto,
   SessionDetailResponseDto,
   SessionSnapshotDto,
+  UpdateScenarioDto,
   UserResponseDto,
   SessionListItemResponseDto,
   SessionParticipantResponseDto,
@@ -199,6 +201,52 @@ export function listScenarios(): Promise<Scenario[]> {
 
 export function getScenario(scenarioId: string): Promise<ScenarioDetail> {
   return requestJson<ScenarioResponseDto>(`/scenarios/${scenarioId}`);
+}
+
+export function listMyScenarios(
+  user: StoredUser,
+  accessToken?: string | null
+): Promise<Scenario[]> {
+  return requestJson<Scenario[]>('/scenarios/mine', { user, accessToken });
+}
+
+export function createScenario(
+  user: StoredUser,
+  payload: CreateScenarioDto,
+  accessToken?: string | null
+): Promise<ScenarioDetail> {
+  return requestJson<ScenarioResponseDto>('/scenarios', {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function updateScenario(
+  user: StoredUser,
+  scenarioId: string,
+  payload: UpdateScenarioDto,
+  accessToken?: string | null
+): Promise<ScenarioDetail> {
+  return requestJson<ScenarioResponseDto>(`/scenarios/${scenarioId}`, {
+    method: 'PATCH',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function deleteScenario(
+  user: StoredUser,
+  scenarioId: string,
+  accessToken?: string | null
+): Promise<void> {
+  return requestJson<void>(`/scenarios/${scenarioId}`, {
+    method: 'DELETE',
+    user,
+    accessToken,
+  });
 }
 
 export function listSessions(

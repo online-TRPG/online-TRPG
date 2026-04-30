@@ -3701,6 +3701,96 @@ label {
   color: var(--text);
 }
 
+.scenario-management-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 360px;
+  gap: 18px;
+  min-height: calc(100vh - 132px);
+}
+
+.scenario-library-board,
+.scenario-detail-panel {
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  background: rgba(9, 16, 26, 0.86);
+  border-radius: 24px;
+  padding: 20px;
+  min-width: 0;
+  overflow: auto;
+}
+
+.scenario-library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.scenario-library-card {
+  min-height: 210px;
+  padding: 18px;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  border-radius: 20px;
+  background: rgba(10, 17, 28, 0.9);
+  color: var(--text);
+  text-align: left;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.scenario-library-card.selected {
+  border-color: rgba(120, 217, 255, 0.6);
+  background: linear-gradient(180deg, rgba(23, 61, 90, 0.92), rgba(12, 20, 33, 0.94));
+}
+
+.scenario-library-card strong {
+  font-size: 20px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.scenario-library-card p,
+.scenario-detail-panel p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.scenario-library-card dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.scenario-library-card dt,
+.scenario-library-card dd {
+  margin: 0;
+}
+
+.scenario-library-card dt {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.scenario-library-card dd {
+  margin-top: 4px;
+  font-weight: 700;
+}
+
+.scenario-detail-panel {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.scenario-detail-panel h2 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
 .character-selection-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -4133,6 +4223,10 @@ label {
     height: auto;
     min-height: 100vh;
     overflow: visible;
+  }
+
+  .scenario-management-layout {
+    grid-template-columns: 1fr;
   }
 
   .joinable-room-grid {

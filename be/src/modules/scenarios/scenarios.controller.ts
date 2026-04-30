@@ -1,14 +1,20 @@
-import { Controller, Get, Param, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
 import {
+  ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiOkResponse,
   ApiParam,
+  ApiSecurity,
   ApiTags,
 } from "@nestjs/swagger";
 import {
+  CreateScenarioDto,
   ScenarioQueryDto,
   ScenarioResponseDto,
   ScenarioSummaryResponseDto,
+  UpdateScenarioDto,
 } from "@trpg/shared-types";
+import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
 import { ScenariosService } from "./scenarios.service";
 
 @ApiTags("scenarios")
@@ -24,10 +30,54 @@ export class ScenariosController {
     return this.scenariosService.listScenarios(query);
   }
 
+  @Get("mine")
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: [ScenarioSummaryResponseDto] })
+  listMyScenarios(
+    @CurrentUserId() userId: string,
+    @Query() query: ScenarioQueryDto,
+  ): Promise<ScenarioSummaryResponseDto[]> {
+    return this.scenariosService.listMyScenarios(userId, query);
+  }
+
+  @Post()
+  @ApiSecurity("x-user-id")
+  @ApiCreatedResponse({ type: ScenarioResponseDto })
+  createScenario(
+    @CurrentUserId() userId: string,
+    @Body() dto: CreateScenarioDto,
+  ): Promise<ScenarioResponseDto> {
+    return this.scenariosService.createScenario(userId, dto);
+  }
+
   @Get(":id")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: ScenarioResponseDto })
   getScenario(@Param("id") id: string): Promise<ScenarioResponseDto> {
     return this.scenariosService.getScenario(id);
+  }
+
+  @Patch(":id")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: ScenarioResponseDto })
+  updateScenario(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Body() dto: UpdateScenarioDto,
+  ): Promise<ScenarioResponseDto> {
+    return this.scenariosService.updateScenario(userId, id, dto);
+  }
+
+  @Delete(":id")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiNoContentResponse()
+  @HttpCode(204)
+  deleteScenario(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+  ): Promise<void> {
+    return this.scenariosService.deleteScenario(userId, id);
   }
 }
