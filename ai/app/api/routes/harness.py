@@ -1,7 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import Annotated
 
 from app.core.errors import AiClientError
 from app.schemas.harness import (
