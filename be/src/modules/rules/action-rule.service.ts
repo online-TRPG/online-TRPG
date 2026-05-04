@@ -45,10 +45,12 @@ type SessionCharacterForRules = {
     id: string;
     name: string;
     className: string;
+    subclassName?: string | null;
     level: number;
     maxHp: number;
     abilitiesJson: string;
     proficiencyBonus: number;
+    featuresJson?: string | null;
     proficientSkillsJson: string;
     armorClass: number;
     speed: number;
@@ -681,10 +683,16 @@ export class ActionRuleService {
       this.normalizeRuleToken(condition),
     );
     const className = this.normalizeRuleToken(actor.character.className);
+    const subclassName = this.normalizeRuleToken(actor.character.subclassName ?? "");
+    const characterFeatures = this.parseJson<string[]>(actor.character.featuresJson, []).map(
+      (feature) => this.normalizeRuleToken(feature),
+    );
     const featureIds: string[] = [];
 
     if (
       className.includes("champion") ||
+      subclassName.includes("champion") ||
+      characterFeatures.includes("champion_improved_critical") ||
       conditions.includes("feature:champion_improved_critical") ||
       conditions.includes("champion_improved_critical")
     ) {
@@ -694,6 +702,8 @@ export class ActionRuleService {
     if (
       actor.character.level >= 15 &&
       (className.includes("champion") ||
+        subclassName.includes("champion") ||
+        characterFeatures.includes("champion_superior_critical") ||
         conditions.includes("feature:champion_superior_critical") ||
         conditions.includes("champion_superior_critical"))
     ) {
