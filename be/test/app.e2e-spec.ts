@@ -11,6 +11,8 @@ import {
 } from "../src/database/seed/default-scenario";
 
 describe("Session service e2e", () => {
+  jest.setTimeout(30_000);
+
   let app: INestApplication;
   let prisma: PrismaService;
   let baseUrl: string;
@@ -40,6 +42,12 @@ describe("Session service e2e", () => {
   });
 
   beforeEach(async () => {
+    await prisma.stateDiff.deleteMany();
+    await prisma.diceRollLog.deleteMany();
+    await prisma.turnLog.deleteMany();
+    await prisma.playerAction.deleteMany();
+    await prisma.combatParticipant.deleteMany();
+    await prisma.combat.deleteMany();
     await prisma.gameState.deleteMany();
     await prisma.sessionCharacter.deleteMany();
     await prisma.sessionParticipant.deleteMany();
@@ -51,6 +59,12 @@ describe("Session service e2e", () => {
   });
 
   afterAll(async () => {
+    await prisma.stateDiff.deleteMany();
+    await prisma.diceRollLog.deleteMany();
+    await prisma.turnLog.deleteMany();
+    await prisma.playerAction.deleteMany();
+    await prisma.combatParticipant.deleteMany();
+    await prisma.combat.deleteMany();
     await prisma.gameState.deleteMany();
     await prisma.sessionCharacter.deleteMany();
     await prisma.sessionParticipant.deleteMany();
@@ -267,6 +281,7 @@ describe("Session service e2e", () => {
         title: "Human GM Session",
         scenarioId: DEFAULT_SCENARIO_ID,
         gmMode: "HUMAN",
+        maxParticipants: 4,
       })
       .expect(201);
 
@@ -308,6 +323,119 @@ describe("Session service e2e", () => {
       .expect(201);
 
     expect(combatEnded.body.data.state.phase).toBe("exploration");
+  });
+
+  it("accepts actions, stores turn logs, starts combat, and advances turns", async () => {
+    const host = await createGuest("Action Host");
+    const hostCharacter = await createCharacter(host.id, {
+      name: "Kara",
+      ancestry: "Human",
+      className: "Ranger",
+      abilities: {
+        str: 10,
+        dex: 14,
+        con: 12,
+        int: 10,
+        wis: 16,
+        cha: 8,
+      },
+      proficientSkills: ["perception"],
+    });
+
+    const created = await request(baseUrl)
+      .post("/api/v1/sessions")
+      .set("x-user-id", host.id)
+      .send({
+        title: "Action Flow",
+        scenarioId: DEFAULT_SCENARIO_ID,
+        gmMode: "AI",
+        maxParticipants: 1,
+      })
+      .expect(201);
+
+    const sessionId = created.body.data.session.sessionId as string;
+
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/character-selection`)
+      .set("x-user-id", host.id)
+      .send({ characterId: hostCharacter.id })
+      .expect(200);
+
+    await request(baseUrl)
+      .patch(`/api/v1/sessions/${sessionId}/participants/me/ready`)
+      .set("x-user-id", host.id)
+      .send({ isReady: true })
+      .expect(200);
+
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/start`)
+      .set("x-user-id", host.id)
+      .expect(201);
+
+    const accepted = await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/actions`)
+      .set("x-user-id", host.id)
+      .send({
+        characterId: hostCharacter.id,
+        rawText: "/check perception 5",
+        clientCreatedAt: new Date().toISOString(),
+        actionScope: "PARTY_SHARED",
+      })
+      .expect(202);
+
+    expect(accepted.body.code).toBe("ACTION_202");
+    expect(accepted.body.data.queueStatus).toBe("PENDING");
+
+    const logs = await request(baseUrl)
+      .get(`/api/v1/sessions/${sessionId}/turn-logs?includeDiceResult=true`)
+      .set("x-user-id", host.id)
+      .expect(200);
+
+    expect(logs.body.data.turnLogs).toHaveLength(1);
+    expect(logs.body.data.turnLogs[0].outcome).toBe("SUCCESS");
+    expect(logs.body.data.turnLogs[0].diceResult.total).toEqual(expect.any(Number));
+
+    const combat = await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/combat/start`)
+      .set("x-user-id", host.id)
+      .send({})
+      .expect(201);
+
+    expect(combat.body.data.status).toBe("ACTIVE");
+    expect(combat.body.data.roundNo).toBe(1);
+    expect(combat.body.data.currentEntityId).toBeTruthy();
+    expect(combat.body.data.participants).toHaveLength(1);
+
+    await request(baseUrl)
+      .get(`/api/v1/sessions/${sessionId}/combat/character`)
+      .set("x-user-id", host.id)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.data.isCurrentTurn).toBe(true);
+        expect(response.body.data.actions.some((action: { code: string }) => action.code === "ATTACK")).toBe(true);
+      });
+
+    const combatAction = await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/actions`)
+      .set("x-user-id", host.id)
+      .send({
+        characterId: hostCharacter.id,
+        rawText: "/roll 1d20",
+        clientCreatedAt: new Date().toISOString(),
+        actionScope: "INDIVIDUAL_TURN",
+      })
+      .expect(202);
+
+    expect(combatAction.body.data.playerActionId).toBeTruthy();
+
+    const turn = await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/combat/turn/end`)
+      .set("x-user-id", host.id)
+      .send({})
+      .expect(200);
+
+    expect(turn.body.data.roundNo).toBe(2);
+    expect(turn.body.data.turnNo).toBe(2);
   });
 
   async function createGuest(displayName: string) {
