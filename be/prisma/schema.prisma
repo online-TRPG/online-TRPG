@@ -258,10 +258,12 @@ model Character {
   name                   String
   ancestry               String
   className              String
+  subclassName           String?
   level                  Int
   bio                    String?
   abilitiesJson          String
   proficiencyBonus       Int
+  featuresJson           String?
   proficientSkillsJson   String
   maxHp                  Int
   armorClass             Int
@@ -295,9 +297,57 @@ model SessionCharacter {
   participant           SessionParticipant     @relation("ParticipantSessionCharacter", fields: [sessionId, userId], references: [sessionId, userId], onDelete: Cascade)
   user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   character             Character              @relation(fields: [characterId], references: [id])
+  inventoryEntries      InventoryEntry[]
+  combatTurnStates      CombatTurnState[]
+  resource              SessionCharacterResource?
 
   @@unique([sessionId, userId])
   @@unique([sessionId, characterId])
+}
+
+model ItemDefinition {
+  id               String           @id
+  name             String
+  itemType         String
+  weightLb         Float?
+  volumeCuFt       Float?
+  damageDice       String?
+  damageType       String?
+  propertiesJson   String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  inventoryEntries InventoryEntry[]
+}
+
+model InventoryEntry {
+  id                 String           @id @default(cuid())
+  sessionCharacterId String
+  itemDefinitionId   String
+  quantity           Int              @default(1)
+  containerEntryId   String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  sessionCharacter   SessionCharacter @relation(fields: [sessionCharacterId], references: [id], onDelete: Cascade)
+  itemDefinition     ItemDefinition   @relation(fields: [itemDefinitionId], references: [id])
+  containerEntry     InventoryEntry?  @relation("InventoryContainer", fields: [containerEntryId], references: [id], onDelete: SetNull)
+  containedEntries   InventoryEntry[] @relation("InventoryContainer")
+  containerState     ContainerState?
+
+  @@index([sessionCharacterId])
+  @@index([itemDefinitionId])
+  @@index([containerEntryId])
+}
+
+model ContainerState {
+  inventoryEntryId  String         @id
+  currentWeightLb   Float          @default(0)
+  currentVolumeCuFt Float          @default(0)
+  maxWeightLb       Float
+  maxVolumeCuFt     Float
+  integrity         String         @default("INTACT")
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  inventoryEntry    InventoryEntry @relation(fields: [inventoryEntryId], references: [id], onDelete: Cascade)
 }
 
 model Scenario {
@@ -464,6 +514,7 @@ model Combat {
   session           Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   sessionScenario   SessionScenario     @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
   participants      CombatParticipant[]
+  turnStates        CombatTurnState[]
 
   @@index([sessionId, status])
 }
@@ -484,6 +535,41 @@ model CombatParticipant {
   combat             Combat           @relation(fields: [combatId], references: [id], onDelete: Cascade)
 
   @@index([combatId, turnOrder])
+}
+
+model CombatTurnState {
+  id                       String           @id @default(cuid())
+  combatId                 String
+  roundNo                  Int
+  turnNo                   Int
+  sessionCharacterId       String
+  actionUsed               Boolean          @default(false)
+  bonusActionUsed          Boolean          @default(false)
+  reactionUsed             Boolean          @default(false)
+  additionalActionGranted  Boolean          @default(false)
+  sneakAttackUsed          Boolean          @default(false)
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+  combat                   Combat           @relation(fields: [combatId], references: [id], onDelete: Cascade)
+  sessionCharacter         SessionCharacter @relation(fields: [sessionCharacterId], references: [id], onDelete: Cascade)
+
+  @@unique([combatId, roundNo, turnNo, sessionCharacterId])
+  @@index([sessionCharacterId])
+}
+
+model SessionCharacterResource {
+  sessionCharacterId  String           @id
+  secondWindAvailable Boolean          @default(true)
+  actionSurgeUses     Int              @default(0)
+  rageUses            Int              @default(0)
+  rageActive          Boolean          @default(false)
+  rageEndsAtRound     Int?
+  rageEndsAtTurn      Int?
+  frenzyActive        Boolean          @default(false)
+  exhaustionLevel     Int              @default(0)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  sessionCharacter    SessionCharacter @relation(fields: [sessionCharacterId], references: [id], onDelete: Cascade)
 }
 
 model AiTrace {
