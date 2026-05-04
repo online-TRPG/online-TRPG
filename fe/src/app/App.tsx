@@ -1,60 +1,75 @@
-import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import logoImage from "../assets/images/Logo.png";
-import { Icon } from "../components/Icon";
-import { useAuth } from "../hooks/useAuth";
-import { useLogs } from "../hooks/useLogs";
-import { useSession } from "../hooks/useSession";
-import { getOAuthUrl, getSessionDetail, listScenarios } from "../services/api";
-import { AccountPage } from "../pages/AccountPage";
-import { CharacterPage } from "../pages/CharacterPage";
-import { LobbyPage } from "../pages/LobbyPage";
-import { LoginPage } from "../pages/LoginPage";
-import { PlayPage } from "../pages/PlayPage";
-import { ProfilePage } from "../pages/ProfilePage";
-import { PublicProfilePage } from "../pages/PublicProfilePage";
-import { SessionCreatePage } from "../pages/SessionCreatePage";
-import { SessionDetailPage } from "../pages/SessionDetailPage";
-import { SessionDiscoverPage } from "../pages/SessionDiscoverPage";
-import type { Scenario, User } from "../types/session";
-import { buildGameroomPath, buildPublicProfilePath } from "../utils/routes";
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import logoImage from '../assets/images/Logo.png';
+import { Icon } from '../components/Icon';
+import { useAuth } from '../hooks/useAuth';
+import { useLogs } from '../hooks/useLogs';
+import { useSession } from '../hooks/useSession';
+import { getOAuthUrl, getSessionDetail, listScenarios } from '../services/api';
+import { AccountPage } from '../pages/AccountPage';
+import { CharacterPage } from '../pages/CharacterPage';
+import { LobbyPage } from '../pages/LobbyPage';
+import { LoginPage } from '../pages/LoginPage';
+import { PlayPage } from '../pages/PlayPage';
+import { ProfilePage } from '../pages/ProfilePage';
+import { PublicProfilePage } from '../pages/PublicProfilePage';
+import { ScenarioEditorPage } from '../pages/ScenarioEditorPage';
+import { ScenarioPage } from '../pages/ScenarioPage';
+import { SessionCreatePage } from '../pages/SessionCreatePage';
+import { SessionDetailPage } from '../pages/SessionDetailPage';
+import { SessionDiscoverPage } from '../pages/SessionDiscoverPage';
+import type { Scenario, User } from '../types/session';
+import { buildGameroomPath, buildPublicProfilePath } from '../utils/routes';
 
 type MainView =
-  | "main"
-  | "characters"
-  | "rulebook"
-  | "settings"
-  | "profile"
-  | "publicProfile"
-  | "account"
-  | "sessionsDiscover"
-  | "sessionsNew"
-  | "sessionDetail"
-  | "gameroom";
+  | 'main'
+  | 'characters'
+  | 'rulebook'
+  | 'settings'
+  | 'profile'
+  | 'publicProfile'
+  | 'account'
+  | 'scenarios'
+  | 'scenariosNew'
+  | 'scenarioEdit'
+  | 'sessionsDiscover'
+  | 'sessionsNew'
+  | 'sessionDetail'
+  | 'gameroom';
 
-const topNavItems: Array<{ id: Exclude<MainView, "gameroom" | "publicProfile" | "sessionDetail">; label: string }> = [
-  { id: "main", label: "메인" },
-  { id: "sessionsDiscover", label: "세션 탐색" },
-  { id: "sessionsNew", label: "세션 생성" },
-  { id: "characters", label: "캐릭터" },
-  { id: "rulebook", label: "룰북" },
-  { id: "settings", label: "설정" },
-  { id: "profile", label: "프로필" },
-  { id: "account", label: "계정" },
+const topNavItems: Array<{
+  id: Exclude<
+    MainView,
+    'gameroom' | 'publicProfile' | 'sessionDetail' | 'scenariosNew' | 'scenarioEdit'
+  >;
+  label: string;
+}> = [
+  { id: 'main', label: '메인' },
+  { id: 'sessionsDiscover', label: '세션 탐색' },
+  { id: 'sessionsNew', label: '세션 생성' },
+  { id: 'scenarios', label: '시나리오' },
+  { id: 'characters', label: '캐릭터' },
+  { id: 'rulebook', label: '룰북' },
+  { id: 'settings', label: '설정' },
+  { id: 'profile', label: '프로필' },
+  { id: 'account', label: '계정' },
 ];
 
 const pathByView: Record<MainView, string> = {
-  main: "/",
-  characters: "/characters",
-  rulebook: "/rulebook",
-  settings: "/settings",
-  profile: "/profile",
-  publicProfile: "/profile",
-  account: "/account",
-  sessionsDiscover: "/sessions/discover",
-  sessionsNew: "/sessions/new",
-  sessionDetail: "/sessions",
-  gameroom: "/gameroom",
+  main: '/',
+  characters: '/characters',
+  rulebook: '/rulebook',
+  settings: '/settings',
+  profile: '/profile',
+  publicProfile: '/profile',
+  account: '/account',
+  scenarios: '/scenarios',
+  scenariosNew: '/scenarios/new',
+  scenarioEdit: '/scenarios',
+  sessionsDiscover: '/sessions/discover',
+  sessionsNew: '/sessions/new',
+  sessionDetail: '/sessions',
+  gameroom: '/gameroom',
 };
 
 function viewFromPathname(pathname: string): MainView | null {
@@ -67,31 +82,39 @@ function viewFromPathname(pathname: string): MainView | null {
   }
 
   if (/^\/sessions\/[^/]+\/[^/]+$/.test(pathname)) {
-    return "sessionDetail";
+    return 'sessionDetail';
   }
 
   if (/^\/gameroom\/[^/]+\/[^/]+$/.test(pathname)) {
-    return "gameroom";
+    return 'gameroom';
+  }
+
+  if (/^\/scenarios\/[^/]+\/edit$/.test(pathname)) {
+    return 'scenarioEdit';
   }
 
   switch (pathname) {
-    case "/":
-      return "main";
-    case "/characters":
-      return "characters";
-    case "/rulebook":
-      return "rulebook";
-    case "/settings":
-      return "settings";
-    case "/profile":
-    case "/users/me/profile":
-      return "profile";
-    case "/account":
-      return "account";
-    case "/sessions/discover":
-      return "sessionsDiscover";
-    case "/sessions/new":
-      return "sessionsNew";
+    case '/':
+      return 'main';
+    case '/characters':
+      return 'characters';
+    case '/rulebook':
+      return 'rulebook';
+    case '/settings':
+      return 'settings';
+    case '/profile':
+    case '/users/me/profile':
+      return 'profile';
+    case '/account':
+      return 'account';
+    case '/scenarios':
+      return 'scenarios';
+    case '/scenarios/new':
+      return 'scenariosNew';
+    case '/sessions/discover':
+      return 'sessionsDiscover';
+    case '/sessions/new':
+      return 'sessionsNew';
     default:
       return null;
   }
@@ -110,10 +133,14 @@ export function App() {
   const gameroomMatch = /^\/gameroom\/([^/]+)\/[^/]+$/.exec(location.pathname);
   const gameroomId = gameroomMatch?.[1] ?? null;
   const publicProfileState = location.state as { profilePreview?: User | null } | null;
+  const scenarioEditMatch = /^\/scenarios\/([^/]+)\/edit$/.exec(location.pathname);
+  const scenarioEditId = scenarioEditMatch?.[1] ?? null;
 
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const activeView =
-    location.pathname === "/oauth/callback" ? "main" : (viewFromPathname(location.pathname) ?? "main");
+    location.pathname === '/oauth/callback'
+      ? 'main'
+      : (viewFromPathname(location.pathname) ?? 'main');
 
   useEffect(() => {
     listScenarios()
@@ -123,29 +150,29 @@ export function App() {
 
   useEffect(() => {
     const url = new URL(window.location.href);
-    if (url.pathname !== "/oauth/callback") return;
+    if (url.pathname !== '/oauth/callback') return;
 
-    const code = url.searchParams.get("code");
-    const provider = localStorage.getItem("trpg.oauthProvider") as "kakao" | "discord" | null;
+    const code = url.searchParams.get('code');
+    const provider = localStorage.getItem('trpg.oauthProvider') as 'kakao' | 'discord' | null;
 
     if (code && provider) {
-      localStorage.removeItem("trpg.oauthProvider");
-      navigate("/", { replace: true });
+      localStorage.removeItem('trpg.oauthProvider');
+      navigate('/', { replace: true });
       void auth.handleOAuthCallback(provider, code);
     }
   }, [auth, navigate]);
 
   useEffect(() => {
-    if (location.pathname === "/oauth/callback") return;
+    if (location.pathname === '/oauth/callback') return;
     if (viewFromPathname(location.pathname)) return;
-    navigate("/", { replace: true });
+    navigate('/', { replace: true });
   }, [location.pathname, navigate]);
 
   useEffect(() => {
-    if (activeView !== "gameroom") return;
+    if (activeView !== 'gameroom') return;
     if (!auth.user) return;
     if (!session.snapshot) {
-      navigate("/", { replace: true });
+      navigate('/', { replace: true });
       return;
     }
 
@@ -162,21 +189,21 @@ export function App() {
   const busy = auth.busy || session.busy;
   const error = auth.error ?? session.error;
 
-  async function handleOAuthLogin(provider: "kakao" | "discord") {
+  async function handleOAuthLogin(provider: 'kakao' | 'discord') {
     const redirectUri = `${window.location.origin}/oauth/callback`;
 
     try {
-      localStorage.setItem("trpg.oauthProvider", provider);
+      localStorage.setItem('trpg.oauthProvider', provider);
       const { authUrl } = await getOAuthUrl(provider, redirectUri);
       window.location.href = authUrl;
     } catch {
-      localStorage.removeItem("trpg.oauthProvider");
+      localStorage.removeItem('trpg.oauthProvider');
     }
   }
 
   async function handleCreateSession(
     title: string,
-    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
+    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean }
   ) {
     const nextSnapshot = await session.createSession(title, options);
     if (nextSnapshot) {
@@ -197,7 +224,7 @@ export function App() {
 
   async function handleRequestSessionDetail(sessionId: string) {
     if (!auth.user) {
-      throw new Error("로그인이 필요합니다.");
+      throw new Error('로그인이 필요합니다.');
     }
 
     return getSessionDetail(auth.user, sessionId, auth.accessToken);
@@ -206,30 +233,34 @@ export function App() {
   function handleLogout() {
     session.clearSnapshot();
     void auth.signOut();
-    navigate("/");
+    navigate('/');
   }
 
   function handleSessionMessage(displayName: string, input: string) {
-    const [scopePart, ...restParts] = input.split(":");
-    const scoped = scopePart === "CHAT" || scopePart === "MAIN";
-    const scope = scoped ? scopePart : "MAIN";
-    const message = (scoped ? restParts.join(":") : input).trim();
+    const [scopePart, ...restParts] = input.split(':');
+    const scoped = scopePart === 'CHAT' || scopePart === 'MAIN';
+    const scope = scoped ? scopePart : 'MAIN';
+    const message = (scoped ? restParts.join(':') : input).trim();
 
     if (!message) return;
 
-    if (scope === "CHAT") {
-      appendLog("action", displayName, `[CHAT]${message}`);
+    if (scope === 'CHAT') {
+      appendLog('action', displayName, `[CHAT]${message}`);
       return;
     }
 
     const commandMatch = message.match(/^\/(roll|hint)\b/i);
     if (commandMatch) {
       const command = commandMatch[1].toLowerCase();
-      appendLog("action", displayName, `[MAIN]${displayName}님이 "${command}" 액션을 실행했습니다.`);
+      appendLog(
+        'action',
+        displayName,
+        `[MAIN]${displayName}님이 "${command}" 액션을 실행했습니다.`
+      );
       return;
     }
 
-    appendLog("action", displayName, `[MAIN]${message}`);
+    appendLog('action', displayName, `[MAIN]${message}`);
   }
 
   if (!auth.user) {
@@ -246,10 +277,10 @@ export function App() {
   }
 
   const currentUser = auth.user;
-  const isPlayView = activeView === "gameroom";
+  const isPlayView = activeView === 'gameroom';
 
   return (
-    <div className={isPlayView ? "app-shell app-shell-session" : "app-shell app-shell-topnav"}>
+    <div className={isPlayView ? 'app-shell app-shell-session' : 'app-shell app-shell-topnav'}>
       {!isPlayView ? (
         <header className="topbar topbar-shell">
           <div className="topbar-left">
@@ -262,7 +293,7 @@ export function App() {
                 <button
                   key={item.id}
                   type="button"
-                  className={activeView === item.id ? "active" : ""}
+                  className={activeView === item.id ? 'active' : ''}
                   onClick={() => navigate(pathByView[item.id])}
                 >
                   {item.label}
@@ -275,14 +306,23 @@ export function App() {
             <div className="topbar-actions">
               <button
                 type="button"
-                className={activeView === "profile" ? "icon-button profile-chip active" : "icon-button profile-chip"}
-                onClick={() => navigate("/profile")}
+                className={
+                  activeView === 'profile'
+                    ? 'icon-button profile-chip active'
+                    : 'icon-button profile-chip'
+                }
+                onClick={() => navigate('/profile')}
                 aria-label="프로필 열기"
               >
                 <div className="avatar">{currentUser.displayName.slice(0, 1)}</div>
                 <strong>{currentUser.displayName}</strong>
               </button>
-              <button type="button" className="icon-button" onClick={handleLogout} aria-label="로그아웃">
+              <button
+                type="button"
+                className="icon-button"
+                onClick={handleLogout}
+                aria-label="로그아웃"
+              >
                 <Icon name="logout" />
               </button>
             </div>
@@ -290,8 +330,8 @@ export function App() {
         </header>
       ) : null}
 
-      <div className={isPlayView ? "workspace workspace-session" : "workspace workspace-topnav"}>
-        {!isPlayView && activeView === "main" ? (
+      <div className={isPlayView ? 'workspace workspace-session' : 'workspace workspace-topnav'}>
+        {!isPlayView && activeView === 'main' ? (
           <LobbyPage
             user={currentUser}
             snapshot={session.snapshot}
@@ -300,14 +340,16 @@ export function App() {
             logs={logs}
             busy={busy}
             error={error}
-            onOpenDiscover={() => navigate("/sessions/discover")}
-            onOpenCreate={() => navigate("/sessions/new")}
-            onOpenPlay={() => session.snapshot && navigate(buildGameroomPath(session.snapshot.session))}
+            onOpenDiscover={() => navigate('/sessions/discover')}
+            onOpenCreate={() => navigate('/sessions/new')}
+            onOpenPlay={() =>
+              session.snapshot && navigate(buildGameroomPath(session.snapshot.session))
+            }
             onLeaveCurrentSession={() => void session.leaveSession()}
           />
         ) : null}
 
-        {!isPlayView && activeView === "characters" ? (
+        {!isPlayView && activeView === 'characters' ? (
           <CharacterPage
             user={currentUser}
             busy={busy}
@@ -318,7 +360,7 @@ export function App() {
           />
         ) : null}
 
-        {!isPlayView && activeView === "profile" ? (
+        {!isPlayView && activeView === 'profile' ? (
           <ProfilePage
             user={currentUser}
             accessToken={auth.accessToken}
@@ -326,11 +368,11 @@ export function App() {
             busy={busy}
             error={error}
             onLogout={handleLogout}
-            onOpenAccount={() => navigate("/account")}
+            onOpenAccount={() => navigate('/account')}
           />
         ) : null}
 
-        {!isPlayView && activeView === "account" ? (
+        {!isPlayView && activeView === 'account' ? (
           <AccountPage
             user={currentUser}
             accessToken={auth.accessToken}
@@ -338,11 +380,51 @@ export function App() {
             busy={busy}
             error={error}
             onLogout={handleLogout}
-            onOpenProfile={() => navigate("/profile")}
+            onOpenProfile={() => navigate('/profile')}
           />
         ) : null}
 
-        {!isPlayView && activeView === "sessionsDiscover" ? (
+        {!isPlayView && activeView === 'scenarios' ? (
+          <ScenarioPage
+            user={currentUser}
+            accessToken={auth.accessToken}
+            busy={busy}
+            error={error}
+            onOpenCreate={() => navigate('/scenarios/new')}
+            onOpenEdit={(scenarioId) => navigate(`/scenarios/${scenarioId}/edit`)}
+          />
+        ) : null}
+
+        {!isPlayView && activeView === 'scenariosNew' ? (
+          <ScenarioEditorPage
+            user={currentUser}
+            accessToken={auth.accessToken}
+            onDone={() => {
+              void listScenarios()
+                .then(setScenarios)
+                .catch(() => undefined);
+              navigate('/scenarios');
+            }}
+            onCancel={() => navigate('/scenarios')}
+          />
+        ) : null}
+
+        {!isPlayView && activeView === 'scenarioEdit' ? (
+          <ScenarioEditorPage
+            user={currentUser}
+            accessToken={auth.accessToken}
+            scenarioId={scenarioEditId}
+            onDone={() => {
+              void listScenarios()
+                .then(setScenarios)
+                .catch(() => undefined);
+              navigate('/scenarios');
+            }}
+            onCancel={() => navigate('/scenarios')}
+          />
+        ) : null}
+
+        {!isPlayView && activeView === 'sessionsDiscover' ? (
           <SessionDiscoverPage
             snapshot={session.snapshot}
             sessionList={session.sessionList}
@@ -357,20 +439,22 @@ export function App() {
                 state: { profilePreview: host },
               })
             }
-            onOpenCreate={() => navigate("/sessions/new")}
-            onOpenPlay={() => session.snapshot && navigate(buildGameroomPath(session.snapshot.session))}
+            onOpenCreate={() => navigate('/sessions/new')}
+            onOpenPlay={() =>
+              session.snapshot && navigate(buildGameroomPath(session.snapshot.session))
+            }
           />
         ) : null}
 
-        {!isPlayView && activeView === "publicProfile" && publicProfileId ? (
+        {!isPlayView && activeView === 'publicProfile' && publicProfileId ? (
           <PublicProfilePage
             publicId={publicProfileId}
             previewUser={publicProfileState?.profilePreview ?? null}
-            onOpenOwnProfile={() => navigate("/profile")}
+            onOpenOwnProfile={() => navigate('/profile')}
           />
         ) : null}
 
-        {!isPlayView && activeView === "sessionDetail" && sessionDetailId ? (
+        {!isPlayView && activeView === 'sessionDetail' && sessionDetailId ? (
           <SessionDetailPage
             user={currentUser}
             accessToken={auth.accessToken}
@@ -378,7 +462,9 @@ export function App() {
             snapshot={session.snapshot}
             busy={busy}
             onJoinSessionById={handleJoinSessionById}
-            onOpenPlay={() => session.snapshot && navigate(buildGameroomPath(session.snapshot.session))}
+            onOpenPlay={() =>
+              session.snapshot && navigate(buildGameroomPath(session.snapshot.session))
+            }
             onOpenHostProfile={(host) =>
               navigate(buildPublicProfilePath(host), {
                 state: { profilePreview: host },
@@ -387,30 +473,36 @@ export function App() {
           />
         ) : null}
 
-        {!isPlayView && activeView === "sessionsNew" ? (
+        {!isPlayView && activeView === 'sessionsNew' ? (
           <SessionCreatePage
             scenarios={scenarios}
             snapshot={session.snapshot}
             busy={busy}
             error={error}
             onCreateSession={handleCreateSession}
-            onOpenDiscover={() => navigate("/sessions/discover")}
+            onOpenDiscover={() => navigate('/sessions/discover')}
           />
         ) : null}
 
         {!isPlayView &&
-        activeView !== "main" &&
-        activeView !== "characters" &&
-        activeView !== "profile" &&
-        activeView !== "publicProfile" &&
-        activeView !== "account" &&
-        activeView !== "sessionsDiscover" &&
-        activeView !== "sessionsNew" &&
-        activeView !== "sessionDetail" ? (
+        activeView !== 'main' &&
+        activeView !== 'characters' &&
+        activeView !== 'profile' &&
+        activeView !== 'publicProfile' &&
+        activeView !== 'account' &&
+        activeView !== 'scenarios' &&
+        activeView !== 'scenariosNew' &&
+        activeView !== 'scenarioEdit' &&
+        activeView !== 'sessionsDiscover' &&
+        activeView !== 'sessionsNew' &&
+        activeView !== 'sessionDetail' ? (
           <section className="placeholder-view">
             <span className="eyebrow">Coming soon</span>
             <h1>{topNavItems.find((item) => item.id === activeView)?.label}</h1>
-            <p>이 화면은 아직 준비 중입니다. 현재는 메인, 캐릭터, 세션 탐색, 세션 생성 흐름이 우선 연결되어 있습니다.</p>
+            <p>
+              이 화면은 아직 준비 중입니다. 현재는 메인, 캐릭터, 세션 탐색, 세션 생성 흐름이 우선
+              연결되어 있습니다.
+            </p>
           </section>
         ) : null}
 
@@ -429,9 +521,9 @@ export function App() {
             onStartSession={() => void session.startSession()}
             onLeaveSession={() => {
               void session.leaveSession();
-              navigate("/");
+              navigate('/');
             }}
-            onBackToLobby={() => navigate("/")}
+            onBackToLobby={() => navigate('/')}
             onAction={(input) => handleSessionMessage(currentUser.displayName, input)}
           />
         ) : null}
