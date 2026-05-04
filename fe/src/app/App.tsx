@@ -58,6 +58,10 @@ const pathByView: Record<MainView, string> = {
 };
 
 function viewFromPathname(pathname: string): MainView | null {
+  if (pathname === "/play") {
+    return "gameroom";
+  }
+
   if (/^\/users\/[^/]+\/[^/]+$/.test(pathname) && pathname !== "/users/me/profile") {
     return "publicProfile";
   }
@@ -145,10 +149,15 @@ export function App() {
       return;
     }
 
+    if (location.pathname === "/play") {
+      navigate(buildGameroomPath(session.snapshot.session), { replace: true });
+      return;
+    }
+
     if (gameroomId && session.snapshot.session.publicId !== gameroomId) {
       navigate(buildGameroomPath(session.snapshot.session), { replace: true });
     }
-  }, [activeView, auth.user, gameroomId, navigate, session.snapshot]);
+  }, [activeView, auth.user, gameroomId, location.pathname, navigate, session.snapshot]);
 
   const busy = auth.busy || session.busy;
   const error = auth.error ?? session.error;
