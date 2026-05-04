@@ -263,6 +263,7 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
     name: character.name,
     ancestry: character.ancestry,
     className: character.className,
+    subclassName: character.subclassName ?? null,
     level: character.level,
     bio: character.bio ?? null,
     abilities: parseJson<AbilityScoresDto>(character.abilitiesJson, {
@@ -275,6 +276,7 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
     }),
     proficiencyBonus: character.proficiencyBonus,
     proficientSkills: parseJson<string[]>(character.proficientSkillsJson, []),
+    features: parseJson<string[]>(character.featuresJson, []),
     maxHp: character.maxHp,
     armorClass: character.armorClass,
     speed: character.speed,
@@ -304,6 +306,7 @@ export function mapSessionCharacter(
     name: sessionCharacter.character.name,
     ancestry: sessionCharacter.character.ancestry,
     className: sessionCharacter.character.className,
+    subclassName: sessionCharacter.character.subclassName ?? null,
     level: sessionCharacter.character.level,
     bio: sessionCharacter.character.bio ?? null,
     abilities: parseJson<AbilityScoresDto>(sessionCharacter.character.abilitiesJson, {
@@ -316,6 +319,7 @@ export function mapSessionCharacter(
     }),
     proficiencyBonus: sessionCharacter.character.proficiencyBonus,
     proficientSkills: parseJson<string[]>(sessionCharacter.character.proficientSkillsJson, []),
+    features: parseJson<string[]>(sessionCharacter.character.featuresJson, []),
     maxHp: sessionCharacter.character.maxHp,
     currentHp: sessionCharacter.currentHp,
     tempHp: sessionCharacter.tempHp,

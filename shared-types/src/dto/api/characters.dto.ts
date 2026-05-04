@@ -6,6 +6,7 @@ import {
   IsEnum,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
@@ -65,6 +66,49 @@ export class InventoryItemDto {
   @IsInt()
   @Min(1)
   quantity!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  itemDefinitionId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  itemType?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  weightLb?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  volumeCuFt?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  damageDice?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  damageType?: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  properties?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  containerId?: string;
 }
 
 export class CreateCharacterDto {
@@ -85,6 +129,12 @@ export class CreateCharacterDto {
   @IsNotEmpty()
   @MaxLength(50)
   className!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  subclassName?: string;
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
@@ -115,6 +165,12 @@ export class CreateCharacterDto {
   @IsArray()
   @IsString({ each: true })
   proficientSkills?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  features?: string[];
 
   @ApiPropertyOptional({ default: 10 })
   @IsOptional()
@@ -187,6 +243,12 @@ export class UpdateCharacterDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  subclassName?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsInt()
   @Min(1)
   level?: number;
@@ -214,6 +276,12 @@ export class UpdateCharacterDto {
   @IsArray()
   @IsString({ each: true })
   proficientSkills?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  features?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -296,6 +364,9 @@ export class CharacterResponseDto {
   @ApiProperty()
   className!: string;
 
+  @ApiPropertyOptional({ nullable: true })
+  subclassName!: string | null;
+
   @ApiProperty()
   level!: number;
 
@@ -310,6 +381,9 @@ export class CharacterResponseDto {
 
   @ApiProperty({ type: [String] })
   proficientSkills!: string[];
+
+  @ApiProperty({ type: [String] })
+  features!: string[];
 
   @ApiProperty()
   maxHp!: number;
@@ -381,6 +455,9 @@ export class SessionCharacterResponseDto {
   @ApiProperty()
   className!: string;
 
+  @ApiPropertyOptional({ nullable: true })
+  subclassName!: string | null;
+
   @ApiProperty()
   level!: number;
 
@@ -392,6 +469,9 @@ export class SessionCharacterResponseDto {
 
   @ApiProperty({ type: [String] })
   proficientSkills!: string[];
+
+  @ApiProperty({ type: [String] })
+  features!: string[];
 
   @ApiProperty()
   maxHp!: number;
