@@ -22,6 +22,19 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const exceptionResponse =
       exception instanceof HttpException ? exception.getResponse() : null;
 
+    const customCode =
+      typeof exceptionResponse === "object" &&
+      exceptionResponse !== null &&
+      "code" in exceptionResponse
+        ? String(exceptionResponse.code)
+        : null;
+    const customData =
+      typeof exceptionResponse === "object" &&
+      exceptionResponse !== null &&
+      "data" in exceptionResponse
+        ? exceptionResponse.data
+        : undefined;
+
     const rawMessage =
       typeof exceptionResponse === "string"
         ? exceptionResponse
@@ -32,7 +45,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
           : "Internal server error";
     const message = Array.isArray(rawMessage) ? "잘못된 요청입니다." : String(rawMessage);
     const data =
-      Array.isArray(rawMessage)
+      customData !== undefined
+        ? customData
+        : Array.isArray(rawMessage)
         ? {
             fieldErrors: rawMessage.map((reason) => ({
               field: "request",
@@ -42,7 +57,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
         : null;
 
     response.status(status).json({
-      code: resolveErrorCode(request.url, status),
+      // 도메인 서비스가 명확한 에러 코드를 줄 때는 그 코드를 그대로 내려준다.
+      // 그래야 프론트가 "자기 턴 아님" 같은 게임 규칙 오류를 상태 코드만 보고 추측하지 않아도 된다.
+      code: customCode ?? resolveErrorCode(request.url, status),
       message,
       data,
     });

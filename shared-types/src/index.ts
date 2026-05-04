@@ -1,6 +1,7 @@
 export * from "./constants/enums";
 export * from "./dto/api/ai.dto";
 export * from "./dto/api/characters.dto";
+export * from "./dto/api/gameplay.dto";
 export * from "./dto/api/scenarios.dto";
 export * from "./dto/api/sessions.dto";
 export * from "./dto/api/users.dto";
