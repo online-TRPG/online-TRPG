@@ -281,6 +281,12 @@ label {
   font-size: 14px;
 }
 
+.avatar-lg {
+  width: 56px;
+  height: 56px;
+  font-size: 22px;
+}
+
 .side-nav {
   display: grid;
   gap: 8px;
@@ -376,11 +382,89 @@ label {
   gap: 10px;
 }
 
+.profile-chip svg {
+  color: var(--muted);
+}
+
 .profile-chip strong {
   color: #f1e7cc;
   font-size: 14px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.account-menu {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  width: min(320px, calc(100vw - 32px));
+  border: 1px solid rgba(38, 52, 73, 0.92);
+  border-radius: 20px;
+  background: rgba(10, 17, 28, 0.98);
+  box-shadow: var(--shadow);
+  padding: 14px;
+  display: grid;
+  gap: 14px;
+  z-index: 30;
+}
+
+.account-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px;
+}
+
+.account-menu-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.account-menu-copy strong {
+  color: #f6edd6;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.account-menu-copy span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.account-menu-list {
+  display: grid;
+  gap: 8px;
+}
+
+.account-menu-item {
+  min-height: 46px;
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(38, 52, 73, 0.88);
+  background: rgba(16, 24, 38, 0.94);
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  color: #e8edf3;
+}
+
+.account-menu-item span {
+  color: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.account-menu-item.danger {
+  border-color: rgba(232, 104, 120, 0.28);
+  background: rgba(72, 24, 33, 0.86);
+  color: #ffe4e8;
+}
+
+.account-menu-divider {
+  height: 1px;
+  background: rgba(38, 52, 73, 0.9);
 }
 
 .status {
