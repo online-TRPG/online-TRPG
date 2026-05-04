@@ -358,13 +358,20 @@ export function PlayPage({
                   <span className="eyebrow">Current scene</span>
                   <h1>{currentNode?.title ?? activeScenario?.scenario.title ?? "Scenario scene"}</h1>
                 </div>
-                <span className="status-chip">{snapshot?.state.phase ?? session.status}</span>
+                <span className="status-chip">{currentNode?.nodeType ?? snapshot?.state.phase ?? session.status}</span>
               </div>
 
               {scenarioLoadError ? (
                 <p className="panel-error">{scenarioLoadError}</p>
               ) : currentNode ? (
                 <>
+                  {currentNode.imageUrl ? (
+                    <img
+                      className="scenario-node-visual"
+                      src={currentNode.imageUrl}
+                      alt={`${currentNode.title} visual`}
+                    />
+                  ) : null}
                   <p className="scenario-node-text">{currentNode.sceneText}</p>
 
                   <div className="scenario-node-grid">

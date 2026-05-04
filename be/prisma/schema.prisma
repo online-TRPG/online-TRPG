@@ -324,8 +324,10 @@ model Scenario {
 model ScenarioNode {
   id               String   @id
   scenarioId       String
+  nodeType         String   @default("story")
   title            String
   sceneText        String
+  imageUrl         String?
   visibleToPlayers Boolean  @default(true)
   checkOptionsJson String
   transitionsJson  String

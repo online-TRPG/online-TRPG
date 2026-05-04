@@ -21,9 +21,11 @@ const scenarioNodes = [
   {
     id: DEFAULT_START_NODE_ID,
     scenarioId: DEFAULT_SCENARIO_ID,
+    nodeType: "exploration",
     title: "Cave Entrance",
     sceneText:
       "A damp cave entrance opens ahead. Broken crates and muddy footprints suggest recent goblin activity.",
+    imageUrl: null,
     visibleToPlayers: true,
     checkOptionsJson: JSON.stringify([
       {
@@ -50,9 +52,11 @@ const scenarioNodes = [
   {
     id: "node_inner_tunnel",
     scenarioId: DEFAULT_SCENARIO_ID,
+    nodeType: "story",
     title: "Inner Tunnel",
     sceneText:
       "The tunnel narrows and torchlight flickers from a rough chamber further in.",
+    imageUrl: null,
     visibleToPlayers: true,
     checkOptionsJson: JSON.stringify([]),
     transitionsJson: JSON.stringify([]),
@@ -86,7 +90,9 @@ export async function seedDefaultScenario(prisma: PrismaClient): Promise<void> {
       where: { id: node.id },
       update: {
         title: node.title,
+        nodeType: node.nodeType,
         sceneText: node.sceneText,
+        imageUrl: node.imageUrl,
         visibleToPlayers: node.visibleToPlayers,
         checkOptionsJson: node.checkOptionsJson,
         transitionsJson: node.transitionsJson,
