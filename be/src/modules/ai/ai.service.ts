@@ -26,9 +26,13 @@ import {
 import { PrismaService } from "../../database/prisma.service";
 import { SessionsService } from "../sessions/sessions.service";
 import {
+  ActorRequestPayload,
+  ActorResponsePayload,
   AiClient,
   DirectorRequestPayload,
   DirectorResponsePayload,
+  InterpreterRequestPayload,
+  InterpreterResponsePayload,
   NarratorRequestPayload,
   NarratorResponsePayload,
   NpcDialogueRequestPayload,
@@ -41,7 +45,9 @@ type HarnessResponse =
   | NarratorResponsePayload
   | DirectorResponsePayload
   | SummarizerResponsePayload
-  | NpcDialogueResponsePayload;
+  | NpcDialogueResponsePayload
+  | InterpreterResponsePayload
+  | ActorResponsePayload;
 
 interface PersistTraceParams {
   sessionId: string;
@@ -200,6 +206,38 @@ export class AiService {
       latencyMs: result.response.latencyMs ?? result.elapsedMs,
       traceId: result.traceId ?? "",
     };
+  }
+
+  async runInterpreter(
+    sessionId: string,
+    userId: string,
+    payload: InterpreterRequestPayload,
+  ): Promise<InterpreterResponsePayload> {
+    const requestPayload: InterpreterRequestPayload = { ...payload, sessionId };
+    const result = await this.invokeAi({
+      sessionId,
+      userId,
+      kind: PrismaAiTraceKind.INTERPRETER,
+      requestPayload,
+      call: () => this.aiClient.runInterpreter(requestPayload),
+    });
+    return result.response;
+  }
+
+  async runActor(
+    sessionId: string,
+    userId: string,
+    payload: ActorRequestPayload,
+  ): Promise<ActorResponsePayload> {
+    const requestPayload: ActorRequestPayload = { ...payload, sessionId };
+    const result = await this.invokeAi({
+      sessionId,
+      userId,
+      kind: PrismaAiTraceKind.ACTOR,
+      requestPayload,
+      call: () => this.aiClient.runActor(requestPayload),
+    });
+    return result.response;
   }
 
   async listTraces(
