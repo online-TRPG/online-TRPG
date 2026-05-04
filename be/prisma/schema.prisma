@@ -81,6 +81,7 @@ enum AiTraceKind {
   SUMMARY
   NPC_DIALOGUE
   INTERPRETER
+  ACTOR
 }
 
 enum AiTraceStatus {

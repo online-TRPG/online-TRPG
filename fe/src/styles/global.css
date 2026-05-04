@@ -3242,43 +3242,58 @@ label {
 }
 
 .fantasy-character-sidebutton {
+  position: relative;
   min-height: 56px;
-  width: 276px;
-  padding: 0 30px 0 56px;
-  border: 0;
+  width: 286px;
+  padding: 0 30px 0 84px;
+  border: 0 !important;
   border-radius: 0;
   color: #fff7e0;
   font-size: 20px;
   text-align: left;
-  background-color: transparent;
+  background-color: transparent !important;
   background-position: right center;
   background-repeat: no-repeat;
   background-size: 100% 100%;
-  box-shadow: none;
+  box-shadow: none !important;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.42);
-  transition: transform 160ms ease, filter 160ms ease;
+  transform: translateX(-20px) translateZ(0);
+  transition:
+    transform 0.2s ease,
+    filter 0.18s ease;
 }
 
 .fantasy-character-sidebutton:hover:not(:disabled),
 .fantasy-character-sidebutton:active:not(:disabled) {
-  transform: scale(1.035);
-  filter: drop-shadow(0 10px 18px rgba(22, 11, 3, 0.24));
-  border: 0;
-  background-color: transparent;
+  transform: translateX(6px) scale(1.05);
+  filter: brightness(1.04) drop-shadow(0 10px 18px rgba(22, 11, 3, 0.24));
+  border: 0 !important;
+  background-color: transparent !important;
   background-position: right center;
   background-repeat: no-repeat;
   background-size: 100% 100%;
-  box-shadow: none;
+  box-shadow: none !important;
+}
+
+.fantasy-character-sidebutton.active {
+  transform: translateX(0) scale(1.05);
+  filter: brightness(1.12);
+}
+
+.fantasy-character-sidebutton.active:hover:not(:disabled) {
+  transform: translateX(0) scale(1.08);
+  filter: brightness(1.16) drop-shadow(0 10px 18px rgba(22, 11, 3, 0.24));
 }
 
 .fantasy-character-sidebutton:disabled {
-  transform: none !important;
+  transform: translateX(-20px) translateZ(0) !important;
   opacity: 1;
   color: #f0f2f6;
-  background-color: transparent;
+  background-color: transparent !important;
   background-position: right center;
   background-repeat: no-repeat;
   background-size: 100% 100%;
+  box-shadow: none !important;
 }
 
 .fantasy-character-board {
@@ -3957,7 +3972,7 @@ label {
 }
 
 .character-avatar-option span {
-  color: #f3e7c9;
+  color: #2e1a07;
   font-size: 13px;
   font-weight: 700;
 }
@@ -3966,7 +3981,15 @@ label {
 .character-create-modal .section-heading h2,
 .character-create-modal label,
 .character-create-modal .character-avatar-picker > label {
-  color: #f4e7c4;
+  color: #2b1707;
+}
+
+.character-create-modal,
+.character-create-modal p,
+.character-create-modal h3,
+.character-create-modal strong,
+.character-create-modal .character-empty-note {
+  color: #3a2410;
 }
 
 .character-create-modal .modal-close,

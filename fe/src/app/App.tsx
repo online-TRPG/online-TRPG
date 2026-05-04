@@ -434,7 +434,10 @@ export function App() {
             characters={session.myCharacters}
             snapshot={session.snapshot}
             error={error}
-            onCreateCharacter={(payload) => void session.createCharacter(payload)}
+            onCreateCharacter={(payload) => session.createCharacter(payload)}
+            onCloneCharacter={(characterId) => session.cloneCharacter(characterId)}
+            onUpdateCharacter={(characterId, payload) => session.updateCharacter(characterId, payload)}
+            onDeleteCharacter={(characterId) => session.deleteCharacter(characterId)}
           />
         ) : null}
 

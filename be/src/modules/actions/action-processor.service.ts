@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
   ActionInputType as PrismaActionInputType,
   ActionQueueStatus as PrismaActionQueueStatus,
@@ -12,6 +12,7 @@ import {
   TurnLogResponseDto,
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
+import { AiService } from "../ai/ai.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { ActionRuleService } from "../rules/action-rule.service";
 import { StateDiffService } from "../rules/state-diff.service";
@@ -20,6 +21,8 @@ import { TurnLogsService } from "../turn-logs/turn-logs.service";
 
 @Injectable()
 export class ActionProcessorService {
+  private readonly logger = new Logger(ActionProcessorService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessionsService: SessionsService,
@@ -27,6 +30,7 @@ export class ActionProcessorService {
     private readonly stateDiffService: StateDiffService,
     private readonly turnLogsService: TurnLogsService,
     private readonly realtimeEvents: RealtimeEventsService,
+    private readonly aiService: AiService,
   ) {}
 
   async processNext(sessionId: string): Promise<void> {
@@ -100,6 +104,23 @@ export class ActionProcessorService {
 
     if (!actor) {
       throw new Error("ACTION_ACTOR_NOT_FOUND");
+    }
+
+    // BE → AI Interpreter (AI-SERVER-001). 자연어 → 구조화 action 후보를 AiTrace 로 영속.
+    // Phase 1: 결과를 룰 판정에 사용하지 않음 (actionRules 시그니처 변경 동반이라 별 PR).
+    // Phase 2: actionRules.resolveAction 가 interpreter 결과 받아 활용.
+    // 실패해도 진행 — AI 서버 자체에 fallback 있고, 룰은 rawText 로 독립 판정.
+    try {
+      await this.aiService.runInterpreter(session.id, action.userId, {
+        rawText: action.rawText,
+        actorCharacterId: actor.character.id,
+        sceneSummary: `${session.title} - ${actor.character.name}의 행동`,
+        availableTargets: sessionCharacters.map((c) => c.character.name),
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Interpreter call failed for action=${action.id}: ${this.toErrorMessage(error)}`,
+      );
     }
 
     const resolution = this.actionRules.resolveAction(action.rawText, actor, sessionCharacters);
@@ -177,5 +198,9 @@ export class ActionProcessorService {
 
   private toSharedActionScope(value: PrismaActionScope): string {
     return value;
+  }
+
+  private toErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 }
