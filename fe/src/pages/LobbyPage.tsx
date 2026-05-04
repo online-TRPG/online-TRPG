@@ -1,4 +1,6 @@
-import { Icon } from "../components/Icon";
+import { useEffect, useState } from "react";
+import bannerMainImage from "../assets/images/Banner_Main.webp";
+import boxBrickImage from "../components/Box_Brick.webp";
 import type { AvailableSessionListItem, LogEntry, SessionSnapshot, StoredUser } from "../types/session";
 
 interface LobbyPageProps {
@@ -15,180 +17,97 @@ interface LobbyPageProps {
   onLeaveCurrentSession: () => void | Promise<void>;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  lobby: "Lobby",
-  recruiting: "Recruiting",
-  playing: "Playing",
-  paused: "Paused",
-  completed: "Completed",
-  disbanded: "Disbanded",
-};
+const PAGE_TOAST_DURATION_MS = 2600;
 
-function getSessionListItemKey(item: AvailableSessionListItem, index: number): string {
-  return item.sessionId || `${item.title}-${item.scenarioTitle}-${index}`;
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 64 64" className="main-landing-plusicon-svg" aria-hidden="true">
+      <path
+        d="M24 8c0-4.418 3.582-8 8-8s8 3.582 8 8v16h16c4.418 0 8 3.582 8 8s-3.582 8-8 8H40v16c0 4.418-3.582 8-8 8s-8-3.582-8-8V40H8c-4.418 0-8-3.582-8-8s3.582-8 8-8h16V8Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
 }
 
 export function LobbyPage({
-  user,
-  snapshot,
   sessionList,
   mySessionList,
-  logs,
   busy,
   error,
   onOpenDiscover,
   onOpenCreate,
-  onOpenPlay,
-  onLeaveCurrentSession,
 }: LobbyPageProps) {
+  const [pageToast, setPageToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!error) return;
+    setPageToast(error);
+    const timeout = window.setTimeout(() => {
+      setPageToast((current) => (current === error ? null : current));
+    }, PAGE_TOAST_DURATION_MS);
+    return () => window.clearTimeout(timeout);
+  }, [error]);
+
   return (
-    <main className="page-with-sidebar">
-      <aside className="page-sidebar">
-        <section className="page-sidebar-block">
-          <span className="eyebrow">Welcome back</span>
-          <h2>{user.displayName}</h2>
-          <p>메인 대시보드에서 현재 세션, 참여 가능한 세션, 최근 활동 로그를 확인할 수 있습니다.</p>
-        </section>
+    <main className="main-landing-page">
+      {pageToast ? (
+        <button type="button" className="page-error-toast" onClick={() => setPageToast(null)}>
+          {pageToast}
+        </button>
+      ) : null}
 
-        <div className="quick-action-panel">
-          {snapshot ? (
-            <button type="button" className="primary" onClick={onOpenPlay}>
-              <Icon name="enter" />
-              현재 세션 열기
-            </button>
-          ) : null}
+      <section className="main-landing-hero">
+        <img src={bannerMainImage} alt="모두의 TRPG" className="main-landing-banner" />
+        <p className="main-landing-tagline">최상의 온라인 TRPG 경험</p>
+      </section>
 
-          <button type="button" onClick={onOpenDiscover}>
-            <Icon name="eye" />
-            세션 탐색
-          </button>
-
-          <button type="button" onClick={onOpenCreate}>
-            <Icon name="plus" />
-            새 세션 생성
-          </button>
-
-          {snapshot ? (
-            <button type="button" disabled={busy} onClick={onLeaveCurrentSession}>
-              <Icon name="close" />
-              현재 세션 나가기
-            </button>
-          ) : null}
-        </div>
-      </aside>
-
-      <section className="main-column main-column-wide">
-        <section className="section-block">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">Current room</span>
-              <h2>현재 세션</h2>
-            </div>
+      <section className="main-landing-stats">
+        <article
+          className="main-landing-statcard"
+          style={{ backgroundImage: `url(${boxBrickImage})` }}
+          onClick={onOpenDiscover}
+          role="button"
+          tabIndex={0}
+        >
+          <h2>공개 세션</h2>
+          <div className="main-landing-statvalue">
+            <strong>{sessionList.length}</strong>
+            <span>개</span>
           </div>
+        </article>
 
-          <div className="card-grid">
-            {snapshot ? (
-              <article className="session-card">
-                <div className="session-card-top">
-                  <span className="status-chip">{snapshot.session.gmMode} GM</span>
-                  <span className="status-chip muted">
-                    {STATUS_LABEL[snapshot.session.status] ?? snapshot.session.status}
-                  </span>
-                </div>
-                <h3>{snapshot.session.title}</h3>
-                <p>{snapshot.session.description || "현재 참여 중인 세션입니다."}</p>
-                <dl className="session-meta">
-                  <div>
-                    <dt>Invite</dt>
-                    <dd>{snapshot.session.inviteCode}</dd>
-                  </div>
-                  <div>
-                    <dt>Party</dt>
-                    <dd>{snapshot.participants.length}</dd>
-                  </div>
-                </dl>
-                <button type="button" onClick={onOpenPlay}>
-                  세션 열기
-                </button>
-              </article>
-            ) : (
-              <article className="empty-card">
-                <h3>현재 참여 중인 세션이 없습니다.</h3>
-                <p>새 세션을 만들거나 초대 코드로 참가한 뒤 여기에서 다시 열 수 있습니다.</p>
-              </article>
-            )}
+        <article
+          className="main-landing-statcard"
+          style={{ backgroundImage: `url(${boxBrickImage})` }}
+          onClick={onOpenDiscover}
+          role="button"
+          tabIndex={0}
+        >
+          <h2>내 세션</h2>
+          <div className="main-landing-statvalue">
+            <strong>{mySessionList.length}</strong>
+            <span>개</span>
           </div>
-        </section>
+        </article>
 
-        <section className="section-block">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">Overview</span>
-              <h2>세션 개요</h2>
-            </div>
+        <article
+          className="main-landing-statcard main-landing-statcard-accent"
+          style={{ backgroundImage: `url(${boxBrickImage})` }}
+          onClick={onOpenCreate}
+          role="button"
+          tabIndex={0}
+          aria-disabled={busy}
+        >
+          <h2>새 세션</h2>
+          <div className="main-landing-plusicon" aria-hidden="true">
+            <PlusIcon />
           </div>
+        </article>
+      </section>
 
-          <div className="dashboard-grid">
-            <article className="dashboard-card">
-              <strong>참가 가능 세션</strong>
-              <span>{sessionList.length}개</span>
-              <p>공개 상태로 열려 있는 세션 목록입니다.</p>
-            </article>
-            <article className="dashboard-card">
-              <strong>내 세션</strong>
-              <span>{mySessionList.length}개</span>
-              <p>내가 만든 세션과 참여 중인 세션입니다.</p>
-            </article>
-            <article className="dashboard-card">
-              <strong>최근 활동 로그</strong>
-              <span>{logs.length}건</span>
-              <p>최근 인증, 세션 참여, 실시간 연결 이벤트를 보여줍니다.</p>
-            </article>
-          </div>
-        </section>
-
-        <section className="section-block">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">Recent</span>
-              <h2>최근 세션</h2>
-            </div>
-          </div>
-
-          <div className="card-grid joinable-room-grid">
-            {mySessionList.length ? (
-              mySessionList.slice(0, 6).map((item, index) => (
-                <article className="session-card" key={getSessionListItemKey(item, index)}>
-                  <div className="session-card-top">
-                    <span className="status-chip">{item.ruleSetName || "TRPG"}</span>
-                    <span className="status-chip muted">{STATUS_LABEL[item.status] ?? item.status}</span>
-                  </div>
-                  <h3>{item.title}</h3>
-                  <p>{item.scenarioTitle}</p>
-                  <dl className="session-meta">
-                    <div>
-                      <dt>Players</dt>
-                      <dd>
-                        {item.currentPlayers} / {item.maxPlayers}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Role</dt>
-                      <dd>{item.role ?? "-"}</dd>
-                    </div>
-                  </dl>
-                </article>
-              ))
-            ) : (
-              <article className="empty-card">
-                <h3>아직 참가한 세션이 없습니다.</h3>
-                <p>세션을 생성하거나 목록에서 참가하면 여기에 다시 볼 수 있습니다.</p>
-              </article>
-            )}
-          </div>
-        </section>
-
-        {error ? <p className="panel-error">{error}</p> : null}
+      <section className="main-landing-cta">
+        <p className="main-landing-cta-button">지금 바로 시작해보세요 !!</p>
       </section>
     </main>
   );
