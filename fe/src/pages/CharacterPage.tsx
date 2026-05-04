@@ -8,6 +8,7 @@ import boxBulletinNarrowPlanks from "../components/Box_Bulletin_Narrow_Planks.pn
 import profileBorderCharacter from "../components/Profile_Border_Character.png";
 import profileBorderStats from "../components/Profile_Border_Stats.png";
 import sidePanelImage from "../components/Side_Panel.png";
+import racesJsonl from "../../../ai/generated/srd/races.jsonl?raw";
 import { Icon } from "../components/Icon";
 import type { CharacterPayload } from "../hooks/useSession";
 import type { PersistentCharacter, SessionSnapshot, StoredUser } from "../types/session";
@@ -29,6 +30,12 @@ interface InventoryDraftItem {
   quantity: number;
 }
 
+interface RaceRecord {
+  id: string;
+  nameKo: string;
+  nameEn: string;
+}
+
 const classOptions = [
   { value: "Wizard", label: "마법사" },
   { value: "Archer", label: "궁수" },
@@ -36,7 +43,14 @@ const classOptions = [
   { value: "Warrior", label: "전사" },
 ] as const;
 
-const ancestryOptions = [{ value: "Human", label: "인간" }] as const;
+const ancestryOptions = racesJsonl
+  .split(/\r?\n/)
+  .map((line) => line.trim())
+  .filter(Boolean)
+  .map((line) => JSON.parse(line) as RaceRecord)
+  .map((race) => ({ value: race.nameEn, label: race.nameKo }));
+
+const defaultAncestry = ancestryOptions.find((option) => option.value === "Human")?.value ?? ancestryOptions[0]?.value ?? "Human";
 
 const avatarPresets = [
   { id: "preset_wizard", label: "마법사", image: defaultWizardImage },
@@ -47,7 +61,7 @@ const avatarPresets = [
 
 const defaultCharacter: CharacterPayload = {
   name: "",
-  ancestry: "Human",
+  ancestry: defaultAncestry,
   className: "Wizard",
   avatarType: "PRESET",
   avatarPresetId: "preset_wizard",
@@ -91,16 +105,16 @@ const suggestedSkillOptions = [
   { value: "Survival", label: "생존" },
 ] as const;
 
-const classLabelMap = new Map(classOptions.map((option) => [option.value, option.label]));
-const ancestryLabelMap = new Map(ancestryOptions.map((option) => [option.value, option.label]));
-const skillLabelMap = new Map(suggestedSkillOptions.map((option) => [option.value, option.label]));
-const presetIdByClassName = new Map([
+const classLabelMap: Map<string, string> = new Map(classOptions.map((option) => [option.value, option.label]));
+const ancestryLabelMap: Map<string, string> = new Map(ancestryOptions.map((option) => [option.value, option.label]));
+const skillLabelMap: Map<string, string> = new Map(suggestedSkillOptions.map((option) => [option.value, option.label]));
+const presetIdByClassName: Map<string, string> = new Map([
   ["Wizard", "preset_wizard"],
   ["Archer", "preset_archer"],
   ["Rogue", "preset_rogue"],
   ["Warrior", "preset_warrior"],
 ]);
-const classNameByPresetId = new Map([
+const classNameByPresetId: Map<string, string> = new Map([
   ["preset_wizard", "Wizard"],
   ["preset_archer", "Archer"],
   ["preset_rogue", "Rogue"],
