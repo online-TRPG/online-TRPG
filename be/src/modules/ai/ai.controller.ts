@@ -6,8 +6,14 @@ import {
   ApiTags,
 } from "@nestjs/swagger";
 import {
+  AiHintRequestDto,
+  AiHintResponseDto,
   AiNarrationRequestDto,
   AiNarrationResponseDto,
+  AiNpcDialogueRequestDto,
+  AiNpcDialogueResponseDto,
+  AiSummaryRequestDto,
+  AiSummaryResponseDto,
 } from "@trpg/shared-types";
 import { ApiResponse, apiResponse } from "../../common/api-response";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
@@ -32,6 +38,57 @@ export class AiController {
       "AI_201",
       "AI narration generated.",
       await this.aiService.runNarration(userId, sessionId, dto),
+    );
+  }
+
+  @Post("hint")
+  @ApiSecurity("bearer")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "sessionId" })
+  @ApiCreatedResponse({ type: AiHintResponseDto })
+  async runHint(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: AiHintRequestDto,
+  ): Promise<ApiResponse<AiHintResponseDto>> {
+    return apiResponse(
+      "AI_201",
+      "AI hint generated.",
+      await this.aiService.runHint(userId, sessionId, dto),
+    );
+  }
+
+  @Post("summary")
+  @ApiSecurity("bearer")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "sessionId" })
+  @ApiCreatedResponse({ type: AiSummaryResponseDto })
+  async runSummary(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: AiSummaryRequestDto,
+  ): Promise<ApiResponse<AiSummaryResponseDto>> {
+    return apiResponse(
+      "AI_201",
+      "AI summary generated.",
+      await this.aiService.runSummary(userId, sessionId, dto),
+    );
+  }
+
+  @Post("npc-dialogue")
+  @ApiSecurity("bearer")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "sessionId" })
+  @ApiCreatedResponse({ type: AiNpcDialogueResponseDto })
+  async runNpcDialogue(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: AiNpcDialogueRequestDto,
+  ): Promise<ApiResponse<AiNpcDialogueResponseDto>> {
+    return apiResponse(
+      "AI_201",
+      "AI NPC dialogue generated.",
+      await this.aiService.runNpcDialogue(userId, sessionId, dto),
     );
   }
 }

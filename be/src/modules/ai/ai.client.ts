@@ -4,14 +4,6 @@ import {
   Injectable,
 } from "@nestjs/common";
 
-export interface NarratorRequestPayload {
-  rawInput: string;
-  actionSummary: string;
-  diceSummary?: string;
-  sceneTone?: string;
-  model?: string;
-}
-
 export interface AiTraceSummary {
   role: string;
   provider: string;
@@ -24,12 +16,7 @@ export interface AiTraceSummary {
   providerRequestId: string | null;
 }
 
-export interface NarratorParsed {
-  narration: string;
-  visibleSummary: string;
-}
-
-export interface NarratorResponsePayload {
+interface BaseHarnessResponse<TParsed> {
   provider: string;
   model: string;
   latencyMs: number;
@@ -39,8 +26,96 @@ export interface NarratorResponsePayload {
   providerRequestId: string | null;
   trace: AiTraceSummary;
   logPaths: Record<string, string> | null;
-  parsed: NarratorParsed;
+  parsed: TParsed;
+  fallback?: boolean;
+  fallbackReason?: string | null;
 }
+
+export interface NarratorRequestPayload {
+  rawInput: string;
+  actionSummary: string;
+  diceSummary?: string;
+  sceneTone?: string;
+  sessionId?: string;
+  turnId?: string;
+  model?: string;
+}
+
+export interface NarratorParsed {
+  narration: string;
+  visibleSummary: string;
+}
+
+export type NarratorResponsePayload = BaseHarnessResponse<NarratorParsed>;
+
+export interface DirectorRequestPayload {
+  hintLevel?: "LIGHT" | "NORMAL" | "STRONG";
+  question?: string;
+  sceneSummary: string;
+  recentLogs?: string[];
+  publicClues?: string[];
+  triedApproaches?: string[];
+  sessionId?: string;
+  turnId?: string;
+  model?: string;
+}
+
+export interface DirectorParsed {
+  hintLevel: string;
+  content: string;
+  sourceScope: string;
+  spoilerLevel: string;
+  suggestions: string[];
+  safetyNotes?: string[];
+}
+
+export type DirectorResponsePayload = BaseHarnessResponse<DirectorParsed>;
+
+export interface SummarizerRequestPayload {
+  summaryType?: "player_visible" | "ai_context";
+  rangeType?: "RECENT" | "FULL" | "SINCE_NODE";
+  lastLogCount?: number;
+  nodeId?: string;
+  logs: string[];
+  includeHiddenContext?: boolean;
+  sessionId?: string;
+  turnId?: string;
+  model?: string;
+}
+
+export interface SummarizerParsed {
+  summaryType: string;
+  coveredTurnRange: string;
+  content: string;
+  keyFacts: string[];
+  safetyNotes?: string[];
+}
+
+export type SummarizerResponsePayload = BaseHarnessResponse<SummarizerParsed>;
+
+export interface NpcDialogueRequestPayload {
+  npcEntityId: string;
+  npcName?: string;
+  npcSummary: string;
+  disposition?: string;
+  sceneSummary: string;
+  recentContext?: string[];
+  selectedActionId?: string;
+  dialogueIntent: string;
+  audienceIds?: string[];
+  maxLength?: number;
+  sessionId?: string;
+  turnId?: string;
+  model?: string;
+}
+
+export interface NpcDialogueParsed {
+  dialogue: string;
+  tone: string;
+  safetyNotes?: string[];
+}
+
+export type NpcDialogueResponsePayload = BaseHarnessResponse<NpcDialogueParsed>;
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -61,6 +136,18 @@ export class AiClient {
 
   async runNarrator(payload: NarratorRequestPayload): Promise<NarratorResponsePayload> {
     return this.postJson<NarratorResponsePayload>("/internal/ai/narrator", payload);
+  }
+
+  async runDirector(payload: DirectorRequestPayload): Promise<DirectorResponsePayload> {
+    return this.postJson<DirectorResponsePayload>("/internal/ai/director", payload);
+  }
+
+  async runSummarizer(payload: SummarizerRequestPayload): Promise<SummarizerResponsePayload> {
+    return this.postJson<SummarizerResponsePayload>("/internal/ai/summarizer", payload);
+  }
+
+  async runNpcDialogue(payload: NpcDialogueRequestPayload): Promise<NpcDialogueResponsePayload> {
+    return this.postJson<NpcDialogueResponsePayload>("/internal/ai/npc-dialogue", payload);
   }
 
   private async postJson<T>(path: string, body: unknown): Promise<T> {
