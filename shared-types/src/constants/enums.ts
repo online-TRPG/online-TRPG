@@ -85,6 +85,7 @@ export enum AiTraceKind {
   SUMMARY = "SUMMARY",
   NPC_DIALOGUE = "NPC_DIALOGUE",
   INTERPRETER = "INTERPRETER",
+  ACTOR = "ACTOR",
 }
 
 export enum AiTraceStatus {

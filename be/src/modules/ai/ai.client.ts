@@ -117,6 +117,72 @@ export interface NpcDialogueParsed {
 
 export type NpcDialogueResponsePayload = BaseHarnessResponse<NpcDialogueParsed>;
 
+export interface InterpreterRequestPayload {
+  rawText: string;
+  actorCharacterId?: string;
+  sceneSummary?: string;
+  availableTargets?: string[];
+  sessionId?: string;
+  turnId?: string;
+  model?: string;
+}
+
+export interface InterpreterStructuredAction {
+  type: string;
+  actorCharacterId: string;
+  targetId?: string | null;
+  spellId?: string | null;
+  featureId?: string | null;
+  attackKind?: string | null;
+  ability?: string | null;
+  skill?: string | null;
+  approach: string;
+  confidence: number;
+  requiresRoll: boolean;
+  suggestedDifficulty?: string | null;
+}
+
+export interface InterpreterParsed {
+  action: InterpreterStructuredAction;
+  needsClarification: boolean;
+  clarificationQuestion?: string | null;
+  mentionedSpellId?: string | null;
+  mentionedItemId?: string | null;
+  mentionedConditionIds?: string[];
+  requiredRuleCheckIds?: string[];
+  rulesConfidence?: number | null;
+  safetyNotes?: string[];
+}
+
+export type InterpreterResponsePayload = BaseHarnessResponse<InterpreterParsed>;
+
+export interface ActorAllowedAction {
+  id: string;
+  label: string;
+  actionType: string;
+}
+
+export interface ActorRequestPayload {
+  npcEntityId: string;
+  npcSummary: string;
+  disposition?: string;
+  hpStatus?: string;
+  conditions?: string[];
+  sceneSummary: string;
+  allowedActions: ActorAllowedAction[];
+  sessionId?: string;
+  turnId?: string;
+  model?: string;
+}
+
+export interface ActorParsed {
+  selectedActionId: string;
+  reason: string;
+  safetyNotes?: string[];
+}
+
+export type ActorResponsePayload = BaseHarnessResponse<ActorParsed>;
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 @Injectable()
@@ -148,6 +214,14 @@ export class AiClient {
 
   async runNpcDialogue(payload: NpcDialogueRequestPayload): Promise<NpcDialogueResponsePayload> {
     return this.postJson<NpcDialogueResponsePayload>("/internal/ai/npc-dialogue", payload);
+  }
+
+  async runInterpreter(payload: InterpreterRequestPayload): Promise<InterpreterResponsePayload> {
+    return this.postJson<InterpreterResponsePayload>("/internal/ai/interpreter", payload);
+  }
+
+  async runActor(payload: ActorRequestPayload): Promise<ActorResponsePayload> {
+    return this.postJson<ActorResponsePayload>("/internal/ai/actor", payload);
   }
 
   private async postJson<T>(path: string, body: unknown): Promise<T> {
