@@ -13,6 +13,7 @@ interface SessionDiscoverPageProps {
   mySessionList: AvailableSessionListItem[];
   busy: boolean;
   error: string | null;
+  onClearError: () => void;
   onJoinSession: (inviteCode: string) => void | Promise<void>;
   onJoinSessionById: (sessionId: string) => Promise<SessionSnapshot | null>;
   onRequestSessionDetail: (sessionId: string) => Promise<SessionDetail>;
@@ -75,6 +76,7 @@ export function SessionDiscoverPage({
   mySessionList,
   busy,
   error,
+  onClearError,
   onJoinSession,
   onJoinSessionById,
   onRequestSessionDetail,
@@ -90,6 +92,7 @@ export function SessionDiscoverPage({
   const [sortOrder, setSortOrder] = useState<SessionSort>("latest");
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteErrorVisible, setInviteErrorVisible] = useState(false);
+  const [invitePending, setInvitePending] = useState(false);
   const [pageToast, setPageToast] = useState<string | null>(null);
   const [publicPage, setPublicPage] = useState(0);
   const [myPage, setMyPage] = useState(0);
@@ -117,6 +120,13 @@ export function SessionDiscoverPage({
     }, PAGE_TOAST_DURATION_MS);
     return () => window.clearTimeout(timeout);
   }, [pageError]);
+
+  useEffect(() => {
+    if (!isInviteModalOpen || !invitePending) return;
+    if (!inviteError) return;
+    setInviteErrorVisible(true);
+    setInvitePending(false);
+  }, [inviteError, invitePending, isInviteModalOpen]);
 
   const currentSource = activeSection === "public" ? sessionList : mySessionList;
   const currentPage = activeSection === "public" ? publicPage : myPage;
@@ -176,13 +186,17 @@ export function SessionDiscoverPage({
 
   function openInviteModal() {
     setInviteErrorVisible(false);
+    setInvitePending(false);
     setInviteCode("");
+    onClearError();
     setIsInviteModalOpen(true);
   }
 
   function closeInviteModal() {
     setInviteErrorVisible(false);
+    setInvitePending(false);
     setInviteCode("");
+    onClearError();
     setIsInviteModalOpen(false);
   }
 
@@ -190,7 +204,8 @@ export function SessionDiscoverPage({
     event.preventDefault();
     const trimmedCode = inviteCode.trim().toUpperCase();
     if (!trimmedCode || hasRecruitingSession) return;
-    setInviteErrorVisible(true);
+    setInviteErrorVisible(false);
+    setInvitePending(true);
     void onJoinSession(trimmedCode);
   }
 
@@ -512,6 +527,8 @@ export function SessionDiscoverPage({
                   onChange={(event) => {
                     setInviteCode(event.target.value);
                     setInviteErrorVisible(false);
+                    setInvitePending(false);
+                    onClearError();
                   }}
                   placeholder="코드 입력"
                   maxLength={12}
