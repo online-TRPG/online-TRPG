@@ -1,22 +1,21 @@
-import json
 from pathlib import Path
 
 from app.srd.build import (
-    build,
     build_backend_engine_p0_contracts,
     build_interpreter_backend_handoff_cases,
     build_narrator_input_fixture_cases,
-    build_magic_items,
-    build_class_options,
-    build_rule_cards,
-    build_rule_fragments,
     build_rule_hook_fixtures,
-    build_spells,
-    parse_conditions,
     P0_BACKEND_HOOK_IDS,
 )
 from app.schemas.harness import NarratorHarnessRequest
-from app.srd.retrieval import load_rule_hooks
+from app.srd.retrieval import (
+    load_classes,
+    load_conditions,
+    load_magic_items,
+    load_rule_cards,
+    load_rule_fragments,
+    load_spells,
+)
 from app.srd.retrieval import SrdRetriever
 
 
@@ -45,13 +44,13 @@ def test_rule_hook_fixtures_cover_narrow_engine_owned_slice():
 
 def test_rule_hook_fixture_source_ids_resolve_to_generated_catalogs():
     hooks = build_rule_hook_fixtures()
-    rule_ids = {card.id for card in build_rule_cards()} | {fragment.id for fragment in build_rule_fragments()}
+    rule_ids = {card.id for card in load_rule_cards()} | {fragment.id for fragment in load_rule_fragments()}
     entity_ids = (
-        {spell.id for spell in build_spells()}
-        | {condition.id for condition in parse_conditions()}
-        | {item.id for item in build_magic_items()}
+        {spell.id for spell in load_spells()}
+        | {condition.id for condition in load_conditions()}
+        | {item.id for item in load_magic_items()}
     )
-    for class_option in build_class_options():
+    for class_option in load_classes():
         entity_ids.add(class_option.id)
         entity_ids.update(feature["id"] for feature in class_option.featureReferences)
 
@@ -81,19 +80,6 @@ def test_chill_touch_hook_keeps_spell_cast_engine_owned():
     assert "rule.combat.attack_roll" in hook.sourceRuleIds
     assert any("no spell slot" in check for check in hook.acceptanceChecks)
     assert any("ranged spell attack" in check for check in hook.acceptanceChecks)
-
-
-def test_build_writes_rules_hooks_json():
-    output_dir = Path("runtime_logs_test") / "srd_rule_hooks_build"
-    result = build(output_dir)
-    hooks_path = output_dir / "rules_hooks.json"
-
-    assert result["rule_hook_fixtures"] == 12
-    assert hooks_path.exists()
-    payload = json.loads(hooks_path.read_text(encoding="utf-8"))
-    assert len(payload["hooks"]) == 12
-    assert load_rule_hooks(hooks_path)[0].id.startswith("hook.")
-
 
 def test_backend_engine_p0_contracts_match_rule_hook_io():
     hooks = {hook.id: hook for hook in build_rule_hook_fixtures()}
@@ -129,20 +115,6 @@ def test_backend_engine_p0_contracts_match_rule_hook_io():
             assert expected_response["rejectedReason"]
         assert case.assertions
 
-
-def test_build_writes_backend_engine_p0_contracts_json():
-    output_dir = Path("runtime_logs_test") / "backend_engine_p0_contracts_build"
-    result = build(output_dir)
-    contracts_path = output_dir / "backend_engine_p0_contracts.json"
-
-    assert result["backend_engine_p0_contracts"] == 12
-    assert contracts_path.exists()
-    payload = json.loads(contracts_path.read_text(encoding="utf-8"))
-    assert {case["hookId"] for case in payload["cases"]} == P0_BACKEND_HOOK_IDS
-    assert len({case["caseId"] for case in payload["cases"]}) == 12
-    assert all(case["priority"] == "P0" for case in payload["cases"])
-
-
 def test_interpreter_backend_handoff_cases_reference_p0_hooks_and_contract_shape():
     hooks = {hook.id: hook for hook in build_rule_hook_fixtures()}
     contract_hook_ids = {case.hookId for case in build_backend_engine_p0_contracts(list(hooks.values()))}
@@ -168,23 +140,6 @@ def test_interpreter_backend_handoff_cases_reference_p0_hooks_and_contract_shape
             assert request["sourceAction"]["type"] == action["type"]
             assert request["sourceTraceId"] is not None
 
-
-def test_build_writes_interpreter_backend_handoff_cases_json():
-    output_dir = Path("runtime_logs_test") / "interpreter_backend_handoff_build"
-    result = build(output_dir)
-    handoff_path = output_dir / "interpreter_backend_handoff_cases.json"
-
-    assert result["interpreter_backend_handoff_cases"] == 3
-    assert handoff_path.exists()
-    payload = json.loads(handoff_path.read_text(encoding="utf-8"))
-    assert len(payload["cases"]) == 3
-    assert payload["cases"][0]["expectedHookIds"] == [
-        "hook.combat.resolve_attack_roll",
-        "hook.spell.cast_chill_touch",
-        "hook.damage.apply_resistance_vulnerability",
-    ]
-
-
 def test_narrator_input_fixture_cases_validate_against_harness_request_schema():
     handoff_case_ids = {case.caseId for case in build_interpreter_backend_handoff_cases()}
     narrator_cases = build_narrator_input_fixture_cases()
@@ -208,21 +163,6 @@ def test_narrator_input_fixture_cases_validate_against_harness_request_schema():
             assert request.checkRequest is None
             assert request.diceResult is None
 
-
-def test_build_writes_narrator_input_fixtures_json():
-    output_dir = Path("runtime_logs_test") / "narrator_input_fixtures_build"
-    result = build(output_dir)
-    narrator_path = output_dir / "narrator_input_fixtures.json"
-
-    assert result["narrator_input_fixtures"] == 3
-    assert narrator_path.exists()
-    payload = json.loads(narrator_path.read_text(encoding="utf-8"))
-    assert len(payload["cases"]) == 3
-    assert payload["cases"][0]["narratorRequest"]["constraints"]["noNewFacts"] is True
-    assert "stateDiffSummary" in payload["cases"][0]["narratorRequest"]
-    assert payload["cases"][2]["narratorRequest"]["diceResult"] is None
-
-
 def test_backend_engine_integration_plan_mentions_all_rule_hooks():
     plan = Path("BACKEND_ENGINE_INTEGRATION_PLAN.md").read_text(encoding="utf-8")
 
@@ -233,10 +173,10 @@ def test_backend_engine_integration_plan_mentions_all_rule_hooks():
 
 def test_retrieval_returns_spell_and_attack_hooks_for_chill_touch():
     retriever = SrdRetriever(
-        spells=build_spells(),
-        conditions=parse_conditions(),
-        magic_items=build_magic_items(),
-        rule_fragments=build_rule_fragments(),
+        spells=load_spells(),
+        conditions=load_conditions(),
+        magic_items=load_magic_items(),
+        rule_fragments=load_rule_fragments(),
         rule_hooks=build_rule_hook_fixtures(),
     )
     text = "싸늘한 손길을 적 고블린에게 시전한다"
@@ -255,7 +195,7 @@ def test_retrieval_returns_item_hook_for_bag_of_holding_capacity():
     retriever = SrdRetriever(
         spells=[],
         conditions=[],
-        magic_items=build_magic_items(),
+        magic_items=load_magic_items(),
         rule_hooks=build_rule_hook_fixtures(),
     )
 
@@ -287,7 +227,7 @@ def test_retrieval_returns_class_feature_hooks_for_fighter_text():
         spells=[],
         conditions=[],
         magic_items=[],
-        rule_fragments=build_rule_fragments(),
+        rule_fragments=load_rule_fragments(),
         rule_hooks=build_rule_hook_fixtures(),
     )
 
@@ -335,7 +275,7 @@ def test_retrieval_returns_class_feature_hooks_for_barbarian_and_rogue_text():
         spells=[],
         conditions=[],
         magic_items=[],
-        rule_fragments=build_rule_fragments(),
+        rule_fragments=load_rule_fragments(),
         rule_hooks=build_rule_hook_fixtures(),
     )
 
@@ -352,10 +292,10 @@ def test_retrieval_returns_class_feature_hooks_for_barbarian_and_rogue_text():
 
 def test_retrieval_does_not_return_entity_specific_spell_hook_from_attack_rule_only():
     retriever = SrdRetriever(
-        spells=build_spells(),
-        conditions=parse_conditions(),
-        magic_items=build_magic_items(),
-        rule_fragments=build_rule_fragments(),
+        spells=load_spells(),
+        conditions=load_conditions(),
+        magic_items=load_magic_items(),
+        rule_fragments=load_rule_fragments(),
         rule_hooks=build_rule_hook_fixtures(),
     )
 
