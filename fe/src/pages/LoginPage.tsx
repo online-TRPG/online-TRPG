@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import logoImage from "../assets/images/Logo.png";
+import logoImage from "../assets/images/Logo.webp";
 import { Icon } from "../components/Icon";
 
 type LoginMode = "guest" | "login" | "register";
