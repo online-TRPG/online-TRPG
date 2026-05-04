@@ -509,6 +509,7 @@ export function App() {
             mySessionList={session.mySessionList}
             busy={busy}
             error={error}
+            onClearError={session.clearError}
             onJoinSession={handleJoinSession}
             onJoinSessionById={handleJoinSessionById}
             onRequestSessionDetail={handleRequestSessionDetail}
