@@ -8,8 +8,8 @@ import boxBulletinNarrowPlanks from "../components/Box_Bulletin_Narrow_Planks.pn
 import profileBorderCharacter from "../components/Profile_Border_Character.png";
 import profileBorderStats from "../components/Profile_Border_Stats.png";
 import sidePanelImage from "../components/Side_Panel.png";
-import racesJsonl from "../../../ai/generated/srd/races.jsonl?raw";
 import { Icon } from "../components/Icon";
+import { raceOptions } from "../data/race-options";
 import type { CharacterPayload } from "../hooks/useSession";
 import type { PersistentCharacter, SessionSnapshot, StoredUser } from "../types/session";
 
@@ -33,12 +33,6 @@ interface InventoryDraftItem {
   quantity: number;
 }
 
-interface RaceRecord {
-  id: string;
-  nameKo: string;
-  nameEn: string;
-}
-
 const classOptions = [
   { value: "Wizard", label: "마법사" },
   { value: "Archer", label: "궁수" },
@@ -46,12 +40,7 @@ const classOptions = [
   { value: "Warrior", label: "전사" },
 ] as const;
 
-const ancestryOptions = racesJsonl
-  .split(/\r?\n/)
-  .map((line) => line.trim())
-  .filter(Boolean)
-  .map((line) => JSON.parse(line) as RaceRecord)
-  .map((race) => ({ value: race.nameEn, label: race.nameKo }));
+const ancestryOptions = raceOptions;
 
 const defaultAncestry = ancestryOptions.find((option) => option.value === "Human")?.value ?? ancestryOptions[0]?.value ?? "Human";
 
