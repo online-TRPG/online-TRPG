@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Socket } from "socket.io-client";
 import {
+  cloneCharacter as apiCloneCharacter,
   createCharacter as apiCreateCharacter,
   createSession as apiCreateSession,
+  deleteCharacter as apiDeleteCharacter,
   getSession,
   joinSession as apiJoinSession,
   joinSessionById as apiJoinSessionById,
@@ -12,6 +14,7 @@ import {
   listSessions,
   selectSessionCharacter as apiSelectSessionCharacter,
   startSession as apiStartSession,
+  updateCharacter as apiUpdateCharacter,
   updateReadyState as apiUpdateReadyState,
 } from "../services/api";
 import { connectSessionSocket } from "../services/realtime";
@@ -70,6 +73,9 @@ export interface UseSessionReturn {
   joinSession: (inviteCode: string) => Promise<SessionSnapshot | null>;
   joinSessionById: (sessionId: string) => Promise<SessionSnapshot | null>;
   createCharacter: (payload: CharacterPayload) => Promise<void>;
+  cloneCharacter: (characterId: string) => Promise<void>;
+  updateCharacter: (characterId: string, payload: CharacterPayload) => Promise<void>;
+  deleteCharacter: (characterId: string) => Promise<void>;
   selectCharacter: (characterId: string | null) => Promise<void>;
   setReadyState: (isReady: boolean) => Promise<void>;
   startSession: () => Promise<void>;
@@ -301,6 +307,75 @@ export function useSession(
     }
   }
 
+  async function cloneCharacter(characterId: string) {
+    if (!user) return;
+    setError(null);
+    setBusy(true);
+
+    try {
+      const cloned = await apiCloneCharacter(user, characterId, accessToken);
+      await refreshMyCharacters();
+      appendLog("rest", "캐릭터 복제", `${cloned.name} 캐릭터를 복제했습니다.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "캐릭터 복제에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateCharacter(characterId: string, payload: CharacterPayload) {
+    if (!user) return;
+    setError(null);
+    setBusy(true);
+
+    try {
+      await apiUpdateCharacter(
+        user,
+        characterId,
+        {
+          name: payload.name,
+          ancestry: payload.ancestry,
+          className: payload.className,
+          avatarType: payload.avatarType,
+          avatarPresetId: payload.avatarPresetId,
+          avatarUrl: payload.avatarUrl,
+          level: payload.level,
+          abilities: payload.abilities,
+          proficiencyBonus: payload.proficiencyBonus,
+          proficientSkills: payload.proficientSkills,
+          maxHp: payload.maxHp,
+          armorClass: payload.armorClass,
+          speed: payload.speed,
+          inventory: payload.inventory,
+        },
+        accessToken,
+      );
+
+      await refreshMyCharacters();
+      appendLog("rest", "캐릭터 수정", `${payload.name} 캐릭터를 수정했습니다.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "캐릭터 수정에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteCharacter(characterId: string) {
+    if (!user) return;
+    setError(null);
+    setBusy(true);
+
+    try {
+      await apiDeleteCharacter(user, characterId, accessToken);
+      await refreshMyCharacters();
+      appendLog("rest", "캐릭터 삭제", "캐릭터를 삭제했습니다.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "캐릭터 삭제에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function selectCharacter(characterId: string | null) {
     if (!user || !snapshot) return;
     setError(null);
@@ -394,6 +469,9 @@ export function useSession(
     joinSession,
     joinSessionById,
     createCharacter,
+    cloneCharacter,
+    updateCharacter,
+    deleteCharacter,
     selectCharacter,
     setReadyState,
     startSession,

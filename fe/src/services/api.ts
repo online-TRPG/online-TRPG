@@ -41,6 +41,34 @@ const DEFAULT_RULE_SET_ID = 'dnd5e';
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
+interface CharacterMutationPayload {
+  name: string;
+  ancestry: string;
+  className: string;
+  avatarType?: 'DEFAULT' | 'PRESET' | 'UPLOAD';
+  avatarPresetId?: string | null;
+  avatarUrl?: string | null;
+  level?: number;
+  abilities?: {
+    str: number;
+    dex: number;
+    con: number;
+    int: number;
+    wis: number;
+    cha: number;
+  };
+  proficiencyBonus?: number;
+  proficientSkills?: string[];
+  maxHp?: number;
+  armorClass?: number;
+  speed?: number;
+  inventory?: Array<{
+    id: string;
+    name: string;
+    quantity: number;
+  }>;
+}
+
 interface RequestOptions {
   method?: HttpMethod;
   body?: unknown;
@@ -395,34 +423,9 @@ export function getSessionState(user: StoredUser, sessionId: string) {
 
 export function createCharacter(
   user: StoredUser,
-  payload: {
+  payload: CharacterMutationPayload & {
     sessionId?: string;
     assignToSession?: boolean;
-    name: string;
-    ancestry: string;
-    className: string;
-    avatarType?: 'DEFAULT' | 'PRESET' | 'UPLOAD';
-    avatarPresetId?: string | null;
-    avatarUrl?: string | null;
-    level?: number;
-    abilities?: {
-      str: number;
-      dex: number;
-      con: number;
-      int: number;
-      wis: number;
-      cha: number;
-    };
-    proficiencyBonus?: number;
-    proficientSkills?: string[];
-    maxHp?: number;
-    armorClass?: number;
-    speed?: number;
-    inventory?: Array<{
-      id: string;
-      name: string;
-      quantity: number;
-    }>;
   },
   accessToken?: string | null
 ): Promise<SessionSnapshot | null> {
@@ -465,6 +468,59 @@ export function listMyCharacters(
   accessToken?: string | null
 ): Promise<CharacterResponseDto[]> {
   return requestJson<CharacterResponseDto[]>('/users/me/characters', {
+    user,
+    accessToken,
+  });
+}
+
+export function cloneCharacter(
+  user: StoredUser,
+  characterId: string,
+  accessToken?: string | null
+): Promise<CharacterResponseDto> {
+  return requestJson<CharacterResponseDto>(`/characters/${characterId}/clone`, {
+    method: 'POST',
+    user,
+    accessToken,
+  });
+}
+
+export function updateCharacter(
+  user: StoredUser,
+  characterId: string,
+  payload: CharacterMutationPayload,
+  accessToken?: string | null
+): Promise<CharacterResponseDto> {
+  return requestJson<CharacterResponseDto>(`/characters/${characterId}`, {
+    method: 'PATCH',
+    user,
+    accessToken,
+    body: {
+      name: payload.name,
+      ancestry: payload.ancestry,
+      className: payload.className,
+      avatarType: payload.avatarType,
+      avatarPresetId: payload.avatarPresetId,
+      avatarUrl: payload.avatarUrl,
+      level: payload.level,
+      abilities: payload.abilities,
+      proficiencyBonus: payload.proficiencyBonus,
+      proficientSkills: payload.proficientSkills,
+      maxHp: payload.maxHp,
+      armorClass: payload.armorClass,
+      speed: payload.speed,
+      inventory: payload.inventory,
+    },
+  });
+}
+
+export function deleteCharacter(
+  user: StoredUser,
+  characterId: string,
+  accessToken?: string | null
+): Promise<void> {
+  return requestJson<void>(`/characters/${characterId}`, {
+    method: 'DELETE',
     user,
     accessToken,
   });
