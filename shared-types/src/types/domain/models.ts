@@ -83,11 +83,13 @@ export type CharacterModel = {
   name: string;
   ancestry: string;
   className: string;
+  subclassName?: string | null;
   level: number;
   bio?: string | null;
   abilities: AbilityScores;
   proficiencyBonus: number;
   proficientSkills: string[];
+  features: string[];
   maxHp: number;
   armorClass: number;
   speed: number;
@@ -113,11 +115,13 @@ export type SessionCharacterModel = {
   name: string;
   ancestry: string;
   className: string;
+  subclassName?: string | null;
   level: number;
   bio?: string | null;
   abilities: AbilityScores;
   proficiencyBonus: number;
   proficientSkills: string[];
+  features: string[];
   maxHp: number;
   currentHp: number;
   tempHp: number;
