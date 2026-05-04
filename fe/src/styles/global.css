@@ -3875,6 +3875,419 @@ label {
   overflow-wrap: anywhere;
 }
 
+.scenario-node-visual {
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+  border-radius: 18px;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+}
+
+.scenario-editor-form {
+  display: grid;
+  gap: 18px;
+}
+
+.scenario-editor-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 320px;
+  gap: 18px;
+  align-items: start;
+}
+
+.scenario-editor-main {
+  min-height: 620px;
+}
+
+.scenario-info-panel {
+  margin-bottom: 18px;
+}
+
+.scenario-info-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.scenario-info-grid > div {
+  display: grid;
+  gap: 8px;
+}
+
+.scenario-info-wide {
+  grid-column: span 2;
+}
+
+.scenario-graph-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.scenario-graph-toolbar h2 {
+  margin: 4px 0 0;
+  font-size: 26px;
+}
+
+.scenario-graph-viewport {
+  position: relative;
+  min-height: 560px;
+  overflow: auto;
+  border-radius: 18px;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  background:
+    linear-gradient(rgba(85, 209, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(85, 209, 255, 0.05) 1px, transparent 1px),
+    rgba(7, 14, 24, 0.72);
+  background-size: 28px 28px;
+}
+
+.scenario-graph-canvas {
+  position: relative;
+  min-width: 100%;
+  min-height: 560px;
+}
+
+.scenario-graph-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.scenario-graph-edges path {
+  fill: none;
+  stroke: rgba(85, 209, 255, 0.58);
+  stroke-width: 2;
+  marker-end: url("#scenario-graph-arrow");
+}
+
+.scenario-graph-edges marker path {
+  fill: rgba(85, 209, 255, 0.82);
+}
+
+.scenario-graph-edges text {
+  fill: #d8e8f2;
+  font-size: 12px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: rgba(7, 14, 24, 0.94);
+  stroke-width: 5px;
+}
+
+.scenario-graph-node {
+  position: absolute;
+  transform: translate(-6px, -6px);
+  min-width: 0;
+  max-width: 180px;
+  padding: 0 0 0 18px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.scenario-graph-node.selected {
+  color: var(--cyan);
+}
+
+.scenario-graph-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid rgba(8, 14, 24, 0.96);
+  background: #d8e8f2;
+  box-shadow: 0 0 0 3px rgba(85, 209, 255, 0.22);
+}
+
+.scenario-graph-node.selected .scenario-graph-dot {
+  background: var(--cyan);
+  box-shadow: 0 0 0 5px rgba(85, 209, 255, 0.26);
+}
+
+.scenario-graph-node strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.25;
+  transform: translateY(-2px);
+}
+
+.scenario-editor-sidebar,
+.scenario-editor-guide {
+  position: sticky;
+  top: 18px;
+}
+
+.scenario-editor-sidebar {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.scenario-editor-sidebar-header {
+  display: grid;
+  gap: 8px;
+}
+
+.scenario-editor-sidebar-header .selected {
+  border-color: rgba(85, 209, 255, 0.72);
+  color: var(--cyan);
+}
+
+.scenario-save-actions {
+  margin-top: 18px;
+}
+
+.scenario-save-actions .primary {
+  width: 100%;
+}
+
+.scenario-play-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 18px;
+  min-height: 560px;
+}
+
+.scenario-play-stage {
+  min-width: 0;
+  border-radius: 28px;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  background: rgba(10, 16, 27, 0.74);
+  padding: 24px;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 20px;
+}
+
+.scenario-node-title-input {
+  width: 100%;
+  margin-top: 6px;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: clamp(28px, 4vw, 48px);
+  font-weight: 800;
+  line-height: 1.05;
+}
+
+.scenario-node-title-input:focus {
+  outline: 0;
+  box-shadow: none;
+}
+
+.scenario-node-type-select {
+  max-width: 180px;
+  margin-top: 12px;
+}
+
+.scenario-node-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.scenario-node-text-editor {
+  width: 100%;
+  min-height: 260px;
+  border: 0;
+  border-radius: 18px;
+  background: rgba(7, 14, 24, 0.58);
+  color: var(--text);
+  font-size: clamp(18px, 2vw, 23px);
+  line-height: 1.65;
+  resize: vertical;
+}
+
+.scenario-node-image-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.scenario-node-image-panel img,
+.scenario-node-image-empty {
+  width: 100%;
+  min-height: 180px;
+  max-height: 280px;
+  border-radius: 18px;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  background: rgba(7, 14, 24, 0.58);
+  object-fit: cover;
+}
+
+.scenario-node-image-empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  padding: 18px;
+  text-align: center;
+}
+
+.scenario-image-upload {
+  margin-top: 10px;
+  min-height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(85, 209, 255, 0.38);
+  color: var(--cyan);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.scenario-image-upload input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.scenario-play-sidebar {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.scenario-connection-summary.compact {
+  margin-top: 12px;
+}
+
+.scenario-editor-node-tabs {
+  display: grid;
+  gap: 8px;
+}
+
+.scenario-editor-node-tabs button {
+  width: 100%;
+  min-height: 68px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  background: rgba(9, 16, 26, 0.86);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.scenario-editor-node-tabs button.selected {
+  border-color: rgba(85, 209, 255, 0.72);
+  background: rgba(22, 42, 62, 0.9);
+}
+
+.scenario-editor-node-tabs strong,
+.scenario-editor-node-tabs span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.scenario-editor-node-tabs span {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.scenario-editor-section {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 22px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid rgba(193, 163, 120, 0.16);
+}
+
+.scenario-editor-section:last-of-type {
+  border-bottom: 0;
+}
+
+.scenario-editor-checkline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.scenario-editor-checkline input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--cyan);
+}
+
+.scenario-editor-collections {
+  display: grid;
+  gap: 16px;
+}
+
+.scenario-editor-collection {
+  border-radius: 16px;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  background: rgba(7, 14, 24, 0.56);
+  padding: 14px;
+}
+
+.scenario-editor-collection-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.scenario-editor-collection-header h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.scenario-editor-items {
+  display: grid;
+  gap: 12px;
+}
+
+.scenario-editor-item {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(13, 26, 42, 0.72);
+}
+
+.scenario-editor-mini-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.scenario-editor-mini-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(9, 16, 26, 0.72);
+}
+
+.scenario-editor-mini-list strong,
+.scenario-editor-mini-list span {
+  overflow-wrap: anywhere;
+}
+
+.scenario-editor-mini-list span {
+  color: var(--muted);
+}
+
 .character-selection-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -4311,6 +4724,25 @@ label {
 
   .scenario-management-layout {
     grid-template-columns: 1fr;
+  }
+
+  .scenario-editor-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .scenario-info-grid,
+  .scenario-play-editor,
+  .scenario-node-image-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .scenario-info-wide {
+    grid-column: auto;
+  }
+
+  .scenario-editor-sidebar,
+  .scenario-editor-guide {
+    position: static;
   }
 
   .joinable-room-grid {

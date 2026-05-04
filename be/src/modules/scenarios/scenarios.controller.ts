@@ -10,8 +10,10 @@ import {
 import {
   CreateScenarioDto,
   ScenarioQueryDto,
+  ScenarioNodeImageUploadResponseDto,
   ScenarioResponseDto,
   ScenarioSummaryResponseDto,
+  UploadScenarioNodeImageDto,
   UpdateScenarioDto,
 } from "@trpg/shared-types";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
@@ -67,6 +69,20 @@ export class ScenariosController {
     @Body() dto: UpdateScenarioDto,
   ): Promise<ScenarioResponseDto> {
     return this.scenariosService.updateScenario(userId, id, dto);
+  }
+
+  @Post(":id/nodes/:nodeId/image")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiParam({ name: "nodeId" })
+  @ApiOkResponse({ type: ScenarioNodeImageUploadResponseDto })
+  uploadScenarioNodeImage(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Param("nodeId") nodeId: string,
+    @Body() dto: UploadScenarioNodeImageDto,
+  ): Promise<ScenarioNodeImageUploadResponseDto> {
+    return this.scenariosService.uploadScenarioNodeImage(userId, id, nodeId, dto);
   }
 
   @Delete(":id")

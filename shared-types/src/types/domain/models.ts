@@ -5,6 +5,7 @@ import type {
   GmMode,
   ParticipantRole,
   ScenarioLicense,
+  ScenarioNodeType,
   SessionCharacterStatus,
   SessionParticipantStatus,
   SessionScenarioStatus,
@@ -134,8 +135,10 @@ export type SessionCharacterModel = {
 
 export type ScenarioNodeModel = {
   id: string;
+  nodeType: ScenarioNodeType;
   title: string;
   sceneText: string;
+  imageUrl?: string | null;
   visibleToPlayers: boolean;
   checkOptions: Record<string, unknown>[];
   transitions: Record<string, unknown>[];
