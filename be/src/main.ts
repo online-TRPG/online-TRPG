@@ -1,11 +1,16 @@
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { json, urlencoded } from "express";
 import { AppModule } from "./app.module";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
+  const bodyLimit = process.env.HTTP_BODY_LIMIT ?? "8mb";
+
+  app.use(json({ limit: bodyLimit }));
+  app.use(urlencoded({ extended: true, limit: bodyLimit }));
 
   // 컨트롤러에 도달하기 전에 요청 본문을 검사한다.
   // DTO에 정의되지 않은 값은 제거하거나 거부해서,

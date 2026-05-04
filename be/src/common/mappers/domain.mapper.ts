@@ -33,6 +33,7 @@ import {
   ParticipantRole,
   ScenarioLicense,
   ScenarioNodeResponseDto,
+  ScenarioNodeType,
   ScenarioResponseDto,
   ScenarioSummaryResponseDto,
   SessionCharacterResponseDto,
@@ -378,14 +379,28 @@ export function mapScenarioSummary(scenario: Scenario): ScenarioSummaryResponseD
 export function mapScenarioNode(node: ScenarioNode): ScenarioNodeResponseDto {
   return {
     id: node.id,
+    nodeType: toScenarioNodeType(node.nodeType),
     title: node.title,
     sceneText: node.sceneText,
+    imageUrl: node.imageUrl ?? null,
     visibleToPlayers: node.visibleToPlayers,
     checkOptions: parseJson<Record<string, unknown>[]>(node.checkOptionsJson, []),
     transitions: parseJson<Record<string, unknown>[]>(node.transitionsJson, []),
     clues: parseJson<Record<string, unknown>[]>(node.cluesJson, []),
     fallbackNodeId: node.fallbackNodeId,
   };
+}
+
+function toScenarioNodeType(value: string): ScenarioNodeType {
+  switch (value) {
+    case ScenarioNodeType.EXPLORATION:
+      return ScenarioNodeType.EXPLORATION;
+    case ScenarioNodeType.COMBAT:
+      return ScenarioNodeType.COMBAT;
+    case ScenarioNodeType.STORY:
+    default:
+      return ScenarioNodeType.STORY;
+  }
 }
 
 export function mapScenario(

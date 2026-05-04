@@ -9,6 +9,7 @@ import type {
   SessionDetailResponseDto,
   SessionSnapshotDto,
   UpdateScenarioDto,
+  UploadScenarioNodeImageDto,
   UserResponseDto,
   SessionListItemResponseDto,
   SessionParticipantResponseDto,
@@ -246,6 +247,21 @@ export function deleteScenario(
     method: 'DELETE',
     user,
     accessToken,
+  });
+}
+
+export function uploadScenarioNodeImage(
+  user: StoredUser,
+  scenarioId: string,
+  nodeId: string,
+  payload: UploadScenarioNodeImageDto,
+  accessToken?: string | null
+): Promise<{ imageUrl: string }> {
+  return requestJson<{ imageUrl: string }>(`/scenarios/${scenarioId}/nodes/${nodeId}/image`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
   });
 }
 
