@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { getSessionDetail } from "../services/api";
 import type { SessionDetail, SessionSnapshot, StoredUser, User } from "../types/session";
+import { buildSessionPath } from "../utils/routes";
 
 interface SessionDetailPageProps {
   user: StoredUser;
@@ -36,6 +38,8 @@ export function SessionDetailPage({
   onOpenPlay,
   onOpenHostProfile,
 }: SessionDetailPageProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +73,13 @@ export function SessionDetailPage({
   const activeScenario =
     detail?.sessionScenarios.find((item) => item.status === "ACTIVE")?.scenario ?? detail?.scenario ?? null;
   const participantCount = detail?.participants.filter((item) => item.status === "JOINED").length ?? 0;
+  const canonicalPath = detail ? buildSessionPath(detail.session) : null;
+
+  useEffect(() => {
+    if (!canonicalPath) return;
+    if (location.pathname === canonicalPath) return;
+    navigate(canonicalPath, { replace: true });
+  }, [canonicalPath, location.pathname, navigate]);
 
   async function handleEnter() {
     if (!detail) return;
@@ -77,7 +88,7 @@ export function SessionDetailPage({
       return;
     }
 
-    const nextSnapshot = await onJoinSessionById(detail.session.id);
+    const nextSnapshot = await onJoinSessionById(detail.session.publicId);
     if (nextSnapshot) {
       onOpenPlay();
     }

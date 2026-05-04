@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import logoImage from '../assets/images/Logo.png';
 import { Icon } from '../components/Icon';
@@ -40,7 +40,14 @@ type MainView =
 const topNavItems: Array<{
   id: Exclude<
     MainView,
-    'gameroom' | 'publicProfile' | 'sessionDetail' | 'scenariosNew' | 'scenarioEdit'
+    | 'gameroom'
+    | 'publicProfile'
+    | 'sessionDetail'
+    | 'scenariosNew'
+    | 'scenarioEdit'
+    | 'settings'
+    | 'profile'
+    | 'account'
   >;
   label: string;
 }> = [
@@ -50,9 +57,6 @@ const topNavItems: Array<{
   { id: 'scenarios', label: '시나리오' },
   { id: 'characters', label: '캐릭터' },
   { id: 'rulebook', label: '룰북' },
-  { id: 'settings', label: '설정' },
-  { id: 'profile', label: '프로필' },
-  { id: 'account', label: '계정' },
 ];
 
 const pathByView: Record<MainView, string> = {
@@ -72,9 +76,30 @@ const pathByView: Record<MainView, string> = {
   gameroom: '/gameroom',
 };
 
+const viewLabel: Partial<Record<MainView, string>> = {
+  main: '메인',
+  characters: '캐릭터',
+  rulebook: '룰북',
+  settings: '설정',
+  profile: '프로필',
+  publicProfile: '공개 프로필',
+  account: '계정',
+  scenarios: '시나리오',
+  scenariosNew: '시나리오 생성',
+  scenarioEdit: '시나리오 편집',
+  sessionsDiscover: '세션 탐색',
+  sessionsNew: '세션 생성',
+  sessionDetail: '세션 상세',
+  gameroom: '게임방',
+};
+
 function viewFromPathname(pathname: string): MainView | null {
-  if (/^\/users\/[^/]+\/[^/]+$/.test(pathname) && pathname !== '/users/me/profile') {
-    return 'publicProfile';
+  if (pathname === "/play") {
+    return "gameroom";
+  }
+
+  if (/^\/users\/[^/]+\/[^/]+$/.test(pathname) && pathname !== "/users/me/profile") {
+    return "publicProfile";
   }
 
   if (/^\/sessions\/[^/]+\/[^/]+$/.test(pathname)) {
@@ -131,8 +156,10 @@ export function App() {
   const publicProfileState = location.state as { profilePreview?: User | null } | null;
   const scenarioEditMatch = /^\/scenarios\/([^/]+)\/edit$/.exec(location.pathname);
   const scenarioEditId = scenarioEditMatch?.[1] ?? null;
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
 
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const activeView =
     location.pathname === '/oauth/callback'
       ? 'main'
@@ -165,6 +192,25 @@ export function App() {
   }, [location.pathname, navigate]);
 
   useEffect(() => {
+    setIsAccountMenuOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!isAccountMenuOpen) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!accountMenuRef.current) return;
+      if (accountMenuRef.current.contains(event.target as Node)) return;
+      setIsAccountMenuOpen(false);
+    }
+
+    window.addEventListener('mousedown', handlePointerDown);
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown);
+    };
+  }, [isAccountMenuOpen]);
+
+  useEffect(() => {
     if (activeView !== 'gameroom') return;
     if (!auth.user) return;
     if (!session.snapshot) {
@@ -172,10 +218,15 @@ export function App() {
       return;
     }
 
+    if (location.pathname === "/play") {
+      navigate(buildGameroomPath(session.snapshot.session), { replace: true });
+      return;
+    }
+
     if (gameroomId && session.snapshot.session.publicId !== gameroomId) {
       navigate(buildGameroomPath(session.snapshot.session), { replace: true });
     }
-  }, [activeView, auth.user, gameroomId, navigate, session.snapshot]);
+  }, [activeView, auth.user, gameroomId, location.pathname, navigate, session.snapshot]);
 
   const busy = auth.busy || session.busy;
   const error = auth.error ?? session.error;
@@ -269,6 +320,8 @@ export function App() {
 
   const currentUser = auth.user;
   const isPlayView = activeView === 'gameroom';
+  const isAccountSurfaceActive =
+    activeView === 'profile' || activeView === 'account' || activeView === 'settings';
 
   return (
     <div className={isPlayView ? 'app-shell app-shell-session' : 'app-shell app-shell-topnav'}>
@@ -294,28 +347,62 @@ export function App() {
           </div>
 
           <div className="topbar-right">
-            <div className="topbar-actions">
+            <div className="topbar-actions" ref={accountMenuRef}>
               <button
                 type="button"
                 className={
-                  activeView === 'profile'
+                  isAccountSurfaceActive || isAccountMenuOpen
                     ? 'icon-button profile-chip active'
                     : 'icon-button profile-chip'
                 }
-                onClick={() => navigate('/profile')}
-                aria-label="프로필 열기"
+                onClick={() => setIsAccountMenuOpen((current) => !current)}
+                aria-label="계정 메뉴 열기"
+                aria-expanded={isAccountMenuOpen}
+                aria-haspopup="menu"
               >
                 <div className="avatar">{currentUser.displayName.slice(0, 1)}</div>
                 <strong>{currentUser.displayName}</strong>
+                <Icon name="chevron-down" />
               </button>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={handleLogout}
-                aria-label="로그아웃"
-              >
-                <Icon name="logout" />
-              </button>
+
+              {isAccountMenuOpen ? (
+                <div className="account-menu" role="menu" aria-label="계정 메뉴">
+                  <div className="account-menu-header">
+                    <div className="avatar avatar-lg">{currentUser.displayName.slice(0, 1)}</div>
+                    <div className="account-menu-copy">
+                      <strong>{currentUser.displayName}</strong>
+                      <span>{auth.authMode === 'guest' ? '게스트 세션' : '회원 계정'}</span>
+                    </div>
+                  </div>
+
+                  <div className="account-menu-list">
+                    <button type="button" className="account-menu-item" onClick={() => navigate('/profile')} role="menuitem">
+                      <Icon name="user" />
+                      <span>내 프로필</span>
+                    </button>
+                    <button type="button" className="account-menu-item" onClick={() => navigate('/account')} role="menuitem">
+                      <Icon name="shield" />
+                      <span>계정 관리</span>
+                    </button>
+                    <button type="button" className="account-menu-item" onClick={() => navigate('/settings')} role="menuitem">
+                      <Icon name="settings" />
+                      <span>설정</span>
+                    </button>
+                  </div>
+
+                  <div className="account-menu-divider" />
+
+                  <button
+                    type="button"
+                    className="account-menu-item danger"
+                    onClick={handleLogout}
+                    role="menuitem"
+                  >
+                    <Icon name="logout" />
+                    <span>로그아웃</span>
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </header>
@@ -489,7 +576,7 @@ export function App() {
         activeView !== 'sessionDetail' ? (
           <section className="placeholder-view">
             <span className="eyebrow">Coming soon</span>
-            <h1>{topNavItems.find((item) => item.id === activeView)?.label}</h1>
+            <h1>{viewLabel[activeView] ?? '준비 중'}</h1>
             <p>
               이 화면은 아직 준비 중입니다. 현재는 메인, 캐릭터, 세션 탐색, 세션 생성 흐름이 우선
               연결되어 있습니다.
