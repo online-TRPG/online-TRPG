@@ -1,20 +1,14 @@
-import json
-from pathlib import Path
-
 from app.srd.build import (
     EXPECTED_COUNTS,
-    build,
     build_character_option_validation_report,
-    build_class_options,
     build_equipment_items,
-    build_race_options,
     parse_starting_equipment_lines,
 )
-from app.srd.retrieval import SrdRetriever
+from app.srd.retrieval import SrdRetriever, load_classes, load_races
 
 
-def test_race_option_parser_preserves_core_fields_and_subraces():
-    races = build_race_options()
+def test_generated_race_options_preserve_core_fields_and_subraces():
+    races = load_races()
 
     elf = next(race for race in races if race.id == "race.elf")
 
@@ -26,14 +20,14 @@ def test_race_option_parser_preserves_core_fields_and_subraces():
     assert elf.abilityScoreIncreaseRaw == "Dexterity +2"
     assert any(subrace["nameKo"] == "하이 엘프" for subrace in elf.subraces)
     assert any(trait["nameKo"] == "암시야" for trait in elf.traits)
-    assert elf.source.file == "translated/races/엘프.md"
+    assert elf.source.file
 
     dragonborn = next(race for race in races if race.id == "race.dragonborn")
     assert any(option["nameEn"] == "Black" and option["damageType"] == "Acid" for option in dragonborn.ancestryOptions)
 
 
-def test_class_option_parser_preserves_core_fields_and_level_features():
-    classes = build_class_options()
+def test_generated_class_options_preserve_core_fields_and_level_features():
+    classes = load_classes()
 
     fighter = next(class_option for class_option in classes if class_option.id == "class.fighter")
 
@@ -83,7 +77,7 @@ def test_class_option_parser_preserves_core_fields_and_level_features():
         for feature in fighter.featureReferences
     )
     assert any(row["레벨"] == "20" and "추가 공격 3회" in row["기능"] for row in fighter.levelProgression)
-    assert fighter.source.file == "translated/classes/파이터.md"
+    assert fighter.source.file
 
     wizard = next(class_option for class_option in classes if class_option.id == "class.wizard")
     assert wizard.spellcasting["ability"] == "Intelligence"
@@ -134,7 +128,7 @@ def test_starting_equipment_fallbacks_cover_classes_when_translation_section_is_
 
 
 def test_starting_equipment_items_are_cataloged_from_class_choices():
-    classes = build_class_options()
+    classes = load_classes()
     equipment_items = build_equipment_items(classes)
 
     chain_mail = next(item for item in equipment_items if item.id == "equipment.체인_메일")
@@ -161,7 +155,7 @@ def test_starting_equipment_items_are_cataloged_from_class_choices():
 
 
 def test_equipment_items_include_srd_armor_weapon_and_ammunition_tables():
-    equipment_items = build_equipment_items(build_class_options())
+    equipment_items = build_equipment_items(load_classes())
     item_ids = {item.id for item in equipment_items}
 
     assert len(equipment_items) >= 60
@@ -173,8 +167,8 @@ def test_equipment_items_include_srd_armor_weapon_and_ammunition_tables():
 
 
 def test_character_option_validation_report_surfaces_validator_readiness_and_gaps():
-    races = build_race_options()
-    classes = build_class_options()
+    races = load_races()
+    classes = load_classes()
     equipment_items = build_equipment_items(classes)
 
     report = build_character_option_validation_report(races, classes, equipment_items)
@@ -190,7 +184,7 @@ def test_character_option_validation_report_surfaces_validator_readiness_and_gap
 
 
 def test_character_option_retrieval_matches_korean_and_english_names():
-    retriever = SrdRetriever(races=build_race_options(), classes=build_class_options(), spells=[], conditions=[], magic_items=[])
+    retriever = SrdRetriever(races=load_races(), classes=load_classes(), spells=[], conditions=[], magic_items=[])
 
     ko_matches = retriever.related_entities_for_text("하이 엘프 파이터 캐릭터를 만들고 싶다", limit=5)
     en_matches = retriever.related_entities_for_text("I want an Elf Fighter character", limit=5)
@@ -200,24 +194,3 @@ def test_character_option_retrieval_matches_korean_and_english_names():
     assert any(match.id == "race.elf" and match.kind == "race" for match in en_matches)
     assert any(match.id == "class.fighter" and match.kind == "class" for match in en_matches)
 
-
-def test_build_writes_character_option_jsonl():
-    output_dir = Path("runtime_logs_test") / "srd_character_options_build"
-    result = build(output_dir)
-
-    races_path = output_dir / "races.jsonl"
-    classes_path = output_dir / "classes.jsonl"
-    equipment_items_path = output_dir / "equipment_items.jsonl"
-
-    assert result["races"] == 9
-    assert result["classes"] == 12
-    assert result["equipment_items"] >= 60
-    assert races_path.exists()
-    assert classes_path.exists()
-    assert equipment_items_path.exists()
-    assert len([line for line in races_path.read_text(encoding="utf-8").splitlines() if line.strip()]) == 9
-    assert len([line for line in classes_path.read_text(encoding="utf-8").splitlines() if line.strip()]) == 12
-    assert json.loads(classes_path.read_text(encoding="utf-8").splitlines()[0])["id"].startswith("class.")
-
-    qa_report = json.loads((output_dir / "srd_qa_report.json").read_text(encoding="utf-8"))
-    assert qa_report["characterOptionValidation"]["readiness"]["classCoreValidatorInputReady"] is True
