@@ -1,6 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import {
+  CombatResponseDto,
+  DiceRollResponseDto,
   CharacterUpdatedEventDto,
+  StateDiffResponseDto,
+  TurnAdvanceResponseDto,
+  TurnLogResponseDto,
   ParticipantUpdatedEventDto,
   SessionCharacterResponseDto,
   SessionParticipantResponseDto,
@@ -59,5 +64,83 @@ export class RealtimeEventsService {
     this.server
       .to(this.getRoomName(sessionId))
       .emit("session.status.updated", payload);
+  }
+
+  emitActionAccepted(sessionId: string, playerActionId: string): void {
+    if (!this.server) {
+      return;
+    }
+
+    this.server.to(this.getRoomName(sessionId)).emit("action.accepted", {
+      sessionId,
+      playerActionId,
+    });
+  }
+
+  emitTurnLogCreated(sessionId: string, turnLog: TurnLogResponseDto): void {
+    if (!this.server) {
+      return;
+    }
+
+    this.server.to(this.getRoomName(sessionId)).emit("turn.log.created", {
+      sessionId,
+      turnLog,
+    });
+  }
+
+  emitDiceRolled(sessionId: string, diceResult: DiceRollResponseDto): void {
+    if (!this.server) {
+      return;
+    }
+
+    this.server.to(this.getRoomName(sessionId)).emit("dice.rolled", {
+      sessionId,
+      diceResult,
+    });
+  }
+
+  emitStateDiffApplied(sessionId: string, stateDiff: StateDiffResponseDto): void {
+    if (!this.server) {
+      return;
+    }
+
+    this.server.to(this.getRoomName(sessionId)).emit("state.diff.applied", {
+      sessionId,
+      stateDiff,
+    });
+  }
+
+  emitCombatUpdated(sessionId: string, combat: CombatResponseDto): void {
+    if (!this.server) {
+      return;
+    }
+
+    this.server.to(this.getRoomName(sessionId)).emit("combat.updated", {
+      sessionId,
+      combat,
+    });
+  }
+
+  emitTurnChanged(sessionId: string, turn: TurnAdvanceResponseDto): void {
+    if (!this.server) {
+      return;
+    }
+
+    this.server.to(this.getRoomName(sessionId)).emit("turn.changed", {
+      sessionId,
+      turn,
+    });
+  }
+
+  emitSystemMessage(sessionId: string, code: string, message: string): void {
+    if (!this.server) {
+      return;
+    }
+
+    this.server.to(this.getRoomName(sessionId)).emit("system.message", {
+      sessionId,
+      code,
+      message,
+    });
   }
 }

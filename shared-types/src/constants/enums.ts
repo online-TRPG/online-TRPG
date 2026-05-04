@@ -92,3 +92,46 @@ export enum CharacterAvatarType {
   PRESET = "PRESET",
   UPLOAD = "UPLOAD",
 }
+
+export enum ActionQueueStatus {
+  PENDING = "PENDING",
+  PROCESSING = "PROCESSING",
+  COMPLETED = "COMPLETED",
+  FAILED = "FAILED",
+  REJECTED = "REJECTED",
+}
+
+export enum ActionInputType {
+  TEXT = "TEXT",
+  SELECT = "SELECT",
+  COMMAND = "COMMAND",
+}
+
+export enum ActionScope {
+  PARTY_SHARED = "PARTY_SHARED",
+  INDIVIDUAL_TURN = "INDIVIDUAL_TURN",
+}
+
+export enum ActionOutcome {
+  SUCCESS = "SUCCESS",
+  FAILURE = "FAILURE",
+  IMPOSSIBLE = "IMPOSSIBLE",
+  NO_ROLL = "NO_ROLL",
+}
+
+export enum DiceAdvantageState {
+  NORMAL = "NORMAL",
+  ADVANTAGE = "ADVANTAGE",
+  DISADVANTAGE = "DISADVANTAGE",
+}
+
+export enum CombatStatus {
+  ACTIVE = "ACTIVE",
+  ENDED = "ENDED",
+}
+
+export enum CombatEntityType {
+  PLAYER_CHARACTER = "PLAYER_CHARACTER",
+  NPC = "NPC",
+  MONSTER = "MONSTER",
+}
