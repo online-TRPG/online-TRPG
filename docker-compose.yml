@@ -80,6 +80,17 @@ services:
       - .env.ai
     environment:
       TZ: Asia/Seoul
+    # urllib 사용 (curl 미설치 슬림 이미지). ai-server 가 startup 시 google-genai 초기화로 시간 걸릴 수 있어 start_period 30s.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/internal/ai/health').status==200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
     logging: *default-logging
     networks:

@@ -85,6 +85,22 @@ pipeline {
                 // 4) 나머지 (backend + nginx + certbot) 기동
                 sh 'docker compose up -d'
                 sh 'docker compose ps'
+
+                // 5) 배포 후 smoke — nginx / ai-health / backend 셋 다 응답하는지 확인.
+                //    ai-server 가 startup 시 google-genai 초기화로 시간 걸리므로 잠시 대기.
+                //    실패 시 stage fail (set -e) → Jenkins 알림으로 빠른 인지.
+                sh '''
+                    set -e
+                    sleep 8
+
+                    NGINX_CODE=$(curl -fsS -o /dev/null -w "%{http_code}" -m 10 https://k14a201.p.ssafy.io/)
+                    echo "smoke nginx_root=${NGINX_CODE}"
+
+                    docker compose exec -T ai-server python -c "import urllib.request; r=urllib.request.urlopen('http://localhost:8000/internal/ai/health', timeout=5); print('smoke ai_health=' + str(r.status))"
+
+                    # backend 는 인증 필요 endpoint 라 4xx 정상. node fetch 는 status code 받으면 응답으로 인식, network 실패 시만 throw.
+                    docker compose exec -T backend node -e "fetch('http://localhost:8080/api/v1/users/me').then(r=>console.log('smoke backend_users_me=' + r.status)).catch(e=>{console.error('backend_smoke_error',e.message);process.exit(1)})"
+                '''
             }
         }
     }
