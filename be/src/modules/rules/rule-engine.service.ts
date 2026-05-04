@@ -2,16 +2,32 @@ import { Injectable } from "@nestjs/common";
 import {
   AttackRollInput,
   AttackRollProduced,
+  ActionSurgeInput,
+  ActionSurgeProduced,
+  BagOfHoldingCapacityInput,
+  BagOfHoldingCapacityProduced,
   ChillTouchInput,
   ChillTouchProduced,
+  CriticalThresholdModifierInput,
+  CriticalThresholdModifierProduced,
+  CunningActionInput,
+  CunningActionProduced,
   DamageModifierInput,
   DamageModifierProduced,
+  FrenzyInput,
+  FrenzyProduced,
   ProneModifierInput,
   ProneModifierProduced,
   RULE_HOOK_IDS,
+  RageInput,
+  RageProduced,
   RuleAdvantageState,
   RuleHookResult,
   RuleTurnLogEvent,
+  SecondWindInput,
+  SecondWindProduced,
+  SneakAttackInput,
+  SneakAttackProduced,
 } from "./rule-engine.types";
 
 @Injectable()
@@ -195,6 +211,405 @@ export class RuleEngineService {
     }, "spell_cast_validated");
   }
 
+  validateBagOfHoldingCapacity(
+    input: BagOfHoldingCapacityInput,
+  ): RuleHookResult<BagOfHoldingCapacityProduced> {
+    this.assertNonNegativeNumber(input.itemCurrentWeightLb, "itemCurrentWeightLb");
+    this.assertNonNegativeNumber(input.itemCurrentVolumeCuFt, "itemCurrentVolumeCuFt");
+    this.assertNonNegativeNumber(input.addedWeightLb, "addedWeightLb");
+    this.assertNonNegativeNumber(input.addedVolumeCuFt, "addedVolumeCuFt");
+
+    if (input.containerIntegrity !== "intact") {
+      return this.rejected(
+        RULE_HOOK_IDS.VALIDATE_BAG_OF_HOLDING_CAPACITY,
+        {
+          acceptedInventoryMutation: false,
+          capacityViolation: "container_integrity",
+          containerDestroyed: true,
+        },
+        "inventory_mutation_rejected",
+        "container_integrity_compromised",
+      );
+    }
+
+    const nextWeight = input.itemCurrentWeightLb + input.addedWeightLb;
+    const nextVolume = input.itemCurrentVolumeCuFt + input.addedVolumeCuFt;
+    const exceedsWeight = nextWeight > 500;
+    const exceedsVolume = nextVolume > 64;
+
+    if (exceedsWeight || exceedsVolume) {
+      return this.rejected(
+        RULE_HOOK_IDS.VALIDATE_BAG_OF_HOLDING_CAPACITY,
+        {
+          acceptedInventoryMutation: false,
+          capacityViolation: this.resolveCapacityViolation(exceedsWeight, exceedsVolume),
+          containerDestroyed: true,
+        },
+        "inventory_mutation_rejected",
+        "bag_of_holding_capacity_exceeded",
+      );
+    }
+
+    return this.accepted(
+      RULE_HOOK_IDS.VALIDATE_BAG_OF_HOLDING_CAPACITY,
+      {
+        acceptedInventoryMutation: true,
+        capacityViolation: null,
+        containerDestroyed: false,
+      },
+      "inventory_mutation_validated",
+    );
+  }
+
+  applySecondWind(input: SecondWindInput): RuleHookResult<SecondWindProduced> {
+    this.assertInteger(input.fighterLevel, "fighterLevel");
+    this.assertIntegerInRange(input.healingRollD10, 1, 10, "healingRollD10");
+    this.assertInteger(input.currentHitPoints, "currentHitPoints");
+    this.assertInteger(input.maxHitPoints, "maxHitPoints");
+
+    const rejectedProduced: SecondWindProduced = {
+      hitPointsRestored: 0,
+      newHitPoints: input.currentHitPoints,
+      secondWindExpended: false,
+      bonusActionSpent: false,
+    };
+
+    if (input.fighterLevel < 1) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_SECOND_WIND,
+        rejectedProduced,
+        "class_feature_rejected",
+        "fighter_level_required",
+      );
+    }
+
+    if (!input.bonusActionAvailable) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_SECOND_WIND,
+        rejectedProduced,
+        "class_feature_rejected",
+        "bonus_action_unavailable",
+      );
+    }
+
+    if (!input.secondWindAvailable) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_SECOND_WIND,
+        rejectedProduced,
+        "class_feature_rejected",
+        "second_wind_unavailable",
+      );
+    }
+
+    const newHitPoints = Math.min(
+      input.currentHitPoints + input.healingRollD10 + input.fighterLevel,
+      input.maxHitPoints,
+    );
+
+    return this.accepted(
+      RULE_HOOK_IDS.APPLY_SECOND_WIND,
+      {
+        hitPointsRestored: Math.max(newHitPoints - input.currentHitPoints, 0),
+        newHitPoints,
+        secondWindExpended: true,
+        bonusActionSpent: true,
+      },
+      "class_feature_applied",
+    );
+  }
+
+  applyActionSurge(input: ActionSurgeInput): RuleHookResult<ActionSurgeProduced> {
+    this.assertInteger(input.fighterLevel, "fighterLevel");
+    this.assertInteger(input.actionSurgeAvailableUses, "actionSurgeAvailableUses");
+
+    const rejectedProduced: ActionSurgeProduced = {
+      additionalActionGranted: false,
+      actionSurgeExpended: false,
+      remainingActionSurgeUses: Math.max(input.actionSurgeAvailableUses, 0),
+    };
+
+    if (input.fighterLevel < 2) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_ACTION_SURGE,
+        rejectedProduced,
+        "class_feature_rejected",
+        "fighter_level_too_low",
+      );
+    }
+
+    if (input.actionSurgeAvailableUses < 1) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_ACTION_SURGE,
+        rejectedProduced,
+        "class_feature_rejected",
+        "action_surge_unavailable",
+      );
+    }
+
+    if (input.turnActionState.actionSurgeUsedThisTurn) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_ACTION_SURGE,
+        rejectedProduced,
+        "class_feature_rejected",
+        "action_surge_already_used_this_turn",
+      );
+    }
+
+    return this.accepted(
+      RULE_HOOK_IDS.APPLY_ACTION_SURGE,
+      {
+        additionalActionGranted: true,
+        actionSurgeExpended: true,
+        remainingActionSurgeUses: input.actionSurgeAvailableUses - 1,
+      },
+      "class_feature_applied",
+    );
+  }
+
+  applyRage(input: RageInput): RuleHookResult<RageProduced> {
+    this.assertInteger(input.barbarianLevel, "barbarianLevel");
+    this.assertInteger(input.rageAvailableUses, "rageAvailableUses");
+
+    const rejectedProduced: RageProduced = {
+      rageActive: false,
+      rageExpended: false,
+      bonusActionSpent: false,
+      strengthCheckAdvantage: false,
+      strengthSaveAdvantage: false,
+      rageDamageBonus: 0,
+      bludgeoningResistance: false,
+      piercingResistance: false,
+      slashingResistance: false,
+      concentrationEnded: false,
+    };
+
+    if (input.barbarianLevel < 1) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_RAGE,
+        rejectedProduced,
+        "class_feature_rejected",
+        "barbarian_level_required",
+      );
+    }
+
+    if (!input.bonusActionAvailable) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_RAGE,
+        rejectedProduced,
+        "class_feature_rejected",
+        "bonus_action_unavailable",
+      );
+    }
+
+    if (input.rageAvailableUses < 1) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_RAGE,
+        rejectedProduced,
+        "class_feature_rejected",
+        "rage_unavailable",
+      );
+    }
+
+    const benefitsActive = input.armorCategory !== "heavy";
+
+    return this.accepted(
+      RULE_HOOK_IDS.APPLY_RAGE,
+      {
+        rageActive: true,
+        rageExpended: true,
+        bonusActionSpent: true,
+        strengthCheckAdvantage: benefitsActive,
+        strengthSaveAdvantage: benefitsActive,
+        rageDamageBonus:
+          benefitsActive && input.strengthAttackDamagePacket
+            ? this.resolveRageDamageBonus(input.barbarianLevel)
+            : 0,
+        bludgeoningResistance: benefitsActive,
+        piercingResistance: benefitsActive,
+        slashingResistance: benefitsActive,
+        concentrationEnded: input.currentConcentrationState === "active",
+      },
+      "class_feature_applied",
+    );
+  }
+
+  applySneakAttack(input: SneakAttackInput): RuleHookResult<SneakAttackProduced> {
+    this.assertInteger(input.rogueLevel, "rogueLevel");
+    this.assertInteger(input.baseDamage, "baseDamage");
+    this.assertInteger(input.sneakAttackDamageRollTotal, "sneakAttackDamageRollTotal");
+
+    const sneakAttackDice = `${Math.max(Math.ceil(input.rogueLevel / 2), 1)}d6`;
+    const rejectedProduced: SneakAttackProduced = {
+      sneakAttackDice,
+      sneakAttackDamage: 0,
+      sneakAttackExpendedThisTurn: false,
+      damagePacket: null,
+    };
+
+    if (input.rogueLevel < 1) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
+        rejectedProduced,
+        "class_feature_rejected",
+        "rogue_level_required",
+      );
+    }
+
+    if (!input.sneakAttackAvailableThisTurn) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
+        rejectedProduced,
+        "class_feature_rejected",
+        "sneak_attack_unavailable_this_turn",
+      );
+    }
+
+    if (input.hasDisadvantage) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
+        rejectedProduced,
+        "class_feature_rejected",
+        "sneak_attack_blocked_by_disadvantage",
+      );
+    }
+
+    if (!this.isSneakAttackWeapon(input.attackKind, input.weaponProperties)) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
+        rejectedProduced,
+        "class_feature_rejected",
+        "sneak_attack_requires_finesse_or_ranged_weapon",
+      );
+    }
+
+    if (!input.hasAdvantage && !input.targetEnemyWithin5Ft) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
+        rejectedProduced,
+        "class_feature_rejected",
+        "sneak_attack_position_not_satisfied",
+      );
+    }
+
+    return this.accepted(
+      RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
+      {
+        sneakAttackDice,
+        sneakAttackDamage: input.sneakAttackDamageRollTotal,
+        sneakAttackExpendedThisTurn: true,
+        damagePacket: {
+          baseDamage: input.baseDamage,
+          bonusDamage: input.sneakAttackDamageRollTotal,
+          totalDamage: input.baseDamage + input.sneakAttackDamageRollTotal,
+          damageType: "weapon",
+        },
+      },
+      "class_feature_applied",
+    );
+  }
+
+  applyCriticalThresholdModifier(
+    input: CriticalThresholdModifierInput,
+  ): RuleHookResult<CriticalThresholdModifierProduced> {
+    this.assertIntegerInRange(input.naturalD20, 1, 20, "naturalD20");
+    this.assertInteger(input.fighterLevel, "fighterLevel");
+
+    const criticalThreshold = this.resolveCriticalThreshold(input);
+
+    return this.accepted(
+      RULE_HOOK_IDS.APPLY_CRITICAL_THRESHOLD_MODIFIER,
+      {
+        criticalThreshold,
+        criticalHit: input.naturalD20 >= criticalThreshold,
+      },
+      "class_feature_applied",
+    );
+  }
+
+  applyCunningAction(input: CunningActionInput): RuleHookResult<CunningActionProduced> {
+    this.assertInteger(input.rogueLevel, "rogueLevel");
+
+    const declaredAction = this.normalizeToken(input.declaredCunningAction);
+    const rejectedProduced: CunningActionProduced = {
+      bonusActionSpent: false,
+      grantedActionType: null,
+    };
+
+    if (input.rogueLevel < 2) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_CUNNING_ACTION,
+        rejectedProduced,
+        "class_feature_rejected",
+        "rogue_level_too_low",
+      );
+    }
+
+    if (!input.bonusActionAvailable) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_CUNNING_ACTION,
+        rejectedProduced,
+        "class_feature_rejected",
+        "bonus_action_unavailable",
+      );
+    }
+
+    if (!["dash", "disengage", "hide"].includes(declaredAction)) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_CUNNING_ACTION,
+        rejectedProduced,
+        "class_feature_rejected",
+        "invalid_cunning_action",
+      );
+    }
+
+    return this.accepted(
+      RULE_HOOK_IDS.APPLY_CUNNING_ACTION,
+      {
+        bonusActionSpent: true,
+        grantedActionType: declaredAction as CunningActionProduced["grantedActionType"],
+      },
+      "class_feature_applied",
+    );
+  }
+
+  applyFrenzy(input: FrenzyInput): RuleHookResult<FrenzyProduced> {
+    this.assertInteger(input.exhaustionState, "exhaustionState");
+
+    const rejectedProduced: FrenzyProduced = {
+      frenzyActive: false,
+      bonusActionMeleeAttackAvailable: false,
+      exhaustionIncreaseOnRageEnd: 0,
+    };
+
+    if (!input.rageActivationAccepted) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_FRENZY,
+        rejectedProduced,
+        "class_feature_rejected",
+        "rage_activation_required",
+      );
+    }
+
+    if (!input.frenzyDeclared) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_FRENZY,
+        rejectedProduced,
+        "class_feature_rejected",
+        "frenzy_not_declared",
+      );
+    }
+
+    return this.accepted(
+      RULE_HOOK_IDS.APPLY_FRENZY,
+      {
+        frenzyActive: true,
+        bonusActionMeleeAttackAvailable: input.bonusActionAvailableOnFollowingTurns,
+        exhaustionIncreaseOnRageEnd: 1,
+      },
+      "class_feature_applied",
+    );
+  }
+
   private createRejectedChillTouchProduced(): ChillTouchProduced {
     return {
       validatedSpellCast: false,
@@ -202,6 +617,66 @@ export class RuleEngineService {
       healingBlockedUntil: null,
       undeadAttackDisadvantage: false,
     };
+  }
+
+  private resolveCapacityViolation(
+    exceedsWeight: boolean,
+    exceedsVolume: boolean,
+  ): BagOfHoldingCapacityProduced["capacityViolation"] {
+    if (exceedsWeight && exceedsVolume) {
+      return "weight_and_volume";
+    }
+    return exceedsWeight ? "weight" : "volume";
+  }
+
+  private resolveRageDamageBonus(barbarianLevel: number): number {
+    if (barbarianLevel >= 16) {
+      return 4;
+    }
+    if (barbarianLevel >= 9) {
+      return 3;
+    }
+    return 2;
+  }
+
+  private isSneakAttackWeapon(attackKind: string, weaponProperties: string[]): boolean {
+    const normalizedAttackKind = this.normalizeToken(attackKind);
+    const normalizedProperties = this.toNormalizedSet(weaponProperties);
+
+    return (
+      normalizedAttackKind.includes("ranged") ||
+      normalizedProperties.has("ranged") ||
+      normalizedProperties.has("finesse")
+    );
+  }
+
+  private resolveCriticalThreshold(input: CriticalThresholdModifierInput): number {
+    const attackKind = this.normalizeToken(input.attackKind);
+    const featureIds = this.toNormalizedSet(input.subclassFeatureIds);
+    const weaponAttack = attackKind.includes("weapon");
+
+    if (!weaponAttack || input.fighterLevel < 3) {
+      return 20;
+    }
+
+    if (
+      input.fighterLevel >= 15 &&
+      (featureIds.has("champion_superior_critical") ||
+        featureIds.has("superior_critical") ||
+        featureIds.has("class.fighter.subclass_feature.superior_critical"))
+    ) {
+      return 18;
+    }
+
+    if (
+      featureIds.has("champion_improved_critical") ||
+      featureIds.has("improved_critical") ||
+      featureIds.has("class.fighter.subclass_feature.improved_critical")
+    ) {
+      return 19;
+    }
+
+    return 20;
   }
 
   private resolveIncomingAttackAdvantage(
@@ -272,6 +747,12 @@ export class RuleEngineService {
     this.assertInteger(value, field);
     if (value < min || value > max) {
       throw new Error(`${field} must be between ${min} and ${max}.`);
+    }
+  }
+
+  private assertNonNegativeNumber(value: number, field: string): void {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(`${field} must be greater than or equal to 0.`);
     }
   }
 }

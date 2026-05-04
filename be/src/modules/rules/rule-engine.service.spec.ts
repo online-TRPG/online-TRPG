@@ -307,4 +307,177 @@ describe("RuleEngineService", () => {
       });
     });
   });
+
+  describe("P1 hooks", () => {
+    it("validates bag of holding capacity", () => {
+      expect(
+        service.validateBagOfHoldingCapacity({
+          itemCurrentWeightLb: 490,
+          itemCurrentVolumeCuFt: 10,
+          addedWeightLb: 15,
+          addedVolumeCuFt: 1,
+          containerIntegrity: "intact",
+        }),
+      ).toMatchObject({
+        accepted: false,
+        hookId: RULE_HOOK_IDS.VALIDATE_BAG_OF_HOLDING_CAPACITY,
+        produced: {
+          acceptedInventoryMutation: false,
+          capacityViolation: "weight",
+          containerDestroyed: true,
+        },
+        rejectedReason: "bag_of_holding_capacity_exceeded",
+      });
+    });
+
+    it("applies second wind healing with max HP cap", () => {
+      const result = service.applySecondWind({
+        fighterLevel: 5,
+        bonusActionAvailable: true,
+        secondWindAvailable: true,
+        healingRollD10: 8,
+        currentHitPoints: 10,
+        maxHitPoints: 20,
+      });
+
+      expect(result).toMatchObject({
+        accepted: true,
+        hookId: RULE_HOOK_IDS.APPLY_SECOND_WIND,
+        produced: {
+          hitPointsRestored: 10,
+          newHitPoints: 20,
+          secondWindExpended: true,
+          bonusActionSpent: true,
+        },
+      });
+    });
+
+    it("grants action surge when a fighter has an available use", () => {
+      expect(
+        service.applyActionSurge({
+          fighterLevel: 2,
+          actionSurgeAvailableUses: 1,
+          turnActionState: { actionSurgeUsedThisTurn: false },
+        }),
+      ).toMatchObject({
+        accepted: true,
+        hookId: RULE_HOOK_IDS.APPLY_ACTION_SURGE,
+        produced: {
+          additionalActionGranted: true,
+          actionSurgeExpended: true,
+          remainingActionSurgeUses: 0,
+        },
+      });
+    });
+
+    it("applies rage benefits unless the barbarian is in heavy armor", () => {
+      expect(
+        service.applyRage({
+          barbarianLevel: 9,
+          bonusActionAvailable: true,
+          rageAvailableUses: 1,
+          armorCategory: "medium",
+          strengthAttackDamagePacket: true,
+          currentConcentrationState: "active",
+        }),
+      ).toMatchObject({
+        accepted: true,
+        hookId: RULE_HOOK_IDS.APPLY_RAGE,
+        produced: {
+          rageActive: true,
+          rageDamageBonus: 3,
+          bludgeoningResistance: true,
+          piercingResistance: true,
+          slashingResistance: true,
+          concentrationEnded: true,
+        },
+      });
+    });
+
+    it("applies sneak attack when weapon and positioning conditions are satisfied", () => {
+      expect(
+        service.applySneakAttack({
+          rogueLevel: 5,
+          attackKind: "melee_weapon_attack",
+          weaponProperties: ["finesse"],
+          hasAdvantage: false,
+          hasDisadvantage: false,
+          targetEnemyWithin5Ft: true,
+          sneakAttackAvailableThisTurn: true,
+          baseDamage: 6,
+          sneakAttackDamageRollTotal: 11,
+        }),
+      ).toMatchObject({
+        accepted: true,
+        hookId: RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
+        produced: {
+          sneakAttackDice: "3d6",
+          sneakAttackDamage: 11,
+          sneakAttackExpendedThisTurn: true,
+          damagePacket: {
+            baseDamage: 6,
+            bonusDamage: 11,
+            totalDamage: 17,
+            damageType: "weapon",
+          },
+        },
+      });
+    });
+  });
+
+  describe("P2 hooks", () => {
+    it("lowers champion critical threshold for qualifying weapon attacks", () => {
+      expect(
+        service.applyCriticalThresholdModifier({
+          naturalD20: 19,
+          attackKind: "weapon_attack",
+          fighterLevel: 3,
+          subclassFeatureIds: ["champion_improved_critical"],
+        }),
+      ).toMatchObject({
+        accepted: true,
+        hookId: RULE_HOOK_IDS.APPLY_CRITICAL_THRESHOLD_MODIFIER,
+        produced: {
+          criticalThreshold: 19,
+          criticalHit: true,
+        },
+      });
+    });
+
+    it("validates cunning action options", () => {
+      expect(
+        service.applyCunningAction({
+          rogueLevel: 2,
+          bonusActionAvailable: true,
+          declaredCunningAction: "hide",
+        }),
+      ).toMatchObject({
+        accepted: true,
+        hookId: RULE_HOOK_IDS.APPLY_CUNNING_ACTION,
+        produced: {
+          bonusActionSpent: true,
+          grantedActionType: "hide",
+        },
+      });
+    });
+
+    it("activates frenzy only after rage activation is accepted", () => {
+      expect(
+        service.applyFrenzy({
+          rageActivationAccepted: true,
+          bonusActionAvailableOnFollowingTurns: true,
+          frenzyDeclared: true,
+          exhaustionState: 0,
+        }),
+      ).toMatchObject({
+        accepted: true,
+        hookId: RULE_HOOK_IDS.APPLY_FRENZY,
+        produced: {
+          frenzyActive: true,
+          bonusActionMeleeAttackAvailable: true,
+          exhaustionIncreaseOnRageEnd: 1,
+        },
+      });
+    });
+  });
 });
