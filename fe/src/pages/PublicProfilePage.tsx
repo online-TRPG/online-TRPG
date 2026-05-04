@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { getPublicProfile } from "../services/api";
 import type { User } from "../types/session";
 import { buildPublicProfilePath } from "../utils/routes";
@@ -10,6 +11,8 @@ interface PublicProfilePageProps {
 }
 
 export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: PublicProfilePageProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const resolvedPreview = previewUser?.publicId === publicId ? previewUser : null;
   const [profile, setProfile] = useState<User | null>(resolvedPreview);
   const [loading, setLoading] = useState(!resolvedPreview);
@@ -58,12 +61,23 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
       displayName: publicId,
       createdAt: "",
     };
+  const canonicalPath = buildPublicProfilePath(effectiveProfile);
+
+  useEffect(() => {
+    if (!effectiveProfile.publicId) return;
+    if (!resolvedPreview && !profile) return;
+    if (location.pathname === canonicalPath) return;
+    navigate(canonicalPath, {
+      replace: true,
+      state: resolvedPreview ? { profilePreview: resolvedPreview } : undefined,
+    });
+  }, [canonicalPath, effectiveProfile.publicId, location.pathname, navigate, profile, resolvedPreview]);
 
   const profileRows = [
     { label: "표시 이름", value: effectiveProfile.displayName },
     { label: "닉네임", value: effectiveProfile.nickname || "-" },
     { label: "이름", value: effectiveProfile.name || "-" },
-    { label: "프로필 주소", value: buildPublicProfilePath(effectiveProfile) },
+    { label: "프로필 주소", value: canonicalPath },
     { label: "회원 유형", value: effectiveProfile.authProvider },
     { label: "공개 대상", value: "세션 탐색 중 확인 가능한 기본 프로필" },
   ];

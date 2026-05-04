@@ -181,8 +181,8 @@ export function SessionDiscoverPage({
   async function enterSelectedSession() {
     if (!selectedSessionDetail) return;
 
-    const targetSessionId = selectedSessionDetail.session.id;
-    const isCurrentSession = snapshot?.session.id === targetSessionId;
+    const targetSessionId = selectedSessionDetail.session.publicId;
+    const isCurrentSession = snapshot?.session.publicId === targetSessionId;
 
     if (isCurrentSession) {
       closeSessionDetail();
@@ -398,7 +398,7 @@ export function SessionDiscoverPage({
                         type="button"
                         className="session-discover-join"
                         disabled={busy || hasRecruitingSession}
-                        onClick={(event) => void handleJoinClick(event, item.sessionId)}
+                        onClick={(event) => void handleJoinClick(event, item.sessionPublicId || item.sessionId)}
                       >
                         {activeSection === "public" ? "참여하기" : "입장하기"}
                       </button>
