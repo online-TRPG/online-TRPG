@@ -18,6 +18,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # 소스 복사
 COPY ai/ ./
 
+# Syntax 검증 (머지 잔재로 인한 SyntaxError 가 build 시점에 잡히도록)
+RUN python -m compileall -q app
+
 
 # =============== 2. 런타임: 슬림 이미지 ===============
 FROM python:3.12-slim-bookworm AS runtime
