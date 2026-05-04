@@ -43,4 +43,12 @@ describe("CommandParserService", () => {
       targetDistanceFt: 90,
     });
   });
+
+  it("parses class feature commands", () => {
+    expect(service.parse("/feature second_wind")).toEqual({
+      type: "use_class_feature",
+      featureId: "class.fighter.feature.second_wind",
+      option: null,
+    });
+  });
 });

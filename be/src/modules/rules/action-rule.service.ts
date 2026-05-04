@@ -10,13 +10,30 @@ import { forbidden } from "../../common/exceptions/domain-error";
 import { CommandParserService, ParsedCommand } from "./command-parser.service";
 import { DiceService } from "./dice.service";
 import { RuleEngineService } from "./rule-engine.service";
-import { RuleAdvantageState, RuleHookResult } from "./rule-engine.types";
+import {
+  CriticalThresholdModifierProduced,
+  RuleAdvantageState,
+  RuleHookResult,
+} from "./rule-engine.types";
 
 const DEFAULT_MELEE_ATTACK_DISTANCE_FT = 5;
 const DEFAULT_WEAPON_DAMAGE_TYPE = "slashing";
 const DEFAULT_DIRECT_DAMAGE_TYPE = "untyped";
 const CHILL_TOUCH_SPELL_ID = "spell.chill_touch";
 const CHILL_TOUCH_DAMAGE_TYPE = "necrotic";
+const SECOND_WIND_FEATURE_ID = "class.fighter.feature.second_wind";
+const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
+const RAGE_FEATURE_ID = "class.barbarian.feature.rage";
+const SECOND_WIND_EXPENDED_TAG = "resource:second_wind_expended";
+const ACTION_SURGE_EXPENDED_TAG = "resource:action_surge_expended";
+const ACTION_SURGE_GRANTED_TAG = "action_surge:additional_action_granted";
+const RAGE_EXPENDED_TAG = "resource:rage_expended";
+const RAGE_ACTIVE_TAG = "rage";
+const RAGE_RESISTANCE_TAGS = [
+  "resistance:bludgeoning",
+  "resistance:piercing",
+  "resistance:slashing",
+];
 
 type SessionCharacterForRules = {
   id: string;
@@ -28,6 +45,7 @@ type SessionCharacterForRules = {
     id: string;
     name: string;
     className: string;
+    level: number;
     maxHp: number;
     abilitiesJson: string;
     proficiencyBonus: number;
@@ -139,6 +157,8 @@ export class ActionRuleService {
         return this.resolveAttack(command, actor, sessionCharacters);
       case "cast_spell":
         return this.resolveCastSpell(command, actor, sessionCharacters);
+      case "use_class_feature":
+        return this.resolveClassFeature(command, actor);
       case "damage":
         return this.resolveDamage(command, sessionCharacters);
       case "heal":
@@ -199,15 +219,19 @@ export class ActionRuleService {
     const proneRuleContext = this.resolveAttackProneContext(actor, target);
     const attackAdvantageState = this.toDiceAdvantageState(proneRuleContext.advantageState);
     const attackRoll = this.diceService.roll(`1d20+${modifier}`, attackAdvantageState);
+    const naturalD20 = this.selectNaturalD20(attackRoll);
+    const criticalThresholdRuleResult = this.resolveChampionCriticalThreshold(actor, naturalD20);
     const attackRuleResult = this.ruleEngine.resolveAttackRoll({
-      naturalD20: this.selectNaturalD20(attackRoll),
+      naturalD20,
       attackBonus: modifier,
       targetArmorClass,
       advantageState: proneRuleContext.advantageState,
+      criticalHitThreshold: criticalThresholdRuleResult?.produced.criticalThreshold,
     });
     const success = attackRuleResult.produced.hit;
     const ruleResults: RuleHookResult<unknown>[] = [
       ...proneRuleContext.ruleResults,
+      ...(criticalThresholdRuleResult ? [criticalThresholdRuleResult] : []),
       attackRuleResult,
     ];
     const stateChanges: CharacterStatePatch[] = [];
@@ -339,6 +363,160 @@ export class ActionRuleService {
       outcome: this.resolveSpellOutcome(spellRuleResult.accepted, attackRuleResult.produced.hit),
       narration: this.createChillTouchNarration(spellRuleResult.accepted, attackRuleResult.produced.hit),
       stateChanges,
+    };
+  }
+
+  private resolveClassFeature(
+    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
+    actor: SessionCharacterForRules,
+  ): ActionResolution {
+    switch (command.featureId) {
+      case SECOND_WIND_FEATURE_ID:
+        return this.resolveSecondWind(actor);
+      case ACTION_SURGE_FEATURE_ID:
+        return this.resolveActionSurge(actor);
+      case RAGE_FEATURE_ID:
+        return this.resolveRage(actor);
+      default:
+        throw forbidden("ACTION_403", "?ㅽ뻾?????녿뒗 吏곸뾽 湲곕뒫?낅땲??", {
+          reason: "UNSUPPORTED_CLASS_FEATURE",
+          featureId: command.featureId,
+        });
+    }
+  }
+
+  private resolveSecondWind(actor: SessionCharacterForRules): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const secondWindAvailable = !this.hasCondition(actor, SECOND_WIND_EXPENDED_TAG);
+    const canRollHealing = this.isClass(actor, "fighter") && secondWindAvailable;
+    const healingRoll = canRollHealing ? this.diceService.roll("1d10") : null;
+    const ruleResult = this.ruleEngine.applySecondWind({
+      fighterLevel: this.isClass(actor, "fighter") ? actor.character.level : 0,
+      bonusActionAvailable: true,
+      secondWindAvailable,
+      // 실패하는 경우에는 실제 회복이 일어나지 않으므로 임시 최소값을 넘겨 훅 결과만 만든다.
+      healingRollD10: healingRoll ? this.selectSingleDie(healingRoll) : 1,
+      currentHitPoints: actor.currentHp,
+      maxHitPoints: actor.character.maxHp,
+    });
+
+    if (!ruleResult.accepted) {
+      return {
+        structuredAction: {
+          type: "use_class_feature",
+          featureId: SECOND_WIND_FEATURE_ID,
+          ruleResults: [ruleResult],
+        },
+        diceResult: healingRoll ? { ...healingRoll } : null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: this.createClassFeatureRejectedNarration(ruleResult.rejectedReason),
+        stateChanges: [],
+      };
+    }
+
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: SECOND_WIND_FEATURE_ID,
+        healingRoll: healingRoll ? { ...healingRoll } : null,
+        ruleResults: [ruleResult],
+      },
+      diceResult: healingRoll ? { ...healingRoll } : null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: `Second Wind로 HP를 ${ruleResult.produced.newHitPoints}까지 회복했습니다.`,
+      stateChanges: [
+        {
+          sessionCharacterId: actor.id,
+          currentHp: ruleResult.produced.newHitPoints,
+          conditions: this.addConditions(currentConditions, [SECOND_WIND_EXPENDED_TAG]),
+        },
+      ],
+    };
+  }
+
+  private resolveActionSurge(actor: SessionCharacterForRules): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const actionSurgeAvailable = !this.hasCondition(actor, ACTION_SURGE_EXPENDED_TAG);
+    const ruleResult = this.ruleEngine.applyActionSurge({
+      fighterLevel: this.isClass(actor, "fighter") ? actor.character.level : 0,
+      actionSurgeAvailableUses: actionSurgeAvailable ? 1 : 0,
+      turnActionState: {
+        actionSurgeUsedThisTurn: this.hasCondition(actor, ACTION_SURGE_GRANTED_TAG),
+      },
+    });
+
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: ACTION_SURGE_FEATURE_ID,
+        ruleResults: [ruleResult],
+      },
+      diceResult: null,
+      outcome: ruleResult.accepted ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: ruleResult.accepted
+        ? "Action Surge로 추가 행동을 얻었습니다."
+        : this.createClassFeatureRejectedNarration(ruleResult.rejectedReason),
+      stateChanges: ruleResult.accepted
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              conditions: this.addConditions(currentConditions, [
+                ACTION_SURGE_EXPENDED_TAG,
+                ACTION_SURGE_GRANTED_TAG,
+              ]),
+            },
+          ]
+        : [],
+    };
+  }
+
+  private resolveRage(actor: SessionCharacterForRules): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const rageAvailable = !this.hasCondition(actor, RAGE_EXPENDED_TAG);
+    const ruleResult = this.ruleEngine.applyRage({
+      barbarianLevel: this.isClass(actor, "barbarian") ? actor.character.level : 0,
+      bonusActionAvailable: true,
+      rageAvailableUses: rageAvailable ? 1 : 0,
+      armorCategory: this.resolveArmorCategory(actor),
+      strengthAttackDamagePacket: true,
+      currentConcentrationState: this.hasCondition(actor, "concentration") ? "active" : "none",
+    });
+
+    if (!ruleResult.accepted) {
+      return {
+        structuredAction: {
+          type: "use_class_feature",
+          featureId: RAGE_FEATURE_ID,
+          ruleResults: [ruleResult],
+        },
+        diceResult: null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: this.createClassFeatureRejectedNarration(ruleResult.rejectedReason),
+        stateChanges: [],
+      };
+    }
+
+    const rageTags = ruleResult.produced.bludgeoningResistance ? RAGE_RESISTANCE_TAGS : [];
+    const nextConditions = this.removeConditions(
+      this.addConditions(currentConditions, [RAGE_EXPENDED_TAG, RAGE_ACTIVE_TAG, ...rageTags]),
+      ruleResult.produced.concentrationEnded ? ["concentration", "condition.concentration"] : [],
+    );
+
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: RAGE_FEATURE_ID,
+        ruleResults: [ruleResult],
+      },
+      diceResult: null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: "Rage 상태가 적용되었습니다.",
+      stateChanges: [
+        {
+          sessionCharacterId: actor.id,
+          conditions: nextConditions,
+        },
+      ],
     };
   }
 
@@ -479,6 +657,109 @@ export class ActionRuleService {
           candidate.character.name.toLowerCase() === normalized,
       ) ?? null
     );
+  }
+
+  private resolveChampionCriticalThreshold(
+    actor: SessionCharacterForRules,
+    naturalD20: number,
+  ): RuleHookResult<CriticalThresholdModifierProduced> | null {
+    const subclassFeatureIds = this.resolveChampionSubclassFeatureIds(actor);
+    if (!subclassFeatureIds.length) {
+      return null;
+    }
+
+    return this.ruleEngine.applyCriticalThresholdModifier({
+      naturalD20,
+      attackKind: "weapon_attack",
+      fighterLevel: this.isClass(actor, "fighter") ? actor.character.level : 0,
+      subclassFeatureIds,
+    });
+  }
+
+  private resolveChampionSubclassFeatureIds(actor: SessionCharacterForRules): string[] {
+    const conditions = this.getConditions(actor).map((condition) =>
+      this.normalizeRuleToken(condition),
+    );
+    const className = this.normalizeRuleToken(actor.character.className);
+    const featureIds: string[] = [];
+
+    if (
+      className.includes("champion") ||
+      conditions.includes("feature:champion_improved_critical") ||
+      conditions.includes("champion_improved_critical")
+    ) {
+      featureIds.push("champion_improved_critical");
+    }
+
+    if (
+      actor.character.level >= 15 &&
+      (className.includes("champion") ||
+        conditions.includes("feature:champion_superior_critical") ||
+        conditions.includes("champion_superior_critical"))
+    ) {
+      featureIds.push("champion_superior_critical");
+    }
+
+    return featureIds;
+  }
+
+  private isClass(actor: SessionCharacterForRules, className: string): boolean {
+    return this.normalizeRuleToken(actor.character.className).includes(className);
+  }
+
+  private selectSingleDie(diceResult: DiceRollResponseDto): number {
+    return diceResult.rolls[0] ?? diceResult.total - diceResult.modifier;
+  }
+
+  private addConditions(currentConditions: string[], addedConditions: string[]): string[] {
+    return Array.from(new Set([...currentConditions, ...addedConditions]));
+  }
+
+  private removeConditions(currentConditions: string[], removedConditions: string[]): string[] {
+    const normalizedRemoved = new Set(
+      removedConditions.map((condition) => this.normalizeRuleToken(condition)),
+    );
+    return currentConditions.filter(
+      (condition) => !normalizedRemoved.has(this.normalizeRuleToken(condition)),
+    );
+  }
+
+  private resolveArmorCategory(actor: SessionCharacterForRules): "none" | "light" | "medium" | "heavy" {
+    const armorTag = this.getConditions(actor)
+      .map((condition) => this.normalizeRuleToken(condition))
+      .find((condition) => condition.startsWith("armor:"));
+
+    switch (armorTag) {
+      case "armor:light":
+        return "light";
+      case "armor:medium":
+        return "medium";
+      case "armor:heavy":
+        return "heavy";
+      default:
+        return "none";
+    }
+  }
+
+  private createClassFeatureRejectedNarration(reason: string | null): string {
+    switch (reason) {
+      case "fighter_level_required":
+      case "fighter_level_too_low":
+        return "파이터 레벨 조건을 만족하지 못했습니다.";
+      case "barbarian_level_required":
+        return "바바리안 레벨 조건을 만족하지 못했습니다.";
+      case "second_wind_unavailable":
+        return "Second Wind를 이미 사용했습니다.";
+      case "action_surge_unavailable":
+      case "action_surge_already_used_this_turn":
+        return "Action Surge를 사용할 수 없습니다.";
+      case "rage_unavailable":
+        return "Rage를 이미 사용했습니다.";
+      case "bonus_action_unavailable":
+        return "사용 가능한 bonus action이 없습니다.";
+      default:
+        return "직업 기능을 사용할 수 없습니다.";
+    }
   }
 
   private resolveAttackProneContext(

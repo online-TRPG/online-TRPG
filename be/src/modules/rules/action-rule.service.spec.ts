@@ -52,6 +52,7 @@ const createCharacter = (
     id: overrides.character?.id ?? "character-1",
     name: overrides.character?.name ?? "Hero",
     className: overrides.character?.className ?? "fighter",
+    level: overrides.character?.level ?? 1,
     maxHp: overrides.character?.maxHp ?? 10,
     abilitiesJson:
       overrides.character?.abilitiesJson ??
@@ -297,6 +298,108 @@ describe("ActionRuleService", () => {
         statePatch: [],
         turnLogEvents: [{ type: "spell_cast_rejected", public: true }],
         rejectedReason: "target_out_of_range",
+      },
+    ]);
+  });
+
+  it("connects champion critical threshold to attack resolution", () => {
+    const service = createService([
+      createDiceResult([19], 2),
+      {
+        expression: "1d6",
+        rolls: [3],
+        modifier: 0,
+        total: 3,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: { className: "fighter champion", level: 3 },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 10,
+      character: { id: "target-character", name: "Target", armorClass: 30 },
+    });
+
+    const result = service.resolveAction("/attack target", actor, [actor, target]);
+    const structuredAction = result.structuredAction as {
+      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(structuredAction.ruleResults[0]).toMatchObject({
+      hookId: RULE_HOOK_IDS.APPLY_CRITICAL_THRESHOLD_MODIFIER,
+      produced: { criticalThreshold: 19, criticalHit: true },
+    });
+    expect(structuredAction.ruleResults[1]).toMatchObject({
+      hookId: RULE_HOOK_IDS.RESOLVE_ATTACK_ROLL,
+      produced: { criticalHit: true, hit: true },
+    });
+  });
+
+  it("connects second wind to class feature action flow", () => {
+    const service = createService([
+      {
+        expression: "1d10",
+        rolls: [7],
+        modifier: 0,
+        total: 7,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      currentHp: 5,
+      character: { className: "fighter", level: 5, maxHp: 20 },
+    });
+
+    const result = service.resolveAction("/feature second_wind", actor, [actor]);
+    const structuredAction = result.structuredAction as {
+      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "actor",
+        currentHp: 17,
+        conditions: ["resource:second_wind_expended"],
+      },
+    ]);
+    expect(structuredAction.ruleResults[0]).toMatchObject({
+      hookId: RULE_HOOK_IDS.APPLY_SECOND_WIND,
+      produced: { hitPointsRestored: 12, newHitPoints: 17 },
+    });
+  });
+
+  it("connects rage to condition tags consumed by damage modifiers", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      conditionsJson: JSON.stringify(["armor:medium", "concentration"]),
+      character: { className: "barbarian", level: 3 },
+    });
+
+    const result = service.resolveAction("/feature rage", actor, [actor]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "actor",
+        conditions: [
+          "armor:medium",
+          "resource:rage_expended",
+          "rage",
+          "resistance:bludgeoning",
+          "resistance:piercing",
+          "resistance:slashing",
+        ],
       },
     ]);
   });
