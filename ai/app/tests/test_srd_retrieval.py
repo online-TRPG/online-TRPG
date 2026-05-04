@@ -1,9 +1,8 @@
-from app.srd.build import build_spells
-from app.srd.retrieval import SrdRetriever
+from app.srd.retrieval import SrdRetriever, load_spells
 
 
 def test_spell_retrieval_matches_korean_spell_name():
-    retriever = SrdRetriever(build_spells())
+    retriever = SrdRetriever(load_spells())
 
     matches = retriever.related_entities_for_text("산성 화살을 고블린에게 쏜다")
 
@@ -14,7 +13,7 @@ def test_spell_retrieval_matches_korean_spell_name():
 
 
 def test_spell_retrieval_matches_english_spell_name():
-    retriever = SrdRetriever(build_spells())
+    retriever = SrdRetriever(load_spells())
 
     matches = retriever.related_entities_for_text("I cast Acid Arrow")
 

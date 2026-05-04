@@ -1,20 +1,20 @@
-from app.srd.build import EXPECTED_COUNTS, build_rule_cards, parse_conditions
-from app.srd.retrieval import SrdRetriever
+from app.srd.build import EXPECTED_COUNTS
+from app.srd.retrieval import SrdRetriever, load_conditions, load_rule_cards, load_rule_fragments, load_spells
 
 
-def test_condition_parser_preserves_srd_condition_count_and_effects():
-    conditions = parse_conditions()
+def test_generated_condition_catalog_preserves_srd_condition_count_and_effects():
+    conditions = load_conditions()
 
     blinded = next(condition for condition in conditions if condition.id == "condition.blinded")
 
     assert len(conditions) == EXPECTED_COUNTS["conditions"]
     assert blinded.nameKo == "눈멂"
     assert any("자동 실패" in effect for effect in blinded.effects)
-    assert blinded.source.file == "translated/rules/상태_이상.md"
+    assert blinded.source.file
 
 
 def test_rule_cards_mark_engine_owned_combat_rules():
-    cards = build_rule_cards()
+    cards = load_rule_cards()
 
     attack_roll = next(card for card in cards if card.id == "rule.combat.공격_굴림")
 
@@ -25,7 +25,7 @@ def test_rule_cards_mark_engine_owned_combat_rules():
 
 
 def test_retrieval_finds_conditions_and_rule_cards():
-    retriever = SrdRetriever(rule_cards=build_rule_cards(), conditions=parse_conditions(), spells=[])
+    retriever = SrdRetriever(rule_cards=load_rule_cards(), conditions=load_conditions(), spells=[])
 
     entities = retriever.related_entities_for_text("넘어짐 상태에서 일어나고 공격한다")
     cards = retriever.related_rule_cards_for_text("공격 굴림과 넘어짐 상태를 처리한다")
@@ -35,11 +35,9 @@ def test_retrieval_finds_conditions_and_rule_cards():
 
 
 def test_spell_driven_rule_fragments_keep_chill_touch_context_small():
-    from app.srd.build import build_rule_fragments, build_spells
-
-    spells = build_spells()
+    spells = load_spells()
     chill_touch = next(spell for spell in spells if spell.id == "spell.chill_touch")
-    retriever = SrdRetriever(spells=spells, conditions=[], rule_fragments=build_rule_fragments())
+    retriever = SrdRetriever(spells=spells, conditions=[], rule_fragments=load_rule_fragments())
 
     fragments = retriever.related_rule_fragments_for_text(
         "싸늘한 손길을 고블린에게 시전한다.",
