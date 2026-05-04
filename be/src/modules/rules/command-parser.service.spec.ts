@@ -1,0 +1,28 @@
+import { CommandParserService } from "./command-parser.service";
+
+describe("CommandParserService", () => {
+  const service = new CommandParserService();
+
+  it("parses roll commands", () => {
+    expect(service.parse("/roll 1d20+3")).toEqual({
+      type: "roll",
+      expression: "1d20+3",
+    });
+  });
+
+  it("parses check commands with a DC", () => {
+    expect(service.parse("/check perception 15")).toEqual({
+      type: "check",
+      checkName: "perception",
+      dc: 15,
+    });
+  });
+
+  it("parses damage commands", () => {
+    expect(service.parse("/damage target-1 7")).toEqual({
+      type: "damage",
+      target: "target-1",
+      amount: 7,
+    });
+  });
+});

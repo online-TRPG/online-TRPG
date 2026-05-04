@@ -108,6 +108,49 @@ enum CharacterAvatarType {
   UPLOAD
 }
 
+enum ActionQueueStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REJECTED
+}
+
+enum ActionInputType {
+  TEXT
+  SELECT
+  COMMAND
+}
+
+enum ActionScope {
+  PARTY_SHARED
+  INDIVIDUAL_TURN
+}
+
+enum ActionOutcome {
+  SUCCESS
+  FAILURE
+  IMPOSSIBLE
+  NO_ROLL
+}
+
+enum DiceAdvantageState {
+  NORMAL
+  ADVANTAGE
+  DISADVANTAGE
+}
+
+enum CombatStatus {
+  ACTIVE
+  ENDED
+}
+
+enum CombatEntityType {
+  PLAYER_CHARACTER
+  NPC
+  MONSTER
+}
+
 model User {
   id                   String               @id @default(cuid())
   publicId             String?              @unique
@@ -162,6 +205,10 @@ model Session {
   sessionScenarios  SessionScenario[]
   sessionCharacters SessionCharacter[]
   aiTraces          AiTrace[]
+  playerActions     PlayerAction[]
+  turnLogs          TurnLog[]
+  diceRollLogs      DiceRollLog[]
+  combats           Combat[]
 }
 
 model RefreshToken {
@@ -301,6 +348,9 @@ model SessionScenario {
   session    Session               @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   scenario   Scenario              @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
   gameState  GameState?
+  turnLogs   TurnLog[]
+  stateDiffs StateDiff[]
+  combats    Combat[]
 
   @@unique([sessionId, sequence])
 }
@@ -314,6 +364,123 @@ model GameState {
   discoveredCluesJson String?
   updatedAt           DateTime        @updatedAt
   sessionScenario     SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+}
+
+model PlayerAction {
+  id                 String            @id @default(cuid())
+  sessionId          String
+  userId             String
+  sessionCharacterId String?
+  rawText            String
+  inputType          ActionInputType
+  actionScope        ActionScope
+  queueStatus        ActionQueueStatus @default(PENDING)
+  baseStateVersion   Int
+  failureReason      String?
+  clientCreatedAt    DateTime
+  processedAt        DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  session            Session           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  turnLogs           TurnLog[]
+
+  @@index([sessionId, queueStatus, createdAt])
+  @@index([userId, createdAt])
+}
+
+model TurnLog {
+  id                   String        @id @default(cuid())
+  sessionId            String
+  sessionScenarioId    String
+  playerActionId       String?
+  actorUserId          String?
+  sessionCharacterId   String?
+  turnNumber           Int
+  rawInput             String?
+  structuredActionJson String?
+  diceResultJson       String?
+  stateDiffJson        String?
+  outcome              ActionOutcome
+  narration            String?
+  createdAt            DateTime      @default(now())
+  session              Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionScenario      SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+  playerAction         PlayerAction? @relation(fields: [playerActionId], references: [id], onDelete: SetNull)
+  diceRollLogs         DiceRollLog[]
+  stateDiffs           StateDiff[]
+
+  @@index([sessionId, createdAt])
+  @@unique([sessionId, turnNumber])
+}
+
+model DiceRollLog {
+  id             String             @id @default(cuid())
+  sessionId      String
+  userId         String
+  expression     String
+  rollsJson      String
+  modifier       Int
+  total          Int
+  advantageState DiceAdvantageState @default(NORMAL)
+  reason         String?
+  turnLogId      String?
+  createdAt      DateTime           @default(now())
+  session        Session            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  turnLog        TurnLog?           @relation(fields: [turnLogId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, createdAt])
+}
+
+model StateDiff {
+  id                String          @id @default(cuid())
+  sessionScenarioId String
+  turnLogId         String?
+  baseVersion       Int
+  nextVersion       Int
+  diffJson          String
+  reason            String
+  createdAt         DateTime        @default(now())
+  sessionScenario   SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+  turnLog           TurnLog?        @relation(fields: [turnLogId], references: [id], onDelete: SetNull)
+
+  @@index([sessionScenarioId, createdAt])
+}
+
+model Combat {
+  id                String              @id @default(cuid())
+  sessionId         String
+  sessionScenarioId String
+  status            CombatStatus        @default(ACTIVE)
+  roundNo           Int                 @default(1)
+  turnNo            Int                 @default(1)
+  currentParticipantId String?
+  startedAt         DateTime            @default(now())
+  endedAt           DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  session           Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionScenario   SessionScenario     @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+  participants      CombatParticipant[]
+
+  @@index([sessionId, status])
+}
+
+model CombatParticipant {
+  id                 String           @id @default(cuid())
+  combatId           String
+  entityType         CombatEntityType
+  sessionCharacterId String?
+  nameSnapshot       String
+  initiative         Int
+  turnOrder          Int
+  isAlive            Boolean          @default(true)
+  isHostile          Boolean          @default(false)
+  turnEndedAt        DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  combat             Combat           @relation(fields: [combatId], references: [id], onDelete: Cascade)
+
+  @@index([combatId, turnOrder])
 }
 
 model AiTrace {
