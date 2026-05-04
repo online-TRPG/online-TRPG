@@ -19,7 +19,10 @@ interface CharacterPageProps {
   snapshot: SessionSnapshot | null;
   busy: boolean;
   error: string | null;
-  onCreateCharacter: (payload: CharacterPayload) => void;
+  onCreateCharacter: (payload: CharacterPayload) => void | Promise<void>;
+  onCloneCharacter: (characterId: string) => void | Promise<void>;
+  onUpdateCharacter: (characterId: string, payload: CharacterPayload) => void | Promise<void>;
+  onDeleteCharacter: (characterId: string) => void | Promise<void>;
 }
 
 type AbilityKey = "str" | "dex" | "con" | "int" | "wis" | "cha";
@@ -207,8 +210,12 @@ export function CharacterPage({
   busy,
   error,
   onCreateCharacter,
+  onCloneCharacter,
+  onUpdateCharacter,
+  onDeleteCharacter,
 }: CharacterPageProps) {
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
+  const [editingCharacterId, setEditingCharacterId] = useState<string | null>(null);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [skillInput, setSkillInput] = useState("");
   const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftItem[]>([]);
@@ -231,7 +238,9 @@ export function CharacterPage({
       return;
     }
 
-    setSelectedCharacterId((current) => current ?? characters[0].id);
+    setSelectedCharacterId((current) =>
+      current && characters.some((character) => character.id === current) ? current : characters[0].id,
+    );
   }, [characters]);
 
   const selectedCharacter = useMemo(
@@ -254,6 +263,7 @@ export function CharacterPage({
   }, [characters, snapshot]);
 
   function resetCreateForm() {
+    setEditingCharacterId(null);
     setFormState(defaultCharacter);
     setInventoryDraft([]);
     setSkillInput("");
@@ -264,22 +274,64 @@ export function CharacterPage({
     setCreateModalOpen(true);
   }
 
+  function openEditModal() {
+    if (!selectedCharacter) return;
+
+    setEditingCharacterId(selectedCharacter.id);
+    setFormState({
+      name: selectedCharacter.name,
+      ancestry: selectedCharacter.ancestry,
+      className: selectedCharacter.className,
+      avatarType: selectedCharacter.avatarType,
+      avatarPresetId:
+        selectedCharacter.avatarPresetId ?? getPresetIdForClassName(selectedCharacter.className),
+      avatarUrl: selectedCharacter.avatarUrl ?? null,
+      level: selectedCharacter.level,
+      abilities: { ...selectedCharacter.abilities },
+      proficiencyBonus: selectedCharacter.proficiencyBonus,
+      proficientSkills: [...selectedCharacter.proficientSkills],
+      maxHp: selectedCharacter.maxHp,
+      armorClass: selectedCharacter.armorClass,
+      speed: selectedCharacter.speed,
+      inventory: selectedCharacter.inventory.map((item) => ({ ...item })),
+    });
+    setInventoryDraft(selectedCharacter.inventory.map((item) => ({ ...item })));
+    setSkillInput("");
+    setCreateModalOpen(true);
+  }
+
   function closeCreateModal() {
     setCreateModalOpen(false);
     resetCreateForm();
   }
 
-  function submitCreateCharacter(event: FormEvent<HTMLFormElement>) {
+  async function submitCreateCharacter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    onCreateCharacter({
+    const payload = {
       ...formState,
       proficientSkills: formState.proficientSkills?.filter(Boolean) ?? [],
       inventory: inventoryDraft.filter((item) => item.name.trim()),
       assignToSession: false,
-    });
+    };
 
+    if (editingCharacterId) {
+      await onUpdateCharacter(editingCharacterId, payload);
+    } else {
+      await onCreateCharacter(payload);
+    }
     closeCreateModal();
+  }
+
+  async function handleCloneSelectedCharacter() {
+    if (!selectedCharacter) return;
+    await onCloneCharacter(selectedCharacter.id);
+  }
+
+  async function handleDeleteSelectedCharacter() {
+    if (!selectedCharacter) return;
+    if (!window.confirm(`'${selectedCharacter.name}' 캐릭터를 삭제할까요?`)) return;
+    await onDeleteCharacter(selectedCharacter.id);
   }
 
   function updateAbility(ability: AbilityKey, value: number) {
@@ -350,13 +402,31 @@ export function CharacterPage({
           >
             새 캐릭터 생성
           </button>
-          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${sidePanelImage})` }} disabled>
+          <button
+            type="button"
+            className="fantasy-character-sidebutton"
+            style={{ backgroundImage: `url(${sidePanelImage})` }}
+            onClick={() => void handleCloneSelectedCharacter()}
+            disabled={!selectedCharacter || busy}
+          >
             캐릭터 복제
           </button>
-          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${sidePanelImage})` }} disabled>
+          <button
+            type="button"
+            className="fantasy-character-sidebutton"
+            style={{ backgroundImage: `url(${sidePanelImage})` }}
+            onClick={openEditModal}
+            disabled={!selectedCharacter || busy}
+          >
             캐릭터 수정
           </button>
-          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${sidePanelImage})` }} disabled>
+          <button
+            type="button"
+            className="fantasy-character-sidebutton"
+            style={{ backgroundImage: `url(${sidePanelImage})` }}
+            onClick={() => void handleDeleteSelectedCharacter()}
+            disabled={!selectedCharacter || busy}
+          >
             캐릭터 삭제
           </button>
         </aside>
@@ -523,8 +593,8 @@ export function CharacterPage({
           >
             <div className="modal-header">
               <div>
-                <span className="eyebrow">캐릭터 생성</span>
-                <h2>새 캐릭터</h2>
+                <span className="eyebrow">{editingCharacterId ? "캐릭터 수정" : "캐릭터 생성"}</span>
+                <h2>{editingCharacterId ? "캐릭터 수정" : "새 캐릭터"}</h2>
               </div>
               <button type="button" className="modal-close" onClick={closeCreateModal}>
                 닫기
@@ -833,7 +903,7 @@ export function CharacterPage({
               </section>
 
               <button type="submit" className="primary" disabled={busy}>
-                생성
+                {editingCharacterId ? "저장" : "생성"}
               </button>
             </form>
           </div>
