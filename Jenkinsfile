@@ -63,11 +63,26 @@ pipeline {
                 // 1) 데이터 계층부터 기동 (postgres healthy 까지 대기)
                 sh 'docker compose up -d --wait postgres redis ai-server'
 
-                // 2) Prisma schema → DB 동기화 (backend 컨테이너 임시 실행 후 삭제)
+                // 2) prod DB 백업 — db push 직전에 pg_dump 떨굼.
+                //    --accept-data-loss 가 데이터를 날렸을 때 이 dump 로 pg_restore.
+                //    last 20 만 유지 (Jenkins buildDiscarder 와 정렬). 백업 실패 시 stage abort.
+                //    저장 위치: db_backups named volume (host bind mount X — DooD 정책).
+                sh '''
+                    set -e
+                    SHORT_SHA=$(git rev-parse --short HEAD)
+                    BACKUP_NAME="pre-deploy-${BRANCH_NAME}-${BUILD_NUMBER}-${SHORT_SHA}.dump"
+                    docker compose exec -T postgres sh -c "
+                        pg_dump -U \\$POSTGRES_USER -d \\$POSTGRES_DB -Fc -f /backups/${BACKUP_NAME} \
+                        && ls -t /backups/pre-deploy-*.dump 2>/dev/null | tail -n +21 | xargs -r rm -f
+                    "
+                    echo "Backup created: ${BACKUP_NAME}"
+                '''
+
+                // 3) Prisma schema → DB 동기화 (backend 컨테이너 임시 실행 후 삭제)
                 //    마이그레이션 파일이 없어 `db push` 사용. 초기 개발 단계라 허용.
                 sh 'docker compose run --rm --entrypoint "" backend sh -c "cd /app/be && npx prisma db push --schema prisma/schema.prisma --skip-generate --accept-data-loss"'
 
-                // 3) 나머지 (backend + nginx + certbot) 기동
+                // 4) 나머지 (backend + nginx + certbot) 기동
                 sh 'docker compose up -d'
                 sh 'docker compose ps'
             }

@@ -98,6 +98,9 @@ services:
       PGTZ: Asia/Seoul
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Jenkins 가 prisma db push 직전 pg_dump 떨구는 named volume.
+      # --accept-data-loss 사고 시 이 dump 로 pg_restore. 절차는 RUNBOOK 참조.
+      - db_backups:/backups
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -161,3 +164,4 @@ volumes:
   redis_data:
   certbot_conf:
   certbot_www:
+  db_backups:
