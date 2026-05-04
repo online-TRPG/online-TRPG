@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import logoImage from '../assets/images/Logo.png';
+import logoImage from '../assets/images/Logo.webp';
 import { Icon } from '../components/Icon';
 import { useAuth } from '../hooks/useAuth';
 import { useLogs } from '../hooks/useLogs';
