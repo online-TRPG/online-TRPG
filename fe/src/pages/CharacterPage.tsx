@@ -9,6 +9,7 @@ import profileBorderCharacter from "../components/Profile_Border_Character.png";
 import profileBorderStats from "../components/Profile_Border_Stats.png";
 import sidePanelImage from "../components/Side_Panel.png";
 import { Icon } from "../components/Icon";
+import { raceOptions } from "../data/race-options";
 import type { CharacterPayload } from "../hooks/useSession";
 import type { PersistentCharacter, SessionSnapshot, StoredUser } from "../types/session";
 
@@ -18,7 +19,10 @@ interface CharacterPageProps {
   snapshot: SessionSnapshot | null;
   busy: boolean;
   error: string | null;
-  onCreateCharacter: (payload: CharacterPayload) => void;
+  onCreateCharacter: (payload: CharacterPayload) => void | Promise<void>;
+  onCloneCharacter: (characterId: string) => void | Promise<void>;
+  onUpdateCharacter: (characterId: string, payload: CharacterPayload) => void | Promise<void>;
+  onDeleteCharacter: (characterId: string) => void | Promise<void>;
 }
 
 type AbilityKey = "str" | "dex" | "con" | "int" | "wis" | "cha";
@@ -29,16 +33,27 @@ interface InventoryDraftItem {
   quantity: number;
 }
 
+const classOptions = [
+  { value: "Wizard", label: "마법사" },
+  { value: "Archer", label: "궁수" },
+  { value: "Rogue", label: "도적" },
+  { value: "Warrior", label: "전사" },
+] as const;
+
+const ancestryOptions = raceOptions;
+
+const defaultAncestry = ancestryOptions.find((option) => option.value === "Human")?.value ?? ancestryOptions[0]?.value ?? "Human";
+
 const avatarPresets = [
-  { id: "preset_wizard", label: "Wizard", image: defaultWizardImage },
-  { id: "preset_archer", label: "Archer", image: defaultArcherImage },
-  { id: "preset_rogue", label: "Rogue", image: defaultRogueImage },
-  { id: "preset_warrior", label: "Warrior", image: defaultWarriorImage },
+  { id: "preset_wizard", label: "마법사", image: defaultWizardImage },
+  { id: "preset_archer", label: "궁수", image: defaultArcherImage },
+  { id: "preset_rogue", label: "도적", image: defaultRogueImage },
+  { id: "preset_warrior", label: "전사", image: defaultWarriorImage },
 ] as const;
 
 const defaultCharacter: CharacterPayload = {
   name: "",
-  ancestry: "Human",
+  ancestry: defaultAncestry,
   className: "Wizard",
   avatarType: "PRESET",
   avatarPresetId: "preset_wizard",
@@ -59,6 +74,44 @@ const defaultCharacter: CharacterPayload = {
   speed: 30,
   inventory: [],
 };
+
+const abilityDisplayLabels: Record<AbilityKey, string> = {
+  str: "근력",
+  dex: "민첩",
+  con: "건강",
+  int: "지능",
+  wis: "지혜",
+  cha: "매력",
+};
+
+const suggestedSkillOptions = [
+  { value: "Acrobatics", label: "곡예" },
+  { value: "Arcana", label: "비전학" },
+  { value: "Athletics", label: "운동" },
+  { value: "History", label: "역사" },
+  { value: "Insight", label: "통찰" },
+  { value: "Investigation", label: "조사" },
+  { value: "Perception", label: "인지능력" },
+  { value: "Persuasion", label: "설득" },
+  { value: "Stealth", label: "은신" },
+  { value: "Survival", label: "생존" },
+] as const;
+
+const classLabelMap: Map<string, string> = new Map(classOptions.map((option) => [option.value, option.label]));
+const ancestryLabelMap: Map<string, string> = new Map(ancestryOptions.map((option) => [option.value, option.label]));
+const skillLabelMap: Map<string, string> = new Map(suggestedSkillOptions.map((option) => [option.value, option.label]));
+const presetIdByClassName: Map<string, string> = new Map([
+  ["Wizard", "preset_wizard"],
+  ["Archer", "preset_archer"],
+  ["Rogue", "preset_rogue"],
+  ["Warrior", "preset_warrior"],
+]);
+const classNameByPresetId: Map<string, string> = new Map([
+  ["preset_wizard", "Wizard"],
+  ["preset_archer", "Archer"],
+  ["preset_rogue", "Rogue"],
+  ["preset_warrior", "Warrior"],
+]);
 
 const abilityLabels: Record<AbilityKey, string> = {
   str: "STR",
@@ -117,7 +170,26 @@ function getCharacterImage(character: Pick<PersistentCharacter, "avatarPresetId"
 }
 
 function getCharacterClassLabel(className: string) {
-  return className.trim() || "Adventurer";
+  const normalized = className.trim();
+  return classLabelMap.get(normalized) ?? (normalized || "모험가");
+}
+
+function getCharacterAncestryLabel(ancestry: string) {
+  const normalized = ancestry.trim();
+  return ancestryLabelMap.get(normalized) ?? (normalized || "미정");
+}
+
+function getSkillLabel(skill: string) {
+  const normalized = skill.trim();
+  return skillLabelMap.get(normalized) ?? normalized;
+}
+
+function getPresetIdForClassName(className: string) {
+  return presetIdByClassName.get(className) ?? "preset_wizard";
+}
+
+function getClassNameForPresetId(presetId: string) {
+  return classNameByPresetId.get(presetId) ?? "Wizard";
 }
 
 export function CharacterPage({
@@ -127,8 +199,12 @@ export function CharacterPage({
   busy,
   error,
   onCreateCharacter,
+  onCloneCharacter,
+  onUpdateCharacter,
+  onDeleteCharacter,
 }: CharacterPageProps) {
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
+  const [editingCharacterId, setEditingCharacterId] = useState<string | null>(null);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [skillInput, setSkillInput] = useState("");
   const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftItem[]>([]);
@@ -151,7 +227,9 @@ export function CharacterPage({
       return;
     }
 
-    setSelectedCharacterId((current) => current ?? characters[0].id);
+    setSelectedCharacterId((current) =>
+      current && characters.some((character) => character.id === current) ? current : characters[0].id,
+    );
   }, [characters]);
 
   const selectedCharacter = useMemo(
@@ -174,6 +252,7 @@ export function CharacterPage({
   }, [characters, snapshot]);
 
   function resetCreateForm() {
+    setEditingCharacterId(null);
     setFormState(defaultCharacter);
     setInventoryDraft([]);
     setSkillInput("");
@@ -184,22 +263,64 @@ export function CharacterPage({
     setCreateModalOpen(true);
   }
 
+  function openEditModal() {
+    if (!selectedCharacter) return;
+
+    setEditingCharacterId(selectedCharacter.id);
+    setFormState({
+      name: selectedCharacter.name,
+      ancestry: selectedCharacter.ancestry,
+      className: selectedCharacter.className,
+      avatarType: selectedCharacter.avatarType,
+      avatarPresetId:
+        selectedCharacter.avatarPresetId ?? getPresetIdForClassName(selectedCharacter.className),
+      avatarUrl: selectedCharacter.avatarUrl ?? null,
+      level: selectedCharacter.level,
+      abilities: { ...selectedCharacter.abilities },
+      proficiencyBonus: selectedCharacter.proficiencyBonus,
+      proficientSkills: [...selectedCharacter.proficientSkills],
+      maxHp: selectedCharacter.maxHp,
+      armorClass: selectedCharacter.armorClass,
+      speed: selectedCharacter.speed,
+      inventory: selectedCharacter.inventory.map((item) => ({ ...item })),
+    });
+    setInventoryDraft(selectedCharacter.inventory.map((item) => ({ ...item })));
+    setSkillInput("");
+    setCreateModalOpen(true);
+  }
+
   function closeCreateModal() {
     setCreateModalOpen(false);
     resetCreateForm();
   }
 
-  function submitCreateCharacter(event: FormEvent<HTMLFormElement>) {
+  async function submitCreateCharacter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    onCreateCharacter({
+    const payload = {
       ...formState,
       proficientSkills: formState.proficientSkills?.filter(Boolean) ?? [],
       inventory: inventoryDraft.filter((item) => item.name.trim()),
       assignToSession: false,
-    });
+    };
 
+    if (editingCharacterId) {
+      await onUpdateCharacter(editingCharacterId, payload);
+    } else {
+      await onCreateCharacter(payload);
+    }
     closeCreateModal();
+  }
+
+  async function handleCloneSelectedCharacter() {
+    if (!selectedCharacter) return;
+    await onCloneCharacter(selectedCharacter.id);
+  }
+
+  async function handleDeleteSelectedCharacter() {
+    if (!selectedCharacter) return;
+    if (!window.confirm(`'${selectedCharacter.name}' 캐릭터를 삭제할까요?`)) return;
+    await onDeleteCharacter(selectedCharacter.id);
   }
 
   function updateAbility(ability: AbilityKey, value: number) {
@@ -270,13 +391,31 @@ export function CharacterPage({
           >
             새 캐릭터 생성
           </button>
-          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${sidePanelImage})` }} disabled>
+          <button
+            type="button"
+            className="fantasy-character-sidebutton"
+            style={{ backgroundImage: `url(${sidePanelImage})` }}
+            onClick={() => void handleCloneSelectedCharacter()}
+            disabled={!selectedCharacter || busy}
+          >
             캐릭터 복제
           </button>
-          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${sidePanelImage})` }} disabled>
+          <button
+            type="button"
+            className="fantasy-character-sidebutton"
+            style={{ backgroundImage: `url(${sidePanelImage})` }}
+            onClick={openEditModal}
+            disabled={!selectedCharacter || busy}
+          >
             캐릭터 수정
           </button>
-          <button type="button" className="fantasy-character-sidebutton" style={{ backgroundImage: `url(${sidePanelImage})` }} disabled>
+          <button
+            type="button"
+            className="fantasy-character-sidebutton"
+            style={{ backgroundImage: `url(${sidePanelImage})` }}
+            onClick={() => void handleDeleteSelectedCharacter()}
+            disabled={!selectedCharacter || busy}
+          >
             캐릭터 삭제
           </button>
         </aside>
@@ -349,7 +488,7 @@ export function CharacterPage({
                     <dl className="fantasy-character-summary-list">
                       <div>
                         <dt>종족</dt>
-                        <dd>{selectedCharacter.ancestry}</dd>
+                        <dd>{getCharacterAncestryLabel(selectedCharacter.ancestry)}</dd>
                       </div>
                       <div>
                         <dt>직업</dt>
@@ -366,7 +505,7 @@ export function CharacterPage({
                         </dd>
                       </div>
                       <div>
-                        <dt>AC</dt>
+                        <dt>방어도</dt>
                         <dd>{selectedCharacter.armorClass}</dd>
                       </div>
                       <div>
@@ -374,17 +513,17 @@ export function CharacterPage({
                         <dd>{selectedCharacter.speed}</dd>
                       </div>
                       <div>
-                        <dt>Proficiency</dt>
+                        <dt>숙련도</dt>
                         <dd>{selectedCharacter.proficiencyBonus}</dd>
                       </div>
                     </dl>
 
                     <section className="fantasy-character-stats-section">
-                      <h3>기본 스탯</h3>
+                      <h3>능력치</h3>
                       <div className="fantasy-character-abilities-grid">
-                        {(Object.keys(abilityLabels) as AbilityKey[]).map((ability) => (
+                        {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => (
                           <div key={ability}>
-                            <strong>{abilityLabels[ability]}</strong>
+                            <strong>{abilityDisplayLabels[ability]}</strong>
                             <span>{selectedCharacter.abilities[ability]}</span>
                             <small>{formatModifier(selectedCharacter.abilities[ability])}</small>
                           </div>
@@ -393,15 +532,15 @@ export function CharacterPage({
                     </section>
 
                     <section className="fantasy-character-stats-section">
-                      <h3>스킬 / 특성</h3>
+                      <h3>기술 숙련</h3>
                       {selectedCharacter.proficientSkills.length ? (
                         <ul className="fantasy-character-text-list">
                           {selectedCharacter.proficientSkills.map((skill) => (
-                            <li key={skill}>{skill}</li>
+                            <li key={skill}>{getSkillLabel(skill)}</li>
                           ))}
                         </ul>
                       ) : (
-                        <p>아직 없음</p>
+                        <p>선택된 기술이 없습니다.</p>
                       )}
                     </section>
 
@@ -443,11 +582,11 @@ export function CharacterPage({
           >
             <div className="modal-header">
               <div>
-                <span className="eyebrow">Create character</span>
-                <h2>New character</h2>
+                <span className="eyebrow">{editingCharacterId ? "캐릭터 수정" : "캐릭터 생성"}</span>
+                <h2>{editingCharacterId ? "캐릭터 수정" : "새 캐릭터"}</h2>
               </div>
               <button type="button" className="modal-close" onClick={closeCreateModal}>
-                Close
+                닫기
               </button>
             </div>
 
@@ -455,14 +594,14 @@ export function CharacterPage({
               <section className="character-form-section">
                 <div className="section-heading compact">
                   <div>
-                    <span className="eyebrow">Identity</span>
-                    <h2>Profile</h2>
+                    <span className="eyebrow">기본 정보</span>
+                    <h2>프로필</h2>
                   </div>
                 </div>
 
                 <div className="field-row">
                   <div>
-                    <label htmlFor="character-name-create">Name</label>
+                    <label htmlFor="character-name-create">이름</label>
                     <input
                       id="character-name-create"
                       value={formState.name}
@@ -472,7 +611,7 @@ export function CharacterPage({
                     />
                   </div>
                   <div>
-                    <label htmlFor="character-level-create">Level</label>
+                    <label htmlFor="character-level-create">레벨</label>
                     <input
                       id="character-level-create"
                       type="number"
@@ -487,30 +626,51 @@ export function CharacterPage({
 
                 <div className="field-row">
                   <div>
-                    <label htmlFor="character-ancestry-create">Ancestry</label>
-                    <input
+                    <label htmlFor="character-ancestry-create">종족</label>
+                    <select
                       id="character-ancestry-create"
                       value={formState.ancestry}
                       onChange={(event) => setFormState((current) => ({ ...current, ancestry: event.target.value }))}
-                      maxLength={50}
                       required
-                    />
+                    >
+                      {ancestryOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
-                    <label htmlFor="character-class-create">Class</label>
-                    <input
+                    <label htmlFor="character-class-create">직업</label>
+                    <select
                       id="character-class-create"
                       value={formState.className}
-                      onChange={(event) => setFormState((current) => ({ ...current, className: event.target.value }))}
-                      maxLength={50}
+                      onChange={(event) =>
+                        setFormState((current) => {
+                          const className = event.target.value;
+                          return {
+                            ...current,
+                            className,
+                            avatarType: "PRESET",
+                            avatarPresetId: getPresetIdForClassName(className),
+                            avatarUrl: null,
+                          };
+                        })
+                      }
                       required
-                    />
+                    >
+                      {classOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
                 <div className="character-avatar-picker">
-                  <label>Profile portrait</label>
-                  <div className="character-avatar-grid" role="radiogroup" aria-label="Character portrait presets">
+                  <label>초상화</label>
+                  <div className="character-avatar-grid" role="radiogroup" aria-label="캐릭터 초상화 선택">
                     {avatarPresets.map((preset) => {
                       const isSelected = formState.avatarPresetId === preset.id;
                       return (
@@ -521,6 +681,7 @@ export function CharacterPage({
                           onClick={() =>
                             setFormState((current) => ({
                               ...current,
+                              className: getClassNameForPresetId(preset.id),
                               avatarType: "PRESET",
                               avatarPresetId: preset.id,
                               avatarUrl: null,
@@ -540,8 +701,8 @@ export function CharacterPage({
               <section className="character-form-section">
                 <div className="section-heading compact">
                   <div>
-                    <span className="eyebrow">Combat stats</span>
-                    <h2>Core stats</h2>
+                    <span className="eyebrow">전투 수치</span>
+                    <h2>코어 스탯</h2>
                   </div>
                 </div>
 
@@ -559,7 +720,7 @@ export function CharacterPage({
                     />
                   </div>
                   <div>
-                    <label htmlFor="character-ac-create">AC</label>
+                    <label htmlFor="character-ac-create">방어도</label>
                     <input
                       id="character-ac-create"
                       type="number"
@@ -571,7 +732,7 @@ export function CharacterPage({
                     />
                   </div>
                   <div>
-                    <label htmlFor="character-speed-create">Speed</label>
+                    <label htmlFor="character-speed-create">이동속도</label>
                     <input
                       id="character-speed-create"
                       type="number"
@@ -583,7 +744,7 @@ export function CharacterPage({
                     />
                   </div>
                   <div>
-                    <label htmlFor="character-prof-create">Proficiency</label>
+                    <label htmlFor="character-prof-create">숙련도</label>
                     <input
                       id="character-prof-create"
                       type="number"
@@ -603,15 +764,15 @@ export function CharacterPage({
               <section className="character-form-section">
                 <div className="section-heading compact">
                   <div>
-                    <span className="eyebrow">Ability scores</span>
-                    <h2>Abilities</h2>
+                    <span className="eyebrow">능력치</span>
+                    <h2>능력치</h2>
                   </div>
                 </div>
 
                 <div className="field-row field-row-3">
-                  {(Object.keys(abilityLabels) as AbilityKey[]).map((ability) => (
+                  {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => (
                     <div key={ability}>
-                      <label htmlFor={`character-${ability}`}>{abilityLabels[ability]}</label>
+                      <label htmlFor={`character-${ability}`}>{abilityDisplayLabels[ability]}</label>
                       <input
                         id={`character-${ability}`}
                         type="number"
@@ -627,8 +788,8 @@ export function CharacterPage({
               <section className="character-form-section">
                 <div className="section-heading compact">
                   <div>
-                    <span className="eyebrow">Skills</span>
-                    <h2>Proficiencies</h2>
+                    <span className="eyebrow">기술</span>
+                    <h2>숙련 기술</h2>
                   </div>
                 </div>
 
@@ -636,33 +797,58 @@ export function CharacterPage({
                   <input
                     value={skillInput}
                     onChange={(event) => setSkillInput(event.target.value)}
-                    placeholder="Add a skill"
+                    placeholder="기술 이름 입력"
                   />
                   <button type="button" onClick={() => addSkill(skillInput)}>
-                    Add
+                    추가
                   </button>
                 </div>
 
-                <div className="character-chip-row">
-                  {suggestedSkills.map((skill) => (
-                    <button key={skill} type="button" className="character-skill-chip" onClick={() => addSkill(skill)}>
-                      {skill}
+                <div className="character-chip-row" style={{ marginTop: "14px" }}>
+                  {suggestedSkillOptions.map((skill) => (
+                    <button
+                      key={skill.value}
+                      type="button"
+                      className="character-skill-chip"
+                      onClick={() => addSkill(skill.value)}
+                    >
+                      {skill.label}
                     </button>
                   ))}
                 </div>
 
-                <div className="character-chip-row">
+                <div className="character-chip-row" style={{ marginTop: "12px" }}>
                   {(formState.proficientSkills ?? []).length ? (
                     (formState.proficientSkills ?? []).map((skill) => (
-                      <span key={skill} className="character-selected-chip">
-                        {skill}
-                        <button type="button" onClick={() => removeSkill(skill)} aria-label={`Remove ${skill}`}>
+                      <span
+                        key={skill}
+                        className="character-selected-chip"
+                        style={{ display: "inline-flex", alignItems: "center", gap: "10px" }}
+                      >
+                        {getSkillLabel(skill)}
+                        <button
+                          type="button"
+                          onClick={() => removeSkill(skill)}
+                          aria-label={`${getSkillLabel(skill)} 제거`}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: "1.22rem",
+                            height: "1.22rem",
+                            padding: 0,
+                            lineHeight: 1,
+                            fontSize: "0.95rem",
+                            flexShrink: 0,
+                            transform: "translateY(-1px)",
+                          }}
+                        >
                           x
                         </button>
                       </span>
                     ))
                   ) : (
-                    <span className="status-chip muted">No skills selected</span>
+                    <span className="status-chip muted">선택된 기술이 없습니다</span>
                   )}
                 </div>
               </section>
@@ -670,11 +856,11 @@ export function CharacterPage({
               <section className="character-form-section">
                 <div className="section-heading compact">
                   <div>
-                    <span className="eyebrow">Inventory</span>
-                    <h2>Items</h2>
+                    <span className="eyebrow">인벤토리</span>
+                    <h2>아이템</h2>
                   </div>
                   <button type="button" onClick={addInventoryRow}>
-                    Add item
+                    아이템 추가
                   </button>
                 </div>
 
@@ -685,28 +871,28 @@ export function CharacterPage({
                         <input
                           value={item.name}
                           onChange={(event) => updateInventoryRow(item.id, "name", event.target.value)}
-                          placeholder="Item name"
+                          placeholder="아이템 이름"
                         />
                         <input
                           type="number"
                           min={1}
                           value={item.quantity}
                           onChange={(event) => updateInventoryRow(item.id, "quantity", event.target.value)}
-                          placeholder="Qty"
+                          placeholder="수량"
                         />
                         <button type="button" className="ghost" onClick={() => removeInventoryRow(item.id)}>
-                          Remove
+                          삭제
                         </button>
                       </div>
                     ))
                   ) : (
-                    <p className="character-empty-note">No items added yet.</p>
+                    <p className="character-empty-note">아직 추가된 아이템이 없습니다.</p>
                   )}
                 </div>
               </section>
 
               <button type="submit" className="primary" disabled={busy}>
-                Create
+                {editingCharacterId ? "저장" : "생성"}
               </button>
             </form>
           </div>
