@@ -53,6 +53,12 @@ export enum ScenarioLicense {
   OTHER_FREE = "other-free",
 }
 
+export enum ScenarioNodeType {
+  STORY = "story",
+  EXPLORATION = "exploration",
+  COMBAT = "combat",
+}
+
 export enum GamePhase {
   LOBBY = "lobby",
   EXPLORATION = "exploration",

@@ -1,16 +1,34 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from "class-validator";
-import { ScenarioLicense } from "../../constants/enums";
+import { Type } from "class-transformer";
+import {
+  IsBase64,
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsNotEmpty,
+  IsObject,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from "class-validator";
+import { ScenarioLicense, ScenarioNodeType } from "../../constants/enums";
 
 export class ScenarioNodeResponseDto {
   @ApiProperty()
   id!: string;
+
+  @ApiProperty({ enum: ScenarioNodeType })
+  nodeType!: ScenarioNodeType;
 
   @ApiProperty()
   title!: string;
 
   @ApiProperty()
   sceneText!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  imageUrl!: string | null;
 
   @ApiProperty()
   visibleToPlayers!: boolean;
@@ -67,6 +85,75 @@ export class ScenarioSummaryResponseDto {
 export class ScenarioResponseDto extends ScenarioSummaryResponseDto {
   @ApiProperty({ type: [ScenarioNodeResponseDto] })
   nodes!: ScenarioNodeResponseDto[];
+}
+
+export class ScenarioNodeInputDto {
+  @ApiPropertyOptional({ description: "Existing or client-generated node id." })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  id?: string;
+
+  @ApiPropertyOptional({ enum: ScenarioNodeType, default: ScenarioNodeType.STORY })
+  @IsOptional()
+  @IsEnum(ScenarioNodeType)
+  nodeType?: ScenarioNodeType;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  title!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(4000)
+  sceneText!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string | null;
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @IsBoolean()
+  visibleToPlayers?: boolean;
+
+  @ApiPropertyOptional({ type: [Object] })
+  @IsOptional()
+  @IsArray()
+  @IsObject({ each: true })
+  transitions?: Record<string, unknown>[];
+
+  @ApiPropertyOptional({ type: [Object] })
+  @IsOptional()
+  @IsArray()
+  @IsObject({ each: true })
+  clues?: Record<string, unknown>[];
+}
+
+export class UploadScenarioNodeImageDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  fileName!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  contentType!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsBase64()
+  dataBase64!: string;
+}
+
+export class ScenarioNodeImageUploadResponseDto {
+  @ApiProperty()
+  imageUrl!: string;
 }
 
 export class GetScenarioParamsDto {
@@ -133,6 +220,13 @@ export class CreateScenarioDto {
   @IsString()
   @MaxLength(4000)
   startSceneText?: string;
+
+  @ApiPropertyOptional({ type: [ScenarioNodeInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ScenarioNodeInputDto)
+  nodes?: ScenarioNodeInputDto[];
 }
 
 export class UpdateScenarioDto {
@@ -186,4 +280,11 @@ export class UpdateScenarioDto {
   @IsString()
   @MaxLength(4000)
   startSceneText?: string;
+
+  @ApiPropertyOptional({ type: [ScenarioNodeInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ScenarioNodeInputDto)
+  nodes?: ScenarioNodeInputDto[];
 }
