@@ -10,8 +10,10 @@ import type {
   SessionDetailResponseDto,
   SessionSnapshotDto,
   UpdateScenarioDto,
+  UpdateVttMapDto,
   UploadScenarioNodeImageDto,
   UserResponseDto,
+  VttMapStateDto,
   SessionListItemResponseDto,
   SessionParticipantResponseDto,
 } from '@trpg/shared-types';
@@ -31,9 +33,37 @@ import { normalizeSessionDetail, normalizeSessionSnapshot } from '../types/sessi
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
 const configuredWsBaseUrl = import.meta.env.VITE_WS_BASE_URL as string | undefined;
-const defaultBase = import.meta.env.PROD ? '' : 'http://localhost:3000';
-const rawBaseUrl = (configuredBaseUrl || defaultBase).replace(/\/$/, '');
+const defaultBase = import.meta.env.PROD ? '' : 'http://localhost:8080';
+const localDevBaseUrls = [
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+];
+const isLocalFrontend =
+  import.meta.env.DEV &&
+  typeof globalThis.location !== 'undefined' &&
+  ['localhost', '127.0.0.1', '::1'].includes(globalThis.location.hostname);
+const rawBaseUrl = (isLocalFrontend ? localDevBaseUrls[0] : configuredBaseUrl || defaultBase).replace(/\/$/, '');
 export const API_BASE_URL = rawBaseUrl.endsWith('/api/v1') ? rawBaseUrl : `${rawBaseUrl}/api/v1`;
+const fallbackApiBaseUrls =
+  import.meta.env.PROD
+    ? [API_BASE_URL]
+    : Array.from(
+        new Set(
+          [
+            API_BASE_URL,
+            ...localDevBaseUrls.map((url) => `${url}/api/v1`),
+            configuredBaseUrl
+              ? configuredBaseUrl.endsWith('/api/v1')
+                ? configuredBaseUrl
+                : `${configuredBaseUrl.replace(/\/$/, '')}/api/v1`
+              : null,
+          ]
+            .filter((url): url is string => Boolean(url))
+            .map((url) => url.replace(/\/$/, '')),
+        ),
+      );
 export const SOCKET_BASE_URL = (
   configuredWsBaseUrl || API_BASE_URL.replace(/\/api\/v1$/, '')
 ).replace(/\/$/, '');
@@ -106,6 +136,34 @@ function formatApiError(body: ApiErrorBody | null, fallback: string): string {
   return Array.isArray(body.message) ? body.message.join(', ') : body.message;
 }
 
+async function readApiErrorBody(response: Response): Promise<ApiErrorBody | null> {
+  const contentType = response.headers.get('content-type') ?? '';
+
+  if (contentType.includes('application/json')) {
+    try {
+      return (await response.json()) as ApiErrorBody;
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const text = await response.text();
+    return text ? { message: text } as ApiErrorBody : null;
+  } catch {
+    return null;
+  }
+}
+
+async function peekApiErrorBody(response: Response): Promise<ApiErrorBody | null> {
+  return readApiErrorBody(response.clone());
+}
+
+function isMissingRouteResponse(response: Response, body: ApiErrorBody | null): boolean {
+  const message = formatApiError(body, '');
+  return response.status === 404 && /Cannot\s+(GET|POST|PATCH|DELETE)\s+/i.test(message);
+}
+
 function unwrapApiResponse<T>(body: unknown): T {
   if (body && typeof body === 'object' && 'code' in body && 'data' in body) {
     return (body as { data: T }).data;
@@ -128,20 +186,42 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
     headers['x-user-id'] = options.user.id;
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const init: RequestInit = {
     method: options.method ?? 'GET',
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
     credentials: options.withCredentials ? 'include' : 'same-origin',
-  });
+  };
+
+  let response: Response | null = null;
+  let lastNetworkError: unknown = null;
+  let lastNotFoundBody: ApiErrorBody | null = null;
+
+  for (const baseUrl of fallbackApiBaseUrls) {
+    try {
+      response = await fetch(`${baseUrl}${path}`, init);
+    } catch (error) {
+      lastNetworkError = error;
+      continue;
+    }
+
+    if (response.status !== 404 || fallbackApiBaseUrls.length === 1) {
+      break;
+    }
+
+    lastNotFoundBody = await peekApiErrorBody(response);
+
+    if (!isMissingRouteResponse(response, lastNotFoundBody)) {
+      break;
+    }
+  }
+
+  if (!response) {
+    throw new Error(lastNetworkError instanceof Error ? lastNetworkError.message : 'API 서버에 연결하지 못했습니다.');
+  }
 
   if (!response.ok) {
-    let body: ApiErrorBody | null = null;
-    try {
-      body = (await response.json()) as ApiErrorBody;
-    } catch {
-      body = null;
-    }
+    const body = (await readApiErrorBody(response)) ?? lastNotFoundBody;
     throw new Error(formatApiError(body, `요청에 실패했습니다. (${response.status})`));
   }
 
@@ -444,6 +524,32 @@ export function getSessionDetail(
 
 export function getSessionState(user: StoredUser, sessionId: string) {
   return requestJson(`/sessions/${sessionId}/state`, { user });
+}
+
+export function getVttMap(
+  user: StoredUser,
+  sessionId: string,
+  accessToken?: string | null
+): Promise<VttMapStateDto> {
+  return requestJson<VttMapStateDto>(`/sessions/${sessionId}/map`, {
+    user,
+    accessToken,
+  });
+}
+
+export function updateVttMap(
+  user: StoredUser,
+  sessionId: string,
+  map: VttMapStateDto,
+  accessToken?: string | null
+): Promise<VttMapStateDto> {
+  const payload: UpdateVttMapDto = { map };
+  return requestJson<VttMapStateDto>(`/sessions/${sessionId}/map`, {
+    method: 'PATCH',
+    user,
+    accessToken,
+    body: payload,
+  });
 }
 
 export function createCharacter(

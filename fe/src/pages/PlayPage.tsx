@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { VttMapStateDto } from "@trpg/shared-types";
+import { BattleMap } from "../components/BattleMap";
 import { Icon } from "../components/Icon";
 import type { CharacterPayload } from "../hooks/useSession";
-import { getPlayerScenario } from "../services/api";
+import { getPlayerScenario, getVttMap, updateVttMap } from "../services/api";
 import type { LogEntry, PersistentCharacter, PlayerScenarioView, SessionSnapshot, StoredUser } from "../types/session";
 
 const sessionTabs = ["Main", "Chat", "Info", "Settings"] as const;
@@ -83,7 +85,9 @@ export function PlayPage({
   const [localSelectedCharacterId, setLocalSelectedCharacterId] = useState<string | null>(null);
   const [isStatusMinimized, setStatusMinimized] = useState(false);
   const [playerScenario, setPlayerScenario] = useState<PlayerScenarioView | null>(null);
+  const [vttMap, setVttMap] = useState<VttMapStateDto | null>(null);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
+  const [mapLoadError, setMapLoadError] = useState<string | null>(null);
   const logEndRef = useRef<HTMLDivElement | null>(null);
 
   const session = snapshot?.session ?? null;
@@ -103,6 +107,7 @@ export function PlayPage({
     snapshot?.sessionScenarios.find((item) => item.status === "ACTIVE") ?? snapshot?.sessionScenarios[0];
   const currentNode = playerScenario?.currentNode ?? null;
   const revealedClues = playerScenario?.revealedClues ?? [];
+  const snapshotVttMap = snapshot?.state.flags?.vttMap;
 
   useEffect(() => {
     setLocalSelectedCharacterId(serverSelectedCharacterId);
@@ -117,7 +122,9 @@ export function PlayPage({
   useEffect(() => {
     if (!session) {
       setPlayerScenario(null);
+      setVttMap(null);
       setScenarioLoadError(null);
+      setMapLoadError(null);
       return;
     }
 
@@ -141,6 +148,37 @@ export function PlayPage({
       ignore = true;
     };
   }, [session, snapshot?.state.currentNodeId, user]);
+
+  useEffect(() => {
+    if (snapshotVttMap && typeof snapshotVttMap === "object") {
+      setVttMap(snapshotVttMap as VttMapStateDto);
+    }
+  }, [snapshotVttMap]);
+
+  useEffect(() => {
+    if (!session || isRecruiting) {
+      return;
+    }
+
+    let ignore = false;
+    setMapLoadError(null);
+
+    getVttMap(user, session.id)
+      .then((map) => {
+        if (!ignore) {
+          setVttMap(map);
+        }
+      })
+      .catch((caught) => {
+        if (!ignore) {
+          setMapLoadError(caught instanceof Error ? caught.message : "맵을 불러오지 못했습니다.");
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [isRecruiting, session, user]);
 
   const joinableCharacters = useMemo(
     () =>
@@ -217,6 +255,19 @@ export function PlayPage({
 
     setLocalSelectedCharacterId(characterId);
     onSelectCharacter(characterId);
+  }
+
+  function handleMapChange(nextMap: VttMapStateDto) {
+    if (!session) return;
+    const previousMap = vttMap;
+    setVttMap(nextMap);
+    setMapLoadError(null);
+    void updateVttMap(user, session.id, nextMap).catch((caught) => {
+      if (previousMap) {
+        setVttMap(previousMap);
+      }
+      setMapLoadError(caught instanceof Error ? caught.message : "맵을 저장하지 못했습니다.");
+    });
   }
 
   function getParticipantBadge(participantUserId: string): string | null {
@@ -349,6 +400,16 @@ export function PlayPage({
                 <p className="panel-error">{scenarioLoadError}</p>
               ) : currentNode ? (
                 <>
+                  {vttMap ? (
+                    <BattleMap
+                      map={vttMap}
+                      characters={sessionCharacters}
+                      isHost={isHost}
+                      currentUserId={user.id}
+                      onChange={handleMapChange}
+                    />
+                  ) : null}
+                  {mapLoadError ? <p className="panel-error">{mapLoadError}</p> : null}
                   {currentNode.imageUrl ? (
                     <img
                       className="scenario-node-visual"

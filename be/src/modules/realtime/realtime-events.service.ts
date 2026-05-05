@@ -13,6 +13,8 @@ import {
   SessionSnapshotDto,
   SessionSnapshotEventDto,
   SessionStatusUpdatedEventDto,
+  VttMapStateDto,
+  VttMapUpdatedEventDto,
 } from "@trpg/shared-types";
 import { Server } from "socket.io";
 
@@ -26,6 +28,10 @@ export class RealtimeEventsService {
 
   getRoomName(sessionId: string): string {
     return `session:${sessionId}`;
+  }
+
+  getUserRoomName(sessionId: string, userId: string): string {
+    return `session:${sessionId}:user:${userId}`;
   }
 
   emitSessionSnapshot(sessionId: string, snapshot: SessionSnapshotDto): void {
@@ -142,5 +148,28 @@ export class RealtimeEventsService {
       code,
       message,
     });
+  }
+
+  emitVttMapUpdated(
+    sessionId: string,
+    params: {
+      hostUserId: string;
+      hostMap: VttMapStateDto;
+      playerMap: VttMapStateDto;
+    },
+  ): void {
+    if (!this.server) {
+      return;
+    }
+
+    const playerPayload: VttMapUpdatedEventDto = { sessionId, map: params.playerMap };
+    const hostPayload: VttMapUpdatedEventDto = { sessionId, map: params.hostMap };
+    const hostRoomName = this.getUserRoomName(sessionId, params.hostUserId);
+
+    this.server
+      .to(this.getRoomName(sessionId))
+      .except(hostRoomName)
+      .emit("vtt.map.updated", playerPayload);
+    this.server.to(hostRoomName).emit("vtt.map.updated", hostPayload);
   }
 }

@@ -291,6 +291,7 @@ export class ScenariosService {
             sceneText:
               fallback?.startSceneText?.trim() || "아직 시작 장면 내용이 작성되지 않았습니다.",
             imageUrl: null,
+            vttMap: null,
             checkOptions: [],
             transitions: [],
             clues: [],
@@ -311,7 +312,10 @@ export class ScenariosService {
         title: node.title.trim(),
         sceneText: node.sceneText.trim(),
         imageUrl: this.nullableTrim(node.imageUrl),
-        checkOptionsJson: JSON.stringify([]),
+        checkOptionsJson: JSON.stringify({
+          checks: [],
+          vttMap: node.vttMap ?? null,
+        }),
         transitionsJson: JSON.stringify(node.transitions ?? []),
         cluesJson: JSON.stringify(node.clues ?? []),
         fallbackNodeId: null,
