@@ -1,5 +1,6 @@
 import { io, Socket } from "socket.io-client";
 import { SOCKET_BASE_URL } from "./api";
+import type { VttMapStateDto } from "@trpg/shared-types";
 import type { Character, Participant, SessionSnapshot, StoredUser } from "../types/session";
 import { normalizeSessionSnapshot } from "../types/session";
 
@@ -7,6 +8,7 @@ export interface RealtimeHandlers {
   onSnapshot(snapshot: SessionSnapshot): void;
   onParticipantUpdated(participant: Participant): void;
   onCharacterUpdated(character: Character): void;
+  onVttMapUpdated(map: VttMapStateDto): void;
   onStatusChange(connected: boolean): void;
   onLog(title: string, message: string): void;
 }
@@ -55,6 +57,11 @@ export function connectSessionSocket(
   socket.on("character.updated", (payload: { character: Character }) => {
     handlers.onCharacterUpdated(payload.character);
     handlers.onLog("Character updated", `${payload.character.name} stats were refreshed.`);
+  });
+
+  socket.on("vtt.map.updated", (payload: { map: VttMapStateDto }) => {
+    handlers.onVttMapUpdated(payload.map);
+    handlers.onLog("Map updated", "The tabletop map changed.");
   });
 
   return socket;

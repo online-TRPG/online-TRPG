@@ -38,6 +38,8 @@ import {
   UpdateParticipantReadyDto,
   UpdateSessionDto,
   UpdateSessionNodeDto,
+  UpdateVttMapDto,
+  VttMapStateDto,
 } from "@trpg/shared-types";
 import { ApiResponse, apiResponse } from "../../common/api-response";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
@@ -232,6 +234,37 @@ export class SessionsController {
       "SESSION_200",
       "Game state fetched.",
       await this.sessionsService.getStateForUser(userId, sessionId),
+    );
+  }
+
+  @Get(":id/map")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: VttMapStateDto })
+  async getVttMap(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<ApiResponse<VttMapStateDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "VTT map fetched.",
+      await this.sessionsService.getVttMapForUser(userId, sessionId),
+    );
+  }
+
+  @Patch(":id/map")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: VttMapStateDto })
+  async updateVttMap(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: UpdateVttMapDto,
+  ): Promise<ApiResponse<VttMapStateDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "VTT map updated.",
+      await this.sessionsService.updateVttMap(userId, sessionId, dto),
     );
   }
 

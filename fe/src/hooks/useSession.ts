@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { VttMapStateDto } from "@trpg/shared-types";
 import type { Socket } from "socket.io-client";
 import {
   cloneCharacter as apiCloneCharacter,
@@ -154,6 +155,28 @@ export function useSession(
             : [...current.characters, character];
 
           const next = { ...current, characters, sessionCharacters: characters };
+          saveStoredSnapshot(next);
+          return next;
+        });
+      },
+      onVttMapUpdated: (map: VttMapStateDto) => {
+        setSnapshot((current) => {
+          if (!current) return current;
+
+          const next = {
+            ...current,
+            state: {
+              ...current.state,
+              flags: {
+                ...current.state.flags,
+                vttMap: map,
+              },
+              state: {
+                ...current.state.state,
+                vttMap: map,
+              },
+            },
+          };
           saveStoredSnapshot(next);
           return next;
         });

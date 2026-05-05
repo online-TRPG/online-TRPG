@@ -12,6 +12,7 @@ import {
   SessionParticipantResponseDto,
   SessionResponseDto,
   SessionSnapshotDto,
+  VttMapStateDto,
 } from "../api/sessions.dto";
 
 export class SessionJoinMessageDto {
@@ -109,4 +110,12 @@ export class SystemMessageEventDto {
 
   @ApiProperty()
   code!: string;
+}
+
+export class VttMapUpdatedEventDto {
+  @ApiProperty()
+  sessionId!: string;
+
+  @ApiProperty({ type: VttMapStateDto })
+  map!: VttMapStateDto;
 }

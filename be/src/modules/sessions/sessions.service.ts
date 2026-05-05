@@ -46,6 +46,8 @@ import {
   UpdateParticipantReadyDto,
   UpdateSessionDto,
   UpdateSessionNodeDto,
+  UpdateVttMapDto,
+  VttMapStateDto,
 } from "@trpg/shared-types";
 import {
   mapGameState,
@@ -394,8 +396,75 @@ export class SessionsService {
     const session = await this.getSessionEntityOrThrow(sessionId);
     const resolvedSessionId = session.id;
     await this.ensureMembership(userId, resolvedSessionId);
-    const { state } = await this.getGameStateEntityOrThrow(resolvedSessionId);
+    const { sessionScenario, state } = await this.getGameStateEntityOrThrow(resolvedSessionId);
     return mapGameState(state, resolvedSessionId);
+  }
+
+  async getVttMapForUser(userId: string, sessionId: string): Promise<VttMapStateDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const resolvedSessionId = session.id;
+    await this.ensureMembership(userId, resolvedSessionId);
+    const { sessionScenario, state } = await this.getGameStateEntityOrThrow(resolvedSessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const existingMap = this.toVttMapOrNull(flags.vttMap);
+
+    if (existingMap) {
+      return session.hostUserId === userId ? existingMap : this.redactVttMapForPlayer(existingMap);
+    }
+
+    const scenarioMap = await this.getScenarioDefaultVttMapForNode(
+      sessionScenario.id,
+      state.currentNodeId,
+    );
+    if (scenarioMap) {
+      const map = this.normalizeVttMap(scenarioMap, state.currentNodeId ?? null);
+      return session.hostUserId === userId ? map : this.redactVttMapForPlayer(map);
+    }
+
+    const map = await this.buildDefaultVttMap(resolvedSessionId, state.currentNodeId ?? null);
+    return session.hostUserId === userId ? map : this.redactVttMapForPlayer(map);
+  }
+
+  async updateVttMap(
+    userId: string,
+    sessionId: string,
+    dto: UpdateVttMapDto,
+  ): Promise<VttMapStateDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const resolvedSessionId = session.id;
+    await this.ensureMembership(userId, resolvedSessionId);
+    const { state, sessionScenario } = await this.getGameStateEntityOrThrow(resolvedSessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const requestedMap = this.normalizeVttMap(dto.map, state.currentNodeId ?? null);
+    const map =
+      session.hostUserId === userId
+        ? requestedMap
+        : await this.applyPlayerVttMapUpdate(
+            userId,
+            resolvedSessionId,
+            sessionScenario.id,
+            state,
+            requestedMap,
+          );
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: sessionScenario.id },
+      data: {
+        version: { increment: 1 },
+        flagsJson: JSON.stringify({
+          ...flags,
+          vttMap: map,
+        }),
+      },
+    });
+
+    const playerMap = this.redactVttMapForPlayer(map);
+    this.realtimeEvents.emitVttMapUpdated(resolvedSessionId, {
+      hostUserId: session.hostUserId,
+      hostMap: map,
+      playerMap,
+    });
+    return session.hostUserId === userId ? map : playerMap;
   }
 
   async getPlayerScenarioForUser(userId: string, sessionId: string): Promise<PlayerScenarioViewDto> {
@@ -407,7 +476,12 @@ export class SessionsService {
       where: { sessionScenarioId: sessionScenario.id },
       orderBy: { firstVisitedAt: "asc" },
     });
-    const visitedNodeIds = visits.map((visit) => visit.nodeId);
+    const visitedNodeIds = Array.from(
+      new Set([
+        ...visits.map((visit) => visit.nodeId),
+        ...(state.currentNodeId ? [state.currentNodeId] : []),
+      ]),
+    );
     const nodes = visitedNodeIds.length
       ? await this.prisma.sessionScenarioNode.findMany({
           where: {
@@ -1043,6 +1117,11 @@ export class SessionsService {
     const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
     await this.ensureSessionScenarioNodeSnapshotForScenario(activeScenario.id, activeScenario.scenarioId);
     const targetNode = await this.getSessionScenarioNodeEntityOrThrow(activeScenario.id, dto.nodeId);
+    const currentState = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: activeScenario.id },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(currentState?.flagsJson, {});
+    const targetDefaultMap = this.extractVttMapFromCheckOptions(targetNode.checkOptionsJson);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.session.update({
@@ -1059,6 +1138,12 @@ export class SessionsService {
         data: {
           currentNodeId: targetNode.nodeId,
           phase: PrismaGamePhase.DIALOGUE,
+          flagsJson: JSON.stringify({
+            ...flags,
+            vttMap: targetDefaultMap
+              ? this.normalizeVttMap(targetDefaultMap, targetNode.nodeId)
+              : undefined,
+          }),
         },
       });
       await this.recordNodeVisit(tx, {
@@ -1449,6 +1534,293 @@ export class SessionsService {
     return JSON.parse(value) as T;
   }
 
+  private async buildDefaultVttMap(
+    sessionId: string,
+    scenarioNodeId: string | null,
+  ): Promise<VttMapStateDto> {
+    const sessionCharacters = await this.prisma.sessionCharacter.findMany({
+      where: {
+        sessionId,
+        status: PrismaSessionCharacterStatus.ACTIVE,
+      },
+      include: { character: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const gridSize = 64;
+
+    return {
+      id: `map:${sessionId}`,
+      scenarioNodeId,
+      imageUrl: null,
+      gridType: "square",
+      gridSize,
+      width: 1280,
+      height: 832,
+      tokens: sessionCharacters.slice(0, 12).map((sessionCharacter, index) => ({
+        id: `token:${sessionCharacter.id}`,
+        sessionCharacterId: sessionCharacter.id,
+        name: sessionCharacter.character.name,
+        imageUrl: sessionCharacter.character.avatarUrl ?? null,
+        x: gridSize * (2 + index),
+        y: gridSize * (3 + (index % 2)),
+        size: gridSize,
+        hidden: false,
+        isHostile: false,
+      })),
+      fogRects: [],
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  private async getVttMapBaseline(
+    sessionId: string,
+    sessionScenarioId: string,
+    state: { currentNodeId: string | null; flagsJson: string | null },
+  ): Promise<VttMapStateDto> {
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const existingMap = this.toVttMapOrNull(flags.vttMap);
+    if (existingMap) {
+      return existingMap;
+    }
+
+    const scenarioMap = await this.getScenarioDefaultVttMapForNode(
+      sessionScenarioId,
+      state.currentNodeId,
+    );
+    if (scenarioMap) {
+      return this.normalizeVttMap(scenarioMap, state.currentNodeId ?? null);
+    }
+
+    return this.buildDefaultVttMap(sessionId, state.currentNodeId ?? null);
+  }
+
+  private redactVttMapForPlayer(map: VttMapStateDto): VttMapStateDto {
+    return {
+      ...map,
+      tokens: map.tokens
+        .filter((token) => token.hidden !== true)
+        .map((token) => ({
+          ...token,
+          hidden: false,
+        })),
+    };
+  }
+
+  private async applyPlayerVttMapUpdate(
+    userId: string,
+    sessionId: string,
+    sessionScenarioId: string,
+    state: { currentNodeId: string | null; flagsJson: string | null },
+    requestedMap: VttMapStateDto,
+  ): Promise<VttMapStateDto> {
+    const baseline = await this.getVttMapBaseline(sessionId, sessionScenarioId, state);
+    const controlledTokenIds = await this.getControlledSessionCharacterIds(userId, sessionId);
+
+    this.ensurePlayerMapShellUnchanged(baseline, requestedMap);
+
+    const requestedById = new Map(requestedMap.tokens.map((token) => [token.id, token]));
+    const nextTokens = baseline.tokens.map((token) => {
+      const requestedToken = requestedById.get(token.id);
+      if (!requestedToken) {
+        if (token.hidden === true) {
+          return token;
+        }
+        throw new ForbiddenException("Players cannot remove map tokens.");
+      }
+
+      const canMoveToken = Boolean(
+        token.sessionCharacterId && controlledTokenIds.has(token.sessionCharacterId),
+      );
+      if (!canMoveToken) {
+        this.ensureTokenUnchanged(token, requestedToken);
+        return token;
+      }
+
+      this.ensureOnlyTokenPositionChanged(token, requestedToken);
+      return {
+        ...token,
+        x: requestedToken.x,
+        y: requestedToken.y,
+      };
+    });
+
+    if (requestedMap.tokens.some((token) => !baseline.tokens.some((base) => base.id === token.id))) {
+      throw new ForbiddenException("Players cannot add map tokens.");
+    }
+
+    return {
+      ...baseline,
+      tokens: nextTokens,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  private async getControlledSessionCharacterIds(userId: string, sessionId: string): Promise<Set<string>> {
+    const sessionCharacters = await this.prisma.sessionCharacter.findMany({
+      where: {
+        sessionId,
+        userId,
+        status: PrismaSessionCharacterStatus.ACTIVE,
+      },
+      select: { id: true },
+    });
+
+    return new Set(sessionCharacters.map((character) => character.id));
+  }
+
+  private ensurePlayerMapShellUnchanged(baseline: VttMapStateDto, requested: VttMapStateDto): void {
+    const sameShell =
+      baseline.id === requested.id &&
+      baseline.scenarioNodeId === requested.scenarioNodeId &&
+      baseline.imageUrl === requested.imageUrl &&
+      baseline.gridType === requested.gridType &&
+      baseline.gridSize === requested.gridSize &&
+      baseline.width === requested.width &&
+      baseline.height === requested.height &&
+      JSON.stringify(baseline.fogRects) === JSON.stringify(requested.fogRects);
+
+    if (!sameShell) {
+      throw new ForbiddenException("Players can only move their own tokens.");
+    }
+  }
+
+  private ensureTokenUnchanged(
+    baseline: VttMapStateDto["tokens"][number],
+    requested: VttMapStateDto["tokens"][number],
+  ): void {
+    if (JSON.stringify(baseline) !== JSON.stringify(requested)) {
+      throw new ForbiddenException("Players can only move their own tokens.");
+    }
+  }
+
+  private ensureOnlyTokenPositionChanged(
+    baseline: VttMapStateDto["tokens"][number],
+    requested: VttMapStateDto["tokens"][number],
+  ): void {
+    const baselineStatic = { ...baseline, x: 0, y: 0 };
+    const requestedStatic = { ...requested, x: 0, y: 0 };
+
+    if (JSON.stringify(baselineStatic) !== JSON.stringify(requestedStatic)) {
+      throw new ForbiddenException("Players can only move their own tokens.");
+    }
+  }
+
+  private normalizeVttMap(map: VttMapStateDto, scenarioNodeId: string | null): VttMapStateDto {
+    const gridSize = this.clampNumber(map.gridSize, 16, 160);
+    const width = this.clampNumber(map.width, 320, 4000);
+    const height = this.clampNumber(map.height, 240, 4000);
+    const tokens = map.tokens.slice(0, 80).map((token) => ({
+      id: token.id,
+      sessionCharacterId: token.sessionCharacterId ?? null,
+      name: token.name.slice(0, 80),
+      imageUrl: token.imageUrl ?? null,
+      x: this.clampNumber(token.x, 0, width),
+      y: this.clampNumber(token.y, 0, height),
+      size: this.clampNumber(token.size, 24, 160),
+      hidden: token.hidden === true,
+      isHostile: token.isHostile === true,
+    }));
+    const fogRects = map.fogRects.slice(0, 200).map((rect) => ({
+      id: rect.id,
+      x: this.clampNumber(rect.x, 0, width),
+      y: this.clampNumber(rect.y, 0, height),
+      width: this.clampNumber(rect.width, 1, width),
+      height: this.clampNumber(rect.height, 1, height),
+    }));
+
+    return {
+      id: map.id || randomUUID(),
+      scenarioNodeId: map.scenarioNodeId ?? scenarioNodeId,
+      imageUrl: map.imageUrl ?? null,
+      gridType: map.gridType === "hex" ? "hex" : "square",
+      gridSize,
+      width,
+      height,
+      tokens,
+      fogRects,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  private toVttMapOrNull(value: unknown): VttMapStateDto | null {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const candidate = value as Partial<VttMapStateDto>;
+    if (!candidate.id || !Array.isArray(candidate.tokens) || !Array.isArray(candidate.fogRects)) {
+      return null;
+    }
+
+    return this.normalizeVttMap(
+      {
+        id: candidate.id,
+        scenarioNodeId: candidate.scenarioNodeId ?? null,
+        imageUrl: candidate.imageUrl ?? null,
+        gridType: candidate.gridType === "hex" ? "hex" : "square",
+        gridSize: Number(candidate.gridSize) || 64,
+        width: Number(candidate.width) || 1280,
+        height: Number(candidate.height) || 832,
+        tokens: candidate.tokens,
+        fogRects: candidate.fogRects,
+        updatedAt: candidate.updatedAt ?? new Date().toISOString(),
+      },
+      candidate.scenarioNodeId ?? null,
+    );
+  }
+
+  private clampNumber(value: number, min: number, max: number): number {
+    if (!Number.isFinite(value)) {
+      return min;
+    }
+    return Math.min(Math.max(value, min), max);
+  }
+
+  private async getScenarioDefaultVttMapForNode(
+    sessionScenarioId: string,
+    nodeId: string | null | undefined,
+  ): Promise<VttMapStateDto | null> {
+    if (!nodeId) {
+      return null;
+    }
+
+    const node = await this.prisma.sessionScenarioNode.findUnique({
+      where: {
+        sessionScenarioId_nodeId: {
+          sessionScenarioId,
+          nodeId,
+        },
+      },
+      select: { checkOptionsJson: true },
+    });
+    if (!node) {
+      return null;
+    }
+
+    return this.extractVttMapFromCheckOptions(node.checkOptionsJson);
+  }
+
+  private extractVttMapFromCheckOptions(value: string): VttMapStateDto | null {
+    const parsed = this.parseJson<unknown>(value, []);
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+      return null;
+    }
+
+    return this.toVttMapOrNull((parsed as Record<string, unknown>).vttMap);
+  }
+
+  private extractChecksFromCheckOptions(value: string): Record<string, unknown>[] {
+    const parsed = this.parseJson<unknown>(value, []);
+    if (Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>[];
+    }
+    if (parsed && typeof parsed === "object") {
+      const checks = (parsed as Record<string, unknown>).checks;
+      return Array.isArray(checks) ? (checks as Record<string, unknown>[]) : [];
+    }
+    return [];
+  }
+
   private mapPlayerScenarioNode(
     node: {
       id: string;
@@ -1471,7 +1843,7 @@ export class SessionsService {
       sceneText: node.sceneText,
       imageUrl: node.imageUrl ?? null,
       checkOptions: this.mapPlayerCheckOptions(
-        this.parseJson<Record<string, unknown>[]>(node.checkOptionsJson, []),
+        this.extractChecksFromCheckOptions(node.checkOptionsJson),
       ),
       publicClues: clues
         .map((clue) => {
