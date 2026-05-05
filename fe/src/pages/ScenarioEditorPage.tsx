@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { BattleMap } from '../components/BattleMap';
 import {
   createScenario,
   getScenario,
@@ -12,6 +13,7 @@ import type {
   ScenarioLicense,
   ScenarioNodeType,
   UpdateScenarioDto,
+  VttMapStateDto,
 } from '@trpg/shared-types';
 
 interface ScenarioEditorPageProps {
@@ -52,6 +54,7 @@ type NodeForm = {
   title: string;
   sceneText: string;
   imageUrl: string;
+  vttMap: VttMapStateDto | null;
   links: LinkForm[];
   clues: ClueForm[];
 };
@@ -84,14 +87,31 @@ function makeLocalId(prefix: string): string {
 }
 
 function createBlankNode(title = '새 장면'): NodeForm {
+  const id = makeLocalId('node');
   return {
-    id: makeLocalId('node'),
+    id,
     nodeType: 'story' as ScenarioNodeType,
     title,
     sceneText: '',
     imageUrl: '',
+    vttMap: createDefaultNodeMap(id),
     links: [],
     clues: [],
+  };
+}
+
+function createDefaultNodeMap(nodeId: string): VttMapStateDto {
+  return {
+    id: `map:${nodeId}`,
+    scenarioNodeId: nodeId,
+    imageUrl: null,
+    gridType: 'square',
+    gridSize: 64,
+    width: 1280,
+    height: 832,
+    tokens: [],
+    fogRects: [],
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -176,6 +196,26 @@ function mapClue(clue: Record<string, unknown>): ClueForm {
   };
 }
 
+function mapVttMap(value: unknown, nodeId: string): VttMapStateDto | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as Partial<VttMapStateDto>;
+  return {
+    id: candidate.id || `map:${nodeId}`,
+    scenarioNodeId: candidate.scenarioNodeId ?? nodeId,
+    imageUrl: candidate.imageUrl ?? null,
+    gridType: candidate.gridType === 'hex' ? 'hex' : 'square',
+    gridSize: Number(candidate.gridSize) || 64,
+    width: Number(candidate.width) || 1280,
+    height: Number(candidate.height) || 832,
+    tokens: Array.isArray(candidate.tokens) ? candidate.tokens : [],
+    fogRects: Array.isArray(candidate.fogRects) ? candidate.fogRects : [],
+    updatedAt: candidate.updatedAt ?? new Date().toISOString(),
+  };
+}
+
 function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
   const nodes = scenario.nodes.length
     ? scenario.nodes.map((node) => ({
@@ -184,6 +224,7 @@ function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
         title: node.title,
         sceneText: node.sceneText,
         imageUrl: node.imageUrl ?? '',
+        vttMap: mapVttMap(node.vttMap, node.id),
         links: node.transitions.map(mapLink),
         clues: node.clues.map(mapClue),
       }))
@@ -207,6 +248,7 @@ function serializeNodes(nodes: NodeForm[]) {
     title: node.title.trim(),
     sceneText: node.sceneText.trim(),
     imageUrl: node.imageUrl || null,
+    vttMap: node.vttMap as unknown as Record<string, unknown> | null,
     transitions: node.links
       .filter((link) => link.nextNodeId)
       .map((link) => ({
@@ -903,6 +945,24 @@ function NodeDetailEditor({
     }
   }
 
+  function updateNodeMap(nextMap: VttMapStateDto) {
+    updateNode(node.id, (current) => ({
+      ...current,
+      vttMap: {
+        ...nextMap,
+        scenarioNodeId: current.id,
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+  }
+
+  function enableNodeMap() {
+    updateNode(node.id, (current) => ({
+      ...current,
+      vttMap: createDefaultNodeMap(current.id),
+    }));
+  }
+
   return (
     <div className="scenario-play-editor">
       <section className="scenario-play-stage">
@@ -965,6 +1025,36 @@ function NodeDetailEditor({
             <img src={node.imageUrl} alt={`${node.title || '시나리오 노드'} visual`} />
           ) : (
             <div className="scenario-node-image-empty">아직 연결된 이미지가 없습니다.</div>
+          )}
+        </section>
+
+        <section className="scenario-node-map-panel">
+          {node.vttMap ? (
+            <>
+              <BattleMap
+                map={node.vttMap}
+                characters={[]}
+                isHost
+                onChange={updateNodeMap}
+                title="Default map"
+                showPartyTools={false}
+              />
+              <button
+                type="button"
+                className="ghost small"
+                onClick={() => updateNode(node.id, (current) => ({ ...current, vttMap: null }))}
+              >
+                기본 맵 제거
+              </button>
+            </>
+          ) : (
+            <div className="scenario-node-map-empty">
+              <span className="eyebrow">Default map</span>
+              <strong>이 노드의 기본 맵이 없습니다.</strong>
+              <button type="button" className="ghost small" onClick={enableNodeMap}>
+                기본 맵 만들기
+              </button>
+            </div>
           )}
         </section>
 

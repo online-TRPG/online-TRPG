@@ -153,6 +153,34 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
   return JSON.parse(value) as T;
 }
 
+function parseScenarioNodeConfig(value: string): {
+  checks: Record<string, unknown>[];
+  vttMap: Record<string, unknown> | null;
+} {
+  const parsed = parseJson<unknown>(value, []);
+  if (Array.isArray(parsed)) {
+    return { checks: parsed as Record<string, unknown>[], vttMap: null };
+  }
+  if (parsed && typeof parsed === "object") {
+    const candidate = parsed as Record<string, unknown>;
+    return {
+      checks: Array.isArray(candidate.checks)
+        ? (candidate.checks as Record<string, unknown>[])
+        : [],
+      vttMap:
+        candidate.vttMap && typeof candidate.vttMap === "object"
+          ? (candidate.vttMap as Record<string, unknown>)
+          : null,
+    };
+  }
+  return { checks: [], vttMap: null };
+}
+
+function stripPrivateGameFlags(flags: Record<string, unknown>): Record<string, unknown> {
+  const { vttMap: _vttMap, ...publicFlags } = flags;
+  return publicFlags;
+}
+
 function toIsoString(value: Date): string {
   return value.toISOString();
 }
@@ -344,7 +372,7 @@ export function mapGameState(
   state: GameState,
   sessionId: string | null = null,
 ): GameStateResponseDto {
-  const flags = parseJson<Record<string, unknown>>(state.flagsJson, {});
+  const flags = stripPrivateGameFlags(parseJson<Record<string, unknown>>(state.flagsJson, {}));
 
   return {
     sessionScenarioId: state.sessionScenarioId,
@@ -378,15 +406,18 @@ export function mapScenarioSummary(scenario: Scenario): ScenarioSummaryResponseD
 }
 
 export function mapScenarioNode(node: ScenarioNode): ScenarioNodeResponseDto {
+  const nodeConfig = parseScenarioNodeConfig(node.checkOptionsJson);
+
   return {
     id: node.id,
     nodeType: toScenarioNodeType(node.nodeType),
     title: node.title,
     sceneText: node.sceneText,
     imageUrl: node.imageUrl ?? null,
-    checkOptions: parseJson<Record<string, unknown>[]>(node.checkOptionsJson, []),
+    checkOptions: nodeConfig.checks,
     transitions: parseJson<Record<string, unknown>[]>(node.transitionsJson, []),
     clues: parseJson<Record<string, unknown>[]>(node.cluesJson, []),
+    vttMap: nodeConfig.vttMap,
     fallbackNodeId: node.fallbackNodeId,
   };
 }

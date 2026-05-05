@@ -1,17 +1,21 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Type } from "class-transformer";
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEnum,
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from "class-validator";
 import {
   ConnectionStatus,
@@ -616,4 +620,138 @@ export class UpdateSessionNodeDto {
   @IsString()
   @IsNotEmpty()
   nodeId!: string;
+}
+
+export class VttMapTokenDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  id!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  sessionCharacterId?: string | null;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(80)
+  name!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string | null;
+
+  @ApiProperty()
+  @IsNumber()
+  x!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  y!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  size!: number;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  hidden?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isHostile?: boolean;
+}
+
+export class VttFogRectDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  id!: string;
+
+  @ApiProperty()
+  @IsNumber()
+  x!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  y!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  width!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  height!: number;
+}
+
+export class VttMapStateDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  id!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  scenarioNodeId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string | null;
+
+  @ApiProperty({ default: "square" })
+  @IsIn(["square", "hex"])
+  gridType!: "square" | "hex";
+
+  @ApiProperty()
+  @IsNumber()
+  @Min(16)
+  @Max(160)
+  gridSize!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  @Min(320)
+  @Max(4000)
+  width!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  @Min(240)
+  @Max(4000)
+  height!: number;
+
+  @ApiProperty({ type: [VttMapTokenDto] })
+  @IsArray()
+  @ArrayMaxSize(80)
+  @ValidateNested({ each: true })
+  @Type(() => VttMapTokenDto)
+  tokens!: VttMapTokenDto[];
+
+  @ApiProperty({ type: [VttFogRectDto] })
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => VttFogRectDto)
+  fogRects!: VttFogRectDto[];
+
+  @ApiProperty()
+  @IsString()
+  updatedAt!: string;
+}
+
+export class UpdateVttMapDto {
+  @ApiProperty({ type: VttMapStateDto })
+  @ValidateNested()
+  @Type(() => VttMapStateDto)
+  map!: VttMapStateDto;
 }

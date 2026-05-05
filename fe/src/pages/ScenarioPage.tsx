@@ -109,6 +109,13 @@ export function ScenarioPage({
         title: node.title,
         sceneText: node.sceneText,
         imageUrl: node.imageUrl,
+        vttMap: node.vttMap
+          ? {
+              ...node.vttMap,
+              id: `map:${nodeIdMap.get(node.id) ?? makeCloneId("node")}`,
+              scenarioNodeId: nodeIdMap.get(node.id) ?? null,
+            }
+          : null,
         transitions: node.transitions.map((transition) => ({
           ...transition,
           id: makeCloneId("link"),

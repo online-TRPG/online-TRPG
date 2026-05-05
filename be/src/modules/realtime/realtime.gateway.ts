@@ -96,6 +96,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     await this.sessionsService.ensureMembership(userId, dto.sessionId);
     // 같은 세션 참가자끼리만 이벤트를 받도록 세션별 room에 입장시킨다.
     await client.join(this.realtimeEvents.getRoomName(dto.sessionId));
+    await client.join(this.realtimeEvents.getUserRoomName(dto.sessionId, userId));
     this.sessionMembershipBySocket.set(client.id, {
       sessionId: dto.sessionId,
       userId,
