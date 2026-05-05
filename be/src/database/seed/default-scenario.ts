@@ -26,7 +26,6 @@ const scenarioNodes = [
     sceneText:
       "A damp cave entrance opens ahead. Broken crates and muddy footprints suggest recent goblin activity.",
     imageUrl: null,
-    visibleToPlayers: true,
     checkOptionsJson: JSON.stringify([
       {
         id: "investigate_tracks",
@@ -44,7 +43,10 @@ const scenarioNodes = [
     cluesJson: JSON.stringify([
       {
         id: "clue_tracks",
+        title: "Fresh tracks",
         text: "Fresh tracks lead deeper inside.",
+        handoutText: "Fresh tracks lead deeper inside.",
+        revealPolicy: { mode: "on_node_visit" },
       },
     ]),
     fallbackNodeId: "node_inner_tunnel",
@@ -57,10 +59,18 @@ const scenarioNodes = [
     sceneText:
       "The tunnel narrows and torchlight flickers from a rough chamber further in.",
     imageUrl: null,
-    visibleToPlayers: true,
     checkOptionsJson: JSON.stringify([]),
     transitionsJson: JSON.stringify([]),
-    cluesJson: JSON.stringify([]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_secret_cache",
+        title: "Hidden cache",
+        text: "A loose stone hides a small goblin supply cache.",
+        handoutText: "A loose stone hides a small goblin supply cache.",
+        gmNotes: "Reveal only if the GM decides the players search the tunnel carefully.",
+        revealPolicy: { mode: "conditional" },
+      },
+    ]),
     fallbackNodeId: null,
   },
 ];
@@ -93,7 +103,6 @@ export async function seedDefaultScenario(prisma: PrismaClient): Promise<void> {
         nodeType: node.nodeType,
         sceneText: node.sceneText,
         imageUrl: node.imageUrl,
-        visibleToPlayers: node.visibleToPlayers,
         checkOptionsJson: node.checkOptionsJson,
         transitionsJson: node.transitionsJson,
         cluesJson: node.cluesJson,

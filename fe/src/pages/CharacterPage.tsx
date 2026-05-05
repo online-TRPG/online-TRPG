@@ -8,7 +8,6 @@ import boxBulletinNarrowPlanks from "../components/Box_Bulletin_Narrow_Planks.pn
 import profileBorderCharacter from "../components/Profile_Border_Character.png";
 import profileBorderStats from "../components/Profile_Border_Stats.png";
 import sidePanelImage from "../components/Side_Panel.png";
-import { Icon } from "../components/Icon";
 import { raceOptions } from "../data/race-options";
 import type { CharacterPayload } from "../hooks/useSession";
 import type { PersistentCharacter, SessionSnapshot, StoredUser } from "../types/session";
@@ -113,28 +112,6 @@ const classNameByPresetId: Map<string, string> = new Map([
   ["preset_warrior", "Warrior"],
 ]);
 
-const abilityLabels: Record<AbilityKey, string> = {
-  str: "STR",
-  dex: "DEX",
-  con: "CON",
-  int: "INT",
-  wis: "WIS",
-  cha: "CHA",
-};
-
-const suggestedSkills = [
-  "Acrobatics",
-  "Arcana",
-  "Athletics",
-  "History",
-  "Insight",
-  "Investigation",
-  "Perception",
-  "Persuasion",
-  "Stealth",
-  "Survival",
-];
-
 function calcModifier(score: number) {
   return Math.floor((score - 10) / 2);
 }
@@ -193,7 +170,6 @@ function getClassNameForPresetId(presetId: string) {
 }
 
 export function CharacterPage({
-  user,
   characters,
   snapshot,
   busy,

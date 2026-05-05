@@ -103,6 +103,22 @@ describe("Session service e2e", () => {
     expect(created.body.data.participants[0].role).toBe("HOST");
     expect(created.body.data.state.phase).toBe("lobby");
     expect(created.body.data.state.currentNodeId).toBe("node_cave_entrance");
+
+    const playerScenario = await request(baseUrl)
+      .get(`/api/v1/sessions/${created.body.data.session.sessionId}/player-scenario`)
+      .set("x-user-id", host.id)
+      .expect(200);
+
+    expect(playerScenario.body.data.currentNodeId).toBe("node_cave_entrance");
+    expect(playerScenario.body.data.currentNode.id).toBe("node_cave_entrance");
+    expect(playerScenario.body.data.visitedNodes.map((node: { id: string }) => node.id)).toEqual([
+      "node_cave_entrance",
+    ]);
+    expect(playerScenario.body.data.currentNode.transitions).toBeUndefined();
+    expect(playerScenario.body.data.currentNode.fallbackNodeId).toBeUndefined();
+    expect(
+      playerScenario.body.data.currentNode.publicClues.map((clue: { id: string }) => clue.id),
+    ).toEqual(["clue_tracks"]);
   });
 
   it("supports join, character selection, ready flow, and session start", async () => {
@@ -309,6 +325,44 @@ describe("Session service e2e", () => {
     expect(moved.body.data.session.currentNodeId).toBe("node_inner_tunnel");
     expect(moved.body.data.state.currentNodeId).toBe("node_inner_tunnel");
     expect(moved.body.data.state.phase).toBe("dialogue");
+
+    const playerScenario = await request(baseUrl)
+      .get(`/api/v1/sessions/${sessionId}/player-scenario`)
+      .set("x-user-id", host.id)
+      .expect(200);
+
+    expect(playerScenario.body.data.currentNodeId).toBe("node_inner_tunnel");
+    expect(playerScenario.body.data.currentNode.id).toBe("node_inner_tunnel");
+    expect(playerScenario.body.data.visitedNodes.map((node: { id: string }) => node.id)).toEqual([
+      "node_cave_entrance",
+      "node_inner_tunnel",
+    ]);
+    expect(playerScenario.body.data.currentNode.transitions).toBeUndefined();
+    expect(playerScenario.body.data.currentNode.fallbackNodeId).toBeUndefined();
+    expect(playerScenario.body.data.currentNode.publicClues).toHaveLength(0);
+
+    const revealed = await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/gm/reveals`)
+      .set("x-user-id", host.id)
+      .send({
+        contentId: "clue_secret_cache",
+        reason: "players_search_the_tunnel",
+      })
+      .expect(201);
+
+    expect(revealed.body.data.contentId).toBe("clue_secret_cache");
+    expect(revealed.body.data.revealedBy).toBe("human_gm");
+
+    const playerScenarioAfterReveal = await request(baseUrl)
+      .get(`/api/v1/sessions/${sessionId}/player-scenario`)
+      .set("x-user-id", host.id)
+      .expect(200);
+
+    expect(
+      playerScenarioAfterReveal.body.data.currentNode.publicClues.map(
+        (clue: { id: string }) => clue.id,
+      ),
+    ).toEqual(["clue_secret_cache"]);
 
     const combatStarted = await request(baseUrl)
       .post(`/api/v1/sessions/${sessionId}/gm/combat/start`)

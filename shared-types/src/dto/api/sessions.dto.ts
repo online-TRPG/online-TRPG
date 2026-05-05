@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -17,7 +18,7 @@ import {
   GamePhase,
   GmMode,
   ParticipantRole,
-  SessionCharacterStatus,
+  ScenarioNodeType,
   SessionParticipantStatus,
   SessionScenarioStatus,
   SessionStatus,
@@ -387,14 +388,142 @@ export class GameStateResponseDto {
   @ApiProperty({ type: Object })
   flags!: Record<string, unknown>;
 
-  @ApiProperty({ type: [Object] })
-  discoveredClues!: Record<string, unknown>[];
-
   @ApiProperty({ type: Object, deprecated: true })
   state!: Record<string, unknown>;
 
   @ApiProperty()
   updatedAt!: string;
+}
+
+export class PlayerScenarioClueDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  title!: string;
+
+  @ApiProperty()
+  text!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  importance!: string | null;
+}
+
+export class PlayerCheckOptionDto {
+  @ApiPropertyOptional()
+  id?: string;
+
+  @ApiProperty()
+  label!: string;
+
+  @ApiPropertyOptional()
+  type?: string;
+
+  @ApiPropertyOptional()
+  skill?: string;
+}
+
+export class PlayerScenarioNodeDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty({ enum: ScenarioNodeType })
+  nodeType!: ScenarioNodeType;
+
+  @ApiProperty()
+  title!: string;
+
+  @ApiProperty()
+  sceneText!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  imageUrl!: string | null;
+
+  @ApiProperty({ type: [PlayerCheckOptionDto] })
+  checkOptions!: PlayerCheckOptionDto[];
+
+  @ApiProperty({ type: [PlayerScenarioClueDto] })
+  publicClues!: PlayerScenarioClueDto[];
+}
+
+export class PlayerScenarioViewDto {
+  @ApiProperty()
+  sessionScenarioId!: string;
+
+  @ApiProperty()
+  scenarioId!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  currentNodeId!: string | null;
+
+  @ApiPropertyOptional({ type: PlayerScenarioNodeDto, nullable: true })
+  currentNode!: PlayerScenarioNodeDto | null;
+
+  @ApiProperty({ type: [PlayerScenarioNodeDto] })
+  visitedNodes!: PlayerScenarioNodeDto[];
+
+  @ApiProperty({ type: [PlayerScenarioClueDto] })
+  revealedClues!: PlayerScenarioClueDto[];
+}
+
+export class RevealSessionContentDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  contentId!: string;
+
+  @ApiPropertyOptional({ default: "clue" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  contentKind?: string;
+
+  @ApiPropertyOptional({ enum: ["party", "user", "character"], default: "party" })
+  @IsOptional()
+  @IsIn(["party", "user", "character"])
+  scope?: "party" | "user" | "character";
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  recipientId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  reason?: string | null;
+}
+
+export class SessionRevealResponseDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  sessionScenarioId!: string;
+
+  @ApiProperty()
+  contentId!: string;
+
+  @ApiProperty()
+  contentKind!: string;
+
+  @ApiProperty()
+  scope!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  recipientId!: string | null;
+
+  @ApiProperty()
+  revealedAt!: string;
+
+  @ApiProperty()
+  revealedBy!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  reason!: string | null;
 }
 
 export class SessionSnapshotDto {

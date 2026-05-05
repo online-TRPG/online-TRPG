@@ -6,7 +6,6 @@
 
 MVP에서는 Interpreter와 Narrator를 필수로 구현한다.
 Actor는 NPC 행동 후보 선택 전용으로 제한적으로 구현하고, NpcDialogue는 NPC 대사 생성 전용 역할로 Actor와 분리한다. Director와 Summarizer는 보조 역할로 둔다.
-Actor는 NPC 행동 후보 선택 전용으로 제한적으로 구현하고, NpcDialogue는 NPC 대사 생성 전용 역할로 Actor와 분리한다. Director와 Summarizer는 보조 역할로 둔다.
 
 범위 메모:
 
@@ -35,7 +34,6 @@ type AiCallRequest = {
   provider: AiProvider;
   model: string;
   role: 'interpreter' | 'actor' | 'npc_dialogue' | 'narrator' | 'director' | 'summarizer';
-  role: 'interpreter' | 'actor' | 'npc_dialogue' | 'narrator' | 'director' | 'summarizer';
   promptVersion: string;
   contents: string;
   timeoutMs: number;
@@ -59,6 +57,8 @@ type AiCallResult = {
 - `AI_MODEL_NARRATOR=gemma-4-31b-it`
 - `AI_MODEL_ACTOR=gemma-4-31b-it`
 - `AI_MODEL_NPC_DIALOGUE=gemma-4-31b-it`
+- `AI_MODEL_DIRECTOR=gemma-4-31b-it`
+- `AI_MODEL_SUMMARIZER=gemma-4-31b-it`
 - `AI_TIMEOUT_MS=30000`
 
 API 키는 서버에서만 사용하고 클라이언트 번들, 세션 로그, `AiTrace.rawOutput` 외 메타데이터에 기록하지 않는다.
@@ -70,10 +70,9 @@ API 키는 서버에서만 사용하고 클라이언트 번들, 세션 로그, `
 | Interpreter | 예       | 아니오         | 자연어 입력을 구조화 액션으로 변환 |
 | Narrator    | 예       | 아니오         | 확정된 결과를 GM 서사로 표현       |
 | Actor       | 일부     | 아니오         | NPC 행동 후보 중 하나 선택         |
+| NpcDialogue | 일부     | 아니오         | 허용된 상황 안에서 NPC 대사 생성   |
 | Director    | 아니오   | 아니오         | 정체 상황에서 힌트/전개 제안       |
 | Summarizer  | 후순위   | 아니오         | 장기 요약 메모리 생성              |
-
-NpcDialogue는 Actor와 별도 역할이다. Actor는 `allowedActions` 중 하나를 고르고, NpcDialogue는 이미 허용된 상황 안에서 표시 가능한 NPC 대사만 생성한다.
 
 NpcDialogue는 Actor와 별도 역할이다. Actor는 `allowedActions` 중 하나를 고르고, NpcDialogue는 이미 허용된 상황 안에서 표시 가능한 NPC 대사만 생성한다.
 
@@ -147,7 +146,6 @@ type NarratorInput = {
   checkRequest?: CheckRequest;
   diceResult?: DiceResult;
   stateDiffSummary?: NarratorStateDiffSummary;
-  stateDiffSummary?: NarratorStateDiffSummary;
   scene: {
     title: string;
     summary: string;
@@ -162,19 +160,6 @@ type NarratorInput = {
 ```
 
 ### 출력
-
-`stateDiffSummary`는 백엔드 `StateDiff.operations`가 아니라, 백엔드가 확정한 상태 변경을 공개 내레이션용으로 요약한 DTO다. AI Narrator 입력에서는 `StateDiff`라는 이름을 쓰지 않는다.
-
-```ts
-type NarratorStateDiffSummary = {
-  summary: string;
-  changedFlags: string[];
-  hpChanges: string[];
-  inventoryChanges: string[];
-  conditionChanges: string[];
-  nodeChange?: string;
-};
-```
 
 `stateDiffSummary`는 백엔드 `StateDiff.operations`가 아니라, 백엔드가 확정한 상태 변경을 공개 내레이션용으로 요약한 DTO다. AI Narrator 입력에서는 `StateDiff`라는 이름을 쓰지 않는다.
 
@@ -291,45 +276,6 @@ type NpcDialogueOutput = {
 - 대사는 요청에 포함된 NPC, 장면, 최근 맥락, 선택된 행동, 대사 목적 안에서만 생성한다.
 - 피해량, DC, 주사위 결과, HP 변경, 상태 변경을 만들 수 없다.
 
-Actor는 NPC 대사를 생성하지 않는다. NPC 대사는 `NpcDialogue` 역할이 처리한다.
-
-## 6.1 NpcDialogue
-
-NpcDialogue는 AI-002 NPC 대사 생성 전용 역할이다. Actor가 이미 고른 행동 후보나 현재 장면 맥락을 참고할 수 있지만, 행동을 선택하거나 상태를 변경하지 않는다.
-
-### 입력
-
-```ts
-type NpcDialogueInput = {
-  npcEntityId: string;
-  npcName?: string;
-  npcSummary: string;
-  disposition: 'hostile' | 'neutral' | 'friendly' | string;
-  sceneSummary: string;
-  recentContext: string[];
-  selectedActionId?: string;
-  dialogueIntent: string;
-  audienceIds: string[];
-  maxLength: number;
-};
-```
-
-### 출력
-
-```ts
-type NpcDialogueOutput = {
-  dialogue: string;
-  tone: string;
-  safetyNotes: string[];
-};
-```
-
-### 규칙
-
-- 행동 선택은 Actor 책임이다.
-- 대사는 요청에 포함된 NPC, 장면, 최근 맥락, 선택된 행동, 대사 목적 안에서만 생성한다.
-- 피해량, DC, 주사위 결과, HP 변경, 상태 변경을 만들 수 없다.
-
 ## 7. Director
 
 Director는 MVP 필수 기능이 아니다.
@@ -354,9 +300,7 @@ prompts/
   narrator.v1.md
   actor.v1.md
   npc_dialogue.v1.md
-  npc_dialogue.v1.md
   director.v1.md
-  summarizer.v1.md
   summarizer.v1.md
 ```
 
