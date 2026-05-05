@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "../components/Icon";
-import { deleteScenario, listMyScenarios } from "../services/api";
+import { createScenario, deleteScenario, getScenario, listMyScenarios } from "../services/api";
 import type { Scenario, StoredUser } from "../types/session";
+import type { CreateScenarioDto } from "@trpg/shared-types";
 
 interface ScenarioPageProps {
   user: StoredUser;
@@ -10,6 +11,14 @@ interface ScenarioPageProps {
   error: string | null;
   onOpenCreate: () => void;
   onOpenEdit: (scenarioId: string) => void;
+}
+
+function makeCloneId(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function remapNodeReference(value: unknown, nodeIdMap: Map<string, string>): unknown {
+  return typeof value === "string" ? nodeIdMap.get(value) ?? value : value;
 }
 
 export function ScenarioPage({
@@ -24,17 +33,21 @@ export function ScenarioPage({
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
   const [localBusy, setLocalBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
     let ignore = false;
     setLocalError(null);
     setLocalBusy(true);
 
-    listMyScenarios(user, accessToken)
+    const timer = window.setTimeout(() => {
+      listMyScenarios(user, accessToken, searchTerm)
       .then((next) => {
         if (ignore) return;
         setScenarios(next);
-        setSelectedScenarioId((current) => current ?? next[0]?.id ?? null);
+        setSelectedScenarioId((current) =>
+          next.some((scenario) => scenario.id === current) ? current : next[0]?.id ?? null
+        );
       })
       .catch((caught) => {
         if (!ignore) {
@@ -46,11 +59,13 @@ export function ScenarioPage({
           setLocalBusy(false);
         }
       });
+    }, 250);
 
     return () => {
       ignore = true;
+      window.clearTimeout(timer);
     };
-  }, [accessToken, user]);
+  }, [accessToken, searchTerm, user]);
 
   const selectedScenario = useMemo(
     () => scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? null,
@@ -79,7 +94,59 @@ export function ScenarioPage({
     }
   }
 
+  async function handleCloneSelected() {
+    if (!selectedScenario) return;
+
+    setLocalBusy(true);
+    setLocalError(null);
+
+    try {
+      const source = await getScenario(selectedScenario.id);
+      const nodeIdMap = new Map(source.nodes.map((node) => [node.id, makeCloneId("node")]));
+      const nodes = source.nodes.map((node) => ({
+        id: nodeIdMap.get(node.id) ?? makeCloneId("node"),
+        nodeType: node.nodeType,
+        title: node.title,
+        sceneText: node.sceneText,
+        imageUrl: node.imageUrl,
+        transitions: node.transitions.map((transition) => ({
+          ...transition,
+          id: makeCloneId("link"),
+          nextNodeId: remapNodeReference(transition.nextNodeId, nodeIdMap),
+        })),
+        clues: node.clues.map((clue) => ({
+          ...clue,
+          id: makeCloneId("clue"),
+          pointsToNodeId: remapNodeReference(clue.pointsToNodeId, nodeIdMap),
+        })),
+      }));
+      const copyTitle = `${source.title} 복사본`.slice(0, 100);
+      const payload: CreateScenarioDto = {
+        title: copyTitle,
+        description: source.description,
+        thumbnailUrl: source.thumbnailUrl,
+        ruleSetId: source.ruleSetId,
+        difficulty: source.difficulty,
+        license: source.license,
+        attribution: source.attribution,
+        startNodeTitle: nodes[0]?.title,
+        startSceneText: nodes[0]?.sceneText,
+        nodes,
+      };
+
+      const created = await createScenario(user, payload, accessToken);
+      const next = await listMyScenarios(user, accessToken, searchTerm);
+      setScenarios(next);
+      setSelectedScenarioId(next.some((scenario) => scenario.id === created.id) ? created.id : next[0]?.id ?? null);
+    } catch (caught) {
+      setLocalError(caught instanceof Error ? caught.message : "시나리오 복제에 실패했습니다.");
+    } finally {
+      setLocalBusy(false);
+    }
+  }
+
   const disabled = busy || localBusy;
+  const hasSearchTerm = Boolean(searchTerm.trim());
 
   return (
     <main className="character-page fantasy-character-page">
@@ -87,6 +154,14 @@ export function ScenarioPage({
         <aside className="fantasy-character-sidebar">
           <button type="button" className="fantasy-character-sidebutton" onClick={onOpenCreate}>
             새 시나리오 생성
+          </button>
+          <button
+            type="button"
+            className="fantasy-character-sidebutton"
+            disabled={!selectedScenario || disabled}
+            onClick={() => void handleCloneSelected()}
+          >
+            시나리오 복제
           </button>
           <button
             type="button"
@@ -118,6 +193,17 @@ export function ScenarioPage({
             </button>
           </div>
 
+          <label className="scenario-library-search" htmlFor="scenario-title-search">
+            <Icon name="search" />
+            <input
+              id="scenario-title-search"
+              type="search"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="시나리오 제목 검색"
+            />
+          </label>
+
           <div className="scenario-library-grid">
             {scenarios.length ? (
               scenarios.map((scenario) => (
@@ -142,6 +228,11 @@ export function ScenarioPage({
                   </dl>
                 </button>
               ))
+            ) : hasSearchTerm ? (
+              <article className="empty-card">
+                <h3>검색 결과가 없습니다.</h3>
+                <p>다른 제목으로 검색해 보세요.</p>
+              </article>
             ) : (
               <article className="empty-card">
                 <h3>아직 직접 만든 시나리오가 없습니다.</h3>

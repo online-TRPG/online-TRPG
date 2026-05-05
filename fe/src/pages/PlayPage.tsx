@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import type { CharacterPayload } from "../hooks/useSession";
-import { getScenario } from "../services/api";
-import type { LogEntry, PersistentCharacter, ScenarioDetail, ScenarioNode, SessionSnapshot, StoredUser } from "../types/session";
+import { getPlayerScenario } from "../services/api";
+import type { LogEntry, PersistentCharacter, PlayerScenarioView, SessionSnapshot, StoredUser } from "../types/session";
 
 const sessionTabs = ["Main", "Chat", "Info", "Settings"] as const;
 
@@ -58,18 +58,6 @@ function getNodeLabel(value: unknown): string | null {
   return null;
 }
 
-function getNodeDc(value: unknown): number | null {
-  if (!value || typeof value !== "object") return null;
-  const candidate = value as Record<string, unknown>;
-  return typeof candidate.dc === "number" ? candidate.dc : null;
-}
-
-function getTransitionTarget(value: unknown): string | null {
-  if (!value || typeof value !== "object") return null;
-  const candidate = value as Record<string, unknown>;
-  return typeof candidate.nextNodeId === "string" ? candidate.nextNodeId : null;
-}
-
 export function PlayPage({
   user,
   snapshot,
@@ -94,7 +82,7 @@ export function PlayPage({
   const [formState, setFormState] = useState(defaultCharacter);
   const [localSelectedCharacterId, setLocalSelectedCharacterId] = useState<string | null>(null);
   const [isStatusMinimized, setStatusMinimized] = useState(false);
-  const [scenarioDetail, setScenarioDetail] = useState<ScenarioDetail | null>(null);
+  const [playerScenario, setPlayerScenario] = useState<PlayerScenarioView | null>(null);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const logEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -113,12 +101,8 @@ export function PlayPage({
   const canStartSession = Boolean(isHost && isRecruiting && allPlayersReady && participants.length > 0);
   const activeScenario =
     snapshot?.sessionScenarios.find((item) => item.status === "ACTIVE") ?? snapshot?.sessionScenarios[0];
-  const activeScenarioId = activeScenario?.scenarioId ?? session?.scenarioId ?? null;
-  const currentNodeId = snapshot?.state.currentNodeId ?? session?.currentNodeId ?? activeScenario?.scenario.startNodeId ?? null;
-  const currentNode = useMemo<ScenarioNode | null>(() => {
-    if (!scenarioDetail || !currentNodeId) return null;
-    return scenarioDetail.nodes.find((node) => node.id === currentNodeId) ?? null;
-  }, [currentNodeId, scenarioDetail]);
+  const currentNode = playerScenario?.currentNode ?? null;
+  const revealedClues = playerScenario?.revealedClues ?? [];
 
   useEffect(() => {
     setLocalSelectedCharacterId(serverSelectedCharacterId);
@@ -131,8 +115,8 @@ export function PlayPage({
   }, [allPlayersReady]);
 
   useEffect(() => {
-    if (!activeScenarioId) {
-      setScenarioDetail(null);
+    if (!session) {
+      setPlayerScenario(null);
       setScenarioLoadError(null);
       return;
     }
@@ -140,15 +124,15 @@ export function PlayPage({
     let ignore = false;
     setScenarioLoadError(null);
 
-    getScenario(activeScenarioId)
+    getPlayerScenario(user, session.id)
       .then((scenario) => {
         if (!ignore) {
-          setScenarioDetail(scenario);
+          setPlayerScenario(scenario);
         }
       })
       .catch((caught) => {
         if (!ignore) {
-          setScenarioDetail(null);
+          setPlayerScenario(null);
           setScenarioLoadError(caught instanceof Error ? caught.message : "시나리오를 불러오지 못했습니다.");
         }
       });
@@ -156,7 +140,7 @@ export function PlayPage({
     return () => {
       ignore = true;
     };
-  }, [activeScenarioId]);
+  }, [session, snapshot?.state.currentNodeId, user]);
 
   const joinableCharacters = useMemo(
     () =>
@@ -381,11 +365,9 @@ export function PlayPage({
                         <ul className="scenario-node-list">
                           {currentNode.checkOptions.map((option, index) => {
                             const label = getNodeLabel(option) ?? `Check ${index + 1}`;
-                            const dc = getNodeDc(option);
                             return (
                               <li key={`${label}-${index}`}>
                                 <strong>{label}</strong>
-                                {dc ? <span>DC {dc}</span> : null}
                               </li>
                             );
                           })}
@@ -396,25 +378,37 @@ export function PlayPage({
                     </article>
 
                     <article className="scenario-node-panel">
-                      <span className="eyebrow">Transitions</span>
-                      {currentNode.transitions.length ? (
+                      <span className="eyebrow">Clues</span>
+                      {currentNode.publicClues.length ? (
                         <ul className="scenario-node-list">
-                          {currentNode.transitions.map((transition, index) => {
-                            const label = getNodeLabel(transition) ?? `Next ${index + 1}`;
-                            const target = getTransitionTarget(transition);
-                            return (
-                              <li key={`${label}-${index}`}>
-                                <strong>{label}</strong>
-                                {target ? <span>{target}</span> : null}
-                              </li>
-                            );
-                          })}
+                          {currentNode.publicClues.map((clue) => (
+                            <li key={clue.id}>
+                              <strong>{clue.title}</strong>
+                              <span>{clue.text}</span>
+                            </li>
+                          ))}
                         </ul>
                       ) : (
-                        <p>This is the last visible node.</p>
+                        <p>No clues discovered for this scene.</p>
                       )}
                     </article>
                   </div>
+
+                  <article className="scenario-node-panel">
+                    <span className="eyebrow">Discovered clues</span>
+                    {revealedClues.length ? (
+                      <ul className="scenario-node-list">
+                        {revealedClues.map((clue) => (
+                          <li key={clue.id}>
+                            <strong>{clue.title}</strong>
+                            <span>{clue.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>No clues discovered yet.</p>
+                    )}
+                  </article>
                 </>
               ) : (
                 <article className="scenario-node-panel">

@@ -1,6 +1,8 @@
 import type {
   CharacterResponseDto,
   GameStateResponseDto,
+  PlayerScenarioNodeDto,
+  PlayerScenarioViewDto,
   ScenarioNodeResponseDto,
   ScenarioResponseDto,
   ScenarioSummaryResponseDto,
@@ -23,6 +25,8 @@ export type Participant = SessionParticipantResponseDto;
 export type PersistentCharacter = CharacterResponseDto;
 export type Character = SessionCharacterResponseDto;
 export type GameState = GameStateResponseDto;
+export type PlayerScenarioNode = PlayerScenarioNodeDto;
+export type PlayerScenarioView = PlayerScenarioViewDto;
 export type SessionSnapshot = Omit<SessionSnapshotDto, "sessionCharacters"> & {
   sessionCharacters: SessionCharacterResponseDto[];
   characters: SessionCharacterResponseDto[];

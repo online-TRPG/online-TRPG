@@ -135,15 +135,11 @@ MVP에서는 WebSocket 또는 Server-Sent Events 중 하나를 사용한다.
 
 ## 6. 보강 문서 목록
 
-구현 전 다음 문서를 기준으로 삼는다.
+관련 기준 문서는 `doc/README.md`의 문서 지도를 따른다. 특히 아래 문서를 함께 본다.
 
-- `MVP_RULESET_SRD5E.md`: MVP에서 구현할 SRD 5e 기반 룰 범위
-- `DATA_MODEL.md`: 핵심 엔티티와 스키마 초안
-- `TURN_LOOP.md`: 한 턴이 처리되는 서버 흐름
-- `MVP_ACCEPTANCE_CRITERIA.md`: MVP 완료 판정 기준
 - `RULESET_SRD5E_MVP.md`: MVP에서 구현할 SRD 5e 기반 룰 범위
 - `DOMAIN_MODEL.md`: 핵심 엔티티와 스키마 초안
 - `RUNTIME_SESSION_TURN_FLOW.md`: 한 턴이 처리되는 서버 흐름
 - `AI_RUNTIME_CONTRACTS.md`: Interpreter, Narrator, Actor, NpcDialogue, Director, Summarizer의 입출력 계약
 - `QUALITY_MVP_ACCEPTANCE.md`: MVP 완료 판정 기준
-- `UX_SCREEN_DESIGN.md`: 로그인부터 세션 플레이와 사람 GM 운영 패널까지의 화면 설계
+- `SCREEN.md`: 로그인부터 세션 플레이와 사람 GM 운영 패널까지의 화면 설계

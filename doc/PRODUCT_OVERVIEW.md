@@ -290,10 +290,10 @@ flowchart TB
 
 ### 프론트엔드
 
-- Next.js
 - React
 - TypeScript
-- Tailwind CSS
+- Vite
+- CSS
 
 ### 백엔드
 

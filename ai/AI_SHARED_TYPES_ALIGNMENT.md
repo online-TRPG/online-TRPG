@@ -8,8 +8,6 @@
 
 ## 원칙
 
-## 원칙
-
 1. AI DTO는 게임 상태의 source of truth가 아니다.
 2. 백엔드 확정값은 `GameState`, `StateDiff`, `TurnLog` 쪽이 기준이다.
 3. AI-owned 값과 engine-owned 값을 한 타입에 섞지 않는다.

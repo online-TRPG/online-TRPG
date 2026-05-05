@@ -25,6 +25,13 @@ export function Icon({ name }: { name: string }) {
           <path d="M12 5v14M5 12h14" />
         </svg>
       );
+    case "search":
+      return (
+        <svg {...common}>
+          <circle cx="11" cy="11" r="7" />
+          <path d="M20 20l-4-4" />
+        </svg>
+      );
     case "enter":
       return (
         <svg {...common}>

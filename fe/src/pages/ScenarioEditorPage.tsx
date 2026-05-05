@@ -1,8 +1,18 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
-import { createScenario, getScenario, updateScenario, uploadScenarioNodeImage } from "../services/api";
-import type { ScenarioDetail, StoredUser } from "../types/session";
-import type { ScenarioLicense, ScenarioNodeType } from "@trpg/shared-types";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import {
+  createScenario,
+  getScenario,
+  updateScenario,
+  uploadScenarioNodeImage,
+} from '../services/api';
+import type { ScenarioDetail, StoredUser } from '../types/session';
+import type {
+  CreateScenarioDto,
+  ScenarioLicense,
+  ScenarioNodeType,
+  UpdateScenarioDto,
+} from '@trpg/shared-types';
 
 interface ScenarioEditorPageProps {
   user: StoredUser;
@@ -10,6 +20,7 @@ interface ScenarioEditorPageProps {
   scenarioId?: string | null;
   onDone: () => void;
   onCancel: () => void;
+  onUnsavedChangesChange?: (hasUnsavedChanges: boolean) => void;
 }
 
 type LinkForm = {
@@ -20,6 +31,8 @@ type LinkForm = {
   note: string;
 };
 
+type RevealMode = 'manual' | 'on_node_visit' | 'conditional';
+
 type ClueForm = {
   id: string;
   title: string;
@@ -27,8 +40,8 @@ type ClueForm = {
   revelation: string;
   source: string;
   pointsToNodeId: string;
-  importance: "core" | "supporting" | "optional";
-  playerVisible: boolean;
+  importance: 'core' | 'supporting' | 'optional';
+  revealMode: RevealMode;
   handoutText: string;
   gmNotes: string;
 };
@@ -39,7 +52,6 @@ type NodeForm = {
   title: string;
   sceneText: string;
   imageUrl: string;
-  visibleToPlayers: boolean;
   links: LinkForm[];
   clues: ClueForm[];
 };
@@ -64,20 +76,20 @@ type GraphNodeLayout = {
 const GRAPH_COLUMN_GAP = 180;
 const GRAPH_ROW_GAP = 82;
 const GRAPH_PADDING = 64;
-const GRAPH_POINT_RADIUS = 6;
+const AUTO_SAVE_INTERVAL_MS = 300_000;
+const UNSAVED_CHANGES_MESSAGE = '저장되지 않은 변경사항이 있습니다. 이 화면을 나가시겠습니까?';
 
 function makeLocalId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function createBlankNode(title = "새 장면"): NodeForm {
+function createBlankNode(title = '새 장면'): NodeForm {
   return {
-    id: makeLocalId("node"),
-    nodeType: "story" as ScenarioNodeType,
+    id: makeLocalId('node'),
+    nodeType: 'story' as ScenarioNodeType,
     title,
-    sceneText: "",
-    imageUrl: "",
-    visibleToPlayers: true,
+    sceneText: '',
+    imageUrl: '',
     links: [],
     clues: [],
   };
@@ -85,58 +97,65 @@ function createBlankNode(title = "새 장면"): NodeForm {
 
 function createBlankLink(nodes: NodeForm[], currentNodeId: string): LinkForm {
   return {
-    id: makeLocalId("link"),
-    label: "다음 장면",
-    condition: "default",
-    nextNodeId: nodes.find((node) => node.id !== currentNodeId)?.id ?? "",
-    note: "",
+    id: makeLocalId('link'),
+    label: '다음 장면',
+    condition: 'default',
+    nextNodeId: nodes.find((node) => node.id !== currentNodeId)?.id ?? '',
+    note: '',
   };
 }
 
 function createBlankClue(): ClueForm {
   return {
-    id: makeLocalId("clue"),
-    title: "",
-    text: "",
-    revelation: "",
-    source: "",
-    pointsToNodeId: "",
-    importance: "supporting",
-    playerVisible: false,
-    handoutText: "",
-    gmNotes: "",
+    id: makeLocalId('clue'),
+    title: '',
+    text: '',
+    revelation: '',
+    source: '',
+    pointsToNodeId: '',
+    importance: 'supporting',
+    revealMode: 'conditional',
+    handoutText: '',
+    gmNotes: '',
   };
 }
 
 function createEmptyForm(): ScenarioFormState {
   return {
-    title: "",
-    description: "",
-    ruleSetId: "dnd5e",
-    difficulty: "easy",
-    license: "original" as ScenarioLicense,
-    attribution: "",
-    nodes: [createBlankNode("첫 장면")],
+    title: '',
+    description: '',
+    ruleSetId: 'dnd5e',
+    difficulty: 'easy',
+    license: 'original' as ScenarioLicense,
+    attribution: '',
+    nodes: [createBlankNode('첫 장면')],
   };
 }
 
-function valueAsString(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
+function valueAsString(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback;
 }
 
-function valueAsBoolean(value: unknown, fallback = false): boolean {
-  return typeof value === "boolean" ? value : fallback;
+function valueAsImportance(value: unknown): ClueForm['importance'] {
+  return value === 'core' || value === 'optional' ? value : 'supporting';
 }
 
-function valueAsImportance(value: unknown): ClueForm["importance"] {
-  return value === "core" || value === "optional" ? value : "supporting";
+function valueAsRevealMode(clue: Record<string, unknown>): RevealMode {
+  const revealPolicy = clue.revealPolicy;
+  const mode =
+    revealPolicy && typeof revealPolicy === 'object'
+      ? valueAsString((revealPolicy as Record<string, unknown>).mode)
+      : '';
+  return mode === 'manual' || mode === 'on_node_visit' || mode === 'conditional'
+    ? mode
+    : 'conditional';
 }
 
 function mapLink(transition: Record<string, unknown>): LinkForm {
   return {
-    id: valueAsString(transition.id, makeLocalId("link")),
+    id: valueAsString(transition.id, makeLocalId('link')),
     label: valueAsString(transition.label),
-    condition: valueAsString(transition.condition, "default"),
+    condition: valueAsString(transition.condition, 'default'),
     nextNodeId: valueAsString(transition.nextNodeId),
     note: valueAsString(transition.note),
   };
@@ -144,14 +163,14 @@ function mapLink(transition: Record<string, unknown>): LinkForm {
 
 function mapClue(clue: Record<string, unknown>): ClueForm {
   return {
-    id: valueAsString(clue.id, makeLocalId("clue")),
+    id: valueAsString(clue.id, makeLocalId('clue')),
     title: valueAsString(clue.title),
     text: valueAsString(clue.text),
     revelation: valueAsString(clue.revelation),
     source: valueAsString(clue.source),
     pointsToNodeId: valueAsString(clue.pointsToNodeId),
     importance: valueAsImportance(clue.importance),
-    playerVisible: valueAsBoolean(clue.playerVisible),
+    revealMode: valueAsRevealMode(clue),
     handoutText: valueAsString(clue.handoutText),
     gmNotes: valueAsString(clue.gmNotes),
   };
@@ -164,20 +183,19 @@ function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
         nodeType: node.nodeType,
         title: node.title,
         sceneText: node.sceneText,
-        imageUrl: node.imageUrl ?? "",
-        visibleToPlayers: node.visibleToPlayers,
+        imageUrl: node.imageUrl ?? '',
         links: node.transitions.map(mapLink),
         clues: node.clues.map(mapClue),
       }))
-    : [createBlankNode("첫 장면")];
+    : [createBlankNode('첫 장면')];
 
   return {
     title: scenario.title,
-    description: scenario.description ?? "",
-    ruleSetId: scenario.ruleSetId ?? "dnd5e",
-    difficulty: scenario.difficulty ?? "",
+    description: scenario.description ?? '',
+    ruleSetId: scenario.ruleSetId ?? 'dnd5e',
+    difficulty: scenario.difficulty ?? '',
     license: scenario.license,
-    attribution: scenario.attribution ?? "",
+    attribution: scenario.attribution ?? '',
     nodes,
   };
 }
@@ -189,13 +207,12 @@ function serializeNodes(nodes: NodeForm[]) {
     title: node.title.trim(),
     sceneText: node.sceneText.trim(),
     imageUrl: node.imageUrl || null,
-    visibleToPlayers: node.visibleToPlayers,
     transitions: node.links
       .filter((link) => link.nextNodeId)
       .map((link) => ({
         id: link.id,
         label: link.label.trim() || undefined,
-        condition: link.condition.trim() || "default",
+        condition: link.condition.trim() || 'default',
         nextNodeId: link.nextNodeId,
         note: link.note.trim() || undefined,
       })),
@@ -203,27 +220,56 @@ function serializeNodes(nodes: NodeForm[]) {
       .filter((clue) => clue.title.trim() || clue.text.trim() || clue.revelation.trim())
       .map((clue) => ({
         id: clue.id,
-        title: clue.title.trim() || clue.text.trim().slice(0, 40) || "단서",
+        title: clue.title.trim() || clue.text.trim().slice(0, 40) || '단서',
         text: clue.text.trim(),
         revelation: clue.revelation.trim(),
         source: clue.source.trim(),
         pointsToNodeId: clue.pointsToNodeId || null,
         importance: clue.importance,
-        playerVisible: clue.playerVisible,
+        revealPolicy: { mode: clue.revealMode },
         handoutText: clue.handoutText.trim(),
         gmNotes: clue.gmNotes.trim(),
       })),
   }));
 }
 
+function buildScenarioPayload(form: ScenarioFormState): CreateScenarioDto & UpdateScenarioDto {
+  const nodes = serializeNodes(form.nodes);
+
+  return {
+    title: form.title.trim(),
+    description: form.description || null,
+    ruleSetId: form.ruleSetId || null,
+    difficulty: form.difficulty || null,
+    license: form.license,
+    attribution: form.attribution || null,
+    startNodeTitle: nodes[0]?.title,
+    startSceneText: nodes[0]?.sceneText,
+    nodes,
+  };
+}
+
+function getRequiredScenarioMessage(payload: CreateScenarioDto & UpdateScenarioDto): string | null {
+  if (!payload.title) {
+    return '자동 저장 대기: 시나리오 제목을 입력해 주세요.';
+  }
+
+  const invalidNode = payload.nodes?.find((node) => !node.title || !node.sceneText);
+  if (invalidNode) {
+    return '자동 저장 대기: 모든 노드의 제목과 장면 내용을 입력해 주세요.';
+  }
+
+  return null;
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      resolve(result.split(",")[1] ?? "");
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      resolve(result.split(',')[1] ?? '');
     };
-    reader.onerror = () => reject(reader.error ?? new Error("파일을 읽지 못했습니다."));
+    reader.onerror = () => reject(reader.error ?? new Error('파일을 읽지 못했습니다.'));
     reader.readAsDataURL(file);
   });
 }
@@ -295,7 +341,7 @@ function buildGraphLayout(nodes: NodeForm[]): {
       x: GRAPH_PADDING + depth * GRAPH_COLUMN_GAP,
       y: GRAPH_PADDING + row * GRAPH_ROW_GAP,
       incomingCount: incomingByNode.get(node.id) ?? 0,
-    })),
+    }))
   );
   const layoutById = new Map(graphNodes.map((item) => [item.node.id, item]));
   const edges = graphNodes.flatMap((from) =>
@@ -310,7 +356,7 @@ function buildGraphLayout(nodes: NodeForm[]): {
           to,
         };
       })
-      .filter((edge): edge is NonNullable<typeof edge> => Boolean(edge)),
+      .filter((edge): edge is NonNullable<typeof edge> => Boolean(edge))
   );
   const maxDepth = Math.max(0, ...graphNodes.map((item) => depthByNode.get(item.node.id) ?? 0));
   const maxRows = Math.max(1, ...Array.from(nodesByDepth.values()).map((items) => items.length));
@@ -329,26 +375,77 @@ export function ScenarioEditorPage({
   scenarioId,
   onDone,
   onCancel,
+  onUnsavedChangesChange,
 }: ScenarioEditorPageProps) {
   const isEditMode = Boolean(scenarioId);
+  const [draftScenarioId, setDraftScenarioId] = useState<string | null>(scenarioId ?? null);
   const [form, setForm] = useState<ScenarioFormState>(() => createEmptyForm());
   const [selectedNodeId, setSelectedNodeId] = useState(form.nodes[0].id);
-  const [editorMode, setEditorMode] = useState<"graph" | "detail">("graph");
+  const [editorMode, setEditorMode] = useState<'graph' | 'detail'>('graph');
   const [isScenarioInfoOpen, setScenarioInfoOpen] = useState(!scenarioId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoSaveStatus, setAutoSaveStatus] = useState('자동 저장 준비 중');
+  const autoSaveBusyRef = useRef(false);
+  const lastSavedSnapshotRef = useRef<string | null>(null);
+  const draftScenarioIdRef = useRef<string | null>(scenarioId ?? null);
+  const formRef = useRef(form);
+  const busyRef = useRef(busy);
+
+  const effectiveScenarioId = draftScenarioId ?? scenarioId ?? null;
+
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+
+  const hasUnsavedChanges = useCallback(() => {
+    const savedSnapshot = lastSavedSnapshotRef.current;
+    return (
+      savedSnapshot !== null &&
+      JSON.stringify(buildScenarioPayload(formRef.current)) !== savedSnapshot
+    );
+  }, []);
+
+  useEffect(() => {
+    formRef.current = form;
+    onUnsavedChangesChange?.(hasUnsavedChanges());
+  }, [form, hasUnsavedChanges, onUnsavedChangesChange]);
+
+  useEffect(() => {
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      if (!hasUnsavedChanges()) return;
+
+      event.preventDefault();
+      event.returnValue = UNSAVED_CHANGES_MESSAGE;
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
 
   useEffect(() => {
     if (!scenarioId) {
       const nextForm = createEmptyForm();
+      setDraftScenarioId(null);
+      draftScenarioIdRef.current = null;
+      lastSavedSnapshotRef.current = JSON.stringify(buildScenarioPayload(nextForm));
+      onUnsavedChangesChange?.(false);
+      setAutoSaveStatus('자동 저장 대기: 필수 내용을 입력해 주세요.');
       setForm(nextForm);
       setSelectedNodeId(nextForm.nodes[0].id);
-      setEditorMode("graph");
+      setEditorMode('graph');
       setScenarioInfoOpen(true);
       return;
     }
 
     let ignore = false;
+    setDraftScenarioId(scenarioId);
+    draftScenarioIdRef.current = scenarioId;
+    lastSavedSnapshotRef.current = null;
+    setAutoSaveStatus('자동 저장 준비 중');
     setBusy(true);
     setError(null);
 
@@ -357,13 +454,16 @@ export function ScenarioEditorPage({
         if (!ignore) {
           const nextForm = formFromScenario(scenario);
           setForm(nextForm);
+          lastSavedSnapshotRef.current = JSON.stringify(buildScenarioPayload(nextForm));
+          onUnsavedChangesChange?.(false);
+          setAutoSaveStatus('저장됨');
           setSelectedNodeId(nextForm.nodes[0].id);
-          setEditorMode("graph");
+          setEditorMode('graph');
         }
       })
       .catch((caught) => {
         if (!ignore) {
-          setError(caught instanceof Error ? caught.message : "시나리오를 불러오지 못했습니다.");
+          setError(caught instanceof Error ? caught.message : '시나리오를 불러오지 못했습니다.');
         }
       })
       .finally(() => {
@@ -377,9 +477,62 @@ export function ScenarioEditorPage({
     };
   }, [scenarioId]);
 
+  const autoSave = useCallback(async () => {
+    if (busyRef.current || autoSaveBusyRef.current) return;
+
+    const payload = buildScenarioPayload(formRef.current);
+    const snapshot = JSON.stringify(payload);
+
+    if (lastSavedSnapshotRef.current === snapshot) {
+      setAutoSaveStatus('저장됨');
+      return;
+    }
+
+    const requiredMessage = getRequiredScenarioMessage(payload);
+    if (requiredMessage) {
+      setAutoSaveStatus(requiredMessage);
+      return;
+    }
+
+    autoSaveBusyRef.current = true;
+    setAutoSaveStatus('자동 저장 중...');
+
+    try {
+      const savedScenario = draftScenarioIdRef.current
+        ? await updateScenario(user, draftScenarioIdRef.current, payload, accessToken)
+        : await createScenario(user, payload, accessToken);
+
+      draftScenarioIdRef.current = savedScenario.id;
+      setDraftScenarioId(savedScenario.id);
+      lastSavedSnapshotRef.current = snapshot;
+      onUnsavedChangesChange?.(false);
+      setAutoSaveStatus(
+        `자동 저장됨 ${new Date().toLocaleTimeString('ko-KR', {
+          hour: '2-digit',
+          minute: '2-digit',
+        })}`
+      );
+    } catch (caught) {
+      setAutoSaveStatus('자동 저장 실패');
+      setError(caught instanceof Error ? caught.message : '자동 저장에 실패했습니다.');
+    } finally {
+      autoSaveBusyRef.current = false;
+    }
+  }, [accessToken, user]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void autoSave();
+    }, AUTO_SAVE_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [autoSave]);
+
   const selectedNode = useMemo(
     () => form.nodes.find((node) => node.id === selectedNodeId) ?? form.nodes[0],
-    [form.nodes, selectedNodeId],
+    [form.nodes, selectedNodeId]
   );
 
   const incomingLinks = useMemo(
@@ -388,17 +541,20 @@ export function ScenarioEditorPage({
         ? form.nodes.flatMap((node) =>
             node.links
               .filter((link) => link.nextNodeId === selectedNode.id)
-              .map((link) => ({ fromNode: node.title || node.id, label: link.label || link.condition })),
+              .map((link) => ({
+                fromNode: node.title || node.id,
+                label: link.label || link.condition,
+              }))
           )
         : [],
-    [form.nodes, selectedNode],
+    [form.nodes, selectedNode]
   );
 
   const graphLayout = useMemo(() => buildGraphLayout(form.nodes), [form.nodes]);
 
-  function updateField<K extends keyof Omit<ScenarioFormState, "nodes">>(
+  function updateField<K extends keyof Omit<ScenarioFormState, 'nodes'>>(
     field: K,
-    value: ScenarioFormState[K],
+    value: ScenarioFormState[K]
   ) {
     setForm((current) => ({
       ...current,
@@ -420,7 +576,7 @@ export function ScenarioEditorPage({
       nodes: [...current.nodes, node],
     }));
     setSelectedNodeId(node.id);
-    setEditorMode("detail");
+    setEditorMode('detail');
   }
 
   function removeNode(nodeId: string) {
@@ -439,7 +595,7 @@ export function ScenarioEditorPage({
           links: node.links.filter((link) => link.nextNodeId !== nodeId),
           clues: node.clues.map((clue) => ({
             ...clue,
-            pointsToNodeId: clue.pointsToNodeId === nodeId ? "" : clue.pointsToNodeId,
+            pointsToNodeId: clue.pointsToNodeId === nodeId ? '' : clue.pointsToNodeId,
           })),
         })),
       };
@@ -449,7 +605,7 @@ export function ScenarioEditorPage({
 
   function selectNode(nodeId: string) {
     setSelectedNodeId(nodeId);
-    setEditorMode("detail");
+    setEditorMode('detail');
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -457,10 +613,11 @@ export function ScenarioEditorPage({
     setError(null);
 
     try {
-      const title = form.title.trim();
+      const payload = buildScenarioPayload(form);
+      const title = payload.title;
       if (!title) {
         setScenarioInfoOpen(true);
-        setError("시나리오 제목을 입력해주세요.");
+        setError('시나리오 제목을 입력해주세요.');
         return;
       }
 
@@ -468,32 +625,23 @@ export function ScenarioEditorPage({
       const invalidNode = nodes.find((node) => !node.title || !node.sceneText);
       if (invalidNode) {
         setSelectedNodeId(invalidNode.id);
-        setEditorMode("detail");
-        setError("모든 노드의 제목과 장면 내용을 입력해주세요.");
+        setEditorMode('detail');
+        setError('모든 노드의 제목과 장면 내용을 입력해주세요.');
         return;
       }
 
       setBusy(true);
-      const payload = {
-        title,
-        description: form.description || null,
-        ruleSetId: form.ruleSetId || null,
-        difficulty: form.difficulty || null,
-        license: form.license,
-        attribution: form.attribution || null,
-        startNodeTitle: nodes[0]?.title,
-        startSceneText: nodes[0]?.sceneText,
-        nodes,
-      };
-
-      if (scenarioId) {
-        await updateScenario(user, scenarioId, payload, accessToken);
+      if (effectiveScenarioId) {
+        await updateScenario(user, effectiveScenarioId, payload, accessToken);
       } else {
         await createScenario(user, payload, accessToken);
       }
+      lastSavedSnapshotRef.current = JSON.stringify(payload);
+      onUnsavedChangesChange?.(false);
+      setAutoSaveStatus('저장됨');
       onDone();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "시나리오 저장에 실패했습니다.");
+      setError(caught instanceof Error ? caught.message : '시나리오 저장에 실패했습니다.');
     } finally {
       setBusy(false);
     }
@@ -503,8 +651,8 @@ export function ScenarioEditorPage({
     <main className="session-page">
       <section className="session-page-header">
         <div>
-          <span className="eyebrow">{isEditMode ? "Edit scenario" : "Create scenario"}</span>
-          <h1>{isEditMode ? "시나리오 수정" : "새 자작 시나리오"}</h1>
+          <span className="eyebrow">{isEditMode ? 'Edit scenario' : 'Create scenario'}</span>
+          <h1>{isEditMode ? '시나리오 수정' : '새 자작 시나리오'}</h1>
           <p>각 장면에서 이어질 장면을 연결하고, 마스터가 사용할 단서와 공개 자료를 계획합니다.</p>
         </div>
         <div className="session-page-actions">
@@ -518,6 +666,9 @@ export function ScenarioEditorPage({
           >
             기본 정보
           </button>
+          <span className="scenario-autosave-status" role="status" aria-live="polite">
+            {autoSaveStatus}
+          </span>
         </div>
       </section>
 
@@ -536,7 +687,7 @@ export function ScenarioEditorPage({
               <input
                 id="scenario-title"
                 value={form.title}
-                onChange={(event) => updateField("title", event.target.value)}
+                onChange={(event) => updateField('title', event.target.value)}
                 maxLength={100}
                 required
               />
@@ -546,7 +697,7 @@ export function ScenarioEditorPage({
               <input
                 id="scenario-ruleset"
                 value={form.ruleSetId}
-                onChange={(event) => updateField("ruleSetId", event.target.value)}
+                onChange={(event) => updateField('ruleSetId', event.target.value)}
               />
             </div>
             <div>
@@ -554,7 +705,7 @@ export function ScenarioEditorPage({
               <input
                 id="scenario-difficulty"
                 value={form.difficulty}
-                onChange={(event) => updateField("difficulty", event.target.value)}
+                onChange={(event) => updateField('difficulty', event.target.value)}
               />
             </div>
             <div>
@@ -563,7 +714,7 @@ export function ScenarioEditorPage({
                 id="scenario-license"
                 value={form.license}
                 onChange={(event) =>
-                  updateField("license", event.target.value as ScenarioFormState["license"])
+                  updateField('license', event.target.value as ScenarioFormState['license'])
                 }
               >
                 <option value="original">Original</option>
@@ -576,7 +727,7 @@ export function ScenarioEditorPage({
               <textarea
                 id="scenario-description"
                 value={form.description}
-                onChange={(event) => updateField("description", event.target.value)}
+                onChange={(event) => updateField('description', event.target.value)}
                 rows={3}
               />
             </div>
@@ -585,7 +736,7 @@ export function ScenarioEditorPage({
               <input
                 id="scenario-attribution"
                 value={form.attribution}
-                onChange={(event) => updateField("attribution", event.target.value)}
+                onChange={(event) => updateField('attribution', event.target.value)}
               />
             </div>
           </div>
@@ -601,8 +752,8 @@ export function ScenarioEditorPage({
               </button>
               <button
                 type="button"
-                className={`ghost small${editorMode === "graph" ? " selected" : ""}`}
-                onClick={() => setEditorMode("graph")}
+                className={`ghost small${editorMode === 'graph' ? ' selected' : ''}`}
+                onClick={() => setEditorMode('graph')}
               >
                 그래프 보기
               </button>
@@ -612,18 +763,22 @@ export function ScenarioEditorPage({
                 <button
                   key={node.id}
                   type="button"
-                  className={node.id === selectedNode?.id && editorMode === "detail" ? "selected" : ""}
+                  className={
+                    node.id === selectedNode?.id && editorMode === 'detail' ? 'selected' : ''
+                  }
                   onClick={() => selectNode(node.id)}
                 >
-                  <strong>{node.title || "제목 없음"}</strong>
-                  <span>{node.nodeType} · {node.links.length}개 연결</span>
+                  <strong>{node.title || '제목 없음'}</strong>
+                  <span>
+                    {node.nodeType} · {node.links.length}개 연결
+                  </span>
                 </button>
               ))}
             </div>
           </aside>
 
           <section className="session-form-card session-form-card-wide scenario-editor-main">
-            {editorMode === "graph" ? (
+            {editorMode === 'graph' ? (
               <>
                 <div className="scenario-graph-toolbar">
                   <div>
@@ -633,15 +788,15 @@ export function ScenarioEditorPage({
                 </div>
                 <ScenarioNodeGraph
                   layout={graphLayout}
-                  selectedNodeId={selectedNode?.id ?? ""}
+                  selectedNodeId={selectedNode?.id ?? ''}
                   onSelectNode={selectNode}
                 />
               </>
             ) : selectedNode ? (
-                <NodeDetailEditor
+              <NodeDetailEditor
                 user={user}
                 accessToken={accessToken}
-                scenarioId={scenarioId ?? null}
+                scenarioId={effectiveScenarioId}
                 node={selectedNode}
                 nodes={form.nodes}
                 incomingLinks={incomingLinks}
@@ -652,33 +807,36 @@ export function ScenarioEditorPage({
             ) : null}
           </section>
 
-        <aside className="session-form-card scenario-editor-guide">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">Guide</span>
-              <h2>작성 기준</h2>
+          <aside className="session-form-card scenario-editor-guide">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Guide</span>
+                <h2>작성 기준</h2>
+              </div>
             </div>
-          </div>
-          <div className="profile-notes">
-            <div className="profile-note">
-              <strong>연결</strong>
-              <p>현재 노드에서 갈 수 있는 다음 노드만 설정합니다. 여러 노드가 같은 노드를 가리킬 수 있습니다.</p>
+            <div className="profile-notes">
+              <div className="profile-note">
+                <strong>연결</strong>
+                <p>
+                  현재 노드에서 갈 수 있는 다음 노드만 설정합니다. 여러 노드가 같은 노드를 가리킬 수
+                  있습니다.
+                </p>
+              </div>
+              <div className="profile-note">
+                <strong>단서</strong>
+                <p>단서는 결론, 발견 경로, 공개 자료, GM 전용 메모를 나눠 기록합니다.</p>
+              </div>
+              <div className="profile-note">
+                <strong>중요도</strong>
+                <p>핵심 단서는 같은 결론을 뒷받침하도록 여러 위치에 흩어 두는 편이 안전합니다.</p>
+              </div>
             </div>
-            <div className="profile-note">
-              <strong>단서</strong>
-              <p>단서는 결론, 발견 경로, 공개 자료, GM 전용 메모를 나눠 기록합니다.</p>
+            <div className="scenario-save-actions">
+              <button type="submit" className="primary" disabled={busy}>
+                {busy ? 'Saving...' : 'Save'}
+              </button>
             </div>
-            <div className="profile-note">
-              <strong>중요도</strong>
-              <p>핵심 단서는 같은 결론을 뒷받침하도록 여러 위치에 흩어 두는 편이 안전합니다.</p>
-            </div>
-          </div>
-          <div className="scenario-save-actions">
-            <button type="submit" className="primary" disabled={busy}>
-              {busy ? "Saving..." : "Save"}
-            </button>
-          </div>
-        </aside>
+          </aside>
         </div>
       </form>
 
@@ -713,7 +871,7 @@ function NodeDetailEditor({
   async function handleImageFile(file: File | null) {
     if (!file) return;
     if (!scenarioId) {
-      setError("이미지는 시나리오를 저장한 뒤 업로드할 수 있습니다.");
+      setError('이미지는 시나리오를 저장한 뒤 업로드할 수 있습니다.');
       return;
     }
 
@@ -728,10 +886,10 @@ function NodeDetailEditor({
         node.id,
         {
           fileName: file.name,
-          contentType: file.type || "application/octet-stream",
+          contentType: file.type || 'application/octet-stream',
           dataBase64,
         },
-        accessToken,
+        accessToken
       );
 
       updateNode(node.id, (current) => ({
@@ -739,7 +897,7 @@ function NodeDetailEditor({
         imageUrl: result.imageUrl,
       }));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "이미지 업로드에 실패했습니다.");
+      setError(caught instanceof Error ? caught.message : '이미지 업로드에 실패했습니다.');
     } finally {
       setImageBusy(false);
     }
@@ -776,28 +934,15 @@ function NodeDetailEditor({
             </select>
           </div>
           <div className="scenario-node-edit-actions">
-            <label className="scenario-editor-checkline">
-              <input
-                type="checkbox"
-                checked={node.visibleToPlayers}
-                onChange={(event) =>
-                  updateNode(node.id, (current) => ({
-                    ...current,
-                    visibleToPlayers: event.target.checked,
-                  }))
-                }
-              />
-              공개
-            </label>
-          <button
-            type="button"
-            className="ghost small"
-            disabled={nodes.length <= 1}
-            onClick={() => removeNode(node.id)}
-          >
-            삭제
-          </button>
-        </div>
+            <button
+              type="button"
+              className="ghost small"
+              disabled={nodes.length <= 1}
+              onClick={() => removeNode(node.id)}
+            >
+              삭제
+            </button>
+          </div>
         </div>
 
         <section className="scenario-node-image-panel">
@@ -810,20 +955,22 @@ function NodeDetailEditor({
                 disabled={imageBusy}
                 onChange={(event) => {
                   void handleImageFile(event.target.files?.[0] ?? null);
-                  event.currentTarget.value = "";
+                  event.currentTarget.value = '';
                 }}
               />
-              {imageBusy ? "업로드 중..." : "이미지 업로드"}
+              {imageBusy ? '업로드 중...' : '이미지 업로드'}
             </label>
           </div>
           {node.imageUrl ? (
-            <img src={node.imageUrl} alt={`${node.title || "시나리오 노드"} visual`} />
+            <img src={node.imageUrl} alt={`${node.title || '시나리오 노드'} visual`} />
           ) : (
             <div className="scenario-node-image-empty">아직 연결된 이미지가 없습니다.</div>
           )}
         </section>
 
-        <label htmlFor="node-scene-text" className="eyebrow">Scene text</label>
+        <label htmlFor="node-scene-text" className="eyebrow">
+          Scene text
+        </label>
         <textarea
           id="node-scene-text"
           className="scenario-node-text-editor"
@@ -841,14 +988,14 @@ function NodeDetailEditor({
             <NodeConnectionSummary incomingLinks={incomingLinks} compact />
           </article>
           <article className="scenario-node-panel">
-            <span className="eyebrow">Visible handouts</span>
-            {node.clues.filter((clue) => clue.playerVisible).length ? (
+            <span className="eyebrow">Auto handouts</span>
+            {node.clues.filter((clue) => clue.revealMode === 'on_node_visit').length ? (
               <ul className="scenario-node-list">
                 {node.clues
-                  .filter((clue) => clue.playerVisible)
+                  .filter((clue) => clue.revealMode === 'on_node_visit')
                   .map((clue) => (
                     <li key={clue.id}>
-                      <strong>{clue.title || clue.text || "단서"}</strong>
+                      <strong>{clue.title || clue.text || '단서'}</strong>
                       <span>{clue.importance}</span>
                     </li>
                   ))}
@@ -878,10 +1025,7 @@ function ScenarioNodeGraph({
 }) {
   return (
     <div className="scenario-graph-viewport">
-      <div
-        className="scenario-graph-canvas"
-        style={{ width: layout.width, height: layout.height }}
-      >
+      <div className="scenario-graph-canvas" style={{ width: layout.width, height: layout.height }}>
         <svg
           className="scenario-graph-edges"
           width={layout.width}
@@ -932,13 +1076,13 @@ function ScenarioNodeGraph({
           <button
             key={node.id}
             type="button"
-            className={`scenario-graph-node${node.id === selectedNodeId ? " selected" : ""}`}
+            className={`scenario-graph-node${node.id === selectedNodeId ? ' selected' : ''}`}
             style={{ left: x, top: y }}
             onClick={() => onSelectNode(node.id)}
-            aria-label={node.title || "제목 없음"}
+            aria-label={node.title || '제목 없음'}
           >
             <span className="scenario-graph-dot" />
-            <strong>{node.title || "제목 없음"}</strong>
+            <strong>{node.title || '제목 없음'}</strong>
           </button>
         ))}
       </div>
@@ -954,7 +1098,9 @@ function NodeConnectionSummary({
   compact?: boolean;
 }) {
   return (
-    <section className={compact ? "scenario-connection-summary compact" : "scenario-editor-collection"}>
+    <section
+      className={compact ? 'scenario-connection-summary compact' : 'scenario-editor-collection'}
+    >
       {compact ? null : (
         <div className="scenario-editor-collection-header">
           <h3>들어오는 연결</h3>
@@ -1008,7 +1154,7 @@ function ScenarioNodeCollections({
                     updateNode(node.id, (current) => ({
                       ...current,
                       links: current.links.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, label: event.target.value } : item,
+                        itemIndex === index ? { ...item, label: event.target.value } : item
                       ),
                     }))
                   }
@@ -1022,7 +1168,7 @@ function ScenarioNodeCollections({
                     updateNode(node.id, (current) => ({
                       ...current,
                       links: current.links.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, condition: event.target.value } : item,
+                        itemIndex === index ? { ...item, condition: event.target.value } : item
                       ),
                     }))
                   }
@@ -1036,7 +1182,7 @@ function ScenarioNodeCollections({
                     updateNode(node.id, (current) => ({
                       ...current,
                       links: current.links.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, nextNodeId: event.target.value } : item,
+                        itemIndex === index ? { ...item, nextNodeId: event.target.value } : item
                       ),
                     }))
                   }
@@ -1059,7 +1205,7 @@ function ScenarioNodeCollections({
                 updateNode(node.id, (current) => ({
                   ...current,
                   links: current.links.map((item, itemIndex) =>
-                    itemIndex === index ? { ...item, note: event.target.value } : item,
+                    itemIndex === index ? { ...item, note: event.target.value } : item
                   ),
                 }))
               }
@@ -1102,7 +1248,7 @@ function ScenarioNodeCollections({
                     updateNode(node.id, (current) => ({
                       ...current,
                       clues: current.clues.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, title: event.target.value } : item,
+                        itemIndex === index ? { ...item, title: event.target.value } : item
                       ),
                     }))
                   }
@@ -1117,8 +1263,8 @@ function ScenarioNodeCollections({
                       ...current,
                       clues: current.clues.map((item, itemIndex) =>
                         itemIndex === index
-                          ? { ...item, importance: event.target.value as ClueForm["importance"] }
-                          : item,
+                          ? { ...item, importance: event.target.value as ClueForm['importance'] }
+                          : item
                       ),
                     }))
                   }
@@ -1137,7 +1283,7 @@ function ScenarioNodeCollections({
                 updateNode(node.id, (current) => ({
                   ...current,
                   clues: current.clues.map((item, itemIndex) =>
-                    itemIndex === index ? { ...item, text: event.target.value } : item,
+                    itemIndex === index ? { ...item, text: event.target.value } : item
                   ),
                 }))
               }
@@ -1151,7 +1297,7 @@ function ScenarioNodeCollections({
                 updateNode(node.id, (current) => ({
                   ...current,
                   clues: current.clues.map((item, itemIndex) =>
-                    itemIndex === index ? { ...item, revelation: event.target.value } : item,
+                    itemIndex === index ? { ...item, revelation: event.target.value } : item
                   ),
                 }))
               }
@@ -1167,7 +1313,7 @@ function ScenarioNodeCollections({
                     updateNode(node.id, (current) => ({
                       ...current,
                       clues: current.clues.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, source: event.target.value } : item,
+                        itemIndex === index ? { ...item, source: event.target.value } : item
                       ),
                     }))
                   }
@@ -1182,7 +1328,7 @@ function ScenarioNodeCollections({
                     updateNode(node.id, (current) => ({
                       ...current,
                       clues: current.clues.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, pointsToNodeId: event.target.value } : item,
+                        itemIndex === index ? { ...item, pointsToNodeId: event.target.value } : item
                       ),
                     }))
                   }
@@ -1199,21 +1345,24 @@ function ScenarioNodeCollections({
               </div>
             </div>
 
-            <label className="scenario-editor-checkline">
-              <input
-                type="checkbox"
-                checked={clue.playerVisible}
-                onChange={(event) =>
-                  updateNode(node.id, (current) => ({
-                    ...current,
-                    clues: current.clues.map((item, itemIndex) =>
-                      itemIndex === index ? { ...item, playerVisible: event.target.checked } : item,
-                    ),
-                  }))
-                }
-              />
-              발견 후 플레이어에게 공개
-            </label>
+            <label>Reveal policy</label>
+            <select
+              value={clue.revealMode}
+              onChange={(event) =>
+                updateNode(node.id, (current) => ({
+                  ...current,
+                  clues: current.clues.map((item, itemIndex) =>
+                    itemIndex === index
+                      ? { ...item, revealMode: event.target.value as RevealMode }
+                      : item
+                  ),
+                }))
+              }
+            >
+              <option value="conditional">Conditional</option>
+              <option value="on_node_visit">On node visit</option>
+              <option value="manual">Manual GM reveal</option>
+            </select>
 
             <label>Player handout text</label>
             <textarea
@@ -1222,7 +1371,7 @@ function ScenarioNodeCollections({
                 updateNode(node.id, (current) => ({
                   ...current,
                   clues: current.clues.map((item, itemIndex) =>
-                    itemIndex === index ? { ...item, handoutText: event.target.value } : item,
+                    itemIndex === index ? { ...item, handoutText: event.target.value } : item
                   ),
                 }))
               }
@@ -1236,7 +1385,7 @@ function ScenarioNodeCollections({
                 updateNode(node.id, (current) => ({
                   ...current,
                   clues: current.clues.map((item, itemIndex) =>
-                    itemIndex === index ? { ...item, gmNotes: event.target.value } : item,
+                    itemIndex === index ? { ...item, gmNotes: event.target.value } : item
                   ),
                 }))
               }

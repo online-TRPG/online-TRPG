@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import type { NavigateOptions, To } from 'react-router-dom';
 import logoImage from '../assets/images/Logo.webp';
 import { Icon } from '../components/Icon';
 import { useAuth } from '../hooks/useAuth';
@@ -93,13 +94,15 @@ const viewLabel: Partial<Record<MainView, string>> = {
   gameroom: '게임방',
 };
 
+const UNSAVED_SCENARIO_MESSAGE = '저장되지 않은 변경사항이 있습니다. 이 화면을 나가시겠습니까?';
+
 function viewFromPathname(pathname: string): MainView | null {
-  if (pathname === "/play") {
-    return "gameroom";
+  if (pathname === '/play') {
+    return 'gameroom';
   }
 
-  if (/^\/users\/[^/]+\/[^/]+$/.test(pathname) && pathname !== "/users/me/profile") {
-    return "publicProfile";
+  if (/^\/users\/[^/]+\/[^/]+$/.test(pathname) && pathname !== '/users/me/profile') {
+    return 'publicProfile';
   }
 
   if (/^\/sessions\/[^/]+\/[^/]+$/.test(pathname)) {
@@ -160,10 +163,34 @@ export function App() {
 
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [hasUnsavedScenarioChanges, setHasUnsavedScenarioChanges] = useState(false);
   const activeView =
     location.pathname === '/oauth/callback'
       ? 'main'
       : (viewFromPathname(location.pathname) ?? 'main');
+  const isScenarioEditorActive = activeView === 'scenariosNew' || activeView === 'scenarioEdit';
+
+  const guardedNavigate = useCallback(
+    (to: To, options?: NavigateOptions) => {
+      if (
+        isScenarioEditorActive &&
+        hasUnsavedScenarioChanges &&
+        !window.confirm(UNSAVED_SCENARIO_MESSAGE)
+      ) {
+        return;
+      }
+
+      setHasUnsavedScenarioChanges(false);
+      navigate(to, options);
+    },
+    [hasUnsavedScenarioChanges, isScenarioEditorActive, navigate]
+  );
+
+  useEffect(() => {
+    if (!isScenarioEditorActive && hasUnsavedScenarioChanges) {
+      setHasUnsavedScenarioChanges(false);
+    }
+  }, [hasUnsavedScenarioChanges, isScenarioEditorActive]);
 
   useEffect(() => {
     listScenarios()
@@ -218,7 +245,7 @@ export function App() {
       return;
     }
 
-    if (location.pathname === "/play") {
+    if (location.pathname === '/play') {
       navigate(buildGameroomPath(session.snapshot.session), { replace: true });
       return;
     }
@@ -338,7 +365,7 @@ export function App() {
                   key={item.id}
                   type="button"
                   className={activeView === item.id ? 'active' : ''}
-                  onClick={() => navigate(pathByView[item.id])}
+                  onClick={() => guardedNavigate(pathByView[item.id])}
                 >
                   {item.label}
                 </button>
@@ -376,15 +403,30 @@ export function App() {
                   </div>
 
                   <div className="account-menu-list">
-                    <button type="button" className="account-menu-item" onClick={() => navigate('/profile')} role="menuitem">
+                    <button
+                      type="button"
+                      className="account-menu-item"
+                      onClick={() => guardedNavigate('/profile')}
+                      role="menuitem"
+                    >
                       <Icon name="user" />
                       <span>내 프로필</span>
                     </button>
-                    <button type="button" className="account-menu-item" onClick={() => navigate('/account')} role="menuitem">
+                    <button
+                      type="button"
+                      className="account-menu-item"
+                      onClick={() => guardedNavigate('/account')}
+                      role="menuitem"
+                    >
                       <Icon name="shield" />
                       <span>계정 관리</span>
                     </button>
-                    <button type="button" className="account-menu-item" onClick={() => navigate('/settings')} role="menuitem">
+                    <button
+                      type="button"
+                      className="account-menu-item"
+                      onClick={() => guardedNavigate('/settings')}
+                      role="menuitem"
+                    >
                       <Icon name="settings" />
                       <span>설정</span>
                     </button>
@@ -418,10 +460,10 @@ export function App() {
             logs={logs}
             busy={busy}
             error={error}
-            onOpenDiscover={() => navigate('/sessions/discover')}
-            onOpenCreate={() => navigate('/sessions/new')}
+            onOpenDiscover={() => guardedNavigate('/sessions/discover')}
+            onOpenCreate={() => guardedNavigate('/sessions/new')}
             onOpenPlay={() =>
-              session.snapshot && navigate(buildGameroomPath(session.snapshot.session))
+              session.snapshot && guardedNavigate(buildGameroomPath(session.snapshot.session))
             }
             onLeaveCurrentSession={() => void session.leaveSession()}
           />
@@ -449,7 +491,7 @@ export function App() {
             busy={busy}
             error={error}
             onLogout={handleLogout}
-            onOpenAccount={() => navigate('/account')}
+            onOpenAccount={() => guardedNavigate('/account')}
           />
         ) : null}
 
@@ -461,7 +503,7 @@ export function App() {
             busy={busy}
             error={error}
             onLogout={handleLogout}
-            onOpenProfile={() => navigate('/profile')}
+            onOpenProfile={() => guardedNavigate('/profile')}
           />
         ) : null}
 
@@ -471,8 +513,8 @@ export function App() {
             accessToken={auth.accessToken}
             busy={busy}
             error={error}
-            onOpenCreate={() => navigate('/scenarios/new')}
-            onOpenEdit={(scenarioId) => navigate(`/scenarios/${scenarioId}/edit`)}
+            onOpenCreate={() => guardedNavigate('/scenarios/new')}
+            onOpenEdit={(scenarioId) => guardedNavigate(`/scenarios/${scenarioId}/edit`)}
           />
         ) : null}
 
@@ -480,13 +522,15 @@ export function App() {
           <ScenarioEditorPage
             user={currentUser}
             accessToken={auth.accessToken}
+            onUnsavedChangesChange={setHasUnsavedScenarioChanges}
             onDone={() => {
               void listScenarios()
                 .then(setScenarios)
                 .catch(() => undefined);
+              setHasUnsavedScenarioChanges(false);
               navigate('/scenarios');
             }}
-            onCancel={() => navigate('/scenarios')}
+            onCancel={() => guardedNavigate('/scenarios')}
           />
         ) : null}
 
@@ -495,13 +539,15 @@ export function App() {
             user={currentUser}
             accessToken={auth.accessToken}
             scenarioId={scenarioEditId}
+            onUnsavedChangesChange={setHasUnsavedScenarioChanges}
             onDone={() => {
               void listScenarios()
                 .then(setScenarios)
                 .catch(() => undefined);
+              setHasUnsavedScenarioChanges(false);
               navigate('/scenarios');
             }}
-            onCancel={() => navigate('/scenarios')}
+            onCancel={() => guardedNavigate('/scenarios')}
           />
         ) : null}
 
@@ -517,13 +563,13 @@ export function App() {
             onJoinSessionById={handleJoinSessionById}
             onRequestSessionDetail={handleRequestSessionDetail}
             onOpenHostProfile={(host) =>
-              navigate(buildPublicProfilePath(host), {
+              guardedNavigate(buildPublicProfilePath(host), {
                 state: { profilePreview: host },
               })
             }
-            onOpenCreate={() => navigate('/sessions/new')}
+            onOpenCreate={() => guardedNavigate('/sessions/new')}
             onOpenPlay={() =>
-              session.snapshot && navigate(buildGameroomPath(session.snapshot.session))
+              session.snapshot && guardedNavigate(buildGameroomPath(session.snapshot.session))
             }
           />
         ) : null}
@@ -532,7 +578,7 @@ export function App() {
           <PublicProfilePage
             publicId={publicProfileId}
             previewUser={publicProfileState?.profilePreview ?? null}
-            onOpenOwnProfile={() => navigate('/profile')}
+            onOpenOwnProfile={() => guardedNavigate('/profile')}
           />
         ) : null}
 
@@ -545,10 +591,10 @@ export function App() {
             busy={busy}
             onJoinSessionById={handleJoinSessionById}
             onOpenPlay={() =>
-              session.snapshot && navigate(buildGameroomPath(session.snapshot.session))
+              session.snapshot && guardedNavigate(buildGameroomPath(session.snapshot.session))
             }
             onOpenHostProfile={(host) =>
-              navigate(buildPublicProfilePath(host), {
+              guardedNavigate(buildPublicProfilePath(host), {
                 state: { profilePreview: host },
               })
             }
@@ -562,7 +608,7 @@ export function App() {
             busy={busy}
             error={error}
             onCreateSession={handleCreateSession}
-            onOpenDiscover={() => navigate('/sessions/discover')}
+            onOpenDiscover={() => guardedNavigate('/sessions/discover')}
           />
         ) : null}
 
