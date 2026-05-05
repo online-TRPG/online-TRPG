@@ -7,7 +7,6 @@ import {
   SessionCharacterStatus as PrismaSessionCharacterStatus,
 } from "@prisma/client";
 import {
-  ActionOutcome,
   DiceAdvantageState,
   TurnLogResponseDto,
 } from "@trpg/shared-types";

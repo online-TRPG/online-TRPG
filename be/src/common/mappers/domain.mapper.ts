@@ -345,7 +345,6 @@ export function mapGameState(
   sessionId: string | null = null,
 ): GameStateResponseDto {
   const flags = parseJson<Record<string, unknown>>(state.flagsJson, {});
-  const discoveredClues = parseJson<Record<string, unknown>[]>(state.discoveredCluesJson, []);
 
   return {
     sessionScenarioId: state.sessionScenarioId,
@@ -354,11 +353,9 @@ export function mapGameState(
     currentNodeId: state.currentNodeId ?? null,
     phase: gamePhaseMap[state.phase],
     flags,
-    discoveredClues,
     state: {
       ...flags,
       flags,
-      discoveredClues,
     },
     updatedAt: toIsoString(state.updatedAt),
   };
@@ -387,7 +384,6 @@ export function mapScenarioNode(node: ScenarioNode): ScenarioNodeResponseDto {
     title: node.title,
     sceneText: node.sceneText,
     imageUrl: node.imageUrl ?? null,
-    visibleToPlayers: node.visibleToPlayers,
     checkOptions: parseJson<Record<string, unknown>[]>(node.checkOptionsJson, []),
     transitions: parseJson<Record<string, unknown>[]>(node.transitionsJson, []),
     clues: parseJson<Record<string, unknown>[]>(node.cluesJson, []),

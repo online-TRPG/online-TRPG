@@ -27,12 +27,19 @@ import {
   JoinSessionDto,
   ParticipantRole,
   ParticipantStatusResponseDto,
+  PlayerCheckOptionDto,
+  PlayerScenarioClueDto,
+  PlayerScenarioNodeDto,
+  PlayerScenarioViewDto,
+  RevealSessionContentDto,
   SelectSessionCharacterDto,
   SessionDetailResponseDto,
   SessionInviteResponseDto,
   SessionListItemResponseDto,
   SessionParticipantResponseDto,
+  SessionRevealResponseDto,
   SessionResponseDto,
+  ScenarioNodeType,
   SessionSnapshotDto,
   SessionStatus,
   SessionVisibility,
@@ -114,6 +121,7 @@ export class SessionsService {
     if (!scenario.startNodeId) {
       throw new UnprocessableEntityException("The selected scenario does not have a start node.");
     }
+    const startNodeId = scenario.startNodeId;
 
     const inviteCode = await this.generateInviteCode();
     const visibility = this.resolveVisibility(dto.visibility, dto.isPrivate, dto.isPublic);
@@ -157,10 +165,9 @@ export class SessionsService {
         data: {
           sessionScenarioId: sessionScenario.id,
           version: 1,
-          currentNodeId: scenario.startNodeId,
+          currentNodeId: startNodeId,
           phase: PrismaGamePhase.LOBBY,
           flagsJson: JSON.stringify({}),
-          discoveredCluesJson: JSON.stringify([]),
         },
       });
 
@@ -389,6 +396,102 @@ export class SessionsService {
     await this.ensureMembership(userId, resolvedSessionId);
     const { state } = await this.getGameStateEntityOrThrow(resolvedSessionId);
     return mapGameState(state, resolvedSessionId);
+  }
+
+  async getPlayerScenarioForUser(userId: string, sessionId: string): Promise<PlayerScenarioViewDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const resolvedSessionId = session.id;
+    await this.ensureMembership(userId, resolvedSessionId);
+    const { sessionScenario, state } = await this.getGameStateEntityOrThrow(resolvedSessionId);
+    const visits = await this.prisma.sessionNodeVisit.findMany({
+      where: { sessionScenarioId: sessionScenario.id },
+      orderBy: { firstVisitedAt: "asc" },
+    });
+    const visitedNodeIds = visits.map((visit) => visit.nodeId);
+    const nodes = visitedNodeIds.length
+      ? await this.prisma.sessionScenarioNode.findMany({
+          where: {
+            sessionScenarioId: sessionScenario.id,
+            nodeId: { in: visitedNodeIds },
+          },
+        })
+      : [];
+    const nodeById = new Map(nodes.map((node) => [node.nodeId, node]));
+    const revealedClueSnapshots = await this.getRevealedClueSnapshotsForUser(
+      sessionScenario.id,
+      resolvedSessionId,
+      userId,
+    );
+    const visitedNodes = visitedNodeIds
+      .map((nodeId) => nodeById.get(nodeId))
+      .filter((node): node is NonNullable<typeof node> => Boolean(node))
+      .map((node) => this.mapPlayerScenarioNode(node, revealedClueSnapshots));
+    const revealedClues = this.getUniquePlayerClues(
+      visitedNodes.flatMap((node) => node.publicClues),
+    );
+
+    return {
+      sessionScenarioId: sessionScenario.id,
+      scenarioId: sessionScenario.scenarioId,
+      currentNodeId: state.currentNodeId ?? null,
+      currentNode: state.currentNodeId
+        ? visitedNodes.find((node) => node.id === state.currentNodeId) ?? null
+        : null,
+      visitedNodes,
+      revealedClues,
+    };
+  }
+
+  async getPublicClueSummariesForUser(userId: string, sessionId: string): Promise<string[]> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const resolvedSessionId = session.id;
+    await this.ensureMembership(userId, resolvedSessionId);
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
+    const revealedClueSnapshots = await this.getRevealedClueSnapshotsForUser(
+      activeScenario.id,
+      resolvedSessionId,
+      userId,
+    );
+    if (!revealedClueSnapshots.size) {
+      return [];
+    }
+
+    return Array.from(revealedClueSnapshots.values())
+      .map((clue) => this.mapPlayerScenarioClue(clue))
+      .filter((clue): clue is PlayerScenarioClueDto => Boolean(clue))
+      .map((clue) => `${clue.title}: ${clue.text}`);
+  }
+
+  async revealSessionContent(
+    userId: string,
+    sessionId: string,
+    dto: RevealSessionContentDto,
+  ): Promise<SessionRevealResponseDto> {
+    const session = await this.getHumanGmSessionForOperator(userId, sessionId);
+    const resolvedSessionId = session.id;
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
+    await this.ensureSessionScenarioNodeSnapshotForScenario(activeScenario.id, activeScenario.scenarioId);
+    const contentKind = dto.contentKind?.trim() || "clue";
+    const scope = dto.scope ?? "party";
+    const recipientId = dto.recipientId?.trim() || null;
+    const content = await this.findSessionScenarioRevealable(activeScenario.id, dto.contentId);
+
+    const reveal = await this.prisma.$transaction((tx) =>
+      this.recordSessionReveal(tx, {
+        sessionScenarioId: activeScenario.id,
+        contentId: dto.contentId,
+        contentKind,
+        scope,
+        recipientId,
+        revealedBy: "human_gm",
+        reason: dto.reason?.trim() || "manual_gm_reveal",
+        snapshot: content,
+      }),
+    );
+
+    const snapshot = await this.buildSnapshot(resolvedSessionId);
+    this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
+    return this.mapSessionReveal(reveal);
   }
 
   async updateSession(
@@ -834,27 +937,35 @@ export class SessionsService {
     }
 
     const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
+    const state = activeScenario.gameState;
 
-    await this.prisma.$transaction([
-      this.prisma.session.update({
+    await this.prisma.$transaction(async (tx) => {
+      await this.ensureSessionScenarioNodeSnapshot(tx, activeScenario.id, activeScenario.scenarioId);
+      await tx.session.update({
         where: { id: resolvedSessionId },
         data: {
           status: PrismaSessionStatus.PLAYING,
         },
-      }),
-      this.prisma.sessionScenario.update({
+      });
+      await tx.sessionScenario.update({
         where: { id: activeScenario.id },
         data: {
           startedAt: activeScenario.startedAt ?? new Date(),
         },
-      }),
-      this.prisma.gameState.update({
+      });
+      await tx.gameState.update({
         where: { sessionScenarioId: activeScenario.id },
         data: {
           phase: PrismaGamePhase.EXPLORATION,
         },
-      }),
-    ]);
+      });
+      if (state?.currentNodeId) {
+        await this.recordNodeVisit(tx, {
+          sessionScenarioId: activeScenario.id,
+          nodeId: state.currentNodeId,
+        });
+      }
+    });
 
     const snapshot = await this.buildSnapshot(resolvedSessionId);
     this.realtimeEvents.emitSessionStatusUpdated(resolvedSessionId, snapshot.session);
@@ -882,8 +993,22 @@ export class SessionsService {
       authorUserId: userId,
     });
 
-    await this.prisma.$transaction([
-      this.prisma.gameState.update({
+    await this.prisma.$transaction(async (tx) => {
+      if (session.status === PrismaSessionStatus.RECRUITING) {
+        await this.ensureSessionScenarioNodeSnapshot(
+          tx,
+          sessionScenario.id,
+          sessionScenario.scenarioId,
+        );
+        if (state.currentNodeId) {
+          await this.recordNodeVisit(tx, {
+            sessionScenarioId: sessionScenario.id,
+            nodeId: state.currentNodeId,
+          });
+        }
+      }
+
+      await tx.gameState.update({
         where: { sessionScenarioId: sessionScenario.id },
         data: {
           flagsJson: JSON.stringify({
@@ -891,8 +1016,8 @@ export class SessionsService {
             gmMessages: gmMessages.slice(-50),
           }),
         },
-      }),
-      this.prisma.session.update({
+      });
+      await tx.session.update({
         where: { id: resolvedSessionId },
         data: {
           status:
@@ -900,8 +1025,8 @@ export class SessionsService {
               ? PrismaSessionStatus.PLAYING
               : session.status,
         },
-      }),
-    ]);
+      });
+    });
 
     const snapshot = await this.buildSnapshot(resolvedSessionId);
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
@@ -916,13 +1041,11 @@ export class SessionsService {
     const session = await this.getHumanGmSessionForOperator(userId, sessionId);
     const resolvedSessionId = session.id;
     const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
-    const targetNode = await this.scenariosService.getScenarioNodeEntityById(
-      activeScenario.scenarioId,
-      dto.nodeId,
-    );
+    await this.ensureSessionScenarioNodeSnapshotForScenario(activeScenario.id, activeScenario.scenarioId);
+    const targetNode = await this.getSessionScenarioNodeEntityOrThrow(activeScenario.id, dto.nodeId);
 
-    await this.prisma.$transaction([
-      this.prisma.session.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.session.update({
         where: { id: resolvedSessionId },
         data: {
           status:
@@ -930,15 +1053,19 @@ export class SessionsService {
               ? PrismaSessionStatus.PLAYING
               : session.status,
         },
-      }),
-      this.prisma.gameState.update({
+      });
+      await tx.gameState.update({
         where: { sessionScenarioId: activeScenario.id },
         data: {
-          currentNodeId: targetNode.id,
+          currentNodeId: targetNode.nodeId,
           phase: PrismaGamePhase.DIALOGUE,
         },
-      }),
-    ]);
+      });
+      await this.recordNodeVisit(tx, {
+        sessionScenarioId: activeScenario.id,
+        nodeId: targetNode.nodeId,
+      });
+    });
 
     const snapshot = await this.buildSnapshot(resolvedSessionId);
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
@@ -1284,8 +1411,22 @@ export class SessionsService {
     const resolvedSessionId = session.id;
     const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
 
-    await this.prisma.$transaction([
-      this.prisma.session.update({
+    await this.prisma.$transaction(async (tx) => {
+      if (session.status === PrismaSessionStatus.RECRUITING) {
+        await this.ensureSessionScenarioNodeSnapshot(
+          tx,
+          activeScenario.id,
+          activeScenario.scenarioId,
+        );
+        if (activeScenario.gameState?.currentNodeId) {
+          await this.recordNodeVisit(tx, {
+            sessionScenarioId: activeScenario.id,
+            nodeId: activeScenario.gameState.currentNodeId,
+          });
+        }
+      }
+
+      await tx.session.update({
         where: { id: resolvedSessionId },
         data: {
           status:
@@ -1293,12 +1434,12 @@ export class SessionsService {
               ? PrismaSessionStatus.COMPLETED
               : PrismaSessionStatus.PLAYING,
         },
-      }),
-      this.prisma.gameState.update({
+      });
+      await tx.gameState.update({
         where: { sessionScenarioId: activeScenario.id },
         data: { phase },
-      }),
-    ]);
+      });
+    });
   }
 
   private parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -1306,6 +1447,379 @@ export class SessionsService {
       return fallback;
     }
     return JSON.parse(value) as T;
+  }
+
+  private mapPlayerScenarioNode(
+    node: {
+      id: string;
+      nodeId?: string;
+      nodeType: string;
+      title: string;
+      sceneText: string;
+      imageUrl: string | null;
+      checkOptionsJson: string;
+      cluesJson: string;
+    },
+    revealedClueSnapshots: Map<string, Record<string, unknown>>,
+  ): PlayerScenarioNodeDto {
+    const clues = this.parseJson<Record<string, unknown>[]>(node.cluesJson, []);
+
+    return {
+      id: node.nodeId ?? node.id,
+      nodeType: this.toScenarioNodeType(node.nodeType),
+      title: node.title,
+      sceneText: node.sceneText,
+      imageUrl: node.imageUrl ?? null,
+      checkOptions: this.mapPlayerCheckOptions(
+        this.parseJson<Record<string, unknown>[]>(node.checkOptionsJson, []),
+      ),
+      publicClues: clues
+        .map((clue) => {
+          const clueId = this.getStringProperty(clue, "id");
+          return clueId ? revealedClueSnapshots.get(clueId) ?? null : null;
+        })
+        .filter((clue): clue is Record<string, unknown> => Boolean(clue))
+        .map((clue) => this.mapPlayerScenarioClue(clue))
+        .filter((clue): clue is PlayerScenarioClueDto => Boolean(clue)),
+    };
+  }
+
+  private mapPlayerCheckOptions(options: Record<string, unknown>[]): PlayerCheckOptionDto[] {
+    return options
+      .map((option) => {
+        const id = this.getStringProperty(option, "id");
+        const type = this.getStringProperty(option, "type");
+        const skill = this.getStringProperty(option, "skill");
+        const label =
+          this.getStringProperty(option, "playerLabel") ??
+          this.getStringProperty(option, "label") ??
+          skill ??
+          id;
+        if (!label) {
+          return null;
+        }
+
+        return {
+          ...(id ? { id } : {}),
+          label,
+          ...(type ? { type } : {}),
+          ...(skill ? { skill } : {}),
+        };
+      })
+      .filter((option): option is PlayerCheckOptionDto => Boolean(option));
+  }
+
+  private mapPlayerScenarioClue(clue: Record<string, unknown>): PlayerScenarioClueDto | null {
+    const playerText =
+      this.getStringProperty(clue, "handoutText") ?? this.getStringProperty(clue, "playerText");
+    if (!playerText) {
+      return null;
+    }
+    const title =
+      this.getStringProperty(clue, "title") ??
+      playerText.slice(0, 40) ??
+      "단서";
+    const text = playerText;
+
+    return {
+      id: this.getStringProperty(clue, "id") ?? randomUUID(),
+      title,
+      text,
+      importance: this.getStringProperty(clue, "importance"),
+    };
+  }
+
+  private getUniquePlayerClues(clues: PlayerScenarioClueDto[]): PlayerScenarioClueDto[] {
+    const seen = new Set<string>();
+    return clues.filter((clue) => {
+      if (seen.has(clue.id)) {
+        return false;
+      }
+      seen.add(clue.id);
+      return true;
+    });
+  }
+
+  private async getRevealedClueSnapshotsForUser(
+    sessionScenarioId: string,
+    sessionId: string,
+    userId: string,
+  ): Promise<Map<string, Record<string, unknown>>> {
+    const characterRecipients = await this.prisma.sessionCharacter.findMany({
+      where: { sessionId, userId },
+      select: { id: true, characterId: true },
+    });
+    const recipientIds = [
+      userId,
+      ...characterRecipients.flatMap((character) => [character.id, character.characterId]),
+    ];
+    const reveals = await this.prisma.sessionReveal.findMany({
+      where: {
+        sessionScenarioId,
+        contentKind: "clue",
+        OR: [
+          { scope: "party" },
+          { scope: "user", recipientId: userId },
+          { scope: "character", recipientId: { in: recipientIds } },
+        ],
+      },
+      select: { contentId: true, snapshotJson: true },
+    });
+    const revealed = new Map<string, Record<string, unknown>>();
+    for (const reveal of reveals) {
+      revealed.set(
+        reveal.contentId,
+        this.parseJson<Record<string, unknown>>(reveal.snapshotJson, { id: reveal.contentId }),
+      );
+    }
+    return revealed;
+  }
+
+  private async findSessionScenarioRevealable(
+    sessionScenarioId: string,
+    contentId: string,
+  ): Promise<Record<string, unknown>> {
+    const nodes = await this.prisma.sessionScenarioNode.findMany({
+      where: { sessionScenarioId },
+      select: { nodeId: true, cluesJson: true },
+    });
+
+    for (const node of nodes) {
+      const clues = this.parseJson<Record<string, unknown>[]>(node.cluesJson, []);
+      const clue = clues.find((candidate) => this.getStringProperty(candidate, "id") === contentId);
+      if (clue) {
+        return { ...clue, nodeId: node.nodeId };
+      }
+    }
+
+    throw new NotFoundException(`Revealable content ${contentId} was not found in the active scenario.`);
+  }
+
+  private async getSessionScenarioNodeEntityOrThrow(sessionScenarioId: string, nodeId: string) {
+    const node = await this.prisma.sessionScenarioNode.findUnique({
+      where: {
+        sessionScenarioId_nodeId: {
+          sessionScenarioId,
+          nodeId,
+        },
+      },
+    });
+
+    if (!node) {
+      throw new NotFoundException(`Session scenario node ${nodeId} was not found.`);
+    }
+
+    return node;
+  }
+
+  private async ensureSessionScenarioNodeSnapshotForScenario(
+    sessionScenarioId: string,
+    scenarioId: string,
+  ): Promise<void> {
+    await this.prisma.$transaction((tx) =>
+      this.ensureSessionScenarioNodeSnapshot(tx, sessionScenarioId, scenarioId),
+    );
+  }
+
+  private async ensureSessionScenarioNodeSnapshot(
+    tx: Prisma.TransactionClient,
+    sessionScenarioId: string,
+    scenarioId: string,
+  ): Promise<void> {
+    const existingNodeCount = await tx.sessionScenarioNode.count({
+      where: { sessionScenarioId },
+    });
+    if (existingNodeCount > 0) {
+      return;
+    }
+
+    const nodes = await tx.scenarioNode.findMany({
+      where: { scenarioId },
+      orderBy: { createdAt: "asc" },
+    });
+
+    await tx.sessionScenarioNode.createMany({
+      data: nodes.map((node) => ({
+        sessionScenarioId,
+        originalNodeId: node.id,
+        nodeId: node.id,
+        nodeType: node.nodeType,
+        title: node.title,
+        sceneText: node.sceneText,
+        imageUrl: node.imageUrl,
+        checkOptionsJson: node.checkOptionsJson,
+        transitionsJson: node.transitionsJson,
+        cluesJson: node.cluesJson,
+        fallbackNodeId: node.fallbackNodeId,
+      })),
+    });
+  }
+
+  private shouldRevealOnNodeVisit(clue: Record<string, unknown>): boolean {
+    const revealPolicy = clue.revealPolicy;
+    const policyMode =
+      revealPolicy && typeof revealPolicy === "object"
+        ? this.getStringProperty(revealPolicy as Record<string, unknown>, "mode")
+        : null;
+    return policyMode === "on_node_visit";
+  }
+
+  private buildRecipientKey(scope: string, recipientId: string | null | undefined): string {
+    return scope === "party" ? "party" : `${scope}:${recipientId ?? "unknown"}`;
+  }
+
+  private mapSessionReveal(reveal: {
+    id: string;
+    sessionScenarioId: string;
+    contentId: string;
+    contentKind: string;
+    scope: string;
+    recipientId: string | null;
+    revealedAt: Date;
+    revealedBy: string;
+    reason: string | null;
+  }): SessionRevealResponseDto {
+    return {
+      id: reveal.id,
+      sessionScenarioId: reveal.sessionScenarioId,
+      contentId: reveal.contentId,
+      contentKind: reveal.contentKind,
+      scope: reveal.scope,
+      recipientId: reveal.recipientId,
+      revealedAt: reveal.revealedAt.toISOString(),
+      revealedBy: reveal.revealedBy,
+      reason: reveal.reason,
+    };
+  }
+
+  private getStringProperty(value: Record<string, unknown>, key: string): string | null {
+    const candidate = value[key];
+    return typeof candidate === "string" && candidate.trim() ? candidate : null;
+  }
+
+  private toScenarioNodeType(value: string): PlayerScenarioNodeDto["nodeType"] {
+    switch (value) {
+      case ScenarioNodeType.EXPLORATION:
+        return ScenarioNodeType.EXPLORATION;
+      case ScenarioNodeType.COMBAT:
+        return ScenarioNodeType.COMBAT;
+      case ScenarioNodeType.STORY:
+        return ScenarioNodeType.STORY;
+      default:
+        return ScenarioNodeType.STORY;
+    }
+  }
+
+  private async recordNodeVisit(
+    tx: Prisma.TransactionClient,
+    params: {
+      sessionScenarioId: string;
+      nodeId: string;
+      enteredByTurnLogId?: string | null;
+    },
+  ): Promise<void> {
+    const node = await tx.sessionScenarioNode.findUnique({
+      where: {
+        sessionScenarioId_nodeId: {
+          sessionScenarioId: params.sessionScenarioId,
+          nodeId: params.nodeId,
+        },
+      },
+      select: { id: true, cluesJson: true },
+    });
+
+    if (!node) {
+      throw new NotFoundException(`Session scenario node ${params.nodeId} was not found.`);
+    }
+
+    await tx.sessionNodeVisit.upsert({
+      where: {
+        sessionScenarioId_nodeId: {
+          sessionScenarioId: params.sessionScenarioId,
+          nodeId: params.nodeId,
+        },
+      },
+      create: {
+        sessionScenarioId: params.sessionScenarioId,
+        sessionScenarioNodeId: node.id,
+        nodeId: params.nodeId,
+        enteredByTurnLogId: params.enteredByTurnLogId ?? null,
+      },
+      update: {
+        visitCount: { increment: 1 },
+        enteredByTurnLogId: params.enteredByTurnLogId ?? undefined,
+      },
+    });
+
+    const clues = this.parseJson<Record<string, unknown>[]>(node.cluesJson, []);
+
+    await Promise.all(
+      clues
+        .filter((clue) => this.shouldRevealOnNodeVisit(clue))
+        .map((clue) => {
+          const contentId = this.getStringProperty(clue, "id");
+          if (!contentId) {
+            return Promise.resolve();
+          }
+          return this.recordSessionReveal(tx, {
+            sessionScenarioId: params.sessionScenarioId,
+            contentId,
+            contentKind: "clue",
+            scope: "party",
+            revealedBy: "system",
+            reason: "node_visit",
+            turnLogId: params.enteredByTurnLogId,
+            snapshot: clue,
+          });
+        }),
+    );
+  }
+
+  private async recordSessionReveal(
+    tx: Prisma.TransactionClient,
+    params: {
+      sessionScenarioId: string;
+      contentId: string;
+      contentKind: string;
+      scope: string;
+      recipientId?: string | null;
+      revealedBy: string;
+      reason?: string | null;
+      turnLogId?: string | null;
+      snapshot?: Record<string, unknown> | null;
+    },
+  ) {
+    const recipientId = params.scope === "party" ? null : params.recipientId ?? null;
+    const recipientKey = this.buildRecipientKey(params.scope, recipientId);
+
+    return tx.sessionReveal.upsert({
+      where: {
+        sessionScenarioId_contentId_contentKind_scope_recipientKey: {
+          sessionScenarioId: params.sessionScenarioId,
+          contentId: params.contentId,
+          contentKind: params.contentKind,
+          scope: params.scope,
+          recipientKey,
+        },
+      },
+      create: {
+        sessionScenarioId: params.sessionScenarioId,
+        contentId: params.contentId,
+        contentKind: params.contentKind,
+        scope: params.scope,
+        recipientId,
+        recipientKey,
+        revealedBy: params.revealedBy,
+        reason: params.reason ?? null,
+        turnLogId: params.turnLogId ?? null,
+        snapshotJson: params.snapshot ? JSON.stringify(params.snapshot) : null,
+      },
+      update: {
+        reason: params.reason ?? undefined,
+        turnLogId: params.turnLogId ?? undefined,
+        snapshotJson: params.snapshot ? JSON.stringify(params.snapshot) : undefined,
+      },
+    });
   }
 
   private getParticipantRoleForUser(

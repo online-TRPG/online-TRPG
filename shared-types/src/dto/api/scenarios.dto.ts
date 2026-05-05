@@ -3,7 +3,6 @@ import { Type } from "class-transformer";
 import {
   IsBase64,
   IsArray,
-  IsBoolean,
   IsEnum,
   IsNotEmpty,
   IsObject,
@@ -29,9 +28,6 @@ export class ScenarioNodeResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   imageUrl!: string | null;
-
-  @ApiProperty()
-  visibleToPlayers!: boolean;
 
   @ApiProperty({ type: [Object] })
   checkOptions!: Record<string, unknown>[];
@@ -115,11 +111,6 @@ export class ScenarioNodeInputDto {
   @IsOptional()
   @IsString()
   imageUrl?: string | null;
-
-  @ApiPropertyOptional({ default: true })
-  @IsOptional()
-  @IsBoolean()
-  visibleToPlayers?: boolean;
 
   @ApiPropertyOptional({ type: [Object] })
   @IsOptional()

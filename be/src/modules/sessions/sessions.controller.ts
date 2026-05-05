@@ -19,14 +19,15 @@ import {
   ApiTags,
 } from "@nestjs/swagger";
 import {
-  ConnectionStatus,
   CreateSessionDto,
   GameStateResponseDto,
   HumanGmMessageDto,
   JoinSessionDto,
-  ParticipantRole,
   ParticipantStatusResponseDto,
+  PlayerScenarioViewDto,
+  RevealSessionContentDto,
   SelectSessionCharacterDto,
+  SessionRevealResponseDto,
   SessionDetailResponseDto,
   SessionInviteResponseDto,
   SessionListItemResponseDto,
@@ -234,6 +235,21 @@ export class SessionsController {
     );
   }
 
+  @Get(":id/player-scenario")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: PlayerScenarioViewDto })
+  async getPlayerScenario(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<ApiResponse<PlayerScenarioViewDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Player scenario fetched.",
+      await this.sessionsService.getPlayerScenarioForUser(userId, sessionId),
+    );
+  }
+
   @Post(":id/character-selection")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
@@ -325,6 +341,22 @@ export class SessionsController {
       "SESSION_200",
       "GM message created.",
       await this.sessionsService.createHumanGmMessage(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/gm/reveals")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionRevealResponseDto })
+  async revealSessionContent(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: RevealSessionContentDto,
+  ): Promise<ApiResponse<SessionRevealResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Session content revealed.",
+      await this.sessionsService.revealSessionContent(userId, sessionId, dto),
     );
   }
 

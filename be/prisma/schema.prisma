@@ -379,7 +379,6 @@ model ScenarioNode {
   title            String
   sceneText        String
   imageUrl         String?
-  visibleToPlayers Boolean  @default(true)
   checkOptionsJson String
   transitionsJson  String
   cluesJson        String
@@ -401,11 +400,73 @@ model SessionScenario {
   session    Session               @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   scenario   Scenario              @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
   gameState  GameState?
+  nodes      SessionScenarioNode[]
+  nodeVisits SessionNodeVisit[]
+  reveals    SessionReveal[]
   turnLogs   TurnLog[]
   stateDiffs StateDiff[]
   combats    Combat[]
 
   @@unique([sessionId, sequence])
+}
+
+model SessionScenarioNode {
+  id                String          @id @default(cuid())
+  sessionScenarioId String
+  originalNodeId    String?
+  nodeId            String
+  nodeType          String          @default("story")
+  title             String
+  sceneText         String
+  imageUrl          String?
+  checkOptionsJson  String
+  transitionsJson   String
+  cluesJson         String
+  fallbackNodeId    String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  sessionScenario   SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+  nodeVisits        SessionNodeVisit[]
+
+  @@unique([sessionScenarioId, nodeId])
+  @@index([sessionScenarioId])
+  @@index([originalNodeId])
+}
+
+model SessionNodeVisit {
+  id                 String          @id @default(cuid())
+  sessionScenarioId  String
+  sessionScenarioNodeId String
+  nodeId             String
+  firstVisitedAt     DateTime        @default(now())
+  lastVisitedAt      DateTime        @updatedAt
+  visitCount         Int             @default(1)
+  enteredByTurnLogId String?
+  sessionScenario    SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+  scenarioNode       SessionScenarioNode @relation(fields: [sessionScenarioNodeId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionScenarioId, nodeId])
+  @@index([sessionScenarioId, firstVisitedAt])
+  @@index([sessionScenarioNodeId])
+}
+
+model SessionReveal {
+  id                String          @id @default(cuid())
+  sessionScenarioId String
+  contentId         String
+  contentKind       String          @default("clue")
+  scope             String          @default("party")
+  recipientId       String?
+  recipientKey      String          @default("party")
+  revealedAt        DateTime        @default(now())
+  revealedBy        String          @default("system")
+  reason            String?
+  turnLogId         String?
+  snapshotJson      String?
+  sessionScenario   SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionScenarioId, contentId, contentKind, scope, recipientKey])
+  @@index([sessionScenarioId, revealedAt])
 }
 
 model GameState {
@@ -414,7 +475,6 @@ model GameState {
   currentNodeId       String?
   phase               GamePhase       @default(LOBBY)
   flagsJson           String?
-  discoveredCluesJson String?
   updatedAt           DateTime        @updatedAt
   sessionScenario     SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
 }

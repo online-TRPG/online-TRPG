@@ -6,7 +6,7 @@
 
 ```text
 .
-├─ fe/                           # React + TypeScript + Tailwind 프론트엔드
+├─ fe/                           # React + TypeScript + Vite 프론트엔드
 │  ├─ public/                    # 정적 파일 루트 (favicon, og 이미지 등)
 │  └─ src/
 │     ├─ app/                    # 앱 진입점, 라우터, 전역 provider, 전역 설정
@@ -22,7 +22,7 @@
 │     │  ├─ images/              # 배경, 일러스트, 썸네일
 │     │  ├─ sounds/              # 효과음, bgm, 알림음
 │     │  └─ fonts/               # 커스텀 폰트
-│     ├─ styles/                 # 전역 스타일, Tailwind 확장 스타일
+│     ├─ styles/                 # 전역 스타일
 │     └─ main.tsx                # 프론트엔드 엔트리 포인트
 │
 ├─ be/                           # NestJS 백엔드
@@ -32,13 +32,14 @@
 │     ├─ common/                 # 공통 필터, 가드, 인터셉터, 데코레이터
 │     ├─ config/                 # 환경변수, DB, Redis, 보안 설정
 │     ├─ modules/                # 도메인별 기능 모듈
-│     │  ├─ auth/                # 인증, 인가, 토큰 처리
 │     │  ├─ users/               # 유저 프로필, 계정 관련 기능
 │     │  ├─ sessions/            # 세션 생성, 참가, 상태 전환
 │     │  ├─ characters/          # 캐릭터 시트, 능력치, 인벤토리
 │     │  ├─ scenarios/           # 시나리오, 노드, 단서 데이터
-│     │  ├─ gameplay/            # 턴 처리, 판정, 상태 반영, 룰 엔진
-│     │  ├─ logs/                # TurnLog, AiTrace, 감사 로그
+│     │  ├─ rules/               # 명령어 파싱, 주사위, 룰 엔진, 상태 diff
+│     │  ├─ actions/             # 플레이어 행동 큐와 처리
+│     │  ├─ combat/              # 전투 시작/종료, 턴 진행, 참가자 관리
+│     │  ├─ turn-logs/           # TurnLog 기록/조회
 │     │  ├─ realtime/            # WebSocket 게이트웨이, 실시간 이벤트
 │     │  └─ ai/                  # AI 서비스 호출용 프록시/오케스트레이션
 │     ├─ database/               # ORM 스키마, 마이그레이션, 시드 데이터
@@ -48,14 +49,16 @@
 │  ├─ app/
 │  │  ├─ main.py                 # FastAPI 엔트리 포인트
 │  │  ├─ api/                    # HTTP 라우터
-│  │  │  └─ routes/              # interpreter, narrator, health 등
+│  │  │  └─ routes/              # health, harness, session_ai 등
 │  │  ├─ core/                   # 설정, 로깅, 공통 예외 처리
 │  │  ├─ clients/                # Google AI Studio 등 외부 모델 클라이언트
 │  │  ├─ services/               # 역할별 실행 서비스
 │  │  │  ├─ interpreter/         # 행동 해석
 │  │  │  ├─ narrator/            # 결과 서술 생성
 │  │  │  ├─ actor/               # NPC 행동 선택
-│  │  │  └─ director/            # 힌트/전개 제안
+│  │  │  ├─ director/            # 힌트/전개 제안
+│  │  │  ├─ npc_dialogue/        # NPC 대사 생성
+│  │  │  └─ summarizer/          # 로그 요약
 │  │  ├─ prompts/                # 역할별 프롬프트 버전 관리
 │  │  ├─ schemas/                # AI 입력/출력 검증 스키마
 │  │  ├─ validators/             # no-new-facts 등 규칙 검증
@@ -63,24 +66,16 @@
 │  └─ models/                    # 로컬 모델 설정, 실험 메모, 운영 스크립트
 │
 ├─ shared-types/                 # fe / be / ai가 함께 쓰는 공용 타입 집합
-│  ├─ dto/                       # 요청/응답 DTO, WebSocket payload DTO
-│  │  ├─ api/                    # REST 요청/응답 DTO
-│  │  ├─ ws/                     # WebSocket 이벤트 DTO
-│  │  └─ ai/                     # AI 서비스 입출력 DTO
-│  ├─ types/                     # 도메인 타입, enum, 상태 타입
-│  │  ├─ domain/                 # User, Session, Character 등 핵심 타입
-│  │  ├─ gameplay/               # TurnLog, StateDiff, DiceResult 등
-│  │  └─ common/                 # 공통 유틸 타입
-│  ├─ schemas/                   # zod/class-validator 기반 검증 스키마
-│  │  ├─ api/                    # API 스키마
-│  │  ├─ ws/                     # WebSocket 스키마
-│  │  └─ ai/                     # AI JSON 스키마
-│  ├─ constants/                 # phase, role, action type 같은 상수
-│  └─ index.ts                   # 공용 export 진입점
+│  └─ src/
+│     ├─ dto/api/                # REST 요청/응답 DTO
+│     ├─ dto/ws/                 # WebSocket 이벤트 DTO
+│     ├─ types/domain/           # User, Session, Character 등 핵심 타입
+│     ├─ types/common/           # 공통 유틸 타입
+│     ├─ constants/              # phase, role, action type 같은 상수
+│     └─ index.ts                # 공용 export 진입점
 │
-├─ doc/                          # 기획 문서, 기능 정의, 데이터 모델 문서
-├─ infra/                        # 추후 Docker, nginx, Jenkins, 배포 설정
-├─ scripts/                      # 추후 로컬 실행, 시드, 테스트 보조 스크립트
+├─ doc/                          # 기획/설계 문서와 문서 지도
+├─ infra/                        # nginx 설정과 배포 runbook
 ├─ .gitignore
 └─ README.md
 ```
@@ -105,13 +100,14 @@
 
 예시:
 
-- `pages/session-room/`: 실제 플레이 화면
-- `components/game/CommandInput.tsx`: 플레이어 행동 입력창
-- `components/game/DiceResult.tsx`: 주사위 결과 표시
-- `components/character/CharacterStatus.tsx`: HP, 상태이상, 인벤토리 표시
-- `services/sessionApi.ts`: 세션 관련 API 호출
-- `services/gameSocket.ts`: 실시간 게임 이벤트 송수신
-- `store/sessionStore.ts`: 현재 세션 상태 관리
+- `pages/PlayPage.tsx`: 실제 플레이 화면
+- `pages/SessionDiscoverPage.tsx`: 공개 세션 탐색
+- `pages/SessionCreatePage.tsx`: 세션 생성
+- `pages/CharacterPage.tsx`: 캐릭터 생성/수정/조회
+- `components/BattleMap.tsx`: 전투 맵 표시
+- `components/LogPanel.tsx`: 세션 로그 표시
+- `services/api.ts`: REST API 호출
+- `services/realtime.ts`: 실시간 이벤트 송수신
 
 ### `be/`
 
@@ -120,14 +116,15 @@
 
 문서 기준으로 이 프로젝트의 authoritative state는 백엔드가 가져야 하므로, AI가 말한 내용도 최종 상태 확정은 `be/`에서 한다.
 
-예상 모듈은 아래와 같다.
+현재 구현 모듈은 아래와 같다.
 
-- `auth/`: 로그인, 토큰, 권한 처리
 - `sessions/`: 방 생성, 참가, 시작, 종료, pause/resume
 - `characters/`: 캐릭터 생성/수정/조회
 - `scenarios/`: 시나리오와 노드 관리
-- `gameplay/`: 판정, 턴 처리, 상태 변경, 룰 엔진
-- `logs/`: TurnLog, AiTrace 기록
+- `rules/`: 명령어 파싱, 주사위, 룰 엔진, 상태 diff
+- `actions/`: 플레이어 행동 큐, AI Interpreter 호출, 룰 판정 연결
+- `combat/`: 전투 시작/종료, 턴 진행, 참가자 조회
+- `turn-logs/`: TurnLog 기록/조회
 - `realtime/`: WebSocket 이벤트 송수신
 - `ai/`: FastAPI AI 서비스와 통신하는 계층
 
@@ -136,7 +133,7 @@
 AI GM 관련 책임을 분리한 서비스다.  
 NestJS가 게임 상태를 확정하고, `ai/`는 자연어 해석과 서술 생성에 집중한다.
 
-문서 기준 MVP 필수 역할은 `Interpreter`와 `Narrator`이므로, 처음에는 이 둘부터 구현하고 `Actor`, `Director`는 확장 기능으로 붙이는 것이 좋다.
+현재 하네스에는 `Interpreter`, `Narrator`, `Actor`, `Director`, `NpcDialogue`, `Summarizer` 역할과 내부 smoke/harness 경로가 들어 있다. 백엔드는 게임 상태를 확정하고, AI 서비스는 해석/서술/힌트/대사/요약 후보를 제공한다.
 
 분리 기준은 아래와 같다.
 
@@ -144,9 +141,12 @@ NestJS가 게임 상태를 확정하고, `ai/`는 자연어 해석과 서술 생
 - `clients/`: Google AI Studio (`google-genai`) 호출
 - `services/interpreter/`: 유저 행동을 구조화 액션으로 변환
 - `services/narrator/`: 확정된 결과를 GM 문장으로 생성
+- `services/actor/`: 허용된 NPC 행동 후보 선택
+- `services/director/`: 공개 정보 기반 힌트/전개 후보 생성
+- `services/npc_dialogue/`: NPC 대사 생성
+- `services/summarizer/`: 로그 요약
 - `prompts/`: 프롬프트 버전 파일
 - `schemas/`: 입출력 JSON 검증
-- `validators/`: 새 사실 추가 금지 같은 규칙 검증
 
 ### `shared-types/`
 
@@ -160,15 +160,13 @@ NestJS가 게임 상태를 확정하고, `ai/`는 자연어 해석과 서술 생
 - AI 요청/응답 JSON 구조 통일
 - 도메인 타입과 검증 스키마를 한 번에 관리
 
-예상 구성은 아래와 같다.
+현재 공개 구현은 `src/` 아래에 있다.
 
-- `dto/api/`: REST 요청/응답 DTO
-- `dto/ws/`: 실시간 이벤트 DTO
-- `dto/ai/`: AI 요청/응답 DTO
+- `src/dto/api/`: REST 요청/응답 DTO
+- `src/dto/ws/`: 실시간 이벤트 DTO
 - `types/domain/`: `User`, `Session`, `Character`
-- `types/gameplay/`: `TurnLog`, `StateDiff`, `DiceResult`
-- `schemas/`: zod 기반 런타임 검증 스키마
-- `constants/`: phase, condition, action type 상수
+- `src/types/common/`: 공통 유틸 타입
+- `src/constants/`: phase, condition, action type 상수
 
 ## 서버 PostgreSQL 연결 테스트
 
@@ -193,12 +191,9 @@ npm run test:server-db -w @trpg/be
 ## 루트 폴더 운영 원칙
 
 - `doc/`에는 기획 문서와 설계 문서를 모은다.
-- `infra/`는 Docker Compose, nginx, Jenkinsfile, 배포 스크립트를 모은다.
-- `scripts/`는 반복 실행이 필요한 개발 편의 스크립트가 생겼을 때 추가한다.
+- `infra/`는 nginx 설정과 배포 runbook을 모은다. Docker Compose와 Jenkinsfile은 현재 루트에 둔다.
 
-## 시작할 때 우선 만들 폴더
-
-초기 세팅에서는 아래 폴더부터 먼저 잡아두면 된다.
+## 현재 주요 폴더
 
 ```text
 fe/
@@ -206,6 +201,5 @@ be/
 ai/
 shared-types/
 doc/
+infra/
 ```
-
-`infra/`, `scripts/`는 필요해지는 시점에 추가한다.

@@ -79,9 +79,7 @@ export class ActionsService {
       });
     }
 
-    const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(
-      session.id,
-    );
+    const { state } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     const actionScope = this.resolveActionScope(dto.actionScope, state.phase);
     this.ensureCommandSyntax(dto.rawText);
 
