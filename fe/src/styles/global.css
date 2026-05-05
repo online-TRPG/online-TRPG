@@ -4580,6 +4580,264 @@ label {
   overflow: auto;
 }
 
+.scenario-node-board > .vtt-panel {
+  width: 100%;
+  min-height: 520px;
+}
+
+.vtt-panel {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  border-radius: 8px;
+  background: rgba(7, 12, 20, 0.82);
+  overflow: hidden;
+}
+
+.vtt-toolbar {
+  order: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid rgba(38, 52, 73, 0.9);
+  background: rgba(13, 21, 34, 0.9);
+}
+
+.vtt-toolbar > div:first-child {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 2px;
+}
+
+.vtt-toolbar strong {
+  font-size: 14px;
+}
+
+.vtt-controls {
+  flex: 1 1 520px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vtt-controls input {
+  width: min(280px, 34vw);
+  min-width: 160px;
+  height: 34px;
+  border: 1px solid rgba(80, 101, 132, 0.8);
+  border-radius: 6px;
+  background: rgba(4, 9, 16, 0.78);
+  color: var(--text);
+  padding: 0 10px;
+}
+
+.vtt-controls button {
+  height: 34px;
+  border: 1px solid rgba(80, 101, 132, 0.8);
+  border-radius: 6px;
+  background: rgba(26, 39, 58, 0.9);
+  color: var(--text);
+  padding: 0 10px;
+  font-weight: 800;
+}
+
+.vtt-controls button.active {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.vtt-subtoolbar {
+  order: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(38, 52, 73, 0.72);
+  background: rgba(9, 15, 25, 0.92);
+  flex-wrap: wrap;
+}
+
+.vtt-zoom-controls,
+.vtt-map-settings,
+.vtt-fog-tools,
+.vtt-inspector-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vtt-zoom-controls button,
+.vtt-clear-measure,
+.vtt-fog-tools button,
+.vtt-inspector-actions button,
+.vtt-zoom-controls select,
+.vtt-map-settings input {
+  height: 30px;
+  border: 1px solid rgba(80, 101, 132, 0.8);
+  border-radius: 6px;
+  background: rgba(4, 9, 16, 0.78);
+  color: var(--text);
+}
+
+.vtt-zoom-controls button {
+  min-width: 32px;
+  padding: 0 8px;
+  font-weight: 800;
+}
+
+.vtt-clear-measure {
+  padding: 0 10px;
+  font-weight: 800;
+}
+
+.vtt-fog-tools button {
+  min-width: 64px;
+  padding: 0 10px;
+  font-weight: 800;
+}
+
+.vtt-inspector-actions button {
+  flex: 1 1 72px;
+  padding: 0 8px;
+  font-weight: 800;
+}
+
+.vtt-fog-tools button.active {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.vtt-zoom-controls select {
+  padding: 0 8px;
+}
+
+.vtt-map-settings label,
+.vtt-fog-tools label,
+.vtt-token-snap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.vtt-fog-tools input,
+.vtt-token-snap input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--cyan);
+}
+
+.vtt-map-settings input {
+  width: 78px;
+  padding: 0 8px;
+}
+
+.vtt-workspace {
+  order: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.vtt-workspace.with-inspector {
+  grid-template-columns: minmax(0, 1fr) 280px;
+}
+
+.vtt-stage-wrap {
+  width: 100%;
+  min-height: 320px;
+  overflow: hidden;
+  background: #050912;
+}
+
+.vtt-inspector {
+  min-width: 0;
+  border-left: 1px solid rgba(38, 52, 73, 0.9);
+  background: rgba(12, 19, 31, 0.96);
+  padding: 12px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.vtt-inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.vtt-inspector-head button,
+.vtt-inspector button {
+  min-height: 32px;
+  border: 1px solid rgba(80, 101, 132, 0.8);
+  border-radius: 6px;
+  background: rgba(26, 39, 58, 0.9);
+  color: var(--text);
+  padding: 0 10px;
+  font-weight: 800;
+}
+
+.vtt-inspector button.danger {
+  border-color: rgba(255, 107, 107, 0.55);
+  color: #ff9c9c;
+}
+
+.vtt-inspector label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.vtt-inspector input {
+  min-width: 0;
+  height: 32px;
+  border: 1px solid rgba(80, 101, 132, 0.8);
+  border-radius: 6px;
+  background: rgba(4, 9, 16, 0.78);
+  color: var(--text);
+  padding: 0 8px;
+}
+
+.vtt-field-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.vtt-check-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.vtt-check-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vtt-check-row input {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+}
+
 .scenario-node-header {
   display: flex;
   align-items: flex-start;
@@ -5037,6 +5295,36 @@ label {
   place-items: center;
   color: var(--muted);
   padding: 18px;
+  text-align: center;
+}
+
+.scenario-node-map-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.scenario-node-map-panel .vtt-panel {
+  background: rgba(5, 10, 17, 0.78);
+}
+
+.scenario-node-map-panel .vtt-toolbar {
+  align-items: flex-start;
+}
+
+.scenario-node-map-panel .vtt-controls input {
+  width: min(260px, 100%);
+}
+
+.scenario-node-map-empty {
+  min-height: 180px;
+  border: 1px dashed rgba(80, 101, 132, 0.8);
+  border-radius: 8px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 20px;
+  background: rgba(8, 13, 22, 0.68);
   text-align: center;
 }
 
@@ -5749,6 +6037,44 @@ label {
 
   .session-create-preview-meta {
     grid-template-columns: 1fr;
+  }
+
+  .session-prep-layout {
+    padding: 8px;
+  }
+
+  .session-stage-canvas,
+  .scenario-node-board {
+    border-radius: 16px;
+    padding: 12px;
+  }
+
+  .scenario-node-board > .vtt-panel {
+    min-height: 420px;
+  }
+
+  .vtt-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .vtt-controls {
+    flex: 1 1 auto;
+    justify-content: flex-start;
+  }
+
+  .vtt-controls input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .vtt-workspace.with-inspector {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vtt-inspector {
+    border-left: 0;
+    border-top: 1px solid rgba(38, 52, 73, 0.9);
   }
 }
 

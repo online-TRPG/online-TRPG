@@ -38,6 +38,9 @@ export class ScenarioNodeResponseDto {
   @ApiProperty({ type: [Object] })
   clues!: Record<string, unknown>[];
 
+  @ApiPropertyOptional({ type: Object, nullable: true })
+  vttMap!: Record<string, unknown> | null;
+
   @ApiPropertyOptional()
   fallbackNodeId?: string | null;
 }
@@ -123,6 +126,11 @@ export class ScenarioNodeInputDto {
   @IsArray()
   @IsObject({ each: true })
   clues?: Record<string, unknown>[];
+
+  @ApiPropertyOptional({ type: Object, nullable: true })
+  @IsOptional()
+  @IsObject()
+  vttMap?: Record<string, unknown> | null;
 }
 
 export class UploadScenarioNodeImageDto {
