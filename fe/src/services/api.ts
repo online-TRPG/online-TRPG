@@ -5,6 +5,7 @@ import type {
   GmMode,
   LoginResponseDto,
   OAuthUrlResponseDto,
+  PlayerScenarioViewDto,
   ScenarioResponseDto,
   SessionDetailResponseDto,
   SessionSnapshotDto,
@@ -18,6 +19,7 @@ import type {
   ApiErrorBody,
   AvailableSessionListItem,
   Character,
+  PlayerScenarioView,
   Scenario,
   ScenarioDetail,
   SessionDetail,
@@ -232,11 +234,34 @@ export function getScenario(scenarioId: string): Promise<ScenarioDetail> {
   return requestJson<ScenarioResponseDto>(`/scenarios/${scenarioId}`);
 }
 
+export function getPlayerScenario(
+  user: StoredUser,
+  sessionId: string,
+  accessToken?: string | null
+): Promise<PlayerScenarioView> {
+  return requestJson<PlayerScenarioViewDto>(`/sessions/${sessionId}/player-scenario`, {
+    user,
+    accessToken,
+  });
+}
+
 export function listMyScenarios(
   user: StoredUser,
-  accessToken?: string | null
+  accessToken?: string | null,
+  search?: string
 ): Promise<Scenario[]> {
-  return requestJson<Scenario[]>('/scenarios/mine', { user, accessToken });
+  const params = new URLSearchParams();
+  const trimmedSearch = search?.trim();
+
+  if (trimmedSearch) {
+    params.set('search', trimmedSearch);
+  }
+
+  const query = params.toString();
+  return requestJson<Scenario[]>(`/scenarios/mine${query ? `?${query}` : ''}`, {
+    user,
+    accessToken,
+  });
 }
 
 export function createScenario(

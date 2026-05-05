@@ -143,7 +143,6 @@ export type ScenarioNodeModel = {
   title: string;
   sceneText: string;
   imageUrl?: string | null;
-  visibleToPlayers: boolean;
   checkOptions: Record<string, unknown>[];
   transitions: Record<string, unknown>[];
   clues: Record<string, unknown>[];
@@ -172,7 +171,6 @@ export type GameStateModel = {
   currentNodeId?: string | null;
   phase: GamePhase;
   flags: Record<string, unknown>;
-  discoveredClues: Record<string, unknown>[];
   state: Record<string, unknown>;
   updatedAt: string;
 };

@@ -4,12 +4,10 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
-  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
-  Min,
 } from "class-validator";
 import {
   ActionInputType,

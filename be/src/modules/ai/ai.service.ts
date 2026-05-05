@@ -108,13 +108,14 @@ export class AiService {
     dto: AiHintRequestDto,
   ): Promise<AiHintResponseDto> {
     await this.sessionsService.ensureMembership(userId, sessionId);
+    const publicClues = await this.sessionsService.getPublicClueSummariesForUser(userId, sessionId);
 
     const requestPayload: DirectorRequestPayload = {
       hintLevel: dto.hintLevel ?? "NORMAL",
       question: dto.question,
       sceneSummary: dto.sceneSummary,
       recentLogs: dto.recentLogs,
-      publicClues: dto.publicClues,
+      publicClues,
       triedApproaches: dto.triedApproaches,
       sessionId,
       turnId: dto.turnId,

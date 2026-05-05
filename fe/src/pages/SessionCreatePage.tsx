@@ -1,5 +1,4 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Icon } from "../components/Icon";
 import { buildSessionScenarioOptions } from "../data/sessionVisuals";
 import type { Scenario, SessionSnapshot } from "../types/session";
 

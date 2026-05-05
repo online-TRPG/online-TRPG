@@ -17,15 +17,6 @@ interface SessionDetailModalProps {
   onOpenHostProfile: (host: User) => void;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  lobby: "대기 중",
-  recruiting: "모집 중",
-  playing: "진행 중",
-  paused: "일시 정지",
-  completed: "완료",
-  disbanded: "해산",
-};
-
 const GM_MODE_LABEL: Record<string, string> = {
   AI: "AI GM",
   HUMAN: "인간 GM",
