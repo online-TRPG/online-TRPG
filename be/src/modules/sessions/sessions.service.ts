@@ -1140,9 +1140,9 @@ export class SessionsService {
           phase: PrismaGamePhase.DIALOGUE,
           flagsJson: JSON.stringify({
             ...flags,
-            vttMap: targetDefaultMap
-              ? this.normalizeVttMap(targetDefaultMap, targetNode.nodeId)
-              : undefined,
+            ...(targetDefaultMap
+              ? { vttMap: this.normalizeVttMap(targetDefaultMap, targetNode.nodeId) }
+              : {}),
           }),
         },
       });
