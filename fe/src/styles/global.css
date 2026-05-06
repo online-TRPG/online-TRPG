@@ -171,7 +171,7 @@ label {
   padding: 0 16px;
 }
 
-.login-card > button,
+.login-card>button,
 .primary {
   width: 100%;
   margin-top: 18px;
@@ -891,7 +891,7 @@ label {
   border-color: rgba(217, 164, 65, 0.38);
 }
 
-.log-entry > div {
+.log-entry>div {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -1317,7 +1317,7 @@ label {
   min-height: 80px;
 }
 
-.topbar-brand > div {
+.topbar-brand>div {
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1593,7 +1593,7 @@ label {
   overflow: auto;
 }
 
-.session-discover-content > .session-discover-toolbar:first-child {
+.session-discover-content>.session-discover-toolbar:first-child {
   margin-top: 2px;
 }
 
@@ -2127,7 +2127,7 @@ label {
   gap: 14px;
 }
 
-.session-create-guide-list > div {
+.session-create-guide-list>div {
   padding: 18px;
   border-radius: 18px;
   border: 1px solid rgba(193, 163, 120, 0.28);
@@ -2267,7 +2267,7 @@ label {
   gap: 12px;
 }
 
-.hero-stats > div,
+.hero-stats>div,
 .status-panel {
   border: 1px solid rgba(38, 52, 73, 0.9);
   border-radius: 18px;
@@ -2438,6 +2438,7 @@ label {
 }
 
 @media (max-width: 1180px) {
+
   .page-with-sidebar,
   .hero-panel,
   .session-stage {
@@ -2446,6 +2447,7 @@ label {
 }
 
 @media (max-width: 860px) {
+
   .topbar-shell,
   .page-with-sidebar,
   .play-layout {
@@ -3560,11 +3562,9 @@ label {
   box-shadow:
     0 0 0 1px rgba(255, 244, 197, 0.5),
     0 0 10px rgba(255, 215, 92, 0.18);
-  background: radial-gradient(
-    circle at center,
-    rgba(255, 225, 133, 0.18),
-    rgba(255, 225, 133, 0) 72%
-  );
+  background: radial-gradient(circle at center,
+      rgba(255, 225, 133, 0.18),
+      rgba(255, 225, 133, 0) 72%);
   transition:
     opacity 160ms ease,
     box-shadow 160ms ease;
@@ -3578,8 +3578,7 @@ label {
 }
 
 .fantasy-character-card.selected .fantasy-character-card-frame {
-  filter: drop-shadow(0 0 0 1px rgba(255, 220, 110, 0.82))
-    drop-shadow(0 0 10px rgba(255, 220, 110, 0.2)) drop-shadow(0 8px 14px rgba(22, 11, 3, 0.16));
+  filter: drop-shadow(0 0 0 1px rgba(255, 220, 110, 0.82)) drop-shadow(0 0 10px rgba(255, 220, 110, 0.2)) drop-shadow(0 8px 14px rgba(22, 11, 3, 0.16));
 }
 
 .fantasy-character-card.selected .fantasy-character-card-frame::before {
@@ -3731,6 +3730,96 @@ label {
   margin-left: -14px;
   background: none !important;
   filter: drop-shadow(0 12px 24px rgba(22, 11, 3, 0.22));
+}
+
+.fantasy-insight-frame {
+  position: relative;
+  padding: 220px 80px 220px 90px;
+  background: none !important;
+  filter: drop-shadow(0 12px 24px rgba(22, 11, 3, 0.22));
+  display: flex;
+  flex-direction: column;
+}
+
+.character-insight-box {
+  background: rgba(228, 208, 165, 0.15);
+  border: 1px solid rgba(228, 208, 165, 0.3);
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: inset 0 0 40px rgba(139, 69, 19, 0.03), 0 4px 12px rgba(24, 13, 4, 0.1);
+  display: flex;
+  flex-direction: column;
+}
+
+.character-insight-box .fantasy-insight-content {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.fantasy-insight-divider {
+  border: 0;
+  height: 2px;
+  background: linear-gradient(to right, transparent, rgba(59, 36, 20, 0.4), transparent);
+  margin: 32px 0;
+}
+
+.fantasy-insight-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--frame-image);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.fantasy-insight-content {
+  position: relative;
+  z-index: 1;
+  color: #241509;
+  height: 100%;
+  overflow-y: auto;
+  max-width: 75%;
+  margin: 0 auto;
+  padding-right: 14px;
+  /* 스크롤바 여백 */
+  font-size: 14px;
+  letter-spacing: -0.03em;
+}
+
+.fantasy-insight-content strong,
+.fantasy-insight-content .fantasy-insight-title {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #241509;
+}
+
+.fantasy-insight-content p {
+  margin: 0 0 12px;
+  color: #3b2414;
+  line-height: 1.6;
+}
+
+.fantasy-insight-content ul {
+  margin: 12px 0;
+  padding-left: 20px;
+  color: #3b2414;
+}
+
+.fantasy-insight-content li {
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+
+.fantasy-insight-content li strong {
+  display: block;
+  font-size: 15px;
+  margin-bottom: 4px;
 }
 
 .fantasy-character-stats-frame::after {
@@ -4185,7 +4274,7 @@ label {
 .character-create-modal .modal-header h2,
 .character-create-modal .section-heading h2,
 .character-create-modal label,
-.character-create-modal .character-avatar-picker > label {
+.character-create-modal .character-avatar-picker>label {
   color: #2b1707;
 }
 
@@ -4300,10 +4389,10 @@ label {
 .character-create-modal::before {
   content: '';
   position: absolute;
-  top: -220px;
+  top: -80px;
   right: 0;
   left: 0;
-  height: 420%;
+  height: 215%;
   background-image: url('../components/Profile_Border_Stats.png');
   background-position: top center;
   background-repeat: no-repeat;
@@ -4313,15 +4402,35 @@ label {
   z-index: 0;
 }
 
-.character-create-modal > * {
+.character-create-modal>* {
   position: relative;
   z-index: 1;
 }
 
 .character-create-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
   padding-right: 12px;
   padding-bottom: 32px;
+}
+
+.character-create-form-left,
+.character-create-form-right {
+  display: flex;
+  flex-direction: column;
   gap: 18px;
+}
+
+.character-create-form>button[type="submit"] {
+  grid-column: 1 / -1;
+  margin-top: 16px;
+}
+
+@media (max-width: 900px) {
+  .character-create-form {
+    grid-template-columns: 1fr;
+  }
 }
 
 .character-form-section {
@@ -4554,7 +4663,7 @@ label {
   align-items: start;
 }
 
-.session-status-floating-layer > * {
+.session-status-floating-layer>* {
   pointer-events: auto;
 }
 
@@ -4633,7 +4742,7 @@ label {
   padding: 28px 24px 40px;
 }
 
-.session-character-board > * {
+.session-character-board>* {
   position: relative;
   z-index: 1;
 }
@@ -4677,7 +4786,7 @@ label {
   color: #2d1b0d;
 }
 
-.scenario-node-board > .vtt-panel {
+.scenario-node-board>.vtt-panel {
   width: 100%;
   min-height: 520px;
 }
@@ -4705,7 +4814,7 @@ label {
   color: #2d1b0d;
 }
 
-.vtt-toolbar > div:first-child {
+.vtt-toolbar>div:first-child {
   flex: 0 0 auto;
   display: grid;
   gap: 2px;
@@ -5157,7 +5266,7 @@ label {
   gap: 14px;
 }
 
-.scenario-info-grid > div {
+.scenario-info-grid>div {
   display: grid;
   gap: 8px;
 }
@@ -6145,6 +6254,7 @@ label {
 }
 
 @media (max-width: 860px) {
+
   .character-hero,
   .character-detail-panel-top,
   .session-room-overlay-row,
@@ -6231,7 +6341,7 @@ label {
     padding: 12px;
   }
 
-  .scenario-node-board > .vtt-panel {
+  .scenario-node-board>.vtt-panel {
     min-height: 420px;
   }
 

@@ -9,17 +9,12 @@ import boxBulletinNarrowFrame from "../components/Box_Bulletin_Narrow_Frame.png"
 import boxBulletinNarrowPlanks from "../components/Box_Bulletin_Narrow_Planks.png";
 import { Icon } from "../components/Icon";
 import profileBorderCharacter from "../components/Profile_Border_Character.png";
+import { getClassLabel } from "../data/class-options";
 import type { CharacterPayload } from "../hooks/useSession";
 import { getPlayerScenario, getVttMap, updateVttMap } from "../services/api";
 import type { LogEntry, PersistentCharacter, PlayerScenarioView, SessionSnapshot, StoredUser } from "../types/session";
 
 const sessionTabs = ["Main", "Chat", "Info", "Settings"] as const;
-const classLabelMap = new Map([
-  ["Wizard", "마법사"],
-  ["Archer", "궁수"],
-  ["Rogue", "도적"],
-  ["Warrior", "전사"],
-]);
 const avatarPresetImageMap = new Map([
   ["preset_wizard", defaultWizardImage],
   ["preset_archer", defaultArcherImage],
@@ -96,7 +91,7 @@ function getCharacterImage(character: { avatarPresetId?: string | null; avatarUr
 }
 
 function getCharacterClassLabel(className: string) {
-  return classLabelMap.get(className) ?? className;
+  return getClassLabel(className);
 }
 
 function getNodeLabel(value: unknown): string | null {
