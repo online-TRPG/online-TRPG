@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { RealtimeCoreModule } from "../realtime/realtime-core.module";
 import { SessionsModule } from "../sessions/sessions.module";
 import { ActionRuleService } from "./action-rule.service";
 import { CommandParserService } from "./command-parser.service";
@@ -8,7 +9,7 @@ import { RuleEngineService } from "./rule-engine.service";
 import { StateDiffService } from "./state-diff.service";
 
 @Module({
-  imports: [SessionsModule],
+  imports: [SessionsModule, RealtimeCoreModule],
   controllers: [DiceController],
   providers: [
     ActionRuleService,
