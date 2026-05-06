@@ -75,7 +75,7 @@ python -m pip install -e .[dev]
 uvicorn app.main:app --reload --port 8100
 ```
 
-로컬 실행 시에는 현재 PowerShell 세션이나 `ai/.env`에 `GOOGLE_API_KEY`를 설정한다. Docker Compose 경로는 루트의 `.env.ai`를 사용한다.
+로컬 실행과 Docker Compose 모두 루트의 `.env.ai`를 사용한다. `ai/.env`는 더 이상 사용하지 않는다.
 
 ## 자주 쓰는 검증
 
@@ -91,7 +91,7 @@ Google AI Studio 실제 통신만 확인하려면 아래 한 줄을 실행한다
 python -m pytest app\tests\test_live_google_ai_studio.py -q
 ```
 
-`GOOGLE_API_KEY`는 `.env`에 넣거나 현재 PowerShell 세션에 설정한다. 키가 없으면 live test는 skip된다.
+`GOOGLE_API_KEY`는 루트 `.env.ai`에 넣거나 현재 PowerShell 세션에 설정한다. 키가 없으면 live test는 skip된다.
 
 ```powershell
 $env:GOOGLE_API_KEY='...'
