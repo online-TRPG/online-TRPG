@@ -628,7 +628,6 @@ export function App() {
             busy={busy}
             error={error}
             onCreateSession={handleCreateSession}
-            onOpenDiscover={() => guardedNavigate('/sessions/discover')}
           />
         ) : null}
 
