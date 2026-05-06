@@ -12,6 +12,7 @@ interface LobbyPageProps {
   busy: boolean;
   error: string | null;
   onOpenDiscover: () => void;
+  onOpenMySessions: () => void;
   onOpenCreate: () => void;
   onOpenPlay: () => void;
   onLeaveCurrentSession: () => void | Promise<void>;
@@ -36,6 +37,7 @@ export function LobbyPage({
   busy,
   error,
   onOpenDiscover,
+  onOpenMySessions,
   onOpenCreate,
 }: LobbyPageProps) {
   const [pageToast, setPageToast] = useState<string | null>(null);
@@ -80,7 +82,7 @@ export function LobbyPage({
         <article
           className="main-landing-statcard"
           style={{ backgroundImage: `url(${boxBrickImage})` }}
-          onClick={onOpenDiscover}
+          onClick={onOpenMySessions}
           role="button"
           tabIndex={0}
         >
