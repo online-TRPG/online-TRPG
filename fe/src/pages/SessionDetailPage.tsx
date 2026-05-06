@@ -153,7 +153,7 @@ export function SessionDetailPage({
             </div>
             <div className="profile-kv-item">
               <dt>GM 모드</dt>
-              <dd>{GM_MODE_LABEL[detail.session.gmMode] ?? detail.session.gmMode}</dd>
+              <dd>{detail.session.gmMode === "AI" ? "AI GM" : "\uC77C\uBC18 GM"}</dd>
             </div>
             <div className="profile-kv-item">
               <dt>공개 범위</dt>

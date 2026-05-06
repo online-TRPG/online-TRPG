@@ -26,6 +26,13 @@ export interface SessionScenarioOption {
   scenarioId?: string;
 }
 
+const GENERAL_GM_LABEL = "\uC77C\uBC18 GM";
+const AI_GM_LABEL = "AI GM";
+
+function normalizeGmLabel(label: string): string {
+  return label === AI_GM_LABEL ? AI_GM_LABEL : GENERAL_GM_LABEL;
+}
+
 export const sessionVisualPresets: SessionVisualPreset[] = [
   {
     key: "goblin-cave",
@@ -118,7 +125,7 @@ export function buildSessionScenarioOptions(scenarios: Scenario[]): SessionScena
       image: preset.image,
       theme: preset.theme,
       difficulty: matchedScenario?.difficulty ?? preset.difficulty,
-      gmLabel: preset.gmLabel,
+      gmLabel: normalizeGmLabel(preset.gmLabel),
       description: matchedScenario?.description ?? preset.description,
       scenarioId: matchedScenario?.id,
     };
@@ -134,7 +141,7 @@ export function buildSessionScenarioOptions(scenarios: Scenario[]): SessionScena
         image: fallbackPreset.image,
         theme: fallbackPreset.theme,
         difficulty: scenario.difficulty ?? fallbackPreset.difficulty,
-        gmLabel: fallbackPreset.gmLabel,
+        gmLabel: normalizeGmLabel(fallbackPreset.gmLabel),
         description: scenario.description ?? fallbackPreset.description,
         scenarioId: scenario.id,
       };
