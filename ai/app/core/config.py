@@ -5,9 +5,20 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def find_repo_root() -> Path:
+    for base in (Path.cwd(), *Path(__file__).resolve().parents):
+        if (base / ".env.ai").exists():
+            return base
+    return Path.cwd()
+
+
+REPO_ROOT = find_repo_root()
+AI_ENV_FILE = REPO_ROOT / ".env.ai"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=AI_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
