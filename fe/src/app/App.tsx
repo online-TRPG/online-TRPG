@@ -157,6 +157,7 @@ export function App() {
   const gameroomMatch = /^\/gameroom\/([^/]+)\/[^/]+$/.exec(location.pathname);
   const gameroomId = gameroomMatch?.[1] ?? null;
   const publicProfileState = location.state as { profilePreview?: User | null } | null;
+  const sessionDiscoverState = location.state as { initialSection?: 'public' | 'my' } | null;
   const scenarioEditMatch = /^\/scenarios\/([^/]+)\/edit$/.exec(location.pathname);
   const scenarioEditId = scenarioEditMatch?.[1] ?? null;
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
@@ -469,7 +470,16 @@ export function App() {
             logs={logs}
             busy={busy}
             error={error}
-            onOpenDiscover={() => guardedNavigate('/sessions/discover')}
+            onOpenDiscover={() =>
+              guardedNavigate('/sessions/discover', {
+                state: { initialSection: 'public' },
+              })
+            }
+            onOpenMySessions={() =>
+              guardedNavigate('/sessions/discover', {
+                state: { initialSection: 'my' },
+              })
+            }
             onOpenCreate={() => guardedNavigate('/sessions/new')}
             onOpenPlay={() =>
               session.snapshot && guardedNavigate(buildGameroomPath(session.snapshot.session))
@@ -565,6 +575,7 @@ export function App() {
             snapshot={session.snapshot}
             sessionList={session.sessionList}
             mySessionList={session.mySessionList}
+            initialSection={sessionDiscoverState?.initialSection ?? 'public'}
             busy={busy}
             error={error}
             onClearError={session.clearError}
