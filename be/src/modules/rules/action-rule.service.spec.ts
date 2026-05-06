@@ -6,6 +6,7 @@ import {
 import { ActionRuleService } from "./action-rule.service";
 import { CommandParserService } from "./command-parser.service";
 import { DiceService } from "./dice.service";
+import { MapPositionService } from "./map-position.service";
 import { RuleEngineService } from "./rule-engine.service";
 import { RULE_HOOK_IDS } from "./rule-engine.types";
 
@@ -48,6 +49,8 @@ const createCharacter = (
   currentHp: overrides.currentHp ?? 10,
   tempHp: overrides.tempHp ?? 0,
   conditionsJson: overrides.conditionsJson ?? "[]",
+  inventorySnapshotJson: overrides.inventorySnapshotJson ?? null,
+  inventoryEntries: overrides.inventoryEntries ?? [],
   character: {
     id: overrides.character?.id ?? "character-1",
     name: overrides.character?.name ?? "Hero",
@@ -61,6 +64,8 @@ const createCharacter = (
     proficientSkillsJson: overrides.character?.proficientSkillsJson ?? "[]",
     armorClass: overrides.character?.armorClass ?? 10,
     speed: overrides.character?.speed ?? 30,
+    inventoryJson: overrides.character?.inventoryJson ?? "[]",
+    equippedWeaponId: overrides.character?.equippedWeaponId ?? null,
   },
 });
 
@@ -80,6 +85,7 @@ describe("ActionRuleService", () => {
       new CommandParserService(),
       diceService,
       new RuleEngineService(),
+      new MapPositionService(),
     );
   };
 
@@ -371,10 +377,70 @@ describe("ActionRuleService", () => {
         conditions: ["resource:second_wind_expended"],
       },
     ]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_SECOND_WIND" },
+      { type: "SPEND_BONUS_ACTION" },
+    ]);
     expect(structuredAction.ruleResults[0]).toMatchObject({
       hookId: RULE_HOOK_IDS.APPLY_SECOND_WIND,
       produced: { hitPointsRestored: 12, newHitPoints: 17 },
     });
+  });
+
+  it("uses runtime resource state to reject second wind before rolling", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      currentHp: 5,
+      character: { className: "fighter", level: 5, maxHp: 20 },
+    });
+
+    const result = service.resolveAction("/feature second_wind", actor, [actor], {
+      resource: {
+        secondWindAvailable: false,
+        actionSurgeUses: 1,
+        rageUses: 0,
+        rageActive: false,
+        frenzyActive: false,
+        exhaustionLevel: 0,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.diceResult).toBeNull();
+    expect(result.runtimeEffects).toBeUndefined();
+  });
+
+  it("uses runtime turn state to reject bonus-action class features", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      currentHp: 5,
+      character: { className: "fighter", level: 5, maxHp: 20 },
+    });
+
+    const result = service.resolveAction("/feature second_wind", actor, [actor], {
+      resource: {
+        secondWindAvailable: true,
+        actionSurgeUses: 1,
+        rageUses: 0,
+        rageActive: false,
+        frenzyActive: false,
+        exhaustionLevel: 0,
+      },
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: true,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.narration).toBe("사용 가능한 bonus action이 없습니다.");
   });
 
   it("connects rage to condition tags consumed by damage modifiers", () => {
@@ -389,6 +455,10 @@ describe("ActionRuleService", () => {
     const result = service.resolveAction("/feature rage", actor, [actor]);
 
     expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.runtimeEffects).toEqual([
+      { type: "START_RAGE" },
+      { type: "SPEND_BONUS_ACTION" },
+    ]);
     expect(result.stateChanges).toEqual([
       {
         sessionCharacterId: "actor",
@@ -402,5 +472,483 @@ describe("ActionRuleService", () => {
         ],
       },
     ]);
+  });
+
+  it("connects cunning action to the runtime bonus action effect", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: { className: "rogue", level: 2 },
+    });
+
+    const result = service.resolveAction("/feature cunning_action hide", actor, [actor], {
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+    const structuredAction = result.structuredAction as {
+      option: string;
+      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_BONUS_ACTION" }]);
+    expect(structuredAction.option).toBe("hide");
+    expect(structuredAction.ruleResults[0]).toMatchObject({
+      hookId: RULE_HOOK_IDS.APPLY_CUNNING_ACTION,
+      produced: { grantedActionType: "hide" },
+    });
+  });
+
+  it("applies sneak attack on an advantaged finesse weapon hit", () => {
+    const service = createService([
+      createDiceResult([6, 18], 2, DiceAdvantageState.ADVANTAGE),
+      {
+        expression: "1d6",
+        rolls: [4],
+        modifier: 0,
+        total: 4,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      {
+        expression: "2d6",
+        rolls: [3, 4],
+        modifier: 0,
+        total: 7,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "rogue",
+        level: 3,
+        equippedWeaponId: "rapier-1",
+        inventoryJson: JSON.stringify([
+          {
+            id: "rapier-1",
+            name: "Rapier",
+            quantity: 1,
+            damageDice: "1d6",
+            damageType: "piercing",
+            properties: ["finesse"],
+          },
+        ]),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 20,
+      conditionsJson: JSON.stringify(["prone"]),
+      character: { id: "target-character", name: "Target", armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/attack target", actor, [actor, target], {
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+    const structuredAction = result.structuredAction as {
+      damageType: string;
+      finalDamage: number;
+      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SNEAK_ATTACK" },
+    ]);
+    expect(structuredAction.damageType).toBe("piercing");
+    expect(structuredAction.finalDamage).toBe(11);
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 9, markDead: false },
+    ]);
+    expect(structuredAction.ruleResults).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          hookId: RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
+          produced: expect.objectContaining({
+            sneakAttackDamage: 7,
+            sneakAttackExpendedThisTurn: true,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("uses InventoryEntry and ItemDefinition when resolving an equipped weapon", () => {
+    const service = createService([
+      createDiceResult([8, 18], 2, DiceAdvantageState.ADVANTAGE),
+      {
+        expression: "1d8",
+        rolls: [8],
+        modifier: 0,
+        total: 8,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      {
+        expression: "2d6",
+        rolls: [3, 4],
+        modifier: 0,
+        total: 7,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      inventoryEntries: [
+        {
+          id: "inventory-entry-rapier",
+          itemDefinitionId: "item.rapier",
+          itemDefinition: {
+            id: "item.rapier",
+            itemType: "weapon",
+            damageDice: "1d8",
+            damageType: "piercing",
+            propertiesJson: JSON.stringify(["finesse"]),
+          },
+        },
+      ],
+      character: {
+        className: "rogue",
+        level: 3,
+        equippedWeaponId: "item.rapier",
+        inventoryJson: "[]",
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 20,
+      conditionsJson: JSON.stringify(["prone"]),
+      character: { id: "target-character", name: "Target", armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/attack target", actor, [actor, target], {
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+    const structuredAction = result.structuredAction as {
+      damageType: string;
+      damageRoll: DiceRollResponseDto;
+      finalDamage: number;
+      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(structuredAction.damageType).toBe("piercing");
+    expect(structuredAction.damageRoll.expression).toBe("1d8");
+    expect(structuredAction.finalDamage).toBe(15);
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 5, markDead: false },
+    ]);
+    expect(structuredAction.ruleResults).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          hookId: RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
+          accepted: true,
+        }),
+      ]),
+    );
+  });
+
+  it("applies sneak attack when an actor ally is within 5 feet of the target", () => {
+    const service = createService([
+      createDiceResult([18], 2),
+      {
+        expression: "1d6",
+        rolls: [4],
+        modifier: 0,
+        total: 4,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      {
+        expression: "2d6",
+        rolls: [2, 3],
+        modifier: 0,
+        total: 5,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "rogue",
+        level: 3,
+        equippedWeaponId: "rapier-1",
+        inventoryJson: JSON.stringify([
+          {
+            id: "rapier-1",
+            name: "Rapier",
+            quantity: 1,
+            damageDice: "1d6",
+            damageType: "piercing",
+            properties: ["finesse"],
+          },
+        ]),
+      },
+    });
+    const ally = createCharacter({
+      id: "ally",
+      characterId: "ally-character",
+      character: { id: "ally-character", name: "Ally" },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 20,
+      character: { id: "target-character", name: "Target", armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/attack target", actor, [actor, ally, target], {
+      map: {
+        gridType: "square",
+        gridSize: 64,
+        tokens: [
+          {
+            sessionCharacterId: "actor",
+            x: 0,
+            y: 0,
+            size: 64,
+            hidden: false,
+            isHostile: false,
+          },
+          {
+            sessionCharacterId: "ally",
+            x: 64,
+            y: 0,
+            size: 64,
+            hidden: false,
+            isHostile: false,
+          },
+          {
+            sessionCharacterId: "target",
+            x: 128,
+            y: 0,
+            size: 64,
+            hidden: false,
+            isHostile: true,
+          },
+        ],
+      },
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+    const structuredAction = result.structuredAction as {
+      finalDamage: number;
+      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SNEAK_ATTACK" },
+    ]);
+    expect(structuredAction.finalDamage).toBe(9);
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 11, markDead: false },
+    ]);
+    expect(structuredAction.ruleResults).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          hookId: RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
+          accepted: true,
+          produced: expect.objectContaining({
+            sneakAttackDamage: 5,
+            sneakAttackExpendedThisTurn: true,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("connects frenzy to the runtime character resource effect", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: { className: "barbarian berserker", level: 3 },
+    });
+
+    const result = service.resolveAction("/feature frenzy", actor, [actor], {
+      resource: {
+        secondWindAvailable: true,
+        actionSurgeUses: 0,
+        rageUses: 1,
+        rageActive: true,
+        frenzyActive: false,
+        exhaustionLevel: 0,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.runtimeEffects).toEqual([{ type: "START_FRENZY" }]);
+    expect(result.structuredAction).toMatchObject({
+      featureId: "class.barbarian.subclass_feature.frenzy",
+    });
+  });
+
+  it("rejects frenzy when rage is not active", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: { className: "barbarian berserker", level: 3 },
+    });
+
+    const result = service.resolveAction("/feature frenzy", actor, [actor], {
+      resource: {
+        secondWindAvailable: true,
+        actionSurgeUses: 0,
+        rageUses: 1,
+        rageActive: false,
+        frenzyActive: false,
+        exhaustionLevel: 0,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.runtimeEffects).toEqual([]);
+    expect(result.narration).toBe("Frenzy는 Rage 상태에서만 사용할 수 있습니다.");
+  });
+
+  it("recovers short rest resources without changing HP", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      currentHp: 5,
+      conditionsJson: JSON.stringify([
+        "resource:second_wind_expended",
+        "action_surge:additional_action_granted",
+        "blessed",
+      ]),
+      character: { className: "fighter", level: 5, maxHp: 20 },
+    });
+
+    const result = service.resolveAction("/rest short", actor, [actor]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "actor",
+        conditions: ["blessed"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      {
+        type: "RECOVER_SHORT_REST",
+        actionSurgeUses: 1,
+      },
+    ]);
+    expect(result.structuredAction).toMatchObject({
+      type: "rest",
+      restType: "short",
+      recoveredResources: {
+        secondWindAvailable: true,
+        actionSurgeUses: 1,
+      },
+    });
+  });
+
+  it("recovers long rest HP, class resources, and clears Rage tags", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      currentHp: 3,
+      tempHp: 4,
+      conditionsJson: JSON.stringify([
+        "resource:rage_expended",
+        "rage",
+        "resistance:slashing",
+        "poisoned",
+      ]),
+      character: { className: "barbarian", level: 6, maxHp: 50 },
+    });
+
+    const result = service.resolveAction("/rest long", actor, [actor]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "actor",
+        currentHp: 50,
+        tempHp: 0,
+        conditions: ["poisoned"],
+        markDead: false,
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      {
+        type: "RECOVER_LONG_REST",
+        actionSurgeUses: 0,
+        rageUses: 4,
+        reduceExhaustionBy: 1,
+      },
+    ]);
+  });
+
+  it("rejects rest while combat is active", () => {
+    const service = createService([]);
+    const actor = createCharacter({ id: "actor", characterId: "actor-character" });
+
+    const result = service.resolveAction("/rest long", actor, [actor], {
+      hasActiveCombat: true,
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.stateChanges).toEqual([]);
+    expect(result.runtimeEffects).toEqual([]);
+    expect(result.narration).toBe("전투 중에는 휴식을 진행할 수 없습니다.");
+  });
+
+  it("rejects attack when the runtime turn state has no available action", () => {
+    const service = createService([]);
+    const actor = createCharacter({ id: "actor", characterId: "actor-character" });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      character: { id: "target-character", name: "Target", armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/attack target", actor, [actor, target], {
+      turnState: {
+        actionUsed: true,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.diceResult).toBeNull();
+    expect(result.narration).toBe("사용 가능한 action이 없습니다.");
   });
 });
