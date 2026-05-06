@@ -9,6 +9,7 @@ import {
 } from "@trpg/shared-types";
 import { badRequest } from "../../common/exceptions/domain-error";
 import { PrismaService } from "../../database/prisma.service";
+import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { SessionsService } from "../sessions/sessions.service";
 
 const supportedDice = new Set([4, 6, 8, 10, 12, 20, 100]);
@@ -24,6 +25,7 @@ export class DiceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessionsService: SessionsService,
+    private readonly realtimeEvents: RealtimeEventsService,
   ) {}
 
   roll(
@@ -69,6 +71,7 @@ export class DiceService {
     await this.sessionsService.ensureMembership(userId, session.id);
 
     const result = this.roll(dto.expression, dto.advantageState ?? DiceAdvantageState.NORMAL);
+    const turnLogId = await this.resolveTurnLogId(session.id, dto.turnLogId);
 
     await this.prisma.diceRollLog.create({
       data: {
@@ -80,11 +83,41 @@ export class DiceService {
         total: result.total,
         advantageState: this.toPrismaAdvantage(result.advantageState),
         reason: dto.reason?.trim() || null,
-        turnLogId: dto.turnLogId ?? null,
+        turnLogId,
       },
     });
 
+    this.realtimeEvents.emitDiceRolled(session.id, result);
+
     return result;
+  }
+
+  private async resolveTurnLogId(
+    sessionId: string,
+    turnLogId: string | undefined,
+  ): Promise<string | null> {
+    const trimmedTurnLogId = turnLogId?.trim();
+    if (!trimmedTurnLogId) {
+      return null;
+    }
+
+    const turnLog = await this.prisma.turnLog.findFirst({
+      where: {
+        id: trimmedTurnLogId,
+        sessionId,
+      },
+      select: { id: true },
+    });
+
+    if (!turnLog) {
+      // 잘못된 turnLogId를 그대로 FK에 넣으면 Prisma 오류가 500으로 올라간다.
+      // 사용자 입력 문제로 명확히 내려주기 위해 저장 전에 세션 소속 로그인지 검증한다.
+      throw badRequest("DICE_400", "turnLogId가 올바르지 않습니다.", {
+        reason: "INVALID_TURN_LOG_ID",
+      });
+    }
+
+    return turnLog.id;
   }
 
   private parseExpression(expression: string): ParsedDiceExpression {

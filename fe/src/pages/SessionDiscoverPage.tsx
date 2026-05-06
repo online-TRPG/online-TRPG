@@ -1,7 +1,7 @@
 import { FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useState } from "react";
 import { Icon } from "../components/Icon";
 import { SessionDetailModal } from "../components/SessionDetailModal";
-import sidePanelImage from "../components/Side_Panel.png";
+import sidePanelImage from "../components/Side_Panel.webp";
 import sidebarFooterImage from "../assets/images/Sidebar_Footer_Image.png";
 import dragonPeekImage from "../assets/images/Peak_a_Boo_Dragon.webp";
 import { findSessionVisualByTitle, sessionVisualPresets } from "../data/sessionVisuals";
@@ -37,6 +37,15 @@ const STATUS_LABEL: Record<string, string> = {
 
 const PAGE_SIZE = 4;
 const PAGE_TOAST_DURATION_MS = 2600;
+const JOIN_BLOCKED_TOAST_DURATION_MS = 5200;
+const GENERAL_GM_LABEL = "\uC77C\uBC18 GM";
+const AI_GM_LABEL = "AI GM";
+const JOIN_BLOCKED_NOTICE =
+  "\uD604\uC7AC \uB2E4\uB978 \uBAA8\uC9D1 \uC911\uC778 \uC138\uC158\uC5D0 \uC774\uBBF8 \uCC38\uC5EC \uD588\uC2B5\uB2C8\uB2E4.\n\uBAA8\uC9D1\uC744 \uB05D\uB0B4\uAC70\uB098 \uB098\uAC04 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.";
+
+function getGmModeLabel(gmMode?: string | null): string {
+  return gmMode === "AI" ? AI_GM_LABEL : GENERAL_GM_LABEL;
+}
 
 function getSessionListItemKey(item: AvailableSessionListItem, index: number): string {
   return item.sessionPublicId || item.sessionId || `${item.title}-${item.scenarioTitle}-${index}`;
@@ -127,6 +136,16 @@ export function SessionDiscoverPage({
     return () => window.clearTimeout(timeout);
   }, [pageError]);
 
+  function showJoinBlockedToast() {
+    setPageToast(null);
+    window.setTimeout(() => {
+      setPageToast(JOIN_BLOCKED_NOTICE);
+      window.setTimeout(() => {
+        setPageToast((current) => (current === JOIN_BLOCKED_NOTICE ? null : current));
+      }, JOIN_BLOCKED_TOAST_DURATION_MS);
+    }, 0);
+  }
+
   useEffect(() => {
     if (!isInviteModalOpen || !invitePending) return;
     if (!inviteError) return;
@@ -134,6 +153,7 @@ export function SessionDiscoverPage({
     setInvitePending(false);
   }, [inviteError, invitePending, isInviteModalOpen]);
 
+  const currentSection = activeSection;
   const currentSource = activeSection === "public" ? sessionList : mySessionList;
   const currentPage = activeSection === "public" ? publicPage : myPage;
 
@@ -150,7 +170,7 @@ export function SessionDiscoverPage({
           .toLowerCase()
           .includes(keyword);
       const matchesTheme = themeFilter === "all" || visual.theme === themeFilter;
-      const matchesGm = gmFilter === "all" || visual.gmLabel === gmFilter;
+      const matchesGm = gmFilter === "all" || getGmModeLabel(item.gmMode) === gmFilter;
       const matchesStatus = statusFilter === "all" || item.status === statusFilter;
       return matchesKeyword && matchesTheme && matchesGm && matchesStatus;
     });
@@ -209,7 +229,11 @@ export function SessionDiscoverPage({
   function submitJoinByInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedCode = inviteCode.trim().toUpperCase();
-    if (!trimmedCode || hasBlockingSession) return;
+    if (!trimmedCode) return;
+    if (hasBlockingSession) {
+      showJoinBlockedToast();
+      return;
+    }
     setInviteErrorVisible(false);
     setInvitePending(true);
     void onJoinSession(trimmedCode);
@@ -244,10 +268,18 @@ export function SessionDiscoverPage({
     const isCurrentSession =
       snapshot?.session.id === targetSessionId ||
       (Boolean(targetSessionPublicId) && snapshot?.session.publicId === targetSessionPublicId);
+    const isKnownSelectedSession =
+      joinedSessionIds.has(targetSessionId) ||
+      (Boolean(targetSessionPublicId) && joinedSessionIds.has(targetSessionPublicId));
 
     if (isCurrentSession) {
       closeSessionDetail();
       onOpenPlay();
+      return;
+    }
+
+    if (!isKnownSelectedSession && hasBlockingSession) {
+      showJoinBlockedToast();
       return;
     }
 
@@ -273,9 +305,26 @@ export function SessionDiscoverPage({
     const isCurrentSession =
       snapshot?.session.id === sessionId ||
       (Boolean(sessionPublicId) && snapshot?.session.publicId === sessionPublicId);
+    const isKnownSession =
+      joinedSessionIds.has(sessionId) ||
+      (sessionPublicId ? joinedSessionIds.has(sessionPublicId) : false) ||
+      isCurrentSession;
 
     if (isCurrentSession) {
       onOpenPlay();
+      return;
+    }
+
+    if (isKnownSession) {
+      const nextSnapshot = await onJoinSessionById(sessionPublicId || sessionId);
+      if (nextSnapshot) {
+        onOpenPlay();
+      }
+      return;
+    }
+
+    if (hasBlockingSession) {
+      showJoinBlockedToast();
       return;
     }
 
@@ -294,7 +343,8 @@ export function SessionDiscoverPage({
   const isCurrentSelectedSession = selectedSessionDetail?.session.id === snapshot?.session.id;
   const isKnownSelectedSession =
     (selectedSessionDetail ? joinedSessionIds.has(selectedSessionDetail.session.id) : false) || isCurrentSelectedSession;
-  const canEnterSelectedSession = isCurrentSelectedSession || isKnownSelectedSession || !hasBlockingSession;
+  const canEnterSelectedSession = Boolean(selectedSessionDetail);
+  const isSelectedSessionBlocked = !isKnownSelectedSession && hasBlockingSession;
 
   return (
     <main className="session-discover-shell">
@@ -331,8 +381,16 @@ export function SessionDiscoverPage({
             </button>
 
             {snapshot ? (
-              <div className="session-discover-sidebar-action">
-                <button type="button" className="session-discover-sidebutton" onClick={onOpenPlay}>
+              <div
+                className="session-discover-sidebar-action"
+                data-session-title={`세션 제목: ${snapshot.session.title}`}
+              >
+                <button
+                  type="button"
+                  className="session-discover-sidebutton"
+                  data-label="최근 세션 열기"
+                  onClick={onOpenPlay}
+                >
                   <img src={sidePanelImage} alt="" aria-hidden="true" />
                   <span>현재 세션 열기</span>
                 </button>
@@ -386,7 +444,7 @@ export function SessionDiscoverPage({
                 aria-label="GM 필터"
               >
                 <option value="all">모든 GM</option>
-                {[...new Set(sessionVisualPresets.map((preset) => preset.gmLabel))].map((gmLabel) => (
+                {[AI_GM_LABEL, GENERAL_GM_LABEL].map((gmLabel) => (
                   <option key={gmLabel} value={gmLabel}>
                     {gmLabel}
                   </option>
@@ -435,7 +493,10 @@ export function SessionDiscoverPage({
                   snapshot?.session.id === item.sessionId ||
                   (Boolean(item.sessionPublicId) && snapshot?.session.publicId === item.sessionPublicId);
                 const isKnownListSession = joinedSessionIds.has(item.sessionId) || isCurrentListSession;
-                const isJoinBlocked = busy || (!isKnownListSession && hasBlockingSession);
+                const isJoinBlocked = busy;
+                const gmLabel = getGmModeLabel(item.gmMode);
+                const joinButtonLabel = isKnownListSession ? "?ëª„ë€¡ ?ë‹¿ë¦°" : "?ëª„ë€¡ ï§¡ë©¸?";
+                const activeSection = isKnownListSession ? "my" : currentSection;
 
                 return (
                   <article
@@ -452,8 +513,8 @@ export function SessionDiscoverPage({
 
                     <div className="session-discover-row-copy">
                       <div className="session-discover-row-top">
-                        <span className={`session-discover-gm-badge${visual.gmLabel === "AI GM" ? " is-ai" : ""}`}>
-                          {visual.gmLabel}
+                        <span className={`session-discover-gm-badge${gmLabel === AI_GM_LABEL ? " is-ai" : ""}`}>
+                          {gmLabel}
                         </span>
                       </div>
 
@@ -475,7 +536,12 @@ export function SessionDiscoverPage({
                     <div className="session-discover-row-actions">
                       <button
                         type="button"
-                        className="session-discover-join"
+                        className={`session-discover-join${!isKnownListSession && hasBlockingSession ? " is-blocked" : ""}`}
+                        data-label={
+                          isKnownListSession
+                            ? "\uC138\uC158 \uC5F4\uAE30"
+                            : "\uC138\uC158 \uCC38\uAC00"
+                        }
                         disabled={isJoinBlocked}
                         onClick={(event) =>
                           void handleJoinClick(event, item.sessionId, item.sessionPublicId)
@@ -566,7 +632,7 @@ export function SessionDiscoverPage({
                 />
               </div>
               {inviteError && inviteErrorVisible ? <p className="session-invite-error">{inviteError}</p> : null}
-              <button type="submit" className="primary" disabled={busy || hasBlockingSession}>
+              <button type="submit" className="primary" disabled={busy}>
                 참여하기
               </button>
             </form>
@@ -580,6 +646,7 @@ export function SessionDiscoverPage({
         error={detailError}
         busy={busy}
         canEnter={canEnterSelectedSession}
+        isEnterBlocked={isSelectedSessionBlocked}
         isCurrentSession={isCurrentSelectedSession}
         isKnownMember={isKnownSelectedSession}
         onClose={closeSessionDetail}

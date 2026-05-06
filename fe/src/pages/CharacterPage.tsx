@@ -4,11 +4,11 @@ import defaultRogueImage from "../assets/images/Profile_Default_Rouge.png";
 import defaultWarriorImage from "../assets/images/Profile_Default_Warrior.png";
 import defaultWizardImage from "../assets/images/Profile_Default_Wizard.png";
 import parchmentScrollImage from "../assets/images/parchment_scroll.webp";
-import boxBulletinNarrowFrame from "../components/Box_Bulletin_Narrow_Frame.png";
-import boxBulletinNarrowPlanks from "../components/Box_Bulletin_Narrow_Planks.png";
-import profileBorderCharacter from "../components/Profile_Border_Character.png";
-import profileBorderStats from "../components/Profile_Border_Stats.png";
-import sidePanelImage from "../components/Side_Panel.png";
+import boxBulletinNarrowFrame from "../components/Box_Bulletin_Narrow_Frame.webp";
+import boxBulletinNarrowPlanks from "../components/Box_Bulletin_Narrow_Planks.webp";
+import profileBorderCharacter from "../components/Profile_Border_Character.webp";
+import profileBorderStats from "../components/Profile_Border_Stats.webp";
+import sidePanelImage from "../components/Side_Panel.webp";
 import {
   classOptions,
   getClassLabel,
