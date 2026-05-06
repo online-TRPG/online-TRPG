@@ -3812,7 +3812,7 @@ label {
 
 .fantasy-character-abilities-grid div {
   display: grid;
-  grid-template-columns: 48px auto auto;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: baseline;
   font-size: 16px;
@@ -3822,8 +3822,66 @@ label {
   font-size: 18px;
 }
 
-.fantasy-character-abilities-grid small {
+.fantasy-character-ability-value {
+  color: #2e1a0e;
+}
+
+.fantasy-character-ability-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(107, 74, 38, 0.5);
+  border-radius: 999px;
+  background: rgba(255, 248, 229, 0.9);
   color: #6b4a26;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  outline: none;
+}
+
+.fantasy-character-ability-help:focus-visible {
+  box-shadow: 0 0 0 2px rgba(176, 109, 40, 0.22);
+}
+
+.fantasy-character-ability-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  z-index: 5;
+  width: 190px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(42, 24, 11, 0.94);
+  color: #fff4dc;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  transform: translateX(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.fantasy-character-ability-tooltip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 10px;
+  height: 10px;
+  background: rgba(42, 24, 11, 0.94);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.fantasy-character-ability-help:hover .fantasy-character-ability-tooltip,
+.fantasy-character-ability-help:focus-visible .fantasy-character-ability-tooltip {
+  opacity: 1;
 }
 
 .fantasy-character-text-list {
