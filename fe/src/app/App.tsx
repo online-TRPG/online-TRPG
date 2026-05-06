@@ -157,6 +157,7 @@ export function App() {
   const gameroomMatch = /^\/gameroom\/([^/]+)\/[^/]+$/.exec(location.pathname);
   const gameroomId = gameroomMatch?.[1] ?? null;
   const publicProfileState = location.state as { profilePreview?: User | null } | null;
+  const sessionDiscoverState = location.state as { initialSection?: 'public' | 'my' } | null;
   const scenarioEditMatch = /^\/scenarios\/([^/]+)\/edit$/.exec(location.pathname);
   const scenarioEditId = scenarioEditMatch?.[1] ?? null;
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
@@ -193,10 +194,15 @@ export function App() {
   }, [hasUnsavedScenarioChanges, isScenarioEditorActive]);
 
   useEffect(() => {
+    if (!auth.user) {
+      setScenarios([]);
+      return;
+    }
+
     listScenarios()
       .then(setScenarios)
       .catch(() => undefined);
-  }, []);
+  }, [auth.user]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -288,7 +294,11 @@ export function App() {
   }
 
   async function handleJoinSessionById(sessionId: string) {
-    return session.joinSessionById(sessionId);
+    const nextSnapshot = await session.joinSessionById(sessionId);
+    if (nextSnapshot) {
+      navigate(buildGameroomPath(nextSnapshot.session));
+    }
+    return nextSnapshot;
   }
 
   async function handleRequestSessionDetail(sessionId: string) {
@@ -460,7 +470,16 @@ export function App() {
             logs={logs}
             busy={busy}
             error={error}
-            onOpenDiscover={() => guardedNavigate('/sessions/discover')}
+            onOpenDiscover={() =>
+              guardedNavigate('/sessions/discover', {
+                state: { initialSection: 'public' },
+              })
+            }
+            onOpenMySessions={() =>
+              guardedNavigate('/sessions/discover', {
+                state: { initialSection: 'my' },
+              })
+            }
             onOpenCreate={() => guardedNavigate('/sessions/new')}
             onOpenPlay={() =>
               session.snapshot && guardedNavigate(buildGameroomPath(session.snapshot.session))
@@ -556,6 +575,7 @@ export function App() {
             snapshot={session.snapshot}
             sessionList={session.sessionList}
             mySessionList={session.mySessionList}
+            initialSection={sessionDiscoverState?.initialSection ?? 'public'}
             busy={busy}
             error={error}
             onClearError={session.clearError}
@@ -649,9 +669,9 @@ export function App() {
             onStartSession={() => void session.startSession()}
             onLeaveSession={() => {
               void session.leaveSession();
-              navigate('/');
+              navigate('/sessions/discover');
             }}
-            onBackToLobby={() => navigate('/')}
+            onBackToLobby={() => navigate('/sessions/discover')}
             onAction={(input) => handleSessionMessage(currentUser.displayName, input)}
           />
         ) : null}

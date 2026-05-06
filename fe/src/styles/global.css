@@ -4285,9 +4285,12 @@ label {
 
 .character-create-modal {
   position: relative;
+  align-self: start;
   border: 0;
   border-radius: 0;
   padding: 108px 132px 130px 140px;
+  max-height: calc(100vh - 120px);
+  margin-top: 16px;
   background: transparent;
   box-shadow: 0 26px 60px rgba(12, 7, 2, 0.42);
   overflow-x: hidden;
@@ -4297,10 +4300,10 @@ label {
 .character-create-modal::before {
   content: '';
   position: absolute;
-  top: -200px;
+  top: -220px;
   right: 0;
   left: 0;
-  height: 340%;
+  height: 420%;
   background-image: url('../components/Profile_Border_Stats.png');
   background-position: top center;
   background-repeat: no-repeat;
@@ -4316,6 +4319,8 @@ label {
 }
 
 .character-create-form {
+  padding-right: 12px;
+  padding-bottom: 32px;
   gap: 18px;
 }
 
@@ -4369,7 +4374,11 @@ label {
 .character-inventory-editor {
   display: grid;
   gap: 10px;
+  max-height: 290px;
+  overflow-y: auto;
+  padding-right: 8px;
 }
+
 
 .character-inventory-row {
   display: grid;

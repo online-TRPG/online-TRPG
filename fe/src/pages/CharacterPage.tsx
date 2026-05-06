@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import defaultArcherImage from "../assets/images/Profile_Default_Archer.png";
 import defaultRogueImage from "../assets/images/Profile_Default_Rouge.png";
 import defaultWarriorImage from "../assets/images/Profile_Default_Warrior.png";
@@ -397,6 +397,7 @@ export function CharacterPage({
   const [skillInput, setSkillInput] = useState("");
   const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftItem[]>([]);
   const [formState, setFormState] = useState<CharacterPayload>(() => createDefaultCharacter());
+  const inventoryEditorRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!isCreateModalOpen) return undefined;
@@ -419,6 +420,12 @@ export function CharacterPage({
       current && characters.some((character) => character.id === current) ? current : characters[0].id,
     );
   }, [characters]);
+
+  useEffect(() => {
+    const node = inventoryEditorRef.current;
+    if (!node || !inventoryDraft.length) return;
+    node.scrollTop = node.scrollHeight;
+  }, [inventoryDraft.length]);
 
   const selectedCharacter = useMemo(
     () => characters.find((character) => character.id === selectedCharacterId) ?? null,
@@ -1109,7 +1116,7 @@ export function CharacterPage({
                   </button>
                 </div>
 
-                <div className="character-inventory-editor">
+                <div ref={inventoryEditorRef} className="character-inventory-editor fantasy-scroll-hidden">
                   {inventoryDraft.length ? (
                     inventoryDraft.map((item) => (
                       <div key={item.id} className="character-inventory-row">
