@@ -2122,6 +2122,10 @@ label {
   align-self: end;
 }
 
+.session-create-toggle span {
+  color: #1c140c !important;
+}
+
 .session-create-preview-card {
   overflow: hidden;
   display: grid;
@@ -4372,7 +4376,7 @@ label {
   right: 0;
   left: 0;
   height: 420%;
-  background-image: url('../components/Profile_Border_Stats.png');
+  background-image: url('../components/Profile_Border_Stats.webp');
   background-position: top center;
   background-repeat: no-repeat;
   background-size: 100% 100%;
@@ -6249,7 +6253,7 @@ body.session-discover-body {
   height: 72px;
   background:
     linear-gradient(180deg, rgba(3, 7, 12, 0.18), rgba(3, 7, 12, 0.02)),
-    url('../components/Navbar.png') center center / 118% 100% no-repeat;
+    url('../components/Navbar.webp') center center / 118% 100% no-repeat;
   z-index: -1;
   pointer-events: none;
 }
