@@ -837,6 +837,97 @@ describe("ActionRuleService", () => {
     expect(result.narration).toBe("Frenzy는 Rage 상태에서만 사용할 수 있습니다.");
   });
 
+  it("recovers short rest resources without changing HP", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      currentHp: 5,
+      conditionsJson: JSON.stringify([
+        "resource:second_wind_expended",
+        "action_surge:additional_action_granted",
+        "blessed",
+      ]),
+      character: { className: "fighter", level: 5, maxHp: 20 },
+    });
+
+    const result = service.resolveAction("/rest short", actor, [actor]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "actor",
+        conditions: ["blessed"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      {
+        type: "RECOVER_SHORT_REST",
+        actionSurgeUses: 1,
+      },
+    ]);
+    expect(result.structuredAction).toMatchObject({
+      type: "rest",
+      restType: "short",
+      recoveredResources: {
+        secondWindAvailable: true,
+        actionSurgeUses: 1,
+      },
+    });
+  });
+
+  it("recovers long rest HP, class resources, and clears Rage tags", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      currentHp: 3,
+      tempHp: 4,
+      conditionsJson: JSON.stringify([
+        "resource:rage_expended",
+        "rage",
+        "resistance:slashing",
+        "poisoned",
+      ]),
+      character: { className: "barbarian", level: 6, maxHp: 50 },
+    });
+
+    const result = service.resolveAction("/rest long", actor, [actor]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "actor",
+        currentHp: 50,
+        tempHp: 0,
+        conditions: ["poisoned"],
+        markDead: false,
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      {
+        type: "RECOVER_LONG_REST",
+        actionSurgeUses: 0,
+        rageUses: 4,
+        reduceExhaustionBy: 1,
+      },
+    ]);
+  });
+
+  it("rejects rest while combat is active", () => {
+    const service = createService([]);
+    const actor = createCharacter({ id: "actor", characterId: "actor-character" });
+
+    const result = service.resolveAction("/rest long", actor, [actor], {
+      hasActiveCombat: true,
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.stateChanges).toEqual([]);
+    expect(result.runtimeEffects).toEqual([]);
+    expect(result.narration).toBe("전투 중에는 휴식을 진행할 수 없습니다.");
+  });
+
   it("rejects attack when the runtime turn state has no available action", () => {
     const service = createService([]);
     const actor = createCharacter({ id: "actor", characterId: "actor-character" });

@@ -37,6 +37,17 @@ const RAGE_RESISTANCE_TAGS = [
   "resistance:piercing",
   "resistance:slashing",
 ];
+const SHORT_REST_RECOVERED_TAGS = [
+  SECOND_WIND_EXPENDED_TAG,
+  ACTION_SURGE_EXPENDED_TAG,
+  ACTION_SURGE_GRANTED_TAG,
+];
+const LONG_REST_RECOVERED_TAGS = [
+  ...SHORT_REST_RECOVERED_TAGS,
+  RAGE_EXPENDED_TAG,
+  RAGE_ACTIVE_TAG,
+  ...RAGE_RESISTANCE_TAGS,
+];
 
 type SessionCharacterForRules = {
   id: string;
@@ -100,6 +111,7 @@ export type CharacterStatePatch = {
 };
 
 export type RuleRuntimeContext = {
+  hasActiveCombat?: boolean;
   map?: RuleMapRuntimeContext | null;
   resource?: {
     secondWindAvailable: boolean;
@@ -127,7 +139,14 @@ export type ActionRuntimeEffect =
   | { type: "SPEND_SECOND_WIND" }
   | { type: "SPEND_ACTION_SURGE_USE" }
   | { type: "START_RAGE" }
-  | { type: "START_FRENZY" };
+  | { type: "START_FRENZY" }
+  | { type: "RECOVER_SHORT_REST"; actionSurgeUses: number }
+  | {
+      type: "RECOVER_LONG_REST";
+      actionSurgeUses: number;
+      rageUses: number;
+      reduceExhaustionBy: number;
+    };
 
 export type ActionResolution = {
   structuredAction: Record<string, unknown>;
@@ -228,6 +247,8 @@ export class ActionRuleService {
         return this.resolveCastSpell(command, actor, sessionCharacters, runtimeContext);
       case "use_class_feature":
         return this.resolveClassFeature(command, actor, runtimeContext);
+      case "rest":
+        return this.resolveRest(command, actor, runtimeContext);
       case "damage":
         return this.resolveDamage(command, sessionCharacters);
       case "heal":
@@ -725,6 +746,104 @@ export class ActionRuleService {
     };
   }
 
+  private resolveRest(
+    command: Extract<ParsedCommand, { type: "rest" }>,
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    if (runtimeContext.hasActiveCombat) {
+      return {
+        structuredAction: {
+          type: "rest",
+          restType: command.restType,
+          ruleResults: [],
+        },
+        diceResult: null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: "전투 중에는 휴식을 진행할 수 없습니다.",
+        stateChanges: [],
+        runtimeEffects: [],
+      };
+    }
+
+    if (command.restType === "short") {
+      return this.resolveShortRest(actor);
+    }
+
+    return this.resolveLongRest(actor);
+  }
+
+  private resolveShortRest(actor: SessionCharacterForRules): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    // 예전 JSON 조건 태그를 쓰던 데이터도 휴식 후에는 같은 의미로 회복되도록 함께 정리한다.
+    const nextConditions = this.removeConditions(currentConditions, SHORT_REST_RECOVERED_TAGS);
+
+    return {
+      structuredAction: {
+        type: "rest",
+        restType: "short",
+        recoveredResources: {
+          secondWindAvailable: true,
+          actionSurgeUses: this.resolveActionSurgeUses(actor),
+        },
+      },
+      diceResult: null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: "짧은 휴식을 마치고 일부 자원을 회복했습니다.",
+      stateChanges: [
+        {
+          sessionCharacterId: actor.id,
+          conditions: nextConditions,
+        },
+      ],
+      runtimeEffects: [
+        {
+          type: "RECOVER_SHORT_REST",
+          actionSurgeUses: this.resolveActionSurgeUses(actor),
+        },
+      ],
+    };
+  }
+
+  private resolveLongRest(actor: SessionCharacterForRules): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    // Long Rest는 Rage와 저항 태그까지 끝내야 다음 피해 판정에 오래된 버프가 남지 않는다.
+    const nextConditions = this.removeConditions(currentConditions, LONG_REST_RECOVERED_TAGS);
+
+    return {
+      structuredAction: {
+        type: "rest",
+        restType: "long",
+        recoveredResources: {
+          secondWindAvailable: true,
+          actionSurgeUses: this.resolveActionSurgeUses(actor),
+          rageUses: this.resolveRageUses(actor),
+          reduceExhaustionBy: 1,
+        },
+      },
+      diceResult: null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: "긴 휴식을 마치고 HP와 자원을 회복했습니다.",
+      stateChanges: [
+        {
+          sessionCharacterId: actor.id,
+          currentHp: actor.character.maxHp,
+          tempHp: 0,
+          conditions: nextConditions,
+          markDead: false,
+        },
+      ],
+      runtimeEffects: [
+        {
+          type: "RECOVER_LONG_REST",
+          actionSurgeUses: this.resolveActionSurgeUses(actor),
+          rageUses: this.resolveRageUses(actor),
+          reduceExhaustionBy: 1,
+        },
+      ],
+    };
+  }
+
   private resolveDamage(
     command: Extract<ParsedCommand, { type: "damage" }>,
     sessionCharacters: SessionCharacterForRules[],
@@ -1070,6 +1189,41 @@ export class ActionRuleService {
 
   private isClass(actor: SessionCharacterForRules, className: string): boolean {
     return this.normalizeRuleToken(actor.character.className).includes(className);
+  }
+
+  private resolveActionSurgeUses(actor: SessionCharacterForRules): number {
+    if (!this.isClass(actor, "fighter")) {
+      return 0;
+    }
+
+    return actor.character.level >= 17 ? 2 : actor.character.level >= 2 ? 1 : 0;
+  }
+
+  private resolveRageUses(actor: SessionCharacterForRules): number {
+    if (!this.isClass(actor, "barbarian")) {
+      return 0;
+    }
+
+    const level = actor.character.level;
+    if (level >= 20) {
+      return 6;
+    }
+    if (level >= 17) {
+      return 6;
+    }
+    if (level >= 12) {
+      return 5;
+    }
+    if (level >= 6) {
+      return 4;
+    }
+    if (level >= 3) {
+      return 3;
+    }
+    if (level >= 1) {
+      return 2;
+    }
+    return 0;
   }
 
   private selectSingleDie(diceResult: DiceRollResponseDto): number {
