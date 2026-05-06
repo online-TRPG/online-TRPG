@@ -125,6 +125,7 @@ function normalizeSessionListItem(item: SessionListItemResponseDto): AvailableSe
     currentPlayers: item.participantCount,
     maxPlayers: item.session.maxPlayers,
     status: item.session.status,
+    gmMode: item.session.gmMode,
     role: item.role,
   };
 }
