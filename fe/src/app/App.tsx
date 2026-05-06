@@ -347,10 +347,12 @@ export function App() {
       <LoginPage
         busy={busy}
         error={error}
+        notice={auth.notice}
         onGuestLogin={(name) => void auth.loginAsGuest(name)}
         onEmailLogin={(email, pw) => void auth.loginWithEmail(email, pw)}
         onRegister={(email, pw, name) => void auth.registerMember(email, pw, name)}
         onOAuthLogin={(provider) => void handleOAuthLogin(provider)}
+        onClearFeedback={auth.clearFeedback}
       />
     );
   }

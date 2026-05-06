@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AUTH_EXPIRED_EVENT, createGuest, login, logout, oauthLogin, register } from "../services/api";
-import { getAccessTokenExpiresAtMs, isAccessTokenExpired } from "../services/authToken";
+import {
+  AUTH_EXPIRED_EVENT,
+  AUTH_TOKEN_REISSUED_EVENT,
+  createGuest,
+  login,
+  logout,
+  oauthLogin,
+  register,
+  reissue,
+} from "../services/api";
+import { getAccessTokenExpiresAtMs } from "../services/authToken";
 import {
   clearAll,
   clearStoredToken,
@@ -15,6 +24,12 @@ import type { AuthMode } from "../types/auth";
 import type { LogEntry, StoredUser } from "../types/session";
 
 const TOKEN_EXPIRED_MESSAGE = "로그인 시간이 만료되었습니다. 다시 로그인해주세요.";
+const TOKEN_REFRESH_LEEWAY_MS = 60 * 1000;
+
+export type AuthNotice = {
+  kind: "success" | "warning";
+  message: string;
+};
 
 export interface UseAuthReturn {
   user: StoredUser | null;
@@ -22,12 +37,14 @@ export interface UseAuthReturn {
   authMode: AuthMode | null;
   busy: boolean;
   error: string | null;
+  notice: AuthNotice | null;
   loginAsGuest: (displayName: string) => Promise<void>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
   registerMember: (email: string, password: string, name: string) => Promise<void>;
   handleOAuthCallback: (provider: "kakao" | "discord", code: string) => Promise<void>;
   signOut: () => Promise<void>;
   clearError: () => void;
+  clearFeedback: () => void;
 }
 
 export function useAuth(
@@ -38,6 +55,7 @@ export function useAuth(
   const [authMode, setAuthMode] = useState<AuthMode | null>(() => loadStoredAuthMode());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<AuthNotice | null>(null);
   const handledExpiredTokenRef = useRef(false);
   const currentAuthRef = useRef({ accessToken, authMode, user });
 
@@ -72,27 +90,37 @@ export function useAuth(
       setAccessToken(null);
       setAuthMode(null);
       setBusy(false);
-      setError(message);
+      setError(null);
+      setNotice({ kind: "warning", message });
       appendLog("system", "세션 만료", message);
     },
     [appendLog],
   );
 
-  useEffect(() => {
-    if (!accessToken) return undefined;
-
-    if (isAccessTokenExpired(accessToken)) {
-      expireSession();
-      return undefined;
+  const refreshAccessToken = useCallback(async () => {
+    try {
+      const response = await reissue();
+      handledExpiredTokenRef.current = false;
+      saveStoredToken(response.accessToken);
+      setAccessToken(response.accessToken);
+      setAuthMode("member");
+      setError(null);
+    } catch {
+      expireSession(TOKEN_EXPIRED_MESSAGE);
     }
+  }, [expireSession]);
+
+  useEffect(() => {
+    if (!accessToken || authMode !== "member") return undefined;
 
     const expiresAtMs = getAccessTokenExpiresAtMs(accessToken);
     if (expiresAtMs === null) return undefined;
 
-    // JWT exp 시각에 맞춰 로컬 상태도 정리해야, 다음 API 호출을 기다리지 않고 화면이 바로 로그아웃된다.
-    const timeoutId = window.setTimeout(() => expireSession(), expiresAtMs - Date.now());
+    // 만료 직전에 refresh token으로 access token을 재발급해 사용자가 작업 중 끊기지 않게 한다.
+    const refreshDelayMs = Math.max(expiresAtMs - Date.now() - TOKEN_REFRESH_LEEWAY_MS, 0);
+    const timeoutId = window.setTimeout(() => void refreshAccessToken(), refreshDelayMs);
     return () => window.clearTimeout(timeoutId);
-  }, [accessToken, expireSession]);
+  }, [accessToken, authMode, refreshAccessToken]);
 
   useEffect(() => {
     function handleAuthExpired(event: Event) {
@@ -104,13 +132,30 @@ export function useAuth(
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
   }, [expireSession]);
 
+  useEffect(() => {
+    function handleTokenReissued(event: Event) {
+      const detail = event instanceof CustomEvent ? (event.detail as { accessToken?: string } | null) : null;
+      if (!detail?.accessToken || currentAuthRef.current.authMode !== "member") return;
+
+      handledExpiredTokenRef.current = false;
+      saveStoredToken(detail.accessToken);
+      setAccessToken(detail.accessToken);
+      setError(null);
+    }
+
+    window.addEventListener(AUTH_TOKEN_REISSUED_EVENT, handleTokenReissued);
+    return () => window.removeEventListener(AUTH_TOKEN_REISSUED_EVENT, handleTokenReissued);
+  }, []);
+
   async function loginAsGuest(displayName: string) {
     const name = displayName.trim();
     if (!name) {
       setError("모험가 이름을 입력해주세요.");
+      setNotice(null);
       return;
     }
     setError(null);
+    setNotice(null);
     setBusy(true);
     try {
       const nextUser = await createGuest(name);
@@ -133,11 +178,18 @@ export function useAuth(
   }
 
   async function loginWithEmail(email: string, password: string) {
-    if (!email.trim() || !password) {
-      setError("이메일과 비밀번호를 입력해주세요.");
+    if (!email.trim()) {
+      setError("이메일을 입력해주세요.");
+      setNotice(null);
+      return;
+    }
+    if (!password) {
+      setError("비밀번호를 입력해주세요.");
+      setNotice(null);
       return;
     }
     setError(null);
+    setNotice(null);
     setBusy(true);
     try {
       const response = await login(email, password);
@@ -160,11 +212,23 @@ export function useAuth(
   }
 
   async function registerMember(email: string, password: string, name: string) {
-    if (!email.trim() || !password || !name.trim()) {
-      setError("모든 항목을 입력해주세요.");
+    if (!name.trim()) {
+      setError("이름을 입력해주세요.");
+      setNotice(null);
+      return;
+    }
+    if (!email.trim()) {
+      setError("이메일을 입력해주세요.");
+      setNotice(null);
+      return;
+    }
+    if (!password) {
+      setError("비밀번호를 입력해주세요.");
+      setNotice(null);
       return;
     }
     setError(null);
+    setNotice(null);
     setBusy(true);
     try {
       await register(email, password, name);
@@ -178,6 +242,7 @@ export function useAuth(
   async function handleOAuthCallback(provider: "kakao" | "discord", code: string) {
     const redirectUri = `${window.location.origin}/oauth/callback`;
     setError(null);
+    setNotice(null);
     setBusy(true);
     try {
       const response = await oauthLogin(provider, code, redirectUri);
@@ -201,14 +266,25 @@ export function useAuth(
 
   async function signOut() {
     setBusy(true);
+    let logoutWarning: string | null = null;
     try {
-      if (accessToken) await logout(accessToken).catch(() => undefined);
+      if (accessToken) {
+        await logout(accessToken).catch(() => {
+          // 서버 응답이 없어도 로컬 인증 정보는 지워서 현재 기기에서는 즉시 로그아웃되게 한다.
+          logoutWarning = "이 기기에서는 로그아웃했습니다. 서버 세션 정리는 확인하지 못했습니다.";
+        });
+      }
     } finally {
       handledExpiredTokenRef.current = false;
       clearAll();
       setUser(null);
       setAccessToken(null);
       setAuthMode(null);
+      setError(null);
+      setNotice({
+        kind: logoutWarning ? "warning" : "success",
+        message: logoutWarning ?? "로그아웃했습니다.",
+      });
       setBusy(false);
       appendLog("system", "로그아웃", "로그아웃했습니다.");
     }
@@ -220,11 +296,16 @@ export function useAuth(
     authMode,
     busy,
     error,
+    notice,
     loginAsGuest,
     loginWithEmail,
     registerMember,
     handleOAuthCallback,
     signOut,
     clearError: () => setError(null),
+    clearFeedback: () => {
+      setError(null);
+      setNotice(null);
+    },
   };
 }
