@@ -65,6 +65,7 @@ const fallbackApiBaseUrls =
 export const SOCKET_BASE_URL = (
   configuredWsBaseUrl || API_BASE_URL.replace(/\/api\/v1$/, '')
 ).replace(/\/$/, '');
+export const AUTH_EXPIRED_EVENT = 'trpg:auth-expired';
 
 const DEFAULT_SCENARIO_ID = 'scenario_goblin_cave';
 const DEFAULT_RULE_SET_ID = 'dnd5e';
@@ -170,6 +171,13 @@ function unwrapApiResponse<T>(body: unknown): T {
   return body as T;
 }
 
+function notifyAuthExpired(message: string): void {
+  if (typeof window === 'undefined') return;
+
+  // API 서비스에서 401을 감지해 훅에 알려주면, 화면마다 같은 로그아웃 처리를 반복하지 않아도 된다.
+  window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT, { detail: { message } }));
+}
+
 function toGmMode(value: 'ai' | 'human' | undefined): GmMode {
   return (value === 'human' ? 'HUMAN' : 'AI') as GmMode;
 }
@@ -221,7 +229,11 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
 
   if (!response.ok) {
     const body = (await readApiErrorBody(response)) ?? lastNotFoundBody;
-    throw new Error(formatApiError(body, `요청에 실패했습니다. (${response.status})`));
+    const message = formatApiError(body, `요청에 실패했습니다. (${response.status})`);
+    if (response.status === 401 && options.accessToken) {
+      notifyAuthExpired(message);
+    }
+    throw new Error(message);
   }
 
   if (response.status === 204) {
