@@ -22,6 +22,7 @@ import {
 } from "../rules/action-rule.service";
 import { ActionEconomyService } from "../rules/action-economy.service";
 import { CharacterResourceService } from "../rules/character-resource.service";
+import { MapPositionService } from "../rules/map-position.service";
 import { StateDiffService } from "../rules/state-diff.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
@@ -55,6 +56,7 @@ export class ActionProcessorService {
     private readonly aiService: AiService,
     private readonly actionEconomy: ActionEconomyService,
     private readonly characterResources: CharacterResourceService,
+    private readonly mapPositions: MapPositionService,
   ) {}
 
   async processNext(sessionId: string): Promise<void> {
@@ -130,7 +132,7 @@ export class ActionProcessorService {
       throw new Error("ACTION_ACTOR_NOT_FOUND");
     }
 
-    const runtime = await this.buildRuntime(action.sessionId, actor);
+    const runtime = await this.buildRuntime(action.sessionId, actor, state.flagsJson);
 
     // BE → AI Interpreter (AI-SERVER-001). 자연어 → 구조화 action 후보를 AiTrace 로 영속.
     // Phase 1: 결과를 룰 판정에 사용하지 않음 (actionRules 시그니처 변경 동반이라 별 PR).
@@ -219,10 +221,12 @@ export class ActionProcessorService {
   private async buildRuntime(
     sessionId: string,
     actor: RuntimeActor,
+    flagsJson: string | null,
   ): Promise<{
     context: RuleRuntimeContext;
     turnStateKey: RuntimeTurnStateKey | null;
   }> {
+    const map = this.mapPositions.createRuntimeMapFromFlagsJson(flagsJson);
     const resource = await this.characterResources.getOrCreateResource(
       actor.id,
       this.resolveInitialResourceDefaults(actor),
@@ -242,6 +246,7 @@ export class ActionProcessorService {
     if (!combat || currentParticipant?.sessionCharacterId !== actor.id) {
       return {
         context: {
+          map,
           resource: this.toRuntimeResource(resource),
           turnState: null,
         },
@@ -259,6 +264,7 @@ export class ActionProcessorService {
 
     return {
       context: {
+        map,
         resource: this.toRuntimeResource(resource),
         turnState: {
           actionUsed: turnState.actionUsed,

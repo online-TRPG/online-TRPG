@@ -7,6 +7,7 @@ import { CharacterResourceService } from "./character-resource.service";
 import { CommandParserService } from "./command-parser.service";
 import { DiceController } from "./dice.controller";
 import { DiceService } from "./dice.service";
+import { MapPositionService } from "./map-position.service";
 import { RuleEngineService } from "./rule-engine.service";
 import { StateDiffService } from "./state-diff.service";
 
@@ -19,6 +20,7 @@ import { StateDiffService } from "./state-diff.service";
     CharacterResourceService,
     CommandParserService,
     DiceService,
+    MapPositionService,
     RuleEngineService,
     StateDiffService,
   ],
@@ -28,6 +30,7 @@ import { StateDiffService } from "./state-diff.service";
     CharacterResourceService,
     CommandParserService,
     DiceService,
+    MapPositionService,
     RuleEngineService,
     StateDiffService,
   ],

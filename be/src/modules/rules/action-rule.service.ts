@@ -15,6 +15,7 @@ import {
   RuleAdvantageState,
   RuleHookResult,
 } from "./rule-engine.types";
+import { MapPositionService, RuleMapRuntimeContext } from "./map-position.service";
 
 const DEFAULT_MELEE_ATTACK_DISTANCE_FT = 5;
 const DEFAULT_WEAPON_DAMAGE_TYPE = "slashing";
@@ -79,6 +80,7 @@ export type CharacterStatePatch = {
 };
 
 export type RuleRuntimeContext = {
+  map?: RuleMapRuntimeContext | null;
   resource?: {
     secondWindAvailable: boolean;
     actionSurgeUses: number;
@@ -122,6 +124,7 @@ export class ActionRuleService {
     private readonly commandParser: CommandParserService,
     private readonly diceService: DiceService,
     private readonly ruleEngine: RuleEngineService,
+    private readonly mapPositions: MapPositionService,
   ) {}
 
   getAvailableActions(params: {
@@ -307,6 +310,7 @@ export class ActionRuleService {
       damageRoll = this.diceService.roll(weaponProfile.damageDice);
       const sneakAttack = this.resolveSneakAttackDamage({
         actor,
+        target,
         attackAdvantageState,
         baseDamage: damageRoll.total,
         weaponProperties: weaponProfile.properties,
@@ -955,6 +959,7 @@ export class ActionRuleService {
 
   private resolveSneakAttackDamage(params: {
     actor: SessionCharacterForRules;
+    target: SessionCharacterForRules;
     attackAdvantageState: DiceAdvantageState;
     baseDamage: number;
     weaponProperties: string[];
@@ -970,8 +975,14 @@ export class ActionRuleService {
 
     const hasAdvantage = params.attackAdvantageState === DiceAdvantageState.ADVANTAGE;
     const hasDisadvantage = params.attackAdvantageState === DiceAdvantageState.DISADVANTAGE;
+    const targetEnemyWithin5Ft = this.mapPositions.hasActorAllyWithinFeetOfTarget({
+      map: params.runtimeContext.map,
+      actorSessionCharacterId: params.actor.id,
+      targetSessionCharacterId: params.target.id,
+      feet: DEFAULT_MELEE_ATTACK_DISTANCE_FT,
+    });
 
-    if (!hasAdvantage || hasDisadvantage) {
+    if (hasDisadvantage || (!hasAdvantage && !targetEnemyWithin5Ft)) {
       return { totalDamage: params.baseDamage, ruleResult: null };
     }
 
@@ -984,8 +995,7 @@ export class ActionRuleService {
       weaponProperties: params.weaponProperties,
       hasAdvantage,
       hasDisadvantage,
-      // 위치/아군 인접 모델이 아직 없어서, 현재는 advantage가 있을 때만 보수적으로 적용한다.
-      targetEnemyWithin5Ft: false,
+      targetEnemyWithin5Ft,
       sneakAttackAvailableThisTurn: !params.runtimeContext.turnState?.sneakAttackUsed,
       baseDamage: params.baseDamage,
       sneakAttackDamageRollTotal: sneakAttackRoll.total,
