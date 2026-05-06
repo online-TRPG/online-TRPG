@@ -1,0 +1,318 @@
+import { Injectable } from "@nestjs/common";
+import {
+  ContainerState,
+  InventoryEntry,
+  ItemDefinition,
+  Prisma,
+} from "@prisma/client";
+import { badRequest, notFound } from "../../common/exceptions/domain-error";
+import { PrismaService } from "../../database/prisma.service";
+import { RuleEngineService } from "./rule-engine.service";
+import { BagOfHoldingIntegrity } from "./rule-engine.types";
+
+type InventoryDbClient = Pick<
+  Prisma.TransactionClient,
+  "containerState" | "inventoryEntry" | "itemDefinition"
+>;
+
+type EntryWithDefinition = InventoryEntry & {
+  itemDefinition: ItemDefinition;
+};
+
+type ContainerEntry = EntryWithDefinition & {
+  containerState: ContainerState | null;
+};
+
+@Injectable()
+export class InventoryRuntimeService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ruleEngine: RuleEngineService,
+  ) {}
+
+  async addItem(params: {
+    sessionCharacterId: string;
+    itemDefinitionId: string;
+    quantity?: number;
+    containerEntryId?: string | null;
+  }): Promise<InventoryEntry> {
+    const quantity = this.normalizeQuantity(params.quantity);
+    const itemDefinition = await this.getItemDefinitionOrThrow(params.itemDefinitionId);
+
+    if (params.containerEntryId) {
+      await this.validateContainerMutationOrThrow({
+        containerEntryId: params.containerEntryId,
+        sessionCharacterId: params.sessionCharacterId,
+        addedWeightLb: this.calculateItemWeight(itemDefinition, quantity),
+        addedVolumeCuFt: this.calculateItemVolume(itemDefinition, quantity),
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const entry = await tx.inventoryEntry.create({
+        data: {
+          sessionCharacterId: params.sessionCharacterId,
+          itemDefinitionId: params.itemDefinitionId,
+          quantity,
+          containerEntryId: params.containerEntryId ?? null,
+        },
+      });
+
+      if (params.containerEntryId) {
+        await this.recalculateContainerStateWithClient(tx, params.containerEntryId);
+      }
+
+      return entry;
+    });
+  }
+
+  async moveItem(params: {
+    entryId: string;
+    containerEntryId: string | null;
+  }): Promise<InventoryEntry> {
+    const entry = await this.getEntryWithDefinitionOrThrow(params.entryId);
+    const previousContainerEntryId = entry.containerEntryId;
+
+    if (params.containerEntryId === entry.id) {
+      throw badRequest("INVENTORY_400", "아이템을 자기 자신 안으로 이동할 수 없습니다.", {
+        reason: "CANNOT_MOVE_ITEM_INTO_ITSELF",
+      });
+    }
+
+    if (params.containerEntryId === previousContainerEntryId) {
+      return entry;
+    }
+
+    if (params.containerEntryId) {
+      await this.validateContainerMutationOrThrow({
+        containerEntryId: params.containerEntryId,
+        sessionCharacterId: entry.sessionCharacterId,
+        addedWeightLb: this.calculateEntryWeight(entry),
+        addedVolumeCuFt: this.calculateEntryVolume(entry),
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const moved = await tx.inventoryEntry.update({
+        where: { id: entry.id },
+        data: { containerEntryId: params.containerEntryId },
+      });
+
+      if (previousContainerEntryId) {
+        await this.recalculateContainerStateWithClient(tx, previousContainerEntryId);
+      }
+      if (params.containerEntryId) {
+        await this.recalculateContainerStateWithClient(tx, params.containerEntryId);
+      }
+
+      return moved;
+    });
+  }
+
+  async removeItem(params: {
+    entryId: string;
+    quantity?: number;
+  }): Promise<InventoryEntry | null> {
+    const entry = await this.getEntryWithDefinitionOrThrow(params.entryId);
+    const removeQuantity = params.quantity ?? entry.quantity;
+
+    if (!Number.isInteger(removeQuantity) || removeQuantity < 1) {
+      throw badRequest("INVENTORY_400", "삭제할 아이템 수량이 올바르지 않습니다.", {
+        reason: "INVALID_REMOVE_QUANTITY",
+      });
+    }
+
+    if (removeQuantity >= entry.quantity) {
+      await this.ensureContainerIsEmpty(entry.id);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const result =
+        removeQuantity >= entry.quantity
+          ? await tx.inventoryEntry.delete({ where: { id: entry.id } })
+          : await tx.inventoryEntry.update({
+              where: { id: entry.id },
+              data: { quantity: { decrement: removeQuantity } },
+            });
+
+      if (entry.containerEntryId) {
+        await this.recalculateContainerStateWithClient(tx, entry.containerEntryId);
+      }
+
+      return removeQuantity >= entry.quantity ? null : result;
+    });
+  }
+
+  async recalculateContainerState(containerEntryId: string): Promise<ContainerState> {
+    return this.prisma.$transaction((tx) =>
+      this.recalculateContainerStateWithClient(tx, containerEntryId),
+    );
+  }
+
+  private async validateContainerMutationOrThrow(params: {
+    containerEntryId: string;
+    sessionCharacterId: string;
+    addedWeightLb: number;
+    addedVolumeCuFt: number;
+  }): Promise<void> {
+    const container = await this.getContainerEntryOrThrow(params.containerEntryId);
+    if (container.sessionCharacterId !== params.sessionCharacterId) {
+      throw badRequest("INVENTORY_400", "다른 캐릭터의 컨테이너로 아이템을 이동할 수 없습니다.", {
+        reason: "CONTAINER_OWNER_MISMATCH",
+      });
+    }
+    if (!container.containerState) {
+      throw badRequest("INVENTORY_400", "컨테이너 상태 정보가 없습니다.", {
+        reason: "CONTAINER_STATE_NOT_FOUND",
+      });
+    }
+
+    const ruleResult = this.ruleEngine.validateBagOfHoldingCapacity({
+      itemCurrentWeightLb: container.containerState.currentWeightLb,
+      itemCurrentVolumeCuFt: container.containerState.currentVolumeCuFt,
+      addedWeightLb: params.addedWeightLb,
+      addedVolumeCuFt: params.addedVolumeCuFt,
+      containerIntegrity: this.toRuleIntegrity(container.containerState.integrity),
+    });
+
+    if (!ruleResult.accepted) {
+      // Bag of Holding 사고는 이후 이동을 막아야 하므로 컨테이너 상태에도 파손을 남긴다.
+      await this.prisma.containerState.update({
+        where: { inventoryEntryId: params.containerEntryId },
+        data: { integrity: "OVERLOADED" },
+      });
+      throw badRequest("INVENTORY_400", "컨테이너 용량을 초과했습니다.", {
+        reason: ruleResult.rejectedReason ?? "BAG_OF_HOLDING_CAPACITY_REJECTED",
+        capacityViolation: ruleResult.produced.capacityViolation,
+        containerDestroyed: ruleResult.produced.containerDestroyed,
+      });
+    }
+  }
+
+  private async recalculateContainerStateWithClient(
+    client: InventoryDbClient,
+    containerEntryId: string,
+  ): Promise<ContainerState> {
+    const container = await client.inventoryEntry.findUnique({
+      where: { id: containerEntryId },
+      include: { containerState: true, itemDefinition: true },
+    });
+    if (!container) {
+      throw notFound("INVENTORY_404", "컨테이너를 찾을 수 없습니다.", {
+        reason: "CONTAINER_NOT_FOUND",
+      });
+    }
+    if (!container.containerState) {
+      throw badRequest("INVENTORY_400", "컨테이너 상태 정보가 없습니다.", {
+        reason: "CONTAINER_STATE_NOT_FOUND",
+      });
+    }
+
+    const containedEntries = await client.inventoryEntry.findMany({
+      where: { containerEntryId },
+      include: { itemDefinition: true },
+    });
+    const currentWeightLb = containedEntries.reduce(
+      (sum, entry) => sum + this.calculateEntryWeight(entry),
+      0,
+    );
+    const currentVolumeCuFt = containedEntries.reduce(
+      (sum, entry) => sum + this.calculateEntryVolume(entry),
+      0,
+    );
+
+    return client.containerState.update({
+      where: { inventoryEntryId: containerEntryId },
+      data: {
+        currentWeightLb,
+        currentVolumeCuFt,
+      },
+    });
+  }
+
+  private async getItemDefinitionOrThrow(itemDefinitionId: string): Promise<ItemDefinition> {
+    const itemDefinition = await this.prisma.itemDefinition.findUnique({
+      where: { id: itemDefinitionId },
+    });
+    if (!itemDefinition) {
+      throw notFound("INVENTORY_404", "아이템 정의를 찾을 수 없습니다.", {
+        reason: "ITEM_DEFINITION_NOT_FOUND",
+      });
+    }
+
+    return itemDefinition;
+  }
+
+  private async getEntryWithDefinitionOrThrow(entryId: string): Promise<EntryWithDefinition> {
+    const entry = await this.prisma.inventoryEntry.findUnique({
+      where: { id: entryId },
+      include: { itemDefinition: true },
+    });
+    if (!entry) {
+      throw notFound("INVENTORY_404", "인벤토리 아이템을 찾을 수 없습니다.", {
+        reason: "INVENTORY_ENTRY_NOT_FOUND",
+      });
+    }
+
+    return entry;
+  }
+
+  private async getContainerEntryOrThrow(containerEntryId: string): Promise<ContainerEntry> {
+    const container = await this.prisma.inventoryEntry.findUnique({
+      where: { id: containerEntryId },
+      include: { containerState: true, itemDefinition: true },
+    });
+    if (!container) {
+      throw notFound("INVENTORY_404", "컨테이너를 찾을 수 없습니다.", {
+        reason: "CONTAINER_NOT_FOUND",
+      });
+    }
+
+    return container;
+  }
+
+  private async ensureContainerIsEmpty(entryId: string): Promise<void> {
+    const containedCount = await this.prisma.inventoryEntry.count({
+      where: { containerEntryId: entryId },
+    });
+    if (containedCount > 0) {
+      throw badRequest("INVENTORY_400", "내용물이 있는 컨테이너는 삭제할 수 없습니다.", {
+        reason: "CONTAINER_NOT_EMPTY",
+      });
+    }
+  }
+
+  private normalizeQuantity(quantity: number | undefined): number {
+    const normalized = quantity ?? 1;
+    if (!Number.isInteger(normalized) || normalized < 1) {
+      throw badRequest("INVENTORY_400", "아이템 수량이 올바르지 않습니다.", {
+        reason: "INVALID_ITEM_QUANTITY",
+      });
+    }
+
+    return normalized;
+  }
+
+  private calculateEntryWeight(entry: EntryWithDefinition): number {
+    return this.calculateItemWeight(entry.itemDefinition, entry.quantity);
+  }
+
+  private calculateEntryVolume(entry: EntryWithDefinition): number {
+    return this.calculateItemVolume(entry.itemDefinition, entry.quantity);
+  }
+
+  private calculateItemWeight(itemDefinition: ItemDefinition, quantity: number): number {
+    return (itemDefinition.weightLb ?? 0) * quantity;
+  }
+
+  private calculateItemVolume(itemDefinition: ItemDefinition, quantity: number): number {
+    return (itemDefinition.volumeCuFt ?? 0) * quantity;
+  }
+
+  private toRuleIntegrity(value: string): BagOfHoldingIntegrity {
+    const normalized = value.trim().toLowerCase();
+    return ["intact", "pierced", "torn", "overloaded"].includes(normalized)
+      ? (normalized as BagOfHoldingIntegrity)
+      : "intact";
+  }
+}
