@@ -49,6 +49,8 @@ const createCharacter = (
   currentHp: overrides.currentHp ?? 10,
   tempHp: overrides.tempHp ?? 0,
   conditionsJson: overrides.conditionsJson ?? "[]",
+  inventorySnapshotJson: overrides.inventorySnapshotJson ?? null,
+  inventoryEntries: overrides.inventoryEntries ?? [],
   character: {
     id: overrides.character?.id ?? "character-1",
     name: overrides.character?.name ?? "Hero",
@@ -582,6 +584,88 @@ describe("ActionRuleService", () => {
             sneakAttackDamage: 7,
             sneakAttackExpendedThisTurn: true,
           }),
+        }),
+      ]),
+    );
+  });
+
+  it("uses InventoryEntry and ItemDefinition when resolving an equipped weapon", () => {
+    const service = createService([
+      createDiceResult([8, 18], 2, DiceAdvantageState.ADVANTAGE),
+      {
+        expression: "1d8",
+        rolls: [8],
+        modifier: 0,
+        total: 8,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      {
+        expression: "2d6",
+        rolls: [3, 4],
+        modifier: 0,
+        total: 7,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      inventoryEntries: [
+        {
+          id: "inventory-entry-rapier",
+          itemDefinitionId: "item.rapier",
+          itemDefinition: {
+            id: "item.rapier",
+            itemType: "weapon",
+            damageDice: "1d8",
+            damageType: "piercing",
+            propertiesJson: JSON.stringify(["finesse"]),
+          },
+        },
+      ],
+      character: {
+        className: "rogue",
+        level: 3,
+        equippedWeaponId: "item.rapier",
+        inventoryJson: "[]",
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 20,
+      conditionsJson: JSON.stringify(["prone"]),
+      character: { id: "target-character", name: "Target", armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/attack target", actor, [actor, target], {
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+    const structuredAction = result.structuredAction as {
+      damageType: string;
+      damageRoll: DiceRollResponseDto;
+      finalDamage: number;
+      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(structuredAction.damageType).toBe("piercing");
+    expect(structuredAction.damageRoll.expression).toBe("1d8");
+    expect(structuredAction.finalDamage).toBe(15);
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 5, markDead: false },
+    ]);
+    expect(structuredAction.ruleResults).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          hookId: RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
+          accepted: true,
         }),
       ]),
     );

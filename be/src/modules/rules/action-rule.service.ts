@@ -45,6 +45,7 @@ type SessionCharacterForRules = {
   tempHp: number;
   conditionsJson: string;
   inventorySnapshotJson?: string | null;
+  inventoryEntries?: InventoryEntryForRules[];
   character: {
     id: string;
     name: string;
@@ -63,12 +64,31 @@ type SessionCharacterForRules = {
   };
 };
 
+type InventoryEntryForRules = {
+  id: string;
+  itemDefinitionId: string;
+  itemDefinition: {
+    id: string;
+    itemType: string;
+    damageDice?: string | null;
+    damageType?: string | null;
+    propertiesJson?: string | null;
+  };
+};
+
 type InventoryItemForRules = {
   id: string;
   itemDefinitionId?: string;
   damageDice?: string;
   damageType?: string;
   properties?: string[];
+};
+
+type EquippedWeaponProfile = {
+  damageDice: string;
+  damageType: string;
+  properties: string[];
+  attackKind: "melee_weapon_attack" | "ranged_weapon_attack";
 };
 
 export type CharacterStatePatch = {
@@ -927,17 +947,21 @@ export class ActionRuleService {
     return featureIds;
   }
 
-  private resolveEquippedWeaponProfile(actor: SessionCharacterForRules): {
-    damageDice: string;
-    damageType: string;
-    properties: string[];
-    attackKind: "melee_weapon_attack" | "ranged_weapon_attack";
-  } {
+  private resolveEquippedWeaponProfile(actor: SessionCharacterForRules): EquippedWeaponProfile {
+    const equippedWeaponId = actor.character.equippedWeaponId;
+    // 새 InventoryEntry 테이블을 우선 사용하되, 기존 JSON 인벤토리 데이터도 계속 동작하게 fallback을 둔다.
+    const normalizedEntryWeapon = this.resolveInventoryEntryWeaponProfile(
+      actor.inventoryEntries ?? [],
+      equippedWeaponId,
+    );
+    if (normalizedEntryWeapon) {
+      return normalizedEntryWeapon;
+    }
+
     const inventory = this.parseJson<InventoryItemForRules[]>(
       actor.inventorySnapshotJson ?? actor.character.inventoryJson,
       [],
     );
-    const equippedWeaponId = actor.character.equippedWeaponId;
     const equippedWeapon = equippedWeaponId
       ? inventory.find(
           (item) =>
@@ -955,6 +979,43 @@ export class ActionRuleService {
         ? "ranged_weapon_attack"
         : "melee_weapon_attack",
     };
+  }
+
+  private resolveInventoryEntryWeaponProfile(
+    inventoryEntries: InventoryEntryForRules[],
+    equippedWeaponId: string | null | undefined,
+  ): EquippedWeaponProfile | null {
+    if (!equippedWeaponId) {
+      return null;
+    }
+
+    const equippedEntry =
+      inventoryEntries.find(
+        (entry) =>
+          entry.id === equippedWeaponId || entry.itemDefinitionId === equippedWeaponId,
+      ) ?? null;
+    if (!equippedEntry || !this.isWeaponItemDefinition(equippedEntry.itemDefinition)) {
+      return null;
+    }
+
+    const properties = this.parseStringArrayJson(equippedEntry.itemDefinition.propertiesJson);
+    const normalizedProperties = properties.map((property) => this.normalizeRuleToken(property));
+
+    return {
+      damageDice: equippedEntry.itemDefinition.damageDice ?? "1d6",
+      damageType: equippedEntry.itemDefinition.damageType ?? DEFAULT_WEAPON_DAMAGE_TYPE,
+      properties,
+      attackKind: normalizedProperties.includes("ranged")
+        ? "ranged_weapon_attack"
+        : "melee_weapon_attack",
+    };
+  }
+
+  private isWeaponItemDefinition(itemDefinition: InventoryEntryForRules["itemDefinition"]): boolean {
+    return (
+      this.normalizeRuleToken(itemDefinition.itemType) === "weapon" ||
+      Boolean(itemDefinition.damageDice)
+    );
   }
 
   private resolveSneakAttackDamage(params: {
@@ -1262,5 +1323,22 @@ export class ActionRuleService {
       return fallback;
     }
     return JSON.parse(value) as T;
+  }
+
+  private parseStringArrayJson(value: string | null | undefined): string[] {
+    if (!value) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+
+      return parsed.filter((entry): entry is string => typeof entry === "string");
+    } catch {
+      return [];
+    }
   }
 }
