@@ -89,6 +89,16 @@ export function PlayPage({
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
   const logEndRef = useRef<HTMLDivElement | null>(null);
+  const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
+  const mapSaveRef = useRef<{
+    isSaving: boolean;
+    pending: VttMapStateDto | null;
+    activeSessionId: string | null;
+  }>({
+    isSaving: false,
+    pending: null,
+    activeSessionId: null,
+  });
 
   const session = snapshot?.session ?? null;
   const participants = snapshot?.participants ?? [];
@@ -125,6 +135,12 @@ export function PlayPage({
       setVttMap(null);
       setScenarioLoadError(null);
       setMapLoadError(null);
+      latestConfirmedMapRef.current = null;
+      mapSaveRef.current = {
+        isSaving: false,
+        pending: null,
+        activeSessionId: null,
+      };
       return;
     }
 
@@ -151,7 +167,9 @@ export function PlayPage({
 
   useEffect(() => {
     if (snapshotVttMap && typeof snapshotVttMap === "object") {
-      setVttMap(snapshotVttMap as VttMapStateDto);
+      const nextMap = snapshotVttMap as VttMapStateDto;
+      latestConfirmedMapRef.current = nextMap;
+      setVttMap(nextMap);
     }
   }, [snapshotVttMap]);
 
@@ -166,6 +184,7 @@ export function PlayPage({
     getVttMap(user, session.id)
       .then((map) => {
         if (!ignore) {
+          latestConfirmedMapRef.current = map;
           setVttMap(map);
         }
       })
@@ -179,6 +198,11 @@ export function PlayPage({
       ignore = true;
     };
   }, [isRecruiting, session, user]);
+
+  useEffect(() => {
+    mapSaveRef.current.activeSessionId = session?.id ?? null;
+    mapSaveRef.current.pending = null;
+  }, [session?.id]);
 
   const joinableCharacters = useMemo(
     () =>
@@ -257,17 +281,48 @@ export function PlayPage({
     onSelectCharacter(characterId);
   }
 
+  async function flushPendingMapSave(sessionId: string) {
+    const saveState = mapSaveRef.current;
+    if (saveState.isSaving) {
+      return;
+    }
+
+    const mapToSave = saveState.pending;
+    if (!mapToSave) {
+      return;
+    }
+
+    saveState.pending = null;
+    saveState.isSaving = true;
+
+    try {
+      const savedMap = await updateVttMap(user, sessionId, mapToSave);
+      if (mapSaveRef.current.activeSessionId === sessionId) {
+        latestConfirmedMapRef.current = savedMap;
+        setMapLoadError(null);
+        setVttMap((current) => (current === mapToSave ? savedMap : current));
+      }
+    } catch (caught) {
+      if (mapSaveRef.current.activeSessionId === sessionId) {
+        const fallbackMap = latestConfirmedMapRef.current;
+        setVttMap((current) => (current === mapToSave && fallbackMap ? fallbackMap : current));
+        setMapLoadError(caught instanceof Error ? caught.message : 'Map save failed.');
+      }
+    } finally {
+      saveState.isSaving = false;
+      if (saveState.pending && mapSaveRef.current.activeSessionId === sessionId) {
+        void flushPendingMapSave(sessionId);
+      }
+    }
+  }
+
   function handleMapChange(nextMap: VttMapStateDto) {
     if (!session) return;
-    const previousMap = vttMap;
+    mapSaveRef.current.activeSessionId = session.id;
+    mapSaveRef.current.pending = nextMap;
     setVttMap(nextMap);
     setMapLoadError(null);
-    void updateVttMap(user, session.id, nextMap).catch((caught) => {
-      if (previousMap) {
-        setVttMap(previousMap);
-      }
-      setMapLoadError(caught instanceof Error ? caught.message : "맵을 저장하지 못했습니다.");
-    });
+    void flushPendingMapSave(session.id);
   }
 
   function getParticipantBadge(participantUserId: string): string | null {
