@@ -1,12 +1,31 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { VttMapStateDto } from "@trpg/shared-types";
+import defaultArcherImage from "../assets/images/Profile_Default_Archer.png";
+import defaultRogueImage from "../assets/images/Profile_Default_Rouge.png";
+import defaultWarriorImage from "../assets/images/Profile_Default_Warrior.png";
+import defaultWizardImage from "../assets/images/Profile_Default_Wizard.png";
 import { BattleMap } from "../components/BattleMap";
+import boxBulletinNarrowFrame from "../components/Box_Bulletin_Narrow_Frame.png";
+import boxBulletinNarrowPlanks from "../components/Box_Bulletin_Narrow_Planks.png";
 import { Icon } from "../components/Icon";
+import profileBorderCharacter from "../components/Profile_Border_Character.png";
 import type { CharacterPayload } from "../hooks/useSession";
 import { getPlayerScenario, getVttMap, updateVttMap } from "../services/api";
 import type { LogEntry, PersistentCharacter, PlayerScenarioView, SessionSnapshot, StoredUser } from "../types/session";
 
 const sessionTabs = ["Main", "Chat", "Info", "Settings"] as const;
+const classLabelMap = new Map([
+  ["Wizard", "마법사"],
+  ["Archer", "궁수"],
+  ["Rogue", "도적"],
+  ["Warrior", "전사"],
+]);
+const avatarPresetImageMap = new Map([
+  ["preset_wizard", defaultWizardImage],
+  ["preset_archer", defaultArcherImage],
+  ["preset_rogue", defaultRogueImage],
+  ["preset_warrior", defaultWarriorImage],
+]);
 
 interface PlayPageProps {
   user: StoredUser;
@@ -49,6 +68,35 @@ function getAvatarLabel(title: string, userName: string) {
 
 function getConnectionLabel(connected: boolean) {
   return connected ? "Connected" : "Offline";
+}
+
+function getCharacterArt(className: string) {
+  const normalized = className.toLowerCase();
+  if (normalized.includes("wizard") || normalized.includes("mage") || normalized.includes("sorcer")) {
+    return defaultWizardImage;
+  }
+  if (normalized.includes("archer") || normalized.includes("ranger") || normalized.includes("bow")) {
+    return defaultArcherImage;
+  }
+  if (normalized.includes("rogue") || normalized.includes("rouge") || normalized.includes("thief")) {
+    return defaultRogueImage;
+  }
+  if (normalized.includes("fighter") || normalized.includes("warrior") || normalized.includes("knight")) {
+    return defaultWarriorImage;
+  }
+  return defaultWizardImage;
+}
+
+function getCharacterImage(character: { avatarPresetId?: string | null; avatarUrl?: string | null; className: string }) {
+  if (character.avatarUrl) return character.avatarUrl;
+  if (character.avatarPresetId) {
+    return avatarPresetImageMap.get(character.avatarPresetId) ?? getCharacterArt(character.className);
+  }
+  return getCharacterArt(character.className);
+}
+
+function getCharacterClassLabel(className: string) {
+  return classLabelMap.get(className) ?? className;
 }
 
 function getNodeLabel(value: unknown): string | null {
@@ -372,7 +420,10 @@ export function PlayPage({
           </section>
 
           {canShowCharacterSelection ? (
-            <section className="character-selection-board player-ready-board">
+            <section
+              className="character-selection-board player-ready-board session-character-board"
+              style={{ backgroundImage: `url(${boxBulletinNarrowPlanks})` }}
+            >
               <div className="section-heading">
                 <div>
                   <span className="eyebrow">Character selection</span>
@@ -400,44 +451,47 @@ export function PlayPage({
                   <span>Create a new character and use it in this session.</span>
                 </button>
 
-                {joinableCharacters.map((character) => (
-                  <button
-                    type="button"
-                    key={character.id}
-                    className={`character-selection-card${character.isSelected ? " active" : ""}`}
-                    disabled={busy || character.isDisabled}
-                    onClick={() => handleCharacterClick(character.id)}
-                  >
-                    <div className="character-selection-head">
-                      <div className="avatar avatar-large">{character.name.slice(0, 1)}</div>
-                      <div>
-                        <strong>{character.name}</strong>
-                        <span>
-                          {character.ancestry} / {character.className}
-                        </span>
+                {joinableCharacters.map((character) => {
+                  const cardImage = getCharacterImage(character);
+                  const disabledLabel = !character.isSelectable
+                    ? "사용 중"
+                    : readyLocked && !character.isSelected
+                      ? "READY 고정"
+                      : null;
+
+                  return (
+                    <button
+                      type="button"
+                      key={character.id}
+                      className={`fantasy-character-card session-character-option${
+                        character.isSelected ? " selected" : ""
+                      }`}
+                      disabled={busy || character.isDisabled}
+                      onClick={() => handleCharacterClick(character.id)}
+                    >
+                      <div
+                        className="fantasy-character-card-frame session-character-option-frame"
+                        style={{ ["--frame-image" as string]: `url(${profileBorderCharacter})` }}
+                      >
+                        <img src={cardImage} alt={character.name} className="fantasy-character-card-art" />
+                        {disabledLabel ? <div className="fantasy-character-card-overlay">{disabledLabel}</div> : null}
+                        <div className="session-character-option-badges">
+                          <span>LV {character.level}</span>
+                          <span>HP {character.maxHp}</span>
+                          <span>AC {character.armorClass}</span>
+                        </div>
+                        <div className="fantasy-character-card-nameplate">{character.name}</div>
+                        <div className="fantasy-character-card-class">{getCharacterClassLabel(character.className)}</div>
                       </div>
-                    </div>
-                    <dl className="character-selection-meta">
-                      <div>
-                        <dt>LV</dt>
-                        <dd>{character.level}</dd>
-                      </div>
-                      <div>
-                        <dt>HP</dt>
-                        <dd>{character.maxHp}</dd>
-                      </div>
-                      <div>
-                        <dt>AC</dt>
-                        <dd>{character.armorClass}</dd>
-                      </div>
-                      <div>
-                        <dt>SPD</dt>
-                        <dd>{character.speed}</dd>
-                      </div>
-                    </dl>
-                  </button>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
+              <div
+                className="session-character-board-frame"
+                style={{ backgroundImage: `url(${boxBulletinNarrowFrame})` }}
+                aria-hidden="true"
+              />
             </section>
           ) : null}
 
@@ -598,21 +652,32 @@ export function PlayPage({
         <section className="participant-strip participant-strip-four-up">
           {participants.length ? (
             participants.map((participant, index) => {
-              const linkedCharacter = sessionCharacters.find((character) => character.userId === participant.userId) ?? null;
-              const badgeLabel = getParticipantBadge(participant.userId);
-              const stateLabel = participant.isReady ? "READY" : participant.connectionStatus;
+                const linkedCharacter = sessionCharacters.find((character) => character.userId === participant.userId) ?? null;
+                const badgeLabel = getParticipantBadge(participant.userId);
+                const stateLabel = participant.isReady ? "READY" : participant.connectionStatus;
+                const participantImage = linkedCharacter ? getCharacterImage(linkedCharacter) : null;
 
-              return (
-                <article key={participant.id} className="participant-strip-card">
-                  {badgeLabel ? <div className="participant-special-badge">{badgeLabel}</div> : null}
-                  <div className="participant-avatar tone-1">
-                    {(linkedCharacter?.name ?? participant.user.displayName).slice(0, 1)}
-                  </div>
+                return (
+                  <article key={participant.id} className="participant-strip-card">
+                    {badgeLabel ? <div className="participant-special-badge">{badgeLabel}</div> : null}
+                    <div className="participant-avatar-frame" style={{ ["--frame-image" as string]: `url(${profileBorderCharacter})` }}>
+                      {participantImage ? (
+                        <img
+                          src={participantImage}
+                          alt={linkedCharacter?.name ?? participant.user.displayName}
+                          className="participant-avatar-image"
+                        />
+                      ) : (
+                        <div className="participant-avatar tone-1">
+                          {(linkedCharacter?.name ?? participant.user.displayName).slice(0, 1)}
+                        </div>
+                      )}
+                    </div>
                   <div className="participant-card-body">
                     <strong>{participant.user.displayName}</strong>
                     <span>
                       {linkedCharacter
-                        ? `${linkedCharacter.name} / ${linkedCharacter.className}`
+                        ? `${linkedCharacter.name} / ${getCharacterClassLabel(linkedCharacter.className)}`
                         : participant.userId === user.id
                           ? "No character selected"
                           : "Waiting for character"}
