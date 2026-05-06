@@ -7,10 +7,20 @@ import { PrismaService } from "../../database/prisma.service";
 export class CharacterResourceService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getOrCreateResource(sessionCharacterId: string): Promise<SessionCharacterResource> {
+  async getOrCreateResource(
+    sessionCharacterId: string,
+    defaults: {
+      secondWindAvailable?: boolean;
+      actionSurgeUses?: number;
+      rageUses?: number;
+    } = {},
+  ): Promise<SessionCharacterResource> {
     return this.prisma.sessionCharacterResource.upsert({
       where: { sessionCharacterId },
-      create: { sessionCharacterId },
+      create: {
+        sessionCharacterId,
+        ...defaults,
+      },
       update: {},
     });
   }

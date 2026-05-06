@@ -3,6 +3,7 @@ import {
   ActionInputType as PrismaActionInputType,
   ActionQueueStatus as PrismaActionQueueStatus,
   ActionScope as PrismaActionScope,
+  CombatStatus as PrismaCombatStatus,
   DiceAdvantageState as PrismaDiceAdvantageState,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
 } from "@prisma/client";
@@ -13,10 +14,32 @@ import {
 import { PrismaService } from "../../database/prisma.service";
 import { AiService } from "../ai/ai.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
-import { ActionRuleService } from "../rules/action-rule.service";
+import {
+  ActionResolution,
+  ActionRuleService,
+  ActionRuntimeEffect,
+  RuleRuntimeContext,
+} from "../rules/action-rule.service";
+import { ActionEconomyService } from "../rules/action-economy.service";
+import { CharacterResourceService } from "../rules/character-resource.service";
 import { StateDiffService } from "../rules/state-diff.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
+
+type RuntimeTurnStateKey = {
+  combatId: string;
+  roundNo: number;
+  turnNo: number;
+  sessionCharacterId: string;
+};
+
+type RuntimeActor = {
+  id: string;
+  character: {
+    className: string;
+    level: number;
+  };
+};
 
 @Injectable()
 export class ActionProcessorService {
@@ -30,6 +53,8 @@ export class ActionProcessorService {
     private readonly turnLogsService: TurnLogsService,
     private readonly realtimeEvents: RealtimeEventsService,
     private readonly aiService: AiService,
+    private readonly actionEconomy: ActionEconomyService,
+    private readonly characterResources: CharacterResourceService,
   ) {}
 
   async processNext(sessionId: string): Promise<void> {
@@ -105,6 +130,8 @@ export class ActionProcessorService {
       throw new Error("ACTION_ACTOR_NOT_FOUND");
     }
 
+    const runtime = await this.buildRuntime(action.sessionId, actor);
+
     // BE → AI Interpreter (AI-SERVER-001). 자연어 → 구조화 action 후보를 AiTrace 로 영속.
     // Phase 1: 결과를 룰 판정에 사용하지 않음 (actionRules 시그니처 변경 동반이라 별 PR).
     // Phase 2: actionRules.resolveAction 가 interpreter 결과 받아 활용.
@@ -122,7 +149,12 @@ export class ActionProcessorService {
       );
     }
 
-    const resolution = this.actionRules.resolveAction(action.rawText, actor, sessionCharacters);
+    const resolution = this.actionRules.resolveAction(
+      action.rawText,
+      actor,
+      sessionCharacters,
+      runtime.context,
+    );
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId: session.id,
       sessionScenarioId: sessionScenario.id,
@@ -165,6 +197,11 @@ export class ActionProcessorService {
       changes: resolution.stateChanges,
     });
 
+    await this.applyRuntimeEffects(resolution, {
+      sessionCharacterId: actor.id,
+      turnStateKey: runtime.turnStateKey,
+    });
+
     if (stateDiff) {
       await this.turnLogsService.attachStateDiff(turnLog.turnLogId, { ...stateDiff });
       this.realtimeEvents.emitStateDiffApplied(session.id, stateDiff);
@@ -177,6 +214,189 @@ export class ActionProcessorService {
     }
 
     return turnLog;
+  }
+
+  private async buildRuntime(
+    sessionId: string,
+    actor: RuntimeActor,
+  ): Promise<{
+    context: RuleRuntimeContext;
+    turnStateKey: RuntimeTurnStateKey | null;
+  }> {
+    const resource = await this.characterResources.getOrCreateResource(
+      actor.id,
+      this.resolveInitialResourceDefaults(actor),
+    );
+    const combat = await this.prisma.combat.findFirst({
+      where: {
+        sessionId,
+        status: PrismaCombatStatus.ACTIVE,
+      },
+      include: { participants: true },
+      orderBy: { createdAt: "desc" },
+    });
+    const currentParticipant = combat?.participants.find(
+      (participant) => participant.id === combat.currentParticipantId,
+    );
+
+    if (!combat || currentParticipant?.sessionCharacterId !== actor.id) {
+      return {
+        context: {
+          resource: this.toRuntimeResource(resource),
+          turnState: null,
+        },
+        turnStateKey: null,
+      };
+    }
+
+    const turnStateKey = {
+      combatId: combat.id,
+      roundNo: combat.roundNo,
+      turnNo: combat.turnNo,
+      sessionCharacterId: actor.id,
+    };
+    const turnState = await this.actionEconomy.getOrCreateTurnState(turnStateKey);
+
+    return {
+      context: {
+        resource: this.toRuntimeResource(resource),
+        turnState: {
+          actionUsed: turnState.actionUsed,
+          bonusActionUsed: turnState.bonusActionUsed,
+          reactionUsed: turnState.reactionUsed,
+          additionalActionGranted: turnState.additionalActionGranted,
+          sneakAttackUsed: turnState.sneakAttackUsed,
+        },
+      },
+      turnStateKey,
+    };
+  }
+
+  private async applyRuntimeEffects(
+    resolution: ActionResolution,
+    params: {
+      sessionCharacterId: string;
+      turnStateKey: RuntimeTurnStateKey | null;
+    },
+  ): Promise<void> {
+    for (const effect of resolution.runtimeEffects ?? []) {
+      await this.applyRuntimeEffect(effect, params);
+    }
+  }
+
+  private async applyRuntimeEffect(
+    effect: ActionRuntimeEffect,
+    params: {
+      sessionCharacterId: string;
+      turnStateKey: RuntimeTurnStateKey | null;
+    },
+  ): Promise<void> {
+    switch (effect.type) {
+      case "SPEND_ACTION":
+        if (params.turnStateKey) {
+          await this.actionEconomy.spendAction(params.turnStateKey);
+        }
+        return;
+      case "SPEND_BONUS_ACTION":
+        if (params.turnStateKey) {
+          await this.actionEconomy.spendBonusAction(params.turnStateKey);
+        }
+        return;
+      case "SPEND_REACTION":
+        if (params.turnStateKey) {
+          await this.actionEconomy.spendReaction(params.turnStateKey);
+        }
+        return;
+      case "GRANT_ADDITIONAL_ACTION":
+        if (params.turnStateKey) {
+          await this.actionEconomy.grantAdditionalAction(params.turnStateKey);
+        }
+        return;
+      case "SPEND_SNEAK_ATTACK":
+        if (params.turnStateKey) {
+          await this.actionEconomy.spendSneakAttack(params.turnStateKey);
+        }
+        return;
+      case "SPEND_SECOND_WIND":
+        await this.characterResources.spendSecondWind(params.sessionCharacterId);
+        return;
+      case "SPEND_ACTION_SURGE_USE":
+        await this.characterResources.spendActionSurgeUse(params.sessionCharacterId);
+        return;
+      case "START_RAGE":
+        await this.characterResources.startRage({
+          sessionCharacterId: params.sessionCharacterId,
+          // Rage는 기본 1분(10라운드) 지속으로 잡아둔다.
+          // 정확한 종료 처리는 이후 턴 lifecycle에서 이 값을 읽어 처리한다.
+          rageEndsAtRound: params.turnStateKey ? params.turnStateKey.roundNo + 10 : null,
+          rageEndsAtTurn: params.turnStateKey?.turnNo ?? null,
+        });
+        return;
+      case "START_FRENZY":
+        await this.characterResources.startFrenzy(params.sessionCharacterId);
+        return;
+    }
+  }
+
+  private resolveInitialResourceDefaults(actor: RuntimeActor): {
+    secondWindAvailable: boolean;
+    actionSurgeUses: number;
+    rageUses: number;
+  } {
+    const className = actor.character.className.toLowerCase();
+
+    return {
+      secondWindAvailable: true,
+      actionSurgeUses:
+        className.includes("fighter") && actor.character.level >= 17
+          ? 2
+          : className.includes("fighter") && actor.character.level >= 2
+            ? 1
+            : 0,
+      rageUses: className.includes("barbarian")
+        ? this.resolveRageUses(actor.character.level)
+        : 0,
+    };
+  }
+
+  private resolveRageUses(level: number): number {
+    if (level >= 20) {
+      return 6;
+    }
+    if (level >= 17) {
+      return 6;
+    }
+    if (level >= 12) {
+      return 5;
+    }
+    if (level >= 6) {
+      return 4;
+    }
+    if (level >= 3) {
+      return 3;
+    }
+    if (level >= 1) {
+      return 2;
+    }
+    return 0;
+  }
+
+  private toRuntimeResource(resource: {
+    secondWindAvailable: boolean;
+    actionSurgeUses: number;
+    rageUses: number;
+    rageActive: boolean;
+    frenzyActive: boolean;
+    exhaustionLevel: number;
+  }): NonNullable<RuleRuntimeContext["resource"]> {
+    return {
+      secondWindAvailable: resource.secondWindAvailable,
+      actionSurgeUses: resource.actionSurgeUses,
+      rageUses: resource.rageUses,
+      rageActive: resource.rageActive,
+      frenzyActive: resource.frenzyActive,
+      exhaustionLevel: resource.exhaustionLevel,
+    };
   }
 
   private toPrismaAdvantage(value: DiceAdvantageState): PrismaDiceAdvantageState {

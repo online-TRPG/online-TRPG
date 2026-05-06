@@ -51,4 +51,20 @@ describe("CommandParserService", () => {
       option: null,
     });
   });
+
+  it("parses class feature commands with an option", () => {
+    expect(service.parse("/feature cunning_action hide")).toEqual({
+      type: "use_class_feature",
+      featureId: "class.rogue.feature.cunning_action",
+      option: "hide",
+    });
+  });
+
+  it("parses frenzy class feature commands", () => {
+    expect(service.parse("/feature frenzy")).toEqual({
+      type: "use_class_feature",
+      featureId: "class.barbarian.subclass_feature.frenzy",
+      option: null,
+    });
+  });
 });
