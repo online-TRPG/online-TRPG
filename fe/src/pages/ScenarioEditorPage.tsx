@@ -94,7 +94,7 @@ function createBlankNode(title = '새 장면'): NodeForm {
     title,
     sceneText: '',
     imageUrl: '',
-    vttMap: createDefaultNodeMap(id),
+    vttMap: null,
     links: [],
     clues: [],
   };

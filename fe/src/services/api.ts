@@ -44,7 +44,8 @@ const isLocalFrontend =
   import.meta.env.DEV &&
   typeof globalThis.location !== 'undefined' &&
   ['localhost', '127.0.0.1', '::1'].includes(globalThis.location.hostname);
-const rawBaseUrl = (isLocalFrontend ? localDevBaseUrls[0] : configuredBaseUrl || defaultBase).replace(/\/$/, '');
+const preferredBaseUrl = configuredBaseUrl?.replace(/\/$/, '');
+const rawBaseUrl = (preferredBaseUrl || (isLocalFrontend ? localDevBaseUrls[0] : defaultBase)).replace(/\/$/, '');
 export const API_BASE_URL = rawBaseUrl.endsWith('/api/v1') ? rawBaseUrl : `${rawBaseUrl}/api/v1`;
 const fallbackApiBaseUrls =
   import.meta.env.PROD
@@ -53,12 +54,9 @@ const fallbackApiBaseUrls =
         new Set(
           [
             API_BASE_URL,
-            ...localDevBaseUrls.map((url) => `${url}/api/v1`),
-            configuredBaseUrl
-              ? configuredBaseUrl.endsWith('/api/v1')
-                ? configuredBaseUrl
-                : `${configuredBaseUrl.replace(/\/$/, '')}/api/v1`
-              : null,
+            ...(preferredBaseUrl
+              ? []
+              : localDevBaseUrls.map((url) => `${url}/api/v1`)),
           ]
             .filter((url): url is string => Boolean(url))
             .map((url) => url.replace(/\/$/, '')),
