@@ -45,6 +45,7 @@ export interface AvailableSessionListItem {
   currentPlayers: number;
   maxPlayers: number;
   status: string;
+  gmMode?: string;
   role?: string;
 }
 
