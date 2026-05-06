@@ -6,6 +6,7 @@ import {
 import { ActionRuleService } from "./action-rule.service";
 import { CommandParserService } from "./command-parser.service";
 import { DiceService } from "./dice.service";
+import { MapPositionService } from "./map-position.service";
 import { RuleEngineService } from "./rule-engine.service";
 import { RULE_HOOK_IDS } from "./rule-engine.types";
 
@@ -82,6 +83,7 @@ describe("ActionRuleService", () => {
       new CommandParserService(),
       diceService,
       new RuleEngineService(),
+      new MapPositionService(),
     );
   };
 
@@ -578,6 +580,122 @@ describe("ActionRuleService", () => {
           hookId: RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
           produced: expect.objectContaining({
             sneakAttackDamage: 7,
+            sneakAttackExpendedThisTurn: true,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("applies sneak attack when an actor ally is within 5 feet of the target", () => {
+    const service = createService([
+      createDiceResult([18], 2),
+      {
+        expression: "1d6",
+        rolls: [4],
+        modifier: 0,
+        total: 4,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      {
+        expression: "2d6",
+        rolls: [2, 3],
+        modifier: 0,
+        total: 5,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "rogue",
+        level: 3,
+        equippedWeaponId: "rapier-1",
+        inventoryJson: JSON.stringify([
+          {
+            id: "rapier-1",
+            name: "Rapier",
+            quantity: 1,
+            damageDice: "1d6",
+            damageType: "piercing",
+            properties: ["finesse"],
+          },
+        ]),
+      },
+    });
+    const ally = createCharacter({
+      id: "ally",
+      characterId: "ally-character",
+      character: { id: "ally-character", name: "Ally" },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 20,
+      character: { id: "target-character", name: "Target", armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/attack target", actor, [actor, ally, target], {
+      map: {
+        gridType: "square",
+        gridSize: 64,
+        tokens: [
+          {
+            sessionCharacterId: "actor",
+            x: 0,
+            y: 0,
+            size: 64,
+            hidden: false,
+            isHostile: false,
+          },
+          {
+            sessionCharacterId: "ally",
+            x: 64,
+            y: 0,
+            size: 64,
+            hidden: false,
+            isHostile: false,
+          },
+          {
+            sessionCharacterId: "target",
+            x: 128,
+            y: 0,
+            size: 64,
+            hidden: false,
+            isHostile: true,
+          },
+        ],
+      },
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+    const structuredAction = result.structuredAction as {
+      finalDamage: number;
+      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SNEAK_ATTACK" },
+    ]);
+    expect(structuredAction.finalDamage).toBe(9);
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 11, markDead: false },
+    ]);
+    expect(structuredAction.ruleResults).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          hookId: RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
+          accepted: true,
+          produced: expect.objectContaining({
+            sneakAttackDamage: 5,
             sneakAttackExpendedThisTurn: true,
           }),
         }),
