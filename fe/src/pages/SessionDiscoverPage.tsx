@@ -11,6 +11,7 @@ interface SessionDiscoverPageProps {
   snapshot: SessionSnapshot | null;
   sessionList: AvailableSessionListItem[];
   mySessionList: AvailableSessionListItem[];
+  initialSection?: DiscoverSection;
   busy: boolean;
   error: string | null;
   onClearError: () => void;
@@ -74,6 +75,7 @@ export function SessionDiscoverPage({
   snapshot,
   sessionList,
   mySessionList,
+  initialSection = "public",
   busy,
   error,
   onClearError,
@@ -83,7 +85,7 @@ export function SessionDiscoverPage({
   onOpenHostProfile,
   onOpenPlay,
 }: SessionDiscoverPageProps) {
-  const [activeSection, setActiveSection] = useState<DiscoverSection>("public");
+  const [activeSection, setActiveSection] = useState<DiscoverSection>(initialSection);
   const [inviteCode, setInviteCode] = useState("");
   const [query, setQuery] = useState("");
   const [themeFilter, setThemeFilter] = useState("all");
@@ -101,6 +103,10 @@ export function SessionDiscoverPage({
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const hasRecruitingSession = snapshot?.session.status === "recruiting";
+  const hasBlockingSession =
+    Boolean(snapshot) &&
+    snapshot?.session.status !== "completed" &&
+    snapshot?.session.status !== "disbanded";
   const inviteError = getInviteErrorMessage(error);
   const pageError = getPageErrorMessage(error);
   const joinedSessionIds = useMemo(() => new Set(mySessionList.map((item) => item.sessionId)), [mySessionList]);
@@ -203,7 +209,7 @@ export function SessionDiscoverPage({
   function submitJoinByInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedCode = inviteCode.trim().toUpperCase();
-    if (!trimmedCode || hasRecruitingSession) return;
+    if (!trimmedCode || hasBlockingSession) return;
     setInviteErrorVisible(false);
     setInvitePending(true);
     void onJoinSession(trimmedCode);
@@ -233,8 +239,11 @@ export function SessionDiscoverPage({
   async function enterSelectedSession() {
     if (!selectedSessionDetail) return;
 
-    const targetSessionId = selectedSessionDetail.session.publicId;
-    const isCurrentSession = snapshot?.session.publicId === targetSessionId;
+    const targetSessionId = selectedSessionDetail.session.id;
+    const targetSessionPublicId = selectedSessionDetail.session.publicId;
+    const isCurrentSession =
+      snapshot?.session.id === targetSessionId ||
+      (Boolean(targetSessionPublicId) && snapshot?.session.publicId === targetSessionPublicId);
 
     if (isCurrentSession) {
       closeSessionDetail();
@@ -242,7 +251,7 @@ export function SessionDiscoverPage({
       return;
     }
 
-    const nextSnapshot = await onJoinSessionById(targetSessionId);
+    const nextSnapshot = await onJoinSessionById(targetSessionPublicId || targetSessionId);
     if (nextSnapshot) {
       closeSessionDetail();
       onOpenPlay();
@@ -254,9 +263,23 @@ export function SessionDiscoverPage({
     onOpenHostProfile(host);
   }
 
-  async function handleJoinClick(event: MouseEvent<HTMLButtonElement>, sessionId: string) {
+  async function handleJoinClick(
+    event: MouseEvent<HTMLButtonElement>,
+    sessionId: string,
+    sessionPublicId?: string,
+  ) {
     event.stopPropagation();
-    const nextSnapshot = await onJoinSessionById(sessionId);
+
+    const isCurrentSession =
+      snapshot?.session.id === sessionId ||
+      (Boolean(sessionPublicId) && snapshot?.session.publicId === sessionPublicId);
+
+    if (isCurrentSession) {
+      onOpenPlay();
+      return;
+    }
+
+    const nextSnapshot = await onJoinSessionById(sessionPublicId || sessionId);
     if (nextSnapshot) {
       onOpenPlay();
     }
@@ -271,7 +294,7 @@ export function SessionDiscoverPage({
   const isCurrentSelectedSession = selectedSessionDetail?.session.id === snapshot?.session.id;
   const isKnownSelectedSession =
     (selectedSessionDetail ? joinedSessionIds.has(selectedSessionDetail.session.id) : false) || isCurrentSelectedSession;
-  const canEnterSelectedSession = isCurrentSelectedSession || isKnownSelectedSession || !hasRecruitingSession;
+  const canEnterSelectedSession = isCurrentSelectedSession || isKnownSelectedSession || !hasBlockingSession;
 
   return (
     <main className="session-discover-shell">
@@ -408,6 +431,11 @@ export function SessionDiscoverPage({
                   findSessionVisualByTitle(item.scenarioTitle) ??
                   sessionVisualPresets[(safePage * PAGE_SIZE + index) % sessionVisualPresets.length];
                 const detailId = item.sessionPublicId || item.sessionId;
+                const isCurrentListSession =
+                  snapshot?.session.id === item.sessionId ||
+                  (Boolean(item.sessionPublicId) && snapshot?.session.publicId === item.sessionPublicId);
+                const isKnownListSession = joinedSessionIds.has(item.sessionId) || isCurrentListSession;
+                const isJoinBlocked = busy || (!isKnownListSession && hasBlockingSession);
 
                 return (
                   <article
@@ -448,8 +476,10 @@ export function SessionDiscoverPage({
                       <button
                         type="button"
                         className="session-discover-join"
-                        disabled={busy || hasRecruitingSession}
-                        onClick={(event) => void handleJoinClick(event, item.sessionPublicId || item.sessionId)}
+                        disabled={isJoinBlocked}
+                        onClick={(event) =>
+                          void handleJoinClick(event, item.sessionId, item.sessionPublicId)
+                        }
                       >
                         {activeSection === "public" ? "세션 참가" : "세션 열기"}
                       </button>
@@ -536,7 +566,7 @@ export function SessionDiscoverPage({
                 />
               </div>
               {inviteError && inviteErrorVisible ? <p className="session-invite-error">{inviteError}</p> : null}
-              <button type="submit" className="primary" disabled={busy || hasRecruitingSession}>
+              <button type="submit" className="primary" disabled={busy || hasBlockingSession}>
                 참여하기
               </button>
             </form>
