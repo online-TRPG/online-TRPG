@@ -22,10 +22,19 @@ import { conflict, forbidden, notFound, unprocessable } from "../../common/excep
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { ActionRuleService } from "../rules/action-rule.service";
+import { ActionEconomyService } from "../rules/action-economy.service";
+import { CharacterResourceService } from "../rules/character-resource.service";
 import { DiceService } from "../rules/dice.service";
 import { SessionsService } from "../sessions/sessions.service";
 
 type CombatWithParticipants = Awaited<ReturnType<CombatService["getActiveCombatEntity"]>>;
+
+const RAGE_CONDITION_TAGS = [
+  "rage",
+  "resistance:bludgeoning",
+  "resistance:piercing",
+  "resistance:slashing",
+];
 
 @Injectable()
 export class CombatService {
@@ -34,6 +43,8 @@ export class CombatService {
     private readonly sessionsService: SessionsService,
     private readonly diceService: DiceService,
     private readonly actionRules: ActionRuleService,
+    private readonly actionEconomy: ActionEconomyService,
+    private readonly characterResources: CharacterResourceService,
     private readonly realtimeEvents: RealtimeEventsService,
   ) {}
 
@@ -123,6 +134,27 @@ export class CombatService {
         where: { id: created.id },
         data: { currentParticipantId: firstParticipant.id },
       });
+
+      if (firstParticipant.sessionCharacterId) {
+        // 전투 시작 직후 첫 행동 검증이 안정적으로 동작하도록 첫 턴 상태를 미리 만든다.
+        await tx.combatTurnState.upsert({
+          where: {
+            combatId_roundNo_turnNo_sessionCharacterId: {
+              combatId: created.id,
+              roundNo: 1,
+              turnNo: 1,
+              sessionCharacterId: firstParticipant.sessionCharacterId,
+            },
+          },
+          create: {
+            combatId: created.id,
+            roundNo: 1,
+            turnNo: 1,
+            sessionCharacterId: firstParticipant.sessionCharacterId,
+          },
+          update: {},
+        });
+      }
 
       // 전투 시작은 세션 전체 UI가 바뀌는 상태 전환이므로 GameState phase와 version을 함께 올린다.
       await tx.gameState.update({
@@ -241,6 +273,8 @@ export class CombatService {
     const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % aliveParticipants.length : 0;
     const next = aliveParticipants[nextIndex] ?? null;
     const wrappedRound = aliveParticipants.length > 0 && nextIndex === 0;
+    const nextRoundNo = wrappedRound ? combat.roundNo + 1 : combat.roundNo;
+    const nextTurnNo = combat.turnNo + 1;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.combatParticipant.update({
@@ -252,12 +286,23 @@ export class CombatService {
         where: { id: combat.id },
         data: {
           currentParticipantId: next?.id ?? null,
-          turnNo: combat.turnNo + 1,
-          roundNo: wrappedRound ? combat.roundNo + 1 : combat.roundNo,
+          turnNo: nextTurnNo,
+          roundNo: nextRoundNo,
         },
         include: { participants: { orderBy: { turnOrder: "asc" } } },
       });
     });
+
+    if (next?.sessionCharacterId) {
+      await this.actionEconomy.getOrCreateTurnState({
+        combatId: updated.id,
+        roundNo: updated.roundNo,
+        turnNo: updated.turnNo,
+        sessionCharacterId: next.sessionCharacterId,
+      });
+    }
+
+    const expiredRageCount = await this.endExpiredRagesForCombat(updated);
 
     const response: TurnAdvanceResponseDto = {
       combatId: updated.id,
@@ -269,6 +314,12 @@ export class CombatService {
 
     this.realtimeEvents.emitTurnChanged(session.id, response);
     this.realtimeEvents.emitCombatUpdated(session.id, this.mapCombat(updated));
+    if (expiredRageCount > 0) {
+      this.realtimeEvents.emitSessionSnapshot(
+        session.id,
+        await this.sessionsService.buildSnapshot(session.id),
+      );
+    }
     return response;
   }
 
@@ -302,6 +353,94 @@ export class CombatService {
       throw forbidden("GM_403", "GM 권한이 필요합니다.", {
         reason: "GM_OR_HOST_REQUIRED",
       });
+    }
+  }
+
+  private async endExpiredRagesForCombat(
+    combat: NonNullable<CombatWithParticipants>,
+  ): Promise<number> {
+    const sessionCharacterIds = combat.participants
+      .map((participant) => participant.sessionCharacterId)
+      .filter((id): id is string => Boolean(id));
+
+    if (!sessionCharacterIds.length) {
+      return 0;
+    }
+
+    const resources = await this.prisma.sessionCharacterResource.findMany({
+      where: {
+        sessionCharacterId: { in: sessionCharacterIds },
+        rageActive: true,
+      },
+    });
+    const expiredResources = resources.filter((resource) =>
+      this.isRageExpired(resource, combat.roundNo, combat.turnNo),
+    );
+
+    for (const resource of expiredResources) {
+      await this.characterResources.endRage(resource.sessionCharacterId);
+      await this.removeRageConditionTags(resource.sessionCharacterId);
+    }
+
+    return expiredResources.length;
+  }
+
+  private isRageExpired(
+    resource: {
+      rageEndsAtRound: number | null;
+      rageEndsAtTurn: number | null;
+    },
+    roundNo: number,
+    turnNo: number,
+  ): boolean {
+    if (resource.rageEndsAtRound === null) {
+      return false;
+    }
+
+    if (roundNo > resource.rageEndsAtRound) {
+      return true;
+    }
+
+    return (
+      roundNo === resource.rageEndsAtRound &&
+      (resource.rageEndsAtTurn === null || turnNo >= resource.rageEndsAtTurn)
+    );
+  }
+
+  private async removeRageConditionTags(sessionCharacterId: string): Promise<void> {
+    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+      where: { id: sessionCharacterId },
+      select: { conditionsJson: true },
+    });
+    if (!sessionCharacter) {
+      return;
+    }
+
+    const currentConditions = this.parseConditions(sessionCharacter.conditionsJson);
+    const removedTags = new Set(RAGE_CONDITION_TAGS);
+    const nextConditions = currentConditions.filter(
+      (condition) => !removedTags.has(condition.trim().toLowerCase()),
+    );
+
+    if (nextConditions.length === currentConditions.length) {
+      return;
+    }
+
+    // Rage가 끝난 뒤에도 resistance 태그가 남으면 피해 감소가 계속 적용되므로 함께 정리한다.
+    await this.prisma.sessionCharacter.update({
+      where: { id: sessionCharacterId },
+      data: { conditionsJson: JSON.stringify(nextConditions) },
+    });
+  }
+
+  private parseConditions(value: string): string[] {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return Array.isArray(parsed)
+        ? parsed.filter((condition): condition is string => typeof condition === "string")
+        : [];
+    } catch {
+      return [];
     }
   }
 
