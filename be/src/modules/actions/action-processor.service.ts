@@ -121,7 +121,13 @@ export class ActionProcessorService {
           in: [PrismaSessionCharacterStatus.ACTIVE, PrismaSessionCharacterStatus.DEAD],
         },
       },
-      include: { character: true },
+      include: {
+        character: true,
+        // 룰 판정에서 장착 무기 속성을 확인해야 하므로 아이템 정의까지 함께 읽는다.
+        inventoryEntries: {
+          include: { itemDefinition: true },
+        },
+      },
       orderBy: { createdAt: "asc" },
     });
     const actor =
