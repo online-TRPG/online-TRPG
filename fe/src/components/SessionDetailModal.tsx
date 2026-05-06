@@ -10,6 +10,7 @@ interface SessionDetailModalProps {
   error: string | null;
   busy: boolean;
   canEnter: boolean;
+  isEnterBlocked?: boolean;
   isCurrentSession: boolean;
   isKnownMember: boolean;
   onClose: () => void;
@@ -101,6 +102,7 @@ export function SessionDetailModal({
   error,
   busy,
   canEnter,
+  isEnterBlocked = false,
   isCurrentSession,
   isKnownMember,
   onClose,
@@ -116,7 +118,7 @@ export function SessionDetailModal({
 
   const visualTitle = activeScenario?.title ?? detail?.session.title ?? "";
   const visual = findSessionVisualByTitle(visualTitle) ?? sessionVisualPresets[0];
-  const gmModeLabel = detail ? GM_MODE_LABEL[detail.session.gmMode] ?? detail.session.gmMode : "AI GM";
+  const gmModeLabel = detail ? (detail.session.gmMode === "AI" ? "AI GM" : "\uC77C\uBC18 GM") : "AI GM";
   const difficultyLabel = visual.difficulty === "Hard" ? "어려움" : visual.difficulty === "Normal" ? "보통" : visual.difficulty;
   const durationLabel = getDurationLabel(visualTitle, difficultyLabel);
   const themeLabel = getThemeLabel(visualTitle, visual.theme);
@@ -242,7 +244,7 @@ export function SessionDetailModal({
                 <div className="session-detail-hostline">
                   <button
                     type="button"
-                    className="session-detail-enter"
+                    className={`session-detail-enter${isEnterBlocked ? " is-blocked" : ""}`}
                     disabled={busy || !canEnter}
                     onClick={() => void onEnter()}
                     style={{ backgroundImage: `url(${buttonFancyBlue})` }}

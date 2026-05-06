@@ -7,6 +7,7 @@ export type ParsedCommand =
   | { type: "attack"; target: string | null; dc: number }
   | { type: "cast_spell"; spellId: string; target: string; targetDistanceFt: number }
   | { type: "use_class_feature"; featureId: string; option: string | null }
+  | { type: "rest"; restType: "short" | "long" }
   | { type: "damage"; target: string; amount: number; damageType?: string }
   | { type: "heal"; target: string; amount: number }
   | { type: "condition"; operation: "add" | "remove"; target: string; condition: string }
@@ -34,6 +35,8 @@ export class CommandParserService {
         return this.parseCastSpell(args);
       case "feature":
         return this.parseClassFeature(args);
+      case "rest":
+        return this.parseRest(args);
       case "damage":
         return this.parseAmountCommand("damage", args);
       case "heal":
@@ -114,6 +117,21 @@ export class CommandParserService {
       featureId: this.normalizeClassFeatureId(featureToken),
       option: args[1] ?? null,
     };
+  }
+
+  private parseRest(args: string[]): ParsedCommand {
+    const restType = args[0]?.toLowerCase().replace(/-/g, "_");
+    if (restType === "short" || restType === "short_rest") {
+      return { type: "rest", restType: "short" };
+    }
+
+    if (restType === "long" || restType === "long_rest") {
+      return { type: "rest", restType: "long" };
+    }
+
+    throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
+      reason: "INVALID_REST_TYPE",
+    });
   }
 
   private parseAmountCommand(type: "damage" | "heal", args: string[]): ParsedCommand {

@@ -84,7 +84,7 @@ export class AuthTokenResponseDto {
   @ApiProperty({ example: "Bearer" })
   tokenType!: "Bearer";
 
-  @ApiProperty({ example: 3600 })
+  @ApiProperty({ example: 172800 })
   expiresIn!: number;
 }
 
