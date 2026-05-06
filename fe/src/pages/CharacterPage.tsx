@@ -3,12 +3,20 @@ import defaultArcherImage from "../assets/images/Profile_Default_Archer.png";
 import defaultRogueImage from "../assets/images/Profile_Default_Rouge.png";
 import defaultWarriorImage from "../assets/images/Profile_Default_Warrior.png";
 import defaultWizardImage from "../assets/images/Profile_Default_Wizard.png";
+import parchmentScrollImage from "../assets/images/parchment_scroll.webp";
 import boxBulletinNarrowFrame from "../components/Box_Bulletin_Narrow_Frame.png";
 import boxBulletinNarrowPlanks from "../components/Box_Bulletin_Narrow_Planks.png";
 import profileBorderCharacter from "../components/Profile_Border_Character.png";
 import profileBorderStats from "../components/Profile_Border_Stats.png";
 import sidePanelImage from "../components/Side_Panel.png";
-import { raceOptions } from "../data/race-options";
+import {
+  classOptions,
+  getClassLabel,
+  normalizeClassValue,
+  type ClassOption,
+  type ClassOptionValue,
+} from "../data/class-options";
+import { raceData, raceOptions, type RaceAbilityBonus, type RaceData } from "../data/race-options";
 import type { CharacterPayload } from "../hooks/useSession";
 import type { PersistentCharacter, SessionSnapshot, StoredUser } from "../types/session";
 
@@ -49,28 +57,21 @@ interface ClassStatProfile {
   };
 }
 
-const classOptions = [
-  { value: "Wizard", label: "마법사" },
-  { value: "Archer", label: "궁수" },
-  { value: "Rogue", label: "도적" },
-  { value: "Warrior", label: "전사" },
-] as const;
-
-type ClassName = (typeof classOptions)[number]["value"];
+type ClassName = ClassOptionValue;
 
 const ancestryOptions = raceOptions;
 
 const defaultAncestry = ancestryOptions.find((option) => option.value === "Human")?.value ?? ancestryOptions[0]?.value ?? "Human";
 
 const avatarPresets = [
-  { id: "preset_wizard", label: "마법사", image: defaultWizardImage },
-  { id: "preset_archer", label: "궁수", image: defaultArcherImage },
-  { id: "preset_rogue", label: "도적", image: defaultRogueImage },
-  { id: "preset_warrior", label: "전사", image: defaultWarriorImage },
+  { id: "preset_wizard", label: "위자드", image: defaultWizardImage },
+  { id: "preset_archer", label: "레인저", image: defaultArcherImage },
+  { id: "preset_rogue", label: "로그", image: defaultRogueImage },
+  { id: "preset_warrior", label: "파이터", image: defaultWarriorImage },
 ] as const;
 
 const classStatProfiles: Record<ClassName, ClassStatProfile> = {
-  Warrior: {
+  Fighter: {
     base: {
       maxHp: 20,
       armorClass: 20,
@@ -93,7 +94,7 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
       },
     },
   },
-  Archer: {
+  Ranger: {
     base: {
       maxHp: 16,
       armorClass: 16,
@@ -186,20 +187,21 @@ const suggestedSkillOptions = [
   { value: "Survival", label: "생존" },
 ] as const;
 
-const classLabelMap: Map<string, string> = new Map(classOptions.map((option) => [option.value, option.label]));
 const ancestryLabelMap: Map<string, string> = new Map(ancestryOptions.map((option) => [option.value, option.label]));
 const skillLabelMap: Map<string, string> = new Map(suggestedSkillOptions.map((option) => [option.value, option.label]));
 const presetIdByClassName: Map<string, string> = new Map([
   ["Wizard", "preset_wizard"],
-  ["Archer", "preset_archer"],
+  ["Ranger", "preset_archer"],
   ["Rogue", "preset_rogue"],
+  ["Fighter", "preset_warrior"],
+  ["Archer", "preset_archer"],
   ["Warrior", "preset_warrior"],
 ]);
 const classNameByPresetId: Map<string, string> = new Map([
   ["preset_wizard", "Wizard"],
-  ["preset_archer", "Archer"],
+  ["preset_archer", "Ranger"],
   ["preset_rogue", "Rogue"],
-  ["preset_warrior", "Warrior"],
+  ["preset_warrior", "Fighter"],
 ]);
 
 function calcModifier(score: number) {
@@ -234,11 +236,7 @@ function normalizeLevel(value: number) {
 }
 
 function getClassStatProfile(className: string): ClassStatProfile {
-  if (Object.prototype.hasOwnProperty.call(classStatProfiles, className)) {
-    return classStatProfiles[className as ClassName];
-  }
-
-  return classStatProfiles.Wizard;
+  return classStatProfiles[normalizeClassValue(className)];
 }
 
 function getRecommendedStats(className: string, level: number) {
@@ -360,7 +358,7 @@ function getCharacterImage(character: Pick<PersistentCharacter, "avatarPresetId"
 
 function getCharacterClassLabel(className: string) {
   const normalized = className.trim();
-  return classLabelMap.get(normalized) ?? (normalized || "모험가");
+  return getClassLabel(normalized || "모험가");
 }
 
 function getCharacterAncestryLabel(ancestry: string) {
@@ -379,6 +377,34 @@ function getPresetIdForClassName(className: string) {
 
 function getClassNameForPresetId(presetId: string) {
   return classNameByPresetId.get(presetId) ?? "Wizard";
+}
+
+function getRaceByValue(value: string): RaceData | null {
+  return raceData.find((option) => option.value === value) ?? null;
+}
+
+function getClassOptionByValue(value: string): ClassOption | null {
+  const normalized = normalizeClassValue(value);
+  return classOptions.find((option) => option.value === normalized) ?? null;
+}
+
+function formatAbilityBonus(abilityBonus: RaceAbilityBonus) {
+  if (abilityBonus.ability === "any") {
+    return `자유 능력치 +${abilityBonus.amount}${abilityBonus.note ? ` (${abilityBonus.note})` : ""}`;
+  }
+
+  const abilityLabel = abilityDisplayLabels[abilityBonus.ability];
+  return `${abilityLabel} +${abilityBonus.amount}${abilityBonus.note ? ` (${abilityBonus.note})` : ""}`;
+}
+
+function localizeAbilityText(value: string) {
+  return value
+    .replaceAll("Strength", "근력")
+    .replaceAll("Dexterity", "민첩")
+    .replaceAll("Constitution", "건강")
+    .replaceAll("Intelligence", "지능")
+    .replaceAll("Wisdom", "지혜")
+    .replaceAll("Charisma", "매력");
 }
 
 export function CharacterPage({
@@ -431,6 +457,8 @@ export function CharacterPage({
     () => characters.find((character) => character.id === selectedCharacterId) ?? null,
     [characters, selectedCharacterId],
   );
+  const selectedRaceInfo = useMemo(() => getRaceByValue(formState.ancestry), [formState.ancestry]);
+  const selectedClassInfo = useMemo(() => getClassOptionByValue(formState.className), [formState.className]);
 
   const usedCharacterIds = useMemo(() => {
     const ids = new Set<string>();
@@ -799,6 +827,7 @@ export function CharacterPage({
             </div>
 
             <form className="modal-form character-create-form" onSubmit={submitCreateCharacter}>
+              <div className="character-create-form-left">
               <section className="character-form-section">
                 <div className="section-heading compact">
                   <div>
@@ -901,49 +930,9 @@ export function CharacterPage({
                   </div>
                 </div>
 
-                <div className="character-avatar-picker">
-                  <label>초상화</label>
-                  <div className="character-avatar-grid" role="radiogroup" aria-label="캐릭터 초상화 선택">
-                    {avatarPresets.map((preset) => {
-                      const isSelected = formState.avatarPresetId === preset.id;
-                      return (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          className={`character-avatar-option${isSelected ? " selected" : ""}`}
-                          onClick={() =>
-                            setFormState((current) => {
-                              const className = getClassNameForPresetId(preset.id);
-                              const recommendedStats = getRecommendedStats(className, current.level ?? 1);
-                              const recommendedAbilities = getRecommendedAbilities(
-                                className,
-                                current.level ?? 1,
-                                current.abilities,
-                              );
 
-                              return {
-                                ...current,
-                                className,
-                                avatarType: "PRESET",
-                                avatarPresetId: preset.id,
-                                avatarUrl: null,
-                                maxHp: recommendedStats.maxHp,
-                                armorClass: recommendedStats.armorClass,
-                                speed: recommendedStats.speed,
-                                proficiencyBonus: recommendedStats.proficiencyBonus,
-                                abilities: recommendedAbilities,
-                              };
-                            })
-                          }
-                          aria-pressed={isSelected}
-                        >
-                          <img src={preset.image} alt={preset.label} className="character-avatar-option-image" />
-                          <span>{preset.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+
+
               </section>
 
               <section className="character-form-section">
@@ -1143,6 +1132,95 @@ export function CharacterPage({
                 </div>
               </section>
 
+              </div>
+              <div className="character-create-form-right">
+                <section className="character-form-section">
+                <div className="character-avatar-picker">
+                  <label>초상화</label>
+                  <div className="character-avatar-grid" role="radiogroup" aria-label="캐릭터 초상화 선택">
+                    {avatarPresets.map((preset) => {
+                      const isSelected = formState.avatarPresetId === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          className={`character-avatar-option${isSelected ? " selected" : ""}`}
+                          onClick={() =>
+                            setFormState((current) => {
+                              const className = getClassNameForPresetId(preset.id);
+                              const recommendedStats = getRecommendedStats(className, current.level ?? 1);
+                              const recommendedAbilities = getRecommendedAbilities(
+                                className,
+                                current.level ?? 1,
+                                current.abilities,
+                              );
+
+                              return {
+                                ...current,
+                                className,
+                                avatarType: "PRESET",
+                                avatarPresetId: preset.id,
+                                avatarUrl: null,
+                                maxHp: recommendedStats.maxHp,
+                                armorClass: recommendedStats.armorClass,
+                                speed: recommendedStats.speed,
+                                proficiencyBonus: recommendedStats.proficiencyBonus,
+                                abilities: recommendedAbilities,
+                              };
+                            })
+                          }
+                          aria-pressed={isSelected}
+                        >
+                          <img src={preset.image} alt={preset.label} className="character-avatar-option-image" />
+                          <span>{preset.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                </section>
+                <div className="character-insight-box">
+                  <div className="fantasy-insight-content">
+                    <div className="fantasy-insight-section">
+                      <strong className="fantasy-insight-title">{selectedRaceInfo?.label ?? "종족 정보"}</strong>
+                      <p>
+                        능력치 보너스:{" "}
+                        {selectedRaceInfo?.abilityBonuses.map((bonus) => formatAbilityBonus(bonus)).join(", ") ?? "정보 없음"}
+                      </p>
+                      <p>이동속도: {selectedRaceInfo ? `${selectedRaceInfo.speed} ft.` : "정보 없음"}</p>
+                      <p>크기: {selectedRaceInfo?.size ?? "정보 없음"}</p>
+                      <ul className="fantasy-character-text-list">
+                        {(selectedRaceInfo?.traitSummaries ?? []).slice(0, 3).map((trait) => (
+                          <li key={`${selectedRaceInfo?.value}-${trait.name}`}>
+                            <strong>{trait.name}</strong>: {trait.summary}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <hr className="fantasy-insight-divider" />
+
+                    <div className="fantasy-insight-section">
+                      <strong className="fantasy-insight-title">{selectedClassInfo?.label ?? "직업 정보"}</strong>
+                      <p>{selectedClassInfo?.summary ?? "직업 설명이 없습니다."}</p>
+                      <p>주 능력치: {selectedClassInfo ? localizeAbilityText(selectedClassInfo.primaryAbilitiesRaw) : "정보 없음"}</p>
+                      <p>히트다이: {selectedClassInfo?.hitDieRaw ?? "정보 없음"}</p>
+                      <p>주문 사용: {selectedClassInfo?.spellcastingAbility ? "사용" : "없음"}</p>
+                      <ul className="fantasy-character-text-list">
+                        {(selectedClassInfo?.levelFeatureSummary ?? []).slice(0, 3).map((feature) => (
+                          <li key={`${selectedClassInfo?.value}-${feature.level}`}>
+                            <strong>{feature.level}레벨</strong>: {feature.features}
+                          </li>
+                        ))}
+                      </ul>
+                      <p>
+                        시작 장비:{" "}
+                        {selectedClassInfo?.startingEquipment.slice(0, 2).join(" / ") ?? "정보 없음"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <button type="submit" className="primary" disabled={busy}>
                 {editingCharacterId ? "저장" : "생성"}
               </button>
