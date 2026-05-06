@@ -193,10 +193,15 @@ export function App() {
   }, [hasUnsavedScenarioChanges, isScenarioEditorActive]);
 
   useEffect(() => {
+    if (!auth.user) {
+      setScenarios([]);
+      return;
+    }
+
     listScenarios()
       .then(setScenarios)
       .catch(() => undefined);
-  }, []);
+  }, [auth.user]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -288,7 +293,11 @@ export function App() {
   }
 
   async function handleJoinSessionById(sessionId: string) {
-    return session.joinSessionById(sessionId);
+    const nextSnapshot = await session.joinSessionById(sessionId);
+    if (nextSnapshot) {
+      navigate(buildGameroomPath(nextSnapshot.session));
+    }
+    return nextSnapshot;
   }
 
   async function handleRequestSessionDetail(sessionId: string) {
@@ -649,9 +658,9 @@ export function App() {
             onStartSession={() => void session.startSession()}
             onLeaveSession={() => {
               void session.leaveSession();
-              navigate('/');
+              navigate('/sessions/discover');
             }}
-            onBackToLobby={() => navigate('/')}
+            onBackToLobby={() => navigate('/sessions/discover')}
             onAction={(input) => handleSessionMessage(currentUser.displayName, input)}
           />
         ) : null}
