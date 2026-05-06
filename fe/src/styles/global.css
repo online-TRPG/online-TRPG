@@ -148,6 +148,25 @@ label {
   color: var(--muted);
 }
 
+.login-alert {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(75, 111, 67, 0.36);
+  background: rgba(229, 244, 221, 0.88);
+  color: #234315;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.login-alert.warning {
+  border-color: rgba(168, 89, 70, 0.42);
+  background: rgba(255, 238, 218, 0.9);
+  color: #6a2d1d;
+}
+
 .login-card {
   text-align: left;
   border: 0;
@@ -219,6 +238,14 @@ label {
   border-radius: 8px;
   padding: 12px;
   margin: 14px 0 0;
+}
+
+.field-error {
+  margin: 8px 0 0;
+  color: #7a1f2d;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .page-error-toast {
@@ -1124,8 +1151,8 @@ label {
   margin-top: 0;
 }
 
-.login-page .login-shell h1,
-.login-page .login-shell p {
+.login-page .login-shell > h1,
+.login-page .login-shell > p {
   display: none;
 }
 
@@ -1178,6 +1205,7 @@ label {
 }
 
 .login-card .form-error {
+  display: block;
   margin-top: 16px;
   color: #67222c;
   background: rgba(255, 224, 228, 0.85);

@@ -13,11 +13,13 @@ export class CreateGuestUserDto {
 export class RegisterUserDto {
   @ApiProperty({ example: "user@example.com" })
   @IsEmail()
+  @IsNotEmpty()
   @MaxLength(100)
   email!: string;
 
   @ApiProperty({ example: "P@ssword123" })
   @IsString()
+  @IsNotEmpty()
   @MinLength(8)
   @MaxLength(72)
   password!: string;
@@ -33,6 +35,7 @@ export class RegisterUserDto {
 export class LoginUserDto {
   @ApiProperty({ example: "user@example.com" })
   @IsEmail()
+  @IsNotEmpty()
   email!: string;
 
   @ApiProperty({ example: "P@ssword123" })
