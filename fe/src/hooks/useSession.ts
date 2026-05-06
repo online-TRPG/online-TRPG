@@ -118,6 +118,9 @@ export function useSession(
 
   useEffect(() => {
     if (!user) {
+      // 로그아웃/토큰 만료 직후 이전 사용자의 세션 화면이 남지 않도록 메모리 상태까지 함께 비운다.
+      setSnapshot(null);
+      clearStoredSnapshot();
       setSessionList([]);
       setMySessionList([]);
       setMyCharacters([]);

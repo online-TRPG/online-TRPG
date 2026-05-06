@@ -29,6 +29,7 @@ import {
   UserResponseDto,
 } from "@trpg/shared-types";
 import { apiResponse, ApiResponse } from "../../common/api-response";
+import { getRefreshTokenExpiresInMs } from "../../common/auth/token.utils";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
 import { SessionsService } from "../sessions/sessions.service";
 import { UsersService } from "./users.service";
@@ -204,7 +205,7 @@ export class UsersController {
       secure: sameSite === "none" || process.env.NODE_ENV === "production",
       sameSite,
       path: "/",
-      maxAge: 14 * 24 * 60 * 60 * 1000,
+      maxAge: getRefreshTokenExpiresInMs(),
     });
   }
 

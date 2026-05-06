@@ -8,7 +8,9 @@ type TokenPayload = {
   exp: number;
 };
 
-const accessTokenTtlSeconds = 60 * 60;
+// 플레이 중 인증이 자주 끊기지 않도록 access token은 48시간 동안 유지한다.
+const accessTokenTtlSeconds = 60 * 60 * 48;
+// refresh token은 access token 재발급용 장기 토큰이라 DB 저장 만료와 쿠키 만료를 같은 값으로 맞춘다.
 const refreshTokenTtlSeconds = 60 * 60 * 24 * 14;
 
 function getJwtSecret(): string {
@@ -81,6 +83,10 @@ export function getAccessTokenExpiresIn(): number {
 
 export function getRefreshTokenExpiresAt(): Date {
   return new Date(Date.now() + refreshTokenTtlSeconds * 1000);
+}
+
+export function getRefreshTokenExpiresInMs(): number {
+  return refreshTokenTtlSeconds * 1000;
 }
 
 export function generateOpaqueState(): string {

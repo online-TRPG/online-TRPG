@@ -1,7 +1,9 @@
-import { useState } from "react";
-import { createGuest, login, logout, oauthLogin, register } from "../services/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AUTH_EXPIRED_EVENT, createGuest, login, logout, oauthLogin, register } from "../services/api";
+import { getAccessTokenExpiresAtMs, isAccessTokenExpired } from "../services/authToken";
 import {
   clearAll,
+  clearStoredToken,
   loadStoredAuthMode,
   loadStoredToken,
   loadStoredUser,
@@ -11,6 +13,8 @@ import {
 } from "../services/storage";
 import type { AuthMode } from "../types/auth";
 import type { LogEntry, StoredUser } from "../types/session";
+
+const TOKEN_EXPIRED_MESSAGE = "로그인 시간이 만료되었습니다. 다시 로그인해주세요.";
 
 export interface UseAuthReturn {
   user: StoredUser | null;
@@ -34,15 +38,71 @@ export function useAuth(
   const [authMode, setAuthMode] = useState<AuthMode | null>(() => loadStoredAuthMode());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const handledExpiredTokenRef = useRef(false);
+  const currentAuthRef = useRef({ accessToken, authMode, user });
+
+  useEffect(() => {
+    currentAuthRef.current = { accessToken, authMode, user };
+  }, [accessToken, authMode, user]);
 
   function persist(nextUser: StoredUser, token: string | null, mode: AuthMode) {
+    handledExpiredTokenRef.current = false;
     saveStoredUser(nextUser);
-    if (token) saveStoredToken(token);
+    if (token) {
+      saveStoredToken(token);
+    } else {
+      // 게스트 세션은 access token을 쓰지 않으므로 이전 회원 토큰이 남아 인증 헤더에 섞이지 않게 지운다.
+      clearStoredToken();
+    }
     saveStoredAuthMode(mode);
     setUser(nextUser);
     setAccessToken(token);
     setAuthMode(mode);
   }
+
+  const expireSession = useCallback(
+    (message = TOKEN_EXPIRED_MESSAGE) => {
+      const currentAuth = currentAuthRef.current;
+      if (!currentAuth.user && !currentAuth.accessToken) return;
+      if (handledExpiredTokenRef.current) return;
+
+      handledExpiredTokenRef.current = true;
+      clearAll();
+      setUser(null);
+      setAccessToken(null);
+      setAuthMode(null);
+      setBusy(false);
+      setError(message);
+      appendLog("system", "세션 만료", message);
+    },
+    [appendLog],
+  );
+
+  useEffect(() => {
+    if (!accessToken) return undefined;
+
+    if (isAccessTokenExpired(accessToken)) {
+      expireSession();
+      return undefined;
+    }
+
+    const expiresAtMs = getAccessTokenExpiresAtMs(accessToken);
+    if (expiresAtMs === null) return undefined;
+
+    // JWT exp 시각에 맞춰 로컬 상태도 정리해야, 다음 API 호출을 기다리지 않고 화면이 바로 로그아웃된다.
+    const timeoutId = window.setTimeout(() => expireSession(), expiresAtMs - Date.now());
+    return () => window.clearTimeout(timeoutId);
+  }, [accessToken, expireSession]);
+
+  useEffect(() => {
+    function handleAuthExpired(event: Event) {
+      const detail = event instanceof CustomEvent ? (event.detail as { message?: string } | null) : null;
+      expireSession(detail?.message || TOKEN_EXPIRED_MESSAGE);
+    }
+
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+  }, [expireSession]);
 
   async function loginAsGuest(displayName: string) {
     const name = displayName.trim();
@@ -144,6 +204,7 @@ export function useAuth(
     try {
       if (accessToken) await logout(accessToken).catch(() => undefined);
     } finally {
+      handledExpiredTokenRef.current = false;
       clearAll();
       setUser(null);
       setAccessToken(null);
