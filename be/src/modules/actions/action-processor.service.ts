@@ -253,6 +253,7 @@ export class ActionProcessorService {
       return {
         context: {
           map,
+          hasActiveCombat: Boolean(combat),
           resource: this.toRuntimeResource(resource),
           turnState: null,
         },
@@ -271,6 +272,7 @@ export class ActionProcessorService {
     return {
       context: {
         map,
+        hasActiveCombat: true,
         resource: this.toRuntimeResource(resource),
         turnState: {
           actionUsed: turnState.actionUsed,
@@ -346,6 +348,22 @@ export class ActionProcessorService {
         return;
       case "START_FRENZY":
         await this.characterResources.startFrenzy(params.sessionCharacterId);
+        return;
+      case "RECOVER_SHORT_REST":
+        // 휴식은 캐릭터 HP 변경과 별도로 class resource row도 회복해야 해서 runtime effect로 처리한다.
+        await this.characterResources.recoverShortRest({
+          sessionCharacterId: params.sessionCharacterId,
+          actionSurgeUses: effect.actionSurgeUses,
+        });
+        return;
+      case "RECOVER_LONG_REST":
+        // Long Rest는 Rage/Frenzy 같은 지속 자원까지 종료하므로 전용 회복 메서드에 위임한다.
+        await this.characterResources.recoverLongRest({
+          sessionCharacterId: params.sessionCharacterId,
+          actionSurgeUses: effect.actionSurgeUses,
+          rageUses: effect.rageUses,
+          reduceExhaustionBy: effect.reduceExhaustionBy,
+        });
         return;
     }
   }

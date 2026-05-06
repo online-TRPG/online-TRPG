@@ -67,4 +67,15 @@ describe("CommandParserService", () => {
       option: null,
     });
   });
+
+  it("parses rest commands", () => {
+    expect(service.parse("/rest short")).toEqual({
+      type: "rest",
+      restType: "short",
+    });
+    expect(service.parse("/rest long_rest")).toEqual({
+      type: "rest",
+      restType: "long",
+    });
+  });
 });
