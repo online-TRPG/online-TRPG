@@ -67,10 +67,11 @@ export class UsersController {
   @ApiOkResponse({ type: LoginResponseDto })
   async login(
     @Body() dto: LoginUserDto,
+    @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<ApiResponse<LoginResponseDto>> {
     const result = await this.usersService.login(dto);
-    this.setRefreshCookie(response, result.refreshToken);
+    this.setRefreshCookie(response, result.refreshToken, this.resolveRefreshCookieSameSite(request));
     return apiResponse("USER_200", "로그인에 성공했습니다.", result.body);
   }
 
@@ -209,13 +210,64 @@ export class UsersController {
     });
   }
 
+  private resolveRefreshCookieSameSite(request: Request): "strict" | "none" {
+    const origin = this.getSingleHeaderValue(request.headers.origin);
+    if (!origin) {
+      return "strict";
+    }
+
+    const originHostname = this.getHostname(origin);
+    const requestHostname = this.getRequestHostname(request);
+    if (!originHostname || !requestHostname) {
+      return "strict";
+    }
+
+    // 로컬 프론트가 배포 API를 바라보는 경우처럼 사이트가 다르면 Strict 쿠키가 재발급 요청에 실리지 않는다.
+    // 이때만 SameSite=None으로 발급해서 refresh token 쿠키가 credentials 요청에 포함되게 한다.
+    return originHostname === requestHostname ? "strict" : "none";
+  }
+
+  private getRequestHostname(request: Request): string | null {
+    const forwardedHost = this.getSingleHeaderValue(request.headers["x-forwarded-host"]);
+    const host = forwardedHost ?? this.getSingleHeaderValue(request.headers.host);
+    return host ? this.getHostname(`http://${host}`) : null;
+  }
+
+  private getHostname(value: string): string | null {
+    try {
+      return new URL(value).hostname;
+    } catch {
+      return null;
+    }
+  }
+
+  private getSingleHeaderValue(value: string | string[] | undefined): string | undefined {
+    return Array.isArray(value) ? value[0] : value;
+  }
+
   private clearRefreshCookie(response: Response): void {
-    response.cookie("refreshToken", "", {
+    // refreshToken은 일반 로그인과 OAuth 로그인에서 SameSite/Secure 조합이 달라질 수 있다.
+    // 브라우저가 기존 쿠키와 같은 조건의 삭제 Set-Cookie를 요구하는 경우를 피하려고,
+    // 우리가 발급할 수 있는 조합을 모두 만료시켜 로그아웃 후 쿠키가 남지 않게 한다.
+    const baseOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
       path: "/",
-      maxAge: 0,
+    } as const;
+
+    response.clearCookie("refreshToken", {
+      ...baseOptions,
+      secure: false,
+      sameSite: "strict",
+    });
+    response.clearCookie("refreshToken", {
+      ...baseOptions,
+      secure: true,
+      sameSite: "strict",
+    });
+    response.clearCookie("refreshToken", {
+      ...baseOptions,
+      secure: true,
+      sameSite: "none",
     });
   }
 

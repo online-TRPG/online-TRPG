@@ -2,7 +2,9 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  InternalServerErrorException,
   NotFoundException,
+  UnauthorizedException,
   UnprocessableEntityException,
 } from "@nestjs/common";
 
@@ -23,8 +25,20 @@ export function notFound(code: string, message: string, data?: ErrorPayload): No
   return new NotFoundException({ code, message, data: data ?? null });
 }
 
+export function unauthorized(code: string, message: string, data?: ErrorPayload): UnauthorizedException {
+  return new UnauthorizedException({ code, message, data: data ?? null });
+}
+
 export function conflict(code: string, message: string, data?: ErrorPayload): ConflictException {
   return new ConflictException({ code, message, data: data ?? null });
+}
+
+export function internalError(
+  code: string,
+  message: string,
+  data?: ErrorPayload,
+): InternalServerErrorException {
+  return new InternalServerErrorException({ code, message, data: data ?? null });
 }
 
 export function unprocessable(

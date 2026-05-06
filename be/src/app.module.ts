@@ -1,5 +1,6 @@
-import { Module } from "@nestjs/common";
+import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
+import { AccessTokenAuthMiddleware } from "./common/auth/access-token-auth.middleware";
 import { DatabaseModule } from "./database/database.module";
 import { ActionsModule } from "./modules/actions/actions.module";
 import { AiModule } from "./modules/ai/ai.module";
@@ -39,4 +40,8 @@ import { UsersModule } from "./modules/users/users.module";
     AiModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(AccessTokenAuthMiddleware).forRoutes("*");
+  }
+}
