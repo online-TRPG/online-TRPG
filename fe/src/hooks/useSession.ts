@@ -106,6 +106,15 @@ export function useSession(
   }, []);
 
   const hasRecruitingSession = useCallback(() => snapshot?.session.status === "recruiting", [snapshot]);
+  const hasBlockingSession = useCallback(
+    () =>
+      Boolean(
+        snapshot &&
+          snapshot.session.status !== "completed" &&
+          snapshot.session.status !== "disbanded",
+      ),
+    [snapshot],
+  );
 
   useEffect(() => {
     if (!user) {
@@ -231,7 +240,7 @@ export function useSession(
     options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
   ): Promise<SessionSnapshot | null> {
     if (!user) return null;
-    if (hasRecruitingSession()) {
+    if (hasBlockingSession()) {
       setError("모집 중인 세션에는 하나만 참가할 수 있습니다.");
       return null;
     }
@@ -255,7 +264,7 @@ export function useSession(
 
   async function joinSession(inviteCode: string): Promise<SessionSnapshot | null> {
     if (!user) return null;
-    if (hasRecruitingSession()) {
+    if (hasBlockingSession()) {
       setError("모집 중인 세션에는 하나만 참가할 수 있습니다.");
       return null;
     }
@@ -279,7 +288,10 @@ export function useSession(
 
   async function joinSessionById(sessionId: string): Promise<SessionSnapshot | null> {
     if (!user) return null;
-    if (hasRecruitingSession()) {
+    const knownSession = mySessionList.find(
+      (item) => item.sessionId === sessionId || item.sessionPublicId === sessionId,
+    );
+    if (!knownSession && hasBlockingSession()) {
       setError("모집 중인 세션에는 하나만 참가할 수 있습니다.");
       return null;
     }
@@ -288,7 +300,13 @@ export function useSession(
     setBusy(true);
 
     try {
-      const next = await apiJoinSessionById(user, sessionId, accessToken);
+      const next = knownSession
+        ? await getSession(
+            user,
+            knownSession.sessionPublicId || knownSession.sessionId,
+            accessToken,
+          )
+        : await apiJoinSessionById(user, sessionId, accessToken);
       updateSnapshot(next);
       appendLog("rest", "세션 입장", `${next.session.title} 세션에 입장했습니다.`);
       await refreshSessionList();
