@@ -30,6 +30,7 @@ import type {
   User,
 } from '../types/session';
 import { normalizeSessionDetail, normalizeSessionSnapshot } from '../types/session';
+import { saveStoredToken } from './storage';
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
 const configuredWsBaseUrl = import.meta.env.VITE_WS_BASE_URL as string | undefined;
@@ -66,6 +67,7 @@ export const SOCKET_BASE_URL = (
   configuredWsBaseUrl || API_BASE_URL.replace(/\/api\/v1$/, '')
 ).replace(/\/$/, '');
 export const AUTH_EXPIRED_EVENT = 'trpg:auth-expired';
+export const AUTH_TOKEN_REISSUED_EVENT = 'trpg:auth-token-reissued';
 
 const DEFAULT_SCENARIO_ID = 'scenario_goblin_cave';
 const DEFAULT_RULE_SET_ID = 'dnd5e';
@@ -106,6 +108,7 @@ interface RequestOptions {
   user?: StoredUser | null;
   accessToken?: string | null;
   withCredentials?: boolean;
+  skipAuthRefresh?: boolean;
 }
 
 export interface PaginatedList<T> {
@@ -132,8 +135,25 @@ function normalizeSessionListItem(item: SessionListItemResponseDto): AvailableSe
 }
 
 function formatApiError(body: ApiErrorBody | null, fallback: string): string {
+  const fieldErrorReasons = readFieldErrorReasons(body?.data);
+  if (fieldErrorReasons.length > 0) return fieldErrorReasons.join('\n');
   if (!body?.message) return fallback;
   return Array.isArray(body.message) ? body.message.join(', ') : body.message;
+}
+
+function readFieldErrorReasons(data: unknown): string[] {
+  if (!data || typeof data !== 'object' || !('fieldErrors' in data)) return [];
+
+  const fieldErrors = (data as { fieldErrors?: unknown }).fieldErrors;
+  if (!Array.isArray(fieldErrors)) return [];
+
+  return fieldErrors
+    .map((item) => {
+      if (!item || typeof item !== 'object' || !('reason' in item)) return null;
+      const reason = (item as { reason?: unknown }).reason;
+      return typeof reason === 'string' ? reason : null;
+    })
+    .filter((reason): reason is string => Boolean(reason));
 }
 
 async function readApiErrorBody(response: Response): Promise<ApiErrorBody | null> {
@@ -178,8 +198,70 @@ function notifyAuthExpired(message: string): void {
   window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT, { detail: { message } }));
 }
 
+function notifyAuthTokenReissued(accessToken: string): void {
+  if (typeof window === 'undefined') return;
+
+  window.dispatchEvent(new CustomEvent(AUTH_TOKEN_REISSUED_EVENT, { detail: { accessToken } }));
+}
+
 function toGmMode(value: 'ai' | 'human' | undefined): GmMode {
   return (value === 'human' ? 'HUMAN' : 'AI') as GmMode;
+}
+
+let pendingReissue: Promise<AuthTokenResponseDto> | null = null;
+
+async function requestAccessTokenReissue(): Promise<AuthTokenResponseDto> {
+  if (!pendingReissue) {
+    pendingReissue = fetchAccessTokenReissue().finally(() => {
+      pendingReissue = null;
+    });
+  }
+
+  return pendingReissue;
+}
+
+async function fetchAccessTokenReissue(): Promise<AuthTokenResponseDto> {
+  const init: RequestInit = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+  };
+  let response: Response | null = null;
+  let lastNetworkError: unknown = null;
+  let lastNotFoundBody: ApiErrorBody | null = null;
+
+  for (const baseUrl of fallbackApiBaseUrls) {
+    try {
+      response = await fetch(`${baseUrl}/users/reissue`, init);
+    } catch (error) {
+      lastNetworkError = error;
+      continue;
+    }
+
+    if (response.status !== 404 || fallbackApiBaseUrls.length === 1) {
+      break;
+    }
+
+    lastNotFoundBody = await peekApiErrorBody(response);
+
+    if (!isMissingRouteResponse(response, lastNotFoundBody)) {
+      break;
+    }
+  }
+
+  if (!response) {
+    throw new Error(lastNetworkError instanceof Error ? lastNetworkError.message : 'API 서버에 연결하지 못했습니다.');
+  }
+
+  if (!response.ok) {
+    const body = (await readApiErrorBody(response)) ?? lastNotFoundBody;
+    throw new Error(formatApiError(body, '로그인 시간이 만료되었습니다. 다시 로그인해주세요.'));
+  }
+
+  const body = (await response.json()) as unknown;
+  return unwrapApiResponse<AuthTokenResponseDto>(body);
 }
 
 async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -230,7 +312,20 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
   if (!response.ok) {
     const body = (await readApiErrorBody(response)) ?? lastNotFoundBody;
     const message = formatApiError(body, `요청에 실패했습니다. (${response.status})`);
-    if (response.status === 401 && options.accessToken) {
+    if (response.status === 401 && options.accessToken && !options.skipAuthRefresh) {
+      try {
+        const nextToken = await requestAccessTokenReissue();
+        saveStoredToken(nextToken.accessToken);
+        notifyAuthTokenReissued(nextToken.accessToken);
+        return requestJson<T>(path, {
+          ...options,
+          accessToken: nextToken.accessToken,
+          skipAuthRefresh: true,
+        });
+      } catch {
+        notifyAuthExpired('로그인 시간이 만료되었습니다. 다시 로그인해주세요.');
+      }
+    } else if (response.status === 401 && options.accessToken) {
       notifyAuthExpired(message);
     }
     throw new Error(message);

@@ -7,7 +7,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
-import { AuthProvider as PrismaAuthProvider, User as PrismaUser } from "@prisma/client";
+import { AuthProvider as PrismaAuthProvider, Prisma, User as PrismaUser } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { createHash } from "crypto";
 import {
@@ -25,6 +25,7 @@ import {
 import { PrismaService } from "../../database/prisma.service";
 import { generateEightDigitPublicId } from "../../common/utils/public-id";
 import { mapUser } from "../../common/mappers/domain.mapper";
+import { badRequest, conflict, internalError } from "../../common/exceptions/domain-error";
 import {
   createAccessToken,
   createRefreshToken,
@@ -92,21 +93,31 @@ export class UsersService {
 
   async register(dto: RegisterUserDto): Promise<UserResponseDto> {
     const email = dto.email.trim().toLowerCase();
+    this.assertValidEmail(email);
+
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
-      throw new ConflictException("이미 사용 중인 이메일입니다.");
+      this.throwDuplicateEmail();
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
-    const user = await this.prisma.user.create({
-      data: {
-        publicId: await this.generateUserPublicId(),
-        email,
-        passwordHash,
-        displayName: dto.name.trim(),
-        authProvider: PrismaAuthProvider.LOCAL,
-      },
-    });
+    let user: PrismaUser;
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          publicId: await this.generateUserPublicId(),
+          email,
+          passwordHash,
+          displayName: dto.name.trim(),
+          authProvider: PrismaAuthProvider.LOCAL,
+        },
+      });
+    } catch (error) {
+      if (this.isEmailUniqueConstraintError(error)) {
+        this.throwDuplicateEmail();
+      }
+      this.throwRegisterFailed();
+    }
 
     return mapUser(user);
   }
@@ -133,17 +144,21 @@ export class UsersService {
       throw new UnauthorizedException("이메일 또는 비밀번호가 올바르지 않습니다.");
     }
 
-    const ensuredUser = await this.ensureUserPublicId(user);
-    const refreshToken = await this.issueRefreshToken(ensuredUser.id, ensuredUser.email);
-    return {
-      body: {
-        accessToken: createAccessToken(ensuredUser.id, ensuredUser.email),
-        tokenType: "Bearer",
-        expiresIn: getAccessTokenExpiresIn(),
-        user: mapUser(ensuredUser),
-      },
-      refreshToken,
-    };
+    try {
+      const ensuredUser = await this.ensureUserPublicId(user);
+      const refreshToken = await this.issueRefreshToken(ensuredUser.id, ensuredUser.email);
+      return {
+        body: {
+          accessToken: createAccessToken(ensuredUser.id, ensuredUser.email),
+          tokenType: "Bearer",
+          expiresIn: getAccessTokenExpiresIn(),
+          user: mapUser(ensuredUser),
+        },
+        refreshToken,
+      };
+    } catch {
+      this.throwLoginTokenIssueFailed();
+    }
   }
 
   async reissue(refreshToken: string | undefined): Promise<AuthTokenResponseDto> {
@@ -633,9 +648,44 @@ export class UsersService {
 
   private assertValidEmail(email: string): void {
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailPattern.test(email)) {
-      throw new BadRequestException("email 형식이 올바르지 않습니다.");
+    if (!email) {
+      this.throwEmailFieldError("이메일을 입력해주세요.");
     }
+    if (!emailPattern.test(email)) {
+      this.throwEmailFieldError("이메일 형식이 올바르지 않습니다.");
+    }
+  }
+
+  private throwEmailFieldError(reason: string): never {
+    throw badRequest("USER_400", "잘못된 요청입니다.", {
+      fieldErrors: [
+        {
+          field: "email",
+          reason,
+        },
+      ],
+    });
+  }
+
+  private throwDuplicateEmail(): never {
+    throw conflict("USER_409", "이미 사용 중인 이메일입니다.");
+  }
+
+  private throwRegisterFailed(): never {
+    throw internalError("USER_500", "회원가입 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.");
+  }
+
+  private throwLoginTokenIssueFailed(): never {
+    throw internalError("AUTH_500", "로그인 처리 중 문제가 발생했습니다. 다시 시도해주세요.");
+  }
+
+  private isEmailUniqueConstraintError(error: unknown): boolean {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+      return false;
+    }
+
+    const target = error.meta?.target;
+    return Array.isArray(target) && target.includes("email");
   }
 
   private async ensureUserPublicId(user: PrismaUser): Promise<PrismaUser> {
