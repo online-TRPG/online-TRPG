@@ -25,11 +25,28 @@ interface CharacterPageProps {
 }
 
 type AbilityKey = "str" | "dex" | "con" | "int" | "wis" | "cha";
+type ScalingAbilityKey = "str" | "dex" | "int";
 
 interface InventoryDraftItem {
   id: string;
   name: string;
   quantity: number;
+}
+
+interface ClassStatProfile {
+  base: {
+    maxHp: number;
+    armorClass: number;
+    speed: number;
+    proficiencyBonus: number;
+    abilities: Record<ScalingAbilityKey, number>;
+  };
+  growth: {
+    maxHp: number;
+    armorClass: number;
+    proficiencyBonus: number;
+    abilities: Record<ScalingAbilityKey, number>;
+  };
 }
 
 const classOptions = [
@@ -38,6 +55,8 @@ const classOptions = [
   { value: "Rogue", label: "도적" },
   { value: "Warrior", label: "전사" },
 ] as const;
+
+type ClassName = (typeof classOptions)[number]["value"];
 
 const ancestryOptions = raceOptions;
 
@@ -50,28 +69,99 @@ const avatarPresets = [
   { id: "preset_warrior", label: "전사", image: defaultWarriorImage },
 ] as const;
 
-const defaultCharacter: CharacterPayload = {
-  name: "",
-  ancestry: defaultAncestry,
-  className: "Wizard",
-  avatarType: "PRESET",
-  avatarPresetId: "preset_wizard",
-  avatarUrl: null,
-  level: 1,
-  abilities: {
-    str: 10,
-    dex: 10,
-    con: 10,
-    int: 10,
-    wis: 10,
-    cha: 10,
+const classStatProfiles: Record<ClassName, ClassStatProfile> = {
+  Warrior: {
+    base: {
+      maxHp: 20,
+      armorClass: 20,
+      speed: 28,
+      proficiencyBonus: 2,
+      abilities: {
+        str: 14,
+        dex: 10,
+        int: 8,
+      },
+    },
+    growth: {
+      maxHp: 2,
+      armorClass: 0.5,
+      proficiencyBonus: 0.05,
+      abilities: {
+        str: 0.5,
+        dex: 0,
+        int: 0,
+      },
+    },
   },
-  proficiencyBonus: 2,
-  proficientSkills: [],
-  maxHp: 12,
-  armorClass: 10,
-  speed: 30,
-  inventory: [],
+  Archer: {
+    base: {
+      maxHp: 16,
+      armorClass: 16,
+      speed: 32,
+      proficiencyBonus: 2.4,
+      abilities: {
+        str: 10,
+        dex: 14,
+        int: 10,
+      },
+    },
+    growth: {
+      maxHp: 1.5,
+      armorClass: 0.35,
+      proficiencyBonus: 0.08,
+      abilities: {
+        str: 0,
+        dex: 0.5,
+        int: 0,
+      },
+    },
+  },
+  Rogue: {
+    base: {
+      maxHp: 14,
+      armorClass: 14,
+      speed: 36,
+      proficiencyBonus: 3,
+      abilities: {
+        str: 9,
+        dex: 15,
+        int: 11,
+      },
+    },
+    growth: {
+      maxHp: 1.2,
+      armorClass: 0.25,
+      proficiencyBonus: 0.12,
+      abilities: {
+        str: 0,
+        dex: 0.4,
+        int: 0.2,
+      },
+    },
+  },
+  Wizard: {
+    base: {
+      maxHp: 12,
+      armorClass: 10,
+      speed: 30,
+      proficiencyBonus: 2.8,
+      abilities: {
+        str: 8,
+        dex: 10,
+        int: 15,
+      },
+    },
+    growth: {
+      maxHp: 1,
+      armorClass: 0.1,
+      proficiencyBonus: 0.15,
+      abilities: {
+        str: 0,
+        dex: 0,
+        int: 0.5,
+      },
+    },
+  },
 };
 
 const abilityDisplayLabels: Record<AbilityKey, string> = {
@@ -119,6 +209,128 @@ function calcModifier(score: number) {
 function formatModifier(score: number) {
   const modifier = calcModifier(score);
   return modifier >= 0 ? `+${modifier}` : `${modifier}`;
+}
+
+function getAbilityModifierTooltip(ability: AbilityKey, score: number) {
+  const label = abilityDisplayLabels[ability];
+  const modifier = formatModifier(score);
+  return `실제 ${label} 관련 액션을 할 때 ${modifier} 값만큼 보정됩니다.`;
+}
+
+function roundStat(value: number) {
+  return Math.round(value * 10) / 10;
+}
+
+function normalizeComputedStat(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function formatStat(value: number) {
+  return Number.isInteger(value) ? `${value}` : `${roundStat(value).toFixed(1)}`;
+}
+
+function normalizeLevel(value: number) {
+  return Math.max(1, Number(value) || 1);
+}
+
+function getClassStatProfile(className: string): ClassStatProfile {
+  if (Object.prototype.hasOwnProperty.call(classStatProfiles, className)) {
+    return classStatProfiles[className as ClassName];
+  }
+
+  return classStatProfiles.Wizard;
+}
+
+function getRecommendedStats(className: string, level: number) {
+  const normalizedLevel = normalizeLevel(level);
+  const profile = getClassStatProfile(className);
+  const growthSteps = normalizedLevel - 1;
+
+  return {
+    maxHp: normalizeComputedStat(profile.base.maxHp + profile.growth.maxHp * growthSteps),
+    armorClass: normalizeComputedStat(profile.base.armorClass + profile.growth.armorClass * growthSteps),
+    speed: profile.base.speed,
+    proficiencyBonus: normalizeComputedStat(
+      profile.base.proficiencyBonus + profile.growth.proficiencyBonus * growthSteps,
+    ),
+  };
+}
+
+function getRecommendedAbilities(className: string, level: number, currentAbilities?: CharacterPayload["abilities"]) {
+  const normalizedLevel = normalizeLevel(level);
+  const profile = getClassStatProfile(className);
+  const growthSteps = normalizedLevel - 1;
+
+  return {
+    str: normalizeComputedStat(profile.base.abilities.str + profile.growth.abilities.str * growthSteps),
+    dex: normalizeComputedStat(profile.base.abilities.dex + profile.growth.abilities.dex * growthSteps),
+    con: currentAbilities?.con ?? 10,
+    int: normalizeComputedStat(profile.base.abilities.int + profile.growth.abilities.int * growthSteps),
+    wis: currentAbilities?.wis ?? 10,
+    cha: currentAbilities?.cha ?? 10,
+  };
+}
+
+function applyLevelDeltaStats(
+  current: Pick<CharacterPayload, "className" | "maxHp" | "armorClass" | "proficiencyBonus">,
+  levelDelta: number,
+) {
+  const profile = getClassStatProfile(current.className);
+
+  return {
+    maxHp: normalizeComputedStat((current.maxHp ?? profile.base.maxHp) + profile.growth.maxHp * levelDelta),
+    armorClass: normalizeComputedStat(
+      (current.armorClass ?? profile.base.armorClass) + profile.growth.armorClass * levelDelta,
+    ),
+    proficiencyBonus: normalizeComputedStat(
+      (current.proficiencyBonus ?? profile.base.proficiencyBonus) + profile.growth.proficiencyBonus * levelDelta,
+    ),
+  };
+}
+
+function applyLevelDeltaAbilities(
+  current: Pick<CharacterPayload, "className" | "abilities">,
+  levelDelta: number,
+) {
+  const profile = getClassStatProfile(current.className);
+  const abilities = current.abilities ?? {
+    str: profile.base.abilities.str,
+    dex: profile.base.abilities.dex,
+    con: 10,
+    int: profile.base.abilities.int,
+    wis: 10,
+    cha: 10,
+  };
+
+  return {
+    ...abilities,
+    str: normalizeComputedStat(abilities.str + profile.growth.abilities.str * levelDelta),
+    dex: normalizeComputedStat(abilities.dex + profile.growth.abilities.dex * levelDelta),
+    int: normalizeComputedStat(abilities.int + profile.growth.abilities.int * levelDelta),
+  };
+}
+
+function createDefaultCharacter(): CharacterPayload {
+  const defaultClassName: ClassName = "Wizard";
+  const recommendedStats = getRecommendedStats(defaultClassName, 1);
+  const recommendedAbilities = getRecommendedAbilities(defaultClassName, 1);
+
+  return {
+    name: "",
+    ancestry: defaultAncestry,
+    className: defaultClassName,
+    avatarType: "PRESET",
+    avatarPresetId: "preset_wizard",
+    avatarUrl: null,
+    level: 1,
+    abilities: recommendedAbilities,
+    proficiencyBonus: recommendedStats.proficiencyBonus,
+    proficientSkills: [],
+    maxHp: recommendedStats.maxHp,
+    armorClass: recommendedStats.armorClass,
+    speed: recommendedStats.speed,
+    inventory: [],
+  };
 }
 
 function getCharacterArt(className: string) {
@@ -184,7 +396,7 @@ export function CharacterPage({
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [skillInput, setSkillInput] = useState("");
   const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftItem[]>([]);
-  const [formState, setFormState] = useState<CharacterPayload>(defaultCharacter);
+  const [formState, setFormState] = useState<CharacterPayload>(() => createDefaultCharacter());
 
   useEffect(() => {
     if (!isCreateModalOpen) return undefined;
@@ -229,7 +441,7 @@ export function CharacterPage({
 
   function resetCreateForm() {
     setEditingCharacterId(null);
-    setFormState(defaultCharacter);
+    setFormState(createDefaultCharacter());
     setInventoryDraft([]);
     setSkillInput("");
   }
@@ -477,20 +689,20 @@ export function CharacterPage({
                       <div>
                         <dt>HP</dt>
                         <dd>
-                          {selectedCharacter.maxHp}/{selectedCharacter.maxHp}
+                          {formatStat(selectedCharacter.maxHp)}/{formatStat(selectedCharacter.maxHp)}
                         </dd>
                       </div>
                       <div>
                         <dt>방어도</dt>
-                        <dd>{selectedCharacter.armorClass}</dd>
+                        <dd>{formatStat(selectedCharacter.armorClass)}</dd>
                       </div>
                       <div>
                         <dt>속도</dt>
-                        <dd>{selectedCharacter.speed}</dd>
+                        <dd>{formatStat(selectedCharacter.speed)}</dd>
                       </div>
                       <div>
                         <dt>숙련도</dt>
-                        <dd>{selectedCharacter.proficiencyBonus}</dd>
+                        <dd>{formatStat(selectedCharacter.proficiencyBonus)}</dd>
                       </div>
                     </dl>
 
@@ -500,8 +712,21 @@ export function CharacterPage({
                         {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => (
                           <div key={ability}>
                             <strong>{abilityDisplayLabels[ability]}</strong>
-                            <span>{selectedCharacter.abilities[ability]}</span>
-                            <small>{formatModifier(selectedCharacter.abilities[ability])}</small>
+                            <span className="fantasy-character-ability-value">
+                              {formatStat(selectedCharacter.abilities[ability])} (
+                              {formatModifier(selectedCharacter.abilities[ability])})
+                            </span>
+                            <span
+                              className="fantasy-character-ability-help"
+                              tabIndex={0}
+                              role="note"
+                              aria-label={getAbilityModifierTooltip(ability, selectedCharacter.abilities[ability])}
+                            >
+                              ?
+                              <span className="fantasy-character-ability-tooltip" role="tooltip">
+                                {getAbilityModifierTooltip(ability, selectedCharacter.abilities[ability])}
+                              </span>
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -594,7 +819,21 @@ export function CharacterPage({
                       min={1}
                       value={formState.level ?? 1}
                       onChange={(event) =>
-                        setFormState((current) => ({ ...current, level: Number(event.target.value) || 1 }))
+                        setFormState((current) => {
+                          const nextLevel = normalizeLevel(Number(event.target.value));
+                          const currentLevel = normalizeLevel(current.level ?? 1);
+                          const nextStats = applyLevelDeltaStats(current, nextLevel - currentLevel);
+                          const nextAbilities = applyLevelDeltaAbilities(current, nextLevel - currentLevel);
+
+                          return {
+                            ...current,
+                            level: nextLevel,
+                            maxHp: nextStats.maxHp,
+                            armorClass: nextStats.armorClass,
+                            proficiencyBonus: nextStats.proficiencyBonus,
+                            abilities: nextAbilities,
+                          };
+                        })
                       }
                     />
                   </div>
@@ -624,12 +863,23 @@ export function CharacterPage({
                       onChange={(event) =>
                         setFormState((current) => {
                           const className = event.target.value;
+                          const recommendedStats = getRecommendedStats(className, current.level ?? 1);
+                          const recommendedAbilities = getRecommendedAbilities(
+                            className,
+                            current.level ?? 1,
+                            current.abilities,
+                          );
                           return {
                             ...current,
                             className,
                             avatarType: "PRESET",
                             avatarPresetId: getPresetIdForClassName(className),
                             avatarUrl: null,
+                            maxHp: recommendedStats.maxHp,
+                            armorClass: recommendedStats.armorClass,
+                            speed: recommendedStats.speed,
+                            proficiencyBonus: recommendedStats.proficiencyBonus,
+                            abilities: recommendedAbilities,
                           };
                         })
                       }
@@ -655,13 +905,28 @@ export function CharacterPage({
                           type="button"
                           className={`character-avatar-option${isSelected ? " selected" : ""}`}
                           onClick={() =>
-                            setFormState((current) => ({
-                              ...current,
-                              className: getClassNameForPresetId(preset.id),
-                              avatarType: "PRESET",
-                              avatarPresetId: preset.id,
-                              avatarUrl: null,
-                            }))
+                            setFormState((current) => {
+                              const className = getClassNameForPresetId(preset.id);
+                              const recommendedStats = getRecommendedStats(className, current.level ?? 1);
+                              const recommendedAbilities = getRecommendedAbilities(
+                                className,
+                                current.level ?? 1,
+                                current.abilities,
+                              );
+
+                              return {
+                                ...current,
+                                className,
+                                avatarType: "PRESET",
+                                avatarPresetId: preset.id,
+                                avatarUrl: null,
+                                maxHp: recommendedStats.maxHp,
+                                armorClass: recommendedStats.armorClass,
+                                speed: recommendedStats.speed,
+                                proficiencyBonus: recommendedStats.proficiencyBonus,
+                                abilities: recommendedAbilities,
+                              };
+                            })
                           }
                           aria-pressed={isSelected}
                         >
@@ -689,6 +954,7 @@ export function CharacterPage({
                       id="character-hp-create"
                       type="number"
                       min={1}
+                      step={0.1}
                       value={formState.maxHp ?? 12}
                       onChange={(event) =>
                         setFormState((current) => ({ ...current, maxHp: Number(event.target.value) || 1 }))
@@ -701,6 +967,7 @@ export function CharacterPage({
                       id="character-ac-create"
                       type="number"
                       min={1}
+                      step={0.1}
                       value={formState.armorClass ?? 10}
                       onChange={(event) =>
                         setFormState((current) => ({ ...current, armorClass: Number(event.target.value) || 1 }))
@@ -725,6 +992,7 @@ export function CharacterPage({
                       id="character-prof-create"
                       type="number"
                       min={0}
+                      step={0.1}
                       value={formState.proficiencyBonus ?? 2}
                       onChange={(event) =>
                         setFormState((current) => ({
@@ -753,6 +1021,7 @@ export function CharacterPage({
                         id={`character-${ability}`}
                         type="number"
                         min={1}
+                        step={0.1}
                         value={formState.abilities?.[ability] ?? 10}
                         onChange={(event) => updateAbility(ability, Number(event.target.value) || 1)}
                       />
