@@ -37,10 +37,19 @@ describe("CharacterResourceService", () => {
     const resource = createResource();
     prisma.sessionCharacterResource.upsert.mockResolvedValue(resource);
 
-    await expect(service.getOrCreateResource(sessionCharacterId)).resolves.toBe(resource);
+    await expect(
+      service.getOrCreateResource(sessionCharacterId, {
+        actionSurgeUses: 1,
+        rageUses: 2,
+      }),
+    ).resolves.toBe(resource);
     expect(prisma.sessionCharacterResource.upsert).toHaveBeenCalledWith({
       where: { sessionCharacterId },
-      create: { sessionCharacterId },
+      create: {
+        sessionCharacterId,
+        actionSurgeUses: 1,
+        rageUses: 2,
+      },
       update: {},
     });
   });
