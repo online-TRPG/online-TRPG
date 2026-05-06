@@ -80,7 +80,11 @@ pipeline {
 
                 // 3) Prisma schema → DB 동기화 (backend 컨테이너 임시 실행 후 삭제)
                 //    마이그레이션 파일이 없어 `db push` 사용. 초기 개발 단계라 허용.
-                sh 'docker compose run --rm --entrypoint "" backend sh -c "cd /app/be && npx prisma db push --schema prisma/schema.prisma --skip-generate --accept-data-loss"'
+                //    --accept-data-loss 는 silent 데이터 손실 사고 방지를 위해 제거.
+                //    schema 변경이 데이터 손실을 동반하면 이 stage 가 fail → 수동 검토 후
+                //    의도된 손실이면 (a) 마이그레이션 SQL 작성 또는
+                //    (b) 일시적으로 --accept-data-loss 재추가 + db_backups 의 dump 로 복구 가능한 상태에서 진행.
+                sh 'docker compose run --rm --entrypoint "" backend sh -c "cd /app/be && npx prisma db push --schema prisma/schema.prisma --skip-generate"'
 
                 // 4) 나머지 (backend + nginx + certbot) 기동
                 sh 'docker compose up -d'
