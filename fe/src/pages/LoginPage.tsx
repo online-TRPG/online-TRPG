@@ -12,6 +12,7 @@ import { FormEvent, useState } from "react";
 import logoImage from "../assets/images/Logo.webp";
 import { Icon } from "../components/Icon";
 import type { AuthNotice } from "../hooks/useAuth";
+import "./LoginPage.css";
 import {
   mapAuthServerErrorToFields,
   validateGuestLogin,

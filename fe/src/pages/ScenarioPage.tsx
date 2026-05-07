@@ -13,6 +13,8 @@ import { Icon } from "../components/Icon";
 import { createScenario, deleteScenario, getScenario, listMyScenarios } from "../services/api";
 import type { Scenario, StoredUser } from "../types/session";
 import type { CreateScenarioDto } from "@trpg/shared-types";
+import "./CharacterPage.css";
+import "./ScenarioPage.css";
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface ScenarioPageProps {

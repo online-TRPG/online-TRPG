@@ -10,6 +10,7 @@
 import type { AuthMode } from "../types/auth";
 import { formatDate, useCurrentProfile } from "../hooks/useCurrentProfile";
 import type { StoredUser } from "../types/session";
+import "./ProfilePage.css";
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface AccountPageProps {
