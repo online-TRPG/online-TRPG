@@ -20,7 +20,7 @@ import boxBulletinNarrowFrame from "../components/Box_Bulletin_Narrow_Frame.webp
 import boxBulletinNarrowPlanks from "../components/Box_Bulletin_Narrow_Planks.webp";
 import { Icon } from "../components/Icon";
 import profileBorderCharacter from "../components/Profile_Border_Character.webp";
-import { getClassLabel } from "../data/class-options";
+import { getClassLabel } from "../services/staticSrd";
 import type { CharacterPayload } from "../hooks/useSession";
 import { getPlayerScenario, getVttMap, updateVttMap } from "../services/api";
 import type { LogEntry, PersistentCharacter, PlayerScenarioView, SessionSnapshot, StoredUser } from "../types/session";

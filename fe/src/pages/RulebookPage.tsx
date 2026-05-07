@@ -3,11 +3,19 @@ import type {
   RulebookDocumentResponseDto,
   RulebookIndexResponseDto,
 } from '@trpg/shared-types';
-import { getRulebookDocument, getRulebookIndex } from '../services/api';
 
 interface RulebookPageProps {
   ruleSetId?: string;
 }
+
+type StaticRulebookCollection = Omit<RulebookIndexResponseDto, 'documents'> & {
+  documents: RulebookDocumentResponseDto[];
+};
+
+type StaticRulebookExport = {
+  version: number;
+  rulebooks: StaticRulebookCollection[];
+};
 
 type HeadingEntry = {
   id: string;
@@ -206,6 +214,12 @@ function renderHeading(level: number, id: string, text: string, key: string) {
   return createElement(`h${safeLevel}`, { key, id }, text);
 }
 
+function getRulebookAssetUrl(ruleSetId: string) {
+  const baseUrl = import.meta.env.BASE_URL || '/';
+  const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  return `${normalizedBaseUrl}rulebooks/${ruleSetId}.json`;
+}
+
 function buildTocTree(headings: HeadingEntry[]): TocNode[] {
   const relevantHeadings = headings.some((heading) => heading.level > 1)
     ? headings.filter((heading) => heading.level > 1)
@@ -253,11 +267,9 @@ function collectDefaultExpandedIds(nodes: TocNode[]): string[] {
 }
 
 export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
-  const [rulebookIndex, setRulebookIndex] = useState<RulebookIndexResponseDto | null>(null);
+  const [rulebook, setRulebook] = useState<StaticRulebookCollection | null>(null);
   const [activeDocumentSlug, setActiveDocumentSlug] = useState<string | null>(null);
-  const [activeDocument, setActiveDocument] = useState<RulebookDocumentResponseDto | null>(null);
   const [loadingIndex, setLoadingIndex] = useState(true);
-  const [loadingDocument, setLoadingDocument] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedTocIds, setExpandedTocIds] = useState<string[]>([]);
 
@@ -265,20 +277,35 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
     let cancelled = false;
     setLoadingIndex(true);
     setError(null);
+    setRulebook(null);
+    setActiveDocumentSlug(null);
 
-    getRulebookIndex(ruleSetId)
-      .then((result) => {
+    fetch(getRulebookAssetUrl(ruleSetId))
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`룰북 정적 파일을 불러오지 못했습니다. (${response.status})`);
+        }
+
+        return (await response.json()) as StaticRulebookExport;
+      })
+      .then((payload) => {
         if (cancelled) {
           return;
         }
-        setRulebookIndex(result);
-        setActiveDocumentSlug((current) => current ?? result.defaultDocumentSlug);
+
+        const nextRulebook = payload.rulebooks.find((entry) => entry.ruleSetId === ruleSetId);
+        if (!nextRulebook) {
+          throw new Error(`정적 룰북 데이터에 "${ruleSetId}" 항목이 없습니다.`);
+        }
+
+        setRulebook(nextRulebook);
+        setActiveDocumentSlug(nextRulebook.defaultDocumentSlug);
       })
       .catch((caught) => {
         if (cancelled) {
           return;
         }
-        setError(caught instanceof Error ? caught.message : '룰북 색인을 불러오지 못했습니다.');
+        setError(caught instanceof Error ? caught.message : '룰북 문서를 불러오지 못했습니다.');
       })
       .finally(() => {
         if (!cancelled) {
@@ -291,37 +318,10 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
     };
   }, [ruleSetId]);
 
-  useEffect(() => {
-    if (!activeDocumentSlug) {
-      return;
-    }
-
-    let cancelled = false;
-    setLoadingDocument(true);
-    setError(null);
-    setActiveDocument(null);
-
-    getRulebookDocument(activeDocumentSlug, ruleSetId)
-      .then((result) => {
-        if (!cancelled) {
-          setActiveDocument(result);
-        }
-      })
-      .catch((caught) => {
-        if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : '룰북 문서를 불러오지 못했습니다.');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoadingDocument(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeDocumentSlug, ruleSetId]);
+  const activeDocument = useMemo(
+    () => rulebook?.documents.find((document) => document.slug === activeDocumentSlug) ?? null,
+    [activeDocumentSlug, rulebook],
+  );
 
   const parsedDocument = useMemo(
     () => parseMarkdown(activeDocument?.content ?? ''),
@@ -329,7 +329,7 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
   );
   const tocTree = useMemo(() => buildTocTree(parsedDocument.headings), [parsedDocument.headings]);
 
-  const documentList = rulebookIndex?.documents ?? [];
+  const documentList = rulebook?.documents ?? [];
 
   useEffect(() => {
     setExpandedTocIds(collectDefaultExpandedIds(tocTree));
@@ -392,14 +392,14 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
   return (
     <main className="rulebook-page">
       <section className="rulebook-hero">
-        <span className="eyebrow">{rulebookIndex?.ruleSetId?.toUpperCase() ?? 'RULEBOOK'}</span>
-        <h1>{rulebookIndex?.title ?? '룰북'}</h1>
+        <span className="eyebrow">{rulebook?.ruleSetId?.toUpperCase() ?? 'RULEBOOK'}</span>
+        <h1>{rulebook?.title ?? '룰북'}</h1>
         <p>
-          {rulebookIndex?.description ??
+          {rulebook?.description ??
             '번역된 룰북 문서를 문서 목록과 목차로 이어서 읽을 수 있습니다.'}
         </p>
-        {rulebookIndex?.attribution ? (
-          <p className="rulebook-attribution">{rulebookIndex.attribution}</p>
+        {rulebook?.attribution ? (
+          <p className="rulebook-attribution">{rulebook.attribution}</p>
         ) : null}
       </section>
 
@@ -471,93 +471,88 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
                 </nav>
 
                 <article className="rulebook-article">
-                  {loadingDocument ? (
-                    <p className="rulebook-muted">문서를 불러오는 중입니다.</p>
-                  ) : null}
-                  {!loadingDocument
-                    ? parsedDocument.blocks.map((block, index) => {
-                        if (block.type === 'heading') {
-                          return renderHeading(
-                            block.level,
-                            block.id,
-                            block.text,
-                            `${block.id}-${index}`,
-                          );
-                        }
+                  {parsedDocument.blocks.map((block, index) => {
+                    if (block.type === 'heading') {
+                      return renderHeading(
+                        block.level,
+                        block.id,
+                        block.text,
+                        `${block.id}-${index}`,
+                      );
+                    }
 
-                        if (block.type === 'paragraph') {
-                          return <p key={`paragraph-${index}`}>{renderInline(block.text)}</p>;
-                        }
+                    if (block.type === 'paragraph') {
+                      return <p key={`paragraph-${index}`}>{renderInline(block.text)}</p>;
+                    }
 
-                        if (block.type === 'unordered-list') {
-                          return (
-                            <ul key={`unordered-${index}`}>
-                              {block.items.map((item, itemIndex) => (
-                                <li key={`${item}-${itemIndex}`}>{renderInline(item)}</li>
-                              ))}
-                            </ul>
-                          );
-                        }
+                    if (block.type === 'unordered-list') {
+                      return (
+                        <ul key={`unordered-${index}`}>
+                          {block.items.map((item, itemIndex) => (
+                            <li key={`${item}-${itemIndex}`}>{renderInline(item)}</li>
+                          ))}
+                        </ul>
+                      );
+                    }
 
-                        if (block.type === 'ordered-list') {
-                          return (
-                            <ol key={`ordered-${index}`}>
-                              {block.items.map((item, itemIndex) => (
-                                <li key={`${item}-${itemIndex}`}>{renderInline(item)}</li>
-                              ))}
-                            </ol>
-                          );
-                        }
+                    if (block.type === 'ordered-list') {
+                      return (
+                        <ol key={`ordered-${index}`}>
+                          {block.items.map((item, itemIndex) => (
+                            <li key={`${item}-${itemIndex}`}>{renderInline(item)}</li>
+                          ))}
+                        </ol>
+                      );
+                    }
 
-                        if (block.type === 'blockquote') {
-                          return (
-                            <blockquote key={`blockquote-${index}`}>
-                              {block.lines.map((line, lineIndex) => (
-                                <p key={`${line}-${lineIndex}`}>{renderInline(line)}</p>
-                              ))}
-                            </blockquote>
-                          );
-                        }
+                    if (block.type === 'blockquote') {
+                      return (
+                        <blockquote key={`blockquote-${index}`}>
+                          {block.lines.map((line, lineIndex) => (
+                            <p key={`${line}-${lineIndex}`}>{renderInline(line)}</p>
+                          ))}
+                        </blockquote>
+                      );
+                    }
 
-                        if (block.type === 'code') {
-                          return (
-                            <pre key={`code-${index}`}>
-                              <code className={block.language ? `language-${block.language}` : undefined}>
-                                {block.code}
-                              </code>
-                            </pre>
-                          );
-                        }
+                    if (block.type === 'code') {
+                      return (
+                        <pre key={`code-${index}`}>
+                          <code className={block.language ? `language-${block.language}` : undefined}>
+                            {block.code}
+                          </code>
+                        </pre>
+                      );
+                    }
 
-                        if (block.type === 'table') {
-                          const [header, ...rows] = block.rows;
-                          return (
-                            <div key={`table-${index}`} className="rulebook-table-wrap">
-                              <table>
-                                <thead>
-                                  <tr>
-                                    {header.map((cell, cellIndex) => (
-                                      <th key={`${cell}-${cellIndex}`}>{renderInline(cell)}</th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {rows.map((row, rowIndex) => (
-                                    <tr key={`row-${rowIndex}`}>
-                                      {row.map((cell, cellIndex) => (
-                                        <td key={`${cell}-${cellIndex}`}>{renderInline(cell)}</td>
-                                      ))}
-                                    </tr>
+                    if (block.type === 'table') {
+                      const [header, ...rows] = block.rows;
+                      return (
+                        <div key={`table-${index}`} className="rulebook-table-wrap">
+                          <table>
+                            <thead>
+                              <tr>
+                                {header.map((cell, cellIndex) => (
+                                  <th key={`${cell}-${cellIndex}`}>{renderInline(cell)}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rows.map((row, rowIndex) => (
+                                <tr key={`row-${rowIndex}`}>
+                                  {row.map((cell, cellIndex) => (
+                                    <td key={`${cell}-${cellIndex}`}>{renderInline(cell)}</td>
                                   ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          );
-                        }
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    }
 
-                        return <hr key={`hr-${index}`} />;
-                      })
-                    : null}
+                    return <hr key={`hr-${index}`} />;
+                  })}
                 </article>
               </div>
             </>

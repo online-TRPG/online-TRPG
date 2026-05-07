@@ -15,10 +15,10 @@ import { BattleMap } from '../components/BattleMap';
 import {
   createScenario,
   getScenario,
-  getScenarioMonsters,
   updateScenario,
   uploadScenarioNodeImage,
 } from '../services/api';
+import { loadMonsterCatalog } from '../services/staticSrd';
 import type { ScenarioDetail, StoredUser } from '../types/session';
 import type {
   CreateScenarioDto,
@@ -510,7 +510,7 @@ export function ScenarioEditorPage({
     let ignore = false;
     setMonsterCatalogError(null);
 
-    getScenarioMonsters(form.ruleSetId)
+    loadMonsterCatalog()
       .then((monsters) => {
         if (!ignore) {
           setMonsterCatalog(monsters);

@@ -11,12 +11,8 @@ import {
   ScenarioSourceType as PrismaScenarioSourceType,
 } from "@prisma/client";
 import { createHash, createHmac, randomUUID } from "crypto";
-import { existsSync } from "fs";
-import { readFile } from "fs/promises";
-import { resolve } from "path";
 import {
   CreateScenarioDto,
-  SrdMonsterReferenceDto,
   ScenarioQueryDto,
   ScenarioResponseDto,
   ScenarioNodeInputDto,
@@ -36,8 +32,6 @@ import { DEFAULT_SCENARIO_ID } from "../../database/seed/default-scenario";
 
 @Injectable()
 export class ScenariosService {
-  private monsterCatalogCache: SrdMonsterReferenceDto[] | null = null;
-
   constructor(private readonly prisma: PrismaService) {}
 
   async listScenarios(query?: ScenarioQueryDto): Promise<ScenarioSummaryResponseDto[]> {
@@ -74,27 +68,6 @@ export class ScenariosService {
   async getScenario(id: string): Promise<ScenarioResponseDto> {
     const scenario = await this.getScenarioEntityById(id);
     return mapScenario(scenario);
-  }
-
-  async listRuleSetMonsters(ruleSetId: string): Promise<SrdMonsterReferenceDto[]> {
-    if (ruleSetId !== "dnd5e") {
-      throw new BadRequestException("Only dnd5e 5.1 SRD monsters are supported.");
-    }
-
-    if (this.monsterCatalogCache) {
-      return this.monsterCatalogCache;
-    }
-
-    const filePath = this.resolveGeneratedSrdFilePath("monsters.jsonl");
-    const raw = await readFile(filePath, "utf8");
-    const monsters = raw
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => this.normalizeMonsterReference(JSON.parse(line) as Record<string, unknown>));
-
-    this.monsterCatalogCache = monsters;
-    return monsters;
   }
 
   async createScenario(userId: string, dto: CreateScenarioDto): Promise<ScenarioResponseDto> {
@@ -282,50 +255,6 @@ export class ScenariosService {
     return node;
   }
 
-  private resolveGeneratedSrdFilePath(fileName: string): string {
-    const candidates = [
-      resolve(process.cwd(), "ai", "generated", "srd", fileName),
-      resolve(process.cwd(), "..", "ai", "generated", "srd", fileName),
-      resolve(__dirname, "..", "..", "..", "..", "..", "ai", "generated", "srd", fileName),
-      resolve(__dirname, "..", "..", "..", "..", "ai", "generated", "srd", fileName),
-    ];
-
-    const match = candidates.find((candidate) => existsSync(candidate));
-    if (!match) {
-      throw new NotFoundException(`Generated SRD file ${fileName} was not found.`);
-    }
-
-    return match;
-  }
-
-  private normalizeMonsterReference(value: Record<string, unknown>): SrdMonsterReferenceDto {
-    const source = this.objectOrNull(value.source);
-
-    return {
-      id: this.requiredString(value.id, "monster.id"),
-      nameEn: this.requiredString(value.nameEn, "monster.nameEn"),
-      nameKo: this.optionalString(value.nameKo),
-      basicRaw: this.requiredString(value.basicRaw, "monster.basicRaw"),
-      armorClassRaw: this.optionalString(value.armorClassRaw),
-      hitPointsRaw: this.optionalString(value.hitPointsRaw),
-      speedRaw: this.optionalString(value.speedRaw),
-      challengeRaw: this.optionalString(value.challengeRaw),
-      sensesRaw: this.optionalString(value.sensesRaw),
-      languagesRaw: this.optionalString(value.languagesRaw),
-      traits: this.stringList(value.traits, 20),
-      actions: this.stringList(value.actions, 20),
-      legendaryActions: this.stringList(value.legendaryActions, 20),
-      playReference: this.optionalString(value.playReference),
-      source: source
-        ? {
-            file: this.optionalString(source.file) ?? undefined,
-            page: this.optionalString(source.page) ?? undefined,
-            heading: this.optionalString(source.heading) ?? undefined,
-          }
-        : null,
-    };
-  }
-
   private nullableTrim(value: string | null | undefined): string | null {
     if (value === undefined || value === null) {
       return null;
@@ -394,35 +323,6 @@ export class ScenariosService {
         fallbackNodeId: this.nullableTrim(node.fallbackNodeId),
       };
     });
-  }
-
-  private requiredString(value: unknown, label: string): string {
-    if (typeof value !== "string" || !value.trim()) {
-      throw new BadRequestException(`Generated SRD data is missing ${label}.`);
-    }
-
-    return value.trim();
-  }
-
-  private optionalString(value: unknown): string | null {
-    return typeof value === "string" && value.trim() ? value.trim() : null;
-  }
-
-  private stringList(value: unknown, maxItems: number): string[] {
-    if (!Array.isArray(value)) {
-      return [];
-    }
-
-    return value
-      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-      .slice(0, maxItems)
-      .map((item) => item.trim());
-  }
-
-  private objectOrNull(value: unknown): Record<string, unknown> | null {
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : null;
   }
 
   private async putR2Object({
