@@ -6279,6 +6279,33 @@ label {
   background: rgba(117, 35, 49, 0.92);
 }
 
+.character-delete-modal {
+  width: min(440px, 100%);
+}
+
+.character-delete-copy {
+  margin: 0 0 10px;
+  font-size: 18px;
+  line-height: 1.65;
+}
+
+.character-delete-copy strong {
+  color: #f6e3b0;
+}
+
+.character-delete-subcopy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.character-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
 .session-info-panel textarea {
   width: 100%;
   min-height: 320px;
