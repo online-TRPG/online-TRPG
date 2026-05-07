@@ -187,7 +187,7 @@ export class CharactersService {
     );
 
     if (activeAssignment) {
-      throw new ConflictException("This character is currently assigned to an active session.");
+      throw new ConflictException("활동 중인 세션에서 사용 중인 캐릭터는 삭제할 수 없습니다. 해당 캐릭터를 선택 해제한 후 다시 시도해주세요.");
     }
 
     await this.prisma.character.delete({
