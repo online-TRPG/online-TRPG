@@ -28,6 +28,7 @@ import type {
   UpdateScenarioDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
+import "./ScenarioEditorPage.css";
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface ScenarioEditorPageProps {

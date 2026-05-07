@@ -29,6 +29,8 @@ import {
 import { raceData, raceOptions, type RaceAbilityBonus, type RaceData } from '../data/race-options';
 import type { CharacterPayload } from '../hooks/useSession';
 import type { PersistentCharacter, SessionSnapshot, StoredUser } from '../types/session';
+import "./CharacterPage.css";
+import './CharacterPage.css';
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface CharacterPageProps {

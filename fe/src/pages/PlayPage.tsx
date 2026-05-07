@@ -24,6 +24,8 @@ import { getClassLabel } from "../data/class-options";
 import type { CharacterPayload } from "../hooks/useSession";
 import { getPlayerScenario, getVttMap, updateVttMap } from "../services/api";
 import type { LogEntry, PersistentCharacter, PlayerScenarioView, SessionSnapshot, StoredUser } from "../types/session";
+import "./CharacterPage.css";
+import "./PlayPage.css";
 
 // 플레이 화면 상단 탭 이름입니다. 각 탭은 로그/채팅/정보/설정을 구분합니다.
 const sessionTabs = ["Main", "Chat", "Info", "Settings"] as const;
