@@ -324,7 +324,7 @@ export function App() {
     if (!message) return;
 
     if (scope === 'CHAT') {
-      appendLog('action', displayName, `[CHAT]${message}`);
+      void session.sendChatMessage(message);
       return;
     }
 

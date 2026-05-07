@@ -1,5 +1,6 @@
 import type {
   CharacterResponseDto,
+  ChatMessageEventDto,
   GameStateResponseDto,
   PlayerScenarioNodeDto,
   PlayerScenarioViewDto,
@@ -24,6 +25,7 @@ export type SessionListItem = SessionListItemResponseDto;
 export type Participant = SessionParticipantResponseDto;
 export type PersistentCharacter = CharacterResponseDto;
 export type Character = SessionCharacterResponseDto;
+export type ChatMessage = ChatMessageEventDto;
 export type GameState = GameStateResponseDto;
 export type PlayerScenarioNode = PlayerScenarioNodeDto;
 export type PlayerScenarioView = PlayerScenarioViewDto;

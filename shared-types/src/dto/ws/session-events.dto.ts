@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsString } from "class-validator";
+import { IsNotEmpty, IsString, MaxLength } from "class-validator";
 import { SessionCharacterResponseDto } from "../api/characters.dto";
 import {
   CombatResponseDto,
@@ -19,6 +19,18 @@ export class SessionJoinMessageDto {
   @ApiProperty()
   @IsString()
   sessionId!: string;
+}
+
+export class ChatSendMessageDto {
+  @ApiProperty()
+  @IsString()
+  sessionId!: string;
+
+  @ApiProperty({ maxLength: 1000 })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1000)
+  content!: string;
 }
 
 export class SessionSnapshotEventDto {
@@ -110,6 +122,26 @@ export class SystemMessageEventDto {
 
   @ApiProperty()
   code!: string;
+}
+
+export class ChatMessageEventDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  sessionId!: string;
+
+  @ApiProperty()
+  senderUserId!: string;
+
+  @ApiProperty()
+  senderDisplayName!: string;
+
+  @ApiProperty()
+  content!: string;
+
+  @ApiProperty()
+  createdAt!: string;
 }
 
 export class VttMapUpdatedEventDto {
