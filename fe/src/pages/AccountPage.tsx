@@ -1,7 +1,17 @@
+/*
+ * AccountPage
+ * 역할: 로그인한 사용자의 계정/인증 정보를 보여주는 개인 설정 페이지입니다.
+ * 읽는 순서:
+ * 1) AccountPageProps: 부모가 넘기는 사용자 정보와 이동/로그아웃 콜백
+ * 2) useCurrentProfile: 게스트/회원 상태를 반영한 최신 프로필 계산
+ * 3) accountRows: 화면의 "계정 정보" 표에 출력할 행 데이터
+ * 4) JSX: 상단 히어로, 계정 정보 카드, 연동 상태 카드, 에러 메시지
+ */
 import type { AuthMode } from "../types/auth";
 import { formatDate, useCurrentProfile } from "../hooks/useCurrentProfile";
 import type { StoredUser } from "../types/session";
 
+// 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface AccountPageProps {
   user: StoredUser;
   accessToken: string | null;
@@ -12,6 +22,7 @@ interface AccountPageProps {
   onOpenProfile: () => void;
 }
 
+// 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function AccountPage({
   user,
   accessToken,
@@ -21,8 +32,10 @@ export function AccountPage({
   onLogout,
   onOpenProfile,
 }: AccountPageProps) {
+  // 게스트/회원 여부에 맞춰 서버 프로필과 로컬 사용자 정보를 합친 표시용 프로필입니다.
   const { effectiveProfile, loadingProfile, profileError } = useCurrentProfile({ user, accessToken, authMode });
 
+  // 계정 정보 카드의 <dl> 항목을 배열로 만들어 JSX를 짧게 유지합니다.
   const accountRows = [
     { label: "계정 ID", value: effectiveProfile.id },
     { label: "사용자 식별자", value: effectiveProfile.userId },
@@ -32,8 +45,10 @@ export function AccountPage({
     { label: "가입일", value: formatDate(effectiveProfile.createdAt) },
   ];
 
+  // 여기부터 실제 화면 구조입니다.
   return (
     <main className="profile-page">
+      {/* 상단 프로필/계정 요약 영역입니다. */}
       <section className="profile-hero">
         <div className="profile-hero-main">
           <span className="eyebrow">Account</span>
@@ -56,7 +71,10 @@ export function AccountPage({
         </div>
       </section>
 
+      {/* 아래 그리드는 계정 상세 정보와 연동 상태 카드를 나란히 배치합니다. */}
       <section className="profile-grid">
+        {/* 내부 식별자, 이메일, 인증 제공자 등 민감한 계정 정보를 보여주는 카드입니다. */}
+        {/* 현재 로그인 방식과 동기화 상태를 설명하는 카드입니다. */}
         <article className="profile-card">
           <div className="section-heading">
             <div>

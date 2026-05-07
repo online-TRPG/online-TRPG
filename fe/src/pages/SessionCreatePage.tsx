@@ -1,9 +1,20 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import buttonSimpleBeigeImage from "../components/Button_Simple_Beige.webp";
-import boxBulletinImage from "../components/Box_Bulletin_Rectangle.webp";
-import { buildSessionScenarioOptions } from "../data/sessionVisuals";
-import type { Scenario, SessionSnapshot } from "../types/session";
+/*
+ * SessionCreatePage
+ * 역할: 새 플레이 세션을 만들기 위한 설정 페이지입니다.
+ * 읽는 순서:
+ * 1) SessionCreatePageProps: 선택 가능한 시나리오 목록과 생성 콜백
+ * 2) scenarioOptions: 시나리오 목록을 셀렉트/프리뷰용 옵션으로 변환
+ * 3) form state: 세션 제목, 선택 시나리오, 최대 인원, AI GM 사용 여부
+ * 4) submitSession: 폼 값을 onCreateSession 콜백으로 전달
+ * 5) JSX: 입력 폼 카드와 선택 시나리오 프리뷰 카드
+ */
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import buttonSimpleBeigeImage from '../components/Button_Simple_Beige.webp';
+import boxBulletinImage from '../components/Box_Bulletin_Rectangle.webp';
+import { buildSessionScenarioOptions } from '../data/sessionVisuals';
+import type { Scenario, SessionSnapshot } from '../types/session';
 
+// 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface SessionCreatePageProps {
   scenarios: Scenario[];
   snapshot: SessionSnapshot | null;
@@ -11,10 +22,11 @@ interface SessionCreatePageProps {
   error: string | null;
   onCreateSession: (
     title: string,
-    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
+    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean }
   ) => void | Promise<void>;
 }
 
+// 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 function RobotIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="session-create-icon">
@@ -43,37 +55,47 @@ export function SessionCreatePage({
   error,
   onCreateSession,
 }: SessionCreatePageProps) {
+  // 시나리오 데이터를 셀렉트 박스와 프리뷰 카드에서 쓰기 쉬운 형태로 변환합니다.
   const scenarioOptions = useMemo(() => buildSessionScenarioOptions(scenarios), [scenarios]);
-  const [sessionTitle, setSessionTitle] = useState("");
-  const [selectedScenarioKey, setSelectedScenarioKey] = useState("");
+  // 세션 생성 폼에서 사용자가 입력/선택하는 값들입니다.
+  const [sessionTitle, setSessionTitle] = useState('');
+  const [selectedScenarioKey, setSelectedScenarioKey] = useState('');
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [useAiGm, setUseAiGm] = useState(true);
 
-  const hasRecruitingSession = snapshot?.session.status === "recruiting";
+  // 이미 모집 중인 세션이 있으면 중복 생성을 막기 위한 플래그입니다.
+  const hasRecruitingSession = snapshot?.session.status === 'recruiting';
 
+  // 시나리오 옵션이 로드되면 첫 번째 옵션을 기본 선택합니다.
   useEffect(() => {
     if (!selectedScenarioKey && scenarioOptions.length) {
       setSelectedScenarioKey(scenarioOptions[0].key);
     }
   }, [scenarioOptions, selectedScenarioKey]);
 
+  // 현재 선택된 시나리오 옵션입니다. 오른쪽 프리뷰 카드에 사용됩니다.
   const selectedScenario =
-    scenarioOptions.find((scenarioOption) => scenarioOption.key === selectedScenarioKey) ?? scenarioOptions[0] ?? null;
+    scenarioOptions.find((scenarioOption) => scenarioOption.key === selectedScenarioKey) ??
+    scenarioOptions[0] ??
+    null;
 
+  // 폼 제출 시 부모의 세션 생성 콜백으로 입력값을 전달합니다.
   function submitSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (hasRecruitingSession) return;
 
-    void onCreateSession(sessionTitle.trim() || selectedScenario?.title || "새 세션", {
+    void onCreateSession(sessionTitle.trim() || selectedScenario?.title || '새 세션', {
       scenarioId: selectedScenario?.scenarioId,
       maxParticipants: maxPlayers,
       useAiGm,
     });
   }
-
   return (
     <main className="session-create-page">
-      <section className="session-create-bulletin" style={{ backgroundImage: `url(${boxBulletinImage})` }}>
+      <section
+        className="session-create-bulletin"
+        style={{ backgroundImage: `url(${boxBulletinImage})` }}
+      >
         <div className="session-create-stage">
           <form className="session-create-panel session-create-panel-form" onSubmit={submitSession}>
             <div className="session-create-field">
@@ -119,7 +141,10 @@ export function SessionCreatePage({
                 />
               </div>
 
-              <label className="session-create-mini-card session-create-ai-card session-create-ai-inline" htmlFor="use-ai-gm-page">
+              <label
+                className="session-create-mini-card session-create-ai-card session-create-ai-inline"
+                htmlFor="use-ai-gm-page"
+              >
                 <div className="session-create-ai-inline-copy">
                   <RobotIcon />
                   <strong>AI GM 사용</strong>
@@ -133,14 +158,24 @@ export function SessionCreatePage({
               </label>
             </div>
 
-            <button type="submit" className="session-create-submit" disabled={busy || hasRecruitingSession}>
-              <img src={buttonSimpleBeigeImage} alt="" aria-hidden="true" className="session-create-submit-bg" />
+            <button
+              type="submit"
+              className="session-create-submit"
+              disabled={busy || hasRecruitingSession}
+            >
+              <img
+                src={buttonSimpleBeigeImage}
+                alt=""
+                aria-hidden="true"
+                className="session-create-submit-bg"
+              />
               <span>세션 생성</span>
             </button>
 
             {error ? <p className="session-create-error">{error}</p> : null}
           </form>
 
+          {/* 선택한 시나리오의 요약 정보를 보여주는 프리뷰 카드입니다. */}
           <article className="session-create-panel session-create-panel-preview">
             {selectedScenario ? (
               <>
@@ -152,7 +187,9 @@ export function SessionCreatePage({
 
                 <div className="session-create-preview-body">
                   <div className="session-create-preview-pill-row">
-                    <span className="session-create-preview-pill">{useAiGm ? "AI GM" : "인간 GM"}</span>
+                    <span className="session-create-preview-pill">
+                      {useAiGm ? 'AI GM' : '인간 GM'}
+                    </span>
                   </div>
 
                   <h2>{selectedScenario.title}</h2>

@@ -1,3 +1,13 @@
+/*
+ * LoginPage
+ * 역할: 게스트 입장, 이메일 로그인, 회원가입, OAuth 로그인을 한 화면에서 처리합니다.
+ * 읽는 순서:
+ * 1) LoginMode: 현재 표시할 폼 종류
+ * 2) LoginPageProps: 인증 훅에서 받은 상태와 로그인/가입 콜백
+ * 3) form state: 입력값과 필드별 검증 에러
+ * 4) submit 함수들: 각 모드의 유효성 검사 후 부모 콜백 호출
+ * 5) JSX: 브랜드 영역, 모드 탭, 게스트/로그인/회원가입 폼
+ */
 import { FormEvent, useState } from "react";
 import logoImage from "../assets/images/Logo.webp";
 import { Icon } from "../components/Icon";
@@ -11,8 +21,10 @@ import {
   type AuthFieldErrors,
 } from "../utils/authValidation";
 
+// 현재 화면에 보여줄 인증 폼 종류입니다.
 type LoginMode = "guest" | "login" | "register";
 
+// 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface LoginPageProps {
   busy: boolean;
   error: string | null;
@@ -24,6 +36,7 @@ interface LoginPageProps {
   onClearFeedback: () => void;
 }
 
+// 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function LoginPage({
   busy,
   error,
@@ -34,6 +47,7 @@ export function LoginPage({
   onOAuthLogin,
   onClearFeedback,
 }: LoginPageProps) {
+  // 입력 폼 상태: 선택된 로그인 방식과 각 입력값을 관리합니다.
   const [mode, setMode] = useState<LoginMode>("guest");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -41,6 +55,7 @@ export function LoginPage({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
   const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
+  // 서버 에러를 필드별 메시지로 변환해 클라이언트 검증 에러와 합칩니다.
   const serverFieldErrors = mapAuthServerErrorToFields(mode, error);
   const visibleFieldErrors = { ...fieldErrors, ...serverFieldErrors };
   const formError = error && Object.keys(serverFieldErrors).length === 0 ? error : null;
@@ -65,6 +80,7 @@ export function LoginPage({
     return Object.keys(errors).length > 0;
   }
 
+  // 게스트 입장 폼 제출: 닉네임 검증 후 부모 콜백을 호출합니다.
   function submitGuest(e: FormEvent) {
     e.preventDefault();
     const nextErrors = validateGuestLogin(displayName);
@@ -75,6 +91,7 @@ export function LoginPage({
     onGuestLogin(displayName);
   }
 
+  // 이메일 로그인 폼 제출: 이메일/비밀번호 검증 후 부모 콜백을 호출합니다.
   function submitLogin(e: FormEvent) {
     e.preventDefault();
     const nextErrors = validateLoginForm(email, password);
@@ -85,6 +102,7 @@ export function LoginPage({
     onEmailLogin(email, password);
   }
 
+  // 회원가입 폼 제출: 이름/이메일/비밀번호/확인값 검증 후 부모 콜백을 호출합니다.
   function submitRegister(e: FormEvent) {
     e.preventDefault();
     const nextErrors = validateRegisterForm(name, email, password, confirmPassword);
@@ -94,10 +112,11 @@ export function LoginPage({
 
     onRegister(email, password, name);
   }
-
   return (
     <main className="login-page">
+      {/* 로그인 전체 화면 컨테이너입니다. */}
       <section className="login-shell" aria-label="로그인 화면">
+        {/* 서비스 로고와 브랜드 카피 영역입니다. */}
         <div className="brand-mark">
           <img src={logoImage} alt="모두의 TRPG" className="brand-mark-image" />
         </div>
@@ -138,6 +157,7 @@ export function LoginPage({
           </button>
         </div>
 
+        {/* 게스트 입장 폼: 계정 없이 표시 이름만 입력합니다. */}
         {mode === "guest" ? (
           <form className="login-card login-card-fantasy" onSubmit={submitGuest} noValidate>
             <label htmlFor="displayName">닉네임</label>
@@ -167,6 +187,7 @@ export function LoginPage({
           </form>
         ) : null}
 
+        {/* 이메일 로그인 폼: 일반 계정으로 접속합니다. */}
         {mode === "login" ? (
           <form className="login-card login-card-fantasy" onSubmit={submitLogin} noValidate>
             <label htmlFor="login-email">Email</label>
@@ -237,6 +258,7 @@ export function LoginPage({
           </form>
         ) : null}
 
+        {/* 회원가입 폼: 새 로컬 계정을 만듭니다. */}
         {mode === "register" ? (
           <form className="login-card login-card-fantasy" onSubmit={submitRegister} noValidate>
             <label htmlFor="reg-name">이름</label>
