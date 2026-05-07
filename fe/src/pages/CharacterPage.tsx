@@ -1,9 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import defaultArcherImage from "../assets/images/Profile_Default_Archer.png";
-import defaultRogueImage from "../assets/images/Profile_Default_Rouge.png";
-import defaultWarriorImage from "../assets/images/Profile_Default_Warrior.png";
-import defaultWizardImage from "../assets/images/Profile_Default_Wizard.png";
-import parchmentScrollImage from "../assets/images/parchment_scroll.webp";
+import defaultArcherImage from "../assets/images/Profile_Default_Archer.webp";
+import defaultRogueImage from "../assets/images/Profile_Default_Rouge.webp";
+import defaultWarriorImage from "../assets/images/Profile_Default_Warrior.webp";
+import defaultWizardImage from "../assets/images/Profile_Default_Wizard.webp";
 import boxBulletinNarrowFrame from "../components/Box_Bulletin_Narrow_Frame.webp";
 import boxBulletinNarrowPlanks from "../components/Box_Bulletin_Narrow_Planks.webp";
 import profileBorderCharacter from "../components/Profile_Border_Character.webp";
