@@ -1451,7 +1451,7 @@ label {
 
 .topbar-brand {
   color: var(--cyan);
-  min-height: 80px;
+  min-height: 64px;
 }
 
 .topbar-brand>div {
@@ -1465,6 +1465,7 @@ label {
   height: 64px;
   object-fit: contain;
   flex: 0 0 auto;
+  margin-top: 8px;
 }
 
 .topbar-brand strong {
@@ -3640,7 +3641,7 @@ body.session-discover-body {
 .topbar-shell::before {
   content: '';
   position: absolute;
-  inset: -1px 0 auto;
+  inset: 0 0 auto;
   height: 72px;
   background:
     linear-gradient(180deg, rgba(3, 7, 12, 0.18), rgba(3, 7, 12, 0.02)),
@@ -3657,9 +3658,29 @@ body.session-discover-body {
   backdrop-filter: none;
 }
 
+.topbar.topbar-shell {
+  min-height: 72px;
+  background: transparent;
+  align-items: center;
+  padding: 0 32px;
+}
+
+.topbar.topbar-shell .topbar-right {
+  align-items: center;
+  margin-top: 6px;
+}
+
+.topbar.topbar-shell .topbar-actions {
+  top: -3px;
+}
+
 @media (max-width: 860px) {
   .topbar-shell::before {
-    height: 66px;
+    height: 72px;
+  }
+
+  .topbar.topbar-shell {
+    min-height: 72px;
   }
 }
 

@@ -2,13 +2,18 @@ body.session-discover-body {
   background: linear-gradient(90deg, #3d4c60 0, #3d4c60 236px, #f3e9d7 236px, #f3e9d7 100%) fixed !important;
 }
 
+.workspace-topnav:has(.session-discover-shell) {
+  background: linear-gradient(90deg, #3d4c60 0, #3d4c60 236px, #f3e9d7 236px, #f3e9d7 100%) !important;
+}
+
 .session-discover-shell {
   position: relative;
   isolation: isolate;
-  min-height: 100%;
+  min-height: calc(100vh - 72px);
   height: 100%;
+  width: 100%;
   padding: 0;
-  background: linear-gradient(90deg, #3d4c60 0, #3d4c60 236px, #f3e9d7 236px, #f3e9d7 100%);
+  background: linear-gradient(90deg, #3d4c60 0, #3d4c60 236px, #f3e9d7 236px, #f3e9d7 100%) !important;
   overflow: hidden;
 }
 
