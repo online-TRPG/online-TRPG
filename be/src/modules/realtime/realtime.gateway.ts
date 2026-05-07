@@ -12,8 +12,9 @@ import {
   WebSocketServer,
   WsException,
 } from "@nestjs/websockets";
-import { SessionJoinMessageDto } from "@trpg/shared-types";
+import { ChatSendMessageDto, SessionJoinMessageDto } from "@trpg/shared-types";
 import { ConnectionStatus as PrismaConnectionStatus } from "@prisma/client";
+import { randomUUID } from "crypto";
 import { Server, Socket } from "socket.io";
 import { SessionsService } from "../sessions/sessions.service";
 import { UsersService } from "../users/users.service";
@@ -83,10 +84,15 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() dto: SessionJoinMessageDto,
   ): Promise<void> {
-    // REST 요청과 같은 방식으로 WebSocket 연결도 x-user-id 헤더를 기준으로 사용자를 구분한다.
-    // HTTP API와 WS API의 사용자 식별 규칙을 맞춰두면 테스트와 디버깅이 쉬워진다.
+    // REST 요청과 같은 방식으로 WebSocket 연결도 사용자 ID를 기준으로 구분한다.
+    // 브라우저 WebSocket은 커스텀 헤더가 빠질 수 있어서, auth.userId도 함께 허용한다.
     const userIdHeader = client.handshake.headers["x-user-id"];
-    const userId = Array.isArray(userIdHeader) ? userIdHeader[0] : userIdHeader;
+    const userIdFromHeader = Array.isArray(userIdHeader) ? userIdHeader[0] : userIdHeader;
+    const userIdFromAuth =
+      typeof client.handshake.auth?.userId === "string"
+        ? client.handshake.auth.userId
+        : undefined;
+    const userId = userIdFromHeader ?? userIdFromAuth;
 
     if (!userId) {
       throw new WsException("x-user-id header is required.");
@@ -94,6 +100,11 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
 
     await this.usersService.getUserEntityOrThrow(userId);
     await this.sessionsService.ensureMembership(userId, dto.sessionId);
+    await this.sessionsService.updateParticipantConnectionStatus(
+      userId,
+      dto.sessionId,
+      PrismaConnectionStatus.ONLINE,
+    );
     // 같은 세션 참가자끼리만 이벤트를 받도록 세션별 room에 입장시킨다.
     await client.join(this.realtimeEvents.getRoomName(dto.sessionId));
     await client.join(this.realtimeEvents.getUserRoomName(dto.sessionId, userId));
@@ -109,6 +120,39 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     client.emit("session.snapshot", {
       sessionId: dto.sessionId,
       snapshot,
+    });
+  }
+
+  @SubscribeMessage("chat.send")
+  async handleChatSend(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() dto: ChatSendMessageDto,
+  ): Promise<void> {
+    const membership = this.sessionMembershipBySocket.get(client.id);
+    if (!membership || membership.sessionId !== dto.sessionId) {
+      throw new WsException("You must join the session before chatting.");
+    }
+
+    const content = dto.content.trim();
+    if (!content) {
+      throw new WsException("content is required.");
+    }
+    if (content.length > 1000) {
+      throw new WsException("content must be shorter than or equal to 1000 characters.");
+    }
+
+    // Chat 탭은 현재 접속 중인 참가자끼리만 쓰는 휘발성 창구라서 DB에 저장하지 않는다.
+    // 클라이언트가 보낸 sender를 믿지 않고, join 때 확인한 membership 기준으로만 발신자를 정한다.
+    await this.sessionsService.ensureMembership(membership.userId, dto.sessionId);
+    const sender = await this.usersService.getUserEntityOrThrow(membership.userId);
+
+    this.realtimeEvents.emitChatMessage(dto.sessionId, {
+      id: randomUUID(),
+      sessionId: dto.sessionId,
+      senderUserId: membership.userId,
+      senderDisplayName: sender.displayName,
+      content,
+      createdAt: new Date().toISOString(),
     });
   }
 }

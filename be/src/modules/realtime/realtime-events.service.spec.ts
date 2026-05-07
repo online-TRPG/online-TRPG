@@ -111,4 +111,24 @@ describe("RealtimeEventsService", () => {
       turn,
     });
   });
+
+  it("emits chat.message with the volatile chat message", () => {
+    const { service, emit, to } = createBoundService();
+    const message = {
+      id: "message-1",
+      sessionId: "session-1",
+      senderUserId: "user-1",
+      senderDisplayName: "테스터",
+      content: "안녕하세요",
+      createdAt: "2026-05-07T05:00:00.000Z",
+    };
+
+    service.emitChatMessage("session-1", message);
+
+    expect(to).toHaveBeenCalledWith("session:session-1");
+    expect(emit).toHaveBeenCalledWith("chat.message", {
+      sessionId: "session-1",
+      message,
+    });
+  });
 });
