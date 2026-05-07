@@ -8,7 +8,6 @@ import {
   ApiTags,
 } from "@nestjs/swagger";
 import {
-  SrdMonsterReferenceDto,
   CreateScenarioDto,
   ScenarioQueryDto,
   ScenarioNodeImageUploadResponseDto,
@@ -41,13 +40,6 @@ export class ScenariosController {
     @Query() query: ScenarioQueryDto,
   ): Promise<ScenarioSummaryResponseDto[]> {
     return this.scenariosService.listMyScenarios(userId, query);
-  }
-
-  @Get("rulesets/:ruleSetId/monsters")
-  @ApiParam({ name: "ruleSetId" })
-  @ApiOkResponse({ type: [SrdMonsterReferenceDto] })
-  listRuleSetMonsters(@Param("ruleSetId") ruleSetId: string): Promise<SrdMonsterReferenceDto[]> {
-    return this.scenariosService.listRuleSetMonsters(ruleSetId);
   }
 
   @Post()

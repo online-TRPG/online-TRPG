@@ -9,14 +9,12 @@ import { DiceController } from "./dice.controller";
 import { DiceService } from "./dice.service";
 import { InventoryRuntimeService } from "./inventory-runtime.service";
 import { MapPositionService } from "./map-position.service";
-import { RulebookController } from "./rulebook.controller";
-import { RulebookService } from "./rulebook.service";
 import { RuleEngineService } from "./rule-engine.service";
 import { StateDiffService } from "./state-diff.service";
 
 @Module({
   imports: [SessionsModule, RealtimeCoreModule],
-  controllers: [DiceController, RulebookController],
+  controllers: [DiceController],
   providers: [
     ActionEconomyService,
     ActionRuleService,
@@ -25,7 +23,6 @@ import { StateDiffService } from "./state-diff.service";
     DiceService,
     InventoryRuntimeService,
     MapPositionService,
-    RulebookService,
     RuleEngineService,
     StateDiffService,
   ],
@@ -37,7 +34,6 @@ import { StateDiffService } from "./state-diff.service";
     DiceService,
     InventoryRuntimeService,
     MapPositionService,
-    RulebookService,
     RuleEngineService,
     StateDiffService,
   ],

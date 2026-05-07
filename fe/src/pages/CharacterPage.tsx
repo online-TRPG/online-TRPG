@@ -20,13 +20,15 @@ import profileBorderCharacter from '../components/Profile_Border_Character.webp'
 import profileBorderStats from '../components/Profile_Border_Stats.webp';
 import sidePanelImage from '../components/Side_Panel.webp';
 import {
-  classOptions,
   getClassLabel,
+  loadClassOptions,
+  loadRaceData,
   normalizeClassValue,
   type ClassOption,
   type ClassOptionValue,
-} from '../data/class-options';
-import { raceData, raceOptions, type RaceAbilityBonus, type RaceData } from '../data/race-options';
+  type RaceAbilityBonus,
+  type RaceData,
+} from '../services/staticSrd';
 import type { CharacterPayload } from '../hooks/useSession';
 import type { PersistentCharacter, SessionSnapshot, StoredUser } from '../types/session';
 import './CharacterPage.css';
@@ -72,13 +74,7 @@ type ClassName = ClassOptionValue;
 // MVP에서 캐릭터를 기본 몇 레벨로 다룰지 정하는 값입니다.
 const MVP_CHARACTER_LEVEL = 2;
 
-// 종족 선택 옵션입니다. race-options.ts의 데이터를 화면용으로 사용합니다.
-const ancestryOptions = raceOptions;
-
-const defaultAncestry =
-  ancestryOptions.find((option) => option.value === 'Human')?.value ??
-  ancestryOptions[0]?.value ??
-  'Human';
+const defaultAncestry = 'Human';
 
 // 직업별 기본 초상화 프리셋입니다. 사용자가 이미지를 올리기 전 기본 이미지로 씁니다.
 const avatarPresets = [
@@ -197,10 +193,6 @@ const suggestedSkillOptions = [
   { value: 'Stealth', label: '은신' },
   { value: 'Survival', label: '생존' },
 ] as const;
-
-const ancestryLabelMap: Map<string, string> = new Map(
-  ancestryOptions.map((option) => [option.value, option.label])
-);
 const skillLabelMap: Map<string, string> = new Map(
   suggestedSkillOptions.map((option) => [option.value, option.label])
 );
@@ -451,7 +443,7 @@ function getCharacterClassLabel(className: string) {
   return getClassLabel(normalized || '모험가');
 }
 
-function getCharacterAncestryLabel(ancestry: string) {
+function getCharacterAncestryLabel(ancestry: string, ancestryLabelMap: Map<string, string>) {
   const normalized = ancestry.trim();
   return ancestryLabelMap.get(normalized) ?? (normalized || '미정');
 }
@@ -469,13 +461,13 @@ function getClassNameForPresetId(presetId: string) {
   return classNameByPresetId.get(presetId) ?? 'Wizard';
 }
 
-function getRaceByValue(value: string): RaceData | null {
-  return raceData.find((option) => option.value === value) ?? null;
+function getRaceByValue(raceCatalog: RaceData[], value: string): RaceData | null {
+  return raceCatalog.find((option) => option.value === value) ?? null;
 }
 
-function getClassOptionByValue(value: string): ClassOption | null {
+function getClassOptionByValue(classCatalog: ClassOption[], value: string): ClassOption | null {
   const normalized = normalizeClassValue(value);
-  return classOptions.find((option) => option.value === normalized) ?? null;
+  return classCatalog.find((option) => option.value === normalized) ?? null;
 }
 
 function formatAbilityBonus(abilityBonus: RaceAbilityBonus) {
@@ -509,6 +501,9 @@ export function CharacterPage({
   onDeleteCharacter,
 }: CharacterPageProps) {
   // 모달/선택/폼 상태입니다. 생성과 수정 모달이 같은 formState를 공유합니다.
+  const [classCatalog, setClassCatalog] = useState<ClassOption[]>([]);
+  const [raceCatalog, setRaceCatalog] = useState<RaceData[]>([]);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
   const [isDeleteModalOpen, setDeleteModalOpen] = useState(false);
   const [editingCharacterId, setEditingCharacterId] = useState<string | null>(null);
@@ -518,6 +513,33 @@ export function CharacterPage({
   const [formState, setFormState] = useState<CharacterPayload>(() => createDefaultCharacter());
   // 인벤토리 편집 영역 DOM 참조입니다. 필요 시 스크롤/포커스 제어에 씁니다.
   const inventoryEditorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+    setCatalogError(null);
+
+    Promise.all([loadClassOptions(), loadRaceData()])
+      .then(([loadedClasses, loadedRaces]) => {
+        if (ignore) {
+          return;
+        }
+        setClassCatalog(loadedClasses);
+        setRaceCatalog(loadedRaces);
+      })
+      .catch((caught) => {
+        if (!ignore) {
+          setCatalogError(
+            caught instanceof Error
+              ? caught.message
+              : '정적 SRD 직업/종족 데이터를 불러오지 못했습니다.',
+          );
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isCreateModalOpen) return undefined;
@@ -553,10 +575,21 @@ export function CharacterPage({
     () => characters.find((character) => character.id === selectedCharacterId) ?? null,
     [characters, selectedCharacterId]
   );
-  const selectedRaceInfo = useMemo(() => getRaceByValue(formState.ancestry), [formState.ancestry]);
+  const ancestryOptions = useMemo(
+    () => raceCatalog.map(({ value, label }) => ({ value, label })),
+    [raceCatalog]
+  );
+  const ancestryLabelMap = useMemo(
+    () => new Map(ancestryOptions.map((option) => [option.value, option.label])),
+    [ancestryOptions]
+  );
+  const selectedRaceInfo = useMemo(
+    () => getRaceByValue(raceCatalog, formState.ancestry),
+    [formState.ancestry, raceCatalog]
+  );
   const selectedClassInfo = useMemo(
-    () => getClassOptionByValue(formState.className),
-    [formState.className]
+    () => getClassOptionByValue(classCatalog, formState.className),
+    [classCatalog, formState.className]
   );
 
   const usedCharacterIds = useMemo(() => {
@@ -829,7 +862,7 @@ export function CharacterPage({
                     <dl className="fantasy-character-summary-list">
                       <div>
                         <dt>종족</dt>
-                        <dd>{getCharacterAncestryLabel(selectedCharacter.ancestry)}</dd>
+                        <dd>{getCharacterAncestryLabel(selectedCharacter.ancestry, ancestryLabelMap)}</dd>
                       </div>
                       <div>
                         <dt>직업</dt>
@@ -932,6 +965,7 @@ export function CharacterPage({
         </section>
       </section>
 
+      {catalogError ? <p className="panel-error">{catalogError}</p> : null}
       {error ? <p className="panel-error">{error}</p> : null}
 
       {/* 캐릭터 생성/수정 모달입니다. editingCharacterId가 있으면 수정 모드로 동작합니다. */}
@@ -1067,7 +1101,7 @@ export function CharacterPage({
                         }
                         required
                       >
-                        {classOptions.map((option) => (
+                        {classCatalog.map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label}
                           </option>
