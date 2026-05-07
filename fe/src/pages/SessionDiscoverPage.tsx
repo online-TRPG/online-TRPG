@@ -16,6 +16,7 @@ import sidebarFooterImage from "../assets/images/Sidebar_Footer_Image.webp";
 import dragonPeekImage from "../assets/images/Peak_a_Boo_Dragon.webp";
 import { findSessionVisualByTitle, sessionVisualPresets } from "../data/sessionVisuals";
 import type { AvailableSessionListItem, SessionDetail, SessionSnapshot, User } from "../types/session";
+import "./SessionDiscoverPage.css";
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface SessionDiscoverPageProps {

@@ -13,6 +13,8 @@ import buttonSimpleBeigeImage from '../components/Button_Simple_Beige.webp';
 import boxBulletinImage from '../components/Box_Bulletin_Rectangle.webp';
 import { buildSessionScenarioOptions } from '../data/sessionVisuals';
 import type { Scenario, SessionSnapshot } from '../types/session';
+import "./SessionCreatePage.css";
+import './SessionCreatePage.css';
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface SessionCreatePageProps {
