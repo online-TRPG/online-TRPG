@@ -1012,31 +1012,36 @@
   line-height: 1.6;
 }
 
-.modal-card-wide {
-  width: min(1440px, calc(100vw - 64px));
-}
-
-.character-create-modal {
+.modal-card.modal-card-wide.character-create-modal {
   position: relative;
   align-self: start;
-  border: 0;
-  border-radius: 0;
-  padding: 104px 148px 124px 150px;
+  width: min(1580px, calc(100vw - 32px)) !important;
+  max-width: min(1580px, calc(100vw - 32px)) !important;
+  min-width: min(1320px, calc(100vw - 32px));
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 98px 120px 116px 122px;
   max-height: calc(100vh - 120px);
   margin-top: 16px;
-  background: transparent;
+  background: transparent !important;
   box-shadow: 0 26px 60px rgba(12, 7, 2, 0.42);
   overflow-x: hidden;
   overflow-y: auto;
 }
 
+.modal-card-wide {
+  width: min(1580px, calc(100vw - 32px));
+  max-width: none;
+}
+
 .character-create-modal::before {
   content: "";
   position: absolute;
-  top: -80px;
-  right: 0;
-  left: 0;
-  height: 215%;
+  top: -150px;
+  left: 50%;
+  width: 110%;
+  height: 350%;
+  transform: translateX(-50%);
   background-image: url("../components/Profile_Border_Stats.webp");
   background-position: top center;
   background-repeat: no-repeat;
@@ -1054,7 +1059,7 @@
 .character-create-form {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 28px;
+  gap: 22px;
   padding-right: 0;
   padding-bottom: 24px;
   align-items: start;
@@ -1084,10 +1089,10 @@
 
 .character-form-section {
   padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .field-row-4 {
