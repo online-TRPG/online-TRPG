@@ -122,6 +122,12 @@ export class ScenarioNodeInputDto {
   @IsOptional()
   @IsArray()
   @IsObject({ each: true })
+  checkOptions?: Record<string, unknown>[];
+
+  @ApiPropertyOptional({ type: [Object] })
+  @IsOptional()
+  @IsArray()
+  @IsObject({ each: true })
   transitions?: Record<string, unknown>[];
 
   @ApiPropertyOptional({ type: [Object] })
@@ -134,6 +140,16 @@ export class ScenarioNodeInputDto {
   @IsOptional()
   @IsObject()
   vttMap?: Record<string, unknown> | null;
+
+  @ApiPropertyOptional({ type: Object, nullable: true })
+  @IsOptional()
+  @IsObject()
+  nodeMeta?: Record<string, unknown> | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  fallbackNodeId?: string | null;
 }
 
 export class UploadScenarioNodeImageDto {
