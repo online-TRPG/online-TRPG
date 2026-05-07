@@ -61,7 +61,10 @@ pipeline {
             when { branch 'develop' }
             steps {
                 // 1) 데이터 계층부터 기동 (postgres healthy 까지 대기)
-                sh 'docker compose up -d --wait postgres redis ai-server'
+                //    --force-recreate: image hash 가 같아도 컨테이너 재생성 → env_file 변경
+                //    (Jenkins credential rotation 등) 이 항상 prod 에 반영되도록 강제.
+                //    postgres 데이터는 named volume 영속 → 재생성해도 손실 없음.
+                sh 'docker compose up -d --wait --force-recreate postgres redis ai-server'
 
                 // 2) prod DB 백업 — db push 직전에 pg_dump 떨굼.
                 //    --accept-data-loss 가 데이터를 날렸을 때 이 dump 로 pg_restore.
@@ -87,7 +90,8 @@ pipeline {
                 sh 'docker compose run --rm --entrypoint "" backend sh -c "cd /app/be && npx prisma db push --schema prisma/schema.prisma --skip-generate"'
 
                 // 4) 나머지 (backend + nginx + certbot) 기동
-                sh 'docker compose up -d'
+                //    --force-recreate 이유는 1) 와 동일.
+                sh 'docker compose up -d --force-recreate'
                 sh 'docker compose ps'
 
                 // 5) 배포 후 smoke — nginx / ai-health / backend 셋 다 응답하는지 확인.
