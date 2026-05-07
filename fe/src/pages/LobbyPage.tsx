@@ -1,8 +1,18 @@
+/*
+ * LobbyPage
+ * 역할: 로그인 후 처음 보이는 메인 로비/랜딩 페이지입니다.
+ * 읽는 순서:
+ * 1) LobbyPageProps: 세션 목록 수와 페이지 이동 콜백
+ * 2) PlusIcon: "세션 생성" 카드에 들어가는 장식 SVG
+ * 3) pageToast state/useEffect: 페이지 상단 에러 토스트 자동 닫기
+ * 4) JSX: 히어로 배너, 공개 세션/내 세션/세션 생성 카드
+ */
 import { useEffect, useState } from "react";
 import bannerMainImage from "../assets/images/Banner_Main.webp";
 import boxBrickImage from "../components/Box_Brick.webp";
 import type { AvailableSessionListItem, LogEntry, SessionSnapshot, StoredUser } from "../types/session";
 
+// 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface LobbyPageProps {
   user: StoredUser;
   snapshot: SessionSnapshot | null;
@@ -18,8 +28,10 @@ interface LobbyPageProps {
   onLeaveCurrentSession: () => void | Promise<void>;
 }
 
+// 에러 토스트가 화면에 머무는 시간입니다.
 const PAGE_TOAST_DURATION_MS = 2600;
 
+// 세션 생성 카드에 쓰는 장식용 플러스 아이콘입니다.
 function PlusIcon() {
   return (
     <svg viewBox="0 0 64 64" className="main-landing-plusicon-svg" aria-hidden="true">
@@ -31,6 +43,7 @@ function PlusIcon() {
   );
 }
 
+// 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function LobbyPage({
   sessionList,
   mySessionList,
@@ -40,8 +53,10 @@ export function LobbyPage({
   onOpenMySessions,
   onOpenCreate,
 }: LobbyPageProps) {
+  // error prop을 짧은 시간 보여주는 로컬 토스트 상태입니다.
   const [pageToast, setPageToast] = useState<string | null>(null);
 
+  // 부모에서 내려온 error가 바뀌면 토스트를 띄우고 일정 시간 뒤 닫습니다.
   useEffect(() => {
     if (!error) return;
     setPageToast(error);
@@ -53,12 +68,14 @@ export function LobbyPage({
 
   return (
     <main className="main-landing-page">
+      {/* 상단에 뜨는 임시 에러/알림 토스트입니다. */}
       {pageToast ? (
         <button type="button" className="page-error-toast" onClick={() => setPageToast(null)}>
           {pageToast}
         </button>
       ) : null}
 
+      {/* 메인 배너와 주요 액션 카드 영역입니다. */}
       <section className="main-landing-hero">
         <img src={bannerMainImage} alt="모두의 TRPG" className="main-landing-banner" />
         <p className="main-landing-tagline">최상의 온라인 TRPG 경험</p>

@@ -1,9 +1,20 @@
+/*
+ * SessionDetailPage
+ * 역할: 공개/내 세션 상세 정보를 보여주고 참가 또는 현재 세션 복귀를 처리합니다.
+ * 읽는 순서:
+ * 1) STATUS_LABEL/GM_MODE_LABEL: 서버 상태값을 화면 문구로 변환
+ * 2) state/useEffect: sessionPublicId로 상세 정보 조회
+ * 3) canonicalPath useEffect: 세션 공개 주소를 정규화
+ * 4) handleEnter: 이미 참여한 세션이면 열기, 아니면 참가 후 플레이 화면 이동
+ * 5) JSX: 로딩/에러 상태, 세션 헤더, 메타 정보, 호스트 카드
+ */
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getSessionDetail } from "../services/api";
 import type { SessionDetail, SessionSnapshot, StoredUser, User } from "../types/session";
 import { buildSessionPath } from "../utils/routes";
 
+// 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface SessionDetailPageProps {
   user: StoredUser;
   accessToken: string | null;
@@ -15,6 +26,7 @@ interface SessionDetailPageProps {
   onOpenHostProfile: (host: User) => void;
 }
 
+// 서버에서 받은 세션 상태값을 화면 문구로 바꾸는 매핑입니다.
 const STATUS_LABEL: Record<string, string> = {
   recruiting: "Recruiting",
   playing: "Playing",
@@ -23,11 +35,13 @@ const STATUS_LABEL: Record<string, string> = {
   disbanded: "Disbanded",
 };
 
+// GM 모드 값(AI/HUMAN)을 사용자에게 보여줄 라벨로 바꿉니다.
 const GM_MODE_LABEL: Record<string, string> = {
   AI: "AI GM",
   HUMAN: "인간 GM",
 };
 
+// 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function SessionDetailPage({
   user,
   accessToken,
@@ -38,12 +52,15 @@ export function SessionDetailPage({
   onOpenPlay,
   onOpenHostProfile,
 }: SessionDetailPageProps) {
+  // 라우터 훅: 세션 상세 주소를 canonical path로 정리할 때 사용합니다.
   const location = useLocation();
   const navigate = useNavigate();
+  // 상세 API 응답, 로딩, 에러 상태입니다.
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // sessionPublicId가 바뀔 때마다 세션 상세 정보를 다시 불러옵니다.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -62,12 +79,12 @@ export function SessionDetailPage({
         if (cancelled) return;
         setLoading(false);
       });
-
-    return () => {
+  return () => {
       cancelled = true;
     };
   }, [accessToken, sessionPublicId, user]);
 
+  // 현재 접속 중인 세션인지, 이미 참여한 세션인지 판단해 버튼 문구/동작을 결정합니다.
   const isCurrentSession = detail?.session.id === snapshot?.session.id;
   const isKnownMember = isCurrentSession || (detail ? snapshot?.session.id === detail.session.id : false);
   const activeScenario =
@@ -81,6 +98,7 @@ export function SessionDetailPage({
     navigate(canonicalPath, { replace: true });
   }, [canonicalPath, location.pathname, navigate]);
 
+  // 세션 입장 버튼 동작: 현재 세션이면 바로 열고, 아니면 참가 API 호출 후 플레이 화면으로 갑니다.
   async function handleEnter() {
     if (!detail) return;
     if (isCurrentSession) {
@@ -94,9 +112,11 @@ export function SessionDetailPage({
     }
   }
 
+  // 로딩/에러는 본문 카드 대신 단순 상태 화면을 먼저 반환합니다.
   if (loading) {
     return (
       <main className="session-page">
+      {/* 로딩 상태 카드입니다. */}
         <section className="session-form-card">
           <p>세션 정보를 불러오는 중입니다.</p>
         </section>
@@ -118,6 +138,7 @@ export function SessionDetailPage({
 
   return (
     <main className="session-page">
+      {/* 세션 제목/설명과 입장 액션 버튼 영역입니다. */}
       <section className="session-page-header">
         <div>
           <span className="eyebrow">Session detail</span>
@@ -134,6 +155,7 @@ export function SessionDetailPage({
         </div>
       </section>
 
+      {/* 세션 메타 정보와 호스트 프로필 정보를 나란히 보여줍니다. */}
       <section className="profile-grid">
         <article className="profile-card">
           <div className="section-heading">

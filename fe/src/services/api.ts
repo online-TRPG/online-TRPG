@@ -6,7 +6,10 @@ import type {
   LoginResponseDto,
   OAuthUrlResponseDto,
   PlayerScenarioViewDto,
+  RulebookDocumentResponseDto,
+  RulebookIndexResponseDto,
   ScenarioResponseDto,
+  SrdMonsterReferenceDto,
   SessionDetailResponseDto,
   SessionSnapshotDto,
   UpdateScenarioDto,
@@ -418,6 +421,23 @@ export function listScenarios(): Promise<Scenario[]> {
 
 export function getScenario(scenarioId: string): Promise<ScenarioDetail> {
   return requestJson<ScenarioResponseDto>(`/scenarios/${scenarioId}`);
+}
+
+export function getScenarioMonsters(ruleSetId = 'dnd5e'): Promise<SrdMonsterReferenceDto[]> {
+  return requestJson<SrdMonsterReferenceDto[]>(`/scenarios/rulesets/${ruleSetId}/monsters`);
+}
+
+export function getRulebookIndex(ruleSetId = 'dnd5e'): Promise<RulebookIndexResponseDto> {
+  return requestJson<RulebookIndexResponseDto>(`/rules/rulebooks/${ruleSetId}`);
+}
+
+export function getRulebookDocument(
+  documentSlug: string,
+  ruleSetId = 'dnd5e',
+): Promise<RulebookDocumentResponseDto> {
+  return requestJson<RulebookDocumentResponseDto>(
+    `/rules/rulebooks/${ruleSetId}/documents/${documentSlug}`,
+  );
 }
 
 export function getPlayerScenario(

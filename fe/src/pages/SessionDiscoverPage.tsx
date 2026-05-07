@@ -1,3 +1,13 @@
+/*
+ * SessionDiscoverPage
+ * 역할: 공개 세션과 내 세션을 탐색하고, 초대 코드 또는 목록 선택으로 세션에 참가하는 페이지입니다.
+ * 읽는 순서:
+ * 1) 상단 헬퍼: 상태/GM 라벨 변환, 초대 코드/페이지 에러 메시지 정리
+ * 2) state: 현재 탭, 검색/필터/정렬, 페이지네이션, 초대 모달, 상세 모달
+ * 3) useMemo: 세션 목록 필터링/정렬/페이지 자르기
+ * 4) handler: 초대 코드 참가, 상세 모달 열기, 세션 참가/복귀, 페이지 이동
+ * 5) JSX: 좌측 사이드바, 필터 바, 세션 카드 목록, 페이지네이션, 초대 코드 모달, 상세 모달
+ */
 import { FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useState } from "react";
 import { Icon } from "../components/Icon";
 import { SessionDetailModal } from "../components/SessionDetailModal";
@@ -7,6 +17,7 @@ import dragonPeekImage from "../assets/images/Peak_a_Boo_Dragon.webp";
 import { findSessionVisualByTitle, sessionVisualPresets } from "../data/sessionVisuals";
 import type { AvailableSessionListItem, SessionDetail, SessionSnapshot, User } from "../types/session";
 
+// 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface SessionDiscoverPageProps {
   snapshot: SessionSnapshot | null;
   sessionList: AvailableSessionListItem[];
@@ -23,9 +34,12 @@ interface SessionDiscoverPageProps {
   onOpenPlay: () => void;
 }
 
+// 세션 탐색 탭 종류입니다. public은 공개 목록, my는 내가 참여한 목록입니다.
 type DiscoverSection = "public" | "my";
+// 세션 목록 정렬 기준입니다.
 type SessionSort = "latest" | "title" | "players";
 
+// 서버 세션 상태값을 한국어 라벨로 바꿉니다.
 const STATUS_LABEL: Record<string, string> = {
   lobby: "대기 중",
   recruiting: "모집 중",
@@ -43,6 +57,7 @@ const AI_GM_LABEL = "AI GM";
 const JOIN_BLOCKED_NOTICE =
   "\uD604\uC7AC \uB2E4\uB978 \uBAA8\uC9D1 \uC911\uC778 \uC138\uC158\uC5D0 \uC774\uBBF8 \uCC38\uC5EC \uD588\uC2B5\uB2C8\uB2E4.\n\uBAA8\uC9D1\uC744 \uB05D\uB0B4\uAC70\uB098 \uB098\uAC04 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.";
 
+// GM 모드 값에 따라 일반 GM/AI GM 라벨을 반환합니다.
 function getGmModeLabel(gmMode?: string | null): string {
   return gmMode === "AI" ? AI_GM_LABEL : GENERAL_GM_LABEL;
 }
@@ -51,6 +66,7 @@ function getSessionListItemKey(item: AvailableSessionListItem, index: number): s
   return item.sessionPublicId || item.sessionId || `${item.title}-${item.scenarioTitle}-${index}`;
 }
 
+// 초대 코드 참가 실패 메시지를 사용자 친화적인 문구로 바꿉니다.
 function getInviteErrorMessage(error: string | null): string | null {
   if (!error) return null;
   if (error.includes("Session with this invite code was not found.")) {
@@ -63,6 +79,7 @@ function isInviteCodeError(error: string | null): boolean {
   return Boolean(error?.includes("Session with this invite code was not found."));
 }
 
+// 페이지 전체에 띄울 에러만 걸러내고 메시지를 정리합니다.
 function getPageErrorMessage(error: string | null): string | null {
   if (!error || isInviteCodeError(error)) return null;
   if (error.includes("You can only join one recruiting session at a time.")) {
@@ -80,6 +97,7 @@ function getPageErrorMessage(error: string | null): string | null {
   return error;
 }
 
+// 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function SessionDiscoverPage({
   snapshot,
   sessionList,
@@ -94,6 +112,7 @@ export function SessionDiscoverPage({
   onOpenHostProfile,
   onOpenPlay,
 }: SessionDiscoverPageProps) {
+  // 화면 상태: 탭, 검색/필터/정렬, 모달, 페이지네이션을 관리합니다.
   const [activeSection, setActiveSection] = useState<DiscoverSection>(initialSection);
   const [inviteCode, setInviteCode] = useState("");
   const [query, setQuery] = useState("");
@@ -111,6 +130,7 @@ export function SessionDiscoverPage({
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
+  // 이미 참여 중인 모집 세션이 있으면 다른 모집 세션 참가를 막기 위한 상태입니다.
   const hasRecruitingSession = snapshot?.session.status === "recruiting";
   const hasBlockingSession =
     Boolean(snapshot) &&
@@ -118,11 +138,12 @@ export function SessionDiscoverPage({
     snapshot?.session.status !== "disbanded";
   const inviteError = getInviteErrorMessage(error);
   const pageError = getPageErrorMessage(error);
+  // 내 세션 목록에 있는 sessionId를 Set으로 만들어 참가 여부 확인을 빠르게 합니다.
   const joinedSessionIds = useMemo(() => new Set(mySessionList.map((item) => item.sessionId)), [mySessionList]);
 
   useEffect(() => {
     document.body.classList.add("session-discover-body");
-    return () => {
+  return () => {
       document.body.classList.remove("session-discover-body");
     };
   }, []);
@@ -136,6 +157,7 @@ export function SessionDiscoverPage({
     return () => window.clearTimeout(timeout);
   }, [pageError]);
 
+  // 중복 참가 불가 안내 토스트를 표시합니다.
   function showJoinBlockedToast() {
     setPageToast(null);
     window.setTimeout(() => {
@@ -153,10 +175,12 @@ export function SessionDiscoverPage({
     setInvitePending(false);
   }, [inviteError, invitePending, isInviteModalOpen]);
 
+  // 현재 탭에 맞춰 사용할 원본 목록과 페이지 인덱스를 결정합니다.
   const currentSection = activeSection;
   const currentSource = activeSection === "public" ? sessionList : mySessionList;
   const currentPage = activeSection === "public" ? publicPage : myPage;
 
+  // 검색어/테마/GM/상태 필터와 정렬을 적용한 목록입니다.
   const filteredSessions = useMemo(() => {
     const keyword = query.trim().toLowerCase();
 
@@ -184,6 +208,7 @@ export function SessionDiscoverPage({
     return next;
   }, [currentSource, gmFilter, query, sortOrder, statusFilter, themeFilter]);
 
+  // 페이지네이션 계산값입니다. safePage는 범위를 벗어난 페이지 접근을 막습니다.
   const totalPages = Math.max(1, Math.ceil(filteredSessions.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages - 1);
   const pagedSessions = useMemo(
@@ -202,6 +227,7 @@ export function SessionDiscoverPage({
     }
   }, [activeSection, currentPage, safePage]);
 
+  // 페이지 번호 버튼을 눌렀을 때 현재 탭에 맞는 페이지 state를 갱신합니다.
   function updatePage(nextPage: number) {
     if (activeSection === "public") {
       setPublicPage(nextPage);
@@ -210,6 +236,7 @@ export function SessionDiscoverPage({
     }
   }
 
+  // 초대 코드 입력 모달을 엽니다.
   function openInviteModal() {
     setInviteErrorVisible(false);
     setInvitePending(false);
@@ -226,6 +253,7 @@ export function SessionDiscoverPage({
     setIsInviteModalOpen(false);
   }
 
+  // 초대 코드 폼 제출: 입력값 정리 후 세션 참가 콜백을 호출합니다.
   function submitJoinByInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedCode = inviteCode.trim().toUpperCase();
@@ -239,6 +267,7 @@ export function SessionDiscoverPage({
     void onJoinSession(trimmedCode);
   }
 
+  // 세션 카드를 눌렀을 때 상세 정보를 API로 받아 모달에 표시합니다.
   async function openSessionDetail(sessionId: string) {
     setSelectedSessionDetail(null);
     setDetailBusy(true);
@@ -334,6 +363,7 @@ export function SessionDiscoverPage({
     }
   }
 
+  // 키보드 접근성: Enter/Space로 세션 카드를 열 수 있게 합니다.
   function handleRowKeyDown(event: KeyboardEvent<HTMLElement>, sessionId: string) {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
@@ -355,7 +385,8 @@ export function SessionDiscoverPage({
       ) : null}
 
       <section className="session-discover-layout">
-        <aside className="session-discover-sidebar">
+        {/* 좌측 사이드바: 공개 세션/내 세션 탭과 세션 생성/초대 코드 진입점입니다. */}
+      <aside className="session-discover-sidebar">
           <div className="session-discover-sidebar-nav">
             <button
               type="button"
@@ -592,6 +623,7 @@ export function SessionDiscoverPage({
         </section>
       </section>
 
+      {/* 초대 코드로 비공개/직접 세션에 참가하는 모달입니다. */}
       {isInviteModalOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={closeInviteModal}>
           <div

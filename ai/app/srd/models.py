@@ -257,3 +257,26 @@ class EquipmentReference(BaseModel):
     titleKo: str
     summaryKo: str
     source: SpellSource
+
+
+class RulebookDocument(BaseModel):
+    slug: str
+    title: str
+    description: str | None = None
+    category: str
+    updatedAt: str
+    content: str
+
+
+class RulebookCollection(BaseModel):
+    ruleSetId: str
+    title: str
+    description: str | None = None
+    attribution: str | None = None
+    defaultDocumentSlug: str
+    documents: list[RulebookDocument] = Field(default_factory=list)
+
+
+class RulebookExport(BaseModel):
+    version: int = 1
+    rulebooks: list[RulebookCollection] = Field(default_factory=list)

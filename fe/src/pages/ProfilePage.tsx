@@ -1,8 +1,18 @@
+/*
+ * ProfilePage
+ * 역할: 내가 보는 프로필 페이지입니다. 공개 프로필에 가까운 기본 정보와 계정 관리 진입점을 보여줍니다.
+ * 읽는 순서:
+ * 1) ProfilePageProps: 현재 사용자, 인증 상태, 로그아웃/계정관리 콜백
+ * 2) useCurrentProfile: 게스트/회원 상태를 반영한 표시용 프로필 계산
+ * 3) profileRows: 기본 정보 카드에 렌더링할 데이터 목록
+ * 4) JSX: 프로필 히어로, 기본 정보 카드, 프로필 상태 카드, 에러 표시
+ */
 import type { AuthMode } from "../types/auth";
 import { formatDate, useCurrentProfile } from "../hooks/useCurrentProfile";
 import type { StoredUser } from "../types/session";
 import { buildPublicProfilePath } from "../utils/routes";
 
+// 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface ProfilePageProps {
   user: StoredUser;
   accessToken: string | null;
@@ -13,6 +23,7 @@ interface ProfilePageProps {
   onOpenAccount: () => void;
 }
 
+// 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function ProfilePage({
   user,
   accessToken,
@@ -22,8 +33,10 @@ export function ProfilePage({
   onLogout,
   onOpenAccount,
 }: ProfilePageProps) {
+  // 현재 로그인 방식에 따라 표시할 프로필 데이터를 계산합니다.
   const { effectiveProfile, loadingProfile, profileError } = useCurrentProfile({ user, accessToken, authMode });
 
+  // 기본 정보 카드에 반복 출력할 label/value 목록입니다.
   const profileRows = [
     { label: "표시 이름", value: effectiveProfile.displayName },
     { label: "닉네임", value: effectiveProfile.nickname || "-" },
@@ -32,9 +45,9 @@ export function ProfilePage({
     { label: "대표 상태", value: authMode === "guest" ? "게스트 프로필" : "회원 프로필" },
     { label: "가입일", value: formatDate(effectiveProfile.createdAt) },
   ];
-
   return (
     <main className="profile-page">
+      {/* 프로필 대표 정보와 계정 관리/로그아웃 버튼 영역입니다. */}
       <section className="profile-hero">
         <div className="profile-hero-main">
           <span className="eyebrow">Profile</span>
@@ -61,6 +74,7 @@ export function ProfilePage({
         </div>
       </section>
 
+      {/* 상세 카드 영역: 왼쪽은 기본 정보, 오른쪽은 프로필 기능 설명입니다. */}
       <section className="profile-grid">
         <article className="profile-card">
           <div className="section-heading">

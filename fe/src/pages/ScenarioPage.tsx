@@ -1,9 +1,20 @@
+/*
+ * ScenarioPage
+ * 역할: 내가 만든 시나리오 목록을 검색/선택/삭제/복제하고 에디터로 이동하는 라이브러리 페이지입니다.
+ * 읽는 순서:
+ * 1) 복제 헬퍼: 기존 시나리오의 노드/링크/단서 ID를 새 ID로 재매핑
+ * 2) state: 목록, 선택된 시나리오, 검색어, 로딩/에러 상태
+ * 3) useEffect: 검색어 변경 시 내 시나리오 목록을 다시 조회
+ * 4) handler: 선택 시나리오 삭제, 선택 시나리오 복제
+ * 5) JSX: 좌측 사이드바, 검색/목록 영역, 우측 상세 패널
+ */
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "../components/Icon";
 import { createScenario, deleteScenario, getScenario, listMyScenarios } from "../services/api";
 import type { Scenario, StoredUser } from "../types/session";
 import type { CreateScenarioDto } from "@trpg/shared-types";
 
+// 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface ScenarioPageProps {
   user: StoredUser;
   accessToken: string | null;
@@ -13,14 +24,17 @@ interface ScenarioPageProps {
   onOpenEdit: (scenarioId: string) => void;
 }
 
+// 시나리오 복제 시 기존 ID와 충돌하지 않게 로컬 ID를 만듭니다.
 function makeCloneId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// 복제된 노드 ID 맵을 사용해 링크/단서가 새 노드를 가리키도록 바꿉니다.
 function remapNodeReference(value: unknown, nodeIdMap: Map<string, string>): unknown {
   return typeof value === "string" ? nodeIdMap.get(value) ?? value : value;
 }
 
+// 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function ScenarioPage({
   user,
   accessToken,
@@ -29,12 +43,14 @@ export function ScenarioPage({
   onOpenCreate,
   onOpenEdit,
 }: ScenarioPageProps) {
+  // 목록/선택/검색/로딩 상태입니다.
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
   const [localBusy, setLocalBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
 
+  // 검색어가 바뀌면 짧은 debounce 후 내 시나리오 목록을 다시 불러옵니다.
   useEffect(() => {
     let ignore = false;
     setLocalError(null);
@@ -60,18 +76,19 @@ export function ScenarioPage({
         }
       });
     }, 250);
-
-    return () => {
+  return () => {
       ignore = true;
       window.clearTimeout(timer);
     };
   }, [accessToken, searchTerm, user]);
 
+  // 현재 카드 목록에서 선택된 시나리오입니다. 오른쪽 상세 패널에 표시됩니다.
   const selectedScenario = useMemo(
     () => scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? null,
     [scenarios, selectedScenarioId],
   );
 
+  // 선택한 시나리오 삭제 버튼 동작입니다.
   async function handleDeleteSelected() {
     if (!selectedScenario) return;
     const confirmed = window.confirm(`${selectedScenario.title} 시나리오를 삭제할까요?`);
@@ -94,6 +111,7 @@ export function ScenarioPage({
     }
   }
 
+  // 선택한 시나리오를 전체 복제합니다. 노드/링크/단서 ID를 전부 새로 매핑합니다.
   async function handleCloneSelected() {
     if (!selectedScenario) return;
 
@@ -157,6 +175,7 @@ export function ScenarioPage({
 
   return (
     <main className="character-page fantasy-character-page">
+      {/* 좌측 사이드바: 시나리오 생성 버튼과 간단한 안내를 배치합니다. */}
       <section className="scenario-management-layout">
         <aside className="fantasy-character-sidebar">
           <button type="button" className="fantasy-character-sidebutton" onClick={onOpenCreate}>
@@ -188,7 +207,8 @@ export function ScenarioPage({
           </button>
         </aside>
 
-        <section className="scenario-library-board">
+        {/* 중앙/우측 메인 영역: 검색 가능한 시나리오 목록과 상세 패널입니다. */}
+      <section className="scenario-library-board">
           <div className="section-heading">
             <div>
               <span className="eyebrow">My scenarios</span>
@@ -211,7 +231,8 @@ export function ScenarioPage({
             />
           </label>
 
-          <div className="scenario-library-grid">
+          {/* 시나리오 카드 목록입니다. 카드 클릭 시 오른쪽 상세 패널 대상이 바뀝니다. */}
+        <div className="scenario-library-grid">
             {scenarios.length ? (
               scenarios.map((scenario) => (
                 <button
@@ -249,6 +270,7 @@ export function ScenarioPage({
           </div>
         </section>
 
+        {/* 선택한 시나리오의 메타 정보와 편집/복제/삭제 버튼 영역입니다. */}
         <section className="scenario-detail-panel">
           {selectedScenario ? (
             <>
