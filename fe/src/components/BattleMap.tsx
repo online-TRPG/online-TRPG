@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ComponentProps } from "react";
+import type { ComponentProps, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from "react-konva";
-import type { VttMapStateDto } from "@trpg/shared-types";
+import type { SrdMonsterReferenceDto, VttMapStateDto } from "@trpg/shared-types";
 import type { Character } from "../types/session";
 
 interface BattleMapProps {
@@ -12,11 +12,61 @@ interface BattleMapProps {
   currentUserId?: string | null;
   title?: string;
   showPartyTools?: boolean;
+  monsterCatalog?: SrdMonsterReferenceDto[];
+  monsterCatalogError?: string | null;
 }
 
 const tokenPalette = ["#79d8ff", "#f6d365", "#9ee6a8", "#f59cb1", "#c4a7ff", "#ffa87a"];
 const zoomSteps = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const feetPerGrid = 5;
+const mapText = {
+  tokenCount: (count: number) => "\uD1A0\uD070 " + count + "\uAC1C",
+  mapImagePlaceholder: "\uB9F5 \uC774\uBBF8\uC9C0 URL",
+  applyMap: "\uB9F5 \uC801\uC6A9",
+  syncParty: "\uD30C\uD2F0 \uD1A0\uD070 \uB3D9\uAE30\uD654",
+  monsterSearchPlaceholder: "SRD \uBAAC\uC2A4\uD130 \uAC80\uC0C9",
+  unknownCr: "CR \uBBF8\uC0C1",
+  noMonsterOptions: "\uC120\uD0DD \uAC00\uB2A5\uD55C \uBAAC\uC2A4\uD130 \uC5C6\uC74C",
+  addMonster: "\uBAAC\uC2A4\uD130 \uCD94\uAC00",
+  pan: "\uC774\uB3D9",
+  measure: "\uAC70\uB9AC \uCE21\uC815",
+  ping: "\uD551",
+  fog: "\uC548\uAC1C",
+  hideAll: "\uC804\uCCB4 \uAC00\uB9AC\uAE30",
+  reset: "\uCD08\uAE30\uD654",
+  width: "\uAC00\uB85C",
+  height: "\uC138\uB85C",
+  grid: "\uACA9\uC790",
+  startCount: "\uC2DC\uC791 \uC778\uC6D0",
+  generateStarts: "\uC2DC\uC791 \uC704\uCE58 \uC0DD\uC131",
+  clearStarts: "\uC2DC\uC791 \uC704\uCE58 \uC0AD\uC81C",
+  clearMeasure: "\uCE21\uC815 \uC9C0\uC6B0\uAE30",
+  tokenSnap: "\uD1A0\uD070 \uACA9\uC790 \uC2A4\uB0C5",
+  reveal: "\uB4DC\uB7EC\uB0B4\uAE30",
+  hide: "\uAC00\uB9AC\uAE30",
+  snap: "\uC2A4\uB0C5",
+  revealAll: "\uC804\uCCB4 \uACF5\uAC1C",
+  token: "\uD1A0\uD070",
+  close: "\uB2EB\uAE30",
+  name: "\uC774\uB984",
+  imageUrl: "\uC774\uBBF8\uC9C0 URL",
+  size: "\uD06C\uAE30",
+  hidden: "\uC228\uAE40",
+  hostile: "\uC801\uB300\uC801",
+  srdMonster: "SRD \uBAAC\uC2A4\uD130",
+  speed: "\uC18D\uB3C4",
+  senses: "\uAC10\uC9C0",
+  languages: "\uC5B8\uC5B4",
+  traits: "\uD2B9\uC131",
+  actions: "\uD589\uB3D9",
+  legendaryActions: "\uC804\uC124 \uD589\uB3D9",
+  duplicate: "\uBCF5\uC81C",
+  front: "\uC55E\uC73C\uB85C",
+  back: "\uB4A4\uB85C",
+  deleteToken: "\uD1A0\uD070 \uC0AD\uC81C",
+  fogLabel: "\uC548\uAC1C",
+  deleteFog: "\uC548\uAC1C \uC0AD\uC81C",
+} as const;
 
 type MeasurePoint = { x: number; y: number };
 type PingMarker = { id: string; x: number; y: number; label: string };
@@ -24,6 +74,8 @@ type FogAction = "reveal" | "hide";
 type FogRect = VttMapStateDto["fogRects"][number];
 type FogBox = Pick<FogRect, "x" | "y" | "width" | "height">;
 type TokenDragMeasure = { tokenId: string; from: MeasurePoint; to: MeasurePoint };
+type StartingPosition = NonNullable<VttMapStateDto["startingPositions"]>[number];
+type MapSizeField = "width" | "height" | "gridSize";
 
 function useCanvasImage(src: string | null | undefined) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -68,6 +120,29 @@ function snapToGrid(value: number, gridSize: number) {
 function clamp(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.min(Math.max(value, min), max);
+}
+
+function getMonsterDisplayName(monster: SrdMonsterReferenceDto) {
+  return monster.nameKo?.trim() || monster.nameEn;
+}
+
+function getDefaultStartingPosition(index: number, map: VttMapStateDto): StartingPosition {
+  const columns = 4;
+  const column = index % columns;
+  const row = Math.floor(index / columns);
+
+  return {
+    id: `start:${index + 1}`,
+    label: `P${index + 1}`,
+    x: clamp(map.gridSize * (2 + column), 0, map.width - map.gridSize),
+    y: clamp(map.height - map.gridSize * (3 - row), 0, map.height - map.gridSize),
+  };
+}
+
+function buildStartingPositions(count: number, map: VttMapStateDto): StartingPosition[] {
+  return Array.from({ length: Math.max(1, Math.min(count, 12)) }, (_, index) =>
+    getDefaultStartingPosition(index, map),
+  );
 }
 
 function formatDistance(from: MeasurePoint, to: MeasurePoint, gridSize: number) {
@@ -121,6 +196,8 @@ export function BattleMap({
   currentUserId = null,
   title = "Tabletop",
   showPartyTools = true,
+  monsterCatalog = [],
+  monsterCatalogError = null,
 }: BattleMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(960);
@@ -143,6 +220,16 @@ export function BattleMap({
   const [tokenDragMeasure, setTokenDragMeasure] = useState<TokenDragMeasure | null>(null);
   const [pings, setPings] = useState<PingMarker[]>([]);
   const [imageUrlInput, setImageUrlInput] = useState(map.imageUrl ?? "");
+  const [monsterSearch, setMonsterSearch] = useState("");
+  const [selectedMonsterId, setSelectedMonsterId] = useState("");
+  const [mapSizeDraft, setMapSizeDraft] = useState({
+    width: String(map.width),
+    height: String(map.height),
+    gridSize: String(map.gridSize),
+  });
+  const [startPositionCount, setStartPositionCount] = useState(
+    Math.max(1, Math.min(map.startingPositions?.length || Math.max(characters.length, 4), 12)),
+  );
   const mapImage = useCanvasImage(map.imageUrl);
   const visibleTokens = useMemo(
     () => map.tokens.filter((token) => isHost || !token.hidden),
@@ -154,6 +241,22 @@ export function BattleMap({
   const displayHeight = clamp(map.height * baseScale, 320, 720);
   const selectedToken = map.tokens.find((token) => token.id === selectedTokenId) ?? null;
   const selectedFog = map.fogRects.find((rect) => rect.id === selectedFogId) ?? null;
+  const startingPositions = map.startingPositions ?? [];
+  const filteredMonsterCatalog = useMemo(() => {
+    const keyword = monsterSearch.trim().toLowerCase();
+    if (!keyword) return monsterCatalog;
+    return monsterCatalog.filter((monster) =>
+      [monster.id, monster.nameEn, monster.nameKo ?? ""].some((value) =>
+        value.toLowerCase().includes(keyword),
+      ),
+    );
+  }, [monsterCatalog, monsterSearch]);
+  const selectedMonster =
+    filteredMonsterCatalog.find((monster) => monster.id === selectedMonsterId) ??
+    monsterCatalog.find((monster) => monster.id === selectedMonsterId) ??
+    filteredMonsterCatalog[0] ??
+    monsterCatalog[0] ??
+    null;
   const selectedCharacter = selectedToken?.sessionCharacterId
     ? characters.find((character) => character.id === selectedToken.sessionCharacterId) ?? null
     : null;
@@ -193,6 +296,24 @@ export function BattleMap({
   useEffect(() => {
     setImageUrlInput(map.imageUrl ?? "");
   }, [map.imageUrl]);
+
+  useEffect(() => {
+    setMapSizeDraft({
+      width: String(map.width),
+      height: String(map.height),
+      gridSize: String(map.gridSize),
+    });
+  }, [map.gridSize, map.height, map.width]);
+
+  useEffect(() => {
+    setStartPositionCount(Math.max(1, Math.min(startingPositions.length || Math.max(characters.length, 4), 12)));
+  }, [characters.length, startingPositions.length]);
+
+  useEffect(() => {
+    if (!selectedMonsterId && monsterCatalog.length > 0) {
+      setSelectedMonsterId(monsterCatalog[0].id);
+    }
+  }, [monsterCatalog, selectedMonsterId]);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -292,6 +413,55 @@ export function BattleMap({
     });
   }
 
+  function updateMapSizeDraft(field: MapSizeField, value: string) {
+    setMapSizeDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function commitMapSizeField(field: MapSizeField) {
+    const rawValue = mapSizeDraft[field].trim();
+    if (!rawValue) {
+      setMapSizeDraft((current) => ({
+        ...current,
+        [field]: String(map[field]),
+      }));
+      return;
+    }
+
+    const parsedValue = Number(rawValue);
+    if (!Number.isFinite(parsedValue)) {
+      setMapSizeDraft((current) => ({
+        ...current,
+        [field]: String(map[field]),
+      }));
+      return;
+    }
+
+    if (field === "width") {
+      updateMapSize({ width: parsedValue });
+      return;
+    }
+
+    if (field === "height") {
+      updateMapSize({ height: parsedValue });
+      return;
+    }
+
+    updateMapSize({ gridSize: parsedValue });
+  }
+
+  function handleMapSizeDraftKeyDown(
+    event: ReactKeyboardEvent<HTMLInputElement>,
+    field: MapSizeField,
+  ) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    commitMapSizeField(field);
+    event.currentTarget.blur();
+  }
+
   function handleTokenMove(tokenId: string, x: number, y: number, snap = isTokenSnapEnabled) {
     const targetToken = map.tokens.find((token) => token.id === tokenId);
     if (!targetToken || !canControlToken(targetToken)) return;
@@ -309,21 +479,33 @@ export function BattleMap({
     });
   }
 
+  function getPartyPlacement(index: number) {
+    const slot = startingPositions[index] ?? getDefaultStartingPosition(index, map);
+    return {
+      x: clamp(slot.x, 0, map.width - map.gridSize),
+      y: clamp(slot.y, 0, map.height - map.gridSize),
+    };
+  }
+
   function addHostileToken() {
+    if (!selectedMonster) return;
+
     const index = map.tokens.filter((token) => token.isHostile).length + 1;
+    const position = getDefaultStartingPosition(index + 3, map);
     updateMap({
       tokens: [
         ...map.tokens,
         {
           id: `token:hostile:${Date.now()}`,
           sessionCharacterId: null,
-          name: `Enemy ${index}`,
+          name: getMonsterDisplayName(selectedMonster),
           imageUrl: null,
-          x: map.gridSize * 10,
-          y: map.gridSize * 5,
+          x: position.x,
+          y: position.y,
           size: map.gridSize,
           hidden: false,
           isHostile: true,
+          monster: selectedMonster,
         },
       ],
     });
@@ -331,22 +513,69 @@ export function BattleMap({
 
   function syncPartyTokens() {
     const knownTokenIds = new Set(map.tokens.map((token) => token.sessionCharacterId).filter(Boolean));
-    const additions = characters
-      .filter((character) => !knownTokenIds.has(character.id))
-      .map((character, index) => ({
-        id: `token:${character.id}`,
-        sessionCharacterId: character.id,
-        name: character.name,
-        imageUrl: character.avatarUrl ?? null,
-        x: map.gridSize * (2 + index),
-        y: map.gridSize * 2,
-        size: map.gridSize,
-        hidden: false,
-        isHostile: false,
-      }));
+    const additions = characters.flatMap((character, index) =>
+      knownTokenIds.has(character.id)
+        ? []
+        : [
+            {
+              ...getPartyPlacement(index),
+              id: `token:${character.id}`,
+              sessionCharacterId: character.id,
+              name: character.name,
+              imageUrl: character.avatarUrl ?? null,
+              size: map.gridSize,
+              hidden: false,
+              isHostile: false,
+              monster: null,
+            },
+          ],
+    );
 
     if (!additions.length) return;
     updateMap({ tokens: [...map.tokens, ...additions] });
+  }
+
+  function updateStartingPosition(
+    positionId: string,
+    patch: Partial<StartingPosition>,
+    snap = false,
+  ) {
+    updateMap({
+      startingPositions: startingPositions.map((position) =>
+        position.id === positionId
+          ? {
+              ...position,
+              ...patch,
+              x:
+                patch.x === undefined
+                  ? position.x
+                  : clamp(
+                      snap ? snapToGrid(patch.x, map.gridSize) : patch.x,
+                      0,
+                      map.width - map.gridSize,
+                    ),
+              y:
+                patch.y === undefined
+                  ? position.y
+                  : clamp(
+                      snap ? snapToGrid(patch.y, map.gridSize) : patch.y,
+                      0,
+                      map.height - map.gridSize,
+                    ),
+              label: patch.label === undefined ? position.label ?? null : patch.label,
+            }
+          : position,
+      ),
+    });
+  }
+
+  function generateStartingPositions() {
+    const nextPositions = buildStartingPositions(startPositionCount, map);
+    updateMap({ startingPositions: nextPositions });
+  }
+
+  function clearStartingPositions() {
+    updateMap({ startingPositions: [] });
   }
 
   function addPingAt(point: MeasurePoint) {
@@ -518,7 +747,7 @@ export function BattleMap({
       <div className="vtt-toolbar">
         <div>
           <span className="eyebrow">{title}</span>
-          <strong>{map.tokens.length} tokens</strong>
+          <strong>{mapText.tokenCount(map.tokens.length)}</strong>
         </div>
 
         {isHost ? (
@@ -526,33 +755,53 @@ export function BattleMap({
             <input
               value={imageUrlInput}
               onChange={(event) => setImageUrlInput(event.target.value)}
-              placeholder="Map image URL"
+              placeholder={mapText.mapImagePlaceholder}
             />
             <button type="button" onClick={() => updateMap({ imageUrl: imageUrlInput.trim() || null })}>
-              Set map
+              {mapText.applyMap}
             </button>
             {showPartyTools ? (
               <button type="button" onClick={syncPartyTokens}>
-                Sync party
+                {mapText.syncParty}
               </button>
             ) : null}
+            <input
+              value={monsterSearch}
+              onChange={(event) => setMonsterSearch(event.target.value)}
+              placeholder={mapText.monsterSearchPlaceholder}
+            />
+            <select
+              value={selectedMonster?.id ?? ""}
+              onChange={(event) => setSelectedMonsterId(event.target.value)}
+              disabled={monsterCatalog.length === 0}
+            >
+              {filteredMonsterCatalog.length ? (
+                filteredMonsterCatalog.slice(0, 120).map((monster) => (
+                  <option key={monster.id} value={monster.id}>
+                    {getMonsterDisplayName(monster)} ({monster.challengeRaw ?? mapText.unknownCr})
+                  </option>
+                ))
+              ) : (
+                <option value="">{monsterCatalogError ?? mapText.noMonsterOptions}</option>
+              )}
+            </select>
             <button type="button" onClick={addHostileToken}>
-              Add enemy
+              {mapText.addMonster}
             </button>
             <button type="button" className={isPanMode ? "active" : ""} onClick={() => setExclusiveTool("pan")}>
-              Pan
+              {mapText.pan}
             </button>
             <button type="button" className={isMeasureMode ? "active" : ""} onClick={() => setExclusiveTool("measure")}>
-              Measure
+              {mapText.measure}
             </button>
             <button type="button" className={isPingMode ? "active" : ""} onClick={() => setExclusiveTool("ping")}>
-              Ping
+              {mapText.ping}
             </button>
             <button type="button" className={isFogMode ? "active" : ""} onClick={() => setExclusiveTool("fog")}>
-              Fog
+              {mapText.fog}
             </button>
             <button type="button" onClick={hideFullMap}>
-              Hide all
+              {mapText.hideAll}
             </button>
           </div>
         ) : null}
@@ -574,47 +823,69 @@ export function BattleMap({
             +
           </button>
           <button type="button" onClick={resetView}>
-            Reset
+            {mapText.reset}
           </button>
         </div>
 
         {isHost ? (
           <div className="vtt-map-settings">
             <label>
-              W
+              {mapText.width}
               <input
                 type="number"
                 min={320}
                 max={4000}
-                value={map.width}
-                onChange={(event) => updateMapSize({ width: Number(event.target.value) })}
+                value={mapSizeDraft.width}
+                onChange={(event) => updateMapSizeDraft("width", event.target.value)}
+                onBlur={() => commitMapSizeField("width")}
+                onKeyDown={(event) => handleMapSizeDraftKeyDown(event, "width")}
               />
             </label>
             <label>
-              H
+              {mapText.height}
               <input
                 type="number"
                 min={240}
                 max={4000}
-                value={map.height}
-                onChange={(event) => updateMapSize({ height: Number(event.target.value) })}
+                value={mapSizeDraft.height}
+                onChange={(event) => updateMapSizeDraft("height", event.target.value)}
+                onBlur={() => commitMapSizeField("height")}
+                onKeyDown={(event) => handleMapSizeDraftKeyDown(event, "height")}
               />
             </label>
             <label>
-              Grid
+              {mapText.grid}
               <input
                 type="number"
                 min={16}
                 max={160}
-                value={map.gridSize}
-                onChange={(event) => updateMapSize({ gridSize: Number(event.target.value) })}
+                value={mapSizeDraft.gridSize}
+                onChange={(event) => updateMapSizeDraft("gridSize", event.target.value)}
+                onBlur={() => commitMapSizeField("gridSize")}
+                onKeyDown={(event) => handleMapSizeDraftKeyDown(event, "gridSize")}
               />
             </label>
+            <label>
+              {mapText.startCount}
+              <input
+                type="number"
+                min={1}
+                max={12}
+                value={startPositionCount}
+                onChange={(event) => setStartPositionCount(clamp(Number(event.target.value) || 1, 1, 12))}
+              />
+            </label>
+            <button type="button" onClick={generateStartingPositions}>
+              {mapText.generateStarts}
+            </button>
+            <button type="button" onClick={clearStartingPositions}>
+              {mapText.clearStarts}
+            </button>
           </div>
         ) : null}
         {measureStart ? (
           <button type="button" className="vtt-clear-measure" onClick={clearMeasure}>
-            Clear measure
+            {mapText.clearMeasure}
           </button>
         ) : null}
         <label className="vtt-token-snap">
@@ -623,15 +894,15 @@ export function BattleMap({
             checked={isTokenSnapEnabled}
             onChange={(event) => setTokenSnapEnabled(event.target.checked)}
           />
-          Token snap
+          {mapText.tokenSnap}
         </label>
         {isHost && isFogMode ? (
           <div className="vtt-fog-tools">
             <button type="button" className={fogAction === "reveal" ? "active" : ""} onClick={() => setFogAction("reveal")}>
-              Reveal
+              {mapText.reveal}
             </button>
             <button type="button" className={fogAction === "hide" ? "active" : ""} onClick={() => setFogAction("hide")}>
-              Hide
+              {mapText.hide}
             </button>
             <label>
               <input
@@ -639,13 +910,13 @@ export function BattleMap({
                 checked={isFogSnapEnabled}
                 onChange={(event) => setFogSnapEnabled(event.target.checked)}
               />
-              Snap
+              {mapText.snap}
             </label>
             <button type="button" onClick={hideFullMap}>
-              Hide all
+              {mapText.hideAll}
             </button>
             <button type="button" onClick={() => updateMap({ fogRects: [] })}>
-              Reveal all
+              {mapText.revealAll}
             </button>
           </div>
         ) : null}
@@ -705,6 +976,46 @@ export function BattleMap({
           </Layer>
 
           <Layer>
+            {isHost
+              ? startingPositions.map((position, index) => (
+                  <Group
+                    key={position.id}
+                    x={position.x}
+                    y={position.y}
+                    draggable={!isFogMode && !isPanMode && !isMeasureMode && !isPingMode}
+                    onDragEnd={(event) => {
+                      event.cancelBubble = true;
+                      updateStartingPosition(
+                        position.id,
+                        {
+                          x: event.target.x(),
+                          y: event.target.y(),
+                        },
+                        isTokenSnapEnabled && !event.evt.shiftKey,
+                      );
+                    }}
+                  >
+                    <Circle
+                      x={map.gridSize / 2}
+                      y={map.gridSize / 2}
+                      radius={map.gridSize / 2 - 6}
+                      fill="rgba(121, 216, 255, 0.14)"
+                      stroke="#79d8ff"
+                      strokeWidth={2}
+                      dash={[8, 6]}
+                    />
+                    <Text
+                      text={String(index + 1)}
+                      width={map.gridSize}
+                      y={map.gridSize / 2 - 10}
+                      align="center"
+                      fill="#d8f6ff"
+                      fontSize={18}
+                      fontStyle="bold"
+                    />
+                  </Group>
+                ))
+              : null}
             {selectedToken && selectedCharacter ? (
               <Circle
                 x={selectedToken.x + selectedToken.size / 2}
@@ -869,17 +1180,17 @@ export function BattleMap({
         {isHost && selectedToken ? (
           <aside className="vtt-inspector">
             <div className="vtt-inspector-head">
-              <span className="eyebrow">Token</span>
+              <span className="eyebrow">{mapText.token}</span>
               <button type="button" onClick={() => setSelectedTokenId(null)}>
-                Close
+                {mapText.close}
               </button>
             </div>
             <label>
-              Name
+              {mapText.name}
               <input value={selectedToken.name} onChange={(event) => updateToken(selectedToken.id, { name: event.target.value })} />
             </label>
             <label>
-              Image URL
+              {mapText.imageUrl}
               <input value={selectedToken.imageUrl ?? ""} onChange={(event) => updateToken(selectedToken.id, { imageUrl: event.target.value || null })} />
             </label>
             <div className="vtt-field-row">
@@ -892,33 +1203,57 @@ export function BattleMap({
                 <input type="number" value={selectedToken.y} onChange={(event) => updateToken(selectedToken.id, { y: Number(event.target.value) })} />
               </label>
               <label>
-                Size
+                {mapText.size}
                 <input type="number" min={24} max={160} value={selectedToken.size} onChange={(event) => updateToken(selectedToken.id, { size: Number(event.target.value) })} />
               </label>
             </div>
             <div className="vtt-check-row">
               <label>
                 <input type="checkbox" checked={selectedToken.hidden === true} onChange={(event) => updateToken(selectedToken.id, { hidden: event.target.checked })} />
-                Hidden
+                {mapText.hidden}
               </label>
               <label>
                 <input type="checkbox" checked={selectedToken.isHostile === true} onChange={(event) => updateToken(selectedToken.id, { isHostile: event.target.checked })} />
-                Hostile
+                {mapText.hostile}
               </label>
             </div>
+            {selectedToken.monster ? (
+              <div className="vtt-monster-card">
+                <span className="eyebrow">{mapText.srdMonster}</span>
+                <strong>{getMonsterDisplayName(selectedToken.monster)}</strong>
+                <p>{selectedToken.monster.basicRaw}</p>
+                <ul className="vtt-monster-stats">
+                  <li>AC: {selectedToken.monster.armorClassRaw ?? "-"}</li>
+                  <li>HP: {selectedToken.monster.hitPointsRaw ?? "-"}</li>
+                  <li>{mapText.speed}: {selectedToken.monster.speedRaw ?? "-"}</li>
+                  <li>CR: {selectedToken.monster.challengeRaw ?? "-"}</li>
+                </ul>
+                <p>{mapText.senses}: {selectedToken.monster.sensesRaw ?? "-"}</p>
+                <p>{mapText.languages}: {selectedToken.monster.languagesRaw ?? "-"}</p>
+                {selectedToken.monster.traits.length ? (
+                  <p>{mapText.traits}: {selectedToken.monster.traits.join(", ")}</p>
+                ) : null}
+                {selectedToken.monster.actions.length ? (
+                  <p>{mapText.actions}: {selectedToken.monster.actions.join(", ")}</p>
+                ) : null}
+                {selectedToken.monster.legendaryActions.length ? (
+                  <p>{mapText.legendaryActions}: {selectedToken.monster.legendaryActions.join(", ")}</p>
+                ) : null}
+              </div>
+            ) : null}
             <div className="vtt-inspector-actions">
               <button type="button" onClick={() => duplicateToken(selectedToken.id)}>
-                Duplicate
+                {mapText.duplicate}
               </button>
               <button type="button" onClick={() => moveTokenLayer(selectedToken.id, "front")}>
-                Front
+                {mapText.front}
               </button>
               <button type="button" onClick={() => moveTokenLayer(selectedToken.id, "back")}>
-                Back
+                {mapText.back}
               </button>
             </div>
             <button type="button" className="danger" onClick={() => deleteToken(selectedToken.id)}>
-              Delete token
+              {mapText.deleteToken}
             </button>
           </aside>
         ) : null}
@@ -926,9 +1261,9 @@ export function BattleMap({
         {isHost && selectedFog ? (
           <aside className="vtt-inspector">
             <div className="vtt-inspector-head">
-              <span className="eyebrow">Fog</span>
+              <span className="eyebrow">{mapText.fogLabel}</span>
               <button type="button" onClick={() => setSelectedFogId(null)}>
-                Close
+                {mapText.close}
               </button>
             </div>
             <div className="vtt-field-row">
@@ -943,16 +1278,16 @@ export function BattleMap({
             </div>
             <div className="vtt-field-row">
               <label>
-                W
+                {mapText.width}
                 <input type="number" value={selectedFog.width} onChange={(event) => updateFogRect(selectedFog.id, { width: Number(event.target.value) })} />
               </label>
               <label>
-                H
+                {mapText.height}
                 <input type="number" value={selectedFog.height} onChange={(event) => updateFogRect(selectedFog.id, { height: Number(event.target.value) })} />
               </label>
             </div>
             <button type="button" className="danger" onClick={() => deleteFogRect(selectedFog.id)}>
-              Delete fog
+              {mapText.deleteFog}
             </button>
           </aside>
         ) : null}

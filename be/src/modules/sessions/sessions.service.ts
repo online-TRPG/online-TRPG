@@ -417,7 +417,8 @@ export class SessionsService {
       state.currentNodeId,
     );
     if (scenarioMap) {
-      const map = this.normalizeVttMap(scenarioMap, state.currentNodeId ?? null);
+      const normalizedMap = this.normalizeVttMap(scenarioMap, state.currentNodeId ?? null);
+      const map = await this.applyScenarioStartingPositions(resolvedSessionId, normalizedMap);
       return session.hostUserId === userId ? map : this.redactVttMapForPlayer(map);
     }
 
@@ -1538,6 +1539,48 @@ export class SessionsService {
     sessionId: string,
     scenarioNodeId: string | null,
   ): Promise<VttMapStateDto> {
+    const gridSize = 64;
+    const width = 1280;
+    const height = 832;
+    const startingPositions = this.createDefaultStartingPositions(gridSize, width, height, 4);
+    const tokens = await this.buildSessionCharacterTokens(sessionId, {
+      gridSize,
+      width,
+      height,
+      startingPositions,
+    });
+
+    return {
+      id: `map:${sessionId}`,
+      scenarioNodeId,
+      imageUrl: null,
+      gridType: "square",
+      gridSize,
+      width,
+      height,
+      tokens,
+      fogRects: [],
+      startingPositions,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  private async applyScenarioStartingPositions(
+    sessionId: string,
+    map: VttMapStateDto,
+  ): Promise<VttMapStateDto> {
+    const tokens = await this.buildSessionCharacterTokens(sessionId, map, map.tokens);
+    return {
+      ...map,
+      tokens,
+    };
+  }
+
+  private async buildSessionCharacterTokens(
+    sessionId: string,
+    map: Pick<VttMapStateDto, "gridSize" | "width" | "height" | "startingPositions">,
+    existingTokens: VttMapStateDto["tokens"] = [],
+  ): Promise<VttMapStateDto["tokens"]> {
     const sessionCharacters = await this.prisma.sessionCharacter.findMany({
       where: {
         sessionId,
@@ -1546,29 +1589,58 @@ export class SessionsService {
       include: { character: true },
       orderBy: { createdAt: "asc" },
     });
-    const gridSize = 64;
+    const preservedTokens = existingTokens.filter((token) => !token.sessionCharacterId).slice(0, 68);
 
-    return {
-      id: `map:${sessionId}`,
-      scenarioNodeId,
-      imageUrl: null,
-      gridType: "square",
-      gridSize,
-      width: 1280,
-      height: 832,
-      tokens: sessionCharacters.slice(0, 12).map((sessionCharacter, index) => ({
+    const playerTokens = sessionCharacters.slice(0, 12).map((sessionCharacter, index) => {
+      const slot = map.startingPositions?.[index] ?? null;
+      const fallback = this.getDefaultPlayerTokenPosition(index, map.gridSize, map.width, map.height);
+
+      return {
         id: `token:${sessionCharacter.id}`,
         sessionCharacterId: sessionCharacter.id,
         name: sessionCharacter.character.name,
         imageUrl: sessionCharacter.character.avatarUrl ?? null,
-        x: gridSize * (2 + index),
-        y: gridSize * (3 + (index % 2)),
-        size: gridSize,
+        x: slot ? this.clampNumber(slot.x, 0, map.width - map.gridSize) : fallback.x,
+        y: slot ? this.clampNumber(slot.y, 0, map.height - map.gridSize) : fallback.y,
+        size: map.gridSize,
         hidden: false,
         isHostile: false,
-      })),
-      fogRects: [],
-      updatedAt: new Date().toISOString(),
+        monster: null,
+      };
+    });
+
+    return [...preservedTokens, ...playerTokens].slice(0, 80);
+  }
+
+  private createDefaultStartingPositions(
+    gridSize: number,
+    width: number,
+    height: number,
+    count: number,
+  ): NonNullable<VttMapStateDto["startingPositions"]> {
+    return Array.from({ length: count }, (_, index) => {
+      const position = this.getDefaultPlayerTokenPosition(index, gridSize, width, height);
+      return {
+        id: `start:${index + 1}`,
+        label: `P${index + 1}`,
+        x: position.x,
+        y: position.y,
+      };
+    });
+  }
+
+  private getDefaultPlayerTokenPosition(
+    index: number,
+    gridSize: number,
+    width: number,
+    height: number,
+  ): { x: number; y: number } {
+    const columns = 4;
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    return {
+      x: this.clampNumber(gridSize * (2 + column), 0, width - gridSize),
+      y: this.clampNumber(height - gridSize * (3 - row), 0, height - gridSize),
     };
   }
 
@@ -1588,7 +1660,8 @@ export class SessionsService {
       state.currentNodeId,
     );
     if (scenarioMap) {
-      return this.normalizeVttMap(scenarioMap, state.currentNodeId ?? null);
+      const normalizedMap = this.normalizeVttMap(scenarioMap, state.currentNodeId ?? null);
+      return this.applyScenarioStartingPositions(sessionId, normalizedMap);
     }
 
     return this.buildDefaultVttMap(sessionId, state.currentNodeId ?? null);
@@ -1603,6 +1676,7 @@ export class SessionsService {
           ...token,
           hidden: false,
         })),
+      startingPositions: [],
     };
   }
 
@@ -1677,6 +1751,7 @@ export class SessionsService {
       baseline.gridSize === requested.gridSize &&
       baseline.width === requested.width &&
       baseline.height === requested.height &&
+      JSON.stringify(baseline.startingPositions ?? []) === JSON.stringify(requested.startingPositions ?? []) &&
       JSON.stringify(baseline.fogRects) === JSON.stringify(requested.fogRects);
 
     if (!sameShell) {
@@ -1719,6 +1794,33 @@ export class SessionsService {
       size: this.clampNumber(token.size, 24, 160),
       hidden: token.hidden === true,
       isHostile: token.isHostile === true,
+      monster: token.monster
+        ? {
+            id: token.monster.id,
+            nameEn: token.monster.nameEn,
+            nameKo: token.monster.nameKo ?? null,
+            basicRaw: token.monster.basicRaw,
+            armorClassRaw: token.monster.armorClassRaw ?? null,
+            hitPointsRaw: token.monster.hitPointsRaw ?? null,
+            speedRaw: token.monster.speedRaw ?? null,
+            challengeRaw: token.monster.challengeRaw ?? null,
+            sensesRaw: token.monster.sensesRaw ?? null,
+            languagesRaw: token.monster.languagesRaw ?? null,
+            traits: Array.isArray(token.monster.traits) ? token.monster.traits.slice(0, 20) : [],
+            actions: Array.isArray(token.monster.actions) ? token.monster.actions.slice(0, 20) : [],
+            legendaryActions: Array.isArray(token.monster.legendaryActions)
+              ? token.monster.legendaryActions.slice(0, 20)
+              : [],
+            playReference: token.monster.playReference ?? null,
+            source: token.monster.source
+              ? {
+                  file: token.monster.source.file ?? undefined,
+                  page: token.monster.source.page ?? undefined,
+                  heading: token.monster.source.heading ?? undefined,
+                }
+              : null,
+          }
+        : null,
     }));
     const fogRects = map.fogRects.slice(0, 200).map((rect) => ({
       id: rect.id,
@@ -1726,6 +1828,12 @@ export class SessionsService {
       y: this.clampNumber(rect.y, 0, height),
       width: this.clampNumber(rect.width, 1, width),
       height: this.clampNumber(rect.height, 1, height),
+    }));
+    const startingPositions = (map.startingPositions ?? []).slice(0, 12).map((position, index) => ({
+      id: position.id || `start:${index + 1}`,
+      label: typeof position.label === "string" && position.label.trim() ? position.label.trim() : null,
+      x: this.clampNumber(position.x, 0, width - gridSize),
+      y: this.clampNumber(position.y, 0, height - gridSize),
     }));
 
     return {
@@ -1738,6 +1846,7 @@ export class SessionsService {
       height,
       tokens,
       fogRects,
+      startingPositions,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -1763,6 +1872,7 @@ export class SessionsService {
         height: Number(candidate.height) || 832,
         tokens: candidate.tokens,
         fogRects: candidate.fogRects,
+        startingPositions: Array.isArray(candidate.startingPositions) ? candidate.startingPositions : [],
         updatedAt: candidate.updatedAt ?? new Date().toISOString(),
       },
       candidate.scenarioNodeId ?? null,

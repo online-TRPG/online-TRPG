@@ -14,6 +14,7 @@ import { LoginPage } from '../pages/LoginPage';
 import { PlayPage } from '../pages/PlayPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { PublicProfilePage } from '../pages/PublicProfilePage';
+import { RulebookPage } from '../pages/RulebookPage';
 import { ScenarioEditorPage } from '../pages/ScenarioEditorPage';
 import { ScenarioPage } from '../pages/ScenarioPage';
 import { SessionCreatePage } from '../pages/SessionCreatePage';
@@ -504,6 +505,8 @@ export function App() {
           />
         ) : null}
 
+        {!isPlayView && activeView === 'rulebook' ? <RulebookPage /> : null}
+
         {!isPlayView && activeView === 'profile' ? (
           <ProfilePage
             user={currentUser}
@@ -636,6 +639,7 @@ export function App() {
         {!isPlayView &&
         activeView !== 'main' &&
         activeView !== 'characters' &&
+        activeView !== 'rulebook' &&
         activeView !== 'profile' &&
         activeView !== 'publicProfile' &&
         activeView !== 'account' &&

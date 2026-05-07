@@ -1,9 +1,21 @@
+/*
+ * ScenarioEditorPage
+ * 역할: 노드 기반 TRPG 시나리오를 생성/수정하는 에디터입니다.
+ * 읽는 순서:
+ * 1) 타입 정의: 링크, 단서, 노드, 시나리오 폼 상태 구조
+ * 2) 생성/매핑 헬퍼: 빈 노드/링크/단서 생성, API 응답을 폼 상태로 변환
+ * 3) 직렬화 헬퍼: 폼 상태를 create/update API payload로 변환
+ * 4) 그래프 헬퍼: 노드 연결을 시각화하기 위한 위치/간선 계산
+ * 5) 메인 컴포넌트: 자동 저장, 수정 감지, 시나리오 로드, 저장/취소 처리
+ * 6) 하위 컴포넌트: 노드 상세 편집기, 노드 그래프, 링크/단서 컬렉션 편집기
+ */
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { BattleMap } from '../components/BattleMap';
 import {
   createScenario,
   getScenario,
+  getScenarioMonsters,
   updateScenario,
   uploadScenarioNodeImage,
 } from '../services/api';
@@ -12,10 +24,12 @@ import type {
   CreateScenarioDto,
   ScenarioLicense,
   ScenarioNodeType,
+  SrdMonsterReferenceDto,
   UpdateScenarioDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
 
+// 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface ScenarioEditorPageProps {
   user: StoredUser;
   accessToken: string | null;
@@ -25,6 +39,7 @@ interface ScenarioEditorPageProps {
   onUnsavedChangesChange?: (hasUnsavedChanges: boolean) => void;
 }
 
+// 노드에서 다른 노드로 이동하는 연결선 입력값입니다.
 type LinkForm = {
   id: string;
   label: string;
@@ -35,6 +50,7 @@ type LinkForm = {
 
 type RevealMode = 'manual' | 'on_node_visit' | 'conditional';
 
+// 단서/핸드아웃 데이터입니다. 공개 방식과 GM 메모를 같이 들고 있습니다.
 type ClueForm = {
   id: string;
   title: string;
@@ -48,6 +64,7 @@ type ClueForm = {
   gmNotes: string;
 };
 
+// 에디터 내부에서 쓰는 노드 폼 상태입니다. 스토리/탐색/전투 타입과 연결/단서를 포함합니다.
 type NodeForm = {
   id: string;
   nodeType: ScenarioNodeType;
@@ -59,6 +76,7 @@ type NodeForm = {
   clues: ClueForm[];
 };
 
+// 시나리오 전체 폼 상태입니다. 제목/설명/라이선스와 노드 배열을 포함합니다.
 type ScenarioFormState = {
   title: string;
   description: string;
@@ -76,16 +94,41 @@ type GraphNodeLayout = {
   incomingCount: number;
 };
 
+type ScenarioGuideNote = {
+  title: string;
+  body: string;
+};
+
+// 노드 그래프 자동 배치에 사용하는 간격/패딩 값입니다.
 const GRAPH_COLUMN_GAP = 180;
 const GRAPH_ROW_GAP = 82;
 const GRAPH_PADDING = 64;
 const AUTO_SAVE_INTERVAL_MS = 300_000;
 const UNSAVED_CHANGES_MESSAGE = '저장되지 않은 변경사항이 있습니다. 이 화면을 나가시겠습니까?';
+const scenarioGuideNotes: ScenarioGuideNote[] = [
+  {
+    title: '핵심 흐름부터 고정',
+    body:
+      '첫 장면, 주요 분기, 결말처럼 플레이어가 반드시 지나갈 큰 흐름을 먼저 만들고 세부 장면은 그 다음에 채우는 편이 안정적입니다.',
+  },
+  {
+    title: '노드마다 플레이어 행동 여지 명시',
+    body:
+      '장면 본문에는 정보 전달만 적지 말고 조사, 대화, 이동, 전투처럼 플레이어가 무엇을 시도할 수 있는지도 함께 적어두면 진행이 매끄럽습니다.',
+  },
+  {
+    title: '단서와 다음 장면 연결 점검',
+    body:
+      '중요 단서는 최소 하나 이상의 다음 노드나 선택지로 이어지게 두고, 막히는 분기가 없는지 링크와 단서 목표 노드를 함께 확인하세요.',
+  },
+];
 
+// 저장 전 임시 노드/링크/단서 ID를 만드는 유틸입니다.
 function makeLocalId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// 새 장면 버튼을 눌렀을 때 들어갈 기본 노드 구조를 만듭니다.
 function createBlankNode(title = '새 장면'): NodeForm {
   const id = makeLocalId('node');
   return {
@@ -100,6 +143,7 @@ function createBlankNode(title = '새 장면'): NodeForm {
   };
 }
 
+// 탐색/전투 노드에 기본 VTT 맵 상태를 붙일 때 사용합니다.
 function createDefaultNodeMap(nodeId: string): VttMapStateDto {
   return {
     id: `map:${nodeId}`,
@@ -111,6 +155,7 @@ function createDefaultNodeMap(nodeId: string): VttMapStateDto {
     height: 832,
     tokens: [],
     fogRects: [],
+    startingPositions: [],
     updatedAt: new Date().toISOString(),
   };
 }
@@ -212,10 +257,14 @@ function mapVttMap(value: unknown, nodeId: string): VttMapStateDto | null {
     height: Number(candidate.height) || 832,
     tokens: Array.isArray(candidate.tokens) ? candidate.tokens : [],
     fogRects: Array.isArray(candidate.fogRects) ? candidate.fogRects : [],
+    startingPositions: Array.isArray(candidate.startingPositions)
+      ? candidate.startingPositions
+      : [],
     updatedAt: candidate.updatedAt ?? new Date().toISOString(),
   };
 }
 
+// API에서 받은 시나리오 상세 데이터를 에디터 폼 상태로 변환합니다.
 function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
   const nodes = scenario.nodes.length
     ? scenario.nodes.map((node) => ({
@@ -241,6 +290,7 @@ function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
   };
 }
 
+// 폼의 노드 배열을 API 저장 형식으로 직렬화합니다.
 function serializeNodes(nodes: NodeForm[]) {
   return nodes.map((node) => ({
     id: node.id,
@@ -275,6 +325,7 @@ function serializeNodes(nodes: NodeForm[]) {
   }));
 }
 
+// 현재 폼 전체를 create/update API payload로 변환합니다.
 function buildScenarioPayload(form: ScenarioFormState): CreateScenarioDto & UpdateScenarioDto {
   const nodes = serializeNodes(form.nodes);
 
@@ -316,6 +367,7 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+// 노드 링크 구조를 읽어 그래프 화면의 좌표와 간선 목록을 계산합니다.
 function buildGraphLayout(nodes: NodeForm[]): {
   graphNodes: GraphNodeLayout[];
   edges: Array<{
@@ -411,6 +463,7 @@ function buildGraphLayout(nodes: NodeForm[]): {
   };
 }
 
+// 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function ScenarioEditorPage({
   user,
   accessToken,
@@ -419,14 +472,19 @@ export function ScenarioEditorPage({
   onCancel,
   onUnsavedChangesChange,
 }: ScenarioEditorPageProps) {
+  // 에디터 기본 상태입니다. 생성/수정 모드, 선택 노드, 사이드 패널, 자동 저장 상태를 관리합니다.
+  const formId = 'scenario-editor-form';
   const isEditMode = Boolean(scenarioId);
   const [draftScenarioId, setDraftScenarioId] = useState<string | null>(scenarioId ?? null);
   const [form, setForm] = useState<ScenarioFormState>(() => createEmptyForm());
   const [selectedNodeId, setSelectedNodeId] = useState(form.nodes[0].id);
   const [editorMode, setEditorMode] = useState<'graph' | 'detail'>('graph');
   const [isScenarioInfoOpen, setScenarioInfoOpen] = useState(!scenarioId);
+  const [isGuideOpen, setGuideOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [monsterCatalog, setMonsterCatalog] = useState<SrdMonsterReferenceDto[]>([]);
+  const [monsterCatalogError, setMonsterCatalogError] = useState<string | null>(null);
   const [autoSaveStatus, setAutoSaveStatus] = useState('자동 저장 준비 중');
   const autoSaveBusyRef = useRef(false);
   const lastSavedSnapshotRef = useRef<string | null>(null);
@@ -434,12 +492,43 @@ export function ScenarioEditorPage({
   const formRef = useRef(form);
   const busyRef = useRef(busy);
 
+  // 생성 직후 임시 draftScenarioId가 생기면 이후 자동 저장은 그 ID를 사용합니다.
   const effectiveScenarioId = draftScenarioId ?? scenarioId ?? null;
 
   useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
 
+  useEffect(() => {
+    if (form.ruleSetId !== 'dnd5e') {
+      setMonsterCatalog([]);
+      setMonsterCatalogError('현재는 dnd5e 5.1 SRD 몬스터만 지원합니다.');
+      return;
+    }
+
+    let ignore = false;
+    setMonsterCatalogError(null);
+
+    getScenarioMonsters(form.ruleSetId)
+      .then((monsters) => {
+        if (!ignore) {
+          setMonsterCatalog(monsters);
+        }
+      })
+      .catch((caught) => {
+        if (!ignore) {
+          setMonsterCatalog([]);
+          setMonsterCatalogError(
+            caught instanceof Error ? caught.message : 'SRD 몬스터 목록을 불러오지 못했습니다.'
+          );
+        }
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [form.ruleSetId]);
+
+  // 마지막 저장 스냅샷과 현재 payload를 비교해 저장 안 된 변경사항을 판단합니다.
   const hasUnsavedChanges = useCallback(() => {
     const savedSnapshot = lastSavedSnapshotRef.current;
     return (
@@ -448,11 +537,13 @@ export function ScenarioEditorPage({
     );
   }, []);
 
+  // 자동 저장 콜백에서 최신 form/busy 값을 읽을 수 있도록 ref에 동기화합니다.
   useEffect(() => {
     formRef.current = form;
     onUnsavedChangesChange?.(hasUnsavedChanges());
   }, [form, hasUnsavedChanges, onUnsavedChangesChange]);
 
+  // 브라우저 새로고침/닫기 전에 미저장 변경사항 경고를 띄웁니다.
   useEffect(() => {
     function handleBeforeUnload(event: BeforeUnloadEvent) {
       if (!hasUnsavedChanges()) return;
@@ -468,6 +559,7 @@ export function ScenarioEditorPage({
     };
   }, [hasUnsavedChanges]);
 
+  // 수정 모드면 기존 시나리오를 불러와 폼을 채우고, 생성 모드면 빈 폼을 초기화합니다.
   useEffect(() => {
     if (!scenarioId) {
       const nextForm = createEmptyForm();
@@ -519,6 +611,7 @@ export function ScenarioEditorPage({
     };
   }, [scenarioId]);
 
+  // 주기적으로 현재 폼을 저장합니다. 필수값이 비어 있으면 저장을 건너뜁니다.
   const autoSave = useCallback(async () => {
     if (busyRef.current || autoSaveBusyRef.current) return;
 
@@ -572,6 +665,7 @@ export function ScenarioEditorPage({
     };
   }, [autoSave]);
 
+  // 현재 선택된 노드와 해당 노드로 들어오는 링크를 계산합니다.
   const selectedNode = useMemo(
     () => form.nodes.find((node) => node.id === selectedNodeId) ?? form.nodes[0],
     [form.nodes, selectedNodeId]
@@ -594,6 +688,7 @@ export function ScenarioEditorPage({
 
   const graphLayout = useMemo(() => buildGraphLayout(form.nodes), [form.nodes]);
 
+  // 시나리오 기본 정보 필드를 부분 업데이트합니다.
   function updateField<K extends keyof Omit<ScenarioFormState, 'nodes'>>(
     field: K,
     value: ScenarioFormState[K]
@@ -604,6 +699,7 @@ export function ScenarioEditorPage({
     }));
   }
 
+  // 특정 노드만 찾아 updater 결과로 교체합니다.
   function updateNode(nodeId: string, updater: (node: NodeForm) => NodeForm) {
     setForm((current) => ({
       ...current,
@@ -611,6 +707,7 @@ export function ScenarioEditorPage({
     }));
   }
 
+  // 새 노드를 추가하고 즉시 선택합니다.
   function addNode() {
     const node = createBlankNode();
     setForm((current) => ({
@@ -621,6 +718,7 @@ export function ScenarioEditorPage({
     setEditorMode('detail');
   }
 
+  // 노드를 삭제하면서 다른 노드의 링크/단서 참조도 함께 정리합니다.
   function removeNode(nodeId: string) {
     let nextSelectedNodeId = selectedNodeId;
     setForm((current) => {
@@ -645,11 +743,13 @@ export function ScenarioEditorPage({
     setSelectedNodeId(nextSelectedNodeId);
   }
 
+  // 그래프/사이드바에서 노드를 선택하면 상세 편집 모드로 전환합니다.
   function selectNode(nodeId: string) {
     setSelectedNodeId(nodeId);
     setEditorMode('detail');
   }
 
+  // 수동 저장 버튼/폼 제출 처리입니다. 유효성 검사 후 create/update API를 호출합니다.
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -701,12 +801,18 @@ export function ScenarioEditorPage({
           <button type="button" className="ghost" onClick={onCancel}>
             목록으로
           </button>
+          <button type="button" className="ghost" onClick={() => setGuideOpen(true)}>
+            가이드
+          </button>
           <button
             type="button"
             className="ghost"
             onClick={() => setScenarioInfoOpen((current) => !current)}
           >
             기본 정보
+          </button>
+          <button type="submit" form={formId} className="primary" disabled={busy}>
+            {busy ? '저장 중...' : '저장'}
           </button>
           <span className="scenario-autosave-status" role="status" aria-live="polite">
             {autoSaveStatus}
@@ -716,6 +822,7 @@ export function ScenarioEditorPage({
 
       {isScenarioInfoOpen ? (
         <section className="session-form-card scenario-info-panel">
+          {/* 시나리오 기본 정보 입력 패널입니다. 제목, 설명, 룰셋, 난이도, 라이선스를 관리합니다. */}
           <div className="section-heading">
             <div>
               <span className="eyebrow">Scenario</span>
@@ -785,8 +892,9 @@ export function ScenarioEditorPage({
         </section>
       ) : null}
 
-      <form className="scenario-editor-form" onSubmit={submit}>
+      <form id={formId} className="scenario-editor-form" onSubmit={submit}>
         <div className="scenario-editor-layout">
+          {/* 좌측 노드 목록: 장면 추가/삭제/선택을 담당합니다. */}
           <aside className="session-form-card scenario-editor-sidebar">
             <div className="scenario-editor-sidebar-header">
               <button type="button" className="primary small" onClick={addNode}>
@@ -819,6 +927,7 @@ export function ScenarioEditorPage({
             </div>
           </aside>
 
+          {/* 우측 메인 에디터: 그래프 보기 또는 선택 노드 상세 편집을 표시합니다. */}
           <section className="session-form-card session-form-card-wide scenario-editor-main">
             {editorMode === 'graph' ? (
               <>
@@ -842,58 +951,65 @@ export function ScenarioEditorPage({
                 node={selectedNode}
                 nodes={form.nodes}
                 incomingLinks={incomingLinks}
+                monsterCatalog={monsterCatalog}
+                monsterCatalogError={monsterCatalogError}
                 updateNode={updateNode}
                 removeNode={removeNode}
                 setError={setError}
               />
             ) : null}
           </section>
-
-          <aside className="session-form-card scenario-editor-guide">
-            <div className="section-heading">
-              <div>
-                <span className="eyebrow">Guide</span>
-                <h2>작성 기준</h2>
-              </div>
-            </div>
-            <div className="profile-notes">
-              <div className="profile-note">
-                <strong>연결</strong>
-                <p>
-                  현재 노드에서 갈 수 있는 다음 노드만 설정합니다. 여러 노드가 같은 노드를 가리킬 수
-                  있습니다.
-                </p>
-              </div>
-              <div className="profile-note">
-                <strong>단서</strong>
-                <p>단서는 결론, 발견 경로, 공개 자료, GM 전용 메모를 나눠 기록합니다.</p>
-              </div>
-              <div className="profile-note">
-                <strong>중요도</strong>
-                <p>핵심 단서는 같은 결론을 뒷받침하도록 여러 위치에 흩어 두는 편이 안전합니다.</p>
-              </div>
-            </div>
-            <div className="scenario-save-actions">
-              <button type="submit" className="primary" disabled={busy}>
-                {busy ? 'Saving...' : 'Save'}
-              </button>
-            </div>
-          </aside>
         </div>
       </form>
 
       {error ? <p className="panel-error">{error}</p> : null}
+      {isGuideOpen ? (
+        <div className="modal-backdrop" onClick={() => setGuideOpen(false)}>
+          <section
+            className="modal-card scenario-guide-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="scenario-guide-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <span className="eyebrow">Guide</span>
+                <h2 id="scenario-guide-title">시나리오 작성 가이드</h2>
+              </div>
+              <button type="button" className="modal-close" onClick={() => setGuideOpen(false)}>
+                닫기
+              </button>
+            </div>
+            <p className="scenario-guide-summary">
+              작성 가이드는 필요할 때만 열어서 확인하고, 편집 화면은 노드 작성과 저장에 집중할 수
+              있게 유지합니다.
+            </p>
+            <div className="profile-notes">
+              {scenarioGuideNotes.map((note) => (
+                <div key={note.title} className="profile-note">
+                  <strong>{note.title}</strong>
+                  <p>{note.body}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
 
+// 선택된 노드 하나의 제목/타입/이미지/맵/본문/링크/단서를 편집하는 하위 컴포넌트입니다.
 function NodeDetailEditor({
   user,
   accessToken,
   scenarioId,
   node,
-  incomingLinks,
   nodes,
+  incomingLinks,
+  monsterCatalog,
+  monsterCatalogError,
   updateNode,
   removeNode,
   setError,
@@ -904,10 +1020,13 @@ function NodeDetailEditor({
   node: NodeForm;
   nodes: NodeForm[];
   incomingLinks: Array<{ fromNode: string; label: string }>;
+  monsterCatalog: SrdMonsterReferenceDto[];
+  monsterCatalogError: string | null;
   updateNode: (nodeId: string, updater: (node: NodeForm) => NodeForm) => void;
   removeNode: (nodeId: string) => void;
   setError: (message: string | null) => void;
 }) {
+  // 노드 이미지 업로드 중복 클릭을 막기 위한 로컬 로딩 상태입니다.
   const [imageBusy, setImageBusy] = useState(false);
 
   async function handleImageFile(file: File | null) {
@@ -945,6 +1064,7 @@ function NodeDetailEditor({
     }
   }
 
+  // BattleMap에서 변경된 맵 상태를 현재 노드의 vttMap에 반영합니다.
   function updateNodeMap(nextMap: VttMapStateDto) {
     updateNode(node.id, (current) => ({
       ...current,
@@ -963,6 +1083,7 @@ function NodeDetailEditor({
     }));
   }
 
+  // 노드 상세 편집 UI: 상단 설정, 이미지, 맵, 장면 본문, 연결/단서 패널입니다.
   return (
     <div className="scenario-play-editor">
       <section className="scenario-play-stage">
@@ -1029,6 +1150,7 @@ function NodeDetailEditor({
         </section>
 
         <section className="scenario-node-map-panel">
+          {monsterCatalogError ? <p className="panel-error">{monsterCatalogError}</p> : null}
           {node.vttMap ? (
             <>
               <BattleMap
@@ -1038,6 +1160,8 @@ function NodeDetailEditor({
                 onChange={updateNodeMap}
                 title="Default map"
                 showPartyTools={false}
+                monsterCatalog={monsterCatalog}
+                monsterCatalogError={monsterCatalogError}
               />
               <button
                 type="button"
@@ -1104,6 +1228,7 @@ function NodeDetailEditor({
   );
 }
 
+// 노드 그래프를 SVG 간선과 노드 카드로 시각화하는 하위 컴포넌트입니다.
 function ScenarioNodeGraph({
   layout,
   selectedNodeId,
@@ -1180,6 +1305,7 @@ function ScenarioNodeGraph({
   );
 }
 
+// 선택 노드로 들어오는 링크와 나가는 링크를 요약해 보여주는 컴포넌트입니다.
 function NodeConnectionSummary({
   incomingLinks,
   compact = false,
@@ -1212,6 +1338,7 @@ function NodeConnectionSummary({
   );
 }
 
+// 노드의 전환 링크와 단서 목록을 추가/수정/삭제하는 편집 컴포넌트입니다.
 function ScenarioNodeCollections({
   node,
   nodes,
@@ -1501,6 +1628,7 @@ function ScenarioNodeCollections({
   );
 }
 
+// 링크/단서 같은 반복 편집 목록의 공통 카드 레이아웃입니다.
 function NodeCollection({
   title,
   actionLabel,
