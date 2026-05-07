@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { VttMapStateDto } from "@trpg/shared-types";
 import type { Socket } from "socket.io-client";
 import {
@@ -18,11 +18,12 @@ import {
   updateCharacter as apiUpdateCharacter,
   updateReadyState as apiUpdateReadyState,
 } from "../services/api";
-import { connectSessionSocket } from "../services/realtime";
+import { connectSessionSocket, sendRealtimeChatMessage } from "../services/realtime";
 import { clearStoredSnapshot, loadStoredSnapshot, saveStoredSnapshot } from "../services/storage";
 import type {
   AvailableSessionListItem,
   Character,
+  ChatMessage,
   LogEntry,
   Participant,
   PersistentCharacter,
@@ -81,6 +82,7 @@ export interface UseSessionReturn {
   setReadyState: (isReady: boolean) => Promise<void>;
   startSession: () => Promise<void>;
   leaveSession: () => Promise<void>;
+  sendChatMessage: (content: string) => Promise<void>;
   refreshSessionList: () => Promise<void>;
   refreshMyCharacters: () => Promise<void>;
   clearSnapshot: () => void;
@@ -99,6 +101,7 @@ export function useSession(
   const [socketConnected, setSocketConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   const updateSnapshot = useCallback((next: SessionSnapshot) => {
     setSnapshot(next);
@@ -171,6 +174,11 @@ export function useSession(
           return next;
         });
       },
+      onChatMessage: (message: ChatMessage) => {
+        // 기존 PlayPage는 [CHAT] prefix가 붙은 로그를 Chat 탭에 보여준다.
+        // 화면 컴포넌트 충돌을 줄이기 위해 수신 메시지만 기존 로그 흐름에 얹는다.
+        appendLog("action", message.senderDisplayName, `[CHAT]${message.content}`);
+      },
       onVttMapUpdated: (map: VttMapStateDto) => {
         setSnapshot((current) => {
           if (!current) return current;
@@ -196,8 +204,12 @@ export function useSession(
       onStatusChange: setSocketConnected,
       onLog: (title, message) => appendLog("socket", title, message),
     });
+    socketRef.current = socket;
 
     return () => {
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+      }
       socket.disconnect();
     };
   }, [appendLog, snapshot?.session.id, updateSnapshot, user]);
@@ -495,6 +507,34 @@ export function useSession(
     }
   }
 
+  async function sendChatMessage(content: string) {
+    if (!user || !snapshot) return;
+
+    const trimmed = content.trim();
+    if (!trimmed) return;
+
+    setError(null);
+
+    if (trimmed.length > 1000) {
+      const message = "채팅 메시지는 1000자 이하로 입력해주세요.";
+      setError(message);
+      appendLog("socket", "채팅 전송 실패", message);
+      return;
+    }
+
+    const socket = socketRef.current;
+    if (!socket?.connected) {
+      const message = "실시간 채팅 연결 후 다시 시도해주세요.";
+      setError(message);
+      appendLog("socket", "채팅 전송 실패", message);
+      return;
+    }
+
+    // 서버가 membership을 다시 확인한 뒤 같은 세션 room에 broadcast한다.
+    // 그래서 낙관적 추가를 하지 않고, 서버가 돌려준 chat.message 이벤트만 화면에 표시한다.
+    sendRealtimeChatMessage(socket, snapshot.session.id, trimmed);
+  }
+
   function clearSnapshot() {
     clearStoredSnapshot();
     setSnapshot(null);
@@ -520,6 +560,7 @@ export function useSession(
     setReadyState,
     startSession,
     leaveSession,
+    sendChatMessage,
     refreshSessionList,
     refreshMyCharacters,
     clearSnapshot,
