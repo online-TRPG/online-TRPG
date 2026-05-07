@@ -46,7 +46,6 @@ const createCharacter = (
 ): TestSessionCharacter => ({
   id: overrides.id ?? "session-character-1",
   characterId: overrides.characterId ?? "character-1",
-  combatParticipantId: overrides.combatParticipantId ?? null,
   currentHp: overrides.currentHp ?? 10,
   tempHp: overrides.tempHp ?? 0,
   conditionsJson: overrides.conditionsJson ?? "[]",
@@ -56,14 +55,12 @@ const createCharacter = (
     id: overrides.character?.id ?? "character-1",
     name: overrides.character?.name ?? "Hero",
     className: overrides.character?.className ?? "fighter",
-    subclassName: overrides.character?.subclassName ?? null,
     level: overrides.character?.level ?? 1,
     maxHp: overrides.character?.maxHp ?? 10,
     abilitiesJson:
       overrides.character?.abilitiesJson ??
       JSON.stringify({ str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }),
     proficiencyBonus: overrides.character?.proficiencyBonus ?? 2,
-    featuresJson: overrides.character?.featuresJson ?? "[]",
     proficientSkillsJson: overrides.character?.proficientSkillsJson ?? "[]",
     armorClass: overrides.character?.armorClass ?? 10,
     speed: overrides.character?.speed ?? 30,
@@ -134,40 +131,6 @@ describe("ActionRuleService", () => {
     });
   });
 
-  it("returns combat participant patches when attacking a hostile combat target", () => {
-    const service = createService([
-      createDiceResult([15], 2),
-      {
-        expression: "1d6",
-        rolls: [5],
-        modifier: 0,
-        total: 5,
-        advantageState: DiceAdvantageState.NORMAL,
-      },
-    ]);
-    const actor = createCharacter({ id: "actor", characterId: "actor-character" });
-    const target = createCharacter({
-      id: "combat-goblin",
-      characterId: "combat-goblin",
-      combatParticipantId: "combat-goblin",
-      currentHp: 7,
-      character: {
-        id: "combat-goblin",
-        name: "Goblin",
-        className: "monster",
-        armorClass: 12,
-        maxHp: 7,
-      },
-    });
-
-    const result = service.resolveAction("/attack Goblin", actor, [actor, target]);
-
-    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
-    expect(result.stateChanges).toEqual([
-      { combatParticipantId: "combat-goblin", currentHp: 2, markDead: false },
-    ]);
-  });
-
   it("uses the P0 attack hook so natural 1 misses even with a high total", () => {
     const service = createService([createDiceResult([1], 12)]);
     const actor = createCharacter({
@@ -227,152 +190,6 @@ describe("ActionRuleService", () => {
     });
     expect(structuredAction.ruleResults[1]).toMatchObject({
       hookId: RULE_HOOK_IDS.RESOLVE_ATTACK_ROLL,
-    });
-  });
-
-  it("automatically applies rogue sneak attack to a qualifying hit", () => {
-    const service = createService([
-      createDiceResult([16], 2),
-      {
-        expression: "1d6",
-        rolls: [4],
-        modifier: 0,
-        total: 4,
-        advantageState: DiceAdvantageState.NORMAL,
-      },
-      {
-        expression: "1d6",
-        rolls: [5],
-        modifier: 0,
-        total: 5,
-        advantageState: DiceAdvantageState.NORMAL,
-      },
-    ]);
-    const actor = createCharacter({
-      id: "actor",
-      characterId: "actor-character",
-      character: { className: "rogue", level: 2 },
-    });
-    const target = createCharacter({
-      id: "target",
-      characterId: "target-character",
-      currentHp: 12,
-      character: { id: "target-character", name: "Target", armorClass: 10 },
-    });
-
-    const result = service.resolveAction("/attack target", actor, [actor, target]);
-    const structuredAction = result.structuredAction as {
-      finalDamage: number;
-      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
-    };
-
-    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
-    expect(structuredAction.finalDamage).toBe(9);
-    expect(result.stateChanges).toEqual([
-      {
-        sessionCharacterId: "actor",
-        conditions: ["resource:sneak_attack_expended"],
-      },
-      { sessionCharacterId: "target", currentHp: 3, markDead: false },
-    ]);
-    expect(structuredAction.ruleResults.map((ruleResult) => ruleResult.hookId)).toEqual([
-      RULE_HOOK_IDS.RESOLVE_ATTACK_ROLL,
-      RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
-      RULE_HOOK_IDS.APPLY_DAMAGE_MODIFIERS,
-    ]);
-  });
-
-  it("connects ranger archery fighting style to attack resolution", () => {
-    const service = createService([
-      createDiceResult([13], 4),
-      {
-        expression: "1d6",
-        rolls: [5],
-        modifier: 0,
-        total: 5,
-        advantageState: DiceAdvantageState.NORMAL,
-      },
-    ]);
-    const actor = createCharacter({
-      id: "actor",
-      characterId: "actor-character",
-      character: { className: "ranger", level: 2, proficiencyBonus: 2 },
-    });
-    const target = createCharacter({
-      id: "target",
-      characterId: "target-character",
-      currentHp: 10,
-      character: { id: "target-character", name: "Target", armorClass: 16 },
-    });
-
-    const result = service.resolveAction("/attack target", actor, [actor, target]);
-    const structuredAction = result.structuredAction as {
-      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
-    };
-
-    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
-    expect(structuredAction.ruleResults.map((ruleResult) => ruleResult.hookId)).toEqual([
-      RULE_HOOK_IDS.APPLY_RANGER_ARCHERY_FIGHTING_STYLE,
-      RULE_HOOK_IDS.RESOLVE_ATTACK_ROLL,
-      RULE_HOOK_IDS.APPLY_DAMAGE_MODIFIERS,
-    ]);
-    expect(structuredAction.ruleResults[0]).toMatchObject({
-      produced: { attackBonusDelta: 2, finalAttackBonus: 4, fightingStyleApplied: true },
-    });
-    expect(structuredAction.ruleResults[1]).toMatchObject({
-      produced: { attackRollTotal: 17, hit: true },
-    });
-  });
-
-  it("connects ranger natural explorer to survival checks", () => {
-    const service = createService([createDiceResult([8], 7)]);
-    const actor = createCharacter({
-      id: "actor",
-      characterId: "actor-character",
-      character: {
-        className: "ranger",
-        level: 2,
-        abilitiesJson: JSON.stringify({ str: 10, dex: 10, con: 10, int: 10, wis: 16, cha: 10 }),
-        proficiencyBonus: 2,
-        proficientSkillsJson: JSON.stringify(["survival"]),
-      },
-    });
-
-    const result = service.resolveAction("/check survival 15", actor, [actor]);
-    const structuredAction = result.structuredAction as {
-      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
-    };
-
-    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
-    expect(structuredAction.ruleResults[0]).toMatchObject({
-      hookId: RULE_HOOK_IDS.APPLY_RANGER_NATURAL_EXPLORER_CHECK,
-      produced: { checkModifierDelta: 2, finalCheckModifier: 7, naturalExplorerApplied: true },
-    });
-  });
-
-  it("connects rogue cunning action to the class feature flow", () => {
-    const service = createService([]);
-    const actor = createCharacter({
-      id: "actor",
-      characterId: "actor-character",
-      character: { className: "rogue", level: 2 },
-    });
-
-    const result = service.resolveAction("/feature cunning_action hide", actor, [actor]);
-    const structuredAction = result.structuredAction as {
-      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
-    };
-
-    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
-    expect(result.stateChanges).toEqual([
-      {
-        sessionCharacterId: "actor",
-        conditions: ["cunning_action:hide"],
-      },
-    ]);
-    expect(structuredAction.ruleResults[0]).toMatchObject({
-      hookId: RULE_HOOK_IDS.APPLY_CUNNING_ACTION,
-      produced: { grantedActionType: "hide", bonusActionSpent: true },
     });
   });
 
@@ -489,161 +306,6 @@ describe("ActionRuleService", () => {
         rejectedReason: "target_out_of_range",
       },
     ]);
-  });
-
-  it("connects fire bolt to attack, spell, and damage hooks", () => {
-    const service = createService([
-      createDiceResult([18], 2),
-      {
-        expression: "1d10",
-        rolls: [7],
-        modifier: 0,
-        total: 7,
-        advantageState: DiceAdvantageState.NORMAL,
-      },
-    ]);
-    const actor = createCharacter({
-      id: "actor",
-      characterId: "actor-character",
-      character: { className: "wizard" },
-    });
-    const target = createCharacter({
-      id: "target",
-      characterId: "target-character",
-      currentHp: 10,
-      character: { id: "target-character", name: "Target", armorClass: 10 },
-    });
-
-    const result = service.resolveAction("/cast fire_bolt target 90", actor, [actor, target]);
-    const structuredAction = result.structuredAction as {
-      spellId: string;
-      damageType: string;
-      finalDamage: number;
-      ruleResults: Array<{ hookId: string }>;
-    };
-
-    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
-    expect(structuredAction.spellId).toBe("spell.fire_bolt");
-    expect(structuredAction.damageType).toBe("fire");
-    expect(structuredAction.finalDamage).toBe(7);
-    expect(result.stateChanges).toEqual([
-      { sessionCharacterId: "target", currentHp: 3, markDead: false },
-    ]);
-    expect(structuredAction.ruleResults.map((ruleResult) => ruleResult.hookId)).toEqual([
-      RULE_HOOK_IDS.RESOLVE_ATTACK_ROLL,
-      RULE_HOOK_IDS.CAST_FIRE_BOLT,
-      RULE_HOOK_IDS.APPLY_DAMAGE_MODIFIERS,
-    ]);
-  });
-
-  it("connects magic missile to automatic force damage", () => {
-    const service = createService([
-      {
-        expression: "1d4+1",
-        rolls: [2],
-        modifier: 1,
-        total: 3,
-        advantageState: DiceAdvantageState.NORMAL,
-      },
-      {
-        expression: "1d4+1",
-        rolls: [3],
-        modifier: 1,
-        total: 4,
-        advantageState: DiceAdvantageState.NORMAL,
-      },
-      {
-        expression: "1d4+1",
-        rolls: [4],
-        modifier: 1,
-        total: 5,
-        advantageState: DiceAdvantageState.NORMAL,
-      },
-    ]);
-    const actor = createCharacter({ id: "actor", characterId: "actor-character" });
-    const target = createCharacter({
-      id: "target",
-      characterId: "target-character",
-      currentHp: 15,
-      character: { id: "target-character", name: "Target" },
-    });
-
-    const result = service.resolveAction("/cast magic_missile target", actor, [actor, target]);
-    const structuredAction = result.structuredAction as {
-      finalDamage: number;
-      ruleResults: Array<{ hookId: string }>;
-    };
-
-    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
-    expect(structuredAction.finalDamage).toBe(12);
-    expect(result.stateChanges).toEqual([
-      { sessionCharacterId: "target", currentHp: 3, markDead: false },
-    ]);
-    expect(structuredAction.ruleResults.map((ruleResult) => ruleResult.hookId)).toEqual([
-      RULE_HOOK_IDS.CAST_MAGIC_MISSILE,
-      RULE_HOOK_IDS.APPLY_DAMAGE_MODIFIERS,
-    ]);
-  });
-
-  it("connects cure wounds to capped healing", () => {
-    const service = createService([
-      {
-        expression: "1d8+2",
-        rolls: [6],
-        modifier: 2,
-        total: 8,
-        advantageState: DiceAdvantageState.NORMAL,
-      },
-    ]);
-    const actor = createCharacter({ id: "actor", characterId: "actor-character" });
-    const target = createCharacter({
-      id: "target",
-      characterId: "target-character",
-      currentHp: 5,
-      character: { id: "target-character", name: "Target", maxHp: 10 },
-    });
-
-    const result = service.resolveAction("/cast cure_wounds target 5", actor, [actor, target]);
-    const structuredAction = result.structuredAction as {
-      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
-    };
-
-    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
-    expect(result.stateChanges).toEqual([{ sessionCharacterId: "target", currentHp: 10 }]);
-    expect(structuredAction.ruleResults[0]).toMatchObject({
-      hookId: RULE_HOOK_IDS.CAST_CURE_WOUNDS,
-      produced: { hitPointsRestored: 5, newHitPoints: 10 },
-    });
-  });
-
-  it("connects potion of healing to item healing", () => {
-    const service = createService([
-      {
-        expression: "2d4+2",
-        rolls: [3, 4],
-        modifier: 2,
-        total: 9,
-        advantageState: DiceAdvantageState.NORMAL,
-      },
-    ]);
-    const actor = createCharacter({
-      id: "actor",
-      characterId: "actor-character",
-      currentHp: 2,
-      character: { maxHp: 8 },
-    });
-
-    const result = service.resolveAction("/item potion actor", actor, [actor]);
-    const structuredAction = result.structuredAction as {
-      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
-    };
-
-    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
-    expect(result.stateChanges).toEqual([{ sessionCharacterId: "actor", currentHp: 8 }]);
-    expect(structuredAction.ruleResults[0]).toMatchObject({
-      hookId: RULE_HOOK_IDS.USE_POTION_OF_HEALING,
-      produced: { hitPointsRestored: 6, newHitPoints: 8, itemConsumed: true },
-    });
   });
 
   it("connects champion critical threshold to attack resolution", () => {

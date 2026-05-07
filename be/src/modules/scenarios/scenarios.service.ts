@@ -295,7 +295,6 @@ export class ScenariosService {
             checkOptions: [],
             transitions: [],
             clues: [],
-            nodeMeta: null,
             fallbackNodeId: null,
           },
         ];
@@ -314,13 +313,12 @@ export class ScenariosService {
         sceneText: node.sceneText.trim(),
         imageUrl: this.nullableTrim(node.imageUrl),
         checkOptionsJson: JSON.stringify({
-          checks: node.checkOptions ?? [],
+          checks: [],
           vttMap: node.vttMap ?? null,
         }),
         transitionsJson: JSON.stringify(node.transitions ?? []),
         cluesJson: JSON.stringify(node.clues ?? []),
-        nodeMetaJson: node.nodeMeta ? JSON.stringify(node.nodeMeta) : null,
-        fallbackNodeId: this.nullableTrim(node.fallbackNodeId),
+        fallbackNodeId: null,
       };
     });
   }

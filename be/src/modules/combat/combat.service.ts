@@ -94,20 +94,12 @@ export class CombatService {
       });
     }
 
-    const characterInitiativeRows = candidates.map((candidate) => ({
-        type: "session_character" as const,
+    const initiativeRows = candidates
+      .map((candidate) => ({
         candidate,
         initiative: dto.autoRollInitiative === false ? 10 : this.diceService.roll("1d20").total,
-      }));
-    const hostileInitiativeRows = (dto.hostileParticipants ?? []).map((hostile) => ({
-      type: "hostile" as const,
-      hostile,
-      initiative:
-        hostile.initiative ?? (dto.autoRollInitiative === false ? 10 : this.diceService.roll("1d20").total),
-    }));
-    const initiativeRows = [...characterInitiativeRows, ...hostileInitiativeRows].sort(
-      (left, right) => right.initiative - left.initiative,
-    );
+      }))
+      .sort((left, right) => right.initiative - left.initiative);
 
     const combat = await this.prisma.$transaction(async (tx) => {
       const created = await tx.combat.create({
@@ -121,49 +113,20 @@ export class CombatService {
       });
 
       const participants = await Promise.all(
-        initiativeRows.map((row, index) => {
-          if (row.type === "hostile") {
-            const maxHp = row.hostile.maxHp ?? 7;
-            return tx.combatParticipant.create({
-              data: {
-                combatId: created.id,
-                entityType:
-                  row.hostile.entityType === CombatEntityType.NPC
-                    ? PrismaCombatEntityType.NPC
-                    : PrismaCombatEntityType.MONSTER,
-                sessionCharacterId: null,
-                nameSnapshot: row.hostile.name,
-                currentHp: maxHp,
-                maxHp,
-                armorClass: row.hostile.armorClass ?? 13,
-                tempHp: 0,
-                conditionsJson: JSON.stringify([]),
-                initiative: row.initiative,
-                turnOrder: index + 1,
-                isAlive: true,
-                isHostile: true,
-              },
-            });
-          }
-
-          return tx.combatParticipant.create({
+        initiativeRows.map((row, index) =>
+          tx.combatParticipant.create({
             data: {
               combatId: created.id,
               entityType: PrismaCombatEntityType.PLAYER_CHARACTER,
               sessionCharacterId: row.candidate.id,
               nameSnapshot: row.candidate.character.name,
-              currentHp: row.candidate.currentHp,
-              maxHp: row.candidate.character.maxHp,
-              armorClass: row.candidate.character.armorClass,
-              tempHp: row.candidate.tempHp,
-              conditionsJson: row.candidate.conditionsJson,
               initiative: row.initiative,
               turnOrder: index + 1,
               isAlive: true,
               isHostile: false,
             },
-          });
-        }),
+          }),
+        ),
       );
 
       const firstParticipant = participants[0];
@@ -494,9 +457,9 @@ export class CombatService {
         entityType: participant.entityType as CombatEntityType,
         sessionCharacterId: participant.sessionCharacterId,
         name: participant.nameSnapshot,
-        currentHp: participant.currentHp,
-        maxHp: participant.maxHp,
-        armorClass: participant.armorClass,
+        currentHp: null,
+        maxHp: null,
+        armorClass: null,
         initiative: participant.initiative,
         turnOrder: participant.turnOrder,
         isAlive: participant.isAlive,

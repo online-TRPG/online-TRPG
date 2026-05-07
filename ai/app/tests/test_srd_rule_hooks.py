@@ -26,22 +26,16 @@ def test_rule_hook_fixtures_cover_narrow_engine_owned_slice():
     assert hook_ids == {
         "hook.combat.resolve_attack_roll",
         "hook.damage.apply_resistance_vulnerability",
-        "hook.check.resolve_ability_or_skill_check",
         "hook.condition.apply_prone_modifiers",
         "hook.spell.cast_chill_touch",
-        "hook.spell.cast_fire_bolt",
-        "hook.spell.cast_magic_missile",
-        "hook.spell.cast_cure_wounds",
         "hook.item.bag_of_holding_capacity",
-        "hook.item.use_potion_of_healing",
-        "hook.item.apply_flat_magic_bonus",
-        "hook.class.ranger.fighting_style_archery",
-        "hook.class.ranger.natural_explorer_check",
         "hook.class.fighter.second_wind",
         "hook.class.fighter.action_surge",
         "hook.class.fighter.champion_critical_threshold",
+        "hook.class.barbarian.rage",
         "hook.class.rogue.sneak_attack",
         "hook.class.rogue.cunning_action",
+        "hook.class.barbarian.frenzy",
     }
     assert all(hook.consumes for hook in hooks)
     assert all(hook.produces for hook in hooks)
@@ -95,7 +89,7 @@ def test_backend_engine_p0_contracts_match_rule_hook_io():
 
     assert case_ids == P0_BACKEND_HOOK_IDS
     assert len(contract_case_ids) == len(cases)
-    assert len(cases) == 22
+    assert len(cases) == 12
 
     for case in cases:
         hook = hooks[case.hookId]
@@ -130,14 +124,6 @@ def test_interpreter_backend_handoff_cases_reference_p0_hooks_and_contract_shape
         "handoff.chill_touch_spell_attack",
         "handoff.weapon_attack_with_damage",
         "handoff.prone_stand_then_attack",
-        "handoff.fire_bolt_spell_attack",
-        "handoff.fighter_second_wind",
-        "handoff.rogue_sneak_attack",
-        "handoff.potion_of_healing",
-        "handoff.investigate_tracks_skill_check",
-        "handoff.magic_missile_auto_hit",
-        "handoff.ranger_cure_wounds",
-        "handoff.combat_victory_to_conclusion",
     }
 
     for handoff in handoff_cases:
@@ -162,14 +148,6 @@ def test_narrator_input_fixture_cases_validate_against_harness_request_schema():
         "narrator.chill_touch_hit",
         "narrator.weapon_attack_hit",
         "narrator.prone_stand_rejected",
-        "narrator.fire_bolt_hit",
-        "narrator.second_wind_heal",
-        "narrator.sneak_attack_hit",
-        "narrator.potion_of_healing",
-        "narrator.investigate_tracks_success",
-        "narrator.magic_missile_finishes_goblin",
-        "narrator.ranger_cure_wounds",
-        "narrator.combat_victory_conclusion",
     }
 
     for case in narrator_cases:
@@ -262,11 +240,19 @@ def test_retrieval_returns_class_feature_hooks_for_fighter_text():
     assert critical_hooks[0].id == "hook.class.fighter.champion_critical_threshold"
 
 
-def test_class_feature_hooks_cover_rogue_engine_owned_features():
+def test_class_feature_hooks_cover_barbarian_and_rogue_engine_owned_features():
     hooks = {hook.id: hook for hook in build_rule_hook_fixtures()}
 
+    rage = hooks["hook.class.barbarian.rage"]
     sneak_attack = hooks["hook.class.rogue.sneak_attack"]
     cunning_action = hooks["hook.class.rogue.cunning_action"]
+    frenzy = hooks["hook.class.barbarian.frenzy"]
+
+    assert rage.engineFunction == "apply_rage"
+    assert "class.barbarian.feature.격노" in rage.sourceEntityIds
+    assert "rule.damage.저항과_취약" in rage.sourceRuleIds
+    assert any("heavy armor" in check for check in rage.acceptanceChecks)
+    assert any("concentration" in check for check in rage.acceptanceChecks)
 
     assert sneak_attack.engineFunction == "apply_sneak_attack"
     assert "class.rogue.feature.암습" in sneak_attack.sourceEntityIds
@@ -278,8 +264,13 @@ def test_class_feature_hooks_cover_rogue_engine_owned_features():
     assert "class.rogue.feature.교활한_행동" in cunning_action.sourceEntityIds
     assert any("Dash, Disengage, or Hide" in check for check in cunning_action.acceptanceChecks)
 
+    assert frenzy.engineFunction == "apply_frenzy"
+    assert "class.barbarian.subclass_feature.광분" in frenzy.sourceEntityIds
+    assert any("only when entering rage" in check for check in frenzy.acceptanceChecks)
+    assert any("exhaustion" in check for check in frenzy.acceptanceChecks)
 
-def test_retrieval_returns_class_feature_hooks_for_rogue_text():
+
+def test_retrieval_returns_class_feature_hooks_for_barbarian_and_rogue_text():
     retriever = SrdRetriever(
         spells=[],
         conditions=[],
@@ -288,58 +279,15 @@ def test_retrieval_returns_class_feature_hooks_for_rogue_text():
         rule_hooks=build_rule_hook_fixtures(),
     )
 
+    rage_hooks = retriever.related_rule_hooks_for_text("바바리안이 격노를 사용한다")
     sneak_attack_hooks = retriever.related_rule_hooks_for_text("로그가 암습 피해를 적용할 수 있는지 확인한다")
     cunning_action_hooks = retriever.related_rule_hooks_for_text("로그가 교활한 행동으로 숨기를 시도한다")
+    frenzy_hooks = retriever.related_rule_hooks_for_text("광전사 바바리안이 광분을 선언한다")
 
+    assert rage_hooks[0].id == "hook.class.barbarian.rage"
     assert sneak_attack_hooks[0].id == "hook.class.rogue.sneak_attack"
     assert cunning_action_hooks[0].id == "hook.class.rogue.cunning_action"
-
-
-def test_class_feature_hooks_cover_ranger_engine_owned_features():
-    hooks = {hook.id: hook for hook in build_rule_hook_fixtures()}
-
-    archery = hooks["hook.class.ranger.fighting_style_archery"]
-    natural_explorer = hooks["hook.class.ranger.natural_explorer_check"]
-
-    assert archery.engineFunction == "apply_ranger_archery_fighting_style"
-    assert archery.sourceEntityIds == []
-    assert any("+2" in check for check in archery.acceptanceChecks)
-    assert any("ranged weapon attacks" in check for check in archery.acceptanceChecks)
-
-    assert natural_explorer.engineFunction == "apply_ranger_natural_explorer_check"
-    assert "class.ranger.feature.자연_탐험가" in natural_explorer.sourceEntityIds
-    assert any("favored terrain" in check for check in natural_explorer.acceptanceChecks)
-    assert any("proficiency bonus is doubled" in check for check in natural_explorer.acceptanceChecks)
-
-
-def test_retrieval_returns_class_feature_hooks_for_ranger_text():
-    retriever = SrdRetriever(
-        spells=[],
-        conditions=[],
-        magic_items=[],
-        rule_fragments=load_rule_fragments(),
-        rule_hooks=build_rule_hook_fixtures(),
-    )
-
-    archery_hooks = retriever.related_rule_hooks_for_text("레인저가 롱보우로 고블린을 공격한다")
-    explorer_hooks = retriever.related_rule_hooks_for_text("레인저가 자연 탐험가로 생존 판정을 한다")
-
-    assert archery_hooks[0].id == "hook.class.ranger.fighting_style_archery"
-    assert explorer_hooks[0].id == "hook.class.ranger.natural_explorer_check"
-
-
-def test_retrieval_returns_check_hook_for_exploration_text():
-    retriever = SrdRetriever(
-        spells=[],
-        conditions=[],
-        magic_items=[],
-        rule_fragments=load_rule_fragments(),
-        rule_hooks=build_rule_hook_fixtures(),
-    )
-
-    hooks = retriever.related_rule_hooks_for_text("rogue investigation skill check for tracks")
-
-    assert hooks[0].id == "hook.check.resolve_ability_or_skill_check"
+    assert frenzy_hooks[0].id == "hook.class.barbarian.frenzy"
 
 
 def test_retrieval_does_not_return_entity_specific_spell_hook_from_attack_rule_only():

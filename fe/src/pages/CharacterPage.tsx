@@ -1,4 +1,4 @@
-﻿import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import defaultArcherImage from "../assets/images/Profile_Default_Archer.png";
 import defaultRogueImage from "../assets/images/Profile_Default_Rouge.png";
 import defaultWarriorImage from "../assets/images/Profile_Default_Warrior.png";
@@ -46,51 +46,47 @@ interface ClassStatProfile {
     maxHp: number;
     armorClass: number;
     speed: number;
-    proficiencyBonus: number;
     abilities: Record<ScalingAbilityKey, number>;
   };
   growth: {
     maxHp: number;
     armorClass: number;
-    proficiencyBonus: number;
     abilities: Record<ScalingAbilityKey, number>;
   };
 }
 
-const MVP_CHARACTER_LEVEL = 2;
-
 type ClassName = ClassOptionValue;
+
+const MVP_CHARACTER_LEVEL = 2;
 
 const ancestryOptions = raceOptions;
 
 const defaultAncestry = ancestryOptions.find((option) => option.value === "Human")?.value ?? ancestryOptions[0]?.value ?? "Human";
 
 const avatarPresets = [
-  { id: "preset_fighter", label: "파이터", image: defaultWarriorImage },
+  { id: "preset_wizard", label: "위자드", image: defaultWizardImage },
+  { id: "preset_archer", label: "레인저", image: defaultArcherImage },
   { id: "preset_rogue", label: "로그", image: defaultRogueImage },
-  { id: "preset_ranger", label: "레인저", image: defaultArcherImage },
-  { id: "preset_wizard", label: "위저드", image: defaultWizardImage },
+  { id: "preset_warrior", label: "파이터", image: defaultWarriorImage },
 ] as const;
 
 const classStatProfiles: Record<ClassName, ClassStatProfile> = {
   Fighter: {
     base: {
       maxHp: 20,
-      armorClass: 16,
-      speed: 30,
-      proficiencyBonus: 2,
+      armorClass: 20,
+      speed: 28,
       abilities: {
-        str: 16,
-        dex: 12,
-        int: 10,
+        str: 14,
+        dex: 10,
+        int: 8,
       },
     },
     growth: {
-      maxHp: 0,
-      armorClass: 0,
-      proficiencyBonus: 0,
+      maxHp: 2,
+      armorClass: 0.5,
       abilities: {
-        str: 0,
+        str: 0.5,
         dex: 0,
         int: 0,
       },
@@ -98,70 +94,64 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
   },
   Ranger: {
     base: {
-      maxHp: 18,
-      armorClass: 15,
-      speed: 30,
-      proficiencyBonus: 2,
+      maxHp: 16,
+      armorClass: 16,
+      speed: 32,
       abilities: {
-        str: 12,
-        dex: 16,
+        str: 10,
+        dex: 14,
         int: 10,
       },
     },
     growth: {
-      maxHp: 0,
-      armorClass: 0,
-      proficiencyBonus: 0,
+      maxHp: 1.5,
+      armorClass: 0.35,
       abilities: {
         str: 0,
-        dex: 0,
+        dex: 0.5,
         int: 0,
       },
     },
   },
   Rogue: {
     base: {
-      maxHp: 15,
+      maxHp: 14,
       armorClass: 14,
-      speed: 30,
-      proficiencyBonus: 2,
+      speed: 36,
       abilities: {
-        str: 10,
-        dex: 16,
-        int: 12,
+        str: 9,
+        dex: 15,
+        int: 11,
       },
     },
     growth: {
-      maxHp: 0,
-      armorClass: 0,
-      proficiencyBonus: 0,
+      maxHp: 1.2,
+      armorClass: 0.25,
       abilities: {
         str: 0,
-        dex: 0,
-        int: 0,
+        dex: 0.4,
+        int: 0.2,
       },
     },
   },
   Wizard: {
     base: {
       maxHp: 12,
-      armorClass: 12,
+      armorClass: 10,
       speed: 30,
-      proficiencyBonus: 2,
       abilities: {
         str: 8,
-        dex: 14,
-        int: 16,
+        dex: 10,
+        int: 15,
       },
     },
     growth: {
-      maxHp: 0,
-      armorClass: 0,
-      proficiencyBonus: 0,
+      maxHp: 1,
+      armorClass: 0.1,
       abilities: {
         str: 0,
         dex: 0,
-        int: 0,
+        int: 0.5,
       },
     },
   },
@@ -192,16 +182,18 @@ const suggestedSkillOptions = [
 const ancestryLabelMap: Map<string, string> = new Map(ancestryOptions.map((option) => [option.value, option.label]));
 const skillLabelMap: Map<string, string> = new Map(suggestedSkillOptions.map((option) => [option.value, option.label]));
 const presetIdByClassName: Map<string, string> = new Map([
-  ["Fighter", "preset_fighter"],
   ["Wizard", "preset_wizard"],
-  ["Ranger", "preset_ranger"],
+  ["Ranger", "preset_archer"],
   ["Rogue", "preset_rogue"],
+  ["Fighter", "preset_warrior"],
+  ["Archer", "preset_archer"],
+  ["Warrior", "preset_warrior"],
 ]);
 const classNameByPresetId: Map<string, string> = new Map([
-  ["preset_fighter", "Fighter"],
   ["preset_wizard", "Wizard"],
-  ["preset_ranger", "Ranger"],
+  ["preset_archer", "Ranger"],
   ["preset_rogue", "Rogue"],
+  ["preset_warrior", "Fighter"],
 ]);
 
 function calcModifier(score: number) {
@@ -236,7 +228,7 @@ function formatStat(value: number) {
 }
 
 function normalizeLevel(value: number) {
-  return Number(value) === MVP_CHARACTER_LEVEL ? MVP_CHARACTER_LEVEL : MVP_CHARACTER_LEVEL;
+  return Math.max(1, Number(value) || 1);
 }
 
 function getProficiencyBonusForLevel(level: number) {
@@ -329,18 +321,18 @@ function applyLevelDeltaAbilities(
 }
 
 function createDefaultCharacter(): CharacterPayload {
-  const defaultClassName: ClassName = "Fighter";
-  const recommendedStats = getRecommendedStats(defaultClassName, MVP_CHARACTER_LEVEL);
-  const recommendedAbilities = getRecommendedAbilities(defaultClassName, MVP_CHARACTER_LEVEL);
+  const defaultClassName: ClassName = "Wizard";
+  const recommendedStats = getRecommendedStats(defaultClassName, 1);
+  const recommendedAbilities = getRecommendedAbilities(defaultClassName, 1);
 
   return {
     name: "",
     ancestry: defaultAncestry,
     className: defaultClassName,
     avatarType: "PRESET",
-    avatarPresetId: "preset_fighter",
+    avatarPresetId: "preset_wizard",
     avatarUrl: null,
-    level: MVP_CHARACTER_LEVEL,
+    level: 1,
     abilities: recommendedAbilities,
     proficiencyBonus: recommendedStats.proficiencyBonus,
     proficientSkills: [],
@@ -392,11 +384,11 @@ function getSkillLabel(skill: string) {
 }
 
 function getPresetIdForClassName(className: string) {
-  return presetIdByClassName.get(className) ?? "preset_fighter";
+  return presetIdByClassName.get(className) ?? "preset_wizard";
 }
 
 function getClassNameForPresetId(presetId: string) {
-  return classNameByPresetId.get(presetId) ?? "Fighter";
+  return classNameByPresetId.get(presetId) ?? "Wizard";
 }
 
 function getRaceByValue(value: string): RaceData | null {
@@ -854,388 +846,379 @@ export function CharacterPage({
 
             <form className="modal-form character-create-form" onSubmit={submitCreateCharacter}>
               <div className="character-create-form-left">
-              <section className="character-form-section">
-                <div className="section-heading compact">
-                  <div>
-                    <span className="eyebrow">기본 정보</span>
-                    <h2>프로필</h2>
+                <section className="character-form-section">
+                  <div className="section-heading compact">
+                    <div>
+                      <span className="eyebrow">기본 정보</span>
+                      <h2>프로필</h2>
+                    </div>
                   </div>
-                </div>
 
-                <div className="field-row">
-                  <div>
-                    <label htmlFor="character-name-create">이름</label>
-                    <input
-                      id="character-name-create"
-                      value={formState.name}
-                      onChange={(event) => setFormState((current) => ({ ...current, name: event.target.value }))}
-                      maxLength={50}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="character-level-create">레벨</label>
-                    <input
-                      id="character-level-create"
-                      type="number"
-                      min={MVP_CHARACTER_LEVEL}
-                      max={MVP_CHARACTER_LEVEL}
-                      value={MVP_CHARACTER_LEVEL}
-                      onChange={(event) =>
-                        setFormState((current) => {
-                          const nextLevel = normalizeLevel(Number(event.target.value));
-                          const currentLevel = normalizeLevel(current.level ?? MVP_CHARACTER_LEVEL);
-                          const nextStats = applyLevelDeltaStats(current, nextLevel - currentLevel);
-                          const nextAbilities = applyLevelDeltaAbilities(current, nextLevel - currentLevel);
-
-                          return {
-                            ...current,
-                            level: nextLevel,
-                            maxHp: nextStats.maxHp,
-                            armorClass: nextStats.armorClass,
-                            proficiencyBonus: nextStats.proficiencyBonus,
-                            abilities: nextAbilities,
-                          };
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div className="field-row">
-                  <div>
-                    <label htmlFor="character-ancestry-create">종족</label>
-                    <select
-                      id="character-ancestry-create"
-                      value={formState.ancestry}
-                      onChange={(event) => setFormState((current) => ({ ...current, ancestry: event.target.value }))}
-                      required
-                    >
-                      {ancestryOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="character-class-create">직업</label>
-                    <select
-                      id="character-class-create"
-                      value={formState.className}
-                      onChange={(event) =>
-                        setFormState((current) => {
-                          const className = event.target.value;
-                          const recommendedStats = getRecommendedStats(className, current.level ?? MVP_CHARACTER_LEVEL);
-                          const recommendedAbilities = getRecommendedAbilities(
-                            className,
-                            current.level ?? MVP_CHARACTER_LEVEL,
-                            current.abilities,
-                          );
-                          return {
-                            ...current,
-                            className,
-                            avatarType: "PRESET",
-                            avatarPresetId: getPresetIdForClassName(className),
-                            avatarUrl: null,
-                            maxHp: recommendedStats.maxHp,
-                            armorClass: recommendedStats.armorClass,
-                            speed: recommendedStats.speed,
-                            proficiencyBonus: recommendedStats.proficiencyBonus,
-                            abilities: recommendedAbilities,
-                          };
-                        })
-                      }
-                      required
-                    >
-                      {classOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="character-avatar-picker">
-                  <label>초상화</label>
-                  <div className="character-avatar-grid" role="radiogroup" aria-label="캐릭터 초상화 선택">
-                    {avatarPresets.map((preset) => {
-                      const isSelected = formState.avatarPresetId === preset.id;
-                      return (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          className={`character-avatar-option${isSelected ? " selected" : ""}`}
-                          onClick={() =>
-                            setFormState((current) => {
-                              const className = getClassNameForPresetId(preset.id);
-                              const recommendedStats = getRecommendedStats(
-                                className,
-                                current.level ?? MVP_CHARACTER_LEVEL,
-                              );
-                              const recommendedAbilities = getRecommendedAbilities(
-                                className,
-                                current.level ?? MVP_CHARACTER_LEVEL,
-                                current.abilities,
-                              );
-
-
-
-              </section>
-
-              <section className="character-form-section">
-                <div className="section-heading compact">
-                  <div>
-                    <span className="eyebrow">전투 수치</span>
-                    <h2>코어 스탯</h2>
-                  </div>
-                </div>
-
-                <div className="field-row field-row-4">
-                  <div>
-                    <label htmlFor="character-hp-create">HP</label>
-                    <input
-                      id="character-hp-create"
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={formState.maxHp ?? 12}
-                      onChange={(event) =>
-                        setFormState((current) => ({
-                          ...current,
-                          maxHp: normalizeIntegerValue(Number(event.target.value), 1),
-                        }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="character-ac-create">방어도</label>
-                    <input
-                      id="character-ac-create"
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={formState.armorClass ?? 10}
-                      onChange={(event) =>
-                        setFormState((current) => ({
-                          ...current,
-                          armorClass: normalizeIntegerValue(Number(event.target.value), 1),
-                        }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="character-speed-create">이동속도</label>
-                    <input
-                      id="character-speed-create"
-                      type="number"
-                      min={0}
-                      value={formState.speed ?? 30}
-                      onChange={(event) =>
-                        setFormState((current) => ({
-                          ...current,
-                          speed: normalizeIntegerValue(Number(event.target.value), 0),
-                        }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="character-prof-create">숙련도</label>
-                    <input
-                      id="character-prof-create"
-                      type="number"
-                      min={0}
-                      step={1}
-                      value={formState.proficiencyBonus ?? 2}
-                      onChange={(event) =>
-                        setFormState((current) => ({
-                          ...current,
-                          proficiencyBonus: normalizeIntegerValue(Number(event.target.value), 0),
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-              </section>
-
-              <section className="character-form-section">
-                <div className="section-heading compact">
-                  <div>
-                    <span className="eyebrow">능력치</span>
-                    <h2>능력치</h2>
-                  </div>
-                </div>
-
-                <div className="field-row field-row-3">
-                  {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => (
-                    <div key={ability}>
-                      <label htmlFor={`character-${ability}`}>{abilityDisplayLabels[ability]}</label>
+                  <div className="field-row">
+                    <div>
+                      <label htmlFor="character-name-create">이름</label>
                       <input
-                        id={`character-${ability}`}
+                        id="character-name-create"
+                        value={formState.name}
+                        onChange={(event) => setFormState((current) => ({ ...current, name: event.target.value }))}
+                        maxLength={50}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="character-level-create">레벨</label>
+                      <input
+                        id="character-level-create"
+                        type="number"
+                        min={MVP_CHARACTER_LEVEL}
+                        max={MVP_CHARACTER_LEVEL}
+                        value={MVP_CHARACTER_LEVEL}
+                        onChange={(event) =>
+                          setFormState((current) => {
+                            const nextLevel = normalizeLevel(Number(event.target.value));
+                            const currentLevel = normalizeLevel(current.level ?? MVP_CHARACTER_LEVEL);
+                            const nextStats = applyLevelDeltaStats(
+                              current,
+                              nextLevel - currentLevel,
+                              nextLevel,
+                            );
+                            const nextAbilities = applyLevelDeltaAbilities(
+                              current,
+                              nextLevel - currentLevel,
+                            );
+
+                            return {
+                              ...current,
+                              level: nextLevel,
+                              maxHp: nextStats.maxHp,
+                              armorClass: nextStats.armorClass,
+                              proficiencyBonus: nextStats.proficiencyBonus,
+                              abilities: nextAbilities,
+                            };
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="field-row">
+                    <div>
+                      <label htmlFor="character-ancestry-create">종족</label>
+                      <select
+                        id="character-ancestry-create"
+                        value={formState.ancestry}
+                        onChange={(event) => setFormState((current) => ({ ...current, ancestry: event.target.value }))}
+                        required
+                      >
+                        {ancestryOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="character-class-create">직업</label>
+                      <select
+                        id="character-class-create"
+                        value={formState.className}
+                        onChange={(event) =>
+                          setFormState((current) => {
+                            const className = event.target.value;
+                            const recommendedStats = getRecommendedStats(
+                              className,
+                              current.level ?? MVP_CHARACTER_LEVEL,
+                            );
+                            const recommendedAbilities = getRecommendedAbilities(
+                              className,
+                              current.level ?? MVP_CHARACTER_LEVEL,
+                              current.abilities,
+                            );
+                            return {
+                              ...current,
+                              className,
+                              avatarType: "PRESET",
+                              avatarPresetId: getPresetIdForClassName(className),
+                              avatarUrl: null,
+                              maxHp: recommendedStats.maxHp,
+                              armorClass: recommendedStats.armorClass,
+                              speed: recommendedStats.speed,
+                              proficiencyBonus: recommendedStats.proficiencyBonus,
+                              abilities: recommendedAbilities,
+                            };
+                          })
+                        }
+                        required
+                      >
+                        {classOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="character-form-section">
+                  <div className="section-heading compact">
+                    <div>
+                      <span className="eyebrow">전투 수치</span>
+                      <h2>코어 스탯</h2>
+                    </div>
+                  </div>
+
+                  <div className="field-row field-row-4">
+                    <div>
+                      <label htmlFor="character-hp-create">HP</label>
+                      <input
+                        id="character-hp-create"
                         type="number"
                         min={1}
                         step={1}
-                        value={formState.abilities?.[ability] ?? 10}
-                        onChange={(event) => updateAbility(ability, normalizeIntegerValue(Number(event.target.value), 1))}
+                        value={formState.maxHp ?? 12}
+                        onChange={(event) =>
+                          setFormState((current) => ({
+                            ...current,
+                            maxHp: normalizeIntegerValue(Number(event.target.value), 1),
+                          }))
+                        }
                       />
                     </div>
-                  ))}
-                </div>
-              </section>
-
-              <section className="character-form-section">
-                <div className="section-heading compact">
-                  <div>
-                    <span className="eyebrow">기술</span>
-                    <h2>숙련 기술</h2>
+                    <div>
+                      <label htmlFor="character-ac-create">방어도</label>
+                      <input
+                        id="character-ac-create"
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={formState.armorClass ?? 10}
+                        onChange={(event) =>
+                          setFormState((current) => ({
+                            ...current,
+                            armorClass: normalizeIntegerValue(Number(event.target.value), 1),
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="character-speed-create">이동속도</label>
+                      <input
+                        id="character-speed-create"
+                        type="number"
+                        min={0}
+                        value={formState.speed ?? 30}
+                        onChange={(event) =>
+                          setFormState((current) => ({
+                            ...current,
+                            speed: normalizeIntegerValue(Number(event.target.value), 0),
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="character-prof-create">숙련도</label>
+                      <input
+                        id="character-prof-create"
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={formState.proficiencyBonus ?? 2}
+                        onChange={(event) =>
+                          setFormState((current) => ({
+                            ...current,
+                            proficiencyBonus: normalizeIntegerValue(Number(event.target.value), 0),
+                          }))
+                        }
+                      />
+                    </div>
                   </div>
-                </div>
+                </section>
 
-                <div className="character-skill-picker">
-                  <input
-                    value={skillInput}
-                    onChange={(event) => setSkillInput(event.target.value)}
-                    placeholder="기술 이름 입력"
-                  />
-                  <button type="button" onClick={() => addSkill(skillInput)}>
-                    추가
-                  </button>
-                </div>
-
-                <div className="character-chip-row" style={{ marginTop: "14px" }}>
-                  {suggestedSkillOptions.map((skill) => (
-                    <button
-                      key={skill.value}
-                      type="button"
-                      className="character-skill-chip"
-                      onClick={() => addSkill(skill.value)}
-                    >
-                      {skill.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="character-chip-row" style={{ marginTop: "12px" }}>
-                  {(formState.proficientSkills ?? []).length ? (
-                    (formState.proficientSkills ?? []).map((skill) => (
-                      <span
-                        key={skill}
-                        className="character-selected-chip"
-                        style={{ display: "inline-flex", alignItems: "center", gap: "10px" }}
-                      >
-                        {getSkillLabel(skill)}
-                        <button
-                          type="button"
-                          onClick={() => removeSkill(skill)}
-                          aria-label={`${getSkillLabel(skill)} 제거`}
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            width: "1.22rem",
-                            height: "1.22rem",
-                            padding: 0,
-                            lineHeight: 1,
-                            fontSize: "0.95rem",
-                            flexShrink: 0,
-                            transform: "translateY(-1px)",
-                          }}
-                        >
-                          x
-                        </button>
-                      </span>
-                    ))
-                  ) : (
-                    <span className="status-chip muted">선택된 기술이 없습니다</span>
-                  )}
-                </div>
-              </section>
-
-              <section className="character-form-section">
-                <div className="section-heading compact">
-                  <div>
-                    <span className="eyebrow">인벤토리</span>
-                    <h2>아이템</h2>
+                <section className="character-form-section">
+                  <div className="section-heading compact">
+                    <div>
+                      <span className="eyebrow">능력치</span>
+                      <h2>능력치</h2>
+                    </div>
                   </div>
-                  <button type="button" onClick={addInventoryRow}>
-                    아이템 추가
-                  </button>
-                </div>
 
-                <div ref={inventoryEditorRef} className="character-inventory-editor fantasy-scroll-hidden">
-                  {inventoryDraft.length ? (
-                    inventoryDraft.map((item) => (
-                      <div key={item.id} className="character-inventory-row">
+                  <div className="field-row field-row-3">
+                    {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => (
+                      <div key={ability}>
+                        <label htmlFor={`character-${ability}`}>{abilityDisplayLabels[ability]}</label>
                         <input
-                          value={item.name}
-                          onChange={(event) => updateInventoryRow(item.id, "name", event.target.value)}
-                          placeholder="아이템 이름"
-                        />
-                        <input
+                          id={`character-${ability}`}
                           type="number"
                           min={1}
-                          value={item.quantity}
-                          onChange={(event) => updateInventoryRow(item.id, "quantity", event.target.value)}
-                          placeholder="수량"
+                          step={1}
+                          value={formState.abilities?.[ability] ?? 10}
+                          onChange={(event) =>
+                            updateAbility(ability, normalizeIntegerValue(Number(event.target.value), 1))
+                          }
                         />
-                        <button type="button" className="ghost" onClick={() => removeInventoryRow(item.id)}>
-                          삭제
-                        </button>
                       </div>
-                    ))
-                  ) : (
-                    <p className="character-empty-note">아직 추가된 아이템이 없습니다.</p>
-                  )}
-                </div>
-              </section>
+                    ))}
+                  </div>
+                </section>
 
+                <section className="character-form-section">
+                  <div className="section-heading compact">
+                    <div>
+                      <span className="eyebrow">기술</span>
+                      <h2>숙련 기술</h2>
+                    </div>
+                  </div>
+
+                  <div className="character-skill-picker">
+                    <input
+                      value={skillInput}
+                      onChange={(event) => setSkillInput(event.target.value)}
+                      placeholder="기술 이름 입력"
+                    />
+                    <button type="button" onClick={() => addSkill(skillInput)}>
+                      추가
+                    </button>
+                  </div>
+
+                  <div className="character-chip-row" style={{ marginTop: "14px" }}>
+                    {suggestedSkillOptions.map((skill) => (
+                      <button
+                        key={skill.value}
+                        type="button"
+                        className="character-skill-chip"
+                        onClick={() => addSkill(skill.value)}
+                      >
+                        {skill.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="character-chip-row" style={{ marginTop: "12px" }}>
+                    {(formState.proficientSkills ?? []).length ? (
+                      (formState.proficientSkills ?? []).map((skill) => (
+                        <span
+                          key={skill}
+                          className="character-selected-chip"
+                          style={{ display: "inline-flex", alignItems: "center", gap: "10px" }}
+                        >
+                          {getSkillLabel(skill)}
+                          <button
+                            type="button"
+                            onClick={() => removeSkill(skill)}
+                            aria-label={`${getSkillLabel(skill)} 제거`}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              width: "1.22rem",
+                              height: "1.22rem",
+                              padding: 0,
+                              lineHeight: 1,
+                              fontSize: "0.95rem",
+                              flexShrink: 0,
+                              transform: "translateY(-1px)",
+                            }}
+                          >
+                            x
+                          </button>
+                        </span>
+                      ))
+                    ) : (
+                      <span className="status-chip muted">선택된 기술이 없습니다</span>
+                    )}
+                  </div>
+                </section>
+
+                <section className="character-form-section">
+                  <div className="section-heading compact">
+                    <div>
+                      <span className="eyebrow">인벤토리</span>
+                      <h2>아이템</h2>
+                    </div>
+                    <button type="button" onClick={addInventoryRow}>
+                      아이템 추가
+                    </button>
+                  </div>
+
+                  <div
+                    ref={inventoryEditorRef}
+                    className="character-inventory-editor fantasy-scroll-hidden"
+                  >
+                    {inventoryDraft.length ? (
+                      inventoryDraft.map((item) => (
+                        <div key={item.id} className="character-inventory-row">
+                          <input
+                            value={item.name}
+                            onChange={(event) => updateInventoryRow(item.id, "name", event.target.value)}
+                            placeholder="아이템 이름"
+                          />
+                          <input
+                            type="number"
+                            min={1}
+                            value={item.quantity}
+                            onChange={(event) => updateInventoryRow(item.id, "quantity", event.target.value)}
+                            placeholder="수량"
+                          />
+                          <button type="button" className="ghost" onClick={() => removeInventoryRow(item.id)}>
+                            삭제
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="character-empty-note">아직 추가된 아이템이 없습니다.</p>
+                    )}
+                  </div>
+                </section>
               </div>
               <div className="character-create-form-right">
                 <section className="character-form-section">
-                <div className="character-avatar-picker">
-                  <label>초상화</label>
-                  <div className="character-avatar-grid" role="radiogroup" aria-label="캐릭터 초상화 선택">
-                    {avatarPresets.map((preset) => {
-                      const isSelected = formState.avatarPresetId === preset.id;
-                      return (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          className={`character-avatar-option${isSelected ? " selected" : ""}`}
-                          onClick={() =>
-                            setFormState((current) => {
-                              const className = getClassNameForPresetId(preset.id);
-                              const recommendedStats = getRecommendedStats(className, current.level ?? 1);
-                              const recommendedAbilities = getRecommendedAbilities(
-                                className,
-                                current.level ?? 1,
-                                current.abilities,
-                              );
+                  <div className="character-avatar-picker">
+                    <label>초상화</label>
+                    <div className="character-avatar-grid" role="radiogroup" aria-label="캐릭터 초상화 선택">
+                      {avatarPresets.map((preset) => {
+                        const isSelected = formState.avatarPresetId === preset.id;
+                        return (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            className={`character-avatar-option${isSelected ? " selected" : ""}`}
+                            onClick={() =>
+                              setFormState((current) => {
+                                const className = getClassNameForPresetId(preset.id);
+                                const recommendedStats = getRecommendedStats(
+                                  className,
+                                  current.level ?? MVP_CHARACTER_LEVEL,
+                                );
+                                const recommendedAbilities = getRecommendedAbilities(
+                                  className,
+                                  current.level ?? MVP_CHARACTER_LEVEL,
+                                  current.abilities,
+                                );
 
-                              return {
-                                ...current,
-                                className,
-                                avatarType: "PRESET",
-                                avatarPresetId: preset.id,
-                                avatarUrl: null,
-                                maxHp: recommendedStats.maxHp,
-                                armorClass: recommendedStats.armorClass,
-                                speed: recommendedStats.speed,
-                                proficiencyBonus: recommendedStats.proficiencyBonus,
-                                abilities: recommendedAbilities,
-                              };
-                            })
-                          }
-                          aria-pressed={isSelected}
-                        >
-                          <img src={preset.image} alt={preset.label} className="character-avatar-option-image" />
-                          <span>{preset.label}</span>
-                        </button>
-                      );
-                    })}
+                                return {
+                                  ...current,
+                                  className,
+                                  avatarType: "PRESET",
+                                  avatarPresetId: preset.id,
+                                  avatarUrl: null,
+                                  maxHp: recommendedStats.maxHp,
+                                  armorClass: recommendedStats.armorClass,
+                                  speed: recommendedStats.speed,
+                                  proficiencyBonus: recommendedStats.proficiencyBonus,
+                                  abilities: recommendedAbilities,
+                                };
+                              })
+                            }
+                            aria-pressed={isSelected}
+                          >
+                            <img src={preset.image} alt={preset.label} className="character-avatar-option-image" />
+                            <span>{preset.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
                 </section>
                 <div className="character-insight-box">
                   <div className="fantasy-insight-content">
@@ -1243,7 +1226,9 @@ export function CharacterPage({
                       <strong className="fantasy-insight-title">{selectedRaceInfo?.label ?? "종족 정보"}</strong>
                       <p>
                         능력치 보너스:{" "}
-                        {selectedRaceInfo?.abilityBonuses.map((bonus) => formatAbilityBonus(bonus)).join(", ") ?? "정보 없음"}
+                        {(selectedRaceInfo?.abilityBonuses ?? [])
+                          .map((bonus) => formatAbilityBonus(bonus))
+                          .join(", ") || "정보 없음"}
                       </p>
                       <p>이동속도: {selectedRaceInfo ? `${selectedRaceInfo.speed} ft.` : "정보 없음"}</p>
                       <p>크기: {selectedRaceInfo?.size ?? "정보 없음"}</p>
@@ -1273,7 +1258,7 @@ export function CharacterPage({
                       </ul>
                       <p>
                         시작 장비:{" "}
-                        {selectedClassInfo?.startingEquipment.slice(0, 2).join(" / ") ?? "정보 없음"}
+                        {(selectedClassInfo?.startingEquipment ?? []).slice(0, 2).join(" / ") || "정보 없음"}
                       </p>
                     </div>
                   </div>
