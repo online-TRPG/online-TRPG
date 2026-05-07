@@ -52,11 +52,11 @@
     "rowsMissingEffects": []
   },
   "ruleFragments": {
-    "actual": 11,
+    "actual": 21,
     "rowsMissingSource": []
   },
   "ruleHookFixtures": {
-    "actual": 12,
+    "actual": 23,
     "rowsMissingContractFields": []
   },
   "magicItems": {

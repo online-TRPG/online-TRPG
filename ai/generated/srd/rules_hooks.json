@@ -6,8 +6,18 @@
       "titleKo": "공격 명중 판정",
       "engineFunction": "resolve_attack_roll",
       "trigger": "action.requiresRoll == true and action.attackKind in weapon_attack|melee_spell_attack|ranged_spell_attack",
-      "consumes": ["naturalD20", "attackBonus", "targetArmorClass", "advantageState"],
-      "produces": ["attackRollTotal", "hit", "criticalHit", "criticalMiss"],
+      "consumes": [
+        "naturalD20",
+        "attackBonus",
+        "targetArmorClass",
+        "advantageState"
+      ],
+      "produces": [
+        "attackRollTotal",
+        "hit",
+        "criticalHit",
+        "criticalMiss"
+      ],
       "sourceRuleIds": [
         "rule.combat.공격_굴림",
         "rule.spellcasting.공격_굴림",
@@ -32,6 +42,90 @@
       ]
     },
     {
+      "id": "hook.check.resolve_ability_or_skill_check",
+      "domain": "check",
+      "titleKo": "능력/기술 판정",
+      "engineFunction": "resolve_ability_or_skill_check",
+      "trigger": "action.type in ability_check|skill_check",
+      "consumes": [
+        "naturalD20",
+        "modifier",
+        "difficultyClass",
+        "advantageState"
+      ],
+      "produces": [
+        "checkRollTotal",
+        "success",
+        "criticalSuccess",
+        "criticalFailure"
+      ],
+      "sourceRuleIds": [
+        "rule.checks.능력_판정",
+        "rule.checks.기술",
+        "rule.checks.숙련_보너스",
+        "rule.checks.일반적인_난이도_dc"
+      ],
+      "sourceEntityIds": [],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "the backend selects the final DC from scenario data or GM-confirmed context",
+        "checkRollTotal is naturalD20 + modifier",
+        "success is checkRollTotal >= difficultyClass",
+        "AI may suggest the intent and skill but must not decide success or failure"
+      ]
+    },
+    {
+      "id": "hook.check.resolve_saving_throw",
+      "domain": "check",
+      "titleKo": "내성 굴림 판정",
+      "engineFunction": "resolve_saving_throw",
+      "trigger": "action.type == saving_throw",
+      "consumes": [
+        "naturalD20",
+        "modifier",
+        "difficultyClass",
+        "advantageState",
+        "saveAbility"
+      ],
+      "produces": [
+        "checkRollTotal",
+        "success",
+        "criticalSuccess",
+        "criticalFailure"
+      ],
+      "sourceRuleIds": [
+        "rule.checks.saving_throw",
+        "rule.checks.숙련_보너스",
+        "rule.checks.유리함과_불리함",
+        "rule.spellcasting.saving_throw"
+      ],
+      "sourceEntityIds": [],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "difficultyClass comes from the spell, trap, terrain, or scenario-authored effect",
+        "checkRollTotal is naturalD20 + modifier",
+        "ordinary saving throws do not auto-succeed on naturalD20 == 20 or auto-fail on naturalD20 == 1 unless a narrower rule says so",
+        "success is checkRollTotal >= difficultyClass",
+        "AI may identify the save ability and stakes but must not decide the outcome"
+      ]
+    },
+    {
       "id": "hook.damage.apply_resistance_vulnerability",
       "domain": "damage",
       "titleKo": "피해 저항/취약 적용",
@@ -44,8 +138,13 @@
         "targetResistances",
         "targetVulnerabilities"
       ],
-      "produces": ["finalDamage", "appliedDamageModifiers"],
-      "sourceRuleIds": ["rule.damage.저항과_취약"],
+      "produces": [
+        "finalDamage",
+        "appliedDamageModifiers"
+      ],
+      "sourceRuleIds": [
+        "rule.damage.저항과_취약"
+      ],
       "sourceEntityIds": [],
       "aiForbiddenUse": [
         "decide_game_truth",
@@ -69,10 +168,23 @@
       "titleKo": "넘어짐 상태 전투 보정",
       "engineFunction": "apply_condition_modifiers",
       "trigger": "target.conditions contains condition.prone or movement declares stand_up/crawl",
-      "consumes": ["condition.prone", "attackerDistanceFt", "remainingMovementFt", "baseSpeedFt"],
-      "produces": ["movementCostFt", "selfAttackDisadvantage", "incomingAttackAdvantageState"],
-      "sourceRuleIds": ["rule.combat.넘어짐"],
-      "sourceEntityIds": ["condition.prone"],
+      "consumes": [
+        "condition.prone",
+        "attackerDistanceFt",
+        "remainingMovementFt",
+        "baseSpeedFt"
+      ],
+      "produces": [
+        "movementCostFt",
+        "selfAttackDisadvantage",
+        "incomingAttackAdvantageState"
+      ],
+      "sourceRuleIds": [
+        "rule.combat.넘어짐"
+      ],
+      "sourceEntityIds": [
+        "condition.prone"
+      ],
       "aiForbiddenUse": [
         "decide_game_truth",
         "change_game_state",
@@ -87,6 +199,165 @@
         "a prone creature has disadvantage on its attack rolls",
         "attacks against prone targets within 5 feet have advantage",
         "attacks against prone targets farther than 5 feet have disadvantage"
+      ]
+    },
+    {
+      "id": "hook.combat.resolve_initiative_order",
+      "domain": "combat",
+      "titleKo": "우선권 순서 결정",
+      "engineFunction": "resolve_initiative_order",
+      "trigger": "combat starts and initiative order must be fixed",
+      "consumes": [
+        "naturalD20",
+        "dexterityModifier",
+        "initiativeBonus",
+        "participantGroupId",
+        "participantIds",
+        "tiebreakPolicy"
+      ],
+      "produces": [
+        "initiativeTotal",
+        "groupedParticipants",
+        "tiebreakRequired"
+      ],
+      "sourceRuleIds": [
+        "rule.combat.우선권",
+        "rule.combat.initiative"
+      ],
+      "sourceEntityIds": [],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "initiativeTotal is naturalD20 + dexterityModifier + initiativeBonus",
+        "same-species monsters may share one initiative when participantGroupId is provided",
+        "ties are resolved by backend or GM policy, not by AI freeform narration",
+        "AI may announce combat start but must not finalize turn order"
+      ]
+    },
+    {
+      "id": "hook.combat.apply_cover_modifiers",
+      "domain": "combat",
+      "titleKo": "엄폐 보정 적용",
+      "engineFunction": "apply_cover_modifiers",
+      "trigger": "attack roll or dexterity saving throw targets creature behind cover",
+      "consumes": [
+        "coverLevel",
+        "targetArmorClass",
+        "baseDifficultyClass",
+        "checkType",
+        "directTargeting"
+      ],
+      "produces": [
+        "adjustedArmorClass",
+        "adjustedDifficultyClass",
+        "targetable"
+      ],
+      "sourceRuleIds": [
+        "rule.combat.엄폐",
+        "rule.combat.cover",
+        "rule.checks.saving_throw"
+      ],
+      "sourceEntityIds": [],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "half cover adds +2 to AC and Dexterity saving throws",
+        "three-quarters cover adds +5 to AC and Dexterity saving throws",
+        "full cover makes targetable=false for direct attacks and spells",
+        "only the highest cover level applies",
+        "AI may point out cover but must not mutate AC, DC, or targetability directly"
+      ]
+    },
+    {
+      "id": "hook.combat.apply_difficult_terrain_cost",
+      "domain": "combat",
+      "titleKo": "어려운 지형 이동 비용 적용",
+      "engineFunction": "apply_difficult_terrain_cost",
+      "trigger": "movement path includes difficult terrain during exploration or combat",
+      "consumes": [
+        "enteredDifficultTerrain",
+        "intendedDistanceFt",
+        "remainingMovementFt",
+        "baseCostPerFoot"
+      ],
+      "produces": [
+        "movementCostFt",
+        "movementAllowed",
+        "remainingMovementFtAfterMove"
+      ],
+      "sourceRuleIds": [
+        "rule.combat.어려운_지형",
+        "rule.exploration.어려운_지형",
+        "rule.combat.difficult_terrain"
+      ],
+      "sourceEntityIds": [],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "each foot of difficult terrain costs one extra foot of movement",
+        "when enteredDifficultTerrain is false, movementCostFt equals intendedDistanceFt * baseCostPerFoot",
+        "movementAllowed is false if movementCostFt exceeds remainingMovementFt",
+        "AI may describe slow terrain but must not spend movement or reposition tokens directly"
+      ]
+    },
+    {
+      "id": "hook.combat.resolve_surprise",
+      "domain": "combat",
+      "titleKo": "기습 여부 결정",
+      "engineFunction": "resolve_surprise_state",
+      "trigger": "combat starts after stealth, ambush, or alerted breach",
+      "consumes": [
+        "stealthTotals",
+        "passivePerceptionScores",
+        "alreadyAlertedIds"
+      ],
+      "produces": [
+        "surprisedTargetIds",
+        "awareTargetIds",
+        "surpriseDetected"
+      ],
+      "sourceRuleIds": [
+        "rule.combat.기습",
+        "rule.combat.surprise",
+        "rule.checks.수동_판정",
+        "rule.checks.기술"
+      ],
+      "sourceEntityIds": [],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "a creature is surprised when it fails to notice an opposing threat before combat starts",
+        "already alerted creatures cannot become surprised again in the same encounter start",
+        "surprised creatures still roll initiative but cannot move, act, or react on their first turn",
+        "AI may suggest stealth approach but must not decide who is surprised"
       ]
     },
     {
@@ -117,7 +388,9 @@
         "rule.spellcasting.spell_attack",
         "rule.combat.attack_roll"
       ],
-      "sourceEntityIds": ["spell.chill_touch"],
+      "sourceEntityIds": [
+        "spell.chill_touch"
+      ],
       "aiForbiddenUse": [
         "decide_game_truth",
         "change_game_state",
@@ -136,6 +409,145 @@
       ]
     },
     {
+      "id": "hook.spell.cast_fire_bolt",
+      "domain": "spellcasting",
+      "titleKo": "화염 화살 시전 처리",
+      "engineFunction": "resolve_spell_cast",
+      "trigger": "action.type == cast_spell and action.spellId == spell.fire_bolt",
+      "consumes": [
+        "spell.fire_bolt",
+        "casterKnownCantrips",
+        "actionAvailable",
+        "targetDistanceFt",
+        "componentAvailability",
+        "spellAttackRollResult"
+      ],
+      "produces": [
+        "validatedSpellCast",
+        "damagePacket.fire"
+      ],
+      "sourceRuleIds": [
+        "rule.spellcasting.casting_time.action",
+        "rule.spellcasting.range",
+        "rule.spellcasting.components",
+        "rule.spellcasting.cantrip",
+        "rule.spellcasting.spell_attack",
+        "rule.combat.attack_roll",
+        "rule.damage.damage_roll"
+      ],
+      "sourceEntityIds": [
+        "spell.fire_bolt"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "spell.fire_bolt consumes an action and no spell slot because it is a cantrip",
+        "target must be within 120 feet when the spell is cast",
+        "hit requires a ranged spell attack resolved by hook.combat.resolve_attack_roll",
+        "on hit, fire damage starts at 1d10 and scales by character level"
+      ]
+    },
+    {
+      "id": "hook.spell.cast_magic_missile",
+      "domain": "spellcasting",
+      "titleKo": "마법 화살 시전 처리",
+      "engineFunction": "resolve_spell_cast",
+      "trigger": "action.type == cast_spell and action.spellId == spell.magic_missile",
+      "consumes": [
+        "spell.magic_missile",
+        "casterPreparedSpells",
+        "actionAvailable",
+        "spellSlotAvailable",
+        "targetIds",
+        "dartAllocation"
+      ],
+      "produces": [
+        "validatedSpellCast",
+        "forceDamagePackets",
+        "spellSlotExpended"
+      ],
+      "sourceRuleIds": [
+        "rule.spellcasting.casting_time.action",
+        "rule.spellcasting.range",
+        "rule.spellcasting.components",
+        "rule.spellcasting.spell_slot",
+        "rule.damage.damage_roll"
+      ],
+      "sourceEntityIds": [
+        "spell.magic_missile"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "spell.magic_missile consumes one 1st-level or higher spell slot",
+        "each dart hits automatically without an attack roll",
+        "three darts each deal 1d4 + 1 force damage at 1st level",
+        "dartAllocation must assign all darts to valid visible targets in range"
+      ]
+    },
+    {
+      "id": "hook.spell.cast_cure_wounds",
+      "domain": "spellcasting",
+      "titleKo": "상처 치료 시전 처리",
+      "engineFunction": "resolve_healing_spell",
+      "trigger": "action.type == cast_spell and action.spellId == spell.cure_wounds",
+      "consumes": [
+        "spell.cure_wounds",
+        "casterPreparedSpells",
+        "actionAvailable",
+        "spellSlotAvailable",
+        "targetTouchReach",
+        "healingRoll",
+        "currentHitPoints",
+        "maxHitPoints"
+      ],
+      "produces": [
+        "validatedSpellCast",
+        "hitPointsRestored",
+        "newHitPoints",
+        "spellSlotExpended"
+      ],
+      "sourceRuleIds": [
+        "rule.spellcasting.casting_time.action",
+        "rule.spellcasting.range",
+        "rule.spellcasting.components",
+        "rule.spellcasting.spell_slot",
+        "rule.damage.healing"
+      ],
+      "sourceEntityIds": [
+        "spell.cure_wounds"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "spell.cure_wounds consumes one 1st-level or higher spell slot",
+        "target must be within touch reach and must not be undead or construct",
+        "healing is 1d8 + spellcasting ability modifier at 1st level",
+        "newHitPoints must not exceed maxHitPoints"
+      ]
+    },
+    {
       "id": "hook.item.bag_of_holding_capacity",
       "domain": "item",
       "titleKo": "보유의 주머니 용량 검증",
@@ -148,9 +560,15 @@
         "addedVolumeCuFt",
         "containerIntegrity"
       ],
-      "produces": ["acceptedInventoryMutation", "capacityViolation", "containerDestroyed"],
+      "produces": [
+        "acceptedInventoryMutation",
+        "capacityViolation",
+        "containerDestroyed"
+      ],
       "sourceRuleIds": [],
-      "sourceEntityIds": ["magic_item.bag_of_holding"],
+      "sourceEntityIds": [
+        "magic_item.bag_of_holding"
+      ],
       "aiForbiddenUse": [
         "decide_game_truth",
         "change_game_state",
@@ -168,6 +586,176 @@
       ]
     },
     {
+      "id": "hook.item.use_potion_of_healing",
+      "domain": "item",
+      "titleKo": "치유 물약 사용",
+      "engineFunction": "apply_healing_item",
+      "trigger": "action.type == use_item and action.itemId == magic_item.potion_of_healing",
+      "consumes": [
+        "magic_item.potion_of_healing",
+        "actionAvailable",
+        "targetReach",
+        "healingRoll.2d4",
+        "currentHitPoints",
+        "maxHitPoints",
+        "inventoryQuantity"
+      ],
+      "produces": [
+        "hitPointsRestored",
+        "newHitPoints",
+        "itemConsumed",
+        "actionSpent"
+      ],
+      "sourceRuleIds": [
+        "rule.equipment.item_use",
+        "rule.damage.healing"
+      ],
+      "sourceEntityIds": [
+        "magic_item.potion_of_healing"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "using the potion requires an available action in MVP",
+        "healing amount is 2d4 + 2",
+        "newHitPoints must not exceed maxHitPoints",
+        "one potion is consumed only after the engine accepts the use"
+      ]
+    },
+    {
+      "id": "hook.item.apply_flat_magic_bonus",
+      "domain": "item",
+      "titleKo": "마법 장비 +1 보너스 적용",
+      "engineFunction": "apply_magic_item_bonus",
+      "trigger": "equipped MVP magic item grants +1 attack damage or AC bonus",
+      "consumes": [
+        "equippedMagicItemIds",
+        "baseAttackBonus",
+        "baseDamageBonus",
+        "baseArmorClass",
+        "shieldEquipped"
+      ],
+      "produces": [
+        "attackBonusDelta",
+        "damageBonusDelta",
+        "armorClassDelta",
+        "appliedMagicItemBonuses"
+      ],
+      "sourceRuleIds": [
+        "rule.equipment.magic_item_bonus"
+      ],
+      "sourceEntityIds": [
+        "magic_item.weapon_1_2_or_3",
+        "magic_item.armor_1_2_or_3",
+        "magic_item.shield_1_2_or_3",
+        "magic_item.ammunition_1_2_or_3"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "MVP automation applies only the +1 variant of +1/+2/+3 catalog rows",
+        "weapon bonus applies to attack and damage for the qualifying equipped weapon",
+        "armor and shield bonuses apply to AC only when equipped",
+        "AI may identify the item but must not mutate attack bonus, damage, or AC directly"
+      ]
+    },
+    {
+      "id": "hook.class.ranger.fighting_style_archery",
+      "domain": "class_feature",
+      "titleKo": "레인저 전투 방식: 궁술",
+      "engineFunction": "apply_ranger_archery_fighting_style",
+      "trigger": "ranged weapon attack by ranger with Archery fighting style",
+      "consumes": [
+        "rangerLevel",
+        "selectedFightingStyle",
+        "attackKind",
+        "weaponProperties",
+        "baseAttackBonus"
+      ],
+      "produces": [
+        "attackBonusDelta",
+        "finalAttackBonus",
+        "fightingStyleApplied"
+      ],
+      "sourceRuleIds": [
+        "rule.combat.attack_roll"
+      ],
+      "sourceEntityIds": [],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "feature requires rangerLevel >= 2",
+        "selectedFightingStyle must be Archery",
+        "bonus applies only to ranged weapon attacks, not melee attacks or spell attacks",
+        "attackBonusDelta is +2 when applicable",
+        "AI may identify the fighting style but must not mutate the attack bonus directly"
+      ]
+    },
+    {
+      "id": "hook.class.ranger.natural_explorer_check",
+      "domain": "class_feature",
+      "titleKo": "레인저 자연 탐험가 판정 보정",
+      "engineFunction": "apply_ranger_natural_explorer_check",
+      "trigger": "ability or skill check in favored terrain context by ranger with Natural Explorer",
+      "consumes": [
+        "rangerLevel",
+        "favoredTerrainActive",
+        "checkKind",
+        "abilityOrSkill",
+        "proficiencyApplied",
+        "baseCheckModifier"
+      ],
+      "produces": [
+        "checkModifierDelta",
+        "finalCheckModifier",
+        "naturalExplorerApplied"
+      ],
+      "sourceRuleIds": [
+        "rule.checks.기술",
+        "rule.checks.숙련_보너스"
+      ],
+      "sourceEntityIds": [
+        "class.ranger.feature.자연_탐험가"
+      ],
+      "aiForbiddenUse": [
+        "decide_game_truth",
+        "change_game_state",
+        "decide_dc",
+        "decide_hit_or_miss",
+        "decide_damage_or_healing",
+        "apply_or_remove_condition",
+        "consume_spell_slot"
+      ],
+      "acceptanceChecks": [
+        "feature requires rangerLevel >= 1",
+        "favored terrain must be active from scenario or GM-confirmed context",
+        "when an Intelligence or Wisdom check uses an already-proficient skill, proficiency bonus is doubled",
+        "the engine decides whether the scene matches favored terrain",
+        "AI may propose the context but must not apply the modifier directly"
+      ]
+    },
+    {
       "id": "hook.class.fighter.second_wind",
       "domain": "class_feature",
       "titleKo": "파이터 재기의 숨결 회복",
@@ -181,9 +769,16 @@
         "currentHitPoints",
         "maxHitPoints"
       ],
-      "produces": ["hitPointsRestored", "newHitPoints", "secondWindExpended", "bonusActionSpent"],
+      "produces": [
+        "hitPointsRestored",
+        "newHitPoints",
+        "secondWindExpended",
+        "bonusActionSpent"
+      ],
       "sourceRuleIds": [],
-      "sourceEntityIds": ["class.fighter.feature.재기의_숨결"],
+      "sourceEntityIds": [
+        "class.fighter.feature.재기의_숨결"
+      ],
       "aiForbiddenUse": [
         "decide_game_truth",
         "change_game_state",
@@ -207,10 +802,22 @@
       "titleKo": "파이터 행동 연쇄 추가 행동",
       "engineFunction": "apply_action_surge",
       "trigger": "action.type == use_class_feature and action.featureId == class.fighter.feature.행동_연쇄",
-      "consumes": ["fighterLevel", "actionSurgeAvailableUses", "turnActionState"],
-      "produces": ["additionalActionGranted", "actionSurgeExpended", "remainingActionSurgeUses"],
-      "sourceRuleIds": ["rule.combat.행동"],
-      "sourceEntityIds": ["class.fighter.feature.행동_연쇄"],
+      "consumes": [
+        "fighterLevel",
+        "actionSurgeAvailableUses",
+        "turnActionState"
+      ],
+      "produces": [
+        "additionalActionGranted",
+        "actionSurgeExpended",
+        "remainingActionSurgeUses"
+      ],
+      "sourceRuleIds": [
+        "rule.combat.행동"
+      ],
+      "sourceEntityIds": [
+        "class.fighter.feature.행동_연쇄"
+      ],
       "aiForbiddenUse": [
         "decide_game_truth",
         "change_game_state",
@@ -233,9 +840,19 @@
       "titleKo": "챔피언 치명타 기준",
       "engineFunction": "apply_critical_threshold_modifier",
       "trigger": "attackRoll.naturalD20 exists and attacker has Champion critical feature",
-      "consumes": ["naturalD20", "attackKind", "fighterLevel", "subclassFeatureIds"],
-      "produces": ["criticalThreshold", "criticalHit"],
-      "sourceRuleIds": ["rule.combat.attack_roll"],
+      "consumes": [
+        "naturalD20",
+        "attackKind",
+        "fighterLevel",
+        "subclassFeatureIds"
+      ],
+      "produces": [
+        "criticalThreshold",
+        "criticalHit"
+      ],
+      "sourceRuleIds": [
+        "rule.combat.attack_roll"
+      ],
       "sourceEntityIds": [
         "class.fighter.subclass_feature.향상된_치명타",
         "class.fighter.subclass_feature.우월한_치명타"
@@ -254,53 +871,6 @@
         "Champion level 15 feature sets weapon attack critical threshold to 18-20",
         "critical threshold modifier applies only to qualifying weapon attacks",
         "AI may mention the feature but must not decide whether an attack is critical"
-      ]
-    },
-    {
-      "id": "hook.class.barbarian.rage",
-      "domain": "class_feature",
-      "titleKo": "바바리안 격노",
-      "engineFunction": "apply_rage",
-      "trigger": "action.type == use_class_feature and action.featureId == class.barbarian.feature.격노",
-      "consumes": [
-        "barbarianLevel",
-        "bonusActionAvailable",
-        "rageAvailableUses",
-        "armorCategory",
-        "strengthAttackDamagePacket",
-        "currentConcentrationState"
-      ],
-      "produces": [
-        "rageActive",
-        "rageExpended",
-        "bonusActionSpent",
-        "strengthCheckAdvantage",
-        "strengthSaveAdvantage",
-        "rageDamageBonus",
-        "bludgeoningResistance",
-        "piercingResistance",
-        "slashingResistance",
-        "concentrationEnded"
-      ],
-      "sourceRuleIds": ["rule.damage.저항과_취약"],
-      "sourceEntityIds": ["class.barbarian.feature.격노"],
-      "aiForbiddenUse": [
-        "decide_game_truth",
-        "change_game_state",
-        "decide_dc",
-        "decide_hit_or_miss",
-        "decide_damage_or_healing",
-        "apply_or_remove_condition",
-        "consume_spell_slot"
-      ],
-      "acceptanceChecks": [
-        "feature use requires an available bonus action and an available rage use",
-        "rage benefits do not apply while wearing heavy armor",
-        "rage grants advantage on Strength checks and Strength saving throws",
-        "melee weapon damage using Strength gains the barbarian rage damage bonus",
-        "rage grants resistance to bludgeoning, piercing, and slashing damage",
-        "rage prevents spellcasting and concentration while active",
-        "AI may identify rage but must not apply resistance, bonus damage, or concentration state directly"
       ]
     },
     {
@@ -325,8 +895,12 @@
         "sneakAttackExpendedThisTurn",
         "damagePacket"
       ],
-      "sourceRuleIds": ["rule.combat.attack_roll"],
-      "sourceEntityIds": ["class.rogue.feature.암습"],
+      "sourceRuleIds": [
+        "rule.combat.attack_roll"
+      ],
+      "sourceEntityIds": [
+        "class.rogue.feature.암습"
+      ],
       "aiForbiddenUse": [
         "decide_game_truth",
         "change_game_state",
@@ -351,10 +925,19 @@
       "titleKo": "로그 교활한 행동",
       "engineFunction": "apply_cunning_action",
       "trigger": "action.type == use_class_feature and action.featureId == class.rogue.feature.교활한_행동",
-      "consumes": ["rogueLevel", "bonusActionAvailable", "declaredCunningAction"],
-      "produces": ["bonusActionSpent", "grantedActionType"],
+      "consumes": [
+        "rogueLevel",
+        "bonusActionAvailable",
+        "declaredCunningAction"
+      ],
+      "produces": [
+        "bonusActionSpent",
+        "grantedActionType"
+      ],
       "sourceRuleIds": [],
-      "sourceEntityIds": ["class.rogue.feature.교활한_행동"],
+      "sourceEntityIds": [
+        "class.rogue.feature.교활한_행동"
+      ],
       "aiForbiddenUse": [
         "decide_game_truth",
         "change_game_state",
@@ -370,42 +953,6 @@
         "declaredCunningAction must be Dash, Disengage, or Hide",
         "the selected action's own movement, opportunity attack, or stealth rules remain engine-validated",
         "AI may identify cunning action but must not spend the bonus action or grant the action directly"
-      ]
-    },
-    {
-      "id": "hook.class.barbarian.frenzy",
-      "domain": "class_feature",
-      "titleKo": "바바리안 광분",
-      "engineFunction": "apply_frenzy",
-      "trigger": "action.type == use_class_feature and action.featureId == class.barbarian.subclass_feature.광분",
-      "consumes": [
-        "rageActivationAccepted",
-        "bonusActionAvailableOnFollowingTurns",
-        "frenzyDeclared",
-        "exhaustionState"
-      ],
-      "produces": [
-        "frenzyActive",
-        "bonusActionMeleeAttackAvailable",
-        "exhaustionIncreaseOnRageEnd"
-      ],
-      "sourceRuleIds": [],
-      "sourceEntityIds": ["class.barbarian.subclass_feature.광분"],
-      "aiForbiddenUse": [
-        "decide_game_truth",
-        "change_game_state",
-        "decide_dc",
-        "decide_hit_or_miss",
-        "decide_damage_or_healing",
-        "apply_or_remove_condition",
-        "consume_spell_slot"
-      ],
-      "acceptanceChecks": [
-        "frenzy can be declared only when entering rage",
-        "while frenzy is active, each turn after activation can grant one bonus action melee weapon attack",
-        "frenzy exhaustion increases by 1 when rage ends",
-        "the bonus action attack still requires the engine to validate weapon attack rules",
-        "AI may identify frenzy but must not grant attacks or apply exhaustion directly"
       ]
     }
   ]

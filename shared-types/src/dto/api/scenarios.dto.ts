@@ -41,6 +41,9 @@ export class ScenarioNodeResponseDto {
   @ApiPropertyOptional({ type: Object, nullable: true })
   vttMap!: Record<string, unknown> | null;
 
+  @ApiPropertyOptional({ type: Object, nullable: true })
+  nodeMeta!: Record<string, unknown> | null;
+
   @ApiPropertyOptional()
   fallbackNodeId?: string | null;
 }
@@ -119,6 +122,12 @@ export class ScenarioNodeInputDto {
   @IsOptional()
   @IsArray()
   @IsObject({ each: true })
+  checkOptions?: Record<string, unknown>[];
+
+  @ApiPropertyOptional({ type: [Object] })
+  @IsOptional()
+  @IsArray()
+  @IsObject({ each: true })
   transitions?: Record<string, unknown>[];
 
   @ApiPropertyOptional({ type: [Object] })
@@ -131,6 +140,17 @@ export class ScenarioNodeInputDto {
   @IsOptional()
   @IsObject()
   vttMap?: Record<string, unknown> | null;
+
+  @ApiPropertyOptional({ type: Object, nullable: true })
+  @IsOptional()
+  @IsObject()
+  nodeMeta?: Record<string, unknown> | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  fallbackNodeId?: string | null;
 }
 
 export class UploadScenarioNodeImageDto {

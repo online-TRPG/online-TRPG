@@ -75,6 +75,46 @@ describe("Session service e2e", () => {
     await app.close();
   });
 
+  it("exposes the playable MVP rules content allowlist", async () => {
+    const response = await request(baseUrl)
+      .get("/api/v1/rules/mvp-content")
+      .expect(200);
+
+    expect(response.body.code).toBe("RULES_200");
+    expect(response.body.data.characterLevel).toBe(2);
+    expect(response.body.data.races).toEqual([
+      expect.objectContaining({ value: "Human", label: expect.any(String) }),
+    ]);
+    expect(response.body.data.classes.map((item: { value: string }) => item.value)).toEqual([
+      "Fighter",
+      "Rogue",
+      "Ranger",
+      "Wizard",
+    ]);
+    expect(response.body.data.spells).toHaveLength(19);
+    expect(response.body.data.spells).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "spell.magic_missile",
+          automationStatus: "SUPPORTED",
+        }),
+        expect.objectContaining({
+          id: "spell.detect_magic",
+          automationStatus: "GM_ASSIST",
+        }),
+      ]),
+    );
+    expect(response.body.data.magicItems).toHaveLength(15);
+    expect(response.body.data.magicItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "magic_item.potion_of_healing",
+          automationStatus: "SUPPORTED",
+        }),
+      ]),
+    );
+  });
+
   it("creates a recruiting session with host, active session scenario, and lobby game state", async () => {
     const host = await createGuest("Host");
 
@@ -132,7 +172,7 @@ describe("Session service e2e", () => {
     });
     const guestCharacter = await createCharacter(guest.id, {
       name: "Lia",
-      ancestry: "Elf",
+      ancestry: "Human",
       className: "Wizard",
       bio: "Prepared spellcaster",
       avatarType: "PRESET",
@@ -222,8 +262,8 @@ describe("Session service e2e", () => {
     const guest = await createGuest("Guest");
     const guestCharacter = await createCharacter(guest.id, {
       name: "Mira",
-      ancestry: "Dwarf",
-      className: "Cleric",
+      ancestry: "Human",
+      className: "Rogue",
     });
 
     const created = await request(baseUrl)
@@ -452,13 +492,34 @@ describe("Session service e2e", () => {
     const combat = await request(baseUrl)
       .post(`/api/v1/sessions/${sessionId}/combat/start`)
       .set("x-user-id", host.id)
-      .send({})
+      .send({
+        autoRollInitiative: false,
+        hostileParticipants: [
+          {
+            name: "Goblin",
+            maxHp: 7,
+            armorClass: 13,
+          },
+        ],
+      })
       .expect(201);
 
     expect(combat.body.data.status).toBe("ACTIVE");
     expect(combat.body.data.roundNo).toBe(1);
     expect(combat.body.data.currentEntityId).toBeTruthy();
-    expect(combat.body.data.participants).toHaveLength(1);
+    expect(combat.body.data.participants).toHaveLength(2);
+    expect(combat.body.data.participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entityType: "MONSTER",
+          name: "Goblin",
+          currentHp: 7,
+          maxHp: 7,
+          armorClass: 13,
+          isHostile: true,
+        }),
+      ]),
+    );
 
     await request(baseUrl)
       .get(`/api/v1/sessions/${sessionId}/combat/character`)
@@ -474,7 +535,7 @@ describe("Session service e2e", () => {
       .set("x-user-id", host.id)
       .send({
         characterId: hostCharacter.id,
-        rawText: "/roll 1d20",
+        rawText: "/damage Goblin 3 fire",
         clientCreatedAt: new Date().toISOString(),
         actionScope: "INDIVIDUAL_TURN",
       })
@@ -482,13 +543,29 @@ describe("Session service e2e", () => {
 
     expect(combatAction.body.data.playerActionId).toBeTruthy();
 
+    await request(baseUrl)
+      .get(`/api/v1/sessions/${sessionId}/combat`)
+      .set("x-user-id", host.id)
+      .expect(200)
+      .expect((response) => {
+        const goblin = response.body.data.participants.find(
+          (participant: { name: string }) => participant.name === "Goblin",
+        );
+        expect(goblin).toMatchObject({
+          currentHp: 4,
+          maxHp: 7,
+          isAlive: true,
+          isHostile: true,
+        });
+      });
+
     const turn = await request(baseUrl)
       .post(`/api/v1/sessions/${sessionId}/combat/turn/end`)
       .set("x-user-id", host.id)
       .send({})
       .expect(200);
 
-    expect(turn.body.data.roundNo).toBe(2);
+    expect(turn.body.data.roundNo).toBe(1);
     expect(turn.body.data.turnNo).toBe(2);
   });
 

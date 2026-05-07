@@ -2,12 +2,16 @@ import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Type } from "class-transformer";
 import {
   IsBoolean,
+  IsArray,
   IsDateString,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
+  Min,
   MaxLength,
+  ValidateNested,
 } from "class-validator";
 import {
   ActionInputType,
@@ -137,6 +141,36 @@ export class TurnLogListResponseDto {
   nextCursor!: string | null;
 }
 
+export class StartCombatHostileDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(80)
+  name!: string;
+
+  @ApiPropertyOptional({ enum: CombatEntityType, default: CombatEntityType.MONSTER })
+  @IsOptional()
+  @IsEnum(CombatEntityType)
+  entityType?: CombatEntityType;
+
+  @ApiPropertyOptional({ default: 7 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxHp?: number;
+
+  @ApiPropertyOptional({ default: 13 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  armorClass?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  initiative?: number;
+}
+
 export class StartCombatDto {
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
@@ -147,6 +181,13 @@ export class StartCombatDto {
   @IsOptional()
   @IsString({ each: true })
   participantEntityIds?: string[];
+
+  @ApiPropertyOptional({ type: [StartCombatHostileDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => StartCombatHostileDto)
+  hostileParticipants?: StartCombatHostileDto[];
 
   @ApiPropertyOptional({ default: true })
   @IsOptional()
@@ -167,6 +208,15 @@ export class CombatParticipantResponseDto {
 
   @ApiProperty()
   name!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  currentHp!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  maxHp!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  armorClass!: number | null;
 
   @ApiProperty()
   initiative!: number;

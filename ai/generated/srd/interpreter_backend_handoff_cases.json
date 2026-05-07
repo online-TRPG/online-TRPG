@@ -342,6 +342,1118 @@
       "notes": [
         "Prone hook output can alter the attack roll advantageState before attack resolution."
       ]
+    },
+    {
+      "caseId": "handoff.fire_bolt_spell_attack",
+      "rawText": "위저드가 화염 화살로 고블린을 공격한다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "cast_spell",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "spellId": "spell.fire_bolt",
+          "attackKind": "ranged_spell_attack",
+          "approach": "화염 화살로 고블린을 공격한다.",
+          "confidence": 0.94,
+          "requiresRoll": true
+        },
+        "needsClarification": false,
+        "mentionedSpellId": "spell.fire_bolt",
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.spellcasting.casting_time.action",
+          "rule.spellcasting.range",
+          "rule.spellcasting.spell_attack",
+          "rule.combat.attack_roll"
+        ],
+        "safetyNotes": [
+          "명중과 화염 피해는 백엔드 엔진이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-fire-bolt-handoff",
+        "actorCharacterId": "wizard-1",
+        "targetId": "goblin-1",
+        "actor": {
+          "knownCantrips": [
+            "spell.fire_bolt"
+          ],
+          "actionAvailable": true,
+          "componentAvailability": {
+            "verbal": true,
+            "somatic": true,
+            "material": null
+          }
+        },
+        "target": {
+          "distanceFt": 80,
+          "armorClass": 13
+        },
+        "rollPlan": {
+          "naturalD20": 14,
+          "attackBonus": 5,
+          "advantageState": "normal"
+        }
+      },
+      "expectedHookIds": [
+        "hook.combat.resolve_attack_roll",
+        "hook.spell.cast_fire_bolt",
+        "hook.damage.apply_resistance_vulnerability"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.combat.resolve_attack_roll",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-fire-bolt-handoff",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "input": {
+            "naturalD20": 14,
+            "attackBonus": 5,
+            "targetArmorClass": 13,
+            "advantageState": "normal"
+          },
+          "sourceAction": {
+            "type": "cast_spell",
+            "actorCharacterId": "wizard-1",
+            "targetId": "goblin-1",
+            "spellId": "spell.fire_bolt",
+            "attackKind": "ranged_spell_attack",
+            "requiresRoll": true
+          },
+          "sourceTraceId": "trace-demo-interpreter-fire-bolt"
+        },
+        {
+          "hookId": "hook.spell.cast_fire_bolt",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-fire-bolt-handoff",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "input": {
+            "spell.fire_bolt": true,
+            "casterKnownCantrips": [
+              "spell.fire_bolt"
+            ],
+            "actionAvailable": true,
+            "targetDistanceFt": 80,
+            "componentAvailability": {
+              "verbal": true,
+              "somatic": true,
+              "material": null
+            },
+            "spellAttackRollResult": {
+              "attackRollTotal": 19,
+              "hit": true,
+              "criticalHit": false,
+              "criticalMiss": false
+            }
+          },
+          "sourceAction": {
+            "type": "cast_spell",
+            "actorCharacterId": "wizard-1",
+            "targetId": "goblin-1",
+            "spellId": "spell.fire_bolt",
+            "attackKind": "ranged_spell_attack",
+            "requiresRoll": true
+          },
+          "sourceTraceId": "trace-demo-interpreter-fire-bolt"
+        },
+        {
+          "hookId": "hook.damage.apply_resistance_vulnerability",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-fire-bolt-handoff",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "input": {
+            "baseDamage": 7,
+            "damageType": "fire",
+            "targetImmunities": [],
+            "targetResistances": [],
+            "targetVulnerabilities": []
+          },
+          "sourceAction": {
+            "type": "cast_spell",
+            "actorCharacterId": "wizard-1",
+            "targetId": "goblin-1",
+            "spellId": "spell.fire_bolt",
+            "attackKind": "ranged_spell_attack"
+          },
+          "sourceTraceId": "trace-demo-interpreter-fire-bolt"
+        }
+      ],
+      "notes": [
+        "Fire Bolt is the generic MVP attack-cantrip handoff example."
+      ]
+    },
+    {
+      "caseId": "handoff.fighter_second_wind",
+      "rawText": "파이터가 재기의 숨결로 버틴다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "use_class_feature",
+          "actorCharacterId": "fighter-1",
+          "targetId": "fighter-1",
+          "featureId": "class.fighter.feature.재기의_숨결",
+          "approach": "재기의 숨결을 사용한다.",
+          "confidence": 0.93,
+          "requiresRoll": true
+        },
+        "needsClarification": false,
+        "mentionedSpellId": null,
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.damage.healing"
+        ],
+        "safetyNotes": [
+          "회복 굴림과 HP 변경은 백엔드 엔진이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-second-wind-handoff",
+        "actorCharacterId": "fighter-1",
+        "targetId": "fighter-1",
+        "actor": {
+          "fighterLevel": 1,
+          "bonusActionAvailable": true,
+          "secondWindAvailable": true
+        },
+        "rollPlan": {
+          "formula": "1d10+1"
+        },
+        "hitPoints": {
+          "current": 5,
+          "max": 12
+        }
+      },
+      "expectedHookIds": [
+        "hook.class.fighter.second_wind"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.class.fighter.second_wind",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-second-wind-handoff",
+          "actorCharacterId": "fighter-1",
+          "targetId": "fighter-1",
+          "input": {
+            "fighterLevel": 1,
+            "bonusActionAvailable": true,
+            "secondWindAvailable": true,
+            "healingRoll.d10": {
+              "formula": "1d10+1",
+              "total": 6
+            },
+            "currentHitPoints": 5,
+            "maxHitPoints": 12
+          },
+          "sourceAction": {
+            "type": "use_class_feature",
+            "actorCharacterId": "fighter-1",
+            "targetId": "fighter-1",
+            "featureId": "class.fighter.feature.재기의_숨결"
+          },
+          "sourceTraceId": "trace-demo-interpreter-second-wind"
+        }
+      ],
+      "notes": [
+        "Class feature handoff keeps healing and resource spend backend-owned."
+      ]
+    },
+    {
+      "caseId": "handoff.rogue_sneak_attack",
+      "rawText": "로그가 레이피어로 빈틈을 노려 암습한다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "attack",
+          "actorCharacterId": "rogue-1",
+          "targetId": "goblin-1",
+          "attackKind": "weapon_attack",
+          "approach": "레이피어로 암습을 노린다.",
+          "confidence": 0.9,
+          "requiresRoll": true
+        },
+        "needsClarification": false,
+        "mentionedSpellId": null,
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.combat.attack_roll",
+          "rule.damage.damage_roll"
+        ],
+        "safetyNotes": [
+          "명중, 암습 조건, 추가 피해는 백엔드 엔진이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-sneak-attack-handoff",
+        "actorCharacterId": "rogue-1",
+        "targetId": "goblin-1",
+        "actor": {
+          "rogueLevel": 1,
+          "equippedWeaponId": "equipment.레이피어",
+          "weaponProperties": [
+            "finesse"
+          ],
+          "sneakAttackAvailableThisTurn": true
+        },
+        "target": {
+          "armorClass": 13
+        },
+        "rollPlan": {
+          "naturalD20": 16,
+          "attackBonus": 5,
+          "advantageState": "advantage"
+        }
+      },
+      "expectedHookIds": [
+        "hook.combat.resolve_attack_roll",
+        "hook.class.rogue.sneak_attack",
+        "hook.damage.apply_resistance_vulnerability"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.combat.resolve_attack_roll",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-sneak-attack-handoff",
+          "actorCharacterId": "rogue-1",
+          "targetId": "goblin-1",
+          "input": {
+            "naturalD20": 16,
+            "attackBonus": 5,
+            "targetArmorClass": 13,
+            "advantageState": "advantage"
+          },
+          "sourceAction": {
+            "type": "attack",
+            "actorCharacterId": "rogue-1",
+            "targetId": "goblin-1",
+            "attackKind": "weapon_attack",
+            "requiresRoll": true
+          },
+          "sourceTraceId": "trace-demo-interpreter-sneak-attack"
+        },
+        {
+          "hookId": "hook.class.rogue.sneak_attack",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-sneak-attack-handoff",
+          "actorCharacterId": "rogue-1",
+          "targetId": "goblin-1",
+          "input": {
+            "rogueLevel": 1,
+            "attackKind": "weapon_attack",
+            "weaponProperties": [
+              "finesse"
+            ],
+            "hasAdvantage": true,
+            "hasDisadvantage": false,
+            "targetEnemyWithin5Ft": false,
+            "sneakAttackAvailableThisTurn": true,
+            "baseDamage": {
+              "amount": 6,
+              "damageType": "piercing"
+            }
+          },
+          "sourceAction": {
+            "type": "attack",
+            "actorCharacterId": "rogue-1",
+            "targetId": "goblin-1",
+            "attackKind": "weapon_attack",
+            "requiresRoll": true
+          },
+          "sourceTraceId": "trace-demo-interpreter-sneak-attack"
+        },
+        {
+          "hookId": "hook.damage.apply_resistance_vulnerability",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-sneak-attack-handoff",
+          "actorCharacterId": "rogue-1",
+          "targetId": "goblin-1",
+          "input": {
+            "baseDamage": 10,
+            "damageType": "piercing",
+            "targetImmunities": [],
+            "targetResistances": [],
+            "targetVulnerabilities": []
+          },
+          "sourceAction": {
+            "type": "attack",
+            "actorCharacterId": "rogue-1",
+            "targetId": "goblin-1",
+            "attackKind": "weapon_attack"
+          },
+          "sourceTraceId": "trace-demo-interpreter-sneak-attack"
+        }
+      ],
+      "notes": [
+        "Sneak attack is backend-owned even when the Interpreter recognizes the intent."
+      ]
+    },
+    {
+      "caseId": "handoff.potion_of_healing",
+      "rawText": "로그가 치유 물약을 마신다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "use_item",
+          "actorCharacterId": "rogue-1",
+          "targetId": "rogue-1",
+          "itemId": "magic_item.potion_of_healing",
+          "approach": "치유 물약을 사용한다.",
+          "confidence": 0.95,
+          "requiresRoll": true
+        },
+        "needsClarification": false,
+        "mentionedSpellId": null,
+        "mentionedItemId": "magic_item.potion_of_healing",
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.equipment.item_use",
+          "rule.damage.healing"
+        ],
+        "safetyNotes": [
+          "회복량, 소모, HP 변경은 백엔드 엔진이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-potion-handoff",
+        "actorCharacterId": "rogue-1",
+        "targetId": "rogue-1",
+        "actor": {
+          "actionAvailable": true,
+          "inventory": {
+            "magic_item.potion_of_healing": 1
+          }
+        },
+        "rollPlan": {
+          "formula": "2d4+2"
+        },
+        "hitPoints": {
+          "current": 2,
+          "max": 9
+        }
+      },
+      "expectedHookIds": [
+        "hook.item.use_potion_of_healing"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.item.use_potion_of_healing",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-potion-handoff",
+          "actorCharacterId": "rogue-1",
+          "targetId": "rogue-1",
+          "input": {
+            "magic_item.potion_of_healing": true,
+            "actionAvailable": true,
+            "targetReach": true,
+            "healingRoll.2d4": {
+              "formula": "2d4+2",
+              "total": 8
+            },
+            "currentHitPoints": 2,
+            "maxHitPoints": 9,
+            "inventoryQuantity": 1
+          },
+          "sourceAction": {
+            "type": "use_item",
+            "actorCharacterId": "rogue-1",
+            "targetId": "rogue-1",
+            "itemId": "magic_item.potion_of_healing"
+          },
+          "sourceTraceId": "trace-demo-interpreter-potion"
+        }
+      ],
+      "notes": [
+        "Consumable item use is represented as a deterministic backend hook request."
+      ]
+    },
+    {
+      "caseId": "handoff.investigate_tracks_skill_check",
+      "rawText": "발자국을 조사해서 고블린이 어디로 갔는지 알아본다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "skill_check",
+          "actorCharacterId": "rogue-1",
+          "targetId": "node_cave_entrance",
+          "skill": "investigation",
+          "approach": "동굴 입구의 진흙 발자국을 조사한다.",
+          "confidence": 0.91,
+          "requiresRoll": true
+        },
+        "needsClarification": false,
+        "mentionedSpellId": null,
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.checks.능력_판정",
+          "rule.checks.기술"
+        ],
+        "safetyNotes": [
+          "단서 공개와 다음 장면 이동은 백엔드/GM 흐름이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-investigate-tracks",
+        "actorCharacterId": "rogue-1",
+        "targetId": "node_cave_entrance",
+        "scenarioNode": {
+          "nodeId": "node_cave_entrance",
+          "checkId": "investigate_tracks",
+          "dc": 10
+        },
+        "rollPlan": {
+          "naturalD20": 13,
+          "modifier": 4,
+          "advantageState": "normal"
+        }
+      },
+      "expectedHookIds": [
+        "hook.check.resolve_ability_or_skill_check"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.check.resolve_ability_or_skill_check",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-investigate-tracks",
+          "actorCharacterId": "rogue-1",
+          "targetId": "node_cave_entrance",
+          "input": {
+            "naturalD20": 13,
+            "modifier": 4,
+            "difficultyClass": 10,
+            "advantageState": "normal"
+          },
+          "sourceAction": {
+            "type": "skill_check",
+            "actorCharacterId": "rogue-1",
+            "targetId": "node_cave_entrance",
+            "skill": "investigation",
+            "requiresRoll": true
+          },
+          "sourceTraceId": "trace-demo-interpreter-investigate-tracks"
+        }
+      ],
+      "notes": [
+        "The first exploration beat is a natural-language skill check against scenario-authored DC."
+      ]
+    },
+    {
+      "caseId": "handoff.magic_missile_auto_hit",
+      "rawText": "위저드가 마법 화살 세 발을 고블린에게 날린다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "cast_spell",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "spellId": "spell.magic_missile",
+          "approach": "마법 화살 세 발을 모두 고블린에게 날린다.",
+          "confidence": 0.96,
+          "requiresRoll": false
+        },
+        "needsClarification": false,
+        "mentionedSpellId": "spell.magic_missile",
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.spellcasting.spell_slot",
+          "rule.damage.damage_roll"
+        ],
+        "safetyNotes": [
+          "자동 명중, 피해량, 슬롯 소비는 백엔드 엔진이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-magic-missile-handoff",
+        "actorCharacterId": "wizard-1",
+        "targetId": "goblin-1",
+        "actor": {
+          "preparedSpells": [
+            "spell.magic_missile"
+          ],
+          "firstLevelSlotsRemaining": 1
+        },
+        "target": {
+          "currentHitPoints": 7,
+          "maxHitPoints": 7
+        },
+        "dartAllocation": {
+          "goblin-1": 3
+        }
+      },
+      "expectedHookIds": [
+        "hook.spell.cast_magic_missile",
+        "hook.damage.apply_resistance_vulnerability"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.spell.cast_magic_missile",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-magic-missile-handoff",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "input": {
+            "spell.magic_missile": true,
+            "casterPreparedSpells": [
+              "spell.magic_missile"
+            ],
+            "actionAvailable": true,
+            "spellSlotAvailable": {
+              "level": 1,
+              "remaining": 1
+            },
+            "targetIds": [
+              "goblin-1"
+            ],
+            "dartAllocation": {
+              "goblin-1": 3
+            }
+          },
+          "sourceAction": {
+            "type": "cast_spell",
+            "actorCharacterId": "wizard-1",
+            "targetId": "goblin-1",
+            "spellId": "spell.magic_missile",
+            "requiresRoll": false
+          },
+          "sourceTraceId": "trace-demo-interpreter-magic-missile"
+        },
+        {
+          "hookId": "hook.damage.apply_resistance_vulnerability",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-magic-missile-handoff",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "input": {
+            "baseDamage": 10,
+            "damageType": "force",
+            "targetImmunities": [],
+            "targetResistances": [],
+            "targetVulnerabilities": []
+          },
+          "sourceAction": {
+            "type": "cast_spell",
+            "actorCharacterId": "wizard-1",
+            "targetId": "goblin-1",
+            "spellId": "spell.magic_missile",
+            "requiresRoll": false
+          },
+          "sourceTraceId": "trace-demo-interpreter-magic-missile"
+        }
+      ],
+      "notes": [
+        "Magic Missile gives the demo a reliable natural-language combat finisher."
+      ]
+    },
+    {
+      "caseId": "handoff.ranger_cure_wounds",
+      "rawText": "레인저가 파이터에게 상처 치료를 시전한다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "cast_spell",
+          "actorCharacterId": "ranger-1",
+          "targetId": "fighter-1",
+          "spellId": "spell.cure_wounds",
+          "approach": "파이터에게 손을 대고 상처 치료를 시전한다.",
+          "confidence": 0.94,
+          "requiresRoll": false
+        },
+        "needsClarification": false,
+        "mentionedSpellId": "spell.cure_wounds",
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.spellcasting.spell_slot",
+          "rule.damage.healing"
+        ],
+        "safetyNotes": [
+          "회복량, 최대 HP 상한, 슬롯 소비는 백엔드 엔진이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-cure-wounds-handoff",
+        "actorCharacterId": "ranger-1",
+        "targetId": "fighter-1",
+        "actor": {
+          "preparedSpells": [
+            "spell.cure_wounds"
+          ],
+          "firstLevelSlotsRemaining": 1
+        },
+        "target": {
+          "currentHitPoints": 3,
+          "maxHitPoints": 14,
+          "touchReach": true
+        },
+        "rollPlan": {
+          "formula": "1d8+2"
+        }
+      },
+      "expectedHookIds": [
+        "hook.spell.cast_cure_wounds"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.spell.cast_cure_wounds",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-cure-wounds-handoff",
+          "actorCharacterId": "ranger-1",
+          "targetId": "fighter-1",
+          "input": {
+            "spell.cure_wounds": true,
+            "casterPreparedSpells": [
+              "spell.cure_wounds"
+            ],
+            "actionAvailable": true,
+            "spellSlotAvailable": {
+              "level": 1,
+              "remaining": 1
+            },
+            "targetTouchReach": true,
+            "healingRoll": {
+              "formula": "1d8+2",
+              "total": 7
+            },
+            "currentHitPoints": 3,
+            "maxHitPoints": 14
+          },
+          "sourceAction": {
+            "type": "cast_spell",
+            "actorCharacterId": "ranger-1",
+            "targetId": "fighter-1",
+            "spellId": "spell.cure_wounds",
+            "requiresRoll": false
+          },
+          "sourceTraceId": "trace-demo-interpreter-cure-wounds"
+        }
+      ],
+      "notes": [
+        "Ranger healing keeps the four-class MVP useful outside pure attacks."
+      ]
+    },
+    {
+      "caseId": "handoff.well_chamber_initiative",
+      "rawText": "우물 아래 방에 들어서자 고블린들과 전투가 시작된다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "start_combat",
+          "actorCharacterId": "gm-encounter",
+          "targetId": "encounter.well_chamber",
+          "approach": "최종 방에서 고블린들과 조우해 전투를 연다.",
+          "confidence": 0.9,
+          "requiresRoll": true
+        },
+        "needsClarification": false,
+        "mentionedSpellId": null,
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.combat.우선권",
+          "rule.combat.initiative"
+        ],
+        "safetyNotes": [
+          "우선권 합계와 최종 행동 순서는 백엔드 엔진이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-well-chamber-initiative",
+        "encounterId": "encounter.well_chamber",
+        "participants": [
+          "goblin-1",
+          "goblin-2",
+          "goblin-3"
+        ],
+        "rollPlan": {
+          "naturalD20": 14,
+          "dexterityModifier": 2,
+          "initiativeBonus": 0
+        }
+      },
+      "expectedHookIds": [
+        "hook.combat.resolve_initiative_order"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.combat.resolve_initiative_order",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-well-chamber-initiative",
+          "actorCharacterId": "gm-encounter",
+          "targetId": "encounter.well_chamber",
+          "input": {
+            "naturalD20": 14,
+            "dexterityModifier": 2,
+            "initiativeBonus": 0,
+            "participantGroupId": "monster.goblin",
+            "participantIds": [
+              "goblin-1",
+              "goblin-2",
+              "goblin-3"
+            ],
+            "tiebreakPolicy": "gm_decides_monster_ties"
+          },
+          "sourceAction": {
+            "type": "start_combat",
+            "actorCharacterId": "gm-encounter",
+            "targetId": "encounter.well_chamber",
+            "encounterId": "encounter.well_chamber"
+          },
+          "sourceTraceId": "trace-demo-handoff-well-chamber-initiative"
+        }
+      ],
+      "notes": [
+        "The final goblin fight needs grouped monster initiative before any narration or token automation starts."
+      ]
+    },
+    {
+      "caseId": "handoff.rat_lair_surprise_approach",
+      "rawText": "불을 낮추고 조용히 접근해 쥐들을 기습한다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "start_combat",
+          "actorCharacterId": "rogue-1",
+          "targetId": "encounter.rat_lair",
+          "approach": "광원을 낮추고 조용히 쥐 떼에게 접근한다.",
+          "confidence": 0.89,
+          "requiresRoll": true
+        },
+        "needsClarification": false,
+        "mentionedSpellId": null,
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.checks.수동_판정",
+          "rule.combat.기습",
+          "rule.combat.surprise"
+        ],
+        "safetyNotes": [
+          "누가 기습당했는지는 백엔드 엔진이 은신 결과와 수동 지각으로 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-rat-lair-surprise",
+        "encounterId": "encounter.rat_lair",
+        "partyStealthTotals": {
+          "fighter-1": 12,
+          "rogue-1": 15,
+          "wizard-1": 14
+        },
+        "hostilePassivePerception": {
+          "giant_rat-1": 10,
+          "giant_rat-2": 10,
+          "giant_rat-3": 10,
+          "giant_rat-4": 10
+        }
+      },
+      "expectedHookIds": [
+        "hook.combat.resolve_surprise"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.combat.resolve_surprise",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-rat-lair-surprise",
+          "actorCharacterId": "rogue-1",
+          "targetId": "encounter.rat_lair",
+          "input": {
+            "stealthTotals": {
+              "fighter-1": 12,
+              "rogue-1": 15,
+              "wizard-1": 14
+            },
+            "passivePerceptionScores": {
+              "giant_rat-1": 10,
+              "giant_rat-2": 10,
+              "giant_rat-3": 10,
+              "giant_rat-4": 10
+            },
+            "alreadyAlertedIds": []
+          },
+          "sourceAction": {
+            "type": "start_combat",
+            "actorCharacterId": "rogue-1",
+            "targetId": "encounter.rat_lair",
+            "approach": "불을 낮추고 조용히 쥐 떼에게 접근한다."
+          },
+          "sourceTraceId": "trace-demo-handoff-rat-lair-surprise"
+        }
+      ],
+      "notes": [
+        "N04 can open with surprise when the party approaches quietly, so the AI handoff needs a deterministic surprise contract."
+      ]
+    },
+    {
+      "caseId": "handoff.slippery_floor_dex_save",
+      "rawText": "미끄러운 수로 바닥을 급히 달리다 발을 헛디딘다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "saving_throw",
+          "actorCharacterId": "fighter-1",
+          "targetId": "fighter-1",
+          "saveAbility": "dexterity",
+          "approach": "속도를 내다가 미끄러운 바닥에서 균형을 잡으려 한다.",
+          "confidence": 0.9,
+          "requiresRoll": true
+        },
+        "needsClarification": false,
+        "mentionedSpellId": null,
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.checks.saving_throw"
+        ],
+        "safetyNotes": [
+          "성공 여부와 넘어짐 적용은 백엔드 엔진이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-slippery-floor-save",
+        "actorCharacterId": "fighter-1",
+        "scenarioNode": {
+          "nodeId": "N03",
+          "hazardId": "slippery_floor",
+          "dc": 10
+        },
+        "rollPlan": {
+          "naturalD20": 4,
+          "modifier": 2,
+          "advantageState": "normal"
+        }
+      },
+      "expectedHookIds": [
+        "hook.check.resolve_saving_throw"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.check.resolve_saving_throw",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-slippery-floor-save",
+          "actorCharacterId": "fighter-1",
+          "targetId": "fighter-1",
+          "input": {
+            "naturalD20": 4,
+            "modifier": 2,
+            "difficultyClass": 10,
+            "advantageState": "normal",
+            "saveAbility": "dexterity"
+          },
+          "sourceAction": {
+            "type": "saving_throw",
+            "actorCharacterId": "fighter-1",
+            "targetId": "fighter-1",
+            "saveAbility": "dexterity",
+            "requiresRoll": true,
+            "reason": "미끄러운 수로 바닥에서 중심을 유지한다."
+          },
+          "sourceTraceId": "trace-demo-handoff-slippery-floor-save"
+        }
+      ],
+      "notes": [
+        "N03 and N02 both rely on explicit saving throws, so the handoff catalog needs a save example separate from ability checks."
+      ]
+    },
+    {
+      "caseId": "handoff.goblin_half_cover_attack",
+      "rawText": "상자 뒤에 숨은 고블린에게 화살을 쏜다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "attack",
+          "actorCharacterId": "ranger-1",
+          "targetId": "goblin-1",
+          "attackKind": "weapon_attack",
+          "approach": "상자 뒤 고블린의 노출된 틈을 향해 화살을 날린다.",
+          "confidence": 0.92,
+          "requiresRoll": true
+        },
+        "needsClarification": false,
+        "mentionedSpellId": null,
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.combat.엄폐",
+          "rule.combat.cover",
+          "rule.combat.attack_roll"
+        ],
+        "safetyNotes": [
+          "엄폐 보정과 최종 명중 여부는 백엔드 엔진이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-goblin-cover-attack",
+        "actorCharacterId": "ranger-1",
+        "targetId": "goblin-1",
+        "target": {
+          "baseArmorClass": 15,
+          "coverLevel": "half"
+        },
+        "rollPlan": {
+          "naturalD20": 11,
+          "attackBonus": 5,
+          "advantageState": "normal"
+        }
+      },
+      "expectedHookIds": [
+        "hook.combat.apply_cover_modifiers",
+        "hook.combat.resolve_attack_roll"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.combat.apply_cover_modifiers",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-goblin-cover-attack",
+          "actorCharacterId": "ranger-1",
+          "targetId": "goblin-1",
+          "input": {
+            "coverLevel": "half",
+            "targetArmorClass": 15,
+            "baseDifficultyClass": 10,
+            "checkType": "attack_roll",
+            "directTargeting": true
+          },
+          "sourceAction": {
+            "type": "attack",
+            "actorCharacterId": "ranger-1",
+            "targetId": "goblin-1",
+            "attackKind": "weapon_attack",
+            "requiresRoll": true
+          },
+          "sourceTraceId": "trace-demo-handoff-goblin-cover"
+        },
+        {
+          "hookId": "hook.combat.resolve_attack_roll",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-goblin-cover-attack",
+          "actorCharacterId": "ranger-1",
+          "targetId": "goblin-1",
+          "input": {
+            "naturalD20": 11,
+            "attackBonus": 5,
+            "targetArmorClass": 17,
+            "advantageState": "normal"
+          },
+          "sourceAction": {
+            "type": "attack",
+            "actorCharacterId": "ranger-1",
+            "targetId": "goblin-1",
+            "attackKind": "weapon_attack",
+            "requiresRoll": true
+          },
+          "sourceTraceId": "trace-demo-handoff-goblin-cover"
+        }
+      ],
+      "notes": [
+        "N04 and N06 both rely on crate-style half cover, so the attack handoff needs explicit AC adjustment before hit resolution."
+      ]
+    },
+    {
+      "caseId": "handoff.black_water_difficult_terrain_move",
+      "rawText": "검은 물웅덩이를 가로질러 고블린에게 붙는다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "move",
+          "actorCharacterId": "fighter-1",
+          "targetId": "terrain.black_water_pool",
+          "approach": "검은 물웅덩이를 통과해 근접 거리까지 전진한다.",
+          "confidence": 0.9,
+          "requiresRoll": false
+        },
+        "needsClarification": false,
+        "mentionedSpellId": null,
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.combat.어려운_지형",
+          "rule.combat.difficult_terrain"
+        ],
+        "safetyNotes": [
+          "실제 이동 거리 소모와 토큰 위치는 백엔드 엔진이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-black-water-move",
+        "actorCharacterId": "fighter-1",
+        "remainingMovementFt": 20,
+        "movementPlan": {
+          "intendedDistanceFt": 10,
+          "enteredDifficultTerrain": true
+        }
+      },
+      "expectedHookIds": [
+        "hook.combat.apply_difficult_terrain_cost"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.combat.apply_difficult_terrain_cost",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-black-water-move",
+          "actorCharacterId": "fighter-1",
+          "targetId": "terrain.black_water_pool",
+          "input": {
+            "enteredDifficultTerrain": true,
+            "intendedDistanceFt": 10,
+            "remainingMovementFt": 20,
+            "baseCostPerFoot": 1
+          },
+          "sourceAction": {
+            "type": "move",
+            "actorCharacterId": "fighter-1",
+            "targetId": "terrain.black_water_pool",
+            "approach": "검은 물웅덩이를 가로질러 전진한다."
+          },
+          "sourceTraceId": "trace-demo-handoff-black-water-move"
+        }
+      ],
+      "notes": [
+        "N06 black water pool is an MVP difficult-terrain showcase, so movement cost needs a dedicated handoff example."
+      ]
+    },
+    {
+      "caseId": "handoff.combat_victory_to_conclusion",
+      "rawText": "고블린을 쓰러뜨리고 동굴 안쪽을 살핀다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "interact",
+          "actorCharacterId": "fighter-1",
+          "targetId": "node_inner_tunnel",
+          "approach": "전투가 끝난 뒤 동굴 안쪽을 살핀다.",
+          "confidence": 0.87,
+          "requiresRoll": false
+        },
+        "needsClarification": false,
+        "mentionedSpellId": null,
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [],
+        "safetyNotes": [
+          "전투 종료, 결말 노드 이동, 보상 공개는 백엔드/GM 흐름이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-combat-victory",
+        "actorCharacterId": "fighter-1",
+        "defeatedHostiles": [
+          "goblin-1"
+        ],
+        "currentNodeId": "node_inner_tunnel",
+        "nextNodeId": "node_goblin_cache"
+      },
+      "expectedHookIds": [],
+      "hookRequests": [],
+      "notes": [
+        "This case closes the playable demo loop after the last hostile reaches 0 HP."
+      ]
     }
   ]
 }
