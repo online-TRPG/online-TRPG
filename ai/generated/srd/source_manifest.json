@@ -310,8 +310,8 @@
     {
       "path": "translated/README.md",
       "domain": "root",
-      "bytes": 7640,
-      "sha256": "4f48a3b4cad46a911aad53cd714b7055dbaec7036f04bbaca918b22662e94a1a"
+      "bytes": 2254,
+      "sha256": "4f844469e76c9b5fb25801a0af49d3e7a12a454814b0ae7d773a824ac867c813"
     },
     {
       "path": "translated/rules/GM_운영_규칙.md",

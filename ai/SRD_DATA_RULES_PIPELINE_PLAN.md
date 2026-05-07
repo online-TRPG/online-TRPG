@@ -32,17 +32,17 @@ AI prompt에는 원문 Markdown 전체를 넣지 않는다. 현재 행동에 필
 | `spells.jsonl`                           |  319 | AI + 엔진        | 주문 검색, 시전 검증 후보                  |
 | `conditions.jsonl`                       |   15 | AI + 엔진        | 상태 이상 참조                             |
 | `rules_cards.jsonl`                      |   80 | AI               | 짧은 규칙 설명                             |
-| `rule_fragments.jsonl`                   |   11 | AI               | 행동 해석용 작은 규칙 조각                 |
-| `rules_hooks.json`                       |   12 | 백엔드 예정      | deterministic 엔진 hook fixture            |
+| `rule_fragments.jsonl`                   |   16 | AI               | 행동 해석용 작은 규칙 조각                 |
+| `rules_hooks.json`                       |   17 | 백엔드 예정      | deterministic 엔진 hook fixture            |
 | `magic_items.jsonl`                      |  239 | AI + 엔진        | 마법 아이템 검색/참조                      |
 | `equipment.jsonl`                        |    8 | 엔진             | 장비 표 참조 섹션                          |
 | `equipment_items.jsonl`                  |  145 | 캐릭터 생성 + AI | 장비 item ID와 시작 장비 연결              |
 | `monsters.jsonl`                         |  317 | AI + 엔진        | 몬스터 표시/참조                           |
 | `races.jsonl`                            |    9 | 캐릭터 생성      | 종족 선택지                                |
 | `classes.jsonl`                          |   12 | 캐릭터 생성      | 직업, 시작 장비, 주문 진행표               |
-| `backend_engine_p0_contracts.json`       |   12 | 백엔드 예정      | P0 hook 테스트 계약                        |
-| `interpreter_backend_handoff_cases.json` |    3 | 백엔드 예정      | Interpreter 결과를 hook 요청으로 넘기는 예 |
-| `narrator_input_fixtures.json`           |    3 | 백엔드 + AI      | 확정 결과를 Narrator 입력으로 조립하는 예  |
+| `backend_engine_p0_contracts.json`       |   19 | 백엔드 예정      | P0 hook 테스트 계약                        |
+| `interpreter_backend_handoff_cases.json` |    7 | 백엔드 예정      | Interpreter 결과를 hook 요청으로 넘기는 예 |
+| `narrator_input_fixtures.json`           |    7 | 백엔드 + AI      | 확정 결과를 Narrator 입력으로 조립하는 예  |
 | `source_manifest.json`                   |    1 | 테스트           | 원천 파일 hash/크기/영역                   |
 | `srd_qa_report.json`                     |    1 | 검수             | 개수와 필드 coverage                       |
 
@@ -82,16 +82,22 @@ python -m app.srd.build --output-dir generated\srd
 | -------- | ------------------------------------------------ | ----------------------- |
 | P0       | `hook.combat.resolve_attack_roll`                | 공격 명중 판정          |
 | P0       | `hook.damage.apply_resistance_vulnerability`     | 면역/저항/취약 적용     |
+| P0       | `hook.check.resolve_ability_or_skill_check`      | 능력/기술 판정          |
 | P0       | `hook.condition.apply_prone_modifiers`           | 넘어짐 이동/공격 보정   |
 | P0       | `hook.spell.cast_chill_touch`                    | 싸늘한 손길 시전 처리   |
+| P0       | `hook.spell.cast_fire_bolt`                      | 화염 화살 시전 처리     |
+| P0       | `hook.spell.cast_magic_missile`                  | 마법 화살 시전 처리     |
+| P0       | `hook.spell.cast_cure_wounds`                    | 상처 치료 시전 처리     |
+| P0       | `hook.item.use_potion_of_healing`                | 치유 물약 사용          |
+| P0       | `hook.item.apply_flat_magic_bonus`               | +1 마법 장비 보너스     |
+| P0       | `hook.class.ranger.fighting_style_archery`       | 레인저 궁술 보정        |
+| P0       | `hook.class.ranger.natural_explorer_check`       | 레인저 자연 탐험가 판정 |
+| P0       | `hook.class.fighter.second_wind`                 | 파이터 재기의 숨결      |
+| P0       | `hook.class.rogue.sneak_attack`                  | 로그 암습               |
 | P1       | `hook.item.bag_of_holding_capacity`              | 보유의 주머니 용량 검증 |
-| P1       | `hook.class.fighter.second_wind`                 | 파이터 재기의 숨결      |
 | P1       | `hook.class.fighter.action_surge`                | 파이터 행동 연쇄        |
-| P1       | `hook.class.barbarian.rage`                      | 바바리안 격노           |
-| P1       | `hook.class.rogue.sneak_attack`                  | 로그 암습               |
 | P2       | `hook.class.fighter.champion_critical_threshold` | 챔피언 치명타 기준      |
 | P2       | `hook.class.rogue.cunning_action`                | 로그 교활한 행동        |
-| P2       | `hook.class.barbarian.frenzy`                    | 광전사 광분             |
 
 이 fixture는 엔진 구현이 아니다. 백엔드가 나중에 구현할 계약 목록이다.
 
@@ -101,8 +107,8 @@ python -m app.srd.build --output-dir generated\srd
 
 - 주문 319개, 공통 필드 coverage 100%
 - 상태 이상 15개, 누락 효과 없음
-- 규칙 fragment 11개, source 누락 없음
-- hook fixture 12개, 계약 필드 누락 없음
+- 규칙 fragment 16개, source 누락 없음
+- hook fixture 17개, 계약 필드 누락 없음
 - 마법 아이템 239개, 공통 필드 coverage 100%
 - 몬스터/NPC 317개, 주요 필드 coverage 100%
 - 종족 9개, core field 누락 없음

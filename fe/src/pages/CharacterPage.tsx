@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+﻿import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import defaultArcherImage from "../assets/images/Profile_Default_Archer.png";
 import defaultRogueImage from "../assets/images/Profile_Default_Rouge.png";
 import defaultWarriorImage from "../assets/images/Profile_Default_Warrior.png";
@@ -46,14 +46,18 @@ interface ClassStatProfile {
     maxHp: number;
     armorClass: number;
     speed: number;
+    proficiencyBonus: number;
     abilities: Record<ScalingAbilityKey, number>;
   };
   growth: {
     maxHp: number;
     armorClass: number;
+    proficiencyBonus: number;
     abilities: Record<ScalingAbilityKey, number>;
   };
 }
+
+const MVP_CHARACTER_LEVEL = 2;
 
 type ClassName = ClassOptionValue;
 
@@ -62,29 +66,31 @@ const ancestryOptions = raceOptions;
 const defaultAncestry = ancestryOptions.find((option) => option.value === "Human")?.value ?? ancestryOptions[0]?.value ?? "Human";
 
 const avatarPresets = [
-  { id: "preset_wizard", label: "위자드", image: defaultWizardImage },
-  { id: "preset_archer", label: "레인저", image: defaultArcherImage },
+  { id: "preset_fighter", label: "파이터", image: defaultWarriorImage },
   { id: "preset_rogue", label: "로그", image: defaultRogueImage },
-  { id: "preset_warrior", label: "파이터", image: defaultWarriorImage },
+  { id: "preset_ranger", label: "레인저", image: defaultArcherImage },
+  { id: "preset_wizard", label: "위저드", image: defaultWizardImage },
 ] as const;
 
 const classStatProfiles: Record<ClassName, ClassStatProfile> = {
   Fighter: {
     base: {
       maxHp: 20,
-      armorClass: 20,
-      speed: 28,
+      armorClass: 16,
+      speed: 30,
+      proficiencyBonus: 2,
       abilities: {
-        str: 14,
-        dex: 10,
-        int: 8,
+        str: 16,
+        dex: 12,
+        int: 10,
       },
     },
     growth: {
-      maxHp: 2,
-      armorClass: 0.5,
+      maxHp: 0,
+      armorClass: 0,
+      proficiencyBonus: 0,
       abilities: {
-        str: 0.5,
+        str: 0,
         dex: 0,
         int: 0,
       },
@@ -92,64 +98,70 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
   },
   Ranger: {
     base: {
-      maxHp: 16,
-      armorClass: 16,
-      speed: 32,
+      maxHp: 18,
+      armorClass: 15,
+      speed: 30,
+      proficiencyBonus: 2,
       abilities: {
-        str: 10,
-        dex: 14,
+        str: 12,
+        dex: 16,
         int: 10,
       },
     },
     growth: {
-      maxHp: 1.5,
-      armorClass: 0.35,
+      maxHp: 0,
+      armorClass: 0,
+      proficiencyBonus: 0,
       abilities: {
         str: 0,
-        dex: 0.5,
+        dex: 0,
         int: 0,
       },
     },
   },
   Rogue: {
     base: {
-      maxHp: 14,
+      maxHp: 15,
       armorClass: 14,
-      speed: 36,
+      speed: 30,
+      proficiencyBonus: 2,
       abilities: {
-        str: 9,
-        dex: 15,
-        int: 11,
+        str: 10,
+        dex: 16,
+        int: 12,
       },
     },
     growth: {
-      maxHp: 1.2,
-      armorClass: 0.25,
+      maxHp: 0,
+      armorClass: 0,
+      proficiencyBonus: 0,
       abilities: {
         str: 0,
-        dex: 0.4,
-        int: 0.2,
+        dex: 0,
+        int: 0,
       },
     },
   },
   Wizard: {
     base: {
       maxHp: 12,
-      armorClass: 10,
+      armorClass: 12,
       speed: 30,
+      proficiencyBonus: 2,
       abilities: {
         str: 8,
-        dex: 10,
-        int: 15,
+        dex: 14,
+        int: 16,
       },
     },
     growth: {
-      maxHp: 1,
-      armorClass: 0.1,
+      maxHp: 0,
+      armorClass: 0,
+      proficiencyBonus: 0,
       abilities: {
         str: 0,
         dex: 0,
-        int: 0.5,
+        int: 0,
       },
     },
   },
@@ -180,18 +192,16 @@ const suggestedSkillOptions = [
 const ancestryLabelMap: Map<string, string> = new Map(ancestryOptions.map((option) => [option.value, option.label]));
 const skillLabelMap: Map<string, string> = new Map(suggestedSkillOptions.map((option) => [option.value, option.label]));
 const presetIdByClassName: Map<string, string> = new Map([
+  ["Fighter", "preset_fighter"],
   ["Wizard", "preset_wizard"],
-  ["Ranger", "preset_archer"],
+  ["Ranger", "preset_ranger"],
   ["Rogue", "preset_rogue"],
-  ["Fighter", "preset_warrior"],
-  ["Archer", "preset_archer"],
-  ["Warrior", "preset_warrior"],
 ]);
 const classNameByPresetId: Map<string, string> = new Map([
+  ["preset_fighter", "Fighter"],
   ["preset_wizard", "Wizard"],
-  ["preset_archer", "Ranger"],
+  ["preset_ranger", "Ranger"],
   ["preset_rogue", "Rogue"],
-  ["preset_warrior", "Fighter"],
 ]);
 
 function calcModifier(score: number) {
@@ -226,7 +236,7 @@ function formatStat(value: number) {
 }
 
 function normalizeLevel(value: number) {
-  return Math.max(1, Number(value) || 1);
+  return Number(value) === MVP_CHARACTER_LEVEL ? MVP_CHARACTER_LEVEL : MVP_CHARACTER_LEVEL;
 }
 
 function getProficiencyBonusForLevel(level: number) {
@@ -319,18 +329,18 @@ function applyLevelDeltaAbilities(
 }
 
 function createDefaultCharacter(): CharacterPayload {
-  const defaultClassName: ClassName = "Wizard";
-  const recommendedStats = getRecommendedStats(defaultClassName, 1);
-  const recommendedAbilities = getRecommendedAbilities(defaultClassName, 1);
+  const defaultClassName: ClassName = "Fighter";
+  const recommendedStats = getRecommendedStats(defaultClassName, MVP_CHARACTER_LEVEL);
+  const recommendedAbilities = getRecommendedAbilities(defaultClassName, MVP_CHARACTER_LEVEL);
 
   return {
     name: "",
     ancestry: defaultAncestry,
     className: defaultClassName,
     avatarType: "PRESET",
-    avatarPresetId: "preset_wizard",
+    avatarPresetId: "preset_fighter",
     avatarUrl: null,
-    level: 1,
+    level: MVP_CHARACTER_LEVEL,
     abilities: recommendedAbilities,
     proficiencyBonus: recommendedStats.proficiencyBonus,
     proficientSkills: [],
@@ -382,11 +392,11 @@ function getSkillLabel(skill: string) {
 }
 
 function getPresetIdForClassName(className: string) {
-  return presetIdByClassName.get(className) ?? "preset_wizard";
+  return presetIdByClassName.get(className) ?? "preset_fighter";
 }
 
 function getClassNameForPresetId(presetId: string) {
-  return classNameByPresetId.get(presetId) ?? "Wizard";
+  return classNameByPresetId.get(presetId) ?? "Fighter";
 }
 
 function getRaceByValue(value: string): RaceData | null {
@@ -868,13 +878,14 @@ export function CharacterPage({
                     <input
                       id="character-level-create"
                       type="number"
-                      min={1}
-                      value={formState.level ?? 1}
+                      min={MVP_CHARACTER_LEVEL}
+                      max={MVP_CHARACTER_LEVEL}
+                      value={MVP_CHARACTER_LEVEL}
                       onChange={(event) =>
                         setFormState((current) => {
                           const nextLevel = normalizeLevel(Number(event.target.value));
-                          const currentLevel = normalizeLevel(current.level ?? 1);
-                          const nextStats = applyLevelDeltaStats(current, nextLevel - currentLevel, nextLevel);
+                          const currentLevel = normalizeLevel(current.level ?? MVP_CHARACTER_LEVEL);
+                          const nextStats = applyLevelDeltaStats(current, nextLevel - currentLevel);
                           const nextAbilities = applyLevelDeltaAbilities(current, nextLevel - currentLevel);
 
                           return {
@@ -915,10 +926,10 @@ export function CharacterPage({
                       onChange={(event) =>
                         setFormState((current) => {
                           const className = event.target.value;
-                          const recommendedStats = getRecommendedStats(className, current.level ?? 1);
+                          const recommendedStats = getRecommendedStats(className, current.level ?? MVP_CHARACTER_LEVEL);
                           const recommendedAbilities = getRecommendedAbilities(
                             className,
-                            current.level ?? 1,
+                            current.level ?? MVP_CHARACTER_LEVEL,
                             current.abilities,
                           );
                           return {
@@ -946,6 +957,28 @@ export function CharacterPage({
                   </div>
                 </div>
 
+                <div className="character-avatar-picker">
+                  <label>초상화</label>
+                  <div className="character-avatar-grid" role="radiogroup" aria-label="캐릭터 초상화 선택">
+                    {avatarPresets.map((preset) => {
+                      const isSelected = formState.avatarPresetId === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          className={`character-avatar-option${isSelected ? " selected" : ""}`}
+                          onClick={() =>
+                            setFormState((current) => {
+                              const className = getClassNameForPresetId(preset.id);
+                              const recommendedStats = getRecommendedStats(
+                                className,
+                                current.level ?? MVP_CHARACTER_LEVEL,
+                              );
+                              const recommendedAbilities = getRecommendedAbilities(
+                                className,
+                                current.level ?? MVP_CHARACTER_LEVEL,
+                                current.abilities,
+                              );
 
 
 

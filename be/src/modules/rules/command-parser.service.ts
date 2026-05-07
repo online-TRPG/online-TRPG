@@ -1,74 +1,78 @@
-import { Injectable } from "@nestjs/common";
-import { badRequest } from "../../common/exceptions/domain-error";
+import { Injectable } from '@nestjs/common';
+import { badRequest } from '../../common/exceptions/domain-error';
 
 export type ParsedCommand =
-  | { type: "roll"; expression: string }
-  | { type: "check"; checkName: string; dc: number }
-  | { type: "attack"; target: string | null; dc: number }
-  | { type: "cast_spell"; spellId: string; target: string; targetDistanceFt: number }
-  | { type: "use_class_feature"; featureId: string; option: string | null }
-  | { type: "rest"; restType: "short" | "long" }
-  | { type: "damage"; target: string; amount: number; damageType?: string }
-  | { type: "heal"; target: string; amount: number }
-  | { type: "condition"; operation: "add" | "remove"; target: string; condition: string }
-  | { type: "unknown"; command: string };
+  | { type: 'roll'; expression: string }
+  | { type: 'check'; checkName: string; dc: number }
+  | { type: 'attack'; target: string | null; dc: number }
+  | { type: 'cast_spell'; spellId: string; target: string; targetDistanceFt: number }
+  | { type: 'use_item'; itemId: string; target: string }
+  | { type: 'use_class_feature'; featureId: string; option: string | null }
+  | { type: 'rest'; restType: 'short' | 'long' }
+  | { type: 'damage'; target: string; amount: number; damageType?: string }
+  | { type: 'heal'; target: string; amount: number }
+  | { type: 'condition'; operation: 'add' | 'remove'; target: string; condition: string }
+  | { type: 'unknown'; command: string };
 
 @Injectable()
 export class CommandParserService {
   parse(rawText: string): ParsedCommand {
     const trimmed = rawText.trim();
-    if (!trimmed.startsWith("/")) {
-      return { type: "unknown", command: "" };
+    if (!trimmed.startsWith('/')) {
+      return { type: 'unknown', command: '' };
     }
 
     const [commandToken, ...args] = trimmed.slice(1).split(/\s+/);
     const command = commandToken.toLowerCase();
 
     switch (command) {
-      case "roll":
+      case 'roll':
         return this.parseRoll(args);
-      case "check":
+      case 'check':
         return this.parseCheck(args);
-      case "attack":
+      case 'attack':
         return this.parseAttack(args);
-      case "cast":
+      case 'cast':
         return this.parseCastSpell(args);
-      case "feature":
+      case 'item':
+      case 'use':
+        return this.parseUseItem(args);
+      case 'feature':
         return this.parseClassFeature(args);
-      case "rest":
+      case 'rest':
         return this.parseRest(args);
-      case "damage":
-        return this.parseAmountCommand("damage", args);
-      case "heal":
-        return this.parseAmountCommand("heal", args);
-      case "condition":
+      case 'damage':
+        return this.parseAmountCommand('damage', args);
+      case 'heal':
+        return this.parseAmountCommand('heal', args);
+      case 'condition':
         return this.parseCondition(args);
       default:
-        return { type: "unknown", command };
+        return { type: 'unknown', command };
     }
   }
 
   private parseRoll(args: string[]): ParsedCommand {
     const expression = args[0];
     if (!expression) {
-      throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
-        reason: "ROLL_EXPRESSION_REQUIRED",
+      throw badRequest('ACTION_400', '잘못된 명령어입니다.', {
+        reason: 'ROLL_EXPRESSION_REQUIRED',
       });
     }
 
-    return { type: "roll", expression };
+    return { type: 'roll', expression };
   }
 
   private parseCheck(args: string[]): ParsedCommand {
     const checkName = args[0];
     if (!checkName) {
-      throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
-        reason: "CHECK_NAME_REQUIRED",
+      throw badRequest('ACTION_400', '잘못된 명령어입니다.', {
+        reason: 'CHECK_NAME_REQUIRED',
       });
     }
 
     return {
-      type: "check",
+      type: 'check',
       checkName,
       dc: this.parseDc(args[1], 10),
     };
@@ -76,7 +80,7 @@ export class CommandParserService {
 
   private parseAttack(args: string[]): ParsedCommand {
     return {
-      type: "attack",
+      type: 'attack',
       target: args[0] ?? null,
       dc: this.parseDc(args[1], 10),
     };
@@ -87,64 +91,77 @@ export class CommandParserService {
     const target = args[1];
 
     if (!spellToken || !target) {
-      throw badRequest("ACTION_400", "잘못된 명령입니다.", {
-        reason: "CAST_SPELL_AND_TARGET_REQUIRED",
+      throw badRequest('ACTION_400', '잘못된 명령입니다.', {
+        reason: 'CAST_SPELL_AND_TARGET_REQUIRED',
       });
     }
 
     return {
-      type: "cast_spell",
+      type: 'cast_spell',
       spellId: this.normalizeSpellId(spellToken),
       target,
-      targetDistanceFt: this.parseOptionalPositiveInteger(
-        args[2],
-        90,
-        "INVALID_TARGET_DISTANCE",
-      ),
+      targetDistanceFt: this.parseOptionalPositiveInteger(args[2], 90, 'INVALID_TARGET_DISTANCE'),
     };
   }
 
   private parseClassFeature(args: string[]): ParsedCommand {
     const featureToken = args[0];
     if (!featureToken) {
-      throw badRequest("ACTION_400", "?섎せ??紐낅졊?낅땲??", {
-        reason: "CLASS_FEATURE_REQUIRED",
+      throw badRequest('ACTION_400', '?섎せ??紐낅졊?낅땲??', {
+        reason: 'CLASS_FEATURE_REQUIRED',
       });
     }
 
     return {
-      type: "use_class_feature",
+      type: 'use_class_feature',
       featureId: this.normalizeClassFeatureId(featureToken),
       option: args[1] ?? null,
     };
   }
 
+  private parseUseItem(args: string[]): ParsedCommand {
+    const itemToken = args[0];
+    const target = args[1];
+
+    if (!itemToken || !target) {
+      throw badRequest('ACTION_400', '잘못된 명령어입니다.', {
+        reason: 'ITEM_AND_TARGET_REQUIRED',
+      });
+    }
+
+    return {
+      type: 'use_item',
+      itemId: this.normalizeItemId(itemToken),
+      target,
+    };
+  }
+
   private parseRest(args: string[]): ParsedCommand {
-    const restType = args[0]?.toLowerCase().replace(/-/g, "_");
-    if (restType === "short" || restType === "short_rest") {
-      return { type: "rest", restType: "short" };
+    const restType = args[0]?.toLowerCase().replace(/-/g, '_');
+    if (restType === 'short' || restType === 'short_rest') {
+      return { type: 'rest', restType: 'short' };
     }
 
-    if (restType === "long" || restType === "long_rest") {
-      return { type: "rest", restType: "long" };
+    if (restType === 'long' || restType === 'long_rest') {
+      return { type: 'rest', restType: 'long' };
     }
 
-    throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
-      reason: "INVALID_REST_TYPE",
+    throw badRequest('ACTION_400', '잘못된 명령어입니다.', {
+      reason: 'INVALID_REST_TYPE',
     });
   }
 
-  private parseAmountCommand(type: "damage" | "heal", args: string[]): ParsedCommand {
+  private parseAmountCommand(type: 'damage' | 'heal', args: string[]): ParsedCommand {
     const target = args[0];
     const amount = Number(args[1]);
 
     if (!target || !Number.isInteger(amount) || amount < 1) {
-      throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
+      throw badRequest('ACTION_400', '잘못된 명령어입니다.', {
         reason: `${type.toUpperCase()}_TARGET_AND_AMOUNT_REQUIRED`,
       });
     }
 
-    if (type === "damage") {
+    if (type === 'damage') {
       return {
         type,
         target,
@@ -157,17 +174,17 @@ export class CommandParserService {
   }
 
   private parseCondition(args: string[]): ParsedCommand {
-    const operation = args[0] as "add" | "remove";
+    const operation = args[0] as 'add' | 'remove';
     const target = args[1];
     const condition = args[2];
 
-    if (!["add", "remove"].includes(operation) || !target || !condition) {
-      throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
-        reason: "CONDITION_OPERATION_TARGET_AND_NAME_REQUIRED",
+    if (!['add', 'remove'].includes(operation) || !target || !condition) {
+      throw badRequest('ACTION_400', '잘못된 명령어입니다.', {
+        reason: 'CONDITION_OPERATION_TARGET_AND_NAME_REQUIRED',
       });
     }
 
-    return { type: "condition", operation, target, condition };
+    return { type: 'condition', operation, target, condition };
   }
 
   private parseDc(value: string | undefined, fallback: number): number {
@@ -175,13 +192,11 @@ export class CommandParserService {
       return fallback;
     }
 
-    const normalized = value.toLowerCase().startsWith("dc=")
-      ? value.slice("dc=".length)
-      : value;
+    const normalized = value.toLowerCase().startsWith('dc=') ? value.slice('dc='.length) : value;
     const dc = Number(normalized);
     if (!Number.isInteger(dc) || dc < 1) {
-      throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
-        reason: "INVALID_DC",
+      throw badRequest('ACTION_400', '잘못된 명령어입니다.', {
+        reason: 'INVALID_DC',
       });
     }
 
@@ -191,7 +206,7 @@ export class CommandParserService {
   private parseOptionalPositiveInteger(
     value: string | undefined,
     fallback: number,
-    reason: string,
+    reason: string
   ): number {
     if (!value) {
       return fallback;
@@ -199,34 +214,58 @@ export class CommandParserService {
 
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed < 0) {
-      throw badRequest("ACTION_400", "잘못된 명령입니다.", { reason });
+      throw badRequest('ACTION_400', '잘못된 명령입니다.', { reason });
     }
 
     return parsed;
   }
 
   private normalizeSpellId(value: string): string {
-    const normalized = value.trim().toLowerCase().replace(/-/g, "_");
-    if (normalized === "chill_touch" || normalized === "chilltouch") {
-      return "spell.chill_touch";
+    const normalized = value.trim().toLowerCase().replace(/-/g, '_');
+    if (normalized === 'chill_touch' || normalized === 'chilltouch') {
+      return 'spell.chill_touch';
+    }
+    if (normalized === 'fire_bolt' || normalized === 'firebolt') {
+      return 'spell.fire_bolt';
+    }
+    if (normalized === 'magic_missile' || normalized === 'magicmissile') {
+      return 'spell.magic_missile';
+    }
+    if (normalized === 'cure_wounds' || normalized === 'curewounds') {
+      return 'spell.cure_wounds';
     }
 
-    return normalized.startsWith("spell.") ? normalized : `spell.${normalized}`;
+    return normalized.startsWith('spell.') ? normalized : `spell.${normalized}`;
+  }
+
+  private normalizeItemId(value: string): string {
+    const normalized = value.trim().toLowerCase().replace(/-/g, '_');
+    const itemIds: Record<string, string> = {
+      potion: 'magic_item.potion_of_healing',
+      healing_potion: 'magic_item.potion_of_healing',
+      potion_of_healing: 'magic_item.potion_of_healing',
+    };
+
+    if (normalized.startsWith('magic_item.')) {
+      return normalized;
+    }
+
+    return itemIds[normalized] ?? `magic_item.${normalized}`;
   }
 
   private normalizeClassFeatureId(value: string): string {
-    const normalized = value.trim().toLowerCase().replace(/-/g, "_");
+    const normalized = value.trim().toLowerCase().replace(/-/g, '_');
     const featureIds: Record<string, string> = {
-      second_wind: "class.fighter.feature.second_wind",
-      secondwind: "class.fighter.feature.second_wind",
-      action_surge: "class.fighter.feature.action_surge",
-      actionsurge: "class.fighter.feature.action_surge",
-      rage: "class.barbarian.feature.rage",
-      sneak_attack: "class.rogue.feature.sneak_attack",
-      sneakattack: "class.rogue.feature.sneak_attack",
-      cunning_action: "class.rogue.feature.cunning_action",
-      cunningaction: "class.rogue.feature.cunning_action",
-      frenzy: "class.barbarian.subclass_feature.frenzy",
+      second_wind: 'class.fighter.feature.second_wind',
+      secondwind: 'class.fighter.feature.second_wind',
+      action_surge: 'class.fighter.feature.action_surge',
+      actionsurge: 'class.fighter.feature.action_surge',
+      rage: 'class.barbarian.feature.rage',
+      sneak_attack: 'class.rogue.feature.sneak_attack',
+      sneakattack: 'class.rogue.feature.sneak_attack',
+      cunning_action: 'class.rogue.feature.cunning_action',
+      cunningaction: 'class.rogue.feature.cunning_action',
+      frenzy: 'class.barbarian.subclass_feature.frenzy',
     };
 
     return featureIds[normalized] ?? normalized;
