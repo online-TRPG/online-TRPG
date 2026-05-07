@@ -238,6 +238,962 @@
       "notes": [
         "Rejected hook results still become factual narration inputs."
       ]
+    },
+    {
+      "caseId": "narrator.fire_bolt_hit",
+      "sourceHandoffCaseId": "handoff.fire_bolt_spell_attack",
+      "backendHookResults": [
+        {
+          "hookId": "hook.combat.resolve_attack_roll",
+          "accepted": true,
+          "produced": {
+            "attackRollTotal": 19,
+            "hit": true,
+            "criticalHit": false,
+            "criticalMiss": false
+          },
+          "rejectedReason": null
+        },
+        {
+          "hookId": "hook.spell.cast_fire_bolt",
+          "accepted": true,
+          "produced": {
+            "validatedSpellCast": true,
+            "damagePacket.fire": {
+              "rolledDamage": 7
+            }
+          },
+          "rejectedReason": null
+        },
+        {
+          "hookId": "hook.damage.apply_resistance_vulnerability",
+          "accepted": true,
+          "produced": {
+            "finalDamage": 7,
+            "appliedDamageModifiers": []
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "위저드가 화염 화살로 고블린을 공격한다.",
+        "action": {
+          "type": "cast_spell",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "spellId": "spell.fire_bolt",
+          "attackKind": "ranged_spell_attack",
+          "approach": "화염 화살로 고블린을 공격한다.",
+          "confidence": 0.94,
+          "requiresRoll": true
+        },
+        "checkRequest": {
+          "checkType": "attack_roll",
+          "ability": "intelligence",
+          "skill": null,
+          "difficultyClass": 13,
+          "targetId": "goblin-1",
+          "reason": "화염 화살의 원거리 주문 공격 명중 여부를 확인한다."
+        },
+        "diceResult": {
+          "rollerId": "wizard-1",
+          "formula": "1d20+5",
+          "total": 19,
+          "naturalD20": 14,
+          "success": true
+        },
+        "stateDiffSummary": {
+          "summary": "화염 화살이 고블린에게 명중해 화염 피해 7점을 주었다.",
+          "changedFlags": [],
+          "hpChanges": [
+            "goblin-1:-7"
+          ],
+          "inventoryChanges": [],
+          "conditionChanges": [],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "전투 중",
+          "summary": "위저드가 원거리에서 고블린을 겨눈다.",
+          "tone": "tense"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "화염 화살이 고블린에게 명중했다.",
+      "forbiddenNarrationFacts": [
+        "고블린 사망",
+        "불길 확산",
+        "추가 피해"
+      ],
+      "notes": [
+        "Generic attack cantrip narration fixture."
+      ]
+    },
+    {
+      "caseId": "narrator.second_wind_heal",
+      "sourceHandoffCaseId": "handoff.fighter_second_wind",
+      "backendHookResults": [
+        {
+          "hookId": "hook.class.fighter.second_wind",
+          "accepted": true,
+          "produced": {
+            "hitPointsRestored": 7,
+            "newHitPoints": 12,
+            "secondWindExpended": true,
+            "bonusActionSpent": true
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "파이터가 재기의 숨결로 버틴다.",
+        "action": {
+          "type": "use_class_feature",
+          "actorCharacterId": "fighter-1",
+          "targetId": "fighter-1",
+          "featureId": "class.fighter.feature.재기의_숨결",
+          "approach": "재기의 숨결을 사용한다.",
+          "confidence": 0.93,
+          "requiresRoll": true
+        },
+        "checkRequest": null,
+        "diceResult": {
+          "rollerId": "fighter-1",
+          "formula": "1d10+2",
+          "total": 7,
+          "naturalD20": null,
+          "success": true
+        },
+        "stateDiffSummary": {
+          "summary": "파이터가 재기의 숨결로 HP 7점을 회복해 현재 HP가 12가 되었다.",
+          "changedFlags": [
+            "fighter-1.second_wind_expended"
+          ],
+          "hpChanges": [
+            "fighter-1:+7"
+          ],
+          "inventoryChanges": [],
+          "conditionChanges": [],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "전투 중",
+          "summary": "파이터가 상처를 입은 채 전열을 지킨다.",
+          "tone": "heroic"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "파이터가 재기의 숨결로 회복했다.",
+      "forbiddenNarrationFacts": [
+        "추가 행동 획득",
+        "상처 완전 회복",
+        "적 후퇴"
+      ],
+      "notes": [
+        "Class feature healing narration fixture."
+      ]
+    },
+    {
+      "caseId": "narrator.sneak_attack_hit",
+      "sourceHandoffCaseId": "handoff.rogue_sneak_attack",
+      "backendHookResults": [
+        {
+          "hookId": "hook.combat.resolve_attack_roll",
+          "accepted": true,
+          "produced": {
+            "attackRollTotal": 21,
+            "hit": true,
+            "criticalHit": false,
+            "criticalMiss": false
+          },
+          "rejectedReason": null
+        },
+        {
+          "hookId": "hook.class.rogue.sneak_attack",
+          "accepted": true,
+          "produced": {
+            "sneakAttackDice": "1d6",
+            "sneakAttackDamage": {
+              "rolledDamage": 4,
+              "damageType": "piercing"
+            },
+            "sneakAttackExpendedThisTurn": true,
+            "damagePacket": {
+              "baseDamage": 6,
+              "bonusDamage": 4,
+              "damageType": "piercing"
+            }
+          },
+          "rejectedReason": null
+        },
+        {
+          "hookId": "hook.damage.apply_resistance_vulnerability",
+          "accepted": true,
+          "produced": {
+            "finalDamage": 10,
+            "appliedDamageModifiers": []
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "로그가 레이피어로 빈틈을 노려 암습한다.",
+        "action": {
+          "type": "attack",
+          "actorCharacterId": "rogue-1",
+          "targetId": "goblin-1",
+          "attackKind": "weapon_attack",
+          "approach": "레이피어로 암습을 노린다.",
+          "confidence": 0.9,
+          "requiresRoll": true
+        },
+        "checkRequest": {
+          "checkType": "attack_roll",
+          "ability": "dexterity",
+          "skill": null,
+          "difficultyClass": 13,
+          "targetId": "goblin-1",
+          "reason": "레이피어 공격 명중 여부를 확인한다."
+        },
+        "diceResult": {
+          "rollerId": "rogue-1",
+          "formula": "1d20+5",
+          "total": 21,
+          "naturalD20": 16,
+          "success": true
+        },
+        "stateDiffSummary": {
+          "summary": "로그의 레이피어 공격이 명중했고 암습 피해까지 더해 관통 피해 10점을 주었다.",
+          "changedFlags": [
+            "rogue-1.sneak_attack_expended_this_turn"
+          ],
+          "hpChanges": [
+            "goblin-1:-10"
+          ],
+          "inventoryChanges": [],
+          "conditionChanges": [],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "전투 중",
+          "summary": "로그가 고블린의 빈틈을 노린다.",
+          "tone": "tense"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "로그의 암습 공격이 명중했다.",
+      "forbiddenNarrationFacts": [
+        "고블린 사망",
+        "두 번째 암습",
+        "무기 파손"
+      ],
+      "notes": [
+        "Rogue damage feature narration fixture."
+      ]
+    },
+    {
+      "caseId": "narrator.potion_of_healing",
+      "sourceHandoffCaseId": "handoff.potion_of_healing",
+      "backendHookResults": [
+        {
+          "hookId": "hook.item.use_potion_of_healing",
+          "accepted": true,
+          "produced": {
+            "hitPointsRestored": 7,
+            "newHitPoints": 9,
+            "itemConsumed": true,
+            "actionSpent": true
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "로그가 치유 물약을 마신다.",
+        "action": {
+          "type": "use_item",
+          "actorCharacterId": "rogue-1",
+          "targetId": "rogue-1",
+          "itemId": "magic_item.potion_of_healing",
+          "approach": "치유 물약을 사용한다.",
+          "confidence": 0.95,
+          "requiresRoll": true
+        },
+        "checkRequest": null,
+        "diceResult": {
+          "rollerId": "rogue-1",
+          "formula": "2d4+2",
+          "total": 8,
+          "naturalD20": null,
+          "success": true
+        },
+        "stateDiffSummary": {
+          "summary": "로그가 치유 물약을 소비해 HP 7점을 회복하고 현재 HP가 9가 되었다.",
+          "changedFlags": [],
+          "hpChanges": [
+            "rogue-1:+7"
+          ],
+          "inventoryChanges": [
+            "rogue-1:magic_item.potion_of_healing:-1"
+          ],
+          "conditionChanges": [],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "전투 중",
+          "summary": "로그가 숨을 고르며 물약을 꺼낸다.",
+          "tone": "urgent"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "로그가 치유 물약을 사용해 회복했다.",
+      "forbiddenNarrationFacts": [
+        "물약 추가 획득",
+        "상처 완전 회복",
+        "추가 행동"
+      ],
+      "notes": [
+        "Consumable item narration fixture."
+      ]
+    },
+    {
+      "caseId": "narrator.investigate_tracks_success",
+      "sourceHandoffCaseId": "handoff.investigate_tracks_skill_check",
+      "backendHookResults": [
+        {
+          "hookId": "hook.check.resolve_ability_or_skill_check",
+          "accepted": true,
+          "produced": {
+            "checkRollTotal": 17,
+            "success": true,
+            "criticalSuccess": false,
+            "criticalFailure": false
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "발자국을 조사해서 고블린이 어디로 갔는지 알아본다.",
+        "action": {
+          "type": "skill_check",
+          "actorCharacterId": "rogue-1",
+          "targetId": "node_cave_entrance",
+          "ability": "intelligence",
+          "skill": "investigation",
+          "approach": "발자국과 흙의 흐트러진 방향을 조사한다.",
+          "confidence": 0.91,
+          "requiresRoll": true,
+          "suggestedDifficulty": "easy"
+        },
+        "checkRequest": {
+          "checkType": "skill_check",
+          "ability": "intelligence",
+          "skill": "investigation",
+          "difficultyClass": 10,
+          "targetId": "node_cave_entrance",
+          "reason": "동굴 입구의 발자국이 어느 통로로 이어지는지 판정한다."
+        },
+        "diceResult": {
+          "rollerId": "rogue-1",
+          "formula": "1d20+4",
+          "total": 17,
+          "naturalD20": 13,
+          "success": true
+        },
+        "stateDiffSummary": {
+          "summary": "로그가 흙 위의 새 발자국을 찾아 고블린들이 안쪽 굴로 이동했다는 단서를 확인했다.",
+          "changedFlags": [
+            "node_cave_entrance.clue_tracks.revealed"
+          ],
+          "hpChanges": [],
+          "inventoryChanges": [],
+          "conditionChanges": [],
+          "nodeChange": "node_inner_tunnel"
+        },
+        "scene": {
+          "title": "동굴 입구",
+          "summary": "입구의 젖은 흙과 자갈 사이에 작은 발자국들이 남아 있다.",
+          "tone": "investigative"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "로그가 고블린의 발자국이 안쪽 굴로 이어진다는 단서를 찾았다.",
+      "forbiddenNarrationFacts": [
+        "숨겨진 보물",
+        "새로운 적 등장",
+        "전투 시작"
+      ],
+      "notes": [
+        "Exploration skill check narration fixture."
+      ]
+    },
+    {
+      "caseId": "narrator.magic_missile_finishes_goblin",
+      "sourceHandoffCaseId": "handoff.magic_missile_auto_hit",
+      "backendHookResults": [
+        {
+          "hookId": "hook.spell.cast_magic_missile",
+          "accepted": true,
+          "produced": {
+            "validatedSpellCast": true,
+            "missileCount": 3,
+            "forceDamageTotal": 10,
+            "targetAssignments": [
+              {
+                "targetId": "goblin-1",
+                "missiles": 3,
+                "damage": 10
+              }
+            ],
+            "spellSlotExpended": true
+          },
+          "rejectedReason": null
+        },
+        {
+          "hookId": "hook.damage.apply_resistance_vulnerability",
+          "accepted": true,
+          "produced": {
+            "finalDamage": 10,
+            "appliedDamageModifiers": []
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "위저드가 마법 화살 세 발을 고블린에게 날린다.",
+        "action": {
+          "type": "cast_spell",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "spellId": "spell.magic_missile",
+          "approach": "마법 화살 세 발을 모두 고블린에게 집중한다.",
+          "confidence": 0.95,
+          "requiresRoll": false
+        },
+        "checkRequest": null,
+        "diceResult": {
+          "rollerId": "wizard-1",
+          "formula": "3d4+3",
+          "total": 10,
+          "naturalD20": null,
+          "success": true
+        },
+        "stateDiffSummary": {
+          "summary": "마법 화살 세 발이 자동으로 명중해 고블린에게 역장 피해 10점을 주고 쓰러뜨렸다.",
+          "changedFlags": [
+            "wizard-1.spell_slot_1:-1"
+          ],
+          "hpChanges": [
+            "goblin-1:-10"
+          ],
+          "inventoryChanges": [],
+          "conditionChanges": [
+            "goblin-1:defeated"
+          ],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "전투 중",
+          "summary": "고블린 한 마리가 거의 쓰러질 듯 비틀거리고 있다.",
+          "tone": "decisive"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "위저드의 마법 화살이 고블린을 쓰러뜨렸다.",
+      "forbiddenNarrationFacts": [
+        "빗나감",
+        "추가 대상 피해",
+        "새로운 적 등장"
+      ],
+      "notes": [
+        "Auto-hit spell narration fixture."
+      ]
+    },
+    {
+      "caseId": "narrator.ranger_cure_wounds",
+      "sourceHandoffCaseId": "handoff.ranger_cure_wounds",
+      "backendHookResults": [
+        {
+          "hookId": "hook.spell.cast_cure_wounds",
+          "accepted": true,
+          "produced": {
+            "validatedSpellCast": true,
+            "hitPointsRestored": 7,
+            "newHitPoints": 10,
+            "spellSlotExpended": true
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "레인저가 파이터에게 상처 치료를 시전한다.",
+        "action": {
+          "type": "cast_spell",
+          "actorCharacterId": "ranger-1",
+          "targetId": "fighter-1",
+          "spellId": "spell.cure_wounds",
+          "approach": "파이터에게 손을 대고 상처 치료를 시전한다.",
+          "confidence": 0.94,
+          "requiresRoll": true
+        },
+        "checkRequest": null,
+        "diceResult": {
+          "rollerId": "ranger-1",
+          "formula": "1d8+2",
+          "total": 7,
+          "naturalD20": null,
+          "success": true
+        },
+        "stateDiffSummary": {
+          "summary": "레인저의 상처 치료가 파이터의 HP를 7점 회복시켜 현재 HP가 10이 되었다.",
+          "changedFlags": [
+            "ranger-1.spell_slot_1:-1"
+          ],
+          "hpChanges": [
+            "fighter-1:+7"
+          ],
+          "inventoryChanges": [],
+          "conditionChanges": [],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "전투 후 정비",
+          "summary": "파이터가 깊은 상처를 입은 채 숨을 고르고 있다.",
+          "tone": "relieved"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "레인저가 상처 치료로 파이터를 회복시켰다.",
+      "forbiddenNarrationFacts": [
+        "최대 HP 초과",
+        "상태 이상 제거",
+        "추가 강화 효과"
+      ],
+      "notes": [
+        "Healing spell narration fixture."
+      ]
+    },
+    {
+      "caseId": "narrator.well_chamber_initiative",
+      "sourceHandoffCaseId": "handoff.well_chamber_initiative",
+      "backendHookResults": [
+        {
+          "hookId": "hook.combat.resolve_initiative_order",
+          "accepted": true,
+          "produced": {
+            "initiativeTotal": 16,
+            "groupedParticipants": [
+              "goblin-1",
+              "goblin-2",
+              "goblin-3"
+            ],
+            "tiebreakRequired": false
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "우물 아래 방에 들어서자 고블린들과 전투가 시작된다.",
+        "action": {
+          "type": "start_combat",
+          "actorCharacterId": "gm-encounter",
+          "targetId": "encounter.well_chamber",
+          "approach": "최종 방에서 고블린들과 전투를 시작한다.",
+          "confidence": 0.9,
+          "requiresRoll": true
+        },
+        "checkRequest": null,
+        "diceResult": {
+          "rollerId": "monster.goblin",
+          "formula": "1d20+2",
+          "total": 16,
+          "naturalD20": 14,
+          "success": true
+        },
+        "stateDiffSummary": {
+          "summary": "최종 전투가 시작되며 고블린 세 마리가 같은 우선권 16으로 함께 행동 순서에 들어갔다.",
+          "changedFlags": [
+            "encounter.well_chamber.initiative_started"
+          ],
+          "hpChanges": [],
+          "inventoryChanges": [],
+          "conditionChanges": [],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "우물 아래 전투",
+          "summary": "고블린들이 상자 뒤와 물웅덩이 근처에서 무기를 들고 움직일 준비를 한다.",
+          "tone": "tense"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "우물 아래 방 전투가 시작되고 고블린들이 같은 우선권으로 묶였다.",
+      "forbiddenNarrationFacts": [
+        "플레이어 우선권 확정",
+        "숨은 적 추가",
+        "전투 종료"
+      ],
+      "notes": [
+        "Initiative ordering is a confirmed setup fact the narrator may mention without inventing future turns."
+      ]
+    },
+    {
+      "caseId": "narrator.rat_lair_surprise",
+      "sourceHandoffCaseId": "handoff.rat_lair_surprise_approach",
+      "backendHookResults": [
+        {
+          "hookId": "hook.combat.resolve_surprise",
+          "accepted": true,
+          "produced": {
+            "surprisedTargetIds": [
+              "giant_rat-1",
+              "giant_rat-2",
+              "giant_rat-3",
+              "giant_rat-4"
+            ],
+            "awareTargetIds": [],
+            "surpriseDetected": true
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "불을 낮추고 조용히 접근해 쥐들을 기습한다.",
+        "action": {
+          "type": "start_combat",
+          "actorCharacterId": "rogue-1",
+          "targetId": "encounter.rat_lair",
+          "approach": "광원을 낮추고 조용히 쥐 떼에게 접근한다.",
+          "confidence": 0.89,
+          "requiresRoll": true
+        },
+        "checkRequest": null,
+        "diceResult": null,
+        "stateDiffSummary": {
+          "summary": "쥐 떼는 일행의 접근을 눈치채지 못했고, 첫 라운드에 기습당한 상태로 전투가 시작됐다.",
+          "changedFlags": [],
+          "hpChanges": [],
+          "inventoryChanges": [],
+          "conditionChanges": [
+            "giant_rat-1:surprised",
+            "giant_rat-2:surprised",
+            "giant_rat-3:surprised",
+            "giant_rat-4:surprised"
+          ],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "쥐떼 소굴",
+          "summary": "썩은 자루 틈으로 거대 쥐들이 등을 돌린 채 웅성거린다.",
+          "tone": "tense"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "쥐 떼가 일행을 눈치채지 못해 기습당했다.",
+      "forbiddenNarrationFacts": [
+        "자동 명중",
+        "추가 적 등장",
+        "전투 종료"
+      ],
+      "notes": [
+        "Surprise outcome is visible and should stay separate from later initiative or attack narration."
+      ]
+    },
+    {
+      "caseId": "narrator.slippery_floor_save_fail",
+      "sourceHandoffCaseId": "handoff.slippery_floor_dex_save",
+      "backendHookResults": [
+        {
+          "hookId": "hook.check.resolve_saving_throw",
+          "accepted": true,
+          "produced": {
+            "checkRollTotal": 6,
+            "success": false,
+            "criticalSuccess": false,
+            "criticalFailure": false
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "미끄러운 수로 바닥을 급히 달리다 발을 헛디딘다.",
+        "action": {
+          "type": "saving_throw",
+          "actorCharacterId": "fighter-1",
+          "targetId": "fighter-1",
+          "saveAbility": "dexterity",
+          "approach": "속도를 내다가 미끄러운 바닥에서 균형을 잡으려 한다.",
+          "confidence": 0.9,
+          "requiresRoll": true
+        },
+        "checkRequest": {
+          "checkType": "saving_throw",
+          "ability": "dexterity",
+          "skill": null,
+          "difficultyClass": 10,
+          "targetId": "fighter-1",
+          "reason": "미끄러운 수로 바닥에서 넘어지지 않고 버틴다."
+        },
+        "diceResult": {
+          "rollerId": "fighter-1",
+          "formula": "1d20+2",
+          "total": 6,
+          "naturalD20": 4,
+          "success": false
+        },
+        "stateDiffSummary": {
+          "summary": "파이터는 미끄러운 바닥에서 균형을 잃고 넘어졌다.",
+          "changedFlags": [],
+          "hpChanges": [],
+          "inventoryChanges": [],
+          "conditionChanges": [
+            "fighter-1:prone applied"
+          ],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "지하 수로",
+          "summary": "축축한 벽돌 바닥 위로 얕은 물이 번들거린다.",
+          "tone": "urgent"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "파이터가 미끄러운 바닥에서 균형을 잃고 넘어졌다.",
+      "forbiddenNarrationFacts": [
+        "피해 확정",
+        "적 등장",
+        "자동 기상"
+      ],
+      "notes": [
+        "Saving throw failure can narrate prone application without inventing extra damage or enemies."
+      ]
+    },
+    {
+      "caseId": "narrator.goblin_half_cover_miss",
+      "sourceHandoffCaseId": "handoff.goblin_half_cover_attack",
+      "backendHookResults": [
+        {
+          "hookId": "hook.combat.apply_cover_modifiers",
+          "accepted": true,
+          "produced": {
+            "adjustedArmorClass": 17,
+            "adjustedDifficultyClass": 10,
+            "targetable": true
+          },
+          "rejectedReason": null
+        },
+        {
+          "hookId": "hook.combat.resolve_attack_roll",
+          "accepted": true,
+          "produced": {
+            "attackRollTotal": 16,
+            "hit": false,
+            "criticalHit": false,
+            "criticalMiss": false
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "상자 뒤에 숨은 고블린에게 화살을 쏜다.",
+        "action": {
+          "type": "attack",
+          "actorCharacterId": "ranger-1",
+          "targetId": "goblin-1",
+          "attackKind": "weapon_attack",
+          "approach": "상자 뒤 고블린의 노출된 틈을 향해 화살을 날린다.",
+          "confidence": 0.92,
+          "requiresRoll": true
+        },
+        "checkRequest": {
+          "checkType": "attack_roll",
+          "ability": "dexterity",
+          "skill": null,
+          "difficultyClass": 17,
+          "targetId": "goblin-1",
+          "reason": "절반 엄폐 뒤의 고블린에게 화살이 닿는지 확인한다."
+        },
+        "diceResult": {
+          "rollerId": "ranger-1",
+          "formula": "1d20+5",
+          "total": 16,
+          "naturalD20": 11,
+          "success": false
+        },
+        "stateDiffSummary": {
+          "summary": "고블린이 상자 뒤로 몸을 숨겨 화살이 빗나갔다.",
+          "changedFlags": [],
+          "hpChanges": [],
+          "inventoryChanges": [],
+          "conditionChanges": [],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "우물 아래 전투",
+          "summary": "상자 더미 뒤에서 고블린이 몸을 웅크린 채 활시위를 당긴다.",
+          "tone": "tense"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "상자 뒤 엄폐 때문에 화살이 고블린을 빗나갔다.",
+      "forbiddenNarrationFacts": [
+        "고블린 사망",
+        "엄폐 무시",
+        "추가 피해"
+      ],
+      "notes": [
+        "Cover-modified misses are important for N04 and N06 and should stay explicitly mechanical in fixture data."
+      ]
+    },
+    {
+      "caseId": "narrator.black_water_difficult_terrain",
+      "sourceHandoffCaseId": "handoff.black_water_difficult_terrain_move",
+      "backendHookResults": [
+        {
+          "hookId": "hook.combat.apply_difficult_terrain_cost",
+          "accepted": true,
+          "produced": {
+            "movementCostFt": 20,
+            "movementAllowed": true,
+            "remainingMovementFtAfterMove": 0
+          },
+          "rejectedReason": null
+        }
+      ],
+      "narratorRequest": {
+        "rawInput": "검은 물웅덩이를 가로질러 고블린에게 붙는다.",
+        "action": {
+          "type": "move",
+          "actorCharacterId": "fighter-1",
+          "targetId": "terrain.black_water_pool",
+          "approach": "검은 물웅덩이를 통과해 근접 거리까지 전진한다.",
+          "confidence": 0.9,
+          "requiresRoll": false
+        },
+        "checkRequest": null,
+        "diceResult": null,
+        "stateDiffSummary": {
+          "summary": "검은 물웅덩이 때문에 10피트 전진에 이동력 20피트가 들었고, 파이터의 남은 이동력은 모두 소진되었다.",
+          "changedFlags": [],
+          "hpChanges": [],
+          "inventoryChanges": [],
+          "conditionChanges": [],
+          "nodeChange": null
+        },
+        "scene": {
+          "title": "우물 아래 전투",
+          "summary": "중앙 물웅덩이의 검은 물이 발을 잡아당기듯 느리게 흐른다.",
+          "tone": "tense"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "검은 물웅덩이 때문에 이동력이 두 배로 소모되었다.",
+      "forbiddenNarrationFacts": [
+        "추가 피해",
+        "순간이동",
+        "전투 종료"
+      ],
+      "notes": [
+        "Difficult terrain in the final room should surface as confirmed movement cost, not as vague flavor only."
+      ]
+    },
+    {
+      "caseId": "narrator.combat_victory_conclusion",
+      "sourceHandoffCaseId": "handoff.combat_victory_to_conclusion",
+      "backendHookResults": [],
+      "narratorRequest": {
+        "rawInput": "고블린을 쓰러뜨리고 동굴 안쪽을 살핀다.",
+        "action": {
+          "type": "interact",
+          "actorCharacterId": "fighter-1",
+          "targetId": "node_inner_tunnel",
+          "approach": "전투가 끝난 뒤 안쪽 통로와 작은 보급품 더미를 살핀다.",
+          "confidence": 0.88,
+          "requiresRoll": false
+        },
+        "checkRequest": null,
+        "diceResult": null,
+        "stateDiffSummary": {
+          "summary": "마지막 고블린이 쓰러졌고 일행은 안쪽 통로의 작은 보급품 더미를 확인하며 데모 세션의 결론에 도달했다.",
+          "changedFlags": [
+            "demo_session.objective.completed"
+          ],
+          "hpChanges": [],
+          "inventoryChanges": [
+            "party:basic_supplies:+1"
+          ],
+          "conditionChanges": [
+            "combat:ended"
+          ],
+          "nodeChange": "node_goblin_cache"
+        },
+        "scene": {
+          "title": "동굴 안쪽",
+          "summary": "전투가 끝난 동굴 안쪽에는 고블린들이 모아 둔 작은 보급품 더미가 보인다.",
+          "tone": "resolved"
+        },
+        "constraints": {
+          "language": "ko",
+          "maxLength": 500,
+          "noNewFacts": true
+        }
+      },
+      "expectedVisibleSummary": "전투가 끝나고 일행은 동굴 안쪽의 보급품을 확인하며 세션을 마무리했다.",
+      "forbiddenNarrationFacts": [
+        "새 퀘스트",
+        "보스 등장",
+        "전설급 보물"
+      ],
+      "notes": [
+        "Demo session conclusion narration fixture."
+      ]
     }
   ]
 }

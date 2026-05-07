@@ -3,6 +3,11 @@ export const RULE_HOOK_IDS = {
   APPLY_DAMAGE_MODIFIERS: "hook.damage.apply_resistance_vulnerability",
   APPLY_PRONE_MODIFIERS: "hook.condition.apply_prone_modifiers",
   CAST_CHILL_TOUCH: "hook.spell.cast_chill_touch",
+  CAST_FIRE_BOLT: "hook.spell.cast_fire_bolt",
+  CAST_MAGIC_MISSILE: "hook.spell.cast_magic_missile",
+  CAST_CURE_WOUNDS: "hook.spell.cast_cure_wounds",
+  USE_POTION_OF_HEALING: "hook.item.use_potion_of_healing",
+  APPLY_FLAT_MAGIC_BONUS: "hook.item.apply_flat_magic_bonus",
   VALIDATE_BAG_OF_HOLDING_CAPACITY: "hook.item.bag_of_holding_capacity",
   APPLY_SECOND_WIND: "hook.class.fighter.second_wind",
   APPLY_ACTION_SURGE: "hook.class.fighter.action_surge",
@@ -10,6 +15,8 @@ export const RULE_HOOK_IDS = {
   APPLY_SNEAK_ATTACK: "hook.class.rogue.sneak_attack",
   APPLY_CRITICAL_THRESHOLD_MODIFIER: "hook.class.fighter.champion_critical_threshold",
   APPLY_CUNNING_ACTION: "hook.class.rogue.cunning_action",
+  APPLY_RANGER_ARCHERY_FIGHTING_STYLE: "hook.class.ranger.fighting_style_archery",
+  APPLY_RANGER_NATURAL_EXPLORER_CHECK: "hook.class.ranger.natural_explorer_check",
   APPLY_FRENZY: "hook.class.barbarian.frenzy",
 } as const;
 
@@ -98,6 +105,139 @@ export type ChillTouchProduced = {
   "damagePacket.necrotic": ChillTouchDamagePacket | null;
   healingBlockedUntil: "caster_next_turn_start" | null;
   undeadAttackDisadvantage: boolean;
+};
+
+export type FireBoltInput = {
+  spellFireBolt: boolean;
+  casterKnownCantrips: string[];
+  actionAvailable: boolean;
+  targetDistanceFt: number;
+  componentAvailability: ChillTouchComponentAvailability;
+  spellAttackRollResult: AttackRollProduced | null;
+};
+
+export type FireBoltProduced = {
+  validatedSpellCast: boolean;
+  "damagePacket.fire": {
+    dice: "1d10";
+    scalesByCharacterLevel: true;
+  } | null;
+};
+
+export type MagicMissileInput = {
+  spellMagicMissile: boolean;
+  casterPreparedSpells: string[];
+  actionAvailable: boolean;
+  spellSlotAvailable: {
+    level: number;
+    remaining: number;
+  };
+  targetIds: string[];
+  dartAllocation: Record<string, number>;
+};
+
+export type MagicMissileProduced = {
+  validatedSpellCast: boolean;
+  forceDamagePackets: Array<{
+    targetId: string;
+    dice: "1d4+1";
+    count: number;
+  }>;
+  spellSlotExpended: {
+    level: 1;
+    count: 1;
+  } | null;
+};
+
+export type CureWoundsInput = {
+  spellCureWounds: boolean;
+  casterPreparedSpells: string[];
+  actionAvailable: boolean;
+  spellSlotAvailable: {
+    level: number;
+    remaining: number;
+  };
+  targetTouchReach: boolean;
+  healingRoll: {
+    formula: "1d8+2";
+    total: number;
+  };
+  currentHitPoints: number;
+  maxHitPoints: number;
+};
+
+export type CureWoundsProduced = {
+  validatedSpellCast: boolean;
+  hitPointsRestored: number;
+  newHitPoints: number;
+  spellSlotExpended: {
+    level: 1;
+    count: 1;
+  } | null;
+};
+
+export type PotionOfHealingInput = {
+  magicItemPotionOfHealing: boolean;
+  actionAvailable: boolean;
+  targetReach: boolean;
+  healingRoll2d4: {
+    formula: "2d4+2";
+    total: number;
+  };
+  currentHitPoints: number;
+  maxHitPoints: number;
+  inventoryQuantity: number;
+};
+
+export type PotionOfHealingProduced = {
+  hitPointsRestored: number;
+  newHitPoints: number;
+  itemConsumed: boolean;
+  actionSpent: boolean;
+};
+
+export type FlatMagicBonusInput = {
+  equippedMagicItemIds: string[];
+  baseAttackBonus: number;
+  baseDamageBonus: number;
+  baseArmorClass: number;
+  shieldEquipped: boolean;
+};
+
+export type FlatMagicBonusProduced = {
+  attackBonusDelta: number;
+  damageBonusDelta: number;
+  armorClassDelta: number;
+  appliedMagicItemBonuses: string[];
+};
+
+export type RangerArcheryFightingStyleInput = {
+  rangerLevel: number;
+  selectedFightingStyle: string;
+  attackKind: string;
+  weaponProperties: string[];
+  baseAttackBonus: number;
+};
+
+export type RangerArcheryFightingStyleProduced = {
+  attackBonusDelta: number;
+  finalAttackBonus: number;
+  fightingStyleApplied: boolean;
+};
+
+export type RangerNaturalExplorerCheckInput = {
+  rangerLevel: number;
+  favoredTerrainActive: boolean;
+  checkKind: string;
+  abilityOrSkill: string;
+  proficiencyApplied: boolean;
+  baseCheckModifier: number;
+};
+
+export type RangerNaturalExplorerCheckProduced = {
+  checkModifierDelta: number;
+  finalCheckModifier: number;
+  naturalExplorerApplied: boolean;
 };
 
 export type BagOfHoldingIntegrity = "intact" | "pierced" | "torn" | "overloaded";

@@ -308,6 +308,197 @@ describe("RuleEngineService", () => {
     });
   });
 
+  describe("MVP playable spell and item hooks", () => {
+    it("validates fire bolt damage only on a successful spell attack", () => {
+      expect(
+        service.resolveFireBolt({
+          spellFireBolt: true,
+          casterKnownCantrips: ["spell.fire_bolt"],
+          actionAvailable: true,
+          targetDistanceFt: 90,
+          componentAvailability: {
+            verbal: true,
+            somatic: true,
+            material: null,
+          },
+          spellAttackRollResult: {
+            attackRollTotal: 17,
+            hit: true,
+            criticalHit: false,
+            criticalMiss: false,
+          },
+        }),
+      ).toEqual({
+        hookId: RULE_HOOK_IDS.CAST_FIRE_BOLT,
+        accepted: true,
+        produced: {
+          validatedSpellCast: true,
+          "damagePacket.fire": {
+            dice: "1d10",
+            scalesByCharacterLevel: true,
+          },
+        },
+        statePatch: [],
+        turnLogEvents: [{ type: "spell_cast_validated", public: true }],
+        rejectedReason: null,
+      });
+    });
+
+    it("validates magic missile without an attack roll", () => {
+      expect(
+        service.resolveMagicMissile({
+          spellMagicMissile: true,
+          casterPreparedSpells: ["spell.magic_missile"],
+          actionAvailable: true,
+          spellSlotAvailable: { level: 1, remaining: 1 },
+          targetIds: ["target"],
+          dartAllocation: { target: 3 },
+        }),
+      ).toMatchObject({
+        hookId: RULE_HOOK_IDS.CAST_MAGIC_MISSILE,
+        accepted: true,
+        produced: {
+          validatedSpellCast: true,
+          forceDamagePackets: [{ targetId: "target", dice: "1d4+1", count: 3 }],
+          spellSlotExpended: { level: 1, count: 1 },
+        },
+      });
+    });
+
+    it("caps cure wounds healing at max HP", () => {
+      expect(
+        service.resolveCureWounds({
+          spellCureWounds: true,
+          casterPreparedSpells: ["spell.cure_wounds"],
+          actionAvailable: true,
+          spellSlotAvailable: { level: 1, remaining: 1 },
+          targetTouchReach: true,
+          healingRoll: { formula: "1d8+2", total: 7 },
+          currentHitPoints: 3,
+          maxHitPoints: 9,
+        }),
+      ).toMatchObject({
+        hookId: RULE_HOOK_IDS.CAST_CURE_WOUNDS,
+        accepted: true,
+        produced: {
+          validatedSpellCast: true,
+          hitPointsRestored: 6,
+          newHitPoints: 9,
+          spellSlotExpended: { level: 1, count: 1 },
+        },
+      });
+    });
+
+    it("uses a potion of healing and consumes the declared item", () => {
+      expect(
+        service.applyPotionOfHealing({
+          magicItemPotionOfHealing: true,
+          actionAvailable: true,
+          targetReach: true,
+          healingRoll2d4: { formula: "2d4+2", total: 8 },
+          currentHitPoints: 2,
+          maxHitPoints: 9,
+          inventoryQuantity: 1,
+        }),
+      ).toMatchObject({
+        hookId: RULE_HOOK_IDS.USE_POTION_OF_HEALING,
+        accepted: true,
+        produced: {
+          hitPointsRestored: 7,
+          newHitPoints: 9,
+          itemConsumed: true,
+          actionSpent: true,
+        },
+      });
+    });
+
+    it("applies only MVP +1 flat magic item bonuses", () => {
+      expect(
+        service.applyFlatMagicBonus({
+          equippedMagicItemIds: ["magic_item.weapon_1_2_or_3"],
+          baseAttackBonus: 5,
+          baseDamageBonus: 3,
+          baseArmorClass: 16,
+          shieldEquipped: false,
+        }),
+      ).toEqual({
+        hookId: RULE_HOOK_IDS.APPLY_FLAT_MAGIC_BONUS,
+        accepted: true,
+        produced: {
+          attackBonusDelta: 1,
+          damageBonusDelta: 1,
+          armorClassDelta: 0,
+          appliedMagicItemBonuses: ["weapon:+1"],
+        },
+        statePatch: [],
+        turnLogEvents: [{ type: "magic_item_bonus_applied", public: false }],
+        rejectedReason: null,
+      });
+    });
+
+    it("applies ranger archery to ranged weapon attacks", () => {
+      expect(
+        service.applyRangerArcheryFightingStyle({
+          rangerLevel: 2,
+          selectedFightingStyle: "archery",
+          attackKind: "ranged_weapon_attack",
+          weaponProperties: ["ranged", "ammunition"],
+          baseAttackBonus: 4,
+        }),
+      ).toMatchObject({
+        hookId: RULE_HOOK_IDS.APPLY_RANGER_ARCHERY_FIGHTING_STYLE,
+        accepted: true,
+        produced: {
+          attackBonusDelta: 2,
+          finalAttackBonus: 6,
+          fightingStyleApplied: true,
+        },
+      });
+    });
+
+    it("rejects ranger archery for non-ranged weapon attacks", () => {
+      expect(
+        service.applyRangerArcheryFightingStyle({
+          rangerLevel: 2,
+          selectedFightingStyle: "archery",
+          attackKind: "melee_weapon_attack",
+          weaponProperties: ["finesse"],
+          baseAttackBonus: 4,
+        }),
+      ).toMatchObject({
+        hookId: RULE_HOOK_IDS.APPLY_RANGER_ARCHERY_FIGHTING_STYLE,
+        accepted: false,
+        produced: {
+          attackBonusDelta: 0,
+          finalAttackBonus: 4,
+          fightingStyleApplied: false,
+        },
+        rejectedReason: "not_ranged_weapon_attack",
+      });
+    });
+
+    it("applies ranger natural explorer to proficient survival checks in favored terrain", () => {
+      expect(
+        service.applyRangerNaturalExplorerCheck({
+          rangerLevel: 2,
+          favoredTerrainActive: true,
+          checkKind: "skill_check",
+          abilityOrSkill: "survival",
+          proficiencyApplied: true,
+          baseCheckModifier: 5,
+        }),
+      ).toMatchObject({
+        hookId: RULE_HOOK_IDS.APPLY_RANGER_NATURAL_EXPLORER_CHECK,
+        accepted: true,
+        produced: {
+          checkModifierDelta: 2,
+          finalCheckModifier: 7,
+          naturalExplorerApplied: true,
+        },
+      });
+    });
+  });
+
   describe("P1 hooks", () => {
     it("validates bag of holding capacity", () => {
       expect(

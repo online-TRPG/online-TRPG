@@ -13,6 +13,7 @@ import {
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
 import { AiService } from "../ai/ai.service";
+import { InterpreterResponsePayload } from "../ai/ai.client";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import {
   ActionResolution,
@@ -130,6 +131,8 @@ export class ActionProcessorService {
       },
       orderBy: { createdAt: "asc" },
     });
+    const combatTargets = await this.getActiveCombatTargets(session.id);
+    const ruleTargets = [...sessionCharacters, ...combatTargets];
     const actor =
       sessionCharacters.find((candidate) => candidate.id === action.sessionCharacterId) ??
       null;
@@ -140,16 +143,15 @@ export class ActionProcessorService {
 
     const runtime = await this.buildRuntime(action.sessionId, actor, state.flagsJson);
 
-    // BE → AI Interpreter (AI-SERVER-001). 자연어 → 구조화 action 후보를 AiTrace 로 영속.
-    // Phase 1: 결과를 룰 판정에 사용하지 않음 (actionRules 시그니처 변경 동반이라 별 PR).
-    // Phase 2: actionRules.resolveAction 가 interpreter 결과 받아 활용.
-    // 실패해도 진행 — AI 서버 자체에 fallback 있고, 룰은 rawText 로 독립 판정.
+    // BE -> AI Interpreter (AI-SERVER-001). 자연어 액션은 구조화 후보로 바꾼 뒤
+    // 기존 명령 기반 룰 엔진 입력으로 변환한다. 실패하면 rawText fallback을 유지한다.
+    let interpreterResponse: InterpreterResponsePayload | null = null;
     try {
-      await this.aiService.runInterpreter(session.id, action.userId, {
+      interpreterResponse = await this.aiService.runInterpreter(session.id, action.userId, {
         rawText: action.rawText,
         actorCharacterId: actor.character.id,
         sceneSummary: `${session.title} - ${actor.character.name}의 행동`,
-        availableTargets: sessionCharacters.map((c) => c.character.name),
+        availableTargets: ruleTargets.map((c) => c.character.name),
       });
     } catch (error) {
       this.logger.warn(
@@ -157,12 +159,28 @@ export class ActionProcessorService {
       );
     }
 
+    const ruleInput = this.toRuleInput(action.rawText, interpreterResponse);
     const resolution = this.actionRules.resolveAction(
-      action.rawText,
+      ruleInput,
       actor,
-      sessionCharacters,
+      ruleTargets,
       runtime.context,
     );
+    let narration = resolution.narration;
+
+    try {
+      const narratorResponse = await this.aiService.runNarration(action.userId, session.id, {
+        rawInput: action.rawText,
+        actionSummary: resolution.narration,
+        diceSummary: this.toDiceSummary(resolution.diceResult),
+        sceneTone: this.toNarrationTone(resolution.outcome),
+      });
+      narration = narratorResponse.parsed.narration;
+    } catch (error) {
+      this.logger.warn(
+        `Narrator call failed for action=${action.id}: ${this.toErrorMessage(error)}`,
+      );
+    }
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId: session.id,
       sessionScenarioId: sessionScenario.id,
@@ -172,12 +190,14 @@ export class ActionProcessorService {
       rawInput: action.rawText,
       structuredAction: {
         ...resolution.structuredAction,
+        interpreterAction: interpreterResponse?.parsed.action ?? null,
+        ruleInput,
         inputType: this.toSharedInputType(action.inputType),
         actionScope: this.toSharedActionScope(action.actionScope),
       },
       diceResult: resolution.diceResult ? { ...resolution.diceResult } : null,
       outcome: resolution.outcome,
-      narration: resolution.narration,
+      narration,
     });
 
     if (resolution.diceResult) {
@@ -447,6 +467,121 @@ export class ActionProcessorService {
 
   private toSharedActionScope(value: PrismaActionScope): string {
     return value;
+  }
+
+  private async getActiveCombatTargets(sessionId: string) {
+    const combat = await this.prisma.combat.findFirst({
+      where: { sessionId, status: "ACTIVE" },
+      include: { participants: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!combat) {
+      return [];
+    }
+
+    return combat.participants
+      .filter((participant) => participant.isHostile && participant.currentHp !== null)
+      .map((participant) => ({
+        id: participant.id,
+        characterId: participant.id,
+        combatParticipantId: participant.id,
+        currentHp: participant.currentHp ?? 1,
+        tempHp: participant.tempHp,
+        conditionsJson: participant.conditionsJson,
+        character: {
+          id: participant.id,
+          name: participant.nameSnapshot,
+          className: participant.entityType.toLowerCase(),
+          subclassName: null,
+          level: 1,
+          maxHp: participant.maxHp ?? participant.currentHp ?? 1,
+          abilitiesJson: JSON.stringify({ str: 10, dex: 10, con: 10, int: 6, wis: 10, cha: 6 }),
+          proficiencyBonus: 2,
+          featuresJson: JSON.stringify([]),
+          proficientSkillsJson: JSON.stringify([]),
+          armorClass: participant.armorClass ?? 10,
+          speed: 30,
+        },
+      }));
+  }
+
+  private toRuleInput(
+    rawText: string,
+    interpreterResponse: InterpreterResponsePayload | null,
+  ): string {
+    const trimmed = rawText.trim();
+    if (trimmed.startsWith("/") || !interpreterResponse || interpreterResponse.parsed.needsClarification) {
+      return trimmed;
+    }
+
+    const parsed = interpreterResponse.parsed;
+    const action = parsed.action;
+    const target = action.targetId ?? "";
+    const actionType = action.type.toLowerCase();
+
+    if (actionType.includes("cast") || actionType.includes("spell")) {
+      const spellId = action.spellId ?? parsed.mentionedSpellId;
+      if (spellId && target) {
+        return `/cast ${spellId} ${target} 90`;
+      }
+    }
+
+    if (actionType.includes("attack") && target) {
+      return `/attack ${target}`;
+    }
+
+    if (actionType.includes("check") || actionType.includes("skill")) {
+      const checkName = action.skill ?? action.ability ?? "perception";
+      return `/check ${checkName} ${this.toDefaultDc(action.suggestedDifficulty)}`;
+    }
+
+    if (actionType.includes("feature") && action.featureId) {
+      return `/feature ${action.featureId}`;
+    }
+
+    if (actionType.includes("item") && parsed.mentionedItemId && target) {
+      return `/item ${parsed.mentionedItemId} ${target}`;
+    }
+
+    return trimmed;
+  }
+
+  private toDefaultDc(difficulty: string | null | undefined): number {
+    switch (difficulty?.toLowerCase()) {
+      case "easy":
+        return 10;
+      case "hard":
+        return 20;
+      case "very_hard":
+      case "very hard":
+        return 25;
+      case "nearly_impossible":
+      case "nearly impossible":
+        return 30;
+      case "medium":
+      default:
+        return 15;
+    }
+  }
+
+  private toDiceSummary(diceResult: ReturnType<ActionRuleService["resolveAction"]>["diceResult"]): string | undefined {
+    if (!diceResult) {
+      return undefined;
+    }
+    return `${diceResult.expression} = ${diceResult.total}`;
+  }
+
+  private toNarrationTone(outcome: ReturnType<ActionRuleService["resolveAction"]>["outcome"]): string {
+    switch (outcome) {
+      case "SUCCESS":
+        return "heroic";
+      case "FAILURE":
+      case "IMPOSSIBLE":
+        return "tense";
+      default:
+        return "mysterious";
+    }
   }
 
   private toErrorMessage(error: unknown): string {

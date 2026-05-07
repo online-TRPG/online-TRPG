@@ -514,14 +514,36 @@ def test_interpreter_returns_logged_fallback_when_provider_fails():
 
     assert response.fallback is True
     assert response.trace.failureType == "upstream_error"
-    assert response.parsed.needsClarification is True
-    assert response.parsed.action.type == "freeform"
+    assert response.parsed.needsClarification is False
+    assert response.parsed.action.type == "skill_check"
+    assert response.parsed.action.skill == "investigation"
     assert response.logPaths is not None
 
     traces = service.list_traces(status="fallback")
     assert traces.filtered == 1
     assert traces.items[0].role == "interpreter"
     assert traces.items[0].failureType == "upstream_error"
+
+
+def test_interpreter_fallback_maps_mvp_combat_spell_text():
+    service, _fake_client = build_service(
+        TEST_LOG_DIR / "interpreter_mvp_fallback",
+        AlwaysFailingGoogleAiStudioClient(),
+    )
+
+    response = service.run_interpreter(
+        InterpreterHarnessRequest(
+            rawText="위저드가 고블린에게 마법 화살을 날린다",
+            actorCharacterId="wizard-1",
+            availableTargets=["fighter-1", "goblin-1"],
+        )
+    )
+
+    assert response.fallback is True
+    assert response.parsed.needsClarification is False
+    assert response.parsed.action.type == "cast_spell"
+    assert response.parsed.action.spellId == "spell.magic_missile"
+    assert response.parsed.action.targetId == "goblin-1"
 
 
 def test_actor_fallback_selects_allowed_action_only():

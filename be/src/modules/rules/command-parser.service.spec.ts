@@ -44,6 +44,30 @@ describe("CommandParserService", () => {
     });
   });
 
+  it("normalizes MVP spell aliases", () => {
+    expect(service.parse("/cast firebolt target-1")).toMatchObject({
+      type: "cast_spell",
+      spellId: "spell.fire_bolt",
+      target: "target-1",
+      targetDistanceFt: 90,
+    });
+    expect(service.parse("/cast magic-missile target-1")).toMatchObject({
+      spellId: "spell.magic_missile",
+    });
+    expect(service.parse("/cast cure-wounds target-1 5")).toMatchObject({
+      spellId: "spell.cure_wounds",
+      targetDistanceFt: 5,
+    });
+  });
+
+  it("parses potion use commands", () => {
+    expect(service.parse("/item potion target-1")).toEqual({
+      type: "use_item",
+      itemId: "magic_item.potion_of_healing",
+      target: "target-1",
+    });
+  });
+
   it("parses class feature commands", () => {
     expect(service.parse("/feature second_wind")).toEqual({
       type: "use_class_feature",
