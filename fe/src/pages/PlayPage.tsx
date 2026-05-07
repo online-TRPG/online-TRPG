@@ -29,6 +29,41 @@ import "./PlayPage.css";
 
 // 플레이 화면 상단 탭 이름입니다. 각 탭은 로그/채팅/정보/설정을 구분합니다.
 const sessionTabs = ["Main", "Chat", "Info", "Settings"] as const;
+const sessionTabLabels: Record<(typeof sessionTabs)[number], string> = {
+  Main: "메인",
+  Chat: "채팅",
+  Info: "정보",
+  Settings: "설정",
+};
+const sessionTabDescriptions: Record<
+  (typeof sessionTabs)[number],
+  {
+    eyebrow: string;
+    title: string;
+    description: string;
+  }
+> = {
+  Main: {
+    eyebrow: "Session log",
+    title: "메인 로그",
+    description: "행동 선언과 진행 상황이 시간순으로 기록됩니다.",
+  },
+  Chat: {
+    eyebrow: "Party chat",
+    title: "대화 채널",
+    description: "플레이어끼리 자유롭게 대화하고 작전을 맞춰보세요.",
+  },
+  Info: {
+    eyebrow: "Scenario info",
+    title: "시나리오 정보",
+    description: "현재 세션에 연결된 시나리오 설명을 확인합니다.",
+  },
+  Settings: {
+    eyebrow: "Room settings",
+    title: "세션 설정",
+    description: "세션 상태와 기본 정보를 확인합니다.",
+  },
+};
 // 캐릭터 프리셋 ID를 실제 이미지 파일로 바꾸는 매핑입니다.
 const avatarPresetImageMap = new Map([
   ["preset_wizard", defaultWizardImage],
@@ -77,6 +112,12 @@ function getAvatarLabel(title: string, userName: string) {
   if (!trimmed) return "?";
   if (trimmed === userName) return userName.slice(0, 1).toUpperCase();
   return trimmed.slice(0, 1).toUpperCase();
+}
+
+function getLogSenderLabel(title: string, rowClass: "incoming" | "outgoing" | "notice") {
+  if (rowClass === "notice") return "세션 로그";
+  if (rowClass === "outgoing") return "내 캐릭터";
+  return title || "알 수 없음";
 }
 
 function getConnectionLabel(connected: boolean) {
@@ -306,6 +347,7 @@ export function PlayPage({
           ...log,
           message: normalizedMessage,
           rowClass,
+          senderLabel: getLogSenderLabel(log.title, rowClass),
         };
       }),
     [scopedLogs, user.displayName],
@@ -729,12 +771,18 @@ export function PlayPage({
               className={activeTab === tab ? "active" : ""}
               onClick={() => setActiveTab(tab)}
             >
-              {tab}
+              {sessionTabLabels[tab]}
             </button>
           ))}
         </div>
 
         <div className="session-sidebar-panel">
+          <div className="session-sidebar-heading">
+            <span className="eyebrow">{sessionTabDescriptions[activeTab].eyebrow}</span>
+            <strong className="session-sidebar-title">{sessionTabDescriptions[activeTab].title}</strong>
+            <p className="session-sidebar-subtitle">{sessionTabDescriptions[activeTab].description}</p>
+          </div>
+
           {activeTab === "Main" || activeTab === "Chat" ? (
             <>
               <div className="session-log-stack">
@@ -745,6 +793,7 @@ export function PlayPage({
                         <div className="chat-thread-avatar">{getAvatarLabel(log.title, user.displayName)}</div>
                       ) : null}
                       <div className="chat-thread-stack">
+                        <span className={`chat-thread-sender ${log.rowClass}`}>{log.senderLabel}</span>
                         <div className="chat-thread-bubble">{log.message}</div>
                         {log.rowClass !== "notice" ? <span className="chat-thread-time">{log.time}</span> : null}
                       </div>
@@ -752,7 +801,10 @@ export function PlayPage({
                   ))
                 ) : (
                   <article className="chat-thread-row notice">
-                    <div className="chat-thread-bubble">No messages yet.</div>
+                    <div className="chat-thread-stack">
+                      <span className="chat-thread-sender notice">세션 로그</span>
+                      <div className="chat-thread-bubble">아직 기록된 메시지가 없습니다.</div>
+                    </div>
                   </article>
                 )}
                 <div ref={logEndRef} />
@@ -767,10 +819,10 @@ export function PlayPage({
                   onChange={(event) =>
                     activeTab === "Main" ? setMainMessage(event.target.value) : setChatMessage(event.target.value)
                   }
-                  placeholder={activeTab === "Main" ? "Send a main action" : "Send a chat message"}
+                  placeholder={activeTab === "Main" ? "행동을 선언하거나 상황을 입력하세요..." : "채팅을 입력하세요..."}
                 />
                 <button type="submit" disabled={busy}>
-                  Send
+                  전송
                 </button>
               </form>
             </>
