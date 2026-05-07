@@ -622,6 +622,135 @@ export class UpdateSessionNodeDto {
   nodeId!: string;
 }
 
+export class SrdMonsterReferenceSourceDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  file?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  page?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  heading?: string;
+}
+
+export class SrdMonsterReferenceDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  id!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  nameEn!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  nameKo?: string | null;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  basicRaw!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  armorClassRaw?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  hitPointsRaw?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  speedRaw?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  challengeRaw?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  sensesRaw?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  languagesRaw?: string | null;
+
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  traits!: string[];
+
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  actions!: string[];
+
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  legendaryActions!: string[];
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  playReference?: string | null;
+
+  @ApiPropertyOptional({ type: SrdMonsterReferenceSourceDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SrdMonsterReferenceSourceDto)
+  source?: SrdMonsterReferenceSourceDto | null;
+}
+
+export class VttMapStartingPositionDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  id!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  label?: string | null;
+
+  @ApiProperty()
+  @IsNumber()
+  x!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  y!: number;
+}
+
 export class VttMapTokenDto {
   @ApiProperty()
   @IsString()
@@ -667,6 +796,12 @@ export class VttMapTokenDto {
   @Type(() => Boolean)
   @IsBoolean()
   isHostile?: boolean;
+
+  @ApiPropertyOptional({ type: SrdMonsterReferenceDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SrdMonsterReferenceDto)
+  monster?: SrdMonsterReferenceDto | null;
 }
 
 export class VttFogRectDto {
@@ -743,6 +878,14 @@ export class VttMapStateDto {
   @ValidateNested({ each: true })
   @Type(() => VttFogRectDto)
   fogRects!: VttFogRectDto[];
+
+  @ApiPropertyOptional({ type: [VttMapStartingPositionDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(12)
+  @ValidateNested({ each: true })
+  @Type(() => VttMapStartingPositionDto)
+  startingPositions?: VttMapStartingPositionDto[];
 
   @ApiProperty()
   @IsString()

@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.srd.models import (
@@ -16,6 +17,9 @@ from app.srd.models import (
     Monster,
     NarratorInputFixtureCase,
     RaceOption,
+    RulebookCollection,
+    RulebookDocument,
+    RulebookExport,
     RuleCard,
     RuleFragment,
     RuleHookFixture,
@@ -31,8 +35,10 @@ from app.srd.models import (
 
 
 AI_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = AI_ROOT.parent
 TRANSLATED_ROOT = AI_ROOT / "translated"
 GENERATED_ROOT = AI_ROOT / "generated" / "srd"
+ORIGINAL_RULEBOOK_PATH = REPO_ROOT / "doc" / "SRD-OGL_V5.1.md"
 
 EXPECTED_COUNTS = {
     "spells": 319,
@@ -42,6 +48,34 @@ EXPECTED_COUNTS = {
     "classes": 12,
     "races": 9,
 }
+
+SRD_ATTRIBUTION = (
+    'This work includes material taken from the System Reference Document 5.1 ("SRD 5.1") '
+    "by Wizards of the Coast LLC and available at "
+    "https://dnd.wizards.com/resources/systems-reference-document. "
+    "The SRD 5.1 is licensed under the Creative Commons Attribution 4.0 International "
+    "License available at https://creativecommons.org/licenses/by/4.0/legalcode."
+)
+
+RULEBOOK_CATEGORY_LABELS = {
+    "rules": "기본 규칙",
+    "races": "종족",
+    "classes": "직업",
+    "items": "장비/아이템",
+    "spells": "주문",
+    "monsters": "몬스터",
+}
+
+RULEBOOK_CATEGORY_ORDER = ["rules", "races", "classes", "items", "spells", "monsters"]
+
+RULEBOOK_EXCLUDED_FILE_PATTERNS = [
+    re.compile(r"^README\.md$", re.IGNORECASE),
+    re.compile(r"검수_기준"),
+    re.compile(r"translation-progress", re.IGNORECASE),
+    re.compile(r"play-reference-progress", re.IGNORECASE),
+    re.compile(r"item-translation-progress", re.IGNORECASE),
+    re.compile(r"품질_전략"),
+]
 
 SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 SUBSECTION_RE = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
@@ -67,6 +101,133 @@ def slugify_ko(value: str) -> str:
 
 def relative_to_ai(path: Path) -> str:
     return path.relative_to(AI_ROOT).as_posix()
+
+
+def create_rulebook_slug(relative_path: str) -> str:
+    return hashlib.sha1(relative_path.encode("utf-8")).hexdigest()[:12]
+
+
+def should_exclude_rulebook_document(relative_path: str) -> bool:
+    return any(pattern.search(relative_path) for pattern in RULEBOOK_EXCLUDED_FILE_PATTERNS)
+
+
+def extract_rulebook_title(content: str, relative_path: str) -> str:
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if line.startswith("# "):
+            return line.removeprefix("# ").strip()
+    return Path(relative_path).stem
+
+
+def extract_rulebook_description(content: str) -> str | None:
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    for line in lines:
+        if line.startswith("# "):
+            continue
+        if line.startswith(">"):
+            continue
+        if line[:1] in {"|", "`", "-"}:
+            continue
+        return line
+    return None
+
+
+def resolve_rulebook_category_key(relative_path: str) -> str:
+    return Path(relative_path).parts[0] if Path(relative_path).parts else "root"
+
+
+def resolve_rulebook_category_order(category_key: str) -> int:
+    try:
+        return RULEBOOK_CATEGORY_ORDER.index(category_key)
+    except ValueError:
+        return len(RULEBOOK_CATEGORY_ORDER)
+
+
+def format_rulebook_updated_at(path: Path) -> str:
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat(timespec="milliseconds").replace(
+        "+00:00",
+        "Z",
+    )
+
+
+def strip_first_heading(content: str) -> str:
+    lines = content.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().startswith("# "):
+            return "\n".join(lines[:index] + lines[index + 1 :]).lstrip("\n")
+    return content
+
+
+def shift_markdown_headings(content: str, delta: int) -> str:
+    if delta <= 0:
+        return content
+
+    def repl(match: re.Match[str]) -> str:
+        level = min(6, len(match.group(1)) + delta)
+        return "#" * level + match.group(2)
+
+    return re.sub(r"^(#{1,6})(\s+)", repl, content, flags=re.MULTILINE)
+
+
+def load_original_rulebook_text() -> str:
+    return ORIGINAL_RULEBOOK_PATH.read_text(encoding="utf-8").lstrip("\ufeff")
+
+
+def extract_original_legal_section(content: str) -> str:
+    marker = "\n**Races**"
+    if marker in content:
+        return content.split(marker, 1)[0].strip()
+    return content.strip()
+
+
+def build_merged_rulebook_content() -> tuple[str, str]:
+    category_buckets: dict[str, list[tuple[str, str]]] = {
+        category_key: [] for category_key in RULEBOOK_CATEGORY_ORDER
+    }
+    max_updated_at = ""
+
+    for path in sorted(TRANSLATED_ROOT.rglob("*.md")):
+        relative_path = path.relative_to(TRANSLATED_ROOT).as_posix()
+        if should_exclude_rulebook_document(relative_path):
+            continue
+
+        category_key = resolve_rulebook_category_key(relative_path)
+        if category_key not in category_buckets:
+            category_buckets[category_key] = []
+
+        content = path.read_text(encoding="utf-8").lstrip("\ufeff")
+        title = extract_rulebook_title(content, relative_path)
+        body = shift_markdown_headings(strip_first_heading(content).strip(), 2)
+        category_buckets[category_key].append((title, body))
+        max_updated_at = max(max_updated_at, format_rulebook_updated_at(path))
+
+    parts = [
+        "# 룰북",
+        "",
+        "번역된 SRD 룰북 전체를 한 문서로 묶은 통합본입니다.",
+        "",
+    ]
+
+    ordered_category_keys = list(RULEBOOK_CATEGORY_ORDER) + [
+        category_key for category_key in category_buckets.keys() if category_key not in RULEBOOK_CATEGORY_ORDER
+    ]
+
+    for category_key in ordered_category_keys:
+        documents = category_buckets.get(category_key, [])
+        if not documents:
+            continue
+
+        parts.append(f"## {RULEBOOK_CATEGORY_LABELS.get(category_key, category_key)}")
+        parts.append("")
+
+        for title, body in sorted(documents, key=lambda item: item[0].casefold()):
+            parts.append(f"### {title}")
+            parts.append("")
+            if body:
+                parts.append(body)
+                parts.append("")
+
+    return "\n".join(parts).strip() + "\n", max_updated_at
 
 
 def build_source_manifest() -> SourceManifest:
@@ -3380,6 +3541,65 @@ def build_qa_report(
     }
 
 
+def build_rulebook_export() -> RulebookExport:
+    merged_rulebook_content, merged_rulebook_updated_at = build_merged_rulebook_content()
+    original_rulebook_content = load_original_rulebook_text()
+    legal_content = extract_original_legal_section(original_rulebook_content)
+
+    documents = [
+        RulebookDocument(
+            slug="rulebook",
+            title="룰북",
+            description="번역된 SRD 룰북 통합본입니다.",
+            category="번역본",
+            updatedAt=merged_rulebook_updated_at,
+            content=merged_rulebook_content,
+        ),
+        RulebookDocument(
+            slug="copyright",
+            title="저작권",
+            description="SRD 5.1 라이선스와 저작권 고지입니다.",
+            category="법적 정보",
+            updatedAt=format_rulebook_updated_at(ORIGINAL_RULEBOOK_PATH),
+            content="\n".join(
+                [
+                    "# 저작권",
+                    "",
+                    "## SRD 5.1 출처",
+                    "",
+                    SRD_ATTRIBUTION,
+                    "",
+                    "## 법적 고지 원문",
+                    "",
+                    legal_content,
+                ]
+            ).strip()
+            + "\n",
+        ),
+        RulebookDocument(
+            slug="original",
+            title="원문",
+            description="영문 SRD 원문 전체입니다.",
+            category="원문",
+            updatedAt=format_rulebook_updated_at(ORIGINAL_RULEBOOK_PATH),
+            content="# 원문\n\n" + original_rulebook_content.strip() + "\n",
+        ),
+    ]
+
+    return RulebookExport(
+        rulebooks=[
+            RulebookCollection(
+                ruleSetId="dnd5e",
+                title="D&D 5e SRD 룰북",
+                description="룰북, 저작권, 원문 세 문서로 구성된 SRD 위키입니다.",
+                attribution=SRD_ATTRIBUTION,
+                defaultDocumentSlug=documents[0].slug,
+                documents=documents,
+            )
+        ]
+    )
+
+
 def write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -3404,8 +3624,18 @@ def write_jsonl(
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def build_rulebook_only(output_dir: Path = GENERATED_ROOT) -> dict[str, int]:
+    rulebook_export = build_rulebook_export()
+    write_json(output_dir / "rulebook.json", rulebook_export.model_dump())
+    return {
+        "rulebooks": len(rulebook_export.rulebooks),
+        "rulebook_documents": sum(len(rulebook.documents) for rulebook in rulebook_export.rulebooks),
+    }
+
+
 def build(output_dir: Path = GENERATED_ROOT) -> dict[str, int]:
     manifest = build_source_manifest()
+    rulebook_export = build_rulebook_export()
     spells = build_spells()
     conditions = parse_conditions()
     rule_cards = build_rule_cards()
@@ -3433,6 +3663,7 @@ def build(output_dir: Path = GENERATED_ROOT) -> dict[str, int]:
         equipment_references,
     )
     write_json(output_dir / "source_manifest.json", manifest.model_dump())
+    write_json(output_dir / "rulebook.json", rulebook_export.model_dump())
     write_jsonl(output_dir / "spells.jsonl", spells)
     write_jsonl(output_dir / "conditions.jsonl", conditions)
     write_jsonl(output_dir / "rules_cards.jsonl", rule_cards)
@@ -3459,6 +3690,7 @@ def build(output_dir: Path = GENERATED_ROOT) -> dict[str, int]:
     write_json(output_dir / "srd_qa_report.json", qa_report)
     return {
         "source_files": len(manifest.files),
+        "rulebook_documents": sum(len(rulebook.documents) for rulebook in rulebook_export.rulebooks),
         "spells": len(spells),
         "conditions": len(conditions),
         "rule_cards": len(rule_cards),
@@ -3479,8 +3711,9 @@ def build(output_dir: Path = GENERATED_ROOT) -> dict[str, int]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build SRD-derived runtime data.")
     parser.add_argument("--output-dir", type=Path, default=GENERATED_ROOT)
+    parser.add_argument("--rulebook-only", action="store_true")
     args = parser.parse_args()
-    result = build(args.output_dir)
+    result = build_rulebook_only(args.output_dir) if args.rulebook_only else build(args.output_dir)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
