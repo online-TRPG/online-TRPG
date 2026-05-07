@@ -46,13 +46,11 @@ interface ClassStatProfile {
     maxHp: number;
     armorClass: number;
     speed: number;
-    proficiencyBonus: number;
     abilities: Record<ScalingAbilityKey, number>;
   };
   growth: {
     maxHp: number;
     armorClass: number;
-    proficiencyBonus: number;
     abilities: Record<ScalingAbilityKey, number>;
   };
 }
@@ -76,7 +74,6 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
       maxHp: 20,
       armorClass: 20,
       speed: 28,
-      proficiencyBonus: 2,
       abilities: {
         str: 14,
         dex: 10,
@@ -86,7 +83,6 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
     growth: {
       maxHp: 2,
       armorClass: 0.5,
-      proficiencyBonus: 0.05,
       abilities: {
         str: 0.5,
         dex: 0,
@@ -99,7 +95,6 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
       maxHp: 16,
       armorClass: 16,
       speed: 32,
-      proficiencyBonus: 2.4,
       abilities: {
         str: 10,
         dex: 14,
@@ -109,7 +104,6 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
     growth: {
       maxHp: 1.5,
       armorClass: 0.35,
-      proficiencyBonus: 0.08,
       abilities: {
         str: 0,
         dex: 0.5,
@@ -122,7 +116,6 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
       maxHp: 14,
       armorClass: 14,
       speed: 36,
-      proficiencyBonus: 3,
       abilities: {
         str: 9,
         dex: 15,
@@ -132,7 +125,6 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
     growth: {
       maxHp: 1.2,
       armorClass: 0.25,
-      proficiencyBonus: 0.12,
       abilities: {
         str: 0,
         dex: 0.4,
@@ -145,7 +137,6 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
       maxHp: 12,
       armorClass: 10,
       speed: 30,
-      proficiencyBonus: 2.8,
       abilities: {
         str: 8,
         dex: 10,
@@ -155,7 +146,6 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
     growth: {
       maxHp: 1,
       armorClass: 0.1,
-      proficiencyBonus: 0.15,
       abilities: {
         str: 0,
         dex: 0,
@@ -227,12 +217,25 @@ function normalizeComputedStat(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function normalizeIntegerValue(value: number, min = 0) {
+  return Math.max(min, Math.round(Number(value) || 0));
+}
+
 function formatStat(value: number) {
   return Number.isInteger(value) ? `${value}` : `${roundStat(value).toFixed(1)}`;
 }
 
 function normalizeLevel(value: number) {
   return Math.max(1, Number(value) || 1);
+}
+
+function getProficiencyBonusForLevel(level: number) {
+  const normalizedLevel = normalizeLevel(level);
+  if (normalizedLevel >= 17) return 6;
+  if (normalizedLevel >= 13) return 5;
+  if (normalizedLevel >= 9) return 4;
+  if (normalizedLevel >= 5) return 3;
+  return 2;
 }
 
 function getClassStatProfile(className: string): ClassStatProfile {
@@ -245,12 +248,13 @@ function getRecommendedStats(className: string, level: number) {
   const growthSteps = normalizedLevel - 1;
 
   return {
-    maxHp: normalizeComputedStat(profile.base.maxHp + profile.growth.maxHp * growthSteps),
-    armorClass: normalizeComputedStat(profile.base.armorClass + profile.growth.armorClass * growthSteps),
-    speed: profile.base.speed,
-    proficiencyBonus: normalizeComputedStat(
-      profile.base.proficiencyBonus + profile.growth.proficiencyBonus * growthSteps,
+    maxHp: normalizeIntegerValue(normalizeComputedStat(profile.base.maxHp + profile.growth.maxHp * growthSteps), 1),
+    armorClass: normalizeIntegerValue(
+      normalizeComputedStat(profile.base.armorClass + profile.growth.armorClass * growthSteps),
+      1,
     ),
+    speed: normalizeIntegerValue(profile.base.speed, 0),
+    proficiencyBonus: getProficiencyBonusForLevel(normalizedLevel),
   };
 }
 
@@ -260,29 +264,32 @@ function getRecommendedAbilities(className: string, level: number, currentAbilit
   const growthSteps = normalizedLevel - 1;
 
   return {
-    str: normalizeComputedStat(profile.base.abilities.str + profile.growth.abilities.str * growthSteps),
-    dex: normalizeComputedStat(profile.base.abilities.dex + profile.growth.abilities.dex * growthSteps),
-    con: currentAbilities?.con ?? 10,
-    int: normalizeComputedStat(profile.base.abilities.int + profile.growth.abilities.int * growthSteps),
-    wis: currentAbilities?.wis ?? 10,
-    cha: currentAbilities?.cha ?? 10,
+    str: normalizeIntegerValue(normalizeComputedStat(profile.base.abilities.str + profile.growth.abilities.str * growthSteps), 1),
+    dex: normalizeIntegerValue(normalizeComputedStat(profile.base.abilities.dex + profile.growth.abilities.dex * growthSteps), 1),
+    con: normalizeIntegerValue(currentAbilities?.con ?? 10, 1),
+    int: normalizeIntegerValue(normalizeComputedStat(profile.base.abilities.int + profile.growth.abilities.int * growthSteps), 1),
+    wis: normalizeIntegerValue(currentAbilities?.wis ?? 10, 1),
+    cha: normalizeIntegerValue(currentAbilities?.cha ?? 10, 1),
   };
 }
 
 function applyLevelDeltaStats(
   current: Pick<CharacterPayload, "className" | "maxHp" | "armorClass" | "proficiencyBonus">,
   levelDelta: number,
+  nextLevel: number,
 ) {
   const profile = getClassStatProfile(current.className);
 
   return {
-    maxHp: normalizeComputedStat((current.maxHp ?? profile.base.maxHp) + profile.growth.maxHp * levelDelta),
-    armorClass: normalizeComputedStat(
-      (current.armorClass ?? profile.base.armorClass) + profile.growth.armorClass * levelDelta,
+    maxHp: normalizeIntegerValue(
+      normalizeComputedStat((current.maxHp ?? profile.base.maxHp) + profile.growth.maxHp * levelDelta),
+      1,
     ),
-    proficiencyBonus: normalizeComputedStat(
-      (current.proficiencyBonus ?? profile.base.proficiencyBonus) + profile.growth.proficiencyBonus * levelDelta,
+    armorClass: normalizeIntegerValue(
+      normalizeComputedStat((current.armorClass ?? profile.base.armorClass) + profile.growth.armorClass * levelDelta),
+      1,
     ),
+    proficiencyBonus: getProficiencyBonusForLevel(nextLevel),
   };
 }
 
@@ -302,9 +309,12 @@ function applyLevelDeltaAbilities(
 
   return {
     ...abilities,
-    str: normalizeComputedStat(abilities.str + profile.growth.abilities.str * levelDelta),
-    dex: normalizeComputedStat(abilities.dex + profile.growth.abilities.dex * levelDelta),
-    int: normalizeComputedStat(abilities.int + profile.growth.abilities.int * levelDelta),
+    str: normalizeIntegerValue(normalizeComputedStat(abilities.str + profile.growth.abilities.str * levelDelta), 1),
+    dex: normalizeIntegerValue(normalizeComputedStat(abilities.dex + profile.growth.abilities.dex * levelDelta), 1),
+    int: normalizeIntegerValue(normalizeComputedStat(abilities.int + profile.growth.abilities.int * levelDelta), 1),
+    con: normalizeIntegerValue(abilities.con, 1),
+    wis: normalizeIntegerValue(abilities.wis, 1),
+    cha: normalizeIntegerValue(abilities.cha, 1),
   };
 }
 
@@ -418,6 +428,7 @@ export function CharacterPage({
   onDeleteCharacter,
 }: CharacterPageProps) {
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
+  const [isDeleteModalOpen, setDeleteModalOpen] = useState(false);
   const [editingCharacterId, setEditingCharacterId] = useState<string | null>(null);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [skillInput, setSkillInput] = useState("");
@@ -542,8 +553,13 @@ export function CharacterPage({
 
   async function handleDeleteSelectedCharacter() {
     if (!selectedCharacter) return;
-    if (!window.confirm(`'${selectedCharacter.name}' 캐릭터를 삭제할까요?`)) return;
+    setDeleteModalOpen(true);
+  }
+
+  async function confirmDeleteSelectedCharacter() {
+    if (!selectedCharacter) return;
     await onDeleteCharacter(selectedCharacter.id);
+    setDeleteModalOpen(false);
   }
 
   function updateAbility(ability: AbilityKey, value: number) {
@@ -858,7 +874,7 @@ export function CharacterPage({
                         setFormState((current) => {
                           const nextLevel = normalizeLevel(Number(event.target.value));
                           const currentLevel = normalizeLevel(current.level ?? 1);
-                          const nextStats = applyLevelDeltaStats(current, nextLevel - currentLevel);
+                          const nextStats = applyLevelDeltaStats(current, nextLevel - currentLevel, nextLevel);
                           const nextAbilities = applyLevelDeltaAbilities(current, nextLevel - currentLevel);
 
                           return {
@@ -950,10 +966,13 @@ export function CharacterPage({
                       id="character-hp-create"
                       type="number"
                       min={1}
-                      step={0.1}
+                      step={1}
                       value={formState.maxHp ?? 12}
                       onChange={(event) =>
-                        setFormState((current) => ({ ...current, maxHp: Number(event.target.value) || 1 }))
+                        setFormState((current) => ({
+                          ...current,
+                          maxHp: normalizeIntegerValue(Number(event.target.value), 1),
+                        }))
                       }
                     />
                   </div>
@@ -963,10 +982,13 @@ export function CharacterPage({
                       id="character-ac-create"
                       type="number"
                       min={1}
-                      step={0.1}
+                      step={1}
                       value={formState.armorClass ?? 10}
                       onChange={(event) =>
-                        setFormState((current) => ({ ...current, armorClass: Number(event.target.value) || 1 }))
+                        setFormState((current) => ({
+                          ...current,
+                          armorClass: normalizeIntegerValue(Number(event.target.value), 1),
+                        }))
                       }
                     />
                   </div>
@@ -978,7 +1000,10 @@ export function CharacterPage({
                       min={0}
                       value={formState.speed ?? 30}
                       onChange={(event) =>
-                        setFormState((current) => ({ ...current, speed: Number(event.target.value) || 0 }))
+                        setFormState((current) => ({
+                          ...current,
+                          speed: normalizeIntegerValue(Number(event.target.value), 0),
+                        }))
                       }
                     />
                   </div>
@@ -988,12 +1013,12 @@ export function CharacterPage({
                       id="character-prof-create"
                       type="number"
                       min={0}
-                      step={0.1}
+                      step={1}
                       value={formState.proficiencyBonus ?? 2}
                       onChange={(event) =>
                         setFormState((current) => ({
                           ...current,
-                          proficiencyBonus: Math.max(0, Number(event.target.value) || 0),
+                          proficiencyBonus: normalizeIntegerValue(Number(event.target.value), 0),
                         }))
                       }
                     />
@@ -1017,9 +1042,9 @@ export function CharacterPage({
                         id={`character-${ability}`}
                         type="number"
                         min={1}
-                        step={0.1}
+                        step={1}
                         value={formState.abilities?.[ability] ?? 10}
-                        onChange={(event) => updateAbility(ability, Number(event.target.value) || 1)}
+                        onChange={(event) => updateAbility(ability, normalizeIntegerValue(Number(event.target.value), 1))}
                       />
                     </div>
                   ))}
@@ -1225,6 +1250,47 @@ export function CharacterPage({
                 {editingCharacterId ? "저장" : "생성"}
               </button>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {isDeleteModalOpen && selectedCharacter ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setDeleteModalOpen(false)}>
+          <div
+            className="modal-card character-delete-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="character-delete-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <span className="eyebrow">Delete character</span>
+                <h2 id="character-delete-title">캐릭터 삭제</h2>
+              </div>
+              <button type="button" className="modal-close" onClick={() => setDeleteModalOpen(false)}>
+                닫기
+              </button>
+            </div>
+
+            <p className="character-delete-copy">
+              <strong>{selectedCharacter.name}</strong> 캐릭터를 정말 삭제할까요?
+            </p>
+            <p className="character-delete-subcopy">삭제 후에는 되돌릴 수 없습니다.</p>
+
+            <div className="character-delete-actions">
+              <button type="button" className="ghost" onClick={() => setDeleteModalOpen(false)} disabled={busy}>
+                취소
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                onClick={() => void confirmDeleteSelectedCharacter()}
+                disabled={busy}
+              >
+                삭제
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
