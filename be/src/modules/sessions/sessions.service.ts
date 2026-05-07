@@ -2022,6 +2022,7 @@ export class SessionsService {
         checkOptionsJson: node.checkOptionsJson,
         transitionsJson: node.transitionsJson,
         cluesJson: node.cluesJson,
+        nodeMetaJson: node.nodeMetaJson ?? null,
         fallbackNodeId: node.fallbackNodeId,
       })),
     });
