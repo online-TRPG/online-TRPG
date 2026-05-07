@@ -29,7 +29,6 @@ import {
 import { raceData, raceOptions, type RaceAbilityBonus, type RaceData } from '../data/race-options';
 import type { CharacterPayload } from '../hooks/useSession';
 import type { PersistentCharacter, SessionSnapshot, StoredUser } from '../types/session';
-import "./CharacterPage.css";
 import './CharacterPage.css';
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
@@ -1441,7 +1440,7 @@ export function CharacterPage({
           >
             <div className="modal-header">
               <div>
-                <span className="eyebrow">Delete character</span>
+                <span className="eyebrow character-delete-eyebrow">삭제 확인</span>
                 <h2 id="character-delete-title">캐릭터 삭제</h2>
               </div>
               <button
@@ -1461,7 +1460,7 @@ export function CharacterPage({
             <div className="character-delete-actions">
               <button
                 type="button"
-                className="ghost"
+                className="ghost character-delete-cancel"
                 onClick={() => setDeleteModalOpen(false)}
                 disabled={busy}
               >
@@ -1469,7 +1468,7 @@ export function CharacterPage({
               </button>
               <button
                 type="button"
-                className="danger-button"
+                className="danger-button character-delete-confirm"
                 onClick={() => void confirmDeleteSelectedCharacter()}
                 disabled={busy}
               >
