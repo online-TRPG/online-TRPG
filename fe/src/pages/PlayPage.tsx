@@ -1,3 +1,14 @@
+/*
+ * PlayPage
+ * 역할: 실제 세션 플레이 화면입니다. 캐릭터 선택, 준비 상태, 채팅/로그, 현재 시나리오 노드, VTT 맵을 표시합니다.
+ * 읽는 순서:
+ * 1) 상단 헬퍼: 로그 스코프, 아바타/클래스 표시 이미지, 노드 라벨 추출
+ * 2) PlayPageProps: 세션 스냅샷과 소켓 상태, 플레이 액션 콜백
+ * 3) 컴포넌트 state/ref: 탭, 채팅 입력, 캐릭터 생성 폼, 시나리오/맵 로딩 상태, 맵 저장 큐
+ * 4) useEffect: 서버 선택 캐릭터 동기화, 시나리오/맵 조회, 로그 스크롤, 입력 초기화
+ * 5) handler: 캐릭터 생성, 채팅/액션 전송, VTT 맵 변경 저장
+ * 6) JSX: 모집 대기 화면, 플레이 탭, VTT 맵, 사이드 패널, 캐릭터 생성 모달
+ */
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { VttMapStateDto } from "@trpg/shared-types";
 import defaultArcherImage from "../assets/images/Profile_Default_Archer.webp";
@@ -14,7 +25,9 @@ import type { CharacterPayload } from "../hooks/useSession";
 import { getPlayerScenario, getVttMap, updateVttMap } from "../services/api";
 import type { LogEntry, PersistentCharacter, PlayerScenarioView, SessionSnapshot, StoredUser } from "../types/session";
 
+// 플레이 화면 상단 탭 이름입니다. 각 탭은 로그/채팅/정보/설정을 구분합니다.
 const sessionTabs = ["Main", "Chat", "Info", "Settings"] as const;
+// 캐릭터 프리셋 ID를 실제 이미지 파일로 바꾸는 매핑입니다.
 const avatarPresetImageMap = new Map([
   ["preset_wizard", defaultWizardImage],
   ["preset_archer", defaultArcherImage],
@@ -22,6 +35,7 @@ const avatarPresetImageMap = new Map([
   ["preset_warrior", defaultWarriorImage],
 ]);
 
+// 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface PlayPageProps {
   user: StoredUser;
   snapshot: SessionSnapshot | null;
@@ -39,6 +53,7 @@ interface PlayPageProps {
   onAction: (label: string) => void;
 }
 
+// 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
 const defaultCharacter = {
   name: "",
   ancestry: "Human",
@@ -46,6 +61,7 @@ const defaultCharacter = {
   maxHp: 12,
 };
 
+// 로그 메시지 앞의 [MAIN]/[CHAT] 스코프 태그를 화면 표시용으로 제거합니다.
 function stripScopePrefix(message: string) {
   return message.replace(/^\[(MAIN|CHAT)\]/, "").trim();
 }
@@ -82,6 +98,7 @@ function getCharacterArt(className: string) {
   return defaultWizardImage;
 }
 
+// 캐릭터가 직접 업로드한 이미지, 프리셋 이미지, 직업 기본 이미지 순서로 표시 이미지를 고릅니다.
 function getCharacterImage(character: { avatarPresetId?: string | null; avatarUrl?: string | null; className: string }) {
   if (character.avatarUrl) return character.avatarUrl;
   if (character.avatarPresetId) {
@@ -103,6 +120,7 @@ function getNodeLabel(value: unknown): string | null {
   return null;
 }
 
+// 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function PlayPage({
   user,
   snapshot,
@@ -119,6 +137,7 @@ export function PlayPage({
   onBackToLobby,
   onAction,
 }: PlayPageProps) {
+  // UI 상태: 현재 탭, 모달 열림, 입력창 값, 로컬 캐릭터 선택값입니다.
   const [activeTab, setActiveTab] = useState<(typeof sessionTabs)[number]>("Main");
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
   const [mainMessage, setMainMessage] = useState("");
@@ -127,10 +146,12 @@ export function PlayPage({
   const [formState, setFormState] = useState(defaultCharacter);
   const [localSelectedCharacterId, setLocalSelectedCharacterId] = useState<string | null>(null);
   const [isStatusMinimized, setStatusMinimized] = useState(false);
+  // 현재 세션의 플레이어용 시나리오 노드와 VTT 맵 로딩 상태입니다.
   const [playerScenario, setPlayerScenario] = useState<PlayerScenarioView | null>(null);
   const [vttMap, setVttMap] = useState<VttMapStateDto | null>(null);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
+  // 로그 자동 스크롤과 맵 저장 큐를 관리하는 ref입니다. 렌더링 없이 최신 값을 유지합니다.
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
   const mapSaveRef = useRef<{
@@ -143,6 +164,7 @@ export function PlayPage({
     activeSessionId: null,
   });
 
+  // 서버 스냅샷에서 현재 세션/참가자/선택 캐릭터/권한 상태를 계산합니다.
   const session = snapshot?.session ?? null;
   const participants = snapshot?.participants ?? [];
   const sessionCharacters = snapshot?.characters ?? [];
@@ -162,16 +184,19 @@ export function PlayPage({
   const revealedClues = playerScenario?.revealedClues ?? [];
   const snapshotVttMap = snapshot?.state.flags?.vttMap;
 
+  // 서버가 알려준 선택 캐릭터가 바뀌면 로컬 선택 상태도 맞춥니다.
   useEffect(() => {
     setLocalSelectedCharacterId(serverSelectedCharacterId);
   }, [serverSelectedCharacterId]);
 
+  // 준비 상태가 풀리면 상태 패널을 다시 펼쳐 사용자가 확인할 수 있게 합니다.
   useEffect(() => {
     if (!allPlayersReady) {
       setStatusMinimized(false);
     }
   }, [allPlayersReady]);
 
+  // 세션이 없거나 바뀌면 시나리오/맵 상태를 초기화하고 플레이어용 시나리오를 다시 불러옵니다.
   useEffect(() => {
     if (!session) {
       setPlayerScenario(null);
@@ -202,8 +227,7 @@ export function PlayPage({
           setScenarioLoadError(caught instanceof Error ? caught.message : "시나리오를 불러오지 못했습니다.");
         }
       });
-
-    return () => {
+  return () => {
       ignore = true;
     };
   }, [session, snapshot?.state.currentNodeId, user]);
@@ -787,6 +811,7 @@ export function PlayPage({
         </div>
       </aside>
 
+      {/* 캐릭터가 없는 플레이어가 빠르게 캐릭터를 만드는 모달입니다. */}
       {isCreateModalOpen ? (
         <div className="modal-shell" role="dialog" aria-modal="true">
           <form className="modal-card" onSubmit={handleCreateCharacter}>
