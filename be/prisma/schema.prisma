@@ -382,6 +382,7 @@ model ScenarioNode {
   checkOptionsJson String
   transitionsJson  String
   cluesJson        String
+  nodeMetaJson     String?
   fallbackNodeId   String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -422,6 +423,7 @@ model SessionScenarioNode {
   checkOptionsJson  String
   transitionsJson   String
   cluesJson         String
+  nodeMetaJson      String?
   fallbackNodeId    String?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
