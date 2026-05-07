@@ -1,23 +1,38 @@
+/*
+ * PublicProfilePage
+ * 역할: 다른 사용자의 공개 프로필을 보여주는 페이지입니다.
+ * 읽는 순서:
+ * 1) PublicProfilePageProps: URL의 publicId, 미리보기 프로필, 내 프로필 이동 콜백
+ * 2) profile/loading/error state: API 조회 결과와 로딩 상태
+ * 3) useEffect: 미리보기 데이터 사용 또는 공개 프로필 API 호출
+ * 4) canonicalPath useEffect: 실제 publicId 기준 URL로 주소 정규화
+ * 5) JSX: 공개 프로필 히어로, 기본 정보, 확장 예정 기능 설명
+ */
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getPublicProfile } from "../services/api";
 import type { User } from "../types/session";
 import { buildPublicProfilePath } from "../utils/routes";
 
+// 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface PublicProfilePageProps {
   publicId: string;
   previewUser: User | null;
   onOpenOwnProfile: () => void;
 }
 
+// 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: PublicProfilePageProps) {
+  // 라우터 훅: 공개 프로필 URL을 정규화할 때 사용합니다.
   const location = useLocation();
   const navigate = useNavigate();
   const resolvedPreview = previewUser?.publicId === publicId ? previewUser : null;
+  // 직접 링크 접근이면 API로 불러오고, 세션 화면에서 넘어온 경우 previewUser를 먼저 사용합니다.
   const [profile, setProfile] = useState<User | null>(resolvedPreview);
   const [loading, setLoading] = useState(!resolvedPreview);
   const [error, setError] = useState<string | null>(null);
 
+  // 공개 프로필 데이터 로드: 미리보기 데이터가 있으면 API 호출을 건너뜁니다.
   useEffect(() => {
     if (resolvedPreview) {
       setProfile(resolvedPreview);
@@ -43,12 +58,12 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
         if (cancelled) return;
         setLoading(false);
       });
-
-    return () => {
+  return () => {
       cancelled = true;
     };
   }, [publicId, resolvedPreview]);
 
+  // 로딩/에러 중에도 화면이 깨지지 않도록 fallback 프로필을 만듭니다.
   const effectiveProfile =
     profile ?? {
       id: "",
@@ -84,6 +99,7 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
 
   return (
     <main className="profile-page">
+      {/* 공개 프로필의 대표 이름과 설명 영역입니다. */}
       <section className="profile-hero">
         <div className="profile-hero-main">
           <span className="eyebrow">Public profile</span>
@@ -105,6 +121,7 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
         </div>
       </section>
 
+      {/* 공개 가능한 최소 정보와 이후 확장 예정 기능을 카드로 표시합니다. */}
       <section className="profile-grid">
         <article className="profile-card">
           <div className="section-heading">
