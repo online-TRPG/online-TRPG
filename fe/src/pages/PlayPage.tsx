@@ -1,9 +1,9 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { VttMapStateDto } from "@trpg/shared-types";
-import defaultArcherImage from "../assets/images/Profile_Default_Archer.png";
-import defaultRogueImage from "../assets/images/Profile_Default_Rouge.png";
-import defaultWarriorImage from "../assets/images/Profile_Default_Warrior.png";
-import defaultWizardImage from "../assets/images/Profile_Default_Wizard.png";
+import defaultArcherImage from "../assets/images/Profile_Default_Archer.webp";
+import defaultRogueImage from "../assets/images/Profile_Default_Rouge.webp";
+import defaultWarriorImage from "../assets/images/Profile_Default_Warrior.webp";
+import defaultWizardImage from "../assets/images/Profile_Default_Wizard.webp";
 import { BattleMap } from "../components/BattleMap";
 import boxBulletinNarrowFrame from "../components/Box_Bulletin_Narrow_Frame.webp";
 import boxBulletinNarrowPlanks from "../components/Box_Bulletin_Narrow_Planks.webp";
