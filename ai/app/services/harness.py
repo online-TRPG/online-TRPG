@@ -283,18 +283,7 @@ class AiHarnessService:
     def _fallback_interpreter(
         self, request: InterpreterHarnessRequest, error: AiClientError
     ) -> InterpreterHarnessResponse:
-        parsed = InterpreterOutput(
-            action=StructuredAction(
-                type="freeform",
-                actorCharacterId=request.actorCharacterId,
-                approach=request.rawText,
-                confidence=0.0,
-                requiresRoll=False,
-            ),
-            needsClarification=True,
-            clarificationQuestion="행동을 조금 더 구체적으로 선택해 주세요.",
-            safetyNotes=["AI 해석 실패로 템플릿 fallback을 사용함", "게임 상태는 변경하지 않음"],
-        )
+        parsed = self._template_interpreter_output(request)
         return InterpreterHarnessResponse(
             provider="template-fallback",
             model="local-template",
@@ -307,6 +296,146 @@ class AiHarnessService:
             fallback=True,
             fallbackReason=error.message,
         )
+
+    def _template_interpreter_output(self, request: InterpreterHarnessRequest) -> InterpreterOutput:
+        raw_text = request.rawText.strip()
+        haystack = raw_text.lower()
+        target = self._select_fallback_target(request.availableTargets, haystack)
+
+        spell_id: str | None = None
+        if any(term in haystack for term in ["magic missile", "마법 화살", "매직 미사일"]):
+            spell_id = "spell.magic_missile"
+        elif any(term in haystack for term in ["cure wounds", "상처 치료", "치유"]):
+            spell_id = "spell.cure_wounds"
+        elif any(term in haystack for term in ["fire bolt", "파이어볼트", "화염 화살"]):
+            spell_id = "spell.fire_bolt"
+        elif any(term in haystack for term in ["chill touch", "싸늘한 손길"]):
+            spell_id = "spell.chill_touch"
+
+        if spell_id:
+            return InterpreterOutput(
+                action=StructuredAction(
+                    type="cast_spell",
+                    actorCharacterId=request.actorCharacterId,
+                    targetId=target,
+                    spellId=spell_id,
+                    approach=raw_text,
+                    confidence=0.55,
+                    requiresRoll=spell_id not in {"spell.magic_missile", "spell.cure_wounds"},
+                ),
+                needsClarification=target is None,
+                clarificationQuestion=None if target else "주문 대상을 알려 주세요.",
+                mentionedSpellId=spell_id,
+                safetyNotes=["provider 실패로 MVP 템플릿 해석을 사용함"],
+            )
+
+        if any(term in haystack for term in ["potion", "물약"]):
+            return InterpreterOutput(
+                action=StructuredAction(
+                    type="use_item",
+                    actorCharacterId=request.actorCharacterId,
+                    targetId=target or request.actorCharacterId,
+                    approach=raw_text,
+                    confidence=0.5,
+                    requiresRoll=True,
+                ),
+                needsClarification=False,
+                mentionedItemId="magic_item.potion_of_healing",
+                safetyNotes=["provider 실패로 MVP 템플릿 해석을 사용함"],
+            )
+
+        if any(term in haystack for term in ["second wind", "재기의 숨결", "재기"]):
+            return InterpreterOutput(
+                action=StructuredAction(
+                    type="use_class_feature",
+                    actorCharacterId=request.actorCharacterId,
+                    targetId=request.actorCharacterId,
+                    featureId="class.fighter.feature.second_wind",
+                    approach=raw_text,
+                    confidence=0.5,
+                    requiresRoll=True,
+                ),
+                needsClarification=False,
+                safetyNotes=["provider 실패로 MVP 템플릿 해석을 사용함"],
+            )
+
+        if any(term in haystack for term in ["attack", "공격", "때린", "쏜다", "베어"]):
+            return InterpreterOutput(
+                action=StructuredAction(
+                    type="attack",
+                    actorCharacterId=request.actorCharacterId,
+                    targetId=target,
+                    attackKind="weapon_attack",
+                    approach=raw_text,
+                    confidence=0.5,
+                    requiresRoll=True,
+                ),
+                needsClarification=target is None,
+                clarificationQuestion=None if target else "공격 대상을 알려 주세요.",
+                safetyNotes=["provider 실패로 MVP 템플릿 해석을 사용함"],
+            )
+
+        if any(term in haystack for term in ["investigate", "check", "조사", "살핀", "수색", "발자국"]):
+            return InterpreterOutput(
+                action=StructuredAction(
+                    type="skill_check",
+                    actorCharacterId=request.actorCharacterId,
+                    targetId=target,
+                    ability="intelligence",
+                    skill="investigation",
+                    approach=raw_text,
+                    confidence=0.5,
+                    requiresRoll=True,
+                    suggestedDifficulty="easy",
+                ),
+                needsClarification=False,
+                safetyNotes=["provider 실패로 MVP 템플릿 해석을 사용함"],
+            )
+
+        if any(term in haystack for term in ["이동", "들어간", "안쪽", "살펴", "마무리"]):
+            return InterpreterOutput(
+                action=StructuredAction(
+                    type="interact",
+                    actorCharacterId=request.actorCharacterId,
+                    targetId=target,
+                    approach=raw_text,
+                    confidence=0.45,
+                    requiresRoll=False,
+                ),
+                needsClarification=False,
+                safetyNotes=["provider 실패로 MVP 템플릿 해석을 사용함"],
+            )
+
+        return InterpreterOutput(
+            action=StructuredAction(
+                type="freeform",
+                actorCharacterId=request.actorCharacterId,
+                approach=raw_text,
+                confidence=0.0,
+                requiresRoll=False,
+            ),
+            needsClarification=True,
+            clarificationQuestion="행동을 조금 더 구체적으로 선택해 주세요.",
+            safetyNotes=["AI 해석 실패로 템플릿 fallback을 사용함", "게임 상태는 변경하지 않음"],
+        )
+
+    @staticmethod
+    def _select_fallback_target(available_targets: list[str], haystack: str) -> str | None:
+        for target in available_targets:
+            normalized = target.lower()
+            if normalized and normalized in haystack:
+                return target
+        for target in available_targets:
+            normalized = target.lower()
+            if any(term in haystack for term in ["고블린", "goblin"]) and "goblin" in normalized:
+                return target
+            if any(term in haystack for term in ["파이터", "fighter"]) and "fighter" in normalized:
+                return target
+            if any(term in haystack for term in ["로그", "rogue"]) and "rogue" in normalized:
+                return target
+            if any(term in haystack for term in ["문", "door"]) and "door" in normalized:
+                return target
+        return available_targets[0] if len(available_targets) == 1 else None
 
     def _fallback_narrator(self, request: NarratorHarnessRequest, error: AiClientError) -> NarratorHarnessResponse:
         summary = (

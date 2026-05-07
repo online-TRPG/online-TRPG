@@ -12,6 +12,8 @@ import { DiceService } from "./dice.service";
 import { RuleEngineService } from "./rule-engine.service";
 import {
   CriticalThresholdModifierProduced,
+  RangerArcheryFightingStyleProduced,
+  RangerNaturalExplorerCheckProduced,
   RuleAdvantageState,
   RuleHookResult,
 } from "./rule-engine.types";
@@ -21,11 +23,18 @@ const DEFAULT_MELEE_ATTACK_DISTANCE_FT = 5;
 const DEFAULT_WEAPON_DAMAGE_TYPE = "slashing";
 const DEFAULT_DIRECT_DAMAGE_TYPE = "untyped";
 const CHILL_TOUCH_SPELL_ID = "spell.chill_touch";
+const FIRE_BOLT_SPELL_ID = "spell.fire_bolt";
+const MAGIC_MISSILE_SPELL_ID = "spell.magic_missile";
+const CURE_WOUNDS_SPELL_ID = "spell.cure_wounds";
 const CHILL_TOUCH_DAMAGE_TYPE = "necrotic";
+const FIRE_BOLT_DAMAGE_TYPE = "fire";
+const MAGIC_MISSILE_DAMAGE_TYPE = "force";
+const POTION_OF_HEALING_ITEM_ID = "magic_item.potion_of_healing";
 const SECOND_WIND_FEATURE_ID = "class.fighter.feature.second_wind";
 const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
-const RAGE_FEATURE_ID = "class.barbarian.feature.rage";
+const SNEAK_ATTACK_FEATURE_ID = "class.rogue.feature.sneak_attack";
 const CUNNING_ACTION_FEATURE_ID = "class.rogue.feature.cunning_action";
+const RAGE_FEATURE_ID = "class.barbarian.feature.rage";
 const FRENZY_FEATURE_ID = "class.barbarian.subclass_feature.frenzy";
 const SECOND_WIND_EXPENDED_TAG = "resource:second_wind_expended";
 const ACTION_SURGE_EXPENDED_TAG = "resource:action_surge_expended";
@@ -52,6 +61,7 @@ const LONG_REST_RECOVERED_TAGS = [
 type SessionCharacterForRules = {
   id: string;
   characterId: string;
+  combatParticipantId?: string | null;
   currentHp: number;
   tempHp: number;
   conditionsJson: string;
@@ -103,7 +113,8 @@ type EquippedWeaponProfile = {
 };
 
 export type CharacterStatePatch = {
-  sessionCharacterId: string;
+  sessionCharacterId?: string;
+  combatParticipantId?: string;
   currentHp?: number;
   tempHp?: number;
   conditions?: string[];
@@ -245,6 +256,8 @@ export class ActionRuleService {
         return this.resolveAttack(command, actor, sessionCharacters, runtimeContext);
       case "cast_spell":
         return this.resolveCastSpell(command, actor, sessionCharacters, runtimeContext);
+      case "use_item":
+        return this.resolveUseItem(command, sessionCharacters);
       case "use_class_feature":
         return this.resolveClassFeature(command, actor, runtimeContext);
       case "rest":
@@ -279,6 +292,12 @@ export class ActionRuleService {
     actor: SessionCharacterForRules,
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
+    const baseModifier = this.getCheckModifier(actor, command.checkName);
+    const naturalExplorerRuleResult = this.resolveRangerNaturalExplorerCheck(
+      actor,
+      command.checkName,
+      baseModifier,
+    );
     if (!this.hasActionAvailable(runtimeContext)) {
       return this.createActionUnavailableResolution("skill_check", {
         checkName: command.checkName,
@@ -286,16 +305,20 @@ export class ActionRuleService {
       });
     }
 
-    const modifier = this.getCheckModifier(actor, command.checkName);
+    const modifier = naturalExplorerRuleResult?.produced.finalCheckModifier ?? baseModifier;
     const expression = modifier >= 0 ? `1d20+${modifier}` : `1d20${modifier}`;
     const diceResult = this.diceService.roll(expression, DiceAdvantageState.NORMAL);
     const success = diceResult.total >= command.dc;
+    const ruleResults: RuleHookResult<unknown>[] = naturalExplorerRuleResult
+      ? [naturalExplorerRuleResult]
+      : [];
 
     return {
       structuredAction: {
         type: "skill_check",
         checkName: command.checkName,
         dc: command.dc,
+        ruleResults,
       },
       diceResult,
       outcome: success ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
@@ -321,7 +344,9 @@ export class ActionRuleService {
     const target = command.target
       ? this.findTarget(command.target, sessionCharacters)
       : sessionCharacters.find((candidate) => candidate.id !== actor.id) ?? null;
-    const modifier = actor.character.proficiencyBonus;
+    const baseAttackBonus = actor.character.proficiencyBonus;
+    const rangerArcheryRuleResult = this.resolveRangerArcheryFightingStyle(actor, baseAttackBonus);
+    const modifier = rangerArcheryRuleResult?.produced.finalAttackBonus ?? baseAttackBonus;
     const targetArmorClass = target?.character.armorClass ?? command.dc;
     const proneRuleContext = this.resolveAttackProneContext(actor, target);
     const attackAdvantageState = this.toDiceAdvantageState(proneRuleContext.advantageState);
@@ -337,6 +362,7 @@ export class ActionRuleService {
     });
     const success = attackRuleResult.produced.hit;
     const ruleResults: RuleHookResult<unknown>[] = [
+      ...(rangerArcheryRuleResult ? [rangerArcheryRuleResult] : []),
       ...proneRuleContext.ruleResults,
       ...(criticalThresholdRuleResult ? [criticalThresholdRuleResult] : []),
       attackRuleResult,
@@ -373,7 +399,7 @@ export class ActionRuleService {
       finalDamage = damageRuleResult.produced.finalDamage;
       const nextHp = Math.max(target.currentHp - finalDamage, 0);
       stateChanges.push({
-        sessionCharacterId: target.id,
+        ...this.toTargetPatchId(target),
         currentHp: nextHp,
         markDead: nextHp <= 0,
       });
@@ -413,17 +439,22 @@ export class ActionRuleService {
       });
     }
 
+    if (command.spellId === MAGIC_MISSILE_SPELL_ID) {
+      return this.resolveMagicMissile(command, sessionCharacters);
+    }
+    if (command.spellId === CURE_WOUNDS_SPELL_ID) {
+      return this.resolveCureWounds(command, sessionCharacters);
+    }
+    if (command.spellId !== CHILL_TOUCH_SPELL_ID && command.spellId !== FIRE_BOLT_SPELL_ID) {
+      throw forbidden("ACTION_403", "지원하지 않는 주문입니다.", {
+        reason: "UNSUPPORTED_SPELL",
+        spellId: command.spellId,
+      });
+    }
+
     const target = this.requireTarget(command.target, sessionCharacters);
     const targetArmorClass = target.character.armorClass;
-    const precheckResult = this.ruleEngine.resolveChillTouch({
-      spellChillTouch: command.spellId === CHILL_TOUCH_SPELL_ID,
-      casterKnownCantrips: this.resolveKnownCantrips(command.spellId),
-      actionAvailable: true,
-      targetDistanceFt: command.targetDistanceFt,
-      componentAvailability: this.resolveDefaultComponentAvailability(),
-      spellAttackRollResult: null,
-      targetIsUndead: this.hasCondition(target, "undead"),
-    });
+    const precheckResult = this.resolveAttackSpellHook(command, null, target);
 
     if (!precheckResult.accepted && precheckResult.rejectedReason !== "spell_attack_roll_required") {
       return {
@@ -450,32 +481,25 @@ export class ActionRuleService {
       targetArmorClass,
       advantageState: "normal",
     });
-    const spellRuleResult = this.ruleEngine.resolveChillTouch({
-      spellChillTouch: command.spellId === CHILL_TOUCH_SPELL_ID,
-      casterKnownCantrips: this.resolveKnownCantrips(command.spellId),
-      actionAvailable: true,
-      targetDistanceFt: command.targetDistanceFt,
-      componentAvailability: this.resolveDefaultComponentAvailability(),
-      spellAttackRollResult: attackRuleResult.produced,
-      targetIsUndead: this.hasCondition(target, "undead"),
-    });
+    const spellRuleResult = this.resolveAttackSpellHook(command, attackRuleResult.produced, target);
     const ruleResults: RuleHookResult<unknown>[] = [attackRuleResult, spellRuleResult];
     const stateChanges: CharacterStatePatch[] = [];
     let damageRoll: DiceRollResponseDto | null = null;
     let finalDamage = 0;
+    const damagePacket = this.getAttackSpellDamagePacket(command.spellId, spellRuleResult.produced);
 
-    if (spellRuleResult.accepted && spellRuleResult.produced["damagePacket.necrotic"]) {
-      damageRoll = this.diceService.roll("1d8");
+    if (spellRuleResult.accepted && damagePacket) {
+      damageRoll = this.diceService.roll(damagePacket.dice);
       const damageRuleResult = this.ruleEngine.applyDamageModifiers({
         baseDamage: damageRoll.total,
-        damageType: CHILL_TOUCH_DAMAGE_TYPE,
+        damageType: damagePacket.damageType,
         ...this.resolveDamageProfile(target),
       });
       ruleResults.push(damageRuleResult);
       finalDamage = damageRuleResult.produced.finalDamage;
       const nextHp = Math.max(target.currentHp - finalDamage, 0);
       stateChanges.push({
-        sessionCharacterId: target.id,
+        ...this.toTargetPatchId(target),
         currentHp: nextHp,
         markDead: nextHp <= 0,
       });
@@ -488,17 +512,208 @@ export class ActionRuleService {
         target: target.id,
         targetDistanceFt: command.targetDistanceFt,
         targetArmorClass,
-        damageType: CHILL_TOUCH_DAMAGE_TYPE,
+        damageType: damagePacket?.damageType ?? null,
         damageRoll: damageRoll ? { ...damageRoll } : null,
         finalDamage,
         ruleResults,
       },
       diceResult: attackRoll,
       outcome: this.resolveSpellOutcome(spellRuleResult.accepted, attackRuleResult.produced.hit),
-      narration: this.createChillTouchNarration(spellRuleResult.accepted, attackRuleResult.produced.hit),
+      narration: this.createAttackSpellNarration(
+        command.spellId,
+        spellRuleResult.accepted,
+        attackRuleResult.produced.hit,
+      ),
       stateChanges,
       runtimeEffects: spellRuleResult.accepted ? [{ type: "SPEND_ACTION" }] : [],
     };
+  }
+
+  private resolveAttackSpellHook(
+    command: Extract<ParsedCommand, { type: "cast_spell" }>,
+    spellAttackRollResult: Parameters<RuleEngineService["resolveChillTouch"]>[0]["spellAttackRollResult"],
+    target: SessionCharacterForRules,
+  ): RuleHookResult<unknown> {
+    if (command.spellId === FIRE_BOLT_SPELL_ID) {
+      return this.ruleEngine.resolveFireBolt({
+        spellFireBolt: true,
+        casterKnownCantrips: this.resolveKnownCantrips(command.spellId),
+        actionAvailable: true,
+        targetDistanceFt: command.targetDistanceFt,
+        componentAvailability: this.resolveDefaultComponentAvailability(),
+        spellAttackRollResult,
+      });
+    }
+
+    return this.ruleEngine.resolveChillTouch({
+      spellChillTouch: true,
+      casterKnownCantrips: this.resolveKnownCantrips(command.spellId),
+      actionAvailable: true,
+      targetDistanceFt: command.targetDistanceFt,
+      componentAvailability: this.resolveDefaultComponentAvailability(),
+      spellAttackRollResult,
+      targetIsUndead: this.hasCondition(target, "undead"),
+    });
+  }
+
+  private getAttackSpellDamagePacket(
+    spellId: string,
+    produced: unknown,
+  ): { dice: string; damageType: string } | null {
+    const producedRecord = produced as Record<string, unknown>;
+    if (spellId === FIRE_BOLT_SPELL_ID && producedRecord["damagePacket.fire"]) {
+      return { dice: "1d10", damageType: FIRE_BOLT_DAMAGE_TYPE };
+    }
+    if (spellId === CHILL_TOUCH_SPELL_ID && producedRecord["damagePacket.necrotic"]) {
+      return { dice: "1d8", damageType: CHILL_TOUCH_DAMAGE_TYPE };
+    }
+    return null;
+  }
+
+  private resolveMagicMissile(
+    command: Extract<ParsedCommand, { type: "cast_spell" }>,
+    sessionCharacters: SessionCharacterForRules[],
+  ): ActionResolution {
+    const target = this.requireTarget(command.target, sessionCharacters);
+    const spellRuleResult = this.ruleEngine.resolveMagicMissile({
+      spellMagicMissile: true,
+      casterPreparedSpells: this.resolvePreparedSpells(command.spellId),
+      actionAvailable: true,
+      spellSlotAvailable: { level: 1, remaining: 1 },
+      targetIds: [target.id],
+      dartAllocation: { [target.id]: 3 },
+    });
+
+    if (!spellRuleResult.accepted) {
+      return {
+        structuredAction: {
+          type: "cast_spell",
+          spellId: command.spellId,
+          target: target.id,
+          targetDistanceFt: command.targetDistanceFt,
+          ruleResults: [spellRuleResult],
+        },
+        diceResult: null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: this.createSpellRejectedNarration(spellRuleResult.rejectedReason),
+        stateChanges: [],
+      };
+    }
+
+    const dartRolls = [
+      this.diceService.roll("1d4+1"),
+      this.diceService.roll("1d4+1"),
+      this.diceService.roll("1d4+1"),
+    ];
+    const baseDamage = dartRolls.reduce((sum, roll) => sum + roll.total, 0);
+    const damageRuleResult = this.ruleEngine.applyDamageModifiers({
+      baseDamage,
+      damageType: MAGIC_MISSILE_DAMAGE_TYPE,
+      ...this.resolveDamageProfile(target),
+    });
+    const finalDamage = damageRuleResult.produced.finalDamage;
+    const nextHp = Math.max(target.currentHp - finalDamage, 0);
+
+    return {
+      structuredAction: {
+        type: "cast_spell",
+        spellId: command.spellId,
+        target: target.id,
+        targetDistanceFt: command.targetDistanceFt,
+        damageType: MAGIC_MISSILE_DAMAGE_TYPE,
+        damageRolls: dartRolls.map((roll) => ({ ...roll })),
+        finalDamage,
+        ruleResults: [spellRuleResult, damageRuleResult],
+      },
+      diceResult: null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: `Magic Missile이 ${finalDamage} force 피해를 입혔습니다.`,
+      stateChanges: [
+        {
+          ...this.toTargetPatchId(target),
+          currentHp: nextHp,
+          markDead: nextHp <= 0,
+        },
+      ],
+    };
+  }
+
+  private resolveCureWounds(
+    command: Extract<ParsedCommand, { type: "cast_spell" }>,
+    sessionCharacters: SessionCharacterForRules[],
+  ): ActionResolution {
+    const target = this.requireTarget(command.target, sessionCharacters);
+    const healingRoll = this.diceService.roll("1d8+2");
+    const spellRuleResult = this.ruleEngine.resolveCureWounds({
+      spellCureWounds: true,
+      casterPreparedSpells: this.resolvePreparedSpells(command.spellId),
+      actionAvailable: true,
+      spellSlotAvailable: { level: 1, remaining: 1 },
+      targetTouchReach: command.targetDistanceFt <= 5,
+      healingRoll: { formula: "1d8+2", total: healingRoll.total },
+      currentHitPoints: target.currentHp,
+      maxHitPoints: target.character.maxHp,
+    });
+
+    return {
+      structuredAction: {
+        type: "cast_spell",
+        spellId: command.spellId,
+        target: target.id,
+        targetDistanceFt: command.targetDistanceFt,
+        healingRoll: { ...healingRoll },
+        ruleResults: [spellRuleResult],
+      },
+      diceResult: healingRoll,
+      outcome: spellRuleResult.accepted ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: spellRuleResult.accepted
+        ? `${target.character.name}의 HP를 ${spellRuleResult.produced.newHitPoints}로 회복했습니다.`
+        : this.createSpellRejectedNarration(spellRuleResult.rejectedReason),
+      stateChanges: spellRuleResult.accepted
+        ? [{ ...this.toTargetPatchId(target), currentHp: spellRuleResult.produced.newHitPoints }]
+        : [],
+    };
+  }
+
+  private resolveRangerArcheryFightingStyle(
+    actor: SessionCharacterForRules,
+    baseAttackBonus: number,
+  ): RuleHookResult<RangerArcheryFightingStyleProduced> | null {
+    if (!this.isClass(actor, "ranger")) {
+      return null;
+    }
+
+    const selectedFightingStyle = this.resolveRangerFightingStyle(actor);
+    if (!selectedFightingStyle) {
+      return null;
+    }
+
+    return this.ruleEngine.applyRangerArcheryFightingStyle({
+      rangerLevel: actor.character.level,
+      selectedFightingStyle,
+      attackKind: "ranged_weapon_attack",
+      weaponProperties: this.resolveRangerWeaponProperties(actor),
+      baseAttackBonus,
+    });
+  }
+
+  private resolveRangerNaturalExplorerCheck(
+    actor: SessionCharacterForRules,
+    checkName: string,
+    baseCheckModifier: number,
+  ): RuleHookResult<RangerNaturalExplorerCheckProduced> | null {
+    if (!this.isClass(actor, "ranger")) {
+      return null;
+    }
+
+    return this.ruleEngine.applyRangerNaturalExplorerCheck({
+      rangerLevel: actor.character.level,
+      favoredTerrainActive: this.isRangerFavoredTerrainActive(actor),
+      checkKind: "skill_check",
+      abilityOrSkill: checkName,
+      proficiencyApplied: this.hasSkillProficiency(actor, checkName),
+      baseCheckModifier,
+    });
   }
 
   private resolveClassFeature(
@@ -511,6 +726,10 @@ export class ActionRuleService {
         return this.resolveSecondWind(actor, runtimeContext);
       case ACTION_SURGE_FEATURE_ID:
         return this.resolveActionSurge(actor, runtimeContext);
+      case SNEAK_ATTACK_FEATURE_ID:
+        throw forbidden("ACTION_403", "Sneak Attack은 명중한 공격에 자동으로 적용됩니다.", {
+          reason: "SNEAK_ATTACK_IS_ATTACK_MODIFIER",
+        });
       case RAGE_FEATURE_ID:
         return this.resolveRage(actor, runtimeContext);
       case CUNNING_ACTION_FEATURE_ID:
@@ -627,7 +846,6 @@ export class ActionRuleService {
         : [],
     };
   }
-
   private resolveRage(
     actor: SessionCharacterForRules,
     runtimeContext: RuleRuntimeContext,
@@ -874,7 +1092,7 @@ export class ActionRuleService {
       narration: `${target.character.name}에게 ${finalDamage} 피해를 적용했습니다.`,
       stateChanges: [
         {
-          sessionCharacterId: target.id,
+          ...this.toTargetPatchId(target),
           currentHp: nextHp,
           tempHp: remainingTempHp,
           markDead: nextHp <= 0,
@@ -895,7 +1113,50 @@ export class ActionRuleService {
       diceResult: null,
       outcome: ActionOutcome.SUCCESS,
       narration: `${target.character.name}의 HP를 ${nextHp}로 회복했습니다.`,
-      stateChanges: [{ sessionCharacterId: target.id, currentHp: nextHp }],
+      stateChanges: [{ ...this.toTargetPatchId(target), currentHp: nextHp }],
+    };
+  }
+
+  private resolveUseItem(
+    command: Extract<ParsedCommand, { type: "use_item" }>,
+    sessionCharacters: SessionCharacterForRules[],
+  ): ActionResolution {
+    if (command.itemId !== POTION_OF_HEALING_ITEM_ID) {
+      throw forbidden("ACTION_403", "지원하지 않는 아이템입니다.", {
+        reason: "UNSUPPORTED_ITEM",
+        itemId: command.itemId,
+      });
+    }
+
+    const target = this.requireTarget(command.target, sessionCharacters);
+    const healingRoll = this.diceService.roll("2d4+2");
+    const ruleResult = this.ruleEngine.applyPotionOfHealing({
+      magicItemPotionOfHealing: true,
+      actionAvailable: true,
+      targetReach: true,
+      healingRoll2d4: { formula: "2d4+2", total: healingRoll.total },
+      currentHitPoints: target.currentHp,
+      maxHitPoints: target.character.maxHp,
+      // Inventory is not yet session-modeled; MVP command path treats declaration as one available use.
+      inventoryQuantity: 1,
+    });
+
+    return {
+      structuredAction: {
+        type: "use_item",
+        itemId: command.itemId,
+        target: target.id,
+        healingRoll: { ...healingRoll },
+        ruleResults: [ruleResult],
+      },
+      diceResult: healingRoll,
+      outcome: ruleResult.accepted ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: ruleResult.accepted
+        ? `${target.character.name}의 HP를 ${ruleResult.produced.newHitPoints}로 회복했습니다.`
+        : "아이템을 사용할 수 없습니다.",
+      stateChanges: ruleResult.accepted
+        ? [{ ...this.toTargetPatchId(target), currentHp: ruleResult.produced.newHitPoints }]
+        : [],
     };
   }
 
@@ -920,7 +1181,7 @@ export class ActionRuleService {
       diceResult: null,
       outcome: ActionOutcome.SUCCESS,
       narration: `${target.character.name}의 상태를 갱신했습니다.`,
-      stateChanges: [{ sessionCharacterId: target.id, conditions: nextConditions }],
+      stateChanges: [{ ...this.toTargetPatchId(target), conditions: nextConditions }],
     };
   }
 
@@ -999,6 +1260,15 @@ export class ActionRuleService {
     return target;
   }
 
+  private toTargetPatchId(
+    target: SessionCharacterForRules,
+  ): Pick<CharacterStatePatch, "sessionCharacterId" | "combatParticipantId"> {
+    if (target.combatParticipantId) {
+      return { combatParticipantId: target.combatParticipantId };
+    }
+    return { sessionCharacterId: target.id };
+  }
+
   private findTarget(
     targetToken: string,
     sessionCharacters: SessionCharacterForRules[],
@@ -1037,9 +1307,7 @@ export class ActionRuleService {
     );
     const className = this.normalizeRuleToken(actor.character.className);
     const subclassName = this.normalizeRuleToken(actor.character.subclassName ?? "");
-    const characterFeatures = this.parseJson<string[]>(actor.character.featuresJson, []).map(
-      (feature) => this.normalizeRuleToken(feature),
-    );
+    const characterFeatures = this.getCharacterFeatures(actor);
     const featureIds: string[] = [];
 
     if (
@@ -1064,6 +1332,93 @@ export class ActionRuleService {
     }
 
     return featureIds;
+  }
+  private resolveRangerFightingStyle(actor: SessionCharacterForRules): string | null {
+    const tags = [...this.getCharacterFeatures(actor), ...this.getConditions(actor)].map((tag) =>
+      this.normalizeRuleToken(tag),
+    );
+
+    if (
+      tags.some((tag) =>
+        [
+          "archery",
+          "fighting_style:archery",
+          "feature:fighting_style_archery",
+          "class.ranger.fighting_style.archery",
+        ].includes(tag),
+      )
+    ) {
+      return "archery";
+    }
+
+    if (tags.some((tag) => tag.startsWith("fighting_style:") && !tag.endsWith(":archery"))) {
+      return tags.find((tag) => tag.startsWith("fighting_style:"))?.slice("fighting_style:".length) ?? null;
+    }
+
+    // MVP ranger loadout uses Archery plus a longbow until per-character equipment/style choices exist.
+    return actor.character.level >= 2 ? "archery" : null;
+  }
+
+  private resolveRangerWeaponProperties(actor: SessionCharacterForRules): string[] {
+    const tags = [...this.getCharacterFeatures(actor), ...this.getConditions(actor)].map((tag) =>
+      this.normalizeRuleToken(tag),
+    );
+    const properties = new Set<string>();
+
+    for (const tag of tags) {
+      if (tag.startsWith("weapon_property:")) {
+        properties.add(tag.slice("weapon_property:".length));
+      }
+      if (["weapon:longbow", "weapon:shortbow", "longbow", "shortbow"].includes(tag)) {
+        properties.add("ranged");
+        properties.add("ammunition");
+      }
+    }
+
+    if (this.isClass(actor, "ranger") && actor.character.level >= 2 && properties.size === 0) {
+      properties.add("ranged");
+      properties.add("ammunition");
+      properties.add("two-handed");
+    }
+
+    return Array.from(properties);
+  }
+
+  private isRangerFavoredTerrainActive(actor: SessionCharacterForRules): boolean {
+    const tags = [...this.getCharacterFeatures(actor), ...this.getConditions(actor)].map((tag) =>
+      this.normalizeRuleToken(tag),
+    );
+    if (tags.some((tag) => ["favored_terrain:inactive", "natural_explorer:inactive"].includes(tag))) {
+      return false;
+    }
+    if (
+      tags.some((tag) =>
+        [
+          "favored_terrain:active",
+          "natural_explorer:active",
+          "class.ranger.feature.natural_explorer",
+          "natural_explorer",
+        ].includes(tag),
+      )
+    ) {
+      return true;
+    }
+
+    // Demo sessions do not yet model terrain; treat ranger exploration scenes as favored terrain by default.
+    return actor.character.level >= 1;
+  }
+
+  private hasSkillProficiency(actor: SessionCharacterForRules, checkName: string): boolean {
+    const normalizedCheckName = this.normalizeRuleToken(checkName);
+    return this.parseJson<string[]>(actor.character.proficientSkillsJson, []).some(
+      (skill) => this.normalizeRuleToken(skill) === normalizedCheckName,
+    );
+  }
+
+  private getCharacterFeatures(actor: SessionCharacterForRules): string[] {
+    return this.parseJson<string[]>(actor.character.featuresJson, []).map((feature) =>
+      this.normalizeRuleToken(feature),
+    );
   }
 
   private resolveEquippedWeaponProfile(actor: SessionCharacterForRules): EquippedWeaponProfile {
@@ -1267,6 +1622,9 @@ export class ActionRuleService {
         return "파이터 레벨 조건을 만족하지 못했습니다.";
       case "barbarian_level_required":
         return "바바리안 레벨 조건을 만족하지 못했습니다.";
+      case "rogue_level_required":
+      case "rogue_level_too_low":
+        return "로그 레벨 조건을 만족하지 못했습니다.";
       case "second_wind_unavailable":
         return "Second Wind를 이미 사용했습니다.";
       case "action_surge_unavailable":
@@ -1276,8 +1634,6 @@ export class ActionRuleService {
         return "Rage를 이미 사용했습니다.";
       case "bonus_action_unavailable":
         return "사용 가능한 bonus action이 없습니다.";
-      case "rogue_level_too_low":
-        return "Rogue 레벨 조건을 만족하지 못했습니다.";
       case "invalid_cunning_action":
         return "Cunning Action으로 선택할 수 없는 행동입니다.";
       case "rage_activation_required":
@@ -1425,9 +1781,20 @@ export class ActionRuleService {
   }
 
   private resolveKnownCantrips(spellId: string): string[] {
-    // 아직 캐릭터별 주문 목록 모델이 없어서, MVP에서는 명령으로 선언된 Chill Touch만
+    // 아직 캐릭터별 주문 목록 모델이 없어서, MVP에서는 명령으로 선언된 cantrip만
     // "시전자가 알고 있는 cantrip"으로 간주한다. 주문 목록 테이블이 생기면 여기만 바꾸면 된다.
-    return spellId === CHILL_TOUCH_SPELL_ID ? [CHILL_TOUCH_SPELL_ID] : [];
+    if ([CHILL_TOUCH_SPELL_ID, FIRE_BOLT_SPELL_ID].includes(spellId)) {
+      return [spellId];
+    }
+    return [];
+  }
+
+  private resolvePreparedSpells(spellId: string): string[] {
+    // 주문 준비/슬롯 자원 모델이 들어오기 전까지는 MVP 명령 선언을 준비된 주문으로 간주한다.
+    if ([MAGIC_MISSILE_SPELL_ID, CURE_WOUNDS_SPELL_ID].includes(spellId)) {
+      return [spellId];
+    }
+    return [];
   }
 
   private resolveDefaultComponentAvailability(): {
@@ -1447,11 +1814,12 @@ export class ActionRuleService {
     return hit ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE;
   }
 
-  private createChillTouchNarration(accepted: boolean, hit: boolean): string {
+  private createAttackSpellNarration(spellId: string, accepted: boolean, hit: boolean): string {
     if (!accepted) {
       return "주문을 시전할 수 없습니다.";
     }
-    return hit ? "Chill Touch가 명중했습니다." : "Chill Touch가 빗나갔습니다.";
+    const spellName = spellId === FIRE_BOLT_SPELL_ID ? "Fire Bolt" : "Chill Touch";
+    return hit ? `${spellName}가 명중했습니다.` : `${spellName}가 빗나갔습니다.`;
   }
 
   private createSpellRejectedNarration(reason: string | null): string {
@@ -1462,6 +1830,12 @@ export class ActionRuleService {
         return "지원하지 않는 주문입니다.";
       case "cantrip_not_known":
         return "시전자가 알지 못하는 cantrip입니다.";
+      case "spell_not_prepared":
+        return "시전자가 준비하지 않은 주문입니다.";
+      case "spell_slot_unavailable":
+        return "사용 가능한 주문 슬롯이 없습니다.";
+      case "target_not_in_touch_reach":
+        return "대상이 접촉 주문 범위 밖에 있습니다.";
       case "action_unavailable":
         return "이번 턴에 주문 시전에 사용할 행동이 없습니다.";
       case "missing_verbal_component":

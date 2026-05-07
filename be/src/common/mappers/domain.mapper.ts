@@ -418,6 +418,7 @@ export function mapScenarioNode(node: ScenarioNode): ScenarioNodeResponseDto {
     transitions: parseJson<Record<string, unknown>[]>(node.transitionsJson, []),
     clues: parseJson<Record<string, unknown>[]>(node.cluesJson, []),
     vttMap: nodeConfig.vttMap,
+    nodeMeta: parseJson<Record<string, unknown> | null>(node.nodeMetaJson, null),
     fallbackNodeId: node.fallbackNodeId,
   };
 }

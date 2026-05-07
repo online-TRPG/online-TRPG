@@ -34,20 +34,35 @@ export class StateDiffService {
 
     const nextVersion = params.baseVersion + 1;
     const diff = {
-      characters: params.changes,
+      characters: params.changes.filter((change) => change.sessionCharacterId),
+      combatParticipants: params.changes.filter((change) => change.combatParticipantId),
     };
 
     await this.prisma.$transaction(async (tx) => {
       for (const change of params.changes) {
-        await tx.sessionCharacter.update({
-          where: { id: change.sessionCharacterId },
-          data: {
-            currentHp: change.currentHp,
-            tempHp: change.tempHp,
-            conditionsJson: change.conditions ? JSON.stringify(change.conditions) : undefined,
-            status: change.markDead ? PrismaSessionCharacterStatus.DEAD : undefined,
-          },
-        });
+        if (change.sessionCharacterId) {
+          await tx.sessionCharacter.update({
+            where: { id: change.sessionCharacterId },
+            data: {
+              currentHp: change.currentHp,
+              tempHp: change.tempHp,
+              conditionsJson: change.conditions ? JSON.stringify(change.conditions) : undefined,
+              status: change.markDead ? PrismaSessionCharacterStatus.DEAD : undefined,
+            },
+          });
+        }
+
+        if (change.combatParticipantId) {
+          await tx.combatParticipant.update({
+            where: { id: change.combatParticipantId },
+            data: {
+              currentHp: change.currentHp,
+              tempHp: change.tempHp,
+              conditionsJson: change.conditions ? JSON.stringify(change.conditions) : undefined,
+              isAlive: change.markDead === undefined ? undefined : !change.markDead,
+            },
+          });
+        }
       }
 
       // 상태 version은 클라이언트가 오래된 화면으로 상태를 덮어쓰지 못하게 하는 기준점이다.

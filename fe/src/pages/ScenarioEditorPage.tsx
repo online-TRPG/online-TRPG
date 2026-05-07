@@ -55,6 +55,9 @@ type NodeForm = {
   sceneText: string;
   imageUrl: string;
   vttMap: VttMapStateDto | null;
+  checkOptionsText: string;
+  nodeMetaText: string;
+  fallbackNodeId: string;
   links: LinkForm[];
   clues: ClueForm[];
 };
@@ -95,6 +98,9 @@ function createBlankNode(title = '새 장면'): NodeForm {
     sceneText: '',
     imageUrl: '',
     vttMap: null,
+    checkOptionsText: '[]',
+    nodeMetaText: '',
+    fallbackNodeId: '',
     links: [],
     clues: [],
   };
@@ -216,6 +222,98 @@ function mapVttMap(value: unknown, nodeId: string): VttMapStateDto | null {
   };
 }
 
+function formatJsonText(value: unknown, fallback = ''): string {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) {
+    return fallback;
+  }
+
+  return JSON.stringify(value, null, 2);
+}
+
+function parseCheckOptionsText(value: string): Record<string, unknown>[] {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const parsed = JSON.parse(trimmed);
+  if (!Array.isArray(parsed) || parsed.some((item) => !item || typeof item !== 'object')) {
+    throw new Error('판정 JSON은 객체 배열이어야 합니다.');
+  }
+
+  return parsed as Record<string, unknown>[];
+}
+
+function parseNodeMetaText(value: string): Record<string, unknown> | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = JSON.parse(trimmed);
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+    throw new Error('노드 메타 JSON은 객체여야 합니다.');
+  }
+
+  return parsed as Record<string, unknown>;
+}
+
+function buildFormSnapshot(form: ScenarioFormState): string {
+  return JSON.stringify(form);
+}
+
+function getScenarioValidationState(form: ScenarioFormState): {
+  message: string | null;
+  nodeId?: string;
+} {
+  if (!form.title.trim()) {
+    return { message: '자동 저장 대기: 시나리오 제목을 입력해 주세요.' };
+  }
+
+  const nodeIds = new Set(form.nodes.map((node) => node.id));
+  for (const node of form.nodes) {
+    if (!node.title.trim() || !node.sceneText.trim()) {
+      return {
+        message: '자동 저장 대기: 모든 노드의 제목과 장면 내용을 입력해 주세요.',
+        nodeId: node.id,
+      };
+    }
+
+    try {
+      parseCheckOptionsText(node.checkOptionsText);
+    } catch {
+      return {
+        message: `자동 저장 대기: "${node.title || node.id}" 노드의 판정 JSON을 확인해 주세요.`,
+        nodeId: node.id,
+      };
+    }
+
+    try {
+      parseNodeMetaText(node.nodeMetaText);
+    } catch {
+      return {
+        message: `자동 저장 대기: "${node.title || node.id}" 노드의 메타 JSON을 확인해 주세요.`,
+        nodeId: node.id,
+      };
+    }
+
+    if (node.fallbackNodeId) {
+      if (node.fallbackNodeId === node.id || !nodeIds.has(node.fallbackNodeId)) {
+        return {
+          message: `자동 저장 대기: "${node.title || node.id}" 노드의 fallback 대상이 올바르지 않습니다.`,
+          nodeId: node.id,
+        };
+      }
+    }
+  }
+
+  return { message: null };
+}
+
 function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
   const nodes = scenario.nodes.length
     ? scenario.nodes.map((node) => ({
@@ -225,6 +323,9 @@ function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
         sceneText: node.sceneText,
         imageUrl: node.imageUrl ?? '',
         vttMap: mapVttMap(node.vttMap, node.id),
+        checkOptionsText: formatJsonText(node.checkOptions, '[]'),
+        nodeMetaText: formatJsonText(node.nodeMeta),
+        fallbackNodeId: node.fallbackNodeId ?? '',
         links: node.transitions.map(mapLink),
         clues: node.clues.map(mapClue),
       }))
@@ -248,7 +349,10 @@ function serializeNodes(nodes: NodeForm[]) {
     title: node.title.trim(),
     sceneText: node.sceneText.trim(),
     imageUrl: node.imageUrl || null,
+    checkOptions: parseCheckOptionsText(node.checkOptionsText),
     vttMap: node.vttMap as unknown as Record<string, unknown> | null,
+    nodeMeta: parseNodeMetaText(node.nodeMetaText),
+    fallbackNodeId: node.fallbackNodeId.trim() || null,
     transitions: node.links
       .filter((link) => link.nextNodeId)
       .map((link) => ({
@@ -289,19 +393,6 @@ function buildScenarioPayload(form: ScenarioFormState): CreateScenarioDto & Upda
     startSceneText: nodes[0]?.sceneText,
     nodes,
   };
-}
-
-function getRequiredScenarioMessage(payload: CreateScenarioDto & UpdateScenarioDto): string | null {
-  if (!payload.title) {
-    return '자동 저장 대기: 시나리오 제목을 입력해 주세요.';
-  }
-
-  const invalidNode = payload.nodes?.find((node) => !node.title || !node.sceneText);
-  if (invalidNode) {
-    return '자동 저장 대기: 모든 노드의 제목과 장면 내용을 입력해 주세요.';
-  }
-
-  return null;
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -442,10 +533,7 @@ export function ScenarioEditorPage({
 
   const hasUnsavedChanges = useCallback(() => {
     const savedSnapshot = lastSavedSnapshotRef.current;
-    return (
-      savedSnapshot !== null &&
-      JSON.stringify(buildScenarioPayload(formRef.current)) !== savedSnapshot
-    );
+    return savedSnapshot !== null && buildFormSnapshot(formRef.current) !== savedSnapshot;
   }, []);
 
   useEffect(() => {
@@ -473,7 +561,7 @@ export function ScenarioEditorPage({
       const nextForm = createEmptyForm();
       setDraftScenarioId(null);
       draftScenarioIdRef.current = null;
-      lastSavedSnapshotRef.current = JSON.stringify(buildScenarioPayload(nextForm));
+      lastSavedSnapshotRef.current = buildFormSnapshot(nextForm);
       onUnsavedChangesChange?.(false);
       setAutoSaveStatus('자동 저장 대기: 필수 내용을 입력해 주세요.');
       setForm(nextForm);
@@ -496,7 +584,7 @@ export function ScenarioEditorPage({
         if (!ignore) {
           const nextForm = formFromScenario(scenario);
           setForm(nextForm);
-          lastSavedSnapshotRef.current = JSON.stringify(buildScenarioPayload(nextForm));
+          lastSavedSnapshotRef.current = buildFormSnapshot(nextForm);
           onUnsavedChangesChange?.(false);
           setAutoSaveStatus('저장됨');
           setSelectedNodeId(nextForm.nodes[0].id);
@@ -522,19 +610,20 @@ export function ScenarioEditorPage({
   const autoSave = useCallback(async () => {
     if (busyRef.current || autoSaveBusyRef.current) return;
 
-    const payload = buildScenarioPayload(formRef.current);
-    const snapshot = JSON.stringify(payload);
+    const snapshot = buildFormSnapshot(formRef.current);
 
     if (lastSavedSnapshotRef.current === snapshot) {
       setAutoSaveStatus('저장됨');
       return;
     }
 
-    const requiredMessage = getRequiredScenarioMessage(payload);
-    if (requiredMessage) {
-      setAutoSaveStatus(requiredMessage);
+    const validation = getScenarioValidationState(formRef.current);
+    if (validation.message) {
+      setAutoSaveStatus(validation.message);
       return;
     }
+
+    const payload = buildScenarioPayload(formRef.current);
 
     autoSaveBusyRef.current = true;
     setAutoSaveStatus('자동 저장 중...');
@@ -634,6 +723,7 @@ export function ScenarioEditorPage({
         ...current,
         nodes: nodes.map((node) => ({
           ...node,
+          fallbackNodeId: node.fallbackNodeId === nodeId ? '' : node.fallbackNodeId,
           links: node.links.filter((link) => link.nextNodeId !== nodeId),
           clues: node.clues.map((clue) => ({
             ...clue,
@@ -655,20 +745,23 @@ export function ScenarioEditorPage({
     setError(null);
 
     try {
-      const payload = buildScenarioPayload(form);
-      const title = payload.title;
-      if (!title) {
-        setScenarioInfoOpen(true);
-        setError('시나리오 제목을 입력해주세요.');
+      const validation = getScenarioValidationState(form);
+      if (validation.message) {
+        if (!form.title.trim()) {
+          setScenarioInfoOpen(true);
+        }
+        if (validation.nodeId) {
+          setSelectedNodeId(validation.nodeId);
+          setEditorMode('detail');
+        }
+        setError(validation.message.replace('자동 저장 대기: ', ''));
         return;
       }
 
-      const nodes = serializeNodes(form.nodes);
-      const invalidNode = nodes.find((node) => !node.title || !node.sceneText);
-      if (invalidNode) {
-        setSelectedNodeId(invalidNode.id);
-        setEditorMode('detail');
-        setError('모든 노드의 제목과 장면 내용을 입력해주세요.');
+      const payload = buildScenarioPayload(form);
+      if (!payload.title) {
+        setScenarioInfoOpen(true);
+        setError('시나리오 제목을 입력해주세요.');
         return;
       }
 
@@ -678,7 +771,7 @@ export function ScenarioEditorPage({
       } else {
         await createScenario(user, payload, accessToken);
       }
-      lastSavedSnapshotRef.current = JSON.stringify(payload);
+      lastSavedSnapshotRef.current = buildFormSnapshot(form);
       onUnsavedChangesChange?.(false);
       setAutoSaveStatus('저장됨');
       onDone();
@@ -1070,6 +1163,69 @@ function NodeDetailEditor({
           }
           rows={10}
           required
+        />
+
+        <div className="scenario-node-grid">
+          <article className="scenario-node-panel">
+            <span className="eyebrow">Fallback</span>
+            <label>Fallback next node</label>
+            <select
+              value={node.fallbackNodeId}
+              onChange={(event) =>
+                updateNode(node.id, (current) => ({
+                  ...current,
+                  fallbackNodeId: event.target.value,
+                }))
+              }
+            >
+              <option value="">없음</option>
+              {nodes
+                .filter((candidate) => candidate.id !== node.id)
+                .map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.title || candidate.id}
+                  </option>
+                ))}
+            </select>
+            <p className="helper-copy">실패 시에도 막히지 않고 넘길 기본 노드가 필요할 때 사용합니다.</p>
+          </article>
+          <article className="scenario-node-panel">
+            <span className="eyebrow">Checks JSON</span>
+            <label htmlFor={`node-check-options-${node.id}`}>Check options</label>
+            <textarea
+              id={`node-check-options-${node.id}`}
+              value={node.checkOptionsText}
+              onChange={(event) =>
+                updateNode(node.id, (current) => ({
+                  ...current,
+                  checkOptionsText: event.target.value,
+                }))
+              }
+              rows={8}
+              spellCheck={false}
+            />
+            <p className="helper-copy">
+              객체 배열 JSON으로 입력합니다. 예: <code>{'[{"id":"check_rope","dc":10}]'}</code>
+            </p>
+          </article>
+        </div>
+
+        <label htmlFor={`node-meta-${node.id}`} className="eyebrow">
+          Node meta JSON
+        </label>
+        <textarea
+          id={`node-meta-${node.id}`}
+          className="scenario-node-text-editor"
+          value={node.nodeMetaText}
+          onChange={(event) =>
+            updateNode(node.id, (current) => ({
+              ...current,
+              nodeMetaText: event.target.value,
+            }))
+          }
+          rows={10}
+          spellCheck={false}
+          placeholder={'{ "npcProfiles": [], "sceneNpcBindings": [], "rewards": [] }'}
         />
 
         <div className="scenario-node-grid">

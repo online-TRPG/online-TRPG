@@ -108,17 +108,17 @@ $env:GOOGLE_API_KEY='...'
 | 주문                                |       319 |
 | 상태 이상                           |        15 |
 | 규칙 카드                           |        80 |
-| 규칙 조각                           |        11 |
-| 규칙 hook fixture                   |        12 |
+| 규칙 조각                           |        16 |
+| 규칙 hook fixture                   |        17 |
 | 마법 아이템                         |       239 |
 | 장비 item                           |       145 |
 | 장비 참조 섹션                      |         8 |
 | 몬스터/NPC                          |       317 |
 | 종족                                |         9 |
 | 직업                                |        12 |
-| 백엔드 P0 contract case             |        12 |
-| Interpreter -> backend handoff case |         3 |
-| Narrator input fixture              |         3 |
+| 백엔드 P0 contract case             |        19 |
+| Interpreter -> backend handoff case |         7 |
+| Narrator input fixture              |         7 |
 
 ## 다음에 볼 것
 
