@@ -399,12 +399,12 @@ function formatAbilityBonus(abilityBonus: RaceAbilityBonus) {
 
 function localizeAbilityText(value: string) {
   return value
-    .replaceAll("Strength", "근력")
-    .replaceAll("Dexterity", "민첩")
-    .replaceAll("Constitution", "건강")
-    .replaceAll("Intelligence", "지능")
-    .replaceAll("Wisdom", "지혜")
-    .replaceAll("Charisma", "매력");
+    .replace(/Strength/g, "근력")
+    .replace(/Dexterity/g, "민첩")
+    .replace(/Constitution/g, "건강")
+    .replace(/Intelligence/g, "지능")
+    .replace(/Wisdom/g, "지혜")
+    .replace(/Charisma/g, "매력");
 }
 
 export function CharacterPage({
