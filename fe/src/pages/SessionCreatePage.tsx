@@ -1,4 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import buttonSimpleBeigeImage from "../components/Button_Simple_Beige.webp";
+import boxBulletinImage from "../components/Box_Bulletin_Rectangle.webp";
 import { buildSessionScenarioOptions } from "../data/sessionVisuals";
 import type { Scenario, SessionSnapshot } from "../types/session";
 
@@ -13,6 +15,27 @@ interface SessionCreatePageProps {
   ) => void | Promise<void>;
 }
 
+function RobotIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="session-create-icon">
+      <rect x="6" y="7" width="12" height="10" rx="3" />
+      <path d="M12 4v3M4 12H2M22 12h-2M8 19v2M16 19v2" />
+      <circle cx="9.5" cy="12" r="1.2" className="session-create-icon-fill" />
+      <circle cx="14.5" cy="12" r="1.2" className="session-create-icon-fill" />
+      <path d="M9 15.3c.9.6 1.9.9 3 .9s2.1-.3 3-.9" />
+    </svg>
+  );
+}
+
+function UsersIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="session-create-meta-icon">
+      <circle cx="12" cy="8" r="3.2" />
+      <path d="M5.5 19c.7-3.1 3.3-5 6.5-5s5.8 1.9 6.5 5" />
+    </svg>
+  );
+}
+
 export function SessionCreatePage({
   scenarios,
   snapshot,
@@ -21,7 +44,7 @@ export function SessionCreatePage({
   onCreateSession,
 }: SessionCreatePageProps) {
   const scenarioOptions = useMemo(() => buildSessionScenarioOptions(scenarios), [scenarios]);
-  const [sessionTitle, setSessionTitle] = useState("새 세션");
+  const [sessionTitle, setSessionTitle] = useState("");
   const [selectedScenarioKey, setSelectedScenarioKey] = useState("");
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [useAiGm, setUseAiGm] = useState(true);
@@ -41,7 +64,7 @@ export function SessionCreatePage({
     event.preventDefault();
     if (hasRecruitingSession) return;
 
-    void onCreateSession(sessionTitle, {
+    void onCreateSession(sessionTitle.trim() || selectedScenario?.title || "새 세션", {
       scenarioId: selectedScenario?.scenarioId,
       maxParticipants: maxPlayers,
       useAiGm,
@@ -50,22 +73,10 @@ export function SessionCreatePage({
 
   return (
     <main className="session-create-page">
-      <section className="session-create-hero">
-        <div>
-          <h1>세션 생성</h1>
-        </div>
-      </section>
-
-      <section className="session-create-board">
-        <article className="session-create-form-card">
-          <div className="section-heading">
-            <div>
-              <h2>세션 설정</h2>
-            </div>
-          </div>
-
-          <form className="modal-form session-create-form" onSubmit={submitSession}>
-            <div>
+      <section className="session-create-bulletin" style={{ backgroundImage: `url(${boxBulletinImage})` }}>
+        <div className="session-create-stage">
+          <form className="session-create-panel session-create-panel-form" onSubmit={submitSession}>
+            <div className="session-create-field">
               <label htmlFor="session-title-page">세션 제목</label>
               <input
                 id="session-title-page"
@@ -76,7 +87,7 @@ export function SessionCreatePage({
               />
             </div>
 
-            <div>
+            <div className="session-create-field">
               <label htmlFor="scenario-id-page">시나리오</label>
               <select
                 id="scenario-id-page"
@@ -91,75 +102,79 @@ export function SessionCreatePage({
               </select>
             </div>
 
-            <div className="field-row">
-              <div>
-                <label htmlFor="max-players-page">참가 인원 (1~8)</label>
+            <div className="session-create-inline-grid">
+              <div className="session-create-field session-create-range-field">
+                <label htmlFor="max-players-page">참가 인원 (1 ~ 8)</label>
                 <input
                   id="max-players-page"
                   type="number"
                   min={1}
                   max={8}
                   value={maxPlayers}
-                  onChange={(event) => setMaxPlayers(Math.min(8, Math.max(1, Number(event.target.value) || 1)))}
+                  step={1}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    setMaxPlayers(Number.isFinite(next) ? Math.min(8, Math.max(1, next)) : 1);
+                  }}
                 />
               </div>
 
-              <label className="toggle-field session-create-toggle" htmlFor="use-ai-gm-page">
+              <label className="session-create-mini-card session-create-ai-card session-create-ai-inline" htmlFor="use-ai-gm-page">
+                <div className="session-create-ai-inline-copy">
+                  <RobotIcon />
+                  <strong>AI GM 사용</strong>
+                </div>
                 <input
                   id="use-ai-gm-page"
                   type="checkbox"
                   checked={useAiGm}
                   onChange={(event) => setUseAiGm(event.target.checked)}
                 />
-                <span>AI GM 사용</span>
               </label>
             </div>
 
-            <button type="submit" className="primary" disabled={busy || hasRecruitingSession}>
-              세션 생성
+            <button type="submit" className="session-create-submit" disabled={busy || hasRecruitingSession}>
+              <img src={buttonSimpleBeigeImage} alt="" aria-hidden="true" className="session-create-submit-bg" />
+              <span>세션 생성</span>
             </button>
+
+            {error ? <p className="session-create-error">{error}</p> : null}
           </form>
-        </article>
 
-        <article className="session-create-preview-card">
-          {selectedScenario ? (
-            <>
-              <img src={selectedScenario.image} alt={`${selectedScenario.title} thumbnail`} className="session-create-preview-image" />
+          <article className="session-create-panel session-create-panel-preview">
+            {selectedScenario ? (
+              <>
+                <img
+                  src={selectedScenario.image}
+                  alt={`${selectedScenario.title} thumbnail`}
+                  className="session-create-preview-image"
+                />
 
-              <div className="session-create-preview-body">
-                <div className="session-create-preview-badges">
-                  <span className={`session-discover-gm-badge${selectedScenario.gmLabel === "AI GM" ? " is-ai" : ""}`}>
-                    {selectedScenario.gmLabel}
-                  </span>
-                  <span className="session-discover-meta-pill">{selectedScenario.theme}</span>
-                  <span className="session-discover-meta-pill muted">{selectedScenario.difficulty}</span>
+                <div className="session-create-preview-body">
+                  <div className="session-create-preview-pill-row">
+                    <span className="session-create-preview-pill">{useAiGm ? "AI GM" : "인간 GM"}</span>
+                  </div>
+
+                  <h2>{selectedScenario.title}</h2>
+                  <p>{selectedScenario.description}</p>
+
+                  <div className="session-create-preview-foot">
+                    <span className="session-create-preview-count">
+                      <UsersIcon />
+                      <strong>1 / {maxPlayers}</strong>
+                    </span>
+                  </div>
                 </div>
-
-                <h2>{selectedScenario.title}</h2>
-                <p>{selectedScenario.description}</p>
-
-                <dl className="session-create-preview-meta">
-                  <div>
-                    <dt>참가 인원</dt>
-                    <dd>{maxPlayers}명</dd>
-                  </div>
-                  <div>
-                    <dt>GM 종류</dt>
-                    <dd>{useAiGm ? "AI GM" : "일반 GM"}</dd>
-                  </div>
-                </dl>
+              </>
+            ) : (
+              <div className="session-create-empty">
+                <h2>시나리오를 준비 중입니다</h2>
+                <p>선택 가능한 시나리오가 없으면 세션 정보를 미리 볼 수 없습니다.</p>
               </div>
-            </>
-          ) : (
-            <div className="session-discover-empty">
-              <h2>시나리오를 선택해 주세요</h2>
-              <p>왼쪽 설정에서 시나리오를 고르면 오른쪽에서 미리보기 정보를 확인할 수 있습니다.</p>
-            </div>
-          )}
-        </article>
+            )}
+          </article>
+        </div>
       </section>
-
-      {error ? <p className="panel-error">{error}</p> : null}
     </main>
   );
 }
