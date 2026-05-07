@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -15,9 +14,6 @@ import {
   CharacterInventoryResponseDto,
   CharacterResponseDto,
   CreateCharacterDto,
-  MVP_CHARACTER_LEVEL,
-  MVP_CLASS_VALUES,
-  MVP_RACE_VALUES,
   SessionCharacterResponseDto,
   UpdateCharacterDto,
   UpdateCharacterEquipmentDto,
@@ -36,9 +32,6 @@ const defaultAbilityScores = {
   cha: 10,
 };
 
-const mvpClassLookup = new Map(MVP_CLASS_VALUES.map((value) => [value.toLowerCase(), value]));
-const mvpRaceLookup = new Map(MVP_RACE_VALUES.map((value) => [value.toLowerCase(), value]));
-
 @Injectable()
 export class CharactersService {
   constructor(
@@ -49,16 +42,15 @@ export class CharactersService {
 
   async createCharacter(userId: string, dto: CreateCharacterDto): Promise<CharacterResponseDto> {
     await this.ensureUserExists(userId);
-    const mvpCharacter = this.normalizeMvpCharacterInput(dto);
 
     const character = await this.prisma.character.create({
       data: {
         ownerUserId: userId,
         name: dto.name.trim(),
-        ancestry: mvpCharacter.ancestry,
-        className: mvpCharacter.className,
+        ancestry: dto.ancestry.trim(),
+        className: dto.className.trim(),
         subclassName: dto.subclassName?.trim() ?? null,
-        level: mvpCharacter.level,
+        level: dto.level ?? 1,
         bio: dto.bio?.trim() ?? null,
         abilitiesJson: JSON.stringify(dto.abilities ?? defaultAbilityScores),
         proficiencyBonus: dto.proficiencyBonus ?? 2,
@@ -111,21 +103,16 @@ export class CharactersService {
     dto: UpdateCharacterDto,
   ): Promise<CharacterResponseDto> {
     const existing = await this.getOwnedCharacterOrThrow(userId, characterId);
-    const mvpCharacter = this.normalizeMvpCharacterUpdateInput(dto, {
-      ancestry: existing.ancestry,
-      className: existing.className,
-      level: existing.level,
-    });
 
     const updated = await this.prisma.character.update({
       where: { id: characterId },
       data: {
         name: dto.name?.trim() ?? existing.name,
-        ancestry: mvpCharacter.ancestry,
-        className: mvpCharacter.className,
+        ancestry: dto.ancestry?.trim() ?? existing.ancestry,
+        className: dto.className?.trim() ?? existing.className,
         subclassName:
           dto.subclassName === undefined ? existing.subclassName : dto.subclassName?.trim() ?? null,
-        level: mvpCharacter.level,
+        level: dto.level ?? existing.level,
         bio: dto.bio === undefined ? existing.bio : dto.bio.trim(),
         abilitiesJson: JSON.stringify(dto.abilities ?? JSON.parse(existing.abilitiesJson)),
         proficiencyBonus: dto.proficiencyBonus ?? existing.proficiencyBonus,
@@ -325,59 +312,6 @@ export class CharactersService {
     }).catch(() => {
       throw new NotFoundException(`User ${userId} was not found.`);
     });
-  }
-
-  private normalizeMvpCharacterInput(dto: CreateCharacterDto): {
-    ancestry: string;
-    className: string;
-    level: number;
-  } {
-    return {
-      ancestry: this.normalizeMvpRace(dto.ancestry),
-      className: this.normalizeMvpClass(dto.className),
-      level: this.normalizeMvpLevel(dto.level),
-    };
-  }
-
-  private normalizeMvpCharacterUpdateInput(
-    dto: UpdateCharacterDto,
-    existing: { ancestry: string; className: string; level: number },
-  ): {
-    ancestry: string;
-    className: string;
-    level: number;
-  } {
-    return {
-      ancestry: this.normalizeMvpRace(dto.ancestry ?? existing.ancestry),
-      className: this.normalizeMvpClass(dto.className ?? existing.className),
-      level: this.normalizeMvpLevel(dto.level ?? existing.level),
-    };
-  }
-
-  private normalizeMvpRace(value: string): string {
-    const normalized = value.trim().toLowerCase();
-    const race = mvpRaceLookup.get(normalized);
-    if (!race) {
-      throw new BadRequestException(`MVP에서는 ${MVP_RACE_VALUES.join(", ")} 종족만 선택할 수 있습니다.`);
-    }
-    return race;
-  }
-
-  private normalizeMvpClass(value: string): string {
-    const normalized = value.trim().toLowerCase();
-    const className = mvpClassLookup.get(normalized);
-    if (!className) {
-      throw new BadRequestException(`MVP에서는 ${MVP_CLASS_VALUES.join(", ")} 클래스만 선택할 수 있습니다.`);
-    }
-    return className;
-  }
-
-  private normalizeMvpLevel(value: number | undefined): number {
-    const level = value ?? MVP_CHARACTER_LEVEL;
-    if (level !== MVP_CHARACTER_LEVEL) {
-      throw new BadRequestException(`MVP 캐릭터 레벨은 ${MVP_CHARACTER_LEVEL}로 고정됩니다.`);
-    }
-    return MVP_CHARACTER_LEVEL;
   }
 
   private toAvatarType(value?: CharacterAvatarType): PrismaCharacterAvatarType {

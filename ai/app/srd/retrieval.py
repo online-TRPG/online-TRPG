@@ -392,18 +392,6 @@ class SrdRetriever:
                 term in haystack for term in ["넘어짐", "넘어진", "prone"]
             ):
                 score += 2
-            if hook.id == "hook.check.resolve_ability_or_skill_check" and any(
-                term in haystack for term in ["판정", "조사", "수사", "조사한다", "check", "skill"]
-            ):
-                score += 3
-            if hook.id == "hook.class.ranger.fighting_style_archery" and any(
-                term in haystack for term in ["롱보우", "archery", "longbow", "원거리무기", "활공격"]
-            ):
-                score += 10
-            if hook.id == "hook.class.ranger.natural_explorer_check" and any(
-                term in haystack for term in ["레인저", "ranger", "자연 탐험가", "naturalexplorer", "생존", "survival"]
-            ):
-                score += 4
             if hook.id == "hook.item.bag_of_holding_capacity" and any(
                 term in haystack for term in ["보유의주머니", "bagofholding", "용량", "넣"]
             ):
@@ -420,6 +408,10 @@ class SrdRetriever:
                 term in haystack for term in ["향상된치명타", "우월한치명타", "champion", "치명타", "critical"]
             ):
                 score += 4
+            if hook.id == "hook.class.barbarian.rage" and any(
+                term in haystack for term in ["격노", "rage"]
+            ):
+                score += 4
             if hook.id == "hook.class.rogue.sneak_attack" and any(
                 term in haystack for term in ["암습", "sneakattack"]
             ):
@@ -428,6 +420,10 @@ class SrdRetriever:
                 term in haystack for term in ["교활한행동", "cunningaction", "질주", "이탈", "숨기"]
             ):
                 score += 4
+            if hook.id == "hook.class.barbarian.frenzy" and any(
+                term in haystack for term in ["광분", "frenzy"]
+            ):
+                score += 5
             if score:
                 scored.append((score, hook))
 

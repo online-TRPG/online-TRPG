@@ -173,12 +173,6 @@ export class SessionsService {
         },
       });
 
-      await this.ensureSessionScenarioNodeSnapshot(tx, sessionScenario.id, scenario.id);
-      await this.recordNodeVisit(tx, {
-        sessionScenarioId: sessionScenario.id,
-        nodeId: startNodeId,
-      });
-
       return createdSession;
     });
 
@@ -421,7 +415,6 @@ export class SessionsService {
     const scenarioMap = await this.getScenarioDefaultVttMapForNode(
       sessionScenario.id,
       state.currentNodeId,
-      resolvedSessionId,
     );
     if (scenarioMap) {
       const map = this.normalizeVttMap(scenarioMap, state.currentNodeId ?? null);
@@ -1128,15 +1121,7 @@ export class SessionsService {
       where: { sessionScenarioId: activeScenario.id },
     });
     const flags = this.parseJson<Record<string, unknown>>(currentState?.flagsJson, {});
-    const rawTargetDefaultMap = this.extractVttMapFromCheckOptions(targetNode.checkOptionsJson);
-    const targetDefaultMap = rawTargetDefaultMap
-      ? await this.hydrateScenarioMapWithSessionTokens(
-          resolvedSessionId,
-          targetNode.nodeId,
-          rawTargetDefaultMap,
-          targetNode.nodeMetaJson,
-        )
-      : null;
+    const targetDefaultMap = this.extractVttMapFromCheckOptions(targetNode.checkOptionsJson);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.session.update({
@@ -1510,7 +1495,6 @@ export class SessionsService {
     const session = await this.getHumanGmSessionForOperator(userId, sessionId);
     const resolvedSessionId = session.id;
     const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
-    const currentFlags = this.parseJson<Record<string, unknown>>(activeScenario.gameState?.flagsJson, {});
 
     await this.prisma.$transaction(async (tx) => {
       if (session.status === PrismaSessionStatus.RECRUITING) {
@@ -1527,15 +1511,6 @@ export class SessionsService {
         }
       }
 
-      const autoAdvanceTarget =
-        phase === PrismaGamePhase.EXPLORATION
-          ? await this.resolveCombatAutoAdvanceTarget(
-              tx,
-              activeScenario.id,
-              activeScenario.gameState?.currentNodeId ?? null,
-            )
-          : null;
-
       await tx.session.update({
         where: { id: resolvedSessionId },
         data: {
@@ -1545,38 +1520,6 @@ export class SessionsService {
               : PrismaSessionStatus.PLAYING,
         },
       });
-      if (autoAdvanceTarget) {
-        const rawTargetDefaultMap = this.extractVttMapFromCheckOptions(
-          autoAdvanceTarget.checkOptionsJson,
-        );
-        const targetDefaultMap = rawTargetDefaultMap
-          ? await this.hydrateScenarioMapWithSessionTokens(
-              resolvedSessionId,
-              autoAdvanceTarget.nodeId,
-              rawTargetDefaultMap,
-              autoAdvanceTarget.nodeMetaJson,
-            )
-          : null;
-        await tx.gameState.update({
-          where: { sessionScenarioId: activeScenario.id },
-          data: {
-            currentNodeId: autoAdvanceTarget.nodeId,
-            phase: PrismaGamePhase.DIALOGUE,
-            flagsJson: JSON.stringify({
-              ...currentFlags,
-              ...(targetDefaultMap
-                ? { vttMap: this.normalizeVttMap(targetDefaultMap, autoAdvanceTarget.nodeId) }
-                : {}),
-            }),
-          },
-        });
-        await this.recordNodeVisit(tx, {
-          sessionScenarioId: activeScenario.id,
-          nodeId: autoAdvanceTarget.nodeId,
-        });
-        return;
-      }
-
       await tx.gameState.update({
         where: { sessionScenarioId: activeScenario.id },
         data: { phase },
@@ -1595,6 +1538,14 @@ export class SessionsService {
     sessionId: string,
     scenarioNodeId: string | null,
   ): Promise<VttMapStateDto> {
+    const sessionCharacters = await this.prisma.sessionCharacter.findMany({
+      where: {
+        sessionId,
+        status: PrismaSessionCharacterStatus.ACTIVE,
+      },
+      include: { character: true },
+      orderBy: { createdAt: "asc" },
+    });
     const gridSize = 64;
 
     return {
@@ -1605,173 +1556,20 @@ export class SessionsService {
       gridSize,
       width: 1280,
       height: 832,
-      tokens: await this.buildSessionCharacterTokens(sessionId, scenarioNodeId, null, gridSize),
+      tokens: sessionCharacters.slice(0, 12).map((sessionCharacter, index) => ({
+        id: `token:${sessionCharacter.id}`,
+        sessionCharacterId: sessionCharacter.id,
+        name: sessionCharacter.character.name,
+        imageUrl: sessionCharacter.character.avatarUrl ?? null,
+        x: gridSize * (2 + index),
+        y: gridSize * (3 + (index % 2)),
+        size: gridSize,
+        hidden: false,
+        isHostile: false,
+      })),
       fogRects: [],
       updatedAt: new Date().toISOString(),
     };
-  }
-
-  private async buildSessionCharacterTokens(
-    sessionId: string,
-    scenarioNodeId: string | null,
-    playerStartPositions: Array<{ x: number; y: number }> | null,
-    gridSize: number,
-    existingSessionCharacterIds?: Set<string>,
-  ): Promise<VttMapStateDto["tokens"]> {
-    const sessionCharacters = await this.prisma.sessionCharacter.findMany({
-      where: {
-        sessionId,
-        status: PrismaSessionCharacterStatus.ACTIVE,
-      },
-      include: { character: true },
-      orderBy: { createdAt: "asc" },
-    });
-
-    return sessionCharacters
-      .filter((sessionCharacter) => !existingSessionCharacterIds?.has(sessionCharacter.id))
-      .slice(0, 12)
-      .map((sessionCharacter, index) => {
-        const start = playerStartPositions?.[index] ?? null;
-        return {
-          id: `token:${sessionCharacter.id}:${scenarioNodeId ?? "default"}`,
-          sessionCharacterId: sessionCharacter.id,
-          name: sessionCharacter.character.name,
-          imageUrl: sessionCharacter.character.avatarUrl ?? null,
-          x: start?.x ?? gridSize * (2 + index),
-          y: start?.y ?? gridSize * (3 + (index % 2)),
-          size: gridSize,
-          hidden: false,
-          isHostile: false,
-        };
-      });
-  }
-
-  private parsePlayerStartPositions(
-    nodeMetaJson: string | null | undefined,
-  ): Array<{ x: number; y: number }> | null {
-    const meta = this.parseJson<Record<string, unknown> | null>(nodeMetaJson, null);
-    if (!meta) {
-      return null;
-    }
-
-    const raw = meta.playerStartPositions;
-    if (!Array.isArray(raw)) {
-      return null;
-    }
-
-    const positions = raw
-      .map((item) => {
-        if (!item || typeof item !== "object") {
-          return null;
-        }
-
-        const candidate = item as Record<string, unknown>;
-        const x = Number(candidate.x);
-        const y = Number(candidate.y);
-        if (!Number.isFinite(x) || !Number.isFinite(y)) {
-          return null;
-        }
-        return { x, y };
-      })
-      .filter((item): item is { x: number; y: number } => Boolean(item));
-
-    return positions.length ? positions : null;
-  }
-
-  private async hydrateScenarioMapWithSessionTokens(
-    sessionId: string,
-    scenarioNodeId: string | null,
-    map: VttMapStateDto,
-    nodeMetaJson: string | null | undefined,
-  ): Promise<VttMapStateDto> {
-    const existingSessionCharacterIds = new Set(
-      map.tokens
-        .map((token) => token.sessionCharacterId)
-        .filter((value): value is string => typeof value === "string" && value.length > 0),
-    );
-    const playerStartPositions = this.parsePlayerStartPositions(nodeMetaJson);
-    const mergedTokens = [
-      ...map.tokens,
-      ...(await this.buildSessionCharacterTokens(
-        sessionId,
-        scenarioNodeId,
-        playerStartPositions,
-        map.gridSize,
-        existingSessionCharacterIds,
-      )),
-    ];
-
-    return this.normalizeVttMap(
-      {
-        ...map,
-        tokens: mergedTokens,
-      },
-      scenarioNodeId,
-    );
-  }
-
-  private async resolveCombatAutoAdvanceTarget(
-    tx: Prisma.TransactionClient,
-    sessionScenarioId: string,
-    currentNodeId: string | null,
-  ): Promise<{ nodeId: string; checkOptionsJson: string; nodeMetaJson: string | null } | null> {
-    if (!currentNodeId) {
-      return null;
-    }
-
-    const currentNode = await tx.sessionScenarioNode.findUnique({
-      where: {
-        sessionScenarioId_nodeId: {
-          sessionScenarioId,
-          nodeId: currentNodeId,
-        },
-      },
-      select: {
-        nodeId: true,
-        nodeType: true,
-        transitionsJson: true,
-        fallbackNodeId: true,
-      },
-    });
-
-    if (!currentNode || currentNode.nodeType !== ScenarioNodeType.COMBAT) {
-      return null;
-    }
-
-    const nextNodeIds = new Set<string>();
-    const transitions = this.parseJson<Record<string, unknown>[]>(currentNode.transitionsJson, []);
-    transitions.forEach((transition) => {
-      const nextNodeId = this.getStringProperty(transition, "nextNodeId");
-      if (nextNodeId) {
-        nextNodeIds.add(nextNodeId);
-      }
-    });
-    if (currentNode.fallbackNodeId) {
-      nextNodeIds.add(currentNode.fallbackNodeId);
-    }
-
-    if (nextNodeIds.size !== 1) {
-      return null;
-    }
-
-    const [nextNodeId] = Array.from(nextNodeIds);
-    if (!nextNodeId || nextNodeId === currentNode.nodeId) {
-      return null;
-    }
-
-    return tx.sessionScenarioNode.findUnique({
-      where: {
-        sessionScenarioId_nodeId: {
-          sessionScenarioId,
-          nodeId: nextNodeId,
-        },
-      },
-      select: {
-        nodeId: true,
-        checkOptionsJson: true,
-        nodeMetaJson: true,
-      },
-    });
   }
 
   private async getVttMapBaseline(
@@ -1788,7 +1586,6 @@ export class SessionsService {
     const scenarioMap = await this.getScenarioDefaultVttMapForNode(
       sessionScenarioId,
       state.currentNodeId,
-      sessionId,
     );
     if (scenarioMap) {
       return this.normalizeVttMap(scenarioMap, state.currentNodeId ?? null);
@@ -1982,7 +1779,6 @@ export class SessionsService {
   private async getScenarioDefaultVttMapForNode(
     sessionScenarioId: string,
     nodeId: string | null | undefined,
-    sessionId: string,
   ): Promise<VttMapStateDto | null> {
     if (!nodeId) {
       return null;
@@ -1995,23 +1791,13 @@ export class SessionsService {
           nodeId,
         },
       },
-      select: { checkOptionsJson: true, nodeMetaJson: true },
+      select: { checkOptionsJson: true },
     });
     if (!node) {
       return null;
     }
 
-    const scenarioMap = this.extractVttMapFromCheckOptions(node.checkOptionsJson);
-    if (!scenarioMap) {
-      return null;
-    }
-
-    return this.hydrateScenarioMapWithSessionTokens(
-      sessionId,
-      nodeId,
-      scenarioMap,
-      node.nodeMetaJson,
-    );
+    return this.extractVttMapFromCheckOptions(node.checkOptionsJson);
   }
 
   private extractVttMapFromCheckOptions(value: string): VttMapStateDto | null {
@@ -2236,7 +2022,6 @@ export class SessionsService {
         checkOptionsJson: node.checkOptionsJson,
         transitionsJson: node.transitionsJson,
         cluesJson: node.cluesJson,
-        nodeMetaJson: node.nodeMetaJson,
         fallbackNodeId: node.fallbackNodeId,
       })),
     });
