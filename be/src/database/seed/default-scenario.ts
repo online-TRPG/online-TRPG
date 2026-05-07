@@ -36,10 +36,6 @@ const scenarioNodes = [
     ]),
     transitionsJson: JSON.stringify([
       {
-        condition: "investigate_tracks_success",
-        nextNodeId: "node_inner_tunnel",
-      },
-      {
         condition: "default",
         nextNodeId: "node_inner_tunnel",
       },
@@ -53,7 +49,6 @@ const scenarioNodes = [
         revealPolicy: { mode: "on_node_visit" },
       },
     ]),
-    nodeMetaJson: null,
     fallbackNodeId: "node_inner_tunnel",
   },
   {
@@ -65,12 +60,7 @@ const scenarioNodes = [
       "The tunnel narrows and torchlight flickers from a rough chamber further in.",
     imageUrl: null,
     checkOptionsJson: JSON.stringify([]),
-    transitionsJson: JSON.stringify([
-      {
-        condition: "default",
-        nextNodeId: "node_goblin_guard",
-      },
-    ]),
+    transitionsJson: JSON.stringify([]),
     cluesJson: JSON.stringify([
       {
         id: "clue_secret_cache",
@@ -81,90 +71,6 @@ const scenarioNodes = [
         revealPolicy: { mode: "conditional" },
       },
     ]),
-    nodeMetaJson: null,
-    fallbackNodeId: "node_goblin_guard",
-  },
-  {
-    id: "node_goblin_guard",
-    scenarioId: DEFAULT_SCENARIO_ID,
-    nodeType: "combat",
-    title: "Goblin Guard",
-    sceneText:
-      "A goblin guard scrambles out from behind broken crates and raises a scimitar to block the passage.",
-    imageUrl: null,
-    checkOptionsJson: JSON.stringify({
-      checks: [],
-      combat: {
-        encounterId: "encounter_goblin_guard",
-        hostiles: [
-          {
-            id: "goblin-guard-1",
-            name: "Goblin Guard",
-            armorClass: 13,
-            maxHp: 10,
-            currentHp: 10,
-            initiative: 12,
-          },
-        ],
-        supportedPlayerActions: [
-          "weapon_attack",
-          "spell.fire_bolt",
-          "spell.chill_touch",
-          "spell.magic_missile",
-          "spell.cure_wounds",
-          "magic_item.potion_of_healing",
-          "class.fighter.feature.second_wind",
-          "class.rogue.feature.sneak_attack",
-        ],
-      },
-    }),
-    transitionsJson: JSON.stringify([
-      {
-        condition: "all_hostiles_defeated",
-        nextNodeId: "node_goblin_cache",
-      },
-      {
-        condition: "default",
-        nextNodeId: "node_goblin_cache",
-      },
-    ]),
-    cluesJson: JSON.stringify([
-      {
-        id: "clue_goblin_cache",
-        title: "Goblin supplies",
-        text: "The goblin keeps glancing toward a cloth-covered supply pile deeper in the tunnel.",
-        handoutText: "The goblin keeps glancing toward a cloth-covered supply pile deeper in the tunnel.",
-        revealPolicy: { mode: "on_node_visit" },
-      },
-    ]),
-    nodeMetaJson: null,
-    fallbackNodeId: "node_goblin_cache",
-  },
-  {
-    id: "node_goblin_cache",
-    scenarioId: DEFAULT_SCENARIO_ID,
-    nodeType: "conclusion",
-    title: "Goblin Cache",
-    sceneText:
-      "With the guard defeated, the party finds a small cache of supplies and a safe path back out of the cave.",
-    imageUrl: null,
-    checkOptionsJson: JSON.stringify([]),
-    transitionsJson: JSON.stringify([
-      {
-        condition: "session_complete",
-        nextNodeId: null,
-      },
-    ]),
-    cluesJson: JSON.stringify([
-      {
-        id: "clue_cache_supplies",
-        title: "Recovered supplies",
-        text: "The cache holds stolen rations, rope, and a pouch of trade coins.",
-        handoutText: "The cache holds stolen rations, rope, and a pouch of trade coins.",
-        revealPolicy: { mode: "on_node_visit" },
-      },
-    ]),
-    nodeMetaJson: null,
     fallbackNodeId: null,
   },
 ];
@@ -200,7 +106,6 @@ export async function seedDefaultScenario(prisma: PrismaClient): Promise<void> {
         checkOptionsJson: node.checkOptionsJson,
         transitionsJson: node.transitionsJson,
         cluesJson: node.cluesJson,
-        nodeMetaJson: node.nodeMetaJson,
         fallbackNodeId: node.fallbackNodeId,
       },
       create: node,

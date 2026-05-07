@@ -4,10 +4,6 @@ import {
   GmMode as PrismaGmMode,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
-import {
-  CombatEntityType as SharedCombatEntityType,
-  CombatStatus as SharedCombatStatus,
-} from "@trpg/shared-types";
 import { CombatService } from "./combat.service";
 
 const createParticipant = (
@@ -18,25 +14,17 @@ const createParticipant = (
     nameSnapshot: string;
     turnOrder: number;
     isAlive: boolean;
-    entityType: PrismaCombatEntityType;
-    currentHpSnapshot: number;
-    maxHpSnapshot: number;
-    armorClassSnapshot: number;
-    isHostile: boolean;
   }> = {},
 ) => ({
   id: overrides.id ?? "participant-1",
   combatId: overrides.combatId ?? "combat-1",
-  entityType: overrides.entityType ?? PrismaCombatEntityType.PLAYER_CHARACTER,
+  entityType: PrismaCombatEntityType.PLAYER_CHARACTER,
   sessionCharacterId: overrides.sessionCharacterId ?? "session-character-1",
   nameSnapshot: overrides.nameSnapshot ?? "Hero",
   initiative: 10,
   turnOrder: overrides.turnOrder ?? 1,
   isAlive: overrides.isAlive ?? true,
-  isHostile: overrides.isHostile ?? false,
-  currentHpSnapshot: overrides.currentHpSnapshot ?? 18,
-  maxHpSnapshot: overrides.maxHpSnapshot ?? 20,
-  armorClassSnapshot: overrides.armorClassSnapshot ?? 16,
+  isHostile: false,
   turnEndedAt: null,
   createdAt: new Date("2026-05-06T00:00:00.000Z"),
   updatedAt: new Date("2026-05-06T00:00:00.000Z"),
@@ -97,109 +85,11 @@ describe("CombatService lifecycle", () => {
       ),
       prisma,
       sessionsService,
-      diceService,
       actionEconomy,
       characterResources,
       realtimeEvents,
     };
   };
-
-  it("starts combat with hostile participants that can be tracked as HP/AC targets", async () => {
-    const { service, prisma, sessionsService } = createService();
-    const participantCreates: Array<{ data: Record<string, unknown> }> = [];
-    const tx = {
-      combat: {
-        create: jest.fn().mockResolvedValue({ id: "combat-1" }),
-        update: jest.fn(),
-        findUniqueOrThrow: jest.fn().mockImplementation(() => ({
-          id: "combat-1",
-          sessionId: "session-1",
-          status: PrismaCombatStatus.ACTIVE,
-          roundNo: 1,
-          turnNo: 1,
-          currentParticipantId: "participant-1",
-          participants: participantCreates.map((create, index) => ({
-            id: `participant-${index + 1}`,
-            combatId: "combat-1",
-            turnEndedAt: null,
-            createdAt: new Date("2026-05-06T00:00:00.000Z"),
-            updatedAt: new Date("2026-05-06T00:00:00.000Z"),
-            ...create.data,
-          })),
-        })),
-      },
-      combatParticipant: {
-        create: jest.fn().mockImplementation(({ data }) => {
-          participantCreates.push({ data });
-          return { id: `participant-${participantCreates.length}`, ...data };
-        }),
-      },
-      combatTurnState: {
-        upsert: jest.fn(),
-      },
-      gameState: {
-        update: jest.fn(),
-      },
-    };
-
-    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
-      id: "session-1",
-      status: PrismaSessionStatus.PLAYING,
-      gmMode: PrismaGmMode.AI,
-    });
-    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
-      sessionScenario: { id: "session-scenario-1" },
-      state: { version: 3 },
-    });
-    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
-    prisma.combat.findFirst.mockResolvedValue(null);
-    prisma.sessionCharacter.findMany.mockResolvedValue([
-      {
-        id: "session-character-1",
-        currentHp: 18,
-        tempHp: 0,
-        conditionsJson: "[]",
-        character: {
-          name: "Fighter",
-          maxHp: 20,
-          armorClass: 16,
-        },
-      },
-    ]);
-    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
-
-    const result = await service.startCombat("user-1", "session-1", {
-      autoRollInitiative: false,
-      hostileParticipants: [
-        {
-          name: "Goblin",
-          entityType: SharedCombatEntityType.MONSTER,
-          maxHp: 7,
-          armorClass: 13,
-        },
-      ],
-    });
-
-    expect(result.status).toBe(SharedCombatStatus.ACTIVE);
-    expect(result.participants).toEqual([
-      expect.objectContaining({
-        entityType: SharedCombatEntityType.PLAYER_CHARACTER,
-        name: "Fighter",
-        currentHp: 18,
-        maxHp: 20,
-        armorClass: 16,
-        isHostile: false,
-      }),
-      expect.objectContaining({
-        entityType: SharedCombatEntityType.MONSTER,
-        name: "Goblin",
-        currentHp: 7,
-        maxHp: 7,
-        armorClass: 13,
-        isHostile: true,
-      }),
-    ]);
-  });
 
   it("creates the first CombatTurnState when combat starts", async () => {
     const { service, prisma, sessionsService } = createService();
@@ -364,7 +254,11 @@ describe("CombatService lifecycle", () => {
     prisma.sessionCharacter.findUnique
       .mockResolvedValueOnce({ id: "session-character-1" })
       .mockResolvedValueOnce({
-        conditionsJson: JSON.stringify(["rage", "resistance:slashing", "blessed"]),
+        conditionsJson: JSON.stringify([
+          "rage",
+          "resistance:slashing",
+          "blessed",
+        ]),
       });
     prisma.sessionCharacter.update.mockResolvedValue({});
     prisma.sessionCharacterResource.findMany.mockResolvedValue([

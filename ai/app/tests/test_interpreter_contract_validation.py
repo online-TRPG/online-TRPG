@@ -93,6 +93,18 @@ def run_second_wind_contract_case(payload: dict):
     )
 
 
+def run_frenzy_contract_case(payload: dict):
+    service = InterpreterService(StaticInterpreterClient(payload), settings())
+    return service.run(
+        InterpreterHarnessRequest(
+            rawText="바바리안이 격노에 들어가면서 광분을 선언한다.",
+            actorCharacterId="barbarian-1",
+            sceneSummary="전투 중.",
+            availableTargets=["barbarian-1"],
+        )
+    )
+
+
 def run_plain_contract_case(payload: dict):
     service = InterpreterService(StaticInterpreterClient(payload), settings())
     return service.run(
@@ -246,6 +258,38 @@ def test_contract_normalizes_class_feature_with_empty_feature_id():
     )
 
     assert response.parsed.action.featureId == "class.fighter.feature.재기의_숨결"
+
+
+def test_contract_normalizes_ambiguous_class_feature_to_highest_ranked_hook_match():
+    response = run_frenzy_contract_case(
+        {
+            "action": {
+                "type": "use_class_feature",
+                "actorCharacterId": "barbarian-1",
+                "targetId": None,
+                "spellId": None,
+                "featureId": "class.barbarian.feature.격노",
+                "attackKind": None,
+                "ability": None,
+                "skill": None,
+                "approach": "격노에 들어가며 광분을 선언한다.",
+                "confidence": 0.84,
+                "requiresRoll": False,
+                "suggestedDifficulty": None,
+            },
+            "needsClarification": False,
+            "clarificationQuestion": None,
+            "mentionedSpellId": None,
+            "mentionedItemId": None,
+            "mentionedConditionIds": [],
+            "requiredRuleCheckIds": [],
+            "rulesConfidence": None,
+            "safetyNotes": [],
+        }
+    )
+
+    assert response.parsed.action.type == "use_class_feature"
+    assert response.parsed.action.featureId == "class.barbarian.subclass_feature.광분"
 
 
 def test_contract_rejects_target_outside_available_targets():
