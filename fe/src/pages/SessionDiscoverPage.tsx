@@ -2,7 +2,7 @@ import { FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useState } fr
 import { Icon } from "../components/Icon";
 import { SessionDetailModal } from "../components/SessionDetailModal";
 import sidePanelImage from "../components/Side_Panel.webp";
-import sidebarFooterImage from "../assets/images/Sidebar_Footer_Image.png";
+import sidebarFooterImage from "../assets/images/Sidebar_Footer_Image.webp";
 import dragonPeekImage from "../assets/images/Peak_a_Boo_Dragon.webp";
 import { findSessionVisualByTitle, sessionVisualPresets } from "../data/sessionVisuals";
 import type { AvailableSessionListItem, SessionDetail, SessionSnapshot, User } from "../types/session";

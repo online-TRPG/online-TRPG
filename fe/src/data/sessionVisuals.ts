@@ -1,8 +1,8 @@
 import type { Scenario } from "../types/session";
-import forestThumbnail from "../assets/images/Thumbnail_Forest_Investigate.png";
-import frostThumbnail from "../assets/images/Thumbnail_Frost_Dragon.png";
-import goblinThumbnail from "../assets/images/Thumbnail_Goblin_Cave.png";
-import mazeThumbnail from "../assets/images/Thumbnail_Maze_Treasure.png";
+import forestThumbnail from "../assets/images/Thumbnail_Forest_Investigate.webp";
+import frostThumbnail from "../assets/images/Thumbnail_Frost_Dragon.webp";
+import goblinThumbnail from "../assets/images/Thumbnail_Goblin_Cave.webp";
+import mazeThumbnail from "../assets/images/Thumbnail_Maze_Treasure.webp";
 
 export interface SessionVisualPreset {
   key: string;
