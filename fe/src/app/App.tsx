@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { NavigateOptions, To } from 'react-router-dom';
 import logoImage from '../assets/images/Logo.webp';
@@ -96,7 +96,7 @@ const viewLabel: Partial<Record<MainView, string>> = {
 };
 
 const UNSAVED_SCENARIO_MESSAGE =
-  '저장하지 않은 변경 사항이 있습니다. 페이지를 벗어나면 내용이 사라질 수 있습니다.';
+  '저장하지 않은 변경 사항이 있습니다. 화면을 이동하면 작업 내용이 사라질 수 있습니다.';
 function viewFromPathname(pathname: string): MainView | null {
   if (pathname === '/play') {
     return 'gameroom';
@@ -308,7 +308,7 @@ export function App() {
 
   async function handleRequestSessionDetail(sessionId: string) {
     if (!auth.user) {
-      throw new Error('濡쒓렇?몄씠 ?꾩슂?⑸땲??');
+      throw new Error('로그인 정보가 없어서 세션 상세를 불러올 수 없습니다.');
     }
 
     return getSessionDetail(auth.user, sessionId, auth.accessToken);
@@ -371,7 +371,7 @@ export function App() {
         <header className="topbar topbar-shell">
           <div className="topbar-left">
             <div className="topbar-brand">
-              <img src={logoImage} alt="紐⑤몢??TRPG" className="topbar-logo-image" />
+              <img src={logoImage} alt="모두의 TRPG" className="topbar-logo-image" />
             </div>
 
             <nav className="top-nav" aria-label="Main navigation">
@@ -398,7 +398,7 @@ export function App() {
                     : 'icon-button profile-chip'
                 }
                 onClick={() => setIsAccountMenuOpen((current) => !current)}
-                aria-label="怨꾩젙 硫붾돱 ?닿린"
+                aria-label="계정 메뉴 열기"
                 aria-expanded={isAccountMenuOpen}
                 aria-haspopup="menu"
               >
@@ -408,12 +408,12 @@ export function App() {
               </button>
 
               {isAccountMenuOpen ? (
-                <div className="account-menu" role="menu" aria-label="怨꾩젙 硫붾돱">
+                <div className="account-menu" role="menu" aria-label="계정 메뉴">
                   <div className="account-menu-header">
                     <div className="avatar avatar-lg">{currentUser.displayName.slice(0, 1)}</div>
                     <div className="account-menu-copy">
                       <strong>{currentUser.displayName}</strong>
-                      <span>{auth.authMode === 'guest' ? '寃뚯뒪???몄뀡' : '?뚯썝 怨꾩젙'}</span>
+                      <span>{auth.authMode === 'guest' ? '게스트 세션' : '일반 계정'}</span>
                     </div>
                   </div>
 
@@ -425,7 +425,7 @@ export function App() {
                       role="menuitem"
                     >
                       <Icon name="user" />
-                      <span>내 프로필</span>
+                      <span>{'내 프로필'}</span>
                     </button>
                     <button
                       type="button"
@@ -434,7 +434,7 @@ export function App() {
                       role="menuitem"
                     >
                       <Icon name="shield" />
-                      <span>계정 관리</span>
+                      <span>{'계정 관리'}</span>
                     </button>
                     <button
                       type="button"
@@ -443,7 +443,7 @@ export function App() {
                       role="menuitem"
                     >
                       <Icon name="settings" />
-                      <span>?ㅼ젙</span>
+                      <span>{'설정'}</span>
                     </button>
                   </div>
 
@@ -456,7 +456,7 @@ export function App() {
                     role="menuitem"
                   >
                     <Icon name="logout" />
-                    <span>濡쒓렇?꾩썐</span>
+                    <span>{'로그아웃'}</span>
                   </button>
                 </div>
               ) : null}
@@ -642,7 +642,6 @@ export function App() {
         activeView !== 'rulebook' &&
         activeView !== 'profile' &&
         activeView !== 'publicProfile' &&
-        activeView !== 'account' &&
         activeView !== 'scenarios' &&
         activeView !== 'scenariosNew' &&
         activeView !== 'scenarioEdit' &&
@@ -653,8 +652,8 @@ export function App() {
             <span className="eyebrow">Coming soon</span>
             <h1>{viewLabel[activeView] ?? '준비 중'}</h1>
             <p>
-              해당 화면은 아직 준비 중입니다. 메인, 캐릭터, 세션 탐색, 세션 생성 화면을
-              우선적으로 다듬고 있습니다.
+              {'해당 화면은 아직 준비 중입니다. 메인, 캐릭터, 세션 탐색, 세션 생성 화면을'}
+              {'우선적으로 다듬고 있습니다.'}
             </p>
           </section>
         ) : null}
