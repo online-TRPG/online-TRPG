@@ -9,6 +9,7 @@ import {
   oauthLogin,
   register,
   reissue,
+  updateMe,
 } from "../services/api";
 import { getAccessTokenExpiresAtMs } from "../services/authToken";
 import {
@@ -22,7 +23,7 @@ import {
   saveStoredUser,
 } from "../services/storage";
 import type { AuthMode } from "../types/auth";
-import type { LogEntry, StoredUser } from "../types/session";
+import type { LogEntry, StoredUser, User } from "../types/session";
 
 const TOKEN_EXPIRED_MESSAGE = "로그인 시간이 만료되었습니다. 다시 로그인해주세요.";
 const TOKEN_REFRESH_LEEWAY_MS = 60 * 1000;
@@ -44,6 +45,7 @@ export interface UseAuthReturn {
   registerMember: (email: string, password: string, name: string) => Promise<void>;
   handleOAuthCallback: (provider: "kakao" | "discord", code: string) => Promise<void>;
   deleteAccount: (password: string) => Promise<boolean>;
+  updateDisplayName: (displayName: string) => Promise<User>;
   signOut: () => Promise<void>;
   clearError: () => void;
   clearFeedback: () => void;
@@ -303,6 +305,36 @@ export function useAuth(
     }
   }
 
+  async function updateDisplayName(displayName: string): Promise<User> {
+    if (!accessToken || authMode !== "member") {
+      throw new Error("회원 로그인 상태에서만 닉네임을 변경할 수 있습니다.");
+    }
+    const trimmed = displayName.trim();
+    if (trimmed.length < 2 || trimmed.length > 10) {
+      throw new Error("닉네임은 2자 이상 10자 이하여야 합니다.");
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await updateMe(accessToken, trimmed);
+      const nextStored: StoredUser = {
+        id: updated.id,
+        publicId: updated.publicId,
+        displayName: updated.displayName,
+        createdAt: updated.createdAt,
+      };
+      saveStoredUser(nextStored);
+      setUser(nextStored);
+      return updated;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "닉네임 변경에 실패했습니다.";
+      setError(message);
+      throw caught instanceof Error ? caught : new Error(message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function signOut() {
     setBusy(true);
     let logoutWarning: string | null = null;
@@ -341,6 +373,7 @@ export function useAuth(
     registerMember,
     handleOAuthCallback,
     deleteAccount,
+    updateDisplayName,
     signOut,
     clearError: () => setError(null),
     clearFeedback: () => {

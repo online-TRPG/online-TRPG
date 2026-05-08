@@ -380,6 +380,14 @@ export function getMe(accessToken: string): Promise<UserResponseDto> {
   return requestJson<UserResponseDto>('/users/me', { accessToken });
 }
 
+export function updateMe(accessToken: string, displayName: string): Promise<UserResponseDto> {
+  return requestJson<UserResponseDto>('/users/me', {
+    method: 'PATCH',
+    accessToken,
+    body: { displayName },
+  });
+}
+
 export function getPublicProfile(publicId: string): Promise<UserResponseDto> {
   return requestJson<UserResponseDto>(`/users/public/${publicId}`);
 }
