@@ -73,14 +73,22 @@ export class RealtimeEventsService {
       .emit("session.status.updated", payload);
   }
 
-  emitActionAccepted(sessionId: string, playerActionId: string): void {
+  emitActionAccepted(
+    sessionId: string,
+    action: {
+      playerActionId: string;
+      actorUserId: string;
+      rawText: string;
+      clientCreatedAt: string;
+    },
+  ): void {
     if (!this.server) {
       return;
     }
 
     this.server.to(this.getRoomName(sessionId)).emit("action.accepted", {
       sessionId,
-      playerActionId,
+      ...action,
     });
   }
 

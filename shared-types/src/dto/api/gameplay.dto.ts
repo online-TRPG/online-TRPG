@@ -108,6 +108,9 @@ export class TurnLogResponseDto {
   turnNumber!: number;
 
   @ApiPropertyOptional({ nullable: true })
+  playerActionId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
   rawInput!: string | null;
 
   @ApiProperty({ type: Object, nullable: true })

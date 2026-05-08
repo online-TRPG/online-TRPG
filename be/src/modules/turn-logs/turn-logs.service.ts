@@ -112,6 +112,7 @@ export class TurnLogsService {
   private mapTurnLog(row: {
     id: string;
     turnNumber: number;
+    playerActionId: string | null;
     rawInput: string | null;
     structuredActionJson: string | null;
     diceResultJson: string | null;
@@ -123,6 +124,7 @@ export class TurnLogsService {
     return {
       turnLogId: row.id,
       turnNumber: row.turnNumber,
+      playerActionId: row.playerActionId,
       rawInput: row.rawInput,
       structuredAction: this.parseNullableJson(row.structuredActionJson),
       diceResult: this.parseNullableJson(row.diceResultJson),

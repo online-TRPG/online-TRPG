@@ -16,11 +16,18 @@ export function useLogs() {
     },
   ]);
 
-  const appendLog = useCallback((kind: LogEntry["kind"], title: string, message: string) => {
+  const appendLog = useCallback((kind: LogEntry["kind"], title: string, message: string, id?: string) => {
+    const nextId = id ?? crypto.randomUUID();
     setLogs((current) =>
-      [{ id: crypto.randomUUID(), kind, title, message, time: nowTime() }, ...current].slice(0, 30),
+      current.some((log) => log.id === nextId)
+        ? current
+        : [{ id: nextId, kind, title, message, time: nowTime() }, ...current].slice(0, 30),
     );
   }, []);
 
-  return { logs, appendLog };
+  const removeLog = useCallback((id: string) => {
+    setLogs((current) => current.filter((log) => log.id !== id));
+  }, []);
+
+  return { logs, appendLog, removeLog };
 }

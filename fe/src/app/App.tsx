@@ -148,9 +148,9 @@ function viewFromPathname(pathname: string): MainView | null {
 export function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { logs, appendLog } = useLogs();
+  const { logs, appendLog, removeLog } = useLogs();
   const auth = useAuth(appendLog);
-  const session = useSession(auth.user, auth.accessToken, appendLog);
+  const session = useSession(auth.user, auth.accessToken, appendLog, removeLog);
   const publicProfileMatch = /^\/users\/([^/]+)\/[^/]+$/.exec(location.pathname);
   const publicProfileId = publicProfileMatch?.[1] ?? null;
   const sessionDetailMatch = /^\/sessions\/([^/]+)\/[^/]+$/.exec(location.pathname);

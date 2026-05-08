@@ -106,7 +106,12 @@ export class ActionsService {
       },
     });
 
-    this.realtimeEvents.emitActionAccepted(session.id, action.id);
+    this.realtimeEvents.emitActionAccepted(session.id, {
+      playerActionId: action.id,
+      actorUserId: action.userId,
+      rawText: action.rawText,
+      clientCreatedAt: action.clientCreatedAt.toISOString(),
+    });
 
     // MVP에서는 별도 큐 인프라 없이 요청 직후 한 건을 처리한다.
     // DB에는 큐 상태가 남기 때문에 나중에 BullMQ 같은 작업 큐로 옮겨도 API 계약을 유지할 수 있다.

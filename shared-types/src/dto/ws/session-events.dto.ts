@@ -71,6 +71,15 @@ export class ActionAcceptedEventDto {
 
   @ApiProperty()
   playerActionId!: string;
+
+  @ApiProperty()
+  actorUserId!: string;
+
+  @ApiProperty()
+  rawText!: string;
+
+  @ApiProperty()
+  clientCreatedAt!: string;
 }
 
 export class TurnLogCreatedEventDto {

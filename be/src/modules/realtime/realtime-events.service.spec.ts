@@ -14,12 +14,20 @@ describe("RealtimeEventsService", () => {
   it("emits action.accepted to the session room", () => {
     const { service, emit, to } = createBoundService();
 
-    service.emitActionAccepted("session-1", "action-1");
+    service.emitActionAccepted("session-1", {
+      playerActionId: "action-1",
+      actorUserId: "user-1",
+      rawText: "I open the door.",
+      clientCreatedAt: "2026-05-08T08:00:00.000Z",
+    });
 
     expect(to).toHaveBeenCalledWith("session:session-1");
     expect(emit).toHaveBeenCalledWith("action.accepted", {
       sessionId: "session-1",
       playerActionId: "action-1",
+      actorUserId: "user-1",
+      rawText: "I open the door.",
+      clientCreatedAt: "2026-05-08T08:00:00.000Z",
     });
   });
 
