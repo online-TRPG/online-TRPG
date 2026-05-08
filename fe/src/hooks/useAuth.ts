@@ -3,6 +3,7 @@ import {
   AUTH_EXPIRED_EVENT,
   AUTH_TOKEN_REISSUED_EVENT,
   createGuest,
+  deleteMe as apiDeleteMe,
   login,
   logout,
   oauthLogin,
@@ -42,6 +43,7 @@ export interface UseAuthReturn {
   loginWithEmail: (email: string, password: string) => Promise<void>;
   registerMember: (email: string, password: string, name: string) => Promise<void>;
   handleOAuthCallback: (provider: "kakao" | "discord", code: string) => Promise<void>;
+  deleteAccount: (password: string) => Promise<boolean>;
   signOut: () => Promise<void>;
   clearError: () => void;
   clearFeedback: () => void;
@@ -264,6 +266,43 @@ export function useAuth(
     }
   }
 
+  async function deleteAccount(password: string): Promise<boolean> {
+    const currentAuth = currentAuthRef.current;
+    if (!currentAuth.accessToken || currentAuth.authMode !== "member") {
+      setError("회원 계정만 탈퇴할 수 있습니다.");
+      setNotice(null);
+      return false;
+    }
+
+    if (!password) {
+      setError("비밀번호를 입력해주세요.");
+      setNotice(null);
+      return false;
+    }
+
+    setError(null);
+    setNotice(null);
+    setBusy(true);
+    try {
+      await apiDeleteMe(currentAuth.accessToken, password);
+
+      // 서버 탈퇴가 끝난 뒤에는 로컬 인증 정보도 즉시 지워 재요청에서 삭제된 계정 토큰을 쓰지 않게 한다.
+      handledExpiredTokenRef.current = false;
+      clearAll();
+      setUser(null);
+      setAccessToken(null);
+      setAuthMode(null);
+      setNotice({ kind: "success", message: "회원 탈퇴가 완료되었습니다." });
+      appendLog("system", "회원 탈퇴", "회원 탈퇴가 완료되었습니다.");
+      return true;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "회원 탈퇴에 실패했습니다.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function signOut() {
     setBusy(true);
     let logoutWarning: string | null = null;
@@ -301,6 +340,7 @@ export function useAuth(
     loginWithEmail,
     registerMember,
     handleOAuthCallback,
+    deleteAccount,
     signOut,
     clearError: () => setError(null),
     clearFeedback: () => {
