@@ -325,6 +325,7 @@ export function BattleMap({
 }: BattleMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(960);
+  const [containerHeight, setContainerHeight] = useState(720);
   const [isFogMode, setFogMode] = useState(false);
   const [isPanMode, setPanMode] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -361,9 +362,12 @@ export function BattleMap({
     [isHost, map.tokens],
   );
   const displayWidth = Math.max(280, containerWidth);
-  const baseScale = displayWidth / map.width;
+  const widthScale = displayWidth / map.width;
+  const availableHeight = Math.max(320, containerHeight);
+  const heightScale = availableHeight / map.height;
+  const baseScale = Math.min(widthScale, heightScale);
   const scale = baseScale * zoom;
-  const displayHeight = clamp(map.height * baseScale, 320, 720);
+  const displayHeight = Math.max(320, Math.floor(map.height * baseScale));
   const selectedToken = map.tokens.find((token) => token.id === selectedTokenId) ?? null;
   const selectedFog = map.fogRects.find((rect) => rect.id === selectedFogId) ?? null;
   const startingPositions = map.startingPositions ?? [];
@@ -446,6 +450,7 @@ export function BattleMap({
 
     const observer = new ResizeObserver(([entry]) => {
       setContainerWidth(Math.floor(entry.contentRect.width));
+      setContainerHeight(Math.floor(entry.contentRect.height));
     });
     observer.observe(node);
     return () => observer.disconnect();
