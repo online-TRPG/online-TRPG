@@ -59,6 +59,12 @@ export enum ScenarioNodeType {
   COMBAT = "combat",
 }
 
+export enum ScenarioAssetKind {
+  MAP = "MAP",
+  SCENE = "SCENE",
+  TOKEN = "TOKEN",
+}
+
 export enum GamePhase {
   LOBBY = "lobby",
   EXPLORATION = "exploration",

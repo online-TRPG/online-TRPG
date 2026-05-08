@@ -5,12 +5,15 @@ import type {
   GmMode,
   LoginResponseDto,
   OAuthUrlResponseDto,
+  ScenarioAssetKind,
+  ScenarioAssetResponseDto,
   PlayerScenarioViewDto,
   ScenarioResponseDto,
   SessionDetailResponseDto,
   SessionSnapshotDto,
   UpdateScenarioDto,
   UpdateVttMapDto,
+  UploadScenarioAssetDto,
   UploadScenarioNodeImageDto,
   UserResponseDto,
   VttMapStateDto,
@@ -38,8 +41,6 @@ const defaultBase = import.meta.env.PROD ? '' : 'http://localhost:8080';
 const localDevBaseUrls = [
   'http://localhost:8080',
   'http://127.0.0.1:8080',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
 ];
 const isLocalFrontend =
   import.meta.env.DEV &&
@@ -237,7 +238,7 @@ async function fetchAccessTokenReissue(): Promise<AuthTokenResponseDto> {
       response = await fetch(`${baseUrl}/users/reissue`, init);
     } catch (error) {
       lastNetworkError = error;
-      continue;
+      break;
     }
 
     if (response.status !== 404 || fallbackApiBaseUrls.length === 1) {
@@ -291,7 +292,7 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
       response = await fetch(`${baseUrl}${path}`, init);
     } catch (error) {
       lastNetworkError = error;
-      continue;
+      break;
     }
 
     if (response.status !== 404 || fallbackApiBaseUrls.length === 1) {
@@ -506,6 +507,35 @@ export function uploadScenarioNodeImage(
   accessToken?: string | null
 ): Promise<{ imageUrl: string }> {
   return requestJson<{ imageUrl: string }>(`/scenarios/${scenarioId}/nodes/${nodeId}/image`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function listScenarioAssets(
+  user: StoredUser,
+  scenarioId: string,
+  options?: {
+    kind?: ScenarioAssetKind;
+  },
+  accessToken?: string | null
+): Promise<ScenarioAssetResponseDto[]> {
+  const search = options?.kind ? `?kind=${encodeURIComponent(options.kind)}` : '';
+  return requestJson<ScenarioAssetResponseDto[]>(`/scenarios/${scenarioId}/assets${search}`, {
+    user,
+    accessToken,
+  });
+}
+
+export function uploadScenarioAsset(
+  user: StoredUser,
+  scenarioId: string,
+  payload: UploadScenarioAssetDto,
+  accessToken?: string | null
+): Promise<ScenarioAssetResponseDto> {
+  return requestJson<ScenarioAssetResponseDto>(`/scenarios/${scenarioId}/assets`, {
     method: 'POST',
     user,
     accessToken,

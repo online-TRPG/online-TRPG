@@ -96,6 +96,12 @@ enum ScenarioSourceType {
   CLONED
 }
 
+enum ScenarioAssetKind {
+  MAP
+  SCENE
+  TOKEN
+}
+
 enum SessionCharacterStatus {
   ACTIVE
   RETIRED
@@ -169,6 +175,7 @@ model User {
   refreshTokens        RefreshToken[]
   socialAccounts       SocialAccount[]
   createdScenarios     Scenario[]           @relation("ScenarioCreator")
+  uploadedScenarioAssets ScenarioAsset[]    @relation("ScenarioAssetUploader")
   controlledCharacters SessionCharacter[]
   aiTraces             AiTrace[]
 }
@@ -369,7 +376,28 @@ model Scenario {
   baseScenario     Scenario?          @relation("ScenarioBase", fields: [baseScenarioId], references: [id], onDelete: SetNull)
   derivedScenarios Scenario[]         @relation("ScenarioBase")
   nodes            ScenarioNode[]
+  assets           ScenarioAsset[]
   sessions         SessionScenario[]
+}
+
+model ScenarioAsset {
+  id               String            @id @default(cuid())
+  scenarioId       String
+  kind             ScenarioAssetKind
+  fileName         String
+  contentType      String
+  storageKey       String            @unique
+  publicUrl        String
+  width            Int?
+  height           Int?
+  fileSizeBytes    Int
+  uploadedByUserId String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  scenario         Scenario          @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  uploadedBy       User              @relation("ScenarioAssetUploader", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([scenarioId, kind, createdAt])
 }
 
 model ScenarioNode {
