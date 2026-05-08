@@ -96,6 +96,8 @@ const defaultCharacter = {
   maxHp: 12,
 };
 
+const visibleCharacterSlots = 3;
+
 // 로그 메시지 앞의 [MAIN]/[CHAT] 스코프 태그를 화면 표시용으로 제거합니다.
 function stripScopePrefix(message: string) {
   return message.replace(/^\[(MAIN|CHAT)\]/, "").trim();
@@ -161,6 +163,17 @@ function getNodeLabel(value: unknown): string | null {
   return null;
 }
 
+function getAbilitySummary(character: PersistentCharacter) {
+  return [
+    { label: "근력", value: character.abilities.str },
+    { label: "민첩", value: character.abilities.dex },
+    { label: "건강", value: character.abilities.con },
+    { label: "지능", value: character.abilities.int },
+    { label: "지혜", value: character.abilities.wis },
+    { label: "매력", value: character.abilities.cha },
+  ];
+}
+
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function PlayPage({
   user,
@@ -187,6 +200,7 @@ export function PlayPage({
   const [formState, setFormState] = useState(defaultCharacter);
   const [localSelectedCharacterId, setLocalSelectedCharacterId] = useState<string | null>(null);
   const [isStatusMinimized, setStatusMinimized] = useState(false);
+  const [characterCarouselIndex, setCharacterCarouselIndex] = useState(0);
   // 현재 세션의 플레이어용 시나리오 노드와 VTT 맵 로딩 상태입니다.
   const [playerScenario, setPlayerScenario] = useState<PlayerScenarioView | null>(null);
   const [vttMap, setVttMap] = useState<VttMapStateDto | null>(null);
@@ -321,6 +335,48 @@ export function PlayPage({
       })),
     [characters, readyLocked, selectedCharacterId],
   );
+
+  const characterSelectionItems = useMemo(
+    () => [
+      { kind: "create" as const, id: "create-character" },
+      ...joinableCharacters.map((character) => ({
+        kind: "character" as const,
+        id: character.id,
+        character,
+      })),
+    ],
+    [joinableCharacters],
+  );
+
+  const maxCharacterCarouselIndex = Math.max(0, characterSelectionItems.length - visibleCharacterSlots);
+
+  const visibleCharacterItems = useMemo(
+    () => characterSelectionItems.slice(characterCarouselIndex, characterCarouselIndex + visibleCharacterSlots),
+    [characterCarouselIndex, characterSelectionItems],
+  );
+
+  const selectedCharacterAbilitySummary = useMemo(
+    () => (selectedCharacter ? getAbilitySummary(selectedCharacter) : []),
+    [selectedCharacter],
+  );
+
+  useEffect(() => {
+    setCharacterCarouselIndex((current) => Math.min(current, maxCharacterCarouselIndex));
+  }, [maxCharacterCarouselIndex]);
+
+  useEffect(() => {
+    if (!selectedCharacterId) return;
+    const selectedIndex = characterSelectionItems.findIndex((item) => item.kind === "character" && item.id === selectedCharacterId);
+    if (selectedIndex < 0) return;
+
+    setCharacterCarouselIndex((current) => {
+      if (selectedIndex < current) return selectedIndex;
+      if (selectedIndex >= current + visibleCharacterSlots) {
+        return selectedIndex - visibleCharacterSlots + 1;
+      }
+      return current;
+    });
+  }, [characterSelectionItems, selectedCharacterId]);
 
   const scopedLogs = useMemo(() => {
     if (activeTab === "Chat") {
@@ -497,54 +553,132 @@ export function PlayPage({
                 </button>
               </div>
 
-              <div className="character-selection-grid">
+              <div className="character-selection-carousel">
                 <button
                   type="button"
-                  className="character-selection-create"
-                  onClick={() => setCreateModalOpen(true)}
-                  disabled={readyLocked}
+                  className="character-selection-nav"
+                  onClick={() => setCharacterCarouselIndex((current) => Math.max(0, current - 1))}
+                  disabled={characterCarouselIndex === 0}
+                  aria-label="이전 캐릭터 보기"
                 >
-                  <Icon name="plus" />
-                  <strong>캐릭터 만들기</strong>
-                  <span>새 캐릭터를 만든 뒤 이 세션에서 바로 사용할 수 있습니다.</span>
+                  {"<"}
                 </button>
 
-                {joinableCharacters.map((character) => {
-                  const cardImage = getCharacterImage(character);
-                  const disabledLabel = !character.isSelectable
-                    ? "사용 중"
-                    : readyLocked && !character.isSelected
-                      ? "READY 고정"
-                      : null;
+                <div className="character-selection-grid">
+                  {visibleCharacterItems.map((item) => {
+                    if (item.kind === "create") {
+                      return (
+                        <button
+                          type="button"
+                          key={item.id}
+                          className="character-selection-create"
+                          onClick={() => setCreateModalOpen(true)}
+                          disabled={readyLocked}
+                        >
+                          <Icon name="plus" />
+                          <strong>캐릭터 만들기</strong>
+                          <span>새 캐릭터를 만든 뒤 이 세션에서 바로 사용할 수 있습니다.</span>
+                        </button>
+                      );
+                    }
 
-                  return (
-                    <button
-                      type="button"
-                      key={character.id}
-                      className={`fantasy-character-card session-character-option${
-                        character.isSelected ? " selected" : ""
-                      }`}
-                      disabled={busy || character.isDisabled}
-                      onClick={() => handleCharacterClick(character.id)}
-                    >
-                      <div
-                        className="fantasy-character-card-frame session-character-option-frame"
-                        style={{ ["--frame-image" as string]: `url(${profileBorderCharacter})` }}
+                    const { character } = item;
+                    const cardImage = getCharacterImage(character);
+                    const disabledLabel = !character.isSelectable
+                      ? "사용 중"
+                      : readyLocked && !character.isSelected
+                        ? "READY 고정"
+                        : null;
+
+                    return (
+                      <button
+                        type="button"
+                        key={character.id}
+                        className={`fantasy-character-card session-character-option${
+                          character.isSelected ? " selected" : ""
+                        }`}
+                        disabled={busy || character.isDisabled}
+                        onClick={() => handleCharacterClick(character.id)}
                       >
-                        <img src={cardImage} alt={character.name} className="fantasy-character-card-art" />
-                        {disabledLabel ? <div className="fantasy-character-card-overlay">{disabledLabel}</div> : null}
-                        <div className="session-character-option-badges">
-                          <span>LV {character.level}</span>
-                          <span>HP {character.maxHp}</span>
-                          <span>AC {character.armorClass}</span>
+                        <div
+                          className="fantasy-character-card-frame session-character-option-frame"
+                          style={{ ["--frame-image" as string]: `url(${profileBorderCharacter})` }}
+                        >
+                          <img src={cardImage} alt={character.name} className="fantasy-character-card-art" />
+                          {disabledLabel ? <div className="fantasy-character-card-overlay">{disabledLabel}</div> : null}
+                          <div className="session-character-option-badges">
+                            <span>LV {character.level}</span>
+                            <span>HP {character.maxHp}</span>
+                            <span>AC {character.armorClass}</span>
+                          </div>
+                          <div className="fantasy-character-card-nameplate">{character.name}</div>
+                          <div className="fantasy-character-card-class">{getCharacterClassLabel(character.className)}</div>
                         </div>
-                        <div className="fantasy-character-card-nameplate">{character.name}</div>
-                        <div className="fantasy-character-card-class">{getCharacterClassLabel(character.className)}</div>
-                      </div>
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  className="character-selection-nav"
+                  onClick={() => setCharacterCarouselIndex((current) => Math.min(maxCharacterCarouselIndex, current + 1))}
+                  disabled={characterCarouselIndex >= maxCharacterCarouselIndex}
+                  aria-label="다음 캐릭터 보기"
+                >
+                  {">"}
+                </button>
               </div>
+
+              <section className="character-selection-detail">
+                <div className="character-selection-detail-header">
+                  <span className="eyebrow">선택 캐릭터 정보</span>
+                  <strong>{selectedCharacter?.name ?? "캐릭터를 선택해 주세요"}</strong>
+                </div>
+
+                {selectedCharacter ? (
+                  <div className="character-selection-detail-body">
+                    <div className="character-selection-detail-meta">
+                      <span>{selectedCharacter.ancestry}</span>
+                      <span>{getCharacterClassLabel(selectedCharacter.className)}</span>
+                      <span>레벨 {selectedCharacter.level}</span>
+                      <span>숙련 +{selectedCharacter.proficiencyBonus}</span>
+                    </div>
+
+                    <div className="character-selection-detail-stats">
+                      <div>
+                        <strong>체력</strong>
+                        <span>{selectedCharacter.maxHp}</span>
+                      </div>
+                      <div>
+                        <strong>방어도</strong>
+                        <span>{selectedCharacter.armorClass}</span>
+                      </div>
+                      <div>
+                        <strong>이동속도</strong>
+                        <span>{selectedCharacter.speed}</span>
+                      </div>
+                    </div>
+
+                    <div className="character-selection-detail-abilities">
+                      {selectedCharacterAbilitySummary.map((ability) => (
+                        <div key={ability.label}>
+                          <strong>{ability.label}</strong>
+                          <span>{ability.value}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <p className="character-selection-detail-bio">
+                      {selectedCharacter.bio?.trim() || "아직 등록된 캐릭터 소개가 없습니다."}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="character-selection-detail-empty">
+                    캐릭터를 선택하면 능력치와 소개를 여기에서 바로 확인할 수 있습니다.
+                  </p>
+                )}
+              </section>
             </section>
           ) : null}
 
