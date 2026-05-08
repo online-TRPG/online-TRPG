@@ -316,6 +316,15 @@ export function App() {
     navigate('/');
   }
 
+  async function handleDeleteAccount(password: string) {
+    const deleted = await auth.deleteAccount(password);
+    if (deleted) {
+      session.clearSnapshot();
+      navigate('/');
+    }
+    return deleted;
+  }
+
   function handleSessionMessage(displayName: string, input: string) {
     const [scopePart, ...restParts] = input.split(':');
     const scoped = scopePart === 'CHAT' || scopePart === 'MAIN';
@@ -516,6 +525,7 @@ export function App() {
             error={error}
             onLogout={handleLogout}
             onOpenAccount={() => guardedNavigate('/account')}
+            onUpdateNickname={auth.updateDisplayName}
           />
         ) : null}
 
@@ -528,7 +538,7 @@ export function App() {
             error={error}
             onLogout={handleLogout}
             onOpenProfile={() => guardedNavigate('/profile')}
-            onUpdateDisplayName={auth.updateDisplayName}
+            onDeleteAccount={handleDeleteAccount}
           />
         ) : null}
 

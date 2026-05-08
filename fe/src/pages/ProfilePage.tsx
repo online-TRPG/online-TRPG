@@ -2,14 +2,15 @@
  * ProfilePage
  * 역할: 내가 보는 프로필 페이지입니다. 공개 프로필에 가까운 기본 정보와 계정 관리 진입점을 보여줍니다.
  * 읽는 순서:
- * 1) ProfilePageProps: 현재 사용자, 인증 상태, 로그아웃/계정관리 콜백
+ * 1) ProfilePageProps: 현재 사용자, 인증 상태, 로그아웃/계정관리/닉네임 변경 콜백
  * 2) useCurrentProfile: 게스트/회원 상태를 반영한 표시용 프로필 계산
- * 3) profileRows: 기본 정보 카드에 렌더링할 데이터 목록
+ * 3) 닉네임 편집 상태: 닉네임 표시와 변경 폼 상태
  * 4) JSX: 프로필 히어로, 기본 정보 카드, 프로필 상태 카드, 에러 표시
  */
+import { FormEvent, useEffect, useState } from "react";
 import type { AuthMode } from "../types/auth";
 import { formatDate, useCurrentProfile } from "../hooks/useCurrentProfile";
-import type { StoredUser } from "../types/session";
+import type { StoredUser, User } from "../types/session";
 import { buildPublicProfilePath } from "../utils/routes";
 import "./ProfilePage.css";
 
@@ -22,6 +23,7 @@ interface ProfilePageProps {
   error: string | null;
   onLogout: () => void;
   onOpenAccount: () => void;
+  onUpdateNickname: (nickname: string) => Promise<User>;
 }
 
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
@@ -33,15 +35,65 @@ export function ProfilePage({
   error,
   onLogout,
   onOpenAccount,
+  onUpdateNickname,
 }: ProfilePageProps) {
   // 현재 로그인 방식에 따라 표시할 프로필 데이터를 계산합니다.
-  const { effectiveProfile, loadingProfile, profileError } = useCurrentProfile({ user, accessToken, authMode });
+  const { effectiveProfile, loadingProfile, profileError, mutateProfile } = useCurrentProfile({
+    user,
+    accessToken,
+    authMode,
+  });
+  const canEditNickname = authMode === "member" && Boolean(accessToken);
+  const nickname = effectiveProfile.nickname || effectiveProfile.displayName || "-";
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(nickname === "-" ? "" : nickname);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
-  // 기본 정보 카드에 반복 출력할 label/value 목록입니다.
+  useEffect(() => {
+    if (!editing) {
+      setDraft(nickname === "-" ? "" : nickname);
+    }
+  }, [editing, nickname]);
+
+  function startEditing() {
+    setEditError(null);
+    setDraft(nickname === "-" ? "" : nickname);
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    setEditing(false);
+    setEditError(null);
+    setDraft(nickname === "-" ? "" : nickname);
+  }
+
+  async function submitEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = draft.trim();
+    if (trimmed === nickname) {
+      setEditing(false);
+      return;
+    }
+    if (trimmed.length < 2 || trimmed.length > 10) {
+      setEditError("닉네임은 2자 이상 10자 이하여야 합니다.");
+      return;
+    }
+    setSaving(true);
+    setEditError(null);
+    try {
+      const updated = await onUpdateNickname(trimmed);
+      mutateProfile(updated);
+      setEditing(false);
+    } catch (caught) {
+      setEditError(caught instanceof Error ? caught.message : "닉네임 변경에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // 닉네임과 무관한 부가 프로필 정보만 반복 출력해 이름 계열 필드가 중복 노출되지 않게 합니다.
   const profileRows = [
-    { label: "표시 이름", value: effectiveProfile.displayName },
-    { label: "닉네임", value: effectiveProfile.nickname || "-" },
-    { label: "이름", value: effectiveProfile.name || "-" },
     { label: "프로필 주소", value: buildPublicProfilePath(effectiveProfile) },
     { label: "대표 상태", value: authMode === "guest" ? "게스트 프로필" : "회원 프로필" },
     { label: "가입일", value: formatDate(effectiveProfile.createdAt) },
@@ -53,13 +105,13 @@ export function ProfilePage({
         <div className="profile-hero-main">
           <span className="eyebrow">Profile</span>
           <div className="profile-hero-header">
-            <div className="avatar avatar-xl">{effectiveProfile.displayName.slice(0, 1)}</div>
+            <div className="avatar avatar-xl">{nickname.slice(0, 1)}</div>
             <div>
-              <h1>{effectiveProfile.displayName}</h1>
+              <h1>{nickname}</h1>
               <p>
                 {authMode === "guest"
                   ? "게스트 세션으로 접속 중입니다. 계정을 만들면 프로필과 진행 기록을 더 안정적으로 유지할 수 있습니다."
-                  : "이 화면은 다른 사용자에게도 보여줄 수 있는 공개 프로필의 초안으로, 표시 이름과 캐릭터/활동 소개 중심으로 확장될 자리입니다."}
+                  : "이 화면은 다른 사용자에게도 보여줄 수 있는 공개 프로필의 초안으로, 닉네임과 캐릭터/활동 소개 중심으로 확장될 자리입니다."}
               </p>
             </div>
           </div>
@@ -86,6 +138,42 @@ export function ProfilePage({
           </div>
 
           <dl className="profile-kv-grid">
+            {/* 사용자에게 보이는 이름은 닉네임 하나로 통일하고, 변경 기능도 이 화면에서만 제공합니다. */}
+            <div className="profile-kv-item">
+              <dt>닉네임</dt>
+              <dd>
+                {editing ? (
+                  <form className="profile-inline-edit" onSubmit={submitEdit}>
+                    <input
+                      type="text"
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      minLength={2}
+                      maxLength={10}
+                      autoFocus
+                      disabled={saving}
+                      aria-label="닉네임 입력"
+                    />
+                    <button type="submit" className="primary" disabled={saving}>
+                      {saving ? "저장 중" : "저장"}
+                    </button>
+                    <button type="button" className="ghost" onClick={cancelEditing} disabled={saving}>
+                      취소
+                    </button>
+                  </form>
+                ) : (
+                  <div className="profile-inline-edit">
+                    <span>{nickname}</span>
+                    {canEditNickname ? (
+                      <button type="button" className="ghost" onClick={startEditing}>
+                        변경
+                      </button>
+                    ) : null}
+                  </div>
+                )}
+                {editError ? <p className="panel-error">{editError}</p> : null}
+              </dd>
+            </div>
             {profileRows.map((row) => (
               <div key={row.label} className="profile-kv-item">
                 <dt>{row.label}</dt>

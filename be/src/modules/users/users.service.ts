@@ -7,7 +7,15 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
-import { AuthProvider as PrismaAuthProvider, Prisma, User as PrismaUser } from "@prisma/client";
+import {
+  AuthProvider as PrismaAuthProvider,
+  ConnectionStatus as PrismaConnectionStatus,
+  ParticipantRole as PrismaParticipantRole,
+  ParticipantStatus as PrismaParticipantStatus,
+  Prisma,
+  SessionStatus as PrismaSessionStatus,
+  User as PrismaUser,
+} from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { createHash } from "crypto";
 import {
@@ -251,16 +259,125 @@ export class UsersService {
       throw new ForbiddenException("비밀번호가 일치하지 않습니다.");
     }
 
-    await this.prisma.$transaction([
-      this.prisma.refreshToken.updateMany({
+    await this.prisma.$transaction(async (tx) => {
+      const blockingHostSession = await tx.session.findFirst({
+        where: {
+          hostUserId: userId,
+          status: {
+            in: [PrismaSessionStatus.PLAYING, PrismaSessionStatus.PAUSED],
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (blockingHostSession) {
+        throw new ConflictException(
+          "진행 중이거나 일시정지된 호스트 세션이 있어 회원 탈퇴를 진행할 수 없습니다.",
+        );
+      }
+
+      const now = new Date();
+      const hostedRecruitingSessions = await tx.session.findMany({
+        where: {
+          hostUserId: userId,
+          status: PrismaSessionStatus.RECRUITING,
+        },
+        select: {
+          id: true,
+        },
+      });
+      const hostedRecruitingSessionIds = hostedRecruitingSessions.map((session) => session.id);
+
+      if (hostedRecruitingSessionIds.length > 0) {
+        // 호스트가 사라진 모집 세션은 운영할 주체가 없으므로 해산하고, 참가자 상태도 함께 닫아 둔다.
+        await tx.sessionCharacter.deleteMany({
+          where: {
+            sessionId: { in: hostedRecruitingSessionIds },
+          },
+        });
+        await tx.sessionParticipant.updateMany({
+          where: {
+            sessionId: { in: hostedRecruitingSessionIds },
+            status: PrismaParticipantStatus.JOINED,
+          },
+          data: {
+            status: PrismaParticipantStatus.LEFT,
+            leftAt: now,
+            connectionStatus: PrismaConnectionStatus.OFFLINE,
+            isReady: false,
+            readyAt: null,
+          },
+        });
+        await tx.session.updateMany({
+          where: {
+            id: { in: hostedRecruitingSessionIds },
+          },
+          data: {
+            status: PrismaSessionStatus.DISBANDED,
+          },
+        });
+      }
+
+      const joinedActiveSessions = await tx.sessionParticipant.findMany({
+        where: {
+          userId,
+          status: PrismaParticipantStatus.JOINED,
+          role: { not: PrismaParticipantRole.HOST },
+          session: {
+            is: {
+              hostUserId: { not: userId },
+              status: {
+                in: [
+                  PrismaSessionStatus.RECRUITING,
+                  PrismaSessionStatus.PLAYING,
+                  PrismaSessionStatus.PAUSED,
+                ],
+              },
+            },
+          },
+        },
+        select: {
+          sessionId: true,
+        },
+      });
+      const joinedActiveSessionIds = joinedActiveSessions.map((participant) => participant.sessionId);
+
+      if (joinedActiveSessionIds.length > 0) {
+        // 일반 참가자는 계정 탈퇴 후에도 세션에 남아 보이면 안 되므로, 진행/일시정지 세션에서도 퇴장 상태로 정리한다.
+        await tx.sessionCharacter.deleteMany({
+          where: {
+            userId,
+            sessionId: { in: joinedActiveSessionIds },
+          },
+        });
+        await tx.sessionParticipant.updateMany({
+          where: {
+            userId,
+            sessionId: { in: joinedActiveSessionIds },
+            status: PrismaParticipantStatus.JOINED,
+            role: { not: PrismaParticipantRole.HOST },
+          },
+          data: {
+            status: PrismaParticipantStatus.LEFT,
+            leftAt: now,
+            connectionStatus: PrismaConnectionStatus.OFFLINE,
+            isReady: false,
+            readyAt: null,
+          },
+        });
+      }
+
+      await tx.refreshToken.updateMany({
         where: { userId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      }),
-      this.prisma.user.update({
+        data: { revokedAt: now },
+      });
+      await tx.user.update({
         where: { id: userId },
-        data: { deletedAt: new Date() },
-      }),
-    ]);
+        data: { deletedAt: now },
+      });
+    });
   }
 
   getOAuthUrl(provider: "KAKAO" | "DISCORD", redirectUri: string, state?: string): OAuthUrlResponseDto {
