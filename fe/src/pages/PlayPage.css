@@ -952,6 +952,51 @@
   padding-bottom: 6px;
 }
 
+.session-log-history-bar {
+  display: flex;
+  justify-content: center;
+  padding: 0 0 8px;
+}
+
+.session-log-history-button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid #b8c4d2;
+  border-radius: 4px;
+  background: #eef2f7;
+  color: #243246;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.session-log-history-button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.chat-thread-date-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #6f7d8f;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.chat-thread-date-divider::before,
+.chat-thread-date-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: #c7d0dc;
+}
+
+.chat-thread-date-divider span {
+  padding: 0 2px;
+}
+
 .session-log-item {
   padding: 14px;
   border: 1px solid rgba(120, 83, 41, 0.18);

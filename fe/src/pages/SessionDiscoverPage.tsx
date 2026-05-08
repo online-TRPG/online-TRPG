@@ -527,8 +527,7 @@ export function SessionDiscoverPage({
                 const isKnownListSession = joinedSessionIds.has(item.sessionId) || isCurrentListSession;
                 const isJoinBlocked = busy;
                 const gmLabel = getGmModeLabel(item.gmMode);
-                const joinButtonLabel = isKnownListSession ? "?ëª„ë€¡ ?ë‹¿ë¦°" : "?ëª„ë€¡ ï§¡ë©¸?";
-                const activeSection = isKnownListSession ? "my" : currentSection;
+                const joinButtonLabel = isKnownListSession ? "세션 열기" : "세션 참가";
 
                 return (
                   <article
@@ -569,17 +568,13 @@ export function SessionDiscoverPage({
                       <button
                         type="button"
                         className={`session-discover-join${!isKnownListSession && hasBlockingSession ? " is-blocked" : ""}`}
-                        data-label={
-                          isKnownListSession
-                            ? "\uC138\uC158 \uC5F4\uAE30"
-                            : "\uC138\uC158 \uCC38\uAC00"
-                        }
+                        data-label={joinButtonLabel}
                         disabled={isJoinBlocked}
                         onClick={(event) =>
                           void handleJoinClick(event, item.sessionId, item.sessionPublicId)
                         }
                       >
-                        {activeSection === "public" ? "세션 참가" : "세션 열기"}
+                        {joinButtonLabel}
                       </button>
                     </div>
                   </article>
