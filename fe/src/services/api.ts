@@ -396,6 +396,7 @@ export function deleteMe(accessToken: string, password: string): Promise<void> {
   return requestJson<void>('/users/me', {
     method: 'DELETE',
     accessToken,
+    withCredentials: true,
     body: { password },
   });
 }

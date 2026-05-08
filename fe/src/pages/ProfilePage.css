@@ -92,6 +92,74 @@
   word-break: break-word;
 }
 
+.profile-inline-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.profile-inline-edit span {
+  min-width: 0;
+  flex: 1 1 140px;
+}
+
+.profile-inline-edit input {
+  min-width: 0;
+  flex: 1 1 180px;
+}
+
+.profile-inline-edit button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  border-radius: 8px;
+}
+
+.profile-inline-error {
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 10px 0 0;
+  color: #ffd0d5;
+  background: rgba(232, 104, 120, 0.12);
+  border: 1px solid rgba(232, 104, 120, 0.34);
+  font-size: 14px;
+}
+
+.profile-danger-card {
+  border-color: rgba(232, 104, 120, 0.42);
+}
+
+.profile-danger-button,
+.profile-danger-submit {
+  width: 100%;
+  min-height: 46px;
+  border-radius: 8px;
+  color: #fff2f4;
+  background: rgba(158, 45, 61, 0.72);
+  border-color: rgba(232, 104, 120, 0.5);
+}
+
+.profile-danger-button:hover:not(:disabled),
+.profile-danger-submit:hover:not(:disabled) {
+  background: rgba(188, 57, 76, 0.84);
+  border-color: rgba(255, 149, 164, 0.72);
+}
+
+.profile-delete-modal {
+  max-width: 460px;
+}
+
+.profile-modal-warning,
+.profile-muted-text {
+  margin: 0;
+  color: #b6c2cf;
+  line-height: 1.7;
+}
+
+.profile-muted-text {
+  font-size: 13px;
+}
+
 .profile-notes {
   display: grid;
   gap: 12px;
