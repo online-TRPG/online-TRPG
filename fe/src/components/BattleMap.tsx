@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from "react-konva";
-import type { SrdMonsterReferenceDto, VttMapStateDto } from "@trpg/shared-types";
+import type {
+  ScenarioAssetResponseDto,
+  SrdMonsterReferenceDto,
+  VttMapStateDto,
+} from "@trpg/shared-types";
 import type { Character } from "../types/session";
 
 interface BattleMapProps {
@@ -14,6 +18,10 @@ interface BattleMapProps {
   showPartyTools?: boolean;
   monsterCatalog?: SrdMonsterReferenceDto[];
   monsterCatalogError?: string | null;
+  tokenAssets?: ScenarioAssetResponseDto[];
+  tokenAssetsLoading?: boolean;
+  tokenAssetsError?: string | null;
+  uploadTokenAsset?: (file: File | null) => Promise<ScenarioAssetResponseDto | null>;
 }
 
 const tokenPalette = ["#79d8ff", "#f6d365", "#9ee6a8", "#f59cb1", "#c4a7ff", "#ffa87a"];
@@ -76,6 +84,7 @@ type FogBox = Pick<FogRect, "x" | "y" | "width" | "height">;
 type TokenDragMeasure = { tokenId: string; from: MeasurePoint; to: MeasurePoint };
 type StartingPosition = NonNullable<VttMapStateDto["startingPositions"]>[number];
 type MapSizeField = "width" | "height" | "gridSize";
+type ScenarioAsset = ScenarioAssetResponseDto;
 
 function useCanvasImage(src: string | null | undefined) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -87,19 +96,30 @@ function useCanvasImage(src: string | null | undefined) {
     }
 
     let cancelled = false;
-    const nextImage = new window.Image();
-    nextImage.crossOrigin = "anonymous";
-    nextImage.onload = () => {
-      if (!cancelled) {
-        setImage(nextImage);
+
+    const loadImage = (mode: "anonymous" | "default") => {
+      const nextImage = new window.Image();
+      if (mode === "anonymous") {
+        nextImage.crossOrigin = "anonymous";
       }
-    };
-    nextImage.onerror = () => {
-      if (!cancelled) {
+      nextImage.onload = () => {
+        if (!cancelled) {
+          setImage(nextImage);
+        }
+      };
+      nextImage.onerror = () => {
+        if (cancelled) return;
+        if (mode === "anonymous") {
+          loadImage("default");
+          return;
+        }
         setImage(null);
-      }
+      };
+      nextImage.src = src;
     };
-    nextImage.src = src;
+
+    // Some R2/public bucket images render in <img> but fail anonymous canvas fetches.
+    loadImage("anonymous");
 
     return () => {
       cancelled = true;
@@ -151,6 +171,106 @@ function formatDistance(from: MeasurePoint, to: MeasurePoint, gridSize: number) 
   return `${distanceFt} ft`;
 }
 
+function BattleToken({
+  token,
+  fill,
+  isSelected,
+  opacity,
+  canControl,
+  isFogMode,
+  isPanMode,
+  isMeasureMode,
+  isPingMode,
+  onSelect,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
+}: {
+  token: VttMapStateDto["tokens"][number];
+  fill: string;
+  isSelected: boolean;
+  opacity: number;
+  canControl: boolean;
+  isFogMode: boolean;
+  isPanMode: boolean;
+  isMeasureMode: boolean;
+  isPingMode: boolean;
+  onSelect: () => void;
+  onDragStart: () => void;
+  onDragMove: (x: number, y: number) => void;
+  onDragEnd: (x: number, y: number, shiftKey: boolean) => void;
+}) {
+  const tokenImage = useCanvasImage(token.imageUrl);
+  const radius = token.size / 2 - 4;
+
+  return (
+    <Group
+      x={token.x}
+      y={token.y}
+      draggable={!isFogMode && !isPanMode && !isMeasureMode && !isPingMode && canControl}
+      opacity={opacity}
+      onClick={(event) => {
+        event.cancelBubble = true;
+        onSelect();
+      }}
+      onDragStart={onDragStart}
+      onDragMove={(event) => onDragMove(event.target.x(), event.target.y())}
+      onDragEnd={(event) => {
+        event.cancelBubble = true;
+        onDragEnd(event.target.x(), event.target.y(), event.evt.shiftKey);
+      }}
+    >
+      {tokenImage ? (
+        <>
+          <Group
+            clipFunc={(ctx) => {
+              ctx.beginPath();
+              ctx.arc(token.size / 2, token.size / 2, radius, 0, Math.PI * 2);
+              ctx.closePath();
+            }}
+          >
+            <KonvaImage image={tokenImage} width={token.size} height={token.size} />
+          </Group>
+          <Circle
+            x={token.size / 2}
+            y={token.size / 2}
+            radius={radius}
+            fill="rgba(0, 0, 0, 0)"
+            stroke={isSelected ? "#ffffff" : token.hidden ? "#cbd6e2" : fill}
+            strokeWidth={isSelected ? 5 : 4}
+            shadowColor="black"
+            shadowBlur={14}
+            shadowOpacity={0.35}
+          />
+        </>
+      ) : (
+        <>
+          <Circle
+            x={token.size / 2}
+            y={token.size / 2}
+            radius={radius}
+            fill={fill}
+            stroke={isSelected ? "#ffffff" : token.hidden ? "#cbd6e2" : "#101825"}
+            strokeWidth={isSelected ? 5 : 4}
+            shadowColor="black"
+            shadowBlur={14}
+            shadowOpacity={0.35}
+          />
+          <Text
+            text={getTokenLabel(token.name)}
+            width={token.size}
+            y={token.size / 2 - 9}
+            align="center"
+            fill="#061017"
+            fontSize={18}
+            fontStyle="bold"
+          />
+        </>
+      )}
+    </Group>
+  );
+}
+
 function normalizeFogBox(from: MeasurePoint, to: MeasurePoint, map: VttMapStateDto, snap: boolean): FogBox | null {
   const rawLeft = clamp(Math.min(from.x, to.x), 0, map.width);
   const rawTop = clamp(Math.min(from.y, to.y), 0, map.height);
@@ -198,6 +318,10 @@ export function BattleMap({
   showPartyTools = true,
   monsterCatalog = [],
   monsterCatalogError = null,
+  tokenAssets = [],
+  tokenAssetsLoading = false,
+  tokenAssetsError = null,
+  uploadTokenAsset,
 }: BattleMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(960);
@@ -222,6 +346,7 @@ export function BattleMap({
   const [imageUrlInput, setImageUrlInput] = useState(map.imageUrl ?? "");
   const [monsterSearch, setMonsterSearch] = useState("");
   const [selectedMonsterId, setSelectedMonsterId] = useState("");
+  const [tokenAssetUploadBusy, setTokenAssetUploadBusy] = useState(false);
   const [mapSizeDraft, setMapSizeDraft] = useState({
     width: String(map.width),
     height: String(map.height),
@@ -742,6 +867,26 @@ export function BattleMap({
     setPingMode(tool === "ping" ? !isPingMode : false);
   }
 
+  function applyTokenAsset(asset: ScenarioAsset) {
+    if (!selectedToken) return;
+    updateToken(selectedToken.id, { imageUrl: asset.publicUrl });
+  }
+
+  async function handleTokenAssetFile(file: File | null) {
+    if (!file || !uploadTokenAsset) return;
+
+    setTokenAssetUploadBusy(true);
+
+    try {
+      const asset = await uploadTokenAsset(file);
+      if (asset) {
+        applyTokenAsset(asset);
+      }
+    } finally {
+      setTokenAssetUploadBusy(false);
+    }
+  }
+
   return (
     <section className="vtt-panel">
       <div className="vtt-toolbar">
@@ -1031,48 +1176,28 @@ export function BattleMap({
             {visibleTokens.map((token, index) => {
               const fill = token.isHostile ? "#ff6b6b" : tokenPalette[index % tokenPalette.length];
               return (
-                <Group
+                <BattleToken
                   key={token.id}
-                  x={token.x}
-                  y={token.y}
-                  draggable={!isFogMode && !isPanMode && !isMeasureMode && !isPingMode && canControlToken(token)}
+                  token={token}
+                  fill={fill}
+                  isSelected={token.id === selectedTokenId}
                   opacity={token.hidden ? 0.45 : 1}
-                  onClick={(event) => {
-                    event.cancelBubble = true;
+                  canControl={canControlToken(token)}
+                  isFogMode={isFogMode}
+                  isPanMode={isPanMode}
+                  isMeasureMode={isMeasureMode}
+                  isPingMode={isPingMode}
+                  onSelect={() => {
                     setSelectedTokenId(token.id);
                     setSelectedFogId(null);
                   }}
                   onDragStart={() => beginTokenDragMeasure(token)}
-                  onDragMove={(event) => updateTokenDragMeasure(token, event.target.x(), event.target.y())}
-                  onDragEnd={(event) => {
-                    event.cancelBubble = true;
-                    handleTokenMove(token.id, event.target.x(), event.target.y(), isTokenSnapEnabled && !event.evt.shiftKey);
+                  onDragMove={(x, y) => updateTokenDragMeasure(token, x, y)}
+                  onDragEnd={(x, y, shiftKey) => {
+                    handleTokenMove(token.id, x, y, isTokenSnapEnabled && !shiftKey);
                     setTokenDragMeasure(null);
                   }}
-                >
-                  <Circle
-                    x={token.size / 2}
-                    y={token.size / 2}
-                    radius={token.size / 2 - 4}
-                    fill={fill}
-                    stroke={
-                      token.id === selectedTokenId ? "#ffffff" : token.hidden ? "#cbd6e2" : "#101825"
-                    }
-                    strokeWidth={token.id === selectedTokenId ? 5 : 4}
-                    shadowColor="black"
-                    shadowBlur={14}
-                    shadowOpacity={0.35}
-                  />
-                  <Text
-                    text={getTokenLabel(token.name)}
-                    width={token.size}
-                    y={token.size / 2 - 9}
-                    align="center"
-                    fill="#061017"
-                    fontSize={18}
-                    fontStyle="bold"
-                  />
-                </Group>
+                />
               );
             })}
           </Layer>
@@ -1193,6 +1318,66 @@ export function BattleMap({
               {mapText.imageUrl}
               <input value={selectedToken.imageUrl ?? ""} onChange={(event) => updateToken(selectedToken.id, { imageUrl: event.target.value || null })} />
             </label>
+            {uploadTokenAsset || tokenAssets.length || tokenAssetsLoading || tokenAssetsError ? (
+              <div className="vtt-asset-library">
+                <div className="vtt-asset-library-head">
+                  <div>
+                    <span className="eyebrow">Token library</span>
+                    <strong>업로드한 토큰 이미지를 현재 토큰에 바로 적용할 수 있습니다.</strong>
+                  </div>
+                  {uploadTokenAsset ? (
+                    <label
+                      className={`vtt-asset-upload${tokenAssetUploadBusy ? " disabled" : ""}`}
+                      aria-disabled={tokenAssetUploadBusy}
+                    >
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={tokenAssetUploadBusy}
+                        onChange={(event) => {
+                          void handleTokenAssetFile(event.target.files?.[0] ?? null);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      {tokenAssetUploadBusy ? "토큰 업로드 중.." : "토큰 업로드"}
+                    </label>
+                  ) : null}
+                </div>
+                {tokenAssetsError ? <p className="panel-error">{tokenAssetsError}</p> : null}
+                {tokenAssetsLoading ? (
+                  <p className="helper-copy">토큰 자산 목록을 불러오는 중입니다.</p>
+                ) : tokenAssets.length ? (
+                  <div className="vtt-asset-grid">
+                    {tokenAssets.map((asset) => {
+                      const isSelected = selectedToken.imageUrl === asset.publicUrl;
+                      return (
+                        <article
+                          key={asset.id}
+                          className={`vtt-asset-card${isSelected ? " selected" : ""}`}
+                        >
+                          <img className="vtt-asset-preview" src={asset.publicUrl} alt={asset.fileName} />
+                          <div className="vtt-asset-meta">
+                            <strong>{asset.fileName}</strong>
+                            <span>{Math.max(1, Math.round(asset.fileSizeBytes / 1024))} KB</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => applyTokenAsset(asset)}
+                          >
+                            {isSelected ? "현재 토큰" : "이 토큰 적용"}
+                          </button>
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="vtt-asset-empty">
+                    업로드한 토큰 이미지가 아직 없습니다. 자주 쓰는 말, 몬스터, NPC 토큰을 올려두면
+                    맵 위 토큰에 바로 재사용할 수 있습니다.
+                  </div>
+                )}
+              </div>
+            ) : null}
             <div className="vtt-field-row">
               <label>
                 X

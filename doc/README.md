@@ -15,6 +15,7 @@
 | `RUNTIME_SESSION_TURN_FLOW.md` | 플레이어 행동 1회 처리 흐름 |
 | `AI_RUNTIME_CONTRACTS.md` | AI 역할별 입출력 계약 |
 | `SCREEN.md` | 주요 화면 구성 |
+| `PLAN_SCENARIO_ASSET_LIBRARY.md` | 시나리오 이미지 업로드, R2 저장, 자산 라이브러리, 맵 재사용 구조 |
 
 ## 기록용 문서
 
