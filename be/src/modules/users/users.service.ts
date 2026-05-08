@@ -306,7 +306,7 @@ export class UsersService {
         });
       }
 
-      const joinedRecruitingSessions = await tx.sessionParticipant.findMany({
+      const joinedActiveSessions = await tx.sessionParticipant.findMany({
         where: {
           userId,
           status: PrismaParticipantStatus.JOINED,
@@ -314,7 +314,13 @@ export class UsersService {
           session: {
             is: {
               hostUserId: { not: userId },
-              status: PrismaSessionStatus.RECRUITING,
+              status: {
+                in: [
+                  PrismaSessionStatus.RECRUITING,
+                  PrismaSessionStatus.PLAYING,
+                  PrismaSessionStatus.PAUSED,
+                ],
+              },
             },
           },
         },
@@ -322,20 +328,20 @@ export class UsersService {
           sessionId: true,
         },
       });
-      const joinedRecruitingSessionIds = joinedRecruitingSessions.map((participant) => participant.sessionId);
+      const joinedActiveSessionIds = joinedActiveSessions.map((participant) => participant.sessionId);
 
-      if (joinedRecruitingSessionIds.length > 0) {
-        // 일반 참가자는 계정 탈퇴 시 모집 중 세션에서만 조용히 빠지도록 정리한다.
+      if (joinedActiveSessionIds.length > 0) {
+        // 일반 참가자는 계정 탈퇴 후에도 세션에 남아 보이면 안 되므로, 진행/일시정지 세션에서도 퇴장 상태로 정리한다.
         await tx.sessionCharacter.deleteMany({
           where: {
             userId,
-            sessionId: { in: joinedRecruitingSessionIds },
+            sessionId: { in: joinedActiveSessionIds },
           },
         });
         await tx.sessionParticipant.updateMany({
           where: {
             userId,
-            sessionId: { in: joinedRecruitingSessionIds },
+            sessionId: { in: joinedActiveSessionIds },
             status: PrismaParticipantStatus.JOINED,
             role: { not: PrismaParticipantRole.HOST },
           },

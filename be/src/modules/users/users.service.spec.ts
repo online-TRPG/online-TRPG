@@ -209,7 +209,7 @@ describe("UsersService", () => {
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
-    it("호스트 모집 세션은 해산하고, 일반 참가 모집 세션은 LEFT 처리한 뒤 탈퇴한다.", async () => {
+    it("호스트 모집 세션은 해산하고, 일반 참가 활성 세션은 LEFT 처리한 뒤 탈퇴한다.", async () => {
       const { prisma, service } = createService();
 
       prisma.user.findUnique.mockResolvedValue(localUser);
@@ -217,6 +217,8 @@ describe("UsersService", () => {
       prisma.session.findMany.mockResolvedValue([{ id: "hosted-recruiting-session" }]);
       prisma.sessionParticipant.findMany.mockResolvedValue([
         { sessionId: "joined-recruiting-session" },
+        { sessionId: "joined-playing-session" },
+        { sessionId: "joined-paused-session" },
       ]);
 
       await service.deleteMe("user-1", { password: "P@ssword123" });
@@ -244,11 +246,36 @@ describe("UsersService", () => {
         }),
       });
 
-      // 일반 참가자로 들어간 모집 세션은 세션 자체를 건드리지 않고 해당 참가자만 떠난 상태로 정리한다.
+      expect(prisma.sessionParticipant.findMany).toHaveBeenCalledWith({
+        where: {
+          userId: "user-1",
+          status: "JOINED",
+          role: { not: "HOST" },
+          session: {
+            is: {
+              hostUserId: { not: "user-1" },
+              status: {
+                in: ["RECRUITING", "PLAYING", "PAUSED"],
+              },
+            },
+          },
+        },
+        select: {
+          sessionId: true,
+        },
+      });
+
+      // 일반 참가자로 들어간 활성 세션은 세션 자체를 건드리지 않고 해당 참가자만 떠난 상태로 정리한다.
       expect(prisma.sessionParticipant.updateMany).toHaveBeenCalledWith({
         where: {
           userId: "user-1",
-          sessionId: { in: ["joined-recruiting-session"] },
+          sessionId: {
+            in: [
+              "joined-recruiting-session",
+              "joined-playing-session",
+              "joined-paused-session",
+            ],
+          },
           status: "JOINED",
           role: { not: "HOST" },
         },
@@ -268,7 +295,13 @@ describe("UsersService", () => {
       expect(prisma.sessionCharacter.deleteMany).toHaveBeenCalledWith({
         where: {
           userId: "user-1",
-          sessionId: { in: ["joined-recruiting-session"] },
+          sessionId: {
+            in: [
+              "joined-recruiting-session",
+              "joined-playing-session",
+              "joined-paused-session",
+            ],
+          },
         },
       });
       expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
