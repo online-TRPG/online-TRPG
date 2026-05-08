@@ -3,6 +3,8 @@ import type {
   RulebookDocumentResponseDto,
   RulebookIndexResponseDto,
 } from '@trpg/shared-types';
+import dndLogo from '../assets/images/DnD5e_Logo.webp';
+import './RulebookPage.css';
 
 interface RulebookPageProps {
   ruleSetId?: string;
@@ -16,6 +18,8 @@ type StaticRulebookExport = {
   version: number;
   rulebooks: StaticRulebookCollection[];
 };
+
+type RulebookPane = 'translated' | 'original' | 'copyright';
 
 type HeadingEntry = {
   id: string;
@@ -258,12 +262,59 @@ function collectDefaultExpandedIds(nodes: TocNode[]): string[] {
     if (node.children.length > 0 && node.depth < 2) {
       expandedIds.push(node.id);
     }
-
     node.children.forEach(visit);
   };
 
   nodes.forEach(visit);
   return expandedIds;
+}
+
+function RulebookTabIcon({ mode }: { mode: RulebookPane }) {
+  if (mode === 'translated') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v16.5a.5.5 0 0 1-.8.4c-.8-.6-1.7-.9-2.7-.9H7.5A2.5 2.5 0 0 0 5 20.5V4.5Z"
+          fill="currentColor"
+          opacity=".92"
+        />
+        <path d="M8 7h8M8 10h6M8 13h7" stroke="#f8edd9" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (mode === 'original') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M4.5 5.5A2.5 2.5 0 0 1 7 3h10a2 2 0 0 1 2 2v13.2l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-2 1.4V5.5Z"
+          fill="currentColor"
+          opacity=".92"
+        />
+        <path d="M8 8h7M8 11h8M8 14h5" stroke="#f8edd9" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 2.8 4.5 6v5.2c0 5 3 9.4 7.5 11 4.5-1.6 7.5-6 7.5-11V6L12 2.8Z"
+        fill="currentColor"
+        opacity=".92"
+      />
+      <path d="M9.2 12.1 11 14l3.8-4" stroke="#f8edd9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function RulebookSpinner() {
+  return (
+    <div className="rulebook-page__loading">
+      <div className="rulebook-page__spinner" aria-hidden="true" />
+      <p>정보를 불러오는 중입니다</p>
+    </div>
+  );
 }
 
 export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
@@ -272,6 +323,7 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
   const [loadingIndex, setLoadingIndex] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedTocIds, setExpandedTocIds] = useState<string[]>([]);
+  const [activePane, setActivePane] = useState<RulebookPane>('translated');
 
   useEffect(() => {
     let cancelled = false;
@@ -283,7 +335,7 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
     fetch(getRulebookAssetUrl(ruleSetId))
       .then(async (response) => {
         if (!response.ok) {
-          throw new Error(`룰북 정적 파일을 불러오지 못했습니다. (${response.status})`);
+          throw new Error(`룰북 데이터를 불러오지 못했습니다. (${response.status})`);
         }
 
         return (await response.json()) as StaticRulebookExport;
@@ -295,17 +347,18 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
 
         const nextRulebook = payload.rulebooks.find((entry) => entry.ruleSetId === ruleSetId);
         if (!nextRulebook) {
-          throw new Error(`정적 룰북 데이터에 "${ruleSetId}" 항목이 없습니다.`);
+          throw new Error(`룰셋 "${ruleSetId}"에 해당하는 룰북을 찾을 수 없습니다.`);
         }
 
         setRulebook(nextRulebook);
+        setActivePane('translated');
         setActiveDocumentSlug(nextRulebook.defaultDocumentSlug);
       })
       .catch((caught) => {
         if (cancelled) {
           return;
         }
-        setError(caught instanceof Error ? caught.message : '룰북 문서를 불러오지 못했습니다.');
+        setError(caught instanceof Error ? caught.message : '룰북 정보를 불러오지 못했습니다.');
       })
       .finally(() => {
         if (!cancelled) {
@@ -318,6 +371,22 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
     };
   }, [ruleSetId]);
 
+  useEffect(() => {
+    if (!rulebook) {
+      return;
+    }
+
+    const slugByPane: Record<RulebookPane, string> = {
+      translated: 'rulebook',
+      original: 'original',
+      copyright: 'copyright',
+    };
+
+    const nextSlug = slugByPane[activePane];
+    const exists = rulebook.documents.some((document) => document.slug === nextSlug);
+    setActiveDocumentSlug(exists ? nextSlug : rulebook.defaultDocumentSlug);
+  }, [activePane, rulebook]);
+
   const activeDocument = useMemo(
     () => rulebook?.documents.find((document) => document.slug === activeDocumentSlug) ?? null,
     [activeDocumentSlug, rulebook],
@@ -328,8 +397,6 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
     [activeDocument?.content],
   );
   const tocTree = useMemo(() => buildTocTree(parsedDocument.headings), [parsedDocument.headings]);
-
-  const documentList = rulebook?.documents ?? [];
 
   useEffect(() => {
     setExpandedTocIds(collectDefaultExpandedIds(tocTree));
@@ -363,9 +430,9 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
                   className="rulebook-toc-toggle"
                   onClick={() => toggleTocNode(node.id)}
                   aria-expanded={expanded}
-                  aria-label={`${node.text} 하위 목차 ${expanded ? '접기' : '펼치기'}`}
+                  aria-label={`${node.text} 목차 ${expanded ? '접기' : '펼치기'}`}
                 >
-                  <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+                  <span aria-hidden="true">{expanded ? '−' : '+'}</span>
                 </button>
               ) : (
                 <span className="rulebook-toc-spacer" aria-hidden="true" />
@@ -389,182 +456,194 @@ export function RulebookPage({ ruleSetId = 'dnd5e' }: RulebookPageProps) {
     </ul>
   );
 
-  return (
-    <main className="rulebook-page">
-      <section className="rulebook-hero">
-        <span className="eyebrow">{rulebook?.ruleSetId?.toUpperCase() ?? 'RULEBOOK'}</span>
-        <h1>{rulebook?.title ?? '룰북'}</h1>
-        <p>
-          {rulebook?.description ??
-            '번역된 룰북 문서를 문서 목록과 목차로 이어서 읽을 수 있습니다.'}
-        </p>
-        {rulebook?.attribution ? (
-          <p className="rulebook-attribution">{rulebook.attribution}</p>
-        ) : null}
-      </section>
+  const renderDocumentBlocks = () =>
+    parsedDocument.blocks.map((block, index) => {
+      if (block.type === 'heading') {
+        return renderHeading(block.level, block.id, block.text, `${block.id}-${index}`);
+      }
 
-      <section className="rulebook-layout">
-        <aside className="rulebook-doc-nav">
-          <div className="rulebook-panel-head">
-            <span className="eyebrow">Documents</span>
-            <strong>문서 목록</strong>
-          </div>
-          {loadingIndex ? <p className="rulebook-muted">룰북 문서 목록을 불러오는 중입니다.</p> : null}
-          {!loadingIndex && !documentList.length ? (
-            <p className="rulebook-muted">표시할 룰북 문서가 없습니다.</p>
-          ) : null}
-          <div className="rulebook-doc-list">
-            {documentList.map((document) => (
-              <button
-                key={document.slug}
-                type="button"
-                className={
-                  document.slug === activeDocumentSlug
-                    ? 'rulebook-doc-button active'
-                    : 'rulebook-doc-button'
-                }
-                onClick={() => setActiveDocumentSlug(document.slug)}
-              >
-                <strong>{document.title}</strong>
-                {document.description ? <span>{document.description}</span> : null}
-              </button>
+      if (block.type === 'paragraph') {
+        return <p key={`paragraph-${index}`}>{renderInline(block.text)}</p>;
+      }
+
+      if (block.type === 'unordered-list') {
+        return (
+          <ul key={`unordered-${index}`}>
+            {block.items.map((item, itemIndex) => (
+              <li key={`${item}-${itemIndex}`}>{renderInline(item)}</li>
             ))}
+          </ul>
+        );
+      }
+
+      if (block.type === 'ordered-list') {
+        return (
+          <ol key={`ordered-${index}`}>
+            {block.items.map((item, itemIndex) => (
+              <li key={`${item}-${itemIndex}`}>{renderInline(item)}</li>
+            ))}
+          </ol>
+        );
+      }
+
+      if (block.type === 'blockquote') {
+        return (
+          <blockquote key={`blockquote-${index}`}>
+            {block.lines.map((line, lineIndex) => (
+              <p key={`${line}-${lineIndex}`}>{renderInline(line)}</p>
+            ))}
+          </blockquote>
+        );
+      }
+
+      if (block.type === 'code') {
+        return (
+          <pre key={`code-${index}`}>
+            <code className={block.language ? `language-${block.language}` : undefined}>
+              {block.code}
+            </code>
+          </pre>
+        );
+      }
+
+      if (block.type === 'table') {
+        const [header, ...rows] = block.rows;
+        return (
+          <div key={`table-${index}`} className="rulebook-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  {header.map((cell, cellIndex) => (
+                    <th key={`${cell}-${cellIndex}`}>{renderInline(cell)}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, rowIndex) => (
+                  <tr key={`row-${rowIndex}`}>
+                    {row.map((cell, cellIndex) => (
+                      <td key={`${cell}-${cellIndex}`}>{renderInline(cell)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </aside>
+        );
+      }
 
+      return <hr key={`hr-${index}`} />;
+    });
+
+  const renderReaderPane = () => (
+    <div className="rulebook-page__screen">
+      <section className="rulebook-layout">
         <div className="rulebook-content-shell">
-          {error ? <p className="panel-error">{error}</p> : null}
-
           {activeDocument ? (
             <>
               <header className="rulebook-document-head">
-                <div>
-                  <span className="eyebrow">Current document</span>
-                  <h2>{activeDocument.title}</h2>
-                  {activeDocument.description ? <p>{activeDocument.description}</p> : null}
+                <div className="rulebook-document-summary">
+                  <div className="rulebook-document-inline">
+                    <div className="rulebook-document-inline-main">
+                      <h2>{activeDocument.title}</h2>
+                      {activeDocument.description ? <p>- {activeDocument.description}</p> : null}
+                    </div>
+                    <p className="rulebook-document-inline-date">
+                      업데이트: {new Date(activeDocument.updatedAt).toLocaleDateString()}
+                    </p>
+                  </div>
                 </div>
-                <dl className="rulebook-document-meta">
-                  <div>
-                    <dt>Category</dt>
-                    <dd>{activeDocument.category}</dd>
-                  </div>
-                  <div>
-                    <dt>Updated</dt>
-                    <dd>{new Date(activeDocument.updatedAt).toLocaleString()}</dd>
-                  </div>
-                </dl>
               </header>
 
               <div className="rulebook-content-grid">
                 <nav className="rulebook-toc" aria-label="Rulebook table of contents">
                   <div className="rulebook-panel-head">
-                    <span className="eyebrow">TOC</span>
                     <strong>목차</strong>
                   </div>
                   {tocTree.length ? (
-                    <div className="rulebook-toc-list">
-                      {renderTocNodes(tocTree)}
-                    </div>
+                    <div className="rulebook-toc-list">{renderTocNodes(tocTree)}</div>
                   ) : (
-                    <p className="rulebook-muted">이 문서에는 생성할 수 있는 목차가 없습니다.</p>
+                    <p className="rulebook-muted">이 문서에는 표시할 목차가 없습니다.</p>
                   )}
                 </nav>
 
-                <article className="rulebook-article">
-                  {parsedDocument.blocks.map((block, index) => {
-                    if (block.type === 'heading') {
-                      return renderHeading(
-                        block.level,
-                        block.id,
-                        block.text,
-                        `${block.id}-${index}`,
-                      );
-                    }
-
-                    if (block.type === 'paragraph') {
-                      return <p key={`paragraph-${index}`}>{renderInline(block.text)}</p>;
-                    }
-
-                    if (block.type === 'unordered-list') {
-                      return (
-                        <ul key={`unordered-${index}`}>
-                          {block.items.map((item, itemIndex) => (
-                            <li key={`${item}-${itemIndex}`}>{renderInline(item)}</li>
-                          ))}
-                        </ul>
-                      );
-                    }
-
-                    if (block.type === 'ordered-list') {
-                      return (
-                        <ol key={`ordered-${index}`}>
-                          {block.items.map((item, itemIndex) => (
-                            <li key={`${item}-${itemIndex}`}>{renderInline(item)}</li>
-                          ))}
-                        </ol>
-                      );
-                    }
-
-                    if (block.type === 'blockquote') {
-                      return (
-                        <blockquote key={`blockquote-${index}`}>
-                          {block.lines.map((line, lineIndex) => (
-                            <p key={`${line}-${lineIndex}`}>{renderInline(line)}</p>
-                          ))}
-                        </blockquote>
-                      );
-                    }
-
-                    if (block.type === 'code') {
-                      return (
-                        <pre key={`code-${index}`}>
-                          <code className={block.language ? `language-${block.language}` : undefined}>
-                            {block.code}
-                          </code>
-                        </pre>
-                      );
-                    }
-
-                    if (block.type === 'table') {
-                      const [header, ...rows] = block.rows;
-                      return (
-                        <div key={`table-${index}`} className="rulebook-table-wrap">
-                          <table>
-                            <thead>
-                              <tr>
-                                {header.map((cell, cellIndex) => (
-                                  <th key={`${cell}-${cellIndex}`}>{renderInline(cell)}</th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {rows.map((row, rowIndex) => (
-                                <tr key={`row-${rowIndex}`}>
-                                  {row.map((cell, cellIndex) => (
-                                    <td key={`${cell}-${cellIndex}`}>{renderInline(cell)}</td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      );
-                    }
-
-                    return <hr key={`hr-${index}`} />;
-                  })}
-                </article>
+                <article className="rulebook-article">{renderDocumentBlocks()}</article>
               </div>
             </>
-          ) : !loadingIndex ? (
+          ) : (
             <div className="rulebook-empty-state">
               <span className="eyebrow">Rulebook</span>
-              <strong>선택된 룰북 문서가 없습니다.</strong>
-              <p>왼쪽 목록에서 문서를 선택하면 목차와 전체 내용을 볼 수 있습니다.</p>
+              <strong>선택한 룰북 문서를 찾을 수 없습니다.</strong>
+              <p>왼쪽 사이드바에서 다른 문서를 선택해 다시 확인해 주세요.</p>
             </div>
-          ) : null}
+          )}
         </div>
       </section>
+    </div>
+  );
+
+  return (
+    <main className="rulebook-page rulebook-page--fantasy">
+      <aside className="rulebook-page__sidebar">
+        <div className="rulebook-page__title-box">
+          <img src={dndLogo} alt="D&D 5e SRD 룰북" className="rulebook-page__title-image" />
+        </div>
+
+        <nav className="rulebook-page__side-nav" aria-label="Rulebook sections">
+          <button
+            type="button"
+            className={`rulebook-page__side-button${activePane === 'translated' ? ' active' : ''}`}
+            onClick={() => setActivePane('translated')}
+          >
+            <span>룰북 (번역본)</span>
+          </button>
+          <button
+            type="button"
+            className={`rulebook-page__side-button${activePane === 'original' ? ' active' : ''}`}
+            onClick={() => setActivePane('original')}
+          >
+            <span>룰북 (원문)</span>
+          </button>
+          <button
+            type="button"
+            className={`rulebook-page__side-button${activePane === 'copyright' ? ' active' : ''}`}
+            onClick={() => setActivePane('copyright')}
+          >
+            <span>저작권</span>
+          </button>
+        </nav>
+      </aside>
+
+      <section className="rulebook-page__main">
+        {error ? <p className="panel-error">{error}</p> : null}
+        {loadingIndex ? <RulebookSpinner /> : renderReaderPane()}
+      </section>
+
+      <footer className="rulebook-page__footer">
+        <p>
+          This work includes material taken from the System Reference Document 5.1 ("SRD 5.1")
+          by Wizards of the Coast LLC and available at
+          <br />
+          <a
+            href="https://dnd.wizards.com/resources/systems-reference-document"
+            target="_blank"
+            rel="noreferrer"
+          >
+            https://dnd.wizards.com/resources/systems-reference-document
+          </a>
+          . The SRD 5.1 is licensed under the Creative Commons Attribution 4.0 International
+          License available at
+          <br />
+          <a
+            href="https://creativecommons.org/licenses/by/4.0/legalcode"
+            target="_blank"
+            rel="noreferrer"
+          >
+            https://creativecommons.org/licenses/by/4.0/legalcode
+          </a>
+          .
+        </p>
+      </footer>
     </main>
   );
 }
