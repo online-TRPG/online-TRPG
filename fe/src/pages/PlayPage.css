@@ -941,9 +941,21 @@
   line-height: 1.6;
 }
 
-.session-log-stack {
+.session-log-area {
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.session-log-stack {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #8fa2b8 #dfe6ee;
   display: grid;
   gap: 8px;
   align-content: start;
@@ -1252,10 +1264,17 @@
 
 .session-info-panel,
 .session-settings-panel {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #8fa2b8 #dfe6ee;
   display: grid;
   gap: 14px;
   align-content: start;
   padding: 6px 0 0;
+  padding-right: 4px;
 }
 
 .danger-button {
@@ -1281,12 +1300,47 @@
 .session-info-panel textarea {
   width: 100%;
   min-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #8fa2b8 #f2f5f8;
   resize: vertical;
   border-radius: 4px;
   border: 1px solid rgba(120, 83, 41, 0.18);
   background: rgba(255, 253, 248, 0.96);
   color: #2f1e11;
   padding: 14px;
+}
+
+.session-log-stack::-webkit-scrollbar,
+.session-info-panel::-webkit-scrollbar,
+.session-settings-panel::-webkit-scrollbar,
+.session-info-panel textarea::-webkit-scrollbar {
+  display: block;
+  width: 10px;
+}
+
+.session-log-stack::-webkit-scrollbar-track,
+.session-info-panel::-webkit-scrollbar-track,
+.session-settings-panel::-webkit-scrollbar-track,
+.session-info-panel textarea::-webkit-scrollbar-track {
+  background: #dfe6ee;
+}
+
+.session-log-stack::-webkit-scrollbar-thumb,
+.session-info-panel::-webkit-scrollbar-thumb,
+.session-settings-panel::-webkit-scrollbar-thumb,
+.session-info-panel textarea::-webkit-scrollbar-thumb {
+  background: #8fa2b8;
+  border: 2px solid #dfe6ee;
+  border-radius: 999px;
+}
+
+.session-info-panel textarea::-webkit-scrollbar-track {
+  background: #f2f5f8;
+}
+
+.session-info-panel textarea::-webkit-scrollbar-thumb {
+  border-color: #f2f5f8;
 }
 
 @media (max-width: 1180px) {
