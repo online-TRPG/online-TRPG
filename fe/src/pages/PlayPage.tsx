@@ -439,6 +439,8 @@ export function PlayPage({
         return {
           ...log,
           message: normalizedMessage,
+          // 서버 응답을 기다리는 임시 로그는 멈춘 것처럼 보이지 않도록 별도 표시를 붙입니다.
+          isPendingAction: log.id.endsWith(":pending"),
           rowClass,
           senderLabel: getLogSenderLabel(log.title, rowClass),
         };
@@ -904,7 +906,10 @@ export function PlayPage({
                       ) : null}
                       <div className="chat-thread-stack">
                         <span className={`chat-thread-sender ${log.rowClass}`}>{log.senderLabel}</span>
-                        <div className="chat-thread-bubble">{log.message}</div>
+                        <div className={`chat-thread-bubble${log.isPendingAction ? " pending" : ""}`}>
+                          {log.isPendingAction ? <span className="chat-thread-spinner" aria-hidden="true" /> : null}
+                          <span>{log.message}</span>
+                        </div>
                         {log.rowClass !== "notice" ? <span className="chat-thread-time">{log.time}</span> : null}
                       </div>
                       {log.rowClass === "outgoing" ? (
