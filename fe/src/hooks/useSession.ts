@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ActionInputType,
   ActionScope,
+  DiceRollResponseDto,
+  StateDiffResponseDto,
   SubmitActionDto,
   TurnLogResponseDto,
   VttMapStateDto,
@@ -131,6 +133,20 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
 
   // PlayPage는 [MAIN] prefix가 붙은 action 로그만 Main 탭에 보여준다.
   return `[MAIN]${lines.join("\n")}`;
+}
+
+function formatDiceRollMessage(diceResult: DiceRollResponseDto): string {
+  const parts = [
+    `${diceResult.expression} = ${diceResult.total}`,
+    diceResult.rolls.length ? `굴림: ${diceResult.rolls.join(", ")}` : null,
+    diceResult.modifier ? `수정치: ${diceResult.modifier}` : null,
+  ];
+
+  return parts.filter((part): part is string => Boolean(part)).join(" / ");
+}
+
+function formatStateDiffMessage(stateDiff: StateDiffResponseDto): string {
+  return `상태 버전 ${stateDiff.baseVersion} -> ${stateDiff.nextVersion} (${stateDiff.reason})`;
 }
 
 export function useSession(
@@ -276,6 +292,14 @@ export function useSession(
         appendLog("action", message.senderDisplayName, `[CHAT]${message.content}`);
       },
       onTurnLogCreated: appendServerTurnLog,
+      onDiceRolled: (diceResult: DiceRollResponseDto) => {
+        // 주사위 결과는 TurnLog에도 포함되므로 Main 로그에 중복으로 넣지 않고, 실시간 이벤트 확인용 로그로만 남긴다.
+        appendLog("socket", "주사위 결과", formatDiceRollMessage(diceResult));
+      },
+      onStateDiffApplied: (stateDiff: StateDiffResponseDto) => {
+        // 실제 화면 상태 갱신은 전용 snapshot/도메인 이벤트가 책임지고, 여기서는 상태 변경 이벤트 수신 여부를 남긴다.
+        appendLog("socket", "상태 변경", formatStateDiffMessage(stateDiff));
+      },
       onVttMapUpdated: (map: VttMapStateDto) => {
         setSnapshot((current) => {
           if (!current) return current;
