@@ -6,6 +6,7 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -26,6 +27,7 @@ import {
   RegisterUserDto,
   SessionListItemResponseDto,
   SessionStatus,
+  UpdateMeDto,
   UserResponseDto,
 } from "@trpg/shared-types";
 import { apiResponse, ApiResponse } from "../../common/api-response";
@@ -101,6 +103,17 @@ export class UsersController {
   @ApiOkResponse({ type: UserResponseDto })
   async getMe(@CurrentUserId() userId: string): Promise<ApiResponse<UserResponseDto>> {
     return apiResponse("USER_200", "내 정보 조회에 성공했습니다.", await this.usersService.getMe(userId));
+  }
+
+  @Patch("me")
+  @HttpCode(200)
+  @ApiSecurity("bearer")
+  @ApiOkResponse({ type: UserResponseDto })
+  async updateMe(
+    @CurrentUserId() userId: string,
+    @Body() dto: UpdateMeDto,
+  ): Promise<ApiResponse<UserResponseDto>> {
+    return apiResponse("USER_200", "닉네임이 변경되었습니다.", await this.usersService.updateMe(userId, dto));
   }
 
   @Get("public/:publicId")
