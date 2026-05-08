@@ -4,6 +4,7 @@ import type {
   ActionAcceptedEventDto,
   DiceRollResponseDto,
   StateDiffResponseDto,
+  SystemMessageEventDto,
   TurnLogResponseDto,
   VttMapStateDto,
 } from "@trpg/shared-types";
@@ -17,6 +18,7 @@ export interface RealtimeHandlers {
   onChatMessage(message: ChatMessage): void;
   onActionAccepted(action: ActionAcceptedEventDto): void;
   onTurnLogCreated(turnLog: TurnLogResponseDto): void;
+  onSystemMessage(message: SystemMessageEventDto): void;
   onDiceRolled(diceResult: DiceRollResponseDto): void;
   onStateDiffApplied(stateDiff: StateDiffResponseDto): void;
   onVttMapUpdated(map: VttMapStateDto): void;
@@ -85,6 +87,10 @@ export function connectSessionSocket(
 
   socket.on("turn.log.created", (payload: { turnLog: TurnLogResponseDto }) => {
     handlers.onTurnLogCreated(payload.turnLog);
+  });
+
+  socket.on("system.message", (payload: SystemMessageEventDto) => {
+    handlers.onSystemMessage(payload);
   });
 
   socket.on("dice.rolled", (payload: { diceResult: DiceRollResponseDto }) => {

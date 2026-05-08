@@ -147,7 +147,12 @@ export class RealtimeEventsService {
     });
   }
 
-  emitSystemMessage(sessionId: string, code: string, message: string): void {
+  emitSystemMessage(
+    sessionId: string,
+    code: string,
+    message: string,
+    options?: { playerActionId?: string | null },
+  ): void {
     if (!this.server) {
       return;
     }
@@ -156,6 +161,7 @@ export class RealtimeEventsService {
       sessionId,
       code,
       message,
+      playerActionId: options?.playerActionId ?? null,
     });
   }
 

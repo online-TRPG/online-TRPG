@@ -5,6 +5,7 @@ import type {
   ActionScope,
   DiceRollResponseDto,
   StateDiffResponseDto,
+  SystemMessageEventDto,
   SubmitActionDto,
   TurnLogResponseDto,
   VttMapStateDto,
@@ -334,7 +335,7 @@ export function useSession(
         appendLog(
           "action",
           "세션 로그",
-          "[MAIN]...",
+          "[MAIN]로딩중 ...",
           `player-action:${action.playerActionId}:pending`,
         );
 
@@ -343,6 +344,19 @@ export function useSession(
         }, 45_000);
       },
       onTurnLogCreated: appendServerTurnLog,
+      onSystemMessage: (message: SystemMessageEventDto) => {
+        if (message.playerActionId) {
+          removeLog(`player-action:${message.playerActionId}:pending`);
+        }
+
+        // 서버 처리 실패도 Main 탭에 남겨야 사용자가 "응답 없음"이 아니라 실패 원인을 볼 수 있다.
+        appendLog(
+          "action",
+          "세션 로그",
+          `[MAIN]${message.message}`,
+          `system-message:${message.code}:${message.playerActionId ?? message.message}`,
+        );
+      },
       onDiceRolled: (diceResult: DiceRollResponseDto) => {
         // 주사위 결과는 TurnLog에도 포함되므로 Main 로그에 중복으로 넣지 않고, 실시간 이벤트 확인용 로그로만 남긴다.
         appendLog("socket", "주사위 결과", formatDiceRollMessage(diceResult));

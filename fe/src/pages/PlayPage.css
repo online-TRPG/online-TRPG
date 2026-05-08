@@ -1064,6 +1064,28 @@
   white-space: pre-wrap;
 }
 
+.chat-thread-bubble.pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-thread-spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border: 2px solid #c8d5e5;
+  border-top-color: #4d83bd;
+  border-radius: 50%;
+  animation: chat-thread-spin 0.8s linear infinite;
+}
+
+@keyframes chat-thread-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .chat-thread-time {
   font-size: 11px;
   color: #8a97a6;

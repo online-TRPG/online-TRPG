@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { HttpException, Injectable, Logger } from "@nestjs/common";
 import {
   ActionInputType as PrismaActionInputType,
   ActionQueueStatus as PrismaActionQueueStatus,
@@ -85,18 +85,20 @@ export class ActionProcessorService {
       });
       this.realtimeEvents.emitTurnLogCreated(action.sessionId, turnLog);
     } catch (error) {
+      const errorMessage = this.toErrorMessage(error);
       await this.prisma.playerAction.update({
         where: { id: action.id },
         data: {
           queueStatus: PrismaActionQueueStatus.FAILED,
-          failureReason: error instanceof Error ? error.message : "UNKNOWN_ERROR",
+          failureReason: errorMessage,
           processedAt: new Date(),
         },
       });
       this.realtimeEvents.emitSystemMessage(
         action.sessionId,
         "ACTION_FAILED",
-        "행동 처리 중 오류가 발생했습니다.",
+        `행동 처리 실패: ${errorMessage}`,
+        { playerActionId: action.id },
       );
     }
   }
@@ -123,6 +125,9 @@ export class ActionProcessorService {
       },
       include: {
         character: true,
+        user: {
+          include: { profile: true },
+        },
         // 룰 판정에서 장착 무기 속성을 확인해야 하므로 아이템 정의까지 함께 읽는다.
         inventoryEntries: {
           include: { itemDefinition: true },
@@ -450,6 +455,19 @@ export class ActionProcessorService {
   }
 
   private toErrorMessage(error: unknown): string {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (typeof response === "object" && response && "message" in response) {
+        const message = (response as { message?: unknown }).message;
+        if (Array.isArray(message)) {
+          return message.join(", ");
+        }
+        if (typeof message === "string") {
+          return message;
+        }
+      }
+    }
+
     return error instanceof Error ? error.message : String(error);
   }
 }

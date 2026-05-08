@@ -71,6 +71,21 @@ describe("RealtimeEventsService", () => {
     });
   });
 
+  it("emits system.message with the failed action id when provided", () => {
+    const { service, emit } = createBoundService();
+
+    service.emitSystemMessage("session-1", "ACTION_FAILED", "행동 처리 실패: 대상을 찾을 수 없습니다.", {
+      playerActionId: "action-1",
+    });
+
+    expect(emit).toHaveBeenCalledWith("system.message", {
+      sessionId: "session-1",
+      code: "ACTION_FAILED",
+      message: "행동 처리 실패: 대상을 찾을 수 없습니다.",
+      playerActionId: "action-1",
+    });
+  });
+
   it("emits state.diff.applied with the applied diff", () => {
     const { service, emit } = createBoundService();
     const stateDiff = {
