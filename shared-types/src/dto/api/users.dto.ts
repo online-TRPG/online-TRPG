@@ -51,6 +51,15 @@ export class DeleteMeDto {
   password!: string;
 }
 
+export class UpdateMeDto {
+  @ApiProperty({ example: "길동이" })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(2)
+  @MaxLength(10)
+  displayName!: string;
+}
+
 export class OAuthUrlQueryDto {
   @ApiProperty({ example: "http://localhost:5173/oauth/callback" })
   @IsString()
