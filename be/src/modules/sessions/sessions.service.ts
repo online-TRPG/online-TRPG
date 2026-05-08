@@ -185,6 +185,12 @@ export class SessionsService {
       status: params.status
         ? sessionStatusToPrisma[params.status]
         : PrismaSessionStatus.RECRUITING,
+      // 삭제된 호스트가 남긴 공개 세션은 목록 DTO 조립 중 404를 만들 수 있어 조회 단계에서 제외한다.
+      host: {
+        is: {
+          deletedAt: null,
+        },
+      },
       ruleSetId: params.ruleSetId,
       sessionScenarios: params.scenarioId
         ? {
@@ -222,17 +228,17 @@ export class SessionsService {
     const items = await Promise.all(
       sessions.map(async (session) => {
         const ensuredSession = await this.ensureSessionPublicId(session);
-        const ensuredHost = await this.usersService.getUserEntityOrThrow(session.hostUserId);
         const activeScenario = this.getActiveSessionScenario(ensuredSession.sessionScenarios);
         if (!activeScenario) {
           throw new NotFoundException(`Session ${ensuredSession.id} does not have an active scenario.`);
         }
 
+        // 이미 include로 가져온 host를 사용하면, 목록 조립 중 추가 사용자 조회 실패로 전체 응답이 깨지는 일을 막을 수 있다.
         return {
           session: mapSession(ensuredSession),
           scenario: mapScenarioSummary(activeScenario.scenario),
-          host: mapUser(ensuredHost),
-          owner: mapUser(ensuredHost),
+          host: mapUser(ensuredSession.host),
+          owner: mapUser(ensuredSession.host),
           participantCount: ensuredSession.participants.length,
           availableSlots: Math.max(
             ensuredSession.maxParticipants - ensuredSession.participants.length,
@@ -706,17 +712,17 @@ export class SessionsService {
     const items = await Promise.all(
       sessions.map(async (session) => {
         const ensuredSession = await this.ensureSessionPublicId(session);
-        const ensuredHost = await this.usersService.getUserEntityOrThrow(session.hostUserId);
         const activeScenario = this.getActiveSessionScenario(ensuredSession.sessionScenarios);
         if (!activeScenario) {
           throw new NotFoundException(`Session ${ensuredSession.id} does not have an active scenario.`);
         }
 
+        // 내 세션 목록도 include된 host를 재사용해, soft delete된 계정 때문에 목록 전체가 실패하지 않도록 한다.
         return {
           session: mapSession(ensuredSession),
           scenario: mapScenarioSummary(activeScenario.scenario),
-          host: mapUser(ensuredHost),
-          owner: mapUser(ensuredHost),
+          host: mapUser(ensuredSession.host),
+          owner: mapUser(ensuredSession.host),
           participantCount: ensuredSession.participants.length,
           availableSlots: Math.max(
             ensuredSession.maxParticipants - ensuredSession.participants.length,
