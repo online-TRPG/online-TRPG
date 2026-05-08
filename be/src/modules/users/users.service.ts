@@ -28,6 +28,7 @@ import {
   OAuthLoginDto,
   OAuthUrlResponseDto,
   RegisterUserDto,
+  UpdateMeDto,
   UserResponseDto,
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
@@ -217,6 +218,19 @@ export class UsersService {
 
   async getMe(userId: string): Promise<UserResponseDto> {
     return mapUser(await this.getUserEntityOrThrow(userId));
+  }
+
+  async updateMe(userId: string, dto: UpdateMeDto): Promise<UserResponseDto> {
+    const displayName = dto.displayName.trim();
+    if (displayName.length < 2 || displayName.length > 10) {
+      throw new BadRequestException("닉네임은 2자 이상 10자 이하여야 합니다.");
+    }
+    await this.getUserEntityOrThrow(userId);
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { displayName },
+    });
+    return mapUser(user);
   }
 
   async getPublicProfile(publicId: string): Promise<UserResponseDto> {

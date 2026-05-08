@@ -538,6 +538,7 @@ export function App() {
             onLogout={handleLogout}
             onOpenProfile={() => guardedNavigate('/profile')}
             onDeleteAccount={handleDeleteAccount}
+            onUpdateDisplayName={auth.updateDisplayName}
           />
         ) : null}
 
