@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  ActionAcceptedEventDto,
   ActionInputType,
   ActionScope,
   DiceRollResponseDto,
@@ -100,39 +101,53 @@ export interface UseSessionReturn {
   clearError: () => void;
 }
 
-function readNumberField(
-  source: Record<string, unknown> | null | undefined,
-  field: string,
-): number | null {
-  const value = source?.[field];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
+function formatDebugValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "(없음)";
+  }
 
-function formatOutcome(outcome: TurnLogResponseDto["outcome"]): string | null {
-  if (outcome === "NO_ROLL") return null;
-  if (outcome === "SUCCESS") return "성공";
-  if (outcome === "FAILURE") return "실패";
-  if (outcome === "IMPOSSIBLE") return "불가능";
-  return outcome;
+  if (typeof value === "object") {
+    return JSON.stringify(value, null, 2);
+  }
+
+  return String(value);
 }
 
 function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
-  const lines = [
-    turnLog.narration?.trim() || turnLog.rawInput?.trim() || "행동 결과가 기록되었습니다.",
+  const sections = [
+    "TurnLog",
+    `- turnLogId: ${turnLog.turnLogId}`,
+    `- turnNumber: ${turnLog.turnNumber}`,
+    `- playerActionId: ${formatDebugValue(turnLog.playerActionId)}`,
+    `- createdAt: ${turnLog.createdAt}`,
+    "",
+    "입력",
+    `- rawInput: ${formatDebugValue(turnLog.rawInput)}`,
+    "",
+    "결과",
+    `- outcome: ${turnLog.outcome}`,
+    `- narration: ${formatDebugValue(turnLog.narration)}`,
+    "",
+    "structuredAction",
+    formatDebugValue(turnLog.structuredAction),
+    "",
+    "diceResult",
+    formatDebugValue(turnLog.diceResult),
+    "",
+    "stateDiff",
+    formatDebugValue(turnLog.stateDiff),
   ];
-  const diceTotal = readNumberField(turnLog.diceResult, "total");
-  const outcome = formatOutcome(turnLog.outcome);
 
-  if (diceTotal !== null) {
-    lines.push(`주사위 결과: ${diceTotal}`);
-  }
+  return `[MAIN]${sections.join("\n")}`;
+}
 
-  if (outcome) {
-    lines.push(`판정: ${outcome}`);
-  }
+function getSenderNameByUserId(
+  userId: string,
+  snapshot: SessionSnapshot | null,
+): string {
+  const participant = snapshot?.participants.find((item) => item.userId === userId);
 
-  // PlayPage는 [MAIN] prefix가 붙은 action 로그만 Main 탭에 보여준다.
-  return `[MAIN]${lines.join("\n")}`;
+  return participant?.user.displayName ?? "알 수 없음";
 }
 
 function formatDiceRollMessage(diceResult: DiceRollResponseDto): string {
@@ -152,7 +167,8 @@ function formatStateDiffMessage(stateDiff: StateDiffResponseDto): string {
 export function useSession(
   user: StoredUser | null,
   accessToken: string | null,
-  appendLog: (kind: LogEntry["kind"], title: string, message: string) => void,
+  appendLog: (kind: LogEntry["kind"], title: string, message: string, id?: string) => void,
+  removeLog: (id: string) => void,
 ): UseSessionReturn {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(() => loadStoredSnapshot());
   const [sessionList, setSessionList] = useState<AvailableSessionListItem[]>([]);
@@ -162,6 +178,7 @@ export function useSession(
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const snapshotRef = useRef<SessionSnapshot | null>(snapshot);
   const seenTurnLogIdsRef = useRef<Set<string>>(new Set());
   const loadedTurnLogSessionIdRef = useRef<string | null>(null);
 
@@ -169,6 +186,10 @@ export function useSession(
     setSnapshot(next);
     saveStoredSnapshot(next);
   }, []);
+
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
 
   const hasRecruitingSession = useCallback(() => snapshot?.session.status === "recruiting", [snapshot]);
   const hasBlockingSession = useCallback(
@@ -214,9 +235,17 @@ export function useSession(
       }
 
       seenTurnLogIdsRef.current.add(turnLog.turnLogId);
-      appendLog("action", "세션 로그", formatTurnLogMessage(turnLog));
+      if (turnLog.playerActionId) {
+        removeLog(`player-action:${turnLog.playerActionId}:pending`);
+      }
+      appendLog(
+        "action",
+        "세션 로그",
+        formatTurnLogMessage(turnLog),
+        `turn-log:${turnLog.turnLogId}`,
+      );
     },
-    [appendLog],
+    [appendLog, removeLog],
   );
 
   const loadRecentTurnLogs = useCallback(
@@ -230,7 +259,7 @@ export function useSession(
           {
             size: 20,
             includeDiceResult: true,
-            includeStateDiff: false,
+            includeStateDiff: true,
           },
           accessToken,
         );
@@ -291,6 +320,28 @@ export function useSession(
         // 화면 컴포넌트 충돌을 줄이기 위해 수신 메시지만 기존 로그 흐름에 얹는다.
         appendLog("action", message.senderDisplayName, `[CHAT]${message.content}`);
       },
+      onActionAccepted: (action: ActionAcceptedEventDto) => {
+        const rawText = action.rawText.trim();
+        if (!rawText) return;
+
+        // 사용자가 선언한 원문은 처리 결과를 기다리지 않고, 서버가 접수한 시점에 모두에게 채팅처럼 보여준다.
+        appendLog(
+          "action",
+          getSenderNameByUserId(action.actorUserId, snapshotRef.current),
+          `[MAIN]${rawText}`,
+          `player-action:${action.playerActionId}:raw`,
+        );
+        appendLog(
+          "action",
+          "세션 로그",
+          "[MAIN]...",
+          `player-action:${action.playerActionId}:pending`,
+        );
+
+        window.setTimeout(() => {
+          removeLog(`player-action:${action.playerActionId}:pending`);
+        }, 45_000);
+      },
       onTurnLogCreated: appendServerTurnLog,
       onDiceRolled: (diceResult: DiceRollResponseDto) => {
         // 주사위 결과는 TurnLog에도 포함되므로 Main 로그에 중복으로 넣지 않고, 실시간 이벤트 확인용 로그로만 남긴다.
@@ -333,7 +384,7 @@ export function useSession(
       }
       socket.disconnect();
     };
-  }, [appendLog, appendServerTurnLog, snapshot?.session.id, updateSnapshot, user]);
+  }, [appendLog, appendServerTurnLog, removeLog, snapshot?.session.id, updateSnapshot, user]);
 
   useEffect(() => {
     if (!user || !snapshot?.session.id) return;

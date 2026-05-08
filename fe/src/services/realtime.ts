@@ -1,6 +1,7 @@
 import { io, Socket } from "socket.io-client";
 import { SOCKET_BASE_URL } from "./api";
 import type {
+  ActionAcceptedEventDto,
   DiceRollResponseDto,
   StateDiffResponseDto,
   TurnLogResponseDto,
@@ -14,6 +15,7 @@ export interface RealtimeHandlers {
   onParticipantUpdated(participant: Participant): void;
   onCharacterUpdated(character: Character): void;
   onChatMessage(message: ChatMessage): void;
+  onActionAccepted(action: ActionAcceptedEventDto): void;
   onTurnLogCreated(turnLog: TurnLogResponseDto): void;
   onDiceRolled(diceResult: DiceRollResponseDto): void;
   onStateDiffApplied(stateDiff: StateDiffResponseDto): void;
@@ -28,7 +30,9 @@ export function connectSessionSocket(
   handlers: RealtimeHandlers,
 ): Socket {
   const socket = io(`${SOCKET_BASE_URL}/ws`, {
-    transports: ["websocket"],
+    // 로컬/프록시 환경에서 WebSocket 업그레이드가 바로 실패해도 세션 이벤트가 끊기지 않도록
+    // Socket.IO 기본 흐름처럼 polling으로 먼저 연결한 뒤 websocket으로 업그레이드한다.
+    transports: ["polling", "websocket"],
     extraHeaders: {
       "x-user-id": user.id,
     },
@@ -73,6 +77,10 @@ export function connectSessionSocket(
 
   socket.on("chat.message", (payload: { message: ChatMessage }) => {
     handlers.onChatMessage(payload.message);
+  });
+
+  socket.on("action.accepted", (payload: ActionAcceptedEventDto) => {
+    handlers.onActionAccepted(payload);
   });
 
   socket.on("turn.log.created", (payload: { turnLog: TurnLogResponseDto }) => {

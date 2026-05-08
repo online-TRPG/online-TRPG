@@ -116,7 +116,6 @@ function getAvatarLabel(title: string, userName: string) {
 
 function getLogSenderLabel(title: string, rowClass: "incoming" | "outgoing" | "notice") {
   if (rowClass === "notice") return "세션 로그";
-  if (rowClass === "outgoing") return "내 캐릭터";
   return title || "알 수 없음";
 }
 
@@ -921,6 +920,9 @@ export function PlayPage({
                         <div className="chat-thread-bubble">{log.message}</div>
                         {log.rowClass !== "notice" ? <span className="chat-thread-time">{log.time}</span> : null}
                       </div>
+                      {log.rowClass === "outgoing" ? (
+                        <div className="chat-thread-avatar">{getAvatarLabel(log.title, user.displayName)}</div>
+                      ) : null}
                     </article>
                   ))
                 ) : (
