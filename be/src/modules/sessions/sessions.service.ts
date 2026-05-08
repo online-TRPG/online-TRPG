@@ -104,6 +104,12 @@ export type SessionPageResult = {
   totalElements: number;
 };
 
+function isSessionListItem(
+  item: SessionListItemResponseDto | null,
+): item is SessionListItemResponseDto {
+  return item !== null;
+}
+
 @Injectable()
 export class SessionsService {
   constructor(
@@ -199,7 +205,9 @@ export class SessionsService {
               status: PrismaSessionScenarioStatus.ACTIVE,
             },
           }
-        : undefined,
+        : {
+            some: {},
+          },
     };
 
     const [totalElements, sessions] = await this.prisma.$transaction([
@@ -225,12 +233,13 @@ export class SessionsService {
       }),
     ]);
 
-    const items = await Promise.all(
-      sessions.map(async (session) => {
+    const items = (
+      await Promise.all(
+      sessions.map(async (session): Promise<SessionListItemResponseDto | null> => {
         const ensuredSession = await this.ensureSessionPublicId(session);
         const activeScenario = this.getActiveSessionScenario(ensuredSession.sessionScenarios);
         if (!activeScenario) {
-          throw new NotFoundException(`Session ${ensuredSession.id} does not have an active scenario.`);
+          return null;
         }
 
         // 이미 include로 가져온 host를 사용하면, 목록 조립 중 추가 사용자 조회 실패로 전체 응답이 깨지는 일을 막을 수 있다.
@@ -247,7 +256,8 @@ export class SessionsService {
           role: this.getParticipantRoleForUser(ensuredSession.participants, params.requesterUserId),
         };
       }),
-    );
+      )
+    ).filter(isSessionListItem);
 
     return { items, totalElements };
   }
@@ -676,7 +686,9 @@ export class SessionsService {
               status: PrismaSessionScenarioStatus.ACTIVE,
             },
           }
-        : undefined,
+        : {
+            some: {},
+          },
       participants: {
         some: {
           userId,
@@ -709,12 +721,13 @@ export class SessionsService {
       }),
     ]);
 
-    const items = await Promise.all(
-      sessions.map(async (session) => {
+    const items = (
+      await Promise.all(
+      sessions.map(async (session): Promise<SessionListItemResponseDto | null> => {
         const ensuredSession = await this.ensureSessionPublicId(session);
         const activeScenario = this.getActiveSessionScenario(ensuredSession.sessionScenarios);
         if (!activeScenario) {
-          throw new NotFoundException(`Session ${ensuredSession.id} does not have an active scenario.`);
+          return null;
         }
 
         // 내 세션 목록도 include된 host를 재사용해, soft delete된 계정 때문에 목록 전체가 실패하지 않도록 한다.
@@ -731,7 +744,8 @@ export class SessionsService {
           role: this.getParticipantRoleForUser(ensuredSession.participants, userId),
         };
       }),
-    );
+      )
+    ).filter(isSessionListItem);
 
     return { items, totalElements };
   }

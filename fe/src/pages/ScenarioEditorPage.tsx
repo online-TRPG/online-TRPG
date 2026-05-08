@@ -15,13 +15,16 @@ import { BattleMap } from '../components/BattleMap';
 import {
   createScenario,
   getScenario,
+  listScenarioAssets,
   updateScenario,
-  uploadScenarioNodeImage,
+  uploadScenarioAsset,
 } from '../services/api';
 import { loadMonsterCatalog } from '../services/staticSrd';
 import type { ScenarioDetail, StoredUser } from '../types/session';
 import type {
   CreateScenarioDto,
+  ScenarioAssetKind,
+  ScenarioAssetResponseDto,
   ScenarioLicense,
   ScenarioNodeType,
   SrdMonsterReferenceDto,
@@ -29,6 +32,10 @@ import type {
   VttMapStateDto,
 } from '@trpg/shared-types';
 import "./ScenarioEditorPage.css";
+
+const SCENARIO_ASSET_KIND_MAP = "MAP" as ScenarioAssetKind;
+const SCENARIO_ASSET_KIND_SCENE = "SCENE" as ScenarioAssetKind;
+const SCENARIO_ASSET_KIND_TOKEN = "TOKEN" as ScenarioAssetKind;
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface ScenarioEditorPageProps {
@@ -87,6 +94,8 @@ type ScenarioFormState = {
   attribution: string;
   nodes: NodeForm[];
 };
+
+type ScenarioAsset = ScenarioAssetResponseDto;
 
 type GraphNodeLayout = {
   node: NodeForm;
@@ -486,6 +495,15 @@ export function ScenarioEditorPage({
   const [error, setError] = useState<string | null>(null);
   const [monsterCatalog, setMonsterCatalog] = useState<SrdMonsterReferenceDto[]>([]);
   const [monsterCatalogError, setMonsterCatalogError] = useState<string | null>(null);
+  const [mapAssets, setMapAssets] = useState<ScenarioAsset[]>([]);
+  const [mapAssetsLoading, setMapAssetsLoading] = useState(false);
+  const [mapAssetsError, setMapAssetsError] = useState<string | null>(null);
+  const [sceneAssets, setSceneAssets] = useState<ScenarioAsset[]>([]);
+  const [sceneAssetsLoading, setSceneAssetsLoading] = useState(false);
+  const [sceneAssetsError, setSceneAssetsError] = useState<string | null>(null);
+  const [tokenAssets, setTokenAssets] = useState<ScenarioAsset[]>([]);
+  const [tokenAssetsLoading, setTokenAssetsLoading] = useState(false);
+  const [tokenAssetsError, setTokenAssetsError] = useState<string | null>(null);
   const [autoSaveStatus, setAutoSaveStatus] = useState('자동 저장 준비 중');
   const autoSaveBusyRef = useRef(false);
   const lastSavedSnapshotRef = useRef<string | null>(null);
@@ -528,6 +546,117 @@ export function ScenarioEditorPage({
       ignore = true;
     };
   }, [form.ruleSetId]);
+
+  useEffect(() => {
+    if (!effectiveScenarioId) {
+      setMapAssets([]);
+      setMapAssetsLoading(false);
+      setMapAssetsError(null);
+      return;
+    }
+
+    let ignore = false;
+    setMapAssetsLoading(true);
+    setMapAssetsError(null);
+
+    listScenarioAssets(user, effectiveScenarioId, { kind: SCENARIO_ASSET_KIND_MAP }, accessToken)
+      .then((items) => {
+        if (!ignore) {
+          setMapAssets(items);
+        }
+      })
+      .catch((caught) => {
+        if (!ignore) {
+          setMapAssets([]);
+          setMapAssetsError(
+            caught instanceof Error ? caught.message : '맵 자산 목록을 불러오지 못했습니다.',
+          );
+        }
+      })
+      .finally(() => {
+        if (!ignore) {
+          setMapAssetsLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [accessToken, effectiveScenarioId, user]);
+
+  useEffect(() => {
+    if (!effectiveScenarioId) {
+      setSceneAssets([]);
+      setSceneAssetsLoading(false);
+      setSceneAssetsError(null);
+      return;
+    }
+
+    let ignore = false;
+    setSceneAssetsLoading(true);
+    setSceneAssetsError(null);
+
+    listScenarioAssets(user, effectiveScenarioId, { kind: SCENARIO_ASSET_KIND_SCENE }, accessToken)
+      .then((items) => {
+        if (!ignore) {
+          setSceneAssets(items);
+        }
+      })
+      .catch((caught) => {
+        if (!ignore) {
+          setSceneAssets([]);
+          setSceneAssetsError(
+            caught instanceof Error ? caught.message : '장면 자산 목록을 불러오지 못했습니다.',
+          );
+        }
+      })
+      .finally(() => {
+        if (!ignore) {
+          setSceneAssetsLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [accessToken, effectiveScenarioId, user]);
+
+  useEffect(() => {
+    if (!effectiveScenarioId) {
+      setTokenAssets([]);
+      setTokenAssetsLoading(false);
+      setTokenAssetsError(null);
+      return;
+    }
+
+    let ignore = false;
+    setTokenAssetsLoading(true);
+    setTokenAssetsError(null);
+
+    listScenarioAssets(user, effectiveScenarioId, { kind: SCENARIO_ASSET_KIND_TOKEN }, accessToken)
+      .then((items) => {
+        if (!ignore) {
+          setTokenAssets(items);
+        }
+      })
+      .catch((caught) => {
+        if (!ignore) {
+          setTokenAssets([]);
+          setTokenAssetsError(
+            caught instanceof Error ? caught.message : '토큰 자산 목록을 불러오지 못했습니다.',
+          );
+        }
+      })
+      .finally(() => {
+        if (!ignore) {
+          setTokenAssetsLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [accessToken, effectiveScenarioId, user]);
 
   // 마지막 저장 스냅샷과 현재 payload를 비교해 저장 안 된 변경사항을 판단합니다.
   const hasUnsavedChanges = useCallback(() => {
@@ -750,6 +879,72 @@ export function ScenarioEditorPage({
     setEditorMode('detail');
   }
 
+  async function uploadAssetByKind(
+    file: File | null,
+    kind: ScenarioAssetKind,
+    missingScenarioMessage: string,
+    onUploaded: (asset: ScenarioAsset) => void,
+  ): Promise<ScenarioAsset | null> {
+    if (!file) return null;
+
+    if (!effectiveScenarioId) {
+      setError(missingScenarioMessage);
+      return null;
+    }
+
+    const dataBase64 = await fileToBase64(file);
+    const asset = await uploadScenarioAsset(
+      user,
+      effectiveScenarioId,
+      {
+        kind,
+        fileName: file.name,
+        contentType: file.type || 'application/octet-stream',
+        dataBase64,
+      },
+      accessToken,
+    );
+
+    onUploaded(asset);
+    return asset;
+  }
+
+  async function handleMapAssetUpload(file: File | null): Promise<ScenarioAsset | null> {
+    return uploadAssetByKind(
+      file,
+      SCENARIO_ASSET_KIND_MAP,
+      '맵 이미지는 시나리오를 먼저 저장한 뒤 업로드할 수 있습니다.',
+      (asset) => {
+        setMapAssets((current) => [asset, ...current.filter((item) => item.id !== asset.id)]);
+        setMapAssetsError(null);
+      },
+    );
+  }
+
+  async function handleSceneAssetUpload(file: File | null): Promise<ScenarioAsset | null> {
+    return uploadAssetByKind(
+      file,
+      SCENARIO_ASSET_KIND_SCENE,
+      '장면 이미지는 시나리오를 먼저 저장한 뒤 업로드할 수 있습니다.',
+      (asset) => {
+        setSceneAssets((current) => [asset, ...current.filter((item) => item.id !== asset.id)]);
+        setSceneAssetsError(null);
+      },
+    );
+  }
+
+  async function handleTokenAssetUpload(file: File | null): Promise<ScenarioAsset | null> {
+    return uploadAssetByKind(
+      file,
+      SCENARIO_ASSET_KIND_TOKEN,
+      '토큰 이미지는 시나리오를 먼저 저장한 뒤 업로드할 수 있습니다.',
+      (asset) => {
+        setTokenAssets((current) => [asset, ...current.filter((item) => item.id !== asset.id)]);
+        setTokenAssetsError(null);
+      },
+    );
+  }
+
   // 수동 저장 버튼/폼 제출 처리입니다. 유효성 검사 후 create/update API를 호출합니다.
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -946,12 +1141,22 @@ export function ScenarioEditorPage({
               </>
             ) : selectedNode ? (
               <NodeDetailEditor
-                user={user}
-                accessToken={accessToken}
                 scenarioId={effectiveScenarioId}
                 node={selectedNode}
                 nodes={form.nodes}
                 incomingLinks={incomingLinks}
+                mapAssets={mapAssets}
+                mapAssetsLoading={mapAssetsLoading}
+                mapAssetsError={mapAssetsError}
+                uploadMapAsset={handleMapAssetUpload}
+                sceneAssets={sceneAssets}
+                sceneAssetsLoading={sceneAssetsLoading}
+                sceneAssetsError={sceneAssetsError}
+                uploadSceneAsset={handleSceneAssetUpload}
+                tokenAssets={tokenAssets}
+                tokenAssetsLoading={tokenAssetsLoading}
+                tokenAssetsError={tokenAssetsError}
+                uploadTokenAsset={handleTokenAssetUpload}
                 monsterCatalog={monsterCatalog}
                 monsterCatalogError={monsterCatalogError}
                 updateNode={updateNode}
@@ -1003,37 +1208,61 @@ export function ScenarioEditorPage({
 
 // 선택된 노드 하나의 제목/타입/이미지/맵/본문/링크/단서를 편집하는 하위 컴포넌트입니다.
 function NodeDetailEditor({
-  user,
-  accessToken,
   scenarioId,
   node,
   nodes,
   incomingLinks,
+  mapAssets,
+  mapAssetsLoading,
+  mapAssetsError,
+  uploadMapAsset,
+  sceneAssets,
+  sceneAssetsLoading,
+  sceneAssetsError,
+  uploadSceneAsset,
+  tokenAssets,
+  tokenAssetsLoading,
+  tokenAssetsError,
+  uploadTokenAsset,
   monsterCatalog,
   monsterCatalogError,
   updateNode,
   removeNode,
   setError,
 }: {
-  user: StoredUser;
-  accessToken: string | null;
   scenarioId: string | null;
   node: NodeForm;
   nodes: NodeForm[];
   incomingLinks: Array<{ fromNode: string; label: string }>;
+  mapAssets: ScenarioAsset[];
+  mapAssetsLoading: boolean;
+  mapAssetsError: string | null;
+  uploadMapAsset: (file: File | null) => Promise<ScenarioAsset | null>;
+  sceneAssets: ScenarioAsset[];
+  sceneAssetsLoading: boolean;
+  sceneAssetsError: string | null;
+  uploadSceneAsset: (file: File | null) => Promise<ScenarioAsset | null>;
+  tokenAssets: ScenarioAsset[];
+  tokenAssetsLoading: boolean;
+  tokenAssetsError: string | null;
+  uploadTokenAsset: (file: File | null) => Promise<ScenarioAsset | null>;
   monsterCatalog: SrdMonsterReferenceDto[];
   monsterCatalogError: string | null;
   updateNode: (nodeId: string, updater: (node: NodeForm) => NodeForm) => void;
   removeNode: (nodeId: string) => void;
   setError: (message: string | null) => void;
 }) {
-  // 노드 이미지 업로드 중복 클릭을 막기 위한 로컬 로딩 상태입니다.
   const [imageBusy, setImageBusy] = useState(false);
+  const [sceneUploadBusy, setSceneUploadBusy] = useState(false);
+  const [mapUploadBusy, setMapUploadBusy] = useState(false);
+  const sceneImageInputRef = useRef<HTMLInputElement | null>(null);
+  const sceneAssetInputRef = useRef<HTMLInputElement | null>(null);
+  const mapAssetInputRef = useRef<HTMLInputElement | null>(null);
 
   async function handleImageFile(file: File | null) {
     if (!file) return;
     if (!scenarioId) {
-      setError('이미지는 시나리오를 저장한 뒤 업로드할 수 있습니다.');
+      setError('이미지는 시나리오를 먼저 저장한 뒤 업로드할 수 있습니다.');
       return;
     }
 
@@ -1041,23 +1270,13 @@ function NodeDetailEditor({
     setError(null);
 
     try {
-      const dataBase64 = await fileToBase64(file);
-      const result = await uploadScenarioNodeImage(
-        user,
-        scenarioId,
-        node.id,
-        {
-          fileName: file.name,
-          contentType: file.type || 'application/octet-stream',
-          dataBase64,
-        },
-        accessToken
-      );
-
-      updateNode(node.id, (current) => ({
-        ...current,
-        imageUrl: result.imageUrl,
-      }));
+      const asset = await uploadSceneAsset(file);
+      if (asset) {
+        updateNode(node.id, (current) => ({
+          ...current,
+          imageUrl: asset.publicUrl,
+        }));
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '이미지 업로드에 실패했습니다.');
     } finally {
@@ -1065,7 +1284,31 @@ function NodeDetailEditor({
     }
   }
 
-  // BattleMap에서 변경된 맵 상태를 현재 노드의 vttMap에 반영합니다.
+  function applySceneAsset(asset: ScenarioAsset) {
+    updateNode(node.id, (current) => ({
+      ...current,
+      imageUrl: asset.publicUrl,
+    }));
+  }
+
+  async function handleSceneAssetFile(file: File | null) {
+    if (!file) return;
+
+    setSceneUploadBusy(true);
+    setError(null);
+
+    try {
+      const asset = await uploadSceneAsset(file);
+      if (asset) {
+        applySceneAsset(asset);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '장면 이미지를 업로드하지 못했습니다.');
+    } finally {
+      setSceneUploadBusy(false);
+    }
+  }
+
   function updateNodeMap(nextMap: VttMapStateDto) {
     updateNode(node.id, (current) => ({
       ...current,
@@ -1084,7 +1327,38 @@ function NodeDetailEditor({
     }));
   }
 
-  // 노드 상세 편집 UI: 상단 설정, 이미지, 맵, 장면 본문, 연결/단서 패널입니다.
+  function applyMapAsset(asset: ScenarioAsset) {
+    updateNode(node.id, (current) => {
+      const baseMap = current.vttMap ?? createDefaultNodeMap(current.id);
+      return {
+        ...current,
+        vttMap: {
+          ...baseMap,
+          imageUrl: asset.publicUrl,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    });
+  }
+
+  async function handleMapAssetFile(file: File | null) {
+    if (!file) return;
+
+    setMapUploadBusy(true);
+    setError(null);
+
+    try {
+      const asset = await uploadMapAsset(file);
+      if (asset) {
+        applyMapAsset(asset);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '맵 이미지를 업로드하지 못했습니다.');
+    } finally {
+      setMapUploadBusy(false);
+    }
+  }
+
   return (
     <div className="scenario-play-editor">
       <section className="scenario-play-stage">
@@ -1130,27 +1404,192 @@ function NodeDetailEditor({
         <section className="scenario-node-image-panel">
           <div>
             <span className="eyebrow">Scene image</span>
-            <label className="scenario-image-upload">
-              <input
-                type="file"
-                accept="image/*"
-                disabled={imageBusy}
-                onChange={(event) => {
-                  void handleImageFile(event.target.files?.[0] ?? null);
-                  event.currentTarget.value = '';
-                }}
-              />
-              {imageBusy ? '업로드 중...' : '이미지 업로드'}
-            </label>
+            <input
+              ref={sceneImageInputRef}
+              type="file"
+              accept="image/*"
+              hidden
+              disabled={imageBusy}
+              onChange={(event) => {
+                void handleImageFile(event.target.files?.[0] ?? null);
+                event.currentTarget.value = '';
+              }}
+            />
+            <button
+              type="button"
+              className={`scenario-image-upload${imageBusy ? ' disabled' : ''}`}
+              disabled={imageBusy}
+              onClick={() => {
+                if (!scenarioId) {
+                  setError('이미지는 시나리오를 먼저 저장한 뒤 업로드할 수 있습니다.');
+                  return;
+                }
+                sceneImageInputRef.current?.click();
+              }}
+            >
+              {imageBusy ? '이미지 업로드 중..' : '이미지 업로드'}
+            </button>
           </div>
           {node.imageUrl ? (
             <img src={node.imageUrl} alt={`${node.title || '시나리오 노드'} visual`} />
           ) : (
             <div className="scenario-node-image-empty">아직 연결된 이미지가 없습니다.</div>
           )}
+          <div className="scenario-map-library scenario-node-asset-library">
+            <div className="scenario-map-library-header">
+              <div>
+                <span className="eyebrow">Scene library</span>
+                <strong>업로드한 장면 이미지를 이 노드와 다른 노드에 다시 적용할 수 있습니다.</strong>
+              </div>
+              <div className="scenario-map-library-actions">
+                <input
+                  ref={sceneAssetInputRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  disabled={sceneUploadBusy}
+                  onChange={(event) => {
+                    void handleSceneAssetFile(event.target.files?.[0] ?? null);
+                    event.currentTarget.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  className={`scenario-image-upload${sceneUploadBusy ? ' disabled' : ''}`}
+                  disabled={sceneUploadBusy}
+                  onClick={() => {
+                    if (!scenarioId) {
+                      setError('장면 자산은 시나리오를 먼저 저장한 뒤 업로드할 수 있습니다.');
+                      return;
+                    }
+                    sceneAssetInputRef.current?.click();
+                  }}
+                >
+                  {sceneUploadBusy ? '장면 업로드 중..' : '장면 업로드'}
+                </button>
+              </div>
+            </div>
+            {!scenarioId ? (
+              <p className="helper-copy">장면 자산은 시나리오를 먼저 저장한 뒤 업로드할 수 있습니다.</p>
+            ) : null}
+            {sceneAssetsError ? <p className="panel-error">{sceneAssetsError}</p> : null}
+            {sceneAssetsLoading ? (
+              <p className="helper-copy">장면 자산 목록을 불러오는 중입니다.</p>
+            ) : sceneAssets.length ? (
+              <div className="scenario-map-library-grid">
+                {sceneAssets.map((asset) => {
+                  const isSelected = node.imageUrl === asset.publicUrl;
+                  return (
+                    <article
+                      key={asset.id}
+                      className={`scenario-map-asset-card${isSelected ? ' selected' : ''}`}
+                    >
+                      <img
+                        className="scenario-map-asset-preview"
+                        src={asset.publicUrl}
+                        alt={asset.fileName}
+                      />
+                      <div className="scenario-map-asset-meta">
+                        <strong>{asset.fileName}</strong>
+                        <span>{Math.max(1, Math.round(asset.fileSizeBytes / 1024))} KB</span>
+                      </div>
+                      <button
+                        type="button"
+                        className={isSelected ? 'ghost small' : 'small'}
+                        onClick={() => applySceneAsset(asset)}
+                      >
+                        {isSelected ? '현재 장면' : '이 장면 적용'}
+                      </button>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="scenario-map-asset-empty">
+                업로드한 장면 이미지가 아직 없습니다. 반복해서 쓰는 배경이나 삽화를 올려두면
+                다른 노드에도 바로 재사용할 수 있습니다.
+              </div>
+            )}
+          </div>
         </section>
 
         <section className="scenario-node-map-panel">
+          <div className="scenario-map-library">
+            <div className="scenario-map-library-header">
+              <div>
+                <span className="eyebrow">Map library</span>
+                <strong>업로드한 맵을 현재 장면에 바로 재사용할 수 있습니다.</strong>
+              </div>
+              <div className="scenario-map-library-actions">
+                <input
+                  ref={mapAssetInputRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  disabled={mapUploadBusy}
+                  onChange={(event) => {
+                    void handleMapAssetFile(event.target.files?.[0] ?? null);
+                    event.currentTarget.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  className={`scenario-image-upload${mapUploadBusy ? ' disabled' : ''}`}
+                  disabled={mapUploadBusy}
+                  onClick={() => {
+                    if (!scenarioId) {
+                      setError('맵 자산은 시나리오를 먼저 저장한 뒤 업로드할 수 있습니다.');
+                      return;
+                    }
+                    mapAssetInputRef.current?.click();
+                  }}
+                >
+                  {mapUploadBusy ? '맵 업로드 중..' : '맵 업로드'}
+                </button>
+              </div>
+            </div>
+            {!scenarioId ? (
+              <p className="helper-copy">맵 자산은 시나리오를 먼저 저장한 뒤 업로드할 수 있습니다.</p>
+            ) : null}
+            {mapAssetsError ? <p className="panel-error">{mapAssetsError}</p> : null}
+            {mapAssetsLoading ? (
+              <p className="helper-copy">맵 자산 목록을 불러오는 중입니다.</p>
+            ) : mapAssets.length ? (
+              <div className="scenario-map-library-grid">
+                {mapAssets.map((asset) => {
+                  const isSelected = node.vttMap?.imageUrl === asset.publicUrl;
+                  return (
+                    <article
+                      key={asset.id}
+                      className={`scenario-map-asset-card${isSelected ? ' selected' : ''}`}
+                    >
+                      <img
+                        className="scenario-map-asset-preview"
+                        src={asset.publicUrl}
+                        alt={asset.fileName}
+                      />
+                      <div className="scenario-map-asset-meta">
+                        <strong>{asset.fileName}</strong>
+                        <span>{Math.max(1, Math.round(asset.fileSizeBytes / 1024))} KB</span>
+                      </div>
+                      <button
+                        type="button"
+                        className={isSelected ? 'ghost small' : 'small'}
+                        onClick={() => applyMapAsset(asset)}
+                      >
+                        {isSelected ? '현재 맵' : '이 맵 적용'}
+                      </button>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="scenario-map-asset-empty">
+                업로드한 맵이 아직 없습니다. 자주 쓰는 전투 맵이나 배경 지도를 먼저 올려두면
+                장면마다 바로 재사용할 수 있습니다.
+              </div>
+            )}
+          </div>
           {monsterCatalogError ? <p className="panel-error">{monsterCatalogError}</p> : null}
           {node.vttMap ? (
             <>
@@ -1163,6 +1602,10 @@ function NodeDetailEditor({
                 showPartyTools={false}
                 monsterCatalog={monsterCatalog}
                 monsterCatalogError={monsterCatalogError}
+                tokenAssets={tokenAssets}
+                tokenAssetsLoading={tokenAssetsLoading}
+                tokenAssetsError={tokenAssetsError}
+                uploadTokenAsset={uploadTokenAsset}
               />
               <button
                 type="button"
@@ -1175,7 +1618,7 @@ function NodeDetailEditor({
           ) : (
             <div className="scenario-node-map-empty">
               <span className="eyebrow">Default map</span>
-              <strong>이 노드의 기본 맵이 없습니다.</strong>
+              <strong>이 장면에는 아직 기본 맵이 없습니다.</strong>
               <button type="button" className="ghost small" onClick={enableNodeMap}>
                 기본 맵 만들기
               </button>
@@ -1229,7 +1672,6 @@ function NodeDetailEditor({
   );
 }
 
-// 노드 그래프를 SVG 간선과 노드 카드로 시각화하는 하위 컴포넌트입니다.
 function ScenarioNodeGraph({
   layout,
   selectedNodeId,
