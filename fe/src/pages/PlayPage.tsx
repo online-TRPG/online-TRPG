@@ -16,8 +16,6 @@ import defaultRogueImage from "../assets/images/Profile_Default_Rouge.webp";
 import defaultWarriorImage from "../assets/images/Profile_Default_Warrior.webp";
 import defaultWizardImage from "../assets/images/Profile_Default_Wizard.webp";
 import { BattleMap } from "../components/BattleMap";
-import boxBulletinNarrowFrame from "../components/Box_Bulletin_Narrow_Frame.webp";
-import boxBulletinNarrowPlanks from "../components/Box_Bulletin_Narrow_Planks.webp";
 import { Icon } from "../components/Icon";
 import profileBorderCharacter from "../components/Profile_Border_Character.webp";
 import { getClassLabel } from "../services/staticSrd";
@@ -483,14 +481,11 @@ export function PlayPage({
           </section>
 
           {canShowCharacterSelection ? (
-            <section
-              className="character-selection-board player-ready-board session-character-board"
-              style={{ backgroundImage: `url(${boxBulletinNarrowPlanks})` }}
-            >
+            <section className="character-selection-board player-ready-board session-character-board">
               <div className="section-heading">
                 <div>
-                  <span className="eyebrow">Character selection</span>
-                  <h2>Choose your character</h2>
+                  <span className="eyebrow">캐릭터 선택</span>
+                  <h2>플레이할 캐릭터를 골라 주세요</h2>
                 </div>
                 <button
                   type="button"
@@ -498,7 +493,7 @@ export function PlayPage({
                   disabled={busy || !selectedCharacter}
                   onClick={() => onSetReady(!myParticipant?.isReady)}
                 >
-                  {myParticipant?.isReady ? "READY" : "Set READY"}
+                  {myParticipant?.isReady ? "준비 완료" : "준비하기"}
                 </button>
               </div>
 
@@ -510,8 +505,8 @@ export function PlayPage({
                   disabled={readyLocked}
                 >
                   <Icon name="plus" />
-                  <strong>Create character</strong>
-                  <span>Create a new character and use it in this session.</span>
+                  <strong>캐릭터 만들기</strong>
+                  <span>새 캐릭터를 만든 뒤 이 세션에서 바로 사용할 수 있습니다.</span>
                 </button>
 
                 {joinableCharacters.map((character) => {
@@ -550,11 +545,6 @@ export function PlayPage({
                   );
                 })}
               </div>
-              <div
-                className="session-character-board-frame"
-                style={{ backgroundImage: `url(${boxBulletinNarrowFrame})` }}
-                aria-hidden="true"
-              />
             </section>
           ) : null}
 
