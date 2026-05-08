@@ -1422,6 +1422,8 @@ label {
 }
 
 .workspace-session {
+  min-height: 100dvh;
+  height: 100dvh;
   grid-template-rows: minmax(0, 1fr);
 }
 
