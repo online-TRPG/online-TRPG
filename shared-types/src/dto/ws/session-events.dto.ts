@@ -71,6 +71,15 @@ export class ActionAcceptedEventDto {
 
   @ApiProperty()
   playerActionId!: string;
+
+  @ApiProperty()
+  actorUserId!: string;
+
+  @ApiProperty()
+  rawText!: string;
+
+  @ApiProperty()
+  clientCreatedAt!: string;
 }
 
 export class TurnLogCreatedEventDto {
@@ -122,6 +131,9 @@ export class SystemMessageEventDto {
 
   @ApiProperty()
   code!: string;
+
+  @ApiProperty({ required: false, nullable: true })
+  playerActionId?: string | null;
 }
 
 export class ChatMessageEventDto {

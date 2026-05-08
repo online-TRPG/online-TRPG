@@ -148,9 +148,9 @@ function viewFromPathname(pathname: string): MainView | null {
 export function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { logs, appendLog } = useLogs();
+  const { logs, appendLog, appendOlderLog, removeLog } = useLogs();
   const auth = useAuth(appendLog);
-  const session = useSession(auth.user, auth.accessToken, appendLog);
+  const session = useSession(auth.user, auth.accessToken, appendLog, appendOlderLog, removeLog);
   const publicProfileMatch = /^\/users\/([^/]+)\/[^/]+$/.exec(location.pathname);
   const publicProfileId = publicProfileMatch?.[1] ?? null;
   const sessionDetailMatch = /^\/sessions\/([^/]+)\/[^/]+$/.exec(location.pathname);
@@ -329,7 +329,7 @@ export function App() {
     return deleted;
   }
 
-  function handleSessionMessage(displayName: string, input: string) {
+  function handleSessionMessage(input: string) {
     const [scopePart, ...restParts] = input.split(':');
     const scoped = scopePart === 'CHAT' || scopePart === 'MAIN';
     const scope = scoped ? scopePart : 'MAIN';
@@ -342,18 +342,7 @@ export function App() {
       return;
     }
 
-    const commandMatch = message.match(/^\/(roll|hint)\b/i);
-    if (commandMatch) {
-      const command = commandMatch[1].toLowerCase();
-      appendLog(
-        'action',
-        displayName,
-        `[MAIN]${displayName}님이 "${command}" 액션을 실행했습니다.`
-      );
-      return;
-    }
-
-    appendLog('action', displayName, `[MAIN]${message}`);
+    void session.sendAction(message);
   }
 
   if (!auth.user) {
@@ -676,6 +665,8 @@ export function App() {
             characters={session.myCharacters}
             logs={logs}
             socketConnected={session.socketConnected}
+            hasOlderTurnLogs={session.hasOlderTurnLogs}
+            isLoadingTurnLogs={session.isLoadingTurnLogs}
             busy={busy}
             error={error}
             onCreateCharacter={(payload) => void session.createCharacter(payload)}
@@ -687,7 +678,8 @@ export function App() {
               navigate('/sessions/discover');
             }}
             onBackToLobby={() => navigate('/sessions/discover')}
-            onAction={(input) => handleSessionMessage(currentUser.displayName, input)}
+            onAction={handleSessionMessage}
+            onLoadOlderTurnLogs={() => void session.loadOlderTurnLogs()}
           />
         ) : null}
       </div>

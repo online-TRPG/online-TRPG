@@ -108,6 +108,21 @@ export class TurnLogResponseDto {
   turnNumber!: number;
 
   @ApiPropertyOptional({ nullable: true })
+  playerActionId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  actorUserId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  sessionCharacterId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  actionClientCreatedAt!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  actionCreatedAt!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
   rawInput!: string | null;
 
   @ApiProperty({ type: Object, nullable: true })

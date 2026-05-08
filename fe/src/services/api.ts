@@ -1,4 +1,5 @@
 import type {
+  ActionAcceptedResponseDto,
   AuthTokenResponseDto,
   CharacterResponseDto,
   CreateScenarioDto,
@@ -11,6 +12,8 @@ import type {
   ScenarioResponseDto,
   SessionDetailResponseDto,
   SessionSnapshotDto,
+  SubmitActionDto,
+  TurnLogListResponseDto,
   UpdateScenarioDto,
   UpdateVttMapDto,
   UploadScenarioAssetDto,
@@ -669,6 +672,48 @@ export function getSessionDetail(
 
 export function getSessionState(user: StoredUser, sessionId: string) {
   return requestJson(`/sessions/${sessionId}/state`, { user });
+}
+
+export function submitAction(
+  user: StoredUser,
+  sessionId: string,
+  payload: SubmitActionDto,
+  accessToken?: string | null,
+): Promise<ActionAcceptedResponseDto> {
+  return requestJson<ActionAcceptedResponseDto>(`/sessions/${sessionId}/actions`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function listTurnLogs(
+  user: StoredUser,
+  sessionId: string,
+  options?: {
+    cursor?: string | null;
+    size?: number;
+    includeStateDiff?: boolean;
+    includeDiceResult?: boolean;
+  },
+  accessToken?: string | null,
+): Promise<TurnLogListResponseDto> {
+  const params = new URLSearchParams();
+
+  if (options?.cursor) params.set('cursor', options.cursor);
+  if (options?.size) params.set('size', String(options.size));
+  if (options?.includeStateDiff) params.set('includeStateDiff', 'true');
+  if (options?.includeDiceResult) params.set('includeDiceResult', 'true');
+
+  const query = params.toString();
+  return requestJson<TurnLogListResponseDto>(
+    `/sessions/${sessionId}/turn-logs${query ? `?${query}` : ''}`,
+    {
+      user,
+      accessToken,
+    },
+  );
 }
 
 export function getVttMap(

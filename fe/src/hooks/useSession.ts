@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { VttMapStateDto } from "@trpg/shared-types";
+import type {
+  ActionAcceptedEventDto,
+  ActionInputType,
+  ActionScope,
+  DiceRollResponseDto,
+  StateDiffResponseDto,
+  SystemMessageEventDto,
+  SubmitActionDto,
+  TurnLogResponseDto,
+  VttMapStateDto,
+} from "@trpg/shared-types";
 import type { Socket } from "socket.io-client";
 import {
   cloneCharacter as apiCloneCharacter,
@@ -10,11 +20,13 @@ import {
   joinSession as apiJoinSession,
   joinSessionById as apiJoinSessionById,
   leaveSession as apiLeaveSession,
+  listTurnLogs as apiListTurnLogs,
   listMyCharacters as apiListMyCharacters,
   listMySessions as apiListMySessions,
   listSessions,
   selectSessionCharacter as apiSelectSessionCharacter,
   startSession as apiStartSession,
+  submitAction as apiSubmitAction,
   updateCharacter as apiUpdateCharacter,
   updateReadyState as apiUpdateReadyState,
 } from "../services/api";
@@ -66,6 +78,8 @@ export interface UseSessionReturn {
   mySessionList: AvailableSessionListItem[];
   myCharacters: PersistentCharacter[];
   socketConnected: boolean;
+  hasOlderTurnLogs: boolean;
+  isLoadingTurnLogs: boolean;
   busy: boolean;
   error: string | null;
   createSession: (
@@ -82,31 +96,123 @@ export interface UseSessionReturn {
   setReadyState: (isReady: boolean) => Promise<void>;
   startSession: () => Promise<void>;
   leaveSession: () => Promise<void>;
+  sendAction: (rawText: string) => Promise<void>;
   sendChatMessage: (content: string) => Promise<void>;
+  loadOlderTurnLogs: () => Promise<void>;
   refreshSessionList: () => Promise<void>;
   refreshMyCharacters: () => Promise<void>;
   clearSnapshot: () => void;
   clearError: () => void;
 }
 
+type AppendLogFn = (
+  kind: LogEntry["kind"],
+  title: string,
+  message: string,
+  id?: string,
+  createdAt?: string,
+) => void;
+
+function formatDebugValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "(없음)";
+  }
+
+  if (typeof value === "object") {
+    return JSON.stringify(value, null, 2);
+  }
+
+  return String(value);
+}
+
+function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
+  const sections = [
+    "TurnLog",
+    `- turnLogId: ${turnLog.turnLogId}`,
+    `- turnNumber: ${turnLog.turnNumber}`,
+    `- playerActionId: ${formatDebugValue(turnLog.playerActionId)}`,
+    `- actorUserId: ${formatDebugValue(turnLog.actorUserId)}`,
+    `- sessionCharacterId: ${formatDebugValue(turnLog.sessionCharacterId)}`,
+    `- actionClientCreatedAt: ${formatDebugValue(turnLog.actionClientCreatedAt)}`,
+    `- actionCreatedAt: ${formatDebugValue(turnLog.actionCreatedAt)}`,
+    `- createdAt: ${turnLog.createdAt}`,
+    "",
+    "입력",
+    `- rawInput: ${formatDebugValue(turnLog.rawInput)}`,
+    "",
+    "결과",
+    `- outcome: ${turnLog.outcome}`,
+    `- narration: ${formatDebugValue(turnLog.narration)}`,
+    "",
+    "structuredAction",
+    formatDebugValue(turnLog.structuredAction),
+    "",
+    "diceResult",
+    formatDebugValue(turnLog.diceResult),
+    "",
+    "stateDiff",
+    formatDebugValue(turnLog.stateDiff),
+  ];
+
+  return `[MAIN]${sections.join("\n")}`;
+}
+
+function getSenderNameByUserId(
+  userId: string,
+  snapshot: SessionSnapshot | null,
+): string {
+  const participant = snapshot?.participants.find((item) => item.userId === userId);
+
+  return participant?.user.displayName ?? "알 수 없음";
+}
+
+function getRawInputCreatedAt(turnLog: TurnLogResponseDto): string {
+  return turnLog.actionClientCreatedAt ?? turnLog.actionCreatedAt ?? turnLog.createdAt;
+}
+
+function formatDiceRollMessage(diceResult: DiceRollResponseDto): string {
+  const parts = [
+    `${diceResult.expression} = ${diceResult.total}`,
+    diceResult.rolls.length ? `굴림: ${diceResult.rolls.join(", ")}` : null,
+    diceResult.modifier ? `수정치: ${diceResult.modifier}` : null,
+  ];
+
+  return parts.filter((part): part is string => Boolean(part)).join(" / ");
+}
+
+function formatStateDiffMessage(stateDiff: StateDiffResponseDto): string {
+  return `상태 버전 ${stateDiff.baseVersion} -> ${stateDiff.nextVersion} (${stateDiff.reason})`;
+}
+
 export function useSession(
   user: StoredUser | null,
   accessToken: string | null,
-  appendLog: (kind: LogEntry["kind"], title: string, message: string) => void,
+  appendLog: AppendLogFn,
+  appendOlderLog: AppendLogFn,
+  removeLog: (id: string) => void,
 ): UseSessionReturn {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(() => loadStoredSnapshot());
   const [sessionList, setSessionList] = useState<AvailableSessionListItem[]>([]);
   const [mySessionList, setMySessionList] = useState<AvailableSessionListItem[]>([]);
   const [myCharacters, setMyCharacters] = useState<PersistentCharacter[]>([]);
   const [socketConnected, setSocketConnected] = useState(false);
+  const [turnLogNextCursor, setTurnLogNextCursor] = useState<string | null>(null);
+  const [isLoadingTurnLogs, setIsLoadingTurnLogs] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const snapshotRef = useRef<SessionSnapshot | null>(snapshot);
+  const seenTurnLogIdsRef = useRef<Set<string>>(new Set());
+  const loadedTurnLogSessionIdRef = useRef<string | null>(null);
 
   const updateSnapshot = useCallback((next: SessionSnapshot) => {
     setSnapshot(next);
     saveStoredSnapshot(next);
   }, []);
+
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
 
   const hasRecruitingSession = useCallback(() => snapshot?.session.status === "recruiting", [snapshot]);
   const hasBlockingSession = useCallback(
@@ -127,6 +233,10 @@ export function useSession(
       setSessionList([]);
       setMySessionList([]);
       setMyCharacters([]);
+      seenTurnLogIdsRef.current.clear();
+      loadedTurnLogSessionIdRef.current = null;
+      setTurnLogNextCursor(null);
+      setIsLoadingTurnLogs(false);
       return;
     }
 
@@ -142,6 +252,144 @@ export function useSession(
       .then(setMyCharacters)
       .catch(() => undefined);
   }, [accessToken, user]);
+
+  const appendPlayerRawInputLog = useCallback(
+    (turnLog: TurnLogResponseDto, writeLog: AppendLogFn) => {
+      const rawInput = turnLog.rawInput?.trim();
+      if (!rawInput) {
+        return;
+      }
+
+      // TurnLog는 DB에 남으므로, 새로고침/재접속 때도 같은 id로 사용자 원문 말풍선을 다시 만들 수 있습니다.
+      const rawLogId = turnLog.playerActionId
+        ? `player-action:${turnLog.playerActionId}:raw`
+        : `turn-log:${turnLog.turnLogId}:raw`;
+      const senderName = turnLog.actorUserId
+        ? getSenderNameByUserId(turnLog.actorUserId, snapshotRef.current)
+        : "알 수 없음";
+
+      writeLog("action", senderName, `[MAIN]${rawInput}`, rawLogId, getRawInputCreatedAt(turnLog));
+    },
+    [],
+  );
+
+  const appendServerTurnLog = useCallback(
+    (turnLog: TurnLogResponseDto) => {
+      if (seenTurnLogIdsRef.current.has(turnLog.turnLogId)) {
+        return;
+      }
+
+      appendPlayerRawInputLog(turnLog, appendLog);
+      seenTurnLogIdsRef.current.add(turnLog.turnLogId);
+      if (turnLog.playerActionId) {
+        removeLog(`player-action:${turnLog.playerActionId}:pending`);
+      }
+      appendLog(
+        "action",
+        "세션 로그",
+        formatTurnLogMessage(turnLog),
+        `turn-log:${turnLog.turnLogId}`,
+        turnLog.createdAt,
+      );
+    },
+    [appendLog, appendPlayerRawInputLog, removeLog],
+  );
+
+  const appendHistoricalTurnLog = useCallback(
+    (turnLog: TurnLogResponseDto) => {
+      if (seenTurnLogIdsRef.current.has(turnLog.turnLogId)) {
+        return;
+      }
+
+      seenTurnLogIdsRef.current.add(turnLog.turnLogId);
+      if (turnLog.playerActionId) {
+        removeLog(`player-action:${turnLog.playerActionId}:pending`);
+      }
+
+      // 과거 로그는 내부 배열의 뒤쪽에 넣어야 화면에서는 현재 로그보다 위에 보입니다.
+      appendOlderLog(
+        "action",
+        "세션 로그",
+        formatTurnLogMessage(turnLog),
+        `turn-log:${turnLog.turnLogId}`,
+        turnLog.createdAt,
+      );
+      appendPlayerRawInputLog(turnLog, appendOlderLog);
+    },
+    [appendOlderLog, appendPlayerRawInputLog, removeLog],
+  );
+
+  const loadRecentTurnLogs = useCallback(
+    async (sessionId: string) => {
+      if (!user) return;
+      setIsLoadingTurnLogs(true);
+
+      try {
+        const result = await apiListTurnLogs(
+          user,
+          sessionId,
+          {
+            size: 10,
+            includeDiceResult: true,
+            includeStateDiff: true,
+          },
+          accessToken,
+        );
+
+        // 최신순으로 받은 10개를 내부 최신순 배열에 그대로 붙이면 화면에서는 오래된 것부터 보입니다.
+        result.turnLogs.forEach(appendHistoricalTurnLog);
+        setTurnLogNextCursor(result.nextCursor);
+      } catch {
+        // 게임룸 진입 직후 로그 조회 실패는 입력 흐름 자체를 막을 정도의 오류는 아니므로 조용히 넘긴다.
+      } finally {
+        setIsLoadingTurnLogs(false);
+      }
+    },
+    [accessToken, appendHistoricalTurnLog, user],
+  );
+
+  useEffect(() => {
+    if (!user || !snapshot?.session.id) return;
+
+    if (loadedTurnLogSessionIdRef.current !== snapshot.session.id) {
+      seenTurnLogIdsRef.current.clear();
+      loadedTurnLogSessionIdRef.current = snapshot.session.id;
+      setTurnLogNextCursor(null);
+      setIsLoadingTurnLogs(false);
+    }
+
+    void loadRecentTurnLogs(snapshot.session.id);
+  }, [loadRecentTurnLogs, snapshot?.session.id, user]);
+
+  const loadOlderTurnLogs = useCallback(async () => {
+    const sessionId = snapshotRef.current?.session.id;
+    if (!user || !sessionId || !turnLogNextCursor || isLoadingTurnLogs) {
+      return;
+    }
+
+    setIsLoadingTurnLogs(true);
+
+    try {
+      const result = await apiListTurnLogs(
+        user,
+        sessionId,
+        {
+          cursor: turnLogNextCursor,
+          size: 10,
+          includeDiceResult: true,
+          includeStateDiff: true,
+        },
+        accessToken,
+      );
+
+      result.turnLogs.forEach(appendHistoricalTurnLog);
+      setTurnLogNextCursor(result.nextCursor);
+    } catch {
+      // 이전 로그 조회 실패는 현재 입력 흐름을 막지 않으므로 화면에는 기존 로그를 그대로 둡니다.
+    } finally {
+      setIsLoadingTurnLogs(false);
+    }
+  }, [accessToken, appendHistoricalTurnLog, isLoadingTurnLogs, turnLogNextCursor, user]);
 
   useEffect(() => {
     if (!user || !snapshot?.session.id) return undefined;
@@ -177,7 +425,52 @@ export function useSession(
       onChatMessage: (message: ChatMessage) => {
         // 기존 PlayPage는 [CHAT] prefix가 붙은 로그를 Chat 탭에 보여준다.
         // 화면 컴포넌트 충돌을 줄이기 위해 수신 메시지만 기존 로그 흐름에 얹는다.
-        appendLog("action", message.senderDisplayName, `[CHAT]${message.content}`);
+        appendLog("action", message.senderDisplayName, `[CHAT]${message.content}`, undefined, message.createdAt);
+      },
+      onActionAccepted: (action: ActionAcceptedEventDto) => {
+        const rawText = action.rawText.trim();
+        if (!rawText) return;
+
+        // 사용자가 선언한 원문은 처리 결과를 기다리지 않고, 서버가 접수한 시점에 모두에게 채팅처럼 보여준다.
+        appendLog(
+          "action",
+          getSenderNameByUserId(action.actorUserId, snapshotRef.current),
+          `[MAIN]${rawText}`,
+          `player-action:${action.playerActionId}:raw`,
+          action.clientCreatedAt,
+        );
+        appendLog(
+          "action",
+          "세션 로그",
+          "[MAIN]로딩중 ...",
+          `player-action:${action.playerActionId}:pending`,
+        );
+
+        window.setTimeout(() => {
+          removeLog(`player-action:${action.playerActionId}:pending`);
+        }, 45_000);
+      },
+      onTurnLogCreated: appendServerTurnLog,
+      onSystemMessage: (message: SystemMessageEventDto) => {
+        if (message.playerActionId) {
+          removeLog(`player-action:${message.playerActionId}:pending`);
+        }
+
+        // 서버 처리 실패도 Main 탭에 남겨야 사용자가 "응답 없음"이 아니라 실패 원인을 볼 수 있다.
+        appendLog(
+          "action",
+          "세션 로그",
+          `[MAIN]${message.message}`,
+          `system-message:${message.code}:${message.playerActionId ?? message.message}`,
+        );
+      },
+      onDiceRolled: (diceResult: DiceRollResponseDto) => {
+        // 주사위 결과는 TurnLog에도 포함되므로 Main 로그에 중복으로 넣지 않고, 실시간 이벤트 확인용 로그로만 남긴다.
+        appendLog("socket", "주사위 결과", formatDiceRollMessage(diceResult));
+      },
+      onStateDiffApplied: (stateDiff: StateDiffResponseDto) => {
+        // 실제 화면 상태 갱신은 전용 snapshot/도메인 이벤트가 책임지고, 여기서는 상태 변경 이벤트 수신 여부를 남긴다.
+        appendLog("socket", "상태 변경", formatStateDiffMessage(stateDiff));
       },
       onVttMapUpdated: (map: VttMapStateDto) => {
         setSnapshot((current) => {
@@ -212,7 +505,7 @@ export function useSession(
       }
       socket.disconnect();
     };
-  }, [appendLog, snapshot?.session.id, updateSnapshot, user]);
+  }, [appendLog, appendServerTurnLog, removeLog, snapshot?.session.id, updateSnapshot, user]);
 
   useEffect(() => {
     if (!user || !snapshot?.session.id) return;
@@ -498,10 +791,63 @@ export function useSession(
       clearStoredSnapshot();
       setSnapshot(null);
       setSocketConnected(false);
+      seenTurnLogIdsRef.current.clear();
+      loadedTurnLogSessionIdRef.current = null;
+      setTurnLogNextCursor(null);
+      setIsLoadingTurnLogs(false);
       appendLog("rest", "세션 나가기", `${leavingSessionTitle} 세션에서 나갔습니다.`);
       await refreshSessionList();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "세션 나가기에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendAction(rawText: string) {
+    if (!user || !snapshot) return;
+
+    const trimmed = rawText.trim();
+    if (!trimmed) return;
+
+    const myParticipant = snapshot.participants.find(
+      (participant) => participant.userId === user.id,
+    );
+    const selectedCharacterId =
+      myParticipant?.sessionCharacterId ?? myParticipant?.characterId ?? null;
+
+    if (!selectedCharacterId) {
+      const message = "행동을 입력하려면 먼저 캐릭터를 선택해야 합니다.";
+      setError(message);
+      appendLog("socket", "행동 전송 실패", message);
+      return;
+    }
+
+    const payload: SubmitActionDto = {
+      characterId: selectedCharacterId,
+      rawText: trimmed,
+      clientCreatedAt: new Date().toISOString(),
+      // 전투가 아닐 때는 파티 공용 행동으로 보내야 현재 백엔드 검증 규칙을 통과한다.
+      actionScope:
+        snapshot.state.phase === "combat"
+          ? ("INDIVIDUAL_TURN" as ActionScope)
+          : ("PARTY_SHARED" as ActionScope),
+      inputType: trimmed.startsWith("/")
+        ? ("COMMAND" as ActionInputType)
+        : ("TEXT" as ActionInputType),
+    };
+
+    setError(null);
+    setBusy(true);
+
+    try {
+      await apiSubmitAction(user, snapshot.session.id, payload, accessToken);
+      // 화면 표시는 서버가 저장 후 브로드캐스트하는 turn.log.created 이벤트만 믿는다.
+      // 그래야 DB에 남은 기록과 사용자가 보는 로그가 같은 출처를 가진다.
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "행동 전송에 실패했습니다.";
+      setError(message);
+      appendLog("socket", "행동 전송 실패", message);
     } finally {
       setBusy(false);
     }
@@ -539,6 +885,10 @@ export function useSession(
     clearStoredSnapshot();
     setSnapshot(null);
     setSocketConnected(false);
+    seenTurnLogIdsRef.current.clear();
+    loadedTurnLogSessionIdRef.current = null;
+    setTurnLogNextCursor(null);
+    setIsLoadingTurnLogs(false);
   }
 
   return {
@@ -547,6 +897,8 @@ export function useSession(
     mySessionList,
     myCharacters,
     socketConnected,
+    hasOlderTurnLogs: Boolean(turnLogNextCursor),
+    isLoadingTurnLogs,
     busy,
     error,
     createSession,
@@ -560,7 +912,9 @@ export function useSession(
     setReadyState,
     startSession,
     leaveSession,
+    sendAction,
     sendChatMessage,
+    loadOlderTurnLogs,
     refreshSessionList,
     refreshMyCharacters,
     clearSnapshot,

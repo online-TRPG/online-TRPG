@@ -14,12 +14,20 @@ describe("RealtimeEventsService", () => {
   it("emits action.accepted to the session room", () => {
     const { service, emit, to } = createBoundService();
 
-    service.emitActionAccepted("session-1", "action-1");
+    service.emitActionAccepted("session-1", {
+      playerActionId: "action-1",
+      actorUserId: "user-1",
+      rawText: "I open the door.",
+      clientCreatedAt: "2026-05-08T08:00:00.000Z",
+    });
 
     expect(to).toHaveBeenCalledWith("session:session-1");
     expect(emit).toHaveBeenCalledWith("action.accepted", {
       sessionId: "session-1",
       playerActionId: "action-1",
+      actorUserId: "user-1",
+      rawText: "I open the door.",
+      clientCreatedAt: "2026-05-08T08:00:00.000Z",
     });
   });
 
@@ -60,6 +68,21 @@ describe("RealtimeEventsService", () => {
     expect(emit).toHaveBeenCalledWith("dice.rolled", {
       sessionId: "session-1",
       diceResult,
+    });
+  });
+
+  it("emits system.message with the failed action id when provided", () => {
+    const { service, emit } = createBoundService();
+
+    service.emitSystemMessage("session-1", "ACTION_FAILED", "행동 처리 실패: 대상을 찾을 수 없습니다.", {
+      playerActionId: "action-1",
+    });
+
+    expect(emit).toHaveBeenCalledWith("system.message", {
+      sessionId: "session-1",
+      code: "ACTION_FAILED",
+      message: "행동 처리 실패: 대상을 찾을 수 없습니다.",
+      playerActionId: "action-1",
     });
   });
 
