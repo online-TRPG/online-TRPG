@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { NavigateOptions, To } from 'react-router-dom';
 import logoImage from '../assets/images/Logo.webp';
@@ -88,15 +88,15 @@ const viewLabel: Partial<Record<MainView, string>> = {
   account: '계정',
   scenarios: '시나리오',
   scenariosNew: '시나리오 생성',
-  scenarioEdit: '시나리오 편집',
+  scenarioEdit: '시나리오 수정',
   sessionsDiscover: '세션 탐색',
   sessionsNew: '세션 생성',
   sessionDetail: '세션 상세',
-  gameroom: '게임방',
+  gameroom: '게임룸',
 };
 
-const UNSAVED_SCENARIO_MESSAGE = '저장되지 않은 변경사항이 있습니다. 이 화면을 나가시겠습니까?';
-
+const UNSAVED_SCENARIO_MESSAGE =
+  '저장하지 않은 변경 사항이 있습니다. 페이지를 벗어나면 내용이 사라질 수 있습니다.';
 function viewFromPathname(pathname: string): MainView | null {
   if (pathname === '/play') {
     return 'gameroom';
@@ -304,7 +304,7 @@ export function App() {
 
   async function handleRequestSessionDetail(sessionId: string) {
     if (!auth.user) {
-      throw new Error('로그인이 필요합니다.');
+      throw new Error('濡쒓렇?몄씠 ?꾩슂?⑸땲??');
     }
 
     return getSessionDetail(auth.user, sessionId, auth.accessToken);
@@ -344,7 +344,7 @@ export function App() {
       appendLog(
         'action',
         displayName,
-        `[MAIN]${displayName}님이 "${command}" 액션을 실행했습니다.`
+        `[MAIN]${displayName}?섏씠 "${command}" ?≪뀡???ㅽ뻾?덉뒿?덈떎.`
       );
       return;
     }
@@ -378,7 +378,7 @@ export function App() {
         <header className="topbar topbar-shell">
           <div className="topbar-left">
             <div className="topbar-brand">
-              <img src={logoImage} alt="모두의 TRPG" className="topbar-logo-image" />
+              <img src={logoImage} alt="紐⑤몢??TRPG" className="topbar-logo-image" />
             </div>
 
             <nav className="top-nav" aria-label="Main navigation">
@@ -405,7 +405,7 @@ export function App() {
                     : 'icon-button profile-chip'
                 }
                 onClick={() => setIsAccountMenuOpen((current) => !current)}
-                aria-label="계정 메뉴 열기"
+                aria-label="怨꾩젙 硫붾돱 ?닿린"
                 aria-expanded={isAccountMenuOpen}
                 aria-haspopup="menu"
               >
@@ -415,12 +415,12 @@ export function App() {
               </button>
 
               {isAccountMenuOpen ? (
-                <div className="account-menu" role="menu" aria-label="계정 메뉴">
+                <div className="account-menu" role="menu" aria-label="怨꾩젙 硫붾돱">
                   <div className="account-menu-header">
                     <div className="avatar avatar-lg">{currentUser.displayName.slice(0, 1)}</div>
                     <div className="account-menu-copy">
                       <strong>{currentUser.displayName}</strong>
-                      <span>{auth.authMode === 'guest' ? '게스트 세션' : '회원 계정'}</span>
+                      <span>{auth.authMode === 'guest' ? '寃뚯뒪???몄뀡' : '?뚯썝 怨꾩젙'}</span>
                     </div>
                   </div>
 
@@ -450,7 +450,7 @@ export function App() {
                       role="menuitem"
                     >
                       <Icon name="settings" />
-                      <span>설정</span>
+                      <span>?ㅼ젙</span>
                     </button>
                   </div>
 
@@ -463,7 +463,7 @@ export function App() {
                     role="menuitem"
                   >
                     <Icon name="logout" />
-                    <span>로그아웃</span>
+                    <span>濡쒓렇?꾩썐</span>
                   </button>
                 </div>
               ) : null}
@@ -664,8 +664,8 @@ export function App() {
             <span className="eyebrow">Coming soon</span>
             <h1>{viewLabel[activeView] ?? '준비 중'}</h1>
             <p>
-              이 화면은 아직 준비 중입니다. 현재는 메인, 캐릭터, 세션 탐색, 세션 생성 흐름이 우선
-              연결되어 있습니다.
+              해당 화면은 아직 준비 중입니다. 메인, 캐릭터, 세션 탐색, 세션 생성 화면을
+              우선적으로 다듬고 있습니다.
             </p>
           </section>
         ) : null}

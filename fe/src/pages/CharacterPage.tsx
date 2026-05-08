@@ -957,7 +957,7 @@ export function CharacterPage({
               </article>
             </>
           ) : (
-            <article className="character-focus-card">
+            <article className="character-focus-card character-focus-card-empty">
               {/* 선택된 캐릭터의 스탯, 능력치, 스킬, 인벤토리 상세 패널입니다. */}
               <h2>캐릭터를 생성해 보세요</h2>
             </article>
