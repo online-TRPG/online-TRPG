@@ -11,7 +11,7 @@
   position: relative;
   width: min(1380px, 100%);
   min-height: 782px;
-  margin-top: -86px !important;
+  margin-top: -64px !important;
   padding: 0;
   background-repeat: no-repeat;
   background-position: center;
@@ -20,7 +20,10 @@
 
 .session-create-stage {
   position: absolute;
-  inset: 158px 118px 122px !important;
+  top: 148px !important;
+  right: 118px !important;
+  bottom: 134px !important;
+  left: 118px !important;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 36px;
