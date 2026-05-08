@@ -87,5 +87,6 @@ export function useCurrentProfile({ user, accessToken, authMode }: UseCurrentPro
     effectiveProfile,
     loadingProfile,
     profileError,
+    mutateProfile: setMemberProfile,
   };
 }
