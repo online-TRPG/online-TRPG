@@ -78,6 +78,7 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
       createdAt: "",
     };
   const canonicalPath = buildPublicProfilePath(effectiveProfile);
+  const nickname = effectiveProfile.nickname || effectiveProfile.displayName || "-";
 
   useEffect(() => {
     if (!effectiveProfile.publicId) return;
@@ -89,10 +90,9 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
     });
   }, [canonicalPath, effectiveProfile.publicId, location.pathname, navigate, profile, resolvedPreview]);
 
+  // 공개 프로필에서도 이름 계열 필드는 닉네임 하나만 보여줘 사용자가 같은 값을 여러 이름으로 보지 않게 합니다.
   const profileRows = [
-    { label: "표시 이름", value: effectiveProfile.displayName },
-    { label: "닉네임", value: effectiveProfile.nickname || "-" },
-    { label: "이름", value: effectiveProfile.name || "-" },
+    { label: "닉네임", value: nickname },
     { label: "프로필 주소", value: canonicalPath },
     { label: "회원 유형", value: effectiveProfile.authProvider },
     { label: "공개 대상", value: "세션 탐색 중 확인 가능한 기본 프로필" },
@@ -105,9 +105,9 @@ export function PublicProfilePage({ publicId, previewUser, onOpenOwnProfile }: P
         <div className="profile-hero-main">
           <span className="eyebrow">Public profile</span>
           <div className="profile-hero-header">
-            <div className="avatar avatar-xl">{effectiveProfile.displayName.slice(0, 1)}</div>
+            <div className="avatar avatar-xl">{nickname.slice(0, 1)}</div>
             <div>
-              <h1>{effectiveProfile.displayName}</h1>
+              <h1>{nickname}</h1>
               <p>
                 현재 MVP에서는 세션 상세 화면에서 받은 최소 프로필 정보만 공개합니다. 쪽지, 외부 연락 수단, 대표 캐릭터 같은 확장 요소는 이후 단계에서 붙일 예정입니다.
               </p>
