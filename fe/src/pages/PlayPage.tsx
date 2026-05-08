@@ -983,55 +983,57 @@ export function PlayPage({
 
           {activeTab === "Main" || activeTab === "Chat" ? (
             <>
-              {activeTab === "Main" && hasOlderTurnLogs ? (
-                <div className="session-log-history-bar">
-                  <button
-                    type="button"
-                    className="session-log-history-button"
-                    disabled={isLoadingTurnLogs}
-                    onClick={onLoadOlderTurnLogs}
-                  >
-                    {isLoadingTurnLogs ? "불러오는 중..." : "이전 로그 보기"}
-                  </button>
-                </div>
-              ) : null}
+              <div className="session-log-area">
+                {activeTab === "Main" && hasOlderTurnLogs ? (
+                  <div className="session-log-history-bar">
+                    <button
+                      type="button"
+                      className="session-log-history-button"
+                      disabled={isLoadingTurnLogs}
+                      onClick={onLoadOlderTurnLogs}
+                    >
+                      {isLoadingTurnLogs ? "불러오는 중..." : "이전 로그 보기"}
+                    </button>
+                  </div>
+                ) : null}
 
-              <div className="session-log-stack">
-                {renderedRows.length ? (
-                  renderedRows.map((log) => (
-                    <Fragment key={log.id}>
-                      {log.showDateSeparator ? (
-                        <div className="chat-thread-date-divider">
-                          <span>{log.dateLabel}</span>
-                        </div>
-                      ) : null}
-                      <article className={`chat-thread-row ${log.rowClass}`}>
-                        {log.rowClass === "incoming" ? (
-                          <div className="chat-thread-avatar">{getAvatarLabel(log.title, user.displayName)}</div>
-                        ) : null}
-                        <div className="chat-thread-stack">
-                          <span className={`chat-thread-sender ${log.rowClass}`}>{log.senderLabel}</span>
-                          <div className={`chat-thread-bubble${log.isPendingAction ? " pending" : ""}`}>
-                            {log.isPendingAction ? <span className="chat-thread-spinner" aria-hidden="true" /> : null}
-                            <span>{log.message}</span>
+                <div className="session-log-stack">
+                  {renderedRows.length ? (
+                    renderedRows.map((log) => (
+                      <Fragment key={log.id}>
+                        {log.showDateSeparator ? (
+                          <div className="chat-thread-date-divider">
+                            <span>{log.dateLabel}</span>
                           </div>
-                          {log.rowClass !== "notice" ? <span className="chat-thread-time">{log.time}</span> : null}
-                        </div>
-                        {log.rowClass === "outgoing" ? (
-                          <div className="chat-thread-avatar">{getAvatarLabel(log.title, user.displayName)}</div>
                         ) : null}
-                      </article>
-                    </Fragment>
-                  ))
-                ) : (
-                  <article className="chat-thread-row notice">
-                    <div className="chat-thread-stack">
-                      <span className="chat-thread-sender notice">세션 로그</span>
-                      <div className="chat-thread-bubble">아직 기록된 메시지가 없습니다.</div>
-                    </div>
-                  </article>
-                )}
-                <div ref={logEndRef} />
+                        <article className={`chat-thread-row ${log.rowClass}`}>
+                          {log.rowClass === "incoming" ? (
+                            <div className="chat-thread-avatar">{getAvatarLabel(log.title, user.displayName)}</div>
+                          ) : null}
+                          <div className="chat-thread-stack">
+                            <span className={`chat-thread-sender ${log.rowClass}`}>{log.senderLabel}</span>
+                            <div className={`chat-thread-bubble${log.isPendingAction ? " pending" : ""}`}>
+                              {log.isPendingAction ? <span className="chat-thread-spinner" aria-hidden="true" /> : null}
+                              <span>{log.message}</span>
+                            </div>
+                            {log.rowClass !== "notice" ? <span className="chat-thread-time">{log.time}</span> : null}
+                          </div>
+                          {log.rowClass === "outgoing" ? (
+                            <div className="chat-thread-avatar">{getAvatarLabel(log.title, user.displayName)}</div>
+                          ) : null}
+                        </article>
+                      </Fragment>
+                    ))
+                  ) : (
+                    <article className="chat-thread-row notice">
+                      <div className="chat-thread-stack">
+                        <span className="chat-thread-sender notice">세션 로그</span>
+                        <div className="chat-thread-bubble">아직 기록된 메시지가 없습니다.</div>
+                      </div>
+                    </article>
+                  )}
+                  <div ref={logEndRef} />
+                </div>
               </div>
 
               <form
