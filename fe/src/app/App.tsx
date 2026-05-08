@@ -329,7 +329,7 @@ export function App() {
     return deleted;
   }
 
-  function handleSessionMessage(displayName: string, input: string) {
+  function handleSessionMessage(input: string) {
     const [scopePart, ...restParts] = input.split(':');
     const scoped = scopePart === 'CHAT' || scopePart === 'MAIN';
     const scope = scoped ? scopePart : 'MAIN';
@@ -342,18 +342,7 @@ export function App() {
       return;
     }
 
-    const commandMatch = message.match(/^\/(roll|hint)\b/i);
-    if (commandMatch) {
-      const command = commandMatch[1].toLowerCase();
-      appendLog(
-        'action',
-        displayName,
-        `[MAIN]${displayName}?섏씠 "${command}" ?≪뀡???ㅽ뻾?덉뒿?덈떎.`
-      );
-      return;
-    }
-
-    appendLog('action', displayName, `[MAIN]${message}`);
+    void session.sendAction(message);
   }
 
   if (!auth.user) {
@@ -688,7 +677,7 @@ export function App() {
               navigate('/sessions/discover');
             }}
             onBackToLobby={() => navigate('/sessions/discover')}
-            onAction={(input) => handleSessionMessage(currentUser.displayName, input)}
+            onAction={handleSessionMessage}
           />
         ) : null}
       </div>

@@ -1,6 +1,6 @@
 import { io, Socket } from "socket.io-client";
 import { SOCKET_BASE_URL } from "./api";
-import type { VttMapStateDto } from "@trpg/shared-types";
+import type { TurnLogResponseDto, VttMapStateDto } from "@trpg/shared-types";
 import type { Character, ChatMessage, Participant, SessionSnapshot, StoredUser } from "../types/session";
 import { normalizeSessionSnapshot } from "../types/session";
 
@@ -9,6 +9,7 @@ export interface RealtimeHandlers {
   onParticipantUpdated(participant: Participant): void;
   onCharacterUpdated(character: Character): void;
   onChatMessage(message: ChatMessage): void;
+  onTurnLogCreated(turnLog: TurnLogResponseDto): void;
   onVttMapUpdated(map: VttMapStateDto): void;
   onStatusChange(connected: boolean): void;
   onLog(title: string, message: string): void;
@@ -65,6 +66,10 @@ export function connectSessionSocket(
 
   socket.on("chat.message", (payload: { message: ChatMessage }) => {
     handlers.onChatMessage(payload.message);
+  });
+
+  socket.on("turn.log.created", (payload: { turnLog: TurnLogResponseDto }) => {
+    handlers.onTurnLogCreated(payload.turnLog);
   });
 
   socket.on("vtt.map.updated", (payload: { map: VttMapStateDto }) => {
