@@ -528,6 +528,7 @@ export function App() {
             error={error}
             onLogout={handleLogout}
             onOpenProfile={() => guardedNavigate('/profile')}
+            onUpdateDisplayName={auth.updateDisplayName}
           />
         ) : null}
 
