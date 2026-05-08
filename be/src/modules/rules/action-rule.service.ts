@@ -51,6 +51,7 @@ const LONG_REST_RECOVERED_TAGS = [
 
 type SessionCharacterForRules = {
   id: string;
+  userId: string;
   characterId: string;
   currentHp: number;
   tempHp: number;
@@ -73,6 +74,13 @@ type SessionCharacterForRules = {
     inventoryJson?: string | null;
     equippedWeaponId?: string | null;
   };
+  user?: {
+    id: string;
+    displayName: string;
+    profile?: {
+      nickname: string;
+    } | null;
+  } | null;
 };
 
 type InventoryEntryForRules = {
@@ -1003,15 +1011,31 @@ export class ActionRuleService {
     targetToken: string,
     sessionCharacters: SessionCharacterForRules[],
   ): SessionCharacterForRules | null {
-    const normalized = targetToken.toLowerCase();
+    const normalized = this.normalizeTargetToken(targetToken);
     return (
-      sessionCharacters.find(
-        (candidate) =>
-          candidate.id === targetToken ||
-          candidate.characterId === targetToken ||
-          candidate.character.name.toLowerCase() === normalized,
+      sessionCharacters.find((candidate) =>
+        this.getTargetAliases(candidate).some(
+          (alias) => this.normalizeTargetToken(alias) === normalized,
+        ),
       ) ?? null
     );
+  }
+
+  private getTargetAliases(candidate: SessionCharacterForRules): string[] {
+    return [
+      candidate.id,
+      candidate.userId,
+      candidate.characterId,
+      candidate.character.id,
+      candidate.character.name,
+      candidate.user?.id,
+      candidate.user?.displayName,
+      candidate.user?.profile?.nickname,
+    ].filter((alias): alias is string => Boolean(alias?.trim()));
+  }
+
+  private normalizeTargetToken(value: string): string {
+    return value.trim().toLowerCase();
   }
 
   private resolveChampionCriticalThreshold(

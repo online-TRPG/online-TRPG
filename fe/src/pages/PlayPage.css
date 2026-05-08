@@ -2,7 +2,7 @@
   height: 100dvh;
   padding: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 228px;
+  grid-template-columns: minmax(0, 1fr) 8px var(--session-sidebar-width, 360px);
   gap: 0;
   align-items: stretch;
   overflow: hidden;
@@ -702,6 +702,7 @@
 .session-sidebar {
   height: 100%;
   min-height: 0;
+  min-width: 0;
   border-radius: 0;
   padding: 0;
   overflow: hidden;
@@ -710,6 +711,29 @@
   border: 1px solid #9ea8b5;
   background: #e9edf2;
   box-shadow: 0 10px 24px rgba(17, 25, 34, 0.16);
+}
+
+.session-sidebar-resizer {
+  height: 100%;
+  cursor: col-resize;
+  background: #c8d2de;
+  border-left: 1px solid #aab5c1;
+  border-right: 1px solid #aab5c1;
+  position: relative;
+  z-index: 4;
+}
+
+.session-sidebar-resizer::before {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  border-left: 1px solid rgba(78, 91, 107, 0.5);
+  border-right: 1px solid rgba(255, 255, 255, 0.75);
+}
+
+.session-sidebar-resizer:hover,
+.session-sidebar-resizer:focus-visible {
+  background: #aebed0;
 }
 
 .session-game-surface {
@@ -825,6 +849,8 @@
 
 .session-sidebar-tabs button {
   min-height: 42px;
+  min-width: 0;
+  padding: 0 10px;
   border-radius: 0;
   background: #d6dee7;
   border-top: 0;
@@ -834,6 +860,7 @@
   color: #526172;
   font-weight: 800;
   letter-spacing: 0.02em;
+  white-space: nowrap;
   transition:
     background 0.18s ease,
     border-color 0.18s ease,
@@ -876,6 +903,7 @@
   font-size: 17px;
   font-weight: 800;
   letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
 }
 
 .session-sidebar-subtitle {
@@ -883,6 +911,8 @@
   color: #667487;
   font-size: 13px;
   line-height: 1.5;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 .message-card {
@@ -911,15 +941,72 @@
   line-height: 1.6;
 }
 
-.session-log-stack {
+.session-log-area {
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.session-log-stack {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #8fa2b8 #dfe6ee;
   display: grid;
   gap: 8px;
   align-content: start;
   padding: 6px 0 2px;
   padding-right: 4px;
   padding-bottom: 6px;
+}
+
+.session-log-history-bar {
+  display: flex;
+  justify-content: center;
+  padding: 0 0 8px;
+}
+
+.session-log-history-button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid #b8c4d2;
+  border-radius: 4px;
+  background: #eef2f7;
+  color: #243246;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.session-log-history-button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.chat-thread-date-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #6f7d8f;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.chat-thread-date-divider::before,
+.chat-thread-date-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: #c7d0dc;
+}
+
+.chat-thread-date-divider span {
+  padding: 0 2px;
 }
 
 .session-log-item {
@@ -1056,12 +1143,34 @@
   padding: 10px 12px;
   border-radius: 2px;
   line-height: 1.6;
-  word-break: normal;
+  word-break: keep-all;
   overflow-wrap: break-word;
   border: 1px solid #d2dbe6;
   background: #f9fbfd;
   color: #202a36;
   white-space: pre-wrap;
+}
+
+.chat-thread-bubble.pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-thread-spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border: 2px solid #c8d5e5;
+  border-top-color: #4d83bd;
+  border-radius: 50%;
+  animation: chat-thread-spin 0.8s linear infinite;
+}
+
+@keyframes chat-thread-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .chat-thread-time {
@@ -1155,10 +1264,17 @@
 
 .session-info-panel,
 .session-settings-panel {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #8fa2b8 #dfe6ee;
   display: grid;
   gap: 14px;
   align-content: start;
   padding: 6px 0 0;
+  padding-right: 4px;
 }
 
 .danger-button {
@@ -1184,6 +1300,9 @@
 .session-info-panel textarea {
   width: 100%;
   min-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #8fa2b8 #f2f5f8;
   resize: vertical;
   border-radius: 4px;
   border: 1px solid rgba(120, 83, 41, 0.18);
@@ -1192,12 +1311,48 @@
   padding: 14px;
 }
 
+.session-log-stack::-webkit-scrollbar,
+.session-info-panel::-webkit-scrollbar,
+.session-settings-panel::-webkit-scrollbar,
+.session-info-panel textarea::-webkit-scrollbar {
+  display: block;
+  width: 10px;
+}
+
+.session-log-stack::-webkit-scrollbar-track,
+.session-info-panel::-webkit-scrollbar-track,
+.session-settings-panel::-webkit-scrollbar-track,
+.session-info-panel textarea::-webkit-scrollbar-track {
+  background: #dfe6ee;
+}
+
+.session-log-stack::-webkit-scrollbar-thumb,
+.session-info-panel::-webkit-scrollbar-thumb,
+.session-settings-panel::-webkit-scrollbar-thumb,
+.session-info-panel textarea::-webkit-scrollbar-thumb {
+  background: #8fa2b8;
+  border: 2px solid #dfe6ee;
+  border-radius: 999px;
+}
+
+.session-info-panel textarea::-webkit-scrollbar-track {
+  background: #f2f5f8;
+}
+
+.session-info-panel textarea::-webkit-scrollbar-thumb {
+  border-color: #f2f5f8;
+}
+
 @media (max-width: 1180px) {
   .session-prep-layout {
     grid-template-columns: 1fr;
     height: auto;
     min-height: 100vh;
     overflow: visible;
+  }
+
+  .session-sidebar-resizer {
+    display: none;
   }
 }
 
@@ -1240,6 +1395,3 @@
     min-height: 420px;
   }
 }
-
-
-

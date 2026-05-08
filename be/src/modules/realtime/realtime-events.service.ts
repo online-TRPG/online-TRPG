@@ -73,14 +73,22 @@ export class RealtimeEventsService {
       .emit("session.status.updated", payload);
   }
 
-  emitActionAccepted(sessionId: string, playerActionId: string): void {
+  emitActionAccepted(
+    sessionId: string,
+    action: {
+      playerActionId: string;
+      actorUserId: string;
+      rawText: string;
+      clientCreatedAt: string;
+    },
+  ): void {
     if (!this.server) {
       return;
     }
 
     this.server.to(this.getRoomName(sessionId)).emit("action.accepted", {
       sessionId,
-      playerActionId,
+      ...action,
     });
   }
 
@@ -139,7 +147,12 @@ export class RealtimeEventsService {
     });
   }
 
-  emitSystemMessage(sessionId: string, code: string, message: string): void {
+  emitSystemMessage(
+    sessionId: string,
+    code: string,
+    message: string,
+    options?: { playerActionId?: string | null },
+  ): void {
     if (!this.server) {
       return;
     }
@@ -148,6 +161,7 @@ export class RealtimeEventsService {
       sessionId,
       code,
       message,
+      playerActionId: options?.playerActionId ?? null,
     });
   }
 

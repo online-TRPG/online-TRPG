@@ -43,31 +43,45 @@ const selectedTotal = (
 
 const createCharacter = (
   overrides: TestSessionCharacterOverrides = {},
-): TestSessionCharacter => ({
-  id: overrides.id ?? "session-character-1",
-  characterId: overrides.characterId ?? "character-1",
-  currentHp: overrides.currentHp ?? 10,
-  tempHp: overrides.tempHp ?? 0,
-  conditionsJson: overrides.conditionsJson ?? "[]",
-  inventorySnapshotJson: overrides.inventorySnapshotJson ?? null,
-  inventoryEntries: overrides.inventoryEntries ?? [],
-  character: {
-    id: overrides.character?.id ?? "character-1",
-    name: overrides.character?.name ?? "Hero",
-    className: overrides.character?.className ?? "fighter",
-    level: overrides.character?.level ?? 1,
-    maxHp: overrides.character?.maxHp ?? 10,
-    abilitiesJson:
-      overrides.character?.abilitiesJson ??
-      JSON.stringify({ str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }),
-    proficiencyBonus: overrides.character?.proficiencyBonus ?? 2,
-    proficientSkillsJson: overrides.character?.proficientSkillsJson ?? "[]",
-    armorClass: overrides.character?.armorClass ?? 10,
-    speed: overrides.character?.speed ?? 30,
-    inventoryJson: overrides.character?.inventoryJson ?? "[]",
-    equippedWeaponId: overrides.character?.equippedWeaponId ?? null,
-  },
-});
+): TestSessionCharacter => {
+  const userId = overrides.userId ?? "user-1";
+  const characterName = overrides.character?.name ?? "Hero";
+
+  return {
+    id: overrides.id ?? "session-character-1",
+    userId,
+    characterId: overrides.characterId ?? "character-1",
+    currentHp: overrides.currentHp ?? 10,
+    tempHp: overrides.tempHp ?? 0,
+    conditionsJson: overrides.conditionsJson ?? "[]",
+    inventorySnapshotJson: overrides.inventorySnapshotJson ?? null,
+    inventoryEntries: overrides.inventoryEntries ?? [],
+    user:
+      overrides.user !== undefined
+        ? overrides.user
+        : {
+            id: userId,
+            displayName: `${characterName}User`,
+            profile: null,
+          },
+    character: {
+      id: overrides.character?.id ?? "character-1",
+      name: characterName,
+      className: overrides.character?.className ?? "fighter",
+      level: overrides.character?.level ?? 1,
+      maxHp: overrides.character?.maxHp ?? 10,
+      abilitiesJson:
+        overrides.character?.abilitiesJson ??
+        JSON.stringify({ str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }),
+      proficiencyBonus: overrides.character?.proficiencyBonus ?? 2,
+      proficientSkillsJson: overrides.character?.proficientSkillsJson ?? "[]",
+      armorClass: overrides.character?.armorClass ?? 10,
+      speed: overrides.character?.speed ?? 30,
+      inventoryJson: overrides.character?.inventoryJson ?? "[]",
+      equippedWeaponId: overrides.character?.equippedWeaponId ?? null,
+    },
+  };
+};
 
 describe("ActionRuleService", () => {
   const createService = (rolls: DiceRollResponseDto[]): ActionRuleService => {
@@ -129,6 +143,49 @@ describe("ActionRuleService", () => {
       hookId: RULE_HOOK_IDS.APPLY_DAMAGE_MODIFIERS,
       produced: { finalDamage: 4 },
     });
+  });
+
+  it("resolves attack targets by participant display name", () => {
+    const service = createService([
+      createDiceResult([18], 2),
+      {
+        expression: "1d6",
+        rolls: [3],
+        modifier: 0,
+        total: 3,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      userId: "actor-user",
+      characterId: "actor-character",
+    });
+    const target = createCharacter({
+      id: "target",
+      userId: "target-user",
+      characterId: "target-character",
+      currentHp: 10,
+      user: {
+        id: "target-user",
+        displayName: "B_user_변경",
+        profile: null,
+      },
+      character: { id: "target-character", name: "Target", armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/attack B_user_변경", actor, [actor, target]);
+    const structuredAction = result.structuredAction as {
+      target: string;
+      finalDamage: number;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(structuredAction.target).toBe("target");
+    expect(structuredAction.finalDamage).toBe(3);
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 7, markDead: false },
+    ]);
   });
 
   it("uses the P0 attack hook so natural 1 misses even with a high total", () => {
@@ -223,6 +280,35 @@ describe("ActionRuleService", () => {
         appliedDamageModifiers: ["resistance:fire"],
       },
     });
+  });
+
+  it("resolves damage targets by profile nickname", () => {
+    const service = createService([]);
+    const target = createCharacter({
+      id: "target",
+      userId: "target-user",
+      characterId: "target-character",
+      currentHp: 10,
+      user: {
+        id: "target-user",
+        displayName: "TargetUser",
+        profile: { nickname: "B_user_변경" },
+      },
+      character: { id: "target-character", name: "Target" },
+    });
+
+    const result = service.resolveAction("/damage B_user_변경 2", target, [target]);
+    const structuredAction = result.structuredAction as {
+      target: string;
+      finalDamage: number;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(structuredAction.target).toBe("target");
+    expect(structuredAction.finalDamage).toBe(2);
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 8, tempHp: 0, markDead: false },
+    ]);
   });
 
   it("connects chill touch spell casting to attack, spell, and damage hooks", () => {
