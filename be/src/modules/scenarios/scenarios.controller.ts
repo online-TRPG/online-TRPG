@@ -9,10 +9,13 @@ import {
 } from "@nestjs/swagger";
 import {
   CreateScenarioDto,
+  ScenarioAssetQueryDto,
+  ScenarioAssetResponseDto,
   ScenarioQueryDto,
   ScenarioNodeImageUploadResponseDto,
   ScenarioResponseDto,
   ScenarioSummaryResponseDto,
+  UploadScenarioAssetDto,
   UploadScenarioNodeImageDto,
   UpdateScenarioDto,
 } from "@trpg/shared-types";
@@ -69,6 +72,30 @@ export class ScenariosController {
     @Body() dto: UpdateScenarioDto,
   ): Promise<ScenarioResponseDto> {
     return this.scenariosService.updateScenario(userId, id, dto);
+  }
+
+  @Get(":id/assets")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: [ScenarioAssetResponseDto] })
+  listScenarioAssets(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Query() query: ScenarioAssetQueryDto,
+  ): Promise<ScenarioAssetResponseDto[]> {
+    return this.scenariosService.listScenarioAssets(userId, id, query);
+  }
+
+  @Post(":id/assets")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: ScenarioAssetResponseDto })
+  uploadScenarioAsset(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Body() dto: UploadScenarioAssetDto,
+  ): Promise<ScenarioAssetResponseDto> {
+    return this.scenariosService.uploadScenarioAsset(userId, id, dto);
   }
 
   @Post(":id/nodes/:nodeId/image")

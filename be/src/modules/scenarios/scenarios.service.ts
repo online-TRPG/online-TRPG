@@ -1,11 +1,15 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import {
+  Prisma,
+  ScenarioAssetKind as PrismaScenarioAssetKind,
   ScenarioLicense as PrismaScenarioLicense,
   ScenarioNode,
   ScenarioSourceType as PrismaScenarioSourceType,
@@ -13,6 +17,9 @@ import {
 import { createHash, createHmac, randomUUID } from "crypto";
 import {
   CreateScenarioDto,
+  ScenarioAssetKind,
+  ScenarioAssetQueryDto,
+  ScenarioAssetResponseDto,
   ScenarioQueryDto,
   ScenarioResponseDto,
   ScenarioNodeInputDto,
@@ -20,6 +27,7 @@ import {
   ScenarioSummaryResponseDto,
   ScenarioLicense,
   ScenarioNodeType,
+  UploadScenarioAssetDto,
   UploadScenarioNodeImageDto,
   UpdateScenarioDto,
 } from "@trpg/shared-types";
@@ -68,6 +76,29 @@ export class ScenariosService {
   async getScenario(id: string): Promise<ScenarioResponseDto> {
     const scenario = await this.getScenarioEntityById(id);
     return mapScenario(scenario);
+  }
+
+  async listScenarioAssets(
+    userId: string,
+    scenarioId: string,
+    query?: ScenarioAssetQueryDto,
+  ): Promise<ScenarioAssetResponseDto[]> {
+    await this.getEditableScenarioEntity(userId, scenarioId);
+
+    let assets;
+    try {
+      assets = await this.prisma.scenarioAsset.findMany({
+        where: {
+          scenarioId,
+          kind: query?.kind ? this.toPrismaScenarioAssetKind(query.kind) : undefined,
+        },
+        orderBy: [{ createdAt: "desc" }],
+      });
+    } catch (error) {
+      this.rethrowScenarioAssetStorageError(error);
+    }
+
+    return assets.map((asset) => this.mapScenarioAsset(asset));
   }
 
   async createScenario(userId: string, dto: CreateScenarioDto): Promise<ScenarioResponseDto> {
@@ -162,6 +193,15 @@ export class ScenariosService {
     await this.prisma.scenario.delete({ where: { id } });
   }
 
+  async uploadScenarioAsset(
+    userId: string,
+    scenarioId: string,
+    dto: UploadScenarioAssetDto,
+  ): Promise<ScenarioAssetResponseDto> {
+    await this.getEditableScenarioEntity(userId, scenarioId);
+    return this.createScenarioAsset(userId, scenarioId, dto);
+  }
+
   async uploadScenarioNodeImage(
     userId: string,
     scenarioId: string,
@@ -170,32 +210,19 @@ export class ScenariosService {
   ): Promise<ScenarioNodeImageUploadResponseDto> {
     await this.getEditableScenarioEntity(userId, scenarioId);
     const node = await this.getScenarioNodeEntityById(scenarioId, nodeId);
-
-    if (!dto.contentType.startsWith("image/")) {
-      throw new BadRequestException("이미지 파일만 업로드할 수 있습니다.");
-    }
-
-    const body = Buffer.from(dto.dataBase64, "base64");
-    const maxBytes = Number(process.env.R2_MAX_IMAGE_BYTES ?? 5 * 1024 * 1024);
-
-    if (body.byteLength > maxBytes) {
-      throw new BadRequestException("이미지 파일이 너무 큽니다.");
-    }
-
-    const imageUrl = await this.putR2Object({
-      body,
-      contentType: dto.contentType,
+    const asset = await this.createScenarioAsset(userId, scenarioId, {
+      kind: ScenarioAssetKind.SCENE,
       fileName: dto.fileName,
-      scenarioId,
-      nodeId: node.id,
+      contentType: dto.contentType,
+      dataBase64: dto.dataBase64,
     });
 
     await this.prisma.scenarioNode.update({
       where: { id: node.id },
-      data: { imageUrl },
+      data: { imageUrl: asset.publicUrl },
     });
 
-    return { imageUrl };
+    return { imageUrl: asset.publicUrl };
   }
 
   async getDefaultScenarioEntity() {
@@ -276,6 +303,50 @@ export class ScenariosService {
     }
   }
 
+  private toPrismaScenarioAssetKind(kind: ScenarioAssetKind): PrismaScenarioAssetKind {
+    switch (kind) {
+      case ScenarioAssetKind.SCENE:
+        return PrismaScenarioAssetKind.SCENE;
+      case ScenarioAssetKind.TOKEN:
+        return PrismaScenarioAssetKind.TOKEN;
+      case ScenarioAssetKind.MAP:
+      default:
+        return PrismaScenarioAssetKind.MAP;
+    }
+  }
+
+  private mapScenarioAsset(asset: {
+    id: string;
+    scenarioId: string;
+    kind: PrismaScenarioAssetKind;
+    fileName: string;
+    contentType: string;
+    storageKey: string;
+    publicUrl: string;
+    width: number | null;
+    height: number | null;
+    fileSizeBytes: number;
+    uploadedByUserId: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }): ScenarioAssetResponseDto {
+    return {
+      id: asset.id,
+      scenarioId: asset.scenarioId,
+      kind: asset.kind as unknown as ScenarioAssetKind,
+      fileName: asset.fileName,
+      contentType: asset.contentType,
+      storageKey: asset.storageKey,
+      publicUrl: asset.publicUrl,
+      width: asset.width,
+      height: asset.height,
+      fileSizeBytes: asset.fileSizeBytes,
+      uploadedByUserId: asset.uploadedByUserId,
+      createdAt: asset.createdAt.toISOString(),
+      updatedAt: asset.updatedAt.toISOString(),
+    };
+  }
+
   private normalizeNodeInputs(
     scenarioId: string,
     inputs: ScenarioNodeInputDto[] | null | undefined,
@@ -325,19 +396,79 @@ export class ScenariosService {
     });
   }
 
+  private async createScenarioAsset(
+    userId: string,
+    scenarioId: string,
+    dto: UploadScenarioAssetDto,
+  ): Promise<ScenarioAssetResponseDto> {
+    if (!dto.contentType.startsWith("image/")) {
+      throw new BadRequestException("이미지 파일만 업로드할 수 있습니다.");
+    }
+
+    const body = Buffer.from(dto.dataBase64, "base64");
+    const maxBytes =
+      dto.kind === ScenarioAssetKind.MAP
+        ? Number(process.env.R2_MAX_MAP_IMAGE_BYTES ?? 10 * 1024 * 1024)
+        : Number(process.env.R2_MAX_IMAGE_BYTES ?? 5 * 1024 * 1024);
+
+    if (body.byteLength > maxBytes) {
+      throw new BadRequestException("이미지 파일이 너무 큽니다.");
+    }
+
+    const { storageKey, publicUrl } = await this.putR2Object({
+      body,
+      contentType: dto.contentType,
+      fileName: dto.fileName,
+      keyPrefix: `scenarios/${scenarioId}/assets/${dto.kind.toLowerCase()}`,
+    });
+
+    let asset;
+    try {
+      asset = await this.prisma.scenarioAsset.create({
+        data: {
+          scenarioId,
+          kind: this.toPrismaScenarioAssetKind(dto.kind),
+          fileName: dto.fileName.trim(),
+          contentType: dto.contentType,
+          storageKey,
+          publicUrl,
+          width: null,
+          height: null,
+          fileSizeBytes: body.byteLength,
+          uploadedByUserId: userId,
+        },
+      });
+    } catch (error) {
+      this.rethrowScenarioAssetStorageError(error);
+    }
+
+    return this.mapScenarioAsset(asset);
+  }
+
+  private rethrowScenarioAssetStorageError(error: unknown): never {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      (error.code === "P2021" || error.code === "P2022")
+    ) {
+      throw new ServiceUnavailableException(
+        "Scenario asset storage schema is missing in the current database. Run `npm run prisma:push -w @trpg/be` and restart the backend.",
+      );
+    }
+
+    throw error;
+  }
+
   private async putR2Object({
     body,
     contentType,
     fileName,
-    scenarioId,
-    nodeId,
+    keyPrefix,
   }: {
     body: Buffer;
     contentType: string;
     fileName: string;
-    scenarioId: string;
-    nodeId: string;
-  }): Promise<string> {
+    keyPrefix: string;
+  }): Promise<{ storageKey: string; publicUrl: string }> {
     const accountId = process.env.R2_ACCOUNT_ID;
     const bucket = process.env.R2_BUCKET_NAME;
     const accessKeyId = process.env.R2_ACCESS_KEY_ID;
@@ -349,7 +480,7 @@ export class ScenariosService {
     }
 
     const extension = this.getSafeFileExtension(fileName, contentType);
-    const key = `scenarios/${scenarioId}/nodes/${nodeId}/${randomUUID()}${extension}`;
+    const key = `${keyPrefix}/${randomUUID()}${extension}`;
     const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
     const url = new URL(`${endpoint}/${bucket}/${key}`);
     const now = new Date();
@@ -383,23 +514,32 @@ export class ScenariosService {
       `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, ` +
       `SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
-    const response = await fetch(url, {
-      method: "PUT",
-      headers: {
-        Authorization: authorization,
-        "Content-Type": contentType,
-        "x-amz-content-sha256": payloadHash,
-        "x-amz-date": amzDate,
-      },
-      body,
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "PUT",
+        headers: {
+          Authorization: authorization,
+          "Content-Type": contentType,
+          "x-amz-content-sha256": payloadHash,
+          "x-amz-date": amzDate,
+        },
+        body,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "unknown network error";
+      throw new BadGatewayException(`R2 upload request failed before a response was received. ${detail}`);
+    }
 
     if (!response.ok) {
       const message = await response.text();
       throw new BadRequestException(`R2 업로드에 실패했습니다. (${response.status}) ${message}`);
     }
 
-    return `${publicBaseUrl}/${key}`;
+    return {
+      storageKey: key,
+      publicUrl: `${publicBaseUrl}/${key}`,
+    };
   }
 
   private formatAmzDate(date: Date): string {

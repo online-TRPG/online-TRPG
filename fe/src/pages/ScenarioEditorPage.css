@@ -345,9 +345,96 @@
   text-align: center;
 }
 
+.scenario-node-asset-library {
+  grid-column: 1 / -1;
+}
+
 .scenario-node-map-panel {
   display: grid;
   gap: 10px;
+}
+
+.scenario-map-library {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  background: rgba(6, 12, 20, 0.74);
+}
+
+.scenario-map-library-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.scenario-map-library-header strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--text);
+}
+
+.scenario-map-library-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.scenario-map-library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(164px, 1fr));
+  gap: 12px;
+}
+
+.scenario-map-asset-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(73, 94, 120, 0.8);
+  background: rgba(10, 18, 30, 0.92);
+}
+
+.scenario-map-asset-card.selected {
+  border-color: rgba(85, 209, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(85, 209, 255, 0.26);
+}
+
+.scenario-map-asset-preview {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 12px;
+  border: 1px solid rgba(38, 52, 73, 0.9);
+  background: rgba(7, 14, 24, 0.58);
+  object-fit: cover;
+}
+
+.scenario-map-asset-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.scenario-map-asset-meta strong,
+.scenario-map-asset-meta span {
+  overflow-wrap: anywhere;
+}
+
+.scenario-map-asset-meta span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.scenario-map-asset-empty {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px dashed rgba(73, 94, 120, 0.8);
+  background: rgba(8, 13, 22, 0.56);
+  color: var(--muted);
+  line-height: 1.55;
 }
 
 .scenario-node-map-panel .vtt-panel {
@@ -386,6 +473,11 @@
   justify-content: center;
   padding: 0 12px;
   cursor: pointer;
+}
+
+.scenario-image-upload.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .scenario-image-upload input {
@@ -538,6 +630,10 @@
   .scenario-play-editor,
   .scenario-node-image-panel {
     grid-template-columns: 1fr;
+  }
+
+  .scenario-map-library-header {
+    flex-direction: column;
   }
 
   .scenario-info-wide {

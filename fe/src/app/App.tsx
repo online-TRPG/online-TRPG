@@ -188,6 +188,17 @@ export function App() {
     [hasUnsavedScenarioChanges, isScenarioEditorActive, navigate]
   );
 
+  const reloadScenarios = useCallback(() => {
+    if (!auth.user) {
+      setScenarios([]);
+      return Promise.resolve();
+    }
+
+    return listScenarios()
+      .then(setScenarios)
+      .catch(() => undefined);
+  }, [auth.user]);
+
   useEffect(() => {
     if (!isScenarioEditorActive && hasUnsavedScenarioChanges) {
       setHasUnsavedScenarioChanges(false);
@@ -195,15 +206,8 @@ export function App() {
   }, [hasUnsavedScenarioChanges, isScenarioEditorActive]);
 
   useEffect(() => {
-    if (!auth.user) {
-      setScenarios([]);
-      return;
-    }
-
-    listScenarios()
-      .then(setScenarios)
-      .catch(() => undefined);
-  }, [auth.user]);
+    void reloadScenarios();
+  }, [location.pathname, reloadScenarios]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -559,9 +563,7 @@ export function App() {
             accessToken={auth.accessToken}
             onUnsavedChangesChange={setHasUnsavedScenarioChanges}
             onDone={() => {
-              void listScenarios()
-                .then(setScenarios)
-                .catch(() => undefined);
+              void reloadScenarios();
               setHasUnsavedScenarioChanges(false);
               navigate('/scenarios');
             }}
@@ -576,9 +578,7 @@ export function App() {
             scenarioId={scenarioEditId}
             onUnsavedChangesChange={setHasUnsavedScenarioChanges}
             onDone={() => {
-              void listScenarios()
-                .then(setScenarios)
-                .catch(() => undefined);
+              void reloadScenarios();
               setHasUnsavedScenarioChanges(false);
               navigate('/scenarios');
             }}

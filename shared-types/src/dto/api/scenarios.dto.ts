@@ -11,7 +11,11 @@ import {
   MaxLength,
   ValidateNested,
 } from "class-validator";
-import { ScenarioLicense, ScenarioNodeType } from "../../constants/enums";
+import {
+  ScenarioAssetKind,
+  ScenarioLicense,
+  ScenarioNodeType,
+} from "../../constants/enums";
 
 export class ScenarioNodeResponseDto {
   @ApiProperty()
@@ -172,6 +176,75 @@ export class UploadScenarioNodeImageDto {
 export class ScenarioNodeImageUploadResponseDto {
   @ApiProperty()
   imageUrl!: string;
+}
+
+export class ScenarioAssetResponseDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  scenarioId!: string;
+
+  @ApiProperty({ enum: ScenarioAssetKind })
+  kind!: ScenarioAssetKind;
+
+  @ApiProperty()
+  fileName!: string;
+
+  @ApiProperty()
+  contentType!: string;
+
+  @ApiProperty()
+  storageKey!: string;
+
+  @ApiProperty()
+  publicUrl!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  width!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  height!: number | null;
+
+  @ApiProperty()
+  fileSizeBytes!: number;
+
+  @ApiProperty()
+  uploadedByUserId!: string;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  @ApiProperty()
+  updatedAt!: string;
+}
+
+export class ScenarioAssetQueryDto {
+  @ApiPropertyOptional({ enum: ScenarioAssetKind })
+  @IsOptional()
+  @IsEnum(ScenarioAssetKind)
+  kind?: ScenarioAssetKind;
+}
+
+export class UploadScenarioAssetDto {
+  @ApiProperty({ enum: ScenarioAssetKind })
+  @IsEnum(ScenarioAssetKind)
+  kind!: ScenarioAssetKind;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  fileName!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  contentType!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsBase64()
+  dataBase64!: string;
 }
 
 export class GetScenarioParamsDto {

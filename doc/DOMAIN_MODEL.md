@@ -148,6 +148,28 @@ type ScenarioNode = {
 };
 ```
 
+### ScenarioAsset
+
+```ts
+type ScenarioAsset = {
+  id: string;
+  scenarioId: string;
+  kind: 'map' | 'scene' | 'token';
+  fileName: string;
+  contentType: string;
+  storageKey: string;
+  publicUrl: string;
+  width?: number;
+  height?: number;
+  fileSizeBytes: number;
+  uploadedByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+```
+
+`ScenarioAsset`는 시나리오 에디터가 재사용 가능한 이미지 자산을 관리하는 목록이다. 런타임은 계속 `ScenarioNode.imageUrl` 또는 `VttMap.imageUrl` 같은 public URL projection을 사용하고, 에디터만 자산 id/목록/썸네일 정보를 직접 다룬다.
+
 ### PlayerAction
 
 ```ts

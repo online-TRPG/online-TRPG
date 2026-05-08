@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { AccessTokenAuthMiddleware } from "./common/auth/access-token-auth.middleware";
+import { getRuntimeEnvFilePaths } from "./common/utils/runtime-env";
 import { DatabaseModule } from "./database/database.module";
 import { ActionsModule } from "./modules/actions/actions.module";
 import { AiModule } from "./modules/ai/ai.module";
@@ -17,15 +18,7 @@ import { UsersModule } from "./modules/users/users.module";
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [
-        "be/.env.local",
-        "be/.env",
-        ".env.local",
-        ".env",
-        "../.env.local",
-        "../.env",
-        "../.env.backend",
-      ],
+      envFilePath: getRuntimeEnvFilePaths(),
     }),
     DatabaseModule,
     UsersModule,
