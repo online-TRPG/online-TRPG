@@ -525,6 +525,7 @@ export function App() {
             error={error}
             onLogout={handleLogout}
             onOpenAccount={() => guardedNavigate('/account')}
+            onUpdateNickname={auth.updateDisplayName}
           />
         ) : null}
 
@@ -538,7 +539,6 @@ export function App() {
             onLogout={handleLogout}
             onOpenProfile={() => guardedNavigate('/profile')}
             onDeleteAccount={handleDeleteAccount}
-            onUpdateDisplayName={auth.updateDisplayName}
           />
         ) : null}
 

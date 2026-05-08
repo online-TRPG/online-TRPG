@@ -92,6 +92,29 @@
   word-break: break-word;
 }
 
+.profile-inline-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.profile-inline-edit span {
+  min-width: 0;
+  flex: 1 1 140px;
+}
+
+.profile-inline-edit input {
+  min-width: 0;
+  flex: 1 1 180px;
+}
+
+.profile-inline-edit button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  border-radius: 8px;
+}
+
 .profile-inline-error {
   border-radius: 8px;
   padding: 10px 12px;
