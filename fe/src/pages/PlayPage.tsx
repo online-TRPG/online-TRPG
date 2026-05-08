@@ -1,15 +1,16 @@
-﻿/*
+/*
  * PlayPage
- * ??븷: ?ㅼ젣 ?몄뀡 ?뚮젅???붾㈃?낅땲?? 罹먮┃???좏깮, 以鍮??곹깭, 梨꾪똿/濡쒓렇, ?꾩옱 ?쒕굹由ъ삤 ?몃뱶, VTT 留듭쓣 ?쒖떆?⑸땲??
- * ?쎈뒗 ?쒖꽌:
- * 1) ?곷떒 ?ы띁: 濡쒓렇 ?ㅼ퐫?? ?꾨컮?/?대옒???쒖떆 ?대?吏, ?몃뱶 ?쇰꺼 異붿텧
- * 2) PlayPageProps: ?몄뀡 ?ㅻ깄?룰낵 ?뚯폆 ?곹깭, ?뚮젅???≪뀡 肄쒕갚
- * 3) 而댄룷?뚰듃 state/ref: ?? 梨꾪똿 ?낅젰, 罹먮┃???앹꽦 ?? ?쒕굹由ъ삤/留?濡쒕뵫 ?곹깭, 留??????
- * 4) useEffect: ?쒕쾭 ?좏깮 罹먮┃???숆린?? ?쒕굹由ъ삤/留?議고쉶, 濡쒓렇 ?ㅽ겕濡? ?낅젰 珥덇린??
- * 5) handler: 罹먮┃???앹꽦, 梨꾪똿/?≪뀡 ?꾩넚, VTT 留?蹂寃????
- * 6) JSX: 紐⑥쭛 ?湲??붾㈃, ?뚮젅???? VTT 留? ?ъ씠???⑤꼸, 罹먮┃???앹꽦 紐⑤떖
+ * 역할: 실제 세션 플레이 화면입니다. 캐릭터 선택, 준비 상태, 채팅/로그, 현재 시나리오 노드, VTT 맵을 표시합니다.
+ * 읽는 순서:
+ * 1) 상단 헬퍼: 로그 스코프, 아바타/클래스 표시 이미지, 노드 라벨 추출
+ * 2) PlayPageProps: 세션 스냅샷과 소켓 상태, 플레이 액션 콜백
+ * 3) 컴포넌트 state/ref: 탭, 채팅 입력, 캐릭터 생성 폼, 시나리오/맵 로딩 상태, 맵 저장 큐
+ * 4) useEffect: 서버 선택 캐릭터 동기화, 시나리오/맵 조회, 로그 스크롤, 입력 초기화
+ * 5) handler: 캐릭터 생성, 채팅/액션 전송, VTT 맵 변경 저장
+ * 6) JSX: 모집 대기 화면, 플레이 탭, VTT 맵, 사이드 패널, 캐릭터 생성 모달
  */
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { VttMapStateDto } from "@trpg/shared-types";
 import defaultArcherImage from "../assets/images/Profile_Default_Archer.webp";
 import defaultRogueImage from "../assets/images/Profile_Default_Rouge.webp";
@@ -25,7 +26,7 @@ import type { LogEntry, PersistentCharacter, PlayerScenarioView, SessionSnapshot
 import "./CharacterPage.css";
 import "./PlayPage.css";
 
-// ?뚮젅???붾㈃ ?곷떒 ???대쫫?낅땲?? 媛???? 濡쒓렇/梨꾪똿/?뺣낫/?ㅼ젙??援щ텇?⑸땲??
+// 플레이 화면 상단 탭 이름입니다. 각 탭은 로그/채팅/정보/설정을 구분합니다.
 const sessionTabs = ["Main", "Chat", "Info", "Settings", "Control"] as const;
 const sessionTabLabels: Record<(typeof sessionTabs)[number], string> = {
   Main: "\uBA54\uC778",
@@ -75,7 +76,11 @@ const avatarPresetImageMap = new Map([
   ["preset_warrior", defaultWarriorImage],
 ]);
 
-// 遺紐?而댄룷?뚰듃媛 ???섏씠吏??二쇱엯?섎뒗 ?곗씠?곗? ?대깽??肄쒕갚?낅땲??
+const DEFAULT_SIDEBAR_WIDTH = 360;
+const MIN_SIDEBAR_WIDTH = 320;
+const MAX_SIDEBAR_WIDTH = 620;
+
+// 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface PlayPageProps {
   user: StoredUser;
   snapshot: SessionSnapshot | null;
@@ -93,7 +98,7 @@ interface PlayPageProps {
   onAction: (label: string) => void;
 }
 
-// 罹먮┃???앹꽦 紐⑤떖??泥섏쓬 ?????곕뒗 湲곕낯 ?낅젰媛믪엯?덈떎.
+// 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
 const defaultCharacter = {
   name: "",
   ancestry: "Human",
@@ -103,7 +108,7 @@ const defaultCharacter = {
 
 const visibleCharacterSlots = 3;
 
-// 濡쒓렇 硫붿떆吏 ?욎쓽 [MAIN]/[CHAT] ?ㅼ퐫???쒓렇瑜??붾㈃ ?쒖떆?⑹쑝濡??쒓굅?⑸땲??
+// 로그 메시지 앞의 [MAIN]/[CHAT] 스코프 태그를 화면 표시용으로 제거합니다.
 function stripScopePrefix(message: string) {
   return message.replace(/^\[(MAIN|CHAT)\]/, "").trim();
 }
@@ -145,7 +150,7 @@ function getCharacterArt(className: string) {
   return defaultWizardImage;
 }
 
-// 罹먮┃?곌? 吏곸젒 ?낅줈?쒗븳 ?대?吏, ?꾨━???대?吏, 吏곸뾽 湲곕낯 ?대?吏 ?쒖꽌濡??쒖떆 ?대?吏瑜?怨좊쫭?덈떎.
+// 캐릭터가 직접 업로드한 이미지, 프리셋 이미지, 직업 기본 이미지 순서로 표시 이미지를 고릅니다.
 function getCharacterImage(character: { avatarPresetId?: string | null; avatarUrl?: string | null; className: string }) {
   if (character.avatarUrl) return character.avatarUrl;
   if (character.avatarPresetId) {
@@ -178,7 +183,7 @@ function getAbilitySummary(character: PersistentCharacter) {
   ];
 }
 
-// ?섏씠吏 而댄룷?뚰듃 蹂몄껜?낅땲?? ?꾩뿉???곹깭/?대깽?몃? 留뚮뱾怨??꾨옒 JSX?먯꽌 ?붾㈃??洹몃┰?덈떎.
+// 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function PlayPage({
   user,
   snapshot,
@@ -195,7 +200,7 @@ export function PlayPage({
   onBackToLobby,
   onAction,
 }: PlayPageProps) {
-  // UI ?곹깭: ?꾩옱 ?? 紐⑤떖 ?대┝, ?낅젰李?媛? 濡쒖뺄 罹먮┃???좏깮媛믪엯?덈떎.
+  // UI 상태: 현재 탭, 모달 열림, 입력창 값, 로컬 캐릭터 선택값입니다.
   const [activeTab, setActiveTab] = useState<(typeof sessionTabs)[number]>("Main");
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
   const [mainMessage, setMainMessage] = useState("");
@@ -206,12 +211,13 @@ export function PlayPage({
   const [isStatusMinimized, setStatusMinimized] = useState(false);
   const [isGameStarting, setIsGameStarting] = useState(false);
   const [characterCarouselIndex, setCharacterCarouselIndex] = useState(0);
-  // ?꾩옱 ?몄뀡???뚮젅?댁뼱???쒕굹由ъ삤 ?몃뱶? VTT 留?濡쒕뵫 ?곹깭?낅땲??
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+  // 현재 세션의 플레이어용 시나리오 노드와 VTT 맵 로딩 상태입니다.
   const [playerScenario, setPlayerScenario] = useState<PlayerScenarioView | null>(null);
   const [vttMap, setVttMap] = useState<VttMapStateDto | null>(null);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
-  // 濡쒓렇 ?먮룞 ?ㅽ겕濡ㅺ낵 留?????먮? 愿由ы븯??ref?낅땲?? ?뚮뜑留??놁씠 理쒖떊 媛믪쓣 ?좎??⑸땲??
+  // 로그 자동 스크롤과 맵 저장 큐를 관리하는 ref입니다. 렌더링 없이 최신 값을 유지합니다.
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
   const mapSaveRef = useRef<{
@@ -224,7 +230,7 @@ export function PlayPage({
     activeSessionId: null,
   });
 
-  // ?쒕쾭 ?ㅻ깄?룹뿉???꾩옱 ?몄뀡/李멸????좏깮 罹먮┃??沅뚰븳 ?곹깭瑜?怨꾩궛?⑸땲??
+  // 서버 스냅샷에서 현재 세션/참가자/선택 캐릭터/권한 상태를 계산합니다.
   const session = snapshot?.session ?? null;
   const participants = snapshot?.participants ?? [];
   const sessionCharacters = snapshot?.characters ?? [];
@@ -258,12 +264,12 @@ export function PlayPage({
       (vttMap || mapLoadError || snapshotVttMap)
   );
 
-  // ?쒕쾭媛 ?뚮젮以 ?좏깮 罹먮┃?곌? 諛붾뚮㈃ 濡쒖뺄 ?좏깮 ?곹깭??留욎땅?덈떎.
+  // 서버가 알려준 선택 캐릭터가 바뀌면 로컬 선택 상태도 맞춥니다.
   useEffect(() => {
     setLocalSelectedCharacterId(serverSelectedCharacterId);
   }, [serverSelectedCharacterId]);
 
-  // 以鍮??곹깭媛 ?由щ㈃ ?곹깭 ?⑤꼸???ㅼ떆 ?쇱퀜 ?ъ슜?먭? ?뺤씤?????덇쾶 ?⑸땲??
+  // 준비 상태가 풀리면 상태 패널을 다시 펼쳐 사용자가 확인할 수 있게 합니다.
   useEffect(() => {
     if (!allPlayersReady) {
       setStatusMinimized(false);
@@ -290,7 +296,7 @@ export function PlayPage({
     setActiveTab(availableTabs[0]);
   }, [activeTab, availableTabs]);
 
-  // ?몄뀡???녾굅??諛붾뚮㈃ ?쒕굹由ъ삤/留??곹깭瑜?珥덇린?뷀븯怨??뚮젅?댁뼱???쒕굹由ъ삤瑜??ㅼ떆 遺덈윭?듬땲??
+  // 세션이 없거나 바뀌면 시나리오/맵 상태를 초기화하고 플레이어용 시나리오를 다시 불러옵니다.
   useEffect(() => {
     if (!session) {
       setPlayerScenario(null);
@@ -318,7 +324,7 @@ export function PlayPage({
       .catch((caught) => {
         if (!ignore) {
           setPlayerScenario(null);
-          setScenarioLoadError(caught instanceof Error ? caught.message : "?쒕굹由ъ삤瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??");
+          setScenarioLoadError(caught instanceof Error ? caught.message : "시나리오를 불러오지 못했습니다.");
         }
       });
   return () => {
@@ -351,7 +357,7 @@ export function PlayPage({
       })
       .catch((caught) => {
         if (!ignore) {
-          setMapLoadError(caught instanceof Error ? caught.message : "留듭쓣 遺덈윭?ㅼ? 紐삵뻽?듬땲??");
+          setMapLoadError(caught instanceof Error ? caught.message : "맵을 불러오지 못했습니다.");
         }
       });
 
@@ -548,8 +554,38 @@ export function PlayPage({
     return null;
   }
 
+  const layoutStyle = {
+    "--session-sidebar-width": `${sidebarWidth}px`,
+  } as CSSProperties;
+
+  function handleSidebarResizePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+
+    const maxWidth = Math.min(MAX_SIDEBAR_WIDTH, Math.floor(window.innerWidth * 0.65));
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    function handlePointerMove(moveEvent: PointerEvent) {
+      // 우측 패널이라서 마우스가 왼쪽으로 갈수록 넓어집니다.
+      const nextWidth = window.innerWidth - moveEvent.clientX;
+      setSidebarWidth(Math.min(maxWidth, Math.max(MIN_SIDEBAR_WIDTH, nextWidth)));
+    }
+
+    function handlePointerUp() {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+  }
+
   return (
-    <main className="session-prep-layout session-prep-layout-tight">
+    <main className="session-prep-layout session-prep-layout-tight" style={layoutStyle}>
       <section className="session-prep-stage">
         <div className={`session-stage-canvas${!isRecruiting ? " started" : ""}`}>
           {isRecruiting ? (
@@ -611,7 +647,7 @@ export function PlayPage({
                   className="character-selection-nav"
                   onClick={() => setCharacterCarouselIndex((current) => Math.max(0, current - 1))}
                   disabled={characterCarouselIndex === 0}
-                  aria-label="?댁쟾 罹먮┃??蹂닿린"
+                  aria-label="이전 캐릭터 보기"
                 >
                   {"<"}
                 </button>
@@ -629,7 +665,7 @@ export function PlayPage({
                         >
                           <Icon name="plus" />
                           <strong>캐릭터 생성</strong>
-                          <span>??罹먮┃?곕? 留뚮뱺 ?????몄뀡?먯꽌 諛붾줈 ?ъ슜?????덉뒿?덈떎.</span>
+                          <span>새 캐릭터를 만든 뒤 이 세션에서 바로 사용할 수 있습니다.</span>
                         </button>
                       );
                     }
@@ -639,7 +675,7 @@ export function PlayPage({
                     const disabledLabel = !character.isSelectable
                       ? "사용 중"
                       : readyLocked && !character.isSelected
-                        ? "READY 怨좎젙"
+                        ? "READY 고정"
                         : null;
 
                     return (
@@ -676,7 +712,7 @@ export function PlayPage({
                   className="character-selection-nav"
                   onClick={() => setCharacterCarouselIndex((current) => Math.min(maxCharacterCarouselIndex, current + 1))}
                   disabled={characterCarouselIndex >= maxCharacterCarouselIndex}
-                  aria-label="?ㅼ쓬 罹먮┃??蹂닿린"
+                  aria-label="다음 캐릭터 보기"
                 >
                   {">"}
                 </button>
@@ -684,7 +720,7 @@ export function PlayPage({
 
               <section className="character-selection-detail">
                 <div className="character-selection-detail-header">
-                  <span className="eyebrow">?좏깮 罹먮┃???뺣낫</span>
+                  <span className="eyebrow">선택 캐릭터 정보</span>
                   <strong>{selectedCharacter?.name ?? "캐릭터를 선택해 주세요"}</strong>
                 </div>
 
@@ -722,12 +758,12 @@ export function PlayPage({
                     </div>
 
                     <p className="character-selection-detail-bio">
-                      {selectedCharacter.bio?.trim() || "?꾩쭅 ?깅줉??罹먮┃???뚭컻媛 ?놁뒿?덈떎."}
+                      {selectedCharacter.bio?.trim() || "아직 등록된 캐릭터 소개가 없습니다."}
                     </p>
                   </div>
                 ) : (
                   <p className="character-selection-detail-empty">
-                    罹먮┃?곕? ?좏깮?섎㈃ ?λ젰移섏? ?뚭컻瑜??ш린?먯꽌 諛붾줈 ?뺤씤?????덉뒿?덈떎.
+                    캐릭터를 선택하면 능력치와 소개를 여기에서 바로 확인할 수 있습니다.
                   </p>
                 )}
               </section>
@@ -747,7 +783,7 @@ export function PlayPage({
                 />
               ) : (
                 <div className="session-game-surface__placeholder">
-                  <h1>硫붿씤?붾㈃</h1>
+                  <h1>메인화면</h1>
                 </div>
               )}
               {mapLoadError ? <p className="panel-error">{mapLoadError}</p> : null}
@@ -874,6 +910,14 @@ export function PlayPage({
         {error ? <p className="panel-error">{error}</p> : null}
       </section>
 
+      <div
+        className="session-sidebar-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="우측 패널 크기 조절"
+        onPointerDown={handleSidebarResizePointerDown}
+      />
+
       <aside className="session-sidebar">
         <div className="session-sidebar-tabs">
           {availableTabs.map((tab) => (
@@ -920,8 +964,8 @@ export function PlayPage({
                 ) : (
                   <article className="chat-thread-row notice">
                     <div className="chat-thread-stack">
-                      <span className="chat-thread-sender notice">?몄뀡 濡쒓렇</span>
-                      <div className="chat-thread-bubble">?꾩쭅 湲곕줉??硫붿떆吏媛 ?놁뒿?덈떎.</div>
+                      <span className="chat-thread-sender notice">세션 로그</span>
+                      <div className="chat-thread-bubble">아직 기록된 메시지가 없습니다.</div>
                     </div>
                   </article>
                 )}
@@ -937,7 +981,7 @@ export function PlayPage({
                   onChange={(event) =>
                     activeTab === "Main" ? setMainMessage(event.target.value) : setChatMessage(event.target.value)
                   }
-                  placeholder={activeTab === "Main" ? "?됰룞???좎뼵?섍굅???곹솴???낅젰?섏꽭??.." : "梨꾪똿???낅젰?섏꽭??.."}
+                  placeholder={activeTab === "Main" ? "행동을 선언하거나 상황을 입력하세요..." : "채팅을 입력하세요..."}
                 />
                 <button type="submit" disabled={busy}>
                   전송
@@ -983,7 +1027,7 @@ export function PlayPage({
                     })}
                   </ul>
                 ) : (
-                  <p>?ㅼ젙???≪뀡???놁뒿?덈떎.</p>
+                  <p>설정된 액션이 없습니다.</p>
                 )}
               </article>
 
@@ -999,7 +1043,7 @@ export function PlayPage({
                     ))}
                   </ul>
                 ) : (
-                  <p>?꾩옱 ?ъ뿉 怨듦컻 ?⑥꽌媛 ?놁뒿?덈떎.</p>
+                  <p>현재 씬에 공개 단서가 없습니다.</p>
                 )}
               </article>
 
@@ -1015,7 +1059,7 @@ export function PlayPage({
                     ))}
                   </ul>
                 ) : (
-                  <p>諛쒓껄???⑥꽌媛 ?꾩쭅 ?놁뒿?덈떎.</p>
+                  <p>발견한 단서가 아직 없습니다.</p>
                 )}
               </article>
             </div>
@@ -1062,13 +1106,13 @@ export function PlayPage({
         <div className="modal-backdrop session-start-loading" role="dialog" aria-modal="true">
           <div className="modal-card session-start-loading-card">
             <div className="session-start-spinner" aria-hidden="true" />
-            <strong>寃뚯엫 ?붾㈃?쇰줈 ?대룞?섎뒗 以묒엯?덈떎</strong>
-            <p>?뺣낫瑜?遺덈윭?ㅻ뒗 以묒엯?덈떎.</p>
+            <strong>게임 화면으로 이동하는 중입니다</strong>
+            <p>정보를 불러오는 중입니다.</p>
           </div>
         </div>
       ) : null}
 
-      {/* 罹먮┃?곌? ?녿뒗 ?뚮젅?댁뼱媛 鍮좊Ⅴ寃?罹먮┃?곕? 留뚮뱶??紐⑤떖?낅땲?? */}
+      {/* 캐릭터가 없는 플레이어가 빠르게 캐릭터를 만드는 모달입니다. */}
       {isCreateModalOpen ? (
         <div className="modal-shell" role="dialog" aria-modal="true">
           <form className="modal-card" onSubmit={handleCreateCharacter}>

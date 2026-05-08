@@ -2,7 +2,7 @@
   height: 100dvh;
   padding: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 228px;
+  grid-template-columns: minmax(0, 1fr) 8px var(--session-sidebar-width, 360px);
   gap: 0;
   align-items: stretch;
   overflow: hidden;
@@ -702,6 +702,7 @@
 .session-sidebar {
   height: 100%;
   min-height: 0;
+  min-width: 0;
   border-radius: 0;
   padding: 0;
   overflow: hidden;
@@ -710,6 +711,29 @@
   border: 1px solid #9ea8b5;
   background: #e9edf2;
   box-shadow: 0 10px 24px rgba(17, 25, 34, 0.16);
+}
+
+.session-sidebar-resizer {
+  height: 100%;
+  cursor: col-resize;
+  background: #c8d2de;
+  border-left: 1px solid #aab5c1;
+  border-right: 1px solid #aab5c1;
+  position: relative;
+  z-index: 4;
+}
+
+.session-sidebar-resizer::before {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  border-left: 1px solid rgba(78, 91, 107, 0.5);
+  border-right: 1px solid rgba(255, 255, 255, 0.75);
+}
+
+.session-sidebar-resizer:hover,
+.session-sidebar-resizer:focus-visible {
+  background: #aebed0;
 }
 
 .session-game-surface {
@@ -825,6 +849,8 @@
 
 .session-sidebar-tabs button {
   min-height: 42px;
+  min-width: 0;
+  padding: 0 10px;
   border-radius: 0;
   background: #d6dee7;
   border-top: 0;
@@ -834,6 +860,7 @@
   color: #526172;
   font-weight: 800;
   letter-spacing: 0.02em;
+  white-space: nowrap;
   transition:
     background 0.18s ease,
     border-color 0.18s ease,
@@ -876,6 +903,7 @@
   font-size: 17px;
   font-weight: 800;
   letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
 }
 
 .session-sidebar-subtitle {
@@ -883,6 +911,8 @@
   color: #667487;
   font-size: 13px;
   line-height: 1.5;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 .message-card {
@@ -1056,7 +1086,7 @@
   padding: 10px 12px;
   border-radius: 2px;
   line-height: 1.6;
-  word-break: normal;
+  word-break: keep-all;
   overflow-wrap: break-word;
   border: 1px solid #d2dbe6;
   background: #f9fbfd;
@@ -1220,6 +1250,10 @@
     height: auto;
     min-height: 100vh;
     overflow: visible;
+  }
+
+  .session-sidebar-resizer {
+    display: none;
   }
 }
 
