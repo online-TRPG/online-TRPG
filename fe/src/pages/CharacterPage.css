@@ -388,6 +388,12 @@
   text-align: center;
 }
 
+.fantasy-character-detail .character-focus-card-empty {
+  justify-self: center;
+  width: min(440px, 88%);
+  margin-left: 336px;
+}
+
 .fantasy-character-profile-frame {
   position: relative;
   height: 560px;

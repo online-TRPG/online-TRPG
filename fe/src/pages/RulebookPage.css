@@ -1,0 +1,397 @@
+.rulebook-page.rulebook-page--fantasy {
+  min-height: calc(100vh - 72px);
+  padding: 18px 10px 0 0;
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  column-gap: 20px;
+  row-gap: 0;
+  align-items: start;
+}
+
+.rulebook-page__sidebar {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  padding-top: 8px;
+}
+
+.rulebook-page__title-box {
+  margin-left: -10px;
+  width: 218px;
+  max-width: 100%;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.rulebook-page__title-image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.rulebook-page__side-nav {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.rulebook-page__side-button {
+  position: relative;
+  width: 218px;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 20px 0 22px;
+  border: 0 !important;
+  background: url("../components/Side_Panel.webp") center / 100% 100% no-repeat !important;
+  color: #fff4dd;
+  box-shadow: none !important;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.48);
+  justify-content: flex-start;
+}
+
+.rulebook-page__side-button:hover:not(:disabled),
+.rulebook-page__side-button:active:not(:disabled),
+.rulebook-page__side-button:focus-visible {
+  transform: translateX(-6px) scale(1.05) !important;
+  filter: brightness(1.04);
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.rulebook-page__side-button.active {
+  filter: brightness(1.12);
+  transform: translateX(0) scale(1.08);
+}
+
+.rulebook-page__side-button.active:hover:not(:disabled) {
+  transform: translateX(0) scale(1.1) !important;
+  filter: brightness(1.16);
+}
+
+.rulebook-page__side-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  color: #f0c061;
+  flex: 0 0 auto;
+}
+
+.rulebook-page__side-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.rulebook-page__main {
+  min-width: 0;
+  min-height: 0;
+  padding-bottom: 8px;
+}
+
+.rulebook-page__screen {
+  min-height: calc(100vh - 150px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  overflow: hidden;
+}
+
+.rulebook-page__loading {
+  min-height: calc(100vh - 176px);
+  border-radius: 28px;
+  border: 1px solid rgba(145, 117, 77, 0.18);
+  background: linear-gradient(180deg, rgba(249, 244, 232, 0.98), rgba(245, 235, 218, 0.98));
+  display: grid;
+  place-content: center;
+  gap: 16px;
+  color: #4e463c;
+  text-align: center;
+  box-shadow: 0 24px 50px rgba(21, 14, 8, 0.18);
+}
+
+.rulebook-page__spinner {
+  width: 54px;
+  height: 54px;
+  margin: 0 auto;
+  border-radius: 999px;
+  border: 4px solid rgba(114, 141, 183, 0.24);
+  border-top-color: #30537d;
+  animation: rulebook-spin 0.9s linear infinite;
+}
+
+@keyframes rulebook-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.rulebook-page__footer {
+  grid-column: 1 / -1;
+  padding: 14px 18px 12px;
+  border-radius: 0;
+  background: rgba(31, 49, 73, 0.96);
+  color: rgba(243, 240, 233, 0.92);
+  font-size: 12px;
+  line-height: 1.6;
+  align-self: end;
+  margin-right: -28px;
+}
+
+.rulebook-page__footer p {
+  margin: 0;
+}
+
+.rulebook-page__footer a {
+  color: #f6d58b;
+  text-decoration: underline;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  align-items: start;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-content-shell,
+.rulebook-page.rulebook-page--fantasy .rulebook-toc,
+.rulebook-page.rulebook-page--fantasy .rulebook-article,
+.rulebook-page__copyright-box {
+  border: 1px solid rgba(150, 114, 71, 0.18);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 252, 245, 0.96), rgba(247, 239, 226, 0.96));
+  box-shadow: 0 12px 28px rgba(45, 31, 15, 0.08);
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-content-shell {
+  padding: 14px;
+  min-width: 0;
+  min-height: calc(100vh - 150px);
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-panel-head {
+  margin-bottom: 12px;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-panel-head strong,
+.rulebook-page.rulebook-page--fantasy .rulebook-document-head h2,
+.rulebook-page.rulebook-page--fantasy .rulebook-empty-state strong {
+  color: #1f232a;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-muted,
+.rulebook-page.rulebook-page--fantasy .rulebook-document-head p,
+.rulebook-page.rulebook-page--fantasy .rulebook-empty-state p {
+  color: #695f50;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-document-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(173, 144, 101, 0.22);
+  gap: 18px;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-document-summary {
+  min-width: 0;
+  width: 100%;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-document-inline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-document-inline-main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-document-inline-main h2,
+.rulebook-page.rulebook-page--fantasy .rulebook-document-inline-main p,
+.rulebook-page.rulebook-page--fantasy .rulebook-document-inline-date {
+  margin: 0;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-document-inline-main p {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-document-inline-date {
+  flex-shrink: 0;
+  color: #8a7559;
+  font-size: 0.96rem;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-content-grid {
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 14px;
+  min-height: calc(100vh - 230px);
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-toc {
+  padding: 16px;
+  max-height: calc(100vh - 244px);
+  overflow: hidden;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-toc-list {
+  max-height: calc(100vh - 314px);
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-toc-tree .rulebook-toc-tree {
+  border-left-color: rgba(86, 111, 145, 0.18);
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-toc-link {
+  color: #50483d;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-toc-link:hover,
+.rulebook-page.rulebook-page--fantasy .rulebook-toc-item.depth-0 > .rulebook-toc-row .rulebook-toc-link {
+  color: #1d2a3b;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-toc-toggle:hover {
+  background: rgba(62, 93, 132, 0.08);
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-article {
+  max-height: calc(100vh - 244px);
+  padding: 18px 20px;
+  color: #2d2d2d;
+  background:
+    linear-gradient(180deg, rgba(255, 252, 245, 0.98), rgba(250, 242, 229, 0.98)),
+    rgba(255, 252, 245, 0.98);
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-article h1,
+.rulebook-page.rulebook-page--fantasy .rulebook-article h2,
+.rulebook-page.rulebook-page--fantasy .rulebook-article h3,
+.rulebook-page.rulebook-page--fantasy .rulebook-article h4,
+.rulebook-page.rulebook-page--fantasy .rulebook-article h5,
+.rulebook-page.rulebook-page--fantasy .rulebook-article h6 {
+  color: #20324a;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-article a {
+  color: #30537d;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-article code {
+  background: rgba(62, 93, 132, 0.08);
+  color: #2c4057;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-article pre {
+  border-color: rgba(62, 93, 132, 0.16);
+  background: rgba(250, 246, 238, 0.92);
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-article blockquote {
+  border-left-color: #30537d;
+  background: rgba(62, 93, 132, 0.08);
+  color: #4c4c4c;
+}
+
+.rulebook-page.rulebook-page--fantasy .rulebook-article th {
+  background: rgba(62, 93, 132, 0.08);
+}
+
+.rulebook-page__copyright-box {
+  min-height: calc(100vh - 260px);
+  padding: 28px;
+  color: #3e352b;
+  font-size: 15px;
+  line-height: 1.9;
+}
+
+.rulebook-page__copyright-box p {
+  margin: 0;
+}
+
+.rulebook-page__copyright-box a {
+  color: #30537d;
+  word-break: break-all;
+}
+
+@media (max-width: 1280px) {
+  .rulebook-page.rulebook-page--fantasy {
+    grid-template-columns: 196px minmax(0, 1fr);
+    column-gap: 20px;
+  }
+
+  .rulebook-page__side-button {
+    width: 196px;
+    min-height: 48px;
+    font-size: 14px;
+  }
+
+  .rulebook-page.rulebook-page--fantasy .rulebook-content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rulebook-page.rulebook-page--fantasy .rulebook-toc,
+  .rulebook-page.rulebook-page--fantasy .rulebook-toc-list,
+  .rulebook-page.rulebook-page--fantasy .rulebook-article {
+    max-height: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .rulebook-page.rulebook-page--fantasy {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    padding: 16px;
+    row-gap: 14px;
+  }
+
+  .rulebook-page__sidebar {
+    gap: 12px;
+  }
+
+  .rulebook-page__title-box {
+    margin-left: 0;
+  }
+
+  .rulebook-page__side-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .rulebook-page__side-button {
+    width: 100%;
+    min-height: 52px;
+    padding: 0 12px;
+    justify-content: center;
+  }
+
+  .rulebook-page__side-icon {
+    display: none;
+  }
+
+  .rulebook-page__screen,
+  .rulebook-page__loading,
+  .rulebook-page__copyright-box {
+    min-height: auto;
+  }
+}
