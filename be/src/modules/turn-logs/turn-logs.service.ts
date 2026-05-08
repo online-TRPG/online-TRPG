@@ -48,6 +48,14 @@ export class TurnLogsService {
         outcome: this.toPrismaOutcome(params.outcome),
         narration: params.narration ?? null,
       },
+      include: {
+        playerAction: {
+          select: {
+            clientCreatedAt: true,
+            createdAt: true,
+          },
+        },
+      },
     });
 
     return this.mapTurnLog(created);
@@ -74,6 +82,14 @@ export class TurnLogsService {
       },
       orderBy: { turnNumber: "desc" },
       take: size + 1,
+      include: {
+        playerAction: {
+          select: {
+            clientCreatedAt: true,
+            createdAt: true,
+          },
+        },
+      },
     });
 
     const hasNext = rows.length > size;
@@ -113,6 +129,12 @@ export class TurnLogsService {
     id: string;
     turnNumber: number;
     playerActionId: string | null;
+    actorUserId: string | null;
+    sessionCharacterId: string | null;
+    playerAction?: {
+      clientCreatedAt: Date;
+      createdAt: Date;
+    } | null;
     rawInput: string | null;
     structuredActionJson: string | null;
     diceResultJson: string | null;
@@ -125,6 +147,10 @@ export class TurnLogsService {
       turnLogId: row.id,
       turnNumber: row.turnNumber,
       playerActionId: row.playerActionId,
+      actorUserId: row.actorUserId,
+      sessionCharacterId: row.sessionCharacterId,
+      actionClientCreatedAt: row.playerAction?.clientCreatedAt.toISOString() ?? null,
+      actionCreatedAt: row.playerAction?.createdAt.toISOString() ?? null,
       rawInput: row.rawInput,
       structuredAction: this.parseNullableJson(row.structuredActionJson),
       diceResult: this.parseNullableJson(row.diceResultJson),

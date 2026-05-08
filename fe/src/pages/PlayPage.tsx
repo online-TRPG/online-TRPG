@@ -9,7 +9,7 @@
  * 5) handler: 캐릭터 생성, 채팅/액션 전송, VTT 맵 변경 저장
  * 6) JSX: 모집 대기 화면, 플레이 탭, VTT 맵, 사이드 패널, 캐릭터 생성 모달
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { VttMapStateDto } from "@trpg/shared-types";
 import defaultArcherImage from "../assets/images/Profile_Default_Archer.webp";
@@ -87,6 +87,8 @@ interface PlayPageProps {
   characters: PersistentCharacter[];
   logs: LogEntry[];
   socketConnected: boolean;
+  hasOlderTurnLogs: boolean;
+  isLoadingTurnLogs: boolean;
   busy: boolean;
   error: string | null;
   onCreateCharacter: (payload: CharacterPayload) => void;
@@ -96,6 +98,7 @@ interface PlayPageProps {
   onLeaveSession: () => void;
   onBackToLobby: () => void;
   onAction: (label: string) => void;
+  onLoadOlderTurnLogs: () => void;
 }
 
 // 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
@@ -127,6 +130,31 @@ function getAvatarLabel(title: string, userName: string) {
 function getLogSenderLabel(title: string, rowClass: "incoming" | "outgoing" | "notice") {
   if (rowClass === "notice") return "세션 로그";
   return title || "알 수 없음";
+}
+
+function getLogDate(createdAt: string): Date {
+  const date = new Date(createdAt);
+
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function getLogDateKey(createdAt: string): string {
+  const date = getLogDate(createdAt);
+
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function getLogDateLabel(createdAt: string): string {
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long",
+  }).format(getLogDate(createdAt));
 }
 
 function getConnectionLabel(connected: boolean) {
@@ -190,6 +218,8 @@ export function PlayPage({
   characters,
   logs,
   socketConnected,
+  hasOlderTurnLogs,
+  isLoadingTurnLogs,
   busy,
   error,
   onCreateCharacter,
@@ -199,6 +229,7 @@ export function PlayPage({
   onLeaveSession,
   onBackToLobby,
   onAction,
+  onLoadOlderTurnLogs,
 }: PlayPageProps) {
   // UI 상태: 현재 탭, 모달 열림, 입력창 값, 로컬 캐릭터 선택값입니다.
   const [activeTab, setActiveTab] = useState<(typeof sessionTabs)[number]>("Main");
@@ -436,23 +467,32 @@ export function PlayPage({
   }, [activeTab, logs]);
 
   const renderedRows = useMemo(
-    () =>
-      [...scopedLogs].reverse().map((log) => {
+    () => {
+      let previousDateKey: string | null = null;
+
+      return [...scopedLogs].reverse().map((log) => {
         const normalizedMessage = stripScopePrefix(log.message);
         const isMine = log.title === user.displayName;
         const rowClass = log.kind === "system" ? "notice" : isMine ? "outgoing" : "incoming";
+        const dateKey = getLogDateKey(log.createdAt);
+        const showDateSeparator = dateKey !== previousDateKey;
+        previousDateKey = dateKey;
 
         return {
           ...log,
           message: normalizedMessage,
           // 서버 응답을 기다리는 임시 로그는 멈춘 것처럼 보이지 않도록 별도 표시를 붙입니다.
           isPendingAction: log.id.endsWith(":pending"),
+          showDateSeparator,
+          dateLabel: getLogDateLabel(log.createdAt),
           rowClass,
           senderLabel: getLogSenderLabel(log.title, rowClass),
         };
-      }),
+      });
+    },
     [scopedLogs, user.displayName],
   );
+  const latestRenderedLogId = renderedRows[renderedRows.length - 1]?.id ?? null;
 
   const displayedParticipants = useMemo(() => {
     const minSlots = 4;
@@ -464,8 +504,10 @@ export function PlayPage({
   }, [participants]);
 
   useEffect(() => {
+    if (!latestRenderedLogId) return;
+
     logEndRef.current?.scrollIntoView({ block: "end" });
-  }, [activeTab, renderedRows.length]);
+  }, [activeTab, latestRenderedLogId]);
 
   function handleCreateCharacter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -941,25 +983,45 @@ export function PlayPage({
 
           {activeTab === "Main" || activeTab === "Chat" ? (
             <>
+              {activeTab === "Main" && hasOlderTurnLogs ? (
+                <div className="session-log-history-bar">
+                  <button
+                    type="button"
+                    className="session-log-history-button"
+                    disabled={isLoadingTurnLogs}
+                    onClick={onLoadOlderTurnLogs}
+                  >
+                    {isLoadingTurnLogs ? "불러오는 중..." : "이전 로그 보기"}
+                  </button>
+                </div>
+              ) : null}
+
               <div className="session-log-stack">
                 {renderedRows.length ? (
                   renderedRows.map((log) => (
-                    <article key={log.id} className={`chat-thread-row ${log.rowClass}`}>
-                      {log.rowClass === "incoming" ? (
-                        <div className="chat-thread-avatar">{getAvatarLabel(log.title, user.displayName)}</div>
-                      ) : null}
-                      <div className="chat-thread-stack">
-                        <span className={`chat-thread-sender ${log.rowClass}`}>{log.senderLabel}</span>
-                        <div className={`chat-thread-bubble${log.isPendingAction ? " pending" : ""}`}>
-                          {log.isPendingAction ? <span className="chat-thread-spinner" aria-hidden="true" /> : null}
-                          <span>{log.message}</span>
+                    <Fragment key={log.id}>
+                      {log.showDateSeparator ? (
+                        <div className="chat-thread-date-divider">
+                          <span>{log.dateLabel}</span>
                         </div>
-                        {log.rowClass !== "notice" ? <span className="chat-thread-time">{log.time}</span> : null}
-                      </div>
-                      {log.rowClass === "outgoing" ? (
-                        <div className="chat-thread-avatar">{getAvatarLabel(log.title, user.displayName)}</div>
                       ) : null}
-                    </article>
+                      <article className={`chat-thread-row ${log.rowClass}`}>
+                        {log.rowClass === "incoming" ? (
+                          <div className="chat-thread-avatar">{getAvatarLabel(log.title, user.displayName)}</div>
+                        ) : null}
+                        <div className="chat-thread-stack">
+                          <span className={`chat-thread-sender ${log.rowClass}`}>{log.senderLabel}</span>
+                          <div className={`chat-thread-bubble${log.isPendingAction ? " pending" : ""}`}>
+                            {log.isPendingAction ? <span className="chat-thread-spinner" aria-hidden="true" /> : null}
+                            <span>{log.message}</span>
+                          </div>
+                          {log.rowClass !== "notice" ? <span className="chat-thread-time">{log.time}</span> : null}
+                        </div>
+                        {log.rowClass === "outgoing" ? (
+                          <div className="chat-thread-avatar">{getAvatarLabel(log.title, user.displayName)}</div>
+                        ) : null}
+                      </article>
+                    </Fragment>
                   ))
                 ) : (
                   <article className="chat-thread-row notice">

@@ -8,6 +8,7 @@ import {
   SessionCharacterStatus as PrismaSessionCharacterStatus,
 } from "@prisma/client";
 import {
+  ActionOutcome,
   DiceAdvantageState,
   TurnLogResponseDto,
 } from "@trpg/shared-types";
@@ -94,12 +95,56 @@ export class ActionProcessorService {
           processedAt: new Date(),
         },
       });
-      this.realtimeEvents.emitSystemMessage(
+
+      const failureTurnLog = await this.createFailureTurnLog(action, errorMessage);
+      if (failureTurnLog) {
+        this.realtimeEvents.emitTurnLogCreated(action.sessionId, failureTurnLog);
+        return;
+      }
+
+      this.realtimeEvents.emitSystemMessage(action.sessionId, "ACTION_FAILED", `행동 처리 실패: ${errorMessage}`, {
+        playerActionId: action.id,
+      });
+    }
+  }
+
+  private async createFailureTurnLog(
+    action: {
+      id: string;
+      sessionId: string;
+      userId: string;
+      sessionCharacterId: string | null;
+      rawText: string;
+    },
+    errorMessage: string,
+  ): Promise<TurnLogResponseDto | null> {
+    try {
+      const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(
         action.sessionId,
-        "ACTION_FAILED",
-        `행동 처리 실패: ${errorMessage}`,
-        { playerActionId: action.id },
       );
+
+      // 처리 실패도 TurnLog로 남겨야 새로고침/재접속 후 사용자 입력과 실패 응답을 같은 순서로 복원할 수 있습니다.
+      return await this.turnLogsService.createTurnLog({
+        sessionId: action.sessionId,
+        sessionScenarioId: sessionScenario.id,
+        playerActionId: action.id,
+        actorUserId: action.userId,
+        sessionCharacterId: action.sessionCharacterId,
+        rawInput: action.rawText,
+        structuredAction: {
+          type: "action_error",
+          error: errorMessage,
+        },
+        diceResult: null,
+        stateDiff: null,
+        outcome: ActionOutcome.FAILURE,
+        narration: `행동 처리 실패: ${errorMessage}`,
+      });
+    } catch (turnLogError) {
+      this.logger.warn(
+        `Failed to create failure turn log for action=${action.id}: ${this.toErrorMessage(turnLogError)}`,
+      );
+      return null;
     }
   }
 

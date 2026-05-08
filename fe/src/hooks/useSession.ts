@@ -78,6 +78,8 @@ export interface UseSessionReturn {
   mySessionList: AvailableSessionListItem[];
   myCharacters: PersistentCharacter[];
   socketConnected: boolean;
+  hasOlderTurnLogs: boolean;
+  isLoadingTurnLogs: boolean;
   busy: boolean;
   error: string | null;
   createSession: (
@@ -96,11 +98,20 @@ export interface UseSessionReturn {
   leaveSession: () => Promise<void>;
   sendAction: (rawText: string) => Promise<void>;
   sendChatMessage: (content: string) => Promise<void>;
+  loadOlderTurnLogs: () => Promise<void>;
   refreshSessionList: () => Promise<void>;
   refreshMyCharacters: () => Promise<void>;
   clearSnapshot: () => void;
   clearError: () => void;
 }
+
+type AppendLogFn = (
+  kind: LogEntry["kind"],
+  title: string,
+  message: string,
+  id?: string,
+  createdAt?: string,
+) => void;
 
 function formatDebugValue(value: unknown): string {
   if (value === null || value === undefined) {
@@ -120,6 +131,10 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
     `- turnLogId: ${turnLog.turnLogId}`,
     `- turnNumber: ${turnLog.turnNumber}`,
     `- playerActionId: ${formatDebugValue(turnLog.playerActionId)}`,
+    `- actorUserId: ${formatDebugValue(turnLog.actorUserId)}`,
+    `- sessionCharacterId: ${formatDebugValue(turnLog.sessionCharacterId)}`,
+    `- actionClientCreatedAt: ${formatDebugValue(turnLog.actionClientCreatedAt)}`,
+    `- actionCreatedAt: ${formatDebugValue(turnLog.actionCreatedAt)}`,
     `- createdAt: ${turnLog.createdAt}`,
     "",
     "입력",
@@ -151,6 +166,10 @@ function getSenderNameByUserId(
   return participant?.user.displayName ?? "알 수 없음";
 }
 
+function getRawInputCreatedAt(turnLog: TurnLogResponseDto): string {
+  return turnLog.actionClientCreatedAt ?? turnLog.actionCreatedAt ?? turnLog.createdAt;
+}
+
 function formatDiceRollMessage(diceResult: DiceRollResponseDto): string {
   const parts = [
     `${diceResult.expression} = ${diceResult.total}`,
@@ -168,7 +187,8 @@ function formatStateDiffMessage(stateDiff: StateDiffResponseDto): string {
 export function useSession(
   user: StoredUser | null,
   accessToken: string | null,
-  appendLog: (kind: LogEntry["kind"], title: string, message: string, id?: string) => void,
+  appendLog: AppendLogFn,
+  appendOlderLog: AppendLogFn,
   removeLog: (id: string) => void,
 ): UseSessionReturn {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(() => loadStoredSnapshot());
@@ -176,6 +196,8 @@ export function useSession(
   const [mySessionList, setMySessionList] = useState<AvailableSessionListItem[]>([]);
   const [myCharacters, setMyCharacters] = useState<PersistentCharacter[]>([]);
   const [socketConnected, setSocketConnected] = useState(false);
+  const [turnLogNextCursor, setTurnLogNextCursor] = useState<string | null>(null);
+  const [isLoadingTurnLogs, setIsLoadingTurnLogs] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -213,6 +235,8 @@ export function useSession(
       setMyCharacters([]);
       seenTurnLogIdsRef.current.clear();
       loadedTurnLogSessionIdRef.current = null;
+      setTurnLogNextCursor(null);
+      setIsLoadingTurnLogs(false);
       return;
     }
 
@@ -229,12 +253,33 @@ export function useSession(
       .catch(() => undefined);
   }, [accessToken, user]);
 
+  const appendPlayerRawInputLog = useCallback(
+    (turnLog: TurnLogResponseDto, writeLog: AppendLogFn) => {
+      const rawInput = turnLog.rawInput?.trim();
+      if (!rawInput) {
+        return;
+      }
+
+      // TurnLog는 DB에 남으므로, 새로고침/재접속 때도 같은 id로 사용자 원문 말풍선을 다시 만들 수 있습니다.
+      const rawLogId = turnLog.playerActionId
+        ? `player-action:${turnLog.playerActionId}:raw`
+        : `turn-log:${turnLog.turnLogId}:raw`;
+      const senderName = turnLog.actorUserId
+        ? getSenderNameByUserId(turnLog.actorUserId, snapshotRef.current)
+        : "알 수 없음";
+
+      writeLog("action", senderName, `[MAIN]${rawInput}`, rawLogId, getRawInputCreatedAt(turnLog));
+    },
+    [],
+  );
+
   const appendServerTurnLog = useCallback(
     (turnLog: TurnLogResponseDto) => {
       if (seenTurnLogIdsRef.current.has(turnLog.turnLogId)) {
         return;
       }
 
+      appendPlayerRawInputLog(turnLog, appendLog);
       seenTurnLogIdsRef.current.add(turnLog.turnLogId);
       if (turnLog.playerActionId) {
         removeLog(`player-action:${turnLog.playerActionId}:pending`);
@@ -244,34 +289,63 @@ export function useSession(
         "세션 로그",
         formatTurnLogMessage(turnLog),
         `turn-log:${turnLog.turnLogId}`,
+        turnLog.createdAt,
       );
     },
-    [appendLog, removeLog],
+    [appendLog, appendPlayerRawInputLog, removeLog],
+  );
+
+  const appendHistoricalTurnLog = useCallback(
+    (turnLog: TurnLogResponseDto) => {
+      if (seenTurnLogIdsRef.current.has(turnLog.turnLogId)) {
+        return;
+      }
+
+      seenTurnLogIdsRef.current.add(turnLog.turnLogId);
+      if (turnLog.playerActionId) {
+        removeLog(`player-action:${turnLog.playerActionId}:pending`);
+      }
+
+      // 과거 로그는 내부 배열의 뒤쪽에 넣어야 화면에서는 현재 로그보다 위에 보입니다.
+      appendOlderLog(
+        "action",
+        "세션 로그",
+        formatTurnLogMessage(turnLog),
+        `turn-log:${turnLog.turnLogId}`,
+        turnLog.createdAt,
+      );
+      appendPlayerRawInputLog(turnLog, appendOlderLog);
+    },
+    [appendOlderLog, appendPlayerRawInputLog, removeLog],
   );
 
   const loadRecentTurnLogs = useCallback(
     async (sessionId: string) => {
       if (!user) return;
+      setIsLoadingTurnLogs(true);
 
       try {
         const result = await apiListTurnLogs(
           user,
           sessionId,
           {
-            size: 20,
+            size: 10,
             includeDiceResult: true,
             includeStateDiff: true,
           },
           accessToken,
         );
 
-        // 서버는 최신순으로 내려주고, 화면 로그 저장소는 앞에 추가하는 구조라 오래된 것부터 넣어 순서를 맞춘다.
-        result.turnLogs.slice().reverse().forEach(appendServerTurnLog);
+        // 최신순으로 받은 10개를 내부 최신순 배열에 그대로 붙이면 화면에서는 오래된 것부터 보입니다.
+        result.turnLogs.forEach(appendHistoricalTurnLog);
+        setTurnLogNextCursor(result.nextCursor);
       } catch {
         // 게임룸 진입 직후 로그 조회 실패는 입력 흐름 자체를 막을 정도의 오류는 아니므로 조용히 넘긴다.
+      } finally {
+        setIsLoadingTurnLogs(false);
       }
     },
-    [accessToken, appendServerTurnLog, user],
+    [accessToken, appendHistoricalTurnLog, user],
   );
 
   useEffect(() => {
@@ -280,10 +354,42 @@ export function useSession(
     if (loadedTurnLogSessionIdRef.current !== snapshot.session.id) {
       seenTurnLogIdsRef.current.clear();
       loadedTurnLogSessionIdRef.current = snapshot.session.id;
+      setTurnLogNextCursor(null);
+      setIsLoadingTurnLogs(false);
     }
 
     void loadRecentTurnLogs(snapshot.session.id);
   }, [loadRecentTurnLogs, snapshot?.session.id, user]);
+
+  const loadOlderTurnLogs = useCallback(async () => {
+    const sessionId = snapshotRef.current?.session.id;
+    if (!user || !sessionId || !turnLogNextCursor || isLoadingTurnLogs) {
+      return;
+    }
+
+    setIsLoadingTurnLogs(true);
+
+    try {
+      const result = await apiListTurnLogs(
+        user,
+        sessionId,
+        {
+          cursor: turnLogNextCursor,
+          size: 10,
+          includeDiceResult: true,
+          includeStateDiff: true,
+        },
+        accessToken,
+      );
+
+      result.turnLogs.forEach(appendHistoricalTurnLog);
+      setTurnLogNextCursor(result.nextCursor);
+    } catch {
+      // 이전 로그 조회 실패는 현재 입력 흐름을 막지 않으므로 화면에는 기존 로그를 그대로 둡니다.
+    } finally {
+      setIsLoadingTurnLogs(false);
+    }
+  }, [accessToken, appendHistoricalTurnLog, isLoadingTurnLogs, turnLogNextCursor, user]);
 
   useEffect(() => {
     if (!user || !snapshot?.session.id) return undefined;
@@ -319,7 +425,7 @@ export function useSession(
       onChatMessage: (message: ChatMessage) => {
         // 기존 PlayPage는 [CHAT] prefix가 붙은 로그를 Chat 탭에 보여준다.
         // 화면 컴포넌트 충돌을 줄이기 위해 수신 메시지만 기존 로그 흐름에 얹는다.
-        appendLog("action", message.senderDisplayName, `[CHAT]${message.content}`);
+        appendLog("action", message.senderDisplayName, `[CHAT]${message.content}`, undefined, message.createdAt);
       },
       onActionAccepted: (action: ActionAcceptedEventDto) => {
         const rawText = action.rawText.trim();
@@ -331,6 +437,7 @@ export function useSession(
           getSenderNameByUserId(action.actorUserId, snapshotRef.current),
           `[MAIN]${rawText}`,
           `player-action:${action.playerActionId}:raw`,
+          action.clientCreatedAt,
         );
         appendLog(
           "action",
@@ -686,6 +793,8 @@ export function useSession(
       setSocketConnected(false);
       seenTurnLogIdsRef.current.clear();
       loadedTurnLogSessionIdRef.current = null;
+      setTurnLogNextCursor(null);
+      setIsLoadingTurnLogs(false);
       appendLog("rest", "세션 나가기", `${leavingSessionTitle} 세션에서 나갔습니다.`);
       await refreshSessionList();
     } catch (caught) {
@@ -778,6 +887,8 @@ export function useSession(
     setSocketConnected(false);
     seenTurnLogIdsRef.current.clear();
     loadedTurnLogSessionIdRef.current = null;
+    setTurnLogNextCursor(null);
+    setIsLoadingTurnLogs(false);
   }
 
   return {
@@ -786,6 +897,8 @@ export function useSession(
     mySessionList,
     myCharacters,
     socketConnected,
+    hasOlderTurnLogs: Boolean(turnLogNextCursor),
+    isLoadingTurnLogs,
     busy,
     error,
     createSession,
@@ -801,6 +914,7 @@ export function useSession(
     leaveSession,
     sendAction,
     sendChatMessage,
+    loadOlderTurnLogs,
     refreshSessionList,
     refreshMyCharacters,
     clearSnapshot,

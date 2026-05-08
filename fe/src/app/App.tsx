@@ -148,9 +148,9 @@ function viewFromPathname(pathname: string): MainView | null {
 export function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { logs, appendLog, removeLog } = useLogs();
+  const { logs, appendLog, appendOlderLog, removeLog } = useLogs();
   const auth = useAuth(appendLog);
-  const session = useSession(auth.user, auth.accessToken, appendLog, removeLog);
+  const session = useSession(auth.user, auth.accessToken, appendLog, appendOlderLog, removeLog);
   const publicProfileMatch = /^\/users\/([^/]+)\/[^/]+$/.exec(location.pathname);
   const publicProfileId = publicProfileMatch?.[1] ?? null;
   const sessionDetailMatch = /^\/sessions\/([^/]+)\/[^/]+$/.exec(location.pathname);
@@ -665,6 +665,8 @@ export function App() {
             characters={session.myCharacters}
             logs={logs}
             socketConnected={session.socketConnected}
+            hasOlderTurnLogs={session.hasOlderTurnLogs}
+            isLoadingTurnLogs={session.isLoadingTurnLogs}
             busy={busy}
             error={error}
             onCreateCharacter={(payload) => void session.createCharacter(payload)}
@@ -677,6 +679,7 @@ export function App() {
             }}
             onBackToLobby={() => navigate('/sessions/discover')}
             onAction={handleSessionMessage}
+            onLoadOlderTurnLogs={() => void session.loadOlderTurnLogs()}
           />
         ) : null}
       </div>

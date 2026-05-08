@@ -114,4 +114,5 @@ export interface LogEntry {
   title: string;
   message: string;
   time: string;
+  createdAt: string;
 }
