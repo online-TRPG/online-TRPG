@@ -1,13 +1,13 @@
-/*
+﻿/*
  * PlayPage
- * 역할: 실제 세션 플레이 화면입니다. 캐릭터 선택, 준비 상태, 채팅/로그, 현재 시나리오 노드, VTT 맵을 표시합니다.
- * 읽는 순서:
- * 1) 상단 헬퍼: 로그 스코프, 아바타/클래스 표시 이미지, 노드 라벨 추출
- * 2) PlayPageProps: 세션 스냅샷과 소켓 상태, 플레이 액션 콜백
- * 3) 컴포넌트 state/ref: 탭, 채팅 입력, 캐릭터 생성 폼, 시나리오/맵 로딩 상태, 맵 저장 큐
- * 4) useEffect: 서버 선택 캐릭터 동기화, 시나리오/맵 조회, 로그 스크롤, 입력 초기화
- * 5) handler: 캐릭터 생성, 채팅/액션 전송, VTT 맵 변경 저장
- * 6) JSX: 모집 대기 화면, 플레이 탭, VTT 맵, 사이드 패널, 캐릭터 생성 모달
+ * ??븷: ?ㅼ젣 ?몄뀡 ?뚮젅???붾㈃?낅땲?? 罹먮┃???좏깮, 以鍮??곹깭, 梨꾪똿/濡쒓렇, ?꾩옱 ?쒕굹由ъ삤 ?몃뱶, VTT 留듭쓣 ?쒖떆?⑸땲??
+ * ?쎈뒗 ?쒖꽌:
+ * 1) ?곷떒 ?ы띁: 濡쒓렇 ?ㅼ퐫?? ?꾨컮?/?대옒???쒖떆 ?대?吏, ?몃뱶 ?쇰꺼 異붿텧
+ * 2) PlayPageProps: ?몄뀡 ?ㅻ깄?룰낵 ?뚯폆 ?곹깭, ?뚮젅???≪뀡 肄쒕갚
+ * 3) 而댄룷?뚰듃 state/ref: ?? 梨꾪똿 ?낅젰, 罹먮┃???앹꽦 ?? ?쒕굹由ъ삤/留?濡쒕뵫 ?곹깭, 留??????
+ * 4) useEffect: ?쒕쾭 ?좏깮 罹먮┃???숆린?? ?쒕굹由ъ삤/留?議고쉶, 濡쒓렇 ?ㅽ겕濡? ?낅젰 珥덇린??
+ * 5) handler: 罹먮┃???앹꽦, 梨꾪똿/?≪뀡 ?꾩넚, VTT 留?蹂寃????
+ * 6) JSX: 紐⑥쭛 ?湲??붾㈃, ?뚮젅???? VTT 留? ?ъ씠???⑤꼸, 罹먮┃???앹꽦 紐⑤떖
  */
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { VttMapStateDto } from "@trpg/shared-types";
@@ -25,13 +25,14 @@ import type { LogEntry, PersistentCharacter, PlayerScenarioView, SessionSnapshot
 import "./CharacterPage.css";
 import "./PlayPage.css";
 
-// 플레이 화면 상단 탭 이름입니다. 각 탭은 로그/채팅/정보/설정을 구분합니다.
-const sessionTabs = ["Main", "Chat", "Info", "Settings"] as const;
+// ?뚮젅???붾㈃ ?곷떒 ???대쫫?낅땲?? 媛???? 濡쒓렇/梨꾪똿/?뺣낫/?ㅼ젙??援щ텇?⑸땲??
+const sessionTabs = ["Main", "Chat", "Info", "Settings", "Control"] as const;
 const sessionTabLabels: Record<(typeof sessionTabs)[number], string> = {
-  Main: "메인",
-  Chat: "채팅",
-  Info: "정보",
-  Settings: "설정",
+  Main: "\uBA54\uC778",
+  Chat: "\uCC44\uD305",
+  Info: "\uC815\uBCF4",
+  Settings: "\uC124\uC815",
+  Control: "\uC870\uC791",
 };
 const sessionTabDescriptions: Record<
   (typeof sessionTabs)[number],
@@ -43,26 +44,30 @@ const sessionTabDescriptions: Record<
 > = {
   Main: {
     eyebrow: "Session log",
-    title: "메인 로그",
-    description: "행동 선언과 진행 상황이 시간순으로 기록됩니다.",
+    title: "\uBA54\uC778 \uB85C\uADF8",
+    description: "\uD589\uB3D9 \uC120\uC5B8\uACFC \uC9C4\uD589 \uC0C1\uD669\uC774 \uC2DC\uAC04\uC21C\uC73C\uB85C \uAE30\uB85D\uB429\uB2C8\uB2E4.",
   },
   Chat: {
     eyebrow: "Party chat",
-    title: "대화 채널",
-    description: "플레이어끼리 자유롭게 대화하고 작전을 맞춰보세요.",
+    title: "\uD30C\uD2F0 \uCC44\uD305",
+    description: "\uC138\uC158 \uAD6C\uC131\uC6D0\uB07C\uB9AC \uC790\uC720\uB86D\uAC8C \uBA54\uC2DC\uC9C0\uB97C \uC8FC\uACE0\uBC1B\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   },
   Info: {
     eyebrow: "Scenario info",
-    title: "시나리오 정보",
-    description: "현재 세션에 연결된 시나리오 설명을 확인합니다.",
+    title: "\uC2DC\uB098\uB9AC\uC624 \uC815\uBCF4",
+    description: "\uD604\uC7AC \uC138\uC158\uACFC \uC5F0\uACB0\uB41C \uC2DC\uB098\uB9AC\uC624 \uC815\uBCF4\uB97C \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   },
   Settings: {
     eyebrow: "Room settings",
-    title: "세션 설정",
-    description: "세션 상태와 기본 정보를 확인합니다.",
+    title: "\uC138\uC158 \uC124\uC815",
+    description: "\uBC29 \uC815\uBCF4\uC640 \uC774\uB3D9, \uB098\uAC00\uAE30 \uAC19\uC740 \uAE30\uB2A5\uC744 \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  },
+  Control: {
+    eyebrow: "Host controls",
+    title: "\uC2DC\uB098\uB9AC\uC624 \uC870\uC791",
+    description: "\uC52C \uC124\uBA85\uACFC \uC561\uC158, \uB2E8\uC11C \uC815\uBCF4\uB97C \uD655\uC778\uD569\uB2C8\uB2E4.",
   },
 };
-// 캐릭터 프리셋 ID를 실제 이미지 파일로 바꾸는 매핑입니다.
 const avatarPresetImageMap = new Map([
   ["preset_wizard", defaultWizardImage],
   ["preset_archer", defaultArcherImage],
@@ -70,7 +75,7 @@ const avatarPresetImageMap = new Map([
   ["preset_warrior", defaultWarriorImage],
 ]);
 
-// 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
+// 遺紐?而댄룷?뚰듃媛 ???섏씠吏??二쇱엯?섎뒗 ?곗씠?곗? ?대깽??肄쒕갚?낅땲??
 interface PlayPageProps {
   user: StoredUser;
   snapshot: SessionSnapshot | null;
@@ -88,7 +93,7 @@ interface PlayPageProps {
   onAction: (label: string) => void;
 }
 
-// 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
+// 罹먮┃???앹꽦 紐⑤떖??泥섏쓬 ?????곕뒗 湲곕낯 ?낅젰媛믪엯?덈떎.
 const defaultCharacter = {
   name: "",
   ancestry: "Human",
@@ -98,7 +103,7 @@ const defaultCharacter = {
 
 const visibleCharacterSlots = 3;
 
-// 로그 메시지 앞의 [MAIN]/[CHAT] 스코프 태그를 화면 표시용으로 제거합니다.
+// 濡쒓렇 硫붿떆吏 ?욎쓽 [MAIN]/[CHAT] ?ㅼ퐫???쒓렇瑜??붾㈃ ?쒖떆?⑹쑝濡??쒓굅?⑸땲??
 function stripScopePrefix(message: string) {
   return message.replace(/^\[(MAIN|CHAT)\]/, "").trim();
 }
@@ -116,7 +121,7 @@ function getAvatarLabel(title: string, userName: string) {
 
 function getLogSenderLabel(title: string, rowClass: "incoming" | "outgoing" | "notice") {
   if (rowClass === "notice") return "세션 로그";
-  if (rowClass === "outgoing") return "내 캐릭터";
+  if (rowClass === "outgoing") return "나";
   return title || "알 수 없음";
 }
 
@@ -141,7 +146,7 @@ function getCharacterArt(className: string) {
   return defaultWizardImage;
 }
 
-// 캐릭터가 직접 업로드한 이미지, 프리셋 이미지, 직업 기본 이미지 순서로 표시 이미지를 고릅니다.
+// 罹먮┃?곌? 吏곸젒 ?낅줈?쒗븳 ?대?吏, ?꾨━???대?吏, 吏곸뾽 湲곕낯 ?대?吏 ?쒖꽌濡??쒖떆 ?대?吏瑜?怨좊쫭?덈떎.
 function getCharacterImage(character: { avatarPresetId?: string | null; avatarUrl?: string | null; className: string }) {
   if (character.avatarUrl) return character.avatarUrl;
   if (character.avatarPresetId) {
@@ -174,7 +179,7 @@ function getAbilitySummary(character: PersistentCharacter) {
   ];
 }
 
-// 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
+// ?섏씠吏 而댄룷?뚰듃 蹂몄껜?낅땲?? ?꾩뿉???곹깭/?대깽?몃? 留뚮뱾怨??꾨옒 JSX?먯꽌 ?붾㈃??洹몃┰?덈떎.
 export function PlayPage({
   user,
   snapshot,
@@ -191,7 +196,7 @@ export function PlayPage({
   onBackToLobby,
   onAction,
 }: PlayPageProps) {
-  // UI 상태: 현재 탭, 모달 열림, 입력창 값, 로컬 캐릭터 선택값입니다.
+  // UI ?곹깭: ?꾩옱 ?? 紐⑤떖 ?대┝, ?낅젰李?媛? 濡쒖뺄 罹먮┃???좏깮媛믪엯?덈떎.
   const [activeTab, setActiveTab] = useState<(typeof sessionTabs)[number]>("Main");
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
   const [mainMessage, setMainMessage] = useState("");
@@ -200,13 +205,14 @@ export function PlayPage({
   const [formState, setFormState] = useState(defaultCharacter);
   const [localSelectedCharacterId, setLocalSelectedCharacterId] = useState<string | null>(null);
   const [isStatusMinimized, setStatusMinimized] = useState(false);
+  const [isGameStarting, setIsGameStarting] = useState(false);
   const [characterCarouselIndex, setCharacterCarouselIndex] = useState(0);
-  // 현재 세션의 플레이어용 시나리오 노드와 VTT 맵 로딩 상태입니다.
+  // ?꾩옱 ?몄뀡???뚮젅?댁뼱???쒕굹由ъ삤 ?몃뱶? VTT 留?濡쒕뵫 ?곹깭?낅땲??
   const [playerScenario, setPlayerScenario] = useState<PlayerScenarioView | null>(null);
   const [vttMap, setVttMap] = useState<VttMapStateDto | null>(null);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
-  // 로그 자동 스크롤과 맵 저장 큐를 관리하는 ref입니다. 렌더링 없이 최신 값을 유지합니다.
+  // 濡쒓렇 ?먮룞 ?ㅽ겕濡ㅺ낵 留?????먮? 愿由ы븯??ref?낅땲?? ?뚮뜑留??놁씠 理쒖떊 媛믪쓣 ?좎??⑸땲??
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
   const mapSaveRef = useRef<{
@@ -219,7 +225,7 @@ export function PlayPage({
     activeSessionId: null,
   });
 
-  // 서버 스냅샷에서 현재 세션/참가자/선택 캐릭터/권한 상태를 계산합니다.
+  // ?쒕쾭 ?ㅻ깄?룹뿉???꾩옱 ?몄뀡/李멸????좏깮 罹먮┃??沅뚰븳 ?곹깭瑜?怨꾩궛?⑸땲??
   const session = snapshot?.session ?? null;
   const participants = snapshot?.participants ?? [];
   const sessionCharacters = snapshot?.characters ?? [];
@@ -231,6 +237,7 @@ export function PlayPage({
   const allPlayersReady = participants.length > 0 && participants.every((participant) => participant.isReady);
   const isHost = session?.hostUserId === user.id;
   const isRecruiting = session?.status === "recruiting";
+  const canManageStartedSession = Boolean(!isRecruiting && isHost);
   const canShowCharacterSelection = Boolean(session && isRecruiting);
   const canStartSession = Boolean(isHost && isRecruiting && allPlayersReady && participants.length > 0);
   const activeScenario =
@@ -238,20 +245,53 @@ export function PlayPage({
   const currentNode = playerScenario?.currentNode ?? null;
   const revealedClues = playerScenario?.revealedClues ?? [];
   const snapshotVttMap = snapshot?.state.flags?.vttMap;
+  const startedSessionTabs = useMemo(
+    () =>
+      canManageStartedSession
+        ? (["Main", "Chat", "Control", "Info", "Settings"] as const)
+        : (["Main", "Chat", "Info", "Settings"] as const),
+    [canManageStartedSession]
+  );
+  const availableTabs = isRecruiting ? (["Main", "Chat", "Info", "Settings"] as const) : startedSessionTabs;
+  const isStartedScreenReady = Boolean(
+    !isRecruiting &&
+      (currentNode || activeScenario || scenarioLoadError) &&
+      (vttMap || mapLoadError || snapshotVttMap)
+  );
 
-  // 서버가 알려준 선택 캐릭터가 바뀌면 로컬 선택 상태도 맞춥니다.
+  // ?쒕쾭媛 ?뚮젮以 ?좏깮 罹먮┃?곌? 諛붾뚮㈃ 濡쒖뺄 ?좏깮 ?곹깭??留욎땅?덈떎.
   useEffect(() => {
     setLocalSelectedCharacterId(serverSelectedCharacterId);
   }, [serverSelectedCharacterId]);
 
-  // 준비 상태가 풀리면 상태 패널을 다시 펼쳐 사용자가 확인할 수 있게 합니다.
+  // 以鍮??곹깭媛 ?由щ㈃ ?곹깭 ?⑤꼸???ㅼ떆 ?쇱퀜 ?ъ슜?먭? ?뺤씤?????덇쾶 ?⑸땲??
   useEffect(() => {
     if (!allPlayersReady) {
       setStatusMinimized(false);
     }
   }, [allPlayersReady]);
 
-  // 세션이 없거나 바뀌면 시나리오/맵 상태를 초기화하고 플레이어용 시나리오를 다시 불러옵니다.
+  useEffect(() => {
+    if (isRecruiting) {
+      setIsGameStarting(false);
+      return;
+    }
+
+    setIsGameStarting(true);
+  }, [isRecruiting]);
+
+  useEffect(() => {
+    if (!isGameStarting || !isStartedScreenReady) return;
+    const timeout = window.setTimeout(() => setIsGameStarting(false), 250);
+    return () => window.clearTimeout(timeout);
+  }, [isGameStarting, isStartedScreenReady]);
+
+  useEffect(() => {
+    if (availableTabs.some((tab) => tab === activeTab)) return;
+    setActiveTab(availableTabs[0]);
+  }, [activeTab, availableTabs]);
+
+  // ?몄뀡???녾굅??諛붾뚮㈃ ?쒕굹由ъ삤/留??곹깭瑜?珥덇린?뷀븯怨??뚮젅?댁뼱???쒕굹由ъ삤瑜??ㅼ떆 遺덈윭?듬땲??
   useEffect(() => {
     if (!session) {
       setPlayerScenario(null);
@@ -279,7 +319,7 @@ export function PlayPage({
       .catch((caught) => {
         if (!ignore) {
           setPlayerScenario(null);
-          setScenarioLoadError(caught instanceof Error ? caught.message : "시나리오를 불러오지 못했습니다.");
+          setScenarioLoadError(caught instanceof Error ? caught.message : "?쒕굹由ъ삤瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??");
         }
       });
   return () => {
@@ -312,7 +352,7 @@ export function PlayPage({
       })
       .catch((caught) => {
         if (!ignore) {
-          setMapLoadError(caught instanceof Error ? caught.message : "맵을 불러오지 못했습니다.");
+          setMapLoadError(caught instanceof Error ? caught.message : "留듭쓣 遺덈윭?ㅼ? 紐삵뻽?듬땲??");
         }
       });
 
@@ -406,6 +446,15 @@ export function PlayPage({
       }),
     [scopedLogs, user.displayName],
   );
+
+  const displayedParticipants = useMemo(() => {
+    const minSlots = 4;
+    const filled = [...participants];
+    while (filled.length < minSlots) {
+      filled.push(null as never);
+    }
+    return filled;
+  }, [participants]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ block: "end" });
@@ -501,12 +550,13 @@ export function PlayPage({
   return (
     <main className="session-prep-layout session-prep-layout-tight">
       <section className="session-prep-stage">
-        <div className="session-stage-canvas">
+        <div className={`session-stage-canvas${!isRecruiting ? " started" : ""}`}>
+          {isRecruiting ? (
           <section className="session-room-overlay">
             <div className="session-room-overlay-row">
               <div className="session-room-overlay-title">
-                <span className="eyebrow">Session room</span>
-                <strong>{session?.title ?? "No active session"}</strong>
+                <span className="eyebrow">세션 룸</span>
+                <strong>{session?.title ?? "활성 세션이 없습니다"}</strong>
               </div>
 
               <span className={socketConnected ? "status-pill online" : "status-pill"}>
@@ -519,7 +569,7 @@ export function PlayPage({
                   type="button"
                   className="invite-copy-button"
                   onClick={() => session?.inviteCode && navigator.clipboard.writeText(session.inviteCode)}
-                  aria-label="Copy invite code"
+                  aria-label="초대 코드 복사"
                 >
                   <Icon name="copy" />
                 </button>
@@ -527,21 +577,22 @@ export function PlayPage({
 
               <div className="session-room-overlay-actions">
                 <button type="button" className="ghost" onClick={onBackToLobby}>
-                  Lobby
+                  로비
                 </button>
                 <button type="button" className="ghost" onClick={onLeaveSession}>
-                  Leave
+                  나가기
                 </button>
               </div>
             </div>
           </section>
+          ) : null}
 
           {canShowCharacterSelection ? (
             <section className="character-selection-board player-ready-board session-character-board">
               <div className="section-heading">
                 <div>
                   <span className="eyebrow">캐릭터 선택</span>
-                  <h2>플레이할 캐릭터를 골라 주세요</h2>
+                  <h2>플레이할 캐릭터를 선택해 주세요</h2>
                 </div>
                 <button
                   type="button"
@@ -549,7 +600,7 @@ export function PlayPage({
                   disabled={busy || !selectedCharacter}
                   onClick={() => onSetReady(!myParticipant?.isReady)}
                 >
-                  {myParticipant?.isReady ? "준비 완료" : "준비하기"}
+                  {myParticipant?.isReady ? "준비 해제" : "준비 완료"}
                 </button>
               </div>
 
@@ -559,7 +610,7 @@ export function PlayPage({
                   className="character-selection-nav"
                   onClick={() => setCharacterCarouselIndex((current) => Math.max(0, current - 1))}
                   disabled={characterCarouselIndex === 0}
-                  aria-label="이전 캐릭터 보기"
+                  aria-label="?댁쟾 罹먮┃??蹂닿린"
                 >
                   {"<"}
                 </button>
@@ -576,8 +627,8 @@ export function PlayPage({
                           disabled={readyLocked}
                         >
                           <Icon name="plus" />
-                          <strong>캐릭터 만들기</strong>
-                          <span>새 캐릭터를 만든 뒤 이 세션에서 바로 사용할 수 있습니다.</span>
+                          <strong>캐릭터 생성</strong>
+                          <span>??罹먮┃?곕? 留뚮뱺 ?????몄뀡?먯꽌 諛붾줈 ?ъ슜?????덉뒿?덈떎.</span>
                         </button>
                       );
                     }
@@ -587,7 +638,7 @@ export function PlayPage({
                     const disabledLabel = !character.isSelectable
                       ? "사용 중"
                       : readyLocked && !character.isSelected
-                        ? "READY 고정"
+                        ? "READY 怨좎젙"
                         : null;
 
                     return (
@@ -624,7 +675,7 @@ export function PlayPage({
                   className="character-selection-nav"
                   onClick={() => setCharacterCarouselIndex((current) => Math.min(maxCharacterCarouselIndex, current + 1))}
                   disabled={characterCarouselIndex >= maxCharacterCarouselIndex}
-                  aria-label="다음 캐릭터 보기"
+                  aria-label="?ㅼ쓬 罹먮┃??蹂닿린"
                 >
                   {">"}
                 </button>
@@ -632,7 +683,7 @@ export function PlayPage({
 
               <section className="character-selection-detail">
                 <div className="character-selection-detail-header">
-                  <span className="eyebrow">선택 캐릭터 정보</span>
+                  <span className="eyebrow">?좏깮 罹먮┃???뺣낫</span>
                   <strong>{selectedCharacter?.name ?? "캐릭터를 선택해 주세요"}</strong>
                 </div>
 
@@ -655,7 +706,7 @@ export function PlayPage({
                         <span>{selectedCharacter.armorClass}</span>
                       </div>
                       <div>
-                        <strong>이동속도</strong>
+                        <strong>이동 속도</strong>
                         <span>{selectedCharacter.speed}</span>
                       </div>
                     </div>
@@ -670,12 +721,12 @@ export function PlayPage({
                     </div>
 
                     <p className="character-selection-detail-bio">
-                      {selectedCharacter.bio?.trim() || "아직 등록된 캐릭터 소개가 없습니다."}
+                      {selectedCharacter.bio?.trim() || "?꾩쭅 ?깅줉??罹먮┃???뚭컻媛 ?놁뒿?덈떎."}
                     </p>
                   </div>
                 ) : (
                   <p className="character-selection-detail-empty">
-                    캐릭터를 선택하면 능력치와 소개를 여기에서 바로 확인할 수 있습니다.
+                    罹먮┃?곕? ?좏깮?섎㈃ ?λ젰移섏? ?뚭컻瑜??ш린?먯꽌 諛붾줈 ?뺤씤?????덉뒿?덈떎.
                   </p>
                 )}
               </section>
@@ -683,96 +734,22 @@ export function PlayPage({
           ) : null}
 
           {session && !isRecruiting ? (
-            <section className="scenario-node-board">
-              <div className="scenario-node-header">
-                <div>
-                  <span className="eyebrow">Current scene</span>
-                  <h1>{currentNode?.title ?? activeScenario?.scenario.title ?? "Scenario scene"}</h1>
-                </div>
-                <span className="status-chip">{currentNode?.nodeType ?? snapshot?.state.phase ?? session.status}</span>
-              </div>
-
-              {scenarioLoadError ? (
-                <p className="panel-error">{scenarioLoadError}</p>
-              ) : currentNode ? (
-                <>
-                  {vttMap ? (
-                    <BattleMap
-                      map={vttMap}
-                      characters={sessionCharacters}
-                      isHost={isHost}
-                      currentUserId={user.id}
-                      onChange={handleMapChange}
-                    />
-                  ) : null}
-                  {mapLoadError ? <p className="panel-error">{mapLoadError}</p> : null}
-                  {currentNode.imageUrl ? (
-                    <img
-                      className="scenario-node-visual"
-                      src={currentNode.imageUrl}
-                      alt={`${currentNode.title} visual`}
-                    />
-                  ) : null}
-                  <p className="scenario-node-text">{currentNode.sceneText}</p>
-
-                  <div className="scenario-node-grid">
-                    <article className="scenario-node-panel">
-                      <span className="eyebrow">Actions</span>
-                      {currentNode.checkOptions.length ? (
-                        <ul className="scenario-node-list">
-                          {currentNode.checkOptions.map((option, index) => {
-                            const label = getNodeLabel(option) ?? `Check ${index + 1}`;
-                            return (
-                              <li key={`${label}-${index}`}>
-                                <strong>{label}</strong>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      ) : (
-                        <p>No checks defined for this scene.</p>
-                      )}
-                    </article>
-
-                    <article className="scenario-node-panel">
-                      <span className="eyebrow">Clues</span>
-                      {currentNode.publicClues.length ? (
-                        <ul className="scenario-node-list">
-                          {currentNode.publicClues.map((clue) => (
-                            <li key={clue.id}>
-                              <strong>{clue.title}</strong>
-                              <span>{clue.text}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p>No clues discovered for this scene.</p>
-                      )}
-                    </article>
-                  </div>
-
-                  <article className="scenario-node-panel">
-                    <span className="eyebrow">Discovered clues</span>
-                    {revealedClues.length ? (
-                      <ul className="scenario-node-list">
-                        {revealedClues.map((clue) => (
-                          <li key={clue.id}>
-                            <strong>{clue.title}</strong>
-                            <span>{clue.text}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p>No clues discovered yet.</p>
-                    )}
-                  </article>
-                </>
+            <section className="session-game-surface">
+              {scenarioLoadError ? <p className="panel-error">{scenarioLoadError}</p> : null}
+              {vttMap ? (
+                <BattleMap
+                  map={vttMap}
+                  characters={sessionCharacters}
+                  isHost={isHost}
+                  currentUserId={user.id}
+                  onChange={handleMapChange}
+                />
               ) : (
-                <article className="scenario-node-panel">
-                  <span className="eyebrow">Loading</span>
-                  <p>Scenario data is loading, or the current node is not included in the selected scenario.</p>
-                </article>
+                <div className="session-game-surface__placeholder">
+                  <h1>硫붿씤?붾㈃</h1>
+                </div>
               )}
+              {mapLoadError ? <p className="panel-error">{mapLoadError}</p> : null}
             </section>
           ) : null}
         </div>
@@ -824,6 +801,7 @@ export function PlayPage({
                       disabled={!canStartSession || busy}
                       onClick={(event) => {
                         event.stopPropagation();
+                        setIsGameStarting(true);
                         onStartSession();
                       }}
                     >
@@ -837,8 +815,22 @@ export function PlayPage({
         ) : null}
 
         <section className="participant-strip participant-strip-four-up">
-          {participants.length ? (
-            participants.map((participant, index) => {
+          {displayedParticipants.length ? (
+            displayedParticipants.map((participant, index) => {
+                if (!participant) {
+                  return (
+                    <article key={`empty-slot-${index}`} className="participant-strip-card placeholder">
+                      <div className="participant-avatar-frame placeholder" />
+                      <div className="participant-card-body">
+                        <strong>빈 슬롯</strong>
+                        <span>참가자를 기다리는 중입니다.</span>
+                      </div>
+                      <div className="participant-state">대기</div>
+                      <div className="participant-index">{index + 1}</div>
+                    </article>
+                  );
+                }
+
                 const linkedCharacter = sessionCharacters.find((character) => character.userId === participant.userId) ?? null;
                 const badgeLabel = getParticipantBadge(participant.userId);
                 const stateLabel = participant.isReady ? "READY" : participant.connectionStatus;
@@ -866,8 +858,8 @@ export function PlayPage({
                       {linkedCharacter
                         ? `${linkedCharacter.name} / ${getCharacterClassLabel(linkedCharacter.className)}`
                         : participant.userId === user.id
-                          ? "No character selected"
-                          : "Waiting for character"}
+                          ? "\uCE90\uB9AD\uD130\uAC00 \uC120\uD0DD\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4"
+                          : "\uCE90\uB9AD\uD130\uB97C \uAE30\uB2E4\uB9AC\uB294 \uC911\uC785\uB2C8\uB2E4"}
                     </span>
                   </div>
                   <div className={`participant-state${participant.isReady ? " ready" : ""}`}>{stateLabel}</div>
@@ -875,12 +867,7 @@ export function PlayPage({
                 </article>
               );
             })
-          ) : (
-            <article className="participant-strip-card empty">
-              <strong>No participants in this session.</strong>
-              <span>Invite players or return to the lobby to create a new room.</span>
-            </article>
-          )}
+          ) : null}
         </section>
 
         {error ? <p className="panel-error">{error}</p> : null}
@@ -888,7 +875,7 @@ export function PlayPage({
 
       <aside className="session-sidebar">
         <div className="session-sidebar-tabs">
-          {sessionTabs.map((tab) => (
+          {availableTabs.map((tab) => (
             <button
               key={tab}
               type="button"
@@ -926,8 +913,8 @@ export function PlayPage({
                 ) : (
                   <article className="chat-thread-row notice">
                     <div className="chat-thread-stack">
-                      <span className="chat-thread-sender notice">세션 로그</span>
-                      <div className="chat-thread-bubble">아직 기록된 메시지가 없습니다.</div>
+                      <span className="chat-thread-sender notice">?몄뀡 濡쒓렇</span>
+                      <div className="chat-thread-bubble">?꾩쭅 湲곕줉??硫붿떆吏媛 ?놁뒿?덈떎.</div>
                     </div>
                   </article>
                 )}
@@ -943,7 +930,7 @@ export function PlayPage({
                   onChange={(event) =>
                     activeTab === "Main" ? setMainMessage(event.target.value) : setChatMessage(event.target.value)
                   }
-                  placeholder={activeTab === "Main" ? "행동을 선언하거나 상황을 입력하세요..." : "채팅을 입력하세요..."}
+                  placeholder={activeTab === "Main" ? "?됰룞???좎뼵?섍굅???곹솴???낅젰?섏꽭??.." : "梨꾪똿???낅젰?섏꽭??.."}
                 />
                 <button type="submit" disabled={busy}>
                   전송
@@ -957,7 +944,7 @@ export function PlayPage({
               <div className="section-heading">
                 <div>
                   <span className="eyebrow">Scenario info</span>
-                  <h2>{activeScenario?.scenario.title ?? "No scenario"}</h2>
+                  <h2>{activeScenario?.scenario.title ?? "시나리오가 없습니다"}</h2>
                 </div>
               </div>
               <textarea
@@ -967,9 +954,84 @@ export function PlayPage({
             </div>
           ) : null}
 
+          {activeTab === "Control" ? (
+            <div className="session-control-panel">
+              <article className="scenario-node-panel">
+                <span className="eyebrow">씬 설명</span>
+                <strong>{currentNode?.title ?? activeScenario?.scenario.title ?? "진행 중인 장면"}</strong>
+                <p>{currentNode?.sceneText ?? "현재 장면 설명이 아직 없습니다."}</p>
+              </article>
+
+              <article className="scenario-node-panel">
+                <span className="eyebrow">Actions</span>
+                {currentNode?.checkOptions.length ? (
+                  <ul className="scenario-node-list">
+                    {currentNode.checkOptions.map((option, index) => {
+                      const label = getNodeLabel(option) ?? `Check ${index + 1}`;
+                      return (
+                        <li key={`${label}-${index}`}>
+                          <strong>{label}</strong>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p>?ㅼ젙???≪뀡???놁뒿?덈떎.</p>
+                )}
+              </article>
+
+              <article className="scenario-node-panel">
+                <span className="eyebrow">Clues</span>
+                {currentNode?.publicClues.length ? (
+                  <ul className="scenario-node-list">
+                    {currentNode.publicClues.map((clue) => (
+                      <li key={clue.id}>
+                        <strong>{clue.title}</strong>
+                        <span>{clue.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>?꾩옱 ?ъ뿉 怨듦컻 ?⑥꽌媛 ?놁뒿?덈떎.</p>
+                )}
+              </article>
+
+              <article className="scenario-node-panel">
+                <span className="eyebrow">Discovered clues</span>
+                {revealedClues.length ? (
+                  <ul className="scenario-node-list">
+                    {revealedClues.map((clue) => (
+                      <li key={clue.id}>
+                        <strong>{clue.title}</strong>
+                        <span>{clue.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>諛쒓껄???⑥꽌媛 ?꾩쭅 ?놁뒿?덈떎.</p>
+                )}
+              </article>
+            </div>
+          ) : null}
+
           {activeTab === "Settings" ? (
             <div className="session-settings-panel">
-              <span className="eyebrow">Room settings</span>
+              <span className="eyebrow">세션 룸</span>
+              {!isRecruiting ? (
+                <div className="session-settings-room">
+                  <strong>{session?.title ?? "활성 세션이 없습니다"}</strong>
+                  <div className="session-settings-invite">
+                    <span>초대 코드</span>
+                    <strong>{session?.inviteCode ?? "------"}</strong>
+                  </div>
+                  <button type="button" className="ghost" onClick={onBackToLobby}>
+                    Lobby
+                  </button>
+                  <button type="button" className="danger-button" onClick={onLeaveSession}>
+                    Leave
+                  </button>
+                </div>
+              ) : null}
               <dl className="session-meta">
                 <div>
                   <dt>Status</dt>
@@ -989,14 +1051,24 @@ export function PlayPage({
         </div>
       </aside>
 
-      {/* 캐릭터가 없는 플레이어가 빠르게 캐릭터를 만드는 모달입니다. */}
+      {isGameStarting ? (
+        <div className="modal-backdrop session-start-loading" role="dialog" aria-modal="true">
+          <div className="modal-card session-start-loading-card">
+            <div className="session-start-spinner" aria-hidden="true" />
+            <strong>寃뚯엫 ?붾㈃?쇰줈 ?대룞?섎뒗 以묒엯?덈떎</strong>
+            <p>?뺣낫瑜?遺덈윭?ㅻ뒗 以묒엯?덈떎.</p>
+          </div>
+        </div>
+      ) : null}
+
+      {/* 罹먮┃?곌? ?녿뒗 ?뚮젅?댁뼱媛 鍮좊Ⅴ寃?罹먮┃?곕? 留뚮뱶??紐⑤떖?낅땲?? */}
       {isCreateModalOpen ? (
         <div className="modal-shell" role="dialog" aria-modal="true">
           <form className="modal-card" onSubmit={handleCreateCharacter}>
             <div className="section-heading">
               <div>
-                <span className="eyebrow">Character creator</span>
-                <h2>Create a new character</h2>
+                <span className="eyebrow">캐릭터 생성</span>
+                <h2>새 캐릭터 생성</h2>
               </div>
               <button type="button" className="ghost" onClick={() => setCreateModalOpen(false)}>
                 Close
@@ -1057,3 +1129,4 @@ export function PlayPage({
     </main>
   );
 }
+
