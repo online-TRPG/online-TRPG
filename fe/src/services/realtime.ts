@@ -1,6 +1,11 @@
 import { io, Socket } from "socket.io-client";
 import { SOCKET_BASE_URL } from "./api";
-import type { TurnLogResponseDto, VttMapStateDto } from "@trpg/shared-types";
+import type {
+  DiceRollResponseDto,
+  StateDiffResponseDto,
+  TurnLogResponseDto,
+  VttMapStateDto,
+} from "@trpg/shared-types";
 import type { Character, ChatMessage, Participant, SessionSnapshot, StoredUser } from "../types/session";
 import { normalizeSessionSnapshot } from "../types/session";
 
@@ -10,6 +15,8 @@ export interface RealtimeHandlers {
   onCharacterUpdated(character: Character): void;
   onChatMessage(message: ChatMessage): void;
   onTurnLogCreated(turnLog: TurnLogResponseDto): void;
+  onDiceRolled(diceResult: DiceRollResponseDto): void;
+  onStateDiffApplied(stateDiff: StateDiffResponseDto): void;
   onVttMapUpdated(map: VttMapStateDto): void;
   onStatusChange(connected: boolean): void;
   onLog(title: string, message: string): void;
@@ -70,6 +77,14 @@ export function connectSessionSocket(
 
   socket.on("turn.log.created", (payload: { turnLog: TurnLogResponseDto }) => {
     handlers.onTurnLogCreated(payload.turnLog);
+  });
+
+  socket.on("dice.rolled", (payload: { diceResult: DiceRollResponseDto }) => {
+    handlers.onDiceRolled(payload.diceResult);
+  });
+
+  socket.on("state.diff.applied", (payload: { stateDiff: StateDiffResponseDto }) => {
+    handlers.onStateDiffApplied(payload.stateDiff);
   });
 
   socket.on("vtt.map.updated", (payload: { map: VttMapStateDto }) => {
