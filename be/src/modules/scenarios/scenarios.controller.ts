@@ -98,6 +98,20 @@ export class ScenariosController {
     return this.scenariosService.uploadScenarioAsset(userId, id, dto);
   }
 
+  @Delete(":id/assets/:assetId")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiParam({ name: "assetId" })
+  @ApiNoContentResponse()
+  @HttpCode(204)
+  deleteScenarioAsset(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Param("assetId") assetId: string,
+  ): Promise<void> {
+    return this.scenariosService.deleteScenarioAsset(userId, id, assetId);
+  }
+
   @Post(":id/nodes/:nodeId/image")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })

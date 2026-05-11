@@ -113,6 +113,10 @@ type AppendLogFn = (
   createdAt?: string,
 ) => void;
 
+function isBlockingSessionStatus(status: string | undefined): boolean {
+  return status !== "completed" && status !== "disbanded";
+}
+
 function formatDebugValue(value: unknown): string {
   if (value === null || value === undefined) {
     return "(없음)";
@@ -200,6 +204,7 @@ export function useSession(
   const [isLoadingTurnLogs, setIsLoadingTurnLogs] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mySessionsLoaded, setMySessionsLoaded] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const snapshotRef = useRef<SessionSnapshot | null>(snapshot);
   const seenTurnLogIdsRef = useRef<Set<string>>(new Set());
@@ -214,15 +219,9 @@ export function useSession(
     snapshotRef.current = snapshot;
   }, [snapshot]);
 
-  const hasRecruitingSession = useCallback(() => snapshot?.session.status === "recruiting", [snapshot]);
   const hasBlockingSession = useCallback(
-    () =>
-      Boolean(
-        snapshot &&
-          snapshot.session.status !== "completed" &&
-          snapshot.session.status !== "disbanded",
-      ),
-    [snapshot],
+    () => mySessionList.some((item) => isBlockingSessionStatus(item.status)),
+    [mySessionList],
   );
 
   useEffect(() => {
@@ -233,6 +232,7 @@ export function useSession(
       setSessionList([]);
       setMySessionList([]);
       setMyCharacters([]);
+      setMySessionsLoaded(false);
       seenTurnLogIdsRef.current.clear();
       loadedTurnLogSessionIdRef.current = null;
       setTurnLogNextCursor(null);
@@ -245,13 +245,41 @@ export function useSession(
       .catch(() => undefined);
 
     void apiListMySessions(user, accessToken)
-      .then((result) => setMySessionList(result.content))
+      .then((result) => {
+        setMySessionList(result.content);
+        setMySessionsLoaded(true);
+      })
       .catch(() => undefined);
 
     void apiListMyCharacters(user, accessToken)
       .then(setMyCharacters)
       .catch(() => undefined);
   }, [accessToken, user]);
+
+  useEffect(() => {
+    if (!user || !snapshot || !mySessionsLoaded) return;
+
+    const matchedSession = mySessionList.find(
+      (item) =>
+        item.sessionId === snapshot.session.id ||
+        item.sessionPublicId === snapshot.session.publicId,
+    );
+
+    if (
+      (!matchedSession && isBlockingSessionStatus(snapshot.session.status)) ||
+      (matchedSession &&
+        !isBlockingSessionStatus(matchedSession.status) &&
+        isBlockingSessionStatus(snapshot.session.status))
+    ) {
+      clearStoredSnapshot();
+      setSnapshot(null);
+      setSocketConnected(false);
+      seenTurnLogIdsRef.current.clear();
+      loadedTurnLogSessionIdRef.current = null;
+      setTurnLogNextCursor(null);
+      setIsLoadingTurnLogs(false);
+    }
+  }, [mySessionList, mySessionsLoaded, snapshot, user]);
 
   const appendPlayerRawInputLog = useCallback(
     (turnLog: TurnLogResponseDto, writeLog: AppendLogFn) => {
@@ -522,6 +550,7 @@ export function useSession(
       ]);
       setSessionList(publicSessions.content);
       setMySessionList(mySessions.content);
+      setMySessionsLoaded(true);
     } catch {
       // ignore
     }

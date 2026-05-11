@@ -546,6 +546,19 @@ export function uploadScenarioAsset(
   });
 }
 
+export function deleteScenarioAsset(
+  user: StoredUser,
+  scenarioId: string,
+  assetId: string,
+  accessToken?: string | null
+): Promise<void> {
+  return requestJson<void>(`/scenarios/${scenarioId}/assets/${assetId}`, {
+    method: 'DELETE',
+    user,
+    accessToken,
+  });
+}
+
 export function listSessions(
   user?: StoredUser | null,
   accessToken?: string | null

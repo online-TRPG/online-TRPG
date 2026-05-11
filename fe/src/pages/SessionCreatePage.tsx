@@ -12,13 +12,13 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import buttonSimpleBeigeImage from '../components/Button_Simple_Beige.webp';
 import boxBulletinImage from '../components/Box_Bulletin_Rectangle.webp';
 import { buildSessionScenarioOptions } from '../data/sessionVisuals';
-import type { Scenario, SessionSnapshot } from '../types/session';
+import type { AvailableSessionListItem, Scenario } from '../types/session';
 import './SessionCreatePage.css';
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface SessionCreatePageProps {
   scenarios: Scenario[];
-  snapshot: SessionSnapshot | null;
+  mySessionList: AvailableSessionListItem[];
   busy: boolean;
   error: string | null;
   onCreateSession: (
@@ -51,7 +51,7 @@ function UsersIcon() {
 
 export function SessionCreatePage({
   scenarios,
-  snapshot,
+  mySessionList,
   busy,
   error,
   onCreateSession,
@@ -65,7 +65,7 @@ export function SessionCreatePage({
   const [useAiGm, setUseAiGm] = useState(true);
 
   // 이미 모집 중인 세션이 있으면 중복 생성을 막기 위한 플래그입니다.
-  const hasRecruitingSession = snapshot?.session.status === 'recruiting';
+  const hasRecruitingSession = mySessionList.some((item) => item.status === 'recruiting');
 
   // 시나리오 옵션이 로드되면 첫 번째 옵션을 기본 선택합니다.
   useEffect(() => {

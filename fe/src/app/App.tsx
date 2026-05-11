@@ -629,7 +629,7 @@ export function App() {
         {!isPlayView && activeView === 'sessionsNew' ? (
           <SessionCreatePage
             scenarios={scenarios}
-            snapshot={session.snapshot}
+            mySessionList={session.mySessionList}
             busy={busy}
             error={error}
             onCreateSession={handleCreateSession}
