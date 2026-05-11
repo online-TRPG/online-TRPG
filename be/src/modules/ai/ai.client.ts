@@ -118,11 +118,27 @@ export interface NpcDialogueParsed {
 
 export type NpcDialogueResponsePayload = BaseHarnessResponse<NpcDialogueParsed>;
 
+export interface InterpreterAvailableTargetDetail {
+  id: string;
+  name: string;
+  kind?: string | null;
+  summary?: string | null;
+}
+
 export interface InterpreterRequestPayload {
   rawText: string;
   actorCharacterId?: string;
   sceneSummary?: string;
   availableTargets?: string[];
+  availableTargetDetails?: InterpreterAvailableTargetDetail[];
+  requestIntent?: string;
+  screenType?: string;
+  targetId?: string | null;
+  targetType?: string | null;
+  itemId?: string | null;
+  spellId?: string | null;
+  mapPoint?: { x: number; y: number } | null;
+  relatedIntent?: string | null;
   sessionId?: string;
   turnId?: string;
   model?: string;

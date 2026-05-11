@@ -678,6 +678,7 @@ export function App() {
               navigate('/sessions/discover');
             }}
             onBackToLobby={() => navigate('/sessions/discover')}
+            onMainCommand={(payload) => void session.sendMainCommand(payload)}
             onAction={handleSessionMessage}
             onLoadOlderTurnLogs={() => void session.loadOlderTurnLogs()}
           />

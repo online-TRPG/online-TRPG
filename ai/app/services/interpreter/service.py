@@ -159,14 +159,31 @@ class InterpreterService:
 
     def _format_prompt(self, request: InterpreterHarnessRequest, prompt_context: dict[str, object]) -> str:
         targets = ", ".join(request.availableTargets)
+        target_details = [
+            {
+                "id": detail.id,
+                "name": detail.name,
+                "kind": detail.kind,
+                "summary": detail.summary,
+            }
+            for detail in request.availableTargetDetails
+        ]
         related_entities = prompt_context["related_entities_payload"]
         related_rules = prompt_context["related_rules_payload"]
         related_engine_hooks = prompt_context["related_engine_hooks_payload"]
         return (
             "다음 플레이어 입력을 구조화 액션으로 바꿔라.\n"
             f"- actorCharacterId: {request.actorCharacterId}\n"
+            f"- requestIntent: {request.requestIntent}\n"
+            f"- screenType: {request.screenType}\n"
             f"- sceneSummary: {request.sceneSummary}\n"
             f"- availableTargets: {targets}\n"
+            f"- selectedTargetId: {request.targetId}\n"
+            f"- selectedTargetType: {request.targetType}\n"
+            f"- selectedItemId: {request.itemId}\n"
+            f"- selectedSpellId: {request.spellId}\n"
+            f"- relatedIntent: {request.relatedIntent}\n"
+            f"- mapPoint: {json.dumps(request.mapPoint, ensure_ascii=False)}\n"
             f"- rawText: {request.rawText}\n"
             "\n"
             "relatedEntities는 SRD 번역본에서 추출한 구조화 참고 후보일 뿐이다. "
@@ -175,6 +192,9 @@ class InterpreterService:
             "AI는 이 후보를 근거로 상태 변화, 명중, 피해, DC, 슬롯 소비를 확정하면 안 된다.\n"
             "relatedEngineHooks 중 domain이 class_feature인 항목이 플레이어 입력과 직접 맞으면 "
             "action.type='use_class_feature'로 두고 sourceEntityIds의 class feature ID를 action.featureId에 복사하라.\n"
+            "selectedTargetId, selectedItemId, selectedSpellId가 주어지면 그 값을 신뢰하고 유지하라. "
+            "availableTargetDetails는 각 대상의 이름과 종류를 보여주기 위한 참고 정보다.\n"
+            f"availableTargetDetails: {json.dumps(target_details, ensure_ascii=False)}\n"
             f"relatedEntities: {json.dumps(related_entities, ensure_ascii=False)}\n"
             f"relatedRules: {json.dumps(related_rules, ensure_ascii=False)}\n"
             f"relatedEngineHooks: {json.dumps(related_engine_hooks, ensure_ascii=False)}\n"

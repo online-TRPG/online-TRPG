@@ -121,6 +121,7 @@ export class AiService {
     userId: string,
     sessionId: string,
     dto: AiHintRequestDto,
+    options?: { emitSystemMessage?: boolean },
   ): Promise<AiHintResponseDto> {
     await this.sessionsService.ensureMembership(userId, sessionId);
     const publicClues = await this.sessionsService.getPublicClueSummariesForUser(userId, sessionId);
@@ -145,7 +146,9 @@ export class AiService {
       defaultFactory: (reason) => this.defaultDirectorResponse(reason),
     });
 
-    this.safeEmitSystemMessage(sessionId, "AI_HINT", result.response.parsed.content);
+    if (options?.emitSystemMessage !== false) {
+      this.safeEmitSystemMessage(sessionId, "AI_HINT", result.response.parsed.content);
+    }
 
     return {
       parsed: result.response.parsed,
@@ -161,6 +164,7 @@ export class AiService {
     userId: string,
     sessionId: string,
     dto: AiSummaryRequestDto,
+    options?: { emitSystemMessage?: boolean },
   ): Promise<AiSummaryResponseDto> {
     await this.sessionsService.ensureMembership(userId, sessionId);
 
@@ -184,7 +188,9 @@ export class AiService {
       defaultFactory: (reason) => this.defaultSummarizerResponse(reason),
     });
 
-    this.safeEmitSystemMessage(sessionId, "AI_SUMMARY", result.response.parsed.content);
+    if (options?.emitSystemMessage !== false) {
+      this.safeEmitSystemMessage(sessionId, "AI_SUMMARY", result.response.parsed.content);
+    }
 
     return {
       parsed: result.response.parsed,
@@ -200,6 +206,7 @@ export class AiService {
     userId: string,
     sessionId: string,
     dto: AiNpcDialogueRequestDto,
+    options?: { emitChatMessage?: boolean },
   ): Promise<AiNpcDialogueResponseDto> {
     await this.sessionsService.ensureMembership(userId, sessionId);
 
@@ -227,15 +234,17 @@ export class AiService {
       defaultFactory: (reason) => this.defaultNpcDialogueResponse(reason),
     });
 
-    const speakerName = dto.npcName ?? "NPC";
-    const speakerUserId = `ai:npc:${dto.npcEntityId}`;
-    this.safeEmitChatMessage(
-      sessionId,
-      speakerUserId,
-      speakerName,
-      result.response.parsed.dialogue,
-      result.traceId,
-    );
+    if (options?.emitChatMessage !== false) {
+      const speakerName = dto.npcName ?? "NPC";
+      const speakerUserId = `ai:npc:${dto.npcEntityId}`;
+      this.safeEmitChatMessage(
+        sessionId,
+        speakerUserId,
+        speakerName,
+        result.response.parsed.dialogue,
+        result.traceId,
+      );
+    }
 
     return {
       parsed: result.response.parsed,

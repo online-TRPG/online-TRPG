@@ -161,6 +161,7 @@ describe("SessionsService player scenario mapping", () => {
         imageUrl: string | null;
         checkOptionsJson: string;
         cluesJson: string;
+        nodeMetaJson?: string | null;
       },
       revealedClueSnapshots: Map<string, Record<string, unknown>>,
     ) => {
@@ -194,6 +195,7 @@ describe("SessionsService player scenario mapping", () => {
           },
         ]),
         cluesJson: JSON.stringify([]),
+        nodeMetaJson: null,
       },
       new Map(),
     );
@@ -225,6 +227,7 @@ describe("SessionsService player scenario mapping", () => {
           },
         ]),
         cluesJson: JSON.stringify([]),
+        nodeMetaJson: null,
       },
       new Map(),
     );
