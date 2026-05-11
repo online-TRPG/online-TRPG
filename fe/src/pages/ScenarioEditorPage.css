@@ -428,6 +428,20 @@
   font-size: 12px;
 }
 
+.scenario-map-asset-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.scenario-map-asset-actions > button {
+  flex: 1;
+}
+
+.scenario-asset-delete-button {
+  border-color: rgba(255, 120, 120, 0.45);
+  color: #ffb6b6;
+}
+
 .scenario-map-asset-empty {
   padding: 14px 16px;
   border-radius: 14px;

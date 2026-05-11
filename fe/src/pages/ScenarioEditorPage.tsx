@@ -14,6 +14,7 @@ import type { ReactNode } from 'react';
 import { BattleMap } from '../components/BattleMap';
 import {
   createScenario,
+  deleteScenarioAsset as deleteScenarioAssetRequest,
   getScenario,
   listScenarioAssets,
   updateScenario,
@@ -946,6 +947,80 @@ export function ScenarioEditorPage({
   }
 
   // 수동 저장 버튼/폼 제출 처리입니다. 유효성 검사 후 create/update API를 호출합니다.
+  function clearDeletedAssetReferences(kind: ScenarioAssetKind, publicUrl: string) {
+    setForm((current) => ({
+      ...current,
+      nodes: current.nodes.map((node) => {
+        if (kind === SCENARIO_ASSET_KIND_SCENE && node.imageUrl === publicUrl) {
+          return {
+            ...node,
+            imageUrl: '',
+          };
+        }
+
+        if (kind === SCENARIO_ASSET_KIND_MAP && node.vttMap?.imageUrl === publicUrl) {
+          return {
+            ...node,
+            vttMap: {
+              ...node.vttMap,
+              imageUrl: null,
+              updatedAt: new Date().toISOString(),
+            },
+          };
+        }
+
+        if (kind === SCENARIO_ASSET_KIND_TOKEN && node.vttMap?.tokens?.some((token) => token.imageUrl === publicUrl)) {
+          return {
+            ...node,
+            vttMap: {
+              ...node.vttMap,
+              tokens: node.vttMap.tokens.map((token) =>
+                token.imageUrl === publicUrl
+                  ? {
+                      ...token,
+                      imageUrl: null,
+                    }
+                  : token,
+              ),
+              updatedAt: new Date().toISOString(),
+            },
+          };
+        }
+
+        return node;
+      }),
+    }));
+  }
+
+  async function deleteAssetByKind(
+    asset: ScenarioAsset,
+    kind: ScenarioAssetKind,
+    onDeleted: () => void,
+  ): Promise<void> {
+    if (!effectiveScenarioId) {
+      setError('시나리오를 먼저 저장한 뒤 자산을 삭제할 수 있습니다.');
+      return;
+    }
+
+    await deleteScenarioAssetRequest(user, effectiveScenarioId, asset.id, accessToken);
+    onDeleted();
+    clearDeletedAssetReferences(kind, asset.publicUrl);
+  }
+
+  async function handleMapAssetDelete(asset: ScenarioAsset): Promise<void> {
+    await deleteAssetByKind(asset, SCENARIO_ASSET_KIND_MAP, () => {
+      setMapAssets((current) => current.filter((item) => item.id !== asset.id));
+      setMapAssetsError(null);
+    });
+  }
+
+  async function handleSceneAssetDelete(asset: ScenarioAsset): Promise<void> {
+    await deleteAssetByKind(asset, SCENARIO_ASSET_KIND_SCENE, () => {
+      setSceneAssets((current) => current.filter((item) => item.id !== asset.id));
+      setSceneAssetsError(null);
+    });
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -1149,10 +1224,12 @@ export function ScenarioEditorPage({
                 mapAssetsLoading={mapAssetsLoading}
                 mapAssetsError={mapAssetsError}
                 uploadMapAsset={handleMapAssetUpload}
+                deleteMapAsset={handleMapAssetDelete}
                 sceneAssets={sceneAssets}
                 sceneAssetsLoading={sceneAssetsLoading}
                 sceneAssetsError={sceneAssetsError}
                 uploadSceneAsset={handleSceneAssetUpload}
+                deleteSceneAsset={handleSceneAssetDelete}
                 tokenAssets={tokenAssets}
                 tokenAssetsLoading={tokenAssetsLoading}
                 tokenAssetsError={tokenAssetsError}
@@ -1216,10 +1293,12 @@ function NodeDetailEditor({
   mapAssetsLoading,
   mapAssetsError,
   uploadMapAsset,
+  deleteMapAsset,
   sceneAssets,
   sceneAssetsLoading,
   sceneAssetsError,
   uploadSceneAsset,
+  deleteSceneAsset,
   tokenAssets,
   tokenAssetsLoading,
   tokenAssetsError,
@@ -1238,10 +1317,12 @@ function NodeDetailEditor({
   mapAssetsLoading: boolean;
   mapAssetsError: string | null;
   uploadMapAsset: (file: File | null) => Promise<ScenarioAsset | null>;
+  deleteMapAsset: (asset: ScenarioAsset) => Promise<void>;
   sceneAssets: ScenarioAsset[];
   sceneAssetsLoading: boolean;
   sceneAssetsError: string | null;
   uploadSceneAsset: (file: File | null) => Promise<ScenarioAsset | null>;
+  deleteSceneAsset: (asset: ScenarioAsset) => Promise<void>;
   tokenAssets: ScenarioAsset[];
   tokenAssetsLoading: boolean;
   tokenAssetsError: string | null;
@@ -1255,6 +1336,8 @@ function NodeDetailEditor({
   const [imageBusy, setImageBusy] = useState(false);
   const [sceneUploadBusy, setSceneUploadBusy] = useState(false);
   const [mapUploadBusy, setMapUploadBusy] = useState(false);
+  const [deletingSceneAssetId, setDeletingSceneAssetId] = useState<string | null>(null);
+  const [deletingMapAssetId, setDeletingMapAssetId] = useState<string | null>(null);
   const sceneImageInputRef = useRef<HTMLInputElement | null>(null);
   const sceneAssetInputRef = useRef<HTMLInputElement | null>(null);
   const mapAssetInputRef = useRef<HTMLInputElement | null>(null);
@@ -1356,6 +1439,42 @@ function NodeDetailEditor({
       setError(caught instanceof Error ? caught.message : '맵 이미지를 업로드하지 못했습니다.');
     } finally {
       setMapUploadBusy(false);
+    }
+  }
+
+  async function handleDeleteSceneAsset(asset: ScenarioAsset) {
+    const confirmed = window.confirm(
+      `라이브러리에서 "${asset.fileName}" 장면 이미지를 삭제할까요?\n현재 시나리오에서 이 이미지를 사용 중인 장면 연결도 함께 제거됩니다.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingSceneAssetId(asset.id);
+    setError(null);
+
+    try {
+      await deleteSceneAsset(asset);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '장면 이미지를 삭제하지 못했습니다.');
+    } finally {
+      setDeletingSceneAssetId(null);
+    }
+  }
+
+  async function handleDeleteMapAsset(asset: ScenarioAsset) {
+    const confirmed = window.confirm(
+      `라이브러리에서 "${asset.fileName}" 맵 이미지를 삭제할까요?\n현재 시나리오에서 이 이미지를 사용 중인 맵 연결도 함께 제거됩니다.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingMapAssetId(asset.id);
+    setError(null);
+
+    try {
+      await deleteMapAsset(asset);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '맵 이미지를 삭제하지 못했습니다.');
+    } finally {
+      setDeletingMapAssetId(null);
     }
   }
 
@@ -1479,6 +1598,7 @@ function NodeDetailEditor({
               <div className="scenario-map-library-grid">
                 {sceneAssets.map((asset) => {
                   const isSelected = node.imageUrl === asset.publicUrl;
+                  const isDeleting = deletingSceneAssetId === asset.id;
                   return (
                     <article
                       key={asset.id}
@@ -1493,13 +1613,26 @@ function NodeDetailEditor({
                         <strong>{asset.fileName}</strong>
                         <span>{Math.max(1, Math.round(asset.fileSizeBytes / 1024))} KB</span>
                       </div>
-                      <button
+                      <div className="scenario-map-asset-actions">
+                        <button
                         type="button"
                         className={isSelected ? 'ghost small' : 'small'}
+                        disabled={isDeleting}
                         onClick={() => applySceneAsset(asset)}
                       >
                         {isSelected ? '현재 장면' : '이 장면 적용'}
                       </button>
+                        <button
+                        type="button"
+                        className="ghost small scenario-asset-delete-button"
+                        disabled={isDeleting}
+                        onClick={() => {
+                          void handleDeleteSceneAsset(asset);
+                        }}
+                      >
+                        {isDeleting ? '삭제 중..' : '삭제'}
+                      </button>
+                      </div>
                     </article>
                   );
                 })}
@@ -1558,6 +1691,7 @@ function NodeDetailEditor({
               <div className="scenario-map-library-grid">
                 {mapAssets.map((asset) => {
                   const isSelected = node.vttMap?.imageUrl === asset.publicUrl;
+                  const isDeleting = deletingMapAssetId === asset.id;
                   return (
                     <article
                       key={asset.id}
@@ -1572,13 +1706,26 @@ function NodeDetailEditor({
                         <strong>{asset.fileName}</strong>
                         <span>{Math.max(1, Math.round(asset.fileSizeBytes / 1024))} KB</span>
                       </div>
-                      <button
-                        type="button"
-                        className={isSelected ? 'ghost small' : 'small'}
-                        onClick={() => applyMapAsset(asset)}
+                      <div className="scenario-map-asset-actions">
+                        <button
+                          type="button"
+                          className={isSelected ? 'ghost small' : 'small'}
+                          disabled={isDeleting}
+                          onClick={() => applyMapAsset(asset)}
                       >
                         {isSelected ? '현재 맵' : '이 맵 적용'}
                       </button>
+                      <button
+                        type="button"
+                        className="ghost small scenario-asset-delete-button"
+                        disabled={isDeleting}
+                        onClick={() => {
+                          void handleDeleteMapAsset(asset);
+                        }}
+                      >
+                        {isDeleting ? '삭제 중..' : '삭제'}
+                      </button>
+                      </div>
                     </article>
                   );
                 })}
