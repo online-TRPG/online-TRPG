@@ -612,6 +612,20 @@ export class SessionsService {
       }
     }
 
+    if (dto.captainUserId !== undefined && dto.captainUserId !== null) {
+      const captainMember = await this.prisma.sessionParticipant.findFirst({
+        where: {
+          sessionId: resolvedSessionId,
+          userId: dto.captainUserId,
+          status: PrismaParticipantStatus.JOINED,
+        },
+        select: { id: true },
+      });
+      if (!captainMember) {
+        throw new ConflictException("captainUserId must be a JOINED participant of the session.");
+      }
+    }
+
     const updated = await this.prisma.session.update({
       where: { id: resolvedSessionId },
       data: {
@@ -619,6 +633,9 @@ export class SessionsService {
         description: dto.description?.trim() ?? session.description,
         maxParticipants: nextMaxParticipants ?? session.maxParticipants,
         visibility: this.resolveVisibility(dto.visibility, dto.isPrivate, dto.isPublic, session.visibility),
+        gmMode: dto.gmMode ? gmModeToPrisma[dto.gmMode] : session.gmMode,
+        captainUserId:
+          dto.captainUserId === undefined ? session.captainUserId : dto.captainUserId,
         nextSessionAt:
           dto.nextSessionAt === undefined
             ? session.nextSessionAt
