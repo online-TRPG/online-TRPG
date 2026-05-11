@@ -506,6 +506,7 @@ export function CharacterPage({
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
   const [isDeleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteWarning, setDeleteWarning] = useState<string | null>(null);
   const [editingCharacterId, setEditingCharacterId] = useState<string | null>(null);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [skillInput, setSkillInput] = useState('');
@@ -550,6 +551,16 @@ export function CharacterPage({
       document.body.style.overflow = overflow;
     };
   }, [isCreateModalOpen]);
+
+  useEffect(() => {
+    if (!deleteWarning) return undefined;
+
+    const timeout = window.setTimeout(() => {
+      setDeleteWarning(null);
+    }, 4200);
+
+    return () => window.clearTimeout(timeout);
+  }, [deleteWarning]);
 
   useEffect(() => {
     if (!characters.length) {
@@ -677,6 +688,12 @@ export function CharacterPage({
 
   async function handleDeleteSelectedCharacter() {
     if (!selectedCharacter) return;
+    if (usedCharacterIds.has(selectedCharacter.id)) {
+      setDeleteWarning(
+        "\uC774 \uCE90\uB9AD\uD130\uB294 \uC138\uC158\uC5D0\uC11C \uC0AC\uC6A9 \uC911\uC785\uB2C8\uB2E4.\n\uC0AC\uC6A9 \uC911\uC778 \uC138\uC158\uC744 \uC885\uB8CC\uD558\uACE0 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."
+      );
+      return;
+    }
     setDeleteModalOpen(true);
   }
 
@@ -967,6 +984,15 @@ export function CharacterPage({
 
       {catalogError ? <p className="panel-error">{catalogError}</p> : null}
       {error ? <p className="panel-error">{error}</p> : null}
+      {deleteWarning ? (
+        <button
+          type="button"
+          className="page-error-toast"
+          onClick={() => setDeleteWarning(null)}
+        >
+          {deleteWarning}
+        </button>
+      ) : null}
 
       {/* 캐릭터 생성/수정 모달입니다. editingCharacterId가 있으면 수정 모드로 동작합니다. */}
       {isCreateModalOpen ? (
@@ -1472,34 +1498,29 @@ export function CharacterPage({
             aria-labelledby="character-delete-title"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="modal-header">
-              <div>
-                <span className="eyebrow character-delete-eyebrow">삭제 확인</span>
-                <h2 id="character-delete-title">캐릭터 삭제</h2>
-              </div>
-              <button
-                type="button"
-                className="modal-close"
-                onClick={() => setDeleteModalOpen(false)}
+            <div className="character-delete-preview">
+              <div
+                className="character-delete-preview-frame"
+                style={{ ['--frame-image' as string]: `url(${profileBorderCharacter})` }}
               >
-                닫기
-              </button>
+                <img
+                  src={getCharacterImage(selectedCharacter)}
+                  alt={selectedCharacter.name}
+                  className="character-delete-preview-art"
+                />
+                <div className="character-delete-preview-name">{selectedCharacter.name}</div>
+                <div className="character-delete-preview-class">
+                  {getCharacterClassLabel(selectedCharacter.className)}
+                </div>
+              </div>
             </div>
 
             <p className="character-delete-copy">
-              <strong>{selectedCharacter.name}</strong> 캐릭터를 정말 삭제할까요?
+              <strong>{selectedCharacter.name}</strong>{" 을(를) 정말 삭제할까요?"}
             </p>
-            <p className="character-delete-subcopy">삭제 후에는 되돌릴 수 없습니다.</p>
+            <p className="character-delete-subcopy">{"삭제 후에는 되돌릴 수 없습니다."}</p>
 
             <div className="character-delete-actions">
-              <button
-                type="button"
-                className="ghost character-delete-cancel"
-                onClick={() => setDeleteModalOpen(false)}
-                disabled={busy}
-              >
-                취소
-              </button>
               <button
                 type="button"
                 className="danger-button character-delete-confirm"
@@ -1507,6 +1528,14 @@ export function CharacterPage({
                 disabled={busy}
               >
                 삭제
+              </button>
+              <button
+                type="button"
+                className="ghost character-delete-cancel"
+                onClick={() => setDeleteModalOpen(false)}
+                disabled={busy}
+              >
+                취소
               </button>
             </div>
           </div>
