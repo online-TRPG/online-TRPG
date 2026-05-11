@@ -1289,14 +1289,6 @@
   background: rgba(117, 35, 49, 0.92);
 }
 
-
-.character-delete-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0;
-  margin-top: 24px;
-}
-
 .session-info-panel textarea {
   width: 100%;
   min-height: 320px;
