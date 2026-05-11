@@ -4,7 +4,9 @@ import type {
   ActionInputType,
   ActionScope,
   DiceRollResponseDto,
+  MainCommandResponseDto,
   StateDiffResponseDto,
+  SubmitMainCommandDto,
   SystemMessageEventDto,
   SubmitActionDto,
   TurnLogResponseDto,
@@ -26,6 +28,7 @@ import {
   listSessions,
   selectSessionCharacter as apiSelectSessionCharacter,
   startSession as apiStartSession,
+  submitMainCommand as apiSubmitMainCommand,
   submitAction as apiSubmitAction,
   updateCharacter as apiUpdateCharacter,
   updateReadyState as apiUpdateReadyState,
@@ -96,6 +99,7 @@ export interface UseSessionReturn {
   setReadyState: (isReady: boolean) => Promise<void>;
   startSession: () => Promise<void>;
   leaveSession: () => Promise<void>;
+  sendMainCommand: (payload: SubmitMainCommandDto) => Promise<MainCommandResponseDto | null>;
   sendAction: (rawText: string) => Promise<void>;
   sendChatMessage: (content: string) => Promise<void>;
   loadOlderTurnLogs: () => Promise<void>;
@@ -130,6 +134,24 @@ function formatDebugValue(value: unknown): string {
 }
 
 function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
+  const structuredAction = turnLog.structuredAction;
+  if (
+    structuredAction &&
+    typeof structuredAction === "object" &&
+    structuredAction.type === "main_command"
+  ) {
+    const narration = turnLog.narration?.trim();
+    return `[MAIN]${narration || "메인 명령을 처리했습니다."}`;
+  }
+
+  if (
+    structuredAction &&
+    typeof structuredAction === "object" &&
+    structuredAction.type === "action_error"
+  ) {
+    return `[MAIN]${turnLog.narration?.trim() || "행동 처리에 실패했습니다."}`;
+  }
+
   const sections = [
     "TurnLog",
     `- turnLogId: ${turnLog.turnLogId}`,
@@ -882,6 +904,24 @@ export function useSession(
     }
   }
 
+  async function sendMainCommand(payload: SubmitMainCommandDto): Promise<MainCommandResponseDto | null> {
+    if (!user || !snapshot) return null;
+
+    setError(null);
+    setBusy(true);
+
+    try {
+      return await apiSubmitMainCommand(user, snapshot.session.id, payload, accessToken);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "메인 명령 전송에 실패했습니다.";
+      setError(message);
+      appendLog("socket", "메인 명령 전송 실패", message);
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function sendChatMessage(content: string) {
     if (!user || !snapshot) return;
 
@@ -941,6 +981,7 @@ export function useSession(
     setReadyState,
     startSession,
     leaveSession,
+    sendMainCommand,
     sendAction,
     sendChatMessage,
     loadOlderTurnLogs,

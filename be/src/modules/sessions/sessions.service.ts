@@ -25,11 +25,13 @@ import {
   GmMode,
   HumanGmMessageDto,
   JoinSessionDto,
+  MainCommandTargetType,
   ParticipantRole,
   ParticipantStatusResponseDto,
   PlayerCheckOptionDto,
   PlayerScenarioClueDto,
   PlayerScenarioNodeDto,
+  PlayerVisibleTargetDto,
   PlayerScenarioViewDto,
   RevealSessionContentDto,
   SelectSessionCharacterDto,
@@ -1823,6 +1825,7 @@ export class SessionsService {
     const height = this.clampNumber(map.height, 240, 4000);
     const tokens = map.tokens.slice(0, 80).map((token) => ({
       id: token.id,
+      npcId: token.npcId ?? null,
       sessionCharacterId: token.sessionCharacterId ?? null,
       name: token.name.slice(0, 80),
       imageUrl: token.imageUrl ?? null,
@@ -1978,6 +1981,7 @@ export class SessionsService {
       imageUrl: string | null;
       checkOptionsJson: string;
       cluesJson: string;
+      nodeMetaJson?: string | null;
     },
     revealedClueSnapshots: Map<string, Record<string, unknown>>,
   ): PlayerScenarioNodeDto {
@@ -2000,7 +2004,61 @@ export class SessionsService {
         .filter((clue): clue is Record<string, unknown> => Boolean(clue))
         .map((clue) => this.mapPlayerScenarioClue(clue))
         .filter((clue): clue is PlayerScenarioClueDto => Boolean(clue)),
+      visibleTargets: this.mapPlayerVisibleTargets(node.nodeMetaJson ?? null),
     };
+  }
+
+  private mapPlayerVisibleTargets(nodeMetaJson: string | null): PlayerVisibleTargetDto[] {
+    const nodeMeta = this.parseJson<Record<string, unknown> | null>(nodeMetaJson, null);
+    if (!nodeMeta) {
+      return [];
+    }
+
+    return [
+      ...this.normalizePlayerVisibleTargets(nodeMeta.npcs, MainCommandTargetType.NPC),
+      ...this.normalizePlayerVisibleTargets(nodeMeta.objects, MainCommandTargetType.OBJECT),
+      ...this.normalizePlayerVisibleTargets(nodeMeta.items, MainCommandTargetType.OBJECT),
+      ...this.normalizePlayerVisibleTargets(nodeMeta.areas, MainCommandTargetType.AREA),
+    ];
+  }
+
+  private normalizePlayerVisibleTargets(
+    value: unknown,
+    targetType: MainCommandTargetType,
+  ): PlayerVisibleTargetDto[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return null;
+        }
+        const record = entry as Record<string, unknown>;
+        if (record.isVisible === false) {
+          return null;
+        }
+
+        const id = this.getStringProperty(record, "id");
+        const name =
+          this.getStringProperty(record, "name") ?? this.getStringProperty(record, "title");
+        if (!id || !name) {
+          return null;
+        }
+
+        return {
+          id,
+          name,
+          targetType,
+          summary:
+            this.getStringProperty(record, "shortDescription") ??
+            this.getStringProperty(record, "description") ??
+            this.getStringProperty(record, "summary") ??
+            name,
+        };
+      })
+      .filter((entry): entry is PlayerVisibleTargetDto => Boolean(entry));
   }
 
   private mapPlayerCheckOptions(options: Record<string, unknown>[]): PlayerCheckOptionDto[] {

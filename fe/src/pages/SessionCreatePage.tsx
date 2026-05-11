@@ -58,6 +58,14 @@ export function SessionCreatePage({
 }: SessionCreatePageProps) {
   // 시나리오 데이터를 셀렉트 박스와 프리뷰 카드에서 쓰기 쉬운 형태로 변환합니다.
   const scenarioOptions = useMemo(() => buildSessionScenarioOptions(scenarios), [scenarios]);
+  const presetScenarioOptions = useMemo(
+    () => scenarioOptions.filter((scenarioOption) => scenarioOption.group === 'preset'),
+    [scenarioOptions]
+  );
+  const customScenarioOptions = useMemo(
+    () => scenarioOptions.filter((scenarioOption) => scenarioOption.group === 'scenario'),
+    [scenarioOptions]
+  );
   // 세션 생성 폼에서 사용자가 입력/선택하는 값들입니다.
   const [sessionTitle, setSessionTitle] = useState('');
   const [selectedScenarioKey, setSelectedScenarioKey] = useState('');
@@ -117,11 +125,22 @@ export function SessionCreatePage({
                 value={selectedScenarioKey}
                 onChange={(event) => setSelectedScenarioKey(event.target.value)}
               >
-                {scenarioOptions.map((scenarioOption) => (
-                  <option key={scenarioOption.key} value={scenarioOption.key}>
-                    {scenarioOption.title}
-                  </option>
-                ))}
+                <optgroup label="추천 프리셋">
+                  {presetScenarioOptions.map((scenarioOption) => (
+                    <option key={scenarioOption.key} value={scenarioOption.key}>
+                      {scenarioOption.title}
+                    </option>
+                  ))}
+                </optgroup>
+                {customScenarioOptions.length ? (
+                  <optgroup label="등록된 시나리오">
+                    {customScenarioOptions.map((scenarioOption) => (
+                      <option key={scenarioOption.key} value={scenarioOption.key}>
+                        {scenarioOption.title}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
               </select>
             </div>
 
