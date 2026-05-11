@@ -41,6 +41,12 @@ export class AiNarrationRequestDto {
   @IsString()
   @MaxLength(50)
   sceneTone?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  turnId?: string;
 }
 
 export class AiNarrationParsedDto {
@@ -63,6 +69,12 @@ export class AiNarrationResponseDto {
 
   @ApiProperty()
   traceId!: string;
+
+  @ApiPropertyOptional({ description: "응답이 template fallback인지 여부" })
+  fallback?: boolean;
+
+  @ApiPropertyOptional({ nullable: true, description: "fallback인 경우 사유" })
+  fallbackReason?: string | null;
 }
 
 export type AiHintLevel = "LIGHT" | "NORMAL" | "STRONG";
@@ -145,6 +157,12 @@ export class AiHintResponseDto {
 
   @ApiProperty()
   traceId!: string;
+
+  @ApiPropertyOptional()
+  fallback?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  fallbackReason?: string | null;
 }
 
 export type AiSummaryType = "player_visible" | "ai_context";
@@ -224,6 +242,12 @@ export class AiSummaryResponseDto {
 
   @ApiProperty()
   traceId!: string;
+
+  @ApiPropertyOptional()
+  fallback?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  fallbackReason?: string | null;
 }
 
 export class AiNpcDialogueRequestDto {
@@ -321,6 +345,12 @@ export class AiNpcDialogueResponseDto {
 
   @ApiProperty()
   traceId!: string;
+
+  @ApiPropertyOptional()
+  fallback?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  fallbackReason?: string | null;
 }
 
 export class AiTraceResponseDto {
