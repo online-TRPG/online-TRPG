@@ -22,6 +22,13 @@ class SmokeHarnessRequest(BaseModel):
     model: str | None = None
 
 
+class AvailableTargetDetail(BaseModel):
+    id: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=1, max_length=120)
+    kind: str | None = Field(default=None, max_length=40)
+    summary: str | None = Field(default=None, max_length=500)
+
+
 class InterpreterHarnessRequest(BaseModel):
     sessionId: str | None = Field(default=None, min_length=1, max_length=100)
     turnId: str | None = Field(default=None, min_length=1, max_length=100)
@@ -33,6 +40,15 @@ class InterpreterHarnessRequest(BaseModel):
         max_length=1000,
     )
     availableTargets: list[str] = Field(default_factory=lambda: ["stone-door", "door-handle", "door-gap"])
+    availableTargetDetails: list[AvailableTargetDetail] = Field(default_factory=list, max_length=12)
+    requestIntent: str | None = Field(default=None, max_length=80)
+    screenType: str | None = Field(default=None, max_length=40)
+    targetId: str | None = Field(default=None, max_length=120)
+    targetType: str | None = Field(default=None, max_length=40)
+    itemId: str | None = Field(default=None, max_length=120)
+    spellId: str | None = Field(default=None, max_length=120)
+    mapPoint: dict[str, float] | None = None
+    relatedIntent: str | None = Field(default=None, max_length=80)
     model: str | None = None
 
 

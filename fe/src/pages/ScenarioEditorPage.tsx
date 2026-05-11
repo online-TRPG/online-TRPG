@@ -73,6 +73,18 @@ type ClueForm = {
   gmNotes: string;
 };
 
+type NpcDisposition = 'friendly' | 'neutral' | 'hostile';
+
+type NpcForm = {
+  id: string;
+  name: string;
+  shortDescription: string;
+  description: string;
+  disposition: NpcDisposition;
+  isVisible: boolean;
+  imageUrl: string;
+};
+
 // 에디터 내부에서 쓰는 노드 폼 상태입니다. 스토리/탐색/전투 타입과 연결/단서를 포함합니다.
 type NodeForm = {
   id: string;
@@ -83,6 +95,7 @@ type NodeForm = {
   vttMap: VttMapStateDto | null;
   links: LinkForm[];
   clues: ClueForm[];
+  npcs: NpcForm[];
 };
 
 // 시나리오 전체 폼 상태입니다. 제목/설명/라이선스와 노드 배열을 포함합니다.
@@ -151,6 +164,7 @@ function createBlankNode(title = '새 장면'): NodeForm {
     vttMap: null,
     links: [],
     clues: [],
+    npcs: [],
   };
 }
 
@@ -196,6 +210,18 @@ function createBlankClue(): ClueForm {
   };
 }
 
+function createBlankNpc(): NpcForm {
+  return {
+    id: makeLocalId('npc'),
+    name: '',
+    shortDescription: '',
+    description: '',
+    disposition: 'neutral',
+    isVisible: true,
+    imageUrl: '',
+  };
+}
+
 function createEmptyForm(): ScenarioFormState {
   return {
     title: '',
@@ -225,6 +251,22 @@ function valueAsRevealMode(clue: Record<string, unknown>): RevealMode {
   return mode === 'manual' || mode === 'on_node_visit' || mode === 'conditional'
     ? mode
     : 'conditional';
+}
+
+function valueAsNpcDisposition(value: unknown): NpcDisposition {
+  return value === 'friendly' || value === 'hostile' ? value : 'neutral';
+}
+
+function mapNpc(npc: Record<string, unknown>): NpcForm {
+  return {
+    id: valueAsString(npc.id, makeLocalId('npc')),
+    name: valueAsString(npc.name, valueAsString(npc.title)),
+    shortDescription: valueAsString(npc.shortDescription, valueAsString(npc.summary)),
+    description: valueAsString(npc.description),
+    disposition: valueAsNpcDisposition(npc.disposition),
+    isVisible: npc.isVisible !== false,
+    imageUrl: valueAsString(npc.imageUrl),
+  };
 }
 
 function mapLink(transition: Record<string, unknown>): LinkForm {
@@ -278,16 +320,24 @@ function mapVttMap(value: unknown, nodeId: string): VttMapStateDto | null {
 // API에서 받은 시나리오 상세 데이터를 에디터 폼 상태로 변환합니다.
 function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
   const nodes = scenario.nodes.length
-    ? scenario.nodes.map((node) => ({
-        id: node.id,
-        nodeType: node.nodeType,
-        title: node.title,
-        sceneText: node.sceneText,
-        imageUrl: node.imageUrl ?? '',
-        vttMap: mapVttMap(node.vttMap, node.id),
-        links: node.transitions.map(mapLink),
-        clues: node.clues.map(mapClue),
-      }))
+      ? scenario.nodes.map((node) => ({
+          id: node.id,
+          nodeType: node.nodeType,
+          title: node.title,
+          sceneText: node.sceneText,
+          imageUrl: node.imageUrl ?? '',
+          vttMap: mapVttMap(node.vttMap, node.id),
+          links: node.transitions.map(mapLink),
+          clues: node.clues.map(mapClue),
+          npcs:
+            node.nodeMeta &&
+            typeof node.nodeMeta === 'object' &&
+            Array.isArray((node.nodeMeta as Record<string, unknown>).npcs)
+              ? ((node.nodeMeta as Record<string, unknown>).npcs as Record<string, unknown>[]).map(
+                  mapNpc
+                )
+              : [],
+        }))
     : [createBlankNode('첫 장면')];
 
   return {
@@ -310,6 +360,23 @@ function serializeNodes(nodes: NodeForm[]) {
     sceneText: node.sceneText.trim(),
     imageUrl: node.imageUrl || null,
     vttMap: node.vttMap as unknown as Record<string, unknown> | null,
+    nodeMeta: node.npcs.some(
+      (npc) => npc.name.trim() || npc.shortDescription.trim() || npc.description.trim()
+    )
+      ? {
+          npcs: node.npcs
+            .filter((npc) => npc.name.trim() || npc.shortDescription.trim() || npc.description.trim())
+            .map((npc) => ({
+              id: npc.id,
+              name: npc.name.trim() || npc.shortDescription.trim() || 'NPC',
+              shortDescription: npc.shortDescription.trim() || undefined,
+              description: npc.description.trim() || undefined,
+              disposition: npc.disposition,
+              isVisible: npc.isVisible,
+              imageUrl: npc.imageUrl.trim() || undefined,
+            })),
+        }
+      : null,
     transitions: node.links
       .filter((link) => link.nextNodeId)
       .map((link) => ({
@@ -351,6 +418,55 @@ function buildScenarioPayload(form: ScenarioFormState): CreateScenarioDto & Upda
     startSceneText: nodes[0]?.sceneText,
     nodes,
   };
+}
+
+function syncNpcIntoMap(map: VttMapStateDto | null, npc: NpcForm): VttMapStateDto | null {
+  if (!map) {
+    return map;
+  }
+
+  return {
+    ...map,
+    tokens: map.tokens.map((token) =>
+      token.npcId === npc.id
+        ? {
+            ...token,
+            name: npc.name.trim() || token.name,
+            imageUrl: npc.imageUrl.trim() || null,
+            hidden: !npc.isVisible,
+            isHostile: npc.disposition === 'hostile',
+          }
+        : token
+    ),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function removeNpcFromMap(map: VttMapStateDto | null, npcId: string): VttMapStateDto | null {
+  if (!map) {
+    return map;
+  }
+
+  return {
+    ...map,
+    tokens: map.tokens.filter((token) => token.npcId !== npcId),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function syncNpcsFromMap(npcs: NpcForm[], map: VttMapStateDto): NpcForm[] {
+  return npcs.map((npc) => {
+    const token = map.tokens.find((candidate) => candidate.npcId === npc.id);
+    if (!token) {
+      return npc;
+    }
+
+    return {
+      ...npc,
+      name: token.name || npc.name,
+      imageUrl: token.imageUrl ?? npc.imageUrl,
+    };
+  });
 }
 
 function getRequiredScenarioMessage(payload: CreateScenarioDto & UpdateScenarioDto): string | null {
@@ -1395,6 +1511,7 @@ function NodeDetailEditor({
   function updateNodeMap(nextMap: VttMapStateDto) {
     updateNode(node.id, (current) => ({
       ...current,
+      npcs: syncNpcsFromMap(current.npcs, nextMap),
       vttMap: {
         ...nextMap,
         scenarioNodeId: current.id,
@@ -1408,6 +1525,51 @@ function NodeDetailEditor({
       ...current,
       vttMap: createDefaultNodeMap(current.id),
     }));
+  }
+
+  function placeNpcOnMap(npcId: string) {
+    updateNode(node.id, (current) => {
+      const npc = current.npcs.find((candidate) => candidate.id === npcId);
+      if (!npc) {
+        return current;
+      }
+
+      const baseMap = current.vttMap ?? createDefaultNodeMap(current.id);
+      const existingTokenIndex = baseMap.tokens.filter((token) => token.npcId === npc.id).length;
+      const size = baseMap.gridSize;
+      const positionX = Math.min(
+        Math.max(size * (2 + (existingTokenIndex % 4)), 0),
+        baseMap.width - size
+      );
+      const positionY = Math.min(
+        Math.max(size * (2 + Math.floor(existingTokenIndex / 4)), 0),
+        baseMap.height - size
+      );
+
+      return {
+        ...current,
+        vttMap: {
+          ...baseMap,
+          tokens: [
+            ...baseMap.tokens,
+            {
+              id: `token:npc:${npc.id}:${Date.now()}`,
+              npcId: npc.id,
+              sessionCharacterId: null,
+              name: npc.name.trim() || 'NPC',
+              imageUrl: npc.imageUrl.trim() || null,
+              x: positionX,
+              y: positionY,
+              size,
+              hidden: !npc.isVisible,
+              isHostile: npc.disposition === 'hostile',
+              monster: null,
+            },
+          ],
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    });
   }
 
   function applyMapAsset(asset: ScenarioAsset) {
@@ -1813,7 +1975,12 @@ function NodeDetailEditor({
       </section>
 
       <aside className="scenario-play-sidebar">
-        <ScenarioNodeCollections node={node} nodes={nodes} updateNode={updateNode} />
+        <ScenarioNodeCollections
+          node={node}
+          nodes={nodes}
+          updateNode={updateNode}
+          onPlaceNpc={placeNpcOnMap}
+        />
       </aside>
     </div>
   );
@@ -1933,11 +2100,27 @@ function ScenarioNodeCollections({
   node,
   nodes,
   updateNode,
+  onPlaceNpc,
 }: {
   node: NodeForm;
   nodes: NodeForm[];
   updateNode: (nodeId: string, updater: (node: NodeForm) => NodeForm) => void;
+  onPlaceNpc: (npcId: string) => void;
 }) {
+  function updateNpcAt(index: number, patch: Partial<NpcForm>) {
+    updateNode(node.id, (current) => {
+      const nextNpcs = current.npcs.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...patch } : item
+      );
+      const nextNpc = nextNpcs[index];
+      return {
+        ...current,
+        npcs: nextNpcs,
+        vttMap: nextNpc ? syncNpcIntoMap(current.vttMap, nextNpc) : current.vttMap,
+      };
+    });
+  }
+
   return (
     <div className="scenario-editor-collections">
       <NodeCollection
@@ -2213,6 +2396,101 @@ function ScenarioNodeCollections({
             </button>
           </article>
         ))}
+      </NodeCollection>
+      <NodeCollection
+        title="NPC"
+        actionLabel="NPC 추가"
+        onAdd={() =>
+          updateNode(node.id, (current) => ({
+            ...current,
+            npcs: [...current.npcs, createBlankNpc()],
+          }))
+        }
+      >
+        {node.npcs.map((npc, index) => {
+          const placedTokenCount =
+            node.vttMap?.tokens.filter((token) => token.npcId === npc.id).length ?? 0;
+
+          return (
+            <article className="scenario-editor-item" key={npc.id}>
+              <div className="field-row">
+                <div>
+                  <label>Name</label>
+                  <input
+                    value={npc.name}
+                    onChange={(event) => updateNpcAt(index, { name: event.target.value })}
+                    placeholder="Innkeeper, guard captain, merchant"
+                  />
+                </div>
+                <div>
+                  <label>Disposition</label>
+                  <select
+                    value={npc.disposition}
+                    onChange={(event) =>
+                      updateNpcAt(index, { disposition: event.target.value as NpcDisposition })
+                    }
+                  >
+                    <option value="friendly">Friendly</option>
+                    <option value="neutral">Neutral</option>
+                    <option value="hostile">Hostile</option>
+                  </select>
+                </div>
+              </div>
+
+              <label>Short summary</label>
+              <input
+                value={npc.shortDescription}
+                onChange={(event) => updateNpcAt(index, { shortDescription: event.target.value })}
+                placeholder="Gruff but helpful stable owner"
+              />
+
+              <label>Description</label>
+              <textarea
+                value={npc.description}
+                onChange={(event) => updateNpcAt(index, { description: event.target.value })}
+                rows={3}
+                placeholder="What players can notice or learn about this NPC"
+              />
+
+              <label>Token image URL</label>
+              <input
+                value={npc.imageUrl}
+                onChange={(event) => updateNpcAt(index, { imageUrl: event.target.value })}
+                placeholder="Optional token portrait URL"
+              />
+
+              <div className="vtt-check-row">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={npc.isVisible}
+                    onChange={(event) => updateNpcAt(index, { isVisible: event.target.checked })}
+                  />
+                  Visible to players
+                </label>
+              </div>
+
+              <div className="scenario-map-asset-actions">
+                <button type="button" className="small" onClick={() => onPlaceNpc(npc.id)}>
+                  {placedTokenCount ? `맵에 추가 배치 (${placedTokenCount})` : '맵에 배치'}
+                </button>
+                <button
+                  type="button"
+                  className="ghost small"
+                  onClick={() =>
+                    updateNode(node.id, (current) => ({
+                      ...current,
+                      npcs: current.npcs.filter((_, itemIndex) => itemIndex !== index),
+                      vttMap: removeNpcFromMap(current.vttMap, npc.id),
+                    }))
+                  }
+                >
+                  NPC 삭제
+                </button>
+              </div>
+            </article>
+          );
+        })}
       </NodeCollection>
     </div>
   );

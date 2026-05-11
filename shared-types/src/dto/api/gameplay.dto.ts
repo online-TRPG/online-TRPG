@@ -5,9 +5,11 @@ import {
   IsDateString,
   IsEnum,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
+  ValidateNested,
 } from "class-validator";
 import {
   ActionInputType,
@@ -17,6 +19,11 @@ import {
   CombatEntityType,
   CombatStatus,
   DiceAdvantageState,
+  MainCommandCategory,
+  MainCommandIntent,
+  MainCommandScreenType,
+  MainCommandStatus,
+  MainCommandTargetType,
 } from "../../constants/enums";
 
 export class SubmitActionDto {
@@ -58,6 +65,134 @@ export class ActionAcceptedResponseDto {
 
   @ApiProperty()
   baseStateVersion!: number;
+}
+
+export class MainCommandPointDto {
+  @ApiProperty()
+  @Type(() => Number)
+  @IsNumber()
+  x!: number;
+
+  @ApiProperty()
+  @Type(() => Number)
+  @IsNumber()
+  y!: number;
+}
+
+export class SubmitMainCommandDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  commandId!: string;
+
+  @ApiProperty({ enum: MainCommandScreenType })
+  @IsEnum(MainCommandScreenType)
+  screenType!: MainCommandScreenType;
+
+  @ApiProperty({ enum: MainCommandCategory })
+  @IsEnum(MainCommandCategory)
+  category!: MainCommandCategory;
+
+  @ApiProperty({ enum: MainCommandIntent })
+  @IsEnum(MainCommandIntent)
+  intent!: MainCommandIntent;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  actorId!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  playerText!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  nodeId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  targetId?: string;
+
+  @ApiPropertyOptional({ enum: MainCommandTargetType })
+  @IsOptional()
+  @IsEnum(MainCommandTargetType)
+  targetType?: MainCommandTargetType;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  itemId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  spellId?: string;
+
+  @ApiPropertyOptional({ type: MainCommandPointDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MainCommandPointDto)
+  mapPoint?: MainCommandPointDto;
+
+  @ApiPropertyOptional({ enum: MainCommandIntent })
+  @IsOptional()
+  @IsEnum(MainCommandIntent)
+  relatedIntent?: MainCommandIntent;
+}
+
+export class MainCommandCheckOptionDto {
+  @ApiPropertyOptional()
+  ability?: string;
+
+  @ApiPropertyOptional()
+  skill?: string;
+
+  @ApiProperty()
+  reason!: string;
+}
+
+export class MainCommandActionCandidateDto {
+  @ApiProperty()
+  actorId!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  targetId?: string | null;
+
+  @ApiProperty()
+  actionSummary!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  declaredMethod?: string | null;
+}
+
+export class MainCommandResponseDto {
+  @ApiProperty()
+  requestId!: string;
+
+  @ApiProperty({ enum: MainCommandStatus })
+  status!: MainCommandStatus;
+
+  @ApiProperty()
+  message!: string;
+
+  @ApiPropertyOptional({ type: [MainCommandCheckOptionDto] })
+  checkOptions?: MainCommandCheckOptionDto[];
+
+  @ApiPropertyOptional({ type: MainCommandActionCandidateDto })
+  actionCandidate?: MainCommandActionCandidateDto;
+
+  @ApiPropertyOptional({ type: Object, nullable: true })
+  statePatch?: Record<string, unknown> | null;
 }
 
 export class DiceRollRequestDto {
