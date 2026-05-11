@@ -116,6 +116,26 @@ export class TurnLogsService {
     });
   }
 
+  async attachNarration(turnLogId: string, narration: string): Promise<TurnLogResponseDto | null> {
+    try {
+      const updated = await this.prisma.turnLog.update({
+        where: { id: turnLogId },
+        data: { narration },
+        include: {
+          playerAction: {
+            select: {
+              clientCreatedAt: true,
+              createdAt: true,
+            },
+          },
+        },
+      });
+      return this.mapTurnLog(updated);
+    } catch {
+      return null;
+    }
+  }
+
   private async getNextTurnNumber(sessionId: string): Promise<number> {
     const latest = await this.prisma.turnLog.findFirst({
       where: { sessionId },
