@@ -17,6 +17,7 @@ export interface SessionVisualPreset {
 
 export interface SessionScenarioOption {
   key: string;
+  group: "preset" | "scenario";
   title: string;
   image: string;
   theme: string;
@@ -104,8 +105,6 @@ export function findSessionVisualByTitle(title?: string | null): SessionVisualPr
 }
 
 export function buildSessionScenarioOptions(scenarios: Scenario[]): SessionScenarioOption[] {
-  const matchedScenarioIds = new Set<string>();
-
   const presetOptions = sessionVisualPresets.map((preset) => {
     const matchedScenario = scenarios.find((scenario) => {
       const normalizedTitle = normalizeText(scenario.title);
@@ -115,12 +114,9 @@ export function buildSessionScenarioOptions(scenarios: Scenario[]): SessionScena
       });
     });
 
-    if (matchedScenario) {
-      matchedScenarioIds.add(matchedScenario.id);
-    }
-
     return {
-      key: matchedScenario ? `scenario:${matchedScenario.id}` : `preset:${preset.key}`,
+      key: matchedScenario ? `preset-linked:${matchedScenario.id}:${preset.key}` : `preset:${preset.key}`,
+      group: "preset" as const,
       title: preset.title,
       image: preset.image,
       theme: preset.theme,
@@ -131,21 +127,21 @@ export function buildSessionScenarioOptions(scenarios: Scenario[]): SessionScena
     };
   });
 
-  const extraScenarioOptions = scenarios
-    .filter((scenario) => !matchedScenarioIds.has(scenario.id))
-    .map((scenario, index) => {
-      const fallbackPreset = findSessionVisualByTitle(scenario.title) ?? sessionVisualPresets[index % sessionVisualPresets.length];
-      return {
-        key: `scenario:${scenario.id}`,
-        title: scenario.title,
-        image: fallbackPreset.image,
-        theme: fallbackPreset.theme,
-        difficulty: scenario.difficulty ?? fallbackPreset.difficulty,
-        gmLabel: normalizeGmLabel(fallbackPreset.gmLabel),
-        description: scenario.description ?? fallbackPreset.description,
-        scenarioId: scenario.id,
-      };
-    });
+  const scenarioOptions = scenarios.map((scenario, index) => {
+    const fallbackPreset =
+      findSessionVisualByTitle(scenario.title) ?? sessionVisualPresets[index % sessionVisualPresets.length];
+    return {
+      key: `scenario:${scenario.id}`,
+      group: "scenario" as const,
+      title: scenario.title,
+      image: fallbackPreset.image,
+      theme: fallbackPreset.theme,
+      difficulty: scenario.difficulty ?? fallbackPreset.difficulty,
+      gmLabel: normalizeGmLabel(fallbackPreset.gmLabel),
+      description: scenario.description ?? fallbackPreset.description,
+      scenarioId: scenario.id,
+    };
+  });
 
-  return [...presetOptions, ...extraScenarioOptions];
+  return [...presetOptions, ...scenarioOptions];
 }

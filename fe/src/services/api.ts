@@ -5,6 +5,7 @@ import type {
   CreateScenarioDto,
   GmMode,
   LoginResponseDto,
+  MainCommandResponseDto,
   OAuthUrlResponseDto,
   ScenarioAssetKind,
   ScenarioAssetResponseDto,
@@ -12,6 +13,7 @@ import type {
   ScenarioResponseDto,
   SessionDetailResponseDto,
   SessionSnapshotDto,
+  SubmitMainCommandDto,
   SubmitActionDto,
   TurnLogListResponseDto,
   UpdateScenarioDto,
@@ -41,32 +43,25 @@ import { saveStoredToken } from './storage';
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
 const configuredWsBaseUrl = import.meta.env.VITE_WS_BASE_URL as string | undefined;
 const defaultBase = import.meta.env.PROD ? '' : 'http://localhost:8080';
-const localDevBaseUrls = [
-  'http://localhost:8080',
-  'http://127.0.0.1:8080',
-];
+const localDevBaseUrls = ['http://localhost:8080', 'http://127.0.0.1:8080'];
 const isLocalFrontend =
   import.meta.env.DEV &&
   typeof globalThis.location !== 'undefined' &&
   ['localhost', '127.0.0.1', '::1'].includes(globalThis.location.hostname);
 const preferredBaseUrl = configuredBaseUrl?.replace(/\/$/, '');
-const rawBaseUrl = (preferredBaseUrl || (isLocalFrontend ? localDevBaseUrls[0] : defaultBase)).replace(/\/$/, '');
+const rawBaseUrl = (
+  preferredBaseUrl || (isLocalFrontend ? localDevBaseUrls[0] : defaultBase)
+).replace(/\/$/, '');
 export const API_BASE_URL = rawBaseUrl.endsWith('/api/v1') ? rawBaseUrl : `${rawBaseUrl}/api/v1`;
-const fallbackApiBaseUrls =
-  import.meta.env.PROD
-    ? [API_BASE_URL]
-    : Array.from(
-        new Set(
-          [
-            API_BASE_URL,
-            ...(preferredBaseUrl
-              ? []
-              : localDevBaseUrls.map((url) => `${url}/api/v1`)),
-          ]
-            .filter((url): url is string => Boolean(url))
-            .map((url) => url.replace(/\/$/, '')),
-        ),
-      );
+const fallbackApiBaseUrls = import.meta.env.PROD
+  ? [API_BASE_URL]
+  : Array.from(
+      new Set(
+        [API_BASE_URL, ...(preferredBaseUrl ? [] : localDevBaseUrls.map((url) => `${url}/api/v1`))]
+          .filter((url): url is string => Boolean(url))
+          .map((url) => url.replace(/\/$/, ''))
+      )
+    );
 export const SOCKET_BASE_URL = (
   configuredWsBaseUrl || API_BASE_URL.replace(/\/api\/v1$/, '')
 ).replace(/\/$/, '');
@@ -173,7 +168,7 @@ async function readApiErrorBody(response: Response): Promise<ApiErrorBody | null
 
   try {
     const text = await response.text();
-    return text ? { message: text } as ApiErrorBody : null;
+    return text ? ({ message: text } as ApiErrorBody) : null;
   } catch {
     return null;
   }
@@ -256,7 +251,11 @@ async function fetchAccessTokenReissue(): Promise<AuthTokenResponseDto> {
   }
 
   if (!response) {
-    throw new Error(lastNetworkError instanceof Error ? lastNetworkError.message : 'API 서버에 연결하지 못했습니다.');
+    throw new Error(
+      lastNetworkError instanceof Error
+        ? lastNetworkError.message
+        : 'API 서버에 연결하지 못했습니다.'
+    );
   }
 
   if (!response.ok) {
@@ -310,7 +309,11 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
   }
 
   if (!response) {
-    throw new Error(lastNetworkError instanceof Error ? lastNetworkError.message : 'API 서버에 연결하지 못했습니다.');
+    throw new Error(
+      lastNetworkError instanceof Error
+        ? lastNetworkError.message
+        : 'API 서버에 연결하지 못했습니다.'
+    );
   }
 
   if (!response.ok) {
@@ -691,9 +694,23 @@ export function submitAction(
   user: StoredUser,
   sessionId: string,
   payload: SubmitActionDto,
-  accessToken?: string | null,
+  accessToken?: string | null
 ): Promise<ActionAcceptedResponseDto> {
   return requestJson<ActionAcceptedResponseDto>(`/sessions/${sessionId}/actions`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function submitMainCommand(
+  user: StoredUser,
+  sessionId: string,
+  payload: SubmitMainCommandDto,
+  accessToken?: string | null
+): Promise<MainCommandResponseDto> {
+  return requestJson<MainCommandResponseDto>(`/sessions/${sessionId}/actions/main-command`, {
     method: 'POST',
     user,
     accessToken,
@@ -710,7 +727,7 @@ export function listTurnLogs(
     includeStateDiff?: boolean;
     includeDiceResult?: boolean;
   },
-  accessToken?: string | null,
+  accessToken?: string | null
 ): Promise<TurnLogListResponseDto> {
   const params = new URLSearchParams();
 
@@ -725,7 +742,7 @@ export function listTurnLogs(
     {
       user,
       accessToken,
-    },
+    }
   );
 }
 

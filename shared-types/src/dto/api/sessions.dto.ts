@@ -21,6 +21,7 @@ import {
   ConnectionStatus,
   GamePhase,
   GmMode,
+  MainCommandTargetType,
   ParticipantRole,
   ScenarioNodeType,
   SessionParticipantStatus,
@@ -438,6 +439,20 @@ export class PlayerCheckOptionDto {
   skill?: string;
 }
 
+export class PlayerVisibleTargetDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty({ enum: MainCommandTargetType })
+  targetType!: MainCommandTargetType;
+
+  @ApiProperty()
+  summary!: string;
+}
+
 export class PlayerScenarioNodeDto {
   @ApiProperty()
   id!: string;
@@ -459,6 +474,9 @@ export class PlayerScenarioNodeDto {
 
   @ApiProperty({ type: [PlayerScenarioClueDto] })
   publicClues!: PlayerScenarioClueDto[];
+
+  @ApiProperty({ type: [PlayerVisibleTargetDto] })
+  visibleTargets!: PlayerVisibleTargetDto[];
 }
 
 export class PlayerScenarioViewDto {
@@ -767,6 +785,11 @@ export class VttMapTokenDto {
   @IsString()
   @IsNotEmpty()
   id!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  npcId?: string | null;
 
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
