@@ -80,6 +80,10 @@ function isInviteCodeError(error: string | null): boolean {
   return Boolean(error?.includes("Session with this invite code was not found."));
 }
 
+function isBlockingSessionStatus(status: string | undefined): boolean {
+  return status !== "completed" && status !== "disbanded";
+}
+
 // 페이지 전체에 띄울 에러만 걸러내고 메시지를 정리합니다.
 function getPageErrorMessage(error: string | null): string | null {
   if (!error || isInviteCodeError(error)) return null;
@@ -132,11 +136,7 @@ export function SessionDiscoverPage({
   const [detailError, setDetailError] = useState<string | null>(null);
 
   // 이미 참여 중인 모집 세션이 있으면 다른 모집 세션 참가를 막기 위한 상태입니다.
-  const hasRecruitingSession = snapshot?.session.status === "recruiting";
-  const hasBlockingSession =
-    Boolean(snapshot) &&
-    snapshot?.session.status !== "completed" &&
-    snapshot?.session.status !== "disbanded";
+  const hasBlockingSession = mySessionList.some((item) => isBlockingSessionStatus(item.status));
   const inviteError = getInviteErrorMessage(error);
   const pageError = getPageErrorMessage(error);
   // 내 세션 목록에 있는 sessionId를 Set으로 만들어 참가 여부 확인을 빠르게 합니다.

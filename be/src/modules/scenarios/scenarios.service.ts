@@ -202,6 +202,39 @@ export class ScenariosService {
     return this.createScenarioAsset(userId, scenarioId, dto);
   }
 
+  async deleteScenarioAsset(userId: string, scenarioId: string, assetId: string): Promise<void> {
+    await this.getEditableScenarioEntity(userId, scenarioId);
+
+    let asset;
+    try {
+      asset = await this.prisma.scenarioAsset.findFirst({
+        where: {
+          id: assetId,
+          scenarioId,
+        },
+      });
+    } catch (error) {
+      this.rethrowScenarioAssetStorageError(error);
+    }
+
+    if (!asset) {
+      throw new NotFoundException(`Scenario asset ${assetId} was not found in scenario ${scenarioId}.`);
+    }
+
+    await this.deleteR2Object(asset.storageKey);
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.scenarioAsset.delete({
+          where: { id: asset.id },
+        });
+        await this.clearScenarioAssetReferences(tx, scenarioId, asset.kind, asset.publicUrl);
+      });
+    } catch (error) {
+      this.rethrowScenarioAssetStorageError(error);
+    }
+  }
+
   async uploadScenarioNodeImage(
     userId: string,
     scenarioId: string,
@@ -445,6 +478,142 @@ export class ScenariosService {
     return this.mapScenarioAsset(asset);
   }
 
+  private async clearScenarioAssetReferences(
+    tx: Prisma.TransactionClient,
+    scenarioId: string,
+    assetKind: PrismaScenarioAssetKind,
+    publicUrl: string,
+  ): Promise<void> {
+    const nodes = await tx.scenarioNode.findMany({
+      where: { scenarioId },
+      select: {
+        id: true,
+        imageUrl: true,
+        checkOptionsJson: true,
+      },
+    });
+
+    const nextUpdatedAt = new Date().toISOString();
+
+    await Promise.all(
+      nodes.map(async (node) => {
+        let nextImageUrl = node.imageUrl;
+        let nextConfig = this.parseScenarioNodeConfigForMutation(node.checkOptionsJson);
+        let changed = false;
+
+        if (assetKind === PrismaScenarioAssetKind.SCENE && node.imageUrl === publicUrl) {
+          nextImageUrl = null;
+          changed = true;
+        }
+
+        if (
+          assetKind === PrismaScenarioAssetKind.MAP &&
+          nextConfig.vttMap &&
+          nextConfig.vttMap.imageUrl === publicUrl
+        ) {
+          nextConfig = {
+            ...nextConfig,
+            vttMap: {
+              ...nextConfig.vttMap,
+              imageUrl: null,
+              updatedAt: nextUpdatedAt,
+            },
+          };
+          changed = true;
+        }
+
+        if (assetKind === PrismaScenarioAssetKind.TOKEN && nextConfig.vttMap) {
+          const currentTokens = Array.isArray(nextConfig.vttMap.tokens)
+            ? nextConfig.vttMap.tokens
+            : null;
+          if (currentTokens) {
+            let tokenChanged = false;
+            const nextTokens = currentTokens.map((token) => {
+              if (token.imageUrl === publicUrl) {
+                tokenChanged = true;
+                return {
+                  ...token,
+                  imageUrl: null,
+                };
+              }
+              return token;
+            });
+
+            if (tokenChanged) {
+              nextConfig = {
+                ...nextConfig,
+                vttMap: {
+                  ...nextConfig.vttMap,
+                  tokens: nextTokens,
+                  updatedAt: nextUpdatedAt,
+                },
+              };
+              changed = true;
+            }
+          }
+        }
+
+        if (!changed) {
+          return;
+        }
+
+        await tx.scenarioNode.update({
+          where: { id: node.id },
+          data: {
+            imageUrl: nextImageUrl,
+            checkOptionsJson: JSON.stringify({
+              checks: nextConfig.checks,
+              vttMap: nextConfig.vttMap,
+            }),
+          },
+        });
+      }),
+    );
+  }
+
+  private parseScenarioNodeConfigForMutation(value: string): {
+    checks: Record<string, unknown>[];
+    vttMap: ({
+      imageUrl?: string | null;
+      tokens?: Array<Record<string, unknown> & { imageUrl?: string | null }>;
+    } & Record<string, unknown>) | null;
+  } {
+    let parsed: unknown = [];
+
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      parsed = [];
+    }
+
+    if (Array.isArray(parsed)) {
+      return {
+        checks: parsed.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object"),
+        vttMap: null,
+      };
+    }
+
+    if (parsed && typeof parsed === "object") {
+      const candidate = parsed as Record<string, unknown>;
+      return {
+        checks: Array.isArray(candidate.checks)
+          ? candidate.checks.filter(
+              (item): item is Record<string, unknown> => Boolean(item) && typeof item === "object",
+            )
+          : [],
+        vttMap:
+          candidate.vttMap && typeof candidate.vttMap === "object"
+            ? (candidate.vttMap as {
+                imageUrl?: string | null;
+                tokens?: Array<Record<string, unknown> & { imageUrl?: string | null }>;
+              } & Record<string, unknown>)
+            : null,
+      };
+    }
+
+    return { checks: [], vttMap: null };
+  }
+
   private rethrowScenarioAssetStorageError(error: unknown): never {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -540,6 +709,72 @@ export class ScenariosService {
       storageKey: key,
       publicUrl: `${publicBaseUrl}/${key}`,
     };
+  }
+
+  private async deleteR2Object(storageKey: string): Promise<void> {
+    const accountId = process.env.R2_ACCOUNT_ID;
+    const bucket = process.env.R2_BUCKET_NAME;
+    const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+
+    if (!accountId || !bucket || !accessKeyId || !secretAccessKey) {
+      throw new BadRequestException("R2 삭제 환경변수가 설정되지 않았습니다.");
+    }
+
+    const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+    const url = new URL(`${endpoint}/${bucket}/${storageKey}`);
+    const now = new Date();
+    const amzDate = this.formatAmzDate(now);
+    const dateStamp = amzDate.slice(0, 8);
+    const payloadHash = createHash("sha256").update("").digest("hex");
+    const encodedPath = `/${bucket}/${storageKey.split("/").map(encodeURIComponent).join("/")}`;
+    const canonicalHeaders =
+      `host:${url.host}\n` +
+      `x-amz-content-sha256:${payloadHash}\n` +
+      `x-amz-date:${amzDate}\n`;
+    const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+    const canonicalRequest = [
+      "DELETE",
+      encodedPath,
+      "",
+      canonicalHeaders,
+      signedHeaders,
+      payloadHash,
+    ].join("\n");
+    const credentialScope = `${dateStamp}/auto/s3/aws4_request`;
+    const stringToSign = [
+      "AWS4-HMAC-SHA256",
+      amzDate,
+      credentialScope,
+      createHash("sha256").update(canonicalRequest).digest("hex"),
+    ].join("\n");
+    const signingKey = this.getSignatureKey(secretAccessKey, dateStamp, "auto", "s3");
+    const signature = createHmac("sha256", signingKey).update(stringToSign).digest("hex");
+    const authorization =
+      `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, ` +
+      `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "DELETE",
+        headers: {
+          Authorization: authorization,
+          "x-amz-content-sha256": payloadHash,
+          "x-amz-date": amzDate,
+        },
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "unknown network error";
+      throw new BadGatewayException(`R2 delete request failed before a response was received. ${detail}`);
+    }
+
+    if (response.ok || response.status === 404) {
+      return;
+    }
+
+    const message = await response.text();
+    throw new BadRequestException(`R2 삭제에 실패했습니다. (${response.status}) ${message}`);
   }
 
   private formatAmzDate(date: Date): string {
