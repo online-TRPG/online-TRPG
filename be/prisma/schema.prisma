@@ -205,6 +205,7 @@ model Session {
   maxParticipants   Int                  @default(4)
   ruleSetId         String?
   gmMode            GmMode               @default(AI)
+  captainUserId     String?
   nextSessionAt     DateTime?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt

@@ -134,6 +134,17 @@ export class UpdateSessionDto {
   @IsEnum(SessionVisibility)
   visibility?: SessionVisibility;
 
+  @ApiPropertyOptional({ enum: GmMode })
+  @IsOptional()
+  @IsEnum(GmMode)
+  gmMode?: GmMode;
+
+  @ApiPropertyOptional({ nullable: true, description: "AI GM 모드의 진행 반장(captain). null이면 해제." })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  captainUserId?: string | null;
+
   @ApiPropertyOptional({ deprecated: true })
   @IsOptional()
   @Type(() => Boolean)
