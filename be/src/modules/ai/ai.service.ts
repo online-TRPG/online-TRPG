@@ -23,8 +23,11 @@ import {
   AiTraceResponseDto,
   AiTraceStatus,
 } from "@trpg/shared-types";
+import { randomUUID } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service";
+import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { SessionsService } from "../sessions/sessions.service";
+import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import {
   ActorRequestPayload,
   ActorResponsePayload,
@@ -69,6 +72,8 @@ export class AiService {
     private readonly prisma: PrismaService,
     private readonly sessionsService: SessionsService,
     private readonly aiClient: AiClient,
+    private readonly realtimeEvents: RealtimeEventsService,
+    private readonly turnLogsService: TurnLogsService,
   ) {}
 
   async runNarration(
@@ -84,6 +89,7 @@ export class AiService {
       diceSummary: dto.diceSummary,
       sceneTone: dto.sceneTone ?? "mysterious",
       sessionId,
+      turnId: dto.turnId,
     };
 
     const result = await this.invokeAi({
@@ -92,13 +98,22 @@ export class AiService {
       kind: PrismaAiTraceKind.NARRATION,
       requestPayload,
       call: () => this.aiClient.runNarrator(requestPayload),
+      defaultFactory: (reason) => this.defaultNarratorResponse(reason),
     });
+
+    const narrationText = result.response.parsed.narration;
+    await this.publishNarration(sessionId, narrationText, result.traceId);
+    if (dto.turnId) {
+      await this.updateTurnLogNarration(sessionId, dto.turnId, narrationText);
+    }
 
     return {
       parsed: result.response.parsed,
       model: result.response.model,
       latencyMs: result.response.latencyMs ?? result.elapsedMs,
       traceId: result.traceId ?? "",
+      fallback: result.response.fallback ?? result.isBeFallback,
+      fallbackReason: result.response.fallbackReason ?? null,
     };
   }
 
@@ -127,13 +142,18 @@ export class AiService {
       kind: PrismaAiTraceKind.HINT,
       requestPayload,
       call: () => this.aiClient.runDirector(requestPayload),
+      defaultFactory: (reason) => this.defaultDirectorResponse(reason),
     });
+
+    this.safeEmitSystemMessage(sessionId, "AI_HINT", result.response.parsed.content);
 
     return {
       parsed: result.response.parsed,
       model: result.response.model,
       latencyMs: result.response.latencyMs ?? result.elapsedMs,
       traceId: result.traceId ?? "",
+      fallback: result.response.fallback ?? result.isBeFallback,
+      fallbackReason: result.response.fallbackReason ?? null,
     };
   }
 
@@ -161,13 +181,18 @@ export class AiService {
       kind: PrismaAiTraceKind.SUMMARY,
       requestPayload,
       call: () => this.aiClient.runSummarizer(requestPayload),
+      defaultFactory: (reason) => this.defaultSummarizerResponse(reason),
     });
+
+    this.safeEmitSystemMessage(sessionId, "AI_SUMMARY", result.response.parsed.content);
 
     return {
       parsed: result.response.parsed,
       model: result.response.model,
       latencyMs: result.response.latencyMs ?? result.elapsedMs,
       traceId: result.traceId ?? "",
+      fallback: result.response.fallback ?? result.isBeFallback,
+      fallbackReason: result.response.fallbackReason ?? null,
     };
   }
 
@@ -199,13 +224,26 @@ export class AiService {
       kind: PrismaAiTraceKind.NPC_DIALOGUE,
       requestPayload,
       call: () => this.aiClient.runNpcDialogue(requestPayload),
+      defaultFactory: (reason) => this.defaultNpcDialogueResponse(reason),
     });
+
+    const speakerName = dto.npcName ?? "NPC";
+    const speakerUserId = `ai:npc:${dto.npcEntityId}`;
+    this.safeEmitChatMessage(
+      sessionId,
+      speakerUserId,
+      speakerName,
+      result.response.parsed.dialogue,
+      result.traceId,
+    );
 
     return {
       parsed: result.response.parsed,
       model: result.response.model,
       latencyMs: result.response.latencyMs ?? result.elapsedMs,
       traceId: result.traceId ?? "",
+      fallback: result.response.fallback ?? result.isBeFallback,
+      fallbackReason: result.response.fallbackReason ?? null,
     };
   }
 
@@ -282,11 +320,13 @@ export class AiService {
     kind: PrismaAiTraceKind;
     requestPayload: unknown;
     call: () => Promise<T>;
-  }): Promise<{ response: T; traceId: string | null; elapsedMs: number }> {
+    defaultFactory?: (reason: string) => T;
+  }): Promise<{ response: T; traceId: string | null; elapsedMs: number; isBeFallback: boolean }> {
     const startedAt = Date.now();
     try {
       const response = await params.call();
       const elapsedMs = Date.now() - startedAt;
+      const isAiFallback = response.fallback === true;
       const traceId = await this.persistTrace({
         sessionId: params.sessionId,
         userId: params.userId,
@@ -295,11 +335,38 @@ export class AiService {
         latencyMs: response.latencyMs ?? elapsedMs,
         requestPayload: params.requestPayload,
         responsePayload: response,
+        failureType: isAiFallback ? "ai_template_fallback" : null,
       });
-      return { response, traceId, elapsedMs };
+      if (isAiFallback) {
+        this.logger.warn(
+          `AI returned template fallback: session=${params.sessionId} kind=${params.kind} reason=${response.fallbackReason ?? "n/a"}`,
+        );
+      }
+      return { response, traceId, elapsedMs, isBeFallback: false };
     } catch (error) {
       const elapsedMs = Date.now() - startedAt;
       const isTimeout = error instanceof GatewayTimeoutException;
+      const errorMessage = this.extractErrorMessage(error);
+
+      if (params.defaultFactory) {
+        const defaultResponse = params.defaultFactory(errorMessage);
+        const traceId = await this.persistTrace({
+          sessionId: params.sessionId,
+          userId: params.userId,
+          kind: params.kind,
+          status: PrismaAiTraceStatus.ERROR,
+          latencyMs: elapsedMs,
+          requestPayload: params.requestPayload,
+          responsePayload: defaultResponse,
+          errorMessage,
+          failureType: "be_default_fallback",
+        });
+        this.logger.warn(
+          `AI call failed (${isTimeout ? "timeout" : "upstream_error"}), returning BE default fallback: session=${params.sessionId} kind=${params.kind} msg=${errorMessage}`,
+        );
+        return { response: defaultResponse, traceId, elapsedMs, isBeFallback: true };
+      }
+
       await this.persistTrace({
         sessionId: params.sessionId,
         userId: params.userId,
@@ -307,11 +374,116 @@ export class AiService {
         status: isTimeout ? PrismaAiTraceStatus.TIMEOUT : PrismaAiTraceStatus.ERROR,
         latencyMs: elapsedMs,
         requestPayload: params.requestPayload,
-        errorMessage: this.extractErrorMessage(error),
+        errorMessage,
         failureType: isTimeout ? "timeout" : "upstream_error",
       });
       throw error;
     }
+  }
+
+  private buildBeFallbackTrace(role: string): {
+    provider: string;
+    model: string;
+    latencyMs: number;
+    promptVersion: string;
+    rawOutput: string;
+    finishReason: string | null;
+    providerRequestId: string | null;
+    trace: {
+      role: string;
+      provider: string;
+      model: string;
+      promptVersion: string;
+      latencyMs: number;
+      attempts: number;
+      failureType: string;
+      finishReason: string | null;
+      providerRequestId: string | null;
+    };
+    logPaths: null;
+  } {
+    const provider = "be-default-fallback";
+    const model = "be-default-fallback";
+    const promptVersion = `${role}.fallback.be.v1`;
+    return {
+      provider,
+      model,
+      latencyMs: 0,
+      promptVersion,
+      rawOutput: "",
+      finishReason: null,
+      providerRequestId: null,
+      trace: {
+        role,
+        provider,
+        model,
+        promptVersion,
+        latencyMs: 0,
+        attempts: 0,
+        failureType: "be_default_fallback",
+        finishReason: null,
+        providerRequestId: null,
+      },
+      logPaths: null,
+    };
+  }
+
+  private defaultNarratorResponse(reason: string): NarratorResponsePayload {
+    return {
+      ...this.buildBeFallbackTrace("narrator"),
+      parsed: {
+        narration:
+          "장면이 흐릿하게 이어집니다. (AI 응답을 가져오지 못해 임시 메시지로 대체했습니다.)",
+        visibleSummary: "장면 묘사 보류",
+      },
+      fallback: true,
+      fallbackReason: reason,
+    };
+  }
+
+  private defaultDirectorResponse(reason: string): DirectorResponsePayload {
+    return {
+      ...this.buildBeFallbackTrace("director"),
+      parsed: {
+        hintLevel: "NORMAL",
+        content:
+          "지금은 GM이 잠시 자리를 비웠습니다. 잠시 후 다시 시도해주세요.",
+        sourceScope: "scene",
+        spoilerLevel: "none",
+        suggestions: [],
+        safetyNotes: [],
+      },
+      fallback: true,
+      fallbackReason: reason,
+    };
+  }
+
+  private defaultSummarizerResponse(reason: string): SummarizerResponsePayload {
+    return {
+      ...this.buildBeFallbackTrace("summarizer"),
+      parsed: {
+        summaryType: "player_visible",
+        coveredTurnRange: "",
+        content: "요약을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
+        keyFacts: [],
+        safetyNotes: [],
+      },
+      fallback: true,
+      fallbackReason: reason,
+    };
+  }
+
+  private defaultNpcDialogueResponse(reason: string): NpcDialogueResponsePayload {
+    return {
+      ...this.buildBeFallbackTrace("npc_dialogue"),
+      parsed: {
+        dialogue: "(NPC가 잠시 말이 없습니다.)",
+        tone: "neutral",
+        safetyNotes: [],
+      },
+      fallback: true,
+      fallbackReason: reason,
+    };
   }
 
   private async persistTrace(params: PersistTraceParams): Promise<string | null> {
@@ -349,5 +521,63 @@ export class AiService {
       return error.message;
     }
     return String(error);
+  }
+
+  private async publishNarration(
+    sessionId: string,
+    narration: string,
+    traceId: string | null,
+  ): Promise<void> {
+    this.safeEmitChatMessage(sessionId, "ai:narrator", "Narrator", narration, traceId);
+  }
+
+  private async updateTurnLogNarration(
+    sessionId: string,
+    turnLogId: string,
+    narration: string,
+  ): Promise<void> {
+    try {
+      const updated = await this.turnLogsService.attachNarration(turnLogId, narration);
+      if (updated) {
+        this.realtimeEvents.emitTurnLogCreated(sessionId, updated);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to attach narration to turnLog=${turnLogId}: ${this.extractErrorMessage(error)}`,
+      );
+    }
+  }
+
+  private safeEmitChatMessage(
+    sessionId: string,
+    senderUserId: string,
+    senderDisplayName: string,
+    content: string,
+    traceId: string | null,
+  ): void {
+    try {
+      this.realtimeEvents.emitChatMessage(sessionId, {
+        id: traceId ?? randomUUID(),
+        sessionId,
+        senderUserId,
+        senderDisplayName,
+        content,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to emit chat.message for session=${sessionId}: ${this.extractErrorMessage(error)}`,
+      );
+    }
+  }
+
+  private safeEmitSystemMessage(sessionId: string, code: string, message: string): void {
+    try {
+      this.realtimeEvents.emitSystemMessage(sessionId, code, message);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to emit system.message(${code}) for session=${sessionId}: ${this.extractErrorMessage(error)}`,
+      );
+    }
   }
 }
