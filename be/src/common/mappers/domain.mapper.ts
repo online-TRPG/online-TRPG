@@ -237,7 +237,7 @@ export function mapSession(session: SessionWithRelations): SessionResponseDto {
     description: session.description,
     hostUserId: session.hostUserId,
     ownerUserId: session.hostUserId,
-    captainUserId: null,
+    captainUserId: session.captainUserId,
     gmMode: gmModeMap[session.gmMode],
     gmUserId: session.gmMode === "HUMAN" ? session.hostUserId : null,
     inviteCode: session.inviteCode,

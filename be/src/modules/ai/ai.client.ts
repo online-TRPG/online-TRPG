@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   GatewayTimeoutException,
   Injectable,
+  Logger,
 } from "@nestjs/common";
 
 export interface AiTraceSummary {
@@ -187,6 +188,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 
 @Injectable()
 export class AiClient {
+  private readonly logger = new Logger(AiClient.name);
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
 
@@ -225,6 +227,18 @@ export class AiClient {
   }
 
   private async postJson<T>(path: string, body: unknown): Promise<T> {
+    try {
+      return await this.attemptPostJson<T>(path, body);
+    } catch (error) {
+      if (error instanceof GatewayTimeoutException) {
+        this.logger.warn(`AI request timed out, retrying once: path=${path}`);
+        return await this.attemptPostJson<T>(path, body);
+      }
+      throw error;
+    }
+  }
+
+  private async attemptPostJson<T>(path: string, body: unknown): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
