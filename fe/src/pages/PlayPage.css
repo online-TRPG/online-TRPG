@@ -339,6 +339,7 @@
 
 .character-selection-nav:disabled {
   opacity: 0.34;
+  cursor: default;
 }
 
 .ready-toggle-button {
@@ -414,17 +415,35 @@
   width: 100%;
 }
 
+.session-character-option:disabled {
+  cursor: default;
+}
+
+.session-character-option:disabled .fantasy-character-card-frame,
+.session-character-option:disabled .fantasy-character-card-art,
+.session-character-option:disabled .fantasy-character-card-nameplate {
+  transition: none;
+}
+
 .session-character-option-frame {
   height: 202px;
   padding-bottom: 50px;
 }
 
+.session-character-option .fantasy-character-card-overlay {
+  background: transparent;
+  text-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.42),
+    0 0 18px rgba(255, 248, 230, 0.2);
+}
+
 .character-selection-detail {
+  position: relative;
   display: grid;
   gap: 10px;
-  height: 188px;
-  min-height: 188px;
-  max-height: 188px;
+  height: 278px;
+  min-height: 278px;
+  max-height: 278px;
   padding: 12px 14px;
   border: 1px solid rgba(120, 83, 41, 0.18);
   background: rgba(255, 250, 239, 0.82);
@@ -451,7 +470,28 @@
   gap: 10px;
   min-height: 0;
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 6px 6px 8px 0;
+  scrollbar-width: thin;
+  scrollbar-color: #9b6b3c rgba(236, 223, 194, 0.92);
+}
+
+.character-selection-detail-body::-webkit-scrollbar {
+  width: 12px;
+}
+
+.character-selection-detail-body::-webkit-scrollbar-track {
+  background: rgba(236, 223, 194, 0.92);
+  border-left: 1px solid rgba(120, 83, 41, 0.12);
+}
+
+.character-selection-detail-body::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #b37a46, #8f5f35);
+  border: 2px solid rgba(236, 223, 194, 0.92);
+  border-radius: 999px;
+}
+
+.character-selection-detail-body::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #c3854b, #9a6437);
 }
 
 .character-selection-detail-meta,
