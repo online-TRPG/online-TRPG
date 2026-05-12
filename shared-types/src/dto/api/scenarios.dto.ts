@@ -4,11 +4,14 @@ import {
   IsBase64,
   IsArray,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
   ValidateNested,
 } from "class-validator";
 import {
@@ -70,6 +73,12 @@ export class ScenarioSummaryResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   difficulty!: string | null;
+
+  @ApiProperty({ minimum: 1, maximum: 20 })
+  startLevel!: number;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 20 })
+  recommendedEndLevel!: number | null;
 
   @ApiProperty({ enum: ScenarioLicense })
   @IsEnum(ScenarioLicense)
@@ -289,6 +298,21 @@ export class CreateScenarioDto {
   @MaxLength(50)
   difficulty?: string | null;
 
+  @ApiProperty({ minimum: 1, maximum: 20 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  startLevel!: number;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  recommendedEndLevel?: number | null;
+
   @ApiPropertyOptional({ enum: ScenarioLicense, default: ScenarioLicense.ORIGINAL })
   @IsOptional()
   @IsEnum(ScenarioLicense)
@@ -348,6 +372,22 @@ export class UpdateScenarioDto {
   @IsString()
   @MaxLength(50)
   difficulty?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  startLevel?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  recommendedEndLevel?: number | null;
 
   @ApiPropertyOptional({ enum: ScenarioLicense })
   @IsOptional()

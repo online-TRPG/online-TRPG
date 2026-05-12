@@ -397,6 +397,8 @@ export function mapScenarioSummary(scenario: Scenario): ScenarioSummaryResponseD
     thumbnailUrl: scenario.thumbnailUrl ?? null,
     ruleSetId: scenario.ruleSetId ?? null,
     difficulty: scenario.difficulty ?? null,
+    startLevel: scenario.startLevel,
+    recommendedEndLevel: scenario.recommendedEndLevel ?? null,
     license: scenarioLicenseMap[scenario.license],
     attribution: scenario.attribution ?? null,
     startNodeId: scenario.startNodeId ?? null,
