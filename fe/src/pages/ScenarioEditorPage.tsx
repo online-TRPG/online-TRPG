@@ -1181,7 +1181,7 @@ export function ScenarioEditorPage({
       <section className="session-page-header">
         <div>
           <span className="eyebrow">{isEditMode ? 'Edit scenario' : 'Create scenario'}</span>
-          <h1>{isEditMode ? '시나리오 수정' : '새 자작 시나리오'}</h1>
+          <h1>{isEditMode ? '시나리오 수정' : '새 커스텀 시나리오'}</h1>
           <p>각 장면에서 이어질 장면을 연결하고, 마스터가 사용할 단서와 공개 자료를 계획합니다.</p>
         </div>
         <div className="session-page-actions">
