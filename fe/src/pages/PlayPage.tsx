@@ -19,6 +19,7 @@ import defaultWizardImage from '../assets/images/Profile_Default_Wizard.webp';
 import { BattleMap } from '../components/BattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
+import { ExplorationNodeSurface } from '../features/sessionPlay/components/ExplorationNodeSurface';
 import { StoryNodeSurface } from '../features/sessionPlay/components/StoryNodeSurface';
 import { getClassLabel } from '../services/staticSrd';
 import type { CharacterPayload } from '../hooks/useSession';
@@ -792,6 +793,10 @@ export function PlayPage({
   const revealedClues = playerScenario?.revealedClues ?? [];
   const currentScreenType = getScreenTypeFromNodeType(currentNode?.nodeType);
   const isStoryNode = currentNode?.nodeType === 'story';
+  const isExplorationNode = currentNode?.nodeType === 'exploration';
+  const usesNodeSpecificPartyStrip = Boolean(
+    session && !isRecruiting && (isStoryNode || isExplorationNode)
+  );
   const mainCommandPresets = currentScreenType ? mainCommandPresetsByScreen[currentScreenType] : [];
   const mainCommandCategories = Array.from(
     new Set(mainCommandPresets.map((preset) => preset.categoryLabel))
@@ -834,7 +839,7 @@ export function PlayPage({
   const isStartedScreenReady = Boolean(
     !isRecruiting &&
     (currentNode || activeScenario || scenarioLoadError) &&
-    (isStoryNode || vttMap || mapLoadError || snapshotVttMap)
+    (isStoryNode || isExplorationNode || vttMap || mapLoadError || snapshotVttMap)
   );
 
   // 서버가 알려준 선택 캐릭터가 바뀌면 로컬 선택 상태도 맞춥니다.
@@ -1298,7 +1303,7 @@ export function PlayPage({
   return (
     <main className="session-prep-layout session-prep-layout-tight" style={layoutStyle}>
       <section
-        className={`session-prep-stage${session && !isRecruiting && isStoryNode ? ' story-node-active' : ''}`}
+        className={`session-prep-stage${usesNodeSpecificPartyStrip ? ' node-surface-active' : ''}`}
       >
         <div className={`session-stage-canvas${!isRecruiting ? ' started' : ''}`}>
           {isRecruiting ? (
@@ -1509,6 +1514,20 @@ export function PlayPage({
                   currentUserId={user.id}
                   isGmView={canManageStartedSession}
                 />
+              ) : isExplorationNode ? (
+                <ExplorationNodeSurface
+                  node={currentNode}
+                  scenarioTitle={activeScenario?.scenario.title}
+                  phase={snapshot?.state.phase}
+                  characters={sessionCharacters}
+                  currentUserId={user.id}
+                  isHost={isHost}
+                  isGmView={canManageStartedSession}
+                  map={vttMap}
+                  onMapChange={handleMapChange}
+                  selectedTargetId={selectedMainTargetId}
+                  onSelectTarget={setSelectedMainTargetId}
+                />
               ) : vttMap ? (
                 <BattleMap
                   map={vttMap}
@@ -1589,7 +1608,7 @@ export function PlayPage({
           </div>
         ) : null}
 
-        {session && !isRecruiting && isStoryNode ? null : (
+        {usesNodeSpecificPartyStrip ? null : (
           <section className="participant-strip participant-strip-four-up">
             {displayedParticipants.length
               ? displayedParticipants.map((participant, index) => {
