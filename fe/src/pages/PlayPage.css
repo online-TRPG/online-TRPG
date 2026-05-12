@@ -3259,3 +3259,16 @@
   border-color: rgba(184, 139, 65, 0.28);
   background: #fff5da;
 }
+
+/* 맵 바깥의 진한 검은 프레임은 제거하고, 얇은 밝은 라인으로만 콘텐츠를 구분합니다. */
+.session-prep-layout :is(.combat-map-panel, .exploration-map-panel) {
+  padding: 6px;
+  border: 1px solid rgba(199, 153, 67, 0.42);
+  background: rgba(255, 245, 218, 0.72);
+  box-shadow: 0 6px 14px rgba(43, 27, 10, 0.1);
+}
+
+.session-prep-layout :is(.combat-map-panel, .exploration-map-panel) > .vtt-panel {
+  border: 1px solid rgba(199, 153, 67, 0.22);
+  background: transparent;
+}
