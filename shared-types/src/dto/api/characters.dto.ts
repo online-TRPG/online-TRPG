@@ -117,6 +117,17 @@ export class CreateCharacterDto {
   @IsString()
   scenarioId?: string | null;
 
+  @ApiPropertyOptional({
+    type: [Number],
+    description: "클래스 시작 장비 슬롯별 선택 인덱스. 시드된 className일 때 필수, 슬롯 개수만큼 정확히 보내야 함.",
+    example: [0, 1, 0, 0],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  startingEquipmentSelection?: number[];
+
   @ApiProperty()
   @IsString()
   @IsNotEmpty()

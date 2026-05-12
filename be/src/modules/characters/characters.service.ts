@@ -16,17 +16,20 @@ import {
   CharacterInventoryResponseDto,
   CharacterResponseDto,
   CreateCharacterDto,
+  InventoryItemDto,
   POINT_BUY_COST,
   POINT_BUY_MAX_BASE,
   POINT_BUY_MIN_BASE,
   POINT_BUY_TOTAL,
   RaceAbilityIncreaseDto,
   SessionCharacterResponseDto,
+  StartingEquipmentDto,
   UpdateCharacterDto,
   UpdateCharacterEquipmentDto,
 } from "@trpg/shared-types";
 import { mapCharacter, mapSessionCharacter } from "../../common/mappers/domain.mapper";
 import { PrismaService } from "../../database/prisma.service";
+import { CatalogService } from "../catalog/catalog.service";
 import { RacesService } from "../races/races.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { SessionsService } from "../sessions/sessions.service";
@@ -47,6 +50,7 @@ export class CharactersService {
     private readonly sessionsService: SessionsService,
     private readonly realtimeEvents: RealtimeEventsService,
     private readonly racesService: RacesService,
+    private readonly catalogService: CatalogService,
   ) {}
 
   async createCharacter(userId: string, dto: CreateCharacterDto): Promise<CharacterResponseDto> {
@@ -57,6 +61,12 @@ export class CharactersService {
     const ancestry = dto.ancestry.trim();
     const abilities = dto.abilities ?? defaultAbilityScores;
     await this.validatePointBuyForAncestry(ancestry, abilities);
+    const className = dto.className.trim();
+    const inventoryFromEquipment = await this.resolveStartingEquipment(
+      className,
+      dto.startingEquipmentSelection,
+    );
+    const inventory = inventoryFromEquipment ?? dto.inventory ?? [];
 
     const character = await this.prisma.character.create({
       data: {
@@ -64,7 +74,7 @@ export class CharactersService {
         scenarioId,
         name: dto.name.trim(),
         ancestry,
-        className: dto.className.trim(),
+        className,
         subclassName: dto.subclassName?.trim() ?? null,
         level,
         bio: dto.bio?.trim() ?? null,
@@ -75,7 +85,7 @@ export class CharactersService {
         maxHp: dto.maxHp ?? 10,
         armorClass: dto.armorClass ?? 10,
         speed: dto.speed ?? 30,
-        inventoryJson: JSON.stringify(dto.inventory ?? []),
+        inventoryJson: JSON.stringify(inventory),
         equippedWeaponId: dto.equippedWeaponId ?? null,
         avatarType: this.toAvatarType(dto.avatarType),
         avatarPresetId: dto.avatarPresetId ?? null,
@@ -394,6 +404,56 @@ export class CharactersService {
         `Point Buy: 총 비용 ${totalCost}점이 ${POINT_BUY_TOTAL}점과 일치하지 않습니다.`,
       );
     }
+  }
+
+  // className 이 ClassDefinition 시드에 있으면 시작 장비 강제(슬롯 개수만큼 정확히 1 옵션씩 선택).
+  // 반환값: inventory(시작 장비 아이템 모두). null = 시드에 없음(legacy ancestry/className 케이스)
+  private async resolveStartingEquipment(
+    className: string,
+    selection: number[] | undefined,
+  ): Promise<InventoryItemDto[] | null> {
+    const lower = className.toLowerCase();
+    const klass = await this.catalogService.findClassByKey(lower);
+    if (!klass) {
+      return null;
+    }
+
+    const startingEquipment = JSON.parse(klass.startingEquipmentJson) as StartingEquipmentDto;
+    const slots = startingEquipment.slots;
+
+    if (!Array.isArray(selection) || selection.length !== slots.length) {
+      throw new BadRequestException(
+        `시작 장비: ${slots.length}개 슬롯 모두에 옵션 인덱스를 보내야 합니다. (받은 길이: ${selection?.length ?? 0})`,
+      );
+    }
+
+    const inventory: InventoryItemDto[] = [];
+    for (let slotIndex = 0; slotIndex < slots.length; slotIndex++) {
+      const slot = slots[slotIndex]!;
+      const optionIndex = selection[slotIndex]!;
+      if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= slot.options.length) {
+        throw new BadRequestException(
+          `시작 장비: 슬롯 ${slotIndex} 의 옵션 인덱스 ${optionIndex} 가 유효 범위(0..${slot.options.length - 1})를 벗어났습니다.`,
+        );
+      }
+      const option = slot.options[optionIndex]!;
+      for (const item of option.items) {
+        const catalogItem = await this.prisma.item.findUnique({ where: { key: item.itemKey } });
+        if (!catalogItem) {
+          throw new BadRequestException(
+            `시작 장비: 아이템 시드에 ${item.itemKey} 가 없습니다.`,
+          );
+        }
+        inventory.push({
+          id: `${catalogItem.key}-${slotIndex}-${inventory.length}`,
+          name: catalogItem.koName,
+          quantity: item.quantity,
+          itemDefinitionId: catalogItem.id,
+          itemType: catalogItem.category,
+        });
+      }
+    }
+    return inventory;
   }
 
   // ancestry 입력값은 race.key('elf') 또는 race.koName('엘프') 둘 다 허용.

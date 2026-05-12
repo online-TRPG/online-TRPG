@@ -27,6 +27,7 @@ class AvailableTargetDetail(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     kind: str | None = Field(default=None, max_length=40)
     summary: str | None = Field(default=None, max_length=500)
+    disposition: str | None = Field(default=None, max_length=80)
 
 
 class InterpreterHarnessRequest(BaseModel):
@@ -39,6 +40,7 @@ class InterpreterHarnessRequest(BaseModel):
         min_length=1,
         max_length=1000,
     )
+    recentLogs: list[str] = Field(default_factory=list, max_length=6)
     availableTargets: list[str] = Field(default_factory=lambda: ["stone-door", "door-handle", "door-gap"])
     availableTargetDetails: list[AvailableTargetDetail] = Field(default_factory=list, max_length=12)
     requestIntent: str | None = Field(default=None, max_length=80)

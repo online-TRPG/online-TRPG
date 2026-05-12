@@ -1,11 +1,12 @@
 import { Module } from "@nestjs/common";
+import { CatalogModule } from "../catalog/catalog.module";
 import { RacesModule } from "../races/races.module";
 import { SessionsModule } from "../sessions/sessions.module";
 import { CharactersController } from "./characters.controller";
 import { CharactersService } from "./characters.service";
 
 @Module({
-  imports: [SessionsModule, RacesModule],
+  imports: [SessionsModule, RacesModule, CatalogModule],
   controllers: [CharactersController],
   providers: [CharactersService],
 })
