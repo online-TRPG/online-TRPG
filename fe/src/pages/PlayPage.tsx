@@ -31,6 +31,8 @@ import type {
   SessionSnapshot,
   StoredUser,
 } from '../types/session';
+import { GM_TOKEN_COLOR, getPlayerTokenColor } from '../utils/sessionTokenColors';
+import type { SessionTokenColor } from '../utils/sessionTokenColors';
 import './CharacterPage.css';
 import './PlayPage.css';
 
@@ -591,6 +593,18 @@ function getAvatarLabel(title: string, userName: string) {
   return trimmed.slice(0, 1).toUpperCase();
 }
 
+function buildProfileColorStyle(color: SessionTokenColor): CSSProperties {
+  // 프로필 카드와 채팅 아바타가 같은 색 체계를 쓰도록 CSS 변수만 넘깁니다.
+  return {
+    ['--participant-frame-color' as string]: color.frame,
+    ['--participant-bg-color' as string]: color.background,
+    ['--participant-text-color' as string]: color.text,
+    ['--chat-avatar-frame-color' as string]: color.frame,
+    ['--chat-avatar-bg-color' as string]: color.background,
+    ['--chat-avatar-text-color' as string]: color.text,
+  } as CSSProperties;
+}
+
 function getLogSenderLabel(title: string, rowClass: 'incoming' | 'outgoing' | 'notice') {
   if (rowClass === 'notice') return '세션 로그';
   return title || '알 수 없음';
@@ -1033,6 +1047,14 @@ export function PlayPage({
     return filled;
   }, [participants]);
 
+  const playerParticipantIds = useMemo(
+    () =>
+      participants
+        .filter((participant) => participant.userId !== session?.hostUserId)
+        .map((participant) => participant.userId),
+    [participants, session?.hostUserId]
+  );
+
   useEffect(() => {
     if (!latestRenderedLogId) return;
 
@@ -1214,6 +1236,31 @@ export function PlayPage({
       return session.gmMode === 'HUMAN' ? 'GM' : 'HOST';
     }
     return null;
+  }
+
+  function getParticipantProfileColor(participantUserId: string): SessionTokenColor {
+    if (participantUserId === session?.hostUserId) {
+      return GM_TOKEN_COLOR;
+    }
+
+    const playerIndex = playerParticipantIds.indexOf(participantUserId);
+    return getPlayerTokenColor(playerIndex);
+  }
+
+  function getLogProfileColor(title: string): SessionTokenColor {
+    const matchedParticipant = participants.find((participant) => {
+      if (participant.user.displayName === title) return true;
+
+      const linkedCharacter = sessionCharacters.find(
+        (character) => character.userId === participant.userId
+      );
+      return linkedCharacter?.name === title;
+    });
+
+    // 로그 작성자 이름만 넘어오는 경우가 있어 매칭 실패 시 첫 플레이어 색으로 안전하게 표시합니다.
+    return matchedParticipant
+      ? getParticipantProfileColor(matchedParticipant.userId)
+      : getPlayerTokenColor(0);
   }
 
   const layoutStyle = {
@@ -1597,9 +1644,14 @@ export function PlayPage({
                   const participantImage = linkedCharacter
                     ? getCharacterImage(linkedCharacter)
                     : null;
+                  const profileColor = getParticipantProfileColor(participant.userId);
 
                   return (
-                    <article key={participant.id} className="participant-strip-card">
+                    <article
+                      key={participant.id}
+                      className="participant-strip-card"
+                      style={buildProfileColorStyle(profileColor)}
+                    >
                       {badgeLabel ? (
                         <div className="participant-special-badge">{badgeLabel}</div>
                       ) : null}
@@ -1703,7 +1755,10 @@ export function PlayPage({
                         ) : null}
                         <article className={`chat-thread-row ${log.rowClass}`}>
                           {log.rowClass === 'incoming' ? (
-                            <div className="chat-thread-avatar">
+                            <div
+                              className="chat-thread-avatar"
+                              style={buildProfileColorStyle(getLogProfileColor(log.title))}
+                            >
                               {getAvatarLabel(log.title, user.displayName)}
                             </div>
                           ) : null}
@@ -1724,7 +1779,10 @@ export function PlayPage({
                             ) : null}
                           </div>
                           {log.rowClass === 'outgoing' ? (
-                            <div className="chat-thread-avatar">
+                            <div
+                              className="chat-thread-avatar"
+                              style={buildProfileColorStyle(getLogProfileColor(log.title))}
+                            >
                               {getAvatarLabel(log.title, user.displayName)}
                             </div>
                           ) : null}
