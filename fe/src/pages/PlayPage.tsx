@@ -19,6 +19,7 @@ import defaultWizardImage from '../assets/images/Profile_Default_Wizard.webp';
 import { BattleMap } from '../components/BattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
+import { CombatNodeSurface } from '../features/sessionPlay/components/CombatNodeSurface';
 import { ExplorationNodeSurface } from '../features/sessionPlay/components/ExplorationNodeSurface';
 import { StoryNodeSurface } from '../features/sessionPlay/components/StoryNodeSurface';
 import { getClassLabel } from '../services/staticSrd';
@@ -794,8 +795,9 @@ export function PlayPage({
   const currentScreenType = getScreenTypeFromNodeType(currentNode?.nodeType);
   const isStoryNode = currentNode?.nodeType === 'story';
   const isExplorationNode = currentNode?.nodeType === 'exploration';
+  const isCombatNode = currentNode?.nodeType === 'combat';
   const usesNodeSpecificPartyStrip = Boolean(
-    session && !isRecruiting && (isStoryNode || isExplorationNode)
+    session && !isRecruiting && (isStoryNode || isExplorationNode || isCombatNode)
   );
   const mainCommandPresets = currentScreenType ? mainCommandPresetsByScreen[currentScreenType] : [];
   const mainCommandCategories = Array.from(
@@ -839,7 +841,7 @@ export function PlayPage({
   const isStartedScreenReady = Boolean(
     !isRecruiting &&
     (currentNode || activeScenario || scenarioLoadError) &&
-    (isStoryNode || isExplorationNode || vttMap || mapLoadError || snapshotVttMap)
+    (isStoryNode || isExplorationNode || isCombatNode || vttMap || mapLoadError || snapshotVttMap)
   );
 
   // 서버가 알려준 선택 캐릭터가 바뀌면 로컬 선택 상태도 맞춥니다.
@@ -1516,6 +1518,20 @@ export function PlayPage({
                 />
               ) : isExplorationNode ? (
                 <ExplorationNodeSurface
+                  node={currentNode}
+                  scenarioTitle={activeScenario?.scenario.title}
+                  phase={snapshot?.state.phase}
+                  characters={sessionCharacters}
+                  currentUserId={user.id}
+                  isHost={isHost}
+                  isGmView={canManageStartedSession}
+                  map={vttMap}
+                  onMapChange={handleMapChange}
+                  selectedTargetId={selectedMainTargetId}
+                  onSelectTarget={setSelectedMainTargetId}
+                />
+              ) : isCombatNode ? (
+                <CombatNodeSurface
                   node={currentNode}
                   scenarioTitle={activeScenario?.scenario.title}
                   phase={snapshot?.state.phase}
