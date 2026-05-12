@@ -165,6 +165,7 @@ class InterpreterService:
                 "name": detail.name,
                 "kind": detail.kind,
                 "summary": detail.summary,
+                "disposition": detail.disposition,
             }
             for detail in request.availableTargetDetails
         ]
@@ -177,6 +178,7 @@ class InterpreterService:
             f"- requestIntent: {request.requestIntent}\n"
             f"- screenType: {request.screenType}\n"
             f"- sceneSummary: {request.sceneSummary}\n"
+            f"- recentLogs: {json.dumps(request.recentLogs, ensure_ascii=False)}\n"
             f"- availableTargets: {targets}\n"
             f"- selectedTargetId: {request.targetId}\n"
             f"- selectedTargetType: {request.targetType}\n"
