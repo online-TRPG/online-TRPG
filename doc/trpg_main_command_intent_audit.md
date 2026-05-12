@@ -21,39 +21,39 @@ PlayPage Main 탭
 | intent | 프론트 추가 입력 | 백엔드 처리 | AI 역할 | 반환 형태 |
 |---|---|---|---|---|
 | `TALK_TO_NPC` | 공개 NPC target 선택 | `handleNpcDialogue` + NPC 가시성 검증 | `NpcDialogue` | `MESSAGE` |
-| `SOCIAL_PERSUADE` | 공개 NPC target 선택 | `handleInterpreterCommand` + target 검증 | `Interpreter` | `CHECK_REQUIRED` / `GM_APPROVAL_REQUIRED` / `MESSAGE` |
-| `SOCIAL_INTIMIDATE` | 공개 NPC target 선택 | `handleInterpreterCommand` + target 검증 | `Interpreter` | `CHECK_REQUIRED` / `GM_APPROVAL_REQUIRED` / `MESSAGE` |
-| `SOCIAL_DECEIVE` | 공개 NPC target 선택 | `handleInterpreterCommand` + target 검증 | `Interpreter` | `CHECK_REQUIRED` / `GM_APPROVAL_REQUIRED` / `MESSAGE` |
-| `READ_EMOTION` | 공개 NPC target 선택 | `handleInterpreterCommand` + target 검증 | `Interpreter` | `CHECK_REQUIRED` / `MESSAGE` |
+| `SOCIAL_PERSUADE` | 공개 NPC target 선택 | `handleSocialPersuade` + target 검증 | `Interpreter` | `CHECK_REQUIRED` / `GM_APPROVAL_REQUIRED` / `IMPOSSIBLE` |
+| `SOCIAL_INTIMIDATE` | 공개 NPC target 선택 | `handleSocialIntimidate` + target 검증 | `Interpreter` | `CHECK_REQUIRED` / `GM_APPROVAL_REQUIRED` / `IMPOSSIBLE` |
+| `SOCIAL_DECEIVE` | 공개 NPC target 선택 | `handleSocialDeceive` + target 검증 | `Interpreter` | `CHECK_REQUIRED` / `GM_APPROVAL_REQUIRED` / `IMPOSSIBLE` |
+| `READ_EMOTION` | 공개 NPC target 선택 | `handleReadEmotion` + target 검증 + recentLogs 전달 | `Interpreter` | `CHECK_REQUIRED` / `IMPOSSIBLE` / `MESSAGE` |
 | `ASK_SCENE_INFO` | 선택 target 가능 | `handleSceneInfo` | 없음 | `MESSAGE` |
-| `INSPECT_STORY_OBJECT` | 공개 OBJECT target 선택 | `handleInterpreterCommand` + target 검증 | `Interpreter` | `CHECK_REQUIRED` / `MESSAGE` |
-| `DECLARE_RP_ACTION` | 없음 | `handleInterpreterCommand` | `Interpreter` | `GM_APPROVAL_REQUIRED` / `MESSAGE` |
+| `INSPECT_STORY_OBJECT` | 공개 OBJECT target 선택 | `handleInspectStoryObject` + target 검증 | `Interpreter` | `CHECK_REQUIRED` / `MESSAGE` / `IMPOSSIBLE` |
+| `DECLARE_RP_ACTION` | 없음 | `handleDeclareRpAction` + recentLogs 전달 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `MESSAGE` |
 | `ASK_HINT` | 없음 | `handleHint` | `Director` | `MESSAGE` |
 | `ASK_SUMMARY` | 없음 | `handleSummary` | `Summarizer` | `MESSAGE` |
 | `REQUEST_SCENE_TRANSITION` | 목적지 문장 또는 targetId | `handleSceneTransition` | 없음 | `GM_APPROVAL_REQUIRED` / `RESOLVED` / `IMPOSSIBLE` |
-| `OBSERVE_AREA` | 없음 | `handleInterpreterCommand` | `Interpreter` | `CHECK_REQUIRED` / `MESSAGE` |
-| `INVESTIGATE_OBJECT` | 공개 target 또는 mapPoint | `handleInterpreterCommand` + target/map 검증 | `Interpreter` | `CHECK_REQUIRED` / `GM_APPROVAL_REQUIRED` / `MESSAGE` |
-| `LISTEN` | 없음 | `handleInterpreterCommand` | `Interpreter` | `CHECK_REQUIRED` / `MESSAGE` |
-| `DETECT_DANGER` | 공개 target 또는 mapPoint | `handleInterpreterCommand` + target/map 검증 | `Interpreter` | `CHECK_REQUIRED` / `MESSAGE` |
-| `SPECIAL_MOVE` | mapPoint | `handleInterpreterCommand` + 좌표 검증 | `Interpreter` | `CHECK_REQUIRED` / `MESSAGE` |
-| `INTERACT_OBJECT` | 공개 OBJECT target 선택 | `handleInterpreterCommand` + target 검증 | `Interpreter` | `ACTION_READY` / `CHECK_REQUIRED` |
-| `USE_TOOL` | 아이템 선택, target/map 선택 가능 | `handleInterpreterCommand` + 아이템 보유 검증 | `Interpreter` | `ACTION_READY` / `CHECK_REQUIRED` |
-| `USE_ITEM_EXPLORE` | 아이템 선택, target/map 선택 가능 | `handleInterpreterCommand` + 아이템 보유 검증 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` |
-| `SPLIT_PARTY_TASK` | 없음 | `handleInterpreterCommand` | `Interpreter` | `GM_APPROVAL_REQUIRED` / `MESSAGE` |
+| `OBSERVE_AREA` | 없음 또는 mapPoint | `handleObserveArea` | `Interpreter` | `CHECK_REQUIRED` / `MESSAGE` |
+| `INVESTIGATE_OBJECT` | 공개 target 또는 mapPoint | `handleInvestigateObject` + target/map 검증 | `Interpreter` | `CHECK_REQUIRED` / `GM_APPROVAL_REQUIRED` / `MESSAGE` / `IMPOSSIBLE` |
+| `LISTEN` | 선택 target 또는 mapPoint | `handleListen` + recentLogs 전달 | `Interpreter` | `CHECK_REQUIRED` / `MESSAGE` |
+| `DETECT_DANGER` | 공개 target 또는 mapPoint | `handleDetectDanger` + target/map 검증 + recentLogs 전달 | `Interpreter` | `CHECK_REQUIRED` / `MESSAGE` |
+| `SPECIAL_MOVE` | mapPoint | `handleSpecialMove` + 좌표 검증 | `Interpreter` | `CHECK_REQUIRED` / `MESSAGE` |
+| `INTERACT_OBJECT` | 공개 OBJECT target 선택 | `handleInteractObject` + OBJECT target 검증 | `Interpreter` | `ACTION_READY` / `CHECK_REQUIRED` / `GM_APPROVAL_REQUIRED` / `IMPOSSIBLE` |
+| `USE_TOOL` | 아이템 선택, target/map 선택 가능 | `handleUseTool` + 아이템 보유 검증 + target/map 해석 | `Interpreter` | `ACTION_READY` / `CHECK_REQUIRED` / `GM_APPROVAL_REQUIRED` / `MESSAGE` |
+| `USE_ITEM_EXPLORE` | 아이템 선택, target/map 선택 가능 | `handleUseItemExplore` + 아이템 보유 검증 + target/map 해석 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` / `MESSAGE` |
+| `SPLIT_PARTY_TASK` | 없음 | `handleSplitPartyTask` + recentLogs 전달 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `MESSAGE` |
 
 ## 전투
 
 | intent | 프론트 추가 입력 | 백엔드 처리 | AI 역할 | 반환 형태 |
 |---|---|---|---|---|
-| `COMBAT_MANEUVER` | 없음 | `handleInterpreterCommand` | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` |
-| `ENVIRONMENT_USE` | 공개 target 또는 mapPoint | `handleInterpreterCommand` + target/map 검증 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` |
-| `IMPROVISED_ATTACK` | 공개 target 선택 | `handleInterpreterCommand` + target 검증 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` |
-| `CALLED_SHOT` | 공개 target 선택 | `handleInterpreterCommand` + target 검증 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` |
-| `READY_ACTION` | 없음 | `handleInterpreterCommand` | `Interpreter` | `GM_APPROVAL_REQUIRED` / `MESSAGE` |
-| `REACTION_REQUEST` | 없음 | `handleInterpreterCommand` | `Interpreter` | `GM_APPROVAL_REQUIRED` / `MESSAGE` |
+| `COMBAT_MANEUVER` | 없음 | `handleCombatManeuver` + recentLogs 전달 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` / `MESSAGE` |
+| `ENVIRONMENT_USE` | 공개 target 또는 mapPoint | `handleEnvironmentUse` + target/map 검증 + recentLogs 전달 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` / `MESSAGE` |
+| `IMPROVISED_ATTACK` | 공개 target 선택 | `handleImprovisedAttack` + target 검증 + recentLogs 전달 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` / `MESSAGE` / `IMPOSSIBLE` |
+| `CALLED_SHOT` | 공개 target 선택 | `handleCalledShot` + target 검증 + recentLogs 전달 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` / `MESSAGE` / `IMPOSSIBLE` |
+| `READY_ACTION` | 없음 | `handleReadyAction` + recentLogs 전달 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `MESSAGE` |
+| `REACTION_REQUEST` | 없음 | `handleReactionRequest` + recentLogs 전달 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `MESSAGE` |
 | `COMBAT_TALK` | 공개 NPC target 선택 | `handleCombatTalk` 선판별 후 필요 시 `handleNpcDialogue` | `Interpreter` + `NpcDialogue` | `CHECK_REQUIRED` / `MESSAGE` |
-| `USE_ITEM_COMBAT` | 아이템 선택, target/map 선택 가능 | `handleInterpreterCommand` + 아이템 보유 검증 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` |
-| `USE_SPELL_CREATIVELY` | 주문 ID/이름, target/map 선택 가능 | `handleInterpreterCommand` + 주문 입력 검증 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` |
+| `USE_ITEM_COMBAT` | 아이템 선택, target/map 선택 가능 | `handleUseItemCombat` + 아이템 보유 검증 + target/map 해석 + recentLogs 전달 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` / `MESSAGE` |
+| `USE_SPELL_CREATIVELY` | 주문 ID/이름, target/map 선택 가능 | `handleUseSpellCreatively` + 주문 입력 검증 + target/map 해석 + recentLogs 전달 | `Interpreter` | `GM_APPROVAL_REQUIRED` / `CHECK_REQUIRED` / `MESSAGE` |
 | `TACTIC_QUERY` | 없음 | `handleTacticQuery` | `Director` | `MESSAGE` |
 | `ASK_RULE` | 관련 intent 선택 가능 | `handleRuleQuery` + rule fragment 조회 | `Interpreter` | `MESSAGE` |
 | `ASK_HINT` | 없음 | `handleHint` | `Director` | `MESSAGE` |
