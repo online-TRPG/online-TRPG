@@ -1,0 +1,1 @@
+{"name":"verify-sp-fighter","ancestry":"human","className":"Fighter","abilities":{"str":16,"dex":16,"con":16,"int":9,"wis":9,"cha":9},"startingEquipmentSelection":[0,0,0,0],"startingSpells":{"cantrips":["bogus"],"spells":[]}}

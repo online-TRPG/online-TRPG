@@ -28,6 +28,8 @@ export class CatalogService {
       koName: c.koName,
       hitDie: c.hitDie,
       startingEquipment: JSON.parse(c.startingEquipmentJson) as StartingEquipmentDto,
+      startingCantripCount: c.startingCantripCount,
+      startingSpellCount: c.startingSpellCount,
     }));
   }
 

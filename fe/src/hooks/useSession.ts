@@ -55,6 +55,7 @@ export interface CharacterPayload {
   avatarUrl?: string | null;
   scenarioId?: string | null;
   startingEquipmentSelection?: number[];
+  startingSpells?: { cantrips: string[]; spells: string[] };
   level?: number;
   abilities?: {
     str: number;

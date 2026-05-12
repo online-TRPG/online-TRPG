@@ -290,6 +290,8 @@ model ClassDefinition {
   koName                String
   hitDie                String
   startingEquipmentJson String
+  startingCantripCount  Int      @default(0)
+  startingSpellCount    Int      @default(0)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }
@@ -312,6 +314,7 @@ model Character {
   armorClass             Int
   speed                  Int
   inventoryJson          String
+  spellsJson             String?
   equippedWeaponId       String?
   avatarType             CharacterAvatarType @default(DEFAULT)
   avatarPresetId         String?

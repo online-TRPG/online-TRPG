@@ -85,6 +85,7 @@ interface CharacterMutationPayload {
   avatarUrl?: string | null;
   scenarioId?: string | null;
   startingEquipmentSelection?: number[];
+  startingSpells?: { cantrips: string[]; spells: string[] };
   level?: number;
   abilities?: {
     str: number;
@@ -810,6 +811,7 @@ export function createCharacter(
       avatarUrl: payload.avatarUrl,
       scenarioId: payload.scenarioId,
       startingEquipmentSelection: payload.startingEquipmentSelection,
+      startingSpells: payload.startingSpells,
       level: payload.level,
       abilities: payload.abilities,
       proficiencyBonus: payload.proficiencyBonus,
