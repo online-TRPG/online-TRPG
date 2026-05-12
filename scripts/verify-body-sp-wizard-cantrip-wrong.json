@@ -1,0 +1,1 @@
+{"name":"verify-sp-wizard-cantrip-wrong","ancestry":"human","className":"Wizard","abilities":{"str":16,"dex":16,"con":16,"int":9,"wis":9,"cha":9},"startingEquipmentSelection":[0,0,0,0],"startingSpells":{"cantrips":["light","ray-of-frost"],"spells":["magic-missile","shield","mage-armor","burning-hands","sleep","detect-magic"]}}

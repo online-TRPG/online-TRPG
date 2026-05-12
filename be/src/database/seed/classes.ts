@@ -19,6 +19,23 @@ interface ClassDefinitionSeed {
   startingEquipment: { slots: StartingEquipmentSlot[] };
 }
 
+// 1레벨 시점 시작 캔트립/주문 수 (룰북 ai/translated/classes/*.md 추출)
+// druid/cleric/paladin은 준비 주문이 매일 동적이라 startingSpellCount=0
+const spellCounts: Record<string, { cantrips: number; spells: number }> = {
+  barbarian: { cantrips: 0, spells: 0 },
+  bard: { cantrips: 2, spells: 4 },
+  cleric: { cantrips: 3, spells: 0 },
+  druid: { cantrips: 2, spells: 0 },
+  fighter: { cantrips: 0, spells: 0 },
+  monk: { cantrips: 0, spells: 0 },
+  paladin: { cantrips: 0, spells: 0 },
+  ranger: { cantrips: 0, spells: 0 },
+  rogue: { cantrips: 0, spells: 0 },
+  sorcerer: { cantrips: 4, spells: 2 },
+  warlock: { cantrips: 2, spells: 2 },
+  wizard: { cantrips: 3, spells: 6 },
+};
+
 const classSeeds: ClassDefinitionSeed[] = [
   {
     key: "barbarian", koName: "바바리안", hitDie: "d12",
@@ -130,18 +147,23 @@ const classSeeds: ClassDefinitionSeed[] = [
 
 export async function seedClasses(prisma: PrismaClient): Promise<void> {
   for (const c of classSeeds) {
+    const counts = spellCounts[c.key] ?? { cantrips: 0, spells: 0 };
     await prisma.classDefinition.upsert({
       where: { key: c.key },
       update: {
         koName: c.koName,
         hitDie: c.hitDie,
         startingEquipmentJson: JSON.stringify(c.startingEquipment),
+        startingCantripCount: counts.cantrips,
+        startingSpellCount: counts.spells,
       },
       create: {
         key: c.key,
         koName: c.koName,
         hitDie: c.hitDie,
         startingEquipmentJson: JSON.stringify(c.startingEquipment),
+        startingCantripCount: counts.cantrips,
+        startingSpellCount: counts.spells,
       },
     });
   }

@@ -24,6 +24,7 @@ import {
   RaceAbilityIncreaseDto,
   SessionCharacterResponseDto,
   StartingEquipmentDto,
+  StartingSpellsDto,
   UpdateCharacterDto,
   UpdateCharacterEquipmentDto,
 } from "@trpg/shared-types";
@@ -67,6 +68,7 @@ export class CharactersService {
       dto.startingEquipmentSelection,
     );
     const inventory = inventoryFromEquipment ?? dto.inventory ?? [];
+    const spellsJsonValue = await this.resolveStartingSpells(className, dto.startingSpells);
 
     const character = await this.prisma.character.create({
       data: {
@@ -86,6 +88,7 @@ export class CharactersService {
         armorClass: dto.armorClass ?? 10,
         speed: dto.speed ?? 30,
         inventoryJson: JSON.stringify(inventory),
+        spellsJson: spellsJsonValue,
         equippedWeaponId: dto.equippedWeaponId ?? null,
         avatarType: this.toAvatarType(dto.avatarType),
         avatarPresetId: dto.avatarPresetId ?? null,
@@ -241,6 +244,7 @@ export class CharactersService {
         armorClass: source.armorClass,
         speed: source.speed,
         inventoryJson: source.inventoryJson,
+        spellsJson: source.spellsJson,
         equippedWeaponId: source.equippedWeaponId,
         bio: source.bio,
         avatarType: source.avatarType,
@@ -404,6 +408,47 @@ export class CharactersService {
         `Point Buy: 총 비용 ${totalCost}점이 ${POINT_BUY_TOTAL}점과 일치하지 않습니다.`,
       );
     }
+  }
+
+  // className 이 ClassDefinition 시드에 있고 startingCantripCount/startingSpellCount > 0 면 시작 주문 강제.
+  // - cantrips.length === startingCantripCount, spells.length === startingSpellCount
+  // 반환값: spellsJson 에 저장할 문자열(또는 null = 마법 없는 클래스/legacy)
+  private async resolveStartingSpells(
+    className: string,
+    startingSpells: StartingSpellsDto | undefined,
+  ): Promise<string | null> {
+    const klass = await this.catalogService.findClassByKey(className.toLowerCase());
+    if (!klass) return null;
+
+    const needCantrips = klass.startingCantripCount;
+    const needSpells = klass.startingSpellCount;
+
+    if (needCantrips === 0 && needSpells === 0) {
+      return null;
+    }
+
+    if (!startingSpells || !Array.isArray(startingSpells.cantrips) || !Array.isArray(startingSpells.spells)) {
+      throw new BadRequestException(
+        `시작 주문: ${klass.koName} 은(는) 캔트립 ${needCantrips}개 + 주문 ${needSpells}개를 지정해야 합니다.`,
+      );
+    }
+
+    if (startingSpells.cantrips.length !== needCantrips) {
+      throw new BadRequestException(
+        `시작 주문: 캔트립 ${startingSpells.cantrips.length}개가 ${klass.koName} 요구치 ${needCantrips}개와 일치하지 않습니다.`,
+      );
+    }
+
+    if (startingSpells.spells.length !== needSpells) {
+      throw new BadRequestException(
+        `시작 주문: 주문 ${startingSpells.spells.length}개가 ${klass.koName} 요구치 ${needSpells}개와 일치하지 않습니다.`,
+      );
+    }
+
+    return JSON.stringify({
+      cantrips: startingSpells.cantrips.map((s) => s.trim()).filter((s) => s.length > 0),
+      spells: startingSpells.spells.map((s) => s.trim()).filter((s) => s.length > 0),
+    });
   }
 
   // className 이 ClassDefinition 시드에 있으면 시작 장비 강제(슬롯 개수만큼 정확히 1 옵션씩 선택).
