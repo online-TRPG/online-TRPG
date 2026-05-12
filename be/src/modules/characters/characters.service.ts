@@ -11,16 +11,23 @@ import {
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
 import {
+  AbilityScoresDto,
   CharacterAvatarType,
   CharacterInventoryResponseDto,
   CharacterResponseDto,
   CreateCharacterDto,
+  POINT_BUY_COST,
+  POINT_BUY_MAX_BASE,
+  POINT_BUY_MIN_BASE,
+  POINT_BUY_TOTAL,
+  RaceAbilityIncreaseDto,
   SessionCharacterResponseDto,
   UpdateCharacterDto,
   UpdateCharacterEquipmentDto,
 } from "@trpg/shared-types";
 import { mapCharacter, mapSessionCharacter } from "../../common/mappers/domain.mapper";
 import { PrismaService } from "../../database/prisma.service";
+import { RacesService } from "../races/races.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { SessionsService } from "../sessions/sessions.service";
 
@@ -39,6 +46,7 @@ export class CharactersService {
     private readonly prisma: PrismaService,
     private readonly sessionsService: SessionsService,
     private readonly realtimeEvents: RealtimeEventsService,
+    private readonly racesService: RacesService,
   ) {}
 
   async createCharacter(userId: string, dto: CreateCharacterDto): Promise<CharacterResponseDto> {
@@ -46,18 +54,21 @@ export class CharactersService {
 
     const level = dto.level ?? 1;
     const scenarioId = await this.resolveScenarioForLevel(dto.scenarioId ?? null, level);
+    const ancestry = dto.ancestry.trim();
+    const abilities = dto.abilities ?? defaultAbilityScores;
+    await this.validatePointBuyForAncestry(ancestry, abilities);
 
     const character = await this.prisma.character.create({
       data: {
         ownerUserId: userId,
         scenarioId,
         name: dto.name.trim(),
-        ancestry: dto.ancestry.trim(),
+        ancestry,
         className: dto.className.trim(),
         subclassName: dto.subclassName?.trim() ?? null,
         level,
         bio: dto.bio?.trim() ?? null,
-        abilitiesJson: JSON.stringify(dto.abilities ?? defaultAbilityScores),
+        abilitiesJson: JSON.stringify(abilities),
         proficiencyBonus: dto.proficiencyBonus ?? 2,
         featuresJson: JSON.stringify(dto.features ?? []),
         proficientSkillsJson: JSON.stringify(dto.proficientSkills ?? []),
@@ -344,6 +355,56 @@ export class CharactersService {
     }
 
     return scenario.id;
+  }
+
+  // ancestry(종족 키 또는 이름)에 해당하는 Race row 가 있으면 Point Buy 규칙 강제.
+  // 시드에 없는 ancestry(예: 'Unknown' 또는 legacy 자유 입력)는 검증 skip — 기존 캐릭터 호환.
+  private async validatePointBuyForAncestry(
+    ancestry: string,
+    abilities: AbilityScoresDto,
+  ): Promise<void> {
+    const race = await this.findRaceForAncestry(ancestry);
+    if (!race) {
+      return;
+    }
+
+    const increases = JSON.parse(race.abilityIncreasesJson) as RaceAbilityIncreaseDto;
+    const finalScores: Record<keyof AbilityScoresDto, number> = {
+      str: abilities.str,
+      dex: abilities.dex,
+      con: abilities.con,
+      int: abilities.int,
+      wis: abilities.wis,
+      cha: abilities.cha,
+    };
+
+    let totalCost = 0;
+    for (const key of ["str", "dex", "con", "int", "wis", "cha"] as const) {
+      const base = finalScores[key] - (increases[key] ?? 0);
+      if (!Number.isInteger(base) || base < POINT_BUY_MIN_BASE || base > POINT_BUY_MAX_BASE) {
+        throw new BadRequestException(
+          `Point Buy: ${key.toUpperCase()} 기본 능력치(${base})가 허용 범위(${POINT_BUY_MIN_BASE}~${POINT_BUY_MAX_BASE})를 벗어났습니다. (종족 보정 ${increases[key] ?? 0} 차감 후 값)`,
+        );
+      }
+      totalCost += POINT_BUY_COST[base] ?? 0;
+    }
+
+    if (totalCost !== POINT_BUY_TOTAL) {
+      throw new BadRequestException(
+        `Point Buy: 총 비용 ${totalCost}점이 ${POINT_BUY_TOTAL}점과 일치하지 않습니다.`,
+      );
+    }
+  }
+
+  // ancestry 입력값은 race.key('elf') 또는 race.koName('엘프') 둘 다 허용.
+  private async findRaceForAncestry(ancestry: string) {
+    const trimmed = ancestry.trim();
+    if (!trimmed) return null;
+
+    const byKey = await this.racesService.findByKey(trimmed.toLowerCase());
+    if (byKey) return byKey;
+
+    return this.prisma.race.findFirst({ where: { koName: trimmed } });
   }
 
   private toAvatarType(value?: CharacterAvatarType): PrismaCharacterAvatarType {
