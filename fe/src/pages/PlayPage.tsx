@@ -195,6 +195,10 @@ const mainCommandFieldConfigByIntent: Partial<
     targetTypes: [MainCommandTargetTypeValues.OBJECT, MainCommandTargetTypeValues.AREA],
     allowsMapPoint: true,
   },
+  [MainCommandIntentValues.LISTEN]: {
+    targetTypes: [MainCommandTargetTypeValues.OBJECT, MainCommandTargetTypeValues.AREA],
+    allowsMapPoint: true,
+  },
   [MainCommandIntentValues.DETECT_DANGER]: {
     targetTypes: [MainCommandTargetTypeValues.OBJECT, MainCommandTargetTypeValues.AREA],
     allowsMapPoint: true,
