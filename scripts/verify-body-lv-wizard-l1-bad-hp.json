@@ -1,0 +1,1 @@
+{"name":"verify-lv-wizard-l1-bad-hp","ancestry":"human","className":"Wizard","level":1,"abilities":{"str":9,"dex":11,"con":14,"int":16,"wis":13,"cha":15},"startingEquipmentSelection":[0,0,0,0],"startingSpells":{"cantrips":["a","b","c"],"spells":["1","2","3","4","5","6"]},"proficiencyBonus":2,"maxHp":100}
