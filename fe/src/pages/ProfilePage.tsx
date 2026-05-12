@@ -15,7 +15,7 @@ import defaultWizardImage from "../assets/images/Profile_Default_Wizard.webp";
 import boxBulletinImage from "../components/Box_Bulletin_Rectangle.webp";
 import profileBorderCharacter from "../components/Profile_Border_Character.webp";
 import type { AuthMode } from "../types/auth";
-import { formatDate, useCurrentProfile } from "../hooks/useCurrentProfile";
+import { useCurrentProfile } from "../hooks/useCurrentProfile";
 import { listMyCharacters, listMySessions } from "../services/api";
 import { getClassLabel } from "../services/staticSrd";
 import type { AvailableSessionListItem, PersistentCharacter, StoredUser, User } from "../types/session";
@@ -46,7 +46,7 @@ export function ProfilePage({
   onUpdateNickname,
 }: ProfilePageProps) {
   // 현재 로그인 방식에 따라 표시할 프로필 데이터를 계산합니다.
-  const { effectiveProfile, loadingProfile, profileError, mutateProfile } = useCurrentProfile({
+  const { effectiveProfile, profileError, mutateProfile } = useCurrentProfile({
     user,
     accessToken,
     authMode,
@@ -139,13 +139,6 @@ export function ProfilePage({
     }
   }
 
-  // 닉네임과 무관한 부가 프로필 정보만 반복 출력해 이름 계열 필드가 중복 노출되지 않게 합니다.
-  const profileRows = [
-    { label: "프로필 주소", value: buildPublicProfilePath(effectiveProfile) },
-    { label: "대표 상태", value: authMode === "guest" ? "게스트 프로필" : "회원 프로필" },
-    { label: "가입일", value: formatDate(effectiveProfile.createdAt) },
-  ];
-
   const recentCharacters = useMemo(() => {
     return [...myCharacters]
       .sort((left, right) => {
@@ -184,14 +177,43 @@ export function ProfilePage({
           <span className="eyebrow">Profile</span>
           <div className="profile-hero-header">
             <div className="avatar avatar-xl">{nickname.slice(0, 1)}</div>
-            <div>
-              <h1>{nickname}</h1>
+            <div className="profile-hero-copy">
+              {editing ? (
+                <form className="profile-hero-edit-form" onSubmit={submitEdit}>
+                  <input
+                    type="text"
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    minLength={2}
+                    maxLength={10}
+                    autoFocus
+                    disabled={saving}
+                    aria-label="닉네임 입력"
+                  />
+                  <button type="submit" className="primary" disabled={saving}>
+                    {saving ? "저장 중" : "저장"}
+                  </button>
+                  <button type="button" className="ghost" onClick={cancelEditing} disabled={saving}>
+                    취소
+                  </button>
+                </form>
+              ) : (
+                <div className="profile-hero-title-row">
+                  <h1>{nickname}</h1>
+                  {canEditNickname ? (
+                    <button type="button" className="ghost profile-hero-nickname-button" onClick={startEditing}>
+                      변경
+                    </button>
+                  ) : null}
+                </div>
+              )}
               <p>{authMode === "guest" ? "게스트 세션" : "공개 프로필"}</p>
               <div className="profile-hero-meta">
                 <span>{authMode === "guest" ? "게스트 프로필" : "회원 프로필"}</span>
                 <span>가입일 {formatCompactDate(effectiveProfile.createdAt)}</span>
                 <span>{buildPublicProfilePath(effectiveProfile)}</span>
               </div>
+              {editError ? <p className="panel-error profile-hero-edit-error">{editError}</p> : null}
             </div>
           </div>
         </div>
@@ -207,7 +229,7 @@ export function ProfilePage({
       </section>
 
       <section className="profile-showcase-grid">
-        <article className="profile-card profile-framed-card">
+        <article className="profile-card profile-framed-card profile-characters-card">
           <div className="section-heading">
             <div>
               <span className="eyebrow">Characters</span>
@@ -247,98 +269,44 @@ export function ProfilePage({
           )}
         </article>
 
-        <article className="profile-card profile-framed-card">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">Activity</span>
-              <h2>활동 요약</h2>
+        <article className="profile-card profile-framed-card profile-activity-card">
+          <div className="profile-activity-stage">
+            <div className="section-heading profile-activity-heading">
+              <div>
+                <span className="eyebrow">Activity</span>
+                <h2>활동 요약</h2>
+              </div>
+            </div>
+
+            <div className="profile-stat-grid profile-activity-stat-grid">
+              {statRows.map((row) => (
+                <div key={row.label} className="profile-stat-card">
+                  <span>{row.label}</span>
+                  <strong>{row.value}</strong>
+                </div>
+              ))}
+            </div>
+
+            <div className="profile-session-list profile-activity-session-list">
+              <strong>최근 세션</strong>
+              {loadingActivity ? (
+                <p className="profile-muted-text">세션 목록을 불러오는 중입니다.</p>
+              ) : recentSessionRows.length > 0 ? (
+                <div className="profile-session-items">
+                  {recentSessionRows.map((session) => (
+                    <div key={session.sessionId} className="profile-session-item">
+                      <strong>{session.title}</strong>
+                      <span>
+                        {session.scenarioTitle} · {session.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="profile-muted-text">아직 참여한 세션이 없습니다.</p>
+              )}
             </div>
           </div>
-
-          <div className="profile-stat-grid">
-            {statRows.map((row) => (
-              <div key={row.label} className="profile-stat-card">
-                <span>{row.label}</span>
-                <strong>{row.value}</strong>
-              </div>
-            ))}
-          </div>
-
-          <div className="profile-session-list">
-            <strong>최근 세션</strong>
-            {loadingActivity ? (
-              <p className="profile-muted-text">세션 목록을 불러오는 중입니다.</p>
-            ) : recentSessionRows.length > 0 ? (
-              <div className="profile-session-items">
-                {recentSessionRows.map((session) => (
-                  <div key={session.sessionId} className="profile-session-item">
-                    <strong>{session.title}</strong>
-                    <span>
-                      {session.scenarioTitle} · {session.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="profile-muted-text">아직 참여한 세션이 없습니다.</p>
-            )}
-          </div>
-        </article>
-      </section>
-
-      <section className="profile-grid profile-grid-compact">
-        <article className="profile-card profile-framed-card">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">Identity</span>
-              <h2>기본 정보</h2>
-            </div>
-          </div>
-
-          <dl className="profile-kv-grid">
-            {/* 사용자에게 보이는 이름은 닉네임 하나로 통일하고, 변경 기능도 이 화면에서만 제공합니다. */}
-            <div className="profile-kv-item">
-              <dt>닉네임</dt>
-              <dd>
-                {editing ? (
-                  <form className="profile-inline-edit" onSubmit={submitEdit}>
-                    <input
-                      type="text"
-                      value={draft}
-                      onChange={(event) => setDraft(event.target.value)}
-                      minLength={2}
-                      maxLength={10}
-                      autoFocus
-                      disabled={saving}
-                      aria-label="닉네임 입력"
-                    />
-                    <button type="submit" className="primary" disabled={saving}>
-                      {saving ? "저장 중" : "저장"}
-                    </button>
-                    <button type="button" className="ghost" onClick={cancelEditing} disabled={saving}>
-                      취소
-                    </button>
-                  </form>
-                ) : (
-                  <div className="profile-inline-edit">
-                    <span>{nickname}</span>
-                    {canEditNickname ? (
-                      <button type="button" className="ghost" onClick={startEditing}>
-                        변경
-                      </button>
-                    ) : null}
-                  </div>
-                )}
-                {editError ? <p className="panel-error">{editError}</p> : null}
-              </dd>
-            </div>
-            {profileRows.map((row) => (
-              <div key={row.label} className="profile-kv-item">
-                <dt>{row.label}</dt>
-                <dd>{row.value}</dd>
-              </div>
-            ))}
-          </dl>
         </article>
       </section>
 
