@@ -7,7 +7,10 @@ import type {
   VttMapStateDto,
 } from '@trpg/shared-types';
 import { BattleMap } from '../../../components/BattleMap';
-import { getClassLabel } from '../../../services/staticSrd';
+import {
+  getCharacterClassLabel,
+  getCharacterImage,
+} from '../utils/characterVisuals';
 import './CombatNodeSurface.css';
 
 type CombatActionTab = 'basic' | 'ability' | 'item';
@@ -132,7 +135,7 @@ export function CombatNodeSurface({
               >
                 <span>{index + 1}</span>
                 <strong>{character.name}</strong>
-                <small>{getClassLabel(character.className)}</small>
+                <small>{getCharacterClassLabel(character.className)}</small>
               </article>
             ))
           ) : (
@@ -149,10 +152,13 @@ export function CombatNodeSurface({
               characters.map((character) => {
                 const hpPercent = getHpPercent(character);
                 const isMine = character.userId === currentUserId;
+                const characterImage = getCharacterImage(character);
 
                 return (
                   <article key={character.id} className={`combat-party-card${isMine ? ' mine' : ''}`}>
-                    <div className="combat-party-avatar">{character.name.slice(0, 1)}</div>
+                    <div className="combat-party-avatar">
+                      <img src={characterImage} alt={character.name} />
+                    </div>
                     <div className="combat-party-body">
                       <strong>{character.name}</strong>
                       <span>AC {character.armorClass} / HP {character.currentHp}</span>

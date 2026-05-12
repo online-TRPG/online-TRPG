@@ -121,9 +121,16 @@
   height: 36px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   background: #d7e1e8;
   color: #223244;
   font-weight: 900;
+}
+
+.exploration-party-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .exploration-party-body {
