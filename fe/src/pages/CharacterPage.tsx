@@ -31,13 +31,23 @@ import {
 } from '../services/staticSrd';
 import type { CharacterPayload } from '../hooks/useSession';
 import type { PersistentCharacter, Scenario, SessionSnapshot, StoredUser } from '../types/session';
+import type { RaceResponseDto } from '@trpg/shared-types';
 import './CharacterPage.css';
+
+// shared-types(CJS) value import 가 rollup 추적 실패 케이스라(메모) inline 동일값.
+const POINT_BUY_TOTAL = 27;
+const POINT_BUY_MIN_BASE = 8;
+const POINT_BUY_MAX_BASE = 15;
+const POINT_BUY_COST: Readonly<Record<number, number>> = {
+  8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9,
+};
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface CharacterPageProps {
   user: StoredUser;
   characters: PersistentCharacter[];
   scenarios: Scenario[];
+  races: RaceResponseDto[];
   snapshot: SessionSnapshot | null;
   busy: boolean;
   error: string | null;
@@ -374,18 +384,21 @@ function applyLevelDeltaAbilities(
 function createDefaultCharacter(): CharacterPayload {
   const defaultClassName: ClassName = 'Wizard';
   const recommendedStats = getRecommendedStats(defaultClassName, 1);
-  const recommendedAbilities = getRecommendedAbilities(defaultClassName, 1);
+
+  // Point Buy 출발 상태: 모든 base = 8 (cost 0). 사용자가 +로 27포인트 채움.
+  // ancestry 가 빈 값(=종족 미선택)이므로 race bonus 없음.
+  const baseEightAbilities = { str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8 };
 
   return {
     name: '',
-    ancestry: defaultAncestry,
+    ancestry: '',
     className: defaultClassName,
     avatarType: 'PRESET',
     avatarPresetId: 'preset_wizard',
     avatarUrl: null,
     scenarioId: null,
     level: 1,
-    abilities: recommendedAbilities,
+    abilities: baseEightAbilities,
     proficiencyBonus: recommendedStats.proficiencyBonus,
     proficientSkills: [],
     maxHp: recommendedStats.maxHp,
@@ -492,6 +505,7 @@ function localizeAbilityText(value: string) {
 export function CharacterPage({
   characters,
   scenarios,
+  races,
   snapshot,
   busy,
   error,
@@ -514,6 +528,77 @@ export function CharacterPage({
   const [formState, setFormState] = useState<CharacterPayload>(() => createDefaultCharacter());
   // 인벤토리 편집 영역 DOM 참조입니다. 필요 시 스크롤/포커스 제어에 씁니다.
   const inventoryEditorRef = useRef<HTMLDivElement | null>(null);
+
+  // ancestry → race(시드)룩업. ancestry 가 race.key 또는 race.koName 와 매칭되면 보정 적용.
+  const selectedRace = useMemo<RaceResponseDto | null>(() => {
+    const ancestry = (formState.ancestry ?? '').trim();
+    if (!ancestry) return null;
+    const lower = ancestry.toLowerCase();
+    return (
+      races.find((r) => r.key === lower) ??
+      races.find((r) => r.koName === ancestry) ??
+      null
+    );
+  }, [formState.ancestry, races]);
+
+  // Point Buy 계산 결과(base/cost/총비용/남은 포인트). selectedRace 없으면 검증 비활성화.
+  const pointBuyState = useMemo(() => {
+    const finals = formState.abilities ?? {
+      str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10,
+    };
+    const increases = selectedRace?.abilityIncreases ?? {
+      str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0,
+    };
+    const bases = {
+      str: finals.str - increases.str,
+      dex: finals.dex - increases.dex,
+      con: finals.con - increases.con,
+      int: finals.int - increases.int,
+      wis: finals.wis - increases.wis,
+      cha: finals.cha - increases.cha,
+    };
+    const costs = {
+      str: POINT_BUY_COST[bases.str] ?? null,
+      dex: POINT_BUY_COST[bases.dex] ?? null,
+      con: POINT_BUY_COST[bases.con] ?? null,
+      int: POINT_BUY_COST[bases.int] ?? null,
+      wis: POINT_BUY_COST[bases.wis] ?? null,
+      cha: POINT_BUY_COST[bases.cha] ?? null,
+    };
+    const totalCost = (Object.values(costs) as Array<number | null>).reduce<number>(
+      (sum, c) => sum + (c ?? 0),
+      0,
+    );
+    const hasInvalid = Object.values(costs).some((c) => c === null);
+    return {
+      bases,
+      costs,
+      totalCost,
+      remaining: POINT_BUY_TOTAL - totalCost,
+      isValid: !hasInvalid && totalCost === POINT_BUY_TOTAL,
+      enforced: Boolean(selectedRace),
+    };
+  }, [formState.abilities, selectedRace]);
+
+  // base(8~15) 를 1 증가시키면 final = base+1+bonus 로 갱신. 비용 한도 + 상/하한 검증.
+  function adjustAbilityBase(ability: AbilityKey, delta: 1 | -1): void {
+    setFormState((current) => {
+      const currentFinal = current.abilities?.[ability] ?? 10;
+      const bonus = selectedRace?.abilityIncreases[ability] ?? 0;
+      const currentBase = currentFinal - bonus;
+      const nextBase = currentBase + delta;
+      if (nextBase < POINT_BUY_MIN_BASE || nextBase > POINT_BUY_MAX_BASE) {
+        return current;
+      }
+      const currentAbilities = current.abilities ?? {
+        str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10,
+      };
+      return {
+        ...current,
+        abilities: { ...currentAbilities, [ability]: nextBase + bonus },
+      };
+    });
+  }
 
   useEffect(() => {
     let ignore = false;
@@ -1113,16 +1198,56 @@ export function CharacterPage({
                       <select
                         id="character-ancestry-create"
                         value={formState.ancestry}
-                        onChange={(event) =>
-                          setFormState((current) => ({ ...current, ancestry: event.target.value }))
-                        }
+                        onChange={(event) => {
+                          const nextAncestry = event.target.value;
+                          const nextRace = races.find(
+                            (r) => r.key === nextAncestry.toLowerCase() || r.koName === nextAncestry,
+                          );
+                          const currentRace = races.find(
+                            (r) =>
+                              r.key === (formState.ancestry ?? '').toLowerCase() ||
+                              r.koName === formState.ancestry,
+                          );
+                          setFormState((current) => {
+                            const currentFinals = current.abilities ?? {
+                              str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10,
+                            };
+                            const currentBonus = currentRace?.abilityIncreases ?? {
+                              str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0,
+                            };
+                            const nextBonus = nextRace?.abilityIncreases ?? {
+                              str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0,
+                            };
+                            const nextAbilities = {
+                              str: currentFinals.str - currentBonus.str + nextBonus.str,
+                              dex: currentFinals.dex - currentBonus.dex + nextBonus.dex,
+                              con: currentFinals.con - currentBonus.con + nextBonus.con,
+                              int: currentFinals.int - currentBonus.int + nextBonus.int,
+                              wis: currentFinals.wis - currentBonus.wis + nextBonus.wis,
+                              cha: currentFinals.cha - currentBonus.cha + nextBonus.cha,
+                            };
+                            return { ...current, ancestry: nextAncestry, abilities: nextAbilities };
+                          });
+                        }}
                         required
                       >
-                        {ancestryOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
+                        <option value="" disabled>
+                          {races.length === 0 ? '종족 로딩 중…' : '종족을 선택하세요'}
+                        </option>
+                        {races
+                          .filter((r) => !r.parentRaceId)
+                          .map((race) => (
+                            <option key={race.id} value={race.key}>
+                              {race.koName}
+                            </option>
+                          ))}
+                        {races
+                          .filter((r) => r.parentRaceId)
+                          .map((race) => (
+                            <option key={race.id} value={race.key}>
+                              └ {race.koName}
+                            </option>
+                          ))}
                       </select>
                     </div>
                     <div>
@@ -1137,11 +1262,8 @@ export function CharacterPage({
                               className,
                               current.level ?? 1
                             );
-                            const recommendedAbilities = getRecommendedAbilities(
-                              className,
-                              current.level ?? 1,
-                              current.abilities
-                            );
+                            // Point Buy 도입 후: 클래스 변경해도 abilities 는 사용자가 배분한 값 유지.
+                            // HP/AC/이동속도/숙련 보너스만 클래스 변경에 따라 재계산.
                             return {
                               ...current,
                               className,
@@ -1152,7 +1274,6 @@ export function CharacterPage({
                               armorClass: recommendedStats.armorClass,
                               speed: recommendedStats.speed,
                               proficiencyBonus: recommendedStats.proficiencyBonus,
-                              abilities: recommendedAbilities,
                             };
                           })
                         }
@@ -1247,31 +1368,88 @@ export function CharacterPage({
                   <div className="section-heading compact">
                     <div>
                       <span className="eyebrow">능력치</span>
-                      <h2>능력치</h2>
+                      <h2>능력치 (Point Buy 27)</h2>
                     </div>
+                    {pointBuyState.enforced ? (
+                      <div style={{ fontSize: '0.9rem' }}>
+                        남은 포인트: <strong style={{ color: pointBuyState.isValid ? 'inherit' : '#d04040' }}>
+                          {pointBuyState.remaining}
+                        </strong>{' '}
+                        / {POINT_BUY_TOTAL}
+                        {!pointBuyState.isValid && (
+                          <span style={{ marginLeft: 8, color: '#d04040' }}>
+                            ({pointBuyState.totalCost > POINT_BUY_TOTAL ? '초과' : '미달'})
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '0.85rem', opacity: 0.7 }}>
+                        종족 미선택 시 Point Buy 검증 비활성
+                      </div>
+                    )}
                   </div>
 
                   <div className="field-row field-row-3">
-                    {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => (
-                      <div key={ability}>
-                        <label htmlFor={`character-${ability}`}>
-                          {abilityDisplayLabels[ability]}
-                        </label>
-                        <input
-                          id={`character-${ability}`}
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={formState.abilities?.[ability] ?? 10}
-                          onChange={(event) =>
-                            updateAbility(
-                              ability,
-                              normalizeIntegerValue(Number(event.target.value), 1)
-                            )
-                          }
-                        />
-                      </div>
-                    ))}
+                    {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => {
+                      const base = pointBuyState.bases[ability];
+                      const bonus = selectedRace?.abilityIncreases[ability] ?? 0;
+                      const finalScore = formState.abilities?.[ability] ?? 10;
+                      const cost = pointBuyState.costs[ability];
+                      const canDec = pointBuyState.enforced && base > POINT_BUY_MIN_BASE;
+                      const canInc = pointBuyState.enforced && base < POINT_BUY_MAX_BASE;
+                      return (
+                        <div key={ability}>
+                          <label htmlFor={`character-${ability}`}>
+                            {abilityDisplayLabels[ability]}
+                            {bonus > 0 && (
+                              <span style={{ marginLeft: 6, color: '#3a7' }}>(+{bonus} 종족)</span>
+                            )}
+                          </label>
+                          {pointBuyState.enforced ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <button
+                                type="button"
+                                onClick={() => adjustAbilityBase(ability, -1)}
+                                disabled={!canDec}
+                                aria-label={`${abilityDisplayLabels[ability]} 감소`}
+                              >
+                                −
+                              </button>
+                              <div style={{ minWidth: 90, textAlign: 'center' }}>
+                                <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
+                                  base {base} → {finalScore}
+                                </div>
+                                <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>
+                                  비용 {cost ?? '?'}p
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => adjustAbilityBase(ability, 1)}
+                                disabled={!canInc}
+                                aria-label={`${abilityDisplayLabels[ability]} 증가`}
+                              >
+                                +
+                              </button>
+                            </div>
+                          ) : (
+                            <input
+                              id={`character-${ability}`}
+                              type="number"
+                              min={1}
+                              step={1}
+                              value={finalScore}
+                              onChange={(event) =>
+                                updateAbility(
+                                  ability,
+                                  normalizeIntegerValue(Number(event.target.value), 1)
+                                )
+                              }
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </section>
 

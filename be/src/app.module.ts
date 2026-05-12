@@ -7,6 +7,7 @@ import { ActionsModule } from "./modules/actions/actions.module";
 import { AiModule } from "./modules/ai/ai.module";
 import { CharactersModule } from "./modules/characters/characters.module";
 import { CombatModule } from "./modules/combat/combat.module";
+import { RacesModule } from "./modules/races/races.module";
 import { RealtimeModule } from "./modules/realtime/realtime.module";
 import { RulesModule } from "./modules/rules/rules.module";
 import { ScenariosModule } from "./modules/scenarios/scenarios.module";
@@ -26,6 +27,7 @@ import { UsersModule } from "./modules/users/users.module";
     RealtimeModule,
     SessionsModule,
     CharactersModule,
+    RacesModule,
     RulesModule,
     TurnLogsModule,
     ActionsModule,
