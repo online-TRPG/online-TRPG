@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "./prisma.service";
 import { seedDefaultScenario } from "./seed/default-scenario";
+import { seedItems } from "./seed/items";
 
 @Injectable()
 export class DatabaseSeedService implements OnModuleInit {
@@ -11,5 +12,6 @@ export class DatabaseSeedService implements OnModuleInit {
     // 개발자가 별도 데이터를 먼저 넣지 않아도
     // 세션 생성 API를 바로 호출해 전체 흐름을 확인할 수 있게 하려는 목적이다.
     await seedDefaultScenario(this.prisma);
+    await seedItems(this.prisma);
   }
 }
