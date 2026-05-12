@@ -368,6 +368,8 @@ model Scenario {
   thumbnailUrl     String?
   ruleSetId        String?
   difficulty       String?
+  startLevel          Int              @default(1)
+  recommendedEndLevel Int?
   license          ScenarioLicense
   attribution      String?
   startNodeId      String?

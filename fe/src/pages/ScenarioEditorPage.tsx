@@ -104,6 +104,8 @@ type ScenarioFormState = {
   description: string;
   ruleSetId: string;
   difficulty: string;
+  startLevel: number | null;
+  recommendedEndLevel: number | null;
   license: ScenarioLicense;
   attribution: string;
   nodes: NodeForm[];
@@ -228,6 +230,8 @@ function createEmptyForm(): ScenarioFormState {
     description: '',
     ruleSetId: 'dnd5e',
     difficulty: 'easy',
+    startLevel: 1,
+    recommendedEndLevel: null,
     license: 'original' as ScenarioLicense,
     attribution: '',
     nodes: [createBlankNode('첫 장면')],
@@ -236,6 +240,27 @@ function createEmptyForm(): ScenarioFormState {
 
 function valueAsString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
+}
+
+function valueAsScenarioLevel(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    return null;
+  }
+
+  return value >= 1 && value <= 20 ? value : null;
+}
+
+function scenarioLevelFromInput(value: string): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const level = Number(value);
+  if (!Number.isInteger(level)) {
+    return null;
+  }
+
+  return Math.min(20, Math.max(1, level));
 }
 
 function valueAsImportance(value: unknown): ClueForm['importance'] {
@@ -345,6 +370,8 @@ function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
     description: scenario.description ?? '',
     ruleSetId: scenario.ruleSetId ?? 'dnd5e',
     difficulty: scenario.difficulty ?? '',
+    startLevel: valueAsScenarioLevel(scenario.startLevel),
+    recommendedEndLevel: valueAsScenarioLevel(scenario.recommendedEndLevel),
     license: scenario.license,
     attribution: scenario.attribution ?? '',
     nodes,
@@ -412,6 +439,8 @@ function buildScenarioPayload(form: ScenarioFormState): CreateScenarioDto & Upda
     description: form.description || null,
     ruleSetId: form.ruleSetId || null,
     difficulty: form.difficulty || null,
+    startLevel: form.startLevel as number,
+    recommendedEndLevel: form.recommendedEndLevel,
     license: form.license,
     attribution: form.attribution || null,
     startNodeTitle: nodes[0]?.title,
@@ -472,6 +501,18 @@ function syncNpcsFromMap(npcs: NpcForm[], map: VttMapStateDto): NpcForm[] {
 function getRequiredScenarioMessage(payload: CreateScenarioDto & UpdateScenarioDto): string | null {
   if (!payload.title) {
     return '자동 저장 대기: 시나리오 제목을 입력해 주세요.';
+  }
+
+  if (!payload.startLevel) {
+    return '자동 저장 대기: 시작 레벨을 입력해 주세요.';
+  }
+
+  if (
+    payload.startLevel &&
+    payload.recommendedEndLevel &&
+    payload.recommendedEndLevel < payload.startLevel
+  ) {
+    return 'Recommended end level must be greater than or equal to start level.';
   }
 
   const invalidNode = payload.nodes?.find((node) => !node.title || !node.sceneText);
@@ -1150,6 +1191,22 @@ export function ScenarioEditorPage({
         return;
       }
 
+      if (!payload.startLevel) {
+        setScenarioInfoOpen(true);
+        setError('시작 레벨을 입력해주세요.');
+        return;
+      }
+
+      if (
+        payload.startLevel &&
+        payload.recommendedEndLevel &&
+        payload.recommendedEndLevel < payload.startLevel
+      ) {
+        setScenarioInfoOpen(true);
+        setError('Recommended end level must be greater than or equal to start level.');
+        return;
+      }
+
       const nodes = serializeNodes(form.nodes);
       const invalidNode = nodes.find((node) => !node.title || !node.sceneText);
       if (invalidNode) {
@@ -1242,6 +1299,35 @@ export function ScenarioEditorPage({
                 id="scenario-difficulty"
                 value={form.difficulty}
                 onChange={(event) => updateField('difficulty', event.target.value)}
+              />
+            </div>
+            <div>
+              <label htmlFor="scenario-start-level">Start level</label>
+              <input
+                id="scenario-start-level"
+                type="number"
+                min={1}
+                max={20}
+                step={1}
+                required
+                value={form.startLevel ?? ''}
+                onChange={(event) =>
+                  updateField('startLevel', scenarioLevelFromInput(event.target.value))
+                }
+              />
+            </div>
+            <div>
+              <label htmlFor="scenario-recommended-end-level">Recommended end level</label>
+              <input
+                id="scenario-recommended-end-level"
+                type="number"
+                min={1}
+                max={20}
+                step={1}
+                value={form.recommendedEndLevel ?? ''}
+                onChange={(event) =>
+                  updateField('recommendedEndLevel', scenarioLevelFromInput(event.target.value))
+                }
               />
             </div>
             <div>
