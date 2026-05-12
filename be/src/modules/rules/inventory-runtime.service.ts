@@ -5,6 +5,7 @@ import {
   ItemDefinition,
   Prisma,
 } from "@prisma/client";
+import { InventoryItemDto } from "@trpg/shared-types";
 import { badRequest, notFound } from "../../common/exceptions/domain-error";
 import { PrismaService } from "../../database/prisma.service";
 import { RuleEngineService } from "./rule-engine.service";
@@ -48,11 +49,11 @@ export class InventoryRuntimeService {
       });
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const entry = await this.prisma.$transaction(async (tx) => {
       const entry = await tx.inventoryEntry.create({
         data: {
           sessionCharacterId: params.sessionCharacterId,
-          itemDefinitionId: params.itemDefinitionId,
+          itemDefinitionId: itemDefinition.id,
           quantity,
           containerEntryId: params.containerEntryId ?? null,
         },
@@ -64,6 +65,9 @@ export class InventoryRuntimeService {
 
       return entry;
     });
+
+    await this.updateSessionInventorySnapshot(params.sessionCharacterId);
+    return entry;
   }
 
   async moveItem(params: {
@@ -92,7 +96,7 @@ export class InventoryRuntimeService {
       });
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const moved = await this.prisma.$transaction(async (tx) => {
       const moved = await tx.inventoryEntry.update({
         where: { id: entry.id },
         data: { containerEntryId: params.containerEntryId },
@@ -107,6 +111,9 @@ export class InventoryRuntimeService {
 
       return moved;
     });
+
+    await this.updateSessionInventorySnapshot(entry.sessionCharacterId);
+    return moved;
   }
 
   async removeItem(params: {
@@ -126,7 +133,7 @@ export class InventoryRuntimeService {
       await this.ensureContainerIsEmpty(entry.id);
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const result =
         removeQuantity >= entry.quantity
           ? await tx.inventoryEntry.delete({ where: { id: entry.id } })
@@ -141,6 +148,57 @@ export class InventoryRuntimeService {
 
       return removeQuantity >= entry.quantity ? null : result;
     });
+
+    await this.updateSessionInventorySnapshot(entry.sessionCharacterId);
+    return result;
+  }
+
+  async removeItemFromCharacter(params: {
+    sessionCharacterId: string;
+    itemId: string;
+    quantity?: number;
+  }): Promise<InventoryEntry | null> {
+    const normalized = params.itemId.trim().toLowerCase();
+    const entry = await this.prisma.inventoryEntry.findFirst({
+      where: {
+        sessionCharacterId: params.sessionCharacterId,
+        OR: [
+          { id: params.itemId },
+          { itemDefinitionId: params.itemId },
+          {
+            itemDefinition: {
+              is: {
+                OR: [
+                  { id: params.itemId },
+                  { name: { equals: params.itemId, mode: "insensitive" } },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      include: { itemDefinition: true },
+      orderBy: { createdAt: "asc" },
+    });
+
+    if (!entry) {
+      throw notFound("INVENTORY_404", "인벤토리 아이템을 찾을 수 없습니다.", {
+        reason: "INVENTORY_ENTRY_NOT_FOUND",
+        itemId: normalized,
+      });
+    }
+
+    return this.removeItem({ entryId: entry.id, quantity: params.quantity });
+  }
+
+  async listInventoryItems(sessionCharacterId: string): Promise<InventoryItemDto[]> {
+    const entries = await this.prisma.inventoryEntry.findMany({
+      where: { sessionCharacterId },
+      include: { itemDefinition: true },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return entries.map((entry) => this.mapEntryToInventoryItem(entry));
   }
 
   async recalculateContainerState(containerEntryId: string): Promise<ContainerState> {
@@ -231,8 +289,13 @@ export class InventoryRuntimeService {
   }
 
   private async getItemDefinitionOrThrow(itemDefinitionId: string): Promise<ItemDefinition> {
-    const itemDefinition = await this.prisma.itemDefinition.findUnique({
-      where: { id: itemDefinitionId },
+    const itemDefinition = await this.prisma.itemDefinition.findFirst({
+      where: {
+        OR: [
+          { id: itemDefinitionId },
+          { name: { equals: itemDefinitionId, mode: "insensitive" } },
+        ],
+      },
     });
     if (!itemDefinition) {
       throw notFound("INVENTORY_404", "아이템 정의를 찾을 수 없습니다.", {
@@ -307,6 +370,47 @@ export class InventoryRuntimeService {
 
   private calculateItemVolume(itemDefinition: ItemDefinition, quantity: number): number {
     return (itemDefinition.volumeCuFt ?? 0) * quantity;
+  }
+
+  private async updateSessionInventorySnapshot(sessionCharacterId: string): Promise<void> {
+    const inventory = await this.listInventoryItems(sessionCharacterId);
+    await this.prisma.sessionCharacter.update({
+      where: { id: sessionCharacterId },
+      data: { inventorySnapshotJson: JSON.stringify(inventory) },
+    });
+  }
+
+  private mapEntryToInventoryItem(entry: EntryWithDefinition): InventoryItemDto {
+    return {
+      id: entry.id,
+      name: entry.itemDefinition.name,
+      quantity: entry.quantity,
+      itemDefinitionId: entry.itemDefinitionId,
+      itemType: entry.itemDefinition.itemType,
+      weightLb: entry.itemDefinition.weightLb ?? undefined,
+      volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
+      damageDice: entry.itemDefinition.damageDice ?? undefined,
+      damageType: entry.itemDefinition.damageType ?? undefined,
+      properties: this.parseStringArrayJson(entry.itemDefinition.propertiesJson),
+      containerId: entry.containerEntryId ?? undefined,
+    };
+  }
+
+  private parseStringArrayJson(value: string | null | undefined): string[] | undefined {
+    if (!value) {
+      return undefined;
+    }
+
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (!Array.isArray(parsed)) {
+        return undefined;
+      }
+      const strings = parsed.filter((entry): entry is string => typeof entry === "string");
+      return strings.length ? strings : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private toRuleIntegrity(value: string): BagOfHoldingIntegrity {

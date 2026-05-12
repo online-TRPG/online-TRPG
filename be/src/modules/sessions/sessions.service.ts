@@ -24,6 +24,7 @@ import {
   GameStateResponseDto,
   GmMode,
   HumanGmMessageDto,
+  InventoryItemDto,
   JoinSessionDto,
   MainCommandTargetType,
   ParticipantRole,
@@ -886,6 +887,21 @@ export class SessionsService {
       include: { character: true },
     });
 
+    await this.replaceSessionInventoryEntries(
+      sessionCharacter.id,
+      this.parseJson<InventoryItemDto[]>(character.inventoryJson, []),
+    );
+    const sessionCharacterWithInventory = await this.prisma.sessionCharacter.findUniqueOrThrow({
+      where: { id: sessionCharacter.id },
+      include: {
+        character: true,
+        inventoryEntries: {
+          include: { itemDefinition: true },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+
     const updatedParticipant = await this.prisma.sessionParticipant.update({
       where: { id: participant.id },
       data: {
@@ -902,7 +918,10 @@ export class SessionsService {
 
     const mappedParticipant = mapParticipant(updatedParticipant);
     this.realtimeEvents.emitParticipantUpdated(resolvedSessionId, mappedParticipant);
-    this.realtimeEvents.emitCharacterUpdated(resolvedSessionId, mapSessionCharacter(sessionCharacter));
+    this.realtimeEvents.emitCharacterUpdated(
+      resolvedSessionId,
+      mapSessionCharacter(sessionCharacterWithInventory),
+    );
     this.realtimeEvents.emitSessionSnapshot(
       resolvedSessionId,
       await this.buildSnapshot(resolvedSessionId),
@@ -1223,7 +1242,13 @@ export class SessionsService {
           include: {
             user: true,
             sessionCharacter: {
-              include: { character: true },
+              include: {
+                character: true,
+                inventoryEntries: {
+                  include: { itemDefinition: true },
+                  orderBy: { createdAt: "asc" },
+                },
+              },
             },
           },
           orderBy: { joinedAt: "asc" },
@@ -1232,7 +1257,13 @@ export class SessionsService {
           where: {
             status: PrismaSessionCharacterStatus.ACTIVE,
           },
-          include: { character: true },
+          include: {
+            character: true,
+            inventoryEntries: {
+              include: { itemDefinition: true },
+              orderBy: { createdAt: "asc" },
+            },
+          },
           orderBy: { createdAt: "asc" },
         },
         sessionScenarios: {
@@ -1275,7 +1306,13 @@ export class SessionsService {
           include: {
             user: true,
             sessionCharacter: {
-              include: { character: true },
+              include: {
+                character: true,
+                inventoryEntries: {
+                  include: { itemDefinition: true },
+                  orderBy: { createdAt: "asc" },
+                },
+              },
             },
           },
           orderBy: { joinedAt: "asc" },
@@ -1284,7 +1321,13 @@ export class SessionsService {
           where: {
             status: PrismaSessionCharacterStatus.ACTIVE,
           },
-          include: { character: true },
+          include: {
+            character: true,
+            inventoryEntries: {
+              include: { itemDefinition: true },
+              orderBy: { createdAt: "asc" },
+            },
+          },
           orderBy: { createdAt: "asc" },
         },
         sessionScenarios: {
@@ -1572,6 +1615,76 @@ export class SessionsService {
       return fallback;
     }
     return JSON.parse(value) as T;
+  }
+
+  private async replaceSessionInventoryEntries(
+    sessionCharacterId: string,
+    inventory: InventoryItemDto[],
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.inventoryEntry.deleteMany({ where: { sessionCharacterId } });
+
+      const itemDefinitionIds = inventory
+        .map((item) => item.itemDefinitionId)
+        .filter((value): value is string => Boolean(value));
+      if (!itemDefinitionIds.length) {
+        return;
+      }
+
+      const existingDefinitions = await tx.itemDefinition.findMany({
+        where: { id: { in: itemDefinitionIds } },
+        select: { id: true },
+      });
+      const existingDefinitionIds = new Set(existingDefinitions.map((item) => item.id));
+      const entries = inventory
+        .filter((item) => item.itemDefinitionId && existingDefinitionIds.has(item.itemDefinitionId))
+        .map((item) => ({
+          sessionCharacterId,
+          itemDefinitionId: item.itemDefinitionId!,
+          quantity: Number.isInteger(item.quantity) && item.quantity > 0 ? item.quantity : 1,
+        }));
+
+      if (entries.length) {
+        await tx.inventoryEntry.createMany({ data: entries });
+      }
+    });
+
+    await this.refreshSessionInventorySnapshot(sessionCharacterId);
+  }
+
+  private async refreshSessionInventorySnapshot(sessionCharacterId: string): Promise<void> {
+    const entries = await this.prisma.inventoryEntry.findMany({
+      where: { sessionCharacterId },
+      include: { itemDefinition: true },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!entries.length) {
+      return;
+    }
+
+    await this.prisma.sessionCharacter.update({
+      where: { id: sessionCharacterId },
+      data: {
+        inventorySnapshotJson: JSON.stringify(
+          entries.map((entry) => ({
+            id: entry.id,
+            name: entry.itemDefinition.name,
+            quantity: entry.quantity,
+            itemDefinitionId: entry.itemDefinitionId,
+            itemType: entry.itemDefinition.itemType,
+            weightLb: entry.itemDefinition.weightLb ?? undefined,
+            volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
+            damageDice: entry.itemDefinition.damageDice ?? undefined,
+            damageType: entry.itemDefinition.damageType ?? undefined,
+            properties: this.parseJson<string[] | undefined>(
+              entry.itemDefinition.propertiesJson,
+              undefined,
+            ),
+            containerId: entry.containerEntryId ?? undefined,
+          })),
+        ),
+      },
+    });
   }
 
   private async buildDefaultVttMap(

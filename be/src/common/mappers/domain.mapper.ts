@@ -5,6 +5,8 @@ import {
   GamePhase as PrismaGamePhase,
   GameState,
   GmMode as PrismaGmMode,
+  InventoryEntry,
+  ItemDefinition,
   ParticipantRole as PrismaParticipantRole,
   ParticipantStatus as PrismaParticipantStatus,
   Scenario,
@@ -64,6 +66,7 @@ type CharacterWithAssignments = Character & {
 
 type SessionCharacterWithBase = SessionCharacter & {
   character: Character;
+  inventoryEntries?: Array<InventoryEntry & { itemDefinition: ItemDefinition }>;
 };
 
 type SessionWithRelations = Session & {
@@ -357,10 +360,7 @@ export function mapSessionCharacter(
     tempHp: sessionCharacter.tempHp,
     armorClass: sessionCharacter.character.armorClass,
     speed: sessionCharacter.character.speed,
-    inventory: parseJson<InventoryItemDto[]>(
-      sessionCharacter.inventorySnapshotJson ?? sessionCharacter.character.inventoryJson,
-      [],
-    ),
+    inventory: mapSessionCharacterInventory(sessionCharacter),
     equippedWeaponId: sessionCharacter.character.equippedWeaponId ?? null,
     avatarType: characterAvatarTypeMap[sessionCharacter.character.avatarType],
     avatarPresetId: sessionCharacter.character.avatarPresetId ?? null,
@@ -370,6 +370,31 @@ export function mapSessionCharacter(
     createdAt: toIsoString(sessionCharacter.createdAt),
     updatedAt: toIsoString(sessionCharacter.updatedAt),
   };
+}
+
+function mapSessionCharacterInventory(
+  sessionCharacter: SessionCharacterWithBase,
+): InventoryItemDto[] {
+  if (sessionCharacter.inventoryEntries?.length) {
+    return sessionCharacter.inventoryEntries.map((entry) => ({
+      id: entry.id,
+      name: entry.itemDefinition.name,
+      quantity: entry.quantity,
+      itemDefinitionId: entry.itemDefinitionId,
+      itemType: entry.itemDefinition.itemType,
+      weightLb: entry.itemDefinition.weightLb ?? undefined,
+      volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
+      damageDice: entry.itemDefinition.damageDice ?? undefined,
+      damageType: entry.itemDefinition.damageType ?? undefined,
+      properties: parseJson<string[] | undefined>(entry.itemDefinition.propertiesJson, undefined),
+      containerId: entry.containerEntryId ?? undefined,
+    }));
+  }
+
+  return parseJson<InventoryItemDto[]>(
+    sessionCharacter.inventorySnapshotJson ?? sessionCharacter.character.inventoryJson,
+    [],
+  );
 }
 
 export function mapGameState(
