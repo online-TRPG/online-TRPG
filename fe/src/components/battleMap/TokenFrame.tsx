@@ -13,9 +13,18 @@ interface TokenFrameProps {
 export function TokenFrame({ image, label, size, color, isSelected, isHidden }: TokenFrameProps) {
   const center = size / 2;
   const frameRadius = Math.max(8, center - 4);
-  const portraitRadius = Math.max(6, center - 9);
   const frameColor = isHidden ? '#cbd6e2' : color.frame;
   const frameWidth = Math.max(4, Math.round(size * 0.08));
+  const portraitRadius = Math.max(6, frameRadius - frameWidth / 2);
+  const portraitSize = portraitRadius * 2;
+  const labelFontSize = Math.max(10, Math.min(18, Math.round(size * 0.3)));
+  const imageWidth = image?.naturalWidth || image?.width || 1;
+  const imageHeight = image?.naturalHeight || image?.height || 1;
+  const coverScale = image ? Math.max(portraitSize / imageWidth, portraitSize / imageHeight) : 1;
+  const coverWidth = imageWidth * coverScale;
+  const coverHeight = imageHeight * coverScale;
+  const coverX = center - coverWidth / 2;
+  const coverY = center - coverHeight / 2;
 
   return (
     <>
@@ -46,7 +55,7 @@ export function TokenFrame({ image, label, size, color, isSelected, isHidden }: 
         shadowOpacity={0.35}
       />
 
-      {/* 프레임 색이 항상 보이도록 초상 이미지는 안쪽 원으로만 잘라서 올립니다. */}
+      {/* 원본 비율을 유지하면서 프레임 안쪽 끝까지 채워, 이미지 주변에 밝은 선이 남지 않게 합니다. */}
       {image ? (
         <Group
           clipFunc={(ctx) => {
@@ -55,16 +64,22 @@ export function TokenFrame({ image, label, size, color, isSelected, isHidden }: 
             ctx.closePath();
           }}
         >
-          <KonvaImage image={image} width={size} height={size} />
+          <KonvaImage
+            image={image}
+            x={coverX}
+            y={coverY}
+            width={coverWidth}
+            height={coverHeight}
+          />
         </Group>
       ) : (
         <Text
           text={label}
           width={size}
-          y={center - 9}
+          y={center - labelFontSize / 2}
           align="center"
           fill={color.text}
-          fontSize={18}
+          fontSize={labelFontSize}
           fontStyle="bold"
         />
       )}

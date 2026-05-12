@@ -602,6 +602,9 @@ function buildProfileColorStyle(color: SessionTokenColor): CSSProperties {
     ['--chat-avatar-frame-color' as string]: color.frame,
     ['--chat-avatar-bg-color' as string]: color.background,
     ['--chat-avatar-text-color' as string]: color.text,
+    ['--chat-message-frame-color' as string]: color.frame,
+    ['--chat-message-bg-color' as string]: color.background,
+    ['--chat-message-text-color' as string]: color.text,
   } as CSSProperties;
 }
 
@@ -1247,8 +1250,8 @@ export function PlayPage({
     return getPlayerTokenColor(playerIndex);
   }
 
-  function getLogProfileColor(title: string): SessionTokenColor {
-    const matchedParticipant = participants.find((participant) => {
+  function getLogParticipant(title: string) {
+    return participants.find((participant) => {
       if (participant.user.displayName === title) return true;
 
       const linkedCharacter = sessionCharacters.find(
@@ -1256,11 +1259,27 @@ export function PlayPage({
       );
       return linkedCharacter?.name === title;
     });
+  }
+
+  function getLogProfileColor(title: string): SessionTokenColor {
+    const matchedParticipant = getLogParticipant(title);
 
     // 로그 작성자 이름만 넘어오는 경우가 있어 매칭 실패 시 첫 플레이어 색으로 안전하게 표시합니다.
     return matchedParticipant
       ? getParticipantProfileColor(matchedParticipant.userId)
       : getPlayerTokenColor(0);
+  }
+
+  function getLogProfileImage(title: string): string | null {
+    const matchedParticipant = getLogParticipant(title);
+    if (!matchedParticipant) return null;
+
+    const linkedCharacter =
+      sessionCharacters.find((character) => character.userId === matchedParticipant.userId) ??
+      null;
+
+    // 채팅 프로필은 선택한 캐릭터/직업 이미지를 우선 보여주고, 캐릭터가 없을 때만 이니셜로 돌아갑니다.
+    return linkedCharacter ? getCharacterImage(linkedCharacter) : null;
   }
 
   const layoutStyle = {
@@ -1746,49 +1765,76 @@ export function PlayPage({
 
                 <div className="session-log-stack">
                   {renderedRows.length ? (
-                    renderedRows.map((log) => (
-                      <Fragment key={log.id}>
-                        {log.showDateSeparator ? (
-                          <div className="chat-thread-date-divider">
-                            <span>{log.dateLabel}</span>
-                          </div>
-                        ) : null}
-                        <article className={`chat-thread-row ${log.rowClass}`}>
-                          {log.rowClass === 'incoming' ? (
-                            <div
-                              className="chat-thread-avatar"
-                              style={buildProfileColorStyle(getLogProfileColor(log.title))}
-                            >
-                              {getAvatarLabel(log.title, user.displayName)}
+                    renderedRows.map((log) => {
+                      const chatColorStyle =
+                        log.rowClass === 'notice'
+                          ? undefined
+                          : buildProfileColorStyle(getLogProfileColor(log.title));
+                      const chatProfileImage =
+                        log.rowClass === 'notice' ? null : getLogProfileImage(log.title);
+                      const chatAvatarLabel = getAvatarLabel(log.title, user.displayName);
+
+                      return (
+                        <Fragment key={log.id}>
+                          {log.showDateSeparator ? (
+                            <div className="chat-thread-date-divider">
+                              <span>{log.dateLabel}</span>
                             </div>
                           ) : null}
-                          <div className="chat-thread-stack">
-                            <span className={`chat-thread-sender ${log.rowClass}`}>
-                              {log.senderLabel}
-                            </span>
-                            <div
-                              className={`chat-thread-bubble${log.isPendingAction ? ' pending' : ''}`}
-                            >
-                              {log.isPendingAction ? (
-                                <span className="chat-thread-spinner" aria-hidden="true" />
-                              ) : null}
-                              <span>{log.message}</span>
-                            </div>
-                            {log.rowClass !== 'notice' ? (
-                              <span className="chat-thread-time">{log.time}</span>
+                          <article
+                            className={`chat-thread-row ${log.rowClass}`}
+                            style={chatColorStyle}
+                          >
+                            {log.rowClass === 'incoming' ? (
+                              <div
+                                className={`chat-thread-avatar${chatProfileImage ? ' has-image' : ''}`}
+                              >
+                                {chatProfileImage ? (
+                                  <img
+                                    src={chatProfileImage}
+                                    alt={`${log.senderLabel} 프로필`}
+                                    className="chat-thread-avatar-image"
+                                  />
+                                ) : (
+                                  chatAvatarLabel
+                                )}
+                              </div>
                             ) : null}
-                          </div>
-                          {log.rowClass === 'outgoing' ? (
-                            <div
-                              className="chat-thread-avatar"
-                              style={buildProfileColorStyle(getLogProfileColor(log.title))}
-                            >
-                              {getAvatarLabel(log.title, user.displayName)}
+                            <div className="chat-thread-stack">
+                              <span className={`chat-thread-sender ${log.rowClass}`}>
+                                {log.senderLabel}
+                              </span>
+                              <div
+                                className={`chat-thread-bubble${log.isPendingAction ? ' pending' : ''}`}
+                              >
+                                {log.isPendingAction ? (
+                                  <span className="chat-thread-spinner" aria-hidden="true" />
+                                ) : null}
+                                <span>{log.message}</span>
+                              </div>
+                              {log.rowClass !== 'notice' ? (
+                                <span className="chat-thread-time">{log.time}</span>
+                              ) : null}
                             </div>
-                          ) : null}
-                        </article>
-                      </Fragment>
-                    ))
+                            {log.rowClass === 'outgoing' ? (
+                              <div
+                                className={`chat-thread-avatar${chatProfileImage ? ' has-image' : ''}`}
+                              >
+                                {chatProfileImage ? (
+                                  <img
+                                    src={chatProfileImage}
+                                    alt={`${log.senderLabel} 프로필`}
+                                    className="chat-thread-avatar-image"
+                                  />
+                                ) : (
+                                  chatAvatarLabel
+                                )}
+                              </div>
+                            ) : null}
+                          </article>
+                        </Fragment>
+                      );
+                    })
                   ) : (
                     <article className="chat-thread-row notice">
                       <div className="chat-thread-stack">

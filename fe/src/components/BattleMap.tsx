@@ -14,6 +14,7 @@ import {
   getPlayerTokenColor,
 } from '../utils/sessionTokenColors';
 import type { SessionTokenColor } from '../utils/sessionTokenColors';
+import { getCharacterImage } from '../features/sessionPlay/utils/characterVisuals';
 
 interface BattleMapProps {
   map: VttMapStateDto;
@@ -684,6 +685,27 @@ export function BattleMap({
     const knownTokenIds = new Set(
       map.tokens.map((token) => token.sessionCharacterId).filter(Boolean)
     );
+    const characterImageById = new Map(
+      characters.map((character) => [character.id, getCharacterImage(character)])
+    );
+    let hasTokenImageUpdates = false;
+    const tokensWithCharacterImages = map.tokens.map((token) => {
+      if (!token.sessionCharacterId || token.imageUrl) {
+        return token;
+      }
+
+      const characterImage = characterImageById.get(token.sessionCharacterId);
+      if (!characterImage) {
+        return token;
+      }
+
+      hasTokenImageUpdates = true;
+      // 이미 배치된 토큰의 수동 이미지는 유지하고, 비어 있는 플레이어 토큰만 캐릭터/직업 이미지로 채웁니다.
+      return {
+        ...token,
+        imageUrl: characterImage,
+      };
+    });
     const additions = characters.flatMap((character, index) =>
       knownTokenIds.has(character.id)
         ? []
@@ -693,7 +715,7 @@ export function BattleMap({
               id: `token:${character.id}`,
               sessionCharacterId: character.id,
               name: character.name,
-              imageUrl: character.avatarUrl ?? null,
+              imageUrl: getCharacterImage(character),
               size: map.gridSize,
               hidden: false,
               isHostile: false,
@@ -702,8 +724,8 @@ export function BattleMap({
           ]
     );
 
-    if (!additions.length) return;
-    updateMap({ tokens: [...map.tokens, ...additions] });
+    if (!additions.length && !hasTokenImageUpdates) return;
+    updateMap({ tokens: [...tokensWithCharacterImages, ...additions] });
   }
 
   function updateStartingPosition(
