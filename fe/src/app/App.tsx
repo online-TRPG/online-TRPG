@@ -498,6 +498,7 @@ export function App() {
             user={currentUser}
             busy={busy}
             characters={session.myCharacters}
+            scenarios={scenarios}
             snapshot={session.snapshot}
             error={error}
             onCreateCharacter={(payload) => session.createCharacter(payload)}

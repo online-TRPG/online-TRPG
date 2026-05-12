@@ -288,6 +288,7 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
   return {
     id: character.id,
     ownerUserId: character.ownerUserId,
+    scenarioId: character.scenarioId ?? null,
     name: character.name,
     ancestry: character.ancestry,
     className: character.className,

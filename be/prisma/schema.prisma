@@ -263,6 +263,7 @@ model SessionParticipant {
 model Character {
   id                     String              @id @default(cuid())
   ownerUserId            String
+  scenarioId             String?
   name                   String
   ancestry               String
   className              String
@@ -285,6 +286,7 @@ model Character {
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
   owner                  User                @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  scenario               Scenario?           @relation("ScenarioCharacters", fields: [scenarioId], references: [id], onDelete: SetNull)
   sessionCharacters      SessionCharacter[]
   representativeProfiles UserProfile[]       @relation("RepresentativeCharacter")
 }
@@ -381,6 +383,7 @@ model Scenario {
   nodes            ScenarioNode[]
   assets           ScenarioAsset[]
   sessions         SessionScenario[]
+  characters       Character[]        @relation("ScenarioCharacters")
 }
 
 model ScenarioAsset {

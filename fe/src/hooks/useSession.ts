@@ -53,6 +53,7 @@ export interface CharacterPayload {
   avatarType?: "DEFAULT" | "PRESET" | "UPLOAD";
   avatarPresetId?: string | null;
   avatarUrl?: string | null;
+  scenarioId?: string | null;
   level?: number;
   abilities?: {
     str: number;
