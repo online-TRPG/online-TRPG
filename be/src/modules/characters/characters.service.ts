@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -43,14 +44,18 @@ export class CharactersService {
   async createCharacter(userId: string, dto: CreateCharacterDto): Promise<CharacterResponseDto> {
     await this.ensureUserExists(userId);
 
+    const level = dto.level ?? 1;
+    const scenarioId = await this.resolveScenarioForLevel(dto.scenarioId ?? null, level);
+
     const character = await this.prisma.character.create({
       data: {
         ownerUserId: userId,
+        scenarioId,
         name: dto.name.trim(),
         ancestry: dto.ancestry.trim(),
         className: dto.className.trim(),
         subclassName: dto.subclassName?.trim() ?? null,
-        level: dto.level ?? 1,
+        level,
         bio: dto.bio?.trim() ?? null,
         abilitiesJson: JSON.stringify(dto.abilities ?? defaultAbilityScores),
         proficiencyBonus: dto.proficiencyBonus ?? 2,
@@ -201,6 +206,7 @@ export class CharactersService {
     const clone = await this.prisma.character.create({
       data: {
         ownerUserId: source.ownerUserId,
+        scenarioId: source.scenarioId,
         name: `${source.name} Copy`,
         ancestry: source.ancestry,
         className: source.className,
@@ -312,6 +318,32 @@ export class CharactersService {
     }).catch(() => {
       throw new NotFoundException(`User ${userId} was not found.`);
     });
+  }
+
+  private async resolveScenarioForLevel(
+    scenarioId: string | null,
+    level: number,
+  ): Promise<string | null> {
+    if (!scenarioId) {
+      return null;
+    }
+
+    const scenario = await this.prisma.scenario.findUnique({
+      where: { id: scenarioId },
+      select: { id: true, startLevel: true },
+    });
+
+    if (!scenario) {
+      throw new NotFoundException(`Scenario ${scenarioId} was not found.`);
+    }
+
+    if (level !== scenario.startLevel) {
+      throw new BadRequestException(
+        `캐릭터 레벨(${level})이 시나리오 시작 레벨(${scenario.startLevel})과 일치하지 않습니다.`,
+      );
+    }
+
+    return scenario.id;
   }
 
   private toAvatarType(value?: CharacterAvatarType): PrismaCharacterAvatarType {

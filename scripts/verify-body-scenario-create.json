@@ -1,0 +1,10 @@
+{
+  "title": "verify-startlevel-4",
+  "description": "Verification scenario with startLevel 4",
+  "ruleSetId": "dnd5e",
+  "difficulty": "medium",
+  "license": "original",
+  "startNodeTitle": "verify start",
+  "startSceneText": "test scene",
+  "startLevel": 4
+}
