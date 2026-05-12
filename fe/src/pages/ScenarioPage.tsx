@@ -154,6 +154,8 @@ export function ScenarioPage({
         thumbnailUrl: source.thumbnailUrl,
         ruleSetId: source.ruleSetId,
         difficulty: source.difficulty,
+        startLevel: source.startLevel ?? 1,
+        recommendedEndLevel: source.recommendedEndLevel,
         license: source.license,
         attribution: source.attribution,
         startNodeTitle: nodes[0]?.title,

@@ -104,6 +104,7 @@ export class ScenariosService {
   async createScenario(userId: string, dto: CreateScenarioDto): Promise<ScenarioResponseDto> {
     const scenarioId = `scenario_${randomUUID()}`;
     const title = dto.title.trim();
+    const startLevel = this.requireScenarioStartLevel(dto.startLevel);
     const nodes = this.normalizeNodeInputs(scenarioId, dto.nodes, {
       startNodeTitle: dto.startNodeTitle,
       startSceneText: dto.startSceneText,
@@ -120,6 +121,8 @@ export class ScenariosService {
         thumbnailUrl: this.nullableTrim(dto.thumbnailUrl),
         ruleSetId: this.nullableTrim(dto.ruleSetId) ?? "dnd5e",
         difficulty: this.nullableTrim(dto.difficulty),
+        startLevel,
+        recommendedEndLevel: dto.recommendedEndLevel ?? null,
         license: this.toPrismaScenarioLicense(dto.license ?? ScenarioLicense.ORIGINAL),
         attribution: this.nullableTrim(dto.attribution),
         startNodeId,
@@ -143,6 +146,8 @@ export class ScenariosService {
     const startNode = existing.nodes.find((node) => node.id === existing.startNodeId) ?? existing.nodes[0] ?? null;
     const nextNodes = dto.nodes ? this.normalizeNodeInputs(id, dto.nodes) : null;
     const nextStartNodeId = nextNodes ? nextNodes[0]?.id ?? null : undefined;
+    const nextStartLevel =
+      dto.startLevel === undefined ? existing.startLevel : this.requireScenarioStartLevel(dto.startLevel);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.scenario.update({
@@ -153,6 +158,9 @@ export class ScenariosService {
           thumbnailUrl: dto.thumbnailUrl === undefined ? existing.thumbnailUrl : this.nullableTrim(dto.thumbnailUrl),
           ruleSetId: dto.ruleSetId === undefined ? existing.ruleSetId : this.nullableTrim(dto.ruleSetId),
           difficulty: dto.difficulty === undefined ? existing.difficulty : this.nullableTrim(dto.difficulty),
+          startLevel: nextStartLevel,
+          recommendedEndLevel:
+            dto.recommendedEndLevel === undefined ? existing.recommendedEndLevel : dto.recommendedEndLevel,
           license: dto.license ? this.toPrismaScenarioLicense(dto.license) : existing.license,
           attribution: dto.attribution === undefined ? existing.attribution : this.nullableTrim(dto.attribution),
           startNodeId: nextStartNodeId,
@@ -322,6 +330,14 @@ export class ScenariosService {
 
     const trimmed = value.trim();
     return trimmed ? trimmed : null;
+  }
+
+  private requireScenarioStartLevel(value: number | null | undefined): number {
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 20) {
+      throw new BadRequestException("Scenario start level must be set between 1 and 20.");
+    }
+
+    return value;
   }
 
   private toPrismaScenarioLicense(license: ScenarioLicense): PrismaScenarioLicense {

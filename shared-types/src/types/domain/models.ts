@@ -156,6 +156,8 @@ export type ScenarioModel = {
   thumbnailUrl?: string | null;
   ruleSetId?: string | null;
   difficulty?: string | null;
+  startLevel: number;
+  recommendedEndLevel?: number | null;
   license: ScenarioLicense;
   attribution?: string | null;
   startNodeId?: string | null;
