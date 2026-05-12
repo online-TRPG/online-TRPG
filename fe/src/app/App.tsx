@@ -6,8 +6,8 @@ import { Icon } from '../components/Icon';
 import { useAuth } from '../hooks/useAuth';
 import { useLogs } from '../hooks/useLogs';
 import { useSession } from '../hooks/useSession';
-import type { RaceResponseDto } from '@trpg/shared-types';
-import { getOAuthUrl, getSessionDetail, listRaces, listScenarios } from '../services/api';
+import type { ClassDefinitionResponseDto, RaceResponseDto } from '@trpg/shared-types';
+import { getOAuthUrl, getSessionDetail, listClassDefinitions, listRaces, listScenarios } from '../services/api';
 import { AccountPage } from '../pages/AccountPage';
 import { CharacterPage } from '../pages/CharacterPage';
 import { LobbyPage } from '../pages/LobbyPage';
@@ -166,6 +166,7 @@ export function App() {
 
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [races, setRaces] = useState<RaceResponseDto[]>([]);
+  const [classDefinitions, setClassDefinitions] = useState<ClassDefinitionResponseDto[]>([]);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [hasUnsavedScenarioChanges, setHasUnsavedScenarioChanges] = useState(false);
   const activeView =
@@ -214,10 +215,14 @@ export function App() {
   useEffect(() => {
     if (!auth.user) {
       setRaces([]);
+      setClassDefinitions([]);
       return;
     }
     listRaces()
       .then(setRaces)
+      .catch(() => undefined);
+    listClassDefinitions()
+      .then(setClassDefinitions)
       .catch(() => undefined);
   }, [auth.user]);
 
@@ -512,6 +517,7 @@ export function App() {
             characters={session.myCharacters}
             scenarios={scenarios}
             races={races}
+            classDefinitions={classDefinitions}
             snapshot={session.snapshot}
             error={error}
             onCreateCharacter={(payload) => session.createCharacter(payload)}

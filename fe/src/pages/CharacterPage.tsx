@@ -31,7 +31,8 @@ import {
 } from '../services/staticSrd';
 import type { CharacterPayload } from '../hooks/useSession';
 import type { PersistentCharacter, Scenario, SessionSnapshot, StoredUser } from '../types/session';
-import type { RaceResponseDto } from '@trpg/shared-types';
+import type { ClassDefinitionResponseDto, ItemResponseDto, RaceResponseDto } from '@trpg/shared-types';
+import { listItems } from '../services/api';
 import './CharacterPage.css';
 
 // shared-types(CJS) value import 가 rollup 추적 실패 케이스라(메모) inline 동일값.
@@ -48,6 +49,7 @@ interface CharacterPageProps {
   characters: PersistentCharacter[];
   scenarios: Scenario[];
   races: RaceResponseDto[];
+  classDefinitions: ClassDefinitionResponseDto[];
   snapshot: SessionSnapshot | null;
   busy: boolean;
   error: string | null;
@@ -506,6 +508,7 @@ export function CharacterPage({
   characters,
   scenarios,
   races,
+  classDefinitions,
   snapshot,
   busy,
   error,
@@ -526,8 +529,30 @@ export function CharacterPage({
   const [skillInput, setSkillInput] = useState('');
   const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftItem[]>([]);
   const [formState, setFormState] = useState<CharacterPayload>(() => createDefaultCharacter());
+  const [itemCatalog, setItemCatalog] = useState<ItemResponseDto[]>([]);
   // 인벤토리 편집 영역 DOM 참조입니다. 필요 시 스크롤/포커스 제어에 씁니다.
   const inventoryEditorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    listItems()
+      .then(setItemCatalog)
+      .catch(() => undefined);
+  }, []);
+
+  const itemKoNameByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of itemCatalog) {
+      map.set(item.key, item.koName);
+    }
+    return map;
+  }, [itemCatalog]);
+
+  // className → ClassDefinition(시드) 룩업. 매칭되면 시작 장비 강제.
+  const selectedClass = useMemo<ClassDefinitionResponseDto | null>(() => {
+    const className = (formState.className ?? '').trim().toLowerCase();
+    if (!className) return null;
+    return classDefinitions.find((c) => c.key === className) ?? null;
+  }, [formState.className, classDefinitions]);
 
   // ancestry → race(시드)룩업. ancestry 가 race.key 또는 race.koName 와 매칭되면 보정 적용.
   const selectedRace = useMemo<RaceResponseDto | null>(() => {
@@ -707,15 +732,18 @@ export function CharacterPage({
     setEditingCharacterId(null);
     const defaults = createDefaultCharacter();
     const defaultScenario = scenarios[0] ?? null;
-    setFormState(
-      defaultScenario
-        ? {
-            ...defaults,
-            scenarioId: defaultScenario.id,
-            level: normalizeLevel(defaultScenario.startLevel),
-          }
-        : defaults,
+    const defaultClass = classDefinitions.find(
+      (c) => c.key === (defaults.className ?? '').toLowerCase(),
     );
+    const startingEquipmentSelection = defaultClass
+      ? new Array(defaultClass.startingEquipment.slots.length).fill(0)
+      : undefined;
+    setFormState({
+      ...defaults,
+      scenarioId: defaultScenario?.id ?? null,
+      level: defaultScenario ? normalizeLevel(defaultScenario.startLevel) : defaults.level,
+      startingEquipmentSelection,
+    });
     setInventoryDraft([]);
     setSkillInput('');
   }
@@ -1264,6 +1292,13 @@ export function CharacterPage({
                             );
                             // Point Buy 도입 후: 클래스 변경해도 abilities 는 사용자가 배분한 값 유지.
                             // HP/AC/이동속도/숙련 보너스만 클래스 변경에 따라 재계산.
+                            // 시작 장비 선택은 슬롯 개수에 맞춰 모두 0(첫 옵션)으로 초기화.
+                            const nextClass = classDefinitions.find(
+                              (c) => c.key === className.toLowerCase(),
+                            );
+                            const nextSelection = nextClass
+                              ? new Array(nextClass.startingEquipment.slots.length).fill(0)
+                              : undefined;
                             return {
                               ...current,
                               className,
@@ -1274,6 +1309,7 @@ export function CharacterPage({
                               armorClass: recommendedStats.armorClass,
                               speed: recommendedStats.speed,
                               proficiencyBonus: recommendedStats.proficiencyBonus,
+                              startingEquipmentSelection: nextSelection,
                             };
                           })
                         }
@@ -1521,13 +1557,69 @@ export function CharacterPage({
                   </div>
                 </section>
 
+                {selectedClass ? (
+                  <section className="character-form-section">
+                    <div className="section-heading compact">
+                      <div>
+                        <span className="eyebrow">시작 장비</span>
+                        <h2>슬롯 선택 (룰북 강제)</h2>
+                      </div>
+                    </div>
+                    {selectedClass.startingEquipment.slots.map((slot, slotIndex) => {
+                      const selectedOptionIndex =
+                        formState.startingEquipmentSelection?.[slotIndex] ?? 0;
+                      const formatOption = (option: typeof slot.options[number]) =>
+                        option.items
+                          .map((it) => {
+                            const ko = itemKoNameByKey.get(it.itemKey) ?? it.itemKey;
+                            return it.quantity > 1 ? `${ko} ×${it.quantity}` : ko;
+                          })
+                          .join(' + ');
+                      return (
+                        <div key={slotIndex} style={{ marginBottom: 12 }}>
+                          <label htmlFor={`starting-equipment-${slotIndex}`}>
+                            슬롯 {slotIndex + 1}
+                          </label>
+                          {slot.options.length === 1 ? (
+                            <div style={{ padding: '6px 10px', opacity: 0.85 }}>
+                              {formatOption(slot.options[0]!)} (고정)
+                            </div>
+                          ) : (
+                            <select
+                              id={`starting-equipment-${slotIndex}`}
+                              value={selectedOptionIndex}
+                              onChange={(event) => {
+                                const idx = Number(event.target.value);
+                                setFormState((current) => {
+                                  const base =
+                                    current.startingEquipmentSelection ??
+                                    new Array(selectedClass.startingEquipment.slots.length).fill(0);
+                                  const next = [...base];
+                                  next[slotIndex] = idx;
+                                  return { ...current, startingEquipmentSelection: next };
+                                });
+                              }}
+                            >
+                              {slot.options.map((option, optIdx) => (
+                                <option key={optIdx} value={optIdx}>
+                                  {formatOption(option)}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </section>
+                ) : null}
+
                 <section className="character-form-section">
                   <div className="section-heading compact">
                     <div>
                       <span className="eyebrow">인벤토리</span>
-                      <h2>아이템</h2>
+                      <h2>아이템 {selectedClass ? '(시작 장비 자동 — 수동 입력 무시됨)' : ''}</h2>
                     </div>
-                    <button type="button" onClick={addInventoryRow}>
+                    <button type="button" onClick={addInventoryRow} disabled={Boolean(selectedClass)}>
                       아이템 추가
                     </button>
                   </div>

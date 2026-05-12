@@ -5,6 +5,7 @@ import { getRuntimeEnvFilePaths } from "./common/utils/runtime-env";
 import { DatabaseModule } from "./database/database.module";
 import { ActionsModule } from "./modules/actions/actions.module";
 import { AiModule } from "./modules/ai/ai.module";
+import { CatalogModule } from "./modules/catalog/catalog.module";
 import { CharactersModule } from "./modules/characters/characters.module";
 import { CombatModule } from "./modules/combat/combat.module";
 import { RacesModule } from "./modules/races/races.module";
@@ -27,6 +28,7 @@ import { UsersModule } from "./modules/users/users.module";
     RealtimeModule,
     SessionsModule,
     CharactersModule,
+    CatalogModule,
     RacesModule,
     RulesModule,
     TurnLogsModule,
