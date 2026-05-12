@@ -310,6 +310,9 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
     armorClass: character.armorClass,
     speed: character.speed,
     inventory: parseJson<InventoryItemDto[]>(character.inventoryJson, []),
+    spells: character.spellsJson
+      ? parseJson<{ cantrips: string[]; spells: string[] } | null>(character.spellsJson, null)
+      : null,
     equippedWeaponId: character.equippedWeaponId ?? null,
     avatarType: characterAvatarTypeMap[character.avatarType],
     avatarPresetId: character.avatarPresetId ?? null,

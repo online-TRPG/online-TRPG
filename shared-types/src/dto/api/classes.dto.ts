@@ -52,4 +52,10 @@ export class ClassDefinitionResponseDto {
 
   @ApiProperty({ type: StartingEquipmentDto })
   startingEquipment!: StartingEquipmentDto;
+
+  @ApiProperty({ example: 3, description: "1레벨 시점 시작 캔트립 수" })
+  startingCantripCount!: number;
+
+  @ApiProperty({ example: 6, description: "1레벨 시점 시작 주문 수 (준비 주문 동적 클래스는 0)" })
+  startingSpellCount!: number;
 }
