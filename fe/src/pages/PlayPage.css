@@ -2426,3 +2426,836 @@
     padding-top: 10px;
   }
 }
+
+/* 세션룸 판타지 UI 마감 레이어: 구조는 유지하고 표면, 테두리, 버튼 질감만 통일합니다. */
+.session-prep-layout {
+  --session-kit-panel-bg:
+    linear-gradient(180deg, rgba(255, 252, 241, 0.94), rgba(255, 242, 208, 0.92)),
+    url('../assets/images/Box_Paper.webp') center / cover;
+  --session-kit-card-bg:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0)),
+    rgba(255, 248, 226, 0.96);
+  --session-kit-button-bg:
+    linear-gradient(#fff9e7, #efd79a),
+    radial-gradient(circle at 18% 14%, rgba(255, 255, 255, 0.95), transparent 40%);
+  --session-kit-button-active-bg: linear-gradient(#315d87, #173657);
+  --session-kit-danger: #8f3320;
+  --session-kit-danger-dark: #6f2417;
+  --session-kit-success: #4f8f3a;
+  --session-kit-line: rgba(124, 88, 36, 0.3);
+  --session-kit-radius-sm: 8px;
+  --session-kit-radius-md: 12px;
+  --session-kit-radius-lg: 16px;
+  --session-kit-shadow-soft: 0 8px 18px rgba(95, 61, 22, 0.12);
+  --session-kit-button-shadow: 0 3px 0 #75551f, 0 8px 14px rgba(81, 52, 17, 0.12);
+  font-family:
+    "Pretendard",
+    "Noto Sans KR",
+    "Segoe UI",
+    system-ui,
+    sans-serif;
+}
+
+.session-game-surface :is(.story-node-surface, .exploration-node-surface, .combat-node-surface),
+.session-sidebar,
+.session-room-overlay {
+  border-color: var(--session-kit-gold-deep);
+  box-shadow: var(--session-kit-shadow), var(--session-kit-frame);
+}
+
+.session-game-surface :is(.story-node-surface, .exploration-node-surface, .combat-node-surface) {
+  border: 2px solid rgba(114, 80, 34, 0.8);
+  overflow: hidden;
+}
+
+.session-game-surface :is(.story-node-header, .exploration-node-header, .combat-turn-bar) {
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(90deg, rgba(255, 250, 234, 0.98), rgba(255, 238, 195, 0.88)),
+    radial-gradient(circle at 8% 0%, rgba(255, 255, 255, 0.9), transparent 34%);
+  box-shadow: inset 0 -1px 0 rgba(114, 80, 34, 0.24);
+}
+
+.session-game-surface :is(.story-node-header, .exploration-node-header, .combat-turn-bar)::after {
+  content: "";
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(199, 153, 67, 0.72), transparent);
+  pointer-events: none;
+}
+
+.session-game-surface :is(.story-node-header h1, .exploration-node-header h1, .combat-turn-bar h1) {
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.session-game-surface :is(.story-node-eyebrow, .exploration-node-eyebrow, .combat-node-eyebrow),
+.session-sidebar-heading .eyebrow,
+.session-room-overlay-title .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid rgba(52, 102, 153, 0.28);
+  border-radius: 999px;
+  background: rgba(237, 244, 251, 0.82);
+  color: #175f96;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.session-game-surface :is(.story-node-status-row, .exploration-node-status-row, .combat-round-status) span,
+.status-pill,
+.participant-state,
+.main-command-selection-chip {
+  border: 1px solid #c8a25f;
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0)),
+    #fff1cf;
+  color: #6b4a1e;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.status-pill.online,
+.participant-state.ready {
+  border-color: rgba(79, 143, 58, 0.55);
+  background: #edf8dc;
+  color: #356f28;
+}
+
+.story-node-panel,
+.exploration-panel-block,
+.combat-panel-block,
+.story-party-detail,
+.exploration-actor-status,
+.exploration-action-panel,
+.exploration-check-panel,
+.combat-resource-panel,
+.combat-action-panel,
+.combat-check-panel,
+.session-settings-room,
+.session-sidebar-heading,
+.session-info-panel textarea {
+  border: 2px solid #d6b06c;
+  border-radius: var(--session-kit-radius-md);
+  background: var(--session-kit-card-bg);
+  box-shadow: var(--session-kit-shadow-soft), inset 0 0 0 1px rgba(255, 255, 255, 0.58);
+}
+
+.story-panel-heading,
+.exploration-panel-heading,
+.combat-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(199, 153, 67, 0.3);
+}
+
+.story-panel-heading strong,
+.exploration-panel-heading strong,
+.combat-panel-heading strong,
+.session-sidebar-title {
+  color: #1f344b;
+  font-weight: 900;
+}
+
+.story-element-item,
+.story-clue-item,
+.exploration-selected-target,
+.exploration-target-button,
+.combat-selected-target,
+.combat-target-button,
+.combat-resource-grid span {
+  border: 1px solid #d9bd7a;
+  border-radius: var(--session-kit-radius-sm);
+  background: rgba(255, 250, 235, 0.94);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.exploration-target-button,
+.combat-target-button {
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.exploration-target-button:hover:not(:disabled),
+.combat-target-button:hover:not(:disabled) {
+  border-color: var(--session-kit-gold-deep);
+  background: #fff5d8;
+  transform: translateY(-1px);
+}
+
+.exploration-target-button.selected,
+.combat-target-button.selected {
+  border-color: #346699;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.44), rgba(255, 255, 255, 0)),
+    #edf4fb;
+  box-shadow: inset 0 0 0 1px rgba(52, 102, 153, 0.22);
+}
+
+.story-party-card,
+.exploration-party-card,
+.combat-party-card,
+.combat-turn-card,
+.participant-strip-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.story-party-card::after,
+.exploration-party-card::after,
+.combat-party-card::after,
+.combat-turn-card::after,
+.participant-strip-card::after {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: calc(var(--session-kit-radius-md) - 3px);
+  pointer-events: none;
+}
+
+.story-party-card:hover,
+.exploration-party-card:hover,
+.combat-party-card:hover,
+.combat-turn-card:hover,
+.participant-strip-card:hover {
+  box-shadow: 0 10px 22px rgba(95, 61, 22, 0.16), var(--session-kit-frame);
+}
+
+.story-party-avatar,
+.exploration-party-avatar,
+.combat-party-avatar,
+.participant-avatar-frame {
+  border: 2px solid #9d7330;
+  background: #ead8aa;
+  box-shadow: 0 5px 10px rgba(75, 46, 14, 0.16);
+}
+
+.story-party-avatar img,
+.exploration-party-avatar img,
+.combat-party-avatar img,
+.participant-avatar-image,
+.chat-thread-avatar-image {
+  object-fit: cover;
+}
+
+.story-hp-track,
+.exploration-hp-track,
+.combat-hp-track {
+  height: 8px;
+  border: 1px solid rgba(114, 80, 34, 0.25);
+  background: #d8c690;
+  box-shadow: inset 0 1px 2px rgba(73, 47, 16, 0.22);
+}
+
+.story-hp-track span,
+.exploration-hp-track span,
+.combat-hp-track span {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.exploration-action-tabs button,
+.exploration-action-list button,
+.combat-action-tabs button,
+.combat-action-list button,
+.session-sidebar-input button,
+.session-log-history-button,
+.main-command-category-button,
+.main-command-option-button,
+.session-settings-room button,
+.session-room-overlay-actions button,
+.danger-button {
+  border: 2px solid #9b7330;
+  border-radius: var(--session-kit-radius-sm);
+  background: var(--session-kit-button-bg);
+  color: var(--session-kit-ink);
+  font-weight: 900;
+  letter-spacing: 0;
+  box-shadow: var(--session-kit-button-shadow);
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.14s ease,
+    border-color 0.14s ease,
+    background 0.14s ease;
+}
+
+.exploration-action-tabs button:hover:not(:disabled),
+.exploration-action-list button:hover:not(:disabled),
+.combat-action-tabs button:hover:not(:disabled),
+.combat-action-list button:hover:not(:disabled),
+.session-sidebar-input button:hover:not(:disabled),
+.session-log-history-button:hover:not(:disabled),
+.main-command-category-button:hover:not(:disabled),
+.main-command-option-button:hover:not(:disabled),
+.session-settings-room button:hover:not(:disabled),
+.session-room-overlay-actions button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 0 #75551f, 0 10px 16px rgba(81, 52, 17, 0.14);
+}
+
+.exploration-action-tabs button:active:not(:disabled),
+.exploration-action-list button:active:not(:disabled),
+.combat-action-tabs button:active:not(:disabled),
+.combat-action-list button:active:not(:disabled),
+.session-sidebar-input button:active:not(:disabled),
+.main-command-category-button:active:not(:disabled),
+.main-command-option-button:active:not(:disabled),
+.session-room-overlay-actions button:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #75551f;
+}
+
+.exploration-action-tabs button.active,
+.combat-action-tabs button.active,
+.main-command-category-button.active,
+.main-command-option-button.active,
+.session-room-overlay-actions .ghost:first-child {
+  border-color: #0f2f52;
+  background: var(--session-kit-button-active-bg);
+  color: #fff8dd;
+  box-shadow: 0 3px 0 #0f243d, 0 8px 14px rgba(15, 36, 61, 0.18);
+}
+
+.danger-button,
+.session-room-overlay-actions .ghost:last-child {
+  border-color: #6b271a;
+  background: linear-gradient(#b14b2e, var(--session-kit-danger-dark));
+  color: #fff8dd;
+  box-shadow: 0 3px 0 #4e1a11, 0 8px 14px rgba(91, 31, 20, 0.18);
+}
+
+.exploration-map-panel,
+.combat-map-panel,
+.story-scene-visual {
+  border-color: #1f1a14;
+  border-radius: var(--session-kit-radius-md);
+  box-shadow:
+    inset 0 0 0 3px var(--session-kit-gold),
+    0 8px 16px rgba(65, 42, 13, 0.32);
+}
+
+.exploration-map-panel > .vtt-panel,
+.combat-map-panel > .vtt-panel {
+  border-radius: calc(var(--session-kit-radius-md) - 4px);
+  overflow: hidden;
+}
+
+.exploration-map-panel .vtt-toolbar,
+.combat-map-panel .vtt-toolbar,
+.exploration-map-panel .vtt-subtoolbar,
+.combat-map-panel .vtt-subtoolbar {
+  background:
+    linear-gradient(180deg, rgba(255, 251, 236, 0.97), rgba(244, 226, 184, 0.94)),
+    rgba(255, 247, 221, 0.94);
+  border-color: rgba(182, 138, 54, 0.42);
+}
+
+.exploration-map-panel .vtt-controls button,
+.combat-map-panel .vtt-controls button,
+.exploration-map-panel .vtt-zoom-controls button,
+.combat-map-panel .vtt-zoom-controls button,
+.exploration-map-panel .vtt-clear-measure,
+.combat-map-panel .vtt-clear-measure,
+.exploration-map-panel .vtt-fog-tools button,
+.combat-map-panel .vtt-fog-tools button,
+.exploration-map-panel .vtt-inspector-actions button,
+.combat-map-panel .vtt-inspector-actions button {
+  min-height: 28px;
+  border-color: #9b7330;
+  background: #fff1cf;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+}
+
+.exploration-map-panel .vtt-stage-wrap,
+.combat-map-panel .vtt-stage-wrap {
+  box-shadow: inset 0 0 0 1px rgba(199, 153, 67, 0.18);
+}
+
+.exploration-map-panel .vtt-inspector,
+.combat-map-panel .vtt-inspector {
+  background: var(--session-kit-panel-bg);
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.46);
+}
+
+.session-sidebar {
+  overflow: hidden;
+}
+
+.session-sidebar-tabs {
+  background:
+    linear-gradient(180deg, rgba(255, 249, 230, 0.95), rgba(240, 221, 177, 0.88)),
+    rgba(255, 246, 221, 0.78);
+}
+
+.session-sidebar-tabs button {
+  position: relative;
+  border-color: rgba(124, 88, 36, 0.28);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.session-sidebar-tabs button.active {
+  text-shadow: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 241, 188, 0.22);
+}
+
+.session-log-stack,
+.session-info-panel,
+.session-settings-panel {
+  border-radius: var(--session-kit-radius-md);
+}
+
+.chat-thread-avatar {
+  border-width: 2px;
+  box-shadow: 0 4px 8px rgba(75, 46, 14, 0.14);
+}
+
+.chat-thread-row:not(.notice) .chat-thread-bubble {
+  box-shadow: 0 4px 10px rgba(75, 46, 14, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.52);
+}
+
+.session-sidebar-input input,
+.main-command-field input,
+.main-command-field select,
+.session-info-panel textarea {
+  border: 2px solid #bd9140;
+  box-shadow: inset 0 1px 2px rgba(72, 45, 14, 0.08);
+}
+
+.session-sidebar-input input::placeholder,
+.main-command-field input::placeholder {
+  color: rgba(91, 68, 39, 0.58);
+}
+
+/* 전투 노드 전용 강화 스킨: 실제 플레이 화면에서 가장 많이 보이는 회색/흰 영역을 판타지 패널로 직접 덮습니다. */
+.session-prep-layout .session-game-surface .combat-node-surface {
+  background:
+    linear-gradient(rgba(255, 248, 229, 0.86), rgba(244, 224, 181, 0.78)),
+    url('../assets/images/parchment_scroll.webp') center / cover;
+}
+
+.session-prep-layout .session-game-surface .combat-turn-bar {
+  margin: 0;
+  border: 0;
+  border-bottom: 2px solid rgba(114, 80, 34, 0.42);
+  background:
+    linear-gradient(90deg, rgba(255, 250, 235, 0.98), rgba(244, 224, 181, 0.95)),
+    radial-gradient(circle at 0% 0%, rgba(255, 255, 255, 0.96), transparent 42%);
+}
+
+.session-prep-layout .combat-turn-bar h1 {
+  color: #24170d;
+  font-size: clamp(26px, 2.2vw, 38px);
+  font-weight: 900;
+}
+
+.session-prep-layout .combat-round-status span {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid #c79943;
+  background: #fff4d6;
+  color: #513814;
+}
+
+.session-prep-layout .combat-round-status span:first-child {
+  border-color: #17375a;
+  background: linear-gradient(#315d87, #17375a);
+  color: #fff8dd;
+}
+
+.session-prep-layout .combat-initiative-strip {
+  min-height: 70px;
+  padding: 9px 14px;
+  border-bottom: 2px solid rgba(114, 80, 34, 0.32);
+  background:
+    linear-gradient(180deg, rgba(239, 220, 179, 0.72), rgba(228, 207, 161, 0.76)),
+    rgba(239, 220, 179, 0.58);
+}
+
+.session-prep-layout .combat-turn-card {
+  border: 2px solid #c79943;
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0)),
+    #fff4d6;
+  box-shadow: 0 5px 10px rgba(84, 53, 18, 0.14);
+}
+
+.session-prep-layout .combat-turn-card.mine {
+  border-color: #315d87;
+  background: #edf4fb;
+}
+
+.session-prep-layout .combat-turn-card span {
+  border: 1px solid #d4b66f;
+  border-radius: 6px;
+  background: #fff9e7;
+  color: #17375a;
+}
+
+.session-prep-layout .combat-node-content {
+  gap: 10px;
+  padding: 10px;
+  background: rgba(246, 229, 188, 0.58);
+}
+
+.session-prep-layout .combat-party-rail,
+.session-prep-layout .combat-target-panel {
+  padding: 12px;
+  border: 3px solid #725022;
+  border-radius: 14px;
+  background: var(--session-kit-panel-bg);
+  box-shadow: var(--session-kit-shadow-soft), var(--session-kit-frame);
+}
+
+.session-prep-layout .combat-party-rail {
+  border-right: 3px solid #725022;
+}
+
+.session-prep-layout .combat-target-panel {
+  border-left: 3px solid #725022;
+}
+
+.session-prep-layout .combat-party-rail > .combat-node-eyebrow,
+.session-prep-layout .combat-target-panel .combat-panel-heading .combat-node-eyebrow {
+  border-color: #17375a;
+  background: linear-gradient(#315d87, #17375a);
+  color: #fff8dd;
+}
+
+.session-prep-layout .combat-party-card {
+  min-height: 76px;
+  padding: 9px;
+  border: 2px solid #b98736;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0)),
+    #fff4d6;
+  box-shadow: 0 7px 14px rgba(84, 53, 18, 0.14);
+}
+
+.session-prep-layout .combat-party-card.mine {
+  border-color: #315d87;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0)),
+    #edf4fb;
+}
+
+.session-prep-layout .combat-party-avatar {
+  width: 42px;
+  height: 42px;
+  border: 2px solid #9d7330;
+  border-radius: 8px;
+}
+
+.session-prep-layout .combat-party-body strong {
+  color: #24170d;
+}
+
+.session-prep-layout .combat-party-body span {
+  color: #6c5637;
+}
+
+.session-prep-layout .combat-map-panel {
+  padding: 8px;
+  border: 5px solid #211b16;
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, #17120d, #312414),
+    #090b0d;
+  box-shadow:
+    inset 0 0 0 3px #c79943,
+    0 10px 18px rgba(48, 29, 10, 0.34);
+}
+
+.session-prep-layout .combat-map-panel > .vtt-panel {
+  border-radius: 10px;
+  background: #090b0d;
+}
+
+.session-prep-layout .combat-map-panel .vtt-toolbar {
+  padding: 8px 10px;
+  border-bottom: 2px solid rgba(114, 80, 34, 0.36);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 232, 0.98), rgba(235, 212, 164, 0.96)),
+    #fff5da;
+}
+
+.session-prep-layout .combat-map-panel .vtt-toolbar > div:first-child {
+  min-height: 32px;
+  padding: 0 8px;
+  border-right: 1px solid rgba(114, 80, 34, 0.24);
+}
+
+.session-prep-layout .combat-map-panel .vtt-toolbar .eyebrow {
+  color: #1677b4;
+  font-weight: 900;
+}
+
+.session-prep-layout .combat-map-panel .vtt-controls {
+  gap: 7px;
+}
+
+.session-prep-layout .combat-map-panel .vtt-controls input,
+.session-prep-layout .combat-map-panel .vtt-controls select,
+.session-prep-layout .combat-map-panel .vtt-map-settings input,
+.session-prep-layout .combat-map-panel .vtt-zoom-controls select {
+  min-height: 32px;
+  border: 2px solid #bd9140;
+  border-radius: 8px;
+  background: #fffaf0;
+}
+
+.session-prep-layout .combat-map-panel .vtt-controls button,
+.session-prep-layout .combat-map-panel .vtt-zoom-controls button,
+.session-prep-layout .combat-map-panel .vtt-clear-measure,
+.session-prep-layout .combat-map-panel .vtt-fog-tools button,
+.session-prep-layout .combat-map-panel .vtt-inspector-actions button {
+  min-height: 32px;
+  border: 2px solid #8d6729;
+  border-radius: 8px;
+  background: var(--session-kit-button-bg);
+  color: #2f2115;
+  box-shadow: 0 2px 0 #75551f;
+}
+
+.session-prep-layout .combat-map-panel .vtt-subtoolbar {
+  padding: 7px 10px;
+  border-top: 2px solid rgba(114, 80, 34, 0.3);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 232, 0.98), rgba(235, 212, 164, 0.96)),
+    #fff5da;
+}
+
+.session-prep-layout .combat-map-panel .vtt-stage-wrap {
+  border-top: 1px solid rgba(199, 153, 67, 0.3);
+  border-bottom: 1px solid rgba(199, 153, 67, 0.3);
+}
+
+.session-prep-layout .combat-map-panel .vtt-inspector {
+  border-left: 2px solid rgba(114, 80, 34, 0.36);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 232, 0.98), rgba(245, 227, 184, 0.96)),
+    #fff5da;
+}
+
+.session-prep-layout .combat-panel-block,
+.session-prep-layout .combat-resource-panel,
+.session-prep-layout .combat-action-panel,
+.session-prep-layout .combat-check-panel {
+  border: 2px solid #c79943;
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0)),
+    #fff6df;
+  box-shadow: 0 8px 16px rgba(84, 53, 18, 0.12);
+}
+
+.session-prep-layout .combat-selected-target,
+.session-prep-layout .combat-target-button,
+.session-prep-layout .combat-resource-grid span {
+  border: 1px solid #d7b772;
+  border-radius: 10px;
+  background: #fff9e7;
+}
+
+.session-prep-layout .combat-selected-target span,
+.session-prep-layout .combat-target-button span,
+.session-prep-layout .combat-check-list span {
+  border-color: #c79943;
+  border-radius: 999px;
+  background: #fff4d2;
+  color: #6b4a1e;
+}
+
+.session-prep-layout .combat-target-button.selected {
+  border: 2px solid #315d87;
+  background: #edf4fb;
+  box-shadow: inset 0 0 0 1px rgba(52, 102, 153, 0.16);
+}
+
+.session-prep-layout .combat-action-dock {
+  min-height: 142px;
+  padding: 10px;
+  gap: 12px;
+  border-top: 3px solid rgba(114, 80, 34, 0.38);
+  background:
+    linear-gradient(180deg, rgba(239, 220, 179, 0.82), rgba(222, 199, 151, 0.76)),
+    rgba(239, 220, 179, 0.58);
+}
+
+.session-prep-layout .combat-action-tabs button,
+.session-prep-layout .combat-action-list button {
+  min-height: 36px;
+  border: 2px solid #8d6729;
+  border-radius: 9px;
+  background: var(--session-kit-button-bg);
+  color: #2f2115;
+  box-shadow: 0 3px 0 #75551f;
+}
+
+.session-prep-layout .combat-action-tabs button.active {
+  border-color: #0f2f52;
+  background: linear-gradient(#315d87, #17375a);
+  color: #fff8dd;
+  box-shadow: 0 3px 0 #0f243d;
+}
+
+/* 과한 금장/진한 테두리/버튼 그라데이션을 덜어낸 라이트 판타지 톤입니다. */
+.session-prep-layout {
+  --session-kit-button-bg: #fff6df;
+  --session-kit-button-active-bg: #17375a;
+  --session-kit-button-shadow: 0 1px 2px rgba(75, 46, 14, 0.12);
+  --session-kit-shadow: 0 8px 18px rgba(43, 27, 10, 0.14);
+  --session-kit-frame: inset 0 0 0 1px rgba(255, 255, 255, 0.48);
+}
+
+.session-prep-layout :is(
+  .session-stage-canvas.started,
+  .session-sidebar,
+  .session-room-overlay,
+  .combat-party-rail,
+  .combat-target-panel,
+  .combat-map-panel,
+  .story-scene-visual,
+  .exploration-map-panel,
+  .story-node-panel,
+  .exploration-panel-block,
+  .combat-panel-block,
+  .story-party-detail,
+  .exploration-actor-status,
+  .exploration-action-panel,
+  .exploration-check-panel,
+  .combat-resource-panel,
+  .combat-action-panel,
+  .combat-check-panel,
+  .session-settings-room,
+  .session-sidebar-heading
+) {
+  border-width: 1px;
+  border-color: rgba(184, 139, 65, 0.48);
+  box-shadow: 0 6px 14px rgba(43, 27, 10, 0.1);
+}
+
+.session-prep-layout :is(.combat-map-panel, .story-scene-visual, .exploration-map-panel) {
+  border-width: 2px;
+  border-color: rgba(64, 48, 30, 0.72);
+  box-shadow: 0 8px 16px rgba(43, 27, 10, 0.14);
+}
+
+.session-prep-layout :is(.combat-map-panel, .story-scene-visual, .exploration-map-panel)::before,
+.session-prep-layout :is(.combat-map-panel, .story-scene-visual, .exploration-map-panel)::after {
+  display: none;
+}
+
+.session-prep-layout :is(
+  .exploration-action-tabs button,
+  .exploration-action-list button,
+  .combat-action-tabs button,
+  .combat-action-list button,
+  .session-sidebar-input button,
+  .session-log-history-button,
+  .main-command-category-button,
+  .main-command-option-button,
+  .session-settings-room button,
+  .session-room-overlay-actions button,
+  .danger-button,
+  .combat-map-panel .vtt-controls button,
+  .combat-map-panel .vtt-zoom-controls button,
+  .combat-map-panel .vtt-clear-measure,
+  .combat-map-panel .vtt-fog-tools button,
+  .combat-map-panel .vtt-inspector-actions button,
+  .exploration-map-panel .vtt-controls button,
+  .exploration-map-panel .vtt-zoom-controls button,
+  .exploration-map-panel .vtt-clear-measure,
+  .exploration-map-panel .vtt-fog-tools button,
+  .exploration-map-panel .vtt-inspector-actions button
+) {
+  border-width: 1px;
+  border-color: rgba(159, 118, 48, 0.54);
+  background: #fff6df;
+  color: #2f2115;
+  box-shadow: 0 1px 2px rgba(75, 46, 14, 0.1);
+}
+
+.session-prep-layout :is(
+  .exploration-action-tabs button:hover:not(:disabled),
+  .exploration-action-list button:hover:not(:disabled),
+  .combat-action-tabs button:hover:not(:disabled),
+  .combat-action-list button:hover:not(:disabled),
+  .session-sidebar-input button:hover:not(:disabled),
+  .session-log-history-button:hover:not(:disabled),
+  .main-command-category-button:hover:not(:disabled),
+  .main-command-option-button:hover:not(:disabled),
+  .session-settings-room button:hover:not(:disabled),
+  .session-room-overlay-actions button:hover:not(:disabled)
+) {
+  border-color: rgba(49, 93, 135, 0.48);
+  background: #fffaf0;
+  box-shadow: 0 3px 8px rgba(75, 46, 14, 0.12);
+  transform: translateY(-1px);
+}
+
+.session-prep-layout :is(
+  .exploration-action-tabs button.active,
+  .combat-action-tabs button.active,
+  .main-command-category-button.active,
+  .main-command-option-button.active,
+  .session-room-overlay-actions .ghost:first-child,
+  .session-sidebar-tabs button.active,
+  .combat-round-status span:first-child
+) {
+  border-color: rgba(23, 55, 90, 0.58);
+  background: #17375a;
+  color: #fff8dd;
+  box-shadow: 0 2px 6px rgba(15, 36, 61, 0.18);
+}
+
+.session-prep-layout :is(.danger-button, .session-room-overlay-actions .ghost:last-child) {
+  border-color: rgba(143, 51, 32, 0.48);
+  background: #8f3320;
+  color: #fff8dd;
+  box-shadow: 0 2px 6px rgba(91, 31, 20, 0.16);
+}
+
+.session-prep-layout :is(
+  .combat-turn-card,
+  .combat-party-card,
+  .story-party-card,
+  .exploration-party-card,
+  .combat-party-card,
+  .combat-turn-card,
+  .participant-strip-card,
+  .story-element-item,
+  .story-clue-item,
+  .exploration-selected-target,
+  .exploration-target-button,
+  .combat-selected-target,
+  .combat-target-button,
+  .combat-resource-grid span
+) {
+  border-width: 1px;
+  border-color: rgba(184, 139, 65, 0.42);
+  box-shadow: 0 3px 8px rgba(75, 46, 14, 0.08);
+}
+
+.session-prep-layout :is(.combat-turn-card.mine, .combat-party-card.mine, .exploration-party-card.mine, .story-party-card.selected, .combat-target-button.selected, .exploration-target-button.selected) {
+  border-color: rgba(49, 93, 135, 0.58);
+  background: #edf4fb;
+}
+
+.session-prep-layout :is(.combat-map-panel .vtt-toolbar, .combat-map-panel .vtt-subtoolbar, .exploration-map-panel .vtt-toolbar, .exploration-map-panel .vtt-subtoolbar) {
+  border-color: rgba(184, 139, 65, 0.28);
+  background: #fff5da;
+}
