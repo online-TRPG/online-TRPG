@@ -112,6 +112,11 @@ export class InventoryItemDto {
 }
 
 export class CreateCharacterDto {
+  @ApiPropertyOptional({ nullable: true, description: "캐릭터를 묶을 시나리오 id. 지정하면 시나리오의 startLevel과 level이 일치해야 함." })
+  @IsOptional()
+  @IsString()
+  scenarioId?: string | null;
+
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
@@ -354,6 +359,9 @@ export class CharacterResponseDto {
 
   @ApiProperty()
   ownerUserId!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  scenarioId!: string | null;
 
   @ApiProperty()
   name!: string;

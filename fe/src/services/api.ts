@@ -80,6 +80,7 @@ interface CharacterMutationPayload {
   avatarType?: 'DEFAULT' | 'PRESET' | 'UPLOAD';
   avatarPresetId?: string | null;
   avatarUrl?: string | null;
+  scenarioId?: string | null;
   level?: number;
   abilities?: {
     str: number;
@@ -791,6 +792,7 @@ export function createCharacter(
       avatarType: payload.avatarType,
       avatarPresetId: payload.avatarPresetId,
       avatarUrl: payload.avatarUrl,
+      scenarioId: payload.scenarioId,
       level: payload.level,
       abilities: payload.abilities,
       proficiencyBonus: payload.proficiencyBonus,
