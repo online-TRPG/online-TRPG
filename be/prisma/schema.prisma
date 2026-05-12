@@ -275,6 +275,25 @@ model Race {
   updatedAt            DateTime @updatedAt
 }
 
+model Item {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  koName    String
+  category  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ClassDefinition {
+  id                    String   @id @default(cuid())
+  key                   String   @unique
+  koName                String
+  hitDie                String
+  startingEquipmentJson String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
 model Character {
   id                     String              @id @default(cuid())
   ownerUserId            String

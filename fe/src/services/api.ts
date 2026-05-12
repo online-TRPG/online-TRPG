@@ -9,6 +9,8 @@ import type {
   OAuthUrlResponseDto,
   ScenarioAssetKind,
   ScenarioAssetResponseDto,
+  ClassDefinitionResponseDto,
+  ItemResponseDto,
   PlayerScenarioViewDto,
   RaceResponseDto,
   ScenarioResponseDto,
@@ -82,6 +84,7 @@ interface CharacterMutationPayload {
   avatarPresetId?: string | null;
   avatarUrl?: string | null;
   scenarioId?: string | null;
+  startingEquipmentSelection?: number[];
   level?: number;
   abilities?: {
     str: number;
@@ -436,6 +439,14 @@ export function listScenarios(): Promise<Scenario[]> {
 
 export function listRaces(): Promise<RaceResponseDto[]> {
   return requestJson<RaceResponseDto[]>('/races');
+}
+
+export function listClassDefinitions(): Promise<ClassDefinitionResponseDto[]> {
+  return requestJson<ClassDefinitionResponseDto[]>('/classes');
+}
+
+export function listItems(): Promise<ItemResponseDto[]> {
+  return requestJson<ItemResponseDto[]>('/items');
 }
 
 export function getScenario(scenarioId: string): Promise<ScenarioDetail> {
@@ -798,6 +809,7 @@ export function createCharacter(
       avatarPresetId: payload.avatarPresetId,
       avatarUrl: payload.avatarUrl,
       scenarioId: payload.scenarioId,
+      startingEquipmentSelection: payload.startingEquipmentSelection,
       level: payload.level,
       abilities: payload.abilities,
       proficiencyBonus: payload.proficiencyBonus,

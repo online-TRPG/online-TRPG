@@ -54,6 +54,7 @@ export interface CharacterPayload {
   avatarPresetId?: string | null;
   avatarUrl?: string | null;
   scenarioId?: string | null;
+  startingEquipmentSelection?: number[];
   level?: number;
   abilities?: {
     str: number;
