@@ -23,6 +23,7 @@ import {
 } from "../rules/action-rule.service";
 import { ActionEconomyService } from "../rules/action-economy.service";
 import { CharacterResourceService } from "../rules/character-resource.service";
+import { InventoryRuntimeService } from "../rules/inventory-runtime.service";
 import { MapPositionService } from "../rules/map-position.service";
 import { StateDiffService } from "../rules/state-diff.service";
 import { SessionsService } from "../sessions/sessions.service";
@@ -57,6 +58,7 @@ export class ActionProcessorService {
     private readonly aiService: AiService,
     private readonly actionEconomy: ActionEconomyService,
     private readonly characterResources: CharacterResourceService,
+    private readonly inventoryRuntime: InventoryRuntimeService,
     private readonly mapPositions: MapPositionService,
   ) {}
 
@@ -255,7 +257,7 @@ export class ActionProcessorService {
       changes: resolution.stateChanges,
     });
 
-    await this.applyRuntimeEffects(resolution, {
+    const runtimeStateChanged = await this.applyRuntimeEffects(resolution, {
       sessionCharacterId: actor.id,
       turnStateKey: runtime.turnStateKey,
     });
@@ -269,6 +271,11 @@ export class ActionProcessorService {
         ...turnLog,
         stateDiff: { ...stateDiff },
       };
+    }
+
+    if (runtimeStateChanged) {
+      const latestSnapshot = await this.sessionsService.buildSnapshot(session.id);
+      this.realtimeEvents.emitSessionSnapshot(session.id, latestSnapshot);
     }
 
     return turnLog;
@@ -342,10 +349,13 @@ export class ActionProcessorService {
       sessionCharacterId: string;
       turnStateKey: RuntimeTurnStateKey | null;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
+    let changed = false;
     for (const effect of resolution.runtimeEffects ?? []) {
       await this.applyRuntimeEffect(effect, params);
+      changed = true;
     }
+    return changed;
   }
 
   private async applyRuntimeEffect(
@@ -413,6 +423,21 @@ export class ActionProcessorService {
           actionSurgeUses: effect.actionSurgeUses,
           rageUses: effect.rageUses,
           reduceExhaustionBy: effect.reduceExhaustionBy,
+        });
+        return;
+      case "ADD_ITEM":
+        await this.inventoryRuntime.addItem({
+          sessionCharacterId: params.sessionCharacterId,
+          itemDefinitionId: effect.itemDefinitionId,
+          quantity: effect.quantity,
+          containerEntryId: effect.containerEntryId ?? null,
+        });
+        return;
+      case "REMOVE_ITEM":
+        await this.inventoryRuntime.removeItemFromCharacter({
+          sessionCharacterId: params.sessionCharacterId,
+          itemId: effect.itemId,
+          quantity: effect.quantity,
         });
         return;
     }

@@ -78,4 +78,21 @@ describe("CommandParserService", () => {
       restType: "long",
     });
   });
+
+  it("parses inventory commands", () => {
+    expect(service.parse("/item add item.potion 2")).toEqual({
+      type: "inventory",
+      operation: "add",
+      itemId: "item.potion",
+      quantity: 2,
+      containerEntryId: null,
+    });
+    expect(service.parse("/inventory lose entry-1")).toEqual({
+      type: "inventory",
+      operation: "remove",
+      itemId: "entry-1",
+      quantity: 1,
+      containerEntryId: null,
+    });
+  });
 });

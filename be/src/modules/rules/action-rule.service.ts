@@ -154,7 +154,14 @@ export type ActionRuntimeEffect =
       actionSurgeUses: number;
       rageUses: number;
       reduceExhaustionBy: number;
-    };
+    }
+  | {
+      type: "ADD_ITEM";
+      itemDefinitionId: string;
+      quantity: number;
+      containerEntryId?: string | null;
+    }
+  | { type: "REMOVE_ITEM"; itemId: string; quantity: number };
 
 export type ActionResolution = {
   structuredAction: Record<string, unknown>;
@@ -257,6 +264,8 @@ export class ActionRuleService {
         return this.resolveClassFeature(command, actor, runtimeContext);
       case "rest":
         return this.resolveRest(command, actor, runtimeContext);
+      case "inventory":
+        return this.resolveInventory(command);
       case "damage":
         return this.resolveDamage(command, sessionCharacters);
       case "heal":
@@ -526,11 +535,45 @@ export class ActionRuleService {
       case FRENZY_FEATURE_ID:
         return this.resolveFrenzy(actor, runtimeContext);
       default:
-        throw forbidden("ACTION_403", "?ㅽ뻾?????녿뒗 吏곸뾽 湲곕뒫?낅땲??", {
+        throw forbidden("ACTION_403", "실행할 수 없는 직업 기능입니다.", {
           reason: "UNSUPPORTED_CLASS_FEATURE",
           featureId: command.featureId,
         });
     }
+  }
+
+  private resolveInventory(command: Extract<ParsedCommand, { type: "inventory" }>): ActionResolution {
+    const effect: ActionRuntimeEffect =
+      command.operation === "add"
+        ? {
+            type: "ADD_ITEM",
+            itemDefinitionId: command.itemId,
+            quantity: command.quantity,
+            containerEntryId: command.containerEntryId ?? null,
+          }
+        : {
+            type: "REMOVE_ITEM",
+            itemId: command.itemId,
+            quantity: command.quantity,
+          };
+
+    return {
+      structuredAction: {
+        type: "inventory",
+        operation: command.operation,
+        itemId: command.itemId,
+        quantity: command.quantity,
+        ...(command.containerEntryId ? { containerEntryId: command.containerEntryId } : {}),
+      },
+      diceResult: null,
+      outcome: ActionOutcome.SUCCESS,
+      narration:
+        command.operation === "add"
+          ? "아이템을 인벤토리에 추가했습니다."
+          : "아이템을 인벤토리에서 제거했습니다.",
+      stateChanges: [],
+      runtimeEffects: [effect],
+    };
   }
 
   private resolveSecondWind(

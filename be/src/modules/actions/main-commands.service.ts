@@ -364,13 +364,13 @@ export class MainCommandsService {
     await this.sessionsService.ensureMembership(userId, session.id);
 
     if (session.gmMode !== PrismaGmMode.AI) {
-      throw badRequest("MAIN_COMMAND_400", "AI GM ?몄뀡?먯꽌留?硫붿씤 紐낅졊???ъ슜?????덉뒿?덈떎.", {
+      throw badRequest("MAIN_COMMAND_400", "AI GM 세션에서만 메인 명령을 사용할 수 있습니다.", {
         reason: "AI_GM_ONLY",
       });
     }
 
     if (session.status !== PrismaSessionStatus.PLAYING) {
-      throw forbidden("MAIN_COMMAND_403", "?몄뀡??吏꾪뻾 以묒씪 ?뚮쭔 硫붿씤 紐낅졊???ъ슜?????덉뒿?덈떎.", {
+      throw forbidden("MAIN_COMMAND_403", "세션이 진행 중일 때만 메인 명령을 사용할 수 있습니다.", {
         reason: "SESSION_NOT_PLAYING",
       });
     }
@@ -385,7 +385,7 @@ export class MainCommandsService {
     });
 
     if (!participant || participant.status !== PrismaParticipantStatus.JOINED) {
-      throw forbidden("MAIN_COMMAND_403", "?꾩옱 ?몄뀡 李멸??먮쭔 硫붿씤 紐낅졊???ъ슜?????덉뒿?덈떎.", {
+      throw forbidden("MAIN_COMMAND_403", "현재 세션 참가자만 메인 명령을 사용할 수 있습니다.", {
         reason: "NOT_A_SESSION_PARTICIPANT",
       });
     }
@@ -413,20 +413,20 @@ export class MainCommandsService {
     });
 
     if (!sessionCharacter || sessionCharacter.status !== PrismaSessionCharacterStatus.ACTIVE) {
-      throw forbidden("MAIN_COMMAND_403", "罹먮┃?곕? ?좏깮????硫붿씤 紐낅졊???ъ슜?댁＜?몄슂.", {
+      throw forbidden("MAIN_COMMAND_403", "캐릭터를 선택한 뒤 메인 명령을 사용해주세요.", {
         reason: "CHARACTER_NOT_SELECTED",
       });
     }
 
     if (![sessionCharacter.id, sessionCharacter.characterId].includes(dto.actorId)) {
-      throw forbidden("MAIN_COMMAND_403", "?좏깮??罹먮┃?곗? ?붿껌 actorId媛 ?쇱튂?섏? ?딆뒿?덈떎.", {
+      throw forbidden("MAIN_COMMAND_403", "선택한 캐릭터와 요청 actorId가 일치하지 않습니다.", {
         reason: "ACTOR_MISMATCH",
       });
     }
 
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     if (!state.currentNodeId) {
-      throw badRequest("MAIN_COMMAND_400", "?꾩옱 吏꾪뻾 以묒씤 ?몃뱶媛 ?놁뒿?덈떎.", {
+      throw badRequest("MAIN_COMMAND_400", "현재 진행 중인 노드가 없습니다.", {
         reason: "CURRENT_NODE_REQUIRED",
       });
     }
@@ -441,20 +441,20 @@ export class MainCommandsService {
     });
 
     if (!currentNode) {
-      throw badRequest("MAIN_COMMAND_400", "?꾩옱 ?몃뱶 ?뺣낫瑜?李얠쓣 ???놁뒿?덈떎.", {
+      throw badRequest("MAIN_COMMAND_400", "현재 노드 정보를 찾을 수 없습니다.", {
         reason: "CURRENT_NODE_NOT_FOUND",
       });
     }
 
     const expectedScreenType = this.toMainScreenType(currentNode.nodeType);
     if (dto.screenType !== expectedScreenType) {
-      throw badRequest("MAIN_COMMAND_400", "?꾩옱 ?몃뱶 ?붾㈃ ??낃낵 ?붿껌 screenType???쇱튂?섏? ?딆뒿?덈떎.", {
+      throw badRequest("MAIN_COMMAND_400", "현재 노드 화면 타입과 요청 screenType이 일치하지 않습니다.", {
         reason: "SCREEN_TYPE_MISMATCH",
       });
     }
 
     if (dto.nodeId && dto.nodeId !== currentNode.nodeId) {
-      throw badRequest("MAIN_COMMAND_400", "?붿껌 nodeId媛 ?꾩옱 吏꾪뻾 以묒씤 ?몃뱶? ?ㅻ쫭?덈떎.", {
+      throw badRequest("MAIN_COMMAND_400", "요청 nodeId가 현재 진행 중인 노드와 다릅니다.", {
         reason: "NODE_ID_MISMATCH",
       });
     }
@@ -502,7 +502,7 @@ export class MainCommandsService {
     );
 
     if (!hasItem) {
-      throw badRequest("MAIN_COMMAND_400", "?대떦 ?꾩씠?쒖? ?꾩옱 罹먮┃?곌? 蹂댁쑀?섍퀬 ?덉? ?딆뒿?덈떎.", {
+      throw badRequest("MAIN_COMMAND_400", "해당 아이템은 현재 캐릭터가 보유하고 있지 않습니다.", {
         reason: "ITEM_NOT_OWNED",
       });
     }
@@ -515,21 +515,21 @@ export class MainCommandsService {
     }
 
     if (requirement.requiresItem && !dto.itemId) {
-      throw badRequest("MAIN_COMMAND_400", "??紐낅졊? ?ъ슜???꾩씠?쒖쓣 ?④퍡 吏?뺥빐???⑸땲??", {
+      throw badRequest("MAIN_COMMAND_400", "이 명령은 사용할 아이템을 함께 지정해야 합니다.", {
         reason: "ITEM_ID_REQUIRED",
         intent: dto.intent,
       });
     }
 
     if (requirement.requiresSpell && !dto.spellId) {
-      throw badRequest("MAIN_COMMAND_400", "??紐낅졊? ?ъ슜??二쇰Ц???④퍡 吏?뺥빐???⑸땲??", {
+      throw badRequest("MAIN_COMMAND_400", "이 명령은 사용할 주문을 함께 지정해야 합니다.", {
         reason: "SPELL_ID_REQUIRED",
         intent: dto.intent,
       });
     }
 
     if (requirement.requiresMapPoint && !dto.mapPoint) {
-      throw badRequest("MAIN_COMMAND_400", "??紐낅졊? 吏??醫뚰몴瑜??④퍡 吏?뺥빐???⑸땲??", {
+      throw badRequest("MAIN_COMMAND_400", "이 명령은 지도 좌표를 함께 지정해야 합니다.", {
         reason: "MAP_POINT_REQUIRED",
         intent: dto.intent,
       });
@@ -538,7 +538,7 @@ export class MainCommandsService {
     if (dto.targetType) {
       const allowedTargetTypes = requirement.requiresTargetTypes ?? requirement.allowsTargetTypes ?? [];
       if (allowedTargetTypes.length && !allowedTargetTypes.includes(dto.targetType)) {
-        throw badRequest("MAIN_COMMAND_400", "??紐낅졊??留욎? ?딅뒗 ???醫낅쪟?낅땲??", {
+        throw badRequest("MAIN_COMMAND_400", "이 명령에 맞지 않는 대상 종류입니다.", {
           reason: "TARGET_TYPE_INVALID",
           intent: dto.intent,
           targetType: dto.targetType,
@@ -547,7 +547,7 @@ export class MainCommandsService {
     }
 
     if (requirement.requiresTargetTypes && !dto.targetId) {
-      throw badRequest("MAIN_COMMAND_400", "??紐낅졊? ??곸쓣 ?④퍡 吏?뺥빐???⑸땲??", {
+      throw badRequest("MAIN_COMMAND_400", "이 명령은 대상을 함께 지정해야 합니다.", {
         reason: "TARGET_ID_REQUIRED",
         intent: dto.intent,
       });
@@ -558,7 +558,7 @@ export class MainCommandsService {
       !dto.targetId &&
       !dto.mapPoint
     ) {
-      throw badRequest("MAIN_COMMAND_400", "??紐낅졊? 議곗궗 ????먮뒗 吏??醫뚰몴媛 ?꾩슂?⑸땲??", {
+      throw badRequest("MAIN_COMMAND_400", "이 명령은 조사 대상 또는 지도 좌표가 필요합니다.", {
         reason: "TARGET_OR_POINT_REQUIRED",
         intent: dto.intent,
       });
@@ -582,7 +582,7 @@ export class MainCommandsService {
         dto.targetType,
       );
       if (!entity) {
-        throw badRequest("MAIN_COMMAND_400", "?꾩옱 ?λ㈃?먯꽌 蹂댁씠????곷쭔 吏?뺥븷 ???덉뒿?덈떎.", {
+        throw badRequest("MAIN_COMMAND_400", "현재 화면에서 보이는 대상만 지정할 수 있습니다.", {
           reason: "TARGET_NOT_VISIBLE",
           intent: dto.intent,
           targetId: dto.targetId,
@@ -609,7 +609,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
-        message: "??뷀븷 NPC瑜??뱀젙?????놁뒿?덈떎. ?λ㈃??蹂댁씠??NPC瑜???遺꾨챸???곸뼱二쇱꽭??",
+        message: "대화할 NPC를 지정하지 않았습니다. 화면에 보이는 NPC를 분명히 적어주세요.",
       };
     }
 
@@ -655,7 +655,7 @@ export class MainCommandsService {
         status: MainCommandStatus.MESSAGE,
         message:
           interpreter.parsed.clarificationQuestion ??
-          "?꾧뎄?먭쾶 ?대뼡 ?앹쑝濡?留먯쓣 嫄곕뒗吏 議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??",
+          "누구에게 어떤 말투와 의도로 말하는지 조금 더 구체적으로 적어주세요.",
       };
     }
 
@@ -667,7 +667,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
-        message: `${actionSummary}???먯젙???꾩슂?⑸땲??`,
+        message: `${actionSummary}에는 판정이 필요합니다.`,
         checkOptions: this.buildCheckOptions(interpreter.parsed.action),
         actionCandidate: this.buildActionCandidate(context, dto, actionSummary),
       };
@@ -677,7 +677,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.GM_APPROVAL_REQUIRED,
-        message: `${actionSummary}?(?? ?곹솴 ?뱀씤 ?먮뒗 異붽? 寃利앹씠 ?꾩슂?⑸땲??`,
+        message: `${actionSummary}은(는) 상황 확인 또는 추가 검증이 필요합니다.`,
         actionCandidate: this.buildActionCandidate(context, dto, actionSummary),
       };
     }
@@ -702,7 +702,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
-        message: "?ㅻ뱷??NPC瑜??뱀젙?????놁뒿?덈떎. 怨듦컻?????以??꾧뎄瑜??ㅻ뱷?섎뒗吏 怨⑤씪二쇱꽭??",
+        message: "설득할 NPC를 지정하지 않았습니다. 공개된 대상 중 누구를 설득하는지 골라주세요.",
       };
     }
 
@@ -718,7 +718,7 @@ export class MainCommandsService {
         status: MainCommandStatus.MESSAGE,
         message:
           interpreter.parsed.clarificationQuestion ??
-          `${npc.name}??瑜? ?대뼡 洹쇨굅濡??ㅻ뱷?섎젮?붿? 議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??`,
+          `${npc.name}을(를) 어떤 근거로 설득하려는지 조금 더 구체적으로 적어주세요.`,
       };
     }
 
@@ -733,7 +733,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
-        message: `${npc.name} ?ㅻ뱷?먮뒗 ?먯젙???꾩슂?⑸땲??`,
+        message: `${npc.name} 설득에는 판정이 필요합니다.`,
         checkOptions: this.buildPersuasionCheckOptions(interpreter.parsed.action, npc.name),
         actionCandidate,
       };
@@ -743,7 +743,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
-        message: `${npc.name}?(?? ?꾩옱 ?곷??곸씠?????ㅻ뱷? 諛붾줈 諛쏆븘?ㅼ뿬吏湲??대졄?듬땲?? ??媛뺥븳 洹쇨굅, ?媛, ?먮뒗 ?곹솴 蹂?붽? ?꾩슂?⑸땲??`,
+        message: `${npc.name}은(는) 현재 적대적이어서 설득이 바로 받아들여지기 어렵습니다. 더 강한 근거, 대가, 또는 상황 변화가 필요합니다.`,
         actionCandidate,
       };
     }
@@ -751,7 +751,7 @@ export class MainCommandsService {
     return {
       requestId,
       status: MainCommandStatus.GM_APPROVAL_REQUIRED,
-      message: `${npc.name} ?ㅻ뱷? ?곹솴 ?먮떒?????꾩슂?⑸땲?? ?쒖떆??洹쇨굅? ?꾩옱 遺꾩쐞湲곕? 蹂닿퀬 GM ?뱀씤 ?먮뒗 異붽? ?먯젙??寃곗젙?⑸땲??`,
+      message: `${npc.name} 설득은 상황 판단이 필요합니다. 제시한 근거와 현재 분위기를 보고 GM 승인 또는 추가 판정으로 결정합니다.`,
       actionCandidate,
     };
   }
@@ -773,7 +773,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
-        message: "?묐컯??NPC瑜??뱀젙?????놁뒿?덈떎. 怨듦컻?????以??꾧뎄瑜??뺣컯?섎뒗吏 怨⑤씪二쇱꽭??",
+        message: "압박할 NPC를 지정하지 않았습니다. 공개된 대상 중 누구를 압박하는지 골라주세요.",
       };
     }
 
@@ -789,7 +789,7 @@ export class MainCommandsService {
         status: MainCommandStatus.MESSAGE,
         message:
           interpreter.parsed.clarificationQuestion ??
-          `${npc.name}?먭쾶 ?대뼡 ?꾪삊?대굹 ?뺣컯??媛?섎뒗吏 議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??`,
+          `${npc.name}에게 어떤 위협이나 압박을 가하는지 조금 더 구체적으로 적어주세요.`,
       };
     }
 
@@ -804,7 +804,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
-        message: `${npc.name} ?묐컯?먮뒗 ?먯젙???꾩슂?⑸땲??`,
+        message: `${npc.name} 압박에는 판정이 필요합니다.`,
         checkOptions: this.buildIntimidationCheckOptions(interpreter.parsed.action, npc.name),
         actionCandidate,
       };
@@ -814,7 +814,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
-        message: `${npc.name}?먭쾶 ?듯븷 留뚰븳 ?꾪삊 洹쇨굅媛 遺議깊빀?덈떎. ??吏곸젒?곸씤 ?뺣컯 ?섎떒?대굹 ?꾪뿕 ?붿냼瑜??쒖떆?댁빞 ?⑸땲??`,
+        message: `${npc.name}에게 통할 만한 위협 근거가 부족합니다. 더 직접적인 압박 수단이나 위험 요소를 제시해야 합니다.`,
         actionCandidate,
       };
     }
@@ -823,7 +823,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
-        message: `${npc.name}?(?? ?꾩옱 ?고샇?곸씠???대윴 ?묐컯? 留λ씫???깅┰?섍린 ?대졄?듬땲?? ?ㅻⅨ 諛⑹떇???묎렐???꾩슂?⑸땲??`,
+        message: `${npc.name}은(는) 현재 우호적이어서 이런 압박은 관계를 악화시키기 쉽습니다. 다른 방식의 접근이 필요합니다.`,
         actionCandidate,
       };
     }
@@ -831,7 +831,7 @@ export class MainCommandsService {
     return {
       requestId,
       status: MainCommandStatus.GM_APPROVAL_REQUIRED,
-      message: `${npc.name} ?묐컯? ?곹솴 諛섎컻怨??꾩냽 寃곌낵 ?먮떒???꾩슂?⑸땲?? ?꾪삊??癒뱁엳?붿?? 遺?묒슜? GM ?뱀씤 ?먮뒗 異붽? ?먯젙?쇰줈 寃곗젙?⑸땲??`,
+      message: `${npc.name} 압박은 상황 반발과 후속 결과 판단이 필요합니다. 위협의 설득력과 부작용은 GM 승인 또는 추가 판정으로 결정합니다.`,
       actionCandidate,
     };
   }
@@ -853,7 +853,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
-        message: "?띿씪 NPC瑜??뱀젙?????놁뒿?덈떎. 怨듦컻?????以??꾧뎄瑜??띿씠?ㅻ뒗吏 怨⑤씪二쇱꽭??",
+        message: "속일 NPC를 지정하지 않았습니다. 공개된 대상 중 누구를 속이는지 골라주세요.",
       };
     }
 
@@ -869,7 +869,7 @@ export class MainCommandsService {
         status: MainCommandStatus.MESSAGE,
         message:
           interpreter.parsed.clarificationQuestion ??
-          `${npc.name}?먭쾶 ?대뼡 嫄곗쭞 ?뺣낫???좊텇???쒖떆?섎뒗吏 議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??`,
+          `${npc.name}에게 어떤 거짓 정보나 신분을 제시하는지 조금 더 구체적으로 적어주세요.`,
       };
     }
 
@@ -883,7 +883,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
-        message: `${npc.name} ?띿씠湲곗뿉???먯젙???꾩슂?⑸땲??`,
+        message: `${npc.name} 속이기에는 판정이 필요합니다.`,
         checkOptions: this.buildDeceptionCheckOptions(interpreter.parsed.action, npc.name),
         actionCandidate,
       };
@@ -893,7 +893,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
-        message: `${npc.name}?먭쾶 ?듯븷 留뚰븳 嫄곗쭞 洹쇨굅媛 遺議깊빀?덈떎. ?좊텇, 利앷굅, ?곹솴 ?ㅻ챸?????ㅻ뱷???덇쾶 ?쒖떆?댁빞 ?⑸땲??`,
+        message: `${npc.name}에게 통할 만한 거짓 근거가 부족합니다. 신분, 증거, 상황 설명을 더 그럴듯하게 제시해야 합니다.`,
         actionCandidate,
       };
     }
@@ -901,7 +901,7 @@ export class MainCommandsService {
     return {
       requestId,
       status: MainCommandStatus.GM_APPROVAL_REQUIRED,
-      message: `${npc.name} ?띿씠湲곕뒗 吏꾩닠??媛쒖뿰?깃낵 ?몄텧 ?꾪뿕 ?먮떒?????꾩슂?⑸땲?? GM ?뱀씤 ?먮뒗 異붽? ?먯젙?쇰줈 寃곗젙?⑸땲??`,
+      message: `${npc.name} 속이기는 진술의 개연성과 노출 위험 판단이 필요합니다. GM 승인 또는 추가 판정으로 결정합니다.`,
       actionCandidate,
     };
   }
@@ -924,7 +924,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
-        message: "?댄렣蹂?NPC瑜??뱀젙?????놁뒿?덈떎. 怨듦컻?????以??꾧뎄??諛섏쓳???쎌쑝?ㅻ뒗吏 怨⑤씪二쇱꽭??",
+        message: "읽어볼 NPC를 지정하지 않았습니다. 공개된 대상 중 누구의 반응을 읽을지 골라주세요.",
       };
     }
 
@@ -940,7 +940,7 @@ export class MainCommandsService {
         status: MainCommandStatus.MESSAGE,
         message:
           interpreter.parsed.clarificationQuestion ??
-          `${npc.name}???대뼡 媛먯젙?대굹 諛섏쓳???쎄퀬 ?띠?吏 議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??`,
+          `${npc.name}의 어떤 감정이나 반응을 읽고 싶은지 조금 더 구체적으로 적어주세요.`,
       };
     }
 
@@ -951,7 +951,7 @@ export class MainCommandsService {
     return {
       requestId,
       status: MainCommandStatus.CHECK_REQUIRED,
-      message: `${npc.name}??媛먯젙怨??띾궡瑜??쎌쑝?ㅻ㈃ ?먯젙???꾩슂?⑸땲??`,
+      message: `${npc.name}의 감정과 속내를 읽으려면 판정이 필요합니다.`,
       checkOptions: this.buildInsightCheckOptions(interpreter.parsed.action, npc.name),
       actionCandidate: this.buildActionCandidate(context, dto, actionSummary),
     };
@@ -974,7 +974,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
-        message: "?댄렣蹂??ㅻ툕?앺듃瑜??뱀젙?????놁뒿?덈떎. 怨듦컻??臾쇨굔?대굹 ?⑥꽌 以??섎굹瑜?怨⑤씪二쇱꽭??",
+        message: "살펴볼 오브젝트를 지정하지 않았습니다. 공개된 물건이나 단서 중 하나를 골라주세요.",
       };
     }
 
@@ -990,7 +990,7 @@ export class MainCommandsService {
         status: MainCommandStatus.MESSAGE,
         message:
           interpreter.parsed.clarificationQuestion ??
-          `${objectTarget.name}???대뼡 遺遺꾩쓣 ?댄렣蹂대뒗吏 議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??`,
+          `${objectTarget.name}의 어떤 부분을 살펴보는지 조금 더 구체적으로 적어주세요.`,
       };
     }
 
@@ -1002,7 +1002,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
-        message: `${objectTarget.name}??瑜? ?먯꽭??議곗궗?섎젮硫??먯젙???꾩슂?⑸땲??`,
+        message: `${objectTarget.name}을(를) 자세히 조사하려면 판정이 필요합니다.`,
         checkOptions: this.buildInvestigationCheckOptions(interpreter.parsed.action, objectTarget.name),
         actionCandidate: this.buildActionCandidate(context, dto, actionSummary),
       };
@@ -1036,7 +1036,7 @@ export class MainCommandsService {
         status: MainCommandStatus.MESSAGE,
         message:
           interpreter.parsed.clarificationQuestion ??
-          "?대뼡 RP ?됰룞???대뼡 遺꾩쐞湲곕줈 ?섎젮?붿? 議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??",
+          "어떤 RP 행동을 어떤 분위기로 하려는지 조금 더 구체적으로 적어주세요.",
       };
     }
 
@@ -1050,7 +1050,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.GM_APPROVAL_REQUIRED,
-        message: `${actionSummary}?(?? ?⑥닚 臾섏궗瑜??섏뼱 異붽? ?먯젙?대굹 ?곹솴 ?뱀씤???꾩슂?????덉뒿?덈떎.`,
+        message: `${actionSummary}은(는) 단순 묘사를 넘어 추가 판정이나 상황 확인이 필요할 수 있습니다.`,
         actionCandidate,
       };
     }
@@ -1058,7 +1058,7 @@ export class MainCommandsService {
     return {
       requestId,
       status: MainCommandStatus.MESSAGE,
-      message: `${actionSummary} RP ?좎뼵??湲곕줉?덉뒿?덈떎.`,
+      message: `${actionSummary} RP 선언을 기록했습니다.`,
       actionCandidate,
     };
   }
@@ -1083,7 +1083,7 @@ export class MainCommandsService {
         status: MainCommandStatus.MESSAGE,
         message:
           interpreter.parsed.clarificationQuestion ??
-          "?대뒓 諛⑺뼢?대굹 ?대뼡 踰붿쐞瑜??댄뵾?붿? 議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??",
+          "어느 방향이나 어떤 범위를 살펴보는지 조금 더 구체적으로 적어주세요.",
       };
     }
 
@@ -1095,20 +1095,20 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
-        message: "二쇰????몃??섍쾶 ?댄뵾?ㅻ㈃ ?먯젙???꾩슂?⑸땲??",
+        message: "주변을 면밀하게 살피려면 판정이 필요합니다.",
         checkOptions: this.buildPerceptionCheckOptions(interpreter.parsed.action),
         actionCandidate: this.buildActionCandidate(context, dto, actionSummary),
       };
     }
 
     const visibleSummary = visibleEntities.length
-      ? `蹂댁씠????? ${visibleEntities.map((entity) => entity.name).join(", ")}.`
-      : "?덉뿉 ?꾨뒗 ??곸? ?꾩쭅 ?놁뒿?덈떎.";
+      ? `보이는 대상: ${visibleEntities.map((entity) => entity.name).join(", ")}.`
+      : "눈에 띄는 대상은 아직 없습니다.";
     const clueSummary = publicClues.length
-      ? ` 怨듦컻 ?⑥꽌: ${publicClues.join(" / ")}`
+      ? ` 공개 단서: ${publicClues.join(" / ")}`
       : "";
     const pointSummary = dto.mapPoint
-      ? ` (${dto.mapPoint.x}, ${dto.mapPoint.y}) 二쇰???湲곗??쇰줈 ?댄룉?듬땲??`
+      ? ` (${dto.mapPoint.x}, ${dto.mapPoint.y}) 주변을 기준으로 살펴봅니다.`
       : "";
 
     return {
@@ -1147,7 +1147,7 @@ export class MainCommandsService {
         status: MainCommandStatus.MESSAGE,
         message:
           interpreter.parsed.clarificationQuestion ??
-          "臾댁뾿???대뼸寃?議곗궗?섎뒗吏 議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??",
+          "무엇을 어떻게 조사하는지 조금 더 구체적으로 적어주세요.",
       };
     }
 
@@ -1157,11 +1157,11 @@ export class MainCommandsService {
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
     if (interpreter.parsed.action.requiresRoll) {
-      const label = target?.name ?? "?대떦 ?꾩튂";
+      const label = target?.name ?? "해당 위치";
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
-        message: `${label}??瑜? ?먯꽭??議곗궗?섎젮硫??먯젙???꾩슂?⑸땲??`,
+        message: `${label}을(를) 자세히 조사하려면 판정이 필요합니다.`,
         checkOptions: this.buildInvestigationCheckOptions(interpreter.parsed.action, label),
         actionCandidate,
       };
@@ -1180,7 +1180,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.GM_APPROVAL_REQUIRED,
-        message: `(${dto.mapPoint.x}, ${dto.mapPoint.y}) ?꾩튂 議곗궗???꾩옣 ?먯젙?대굹 異붽? ?뺤씤???꾩슂?⑸땲??`,
+        message: `(${dto.mapPoint.x}, ${dto.mapPoint.y}) 위치 조사는 현장 판정이나 추가 확인이 필요합니다.`,
         actionCandidate,
       };
     }
@@ -1188,7 +1188,7 @@ export class MainCommandsService {
     return {
       requestId,
       status: MainCommandStatus.IMPOSSIBLE,
-      message: "議곗궗????곸씠???꾩튂瑜??뱀젙?????놁뒿?덈떎.",
+      message: "조사할 대상이나 위치를 지정하지 않았습니다.",
       actionCandidate,
     };
   }
@@ -1222,7 +1222,7 @@ export class MainCommandsService {
         status: MainCommandStatus.MESSAGE,
         message:
           interpreter.parsed.clarificationQuestion ??
-          "?대뒓 履쎌씠???대뼡 吏?먯쓣 ?ν빐 洹瑜?湲곗슱?대뒗吏 議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??",
+          "어느 쪽이나 어떤 지점을 향해 귀를 기울이는지 조금 더 구체적으로 적어주세요.",
       };
     }
 
@@ -1235,18 +1235,18 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
-        message: "誘몄꽭???뚮━??湲곗쿃???≪븘?대젮硫??먯젙???꾩슂?⑸땲??",
+        message: "미세한 소리나 기척을 알아내려면 판정이 필요합니다.",
         checkOptions: this.buildPerceptionCheckOptions(interpreter.parsed.action),
         actionCandidate,
       };
     }
 
     const pointSummary = dto.mapPoint
-      ? ` (${dto.mapPoint.x}, ${dto.mapPoint.y}) 遺洹쇱뿉 洹瑜?湲곗슱??듬땲??`
+      ? ` (${dto.mapPoint.x}, ${dto.mapPoint.y}) 부근에 귀를 기울였습니다.`
       : "";
     const targetSummary = target
-      ? ` ${target.name} 履쎌뿉??怨듦컻?곸쑝濡??ㅼ쓣 ???덈뒗 ?댁긽???뚮━???놁뒿?덈떎.`
-      : " 怨듦컻??踰붿쐞?먯꽌???댁긽???뚮━??湲곗쿃??諛붾줈 ?쒕윭?섏? ?딆뒿?덈떎.";
+      ? ` ${target.name} 쪽에서 공개적으로 들을 수 있는 이상한 소리는 없습니다.`
+      : " 공개된 범위에서는 이상한 소리나 기척이 바로 드러나지 않습니다.";
 
     return {
       requestId,
@@ -1285,7 +1285,7 @@ export class MainCommandsService {
         status: MainCommandStatus.MESSAGE,
         message:
           interpreter.parsed.clarificationQuestion ??
-          "?대뒓 ?꾩튂???대뼡 ?꾪뿕??寃쎄퀎?섎뒗吏 議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??",
+          "어느 위치의 어떤 위험을 경계하는지 조금 더 구체적으로 적어주세요.",
       };
     }
 
@@ -1298,17 +1298,17 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
-        message: "?⑥? ?꾪뿕?대굹 留ㅻ났??媛먯??섎젮硫??먯젙???꾩슂?⑸땲??",
+        message: "숨은 위험이나 매복을 감지하려면 판정이 필요합니다.",
         checkOptions: this.buildDangerDetectionCheckOptions(interpreter.parsed.action),
         actionCandidate,
       };
     }
 
     const targetSummary = target
-      ? ` ${target.name} 遺洹쇱뿉??利됱떆 ?쒕윭???꾪뿕? 蹂댁씠吏 ?딆뒿?덈떎.`
-      : " 利됱떆 ?쒕윭???꾪뿕 ?좏샇??蹂댁씠吏 ?딆뒿?덈떎.";
+      ? ` ${target.name} 부근에서 즉시 드러난 위험은 보이지 않습니다.`
+      : " 즉시 드러난 위험 신호는 보이지 않습니다.";
     const pointSummary = dto.mapPoint
-      ? ` (${dto.mapPoint.x}, ${dto.mapPoint.y}) 二쇰???寃쎄퀎?덉뒿?덈떎.`
+      ? ` (${dto.mapPoint.x}, ${dto.mapPoint.y}) 주변을 경계했습니다.`
       : "";
 
     return {
@@ -1338,7 +1338,7 @@ export class MainCommandsService {
         status: MainCommandStatus.MESSAGE,
         message:
           interpreter.parsed.clarificationQuestion ??
-          "?대뒓 ?꾩튂濡??대뼡 諛⑹떇?쇰줈 ?대룞?섎젮?붿? 議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??",
+          "어느 위치로 어떤 방식으로 이동하려는지 조금 더 구체적으로 적어주세요.",
       };
     }
 
@@ -1351,18 +1351,18 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
-        message: "?뱀닔 ?대룞???쒕룄?섎젮硫??먯젙???꾩슂?⑸땲??",
+        message: "특수 이동을 시도하려면 판정이 필요합니다.",
         checkOptions: this.buildSpecialMoveCheckOptions(interpreter.parsed.action),
         actionCandidate,
       };
     }
 
-    const itemSummary = dto.itemId ? ` ?꾧뎄 ${dto.itemId} ?ъ슜???④퍡 怨좊젮?⑸땲??` : "";
+    const itemSummary = dto.itemId ? ` 도구 ${dto.itemId} 사용을 함께 고려합니다.` : "";
 
     return {
       requestId,
       status: MainCommandStatus.MESSAGE,
-      message: `(${dto.mapPoint?.x}, ${dto.mapPoint?.y}) 諛⑺뼢 ?뱀닔 ?대룞???쒕룄?????덉뒿?덈떎.${itemSummary}`,
+      message: `(${dto.mapPoint?.x}, ${dto.mapPoint?.y}) 방향 특수 이동을 시도할 수 있습니다.${itemSummary}`,
       actionCandidate,
     };
   }
@@ -1384,7 +1384,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
-        message: "議곗옉???ㅻ툕?앺듃瑜??뱀젙?????놁뒿?덈떎. 怨듦컻??臾? ?곸옄, ?μ튂 以??섎굹瑜?怨⑤씪二쇱꽭??",
+        message: "조작할 오브젝트를 지정하지 않았습니다. 공개된 문, 상자, 장치 중 하나를 골라주세요.",
       };
     }
 
@@ -1400,7 +1400,7 @@ export class MainCommandsService {
         status: MainCommandStatus.MESSAGE,
         message:
           interpreter.parsed.clarificationQuestion ??
-          `${objectTarget.name}??瑜? ?대뼡 諛⑹떇?쇰줈 議곗옉?섎뒗吏 議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??`,
+          `${objectTarget.name}을(를) 어떤 방식으로 조작하는지 조금 더 구체적으로 적어주세요.`,
       };
     }
 
@@ -1413,7 +1413,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
-        message: `${objectTarget.name}??瑜? 議곗옉?섎젮硫??먯젙???꾩슂?⑸땲??`,
+        message: `${objectTarget.name}을(를) 조작하려면 판정이 필요합니다.`,
         checkOptions: this.buildObjectInteractionCheckOptions(interpreter.parsed.action, objectTarget.name),
         actionCandidate,
       };
@@ -1423,7 +1423,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.GM_APPROVAL_REQUIRED,
-        message: `${objectTarget.name} 議곗옉? 異붽? ?곹깭 ?뺤씤?대굹 ?곹솴 ?뱀씤???꾩슂?⑸땲??`,
+        message: `${objectTarget.name} 조작은 추가 상태 확인이나 상황 승인이 필요합니다.`,
         actionCandidate,
       };
     }
@@ -1431,7 +1431,7 @@ export class MainCommandsService {
     return {
       requestId,
       status: MainCommandStatus.ACTION_READY,
-      message: `${objectTarget.name}??${actionSummary}??瑜? ?쒕룄?????덉뒿?덈떎.`,
+      message: `${objectTarget.name}에 ${actionSummary}을(를) 시도할 수 있습니다.`,
       actionCandidate,
     };
   }
@@ -2118,7 +2118,7 @@ export class MainCommandsService {
       };
     }
 
-    const clueText = publicClues.length ? ` 怨듦컻 ?⑥꽌: ${publicClues.join(" / ")}` : "";
+    const clueText = publicClues.length ? ` 공개 단서: ${publicClues.join(" / ")}` : "";
     return {
       requestId,
       status: MainCommandStatus.MESSAGE,
@@ -2137,7 +2137,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.IMPOSSIBLE,
-        message: "?꾩옱 ?λ㈃?먯꽌 ?대룞 媛?ν븳 ?ㅼ쓬 ?몃뱶媛 ?놁뒿?덈떎.",
+        message: "현재 화면에서 이동 가능한 다음 노드가 없습니다.",
       };
     }
 
@@ -2146,7 +2146,7 @@ export class MainCommandsService {
       return {
         requestId,
         status: MainCommandStatus.GM_APPROVAL_REQUIRED,
-        message: `?대룞 ?꾨낫瑜???遺꾨챸??吏?뺥빐二쇱꽭?? 媛?ν븳 紐⑹쟻吏: ${candidates.map((item) => item.title).join(", ")}`,
+        message: `이동 후보를 더 분명히 지정해주세요. 가능한 목적지: ${candidates.map((item) => item.title).join(", ")}`,
       };
     }
 
@@ -2159,7 +2159,7 @@ export class MainCommandsService {
     return {
       requestId,
       status: MainCommandStatus.RESOLVED,
-      message: `${target.title} ?λ㈃?쇰줈 ?대룞?덉뒿?덈떎.`,
+      message: `${target.title} 화면으로 이동했습니다.`,
       statePatch: {
         currentNodeId: target.nodeId,
         nodeType: target.nodeType,
@@ -2217,11 +2217,11 @@ export class MainCommandsService {
         requestId,
         status: MainCommandStatus.MESSAGE,
         message:
-          "吏湲?吏덈Ц?먯꽌 諛붾줈 ?곌껐??洹쒖튃 議곌컖??李얠? 紐삵뻽?듬땲?? ?됰룞, ??? 二쇰Ц ?대쫫??議곌툑 ??援ъ껜?곸쑝濡??곸뼱二쇱꽭??",
+          "지금 질문에서 바로 연결할 규칙 조각을 찾지 못했습니다. 행동, 대상, 주문 이름을 조금 더 구체적으로 적어주세요.",
       };
     }
 
-    const relatedIntentText = dto.relatedIntent ? `愿??紐낅졊: ${dto.relatedIntent}. ` : "";
+    const relatedIntentText = dto.relatedIntent ? `관련 명령: ${dto.relatedIntent}. ` : "";
     const lines = matchingRules
       .slice(0, 3)
       .map((fragment) => `${fragment.titleKo}: ${fragment.summaryKo}`);
@@ -2323,7 +2323,7 @@ export class MainCommandsService {
         ...(action.ability ? { ability: action.ability } : {}),
         ...(action.skill ? { skill: action.skill } : {}),
         reason: action.suggestedDifficulty
-          ? `${action.approach} (?쒖씠???쒖븞: ${action.suggestedDifficulty})`
+          ? `${action.approach} (난이도 제안: ${action.suggestedDifficulty})`
           : action.approach,
       },
     ];
@@ -2347,8 +2347,8 @@ export class MainCommandsService {
         ability: "cha",
         skill: "persuasion",
         reason: action.suggestedDifficulty
-          ? `${npcName} ?ㅻ뱷 (?쒖씠???쒖븞: ${action.suggestedDifficulty})`
-          : `${npcName} ?ㅻ뱷`,
+          ? `${npcName} 설득 (난이도 제안: ${action.suggestedDifficulty})`
+          : `${npcName} 설득`,
       },
     ];
   }
@@ -2371,8 +2371,8 @@ export class MainCommandsService {
         ability: "cha",
         skill: "intimidation",
         reason: action.suggestedDifficulty
-          ? `${npcName} ?묐컯 (?쒖씠???쒖븞: ${action.suggestedDifficulty})`
-          : `${npcName} ?묐컯`,
+          ? `${npcName} 압박 (난이도 제안: ${action.suggestedDifficulty})`
+          : `${npcName} 압박`,
       },
     ];
   }
@@ -2395,7 +2395,7 @@ export class MainCommandsService {
         ability: "cha",
         skill: "deception",
         reason: action.suggestedDifficulty
-          ? `${npcName} ?띿씠湲?(?쒖씠???쒖븞: ${action.suggestedDifficulty})`
+          ? `${npcName} 속이기(난이도 제안: ${action.suggestedDifficulty})`
           : `${npcName} 속이기`,
       },
     ];
@@ -2419,8 +2419,8 @@ export class MainCommandsService {
         ability: "wis",
         skill: "insight",
         reason: action.suggestedDifficulty
-          ? `${npcName} 媛먯젙 ?쎄린 (?쒖씠???쒖븞: ${action.suggestedDifficulty})`
-          : `${npcName} 媛먯젙 ?쎄린`,
+          ? `${npcName} 감정 읽기 (난이도 제안: ${action.suggestedDifficulty})`
+          : `${npcName} 감정 읽기`,
       },
     ];
   }
@@ -2443,8 +2443,8 @@ export class MainCommandsService {
         ability: "int",
         skill: "investigation",
         reason: action.suggestedDifficulty
-          ? `${objectName} 議곗궗 (?쒖씠???쒖븞: ${action.suggestedDifficulty})`
-          : `${objectName} 議곗궗`,
+          ? `${objectName} 조사 (난이도 제안: ${action.suggestedDifficulty})`
+          : `${objectName} 조사`,
       },
     ];
   }
@@ -2466,7 +2466,7 @@ export class MainCommandsService {
         ability: "wis",
         skill: "perception",
         reason: action.suggestedDifficulty
-          ? `二쇰? 愿李?(?쒖씠???쒖븞: ${action.suggestedDifficulty})`
+          ? `주변 관찰 (난이도 제안: ${action.suggestedDifficulty})`
           : "주변 관찰",
       },
     ];
@@ -2489,8 +2489,8 @@ export class MainCommandsService {
         ability: "wis",
         skill: "perception",
         reason: action.suggestedDifficulty
-          ? `?꾪뿕 媛먯? (?쒖씠???쒖븞: ${action.suggestedDifficulty})`
-          : "?꾪뿕 媛먯?",
+          ? `위험 감지 (난이도 제안: ${action.suggestedDifficulty})`
+          : "위험 감지",
       },
     ];
   }
@@ -2512,14 +2512,14 @@ export class MainCommandsService {
         ability: "str",
         skill: "athletics",
         reason: action.suggestedDifficulty
-          ? `?뱀닔 ?대룞 (?쒖씠???쒖븞: ${action.suggestedDifficulty})`
-          : "?뱀닔 ?대룞",
+          ? `특수 이동 (난이도 제안: ${action.suggestedDifficulty})`
+          : "특수 이동",
       },
       {
         ability: "dex",
         skill: "acrobatics",
         reason: action.suggestedDifficulty
-          ? `?뱀닔 ?대룞 ???(?쒖씠???쒖븞: ${action.suggestedDifficulty})`
+          ? `특수 이동 대안(난이도 제안: ${action.suggestedDifficulty})`
           : "특수 이동 대안",
       },
     ];
@@ -2543,8 +2543,8 @@ export class MainCommandsService {
         ability: "dex",
         skill: "sleight_of_hand",
         reason: action.suggestedDifficulty
-          ? `${objectName} 議곗옉 (?쒖씠???쒖븞: ${action.suggestedDifficulty})`
-          : `${objectName} 議곗옉`,
+          ? `${objectName} 조작 (난이도 제안: ${action.suggestedDifficulty})`
+          : `${objectName} 조작`,
       },
     ];
   }
@@ -2570,8 +2570,8 @@ export class MainCommandsService {
         ability: "dex",
         skill: "sleight_of_hand",
         reason: action.suggestedDifficulty
-          ? `${toolName}${reasonTarget} ?ъ슜 (?쒖씠???쒖븞: ${action.suggestedDifficulty})`
-          : `${toolName}${reasonTarget} ?ъ슜`,
+          ? `${toolName}${reasonTarget} 사용 (난이도 제안: ${action.suggestedDifficulty})`
+          : `${toolName}${reasonTarget} 사용`,
       },
     ];
   }
@@ -2605,7 +2605,7 @@ export class MainCommandsService {
 
   private resolveOwnedItemName(context: LoadedContext, itemId?: string | null): string {
     if (!itemId) {
-      return "?꾧뎄";
+      return "도구";
     }
 
     const normalized = itemId.trim().toLowerCase();
@@ -2856,7 +2856,7 @@ export class MainCommandsService {
     });
 
     if (!targetNode) {
-      throw badRequest("MAIN_COMMAND_400", "?대룞 ????몃뱶瑜?李얠쓣 ???놁뒿?덈떎.", {
+      throw badRequest("MAIN_COMMAND_400", "이동 대상 노드를 찾을 수 없습니다.", {
         reason: "TRANSITION_TARGET_NOT_FOUND",
       });
     }
