@@ -123,12 +123,14 @@ export interface InterpreterAvailableTargetDetail {
   name: string;
   kind?: string | null;
   summary?: string | null;
+  disposition?: string | null;
 }
 
 export interface InterpreterRequestPayload {
   rawText: string;
   actorCharacterId?: string;
   sceneSummary?: string;
+  recentLogs?: string[];
   availableTargets?: string[];
   availableTargetDetails?: InterpreterAvailableTargetDetail[];
   requestIntent?: string;
