@@ -605,6 +605,43 @@ export function CharacterPage({
     };
   }, [formState.abilities, selectedRace]);
 
+  // 레벨별 자동 계산: 시드된 클래스일 때 proficiencyBonus/maxHp 강제. BE와 동일 공식.
+  const derivedLevelStats = useMemo(() => {
+    if (!selectedClass) return null;
+    const hdMaxAvg: Record<string, { max: number; avg: number }> = {
+      d6: { max: 6, avg: 4 },
+      d8: { max: 8, avg: 5 },
+      d10: { max: 10, avg: 6 },
+      d12: { max: 12, avg: 7 },
+    };
+    const hd = hdMaxAvg[selectedClass.hitDie];
+    if (!hd) return null;
+    const level = formState.level ?? 1;
+    const con = formState.abilities?.con ?? 10;
+    const conMod = Math.floor((con - 10) / 2);
+    const proficiencyBonus = Math.floor((level - 1) / 4) + 2;
+    const maxHp = hd.max + conMod + (level - 1) * (hd.avg + conMod);
+    return { proficiencyBonus, maxHp };
+  }, [selectedClass, formState.level, formState.abilities?.con]);
+
+  // derivedLevelStats 가 바뀌면 formState 의 prof/maxHp 동기화 (사용자가 못 바꾸는 값).
+  useEffect(() => {
+    if (!derivedLevelStats) return;
+    setFormState((current) => {
+      if (
+        current.proficiencyBonus === derivedLevelStats.proficiencyBonus &&
+        current.maxHp === derivedLevelStats.maxHp
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        proficiencyBonus: derivedLevelStats.proficiencyBonus,
+        maxHp: derivedLevelStats.maxHp,
+      };
+    });
+  }, [derivedLevelStats]);
+
   // base(8~15) 를 1 증가시키면 final = base+1+bonus 로 갱신. 비용 한도 + 상/하한 검증.
   function adjustAbilityBase(ability: AbilityKey, delta: 1 | -1): void {
     setFormState((current) => {
@@ -1349,13 +1386,17 @@ export function CharacterPage({
 
                   <div className="field-row field-row-4">
                     <div>
-                      <label htmlFor="character-hp-create">HP</label>
+                      <label htmlFor="character-hp-create">
+                        HP {derivedLevelStats ? '(레벨/Con 자동)' : ''}
+                      </label>
                       <input
                         id="character-hp-create"
                         type="number"
                         min={1}
                         step={1}
                         value={formState.maxHp ?? 12}
+                        readOnly={Boolean(derivedLevelStats)}
+                        disabled={Boolean(derivedLevelStats)}
                         onChange={(event) =>
                           setFormState((current) => ({
                             ...current,
@@ -1396,13 +1437,17 @@ export function CharacterPage({
                       />
                     </div>
                     <div>
-                      <label htmlFor="character-prof-create">숙련도</label>
+                      <label htmlFor="character-prof-create">
+                        숙련도 {derivedLevelStats ? '(레벨 자동)' : ''}
+                      </label>
                       <input
                         id="character-prof-create"
                         type="number"
                         min={0}
                         step={1}
                         value={formState.proficiencyBonus ?? 2}
+                        readOnly={Boolean(derivedLevelStats)}
+                        disabled={Boolean(derivedLevelStats)}
                         onChange={(event) =>
                           setFormState((current) => ({
                             ...current,

@@ -69,6 +69,13 @@ export class CharactersService {
     );
     const inventory = inventoryFromEquipment ?? dto.inventory ?? [];
     const spellsJsonValue = await this.resolveStartingSpells(className, dto.startingSpells);
+    const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
+      className,
+      level,
+      abilities,
+      dto.proficiencyBonus,
+      dto.maxHp,
+    );
 
     const character = await this.prisma.character.create({
       data: {
@@ -81,10 +88,10 @@ export class CharactersService {
         level,
         bio: dto.bio?.trim() ?? null,
         abilitiesJson: JSON.stringify(abilities),
-        proficiencyBonus: dto.proficiencyBonus ?? 2,
+        proficiencyBonus,
         featuresJson: JSON.stringify(dto.features ?? []),
         proficientSkillsJson: JSON.stringify(dto.proficientSkills ?? []),
-        maxHp: dto.maxHp ?? 10,
+        maxHp,
         armorClass: dto.armorClass ?? 10,
         speed: dto.speed ?? 30,
         inventoryJson: JSON.stringify(inventory),
@@ -408,6 +415,56 @@ export class CharactersService {
         `Point Buy: 총 비용 ${totalCost}점이 ${POINT_BUY_TOTAL}점과 일치하지 않습니다.`,
       );
     }
+  }
+
+  // 레벨별 보정: proficiencyBonus + maxHp 자동 계산 + dto 와 일치 검증.
+  // - proficiencyBonus = ((level-1) div 4) + 2  (1-4 +2, 5-8 +3, 9-12 +4, 13-16 +5, 17-20 +6)
+  // - maxHp = max(hitDie) + Con + (level-1) * (avg(hitDie) + Con)
+  // - hitDie max/avg: d6=6/4, d8=8/5, d10=10/6, d12=12/7
+  // 시드에 없는 className 은 dto 값 그대로 사용 (legacy)
+  private async resolveLevelStats(
+    className: string,
+    level: number,
+    abilities: AbilityScoresDto,
+    dtoProf: number | undefined,
+    dtoMaxHp: number | undefined,
+  ): Promise<{ proficiencyBonus: number; maxHp: number }> {
+    const klass = await this.catalogService.findClassByKey(className.toLowerCase());
+    if (!klass) {
+      return {
+        proficiencyBonus: dtoProf ?? 2,
+        maxHp: dtoMaxHp ?? 10,
+      };
+    }
+
+    const hitDieMaxAvg: Record<string, { max: number; avg: number }> = {
+      d6: { max: 6, avg: 4 },
+      d8: { max: 8, avg: 5 },
+      d10: { max: 10, avg: 6 },
+      d12: { max: 12, avg: 7 },
+    };
+    const hd = hitDieMaxAvg[klass.hitDie];
+    if (!hd) {
+      throw new BadRequestException(
+        `레벨 보정: ${klass.koName} 의 hitDie ${klass.hitDie} 가 지원되지 않습니다.`,
+      );
+    }
+    const conMod = Math.floor((abilities.con - 10) / 2);
+    const expectedProf = Math.floor((level - 1) / 4) + 2;
+    const expectedMaxHp = hd.max + conMod + (level - 1) * (hd.avg + conMod);
+
+    if (dtoProf !== undefined && dtoProf !== expectedProf) {
+      throw new BadRequestException(
+        `숙련 보너스: 레벨 ${level} 의 정답은 ${expectedProf} 인데 ${dtoProf} 가 들어왔습니다.`,
+      );
+    }
+    if (dtoMaxHp !== undefined && dtoMaxHp !== expectedMaxHp) {
+      throw new BadRequestException(
+        `maxHp: ${klass.koName}/레벨 ${level}/Con ${abilities.con}(mod ${conMod}) 의 공식값은 ${expectedMaxHp} 인데 ${dtoMaxHp} 가 들어왔습니다.`,
+      );
+    }
+
+    return { proficiencyBonus: expectedProf, maxHp: expectedMaxHp };
   }
 
   // className 이 ClassDefinition 시드에 있고 startingCantripCount/startingSpellCount > 0 면 시작 주문 강제.
