@@ -12,17 +12,16 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from 'react';
 import type { SubmitMainCommandDto, VttMapStateDto } from '@trpg/shared-types';
-import defaultArcherImage from '../assets/images/Profile_Default_Archer.webp';
-import defaultRogueImage from '../assets/images/Profile_Default_Rouge.webp';
-import defaultWarriorImage from '../assets/images/Profile_Default_Warrior.webp';
-import defaultWizardImage from '../assets/images/Profile_Default_Wizard.webp';
 import { BattleMap } from '../components/BattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
 import { CombatNodeSurface } from '../features/sessionPlay/components/CombatNodeSurface';
 import { ExplorationNodeSurface } from '../features/sessionPlay/components/ExplorationNodeSurface';
 import { StoryNodeSurface } from '../features/sessionPlay/components/StoryNodeSurface';
-import { getClassLabel } from '../services/staticSrd';
+import {
+  getCharacterClassLabel,
+  getCharacterImage,
+} from '../features/sessionPlay/utils/characterVisuals';
 import type { CharacterPayload } from '../hooks/useSession';
 import { getPlayerScenario, getVttMap, updateVttMap } from '../services/api';
 import type {
@@ -540,13 +539,6 @@ function getScreenTypeFromNodeType(
   if (nodeType === 'combat') return MainCommandScreenTypeValues.COMBAT;
   return null;
 }
-const avatarPresetImageMap = new Map([
-  ['preset_wizard', defaultWizardImage],
-  ['preset_archer', defaultArcherImage],
-  ['preset_rogue', defaultRogueImage],
-  ['preset_warrior', defaultWarriorImage],
-]);
-
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const MIN_SIDEBAR_WIDTH = 320;
 const MAX_SIDEBAR_WIDTH = 620;
@@ -631,58 +623,6 @@ function getLogDateLabel(createdAt: string): string {
 
 function getConnectionLabel(connected: boolean) {
   return connected ? 'Connected' : 'Offline';
-}
-
-function getCharacterArt(className: string) {
-  const normalized = className.toLowerCase();
-  if (
-    normalized.includes('wizard') ||
-    normalized.includes('mage') ||
-    normalized.includes('sorcer')
-  ) {
-    return defaultWizardImage;
-  }
-  if (
-    normalized.includes('archer') ||
-    normalized.includes('ranger') ||
-    normalized.includes('bow')
-  ) {
-    return defaultArcherImage;
-  }
-  if (
-    normalized.includes('rogue') ||
-    normalized.includes('rouge') ||
-    normalized.includes('thief')
-  ) {
-    return defaultRogueImage;
-  }
-  if (
-    normalized.includes('fighter') ||
-    normalized.includes('warrior') ||
-    normalized.includes('knight')
-  ) {
-    return defaultWarriorImage;
-  }
-  return defaultWizardImage;
-}
-
-// 캐릭터가 직접 업로드한 이미지, 프리셋 이미지, 직업 기본 이미지 순서로 표시 이미지를 고릅니다.
-function getCharacterImage(character: {
-  avatarPresetId?: string | null;
-  avatarUrl?: string | null;
-  className: string;
-}) {
-  if (character.avatarUrl) return character.avatarUrl;
-  if (character.avatarPresetId) {
-    return (
-      avatarPresetImageMap.get(character.avatarPresetId) ?? getCharacterArt(character.className)
-    );
-  }
-  return getCharacterArt(character.className);
-}
-
-function getCharacterClassLabel(className: string) {
-  return getClassLabel(className);
 }
 
 function getNodeLabel(value: unknown): string | null {

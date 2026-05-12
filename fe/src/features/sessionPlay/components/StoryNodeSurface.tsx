@@ -5,7 +5,10 @@ import type {
   PlayerVisibleTargetDto,
   SessionCharacterResponseDto,
 } from '@trpg/shared-types';
-import { getClassLabel } from '../../../services/staticSrd';
+import {
+  getCharacterClassLabel,
+  getCharacterImage,
+} from '../utils/characterVisuals';
 import './StoryNodeSurface.css';
 
 interface StoryNodeSurfaceProps {
@@ -172,6 +175,7 @@ export function StoryNodeSurface({
               const isMine = character.userId === currentUserId;
               const isSelected = selectedCharacter?.id === character.id;
               const hpPercent = getHpPercent(character);
+              const characterImage = getCharacterImage(character);
 
               return (
                 <button
@@ -180,13 +184,15 @@ export function StoryNodeSurface({
                   className={`story-party-card${isSelected ? ' selected' : ''}`}
                   onClick={() => setSelectedCharacterId(character.id)}
                 >
-                  <span className="story-party-avatar">{character.name.slice(0, 1)}</span>
+                  <span className="story-party-avatar">
+                    <img src={characterImage} alt={character.name} />
+                  </span>
                   <span className="story-party-body">
                     <strong>
                       {character.name}
                       {isMine ? <em>나</em> : null}
                     </strong>
-                    <small>{getClassLabel(character.className)} / Lv {character.level}</small>
+                    <small>{getCharacterClassLabel(character.className)} / Lv {character.level}</small>
                     <span
                       className="story-hp-track"
                       aria-label={`HP ${character.currentHp}/${character.maxHp}`}

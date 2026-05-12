@@ -7,7 +7,10 @@ import type {
   VttMapStateDto,
 } from '@trpg/shared-types';
 import { BattleMap } from '../../../components/BattleMap';
-import { getClassLabel } from '../../../services/staticSrd';
+import {
+  getCharacterClassLabel,
+  getCharacterImage,
+} from '../utils/characterVisuals';
 import './ExplorationNodeSurface.css';
 
 type ExplorationActionTab = 'explore' | 'interact' | 'item';
@@ -129,16 +132,19 @@ export function ExplorationNodeSurface({
               characters.map((character) => {
                 const hpPercent = getHpPercent(character);
                 const isMine = character.userId === currentUserId;
+                const characterImage = getCharacterImage(character);
 
                 return (
                   <article
                     key={character.id}
                     className={`exploration-party-card${isMine ? ' mine' : ''}`}
                   >
-                    <div className="exploration-party-avatar">{character.name.slice(0, 1)}</div>
+                    <div className="exploration-party-avatar">
+                      <img src={characterImage} alt={character.name} />
+                    </div>
                     <div className="exploration-party-body">
                       <strong>{character.name}</strong>
-                      <span>{getClassLabel(character.className)} / Lv {character.level}</span>
+                      <span>{getCharacterClassLabel(character.className)} / Lv {character.level}</span>
                       <div
                         className="exploration-hp-track"
                         aria-label={`HP ${character.currentHp}/${character.maxHp}`}
