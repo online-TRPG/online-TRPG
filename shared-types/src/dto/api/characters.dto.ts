@@ -50,6 +50,18 @@ export class AbilityScoresDto {
   cha!: number;
 }
 
+export class StartingSpellsDto {
+  @ApiProperty({ type: [String], example: ["light", "ray-of-frost", "fire-bolt"] })
+  @IsArray()
+  @IsString({ each: true })
+  cantrips!: string[];
+
+  @ApiProperty({ type: [String], example: ["magic-missile", "shield", "burning-hands"] })
+  @IsArray()
+  @IsString({ each: true })
+  spells!: string[];
+}
+
 export class InventoryItemDto {
   @ApiProperty()
   @IsString()
@@ -127,6 +139,15 @@ export class CreateCharacterDto {
   @IsInt({ each: true })
   @Min(0, { each: true })
   startingEquipmentSelection?: number[];
+
+  @ApiPropertyOptional({
+    type: StartingSpellsDto,
+    description: "마법 클래스(startingCantripCount + startingSpellCount > 0)일 때 필수. 개수가 클래스 시드와 일치해야 함.",
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => StartingSpellsDto)
+  startingSpells?: StartingSpellsDto;
 
   @ApiProperty()
   @IsString()
@@ -415,6 +436,9 @@ export class CharacterResponseDto {
 
   @ApiProperty({ type: [InventoryItemDto] })
   inventory!: InventoryItemDto[];
+
+  @ApiPropertyOptional({ type: StartingSpellsDto, nullable: true })
+  spells!: StartingSpellsDto | null;
 
   @ApiPropertyOptional({ nullable: true })
   equippedWeaponId!: string | null;

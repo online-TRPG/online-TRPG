@@ -738,11 +738,18 @@ export function CharacterPage({
     const startingEquipmentSelection = defaultClass
       ? new Array(defaultClass.startingEquipment.slots.length).fill(0)
       : undefined;
+    const startingSpells = defaultClass && (defaultClass.startingCantripCount > 0 || defaultClass.startingSpellCount > 0)
+      ? {
+          cantrips: new Array(defaultClass.startingCantripCount).fill(''),
+          spells: new Array(defaultClass.startingSpellCount).fill(''),
+        }
+      : undefined;
     setFormState({
       ...defaults,
       scenarioId: defaultScenario?.id ?? null,
       level: defaultScenario ? normalizeLevel(defaultScenario.startLevel) : defaults.level,
       startingEquipmentSelection,
+      startingSpells,
     });
     setInventoryDraft([]);
     setSkillInput('');
@@ -1299,6 +1306,12 @@ export function CharacterPage({
                             const nextSelection = nextClass
                               ? new Array(nextClass.startingEquipment.slots.length).fill(0)
                               : undefined;
+                            const nextSpells = nextClass && (nextClass.startingCantripCount > 0 || nextClass.startingSpellCount > 0)
+                              ? {
+                                  cantrips: new Array(nextClass.startingCantripCount).fill(''),
+                                  spells: new Array(nextClass.startingSpellCount).fill(''),
+                                }
+                              : undefined;
                             return {
                               ...current,
                               className,
@@ -1310,6 +1323,7 @@ export function CharacterPage({
                               speed: recommendedStats.speed,
                               proficiencyBonus: recommendedStats.proficiencyBonus,
                               startingEquipmentSelection: nextSelection,
+                              startingSpells: nextSpells,
                             };
                           })
                         }
@@ -1610,6 +1624,69 @@ export function CharacterPage({
                         </div>
                       );
                     })}
+                  </section>
+                ) : null}
+
+                {selectedClass && (selectedClass.startingCantripCount > 0 || selectedClass.startingSpellCount > 0) ? (
+                  <section className="character-form-section">
+                    <div className="section-heading compact">
+                      <div>
+                        <span className="eyebrow">시작 주문</span>
+                        <h2>
+                          캔트립 {selectedClass.startingCantripCount}개 + 주문 {selectedClass.startingSpellCount}개 (룰북 강제)
+                        </h2>
+                      </div>
+                    </div>
+                    {selectedClass.startingCantripCount > 0 && (
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ display: 'block', marginBottom: 6 }}>캔트립</label>
+                        {Array.from({ length: selectedClass.startingCantripCount }).map((_, idx) => (
+                          <input
+                            key={`cantrip-${idx}`}
+                            value={formState.startingSpells?.cantrips[idx] ?? ''}
+                            onChange={(event) => {
+                              const v = event.target.value;
+                              setFormState((current) => {
+                                const base = current.startingSpells ?? {
+                                  cantrips: new Array(selectedClass.startingCantripCount).fill(''),
+                                  spells: new Array(selectedClass.startingSpellCount).fill(''),
+                                };
+                                const cantrips = [...base.cantrips];
+                                cantrips[idx] = v;
+                                return { ...current, startingSpells: { ...base, cantrips } };
+                              });
+                            }}
+                            placeholder={`캔트립 ${idx + 1} 이름`}
+                            style={{ marginRight: 6, marginBottom: 4 }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {selectedClass.startingSpellCount > 0 && (
+                      <div>
+                        <label style={{ display: 'block', marginBottom: 6 }}>1레벨 주문</label>
+                        {Array.from({ length: selectedClass.startingSpellCount }).map((_, idx) => (
+                          <input
+                            key={`spell-${idx}`}
+                            value={formState.startingSpells?.spells[idx] ?? ''}
+                            onChange={(event) => {
+                              const v = event.target.value;
+                              setFormState((current) => {
+                                const base = current.startingSpells ?? {
+                                  cantrips: new Array(selectedClass.startingCantripCount).fill(''),
+                                  spells: new Array(selectedClass.startingSpellCount).fill(''),
+                                };
+                                const spells = [...base.spells];
+                                spells[idx] = v;
+                                return { ...current, startingSpells: { ...base, spells } };
+                              });
+                            }}
+                            placeholder={`주문 ${idx + 1} 이름`}
+                            style={{ marginRight: 6, marginBottom: 4 }}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </section>
                 ) : null}
 
