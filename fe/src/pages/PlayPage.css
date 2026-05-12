@@ -21,6 +21,11 @@
   gap: 0;
 }
 
+.session-prep-stage.story-node-active,
+.session-prep-stage.node-surface-active {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .session-stage-canvas.started {
   border: 0;
   background: transparent;
