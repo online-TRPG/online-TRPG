@@ -8,6 +8,13 @@ export type ParsedCommand =
   | { type: "cast_spell"; spellId: string; target: string; targetDistanceFt: number }
   | { type: "use_class_feature"; featureId: string; option: string | null }
   | { type: "rest"; restType: "short" | "long" }
+  | {
+      type: "inventory";
+      operation: "add" | "remove";
+      itemId: string;
+      quantity: number;
+      containerEntryId?: string | null;
+    }
   | { type: "damage"; target: string; amount: number; damageType?: string }
   | { type: "heal"; target: string; amount: number }
   | { type: "condition"; operation: "add" | "remove"; target: string; condition: string }
@@ -37,6 +44,9 @@ export class CommandParserService {
         return this.parseClassFeature(args);
       case "rest":
         return this.parseRest(args);
+      case "item":
+      case "inventory":
+        return this.parseInventory(args);
       case "damage":
         return this.parseAmountCommand("damage", args);
       case "heal":
@@ -107,7 +117,7 @@ export class CommandParserService {
   private parseClassFeature(args: string[]): ParsedCommand {
     const featureToken = args[0];
     if (!featureToken) {
-      throw badRequest("ACTION_400", "?섎せ??紐낅졊?낅땲??", {
+      throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
         reason: "CLASS_FEATURE_REQUIRED",
       });
     }
@@ -132,6 +142,29 @@ export class CommandParserService {
     throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
       reason: "INVALID_REST_TYPE",
     });
+  }
+
+  private parseInventory(args: string[]): ParsedCommand {
+    const operationToken = args[0]?.toLowerCase();
+    const itemId = args[1];
+
+    if (!["add", "gain", "remove", "lose"].includes(operationToken ?? "") || !itemId) {
+      throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
+        reason: "INVENTORY_OPERATION_AND_ITEM_REQUIRED",
+      });
+    }
+
+    return {
+      type: "inventory",
+      operation: operationToken === "add" || operationToken === "gain" ? "add" : "remove",
+      itemId,
+      quantity: this.parseOptionalPositiveInteger(
+        args[2],
+        1,
+        "INVALID_INVENTORY_QUANTITY",
+      ),
+      containerEntryId: args[3] ?? null,
+    };
   }
 
   private parseAmountCommand(type: "damage" | "heal", args: string[]): ParsedCommand {

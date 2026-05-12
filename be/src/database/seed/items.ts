@@ -57,10 +57,46 @@ const itemSeeds: ItemSeed[] = [
 
 export async function seedItems(prisma: PrismaClient): Promise<void> {
   for (const item of itemSeeds) {
-    await prisma.item.upsert({
+    const catalogItem = await prisma.item.upsert({
       where: { key: item.key },
       update: { koName: item.koName, category: item.category },
       create: { key: item.key, koName: item.koName, category: item.category },
     });
+
+    await prisma.itemDefinition.upsert({
+      where: { id: catalogItem.id },
+      update: {
+        name: item.koName,
+        itemType: toRuntimeItemType(item.category),
+        propertiesJson: JSON.stringify(toRuntimeProperties(item.category)),
+      },
+      create: {
+        id: catalogItem.id,
+        name: item.koName,
+        itemType: toRuntimeItemType(item.category),
+        propertiesJson: JSON.stringify(toRuntimeProperties(item.category)),
+      },
+    });
   }
+}
+
+function toRuntimeItemType(category: string): string {
+  if (category.startsWith("weapon-")) {
+    return "weapon";
+  }
+  if (category.startsWith("armor-")) {
+    return "armor";
+  }
+  return category;
+}
+
+function toRuntimeProperties(category: string): string[] {
+  const properties: string[] = [];
+  if (category.includes("ranged")) {
+    properties.push("ranged");
+  }
+  if (category.includes("melee")) {
+    properties.push("melee");
+  }
+  return properties;
 }
