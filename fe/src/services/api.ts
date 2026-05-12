@@ -10,6 +10,7 @@ import type {
   ScenarioAssetKind,
   ScenarioAssetResponseDto,
   PlayerScenarioViewDto,
+  RaceResponseDto,
   ScenarioResponseDto,
   SessionDetailResponseDto,
   SessionSnapshotDto,
@@ -431,6 +432,10 @@ export function oauthLogin(
 
 export function listScenarios(): Promise<Scenario[]> {
   return requestJson<Scenario[]>('/scenarios');
+}
+
+export function listRaces(): Promise<RaceResponseDto[]> {
+  return requestJson<RaceResponseDto[]>('/races');
 }
 
 export function getScenario(scenarioId: string): Promise<ScenarioDetail> {
