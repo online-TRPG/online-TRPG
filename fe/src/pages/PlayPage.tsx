@@ -12,14 +12,16 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from 'react';
 import type { SubmitMainCommandDto, VttMapStateDto } from '@trpg/shared-types';
-import defaultArcherImage from '../assets/images/Profile_Default_Archer.webp';
-import defaultRogueImage from '../assets/images/Profile_Default_Rouge.webp';
-import defaultWarriorImage from '../assets/images/Profile_Default_Warrior.webp';
-import defaultWizardImage from '../assets/images/Profile_Default_Wizard.webp';
 import { BattleMap } from '../components/BattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
-import { getClassLabel } from '../services/staticSrd';
+import { CombatNodeSurface } from '../features/sessionPlay/components/CombatNodeSurface';
+import { ExplorationNodeSurface } from '../features/sessionPlay/components/ExplorationNodeSurface';
+import { StoryNodeSurface } from '../features/sessionPlay/components/StoryNodeSurface';
+import {
+  getCharacterClassLabel,
+  getCharacterImage,
+} from '../features/sessionPlay/utils/characterVisuals';
 import type { CharacterPayload } from '../hooks/useSession';
 import { getPlayerScenario, getVttMap, updateVttMap } from '../services/api';
 import type {
@@ -537,13 +539,6 @@ function getScreenTypeFromNodeType(
   if (nodeType === 'combat') return MainCommandScreenTypeValues.COMBAT;
   return null;
 }
-const avatarPresetImageMap = new Map([
-  ['preset_wizard', defaultWizardImage],
-  ['preset_archer', defaultArcherImage],
-  ['preset_rogue', defaultRogueImage],
-  ['preset_warrior', defaultWarriorImage],
-]);
-
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const MIN_SIDEBAR_WIDTH = 320;
 const MAX_SIDEBAR_WIDTH = 620;
@@ -628,58 +623,6 @@ function getLogDateLabel(createdAt: string): string {
 
 function getConnectionLabel(connected: boolean) {
   return connected ? 'Connected' : 'Offline';
-}
-
-function getCharacterArt(className: string) {
-  const normalized = className.toLowerCase();
-  if (
-    normalized.includes('wizard') ||
-    normalized.includes('mage') ||
-    normalized.includes('sorcer')
-  ) {
-    return defaultWizardImage;
-  }
-  if (
-    normalized.includes('archer') ||
-    normalized.includes('ranger') ||
-    normalized.includes('bow')
-  ) {
-    return defaultArcherImage;
-  }
-  if (
-    normalized.includes('rogue') ||
-    normalized.includes('rouge') ||
-    normalized.includes('thief')
-  ) {
-    return defaultRogueImage;
-  }
-  if (
-    normalized.includes('fighter') ||
-    normalized.includes('warrior') ||
-    normalized.includes('knight')
-  ) {
-    return defaultWarriorImage;
-  }
-  return defaultWizardImage;
-}
-
-// 캐릭터가 직접 업로드한 이미지, 프리셋 이미지, 직업 기본 이미지 순서로 표시 이미지를 고릅니다.
-function getCharacterImage(character: {
-  avatarPresetId?: string | null;
-  avatarUrl?: string | null;
-  className: string;
-}) {
-  if (character.avatarUrl) return character.avatarUrl;
-  if (character.avatarPresetId) {
-    return (
-      avatarPresetImageMap.get(character.avatarPresetId) ?? getCharacterArt(character.className)
-    );
-  }
-  return getCharacterArt(character.className);
-}
-
-function getCharacterClassLabel(className: string) {
-  return getClassLabel(className);
 }
 
 function getNodeLabel(value: unknown): string | null {
@@ -794,6 +737,12 @@ export function PlayPage({
   const currentNode = playerScenario?.currentNode ?? null;
   const revealedClues = playerScenario?.revealedClues ?? [];
   const currentScreenType = getScreenTypeFromNodeType(currentNode?.nodeType);
+  const isStoryNode = currentNode?.nodeType === 'story';
+  const isExplorationNode = currentNode?.nodeType === 'exploration';
+  const isCombatNode = currentNode?.nodeType === 'combat';
+  const usesNodeSpecificPartyStrip = Boolean(
+    session && !isRecruiting && (isStoryNode || isExplorationNode || isCombatNode)
+  );
   const mainCommandPresets = currentScreenType ? mainCommandPresetsByScreen[currentScreenType] : [];
   const mainCommandCategories = Array.from(
     new Set(mainCommandPresets.map((preset) => preset.categoryLabel))
@@ -836,7 +785,7 @@ export function PlayPage({
   const isStartedScreenReady = Boolean(
     !isRecruiting &&
     (currentNode || activeScenario || scenarioLoadError) &&
-    (vttMap || mapLoadError || snapshotVttMap)
+    (isStoryNode || isExplorationNode || isCombatNode || vttMap || mapLoadError || snapshotVttMap)
   );
 
   // 서버가 알려준 선택 캐릭터가 바뀌면 로컬 선택 상태도 맞춥니다.
@@ -1299,7 +1248,9 @@ export function PlayPage({
 
   return (
     <main className="session-prep-layout session-prep-layout-tight" style={layoutStyle}>
-      <section className="session-prep-stage">
+      <section
+        className={`session-prep-stage${usesNodeSpecificPartyStrip ? ' node-surface-active' : ''}`}
+      >
         <div className={`session-stage-canvas${!isRecruiting ? ' started' : ''}`}>
           {isRecruiting ? (
             <section className="session-room-overlay">
@@ -1500,7 +1451,44 @@ export function PlayPage({
           {session && !isRecruiting ? (
             <section className="session-game-surface">
               {scenarioLoadError ? <p className="panel-error">{scenarioLoadError}</p> : null}
-              {vttMap ? (
+              {isStoryNode ? (
+                <StoryNodeSurface
+                  node={currentNode}
+                  scenarioTitle={activeScenario?.scenario.title}
+                  phase={snapshot?.state.phase}
+                  characters={sessionCharacters}
+                  currentUserId={user.id}
+                  isGmView={canManageStartedSession}
+                />
+              ) : isExplorationNode ? (
+                <ExplorationNodeSurface
+                  node={currentNode}
+                  scenarioTitle={activeScenario?.scenario.title}
+                  phase={snapshot?.state.phase}
+                  characters={sessionCharacters}
+                  currentUserId={user.id}
+                  isHost={isHost}
+                  isGmView={canManageStartedSession}
+                  map={vttMap}
+                  onMapChange={handleMapChange}
+                  selectedTargetId={selectedMainTargetId}
+                  onSelectTarget={setSelectedMainTargetId}
+                />
+              ) : isCombatNode ? (
+                <CombatNodeSurface
+                  node={currentNode}
+                  scenarioTitle={activeScenario?.scenario.title}
+                  phase={snapshot?.state.phase}
+                  characters={sessionCharacters}
+                  currentUserId={user.id}
+                  isHost={isHost}
+                  isGmView={canManageStartedSession}
+                  map={vttMap}
+                  onMapChange={handleMapChange}
+                  selectedTargetId={selectedMainTargetId}
+                  onSelectTarget={setSelectedMainTargetId}
+                />
+              ) : vttMap ? (
                 <BattleMap
                   map={vttMap}
                   characters={sessionCharacters}
@@ -1580,75 +1568,77 @@ export function PlayPage({
           </div>
         ) : null}
 
-        <section className="participant-strip participant-strip-four-up">
-          {displayedParticipants.length
-            ? displayedParticipants.map((participant, index) => {
-                if (!participant) {
+        {usesNodeSpecificPartyStrip ? null : (
+          <section className="participant-strip participant-strip-four-up">
+            {displayedParticipants.length
+              ? displayedParticipants.map((participant, index) => {
+                  if (!participant) {
+                    return (
+                      <article
+                        key={`empty-slot-${index}`}
+                        className="participant-strip-card placeholder"
+                      >
+                        <div className="participant-avatar-frame placeholder" />
+                        <div className="participant-card-body">
+                          <strong>빈 슬롯</strong>
+                          <span>참가자를 기다리는 중입니다.</span>
+                        </div>
+                        <div className="participant-state">대기</div>
+                        <div className="participant-index">{index + 1}</div>
+                      </article>
+                    );
+                  }
+
+                  const linkedCharacter =
+                    sessionCharacters.find((character) => character.userId === participant.userId) ??
+                    null;
+                  const badgeLabel = getParticipantBadge(participant.userId);
+                  const stateLabel = participant.isReady ? 'READY' : participant.connectionStatus;
+                  const participantImage = linkedCharacter
+                    ? getCharacterImage(linkedCharacter)
+                    : null;
+
                   return (
-                    <article
-                      key={`empty-slot-${index}`}
-                      className="participant-strip-card placeholder"
-                    >
-                      <div className="participant-avatar-frame placeholder" />
-                      <div className="participant-card-body">
-                        <strong>빈 슬롯</strong>
-                        <span>참가자를 기다리는 중입니다.</span>
+                    <article key={participant.id} className="participant-strip-card">
+                      {badgeLabel ? (
+                        <div className="participant-special-badge">{badgeLabel}</div>
+                      ) : null}
+                      <div
+                        className="participant-avatar-frame"
+                        style={{ ['--frame-image' as string]: `url(${profileBorderCharacter})` }}
+                      >
+                        {participantImage ? (
+                          <img
+                            src={participantImage}
+                            alt={linkedCharacter?.name ?? participant.user.displayName}
+                            className="participant-avatar-image"
+                          />
+                        ) : (
+                          <div className="participant-avatar tone-1">
+                            {(linkedCharacter?.name ?? participant.user.displayName).slice(0, 1)}
+                          </div>
+                        )}
                       </div>
-                      <div className="participant-state">대기</div>
+                      <div className="participant-card-body">
+                        <strong>{participant.user.displayName}</strong>
+                        <span>
+                          {linkedCharacter
+                            ? `${linkedCharacter.name} / ${getCharacterClassLabel(linkedCharacter.className)}`
+                            : participant.userId === user.id
+                              ? '\uCE90\uB9AD\uD130\uAC00 \uC120\uD0DD\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4'
+                              : '\uCE90\uB9AD\uD130\uB97C \uAE30\uB2E4\uB9AC\uB294 \uC911\uC785\uB2C8\uB2E4'}
+                        </span>
+                      </div>
+                      <div className={`participant-state${participant.isReady ? ' ready' : ''}`}>
+                        {stateLabel}
+                      </div>
                       <div className="participant-index">{index + 1}</div>
                     </article>
                   );
-                }
-
-                const linkedCharacter =
-                  sessionCharacters.find((character) => character.userId === participant.userId) ??
-                  null;
-                const badgeLabel = getParticipantBadge(participant.userId);
-                const stateLabel = participant.isReady ? 'READY' : participant.connectionStatus;
-                const participantImage = linkedCharacter
-                  ? getCharacterImage(linkedCharacter)
-                  : null;
-
-                return (
-                  <article key={participant.id} className="participant-strip-card">
-                    {badgeLabel ? (
-                      <div className="participant-special-badge">{badgeLabel}</div>
-                    ) : null}
-                    <div
-                      className="participant-avatar-frame"
-                      style={{ ['--frame-image' as string]: `url(${profileBorderCharacter})` }}
-                    >
-                      {participantImage ? (
-                        <img
-                          src={participantImage}
-                          alt={linkedCharacter?.name ?? participant.user.displayName}
-                          className="participant-avatar-image"
-                        />
-                      ) : (
-                        <div className="participant-avatar tone-1">
-                          {(linkedCharacter?.name ?? participant.user.displayName).slice(0, 1)}
-                        </div>
-                      )}
-                    </div>
-                    <div className="participant-card-body">
-                      <strong>{participant.user.displayName}</strong>
-                      <span>
-                        {linkedCharacter
-                          ? `${linkedCharacter.name} / ${getCharacterClassLabel(linkedCharacter.className)}`
-                          : participant.userId === user.id
-                            ? '\uCE90\uB9AD\uD130\uAC00 \uC120\uD0DD\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4'
-                            : '\uCE90\uB9AD\uD130\uB97C \uAE30\uB2E4\uB9AC\uB294 \uC911\uC785\uB2C8\uB2E4'}
-                      </span>
-                    </div>
-                    <div className={`participant-state${participant.isReady ? ' ready' : ''}`}>
-                      {stateLabel}
-                    </div>
-                    <div className="participant-index">{index + 1}</div>
-                  </article>
-                );
-              })
-            : null}
-        </section>
+                })
+              : null}
+          </section>
+        )}
 
         {error ? <p className="panel-error">{error}</p> : null}
       </section>
