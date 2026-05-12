@@ -6,7 +6,15 @@ import type {
   SrdMonsterReferenceDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
+import { TokenFrame } from './battleMap/TokenFrame';
 import type { Character } from '../types/session';
+import {
+  MONSTER_TOKEN_COLOR,
+  NPC_TOKEN_COLOR,
+  getPlayerTokenColor,
+} from '../utils/sessionTokenColors';
+import type { SessionTokenColor } from '../utils/sessionTokenColors';
+import { getCharacterImage } from '../features/sessionPlay/utils/characterVisuals';
 
 interface BattleMapProps {
   map: VttMapStateDto;
@@ -24,7 +32,6 @@ interface BattleMapProps {
   uploadTokenAsset?: (file: File | null) => Promise<ScenarioAssetResponseDto | null>;
 }
 
-const tokenPalette = ['#79d8ff', '#f6d365', '#9ee6a8', '#f59cb1', '#c4a7ff', '#ffa87a'];
 const zoomSteps = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const feetPerGrid = 5;
 const mapText = {
@@ -133,6 +140,25 @@ function getTokenLabel(name: string) {
   return name.trim().slice(0, 2).toUpperCase() || '?';
 }
 
+function getBattleTokenColor(
+  token: VttMapStateDto['tokens'][number],
+  characters: Character[]
+): SessionTokenColor {
+  if (token.sessionCharacterId) {
+    const characterIndex = characters.findIndex(
+      (character) => character.id === token.sessionCharacterId
+    );
+    return getPlayerTokenColor(characterIndex);
+  }
+
+  if (token.monster || token.isHostile) {
+    return MONSTER_TOKEN_COLOR;
+  }
+
+  // 현재 VTT 토큰에는 NPC 세부 분류가 없어서, 플레이어/몬스터가 아닌 토큰은 NPC 색으로 묶습니다.
+  return NPC_TOKEN_COLOR;
+}
+
 function snapToGrid(value: number, gridSize: number) {
   return Math.round(value / gridSize) * gridSize;
 }
@@ -173,7 +199,7 @@ function formatDistance(from: MeasurePoint, to: MeasurePoint, gridSize: number) 
 
 function BattleToken({
   token,
-  fill,
+  color,
   isSelected,
   opacity,
   canControl,
@@ -187,7 +213,7 @@ function BattleToken({
   onDragEnd,
 }: {
   token: VttMapStateDto['tokens'][number];
-  fill: string;
+  color: SessionTokenColor;
   isSelected: boolean;
   opacity: number;
   canControl: boolean;
@@ -201,7 +227,6 @@ function BattleToken({
   onDragEnd: (x: number, y: number, shiftKey: boolean) => void;
 }) {
   const tokenImage = useCanvasImage(token.imageUrl);
-  const radius = token.size / 2 - 4;
 
   return (
     <Group
@@ -220,53 +245,14 @@ function BattleToken({
         onDragEnd(event.target.x(), event.target.y(), event.evt.shiftKey);
       }}
     >
-      {tokenImage ? (
-        <>
-          <Group
-            clipFunc={(ctx) => {
-              ctx.beginPath();
-              ctx.arc(token.size / 2, token.size / 2, radius, 0, Math.PI * 2);
-              ctx.closePath();
-            }}
-          >
-            <KonvaImage image={tokenImage} width={token.size} height={token.size} />
-          </Group>
-          <Circle
-            x={token.size / 2}
-            y={token.size / 2}
-            radius={radius}
-            fill="rgba(0, 0, 0, 0)"
-            stroke={isSelected ? '#ffffff' : token.hidden ? '#cbd6e2' : fill}
-            strokeWidth={isSelected ? 5 : 4}
-            shadowColor="black"
-            shadowBlur={14}
-            shadowOpacity={0.35}
-          />
-        </>
-      ) : (
-        <>
-          <Circle
-            x={token.size / 2}
-            y={token.size / 2}
-            radius={radius}
-            fill={fill}
-            stroke={isSelected ? '#ffffff' : token.hidden ? '#cbd6e2' : '#101825'}
-            strokeWidth={isSelected ? 5 : 4}
-            shadowColor="black"
-            shadowBlur={14}
-            shadowOpacity={0.35}
-          />
-          <Text
-            text={getTokenLabel(token.name)}
-            width={token.size}
-            y={token.size / 2 - 9}
-            align="center"
-            fill="#061017"
-            fontSize={18}
-            fontStyle="bold"
-          />
-        </>
-      )}
+      <TokenFrame
+        image={tokenImage}
+        label={getTokenLabel(token.name)}
+        size={token.size}
+        color={color}
+        isSelected={isSelected}
+        isHidden={Boolean(token.hidden)}
+      />
     </Group>
   );
 }
@@ -699,6 +685,27 @@ export function BattleMap({
     const knownTokenIds = new Set(
       map.tokens.map((token) => token.sessionCharacterId).filter(Boolean)
     );
+    const characterImageById = new Map(
+      characters.map((character) => [character.id, getCharacterImage(character)])
+    );
+    let hasTokenImageUpdates = false;
+    const tokensWithCharacterImages = map.tokens.map((token) => {
+      if (!token.sessionCharacterId || token.imageUrl) {
+        return token;
+      }
+
+      const characterImage = characterImageById.get(token.sessionCharacterId);
+      if (!characterImage) {
+        return token;
+      }
+
+      hasTokenImageUpdates = true;
+      // 이미 배치된 토큰의 수동 이미지는 유지하고, 비어 있는 플레이어 토큰만 캐릭터/직업 이미지로 채웁니다.
+      return {
+        ...token,
+        imageUrl: characterImage,
+      };
+    });
     const additions = characters.flatMap((character, index) =>
       knownTokenIds.has(character.id)
         ? []
@@ -708,7 +715,7 @@ export function BattleMap({
               id: `token:${character.id}`,
               sessionCharacterId: character.id,
               name: character.name,
-              imageUrl: character.avatarUrl ?? null,
+              imageUrl: getCharacterImage(character),
               size: map.gridSize,
               hidden: false,
               isHostile: false,
@@ -717,8 +724,8 @@ export function BattleMap({
           ]
     );
 
-    if (!additions.length) return;
-    updateMap({ tokens: [...map.tokens, ...additions] });
+    if (!additions.length && !hasTokenImageUpdates) return;
+    updateMap({ tokens: [...tokensWithCharacterImages, ...additions] });
   }
 
   function updateStartingPosition(
@@ -1302,15 +1309,13 @@ export function BattleMap({
                   listening={false}
                 />
               ) : null}
-              {visibleTokens.map((token, index) => {
-                const fill = token.isHostile
-                  ? '#ff6b6b'
-                  : tokenPalette[index % tokenPalette.length];
+              {visibleTokens.map((token) => {
+                const color = getBattleTokenColor(token, characters);
                 return (
                   <BattleToken
                     key={token.id}
                     token={token}
-                    fill={fill}
+                    color={color}
                     isSelected={token.id === selectedTokenId}
                     opacity={token.hidden ? 0.45 : 1}
                     canControl={canControlToken(token)}
