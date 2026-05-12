@@ -5,6 +5,6 @@ __pycache__/
 pytest-cache-files-*/
 runtime_logs/
 runtime_logs_test/
-translated/
+
 generated/**/debug/
 generated/**/*raw*.jsonl
