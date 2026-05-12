@@ -30,13 +30,14 @@ import {
   type RaceData,
 } from '../services/staticSrd';
 import type { CharacterPayload } from '../hooks/useSession';
-import type { PersistentCharacter, SessionSnapshot, StoredUser } from '../types/session';
+import type { PersistentCharacter, Scenario, SessionSnapshot, StoredUser } from '../types/session';
 import './CharacterPage.css';
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface CharacterPageProps {
   user: StoredUser;
   characters: PersistentCharacter[];
+  scenarios: Scenario[];
   snapshot: SessionSnapshot | null;
   busy: boolean;
   error: string | null;
@@ -70,9 +71,6 @@ interface ClassStatProfile {
 }
 
 type ClassName = ClassOptionValue;
-
-// MVP에서 캐릭터를 기본 몇 레벨로 다룰지 정하는 값입니다.
-const MVP_CHARACTER_LEVEL = 2;
 
 const defaultAncestry = 'Human';
 
@@ -385,6 +383,7 @@ function createDefaultCharacter(): CharacterPayload {
     avatarType: 'PRESET',
     avatarPresetId: 'preset_wizard',
     avatarUrl: null,
+    scenarioId: null,
     level: 1,
     abilities: recommendedAbilities,
     proficiencyBonus: recommendedStats.proficiencyBonus,
@@ -492,6 +491,7 @@ function localizeAbilityText(value: string) {
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function CharacterPage({
   characters,
+  scenarios,
   snapshot,
   busy,
   error,
@@ -620,7 +620,17 @@ export function CharacterPage({
   // 생성/수정 폼을 기본값으로 되돌립니다.
   function resetCreateForm() {
     setEditingCharacterId(null);
-    setFormState(createDefaultCharacter());
+    const defaults = createDefaultCharacter();
+    const defaultScenario = scenarios[0] ?? null;
+    setFormState(
+      defaultScenario
+        ? {
+            ...defaults,
+            scenarioId: defaultScenario.id,
+            level: normalizeLevel(defaultScenario.startLevel),
+          }
+        : defaults,
+    );
     setInventoryDraft([]);
     setSkillInput('');
   }
@@ -644,6 +654,7 @@ export function CharacterPage({
       avatarPresetId:
         selectedCharacter.avatarPresetId ?? getPresetIdForClassName(selectedCharacter.className),
       avatarUrl: selectedCharacter.avatarUrl ?? null,
+      scenarioId: selectedCharacter.scenarioId ?? null,
       level: selectedCharacter.level,
       abilities: { ...selectedCharacter.abilities },
       proficiencyBonus: selectedCharacter.proficiencyBonus,
@@ -1039,19 +1050,16 @@ export function CharacterPage({
                       />
                     </div>
                     <div>
-                      <label htmlFor="character-level-create">레벨</label>
-                      <input
-                        id="character-level-create"
-                        type="number"
-                        min={MVP_CHARACTER_LEVEL}
-                        max={MVP_CHARACTER_LEVEL}
-                        value={MVP_CHARACTER_LEVEL}
+                      <label htmlFor="character-scenario-create">시나리오</label>
+                      <select
+                        id="character-scenario-create"
+                        value={formState.scenarioId ?? ''}
                         onChange={(event) =>
                           setFormState((current) => {
-                            const nextLevel = normalizeLevel(Number(event.target.value));
-                            const currentLevel = normalizeLevel(
-                              current.level ?? MVP_CHARACTER_LEVEL
-                            );
+                            const nextScenarioId = event.target.value || null;
+                            const nextScenario = scenarios.find((s) => s.id === nextScenarioId);
+                            const nextLevel = normalizeLevel(nextScenario?.startLevel ?? 1);
+                            const currentLevel = normalizeLevel(current.level ?? 1);
                             const nextStats = applyLevelDeltaStats(
                               current,
                               nextLevel - currentLevel,
@@ -1064,6 +1072,7 @@ export function CharacterPage({
 
                             return {
                               ...current,
+                              scenarioId: nextScenarioId,
                               level: nextLevel,
                               maxHp: nextStats.maxHp,
                               armorClass: nextStats.armorClass,
@@ -1072,6 +1081,28 @@ export function CharacterPage({
                             };
                           })
                         }
+                        required
+                      >
+                        <option value="" disabled>
+                          {scenarios.length === 0
+                            ? '사용 가능한 시나리오가 없습니다'
+                            : '시나리오를 선택하세요'}
+                        </option>
+                        {scenarios.map((scenario) => (
+                          <option key={scenario.id} value={scenario.id}>
+                            {scenario.title} (시작 {scenario.startLevel}레벨)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="character-level-create">레벨 (시나리오 고정)</label>
+                      <input
+                        id="character-level-create"
+                        type="number"
+                        value={formState.level ?? 1}
+                        readOnly
+                        disabled
                       />
                     </div>
                   </div>
@@ -1104,11 +1135,11 @@ export function CharacterPage({
                             const className = event.target.value;
                             const recommendedStats = getRecommendedStats(
                               className,
-                              current.level ?? MVP_CHARACTER_LEVEL
+                              current.level ?? 1
                             );
                             const recommendedAbilities = getRecommendedAbilities(
                               className,
-                              current.level ?? MVP_CHARACTER_LEVEL,
+                              current.level ?? 1,
                               current.abilities
                             );
                             return {
@@ -1382,11 +1413,11 @@ export function CharacterPage({
                                 const className = getClassNameForPresetId(preset.id);
                                 const recommendedStats = getRecommendedStats(
                                   className,
-                                  current.level ?? MVP_CHARACTER_LEVEL
+                                  current.level ?? 1
                                 );
                                 const recommendedAbilities = getRecommendedAbilities(
                                   className,
-                                  current.level ?? MVP_CHARACTER_LEVEL,
+                                  current.level ?? 1,
                                   current.abilities
                                 );
 
