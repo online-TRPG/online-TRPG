@@ -44,6 +44,16 @@ const defaultAbilityScores = {
   cha: 10,
 };
 
+// 능력치 범위: D&D 5e 공식 상한 20 + 매직 아이템/주문 보정 여유로 30. Point Buy(8~15)는 별도로 검사.
+const ABILITY_SCORE_MIN = 1;
+const ABILITY_SCORE_MAX = 30;
+
+// PATCH 류를 막는 세션 상태. RECRUITING/COMPLETED/DISBANDED 는 수정 허용.
+const LOCKED_SESSION_STATUSES: ReadonlySet<PrismaSessionStatus> = new Set([
+  PrismaSessionStatus.PLAYING,
+  PrismaSessionStatus.PAUSED,
+]);
+
 @Injectable()
 export class CharactersService {
   constructor(
@@ -61,13 +71,18 @@ export class CharactersService {
     const scenarioId = await this.resolveScenarioForLevel(dto.scenarioId ?? null, level);
     const ancestry = dto.ancestry.trim();
     const abilities = dto.abilities ?? defaultAbilityScores;
+    this.validateAbilitiesRange(abilities);
     await this.validatePointBuyForAncestry(ancestry, abilities);
     const className = dto.className.trim();
+    if (dto.proficientSkills) {
+      await this.validateProficientSkills(className, dto.proficientSkills);
+    }
     const inventoryFromEquipment = await this.resolveStartingEquipment(
       className,
       dto.startingEquipmentSelection,
     );
     const inventory = inventoryFromEquipment ?? dto.inventory ?? [];
+    await this.validateInventoryAndEquippedWeapon(inventory, dto.equippedWeaponId ?? null);
     const spellsJsonValue = await this.resolveStartingSpells(className, dto.startingSpells);
     const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
       className,
@@ -139,29 +154,71 @@ export class CharactersService {
     dto: UpdateCharacterDto,
   ): Promise<CharacterResponseDto> {
     const existing = await this.getOwnedCharacterOrThrow(userId, characterId);
+    await this.assertCharacterNotLocked(characterId);
+
+    // 변경 후 최종 상태 — 검증과 레벨 통계 재계산용
+    const finalAbilities: AbilityScoresDto =
+      dto.abilities ?? (JSON.parse(existing.abilitiesJson) as AbilityScoresDto);
+    const finalAncestry = dto.ancestry?.trim() ?? existing.ancestry;
+    const finalClassName = dto.className?.trim() ?? existing.className;
+    const finalLevel = dto.level ?? existing.level;
+    const finalInventory: InventoryItemDto[] =
+      dto.inventory ?? (JSON.parse(existing.inventoryJson) as InventoryItemDto[]);
+    const finalEquippedWeaponId =
+      dto.equippedWeaponId === undefined ? existing.equippedWeaponId : dto.equippedWeaponId;
+
+    if (dto.abilities !== undefined) {
+      this.validateAbilitiesRange(finalAbilities);
+      await this.validatePointBuyForAncestry(finalAncestry, finalAbilities);
+    }
+    if (dto.proficientSkills !== undefined) {
+      await this.validateProficientSkills(finalClassName, dto.proficientSkills);
+    }
+    if (dto.inventory !== undefined || dto.equippedWeaponId !== undefined) {
+      await this.validateInventoryAndEquippedWeapon(finalInventory, finalEquippedWeaponId);
+    }
+
+    // abilities/level/className/maxHp/proficiencyBonus 중 어느 하나라도 변경되면 룰북 공식 재계산.
+    // - dto 가 maxHp/proficiencyBonus 보냈으면 공식과 일치 검증 (mismatch → throw).
+    // - 안 보냈으면 공식값으로 자동 갱신 (legacy 행이 새 abilities/level 과 어긋나지 않게).
+    const needsLevelStats =
+      dto.abilities !== undefined ||
+      dto.level !== undefined ||
+      dto.className !== undefined ||
+      dto.maxHp !== undefined ||
+      dto.proficiencyBonus !== undefined;
+    const resolvedStats = needsLevelStats
+      ? await this.resolveLevelStats(
+          finalClassName,
+          finalLevel,
+          finalAbilities,
+          dto.proficiencyBonus,
+          dto.maxHp,
+        )
+      : null;
 
     const updated = await this.prisma.character.update({
       where: { id: characterId },
       data: {
         name: dto.name?.trim() ?? existing.name,
-        ancestry: dto.ancestry?.trim() ?? existing.ancestry,
-        className: dto.className?.trim() ?? existing.className,
+        ancestry: finalAncestry,
+        className: finalClassName,
         subclassName:
           dto.subclassName === undefined ? existing.subclassName : dto.subclassName?.trim() ?? null,
-        level: dto.level ?? existing.level,
+        level: finalLevel,
         bio: dto.bio === undefined ? existing.bio : dto.bio.trim(),
-        abilitiesJson: JSON.stringify(dto.abilities ?? JSON.parse(existing.abilitiesJson)),
-        proficiencyBonus: dto.proficiencyBonus ?? existing.proficiencyBonus,
+        abilitiesJson: JSON.stringify(finalAbilities),
+        proficiencyBonus:
+          resolvedStats?.proficiencyBonus ?? dto.proficiencyBonus ?? existing.proficiencyBonus,
         featuresJson: JSON.stringify(dto.features ?? JSON.parse(existing.featuresJson ?? "[]")),
         proficientSkillsJson: JSON.stringify(
           dto.proficientSkills ?? JSON.parse(existing.proficientSkillsJson),
         ),
-        maxHp: dto.maxHp ?? existing.maxHp,
+        maxHp: resolvedStats?.maxHp ?? dto.maxHp ?? existing.maxHp,
         armorClass: dto.armorClass ?? existing.armorClass,
         speed: dto.speed ?? existing.speed,
-        inventoryJson: JSON.stringify(dto.inventory ?? JSON.parse(existing.inventoryJson)),
-        equippedWeaponId:
-          dto.equippedWeaponId === undefined ? existing.equippedWeaponId : dto.equippedWeaponId,
+        inventoryJson: JSON.stringify(finalInventory),
+        equippedWeaponId: finalEquippedWeaponId,
         avatarType:
           dto.avatarType === undefined ? existing.avatarType : this.toAvatarType(dto.avatarType),
         avatarPresetId:
@@ -233,6 +290,7 @@ export class CharactersService {
 
   async cloneCharacter(userId: string, characterId: string): Promise<CharacterResponseDto> {
     const source = await this.getOwnedCharacterOrThrow(userId, characterId);
+    await this.assertCharacterNotLocked(characterId);
 
     const clone = await this.prisma.character.create({
       data: {
@@ -288,12 +346,19 @@ export class CharactersService {
     dto: UpdateCharacterEquipmentDto,
   ): Promise<CharacterResponseDto> {
     const character = await this.getOwnedCharacterOrThrow(userId, characterId);
+    await this.assertCharacterNotLocked(characterId);
+
+    const finalEquippedWeaponId =
+      dto.equippedWeaponId === undefined ? character.equippedWeaponId : dto.equippedWeaponId;
+    if (dto.equippedWeaponId !== undefined) {
+      const inventory = JSON.parse(character.inventoryJson) as InventoryItemDto[];
+      await this.validateInventoryAndEquippedWeapon(inventory, finalEquippedWeaponId);
+    }
 
     const updated = await this.prisma.character.update({
       where: { id: characterId },
       data: {
-        equippedWeaponId:
-          dto.equippedWeaponId === undefined ? character.equippedWeaponId : dto.equippedWeaponId,
+        equippedWeaponId: finalEquippedWeaponId,
       },
       include: {
         sessionCharacters: {
@@ -414,6 +479,106 @@ export class CharactersService {
       throw new BadRequestException(
         `Point Buy: 총 비용 ${totalCost}점이 ${POINT_BUY_TOTAL}점과 일치하지 않습니다.`,
       );
+    }
+  }
+
+  // 능력치 6종 모두 ABILITY_SCORE_MIN..ABILITY_SCORE_MAX 정수. 종족 보정 후 최종값 기준.
+  // Point Buy 와 별개 sanity check — 시드에 없는 종족(legacy)도 적용.
+  private validateAbilitiesRange(abilities: AbilityScoresDto): void {
+    for (const key of ["str", "dex", "con", "int", "wis", "cha"] as const) {
+      const score = abilities[key];
+      if (!Number.isInteger(score) || score < ABILITY_SCORE_MIN || score > ABILITY_SCORE_MAX) {
+        throw new BadRequestException(
+          `능력치 범위: ${key.toUpperCase()}(${score})가 허용 범위(${ABILITY_SCORE_MIN}~${ABILITY_SCORE_MAX})를 벗어났습니다.`,
+        );
+      }
+    }
+  }
+
+  // 클래스 시드의 skillChoices/skillChoiceCount 와 일치 검증.
+  // - skillChoiceCount === 0 (시드에 없는 className 포함) 이면 검증 skip — legacy 호환.
+  // - 개수 일치 / 옵션 포함 / 중복 금지.
+  private async validateProficientSkills(className: string, skills: string[]): Promise<void> {
+    const klass = await this.catalogService.findClassByKey(className.toLowerCase());
+    if (!klass || klass.skillChoiceCount === 0) {
+      return;
+    }
+
+    const choices = JSON.parse(klass.skillChoicesJson) as string[];
+
+    if (skills.length !== klass.skillChoiceCount) {
+      throw new BadRequestException(
+        `스킬: ${klass.koName} 은(는) 숙련 스킬 ${klass.skillChoiceCount}개를 선택해야 합니다. (받은 개수: ${skills.length})`,
+      );
+    }
+
+    const seen = new Set<string>();
+    for (const skill of skills) {
+      if (seen.has(skill)) {
+        throw new BadRequestException(`스킬: 중복된 항목 "${skill}" 이 들어왔습니다.`);
+      }
+      seen.add(skill);
+      if (!choices.includes(skill)) {
+        throw new BadRequestException(
+          `스킬: "${skill}" 은(는) ${klass.koName} 의 선택 가능 목록(${choices.join(", ")})에 없습니다.`,
+        );
+      }
+    }
+  }
+
+  // 인벤토리/장착 무기 검증.
+  // - inventory 의 모든 itemDefinitionId 가 ItemDefinition 카탈로그에 존재 (legacy: itemDefinitionId 없는 항목은 skip)
+  // - equippedWeaponId 가 null 이 아니면 inventory 안에 entry.id 또는 itemDefinitionId 가 일치하는 항목 있어야 함
+  //   (action-rule.service.ts:1111 패턴과 동일)
+  private async validateInventoryAndEquippedWeapon(
+    inventory: InventoryItemDto[],
+    equippedWeaponId: string | null,
+  ): Promise<void> {
+    const definitionIds = inventory
+      .map((item) => item.itemDefinitionId)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+    if (definitionIds.length > 0) {
+      const found = await this.prisma.item.findMany({
+        where: { id: { in: definitionIds } },
+        select: { id: true },
+      });
+      const foundIds = new Set(found.map((row) => row.id));
+      for (const id of definitionIds) {
+        if (!foundIds.has(id)) {
+          throw new BadRequestException(`장비: 카탈로그에 없는 itemDefinitionId(${id}) 가 인벤토리에 있습니다.`);
+        }
+      }
+    }
+
+    if (equippedWeaponId) {
+      const matched = inventory.some(
+        (item) => item.id === equippedWeaponId || item.itemDefinitionId === equippedWeaponId,
+      );
+      if (!matched) {
+        throw new BadRequestException(
+          `장비: 장착 무기 id(${equippedWeaponId})가 인벤토리에 없습니다.`,
+        );
+      }
+    }
+  }
+
+  // 캐릭터가 PLAYING/PAUSED 세션에 속해 있으면 ConflictException(409).
+  // S14P31A201-70: 진행 중인 세션에서는 영속 Character 수정 금지.
+  private async assertCharacterNotLocked(characterId: string): Promise<void> {
+    const locked = await this.prisma.sessionCharacter.findFirst({
+      where: {
+        characterId,
+        session: { status: { in: Array.from(LOCKED_SESSION_STATUSES) } },
+      },
+      include: { session: { select: { id: true, status: true } } },
+    });
+    if (locked) {
+      throw new ConflictException({
+        code: "CHARACTER_LOCKED_BY_SESSION",
+        message: "진행 중인 세션에 참여 중인 캐릭터는 수정할 수 없습니다.",
+        sessionId: locked.sessionId,
+        sessionStatus: locked.session.status,
+      });
     }
   }
 
