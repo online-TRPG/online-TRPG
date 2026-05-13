@@ -327,6 +327,7 @@ export class SessionsService {
       });
 
       if (!remainingParticipants.length) {
+        await this.deleteSessionScenarioLinks(tx, resolvedSessionId);
         await tx.session.update({
           where: { id: resolvedSessionId },
           data: { status: PrismaSessionStatus.DISBANDED },
@@ -680,9 +681,10 @@ export class SessionsService {
       throw new ConflictException("Only recruiting sessions can be deleted.");
     }
 
-    await this.prisma.$transaction([
-      this.prisma.sessionCharacter.deleteMany({ where: { sessionId: resolvedSessionId } }),
-      this.prisma.sessionParticipant.updateMany({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.sessionCharacter.deleteMany({ where: { sessionId: resolvedSessionId } });
+      await this.deleteSessionScenarioLinks(tx, resolvedSessionId);
+      await tx.sessionParticipant.updateMany({
         where: {
           sessionId: resolvedSessionId,
           status: PrismaParticipantStatus.JOINED,
@@ -694,12 +696,12 @@ export class SessionsService {
           isReady: false,
           readyAt: null,
         },
-      }),
-      this.prisma.session.update({
+      });
+      await tx.session.update({
         where: { id: resolvedSessionId },
         data: { status: PrismaSessionStatus.DISBANDED },
-      }),
-    ]);
+      });
+    });
   }
 
   async listMySessions(userId: string, params: SessionPageParams = {}): Promise<SessionPageResult> {
@@ -2789,6 +2791,13 @@ export class SessionsService {
     }
 
     return fallbackScenario;
+  }
+
+  private async deleteSessionScenarioLinks(
+    tx: Prisma.TransactionClient,
+    sessionId: string,
+  ): Promise<void> {
+    await tx.sessionScenario.deleteMany({ where: { sessionId } });
   }
 
   private getActiveSessionScenario<T extends { status: PrismaSessionScenarioStatus }>(sessionScenarios: T[]): T | null {

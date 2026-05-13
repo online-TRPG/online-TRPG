@@ -1,3 +1,7 @@
+/* ExplorationNodeSurface.cleaned.css
+ * ExplorationNodeSurface.tsx에서 쓰는 클래스만 남긴 정리본입니다.
+ */
+
 .exploration-node-surface {
   height: 100%;
   min-height: 0;
@@ -67,12 +71,11 @@
 .exploration-node-content {
   min-height: 0;
   display: grid;
-  grid-template-columns: 168px minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   gap: 0;
   overflow: hidden;
 }
 
-.exploration-party-rail,
 .exploration-target-panel {
   min-height: 0;
   padding: 14px;
@@ -83,10 +86,6 @@
   scrollbar-width: thin;
   scrollbar-color: #8fa2b8 #dfe6ee;
   background: rgba(255, 255, 255, 0.62);
-}
-
-.exploration-party-rail {
-  border-right: 1px solid #c9d3dc;
 }
 
 .exploration-target-panel {
@@ -100,15 +99,23 @@
   gap: 8px;
 }
 
+.exploration-party-overlay .exploration-party-list {
+  gap: 2px;
+}
+
 .exploration-party-card {
+  width: max-content;
   min-width: 0;
-  padding: 10px;
+  max-width: 92px;
+  height: 28px;
+  padding: 1px 3px 1px 1px;
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 22px max-content;
+  gap: 3px;
   align-items: center;
-  border: 1px solid #cbd6df;
-  background: #f8fafb;
+  border: 1px solid rgba(203, 214, 223, 0.9);
+  background: rgba(248, 250, 251, 0.9);
+  box-shadow: 0 4px 10px rgba(18, 31, 42, 0.12);
 }
 
 .exploration-party-card.mine {
@@ -117,8 +124,9 @@
 }
 
 .exploration-party-avatar {
-  width: 36px;
-  height: 36px;
+  position: relative;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -133,34 +141,63 @@
   object-fit: cover;
 }
 
+.exploration-party-damage {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(160, 19, 24, 0.72);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
 .exploration-party-body {
+  width: max-content;
   min-width: 0;
+  max-width: 64px;
   display: grid;
-  gap: 4px;
+  gap: 1px;
 }
 
-.exploration-party-body strong {
+.exploration-party-line {
+  width: max-content;
+  min-width: 0;
+  max-width: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1px;
+}
+
+.exploration-party-line strong {
+  min-width: 0;
+  flex: 0 1 auto;
+  max-width: 64px;
   color: #223244;
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-
-.exploration-party-body span {
-  color: #637587;
   font-size: 11px;
-  overflow-wrap: anywhere;
-}
-
-.exploration-hp-track {
-  height: 5px;
+  line-height: 1;
   overflow: hidden;
-  background: #dbe3e9;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.exploration-hp-track span {
+.exploration-party-line span {
+  flex: 0 0 auto;
+  color: #637587;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.exploration-party-hp {
   display: block;
-  height: 100%;
-  background: #4e8d74;
+  width: max-content;
+  color: #345746;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .exploration-map-column {
@@ -171,10 +208,31 @@
 }
 
 .exploration-map-panel {
+  position: relative;
   min-height: 0;
   display: grid;
   overflow: hidden;
   background: #dde4e8;
+}
+
+.exploration-party-overlay {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 4;
+  width: max-content;
+  max-width: calc(100% - 12px);
+  max-height: calc(100% - 12px);
+  padding: 2px;
+  display: grid;
+  gap: 2px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  border: 1px solid rgba(116, 135, 151, 0.32);
+  background: rgba(240, 245, 247, 0.62);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 8px 18px rgba(20, 34, 45, 0.14);
 }
 
 .exploration-map-panel > .vtt-panel {
@@ -354,15 +412,14 @@
     overflow-y: auto;
   }
 
-  .exploration-party-rail,
   .exploration-target-panel {
     border: 0;
     border-bottom: 1px solid #c9d3dc;
     overflow: visible;
   }
 
-  .exploration-party-list {
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  .exploration-party-overlay .exploration-party-list {
+    grid-template-columns: 1fr;
   }
 
   .exploration-action-dock {
@@ -382,5 +439,608 @@
 
   .exploration-node-header-summary {
     max-width: 100%;
+  }
+}
+
+/* ------------------------------------------------------------------
+ * FIX v2
+ * 탐색 화면이 1180px 이하에서 1열로 바뀌며 화면을 과하게 차지하던 문제 수정.
+ * PlayPage의 우측 채팅 사이드바가 유지되는 폭에서는 탐색 내부도
+ * 맵 + 대상 패널 2열 구조를 유지한다.
+ * ------------------------------------------------------------------ */
+
+@media (min-width: 861px) {
+  .exploration-node-surface {
+    height: 100%;
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    overflow: hidden;
+  }
+
+  .exploration-node-content {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    overflow: hidden;
+  }
+
+  .exploration-target-panel {
+    min-height: 0;
+    border-left: 1px solid #c9d3dc;
+    border-bottom: 0;
+    overflow-y: auto;
+  }
+
+  .exploration-action-dock {
+    grid-template-columns: 220px minmax(0, 1fr) minmax(240px, 0.42fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .exploration-node-surface {
+    min-height: 840px;
+  }
+
+  .exploration-node-content {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+
+  .exploration-target-panel {
+    border-left: 0;
+    border-bottom: 1px solid #c9d3dc;
+    overflow: visible;
+  }
+
+  .exploration-action-dock {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ------------------------------------------------------------------
+ * FIX v9: 탐색 화면 정상 grid + 맵 확대
+ * 기준:
+ * - 헤더/대상패널/action dock은 절대배치하지 않음.
+ * - 서로 침범하지 않음.
+ * - 높이를 작게 잡아 맵이 남은 영역을 최대한 차지하게 함.
+ * ------------------------------------------------------------------ */
+
+@media (min-width: 861px) {
+  .exploration-node-surface {
+    position: relative !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    display: grid !important;
+    grid-template-rows: 34px minmax(0, 1fr) 72px !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+    background: #10151d !important;
+  }
+
+  .exploration-node-header {
+    position: relative !important;
+    inset: auto !important;
+    z-index: 1 !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    max-height: 34px !important;
+    padding: 3px 8px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+    border: 0 !important;
+    border-bottom: 1px solid rgba(18, 52, 90, 0.18) !important;
+    border-radius: 0 !important;
+    background: #e8edf2 !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+  }
+
+  .exploration-node-header h1 {
+    margin: 0 !important;
+    font-size: 14px !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+  }
+
+  .exploration-node-header-summary {
+    display: none !important;
+  }
+
+  .exploration-node-eyebrow {
+    min-height: 18px !important;
+    padding: 0 7px !important;
+    font-size: 9px !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+  }
+
+  .exploration-node-status-row {
+    margin-left: auto !important;
+    gap: 4px !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .exploration-node-status-row span {
+    min-height: 20px !important;
+    padding: 0 7px !important;
+    font-size: 10px !important;
+    white-space: nowrap !important;
+  }
+
+  .exploration-node-content {
+    position: relative !important;
+    inset: auto !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 220px !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+  }
+
+  .exploration-map-column {
+    position: relative !important;
+    inset: auto !important;
+    grid-column: auto !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+  }
+
+  .exploration-map-panel {
+    position: relative !important;
+    inset: auto !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #10151d !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+  }
+
+  .exploration-map-panel > .vtt-panel {
+    position: relative !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+  }
+
+  .exploration-target-panel {
+    position: relative !important;
+    inset: auto !important;
+    z-index: 1 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    padding: 8px !important;
+    display: grid !important;
+    align-content: start !important;
+    gap: 8px !important;
+    overflow-y: auto !important;
+    box-sizing: border-box !important;
+    border: 0 !important;
+    border-left: 1px solid rgba(18, 52, 90, 0.18) !important;
+    border-radius: 0 !important;
+    background: #cfd5db !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+  }
+
+  .exploration-action-dock {
+    position: relative !important;
+    inset: auto !important;
+    z-index: 1 !important;
+    height: 72px !important;
+    min-height: 72px !important;
+    max-height: 72px !important;
+    box-sizing: border-box !important;
+    padding: 5px 6px !important;
+    display: grid !important;
+    grid-template-columns: 170px minmax(0, 1fr) 160px !important;
+    gap: 6px !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    overflow: hidden !important;
+    border: 0 !important;
+    border-top: 1px solid rgba(18, 52, 90, 0.18) !important;
+    border-radius: 0 !important;
+    background: #e7edf0 !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+  }
+
+  .exploration-actor-status,
+  .exploration-action-panel,
+  .exploration-check-panel {
+    min-height: 0 !important;
+    height: 100% !important;
+    padding: 5px 6px !important;
+    gap: 4px !important;
+    overflow: hidden !important;
+    align-content: center !important;
+    box-sizing: border-box !important;
+  }
+
+  .exploration-action-tabs,
+  .exploration-action-list {
+    min-height: 0 !important;
+    gap: 4px !important;
+  }
+
+  .exploration-action-tabs button,
+  .exploration-action-list button {
+    min-height: 22px !important;
+    height: 22px !important;
+    padding: 0 7px !important;
+    font-size: 10px !important;
+    line-height: 1 !important;
+  }
+
+  .exploration-party-overlay {
+    position: absolute !important;
+    left: 8px !important;
+    top: 50% !important;
+    z-index: 3 !important;
+    max-height: calc(100% - 120px) !important;
+    transform: translateY(-50%) !important;
+  }
+}
+
+/* ------------------------------------------------------------------
+ * FIX v10: 탐색 헤더 내부 배치 수정
+ *
+ * 원인:
+ * - exploration-node-header 높이를 34px로 줄였지만,
+ *   header의 첫 번째 자식 div 안에서 eyebrow와 h1이 세로로 쌓이고 있었음.
+ * - 그래서 헤더 영역을 침범한 것이 아니라, 헤더 내부 텍스트가 위아래로 잘림.
+ *
+ * 수정:
+ * - header 내부 첫 번째 div를 한 줄 flex로 변경.
+ * - [탐색 노드] [Cave Entrance] [상태 배지들] 형태로 한 줄 배치.
+ * - 제목이 길면 말줄임 처리.
+ * ------------------------------------------------------------------ */
+
+@media (min-width: 861px) {
+  .exploration-node-header {
+    height: 34px !important;
+    min-height: 34px !important;
+    max-height: 34px !important;
+    padding: 3px 8px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 10px !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+  }
+
+  .exploration-node-header > div:first-child {
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    overflow: hidden !important;
+  }
+
+  .exploration-node-eyebrow {
+    flex: 0 0 auto !important;
+    height: 20px !important;
+    min-height: 20px !important;
+    padding: 0 8px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    border: 1px solid rgba(18, 52, 90, 0.16) !important;
+    border-radius: 4px !important;
+    background: rgba(255, 255, 255, 0.8) !important;
+    color: #4d5d6f !important;
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+  }
+
+  .exploration-node-header h1 {
+    min-width: 0 !important;
+    margin: 0 !important;
+    flex: 1 1 auto !important;
+    color: #172433 !important;
+    font-size: 14px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .exploration-node-header-summary {
+    display: none !important;
+  }
+
+  .exploration-node-status-row {
+    flex: 0 0 auto !important;
+    margin-left: auto !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    flex-wrap: nowrap !important;
+    overflow: hidden !important;
+  }
+
+  .exploration-node-status-row span {
+    height: 22px !important;
+    min-height: 22px !important;
+    padding: 0 8px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    border: 1px solid rgba(18, 52, 90, 0.2) !important;
+    border-radius: 4px !important;
+    background: #ffffff !important;
+    color: #172433 !important;
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+  }
+}
+
+/* ------------------------------------------------------------------
+ * FIX v11: exploration-node-header-summary를 헤더 직접 노출에서 팝업으로 분리
+ * - 헤더는 한 줄 정보만 유지
+ * - 장면 설명은 버튼 클릭 시 팝업으로 표시
+ * ------------------------------------------------------------------ */
+
+@media (min-width: 861px) {
+  .exploration-node-header {
+    overflow: visible !important;
+  }
+
+  .exploration-node-title-row {
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    overflow: hidden !important;
+  }
+
+  .exploration-node-summary-button {
+    flex: 0 0 auto !important;
+    height: 22px !important;
+    min-height: 22px !important;
+    padding: 0 8px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border: 1px solid rgba(18, 52, 90, 0.22) !important;
+    border-radius: 4px !important;
+    background: #ffffff !important;
+    color: #172433 !important;
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    cursor: pointer !important;
+  }
+
+  .exploration-node-summary-button:hover {
+    border-color: #173b67 !important;
+    background: #eef4fa !important;
+  }
+
+  .exploration-node-summary-button.active {
+    border-color: #173b67 !important;
+    background: #173b67 !important;
+    color: #ffffff !important;
+  }
+
+  .exploration-node-summary-popover {
+    position: absolute !important;
+    top: calc(100% + 6px) !important;
+    left: 8px !important;
+    z-index: 120 !important;
+    width: min(520px, calc(100% - 16px)) !important;
+    max-height: 240px !important;
+    padding: 12px !important;
+    overflow-y: auto !important;
+    box-sizing: border-box !important;
+    border: 1px solid rgba(18, 52, 90, 0.22) !important;
+    border-radius: 8px !important;
+    background: rgba(248, 250, 251, 0.98) !important;
+    box-shadow: 0 10px 24px rgba(18, 31, 42, 0.18) !important;
+    color: #172433 !important;
+  }
+
+  .exploration-node-summary-popover-head {
+    margin-bottom: 8px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+  }
+
+  .exploration-node-summary-popover-head strong {
+    color: #172433 !important;
+    font-size: 13px !important;
+    font-weight: 900 !important;
+    line-height: 1.2 !important;
+  }
+
+  .exploration-node-summary-popover-head button {
+    height: 24px !important;
+    min-height: 24px !important;
+    padding: 0 8px !important;
+    border: 1px solid rgba(18, 52, 90, 0.2) !important;
+    border-radius: 4px !important;
+    background: #ffffff !important;
+    color: #172433 !important;
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    cursor: pointer !important;
+  }
+
+  .exploration-node-summary-popover-body {
+    display: grid !important;
+    gap: 8px !important;
+  }
+
+  .exploration-node-summary-popover-body p {
+    margin: 0 !important;
+    color: #314255 !important;
+    font-size: 13px !important;
+    line-height: 1.55 !important;
+    white-space: pre-wrap !important;
+  }
+}
+
+@media (max-width: 860px) {
+  .exploration-node-title-row {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .exploration-node-summary-button {
+    min-height: 30px;
+    padding: 0 10px;
+    border: 1px solid rgba(18, 52, 90, 0.22);
+    border-radius: 6px;
+    background: #ffffff;
+    color: #172433;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .exploration-node-summary-popover {
+    margin-top: 8px;
+    padding: 12px;
+    border: 1px solid rgba(18, 52, 90, 0.22);
+    border-radius: 8px;
+    background: #f8fafb;
+  }
+
+  .exploration-node-summary-popover-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
+  .exploration-node-summary-popover-body {
+    display: grid;
+    gap: 8px;
+  }
+
+  .exploration-node-summary-popover-body p {
+    margin: 0;
+    color: #314255;
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+  }
+}
+
+/* ------------------------------------------------------------------
+ * FIX v12: 장면 설명 팝업을 헤더 내부가 아니라 surface 레이어로 표시
+ * - JSX에서 popover를 header 밖으로 이동
+ * - 기준점은 .exploration-node-surface
+ * - 팝업은 헤더 아래 맵 위에 별도 레이어로 뜸
+ * ------------------------------------------------------------------ */
+
+@media (min-width: 861px) {
+  .exploration-node-surface {
+    position: relative !important;
+    overflow: hidden !important;
+  }
+
+  .exploration-node-header {
+    position: relative !important;
+    overflow: hidden !important;
+    z-index: 20 !important;
+  }
+
+  .exploration-node-summary-popover {
+    position: absolute !important;
+    top: 42px !important;
+    left: 10px !important;
+    z-index: 120 !important;
+    width: min(560px, calc(100% - 250px)) !important;
+    max-height: 260px !important;
+    padding: 12px !important;
+    overflow-y: auto !important;
+    box-sizing: border-box !important;
+    border: 1px solid rgba(18, 52, 90, 0.24) !important;
+    border-radius: 10px !important;
+    background: rgba(248, 250, 251, 0.98) !important;
+    box-shadow: 0 14px 32px rgba(18, 31, 42, 0.26) !important;
+    color: #172433 !important;
+  }
+
+  .exploration-node-summary-popover-head {
+    margin-bottom: 8px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+  }
+
+  .exploration-node-summary-popover-head strong {
+    color: #172433 !important;
+    font-size: 13px !important;
+    font-weight: 900 !important;
+    line-height: 1.2 !important;
+  }
+
+  .exploration-node-summary-popover-head button {
+    height: 24px !important;
+    min-height: 24px !important;
+    padding: 0 8px !important;
+    border: 1px solid rgba(18, 52, 90, 0.2) !important;
+    border-radius: 4px !important;
+    background: #ffffff !important;
+    color: #172433 !important;
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    cursor: pointer !important;
+  }
+
+  .exploration-node-summary-popover-body {
+    display: grid !important;
+    gap: 8px !important;
+  }
+
+  .exploration-node-summary-popover-body p {
+    margin: 0 !important;
+    color: #314255 !important;
+    font-size: 13px !important;
+    line-height: 1.55 !important;
+    white-space: pre-wrap !important;
+  }
+}
+
+@media (max-width: 860px) {
+  .exploration-node-summary-popover {
+    position: relative;
+    margin: 8px 12px;
+    padding: 12px;
+    border: 1px solid rgba(18, 52, 90, 0.22);
+    border-radius: 8px;
+    background: #f8fafb;
   }
 }
