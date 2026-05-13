@@ -351,7 +351,22 @@ export class MainCommandsService {
         break;
     }
 
-    await this.persistResult(userId, context, dto, response);
+    const turnLog = await this.persistResult(userId, context, dto, response);
+    const revealCount = await this.sessionsService.revealCurrentNodeCluesAfterAction({
+      sessionScenarioId: context.sessionScenarioId,
+      nodeId: context.currentNodeId,
+      actionText: dto.playerText,
+      outcome: this.toActionOutcome(response),
+      policyModes: ["PLAYER_ACTION"],
+      turnLogId: turnLog.turnLogId,
+      revealedBy: "system",
+    });
+    if (revealCount > 0) {
+      this.realtimeEvents.emitSessionSnapshot(
+        context.sessionId,
+        await this.sessionsService.buildSnapshot(context.sessionId),
+      );
+    }
     return response;
   }
 
@@ -2637,14 +2652,8 @@ export class MainCommandsService {
     context: LoadedContext,
     dto: SubmitMainCommandDto,
     response: MainCommandResponseDto,
-  ): Promise<void> {
-    const outcome =
-      response.status === MainCommandStatus.IMPOSSIBLE
-        ? ActionOutcome.IMPOSSIBLE
-        : response.status === MainCommandStatus.RESOLVED
-          ? ActionOutcome.SUCCESS
-          : ActionOutcome.NO_ROLL;
-
+  ) {
+    const outcome = this.toActionOutcome(response);
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId: context.sessionId,
       sessionScenarioId: context.sessionScenarioId,
@@ -2671,6 +2680,15 @@ export class MainCommandsService {
     });
 
     this.realtimeEvents.emitTurnLogCreated(context.sessionId, turnLog);
+    return turnLog;
+  }
+
+  private toActionOutcome(response: MainCommandResponseDto): ActionOutcome {
+    return response.status === MainCommandStatus.IMPOSSIBLE
+      ? ActionOutcome.IMPOSSIBLE
+      : response.status === MainCommandStatus.RESOLVED
+        ? ActionOutcome.SUCCESS
+        : ActionOutcome.NO_ROLL;
   }
 
   private extractVisibleSceneEntities(nodeMetaJson: string | null): VisibleSceneEntity[] {

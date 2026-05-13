@@ -469,8 +469,69 @@ function toScenarioNodeType(value: string): ScenarioNodeType {
 export function mapScenario(
   scenario: Scenario & { nodes: ScenarioNode[] },
 ): ScenarioResponseDto {
+  const startNodeId = resolveScenarioStartNodeId(scenario.nodes, scenario.startNodeId ?? null);
   return {
     ...mapScenarioSummary(scenario),
-    nodes: scenario.nodes.map(mapScenarioNode),
+    startNodeId,
+    nodes: sortScenarioNodes(scenario.nodes, startNodeId).map(mapScenarioNode),
   };
+}
+
+function sortScenarioNodes(nodes: ScenarioNode[], startNodeId: string | null): ScenarioNode[] {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const ordered: ScenarioNode[] = [];
+  const visited = new Set<string>();
+
+  function visit(nodeId: string | null | undefined): void {
+    if (!nodeId || visited.has(nodeId)) {
+      return;
+    }
+    const node = nodeById.get(nodeId);
+    if (!node) {
+      return;
+    }
+    visited.add(nodeId);
+    ordered.push(node);
+
+    const transitions = parseJson<Record<string, unknown>[]>(node.transitionsJson, []);
+    transitions.forEach((transition) => {
+      const nextNodeId = transition.nextNodeId;
+      if (typeof nextNodeId === "string") {
+        visit(nextNodeId);
+      }
+    });
+  }
+
+  visit(startNodeId);
+  nodes.forEach((node) => visit(node.id));
+  return ordered;
+}
+
+function resolveScenarioStartNodeId(nodes: ScenarioNode[], requestedStartNodeId: string | null): string | null {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  if (!nodeIds.size) {
+    return null;
+  }
+
+  const incoming = new Map<string, number>();
+  nodes.forEach((node) => {
+    const transitions = parseJson<Record<string, unknown>[]>(node.transitionsJson, []);
+    transitions.forEach((transition) => {
+      const nextNodeId = transition.nextNodeId;
+      if (typeof nextNodeId === "string" && nodeIds.has(nextNodeId)) {
+        incoming.set(nextNodeId, (incoming.get(nextNodeId) ?? 0) + 1);
+      }
+    });
+  });
+
+  const rootNodes = nodes.filter((node) => (incoming.get(node.id) ?? 0) === 0);
+  if (
+    requestedStartNodeId &&
+    nodeIds.has(requestedStartNodeId) &&
+    (rootNodes.length !== 1 || rootNodes[0].id === requestedStartNodeId)
+  ) {
+    return requestedStartNodeId;
+  }
+
+  return rootNodes.length === 1 ? rootNodes[0].id : requestedStartNodeId ?? nodes[0].id;
 }

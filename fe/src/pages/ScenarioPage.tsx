@@ -32,8 +32,8 @@ function makeCloneId(prefix: string): string {
 }
 
 // 복제된 노드 ID 맵을 사용해 링크/단서가 새 노드를 가리키도록 바꿉니다.
-function remapNodeReference(value: unknown, nodeIdMap: Map<string, string>): unknown {
-  return typeof value === "string" ? nodeIdMap.get(value) ?? value : value;
+function remapNodeReference(value: unknown, nodeIdMap: Map<string, string>): string | null {
+  return typeof value === "string" ? nodeIdMap.get(value) ?? value : null;
 }
 
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
@@ -147,6 +147,8 @@ export function ScenarioPage({
           pointsToNodeId: remapNodeReference(clue.pointsToNodeId, nodeIdMap),
         })),
       }));
+      const startNodeId = remapNodeReference(source.startNodeId, nodeIdMap);
+      const startNode = nodes.find((node) => node.id === startNodeId) ?? nodes[0];
       const copyTitle = `${source.title} 복사본`.slice(0, 100);
       const payload: CreateScenarioDto = {
         title: copyTitle,
@@ -158,8 +160,9 @@ export function ScenarioPage({
         recommendedEndLevel: source.recommendedEndLevel,
         license: source.license,
         attribution: source.attribution,
-        startNodeTitle: nodes[0]?.title,
-        startSceneText: nodes[0]?.sceneText,
+        startNodeId,
+        startNodeTitle: startNode?.title,
+        startSceneText: startNode?.sceneText,
         nodes,
       };
 
