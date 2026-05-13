@@ -45,11 +45,15 @@ function remapNodeReference(value: unknown, nodeIdMap: Map<string, string>): unk
 }
 
 function formatScenarioLevel(scenario: Scenario): string {
-  const scenarioRecord = scenario as Record<string, unknown>;
-  const startLevel = typeof scenarioRecord.startLevel === "number" ? scenarioRecord.startLevel : 1;
+  const maybeScenarioWithLevels = scenario as Scenario & {
+    startLevel?: number | null;
+    recommendedEndLevel?: number | null;
+  };
+  const startLevel =
+    typeof maybeScenarioWithLevels.startLevel === "number" ? maybeScenarioWithLevels.startLevel : 1;
   const endLevel =
-    typeof scenarioRecord.recommendedEndLevel === "number"
-      ? scenarioRecord.recommendedEndLevel
+    typeof maybeScenarioWithLevels.recommendedEndLevel === "number"
+      ? maybeScenarioWithLevels.recommendedEndLevel
       : null;
   return endLevel && endLevel !== startLevel ? `LV ${startLevel}-${endLevel}` : `LV ${startLevel}`;
 }
