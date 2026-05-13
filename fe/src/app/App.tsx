@@ -169,6 +169,7 @@ export function App() {
   const [classDefinitions, setClassDefinitions] = useState<ClassDefinitionResponseDto[]>([]);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [hasUnsavedScenarioChanges, setHasUnsavedScenarioChanges] = useState(false);
+  const [pendingGameroomPublicId, setPendingGameroomPublicId] = useState<string | null>(null);
   const activeView =
     location.pathname === '/oauth/callback'
       ? 'main'
@@ -269,8 +270,15 @@ export function App() {
     if (activeView !== 'gameroom') return;
     if (!auth.user) return;
     if (!session.snapshot) {
+      if (gameroomId && pendingGameroomPublicId === gameroomId) {
+        return;
+      }
       navigate('/', { replace: true });
       return;
+    }
+
+    if (pendingGameroomPublicId && session.snapshot.session.publicId === pendingGameroomPublicId) {
+      setPendingGameroomPublicId(null);
     }
 
     if (location.pathname === '/play') {
@@ -281,7 +289,15 @@ export function App() {
     if (gameroomId && session.snapshot.session.publicId !== gameroomId) {
       navigate(buildGameroomPath(session.snapshot.session), { replace: true });
     }
-  }, [activeView, auth.user, gameroomId, location.pathname, navigate, session.snapshot]);
+  }, [
+    activeView,
+    auth.user,
+    gameroomId,
+    location.pathname,
+    navigate,
+    pendingGameroomPublicId,
+    session.snapshot,
+  ]);
 
   const busy = auth.busy || session.busy;
   const error = auth.error ?? session.error;
@@ -304,6 +320,7 @@ export function App() {
   ) {
     const nextSnapshot = await session.createSession(title, options);
     if (nextSnapshot) {
+      setPendingGameroomPublicId(nextSnapshot.session.publicId);
       navigate(buildGameroomPath(nextSnapshot.session));
     }
   }
@@ -311,6 +328,7 @@ export function App() {
   async function handleJoinSession(inviteCode: string) {
     const nextSnapshot = await session.joinSession(inviteCode);
     if (nextSnapshot) {
+      setPendingGameroomPublicId(nextSnapshot.session.publicId);
       navigate(buildGameroomPath(nextSnapshot.session));
     }
   }
@@ -318,6 +336,7 @@ export function App() {
   async function handleJoinSessionById(sessionId: string) {
     const nextSnapshot = await session.joinSessionById(sessionId);
     if (nextSnapshot) {
+      setPendingGameroomPublicId(nextSnapshot.session.publicId);
       navigate(buildGameroomPath(nextSnapshot.session));
     }
     return nextSnapshot;

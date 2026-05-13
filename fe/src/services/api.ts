@@ -632,15 +632,25 @@ export async function createSession(
     },
   });
 
+  let fallbackSnapshot: SessionSnapshot | null = null;
+
   if ('session' in created) {
-    return normalizeSessionSnapshot(created);
+    fallbackSnapshot = normalizeSessionSnapshot(created);
+  } else if ('snapshot' in created && created.snapshot) {
+    fallbackSnapshot = normalizeSessionSnapshot(created.snapshot);
+  } else {
+    return getSession(user, created.sessionId, accessToken);
   }
 
-  if ('snapshot' in created && created.snapshot) {
-    return normalizeSessionSnapshot(created.snapshot);
+  try {
+    return await getSession(
+      user,
+      fallbackSnapshot.session.publicId || fallbackSnapshot.session.id,
+      accessToken,
+    );
+  } catch {
+    return fallbackSnapshot;
   }
-
-  return getSession(user, created.sessionId, accessToken);
 }
 
 export async function joinSession(
@@ -657,15 +667,25 @@ export async function joinSession(
     body: { inviteCode },
   });
 
+  let fallbackSnapshot: SessionSnapshot | null = null;
+
   if ('session' in joined) {
-    return normalizeSessionSnapshot(joined);
+    fallbackSnapshot = normalizeSessionSnapshot(joined);
+  } else if ('snapshot' in joined && joined.snapshot) {
+    fallbackSnapshot = normalizeSessionSnapshot(joined.snapshot);
+  } else {
+    return getSession(user, joined.sessionId, accessToken);
   }
 
-  if ('snapshot' in joined && joined.snapshot) {
-    return normalizeSessionSnapshot(joined.snapshot);
+  try {
+    return await getSession(
+      user,
+      fallbackSnapshot.session.publicId || fallbackSnapshot.session.id,
+      accessToken,
+    );
+  } catch {
+    return fallbackSnapshot;
   }
-
-  return getSession(user, joined.sessionId, accessToken);
 }
 
 export async function joinSessionById(
@@ -679,7 +699,17 @@ export async function joinSessionById(
     accessToken,
   });
 
-  return normalizeSessionSnapshot(joined);
+  const fallbackSnapshot = normalizeSessionSnapshot(joined);
+
+  try {
+    return await getSession(
+      user,
+      fallbackSnapshot.session.publicId || fallbackSnapshot.session.id,
+      accessToken,
+    );
+  } catch {
+    return fallbackSnapshot;
+  }
 }
 
 export function getSession(
