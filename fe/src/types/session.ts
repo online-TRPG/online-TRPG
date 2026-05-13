@@ -63,9 +63,13 @@ function normalizeUserPublicId(user: User): User {
 }
 
 function normalizeSessionPublicId(session: Session): Session {
+  const normalizedStatus =
+    typeof session.status === "string" ? session.status.toLowerCase() : session.status;
+
   return {
     ...session,
     publicId: session.publicId ?? session.id,
+    status: normalizedStatus as Session["status"],
   };
 }
 
