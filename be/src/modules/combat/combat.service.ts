@@ -94,6 +94,19 @@ export class CombatService {
       });
     }
 
+    // S14P31A201-71: participantEntityIds 가 명시되면 모두 호출자 본인 소유 캐릭터여야 한다.
+    // 비어 있을 때(자동: 세션 전체 ACTIVE 포함)는 검사 대상이 아니다. 호스트가 일부 인원만
+    // 끼우려면 본인 캐릭터만 명시 가능 — 다른 인원을 빼려면 dto 를 비워두고 자동 전체 모드를 쓴다.
+    if (dto.participantEntityIds?.length) {
+      const foreign = candidates.find((row) => row.character.ownerUserId !== userId);
+      if (foreign) {
+        throw forbidden("COMBAT_403", "다른 유저의 캐릭터로 전투를 시작할 수 없습니다.", {
+          reason: "FOREIGN_CHARACTER_IN_PARTICIPANTS",
+          sessionCharacterId: foreign.id,
+        });
+      }
+    }
+
     const initiativeRows = candidates
       .map((candidate) => ({
         candidate,
@@ -259,9 +272,16 @@ export class CombatService {
             userId,
           },
         },
+        include: { character: { select: { ownerUserId: true } } },
       });
 
-      if (!actor || actor.id !== current.sessionCharacterId) {
+      // S14P31A201-71: sessionId+userId 복합키로 본인 sessionCharacter 만 얻지만,
+      // 캐릭터 이양/공유 등 향후 기능 대비해 Character.ownerUserId 도 명시 검증.
+      if (
+        !actor ||
+        actor.id !== current.sessionCharacterId ||
+        actor.character.ownerUserId !== userId
+      ) {
         throw forbidden("TURN_403", "현재 턴이 아닙니다.", {
           reason: "NOT_YOUR_TURN",
         });
