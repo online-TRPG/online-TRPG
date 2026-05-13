@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 import type {
-  PlayerCheckOptionDto,
+  InventoryItemDto,
   PlayerScenarioNodeDto,
-  PlayerVisibleTargetDto,
   SessionCharacterResponseDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
@@ -21,19 +20,12 @@ interface ExplorationNodeSurfaceProps {
   isHost: boolean;
   isGmView?: boolean;
   map: VttMapStateDto | null;
+  inventory: InventoryItemDto[];
+  inventoryFeedback?: string | null;
+  isBusy?: boolean;
   onMapChange: (map: VttMapStateDto) => void;
-  selectedTargetId?: string;
-  onSelectTarget?: (targetId: string) => void;
+  onUseInventoryItem: (item: InventoryItemDto) => void;
 }
-
-const targetTypeLabels: Partial<Record<PlayerVisibleTargetDto['targetType'], string>> = {
-  NPC: 'NPC',
-  OBJECT: '오브젝트',
-  ACTOR: '인물',
-  AREA: '구역',
-  POINT: '지점',
-  SELF: '나',
-};
 
 const actionTabs: Array<{ id: ExplorationActionTab; label: string; actions: string[] }> = [
   {
@@ -53,10 +45,6 @@ const actionTabs: Array<{ id: ExplorationActionTab; label: string; actions: stri
   },
 ];
 
-function getTargetTypeLabel(targetType: PlayerVisibleTargetDto['targetType']) {
-  return targetTypeLabels[targetType] ?? targetType;
-}
-
 function getPhaseLabel(phase: string | null | undefined) {
   if (!phase) return '상태 미확인';
   if (phase === 'exploration') return '진행: 탐색';
@@ -72,10 +60,6 @@ function getHpPercent(character: SessionCharacterResponseDto) {
   return Math.max(0, Math.min(100, Math.round((character.currentHp / character.maxHp) * 100)));
 }
 
-function getCheckOptionLabel(option: PlayerCheckOptionDto, index: number) {
-  return option.label || option.skill || option.type || `판정 후보 ${index + 1}`;
-}
-
 function splitSceneParagraphs(sceneText: string | undefined) {
   const paragraphs = (sceneText ?? '')
     .split(/\n{2,}|\r?\n/)
@@ -83,6 +67,34 @@ function splitSceneParagraphs(sceneText: string | undefined) {
     .filter(Boolean);
 
   return paragraphs.length ? paragraphs : ['현재 탐색 지역 설명이 아직 준비되지 않았습니다.'];
+}
+
+function getInventoryItemKey(item: InventoryItemDto) {
+  return [item.itemType, item.itemDefinitionId, item.name, ...(item.properties ?? [])]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function isQuickUsableItem(item: InventoryItemDto) {
+  const key = getInventoryItemKey(item);
+  return (
+    item.quantity > 0 &&
+    (key.includes('consumable') ||
+      key.includes('potion') ||
+      key.includes('포션') ||
+      key.includes('healing'))
+  );
+}
+
+function getItemMetaLabel(item: InventoryItemDto) {
+  const labels = [
+    item.itemType,
+    item.damageDice ? `${item.damageDice}${item.damageType ? ` ${item.damageType}` : ''}` : null,
+    item.weightLb ? `${item.weightLb} lb` : null,
+  ].filter(Boolean);
+
+  return labels.length ? labels.join(' / ') : '상세 정보 없음';
 }
 
 export function ExplorationNodeSurface({
@@ -94,16 +106,15 @@ export function ExplorationNodeSurface({
   isHost,
   isGmView = false,
   map,
+  inventory,
+  inventoryFeedback = null,
+  isBusy = false,
   onMapChange,
-  selectedTargetId = '',
-  onSelectTarget,
+  onUseInventoryItem,
 }: ExplorationNodeSurfaceProps) {
   const [activeTab, setActiveTab] = useState<ExplorationActionTab>('explore');
   const [isSummaryOpen, setSummaryOpen] = useState(false);
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
-  const visibleTargets = node?.visibleTargets ?? [];
-  const selectedTarget =
-    visibleTargets.find((target) => target.id === selectedTargetId) ?? visibleTargets[0] ?? null;
   const currentTab = actionTabs.find((tab) => tab.id === activeTab) ?? actionTabs[0];
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
 
@@ -213,60 +224,13 @@ export function ExplorationNodeSurface({
           </section>
         </main>
 
-        <aside className="exploration-target-panel" aria-label="선택 대상 정보">
-          <section className="exploration-panel-block">
-            <div className="exploration-panel-heading">
-              <span className="exploration-node-eyebrow">Target</span>
-              <strong>선택 대상</strong>
-            </div>
-            {selectedTarget ? (
-              <article className="exploration-selected-target">
-                <span>{getTargetTypeLabel(selectedTarget.targetType)}</span>
-                <strong>{selectedTarget.name}</strong>
-                <p>{selectedTarget.summary || '요약 정보가 아직 없습니다.'}</p>
-              </article>
-            ) : (
-              <p className="exploration-empty-text">선택 가능한 공개 대상이 없습니다.</p>
-            )}
-          </section>
-
-          <section className="exploration-panel-block">
-            <div className="exploration-panel-heading">
-              <span className="exploration-node-eyebrow">Visible</span>
-              <strong>공개 대상</strong>
-            </div>
-            {visibleTargets.length ? (
-              <div className="exploration-target-list">
-                {visibleTargets.map((target) => (
-                  <button
-                    type="button"
-                    key={target.id}
-                    className={`exploration-target-button${
-                      selectedTarget?.id === target.id ? ' selected' : ''
-                    }`}
-                    onClick={() => onSelectTarget?.(target.id)}
-                  >
-                    <span>{getTargetTypeLabel(target.targetType)}</span>
-                    <strong>{target.name}</strong>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="exploration-empty-text">현재 공개된 대상이 없습니다.</p>
-            )}
-          </section>
-        </aside>
       </div>
 
       <section className="exploration-action-dock" aria-label="탐색 행동">
         <div className="exploration-actor-status">
           <span className="exploration-node-eyebrow">현재 조작 캐릭터</span>
           <strong>{myCharacter?.name ?? '캐릭터 미선택'}</strong>
-          <p>
-            {selectedTarget
-              ? `${selectedTarget.name} 대상 선택 중`
-              : '대상 또는 위치를 선택하세요.'}
-          </p>
+          <p>지도에서 위치를 확인하고 메인 명령으로 행동을 선언하세요.</p>
         </div>
 
         <div className="exploration-action-panel">
@@ -292,19 +256,37 @@ export function ExplorationNodeSurface({
           </div>
         </div>
 
-        <div className="exploration-check-panel">
-          <span className="exploration-node-eyebrow">판정 후보</span>
-          {node?.checkOptions.length ? (
-            <div className="exploration-check-list">
-              {node.checkOptions.map((option, index) => (
-                <span key={`${getCheckOptionLabel(option, index)}-${index}`}>
-                  {getCheckOptionLabel(option, index)}
-                </span>
-              ))}
+        <div className="exploration-inventory-panel">
+          <span className="exploration-node-eyebrow">인벤토리</span>
+          {inventory.length ? (
+            <div className="exploration-inventory-list">
+              {inventory.map((item) => {
+                const canUse = isQuickUsableItem(item);
+                return (
+                  <article className="exploration-inventory-item" key={item.id}>
+                    <div className="exploration-inventory-item-body">
+                      <strong>{item.name}</strong>
+                      <span>{getItemMetaLabel(item)}</span>
+                    </div>
+                    <span className="exploration-inventory-quantity">x{item.quantity}</span>
+                    <button
+                      type="button"
+                      disabled={!canUse || isBusy}
+                      title={canUse ? `${item.name} 사용` : '현재 바로 사용할 수 없는 아이템입니다.'}
+                      onClick={() => onUseInventoryItem(item)}
+                    >
+                      사용
+                    </button>
+                  </article>
+                );
+              })}
             </div>
           ) : (
-            <p>서버가 제안한 판정 후보가 아직 없습니다.</p>
+            <p>보유 중인 아이템이 없습니다.</p>
           )}
+          {inventoryFeedback ? (
+            <p className="exploration-inventory-feedback">{inventoryFeedback}</p>
+          ) : null}
         </div>
       </section>
     </div>
