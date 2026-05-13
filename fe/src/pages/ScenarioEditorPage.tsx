@@ -57,7 +57,13 @@ type LinkForm = {
   note: string;
 };
 
-type RevealMode = 'manual' | 'on_node_visit' | 'conditional';
+type RevealMode =
+  | 'AUTO_REVEAL'
+  | 'PLAYER_ACTION'
+  | 'CHECK_SUCCESS'
+  | 'CHECK_PARTIAL'
+  | 'POST_COMBAT'
+  | 'GM_APPROVAL';
 
 // 단서/핸드아웃 데이터입니다. 공개 방식과 GM 메모를 같이 들고 있습니다.
 type ClueForm = {
@@ -108,6 +114,7 @@ type ScenarioFormState = {
   recommendedEndLevel: number | null;
   license: ScenarioLicense;
   attribution: string;
+  startNodeId: string;
   nodes: NodeForm[];
 };
 
@@ -206,7 +213,7 @@ function createBlankClue(): ClueForm {
     source: '',
     pointsToNodeId: '',
     importance: 'supporting',
-    revealMode: 'conditional',
+    revealMode: 'PLAYER_ACTION',
     handoutText: '',
     gmNotes: '',
   };
@@ -225,6 +232,7 @@ function createBlankNpc(): NpcForm {
 }
 
 function createEmptyForm(): ScenarioFormState {
+  const startNode = createBlankNode('첫 장면');
   return {
     title: '',
     description: '',
@@ -234,7 +242,8 @@ function createEmptyForm(): ScenarioFormState {
     recommendedEndLevel: null,
     license: 'original' as ScenarioLicense,
     attribution: '',
-    nodes: [createBlankNode('첫 장면')],
+    startNodeId: startNode.id,
+    nodes: [startNode],
   };
 }
 
@@ -273,9 +282,20 @@ function valueAsRevealMode(clue: Record<string, unknown>): RevealMode {
     revealPolicy && typeof revealPolicy === 'object'
       ? valueAsString((revealPolicy as Record<string, unknown>).mode)
       : '';
-  return mode === 'manual' || mode === 'on_node_visit' || mode === 'conditional'
-    ? mode
-    : 'conditional';
+  if (
+    mode === 'AUTO_REVEAL' ||
+    mode === 'PLAYER_ACTION' ||
+    mode === 'CHECK_SUCCESS' ||
+    mode === 'CHECK_PARTIAL' ||
+    mode === 'POST_COMBAT' ||
+    mode === 'GM_APPROVAL'
+  ) {
+    return mode;
+  }
+  if (mode === 'on_node_visit') return 'AUTO_REVEAL';
+  if (mode === 'manual') return 'GM_APPROVAL';
+  if (mode === 'conditional') return 'PLAYER_ACTION';
+  return 'PLAYER_ACTION';
 }
 
 function valueAsNpcDisposition(value: unknown): NpcDisposition {
@@ -364,6 +384,7 @@ function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
               : [],
         }))
     : [createBlankNode('첫 장면')];
+  const startNodeId = resolveScenarioStartNodeId(nodes, valueAsString(scenario.startNodeId));
 
   return {
     title: scenario.title,
@@ -374,6 +395,7 @@ function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
     recommendedEndLevel: valueAsScenarioLevel(scenario.recommendedEndLevel),
     license: scenario.license,
     attribution: scenario.attribution ?? '',
+    startNodeId,
     nodes,
   };
 }
@@ -432,7 +454,10 @@ function serializeNodes(nodes: NodeForm[]) {
 
 // 현재 폼 전체를 create/update API payload로 변환합니다.
 function buildScenarioPayload(form: ScenarioFormState): CreateScenarioDto & UpdateScenarioDto {
-  const nodes = serializeNodes(form.nodes);
+  const startNodeId = resolveScenarioStartNodeId(form.nodes, form.startNodeId || form.nodes[0]?.id);
+  const orderedNodes = sortNodesForScenarioFlow(form.nodes, startNodeId);
+  const nodes = serializeNodes(orderedNodes);
+  const startNode = orderedNodes.find((node) => node.id === startNodeId) ?? orderedNodes[0];
 
   return {
     title: form.title.trim(),
@@ -443,8 +468,9 @@ function buildScenarioPayload(form: ScenarioFormState): CreateScenarioDto & Upda
     recommendedEndLevel: form.recommendedEndLevel,
     license: form.license,
     attribution: form.attribution || null,
-    startNodeTitle: nodes[0]?.title,
-    startSceneText: nodes[0]?.sceneText,
+    startNodeId: startNode?.id ?? null,
+    startNodeTitle: startNode?.title,
+    startSceneText: startNode?.sceneText,
     nodes,
   };
 }
@@ -535,8 +561,57 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+function sortNodesForScenarioFlow(nodes: NodeForm[], startNodeId: string | null | undefined): NodeForm[] {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const ordered: NodeForm[] = [];
+  const visited = new Set<string>();
+  const resolvedStartNodeId = resolveScenarioStartNodeId(nodes, startNodeId);
+
+  function visit(nodeId: string | null | undefined) {
+    if (!nodeId || visited.has(nodeId)) return;
+    const node = nodeById.get(nodeId);
+    if (!node) return;
+
+    visited.add(nodeId);
+    ordered.push(node);
+    node.links.forEach((link) => visit(link.nextNodeId));
+  }
+
+  visit(resolvedStartNodeId);
+  nodes.forEach((node) => visit(node.id));
+  return ordered;
+}
+
+function resolveScenarioStartNodeId(nodes: NodeForm[], requestedStartNodeId: string | null | undefined): string {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const fallbackNodeId = nodes[0]?.id ?? '';
+  if (!nodeIds.size) {
+    return '';
+  }
+
+  const incoming = new Map<string, number>();
+  nodes.forEach((node) => {
+    node.links.forEach((link) => {
+      if (nodeIds.has(link.nextNodeId)) {
+        incoming.set(link.nextNodeId, (incoming.get(link.nextNodeId) ?? 0) + 1);
+      }
+    });
+  });
+
+  const rootNodes = nodes.filter((node) => (incoming.get(node.id) ?? 0) === 0);
+  if (
+    requestedStartNodeId &&
+    nodeIds.has(requestedStartNodeId) &&
+    (rootNodes.length !== 1 || rootNodes[0].id === requestedStartNodeId)
+  ) {
+    return requestedStartNodeId;
+  }
+
+  return rootNodes.length === 1 ? rootNodes[0].id : requestedStartNodeId ?? fallbackNodeId;
+}
+
 // 노드 링크 구조를 읽어 그래프 화면의 좌표와 간선 목록을 계산합니다.
-function buildGraphLayout(nodes: NodeForm[]): {
+function buildGraphLayout(nodes: NodeForm[], startNodeId: string): {
   graphNodes: GraphNodeLayout[];
   edges: Array<{
     id: string;
@@ -558,13 +633,7 @@ function buildGraphLayout(nodes: NodeForm[]): {
   });
 
   const depthByNode = new Map<string, number>();
-  const queue = nodes
-    .filter((node) => (incomingByNode.get(node.id) ?? 0) === 0)
-    .map((node) => node.id);
-
-  if (!queue.length && nodes[0]) {
-    queue.push(nodes[0].id);
-  }
+  const queue = nodes[0] ? [resolveScenarioStartNodeId(nodes, startNodeId)] : [];
 
   queue.forEach((nodeId) => depthByNode.set(nodeId, 0));
 
@@ -879,7 +948,7 @@ export function ScenarioEditorPage({
           lastSavedSnapshotRef.current = JSON.stringify(buildScenarioPayload(nextForm));
           onUnsavedChangesChange?.(false);
           setAutoSaveStatus('저장됨');
-          setSelectedNodeId(nextForm.nodes[0].id);
+          setSelectedNodeId(nextForm.startNodeId || nextForm.nodes[0].id);
           setEditorMode('graph');
         }
       })
@@ -954,9 +1023,19 @@ export function ScenarioEditorPage({
   }, [autoSave]);
 
   // 현재 선택된 노드와 해당 노드로 들어오는 링크를 계산합니다.
+  const effectiveStartNodeId = useMemo(
+    () => resolveScenarioStartNodeId(form.nodes, form.startNodeId || form.nodes[0]?.id),
+    [form.nodes, form.startNodeId]
+  );
+
+  const orderedNodes = useMemo(
+    () => sortNodesForScenarioFlow(form.nodes, effectiveStartNodeId),
+    [form.nodes, effectiveStartNodeId]
+  );
+
   const selectedNode = useMemo(
-    () => form.nodes.find((node) => node.id === selectedNodeId) ?? form.nodes[0],
-    [form.nodes, selectedNodeId]
+    () => form.nodes.find((node) => node.id === selectedNodeId) ?? orderedNodes[0],
+    [form.nodes, orderedNodes, selectedNodeId]
   );
 
   const incomingLinks = useMemo(
@@ -974,7 +1053,10 @@ export function ScenarioEditorPage({
     [form.nodes, selectedNode]
   );
 
-  const graphLayout = useMemo(() => buildGraphLayout(form.nodes), [form.nodes]);
+  const graphLayout = useMemo(
+    () => buildGraphLayout(orderedNodes, effectiveStartNodeId),
+    [orderedNodes, effectiveStartNodeId]
+  );
 
   // 시나리오 기본 정보 필드를 부분 업데이트합니다.
   function updateField<K extends keyof Omit<ScenarioFormState, 'nodes'>>(
@@ -1000,6 +1082,7 @@ export function ScenarioEditorPage({
     const node = createBlankNode();
     setForm((current) => ({
       ...current,
+      startNodeId: current.startNodeId || node.id,
       nodes: [...current.nodes, node],
     }));
     setSelectedNodeId(node.id);
@@ -1018,6 +1101,10 @@ export function ScenarioEditorPage({
 
       return {
         ...current,
+        startNodeId:
+          current.startNodeId === nodeId || !nodes.some((node) => node.id === current.startNodeId)
+            ? nodes[0].id
+            : current.startNodeId,
         nodes: nodes.map((node) => ({
           ...node,
           links: node.links.filter((link) => link.nextNodeId !== nodeId),
@@ -1344,6 +1431,20 @@ export function ScenarioEditorPage({
                 <option value="other-free">Other free</option>
               </select>
             </div>
+            <div>
+              <label htmlFor="scenario-start-node">Entry node</label>
+              <select
+                id="scenario-start-node"
+                value={effectiveStartNodeId}
+                onChange={(event) => updateField('startNodeId', event.target.value)}
+              >
+                {orderedNodes.map((node) => (
+                  <option key={node.id} value={node.id}>
+                    {node.title || node.id}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="scenario-info-wide">
               <label htmlFor="scenario-description">Description</label>
               <textarea
@@ -1382,7 +1483,7 @@ export function ScenarioEditorPage({
               </button>
             </div>
             <div className="scenario-editor-node-tabs">
-              {form.nodes.map((node) => (
+              {orderedNodes.map((node) => (
                 <button
                   key={node.id}
                   type="button"
@@ -1393,6 +1494,7 @@ export function ScenarioEditorPage({
                 >
                   <strong>{node.title || '제목 없음'}</strong>
                   <span>
+                    {node.id === effectiveStartNodeId ? '진입 · ' : ''}
                     {node.nodeType} · {node.links.length}개 연결
                   </span>
                 </button>
@@ -1420,7 +1522,7 @@ export function ScenarioEditorPage({
               <NodeDetailEditor
                 scenarioId={effectiveScenarioId}
                 node={selectedNode}
-                nodes={form.nodes}
+                nodes={orderedNodes}
                 incomingLinks={incomingLinks}
                 mapAssets={mapAssets}
                 mapAssetsLoading={mapAssetsLoading}
@@ -2042,10 +2144,10 @@ function NodeDetailEditor({
           </article>
           <article className="scenario-node-panel">
             <span className="eyebrow">Auto handouts</span>
-            {node.clues.filter((clue) => clue.revealMode === 'on_node_visit').length ? (
+            {node.clues.filter((clue) => clue.revealMode === 'AUTO_REVEAL').length ? (
               <ul className="scenario-node-list">
                 {node.clues
-                  .filter((clue) => clue.revealMode === 'on_node_visit')
+                  .filter((clue) => clue.revealMode === 'AUTO_REVEAL')
                   .map((clue) => (
                     <li key={clue.id}>
                       <strong>{clue.title || clue.text || '단서'}</strong>
@@ -2081,9 +2183,41 @@ function ScenarioNodeGraph({
   selectedNodeId: string;
   onSelectNode: (nodeId: string) => void;
 }) {
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [viewportWidth, setViewportWidth] = useState(0);
+  const graphScale =
+    viewportWidth > 24 && layout.width > viewportWidth
+      ? Math.min(1, (viewportWidth - 24) / layout.width)
+      : 1;
+  const scaledWidth = Math.ceil(layout.width * graphScale);
+  const scaledHeight = Math.ceil(layout.height * graphScale);
+
+  useEffect(() => {
+    const observedViewport = viewportRef.current;
+    if (!observedViewport) return;
+
+    setViewportWidth(observedViewport.clientWidth);
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (typeof width === 'number') {
+        setViewportWidth(width);
+      }
+    });
+    observer.observe(observedViewport);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <div className="scenario-graph-viewport">
-      <div className="scenario-graph-canvas" style={{ width: layout.width, height: layout.height }}>
+    <div className="scenario-graph-viewport" ref={viewportRef}>
+      <div className="scenario-graph-scale-frame" style={{ width: scaledWidth, height: scaledHeight }}>
+        <div
+          className="scenario-graph-canvas"
+          style={{
+            width: layout.width,
+            height: layout.height,
+            transform: `scale(${graphScale})`,
+          }}
+        >
         <svg
           className="scenario-graph-edges"
           width={layout.width}
@@ -2143,6 +2277,7 @@ function ScenarioNodeGraph({
             <strong>{node.title || '제목 없음'}</strong>
           </button>
         ))}
+        </div>
       </div>
     </div>
   );
@@ -2380,22 +2515,44 @@ function ScenarioNodeCollections({
               rows={2}
             />
 
+            <label>Reveal policy</label>
+            <select
+              value={clue.revealMode}
+              onChange={(event) =>
+                updateNode(node.id, (current) => ({
+                  ...current,
+                  clues: current.clues.map((item, itemIndex) =>
+                    itemIndex === index
+                      ? { ...item, revealMode: event.target.value as RevealMode }
+                      : item
+                  ),
+                }))
+              }
+            >
+              <option value="AUTO_REVEAL">AUTO_REVEAL - 노드 진입 시 자동 공개</option>
+              <option value="PLAYER_ACTION">PLAYER_ACTION - 발견 행동 요청 시 공개</option>
+              <option value="CHECK_SUCCESS">CHECK_SUCCESS - 판정 성공 시 공개</option>
+              <option value="CHECK_PARTIAL">CHECK_PARTIAL - 실패해도 일부 공개</option>
+              <option value="POST_COMBAT">POST_COMBAT - 전투 종료 후 공개</option>
+              <option value="GM_APPROVAL">GM_APPROVAL - GM/백엔드 조건 승인</option>
+            </select>
+
+            <label>Reveal source</label>
+            <textarea
+              value={clue.source}
+              onChange={(event) =>
+                updateNode(node.id, (current) => ({
+                  ...current,
+                  clues: current.clues.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, source: event.target.value } : item
+                  ),
+                }))
+              }
+              placeholder="NPC, handout, object, rumor, environment"
+              rows={3}
+            />
+
             <div className="field-row">
-              <div>
-                <label>Discovery source</label>
-                <input
-                  value={clue.source}
-                  onChange={(event) =>
-                    updateNode(node.id, (current) => ({
-                      ...current,
-                      clues: current.clues.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, source: event.target.value } : item
-                      ),
-                    }))
-                  }
-                  placeholder="NPC, handout, object, rumor, environment"
-                />
-              </div>
               <div>
                 <label>Points to node</label>
                 <select
@@ -2420,25 +2577,6 @@ function ScenarioNodeCollections({
                 </select>
               </div>
             </div>
-
-            <label>Reveal policy</label>
-            <select
-              value={clue.revealMode}
-              onChange={(event) =>
-                updateNode(node.id, (current) => ({
-                  ...current,
-                  clues: current.clues.map((item, itemIndex) =>
-                    itemIndex === index
-                      ? { ...item, revealMode: event.target.value as RevealMode }
-                      : item
-                  ),
-                }))
-              }
-            >
-              <option value="conditional">Conditional</option>
-              <option value="on_node_visit">On node visit</option>
-              <option value="manual">Manual GM reveal</option>
-            </select>
 
             <label>Player handout text</label>
             <textarea

@@ -20,6 +20,7 @@ import {
 } from "@prisma/client";
 import {
   ConnectionStatus,
+  ActionOutcome,
   CreateSessionDto,
   GameStateResponseDto,
   GmMode,
@@ -80,6 +81,14 @@ const gmModeToPrisma: Record<GmMode, PrismaGmMode> = {
   [GmMode.HUMAN]: PrismaGmMode.HUMAN,
 };
 
+type RevealPolicyMode =
+  | "AUTO_REVEAL"
+  | "PLAYER_ACTION"
+  | "CHECK_SUCCESS"
+  | "CHECK_PARTIAL"
+  | "POST_COMBAT"
+  | "GM_APPROVAL";
+
 const participantRoleToApi: Record<PrismaParticipantRole, ParticipantRole> = {
   [PrismaParticipantRole.HOST]: ParticipantRole.HOST,
   [PrismaParticipantRole.PLAYER]: ParticipantRole.PLAYER,
@@ -129,10 +138,10 @@ export class SessionsService {
       ? await this.scenariosService.getScenarioEntityById(dto.scenarioId)
       : await this.scenariosService.getDefaultScenarioEntity();
 
-    if (!scenario.startNodeId) {
+    const startNodeId = this.resolveScenarioStartNodeId(scenario.nodes, scenario.startNodeId);
+    if (!startNodeId) {
       throw new UnprocessableEntityException("The selected scenario does not have a start node.");
     }
-    const startNodeId = scenario.startNodeId;
 
     const inviteCode = await this.generateInviteCode();
     const visibility = this.resolveVisibility(dto.visibility, dto.isPrivate, dto.isPublic);
@@ -1232,6 +1241,28 @@ export class SessionsService {
     return snapshot;
   }
 
+  async revealCurrentNodeCluesAfterAction(params: {
+    sessionScenarioId: string;
+    nodeId: string;
+    actionText: string;
+    outcome: ActionOutcome;
+    policyModes?: RevealPolicyMode[];
+    turnLogId?: string | null;
+    revealedBy?: string;
+  }): Promise<number> {
+    return this.prisma.$transaction((tx) =>
+      this.recordCurrentNodeCluesByPolicy(tx, {
+        sessionScenarioId: params.sessionScenarioId,
+        nodeId: params.nodeId,
+        actionText: params.actionText,
+        outcome: params.outcome,
+        policyModes: params.policyModes ?? ["PLAYER_ACTION", "CHECK_SUCCESS", "CHECK_PARTIAL"],
+        turnLogId: params.turnLogId,
+        revealedBy: params.revealedBy ?? "system",
+      }),
+    );
+  }
+
   async buildSnapshot(sessionId: string): Promise<SessionSnapshotDto> {
     const resolvedSessionId = (await this.getSessionEntityOrThrow(sessionId)).id;
     const session = await this.prisma.session.findUnique({
@@ -1559,6 +1590,42 @@ export class SessionsService {
     }
   }
 
+  private resolveScenarioStartNodeId(
+    nodes: Array<{ id: string; transitionsJson: string }>,
+    requestedStartNodeId: string | null | undefined,
+  ): string | null {
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    if (!nodeIds.size) {
+      return null;
+    }
+
+    const incoming = new Map<string, number>();
+    nodes.forEach((node) => {
+      const transitions = this.parseJson<Record<string, unknown>[]>(node.transitionsJson, []);
+      transitions.forEach((transition) => {
+        const nextNodeId = transition.nextNodeId;
+        if (typeof nextNodeId === "string" && nodeIds.has(nextNodeId)) {
+          incoming.set(nextNodeId, (incoming.get(nextNodeId) ?? 0) + 1);
+        }
+      });
+    });
+
+    const rootNodes = nodes.filter((node) => (incoming.get(node.id) ?? 0) === 0);
+    if (
+      requestedStartNodeId &&
+      nodeIds.has(requestedStartNodeId) &&
+      (rootNodes.length !== 1 || rootNodes[0].id === requestedStartNodeId)
+    ) {
+      return requestedStartNodeId;
+    }
+
+    return rootNodes.length === 1
+      ? rootNodes[0].id
+      : requestedStartNodeId && nodeIds.has(requestedStartNodeId)
+        ? requestedStartNodeId
+        : nodes[0].id;
+  }
+
   private async getHumanGmSessionForOperator(userId: string, sessionId: string) {
     const session = await this.getSessionEntityOrThrow(sessionId);
 
@@ -1607,6 +1674,15 @@ export class SessionsService {
         where: { sessionScenarioId: activeScenario.id },
         data: { phase },
       });
+      if (phase === PrismaGamePhase.EXPLORATION && activeScenario.gameState?.currentNodeId) {
+        await this.recordCurrentNodeCluesByPolicy(tx, {
+          sessionScenarioId: activeScenario.id,
+          nodeId: activeScenario.gameState.currentNodeId,
+          policyModes: ["POST_COMBAT"],
+          revealedBy: "system",
+          reason: "post_combat",
+        });
+      }
     });
   }
 
@@ -2347,12 +2423,168 @@ export class SessionsService {
   }
 
   private shouldRevealOnNodeVisit(clue: Record<string, unknown>): boolean {
+    return this.getRevealPolicyMode(clue) === "AUTO_REVEAL";
+  }
+
+  private getRevealPolicyMode(clue: Record<string, unknown>): RevealPolicyMode {
     const revealPolicy = clue.revealPolicy;
     const policyMode =
       revealPolicy && typeof revealPolicy === "object"
         ? this.getStringProperty(revealPolicy as Record<string, unknown>, "mode")
         : null;
-    return policyMode === "on_node_visit";
+    switch (policyMode) {
+      case "AUTO_REVEAL":
+      case "PLAYER_ACTION":
+      case "CHECK_SUCCESS":
+      case "CHECK_PARTIAL":
+      case "POST_COMBAT":
+      case "GM_APPROVAL":
+        return policyMode;
+      case "on_node_visit":
+        return "AUTO_REVEAL";
+      case "manual":
+        return "GM_APPROVAL";
+      case "conditional":
+        return "PLAYER_ACTION";
+      default:
+        return "PLAYER_ACTION";
+    }
+  }
+
+  private async recordCurrentNodeCluesByPolicy(
+    tx: Prisma.TransactionClient,
+    params: {
+      sessionScenarioId: string;
+      nodeId: string;
+      actionText?: string | null;
+      outcome?: ActionOutcome | null;
+      policyModes?: RevealPolicyMode[];
+      revealedBy: string;
+      reason?: string | null;
+      turnLogId?: string | null;
+    },
+  ): Promise<number> {
+    const node = await tx.sessionScenarioNode.findUnique({
+      where: {
+        sessionScenarioId_nodeId: {
+          sessionScenarioId: params.sessionScenarioId,
+          nodeId: params.nodeId,
+        },
+      },
+      select: { cluesJson: true },
+    });
+    if (!node) {
+      return 0;
+    }
+
+    const clues = this.parseJson<Record<string, unknown>[]>(node.cluesJson, []);
+    const reveals = clues.flatMap((clue) => {
+      const policyMode = this.getRevealPolicyMode(clue);
+      if (params.policyModes && !params.policyModes.includes(policyMode)) {
+        return [];
+      }
+      if (!this.shouldRevealClueForPolicy(clue, policyMode, params)) {
+        return [];
+      }
+
+      const contentId = this.getStringProperty(clue, "id");
+      if (!contentId) {
+        return [];
+      }
+
+      return [
+        this.recordSessionReveal(tx, {
+          sessionScenarioId: params.sessionScenarioId,
+          contentId,
+          contentKind: "clue",
+          scope: "party",
+          revealedBy: params.revealedBy,
+          reason: params.reason ?? this.getRevealReason(policyMode, params.outcome),
+          turnLogId: params.turnLogId,
+          snapshot: clue,
+        }),
+      ];
+    });
+
+    await Promise.all(reveals);
+    return reveals.length;
+  }
+
+  private shouldRevealClueForPolicy(
+    clue: Record<string, unknown>,
+    policyMode: RevealPolicyMode,
+    params: {
+      actionText?: string | null;
+      outcome?: ActionOutcome | null;
+    },
+  ): boolean {
+    switch (policyMode) {
+      case "AUTO_REVEAL":
+      case "POST_COMBAT":
+        return true;
+      case "PLAYER_ACTION":
+        return this.matchesDiscoverySource(clue, params.actionText);
+      case "CHECK_SUCCESS":
+        return (
+          params.outcome === ActionOutcome.SUCCESS &&
+          this.matchesDiscoverySource(clue, params.actionText)
+        );
+      case "CHECK_PARTIAL":
+        return this.matchesDiscoverySource(clue, params.actionText);
+      case "GM_APPROVAL":
+        return false;
+    }
+  }
+
+  private getRevealReason(policyMode: RevealPolicyMode, outcome?: ActionOutcome | null): string {
+    if (policyMode === "CHECK_PARTIAL" && outcome !== ActionOutcome.SUCCESS) {
+      return "check_partial";
+    }
+    switch (policyMode) {
+      case "AUTO_REVEAL":
+        return "node_visit";
+      case "PLAYER_ACTION":
+        return "player_action";
+      case "CHECK_SUCCESS":
+      case "CHECK_PARTIAL":
+        return "check_success";
+      case "POST_COMBAT":
+        return "post_combat";
+      case "GM_APPROVAL":
+        return "gm_approval";
+    }
+  }
+
+  private matchesDiscoverySource(
+    clue: Record<string, unknown>,
+    actionText: string | null | undefined,
+  ): boolean {
+    const source = this.getStringProperty(clue, "source") ?? this.getStringProperty(clue, "discoverySource");
+    if (!source || !actionText?.trim()) {
+      return false;
+    }
+
+    const normalizedAction = this.normalizeDiscoveryText(actionText);
+    const normalizedSource = this.normalizeDiscoveryText(source);
+    if (!normalizedAction || !normalizedSource) {
+      return false;
+    }
+    if (
+      normalizedAction.includes(normalizedSource) ||
+      normalizedSource.includes(normalizedAction)
+    ) {
+      return true;
+    }
+
+    return source
+      .split(/[\s,;/|(){}\[\]"'`]+/u)
+      .map((part) => this.normalizeDiscoveryText(part))
+      .filter((part) => part.length >= 2)
+      .some((part) => normalizedAction.includes(part));
+  }
+
+  private normalizeDiscoveryText(value: string): string {
+    return value.toLocaleLowerCase("ko-KR").replace(/\s+/g, " ").trim();
   }
 
   private buildRecipientKey(scope: string, recipientId: string | null | undefined): string {

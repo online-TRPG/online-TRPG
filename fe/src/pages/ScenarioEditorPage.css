@@ -143,6 +143,13 @@
   position: relative;
   min-width: 100%;
   min-height: 560px;
+  transform-origin: top left;
+}
+
+.scenario-graph-scale-frame {
+  position: relative;
+  min-width: 100%;
+  min-height: 560px;
 }
 
 .scenario-graph-edges {

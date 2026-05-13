@@ -231,6 +231,16 @@ export class ActionProcessorService {
       outcome: resolution.outcome,
       narration: resolution.narration,
     });
+    const revealCount = state.currentNodeId
+      ? await this.sessionsService.revealCurrentNodeCluesAfterAction({
+          sessionScenarioId: sessionScenario.id,
+          nodeId: state.currentNodeId,
+          actionText: action.rawText,
+          outcome: resolution.outcome,
+          turnLogId: turnLog.turnLogId,
+          revealedBy: "system",
+        })
+      : 0;
 
     if (resolution.diceResult) {
       await this.prisma.diceRollLog.create({
@@ -273,7 +283,7 @@ export class ActionProcessorService {
       };
     }
 
-    if (runtimeStateChanged) {
+    if (runtimeStateChanged || revealCount > 0) {
       const latestSnapshot = await this.sessionsService.buildSnapshot(session.id);
       this.realtimeEvents.emitSessionSnapshot(session.id, latestSnapshot);
     }
