@@ -7,10 +7,7 @@ import type {
   VttMapStateDto,
 } from '@trpg/shared-types';
 import { BattleMap } from '../../../components/BattleMap';
-import {
-  getCharacterClassLabel,
-  getCharacterImage,
-} from '../utils/characterVisuals';
+import { getCharacterClassLabel, getCharacterImage } from '../utils/characterVisuals';
 import './ExplorationNodeSurface.css';
 
 type ExplorationActionTab = 'explore' | 'interact' | 'item';
@@ -102,6 +99,7 @@ export function ExplorationNodeSurface({
   onSelectTarget,
 }: ExplorationNodeSurfaceProps) {
   const [activeTab, setActiveTab] = useState<ExplorationActionTab>('explore');
+  const [isSummaryOpen, setSummaryOpen] = useState(false);
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const visibleTargets = node?.visibleTargets ?? [];
   const selectedTarget =
@@ -112,11 +110,20 @@ export function ExplorationNodeSurface({
   return (
     <div className="exploration-node-surface">
       <header className="exploration-node-header">
-        <div>
+        <div className="exploration-node-title-row">
           <span className="exploration-node-eyebrow">탐색 노드</span>
           <h1>{node?.title ?? scenarioTitle ?? '탐색 중인 지역'}</h1>
-          <p className="exploration-node-header-summary">{sceneParagraphs[0]}</p>
+          <button
+            type="button"
+            className={`exploration-node-summary-button${isSummaryOpen ? ' active' : ''}`}
+            onClick={() => setSummaryOpen((current) => !current)}
+            aria-expanded={isSummaryOpen}
+            aria-controls="exploration-node-summary-popover"
+          >
+            장면 설명
+          </button>
         </div>
+
         <div className="exploration-node-status-row" aria-label="탐색 상태">
           <span>EXPLORATION</span>
           <span>{getPhaseLabel(phase)}</span>
@@ -124,51 +131,76 @@ export function ExplorationNodeSurface({
         </div>
       </header>
 
-      <div className="exploration-node-content">
-        <aside className="exploration-party-rail" aria-label="파티 초상화">
-          <span className="exploration-node-eyebrow">Party</span>
-          <div className="exploration-party-list">
-            {characters.length ? (
-              characters.map((character) => {
-                const hpPercent = getHpPercent(character);
-                const isMine = character.userId === currentUserId;
-                const characterImage = getCharacterImage(character);
-
-                return (
-                  <article
-                    key={character.id}
-                    className={`exploration-party-card${isMine ? ' mine' : ''}`}
-                  >
-                    <div className="exploration-party-avatar">
-                      <img src={characterImage} alt={character.name} />
-                    </div>
-                    <div className="exploration-party-body">
-                      <strong>{character.name}</strong>
-                      <span>{getCharacterClassLabel(character.className)} / Lv {character.level}</span>
-                      <div
-                        className="exploration-hp-track"
-                        aria-label={`HP ${character.currentHp}/${character.maxHp}`}
-                      >
-                        <span style={{ width: `${hpPercent}%` }} />
-                      </div>
-                    </div>
-                  </article>
-                );
-              })
-            ) : (
-              <p className="exploration-empty-text">파티 캐릭터 정보가 아직 없습니다.</p>
-            )}
+      {isSummaryOpen ? (
+        <div
+          id="exploration-node-summary-popover"
+          className="exploration-node-summary-popover"
+          role="dialog"
+          aria-label="장면 설명"
+        >
+          <div className="exploration-node-summary-popover-head">
+            <strong>장면 설명</strong>
+            <button type="button" onClick={() => setSummaryOpen(false)}>
+              닫기
+            </button>
           </div>
-        </aside>
+          <div className="exploration-node-summary-popover-body">
+            {sceneParagraphs.map((paragraph, index) => (
+              <p key={`${paragraph.slice(0, 20)}-${index}`}>{paragraph}</p>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
+      <div className="exploration-node-content">
         <main className="exploration-map-column">
           <section className="exploration-map-panel" aria-label="탐색 지도">
+            <aside className="exploration-party-overlay" aria-label="파티 상태">
+              <div className="exploration-party-list">
+                {characters.length ? (
+                  characters.map((character) => {
+                    const hpPercent = getHpPercent(character);
+                    const isMine = character.userId === currentUserId;
+                    const characterImage = getCharacterImage(character);
+
+                    return (
+                      <article
+                        key={character.id}
+                        className={`exploration-party-card${isMine ? ' mine' : ''}`}
+                        title={`${character.name} / ${getCharacterClassLabel(character.className)} Lv ${character.level} / HP ${character.currentHp}/${character.maxHp}`}
+                      >
+                        <div className="exploration-party-avatar">
+                          <img src={characterImage} alt={character.name} />
+                          <span
+                            className="exploration-party-damage"
+                            style={{ height: `${100 - hpPercent}%` }}
+                            aria-hidden="true"
+                          />
+                        </div>
+                        <div className="exploration-party-body">
+                          <div className="exploration-party-line">
+                            <strong>{character.name}</strong>
+                            <span>Lv {character.level}</span>
+                          </div>
+                          <span className="exploration-party-hp">
+                            {character.currentHp}/{character.maxHp}
+                          </span>
+                        </div>
+                      </article>
+                    );
+                  })
+                ) : (
+                  <p className="exploration-empty-text">파티 캐릭터 정보가 아직 없습니다.</p>
+                )}
+              </div>
+            </aside>
             {map ? (
               <BattleMap
                 map={map}
                 characters={characters}
                 isHost={isHost}
                 currentUserId={currentUserId}
+                interactionMode="session"
                 onChange={onMapChange}
                 title={node?.title ?? '탐색 지도'}
               />
@@ -230,7 +262,11 @@ export function ExplorationNodeSurface({
         <div className="exploration-actor-status">
           <span className="exploration-node-eyebrow">현재 조작 캐릭터</span>
           <strong>{myCharacter?.name ?? '캐릭터 미선택'}</strong>
-          <p>{selectedTarget ? `${selectedTarget.name} 대상 선택 중` : '대상 또는 위치를 선택하세요.'}</p>
+          <p>
+            {selectedTarget
+              ? `${selectedTarget.name} 대상 선택 중`
+              : '대상 또는 위치를 선택하세요.'}
+          </p>
         </div>
 
         <div className="exploration-action-panel">

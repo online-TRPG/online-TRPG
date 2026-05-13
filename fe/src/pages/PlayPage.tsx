@@ -1568,6 +1568,7 @@ export function PlayPage({
                   characters={sessionCharacters}
                   isHost={isHost}
                   currentUserId={user.id}
+                  interactionMode="session"
                   onChange={handleMapChange}
                 />
               ) : (
