@@ -42,7 +42,9 @@ export interface AvailableSessionListItem {
   sessionId: string;
   sessionPublicId: string;
   title: string;
+  scenarioId: string;
   scenarioTitle: string;
+  scenarioThumbnailUrl?: string | null;
   ruleSetName: string;
   currentPlayers: number;
   maxPlayers: number;

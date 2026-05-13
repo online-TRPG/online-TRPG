@@ -2465,6 +2465,12 @@ label {
   line-height: 1.55;
 }
 
+.session-detail-introduction {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .session-detail-fancy-section-title {
   display: flex;
   align-items: center;
