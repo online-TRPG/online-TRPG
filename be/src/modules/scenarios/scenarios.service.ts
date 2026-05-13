@@ -109,7 +109,8 @@ export class ScenariosService {
       startNodeTitle: dto.startNodeTitle,
       startSceneText: dto.startSceneText,
     });
-    const startNodeId = nodes[0]?.id ?? `${scenarioId}_start`;
+    const startNodeId =
+      this.resolveStartNodeId(dto.startNodeId, nodes) ?? nodes[0]?.id ?? `${scenarioId}_start`;
 
     const scenario = await this.prisma.scenario.create({
       data: {
@@ -143,9 +144,21 @@ export class ScenariosService {
   async updateScenario(userId: string, id: string, dto: UpdateScenarioDto): Promise<ScenarioResponseDto> {
     const existing = await this.getEditableScenarioEntity(userId, id);
     const shouldUpdateStartNode = dto.startNodeTitle !== undefined || dto.startSceneText !== undefined;
-    const startNode = existing.nodes.find((node) => node.id === existing.startNodeId) ?? existing.nodes[0] ?? null;
     const nextNodes = dto.nodes ? this.normalizeNodeInputs(id, dto.nodes) : null;
-    const nextStartNodeId = nextNodes ? nextNodes[0]?.id ?? null : undefined;
+    const startNodeIdSource = nextNodes ?? existing.nodes;
+    const nextStartNodeId =
+      dto.startNodeId !== undefined || nextNodes
+        ? this.resolveStartNodeId(dto.startNodeId, startNodeIdSource) ??
+          this.resolveStartNodeId(existing.startNodeId, startNodeIdSource) ??
+          startNodeIdSource[0]?.id ??
+          null
+        : undefined;
+    const currentStartNodeId = nextStartNodeId ?? existing.startNodeId;
+    const startNode =
+      existing.nodes.find((node) => node.id === currentStartNodeId) ??
+      existing.nodes.find((node) => node.id === existing.startNodeId) ??
+      existing.nodes[0] ??
+      null;
     const nextStartLevel =
       dto.startLevel === undefined ? existing.startLevel : this.requireScenarioStartLevel(dto.startLevel);
 
@@ -338,6 +351,50 @@ export class ScenariosService {
     }
 
     return value;
+  }
+
+  private resolveStartNodeId(
+    requested: string | null | undefined,
+    nodes: Array<{ id: string; transitionsJson?: string }>,
+  ): string | null {
+    if (!nodes.length) {
+      return null;
+    }
+    const normalized = this.nullableTrim(requested);
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    const incoming = new Map<string, number>();
+
+    nodes.forEach((node) => {
+      const transitions = this.parseJson<Record<string, unknown>[]>(node.transitionsJson, []);
+      transitions.forEach((transition) => {
+        const nextNodeId = transition.nextNodeId;
+        if (typeof nextNodeId === "string" && nodeIds.has(nextNodeId)) {
+          incoming.set(nextNodeId, (incoming.get(nextNodeId) ?? 0) + 1);
+        }
+      });
+    });
+
+    const rootNodes = nodes.filter((node) => (incoming.get(node.id) ?? 0) === 0);
+    if (
+      normalized &&
+      nodeIds.has(normalized) &&
+      (rootNodes.length !== 1 || rootNodes[0].id === normalized)
+    ) {
+      return normalized;
+    }
+
+    return rootNodes.length === 1 ? rootNodes[0].id : normalized && nodeIds.has(normalized) ? normalized : null;
+  }
+
+  private parseJson<T>(value: string | null | undefined, fallback: T): T {
+    if (!value) {
+      return fallback;
+    }
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
   }
 
   private toPrismaScenarioLicense(license: ScenarioLicense): PrismaScenarioLicense {
