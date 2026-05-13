@@ -30,6 +30,8 @@ export class CatalogService {
       startingEquipment: JSON.parse(c.startingEquipmentJson) as StartingEquipmentDto,
       startingCantripCount: c.startingCantripCount,
       startingSpellCount: c.startingSpellCount,
+      skillChoices: JSON.parse(c.skillChoicesJson) as string[],
+      skillChoiceCount: c.skillChoiceCount,
     }));
   }
 
