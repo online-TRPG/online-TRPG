@@ -324,6 +324,12 @@ export class CreateScenarioDto {
   @MaxLength(500)
   attribution?: string | null;
 
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  startNodeId?: string | null;
+
   @ApiPropertyOptional({ example: "시작 장면" })
   @IsOptional()
   @IsString()
@@ -399,6 +405,12 @@ export class UpdateScenarioDto {
   @IsString()
   @MaxLength(500)
   attribution?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  startNodeId?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()
