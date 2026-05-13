@@ -21,6 +21,8 @@ import type {
   TurnLogListResponseDto,
   UpdateScenarioDto,
   UpdateVttMapDto,
+  UseInventoryItemDto,
+  UseInventoryItemResponseDto,
   UploadScenarioAssetDto,
   UploadScenarioNodeImageDto,
   UserResponseDto,
@@ -761,6 +763,20 @@ export function submitMainCommand(
   accessToken?: string | null
 ): Promise<MainCommandResponseDto> {
   return requestJson<MainCommandResponseDto>(`/sessions/${sessionId}/actions/main-command`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function useInventoryItem(
+  user: StoredUser,
+  sessionId: string,
+  payload: UseInventoryItemDto,
+  accessToken?: string | null
+): Promise<UseInventoryItemResponseDto> {
+  return requestJson<UseInventoryItemResponseDto>(`/sessions/${sessionId}/actions/inventory/use`, {
     method: 'POST',
     user,
     accessToken,

@@ -2,15 +2,11 @@ import { useMemo, useState } from 'react';
 import type {
   PlayerCheckOptionDto,
   PlayerScenarioNodeDto,
-  PlayerVisibleTargetDto,
   SessionCharacterResponseDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
 import { BattleMap } from '../../../components/BattleMap';
-import {
-  getCharacterClassLabel,
-  getCharacterImage,
-} from '../utils/characterVisuals';
+import { getCharacterClassLabel } from '../utils/characterVisuals';
 import './CombatNodeSurface.css';
 
 type CombatActionTab = 'basic' | 'ability' | 'item';
@@ -25,18 +21,7 @@ interface CombatNodeSurfaceProps {
   isGmView?: boolean;
   map: VttMapStateDto | null;
   onMapChange: (map: VttMapStateDto) => void;
-  selectedTargetId?: string;
-  onSelectTarget?: (targetId: string) => void;
 }
-
-const targetTypeLabels: Partial<Record<PlayerVisibleTargetDto['targetType'], string>> = {
-  NPC: 'NPC',
-  OBJECT: '오브젝트',
-  ACTOR: '전투원',
-  AREA: '구역',
-  POINT: '지점',
-  SELF: '나',
-};
 
 const actionTabs: Array<{ id: CombatActionTab; label: string; actions: string[] }> = [
   {
@@ -56,10 +41,6 @@ const actionTabs: Array<{ id: CombatActionTab; label: string; actions: string[] 
   },
 ];
 
-function getTargetTypeLabel(targetType: PlayerVisibleTargetDto['targetType']) {
-  return targetTypeLabels[targetType] ?? targetType;
-}
-
 function getPhaseLabel(phase: string | null | undefined) {
   if (!phase) return '상태 미확인';
   if (phase === 'combat') return '진행: 전투';
@@ -70,13 +51,17 @@ function getPhaseLabel(phase: string | null | undefined) {
   return `진행: ${phase}`;
 }
 
-function getHpPercent(character: SessionCharacterResponseDto) {
-  if (character.maxHp <= 0) return 0;
-  return Math.max(0, Math.min(100, Math.round((character.currentHp / character.maxHp) * 100)));
+function getCheckOptionLabel(option: PlayerCheckOptionDto, index: number) {
+  return option.label || option.skill || option.type || `전투 판정 가이드 ${index + 1}`;
 }
 
-function getCheckOptionLabel(option: PlayerCheckOptionDto, index: number) {
-  return option.label || option.skill || option.type || `전투 판정 ${index + 1}`;
+function splitSceneParagraphs(sceneText: string | undefined) {
+  const paragraphs = (sceneText ?? '')
+    .split(/\n{2,}|\r?\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  return paragraphs.length ? paragraphs : ['현재 전투 장면 설명이 아직 준비되지 않았습니다.'];
 }
 
 export function CombatNodeSurface({
@@ -89,13 +74,10 @@ export function CombatNodeSurface({
   isGmView = false,
   map,
   onMapChange,
-  selectedTargetId = '',
-  onSelectTarget,
 }: CombatNodeSurfaceProps) {
   const [activeTab, setActiveTab] = useState<CombatActionTab>('basic');
-  const visibleTargets = node?.visibleTargets ?? [];
-  const selectedTarget =
-    visibleTargets.find((target) => target.id === selectedTargetId) ?? visibleTargets[0] ?? null;
+  const [isSummaryOpen, setSummaryOpen] = useState(false);
+  const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
   const currentTab = actionTabs.find((tab) => tab.id === activeTab) ?? actionTabs[0];
   // 전투 API 연결 전에는 파티 캐릭터 목록으로 턴 순서 자리를 먼저 채워 화면 구조를 검증합니다.
@@ -112,9 +94,18 @@ export function CombatNodeSurface({
   return (
     <div className="combat-node-surface">
       <header className="combat-turn-bar" aria-label="전투 턴 정보">
-        <div>
+        <div className="combat-node-title-row">
           <span className="combat-node-eyebrow">전투 노드</span>
           <h1>{node?.title ?? scenarioTitle ?? '전투 진행 중'}</h1>
+          <button
+            type="button"
+            className={`combat-node-summary-button${isSummaryOpen ? ' active' : ''}`}
+            onClick={() => setSummaryOpen((current) => !current)}
+            aria-expanded={isSummaryOpen}
+            aria-controls="combat-node-summary-popover"
+          >
+            장면 설명
+          </button>
         </div>
         <div className="combat-round-status">
           <span>COMBAT</span>
@@ -123,6 +114,27 @@ export function CombatNodeSurface({
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
         </div>
       </header>
+
+      {isSummaryOpen ? (
+        <div
+          id="combat-node-summary-popover"
+          className="combat-node-summary-popover"
+          role="dialog"
+          aria-label="장면 설명"
+        >
+          <div className="combat-node-summary-popover-head">
+            <strong>장면 설명</strong>
+            <button type="button" onClick={() => setSummaryOpen(false)}>
+              닫기
+            </button>
+          </div>
+          <div className="combat-node-summary-popover-body">
+            {sceneParagraphs.map((paragraph, index) => (
+              <p key={`${paragraph.slice(0, 20)}-${index}`}>{paragraph}</p>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <section className="combat-initiative-strip" aria-label="턴 순서">
         <span className="combat-node-eyebrow">턴 순서</span>
@@ -145,39 +157,6 @@ export function CombatNodeSurface({
       </section>
 
       <div className="combat-node-content">
-        <aside className="combat-party-rail" aria-label="파티 초상화">
-          <span className="combat-node-eyebrow">Party</span>
-          <div className="combat-party-list">
-            {characters.length ? (
-              characters.map((character) => {
-                const hpPercent = getHpPercent(character);
-                const isMine = character.userId === currentUserId;
-                const characterImage = getCharacterImage(character);
-
-                return (
-                  <article key={character.id} className={`combat-party-card${isMine ? ' mine' : ''}`}>
-                    <div className="combat-party-avatar">
-                      <img src={characterImage} alt={character.name} />
-                    </div>
-                    <div className="combat-party-body">
-                      <strong>{character.name}</strong>
-                      <span>AC {character.armorClass} / HP {character.currentHp}</span>
-                      <div
-                        className="combat-hp-track"
-                        aria-label={`HP ${character.currentHp}/${character.maxHp}`}
-                      >
-                        <span style={{ width: `${hpPercent}%` }} />
-                      </div>
-                    </div>
-                  </article>
-                );
-              })
-            ) : (
-              <p className="combat-empty-text">파티 캐릭터 정보가 아직 없습니다.</p>
-            )}
-          </div>
-        </aside>
-
         <main className="combat-map-panel" aria-label="전투 지도">
           {map ? (
             <BattleMap
@@ -196,50 +175,6 @@ export function CombatNodeSurface({
             </div>
           )}
         </main>
-
-        <aside className="combat-target-panel" aria-label="대상 정보">
-          <section className="combat-panel-block">
-            <div className="combat-panel-heading">
-              <span className="combat-node-eyebrow">Target</span>
-              <strong>대상 정보</strong>
-            </div>
-            {selectedTarget ? (
-              <article className="combat-selected-target">
-                <span>{getTargetTypeLabel(selectedTarget.targetType)}</span>
-                <strong>{selectedTarget.name}</strong>
-                <p>{selectedTarget.summary || '요약 정보가 아직 없습니다.'}</p>
-              </article>
-            ) : (
-              <p className="combat-empty-text">선택 가능한 대상이 없습니다.</p>
-            )}
-          </section>
-
-          <section className="combat-panel-block">
-            <div className="combat-panel-heading">
-              <span className="combat-node-eyebrow">Targets</span>
-              <strong>공개 대상</strong>
-            </div>
-            {visibleTargets.length ? (
-              <div className="combat-target-list">
-                {visibleTargets.map((target) => (
-                  <button
-                    type="button"
-                    key={target.id}
-                    className={`combat-target-button${
-                      selectedTarget?.id === target.id ? ' selected' : ''
-                    }`}
-                    onClick={() => onSelectTarget?.(target.id)}
-                  >
-                    <span>{getTargetTypeLabel(target.targetType)}</span>
-                    <strong>{target.name}</strong>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="combat-empty-text">현재 공개된 대상이 없습니다.</p>
-            )}
-          </section>
-        </aside>
       </div>
 
       <section className="combat-action-dock" aria-label="전투 행동">
@@ -278,7 +213,7 @@ export function CombatNodeSurface({
         </div>
 
         <div className="combat-check-panel">
-          <span className="combat-node-eyebrow">판정 후보</span>
+          <span className="combat-node-eyebrow">판정 가이드</span>
           {node?.checkOptions.length ? (
             <div className="combat-check-list">
               {node.checkOptions.map((option, index) => (
@@ -288,7 +223,7 @@ export function CombatNodeSurface({
               ))}
             </div>
           ) : (
-            <p>서버가 제안한 판정 후보가 아직 없습니다.</p>
+            <p>설정된 판정 가이드가 아직 없습니다.</p>
           )}
         </div>
       </section>

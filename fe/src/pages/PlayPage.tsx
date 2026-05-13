@@ -11,7 +11,7 @@
  */
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from 'react';
-import type { SubmitMainCommandDto, VttMapStateDto } from '@trpg/shared-types';
+import type { InventoryItemDto, SubmitMainCommandDto, VttMapStateDto } from '@trpg/shared-types';
 import { BattleMap } from '../components/BattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
@@ -23,7 +23,7 @@ import {
   getCharacterImage,
 } from '../features/sessionPlay/utils/characterVisuals';
 import type { CharacterPayload } from '../hooks/useSession';
-import { getPlayerScenario, getVttMap, updateVttMap } from '../services/api';
+import { getPlayerScenario, getVttMap, updateVttMap, useInventoryItem } from '../services/api';
 import type {
   LogEntry,
   PersistentCharacter,
@@ -37,13 +37,12 @@ import './CharacterPage.css';
 import './PlayPage.css';
 
 // 플레이 화면 상단 탭 이름입니다. 각 탭은 로그/채팅/정보/설정을 구분합니다.
-const sessionTabs = ['Main', 'Chat', 'Info', 'Settings', 'Control'] as const;
+const sessionTabs = ['Main', 'Chat', 'Info', 'Settings'] as const;
 const sessionTabLabels: Record<(typeof sessionTabs)[number], string> = {
   Main: '\uBA54\uC778',
   Chat: '\uCC44\uD305',
   Info: '\uC815\uBCF4',
   Settings: '\uC124\uC815',
-  Control: '\uC870\uC791',
 };
 const sessionTabDescriptions: Record<
   (typeof sessionTabs)[number],
@@ -66,22 +65,16 @@ const sessionTabDescriptions: Record<
       '\uC138\uC158 \uAD6C\uC131\uC6D0\uB07C\uB9AC \uC790\uC720\uB86D\uAC8C \uBA54\uC2DC\uC9C0\uB97C \uC8FC\uACE0\uBC1B\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.',
   },
   Info: {
-    eyebrow: 'Scenario info',
-    title: '\uC2DC\uB098\uB9AC\uC624 \uC815\uBCF4',
+    eyebrow: 'Scenario guide',
+    title: '\uC2DC\uB098\uB9AC\uC624 \uC815\uBCF4\uC640 \uC7A5\uBA74 \uAC00\uC774\uB4DC',
     description:
-      '\uD604\uC7AC \uC138\uC158\uACFC \uC5F0\uACB0\uB41C \uC2DC\uB098\uB9AC\uC624 \uC815\uBCF4\uB97C \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.',
+      '\uC2DC\uB098\uB9AC\uC624 \uC124\uBA85\uACFC \uD604\uC7AC \uC7A5\uBA74\uC758 \uD310\uC815 \uAC00\uC774\uB4DC, \uBC1D\uD600\uC9C4 \uB2E8\uC11C\uB97C \uD55C\uACF3\uC5D0\uC11C \uD655\uC778\uD569\uB2C8\uB2E4.',
   },
   Settings: {
     eyebrow: 'Room settings',
     title: '\uC138\uC158 \uC124\uC815',
     description:
       '\uBC29 \uC815\uBCF4\uC640 \uC774\uB3D9, \uB098\uAC00\uAE30 \uAC19\uC740 \uAE30\uB2A5\uC744 \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.',
-  },
-  Control: {
-    eyebrow: 'Host controls',
-    title: '\uC2DC\uB098\uB9AC\uC624 \uC870\uC791',
-    description:
-      '\uC52C \uC124\uBA85\uACFC \uC561\uC158, \uB2E8\uC11C \uC815\uBCF4\uB97C \uD655\uC778\uD569\uB2C8\uB2E4.',
   },
 };
 
@@ -100,6 +93,11 @@ type MainCommandFieldConfig = {
   requiresMapPoint?: boolean;
   allowsMapPoint?: boolean;
   allowsRelatedIntent?: boolean;
+};
+
+type MainCommandCategoryOption = {
+  label: string;
+  category: SubmitMainCommandDto['category'];
 };
 
 const MainCommandScreenTypeValues = {
@@ -147,7 +145,6 @@ const MainCommandIntentValues = {
   INSPECT_STORY_OBJECT: 'INSPECT_STORY_OBJECT' as SubmitMainCommandDto['intent'],
   DECLARE_RP_ACTION: 'DECLARE_RP_ACTION' as SubmitMainCommandDto['intent'],
   ASK_HINT: 'ASK_HINT' as SubmitMainCommandDto['intent'],
-  ASK_SUMMARY: 'ASK_SUMMARY' as SubmitMainCommandDto['intent'],
   REQUEST_SCENE_TRANSITION: 'REQUEST_SCENE_TRANSITION' as SubmitMainCommandDto['intent'],
   OBSERVE_AREA: 'OBSERVE_AREA' as SubmitMainCommandDto['intent'],
   INVESTIGATE_OBJECT: 'INVESTIGATE_OBJECT' as SubmitMainCommandDto['intent'],
@@ -331,13 +328,6 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
         screenType: MainCommandScreenTypeValues.STORY,
       },
       {
-        label: '요약 요청',
-        categoryLabel: '진행 보조',
-        category: MainCommandCategoryValues.SUPPORT,
-        intent: MainCommandIntentValues.ASK_SUMMARY,
-        screenType: MainCommandScreenTypeValues.STORY,
-      },
-      {
         label: '장면 진행 요청',
         categoryLabel: '진행 보조',
         category: MainCommandCategoryValues.SUPPORT,
@@ -421,13 +411,6 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
         categoryLabel: '진행 보조',
         category: MainCommandCategoryValues.SUPPORT,
         intent: MainCommandIntentValues.ASK_HINT,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: '요약 요청',
-        categoryLabel: '진행 보조',
-        category: MainCommandCategoryValues.SUPPORT,
-        intent: MainCommandIntentValues.ASK_SUMMARY,
         screenType: MainCommandScreenTypeValues.EXPLORATION,
       },
       {
@@ -523,15 +506,30 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
         intent: MainCommandIntentValues.ASK_HINT,
         screenType: MainCommandScreenTypeValues.COMBAT,
       },
-      {
-        label: '요약 요청',
-        categoryLabel: '진행 보조',
-        category: MainCommandCategoryValues.SUPPORT,
-        intent: MainCommandIntentValues.ASK_SUMMARY,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
     ],
   };
+
+const emptyMainCommandPresets: MainCommandPreset[] = [];
+
+const mainCommandCategoryIconByCategory: Record<SubmitMainCommandDto['category'], string> = {
+  TALK: 'message-circle',
+  SOCIAL: 'users',
+  QUESTION: 'help-circle',
+  INSPECTION: 'search',
+  RP_ACTION: 'hand',
+  SUPPORT: 'spark',
+  OBSERVATION: 'eye',
+  SENSE: 'ear',
+  MOVEMENT: 'move',
+  INTERACTION: 'hand',
+  TOOL_ITEM: 'tool',
+  CREATIVE_ACTION: 'spark',
+  ENVIRONMENT: 'map',
+  SPECIAL_ATTACK: 'crosshair',
+  TACTIC: 'shield',
+  REACTION_READY: 'clock',
+  ITEM_SPELL: 'wand',
+};
 
 function getScreenTypeFromNodeType(
   nodeType: string | undefined
@@ -690,6 +688,7 @@ export function PlayPage({
   const [chatMessage, setChatMessage] = useState('');
   const [infoText, setInfoText] = useState('');
   const [selectedMainCategory, setSelectedMainCategory] = useState<string | null>(null);
+  const [openMainCommandCategory, setOpenMainCommandCategory] = useState<string | null>(null);
   const [selectedMainIntent, setSelectedMainIntent] = useState<
     SubmitMainCommandDto['intent'] | null
   >(null);
@@ -700,6 +699,8 @@ export function PlayPage({
   const [mainPointX, setMainPointX] = useState('');
   const [mainPointY, setMainPointY] = useState('');
   const [mainCommandError, setMainCommandError] = useState<string | null>(null);
+  const [inventoryUseFeedback, setInventoryUseFeedback] = useState<string | null>(null);
+  const [isInventoryUsePending, setInventoryUsePending] = useState(false);
   const [formState, setFormState] = useState(defaultCharacter);
   const [localSelectedCharacterId, setLocalSelectedCharacterId] = useState<string | null>(null);
   const [isStatusMinimized, setStatusMinimized] = useState(false);
@@ -755,7 +756,6 @@ export function PlayPage({
     snapshot?.sessionScenarios.find((item) => item.status === 'ACTIVE') ??
     snapshot?.sessionScenarios[0];
   const currentNode = playerScenario?.currentNode ?? null;
-  const revealedClues = playerScenario?.revealedClues ?? [];
   const currentScreenType = getScreenTypeFromNodeType(currentNode?.nodeType);
   const isStoryNode = currentNode?.nodeType === 'story';
   const isExplorationNode = currentNode?.nodeType === 'exploration';
@@ -763,16 +763,31 @@ export function PlayPage({
   const usesNodeSpecificPartyStrip = Boolean(
     session && !isRecruiting && (isStoryNode || isExplorationNode || isCombatNode)
   );
-  const mainCommandPresets = currentScreenType ? mainCommandPresetsByScreen[currentScreenType] : [];
-  const mainCommandCategories = Array.from(
-    new Set(mainCommandPresets.map((preset) => preset.categoryLabel))
+  const mainCommandPresets = currentScreenType
+    ? mainCommandPresetsByScreen[currentScreenType]
+    : emptyMainCommandPresets;
+  const mainCommandCategories = useMemo<MainCommandCategoryOption[]>(() => {
+    const options = new Map<string, MainCommandCategoryOption>();
+    mainCommandPresets.forEach((preset) => {
+      if (!options.has(preset.categoryLabel)) {
+        options.set(preset.categoryLabel, {
+          label: preset.categoryLabel,
+          category: preset.category,
+        });
+      }
+    });
+    return Array.from(options.values());
+  }, [mainCommandPresets]);
+  const mainCommandCategoryLabels = useMemo(
+    () => mainCommandCategories.map((category) => category.label),
+    [mainCommandCategories]
   );
-  const activeMainCategory = selectedMainCategory ?? mainCommandCategories[0] ?? null;
-  const visibleMainCommands = activeMainCategory
-    ? mainCommandPresets.filter((preset) => preset.categoryLabel === activeMainCategory)
-    : mainCommandPresets;
+  const activeMainCategory = selectedMainCategory ?? mainCommandCategoryLabels[0] ?? null;
+  const openMainCommandOptions = openMainCommandCategory
+    ? mainCommandPresets.filter((preset) => preset.categoryLabel === openMainCommandCategory)
+    : [];
   const selectedMainCommand =
-    visibleMainCommands.find((preset) => preset.intent === selectedMainIntent) ?? null;
+    mainCommandPresets.find((preset) => preset.intent === selectedMainIntent) ?? null;
   const selectedMainFieldConfig = selectedMainCommand
     ? (mainCommandFieldConfigByIntent[selectedMainCommand.intent] ?? null)
     : null;
@@ -788,16 +803,12 @@ export function PlayPage({
   const relatedIntentOptions = mainCommandPresets.filter(
     (preset) =>
       preset.intent !== MainCommandIntentValues.ASK_RULE &&
-      preset.intent !== MainCommandIntentValues.ASK_HINT &&
-      preset.intent !== MainCommandIntentValues.ASK_SUMMARY
+      preset.intent !== MainCommandIntentValues.ASK_HINT
   );
   const snapshotVttMap = snapshot?.state.flags?.vttMap;
   const startedSessionTabs = useMemo(
-    () =>
-      canManageStartedSession
-        ? (['Main', 'Chat', 'Control', 'Info', 'Settings'] as const)
-        : (['Main', 'Chat', 'Info', 'Settings'] as const),
-    [canManageStartedSession]
+    () => ['Main', 'Chat', 'Info', 'Settings'] as const,
+    []
   );
   const availableTabs = isRecruiting
     ? (['Main', 'Chat', 'Info', 'Settings'] as const)
@@ -840,31 +851,36 @@ export function PlayPage({
   }, [activeTab, availableTabs]);
 
   useEffect(() => {
-    if (!mainCommandCategories.length) {
+    if (!mainCommandCategoryLabels.length) {
       setSelectedMainCategory(null);
+      setOpenMainCommandCategory(null);
       setSelectedMainIntent(null);
       return;
     }
 
     if (!activeMainCategory) {
-      setSelectedMainCategory(mainCommandCategories[0]);
+      setSelectedMainCategory(mainCommandCategoryLabels[0]);
       return;
     }
 
-    if (!mainCommandCategories.includes(activeMainCategory)) {
-      setSelectedMainCategory(mainCommandCategories[0]);
+    if (!mainCommandCategoryLabels.includes(activeMainCategory)) {
+      setSelectedMainCategory(mainCommandCategoryLabels[0]);
     }
-  }, [activeMainCategory, mainCommandCategories]);
+
+    if (openMainCommandCategory && !mainCommandCategoryLabels.includes(openMainCommandCategory)) {
+      setOpenMainCommandCategory(null);
+    }
+  }, [activeMainCategory, mainCommandCategoryLabels, openMainCommandCategory]);
 
   useEffect(() => {
     if (!selectedMainIntent) {
       return;
     }
 
-    if (!visibleMainCommands.some((preset) => preset.intent === selectedMainIntent)) {
+    if (!mainCommandPresets.some((preset) => preset.intent === selectedMainIntent)) {
       setSelectedMainIntent(null);
     }
-  }, [selectedMainIntent, visibleMainCommands]);
+  }, [mainCommandPresets, selectedMainIntent]);
 
   // 세션이 없거나 바뀌면 시나리오/맵 상태를 초기화하고 플레이어용 시나리오를 다시 불러옵니다.
   useEffect(() => {
@@ -1175,6 +1191,23 @@ export function PlayPage({
     }
 
     setMainMessage('');
+  }
+
+  async function handleUseExplorationInventoryItem(item: InventoryItemDto) {
+    if (busy || isInventoryUsePending || !session) return;
+
+    setInventoryUseFeedback(null);
+    setInventoryUsePending(true);
+    try {
+      const result = await useInventoryItem(user, session.id, { itemId: item.id });
+      setInventoryUseFeedback(result.message);
+    } catch (caught) {
+      setInventoryUseFeedback(
+        caught instanceof Error ? caught.message : '아이템 사용에 실패했습니다.'
+      );
+    } finally {
+      setInventoryUsePending(false);
+    }
   }
 
   function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1544,9 +1577,11 @@ export function PlayPage({
                   isHost={isHost}
                   isGmView={canManageStartedSession}
                   map={vttMap}
+                  inventory={selectedCharacterInventory}
+                  isBusy={busy || isInventoryUsePending}
+                  inventoryFeedback={inventoryUseFeedback}
                   onMapChange={handleMapChange}
-                  selectedTargetId={selectedMainTargetId}
-                  onSelectTarget={setSelectedMainTargetId}
+                  onUseInventoryItem={handleUseExplorationInventoryItem}
                 />
               ) : isCombatNode ? (
                 <CombatNodeSurface
@@ -1559,8 +1594,6 @@ export function PlayPage({
                   isGmView={canManageStartedSession}
                   map={vttMap}
                   onMapChange={handleMapChange}
-                  selectedTargetId={selectedMainTargetId}
-                  onSelectTarget={setSelectedMainTargetId}
                 />
               ) : vttMap ? (
                 <BattleMap
@@ -1864,32 +1897,52 @@ export function PlayPage({
                 {activeTab === 'Main' && session?.gmMode === 'AI' && currentScreenType ? (
                   <div className="main-command-picker">
                     <div className="main-command-category-row">
-                      {mainCommandCategories.map((categoryLabel) => (
-                        <button
-                          key={categoryLabel}
-                          type="button"
-                          className={`main-command-category-button${activeMainCategory === categoryLabel ? ' active' : ''}`}
-                          onClick={() => setSelectedMainCategory(categoryLabel)}
-                        >
-                          {categoryLabel}
-                        </button>
-                      ))}
-                    </div>
+                      {mainCommandCategories.map((category) => (
+                        <div key={category.label} className="main-command-category-menu">
+                          <button
+                            type="button"
+                            className={`main-command-category-button${
+                              activeMainCategory === category.label ? ' active' : ''
+                            }${openMainCommandCategory === category.label ? ' open' : ''}`}
+                            aria-label={`${category.label} 명령 열기`}
+                            aria-expanded={openMainCommandCategory === category.label}
+                            title={category.label}
+                            onClick={() => {
+                              setSelectedMainCategory(category.label);
+                              setOpenMainCommandCategory((current) =>
+                                current === category.label ? null : category.label
+                              );
+                            }}
+                          >
+                            <span className="main-command-category-icon" aria-hidden="true">
+                              <Icon name={mainCommandCategoryIconByCategory[category.category]} />
+                            </span>
+                            <span className="main-command-category-label">{category.label}</span>
+                          </button>
 
-                    <div className="main-command-option-row">
-                      {visibleMainCommands.map((command) => (
-                        <button
-                          key={command.intent}
-                          type="button"
-                          className={`main-command-option-button${selectedMainCommand?.intent === command.intent ? ' active' : ''}`}
-                          onClick={() =>
-                            setSelectedMainIntent((current) =>
-                              current === command.intent ? null : command.intent
-                            )
-                          }
-                        >
-                          {command.label}
-                        </button>
+                          {openMainCommandCategory === category.label ? (
+                            <div className="main-command-option-dropdown">
+                              {openMainCommandOptions.map((command) => (
+                                <button
+                                  key={command.intent}
+                                  type="button"
+                                  className={`main-command-option-button${
+                                    selectedMainCommand?.intent === command.intent ? ' active' : ''
+                                  }`}
+                                  onClick={() => {
+                                    setSelectedMainCategory(command.categoryLabel);
+                                    setSelectedMainIntent((current) =>
+                                      current === command.intent ? null : command.intent
+                                    );
+                                    setOpenMainCommandCategory(null);
+                                  }}
+                                >
+                                  {command.label}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
                       ))}
                     </div>
 
@@ -2027,21 +2080,9 @@ export function PlayPage({
                 value={infoText || activeScenario?.scenario.description || ''}
                 onChange={(event) => setInfoText(event.target.value)}
               />
-            </div>
-          ) : null}
-
-          {activeTab === 'Control' ? (
-            <div className="session-control-panel">
-              <article className="scenario-node-panel">
-                <span className="eyebrow">씬 설명</span>
-                <strong>
-                  {currentNode?.title ?? activeScenario?.scenario.title ?? '진행 중인 장면'}
-                </strong>
-                <p>{currentNode?.sceneText ?? '현재 장면 설명이 아직 없습니다.'}</p>
-              </article>
 
               <article className="scenario-node-panel">
-                <span className="eyebrow">Actions</span>
+                <span className="eyebrow">판정 가이드</span>
                 {currentNode?.checkOptions.length ? (
                   <ul className="scenario-node-list">
                     {currentNode.checkOptions.map((option, index) => {
@@ -2054,12 +2095,12 @@ export function PlayPage({
                     })}
                   </ul>
                 ) : (
-                  <p>설정된 액션이 없습니다.</p>
+                  <p>설정된 판정 가이드가 없습니다.</p>
                 )}
               </article>
 
               <article className="scenario-node-panel">
-                <span className="eyebrow">Clues</span>
+                <span className="eyebrow">밝혀진 단서</span>
                 {currentNode?.publicClues.length ? (
                   <ul className="scenario-node-list">
                     {currentNode.publicClues.map((clue) => (
@@ -2071,22 +2112,6 @@ export function PlayPage({
                   </ul>
                 ) : (
                   <p>현재 씬에 공개 단서가 없습니다.</p>
-                )}
-              </article>
-
-              <article className="scenario-node-panel">
-                <span className="eyebrow">Discovered clues</span>
-                {revealedClues.length ? (
-                  <ul className="scenario-node-list">
-                    {revealedClues.map((clue) => (
-                      <li key={clue.id}>
-                        <strong>{clue.title}</strong>
-                        <span>{clue.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>발견한 단서가 아직 없습니다.</p>
                 )}
               </article>
             </div>

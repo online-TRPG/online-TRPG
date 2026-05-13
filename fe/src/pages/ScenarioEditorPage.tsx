@@ -2,12 +2,12 @@
  * ScenarioEditorPage
  * 역할: 노드 기반 TRPG 시나리오를 생성/수정하는 에디터입니다.
  * 읽는 순서:
- * 1) 타입 정의: 링크, 단서, 노드, 시나리오 폼 상태 구조
+ * 1) 타입 정의: 링크, 판정 가이드, 단서, 노드, 시나리오 폼 상태 구조
  * 2) 생성/매핑 헬퍼: 빈 노드/링크/단서 생성, API 응답을 폼 상태로 변환
  * 3) 직렬화 헬퍼: 폼 상태를 create/update API payload로 변환
  * 4) 그래프 헬퍼: 노드 연결을 시각화하기 위한 위치/간선 계산
  * 5) 메인 컴포넌트: 자동 저장, 수정 감지, 시나리오 로드, 저장/취소 처리
- * 6) 하위 컴포넌트: 노드 상세 편집기, 노드 그래프, 링크/단서 컬렉션 편집기
+ * 6) 하위 컴포넌트: 노드 상세 편집기, 노드 그래프, 링크/판정 가이드/단서 컬렉션 편집기
  */
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -57,6 +57,13 @@ type LinkForm = {
   note: string;
 };
 
+type CheckGuideForm = {
+  id: string;
+  label: string;
+  type: string;
+  skill: string;
+};
+
 type RevealMode =
   | 'AUTO_REVEAL'
   | 'PLAYER_ACTION'
@@ -91,7 +98,7 @@ type NpcForm = {
   imageUrl: string;
 };
 
-// 에디터 내부에서 쓰는 노드 폼 상태입니다. 스토리/탐색/전투 타입과 연결/단서를 포함합니다.
+// 에디터 내부에서 쓰는 노드 폼 상태입니다. 스토리/탐색/전투 타입과 연결/판정 가이드/단서를 포함합니다.
 type NodeForm = {
   id: string;
   nodeType: ScenarioNodeType;
@@ -99,6 +106,7 @@ type NodeForm = {
   sceneText: string;
   imageUrl: string;
   vttMap: VttMapStateDto | null;
+  checkGuides: CheckGuideForm[];
   links: LinkForm[];
   clues: ClueForm[];
   npcs: NpcForm[];
@@ -171,6 +179,7 @@ function createBlankNode(title = '새 장면'): NodeForm {
     sceneText: '',
     imageUrl: '',
     vttMap: null,
+    checkGuides: [],
     links: [],
     clues: [],
     npcs: [],
@@ -201,6 +210,15 @@ function createBlankLink(nodes: NodeForm[], currentNodeId: string): LinkForm {
     condition: 'default',
     nextNodeId: nodes.find((node) => node.id !== currentNodeId)?.id ?? '',
     note: '',
+  };
+}
+
+function createBlankCheckGuide(): CheckGuideForm {
+  return {
+    id: makeLocalId('check'),
+    label: '',
+    type: 'check',
+    skill: '',
   };
 }
 
@@ -324,6 +342,15 @@ function mapLink(transition: Record<string, unknown>): LinkForm {
   };
 }
 
+function mapCheckGuide(option: Record<string, unknown>): CheckGuideForm {
+  return {
+    id: valueAsString(option.id, makeLocalId('check')),
+    label: valueAsString(option.playerLabel, valueAsString(option.label)),
+    type: valueAsString(option.type, 'check'),
+    skill: valueAsString(option.skill),
+  };
+}
+
 function mapClue(clue: Record<string, unknown>): ClueForm {
   return {
     id: valueAsString(clue.id, makeLocalId('clue')),
@@ -372,6 +399,7 @@ function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
           sceneText: node.sceneText,
           imageUrl: node.imageUrl ?? '',
           vttMap: mapVttMap(node.vttMap, node.id),
+          checkGuides: (node.checkOptions ?? []).map(mapCheckGuide),
           links: node.transitions.map(mapLink),
           clues: node.clues.map(mapClue),
           npcs:
@@ -409,6 +437,14 @@ function serializeNodes(nodes: NodeForm[]) {
     sceneText: node.sceneText.trim(),
     imageUrl: node.imageUrl || null,
     vttMap: node.vttMap as unknown as Record<string, unknown> | null,
+    checkOptions: node.checkGuides
+      .filter((guide) => guide.label.trim() || guide.skill.trim())
+      .map((guide) => ({
+        id: guide.id,
+        label: guide.label.trim() || guide.skill.trim(),
+        type: guide.type.trim() || 'check',
+        skill: guide.skill.trim() || undefined,
+      })),
     nodeMeta: node.npcs.some(
       (npc) => npc.name.trim() || npc.shortDescription.trim() || npc.description.trim()
     )
@@ -1587,7 +1623,7 @@ export function ScenarioEditorPage({
   );
 }
 
-// 선택된 노드 하나의 제목/타입/이미지/맵/본문/링크/단서를 편집하는 하위 컴포넌트입니다.
+// 선택된 노드 하나의 제목/타입/이미지/맵/본문/링크/판정 가이드/단서를 편집하는 하위 컴포넌트입니다.
 function NodeDetailEditor({
   scenarioId,
   node,
@@ -2316,7 +2352,7 @@ function NodeConnectionSummary({
   );
 }
 
-// 노드의 전환 링크와 단서 목록을 추가/수정/삭제하는 편집 컴포넌트입니다.
+// 노드의 전환 링크, 판정 가이드, 단서 목록을 추가/수정/삭제하는 편집 컴포넌트입니다.
 function ScenarioNodeCollections({
   node,
   nodes,
@@ -2433,6 +2469,81 @@ function ScenarioNodeCollections({
               }
             >
               연결 삭제
+            </button>
+          </article>
+        ))}
+      </NodeCollection>
+
+      <NodeCollection
+        title="판정 가이드"
+        actionLabel="가이드 추가"
+        onAdd={() =>
+          updateNode(node.id, (current) => ({
+            ...current,
+            checkGuides: [...current.checkGuides, createBlankCheckGuide()],
+          }))
+        }
+      >
+        {node.checkGuides.map((guide, index) => (
+          <article className="scenario-editor-item" key={guide.id}>
+            <div className="field-row-3">
+              <div>
+                <label>표시 이름</label>
+                <input
+                  value={guide.label}
+                  onChange={(event) =>
+                    updateNode(node.id, (current) => ({
+                      ...current,
+                      checkGuides: current.checkGuides.map((item, itemIndex) =>
+                        itemIndex === index ? { ...item, label: event.target.value } : item
+                      ),
+                    }))
+                  }
+                  placeholder="예: 방을 수색한다"
+                />
+              </div>
+              <div>
+                <label>판정 유형</label>
+                <input
+                  value={guide.type}
+                  onChange={(event) =>
+                    updateNode(node.id, (current) => ({
+                      ...current,
+                      checkGuides: current.checkGuides.map((item, itemIndex) =>
+                        itemIndex === index ? { ...item, type: event.target.value } : item
+                      ),
+                    }))
+                  }
+                  placeholder="check"
+                />
+              </div>
+              <div>
+                <label>기술/능력</label>
+                <input
+                  value={guide.skill}
+                  onChange={(event) =>
+                    updateNode(node.id, (current) => ({
+                      ...current,
+                      checkGuides: current.checkGuides.map((item, itemIndex) =>
+                        itemIndex === index ? { ...item, skill: event.target.value } : item
+                      ),
+                    }))
+                  }
+                  placeholder="investigation"
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              className="ghost small"
+              onClick={() =>
+                updateNode(node.id, (current) => ({
+                  ...current,
+                  checkGuides: current.checkGuides.filter((_, itemIndex) => itemIndex !== index),
+                }))
+              }
+            >
+              가이드 삭제
             </button>
           </article>
         ))}
@@ -2720,7 +2831,7 @@ function ScenarioNodeCollections({
   );
 }
 
-// 링크/단서 같은 반복 편집 목록의 공통 카드 레이아웃입니다.
+// 링크/판정 가이드/단서 같은 반복 편집 목록의 공통 카드 레이아웃입니다.
 function NodeCollection({
   title,
   actionLabel,
