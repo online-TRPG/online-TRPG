@@ -292,6 +292,8 @@ model ClassDefinition {
   startingEquipmentJson String
   startingCantripCount  Int      @default(0)
   startingSpellCount    Int      @default(0)
+  skillChoicesJson      String   @default("[]")
+  skillChoiceCount      Int      @default(0)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }
