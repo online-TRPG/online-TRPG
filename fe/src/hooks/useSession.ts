@@ -291,10 +291,9 @@ export function useSession(
     );
 
     if (
-      (!matchedSession && isBlockingSessionStatus(snapshot.session.status)) ||
-      (matchedSession &&
-        !isBlockingSessionStatus(matchedSession.status) &&
-        isBlockingSessionStatus(snapshot.session.status))
+      matchedSession &&
+      !isBlockingSessionStatus(matchedSession.status) &&
+      isBlockingSessionStatus(snapshot.session.status)
     ) {
       clearStoredSnapshot();
       setSnapshot(null);
