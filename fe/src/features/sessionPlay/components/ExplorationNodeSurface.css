@@ -71,30 +71,13 @@
 .exploration-node-content {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0;
   overflow: hidden;
 }
 
-.exploration-target-panel {
-  min-height: 0;
-  padding: 14px;
-  display: grid;
-  align-content: start;
-  gap: 10px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #8fa2b8 #dfe6ee;
-  background: rgba(255, 255, 255, 0.62);
-}
-
-.exploration-target-panel {
-  border-left: 1px solid #c9d3dc;
-}
-
 .exploration-party-list,
-.exploration-target-list,
-.exploration-check-list {
+.exploration-inventory-list {
   display: grid;
   gap: 8px;
 }
@@ -265,77 +248,12 @@
   font-size: 20px;
 }
 
-.exploration-panel-block {
-  min-width: 0;
-  padding: 12px;
-  display: grid;
-  gap: 10px;
-  border: 1px solid #cbd6df;
-  background: #f8fafb;
-}
-
-.exploration-panel-heading {
-  display: grid;
-  gap: 4px;
-}
-
-.exploration-panel-heading strong {
-  color: #203040;
-  font-size: 15px;
-}
-
-.exploration-selected-target {
-  display: grid;
-  gap: 6px;
-}
-
-.exploration-selected-target span,
-.exploration-target-button span,
-.exploration-check-list span {
-  width: fit-content;
-  min-height: 22px;
-  padding: 0 7px;
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid #bfd0d2;
-  background: #eef5f4;
-  color: #315351;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.exploration-selected-target strong {
-  color: #203040;
-  overflow-wrap: anywhere;
-}
-
-.exploration-selected-target p,
 .exploration-empty-text {
   margin: 0;
   color: #5f6f80;
   font-size: 13px;
   line-height: 1.55;
   word-break: keep-all;
-  overflow-wrap: anywhere;
-}
-
-.exploration-target-button {
-  min-width: 0;
-  padding: 10px;
-  display: grid;
-  gap: 5px;
-  border: 1px solid #cbd6df;
-  background: #ffffff;
-  color: #243140;
-  text-align: left;
-}
-
-.exploration-target-button.selected {
-  border-color: #709b92;
-  background: #eff7f4;
-}
-
-.exploration-target-button strong {
   overflow-wrap: anywhere;
 }
 
@@ -351,7 +269,7 @@
 
 .exploration-actor-status,
 .exploration-action-panel,
-.exploration-check-panel {
+.exploration-inventory-panel {
   min-width: 0;
   padding: 12px;
   display: grid;
@@ -367,7 +285,7 @@
 }
 
 .exploration-actor-status p,
-.exploration-check-panel p {
+.exploration-inventory-panel p {
   margin: 0;
   color: #607184;
   font-size: 13px;
@@ -398,8 +316,85 @@
   color: #234d45;
 }
 
-.exploration-check-list {
-  grid-template-columns: repeat(auto-fit, minmax(90px, max-content));
+.exploration-inventory-panel {
+  align-content: start;
+  overflow: hidden;
+}
+
+.exploration-inventory-list {
+  min-height: 0;
+  max-height: 112px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.exploration-inventory-item {
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid #cbd7df;
+  background: #ffffff;
+}
+
+.exploration-inventory-item-body {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.exploration-inventory-item-body strong,
+.exploration-inventory-item-body span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.exploration-inventory-item-body strong {
+  color: #203040;
+  font-size: 12px;
+}
+
+.exploration-inventory-item-body span,
+.exploration-inventory-quantity {
+  color: #607184;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.exploration-inventory-quantity {
+  min-width: 28px;
+  text-align: right;
+}
+
+.exploration-inventory-item button {
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid #7da89c;
+  background: #eef8f4;
+  color: #234d45;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.exploration-inventory-item button:disabled {
+  border-color: #d1d9df;
+  background: #eef2f4;
+  color: #8a98a4;
+  cursor: not-allowed;
+}
+
+.exploration-inventory-feedback {
+  padding: 6px 8px;
+  border: 1px solid #b9d7ca;
+  background: #eef8f4;
+  color: #28554c !important;
+  font-size: 12px !important;
+  font-weight: 800;
 }
 
 @media (max-width: 1180px) {
@@ -410,12 +405,6 @@
   .exploration-node-content {
     grid-template-columns: 1fr;
     overflow-y: auto;
-  }
-
-  .exploration-target-panel {
-    border: 0;
-    border-bottom: 1px solid #c9d3dc;
-    overflow: visible;
   }
 
   .exploration-party-overlay .exploration-party-list {
@@ -459,15 +448,8 @@
 
   .exploration-node-content {
     min-height: 0;
-    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-columns: minmax(0, 1fr);
     overflow: hidden;
-  }
-
-  .exploration-target-panel {
-    min-height: 0;
-    border-left: 1px solid #c9d3dc;
-    border-bottom: 0;
-    overflow-y: auto;
   }
 
   .exploration-action-dock {
@@ -483,12 +465,6 @@
   .exploration-node-content {
     grid-template-columns: 1fr;
     overflow-y: auto;
-  }
-
-  .exploration-target-panel {
-    border-left: 0;
-    border-bottom: 1px solid #c9d3dc;
-    overflow: visible;
   }
 
   .exploration-action-dock {
@@ -577,7 +553,7 @@
     min-height: 0 !important;
     max-height: 100% !important;
     display: grid !important;
-    grid-template-columns: minmax(0, 1fr) 220px !important;
+    grid-template-columns: minmax(0, 1fr) !important;
     overflow: hidden !important;
     box-sizing: border-box !important;
   }
@@ -617,29 +593,6 @@
     overflow: hidden !important;
   }
 
-  .exploration-target-panel {
-    position: relative !important;
-    inset: auto !important;
-    z-index: 1 !important;
-    width: auto !important;
-    min-width: 0 !important;
-    height: 100% !important;
-    min-height: 0 !important;
-    max-height: 100% !important;
-    padding: 8px !important;
-    display: grid !important;
-    align-content: start !important;
-    gap: 8px !important;
-    overflow-y: auto !important;
-    box-sizing: border-box !important;
-    border: 0 !important;
-    border-left: 1px solid rgba(18, 52, 90, 0.18) !important;
-    border-radius: 0 !important;
-    background: #cfd5db !important;
-    backdrop-filter: none !important;
-    box-shadow: none !important;
-  }
-
   .exploration-action-dock {
     position: relative !important;
     inset: auto !important;
@@ -665,7 +618,7 @@
 
   .exploration-actor-status,
   .exploration-action-panel,
-  .exploration-check-panel {
+  .exploration-inventory-panel {
     min-height: 0 !important;
     height: 100% !important;
     padding: 5px 6px !important;
@@ -1042,5 +995,148 @@
     border: 1px solid rgba(18, 52, 90, 0.22);
     border-radius: 8px;
     background: #f8fafb;
+  }
+}
+
+/* 노드 화면 공통 정렬: 탐색 화면을 스토리/전투 화면과 같은 톤과 밀도로 맞춥니다. */
+@media (min-width: 861px) {
+  .exploration-node-surface {
+    height: 100% !important;
+    min-height: 0 !important;
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) auto !important;
+    overflow: hidden !important;
+    background: #edf0f3 !important;
+    color: #243140 !important;
+  }
+
+  .exploration-node-header {
+    height: auto !important;
+    min-height: 70px !important;
+    max-height: none !important;
+    padding: 12px 16px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 16px !important;
+    overflow: hidden !important;
+    border-bottom: 1px solid #c9d3dc !important;
+    background: #eef2f5 !important;
+  }
+
+  .exploration-node-title-row {
+    min-width: 0 !important;
+    flex: 0 1 auto !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    overflow: hidden !important;
+  }
+
+  .exploration-node-eyebrow {
+    min-height: 22px !important;
+    height: auto !important;
+    padding: 0 8px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    border: 1px solid rgba(18, 52, 90, 0.16) !important;
+    border-radius: 4px !important;
+    background: rgba(255, 255, 255, 0.8) !important;
+    color: #4d5d6f !important;
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+  }
+
+  .exploration-node-header h1 {
+    min-width: 0 !important;
+    margin: 4px 0 0 !important;
+    flex: 0 1 auto !important;
+    color: #172433 !important;
+    font-size: 23px !important;
+    line-height: 1.2 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .exploration-node-summary-button {
+    flex: 0 0 auto !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    padding: 0 10px !important;
+    border: 1px solid rgba(18, 52, 90, 0.22) !important;
+    border-radius: 6px !important;
+    background: #ffffff !important;
+    color: #172433 !important;
+    font-size: 12px !important;
+    font-weight: 900 !important;
+  }
+
+  .exploration-node-summary-button.active {
+    border-color: #173b67 !important;
+    background: #173b67 !important;
+    color: #ffffff !important;
+  }
+
+  .exploration-node-status-row span {
+    min-height: 28px !important;
+    height: auto !important;
+    padding: 0 10px !important;
+    border: 1px solid #bdcad5 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    color: #31475c !important;
+    font-size: 12px !important;
+  }
+
+  .exploration-node-summary-popover {
+    top: 80px !important;
+    left: 16px !important;
+    width: min(560px, calc(100% - 32px)) !important;
+  }
+
+  .exploration-node-content {
+    height: auto !important;
+    min-height: 0 !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    background: rgba(255, 249, 232, 0.36) !important;
+  }
+
+  .exploration-map-panel {
+    background: #dde4e8 !important;
+  }
+
+  .exploration-action-dock {
+    height: auto !important;
+    min-height: 126px !important;
+    max-height: none !important;
+    padding: 10px 14px !important;
+    display: grid !important;
+    grid-template-columns: 220px minmax(0, 1fr) minmax(240px, 0.42fr) !important;
+    gap: 12px !important;
+    border-top: 1px solid #c9d3dc !important;
+    background: #e7edf0 !important;
+  }
+
+  .exploration-actor-status,
+  .exploration-action-panel,
+  .exploration-inventory-panel {
+    height: auto !important;
+    padding: 12px !important;
+    gap: 8px !important;
+    align-content: center !important;
+    border: 1px solid #c3ced8 !important;
+    background: #f8fafb !important;
+  }
+
+  .exploration-action-tabs button,
+  .exploration-action-list button {
+    min-height: 32px !important;
+    height: auto !important;
+    padding: 0 12px !important;
+    font-size: 12px !important;
   }
 }

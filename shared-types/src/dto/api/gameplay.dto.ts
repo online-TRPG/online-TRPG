@@ -25,6 +25,7 @@ import {
   MainCommandStatus,
   MainCommandTargetType,
 } from "../../constants/enums";
+import { SessionCharacterResponseDto } from "./characters.dto";
 
 export class SubmitActionDto {
   @ApiProperty()
@@ -65,6 +66,41 @@ export class ActionAcceptedResponseDto {
 
   @ApiProperty()
   baseStateVersion!: number;
+}
+
+export class UseInventoryItemDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  itemId!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  targetSessionCharacterId?: string | null;
+}
+
+export class UseInventoryItemResponseDto {
+  @ApiProperty()
+  sessionId!: string;
+
+  @ApiProperty()
+  itemId!: string;
+
+  @ApiProperty()
+  itemName!: string;
+
+  @ApiProperty()
+  consumedQuantity!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  healedHp!: number | null;
+
+  @ApiProperty()
+  message!: string;
+
+  @ApiProperty({ type: SessionCharacterResponseDto })
+  character!: SessionCharacterResponseDto;
 }
 
 export class MainCommandPointDto {

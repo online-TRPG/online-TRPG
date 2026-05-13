@@ -5,6 +5,8 @@ import {
   MainCommandResponseDto,
   SubmitActionDto,
   SubmitMainCommandDto,
+  UseInventoryItemDto,
+  UseInventoryItemResponseDto,
 } from "@trpg/shared-types";
 import { ApiResponse, apiResponse } from "../../common/api-response";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
@@ -33,6 +35,21 @@ export class ActionsController {
       "ACTION_202",
       "요청이 접수되었습니다.",
       await this.actionsService.submitAction(userId, sessionId, dto),
+    );
+  }
+
+  @Post("inventory/use")
+  @ApiParam({ name: "sessionId" })
+  @ApiCreatedResponse({ type: UseInventoryItemResponseDto })
+  async useInventoryItem(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: UseInventoryItemDto,
+  ): Promise<ApiResponse<UseInventoryItemResponseDto>> {
+    return apiResponse(
+      "INVENTORY_201",
+      "아이템을 사용했습니다.",
+      await this.actionsService.useInventoryItem(userId, sessionId, dto),
     );
   }
 

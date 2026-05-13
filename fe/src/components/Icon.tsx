@@ -61,6 +61,88 @@ export function Icon({ name }: { name: string }) {
           <path d="M6 9l6 6 6-6" />
         </svg>
       );
+    case "message-circle":
+      return (
+        <svg {...common}>
+          <path d="M21 11.5a8.5 8.5 0 0 1-12.9 7.3L3 20l1.2-4.7A8.5 8.5 0 1 1 21 11.5z" />
+        </svg>
+      );
+    case "users":
+      return (
+        <svg {...common}>
+          <path d="M16 20c0-2.8-2.7-5-6-5s-6 2.2-6 5" />
+          <circle cx="10" cy="8" r="4" />
+          <path d="M20 19c0-2.1-1.6-3.9-3.8-4.6" />
+          <path d="M16.5 4.6a3 3 0 0 1 0 5.8" />
+        </svg>
+      );
+    case "help-circle":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M9.5 9a2.8 2.8 0 0 1 5.2 1.5c0 2-2.7 2.2-2.7 4" />
+          <path d="M12 18h.01" />
+        </svg>
+      );
+    case "hand":
+      return (
+        <svg {...common}>
+          <path d="M8 11V5a2 2 0 0 1 4 0v5" />
+          <path d="M12 10V4a2 2 0 0 1 4 0v8" />
+          <path d="M16 11V7a2 2 0 0 1 4 0v7c0 4-2.7 7-7 7h-1c-2.2 0-3.7-.9-5-2.5L3.7 14a2 2 0 0 1 3.1-2.5L9 14" />
+        </svg>
+      );
+    case "ear":
+      return (
+        <svg {...common}>
+          <path d="M6 10a6 6 0 0 1 12 0c0 4-4 4.5-4 8a3 3 0 0 1-5.8 1" />
+          <path d="M9 10a3 3 0 1 1 6 0c0 2-2.5 2.2-2.5 4.5" />
+        </svg>
+      );
+    case "move":
+      return (
+        <svg {...common}>
+          <path d="M12 3v18M3 12h18" />
+          <path d="M8 7l4-4 4 4M16 17l-4 4-4-4M7 8l-4 4 4 4M17 8l4 4-4 4" />
+        </svg>
+      );
+    case "tool":
+      return (
+        <svg {...common}>
+          <path d="M14.7 6.3a4 4 0 0 0 5 5L11 20l-5-5 8.7-8.7z" />
+          <path d="M6 15l3 3" />
+        </svg>
+      );
+    case "map":
+      return (
+        <svg {...common}>
+          <path d="M9 18l-6 3V6l6-3 6 3 6-3v15l-6 3-6-3z" />
+          <path d="M9 3v15M15 6v15" />
+        </svg>
+      );
+    case "crosshair":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="7" />
+          <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
+          <circle cx="12" cy="12" r="2" />
+        </svg>
+      );
+    case "clock":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </svg>
+      );
+    case "wand":
+      return (
+        <svg {...common}>
+          <path d="M15 4l5 5L8 21l-5-5L15 4z" />
+          <path d="M13 6l5 5" />
+          <path d="M5 4v3M3.5 5.5h3M20 17v3M18.5 18.5h3" />
+        </svg>
+      );
     case "eye":
       return (
         <svg {...common}>
