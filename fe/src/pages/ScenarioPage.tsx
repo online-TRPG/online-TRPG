@@ -158,6 +158,10 @@ export function ScenarioPage({
               scenarioNodeId: nodeIdMap.get(node.id) ?? null,
             }
           : null,
+        checkOptions: (node.checkOptions ?? []).map((option) => ({
+          ...option,
+          id: makeCloneId("check"),
+        })),
         transitions: node.transitions.map((transition) => ({
           ...transition,
           id: makeCloneId("link"),

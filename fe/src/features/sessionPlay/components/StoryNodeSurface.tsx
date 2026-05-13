@@ -1,8 +1,6 @@
 import { useMemo, useState } from 'react';
 import type {
-  PlayerScenarioClueDto,
   PlayerScenarioNodeDto,
-  PlayerVisibleTargetDto,
   SessionCharacterResponseDto,
 } from '@trpg/shared-types';
 import {
@@ -18,19 +16,6 @@ interface StoryNodeSurfaceProps {
   characters: SessionCharacterResponseDto[];
   currentUserId: string;
   isGmView?: boolean;
-}
-
-const targetTypeLabels: Partial<Record<PlayerVisibleTargetDto['targetType'], string>> = {
-  NPC: 'NPC',
-  OBJECT: '오브젝트',
-  ACTOR: '인물',
-  AREA: '장소',
-  POINT: '좌표',
-  SELF: '나',
-};
-
-function getTargetTypeLabel(targetType: PlayerVisibleTargetDto['targetType']) {
-  return targetTypeLabels[targetType] ?? targetType;
 }
 
 function getHpPercent(character: SessionCharacterResponseDto) {
@@ -63,13 +48,6 @@ function splitSceneParagraphs(sceneText: string | undefined) {
   return paragraphs.length ? paragraphs : ['현재 장면 설명이 아직 준비되지 않았습니다.'];
 }
 
-function getClueImportanceLabel(clue: PlayerScenarioClueDto) {
-  if (!clue.importance) return '공개 단서';
-  if (clue.importance === 'critical') return '중요 단서';
-  if (clue.importance === 'minor') return '보조 단서';
-  return clue.importance;
-}
-
 export function StoryNodeSurface({
   node,
   scenarioTitle,
@@ -79,19 +57,26 @@ export function StoryNodeSurface({
   isGmView = false,
 }: StoryNodeSurfaceProps) {
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  const [isSummaryOpen, setSummaryOpen] = useState(false);
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const selectedCharacter =
     characters.find((character) => character.id === selectedCharacterId) ?? characters[0] ?? null;
-  // 현재 DTO에서 바로 쓸 수 있는 공개 정보만 사용해 플레이어에게 비공개 단서가 새지 않게 합니다.
-  const visibleTargets = node?.visibleTargets ?? [];
-  const publicClues = node?.publicClues ?? [];
 
   return (
     <div className="story-node-surface">
       <header className="story-node-header">
-        <div>
+        <div className="story-node-title-row">
           <span className="story-node-eyebrow">스토리 노드</span>
           <h1>{node?.title ?? scenarioTitle ?? '진행 중인 장면'}</h1>
+          <button
+            type="button"
+            className={`story-node-summary-button${isSummaryOpen ? ' active' : ''}`}
+            onClick={() => setSummaryOpen((current) => !current)}
+            aria-expanded={isSummaryOpen}
+            aria-controls="story-node-summary-popover"
+          >
+            장면 설명
+          </button>
         </div>
         <div className="story-node-status-row" aria-label="장면 상태">
           <span>{getNodeTypeLabel(node)}</span>
@@ -99,6 +84,27 @@ export function StoryNodeSurface({
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
         </div>
       </header>
+
+      {isSummaryOpen ? (
+        <div
+          id="story-node-summary-popover"
+          className="story-node-summary-popover"
+          role="dialog"
+          aria-label="장면 설명"
+        >
+          <div className="story-node-summary-popover-head">
+            <strong>장면 설명</strong>
+            <button type="button" onClick={() => setSummaryOpen(false)}>
+              닫기
+            </button>
+          </div>
+          <div className="story-node-summary-popover-body">
+            {sceneParagraphs.map((paragraph, index) => (
+              <p key={`${paragraph.slice(0, 20)}-${index}`}>{paragraph}</p>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="story-node-content">
         <section className="story-node-main" aria-label="스토리 장면">
@@ -124,48 +130,6 @@ export function StoryNodeSurface({
             ))}
           </section>
         </section>
-
-        <aside className="story-node-aside" aria-label="장면 정보">
-          <section className="story-node-panel">
-            <div className="story-panel-heading">
-              <span className="story-node-eyebrow">장면 요소</span>
-              <strong>현재 등장 요소</strong>
-            </div>
-            {visibleTargets.length ? (
-              <div className="story-element-list">
-                {visibleTargets.map((target) => (
-                  <article key={target.id} className="story-element-item">
-                    <span>{getTargetTypeLabel(target.targetType)}</span>
-                    <strong>{target.name}</strong>
-                    {target.summary ? <p>{target.summary}</p> : null}
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <p className="story-empty-text">현재 공개된 NPC, 오브젝트, 장소 정보가 없습니다.</p>
-            )}
-          </section>
-
-          <section className="story-node-panel">
-            <div className="story-panel-heading">
-              <span className="story-node-eyebrow">단서</span>
-              <strong>공개 단서</strong>
-            </div>
-            {publicClues.length ? (
-              <div className="story-clue-list">
-                {publicClues.map((clue) => (
-                  <article key={clue.id} className="story-clue-item">
-                    <span>{getClueImportanceLabel(clue)}</span>
-                    <strong>{clue.title}</strong>
-                    <p>{clue.text}</p>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <p className="story-empty-text">아직 공개된 단서가 없습니다.</p>
-            )}
-          </section>
-        </aside>
       </div>
 
       <section className="story-party-strip" aria-label="파티 캐릭터">
