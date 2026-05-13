@@ -86,6 +86,12 @@ pipeline {
                 //    (b) 일시적으로 --accept-data-loss 재추가 + db_backups 의 dump 로 복구 가능한 상태에서 진행.
                 sh 'docker compose run --rm --entrypoint "" backend sh -c "cd /app/be && npx prisma db push --schema prisma/schema.prisma --skip-generate"'
 
+                // 3b) 카탈로그/시나리오 seed (Race, Item, ClassDefinition, DefaultScenario) — 모두 upsert 라 멱등.
+                //     prod 이미지엔 src/ 와 tsx 가 없어 직접 ts 실행 불가 → dist 산출물 호출.
+                //     `prisma db seed` 가 package.json#prisma.seed = `node dist/database/seed.js` 를 부른다.
+                //     실패 시 stage fail (set -e) — schema 는 이미 push 됐으므로 수동 재시도 또는 다음 배포에서 자동 복구.
+                sh 'docker compose run --rm --entrypoint "" backend sh -c "cd /app/be && npx prisma db seed"'
+
                 // 4) 나머지 (backend + nginx + certbot) 기동
                 //    참고: env_file (Jenkins credential) 변경 시엔 image hash 가 같으면
                 //    컨테이너가 재생성되지 않아 새 env 가 반영 안 됨. credential 회전 후엔
