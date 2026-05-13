@@ -492,6 +492,118 @@ describe("Session service e2e", () => {
     expect(turn.body.data.turnNo).toBe(2);
   });
 
+  it("blocks character PATCH when the session is PLAYING or PAUSED, allows it otherwise (S14P31A201-70)", async () => {
+    const host = await createGuest("Lock-Host");
+    const character = await createCharacter(host.id, {
+      name: "Locked-One",
+      ancestry: "Human",
+      className: "Fighter",
+    });
+
+    const created = await request(baseUrl)
+      .post("/api/v1/sessions")
+      .set("x-user-id", host.id)
+      .send({
+        title: "Lock test",
+        scenarioId: DEFAULT_SCENARIO_ID,
+        gmMode: "AI",
+        maxParticipants: 2,
+      })
+      .expect(201);
+
+    const sessionId = created.body.data.session.sessionId as string;
+
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/character-selection`)
+      .set("x-user-id", host.id)
+      .send({ characterId: character.id })
+      .expect(200);
+
+    // RECRUITING 에서는 PATCH 허용
+    await request(baseUrl)
+      .patch(`/api/v1/characters/${character.id}`)
+      .set("x-user-id", host.id)
+      .send({ name: "Renamed In Lobby" })
+      .expect(200);
+
+    // PLAYING 으로 강제 전이 — start 흐름 의존성 회피용 직접 update
+    await prisma.session.update({ where: { id: sessionId }, data: { status: "PLAYING" } });
+
+    const blockedPlaying = await request(baseUrl)
+      .patch(`/api/v1/characters/${character.id}`)
+      .set("x-user-id", host.id)
+      .send({ name: "Should Be Blocked" })
+      .expect(409);
+    expect(JSON.stringify(blockedPlaying.body)).toContain("CHARACTER_LOCKED_BY_SESSION");
+
+    // /equipment 와 /clone 도 차단되는지 확인
+    await request(baseUrl)
+      .patch(`/api/v1/characters/${character.id}/equipment`)
+      .set("x-user-id", host.id)
+      .send({ equippedWeaponId: null })
+      .expect(409);
+    await request(baseUrl)
+      .post(`/api/v1/characters/${character.id}/clone`)
+      .set("x-user-id", host.id)
+      .expect(409);
+
+    // PAUSED 도 차단
+    await prisma.session.update({ where: { id: sessionId }, data: { status: "PAUSED" } });
+    await request(baseUrl)
+      .patch(`/api/v1/characters/${character.id}`)
+      .set("x-user-id", host.id)
+      .send({ name: "Should Still Be Blocked" })
+      .expect(409);
+
+    // COMPLETED 는 허용 (끝난 세션의 캐릭터는 다른 세션에 다시 쓰일 수 있음)
+    await prisma.session.update({ where: { id: sessionId }, data: { status: "COMPLETED" } });
+    await request(baseUrl)
+      .patch(`/api/v1/characters/${character.id}`)
+      .set("x-user-id", host.id)
+      .send({ name: "Allowed After Complete" })
+      .expect(200);
+  });
+
+  it("rejects invalid ability score range and out-of-list skills on character PATCH (S14P31A201-69)", async () => {
+    const host = await createGuest("Validation-Host");
+    const character = await createCharacter(host.id, {
+      name: "Validee",
+      ancestry: "Human",
+      className: "Fighter",
+    });
+
+    // 능력치 범위 초과 (50)
+    await request(baseUrl)
+      .patch(`/api/v1/characters/${character.id}`)
+      .set("x-user-id", host.id)
+      .send({ abilities: { str: 50, dex: 10, con: 10, int: 10, wis: 10, cha: 10 } })
+      .expect(400)
+      .expect((response) => {
+        expect(JSON.stringify(response.body)).toContain("능력치 범위");
+      });
+
+    // 능력치 0 (Min 위반: dto class-validator @Min(1) 가 먼저 잡지만 어떤 오류든 400 이면 OK)
+    await request(baseUrl)
+      .patch(`/api/v1/characters/${character.id}`)
+      .set("x-user-id", host.id)
+      .send({ abilities: { str: 0, dex: 10, con: 10, int: 10, wis: 10, cha: 10 } })
+      .expect(400);
+
+    // 카탈로그에 없는 itemDefinitionId
+    await request(baseUrl)
+      .patch(`/api/v1/characters/${character.id}`)
+      .set("x-user-id", host.id)
+      .send({
+        inventory: [
+          { id: "inv-1", name: "Phantom Sword", quantity: 1, itemDefinitionId: "does-not-exist" },
+        ],
+      })
+      .expect(400)
+      .expect((response) => {
+        expect(JSON.stringify(response.body)).toContain("카탈로그");
+      });
+  });
+
   async function createGuest(displayName: string) {
     const response = await request(baseUrl)
       .post("/api/v1/users/guest")

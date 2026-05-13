@@ -58,4 +58,17 @@ export class ClassDefinitionResponseDto {
 
   @ApiProperty({ example: 6, description: "1레벨 시점 시작 주문 수 (준비 주문 동적 클래스는 0)" })
   startingSpellCount!: number;
+
+  @ApiProperty({
+    type: [String],
+    example: ["비전학", "역사", "통찰", "조사", "의학", "종교"],
+    description: "1레벨 클래스 숙련 스킬 선택지 (한국어 명칭). 시드에 없는 클래스는 빈 배열.",
+  })
+  skillChoices!: string[];
+
+  @ApiProperty({
+    example: 2,
+    description: "선택해야 할 숙련 스킬 개수. 0이면 검증 없음 (시드에 없는 legacy 클래스).",
+  })
+  skillChoiceCount!: number;
 }
