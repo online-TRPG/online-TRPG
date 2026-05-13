@@ -711,6 +711,8 @@ export function PlayPage({
   const [vttMap, setVttMap] = useState<VttMapStateDto | null>(null);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
+  const [isScenarioLoaded, setIsScenarioLoaded] = useState(false);
+  const [isMapLoaded, setIsMapLoaded] = useState(false);
   // 로그 자동 스크롤과 맵 저장 큐를 관리하는 ref입니다. 렌더링 없이 최신 값을 유지합니다.
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
@@ -799,11 +801,7 @@ export function PlayPage({
   const availableTabs = isRecruiting
     ? (['Main', 'Chat', 'Info', 'Settings'] as const)
     : startedSessionTabs;
-  const isStartedScreenReady = Boolean(
-    !isRecruiting &&
-    (currentNode || activeScenario || scenarioLoadError) &&
-    (isStoryNode || isExplorationNode || isCombatNode || vttMap || mapLoadError || snapshotVttMap)
-  );
+  const isStartedScreenReady = Boolean(!isRecruiting && isScenarioLoaded && isMapLoaded);
 
   // 서버가 알려준 선택 캐릭터가 바뀌면 로컬 선택 상태도 맞춥니다.
   useEffect(() => {
@@ -820,10 +818,7 @@ export function PlayPage({
   useEffect(() => {
     if (isRecruiting) {
       setIsGameStarting(false);
-      return;
     }
-
-    setIsGameStarting(true);
   }, [isRecruiting]);
 
   useEffect(() => {
@@ -871,6 +866,8 @@ export function PlayPage({
       setVttMap(null);
       setScenarioLoadError(null);
       setMapLoadError(null);
+      setIsScenarioLoaded(false);
+      setIsMapLoaded(false);
       latestConfirmedMapRef.current = null;
       mapSaveRef.current = {
         isSaving: false,
@@ -882,16 +879,19 @@ export function PlayPage({
 
     let ignore = false;
     setScenarioLoadError(null);
+    setIsScenarioLoaded(false);
 
     getPlayerScenario(user, session.id)
       .then((scenario) => {
         if (!ignore) {
           setPlayerScenario(scenario);
+          setIsScenarioLoaded(true);
         }
       })
       .catch((caught) => {
         if (!ignore) {
           setPlayerScenario(null);
+          setIsScenarioLoaded(true);
           setScenarioLoadError(
             caught instanceof Error ? caught.message : '시나리오를 불러오지 못했습니다.'
           );
@@ -908,6 +908,7 @@ export function PlayPage({
       const nextMap = snapshotVttMap as VttMapStateDto;
       latestConfirmedMapRef.current = nextMap;
       setVttMap(nextMap);
+      setIsMapLoaded(true);
     }
   }, [snapshotVttMap]);
 
