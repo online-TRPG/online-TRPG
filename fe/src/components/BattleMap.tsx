@@ -23,6 +23,7 @@ interface BattleMapProps {
   onChange: (map: VttMapStateDto) => void;
   currentUserId?: string | null;
   title?: string;
+  interactionMode?: 'editor' | 'session';
   showPartyTools?: boolean;
   monsterCatalog?: SrdMonsterReferenceDto[];
   monsterCatalogError?: string | null;
@@ -327,6 +328,7 @@ export function BattleMap({
   onChange,
   currentUserId = null,
   title = 'Tabletop',
+  interactionMode = 'editor',
   showPartyTools = true,
   monsterCatalog = [],
   monsterCatalogError = null,
@@ -358,6 +360,8 @@ export function BattleMap({
   const [pings, setPings] = useState<PingMarker[]>([]);
   const [imageUrlInput, setImageUrlInput] = useState(map.imageUrl ?? '');
   const [monsterSearch, setMonsterSearch] = useState('');
+  const canEditMap = isHost && interactionMode === 'editor';
+  const showMapChrome = interactionMode === 'editor';
   const [selectedMonsterId, setSelectedMonsterId] = useState('');
   const [tokenAssetUploadBusy, setTokenAssetUploadBusy] = useState(false);
   const [mapSizeDraft, setMapSizeDraft] = useState({
@@ -370,8 +374,8 @@ export function BattleMap({
   );
   const mapImage = useCanvasImage(map.imageUrl);
   const visibleTokens = useMemo(
-    () => map.tokens.filter((token) => isHost || !token.hidden),
-    [isHost, map.tokens]
+    () => map.tokens.filter((token) => canEditMap || !token.hidden),
+    [canEditMap, map.tokens]
   );
   const displayWidth = Math.max(280, containerWidth);
   const widthScale = displayWidth / map.width;
@@ -804,7 +808,7 @@ export function BattleMap({
 
   function canControlToken(token: VttMapStateDto['tokens'][number]) {
     return (
-      isHost ||
+      canEditMap ||
       Boolean(token.sessionCharacterId && controlledTokenIds.has(token.sessionCharacterId))
     );
   }
@@ -869,7 +873,7 @@ export function BattleMap({
   function handleFogPointerDown(
     event: Parameters<NonNullable<ComponentProps<typeof Stage>['onMouseDown']>>[0]
   ) {
-    if (!isHost || !isFogMode || isPanMode || event.evt.button !== 0) return;
+    if (!canEditMap || !isFogMode || isPanMode || event.evt.button !== 0) return;
     const stage = event.target.getStage();
     const pointer = stage?.getPointerPosition();
     if (!pointer) return;
@@ -967,14 +971,14 @@ export function BattleMap({
   }
 
   return (
-    <section className="vtt-panel">
+    <section className={`vtt-panel${showMapChrome ? '' : ' session-map'}`}>
       <div className="vtt-toolbar">
         <div>
           <span className="eyebrow">{title}</span>
           <strong>{mapText.tokenCount(map.tokens.length)}</strong>
         </div>
 
-        {isHost ? (
+        {canEditMap ? (
           <div className="vtt-controls">
             <input
               value={imageUrlInput}
@@ -1070,7 +1074,7 @@ export function BattleMap({
           </button>
         </div>
 
-        {isHost ? (
+        {canEditMap ? (
           <div className="vtt-map-settings">
             <label>
               {mapText.width}
@@ -1141,7 +1145,7 @@ export function BattleMap({
           />
           {mapText.tokenSnap}
         </label>
-        {isHost && isFogMode ? (
+        {canEditMap && isFogMode ? (
           <div className="vtt-fog-tools">
             <button
               type="button"
@@ -1175,7 +1179,7 @@ export function BattleMap({
         ) : null}
       </div>
 
-      <div className={`vtt-workspace${selectedToken || selectedFog ? ' with-inspector' : ''}`}>
+      <div className={`vtt-workspace${canEditMap && (selectedToken || selectedFog) ? ' with-inspector' : ''}`}>
         <div className="vtt-stage-wrap" ref={containerRef}>
           <Stage
             width={displayWidth}
@@ -1257,7 +1261,7 @@ export function BattleMap({
             </Layer>
 
             <Layer>
-              {isHost
+              {canEditMap
                 ? startingPositions.map((position, index) => (
                     <Group
                       key={position.id}
@@ -1429,7 +1433,7 @@ export function BattleMap({
               ))}
             </Layer>
 
-            <Layer listening={isHost && isFogMode}>
+            <Layer listening={canEditMap && isFogMode}>
               {map.fogRects.map((rect) => (
                 <Rect
                   key={rect.id}
@@ -1469,7 +1473,7 @@ export function BattleMap({
           </Stage>
         </div>
 
-        {isHost && selectedToken ? (
+        {canEditMap && selectedToken ? (
           <aside className="vtt-inspector">
             <div className="vtt-inspector-head">
               <span className="eyebrow">{mapText.token}</span>
@@ -1663,7 +1667,7 @@ export function BattleMap({
           </aside>
         ) : null}
 
-        {isHost && selectedFog ? (
+        {canEditMap && selectedFog ? (
           <aside className="vtt-inspector">
             <div className="vtt-inspector-head">
               <span className="eyebrow">{mapText.fogLabel}</span>
