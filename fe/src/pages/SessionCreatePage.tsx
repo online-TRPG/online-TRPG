@@ -12,6 +12,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import buttonSimpleBeigeImage from '../components/Button_Simple_Beige.webp';
 import boxBulletinImage from '../components/Box_Bulletin_Rectangle.webp';
 import { buildSessionScenarioOptions } from '../data/sessionVisuals';
+import { getScenario } from '../services/api';
 import type { AvailableSessionListItem, Scenario } from '../types/session';
 import './SessionCreatePage.css';
 
@@ -71,6 +72,7 @@ export function SessionCreatePage({
   const [selectedScenarioKey, setSelectedScenarioKey] = useState('');
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [useAiGm, setUseAiGm] = useState(true);
+  const [selectedScenarioImage, setSelectedScenarioImage] = useState<string | null>(null);
 
   // 이미 모집 중인 세션이 있으면 중복 생성을 막기 위한 플래그입니다.
   const hasRecruitingSession = mySessionList.some((item) => item.status === 'recruiting');
@@ -87,6 +89,43 @@ export function SessionCreatePage({
     scenarioOptions.find((scenarioOption) => scenarioOption.key === selectedScenarioKey) ??
     scenarioOptions[0] ??
     null;
+
+  useEffect(() => {
+    let ignore = false;
+
+    if (!selectedScenario) {
+      setSelectedScenarioImage(null);
+      return () => {
+        ignore = true;
+      };
+    }
+
+    setSelectedScenarioImage(selectedScenario.image);
+
+    if (!selectedScenario.scenarioId) {
+      return () => {
+        ignore = true;
+      };
+    }
+
+    void getScenario(selectedScenario.scenarioId)
+      .then((detail) => {
+        if (ignore) return;
+        const firstNodeImage =
+          detail.nodes.find((node) => typeof node.imageUrl === 'string' && node.imageUrl.trim())?.imageUrl?.trim() ??
+          null;
+        setSelectedScenarioImage(firstNodeImage || selectedScenario.image);
+      })
+      .catch(() => {
+        if (!ignore) {
+          setSelectedScenarioImage(selectedScenario.image);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [selectedScenario]);
 
   // 폼 제출 시 부모의 세션 생성 콜백으로 입력값을 전달합니다.
   function submitSession(event: FormEvent<HTMLFormElement>) {
@@ -200,7 +239,7 @@ export function SessionCreatePage({
             {selectedScenario ? (
               <>
                 <img
-                  src={selectedScenario.image}
+                  src={selectedScenarioImage || selectedScenario.image}
                   alt={`${selectedScenario.title} thumbnail`}
                   className="session-create-preview-image"
                 />
@@ -213,7 +252,7 @@ export function SessionCreatePage({
                   </div>
 
                   <h2>{selectedScenario.title}</h2>
-                  <p>{selectedScenario.description}</p>
+                  <p className="session-create-preview-description">{selectedScenario.description}</p>
 
                   <div className="session-create-preview-foot">
                     <span className="session-create-preview-count">

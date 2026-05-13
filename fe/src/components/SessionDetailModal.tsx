@@ -55,6 +55,15 @@ function getRecommendationTags(title: string, gmModeLabel: string): string[] {
   return tags;
 }
 
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength).trimEnd()}...`;
+}
+
+function getIntroductionMaxLength(value: string): number {
+  return /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(value) ? 40 : 75;
+}
+
 function MetaIcon({ kind }: { kind: "star" | "users" | "clock" | "book" | "quill" }) {
   if (kind === "star") {
     return (
@@ -118,6 +127,13 @@ export function SessionDetailModal({
 
   const visualTitle = activeScenario?.title ?? detail?.session.title ?? "";
   const visual = findSessionVisualByTitle(visualTitle) ?? sessionVisualPresets[0];
+  const previewImage = activeScenario?.thumbnailUrl?.trim() || visual.image;
+  const rawScenarioIntroduction =
+    activeScenario?.description?.trim() || detail?.session.description?.trim() || visual.description;
+  const scenarioIntroduction = truncateText(
+    rawScenarioIntroduction,
+    getIntroductionMaxLength(rawScenarioIntroduction),
+  );
   const gmModeLabel = detail ? (detail.session.gmMode === "AI" ? "AI GM" : "\uC77C\uBC18 GM") : "AI GM";
   const difficultyLabel = visual.difficulty === "Hard" ? "어려움" : visual.difficulty === "Normal" ? "보통" : visual.difficulty;
   const durationLabel = getDurationLabel(visualTitle, difficultyLabel);
@@ -172,7 +188,7 @@ export function SessionDetailModal({
                 </div>
 
                 <div className="session-detail-scenario-image">
-                  <img src={visual.image} alt={detail.session.title} />
+                  <img src={previewImage} alt={detail.session.title} />
                 </div>
 
                 <section className="session-detail-fancy-section">
@@ -180,7 +196,7 @@ export function SessionDetailModal({
                     <MetaIcon kind="quill" />
                     <strong>시나리오 소개</strong>
                   </div>
-                  <p>{detail.session.description?.trim() || visual.description}</p>
+                  <p className="session-detail-introduction">{scenarioIntroduction}</p>
                 </section>
 
                 <section className="session-detail-fancy-section session-detail-fancy-tags">

@@ -281,6 +281,12 @@
   line-height: 1.45;
 }
 
+.session-create-preview-description {
+  max-height: 92px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
 .session-create-preview-foot {
   display: flex;
   align-items: end;
