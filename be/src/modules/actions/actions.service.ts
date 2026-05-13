@@ -79,6 +79,14 @@ export class ActionsService {
       });
     }
 
+    // S14P31A201-71: sessionId+userId 복합키 조회로 본인 sessionCharacter 만 얻지만,
+    // 캐릭터 이양/공유 등 향후 기능 대비해 Character.ownerUserId 도 명시 검증.
+    if (sessionCharacter.character.ownerUserId !== userId) {
+      throw forbidden("ACTION_403", "행동을 입력할 수 없습니다.", {
+        reason: "CHARACTER_OWNERSHIP_MISMATCH",
+      });
+    }
+
     const { state } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     const actionScope = this.resolveActionScope(dto.actionScope, state.phase);
     this.ensureCommandSyntax(dto.rawText);

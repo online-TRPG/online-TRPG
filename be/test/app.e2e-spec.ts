@@ -492,6 +492,88 @@ describe("Session service e2e", () => {
     expect(turn.body.data.turnNo).toBe(2);
   });
 
+  it("rejects startCombat when participantEntityIds contains another user's sessionCharacter (S14P31A201-71)", async () => {
+    const host = await createGuest("Owner-Host");
+    const guest = await createGuest("Owner-Guest");
+
+    const hostCharacter = await createCharacter(host.id, {
+      name: "OwnerHostChar",
+      ancestry: "Human",
+      className: "Fighter",
+    });
+    const guestCharacter = await createCharacter(guest.id, {
+      name: "OwnerGuestChar",
+      ancestry: "Elf",
+      className: "Wizard",
+    });
+
+    const created = await request(baseUrl)
+      .post("/api/v1/sessions")
+      .set("x-user-id", host.id)
+      .send({
+        title: "Ownership Combat",
+        scenarioId: DEFAULT_SCENARIO_ID,
+        gmMode: "AI",
+        maxParticipants: 2,
+      })
+      .expect(201);
+
+    const sessionId = created.body.data.session.sessionId as string;
+    const inviteCode = created.body.data.session.inviteCode as string;
+
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/character-selection`)
+      .set("x-user-id", host.id)
+      .send({ characterId: hostCharacter.id })
+      .expect(200);
+    await request(baseUrl)
+      .post("/api/v1/sessions/join-by-invite")
+      .set("x-user-id", guest.id)
+      .send({ inviteCode })
+      .expect(201);
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/character-selection`)
+      .set("x-user-id", guest.id)
+      .send({ characterId: guestCharacter.id })
+      .expect(200);
+
+    await request(baseUrl)
+      .patch(`/api/v1/sessions/${sessionId}/participants/me/ready`)
+      .set("x-user-id", host.id)
+      .send({ isReady: true })
+      .expect(200);
+    await request(baseUrl)
+      .patch(`/api/v1/sessions/${sessionId}/participants/me/ready`)
+      .set("x-user-id", guest.id)
+      .send({ isReady: true })
+      .expect(200);
+    const started = await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/start`)
+      .set("x-user-id", host.id)
+      .expect(201);
+
+    const sessionCharacters = started.body.data.sessionCharacters as Array<{
+      id: string;
+      userId: string;
+    }>;
+    const guestSessionCharacterId = sessionCharacters.find((sc) => sc.userId === guest.id)!.id;
+
+    // host 가 자기 캐릭터를 끼우지 않고 guest 의 sessionCharacter 만 명시 → 403
+    const blocked = await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/combat/start`)
+      .set("x-user-id", host.id)
+      .send({ participantEntityIds: [guestSessionCharacterId] })
+      .expect(403);
+    expect(JSON.stringify(blocked.body)).toContain("FOREIGN_CHARACTER_IN_PARTICIPANTS");
+
+    // dto 비워두면 자동 모드: 양쪽 모두 포함되어 정상 시작
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/combat/start`)
+      .set("x-user-id", host.id)
+      .send({})
+      .expect(201);
+  });
+
   it("blocks character PATCH when the session is PLAYING or PAUSED, allows it otherwise (S14P31A201-70)", async () => {
     const host = await createGuest("Lock-Host");
     const character = await createCharacter(host.id, {
