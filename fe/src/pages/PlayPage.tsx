@@ -704,6 +704,7 @@ export function PlayPage({
   const [localSelectedCharacterId, setLocalSelectedCharacterId] = useState<string | null>(null);
   const [isStatusMinimized, setStatusMinimized] = useState(false);
   const [isGameStarting, setIsGameStarting] = useState(false);
+  const [isStartTransitionPending, setIsStartTransitionPending] = useState(false);
   const [characterCarouselIndex, setCharacterCarouselIndex] = useState(0);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   // 현재 세션의 플레이어용 시나리오 노드와 VTT 맵 로딩 상태입니다.
@@ -711,8 +712,8 @@ export function PlayPage({
   const [vttMap, setVttMap] = useState<VttMapStateDto | null>(null);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
-  const [isScenarioLoaded, setIsScenarioLoaded] = useState(false);
-  const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const [, setIsScenarioLoaded] = useState(false);
+  const [, setIsMapLoaded] = useState(false);
   // 로그 자동 스크롤과 맵 저장 큐를 관리하는 ref입니다. 렌더링 없이 최신 값을 유지합니다.
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
@@ -801,7 +802,6 @@ export function PlayPage({
   const availableTabs = isRecruiting
     ? (['Main', 'Chat', 'Info', 'Settings'] as const)
     : startedSessionTabs;
-  const isStartedScreenReady = Boolean(!isRecruiting && isScenarioLoaded && isMapLoaded);
 
   // 서버가 알려준 선택 캐릭터가 바뀌면 로컬 선택 상태도 맞춥니다.
   useEffect(() => {
@@ -818,14 +818,21 @@ export function PlayPage({
   useEffect(() => {
     if (isRecruiting) {
       setIsGameStarting(false);
+      setIsStartTransitionPending(false);
+      return;
     }
-  }, [isRecruiting]);
 
-  useEffect(() => {
-    if (!isGameStarting || !isStartedScreenReady) return;
-    const timeout = window.setTimeout(() => setIsGameStarting(false), 250);
+    if (!isStartTransitionPending) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setIsGameStarting(false);
+      setIsStartTransitionPending(false);
+    }, 250);
+
     return () => window.clearTimeout(timeout);
-  }, [isGameStarting, isStartedScreenReady]);
+  }, [isRecruiting, isStartTransitionPending]);
 
   useEffect(() => {
     if (availableTabs.some((tab) => tab === activeTab)) return;
@@ -1622,6 +1629,7 @@ export function PlayPage({
                       disabled={!canStartSession || busy}
                       onClick={(event) => {
                         event.stopPropagation();
+                        setIsStartTransitionPending(true);
                         setIsGameStarting(true);
                         onStartSession();
                       }}
