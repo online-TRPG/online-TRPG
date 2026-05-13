@@ -112,6 +112,11 @@ export interface UseSessionReturn {
   clearError: () => void;
 }
 
+type SessionListRefreshResult = {
+  publicSessions: AvailableSessionListItem[];
+  mySessions: AvailableSessionListItem[];
+};
+
 type AppendLogFn = (
   kind: LogEntry["kind"],
   title: string,
@@ -239,6 +244,35 @@ export function useSession(
     setSnapshot(next);
     saveStoredSnapshot(next);
   }, []);
+
+  const reconcileSnapshotWithLists = useCallback(
+    (nextSnapshot: SessionSnapshot, lists: SessionListRefreshResult | null): SessionSnapshot => {
+      if (!lists) return nextSnapshot;
+
+      const matchedSession =
+        lists.mySessions.find(
+          (item) =>
+            item.sessionId === nextSnapshot.session.id ||
+            item.sessionPublicId === nextSnapshot.session.publicId,
+        ) ??
+        lists.publicSessions.find(
+          (item) =>
+            item.sessionId === nextSnapshot.session.id ||
+            item.sessionPublicId === nextSnapshot.session.publicId,
+        );
+
+      if (!matchedSession) return nextSnapshot;
+
+      return {
+        ...nextSnapshot,
+        session: {
+          ...nextSnapshot.session,
+          status: matchedSession.status as typeof nextSnapshot.session.status,
+        },
+      };
+    },
+    [],
+  );
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -564,8 +598,8 @@ export function useSession(
     void refreshSessionList();
   }, [accessToken, snapshot?.session.id, snapshot?.session.status, user]);
 
-  async function refreshSessionList() {
-    if (!user) return;
+  async function refreshSessionListInternal(): Promise<SessionListRefreshResult | null> {
+    if (!user) return null;
 
     try {
       const [publicSessions, mySessions] = await Promise.all([
@@ -575,9 +609,19 @@ export function useSession(
       setSessionList(publicSessions.content);
       setMySessionList(mySessions.content);
       setMySessionsLoaded(true);
+      return {
+        publicSessions: publicSessions.content,
+        mySessions: mySessions.content,
+      };
     } catch {
       // ignore
     }
+
+    return null;
+  }
+
+  async function refreshSessionList() {
+    await refreshSessionListInternal();
   }
 
   async function refreshMyCharacters() {
@@ -613,8 +657,12 @@ export function useSession(
       const next = await apiCreateSession(user, title, options, accessToken);
       updateSnapshot(next);
       appendLog("rest", "세션 생성", `${next.session.title} 세션을 생성했습니다.`);
-      await refreshSessionList();
-      return next;
+      const lists = await refreshSessionListInternal();
+      const reconciledSnapshot = reconcileSnapshotWithLists(next, lists);
+      if (reconciledSnapshot.session.status !== next.session.status) {
+        updateSnapshot(reconciledSnapshot);
+      }
+      return reconciledSnapshot;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "세션 생성에 실패했습니다.");
       return null;
@@ -637,8 +685,12 @@ export function useSession(
       const next = await apiJoinSession(user, inviteCode, accessToken);
       updateSnapshot(next);
       appendLog("rest", "세션 입장", `${next.session.title} 세션에 입장했습니다.`);
-      await refreshSessionList();
-      return next;
+      const lists = await refreshSessionListInternal();
+      const reconciledSnapshot = reconcileSnapshotWithLists(next, lists);
+      if (reconciledSnapshot.session.status !== next.session.status) {
+        updateSnapshot(reconciledSnapshot);
+      }
+      return reconciledSnapshot;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "세션 입장에 실패했습니다.");
       return null;
@@ -670,8 +722,12 @@ export function useSession(
         : await apiJoinSessionById(user, sessionId, accessToken);
       updateSnapshot(next);
       appendLog("rest", "세션 입장", `${next.session.title} 세션에 입장했습니다.`);
-      await refreshSessionList();
-      return next;
+      const lists = await refreshSessionListInternal();
+      const reconciledSnapshot = reconcileSnapshotWithLists(next, lists);
+      if (reconciledSnapshot.session.status !== next.session.status) {
+        updateSnapshot(reconciledSnapshot);
+      }
+      return reconciledSnapshot;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "세션 입장에 실패했습니다.");
       return null;
