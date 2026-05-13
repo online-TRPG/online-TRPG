@@ -9,6 +9,14 @@
  * 5) JSX: 좌측 사이드바, 검색/목록 영역, 우측 상세 패널
  */
 import { useEffect, useMemo, useState } from "react";
+import plusSignImage from "../components/plussign.webp";
+import quillImage from "../components/quill.webp";
+import scenarioMetalFrameImage from "../components/scenario_metal_frame.webp";
+import bookImage from "../components/book.webp";
+import scrollImage from "../components/scroll.webp";
+import scrollHorizontalImage from "../components/scroll_horizontal.webp";
+import searchbarFrameImage from "../components/searchbar_gold_frame.webp";
+import sidePanelImage from "../components/Side_Panel.webp";
 import { Icon } from "../components/Icon";
 import { createScenario, deleteScenario, getScenario, listMyScenarios } from "../services/api";
 import type { Scenario, StoredUser } from "../types/session";
@@ -34,6 +42,16 @@ function makeCloneId(prefix: string): string {
 // 복제된 노드 ID 맵을 사용해 링크/단서가 새 노드를 가리키도록 바꿉니다.
 function remapNodeReference(value: unknown, nodeIdMap: Map<string, string>): unknown {
   return typeof value === "string" ? nodeIdMap.get(value) ?? value : value;
+}
+
+function formatScenarioLevel(scenario: Scenario): string {
+  const scenarioRecord = scenario as Record<string, unknown>;
+  const startLevel = typeof scenarioRecord.startLevel === "number" ? scenarioRecord.startLevel : 1;
+  const endLevel =
+    typeof scenarioRecord.recommendedEndLevel === "number"
+      ? scenarioRecord.recommendedEndLevel
+      : null;
+  return endLevel && endLevel !== startLevel ? `LV ${startLevel}-${endLevel}` : `LV ${startLevel}`;
 }
 
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
@@ -175,138 +193,176 @@ export function ScenarioPage({
   }
 
   const disabled = busy || localBusy;
-  const hasSearchTerm = Boolean(searchTerm.trim());
 
   return (
-    <main className="character-page fantasy-character-page">
-      {/* 좌측 사이드바: 시나리오 생성 버튼과 간단한 안내를 배치합니다. */}
+    <main
+      className="character-page fantasy-character-page scenario-page"
+      style={{
+        ["--scenario-side-panel-image" as string]: `url(${sidePanelImage})`,
+        ["--scenario-scroll-image" as string]: `url(${scrollImage})`,
+        ["--scenario-scroll-horizontal-image" as string]: `url(${scrollHorizontalImage})`,
+        ["--scenario-search-frame-image" as string]: `url(${searchbarFrameImage})`,
+        ["--scenario-card-frame-image" as string]: `url(${scenarioMetalFrameImage})`,
+        ["--scenario-book-image" as string]: `url(${bookImage})`,
+      }}
+    >
       <section className="scenario-management-layout">
-        <aside className="fantasy-character-sidebar">
-          <button type="button" className="fantasy-character-sidebutton" onClick={onOpenCreate}>
-            새 시나리오 생성
-          </button>
-          <button
-            type="button"
-            className="fantasy-character-sidebutton"
-            disabled={!selectedScenario || disabled}
-            onClick={() => void handleCloneSelected()}
-          >
-            시나리오 복제
-          </button>
-          <button
-            type="button"
-            className="fantasy-character-sidebutton"
-            disabled={!selectedScenario || disabled}
-            onClick={() => selectedScenario && onOpenEdit(selectedScenario.id)}
-          >
-            시나리오 수정
-          </button>
-          <button
-            type="button"
-            className="fantasy-character-sidebutton"
-            disabled={!selectedScenario || disabled}
-            onClick={() => void handleDeleteSelected()}
-          >
-            시나리오 삭제
-          </button>
-        </aside>
-
-        {/* 중앙/우측 메인 영역: 검색 가능한 시나리오 목록과 상세 패널입니다. */}
-      <section className="scenario-library-board">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">My scenarios</span>
-              <h1>내 시나리오</h1>
-            </div>
-            <button type="button" className="primary small" onClick={onOpenCreate}>
-              <Icon name="plus" />
-              Create
+        <aside className="scenario-action-rail">
+          <div className="scenario-action-rail-shell">
+            <button type="button" className="scenario-rail-action" onClick={onOpenCreate}>
+              새 시나리오 생성
+            </button>
+            <button
+              type="button"
+              className="scenario-rail-action"
+              disabled={!selectedScenario || disabled}
+              onClick={() => void handleCloneSelected()}
+            >
+              시나리오 복제
+            </button>
+            <button
+              type="button"
+              className="scenario-rail-action"
+              disabled={!selectedScenario || disabled}
+              onClick={() => selectedScenario && onOpenEdit(selectedScenario.id)}
+            >
+              시나리오 수정
+            </button>
+            <button
+              type="button"
+              className="scenario-rail-action"
+              disabled={!selectedScenario || disabled}
+              onClick={() => void handleDeleteSelected()}
+            >
+              시나리오 삭제
             </button>
           </div>
+        </aside>
 
-          <label className="scenario-library-search" htmlFor="scenario-title-search">
-            <Icon name="search" />
-            <input
-              id="scenario-title-search"
-              type="search"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="시나리오 제목 검색"
-            />
-          </label>
+        {/* 중앙 보드: 검색과 시나리오 카드 목록입니다. */}
+        <section className="scenario-library-stage">
+          <div className="scenario-library-board">
+            <img className="scenario-library-quill" src={quillImage} alt="" aria-hidden="true" />
+            <div className="scenario-library-heading">
+              <h1>내 시나리오</h1>
+            </div>
 
-          {/* 시나리오 카드 목록입니다. 카드 클릭 시 오른쪽 상세 패널 대상이 바뀝니다. */}
-        <div className="scenario-library-grid">
-            {scenarios.length ? (
-              scenarios.map((scenario) => (
+            <label className="scenario-library-search" htmlFor="scenario-title-search">
+              <Icon name="search" />
+              <input
+                id="scenario-title-search"
+                type="search"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="시나리오 제목 검색"
+              />
+            </label>
+
+            <div className="scenario-library-grid">
+              {scenarios.map((scenario) => (
                 <button
                   key={scenario.id}
                   type="button"
                   className={`scenario-library-card${scenario.id === selectedScenarioId ? " selected" : ""}`}
                   onClick={() => setSelectedScenarioId(scenario.id)}
                 >
-                  <span className="status-chip">{scenario.ruleSetId ?? "TRPG"}</span>
-                  <strong>{scenario.title}</strong>
+                  <div className="scenario-library-card-header">
+                    <strong>{scenario.title}</strong>
+                    <span className="scenario-library-level">{formatScenarioLevel(scenario)}</span>
+                  </div>
                   <p>{scenario.description || "설명이 아직 없습니다."}</p>
                   <dl>
+                    <div>
+                      <dt>룰셋</dt>
+                      <dd>{scenario.ruleSetId ?? "TRPG"}</dd>
+                    </div>
                     <div>
                       <dt>난이도</dt>
                       <dd>{scenario.difficulty ?? "-"}</dd>
                     </div>
-                    <div>
-                      <dt>라이선스</dt>
-                      <dd>{scenario.license}</dd>
-                    </div>
                   </dl>
+                  <div className="scenario-library-card-actions">
+                    <span>{scenario.license}</span>
+                    <span>{selectedScenarioId === scenario.id ? "선택됨" : "상세 보기"}</span>
+                  </div>
                 </button>
-              ))
-            ) : hasSearchTerm ? (
-              <article className="empty-card">
-                <h3>검색 결과가 없습니다.</h3>
-                <p>다른 제목으로 검색해 보세요.</p>
-              </article>
-            ) : (
-              <article className="empty-card">
-                <h3>아직 직접 만든 시나리오가 없습니다.</h3>
-                <p>새 시나리오를 만들어 세션 생성 화면에서 사용할 수 있습니다.</p>
-              </article>
-            )}
+              ))}
+
+              <button
+                type="button"
+                className="scenario-library-card scenario-library-card-create"
+                onClick={onOpenCreate}
+              >
+                <img src={plusSignImage} alt="" aria-hidden="true" />
+                <strong>+ 새 시나리오 만들기</strong>
+              </button>
+            </div>
           </div>
         </section>
 
-        {/* 선택한 시나리오의 메타 정보와 편집/복제/삭제 버튼 영역입니다. */}
-        <section className="scenario-detail-panel">
-          {selectedScenario ? (
-            <>
-              <span className="eyebrow">Selected scenario</span>
-              <h2>{selectedScenario.title}</h2>
-              <p>{selectedScenario.description || "시나리오 소개가 비어 있습니다."}</p>
-              <dl className="profile-kv-grid">
-                <div>
-                  <dt>시나리오 ID</dt>
-                  <dd>{selectedScenario.id}</dd>
+        {/* 우측 상세 패널: 선택 안내와 선택된 시나리오 상세 정보입니다. */}
+        <aside className="scenario-detail-stage">
+          <section className="scenario-detail-note">
+            <h2>시나리오 상세</h2>
+            <p>왼쪽에서 시나리오를 선택하면 상세 정보와 기본 메타 정보를 확인할 수 있습니다.</p>
+          </section>
+
+          <section className="scenario-detail-panel">
+            {selectedScenario ? (
+              <>
+                <div className="scenario-detail-panel-heading">
+                  <span className="eyebrow">Selected scenario</span>
+                  <h2>{selectedScenario.title}</h2>
                 </div>
-                <div>
-                  <dt>시작 노드</dt>
-                  <dd>{selectedScenario.startNodeId ?? "-"}</dd>
+                <p>{selectedScenario.description || "시나리오 소개가 비어 있습니다."}</p>
+                <dl className="scenario-detail-meta">
+                  <div>
+                    <dt>레벨 권장</dt>
+                    <dd>{formatScenarioLevel(selectedScenario)}</dd>
+                  </div>
+                  <div>
+                    <dt>룰셋</dt>
+                    <dd>{selectedScenario.ruleSetId ?? "-"}</dd>
+                  </div>
+                  <div>
+                    <dt>시작 노드</dt>
+                    <dd>{selectedScenario.startNodeId ?? "-"}</dd>
+                  </div>
+                  <div>
+                    <dt>라이선스</dt>
+                    <dd>{selectedScenario.license}</dd>
+                  </div>
+                  <div>
+                    <dt>출처</dt>
+                    <dd>{selectedScenario.attribution ?? "-"}</dd>
+                  </div>
+                  <div>
+                    <dt>시나리오 ID</dt>
+                    <dd>{selectedScenario.id}</dd>
+                  </div>
+                </dl>
+                <div className="scenario-detail-actions">
+                  <button type="button" className="small" onClick={() => onOpenEdit(selectedScenario.id)}>
+                    시나리오 수정
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    disabled={disabled}
+                    onClick={() => void handleCloneSelected()}
+                  >
+                    시나리오 복제
+                  </button>
                 </div>
-                <div>
-                  <dt>룰셋</dt>
-                  <dd>{selectedScenario.ruleSetId ?? "-"}</dd>
-                </div>
-                <div>
-                  <dt>출처</dt>
-                  <dd>{selectedScenario.attribution ?? "-"}</dd>
-                </div>
-              </dl>
-            </>
-          ) : (
-            <article className="empty-card">
-              <h3>선택된 시나리오가 없습니다.</h3>
-              <p>왼쪽에서 새 시나리오를 생성해 주세요.</p>
-            </article>
-          )}
-        </section>
+              </>
+            ) : (
+              <article className="scenario-detail-empty">
+                <h3>선택된 시나리오가 없습니다.</h3>
+                <p>중앙 보드에서 시나리오 카드를 선택하거나 새 시나리오를 생성해 주세요.</p>
+              </article>
+            )}
+          </section>
+        </aside>
       </section>
 
       {localError || error ? <p className="panel-error">{localError ?? error}</p> : null}
