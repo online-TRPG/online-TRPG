@@ -15,6 +15,7 @@ import sidePanelImage from "../components/Side_Panel.webp";
 import sidebarFooterImage from "../assets/images/Sidebar_Footer_Image.webp";
 import dragonPeekImage from "../assets/images/Peak_a_Boo_Dragon.webp";
 import { findSessionVisualByTitle, sessionVisualPresets } from "../data/sessionVisuals";
+import { getScenario } from "../services/api";
 import type { AvailableSessionListItem, SessionDetail, SessionSnapshot, User } from "../types/session";
 import "./SessionDiscoverPage.css";
 
@@ -134,6 +135,7 @@ export function SessionDiscoverPage({
   const [selectedSessionDetail, setSelectedSessionDetail] = useState<SessionDetail | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [scenarioPreviewImages, setScenarioPreviewImages] = useState<Record<string, string>>({});
 
   // 이미 참여 중인 모집 세션이 있으면 다른 모집 세션 참가를 막기 위한 상태입니다.
   const hasBlockingSession = mySessionList.some((item) => isBlockingSessionStatus(item.status));
@@ -216,6 +218,46 @@ export function SessionDiscoverPage({
     () => filteredSessions.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE),
     [filteredSessions, safePage],
   );
+
+  useEffect(() => {
+    let ignore = false;
+    const pending = pagedSessions.filter((item) => item.scenarioId && !scenarioPreviewImages[item.scenarioId]);
+
+    if (!pending.length) {
+      return () => {
+        ignore = true;
+      };
+    }
+
+    void Promise.all(
+      pending.map(async (item) => {
+        try {
+          const detail = await getScenario(item.scenarioId);
+          const firstNodeImage =
+            detail.nodes.find((node) => typeof node.imageUrl === "string" && node.imageUrl.trim())?.imageUrl?.trim() ??
+            null;
+          return [item.scenarioId, firstNodeImage || item.scenarioThumbnailUrl || ""] as const;
+        } catch {
+          return [item.scenarioId, item.scenarioThumbnailUrl || ""] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (ignore) return;
+      setScenarioPreviewImages((current) => {
+        const next = { ...current };
+        for (const [scenarioId, image] of entries) {
+          if (image) {
+            next[scenarioId] = image;
+          }
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      ignore = true;
+    };
+  }, [pagedSessions, scenarioPreviewImages]);
 
   const pageNumbers = useMemo(() => Array.from({ length: totalPages }, (_, index) => index), [totalPages]);
 
@@ -520,6 +562,8 @@ export function SessionDiscoverPage({
                 const visual =
                   findSessionVisualByTitle(item.scenarioTitle) ??
                   sessionVisualPresets[(safePage * PAGE_SIZE + index) % sessionVisualPresets.length];
+                const previewImage =
+                  scenarioPreviewImages[item.scenarioId] || item.scenarioThumbnailUrl || visual.image;
                 const detailId = item.sessionPublicId || item.sessionId;
                 const isCurrentListSession =
                   snapshot?.session.id === item.sessionId ||
@@ -539,7 +583,7 @@ export function SessionDiscoverPage({
                     tabIndex={0}
                   >
                     <div className="session-discover-thumbnail-frame">
-                      <img src={visual.image} alt={`${visual.title} thumbnail`} className="session-discover-thumbnail" />
+                      <img src={previewImage} alt={`${visual.title} thumbnail`} className="session-discover-thumbnail" />
                     </div>
 
                     <div className="session-discover-row-copy">
