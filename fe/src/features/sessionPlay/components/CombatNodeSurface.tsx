@@ -185,6 +185,7 @@ export function CombatNodeSurface({
               characters={characters}
               isHost={isHost}
               currentUserId={currentUserId}
+              interactionMode="session"
               onChange={onMapChange}
               title={node?.title ?? '전투 지도'}
             />

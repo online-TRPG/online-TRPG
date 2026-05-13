@@ -113,6 +113,11 @@
   font-size: 14px;
 }
 
+.vtt-panel.session-map > .vtt-toolbar,
+.vtt-panel.session-map > .vtt-subtoolbar {
+  display: none;
+}
+
 .vtt-controls {
   flex: 1 1 520px;
   min-width: 0;
