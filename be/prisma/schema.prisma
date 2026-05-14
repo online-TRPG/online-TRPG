@@ -414,6 +414,7 @@ model Scenario {
   license          ScenarioLicense
   attribution      String?
   startNodeId      String?
+  npcsJson         String?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
   creator          User?              @relation("ScenarioCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)

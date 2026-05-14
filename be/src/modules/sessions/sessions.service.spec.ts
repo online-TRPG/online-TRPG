@@ -1,4 +1,5 @@
 import { ScenarioNodeType } from "@trpg/shared-types";
+import { ForbiddenException } from "@nestjs/common";
 import { SessionsService } from "./sessions.service";
 
 describe("SessionsService session listing", () => {
@@ -233,5 +234,124 @@ describe("SessionsService player scenario mapping", () => {
     );
 
     expect(node.checkOptions[0]).toMatchObject({ label: "Search the shelves" });
+  });
+});
+
+describe("SessionsService VTT map structures", () => {
+  const service = Object.create(SessionsService.prototype) as {
+    redactVttMapForPlayer: (map: Record<string, unknown>) => Record<string, unknown>;
+    ensureTokenPathIsPassable: (
+      map: Record<string, unknown>,
+      fromToken: Record<string, unknown>,
+      toToken: Record<string, unknown>,
+    ) => void;
+    rectsOverlap: (
+      a: { x: number; y: number; width: number; height: number },
+      b: { x: number; y: number; width: number; height: number },
+    ) => boolean;
+    getGridLineCells: (
+      fromToken: Record<string, unknown>,
+      toToken: Record<string, unknown>,
+      map: Record<string, unknown>,
+    ) => Array<{ x: number; y: number }>;
+    getGridIndex: (value: number, gridSize: number, maxSize: number) => number;
+  };
+
+  it("redacts player-hidden structure details from VTT maps", () => {
+    const redacted = service.redactVttMapForPlayer({
+      id: "map-1",
+      width: 192,
+      height: 64,
+      gridSize: 64,
+      tokens: [
+        { id: "visible-token", name: "Visible", x: 0, y: 0, size: 64, hidden: false },
+        { id: "hidden-token", name: "Hidden", x: 64, y: 0, size: 64, hidden: true },
+      ],
+      startingPositions: [{ id: "start-1", label: "P1", x: 0, y: 0 }],
+      doorCells: [
+        {
+          id: "door-1",
+          x: 64,
+          y: 0,
+          width: 64,
+          height: 64,
+          state: "locked",
+          keyItemId: "silver-key",
+        },
+      ],
+      objectCells: [
+        {
+          id: "object-visible",
+          x: 0,
+          y: 0,
+          width: 64,
+          height: 64,
+          visibleToPlayers: true,
+          hiddenClueIds: ["clue-1"],
+          hiddenItemIds: ["item-1"],
+          hiddenEventIds: ["event-1"],
+        },
+        {
+          id: "object-hidden",
+          x: 128,
+          y: 0,
+          width: 64,
+          height: 64,
+          visibleToPlayers: false,
+          hiddenClueIds: ["clue-2"],
+        },
+      ],
+    });
+
+    expect(redacted.tokens).toEqual([
+      expect.objectContaining({ id: "visible-token", hidden: false }),
+    ]);
+    expect(redacted.startingPositions).toEqual([]);
+    expect(redacted.doorCells).toEqual([
+      expect.objectContaining({ id: "door-1", keyItemId: null }),
+    ]);
+    expect(redacted.objectCells).toEqual([
+      expect.objectContaining({
+        id: "object-visible",
+        hiddenClueIds: [],
+        hiddenItemIds: [],
+        hiddenEventIds: [],
+      }),
+    ]);
+  });
+
+  it("blocks player token paths through terrain, walls, and closed doors", () => {
+    const map = {
+      width: 256,
+      height: 64,
+      gridSize: 64,
+      terrainCells: [{ id: "rock", x: 64, y: 0, width: 64, height: 64 }],
+      wallCells: [{ id: "wall", x: 128, y: 0, width: 64, height: 64 }],
+      doorCells: [{ id: "door", x: 192, y: 0, width: 64, height: 64, state: "closed" }],
+    };
+    const fromToken = { id: "token-1", x: 0, y: 0, size: 64 };
+    const toToken = { ...fromToken, x: 192 };
+
+    expect(() => service.ensureTokenPathIsPassable(map, fromToken, toToken)).toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it("allows player token paths through open and broken doors", () => {
+    const map = {
+      width: 256,
+      height: 64,
+      gridSize: 64,
+      terrainCells: [],
+      wallCells: [],
+      doorCells: [
+        { id: "open-door", x: 64, y: 0, width: 64, height: 64, state: "open" },
+        { id: "broken-door", x: 128, y: 0, width: 64, height: 64, state: "broken" },
+      ],
+    };
+    const fromToken = { id: "token-1", x: 0, y: 0, size: 64 };
+    const toToken = { ...fromToken, x: 192 };
+
+    expect(() => service.ensureTokenPathIsPassable(map, fromToken, toToken)).not.toThrow();
   });
 });

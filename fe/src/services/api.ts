@@ -7,6 +7,7 @@ import type {
   LoginResponseDto,
   MainCommandResponseDto,
   OAuthUrlResponseDto,
+  ResolveMainCommandCheckDto,
   ScenarioAssetKind,
   ScenarioAssetResponseDto,
   ClassDefinitionResponseDto,
@@ -768,6 +769,23 @@ export function submitMainCommand(
     accessToken,
     body: payload,
   });
+}
+
+export function resolveMainCommandCheck(
+  user: StoredUser,
+  sessionId: string,
+  payload: ResolveMainCommandCheckDto,
+  accessToken?: string | null
+): Promise<MainCommandResponseDto> {
+  return requestJson<MainCommandResponseDto>(
+    `/sessions/${sessionId}/actions/main-command/check-result`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+      body: payload,
+    }
+  );
 }
 
 export function useInventoryItem(

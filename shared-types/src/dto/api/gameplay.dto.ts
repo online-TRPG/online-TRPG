@@ -229,6 +229,28 @@ export class MainCommandResponseDto {
 
   @ApiPropertyOptional({ type: Object, nullable: true })
   statePatch?: Record<string, unknown> | null;
+
+  @ApiPropertyOptional({ type: Object, nullable: true })
+  data?: Record<string, unknown> | null;
+}
+
+export class ResolveMainCommandCheckDto {
+  @ApiProperty({ enum: ActionOutcome })
+  @IsEnum(ActionOutcome)
+  outcome!: ActionOutcome;
+
+  @ApiProperty({ type: Object })
+  effect!: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  requestId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  actorId?: string;
 }
 
 export class DiceRollRequestDto {

@@ -305,7 +305,8 @@
   font-weight: 800;
 }
 
-.vtt-inspector input {
+.vtt-inspector input,
+.vtt-inspector select {
   min-width: 0;
   height: 32px;
   border: 1px solid rgba(120, 83, 41, 0.18);

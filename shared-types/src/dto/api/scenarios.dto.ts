@@ -98,6 +98,9 @@ export class ScenarioSummaryResponseDto {
 }
 
 export class ScenarioResponseDto extends ScenarioSummaryResponseDto {
+  @ApiPropertyOptional({ type: [Object] })
+  npcs?: Record<string, unknown>[];
+
   @ApiProperty({ type: [ScenarioNodeResponseDto] })
   nodes!: ScenarioNodeResponseDto[];
 }
@@ -348,6 +351,12 @@ export class CreateScenarioDto {
   @ValidateNested({ each: true })
   @Type(() => ScenarioNodeInputDto)
   nodes?: ScenarioNodeInputDto[];
+
+  @ApiPropertyOptional({ type: [Object] })
+  @IsOptional()
+  @IsArray()
+  @IsObject({ each: true })
+  npcs?: Record<string, unknown>[];
 }
 
 export class UpdateScenarioDto {
@@ -430,4 +439,10 @@ export class UpdateScenarioDto {
   @ValidateNested({ each: true })
   @Type(() => ScenarioNodeInputDto)
   nodes?: ScenarioNodeInputDto[];
+
+  @ApiPropertyOptional({ type: [Object] })
+  @IsOptional()
+  @IsArray()
+  @IsObject({ each: true })
+  npcs?: Record<string, unknown>[];
 }

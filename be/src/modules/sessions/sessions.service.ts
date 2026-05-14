@@ -27,6 +27,8 @@ import {
   HumanGmMessageDto,
   InventoryItemDto,
   JoinSessionDto,
+  MainCommandCheckOptionDto,
+  MainCommandStatus,
   MainCommandTargetType,
   ParticipantRole,
   ParticipantStatusResponseDto,
@@ -1265,6 +1267,224 @@ export class SessionsService {
     );
   }
 
+  async describeVttObjectAtPoint(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    nodeId: string;
+    mapPoint: { x: number; y: number };
+  }): Promise<{ message: string } | null> {
+    const map = await this.getVttMapForSessionScenario(params.sessionId, params.sessionScenarioId);
+    const objectCell = this.findVttObjectAtPoint(map, params.mapPoint);
+    if (!objectCell || objectCell.visibleToPlayers === false) {
+      return null;
+    }
+
+    const name = objectCell.name?.trim() || "오브젝트";
+    const description = objectCell.description?.trim() || "겉으로 드러난 추가 설명은 없습니다.";
+    return { message: `${name}: ${description}` };
+  }
+
+  async revealVttObjectContentsAtPoint(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    nodeId: string;
+    mapPoint: { x: number; y: number };
+    turnLogId?: string | null;
+    revealedBy?: string;
+  }): Promise<number> {
+    const map = await this.getVttMapForSessionScenario(params.sessionId, params.sessionScenarioId);
+    const objectCell = this.findVttObjectAtPoint(map, params.mapPoint);
+    if (!objectCell || objectCell.visibleToPlayers === false) {
+      return 0;
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const clueSnapshots = await this.getCurrentNodeClueSnapshots(tx, {
+        sessionScenarioId: params.sessionScenarioId,
+        nodeId: params.nodeId,
+      });
+      const revealInputs = [
+        ...(objectCell.hiddenClueIds ?? []).map((contentId) => ({
+          contentId,
+          contentKind: "clue",
+          snapshot: clueSnapshots.get(contentId) ?? { id: contentId },
+        })),
+        ...(objectCell.hiddenItemIds ?? []).map((contentId) => ({
+          contentId,
+          contentKind: "item",
+          snapshot: { id: contentId, sourceObjectId: objectCell.id },
+        })),
+        ...(objectCell.hiddenEventIds ?? []).map((contentId) => ({
+          contentId,
+          contentKind: "event",
+          snapshot: { id: contentId, sourceObjectId: objectCell.id },
+        })),
+      ].filter((item) => item.contentId.trim());
+
+      await Promise.all(
+        revealInputs.map((item) =>
+          this.recordSessionReveal(tx, {
+            sessionScenarioId: params.sessionScenarioId,
+            contentId: item.contentId,
+            contentKind: item.contentKind,
+            scope: "party",
+            revealedBy: params.revealedBy ?? "system",
+            reason: "vtt_object_investigation",
+            turnLogId: params.turnLogId,
+            snapshot: item.snapshot,
+          }),
+        ),
+      );
+
+      return revealInputs.length;
+    });
+  }
+
+  async openVttDoorAtPoint(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    nodeId: string;
+    mapPoint: { x: number; y: number };
+    itemId?: string | null;
+  }): Promise<{
+    status: MainCommandStatus;
+    message: string;
+    checkOptions?: MainCommandCheckOptionDto[];
+    checkEffect?: Record<string, unknown>;
+  } | null> {
+    const result = await this.updateVttDoorAtPoint(params, (door) => {
+      const doorName = door.name?.trim() || "문";
+
+      if (door.state === "open") {
+        return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 열려 있습니다.` };
+      }
+      if (door.state === "broken") {
+        return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 파괴되어 지나갈 수 있습니다.` };
+      }
+      if (door.state === "locked") {
+        const requiredKeyId = door.keyItemId?.trim() || null;
+        const providedItemId = params.itemId?.trim() || null;
+        if (requiredKeyId && providedItemId !== requiredKeyId) {
+          return {
+            door,
+            status: MainCommandStatus.IMPOSSIBLE,
+            message: `${doorName}은 잠겨 있습니다. 맞는 열쇠가 필요합니다.`,
+          };
+        }
+        if (!requiredKeyId || !providedItemId) {
+          return {
+            door,
+            status: MainCommandStatus.CHECK_REQUIRED,
+            message: `${doorName}은 잠겨 있습니다. 자물쇠를 열려면 판정이 필요합니다.`,
+            checkOptions: [{ skill: "sleight_of_hand", reason: "잠긴 문 해제" }],
+            checkEffect: this.buildVttDoorCheckEffect(door, params, "open"),
+          };
+        }
+      }
+
+      return {
+        door: { ...door, state: "open" as const },
+        status: MainCommandStatus.RESOLVED,
+        message: `${doorName}을 열었습니다.`,
+      };
+    });
+
+    return result
+      ? {
+          status: result.status,
+          message: result.message,
+          checkOptions: result.checkOptions,
+          checkEffect: result.checkEffect,
+        }
+      : null;
+  }
+
+  async breakVttDoorAtPoint(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    nodeId: string;
+    mapPoint: { x: number; y: number };
+  }): Promise<{
+    status: MainCommandStatus;
+    message: string;
+    checkOptions?: MainCommandCheckOptionDto[];
+    checkEffect?: Record<string, unknown>;
+  } | null> {
+    return this.updateVttDoorAtPoint(params, (door) => {
+      const doorName = door.name?.trim() || "문";
+
+      if (door.state === "open") {
+        return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 열려 있습니다.` };
+      }
+      if (door.state === "broken") {
+        return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 파괴되어 있습니다.` };
+      }
+      if (!door.canBreak) {
+        return {
+          door,
+          status: MainCommandStatus.IMPOSSIBLE,
+          message: `${doorName}은 현재 방식으로 부수기 어렵습니다.`,
+        };
+      }
+      if (door.breakCheckDc) {
+        return {
+          door,
+          status: MainCommandStatus.CHECK_REQUIRED,
+          message: `${doorName}을 부수려면 DC ${door.breakCheckDc} 판정이 필요합니다.`,
+          checkOptions: [{ ability: "str", reason: `문 파괴 DC ${door.breakCheckDc}` }],
+          checkEffect: this.buildVttDoorCheckEffect(door, params, "broken"),
+        };
+      }
+
+      return {
+        door: { ...door, state: "broken" as const },
+        status: MainCommandStatus.RESOLVED,
+        message: `${doorName}을 부쉈습니다.`,
+      };
+    });
+  }
+
+  async applyVttDoorCheckSuccess(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    doorId: string;
+    nodeId: string;
+    effect: "open" | "broken";
+  }): Promise<{ status: MainCommandStatus; message: string }> {
+    const result = await this.updateVttDoorById(params, (door) => {
+      const doorName = door.name?.trim() || "문";
+      if (params.effect === "open") {
+        if (door.state === "open") {
+          return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 열려 있습니다.` };
+        }
+        return {
+          door: { ...door, state: "open" as const },
+          status: MainCommandStatus.RESOLVED,
+          message: `판정에 성공해 ${doorName}을 열었습니다.`,
+        };
+      }
+
+      if (door.state === "open") {
+        return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 열려 있습니다.` };
+      }
+      if (door.state === "broken") {
+        return { door, status: MainCommandStatus.MESSAGE, message: `${doorName}은 이미 파괴되어 있습니다.` };
+      }
+      return {
+        door: { ...door, state: "broken" as const },
+        status: MainCommandStatus.RESOLVED,
+        message: `판정에 성공해 ${doorName}을 부쉈습니다.`,
+      };
+    });
+
+    return (
+      result ?? {
+        status: MainCommandStatus.IMPOSSIBLE,
+        message: "판정 대상 문을 현재 맵에서 찾을 수 없습니다.",
+      }
+    );
+  }
+
   async buildSnapshot(sessionId: string): Promise<SessionSnapshotDto> {
     const resolvedSessionId = (await this.getSessionEntityOrThrow(sessionId)).id;
     const session = await this.prisma.session.findUnique({
@@ -1791,6 +2011,10 @@ export class SessionsService {
       tokens,
       fogRects: [],
       startingPositions,
+      terrainCells: [],
+      wallCells: [],
+      doorCells: [],
+      objectCells: [],
       updatedAt: new Date().toISOString(),
     };
   }
@@ -1897,6 +2121,218 @@ export class SessionsService {
     return this.buildDefaultVttMap(sessionId, state.currentNodeId ?? null);
   }
 
+  private async getVttMapForSessionScenario(
+    sessionId: string,
+    sessionScenarioId: string,
+  ): Promise<VttMapStateDto> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId },
+      select: { currentNodeId: true, flagsJson: true },
+    });
+    if (!state) {
+      throw new NotFoundException(`Game state for session scenario ${sessionScenarioId} was not found.`);
+    }
+
+    return this.getVttMapBaseline(sessionId, sessionScenarioId, state);
+  }
+
+  private async updateVttDoorAtPoint(
+    params: {
+      sessionId: string;
+      sessionScenarioId: string;
+      nodeId: string;
+      mapPoint: { x: number; y: number };
+    },
+    updateDoor: (
+      door: NonNullable<VttMapStateDto["doorCells"]>[number],
+    ) => {
+      door: NonNullable<VttMapStateDto["doorCells"]>[number];
+      status: MainCommandStatus;
+      message: string;
+      checkOptions?: MainCommandCheckOptionDto[];
+      checkEffect?: Record<string, unknown>;
+    },
+  ): Promise<{
+    status: MainCommandStatus;
+    message: string;
+    checkOptions?: MainCommandCheckOptionDto[];
+    checkEffect?: Record<string, unknown>;
+  } | null> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: params.sessionScenarioId },
+      select: { currentNodeId: true, flagsJson: true },
+    });
+    if (!state) {
+      throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
+    }
+
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
+    const doorCells = map.doorCells ?? [];
+    const doorIndex = doorCells.findIndex((door) => this.isPointInVttCell(params.mapPoint, door));
+    if (doorIndex < 0) {
+      return null;
+    }
+
+    const result = updateDoor(doorCells[doorIndex]);
+    if (result.door !== doorCells[doorIndex]) {
+      const nextMap = this.normalizeVttMap(
+        {
+          ...map,
+          doorCells: doorCells.map((door, index) => (index === doorIndex ? result.door : door)),
+        },
+        state.currentNodeId ?? null,
+      );
+      await this.prisma.gameState.update({
+        where: { sessionScenarioId: params.sessionScenarioId },
+        data: {
+          version: { increment: 1 },
+          flagsJson: JSON.stringify({
+            ...flags,
+            vttMap: nextMap,
+          }),
+        },
+      });
+
+      const session = await this.getSessionEntityOrThrow(params.sessionId);
+      this.realtimeEvents.emitVttMapUpdated(session.id, {
+        hostUserId: session.hostUserId,
+        hostMap: nextMap,
+        playerMap: this.redactVttMapForPlayer(nextMap),
+      });
+    }
+
+    return {
+      status: result.status,
+      message: result.message,
+      checkOptions: result.checkOptions,
+      checkEffect: result.checkEffect,
+    };
+  }
+
+  private async updateVttDoorById(
+    params: {
+      sessionId: string;
+      sessionScenarioId: string;
+      nodeId: string;
+      doorId: string;
+    },
+    updateDoor: (
+      door: NonNullable<VttMapStateDto["doorCells"]>[number],
+    ) => {
+      door: NonNullable<VttMapStateDto["doorCells"]>[number];
+      status: MainCommandStatus;
+      message: string;
+    },
+  ): Promise<{ status: MainCommandStatus; message: string } | null> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: params.sessionScenarioId },
+      select: { currentNodeId: true, flagsJson: true },
+    });
+    if (!state) {
+      throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
+    }
+    if (state.currentNodeId && params.nodeId !== state.currentNodeId) {
+      return null;
+    }
+
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
+    const doorCells = map.doorCells ?? [];
+    const doorIndex = doorCells.findIndex((door) => door.id === params.doorId);
+    if (doorIndex < 0) {
+      return null;
+    }
+
+    const result = updateDoor(doorCells[doorIndex]);
+    if (result.door !== doorCells[doorIndex]) {
+      const nextMap = this.normalizeVttMap(
+        {
+          ...map,
+          doorCells: doorCells.map((door, index) => (index === doorIndex ? result.door : door)),
+        },
+        state.currentNodeId ?? null,
+      );
+      await this.prisma.gameState.update({
+        where: { sessionScenarioId: params.sessionScenarioId },
+        data: {
+          version: { increment: 1 },
+          flagsJson: JSON.stringify({
+            ...flags,
+            vttMap: nextMap,
+          }),
+        },
+      });
+
+      const session = await this.getSessionEntityOrThrow(params.sessionId);
+      this.realtimeEvents.emitVttMapUpdated(session.id, {
+        hostUserId: session.hostUserId,
+        hostMap: nextMap,
+        playerMap: this.redactVttMapForPlayer(nextMap),
+      });
+    }
+
+    return { status: result.status, message: result.message };
+  }
+
+  private buildVttDoorCheckEffect(
+    door: NonNullable<VttMapStateDto["doorCells"]>[number],
+    params: { nodeId: string; mapPoint: { x: number; y: number } },
+    effect: "open" | "broken",
+  ): Record<string, unknown> {
+    return {
+      type: "vttDoor",
+      doorId: door.id,
+      effect,
+      nodeId: params.nodeId,
+      mapPoint: params.mapPoint,
+    };
+  }
+
+  private findVttObjectAtPoint(
+    map: VttMapStateDto,
+    point: { x: number; y: number },
+  ): NonNullable<VttMapStateDto["objectCells"]>[number] | null {
+    return (map.objectCells ?? []).find((cell) => this.isPointInVttCell(point, cell)) ?? null;
+  }
+
+  private isPointInVttCell(
+    point: { x: number; y: number },
+    cell: { x: number; y: number; width: number; height: number },
+  ): boolean {
+    return (
+      point.x >= cell.x &&
+      point.x <= cell.x + cell.width &&
+      point.y >= cell.y &&
+      point.y <= cell.y + cell.height
+    );
+  }
+
+  private async getCurrentNodeClueSnapshots(
+    tx: Prisma.TransactionClient,
+    params: { sessionScenarioId: string; nodeId: string },
+  ): Promise<Map<string, Record<string, unknown>>> {
+    const node = await tx.sessionScenarioNode.findUnique({
+      where: {
+        sessionScenarioId_nodeId: {
+          sessionScenarioId: params.sessionScenarioId,
+          nodeId: params.nodeId,
+        },
+      },
+      select: { cluesJson: true },
+    });
+
+    const clues = this.parseJson<Record<string, unknown>[]>(node?.cluesJson, []);
+    const entries: Array<[string, Record<string, unknown>]> = [];
+    clues.forEach((clue) => {
+      const contentId = this.getStringProperty(clue, "id");
+      if (contentId) {
+        entries.push([contentId, clue]);
+      }
+    });
+    return new Map(entries);
+  }
+
   private redactVttMapForPlayer(map: VttMapStateDto): VttMapStateDto {
     return {
       ...map,
@@ -1907,6 +2343,18 @@ export class SessionsService {
           hidden: false,
         })),
       startingPositions: [],
+      objectCells: (map.objectCells ?? [])
+        .filter((cell) => cell.visibleToPlayers !== false)
+        .map((cell) => ({
+          ...cell,
+          hiddenClueIds: [],
+          hiddenItemIds: [],
+          hiddenEventIds: [],
+        })),
+      doorCells: (map.doorCells ?? []).map((cell) => ({
+        ...cell,
+        keyItemId: null,
+      })),
     };
   }
 
@@ -1941,6 +2389,7 @@ export class SessionsService {
       }
 
       this.ensureOnlyTokenPositionChanged(token, requestedToken);
+      this.ensureTokenPathIsPassable(baseline, token, requestedToken);
       return {
         ...token,
         x: requestedToken.x,
@@ -1982,7 +2431,11 @@ export class SessionsService {
       baseline.width === requested.width &&
       baseline.height === requested.height &&
       JSON.stringify(baseline.startingPositions ?? []) === JSON.stringify(requested.startingPositions ?? []) &&
-      JSON.stringify(baseline.fogRects) === JSON.stringify(requested.fogRects);
+      JSON.stringify(baseline.fogRects) === JSON.stringify(requested.fogRects) &&
+      JSON.stringify(baseline.terrainCells ?? []) === JSON.stringify(requested.terrainCells ?? []) &&
+      JSON.stringify(baseline.wallCells ?? []) === JSON.stringify(requested.wallCells ?? []) &&
+      JSON.stringify(baseline.doorCells ?? []) === JSON.stringify(requested.doorCells ?? []) &&
+      JSON.stringify(baseline.objectCells ?? []) === JSON.stringify(requested.objectCells ?? []);
 
     if (!sameShell) {
       throw new ForbiddenException("Players can only move their own tokens.");
@@ -2008,6 +2461,87 @@ export class SessionsService {
     if (JSON.stringify(baselineStatic) !== JSON.stringify(requestedStatic)) {
       throw new ForbiddenException("Players can only move their own tokens.");
     }
+  }
+
+  private ensureTokenPathIsPassable(
+    map: VttMapStateDto,
+    fromToken: VttMapStateDto["tokens"][number],
+    toToken: VttMapStateDto["tokens"][number],
+  ): void {
+    const blockers = [
+      ...(map.terrainCells ?? []),
+      ...(map.wallCells ?? []),
+      ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
+    ];
+    const pathBlocked = this.getGridLineCells(fromToken, toToken, map).some((position, index) => {
+      if (index === 0) return false;
+      const tokenRect = {
+        x: Math.min(Math.max(position.x, 0), map.width - toToken.size),
+        y: Math.min(Math.max(position.y, 0), map.height - toToken.size),
+        width: toToken.size,
+        height: toToken.size,
+      };
+      return blockers.some((blocker) => this.rectsOverlap(tokenRect, blocker));
+    });
+    const destinationRect = {
+      x: toToken.x,
+      y: toToken.y,
+      width: toToken.size,
+      height: toToken.size,
+    };
+    const destinationMoved = fromToken.x !== toToken.x || fromToken.y !== toToken.y;
+    const destinationBlocked =
+      destinationMoved && blockers.some((blocker) => this.rectsOverlap(destinationRect, blocker));
+
+    if (pathBlocked || destinationBlocked) {
+      throw new ForbiddenException("Token movement path is blocked by the map.");
+    }
+  }
+
+  private getGridLineCells(
+    fromToken: VttMapStateDto["tokens"][number],
+    toToken: VttMapStateDto["tokens"][number],
+    map: VttMapStateDto,
+  ): Array<{ x: number; y: number }> {
+    const startColumn = this.getGridIndex(fromToken.x, map.gridSize, map.width);
+    const startRow = this.getGridIndex(fromToken.y, map.gridSize, map.height);
+    const endColumn = this.getGridIndex(toToken.x, map.gridSize, map.width);
+    const endRow = this.getGridIndex(toToken.y, map.gridSize, map.height);
+    const cells: Array<{ x: number; y: number }> = [];
+    let column = startColumn;
+    let row = startRow;
+    const dx = Math.abs(endColumn - startColumn);
+    const dy = Math.abs(endRow - startRow);
+    const sx = startColumn < endColumn ? 1 : -1;
+    const sy = startRow < endRow ? 1 : -1;
+    let error = dx - dy;
+
+    while (true) {
+      cells.push({ x: column * map.gridSize, y: row * map.gridSize });
+      if (column === endColumn && row === endRow) break;
+      const doubledError = error * 2;
+      if (doubledError > -dy) {
+        error -= dy;
+        column += sx;
+      }
+      if (doubledError < dx) {
+        error += dx;
+        row += sy;
+      }
+    }
+
+    return cells;
+  }
+
+  private getGridIndex(value: number, gridSize: number, maxSize: number): number {
+    return Math.floor(Math.min(Math.max(value, 0), Math.max(0, maxSize - 1)) / gridSize);
+  }
+
+  private rectsOverlap(
+    a: { x: number; y: number; width: number; height: number },
+    b: { x: number; y: number; width: number; height: number },
+  ): boolean {
+    return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
   }
 
   private normalizeVttMap(map: VttMapStateDto, scenarioNodeId: string | null): VttMapStateDto {
@@ -2066,6 +2600,62 @@ export class SessionsService {
       x: this.clampNumber(position.x, 0, width - gridSize),
       y: this.clampNumber(position.y, 0, height - gridSize),
     }));
+    const normalizeStructureCell = (
+      cell: {
+        id?: string;
+        name?: string | null;
+        description?: string | null;
+        x?: number;
+        y?: number;
+        width?: number;
+        height?: number;
+      },
+      prefix: string,
+      index: number,
+    ) => ({
+      id: cell.id || `${prefix}:${index + 1}`,
+      name: typeof cell.name === "string" && cell.name.trim() ? cell.name.trim().slice(0, 80) : null,
+      description:
+        typeof cell.description === "string" && cell.description.trim()
+          ? cell.description.trim().slice(0, 500)
+          : null,
+      x: this.clampNumber(Number(cell.x), 0, width - gridSize),
+      y: this.clampNumber(Number(cell.y), 0, height - gridSize),
+      width: this.clampNumber(Number(cell.width) || gridSize, gridSize, width),
+      height: this.clampNumber(Number(cell.height) || gridSize, gridSize, height),
+    });
+    const terrainCells = (map.terrainCells ?? [])
+      .slice(0, 400)
+      .map((cell, index) => normalizeStructureCell(cell, "terrain", index));
+    const wallCells = (map.wallCells ?? [])
+      .slice(0, 400)
+      .map((cell, index) => normalizeStructureCell(cell, "wall", index));
+    const doorCells = (map.doorCells ?? []).slice(0, 200).map((cell, index) => ({
+      ...normalizeStructureCell(cell, "door", index),
+      state:
+        cell.state === "open" || cell.state === "closed" || cell.state === "locked" || cell.state === "broken"
+          ? cell.state
+          : "closed",
+      keyItemId: typeof cell.keyItemId === "string" && cell.keyItemId.trim() ? cell.keyItemId.trim() : null,
+      canBreak: cell.canBreak === true,
+      breakCheckDc:
+        typeof cell.breakCheckDc === "number" && Number.isFinite(cell.breakCheckDc)
+          ? this.clampNumber(cell.breakCheckDc, 1, 40)
+          : null,
+    }));
+    const objectCells = (map.objectCells ?? []).slice(0, 300).map((cell, index) => ({
+      ...normalizeStructureCell(cell, "object", index),
+      visibleToPlayers: cell.visibleToPlayers !== false,
+      hiddenClueIds: Array.isArray(cell.hiddenClueIds)
+        ? cell.hiddenClueIds.filter((id) => typeof id === "string").slice(0, 30)
+        : [],
+      hiddenItemIds: Array.isArray(cell.hiddenItemIds)
+        ? cell.hiddenItemIds.filter((id) => typeof id === "string").slice(0, 30)
+        : [],
+      hiddenEventIds: Array.isArray(cell.hiddenEventIds)
+        ? cell.hiddenEventIds.filter((id) => typeof id === "string").slice(0, 30)
+        : [],
+    }));
 
     return {
       id: map.id || randomUUID(),
@@ -2078,6 +2668,10 @@ export class SessionsService {
       tokens,
       fogRects,
       startingPositions,
+      terrainCells,
+      wallCells,
+      doorCells,
+      objectCells,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -2104,6 +2698,10 @@ export class SessionsService {
         tokens: candidate.tokens,
         fogRects: candidate.fogRects,
         startingPositions: Array.isArray(candidate.startingPositions) ? candidate.startingPositions : [],
+        terrainCells: Array.isArray(candidate.terrainCells) ? candidate.terrainCells : [],
+        wallCells: Array.isArray(candidate.wallCells) ? candidate.wallCells : [],
+        doorCells: Array.isArray(candidate.doorCells) ? candidate.doorCells : [],
+        objectCells: Array.isArray(candidate.objectCells) ? candidate.objectCells : [],
         updatedAt: candidate.updatedAt ?? new Date().toISOString(),
       },
       candidate.scenarioNodeId ?? null,

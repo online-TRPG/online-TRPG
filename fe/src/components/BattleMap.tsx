@@ -31,7 +31,39 @@ interface BattleMapProps {
   tokenAssetsLoading?: boolean;
   tokenAssetsError?: string | null;
   uploadTokenAsset?: (file: File | null) => Promise<ScenarioAssetResponseDto | null>;
+  onSelectionChange?: (selection: BattleMapSelection | null) => void;
 }
+
+export type BattleMapSelection =
+  | {
+      kind: 'token';
+      token: VttMapStateDto['tokens'][number];
+      character: Character | null;
+      point: { x: number; y: number };
+      tile: { column: number; row: number };
+    }
+  | {
+      kind: 'tile';
+      point: { x: number; y: number };
+      tile: { column: number; row: number };
+    }
+  | {
+      kind: 'terrain' | 'wall' | 'door' | 'object';
+      cell:
+        | NonNullable<VttMapStateDto['terrainCells']>[number]
+        | NonNullable<VttMapStateDto['wallCells']>[number]
+        | NonNullable<VttMapStateDto['doorCells']>[number]
+        | NonNullable<VttMapStateDto['objectCells']>[number];
+      point: { x: number; y: number };
+      tile: { column: number; row: number };
+    };
+
+type MapStructureKind = 'terrain' | 'wall' | 'door' | 'object';
+
+type MapStructureSelection = {
+  kind: MapStructureKind;
+  id: string;
+};
 
 const zoomSteps = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const feetPerGrid = 5;
@@ -48,6 +80,10 @@ const mapText = {
   measure: '\uAC70\uB9AC \uCE21\uC815',
   ping: '\uD551',
   fog: '\uC548\uAC1C',
+  terrain: '이동불가',
+  wall: '벽',
+  door: '문',
+  object: '오브젝트',
   hideAll: '\uC804\uCCB4 \uAC00\uB9AC\uAE30',
   reset: '\uCD08\uAE30\uD654',
   width: '\uAC00\uB85C',
@@ -82,6 +118,17 @@ const mapText = {
   deleteToken: '\uD1A0\uD070 \uC0AD\uC81C',
   fogLabel: '\uC548\uAC1C',
   deleteFog: '\uC548\uAC1C \uC0AD\uC81C',
+  mapFeature: '맵 구조',
+  deleteFeature: '구조 삭제',
+  description: '설명',
+  doorState: '문 상태',
+  keyItem: '열쇠 아이템 ID',
+  canBreak: '파괴 가능',
+  breakDc: '파괴 DC',
+  visibleToPlayers: '플레이어에게 공개',
+  linkedClues: '숨겨진 단서 ID',
+  linkedItems: '숨겨진 아이템 ID',
+  linkedEvents: '숨겨진 이벤트 ID',
 } as const;
 
 type MeasurePoint = { x: number; y: number };
@@ -89,7 +136,14 @@ type PingMarker = { id: string; x: number; y: number; label: string };
 type FogAction = 'reveal' | 'hide';
 type FogRect = VttMapStateDto['fogRects'][number];
 type FogBox = Pick<FogRect, 'x' | 'y' | 'width' | 'height'>;
-type TokenDragMeasure = { tokenId: string; from: MeasurePoint; to: MeasurePoint };
+type TokenPathCell = { x: number; y: number; blocked: boolean };
+type TokenMovementPath = { cells: TokenPathCell[]; blocked: boolean };
+type TokenDragMeasure = {
+  tokenId: string;
+  from: MeasurePoint;
+  to: MeasurePoint;
+  path: TokenMovementPath;
+};
 type StartingPosition = NonNullable<VttMapStateDto['startingPositions']>[number];
 type MapSizeField = 'width' | 'height' | 'gridSize';
 type ScenarioAsset = ScenarioAssetResponseDto;
@@ -169,6 +223,52 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
+function rectsOverlap(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number }
+) {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+function getGridIndex(value: number, gridSize: number, maxSize: number) {
+  return Math.floor(clamp(value, 0, Math.max(0, maxSize - 1)) / gridSize);
+}
+
+function getGridLineCells(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  map: VttMapStateDto
+) {
+  const startColumn = getGridIndex(from.x, map.gridSize, map.width);
+  const startRow = getGridIndex(from.y, map.gridSize, map.height);
+  const endColumn = getGridIndex(to.x, map.gridSize, map.width);
+  const endRow = getGridIndex(to.y, map.gridSize, map.height);
+  const cells: Array<{ column: number; row: number }> = [];
+  let column = startColumn;
+  let row = startRow;
+  const dx = Math.abs(endColumn - startColumn);
+  const dy = Math.abs(endRow - startRow);
+  const sx = startColumn < endColumn ? 1 : -1;
+  const sy = startRow < endRow ? 1 : -1;
+  let error = dx - dy;
+
+  while (true) {
+    cells.push({ column, row });
+    if (column === endColumn && row === endRow) break;
+    const doubledError = error * 2;
+    if (doubledError > -dy) {
+      error -= dy;
+      column += sx;
+    }
+    if (doubledError < dx) {
+      error += dx;
+      row += sy;
+    }
+  }
+
+  return cells;
+}
+
 function getMonsterDisplayName(monster: SrdMonsterReferenceDto) {
   return monster.nameKo?.trim() || monster.nameEn;
 }
@@ -224,8 +324,8 @@ function BattleToken({
   isPingMode: boolean;
   onSelect: () => void;
   onDragStart: () => void;
-  onDragMove: (x: number, y: number) => void;
-  onDragEnd: (x: number, y: number, shiftKey: boolean) => void;
+  onDragMove: (x: number, y: number, shiftKey: boolean) => void;
+  onDragEnd: (x: number, y: number, shiftKey: boolean) => boolean;
 }) {
   const tokenImage = useCanvasImage(token.imageUrl);
 
@@ -240,10 +340,13 @@ function BattleToken({
         onSelect();
       }}
       onDragStart={onDragStart}
-      onDragMove={(event) => onDragMove(event.target.x(), event.target.y())}
+      onDragMove={(event) => onDragMove(event.target.x(), event.target.y(), event.evt.shiftKey)}
       onDragEnd={(event) => {
         event.cancelBubble = true;
-        onDragEnd(event.target.x(), event.target.y(), event.evt.shiftKey);
+        const wasMoved = onDragEnd(event.target.x(), event.target.y(), event.evt.shiftKey);
+        if (!wasMoved) {
+          event.target.position({ x: token.x, y: token.y });
+        }
       }}
     >
       <TokenFrame
@@ -336,6 +439,7 @@ export function BattleMap({
   tokenAssetsLoading = false,
   tokenAssetsError = null,
   uploadTokenAsset,
+  onSelectionChange,
 }: BattleMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(960);
@@ -363,6 +467,10 @@ export function BattleMap({
   const canEditMap = isHost && interactionMode === 'editor';
   const showMapChrome = interactionMode === 'editor';
   const [selectedMonsterId, setSelectedMonsterId] = useState('');
+  const [mapStructureTool, setMapStructureTool] = useState<MapStructureKind | null>(null);
+  const [selectedMapStructure, setSelectedMapStructure] = useState<MapStructureSelection | null>(
+    null
+  );
   const [tokenAssetUploadBusy, setTokenAssetUploadBusy] = useState(false);
   const [mapSizeDraft, setMapSizeDraft] = useState({
     width: String(map.width),
@@ -386,6 +494,23 @@ export function BattleMap({
   const displayHeight = Math.max(320, Math.floor(map.height * baseScale));
   const selectedToken = map.tokens.find((token) => token.id === selectedTokenId) ?? null;
   const selectedFog = map.fogRects.find((rect) => rect.id === selectedFogId) ?? null;
+  const terrainCells = map.terrainCells ?? [];
+  const wallCells = map.wallCells ?? [];
+  const doorCells = map.doorCells ?? [];
+  const objectCells = map.objectCells ?? [];
+  const visibleObjectCells = canEditMap
+    ? objectCells
+    : objectCells.filter((cell) => cell.visibleToPlayers !== false);
+  const selectedMapStructureCell =
+    selectedMapStructure?.kind === 'terrain'
+      ? (terrainCells.find((cell) => cell.id === selectedMapStructure.id) ?? null)
+      : selectedMapStructure?.kind === 'wall'
+        ? (wallCells.find((cell) => cell.id === selectedMapStructure.id) ?? null)
+        : selectedMapStructure?.kind === 'door'
+          ? (doorCells.find((cell) => cell.id === selectedMapStructure.id) ?? null)
+          : selectedMapStructure?.kind === 'object'
+            ? (objectCells.find((cell) => cell.id === selectedMapStructure.id) ?? null)
+            : null;
   const startingPositions = map.startingPositions ?? [];
   const filteredMonsterCatalog = useMemo(() => {
     const keyword = monsterSearch.trim().toLowerCase();
@@ -445,6 +570,22 @@ export function BattleMap({
       setSelectedFogId(null);
     }
   }, [map.fogRects, selectedFogId]);
+
+  useEffect(() => {
+    if (!selectedMapStructure) return;
+    const exists =
+      selectedMapStructure.kind === 'terrain'
+        ? terrainCells.some((cell) => cell.id === selectedMapStructure.id)
+        : selectedMapStructure.kind === 'wall'
+          ? wallCells.some((cell) => cell.id === selectedMapStructure.id)
+          : selectedMapStructure.kind === 'door'
+            ? doorCells.some((cell) => cell.id === selectedMapStructure.id)
+            : objectCells.some((cell) => cell.id === selectedMapStructure.id);
+
+    if (!exists) {
+      setSelectedMapStructure(null);
+    }
+  }, [doorCells, objectCells, selectedMapStructure, terrainCells, wallCells]);
 
   useEffect(() => {
     setImageUrlInput(map.imageUrl ?? '');
@@ -572,6 +713,121 @@ export function BattleMap({
     setSelectedFogId(null);
   }
 
+  function getStructureCells(kind: MapStructureKind) {
+    if (kind === 'terrain') return terrainCells;
+    if (kind === 'wall') return wallCells;
+    if (kind === 'door') return doorCells;
+    return objectCells;
+  }
+
+  function updateStructureCells(
+    kind: MapStructureKind,
+    cells: Array<
+      | NonNullable<VttMapStateDto['terrainCells']>[number]
+      | NonNullable<VttMapStateDto['wallCells']>[number]
+      | NonNullable<VttMapStateDto['doorCells']>[number]
+      | NonNullable<VttMapStateDto['objectCells']>[number]
+    >
+  ) {
+    if (kind === 'terrain') {
+      updateMap({ terrainCells: cells as NonNullable<VttMapStateDto['terrainCells']> });
+      return;
+    }
+    if (kind === 'wall') {
+      updateMap({ wallCells: cells as NonNullable<VttMapStateDto['wallCells']> });
+      return;
+    }
+    if (kind === 'door') {
+      updateMap({ doorCells: cells as NonNullable<VttMapStateDto['doorCells']> });
+      return;
+    }
+    updateMap({ objectCells: cells as NonNullable<VttMapStateDto['objectCells']> });
+  }
+
+  function updateStructureCell(
+    kind: MapStructureKind,
+    cellId: string,
+    patch: Partial<
+      | NonNullable<VttMapStateDto['terrainCells']>[number]
+      | NonNullable<VttMapStateDto['wallCells']>[number]
+      | NonNullable<VttMapStateDto['doorCells']>[number]
+      | NonNullable<VttMapStateDto['objectCells']>[number]
+    >
+  ) {
+    updateStructureCells(
+      kind,
+      getStructureCells(kind).map((cell) =>
+        cell.id === cellId
+          ? {
+              ...cell,
+              ...patch,
+              x: patch.x === undefined ? cell.x : clamp(patch.x, 0, map.width - map.gridSize),
+              y: patch.y === undefined ? cell.y : clamp(patch.y, 0, map.height - map.gridSize),
+              width:
+                patch.width === undefined
+                  ? cell.width
+                  : clamp(patch.width, map.gridSize, map.width),
+              height:
+                patch.height === undefined
+                  ? cell.height
+                  : clamp(patch.height, map.gridSize, map.height),
+            }
+          : cell
+      )
+    );
+  }
+
+  function deleteStructureCell(kind: MapStructureKind, cellId: string) {
+    updateStructureCells(
+      kind,
+      getStructureCells(kind).filter((cell) => cell.id !== cellId)
+    );
+    setSelectedMapStructure(null);
+  }
+
+  function getSnappedCellBox(point: { x: number; y: number }) {
+    return {
+      x: clamp(Math.floor(point.x / map.gridSize) * map.gridSize, 0, map.width - map.gridSize),
+      y: clamp(Math.floor(point.y / map.gridSize) * map.gridSize, 0, map.height - map.gridSize),
+      width: map.gridSize,
+      height: map.gridSize,
+    };
+  }
+
+  function getDefaultStructureName(kind: MapStructureKind) {
+    if (kind === 'terrain') return '이동 불가 칸';
+    if (kind === 'wall') return '벽';
+    if (kind === 'door') return '문';
+    return '오브젝트';
+  }
+
+  function addStructureCell(kind: MapStructureKind, point: { x: number; y: number }) {
+    const box = getSnappedCellBox(point);
+    const id = `${kind}:${Date.now()}`;
+    const base = {
+      id,
+      ...box,
+      name: getDefaultStructureName(kind),
+      description: null,
+    };
+    const nextCell =
+      kind === 'door'
+        ? { ...base, state: 'closed' as const, keyItemId: null, canBreak: false, breakCheckDc: null }
+        : kind === 'object'
+          ? {
+              ...base,
+              visibleToPlayers: true,
+              hiddenClueIds: [],
+              hiddenItemIds: [],
+              hiddenEventIds: [],
+            }
+          : base;
+    updateStructureCells(kind, [...getStructureCells(kind), nextCell]);
+    setSelectedMapStructure({ kind, id });
+    setSelectedTokenId(null);
+    setSelectedFogId(null);
+  }
+
   function updateMapSize(patch: Partial<Pick<VttMapStateDto, 'width' | 'height' | 'gridSize'>>) {
     updateMap({
       ...patch,
@@ -630,27 +886,33 @@ export function BattleMap({
     event.currentTarget.blur();
   }
 
-  function handleTokenMove(tokenId: string, x: number, y: number, snap = isTokenSnapEnabled) {
+  function handleTokenMove(
+    tokenId: string,
+    x: number,
+    y: number,
+    snap = isTokenSnapEnabled
+  ): boolean {
     const targetToken = map.tokens.find((token) => token.id === tokenId);
-    if (!targetToken || !canControlToken(targetToken)) return;
+    if (!targetToken || !canControlToken(targetToken)) return false;
+
+    const nextPosition = getTokenMovePosition(targetToken, x, y, snap);
+
+    if (getTokenMovementPath(targetToken, nextPosition.x, nextPosition.y).blocked) {
+      return false;
+    }
 
     updateMap({
       tokens: map.tokens.map((token) =>
         token.id === tokenId
           ? {
               ...token,
-              x: Math.min(
-                Math.max(snap ? snapToGrid(x, map.gridSize) : x, 0),
-                map.width - token.size
-              ),
-              y: Math.min(
-                Math.max(snap ? snapToGrid(y, map.gridSize) : y, 0),
-                map.height - token.size
-              ),
+              x: nextPosition.x,
+              y: nextPosition.y,
             }
           : token
       ),
     });
+    return true;
   }
 
   function getPartyPlacement(index: number) {
@@ -813,11 +1075,156 @@ export function BattleMap({
     );
   }
 
+  function getMovementBlockers() {
+    return [
+      ...terrainCells,
+      ...wallCells,
+      ...doorCells.filter((door) => door.state !== 'open' && door.state !== 'broken'),
+    ];
+  }
+
+  function getTokenMovePosition(
+    token: VttMapStateDto['tokens'][number],
+    x: number,
+    y: number,
+    snap = isTokenSnapEnabled
+  ) {
+    return {
+      x: clamp(snap ? snapToGrid(x, map.gridSize) : x, 0, map.width - token.size),
+      y: clamp(snap ? snapToGrid(y, map.gridSize) : y, 0, map.height - token.size),
+    };
+  }
+
+  function isTokenPositionBlocked(token: VttMapStateDto['tokens'][number], x: number, y: number) {
+    if (canEditMap) return false;
+
+    const tokenRect = {
+      x,
+      y,
+      width: token.size,
+      height: token.size,
+    };
+
+    return getMovementBlockers().some((blocker) => rectsOverlap(tokenRect, blocker));
+  }
+
+  function getTokenMovementPath(
+    token: VttMapStateDto['tokens'][number],
+    x: number,
+    y: number
+  ): TokenMovementPath {
+    const cells = getGridLineCells({ x: token.x, y: token.y }, { x, y }, map).map((cell, index) => {
+      const cellPosition = {
+        x: clamp(cell.column * map.gridSize, 0, map.width - token.size),
+        y: clamp(cell.row * map.gridSize, 0, map.height - token.size),
+      };
+      return {
+        ...cellPosition,
+        blocked: index > 0 && isTokenPositionBlocked(token, cellPosition.x, cellPosition.y),
+      };
+    });
+
+    const destinationBlocked =
+      (token.x !== x || token.y !== y) && isTokenPositionBlocked(token, x, y);
+
+    return {
+      cells,
+      blocked: cells.some((cell) => cell.blocked) || destinationBlocked,
+    };
+  }
+
   function getWorldPointer(pointer: { x: number; y: number }) {
     return {
       x: (pointer.x - stagePosition.x) / scale,
       y: (pointer.y - stagePosition.y) / scale,
     };
+  }
+
+  function getTileFromPoint(point: { x: number; y: number }) {
+    return {
+      column: Math.floor(clamp(point.x, 0, map.width - 1) / map.gridSize) + 1,
+      row: Math.floor(clamp(point.y, 0, map.height - 1) / map.gridSize) + 1,
+    };
+  }
+
+  function emitTileSelection(point: { x: number; y: number }) {
+    const structureSelection = getSessionStructureSelectionAtPoint(point);
+    if (structureSelection) {
+      emitStructureSelection(structureSelection.kind, structureSelection.cell);
+      return;
+    }
+
+    onSelectionChange?.({
+      kind: 'tile',
+      point,
+      tile: getTileFromPoint(point),
+    });
+  }
+
+  function emitTokenSelection(token: VttMapStateDto['tokens'][number]) {
+    const point = {
+      x: token.x + token.size / 2,
+      y: token.y + token.size / 2,
+    };
+    onSelectionChange?.({
+      kind: 'token',
+      token,
+      character: token.sessionCharacterId
+        ? (characters.find((character) => character.id === token.sessionCharacterId) ?? null)
+        : null,
+      point,
+      tile: getTileFromPoint(point),
+    });
+  }
+
+  function emitStructureSelection(
+    kind: MapStructureKind,
+    cell:
+      | NonNullable<VttMapStateDto['terrainCells']>[number]
+      | NonNullable<VttMapStateDto['wallCells']>[number]
+      | NonNullable<VttMapStateDto['doorCells']>[number]
+      | NonNullable<VttMapStateDto['objectCells']>[number]
+  ) {
+    const point = {
+      x: cell.x + cell.width / 2,
+      y: cell.y + cell.height / 2,
+    };
+    onSelectionChange?.({
+      kind,
+      cell,
+      point,
+      tile: getTileFromPoint(point),
+    });
+  }
+
+  function isPointInCell(
+    point: { x: number; y: number },
+    cell:
+      | NonNullable<VttMapStateDto['doorCells']>[number]
+      | NonNullable<VttMapStateDto['objectCells']>[number]
+  ) {
+    return (
+      point.x >= cell.x &&
+      point.x <= cell.x + cell.width &&
+      point.y >= cell.y &&
+      point.y <= cell.y + cell.height
+    );
+  }
+
+  function getSessionStructureSelectionAtPoint(point: { x: number; y: number }) {
+    if (canEditMap) return null;
+
+    const objectCell = visibleObjectCells.find((cell) => isPointInCell(point, cell));
+    if (objectCell) {
+      return { kind: 'object' as const, cell: objectCell };
+    }
+
+    const doorCell = doorCells.find((cell) => isPointInCell(point, cell));
+    if (doorCell) {
+      return { kind: 'door' as const, cell: doorCell };
+    }
+
+    return null;
   }
 
   function resetView() {
@@ -922,10 +1329,21 @@ export function BattleMap({
       x: token.x + token.size / 2,
       y: token.y + token.size / 2,
     };
-    setTokenDragMeasure({ tokenId: token.id, from: center, to: center });
+    setTokenDragMeasure({
+      tokenId: token.id,
+      from: center,
+      to: center,
+      path: getTokenMovementPath(token, token.x, token.y),
+    });
   }
 
-  function updateTokenDragMeasure(token: VttMapStateDto['tokens'][number], x: number, y: number) {
+  function updateTokenDragMeasure(
+    token: VttMapStateDto['tokens'][number],
+    x: number,
+    y: number,
+    snap = isTokenSnapEnabled
+  ) {
+    const nextPosition = getTokenMovePosition(token, x, y, snap);
     setTokenDragMeasure((current) => {
       const from =
         current?.tokenId === token.id
@@ -936,18 +1354,24 @@ export function BattleMap({
         tokenId: token.id,
         from,
         to: {
-          x: x + token.size / 2,
-          y: y + token.size / 2,
+          x: nextPosition.x + token.size / 2,
+          y: nextPosition.y + token.size / 2,
         },
+        path: getTokenMovementPath(token, nextPosition.x, nextPosition.y),
       };
     });
   }
 
-  function setExclusiveTool(tool: 'pan' | 'fog' | 'measure' | 'ping') {
+  function setExclusiveTool(tool: 'pan' | 'fog' | 'measure' | 'ping' | MapStructureKind) {
+    const isStructureTool =
+      tool === 'terrain' || tool === 'wall' || tool === 'door' || tool === 'object';
     setPanMode(tool === 'pan' ? !isPanMode : false);
     setFogMode(tool === 'fog' ? !isFogMode : false);
     setMeasureMode(tool === 'measure' ? !isMeasureMode : false);
     setPingMode(tool === 'ping' ? !isPingMode : false);
+    setMapStructureTool((current) =>
+      isStructureTool ? (tool === current ? null : (tool as MapStructureKind)) : null
+    );
   }
 
   function applyTokenAsset(asset: ScenarioAsset) {
@@ -968,6 +1392,14 @@ export function BattleMap({
     } finally {
       setTokenAssetUploadBusy(false);
     }
+  }
+
+  function splitIdList(value: string) {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 30);
   }
 
   return (
@@ -1046,6 +1478,34 @@ export function BattleMap({
               onClick={() => setExclusiveTool('fog')}
             >
               {mapText.fog}
+            </button>
+            <button
+              type="button"
+              className={mapStructureTool === 'terrain' ? 'active' : ''}
+              onClick={() => setExclusiveTool('terrain')}
+            >
+              {mapText.terrain}
+            </button>
+            <button
+              type="button"
+              className={mapStructureTool === 'wall' ? 'active' : ''}
+              onClick={() => setExclusiveTool('wall')}
+            >
+              {mapText.wall}
+            </button>
+            <button
+              type="button"
+              className={mapStructureTool === 'door' ? 'active' : ''}
+              onClick={() => setExclusiveTool('door')}
+            >
+              {mapText.door}
+            </button>
+            <button
+              type="button"
+              className={mapStructureTool === 'object' ? 'active' : ''}
+              onClick={() => setExclusiveTool('object')}
+            >
+              {mapText.object}
             </button>
             <button type="button" onClick={hideFullMap}>
               {mapText.hideAll}
@@ -1179,7 +1639,13 @@ export function BattleMap({
         ) : null}
       </div>
 
-      <div className={`vtt-workspace${canEditMap && (selectedToken || selectedFog) ? ' with-inspector' : ''}`}>
+      <div
+        className={`vtt-workspace${
+          canEditMap && (selectedToken || selectedFog || selectedMapStructureCell)
+            ? ' with-inspector'
+            : ''
+        }`}
+      >
         <div className="vtt-stage-wrap" ref={containerRef}>
           <Stage
             width={displayWidth}
@@ -1204,6 +1670,7 @@ export function BattleMap({
               if (event.target === stage || event.target.name() === 'map-background') {
                 setSelectedTokenId(null);
                 setSelectedFogId(null);
+                setSelectedMapStructure(null);
               }
               const world = getWorldPointer(pointer);
               if (isPingMode) {
@@ -1214,15 +1681,29 @@ export function BattleMap({
                 handleMeasureClick(world);
                 return;
               }
+              if (event.target === stage || event.target.name() === 'map-background') {
+                if (canEditMap && mapStructureTool) {
+                  addStructureCell(mapStructureTool, world);
+                  return;
+                }
+                emitTileSelection(world);
+              }
             }}
           >
             <Layer>
               <Rect name="map-background" width={map.width} height={map.height} fill="#121925" />
               {mapImage ? (
-                <KonvaImage image={mapImage} width={map.width} height={map.height} opacity={0.82} />
+                <KonvaImage
+                  name="map-background"
+                  image={mapImage}
+                  width={map.width}
+                  height={map.height}
+                  opacity={0.82}
+                />
               ) : (
                 <>
                   <Rect
+                    name="map-background"
                     x={80}
                     y={96}
                     width={420}
@@ -1232,6 +1713,7 @@ export function BattleMap({
                     cornerRadius={18}
                   />
                   <Rect
+                    name="map-background"
                     x={620}
                     y={340}
                     width={440}
@@ -1241,6 +1723,7 @@ export function BattleMap({
                     cornerRadius={18}
                   />
                   <Line
+                    name="map-background"
                     points={[120, 660, 420, 480, 720, 520, 1100, 260]}
                     stroke="#58718f"
                     strokeWidth={28}
@@ -1259,6 +1742,99 @@ export function BattleMap({
                 />
               ))}
             </Layer>
+
+            {canEditMap ? (
+              <Layer>
+                {terrainCells.map((cell) => (
+                  <Rect
+                    key={cell.id}
+                    x={cell.x}
+                    y={cell.y}
+                    width={cell.width}
+                    height={cell.height}
+                    fill="rgba(86, 96, 106, 0.48)"
+                    stroke={selectedMapStructure?.id === cell.id ? '#ffffff' : '#8c99a4'}
+                    strokeWidth={selectedMapStructure?.id === cell.id ? 3 : 1}
+                    dash={[8, 5]}
+                    onClick={(event) => {
+                      event.cancelBubble = true;
+                      setSelectedMapStructure({ kind: 'terrain', id: cell.id });
+                      setSelectedTokenId(null);
+                      setSelectedFogId(null);
+                      emitStructureSelection('terrain', cell);
+                    }}
+                  />
+                ))}
+                {wallCells.map((cell) => (
+                  <Rect
+                    key={cell.id}
+                    x={cell.x}
+                    y={cell.y}
+                    width={cell.width}
+                    height={cell.height}
+                    fill="rgba(10, 16, 22, 0.72)"
+                    stroke={selectedMapStructure?.id === cell.id ? '#ffffff' : '#111820'}
+                    strokeWidth={selectedMapStructure?.id === cell.id ? 3 : 1}
+                    onClick={(event) => {
+                      event.cancelBubble = true;
+                      setSelectedMapStructure({ kind: 'wall', id: cell.id });
+                      setSelectedTokenId(null);
+                      setSelectedFogId(null);
+                      emitStructureSelection('wall', cell);
+                    }}
+                  />
+                ))}
+                {doorCells.map((cell) => {
+                  const doorColor =
+                    cell.state === 'open'
+                      ? 'rgba(76, 143, 117, 0.64)'
+                      : cell.state === 'locked'
+                        ? 'rgba(183, 86, 75, 0.72)'
+                        : cell.state === 'broken'
+                          ? 'rgba(128, 118, 106, 0.66)'
+                          : 'rgba(198, 143, 52, 0.7)';
+                  return (
+                    <Rect
+                      key={cell.id}
+                      x={cell.x}
+                      y={cell.y}
+                      width={cell.width}
+                      height={cell.height}
+                      fill={doorColor}
+                      stroke={selectedMapStructure?.id === cell.id ? '#ffffff' : '#ffdf8a'}
+                      strokeWidth={selectedMapStructure?.id === cell.id ? 3 : 2}
+                      onClick={(event) => {
+                        event.cancelBubble = true;
+                        setSelectedMapStructure({ kind: 'door', id: cell.id });
+                        setSelectedTokenId(null);
+                        setSelectedFogId(null);
+                        emitStructureSelection('door', cell);
+                      }}
+                    />
+                  );
+                })}
+                {visibleObjectCells.map((cell) => (
+                  <Rect
+                    key={cell.id}
+                    x={cell.x}
+                    y={cell.y}
+                    width={cell.width}
+                    height={cell.height}
+                    fill="rgba(121, 86, 185, 0.5)"
+                    stroke={selectedMapStructure?.id === cell.id ? '#ffffff' : '#cbbcff'}
+                    strokeWidth={selectedMapStructure?.id === cell.id ? 3 : 2}
+                    cornerRadius={Math.min(10, map.gridSize / 8)}
+                    onClick={(event) => {
+                      event.cancelBubble = true;
+                      setSelectedMapStructure({ kind: 'object', id: cell.id });
+                      setSelectedTokenId(null);
+                      setSelectedFogId(null);
+                      emitStructureSelection('object', cell);
+                    }}
+                  />
+                ))}
+              </Layer>
+            ) : null}
 
             <Layer>
               {canEditMap
@@ -1323,19 +1899,29 @@ export function BattleMap({
                     isSelected={token.id === selectedTokenId}
                     opacity={token.hidden ? 0.45 : 1}
                     canControl={canControlToken(token)}
-                    isFogMode={isFogMode}
+                    isFogMode={isFogMode || mapStructureTool !== null}
                     isPanMode={isPanMode}
                     isMeasureMode={isMeasureMode}
                     isPingMode={isPingMode}
                     onSelect={() => {
                       setSelectedTokenId(token.id);
                       setSelectedFogId(null);
+                      setSelectedMapStructure(null);
+                      emitTokenSelection(token);
                     }}
                     onDragStart={() => beginTokenDragMeasure(token)}
-                    onDragMove={(x, y) => updateTokenDragMeasure(token, x, y)}
+                    onDragMove={(x, y, shiftKey) =>
+                      updateTokenDragMeasure(token, x, y, isTokenSnapEnabled && !shiftKey)
+                    }
                     onDragEnd={(x, y, shiftKey) => {
-                      handleTokenMove(token.id, x, y, isTokenSnapEnabled && !shiftKey);
+                      const wasMoved = handleTokenMove(
+                        token.id,
+                        x,
+                        y,
+                        isTokenSnapEnabled && !shiftKey
+                      );
                       setTokenDragMeasure(null);
+                      return wasMoved;
                     }}
                   />
                 );
@@ -1382,6 +1968,21 @@ export function BattleMap({
 
               {tokenDragMeasure ? (
                 <>
+                  {tokenDragMeasure.path.cells.map((cell, index) => (
+                    <Rect
+                      key={`${tokenDragMeasure.tokenId}:path:${index}:${cell.x}:${cell.y}`}
+                      x={cell.x}
+                      y={cell.y}
+                      width={map.gridSize}
+                      height={map.gridSize}
+                      fill={
+                        cell.blocked ? 'rgba(232, 91, 86, 0.3)' : 'rgba(158, 230, 168, 0.22)'
+                      }
+                      stroke={cell.blocked ? '#ff7771' : '#9ee6a8'}
+                      strokeWidth={2}
+                      dash={cell.blocked ? [4, 4] : undefined}
+                    />
+                  ))}
                   <Line
                     points={[
                       tokenDragMeasure.from.x,
@@ -1389,7 +1990,7 @@ export function BattleMap({
                       tokenDragMeasure.to.x,
                       tokenDragMeasure.to.y,
                     ]}
-                    stroke="#9ee6a8"
+                    stroke={tokenDragMeasure.path.blocked ? '#ff7771' : '#9ee6a8'}
                     strokeWidth={3}
                     dash={[10, 8]}
                   />
@@ -1397,16 +1998,18 @@ export function BattleMap({
                     x={tokenDragMeasure.from.x}
                     y={tokenDragMeasure.from.y}
                     radius={5}
-                    fill="#9ee6a8"
+                    fill={tokenDragMeasure.path.blocked ? '#ff7771' : '#9ee6a8'}
                   />
                   <Text
                     text={formatDistance(tokenDragMeasure.from, tokenDragMeasure.to, map.gridSize)}
                     x={(tokenDragMeasure.from.x + tokenDragMeasure.to.x) / 2 + 10}
                     y={(tokenDragMeasure.from.y + tokenDragMeasure.to.y) / 2 - 28}
-                    fill="#061017"
+                    fill={tokenDragMeasure.path.blocked ? '#fff7f5' : '#061017'}
                     fontStyle="bold"
                     fontSize={18}
                     padding={6}
+                    stroke={tokenDragMeasure.path.blocked ? '#84211f' : undefined}
+                    strokeWidth={tokenDragMeasure.path.blocked ? 4 : 0}
                     fillAfterStrokeEnabled
                   />
                 </>
@@ -1449,6 +2052,7 @@ export function BattleMap({
                     event.cancelBubble = true;
                     setSelectedFogId(rect.id);
                     setSelectedTokenId(null);
+                    setSelectedMapStructure(null);
                   }}
                 />
               ))}
@@ -1721,6 +2325,234 @@ export function BattleMap({
             </div>
             <button type="button" className="danger" onClick={() => deleteFogRect(selectedFog.id)}>
               {mapText.deleteFog}
+            </button>
+          </aside>
+        ) : null}
+
+        {canEditMap && selectedMapStructure && selectedMapStructureCell ? (
+          <aside className="vtt-inspector">
+            <div className="vtt-inspector-head">
+              <span className="eyebrow">
+                {mapText.mapFeature} / {mapText[selectedMapStructure.kind]}
+              </span>
+              <button type="button" onClick={() => setSelectedMapStructure(null)}>
+                {mapText.close}
+              </button>
+            </div>
+            <label>
+              {mapText.name}
+              <input
+                value={selectedMapStructureCell.name ?? ''}
+                onChange={(event) =>
+                  updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                    name: event.target.value || null,
+                  })
+                }
+              />
+            </label>
+            <label>
+              {mapText.description}
+              <input
+                value={selectedMapStructureCell.description ?? ''}
+                onChange={(event) =>
+                  updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                    description: event.target.value || null,
+                  })
+                }
+              />
+            </label>
+            <div className="vtt-field-row">
+              <label>
+                X
+                <input
+                  type="number"
+                  value={selectedMapStructureCell.x}
+                  onChange={(event) =>
+                    updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                      x: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Y
+                <input
+                  type="number"
+                  value={selectedMapStructureCell.y}
+                  onChange={(event) =>
+                    updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                      y: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+            </div>
+            <div className="vtt-field-row">
+              <label>
+                {mapText.width}
+                <input
+                  type="number"
+                  value={selectedMapStructureCell.width}
+                  onChange={(event) =>
+                    updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                      width: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                {mapText.height}
+                <input
+                  type="number"
+                  value={selectedMapStructureCell.height}
+                  onChange={(event) =>
+                    updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                      height: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+            </div>
+
+            {selectedMapStructure.kind === 'door' ? (
+              <>
+                <label>
+                  {mapText.doorState}
+                  <select
+                    value={(selectedMapStructureCell as NonNullable<VttMapStateDto['doorCells']>[number]).state}
+                    onChange={(event) =>
+                      updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                        state: event.target.value as 'open' | 'closed' | 'locked' | 'broken',
+                      })
+                    }
+                  >
+                    <option value="open">열림</option>
+                    <option value="closed">닫힘</option>
+                    <option value="locked">잠김</option>
+                    <option value="broken">파괴됨</option>
+                  </select>
+                </label>
+                <label>
+                  {mapText.keyItem}
+                  <input
+                    value={
+                      (selectedMapStructureCell as NonNullable<VttMapStateDto['doorCells']>[number])
+                        .keyItemId ?? ''
+                    }
+                    onChange={(event) =>
+                      updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                        keyItemId: event.target.value || null,
+                      })
+                    }
+                  />
+                </label>
+                <div className="vtt-check-row">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={
+                        (selectedMapStructureCell as NonNullable<VttMapStateDto['doorCells']>[number])
+                          .canBreak === true
+                      }
+                      onChange={(event) =>
+                        updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                          canBreak: event.target.checked,
+                        })
+                      }
+                    />
+                    {mapText.canBreak}
+                  </label>
+                </div>
+                <label>
+                  {mapText.breakDc}
+                  <input
+                    type="number"
+                    min={1}
+                    max={40}
+                    value={
+                      (selectedMapStructureCell as NonNullable<VttMapStateDto['doorCells']>[number])
+                        .breakCheckDc ?? ''
+                    }
+                    onChange={(event) =>
+                      updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                        breakCheckDc: event.target.value ? Number(event.target.value) : null,
+                      })
+                    }
+                  />
+                </label>
+              </>
+            ) : null}
+
+            {selectedMapStructure.kind === 'object' ? (
+              <>
+                <div className="vtt-check-row">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={
+                        (selectedMapStructureCell as NonNullable<VttMapStateDto['objectCells']>[number])
+                          .visibleToPlayers !== false
+                      }
+                      onChange={(event) =>
+                        updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                          visibleToPlayers: event.target.checked,
+                        })
+                      }
+                    />
+                    {mapText.visibleToPlayers}
+                  </label>
+                </div>
+                <label>
+                  {mapText.linkedClues}
+                  <input
+                    value={(
+                      (selectedMapStructureCell as NonNullable<VttMapStateDto['objectCells']>[number])
+                        .hiddenClueIds ?? []
+                    ).join(', ')}
+                    onChange={(event) =>
+                      updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                        hiddenClueIds: splitIdList(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  {mapText.linkedItems}
+                  <input
+                    value={(
+                      (selectedMapStructureCell as NonNullable<VttMapStateDto['objectCells']>[number])
+                        .hiddenItemIds ?? []
+                    ).join(', ')}
+                    onChange={(event) =>
+                      updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                        hiddenItemIds: splitIdList(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  {mapText.linkedEvents}
+                  <input
+                    value={(
+                      (selectedMapStructureCell as NonNullable<VttMapStateDto['objectCells']>[number])
+                        .hiddenEventIds ?? []
+                    ).join(', ')}
+                    onChange={(event) =>
+                      updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
+                        hiddenEventIds: splitIdList(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+              </>
+            ) : null}
+
+            <button
+              type="button"
+              className="danger"
+              onClick={() => deleteStructureCell(selectedMapStructure.kind, selectedMapStructure.id)}
+            >
+              {mapText.deleteFeature}
             </button>
           </aside>
         ) : null}
