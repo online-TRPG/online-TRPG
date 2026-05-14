@@ -94,9 +94,9 @@ export interface UseSessionReturn {
   ) => Promise<SessionSnapshot | null>;
   joinSession: (inviteCode: string) => Promise<SessionSnapshot | null>;
   joinSessionById: (sessionId: string) => Promise<SessionSnapshot | null>;
-  createCharacter: (payload: CharacterPayload) => Promise<void>;
+  createCharacter: (payload: CharacterPayload) => Promise<boolean>;
   cloneCharacter: (characterId: string) => Promise<void>;
-  updateCharacter: (characterId: string, payload: CharacterPayload) => Promise<void>;
+  updateCharacter: (characterId: string, payload: CharacterPayload) => Promise<boolean>;
   deleteCharacter: (characterId: string) => Promise<void>;
   selectCharacter: (characterId: string | null) => Promise<void>;
   setReadyState: (isReady: boolean) => Promise<void>;
@@ -762,10 +762,11 @@ export function useSession(
     }
   }
 
-  async function createCharacter(payload: CharacterPayload) {
-    if (!user) return;
+  async function createCharacter(payload: CharacterPayload): Promise<boolean> {
+    if (!user) return false;
     setError(null);
     setBusy(true);
+    let succeeded = false;
 
     try {
       const shouldAssignToSession = payload.assignToSession === true && Boolean(snapshot);
@@ -783,12 +784,16 @@ export function useSession(
       }
 
       await refreshMyCharacters();
+      succeeded = true;
       appendLog("rest", "罹먮┃???앹꽦", `${payload.name} 罹먮┃?곕? ?앹꽦?덉뒿?덈떎.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "罹먮┃???앹꽦???ㅽ뙣?덉뒿?덈떎.");
     } finally {
       setBusy(false);
     }
+    // 호출자(CharacterPage)가 모달 close 여부를 결정할 수 있도록 성공 여부를 반환한다.
+    // setError 로 사용자 메시지는 이미 노출됨. PlayPage 처럼 결과를 무시하는 호출도 안전.
+    return succeeded;
   }
 
   async function cloneCharacter(characterId: string) {
@@ -807,10 +812,14 @@ export function useSession(
     }
   }
 
-  async function updateCharacter(characterId: string, payload: CharacterPayload) {
-    if (!user) return;
+  async function updateCharacter(
+    characterId: string,
+    payload: CharacterPayload,
+  ): Promise<boolean> {
+    if (!user) return false;
     setError(null);
     setBusy(true);
+    let succeeded = false;
 
     try {
       await apiUpdateCharacter(
@@ -836,12 +845,14 @@ export function useSession(
       );
 
       await refreshMyCharacters();
+      succeeded = true;
       appendLog("rest", "罹먮┃???섏젙", `${payload.name} 罹먮┃?곕? ?섏젙?덉뒿?덈떎.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "罹먮┃???섏젙???ㅽ뙣?덉뒿?덈떎.");
     } finally {
       setBusy(false);
     }
+    return succeeded;
   }
 
   async function deleteCharacter(characterId: string) {
