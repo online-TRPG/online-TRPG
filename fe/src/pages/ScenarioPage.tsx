@@ -58,6 +58,17 @@ function formatScenarioLevel(scenario: Scenario): string {
   return endLevel && endLevel !== startLevel ? `LV ${startLevel}-${endLevel}` : `LV ${startLevel}`;
 }
 
+function formatScenarioUpdatedAt(value: string | null | undefined): string {
+  if (!value) return "--/--";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--/--";
+
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${month}/${day}`;
+}
+
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function ScenarioPage({
   user,
@@ -273,25 +284,10 @@ export function ScenarioPage({
                   className={`scenario-library-card${scenario.id === selectedScenarioId ? " selected" : ""}`}
                   onClick={() => setSelectedScenarioId(scenario.id)}
                 >
-                  <div className="scenario-library-card-header">
-                    <strong>{scenario.title}</strong>
-                    <span className="scenario-library-level">{formatScenarioLevel(scenario)}</span>
-                  </div>
-                  <p>{scenario.description || "설명이 아직 없습니다."}</p>
-                  <dl>
-                    <div>
-                      <dt>룰셋</dt>
-                      <dd>{scenario.ruleSetId ?? "TRPG"}</dd>
-                    </div>
-                    <div>
-                      <dt>난이도</dt>
-                      <dd>{scenario.difficulty ?? "-"}</dd>
-                    </div>
-                  </dl>
-                  <div className="scenario-library-card-actions">
-                    <span>{scenario.license}</span>
-                    <span>{selectedScenarioId === scenario.id ? "선택됨" : "상세 보기"}</span>
-                  </div>
+                  <strong>{scenario.title}</strong>
+                  <span className="scenario-library-updated-at">
+                    마지막 업데이트 날짜 : {formatScenarioUpdatedAt(scenario.updatedAt)}
+                  </span>
                 </button>
               ))}
 
@@ -315,59 +311,40 @@ export function ScenarioPage({
           </section>
 
           <section className="scenario-detail-panel">
-            {selectedScenario ? (
-              <>
-                <div className="scenario-detail-panel-heading">
-                  <span className="eyebrow">Selected scenario</span>
-                  <h2>{selectedScenario.title}</h2>
-                </div>
-                <p>{selectedScenario.description || "시나리오 소개가 비어 있습니다."}</p>
-                <dl className="scenario-detail-meta">
-                  <div>
-                    <dt>레벨 권장</dt>
-                    <dd>{formatScenarioLevel(selectedScenario)}</dd>
+            <div className="scenario-detail-panel-scroll">
+              {selectedScenario ? (
+                <>
+                  <div className="scenario-detail-panel-heading">
+                    <span className="eyebrow">Selected scenario</span>
+                    <h2>{selectedScenario.title}</h2>
                   </div>
-                  <div>
-                    <dt>룰셋</dt>
-                    <dd>{selectedScenario.ruleSetId ?? "-"}</dd>
-                  </div>
-                  <div>
-                    <dt>시작 노드</dt>
-                    <dd>{selectedScenario.startNodeId ?? "-"}</dd>
-                  </div>
-                  <div>
-                    <dt>라이선스</dt>
-                    <dd>{selectedScenario.license}</dd>
-                  </div>
-                  <div>
-                    <dt>출처</dt>
-                    <dd>{selectedScenario.attribution ?? "-"}</dd>
-                  </div>
-                  <div>
-                    <dt>시나리오 ID</dt>
-                    <dd>{selectedScenario.id}</dd>
-                  </div>
-                </dl>
-                <div className="scenario-detail-actions">
-                  <button type="button" className="small" onClick={() => onOpenEdit(selectedScenario.id)}>
-                    시나리오 수정
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost small"
-                    disabled={disabled}
-                    onClick={() => void handleCloneSelected()}
-                  >
-                    시나리오 복제
-                  </button>
-                </div>
-              </>
-            ) : (
-              <article className="scenario-detail-empty">
-                <h3>선택된 시나리오가 없습니다.</h3>
-                <p>중앙 보드에서 시나리오 카드를 선택하거나 새 시나리오를 생성해 주세요.</p>
-              </article>
-            )}
+                  <p>{selectedScenario.description || "시나리오 소개가 비어 있습니다."}</p>
+                  <dl className="scenario-detail-meta">
+                    <div>
+                      <dt>레벨 권장</dt>
+                      <dd>{formatScenarioLevel(selectedScenario)}</dd>
+                    </div>
+                    <div>
+                      <dt>룰셋</dt>
+                      <dd>{selectedScenario.ruleSetId ?? "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>라이선스</dt>
+                      <dd>{selectedScenario.license}</dd>
+                    </div>
+                    <div>
+                      <dt>출처</dt>
+                      <dd>{selectedScenario.attribution ?? "-"}</dd>
+                    </div>
+                  </dl>
+                </>
+              ) : (
+                <article className="scenario-detail-empty">
+                  <h3>선택된 시나리오가 없습니다.</h3>
+                  <p>중앙 보드에서 시나리오 카드를 선택하거나 새 시나리오를 생성해 주세요.</p>
+                </article>
+              )}
+            </div>
           </section>
         </aside>
       </section>
