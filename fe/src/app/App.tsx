@@ -273,7 +273,7 @@ export function App() {
       if (gameroomId && pendingGameroomPublicId === gameroomId) {
         return;
       }
-      navigate('/', { replace: true });
+      navigate('/sessions/discover', { replace: true });
       return;
     }
 
@@ -348,6 +348,13 @@ export function App() {
     }
 
     return getSessionDetail(auth.user, sessionId, auth.accessToken);
+  }
+
+  async function exitSessionToDiscover() {
+    const left = await session.leaveSession();
+    if (left) {
+      navigate('/sessions/discover');
+    }
   }
 
   function handleLogout() {
@@ -525,7 +532,7 @@ export function App() {
             onOpenPlay={() =>
               session.snapshot && guardedNavigate(buildGameroomPath(session.snapshot.session))
             }
-            onLeaveCurrentSession={() => void session.leaveSession()}
+            onLeaveCurrentSession={() => void exitSessionToDiscover()}
           />
         ) : null}
 
@@ -713,8 +720,7 @@ export function App() {
             onSetReady={(isReady) => void session.setReadyState(isReady)}
             onStartSession={() => void session.startSession()}
             onLeaveSession={() => {
-              void session.leaveSession();
-              navigate('/sessions/discover');
+              void exitSessionToDiscover();
             }}
             onBackToLobby={() => navigate('/sessions/discover')}
             onMainCommand={(payload) => void session.sendMainCommand(payload)}
