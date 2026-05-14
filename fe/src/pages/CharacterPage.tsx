@@ -1190,7 +1190,7 @@ export function CharacterPage({
       </section>
 
       {catalogError ? <p className="panel-error">{catalogError}</p> : null}
-      {error ? <p className="panel-error">{error}</p> : null}
+      {error && !isCreateModalOpen ? <p className="panel-error">{error}</p> : null}
       {deleteWarning ? (
         <button
           type="button"
@@ -1443,6 +1443,23 @@ export function CharacterPage({
                           }))
                         }
                       />
+                      {derivedLevelStats && selectedClass ? (
+                        (() => {
+                          const level = formState.level ?? 1;
+                          const con = formState.abilities?.con ?? 10;
+                          const conMod = Math.floor((con - 10) / 2);
+                          const hdMax = { d6: 6, d8: 8, d10: 10, d12: 12 }[selectedClass.hitDie] ?? 0;
+                          const hdAvg = { d6: 4, d8: 5, d10: 6, d12: 7 }[selectedClass.hitDie] ?? 0;
+                          const modText = conMod >= 0 ? `+${conMod}` : `${conMod}`;
+                          return (
+                            <div style={{ fontSize: '0.8rem', opacity: 0.7, marginTop: 4 }}>
+                              {level === 1
+                                ? `${selectedClass.hitDie}(max ${hdMax}) + Con(${modText}) = ${derivedLevelStats.maxHp}`
+                                : `${selectedClass.hitDie}(max ${hdMax}) + Con(${modText}) + ${level - 1}×(${hdAvg}+${modText}) = ${derivedLevelStats.maxHp}`}
+                            </div>
+                          );
+                        })()
+                      ) : null}
                     </div>
                     <div>
                       <label htmlFor="character-ac-create">방어도</label>
@@ -1494,6 +1511,11 @@ export function CharacterPage({
                           }))
                         }
                       />
+                      {derivedLevelStats ? (
+                        <div style={{ fontSize: '0.8rem', opacity: 0.7, marginTop: 4 }}>
+                          ⌊(레벨 {formState.level ?? 1}-1)/4⌋ + 2 = {derivedLevelStats.proficiencyBonus}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </section>
@@ -1995,7 +2017,20 @@ export function CharacterPage({
                   {error}
                 </p>
               ) : null}
-              <button type="submit" className="primary" disabled={busy}>
+              {classDefinitions.length === 0 ? (
+                <p
+                  className="panel-error"
+                  role="status"
+                  style={{ margin: '12px 0 0 0', fontSize: '0.85rem', opacity: 0.8 }}
+                >
+                  클래스 정의를 불러오는 중입니다. 잠시만 기다려 주세요.
+                </p>
+              ) : null}
+              <button
+                type="submit"
+                className="primary"
+                disabled={busy || classDefinitions.length === 0}
+              >
                 {editingCharacterId ? '저장' : '생성'}
               </button>
             </form>
