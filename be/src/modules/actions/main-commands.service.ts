@@ -11,6 +11,7 @@ import {
   MainCommandScreenType,
   MainCommandStatus,
   MainCommandTargetType,
+  ResolveMainCommandCheckDto,
   ScenarioNodeType,
   SubmitMainCommandDto,
 } from "@trpg/shared-types";
@@ -73,6 +74,14 @@ type RuleFragmentSummary = {
   summaryKo: string;
 };
 
+type VttDoorCheckEffect = {
+  type: "vttDoor";
+  doorId: string;
+  effect: "open" | "broken";
+  nodeId: string;
+  mapPoint: { x: number; y: number };
+};
+
 const INTENT_REQUIREMENTS: Partial<Record<MainCommandIntent, IntentRequirement>> = {
   [MainCommandIntent.TALK_TO_NPC]: {
     requiresTargetTypes: [MainCommandTargetType.NPC],
@@ -104,7 +113,8 @@ const INTENT_REQUIREMENTS: Partial<Record<MainCommandIntent, IntentRequirement>>
     requiresMapPoint: true,
   },
   [MainCommandIntent.INTERACT_OBJECT]: {
-    requiresTargetTypes: [MainCommandTargetType.OBJECT],
+    allowsTargetTypes: [MainCommandTargetType.OBJECT, MainCommandTargetType.POINT],
+    allowsMapPoint: true,
   },
   [MainCommandIntent.USE_TOOL]: {
     requiresItem: true,
@@ -352,6 +362,17 @@ export class MainCommandsService {
     }
 
     const turnLog = await this.persistResult(userId, context, dto, response);
+    const objectRevealCount =
+      dto.intent === MainCommandIntent.INVESTIGATE_OBJECT && dto.mapPoint
+        ? await this.sessionsService.revealVttObjectContentsAtPoint({
+            sessionId: context.sessionId,
+            sessionScenarioId: context.sessionScenarioId,
+            nodeId: context.currentNodeId,
+            mapPoint: dto.mapPoint,
+            turnLogId: turnLog.turnLogId,
+            revealedBy: "system",
+          })
+        : 0;
     const revealCount = await this.sessionsService.revealCurrentNodeCluesAfterAction({
       sessionScenarioId: context.sessionScenarioId,
       nodeId: context.currentNodeId,
@@ -361,13 +382,80 @@ export class MainCommandsService {
       turnLogId: turnLog.turnLogId,
       revealedBy: "system",
     });
-    if (revealCount > 0) {
+    if (revealCount + objectRevealCount > 0) {
       this.realtimeEvents.emitSessionSnapshot(
         context.sessionId,
         await this.sessionsService.buildSnapshot(context.sessionId),
       );
     }
     return response;
+  }
+
+  async resolveMainCommandCheck(
+    userId: string,
+    sessionId: string,
+    dto: ResolveMainCommandCheckDto,
+  ): Promise<MainCommandResponseDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    await this.sessionsService.ensureMembership(userId, session.id);
+    const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
+    const effect = this.parseVttDoorCheckEffect(dto.effect);
+
+    if (!effect) {
+      return {
+        requestId: dto.requestId ?? randomUUID(),
+        status: MainCommandStatus.IMPOSSIBLE,
+        message: "처리할 수 없는 판정 후속 효과입니다.",
+      };
+    }
+    if (state.currentNodeId && effect.nodeId !== state.currentNodeId) {
+      return {
+        requestId: dto.requestId ?? randomUUID(),
+        status: MainCommandStatus.IMPOSSIBLE,
+        message: "현재 노드와 다른 문 판정 결과는 반영할 수 없습니다.",
+      };
+    }
+
+    const result =
+      dto.outcome === ActionOutcome.SUCCESS
+        ? await this.sessionsService.applyVttDoorCheckSuccess({
+            sessionId: session.id,
+            sessionScenarioId: sessionScenario.id,
+            doorId: effect.doorId,
+            nodeId: effect.nodeId,
+            effect: effect.effect,
+          })
+        : {
+            status: MainCommandStatus.MESSAGE,
+            message:
+              effect.effect === "open"
+                ? "판정에 실패해 문은 아직 잠겨 있습니다."
+                : "판정에 실패해 문은 부서지지 않았습니다.",
+          };
+
+    const turnLog = await this.turnLogsService.createTurnLog({
+      sessionId: session.id,
+      sessionScenarioId: sessionScenario.id,
+      actorUserId: userId,
+      sessionCharacterId: dto.actorId ?? null,
+      rawInput: result.message,
+      structuredAction: {
+        type: "main_command_check_result",
+        requestId: dto.requestId ?? null,
+        outcome: dto.outcome,
+        effect,
+      },
+      outcome: dto.outcome,
+      narration: result.message,
+    });
+    this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
+
+    return {
+      requestId: dto.requestId ?? randomUUID(),
+      status: result.status,
+      message: result.message,
+      data: { effect },
+    };
   }
 
   private async loadContext(
@@ -578,7 +666,9 @@ export class MainCommandsService {
     }
 
     if (
-      (dto.intent === MainCommandIntent.INVESTIGATE_OBJECT || dto.intent === MainCommandIntent.ENVIRONMENT_USE) &&
+      (dto.intent === MainCommandIntent.INVESTIGATE_OBJECT ||
+        dto.intent === MainCommandIntent.INTERACT_OBJECT ||
+        dto.intent === MainCommandIntent.ENVIRONMENT_USE) &&
       !dto.targetId &&
       !dto.mapPoint
     ) {
@@ -1150,6 +1240,24 @@ export class MainCommandsService {
     dto: SubmitMainCommandDto,
     visibleEntities: VisibleSceneEntity[],
   ): Promise<MainCommandResponseDto> {
+    if (dto.mapPoint) {
+      const objectResult = await this.sessionsService.describeVttObjectAtPoint({
+        sessionId: context.sessionId,
+        sessionScenarioId: context.sessionScenarioId,
+        nodeId: context.currentNodeId,
+        mapPoint: dto.mapPoint,
+      });
+
+      if (objectResult) {
+        return {
+          requestId,
+          status: MainCommandStatus.MESSAGE,
+          message: objectResult.message,
+          actionCandidate: this.buildActionCandidate(context, dto, dto.playerText),
+        };
+      }
+    }
+
     const investigationTargets = visibleEntities.filter(
       (entity) =>
         entity.kind === MainCommandTargetType.OBJECT ||
@@ -1398,6 +1506,27 @@ export class MainCommandsService {
     dto: SubmitMainCommandDto,
     visibleEntities: VisibleSceneEntity[],
   ): Promise<MainCommandResponseDto> {
+    if (dto.mapPoint) {
+      const doorResult = await this.sessionsService.openVttDoorAtPoint({
+        sessionId: context.sessionId,
+        sessionScenarioId: context.sessionScenarioId,
+        nodeId: context.currentNodeId,
+        mapPoint: dto.mapPoint,
+        itemId: dto.itemId,
+      });
+
+      if (doorResult) {
+        return {
+          requestId,
+          status: doorResult.status,
+          message: doorResult.message,
+          checkOptions: doorResult.checkOptions,
+          data: doorResult.checkEffect ? { checkEffect: doorResult.checkEffect } : null,
+          actionCandidate: this.buildActionCandidate(context, dto, dto.playerText),
+        };
+      }
+    }
+
     const objectTarget = this.resolveEntity(
       dto,
       visibleEntities.filter((entity) => entity.kind === MainCommandTargetType.OBJECT),
@@ -1688,6 +1817,26 @@ export class MainCommandsService {
     visibleEntities: VisibleSceneEntity[],
     recentLogs: string[],
   ): Promise<MainCommandResponseDto> {
+    if (dto.mapPoint) {
+      const doorResult = await this.sessionsService.breakVttDoorAtPoint({
+        sessionId: context.sessionId,
+        sessionScenarioId: context.sessionScenarioId,
+        nodeId: context.currentNodeId,
+        mapPoint: dto.mapPoint,
+      });
+
+      if (doorResult) {
+        return {
+          requestId,
+          status: doorResult.status,
+          message: doorResult.message,
+          checkOptions: doorResult.checkOptions,
+          data: doorResult.checkEffect ? { checkEffect: doorResult.checkEffect } : null,
+          actionCandidate: this.buildActionCandidate(context, dto, dto.playerText),
+        };
+      }
+    }
+
     const target = dto.targetId ? this.resolveEntity(dto, visibleEntities, dto.targetType) : null;
     const locationLabel = dto.mapPoint ? `(${dto.mapPoint.x}, ${dto.mapPoint.y}) 지점` : null;
 
@@ -2682,6 +2831,7 @@ export class MainCommandsService {
         status: response.status,
         checkOptions: response.checkOptions ?? [],
         actionCandidate: response.actionCandidate ?? null,
+        data: response.data ?? null,
       },
       outcome,
       narration: response.message,
@@ -2698,6 +2848,35 @@ export class MainCommandsService {
       : response.status === MainCommandStatus.RESOLVED
         ? ActionOutcome.SUCCESS
         : ActionOutcome.NO_ROLL;
+  }
+
+  private parseVttDoorCheckEffect(value: Record<string, unknown>): VttDoorCheckEffect | null {
+    const type = value.type;
+    const doorId = value.doorId;
+    const effect = value.effect;
+    const nodeId = value.nodeId;
+    const mapPoint = value.mapPoint;
+    if (
+      type !== "vttDoor" ||
+      typeof doorId !== "string" ||
+      typeof nodeId !== "string" ||
+      (effect !== "open" && effect !== "broken") ||
+      !mapPoint ||
+      typeof mapPoint !== "object"
+    ) {
+      return null;
+    }
+    const point = mapPoint as Record<string, unknown>;
+    if (typeof point.x !== "number" || typeof point.y !== "number") {
+      return null;
+    }
+    return {
+      type,
+      doorId,
+      effect,
+      nodeId,
+      mapPoint: { x: point.x, y: point.y },
+    };
   }
 
   private extractVisibleSceneEntities(nodeMetaJson: string | null): VisibleSceneEntity[] {

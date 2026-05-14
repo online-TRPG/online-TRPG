@@ -1346,6 +1346,35 @@
   color: #8a2935;
 }
 
+.main-command-check-followup {
+  min-height: 38px;
+  padding: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d8c08f;
+  background: #fff8e7;
+  color: #5c4320;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.main-command-check-followup span {
+  min-width: min(220px, 100%);
+  flex: 1 1 auto;
+}
+
+.main-command-check-followup button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #b8924a;
+  background: #ffffff;
+  color: #4b3718;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .session-sidebar-input input {
   min-height: 46px;
   background: #ffffff;
@@ -1683,6 +1712,97 @@
 
 .chat-thread-row.outgoing:not(.notice) .chat-thread-bubble {
   border-right: 4px solid var(--chat-message-frame-color, #b68a36);
+}
+
+.chat-thread-tone-label {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  opacity: 0.88;
+}
+
+.chat-thread-row.main-log-gm-narration .chat-thread-sender,
+.chat-thread-row.main-log-gm-narration .chat-thread-time {
+  color: #7a5721;
+}
+
+.chat-thread-row.main-log-gm-narration .chat-thread-bubble {
+  border-color: #d5ac63;
+  border-left: 4px solid #b98522;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0)),
+    #fff7df;
+  color: #3f2d17;
+}
+
+.chat-thread-row.main-log-npc-dialogue .chat-thread-sender,
+.chat-thread-row.main-log-npc-dialogue .chat-thread-time {
+  color: #2f6d52;
+}
+
+.chat-thread-row.main-log-npc-dialogue .chat-thread-bubble {
+  border-color: #85c6a8;
+  border-left: 4px solid #2f9b6d;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0)),
+    #eefbf4;
+  color: #173b2b;
+}
+
+.chat-thread-row.main-log-system-result {
+  justify-content: center;
+}
+
+.chat-thread-row.main-log-system-result .chat-thread-stack {
+  max-width: min(92%, 460px);
+}
+
+.chat-thread-row.main-log-system-result .chat-thread-sender,
+.chat-thread-row.main-log-system-result .chat-thread-time {
+  color: #6a6172;
+}
+
+.chat-thread-row.main-log-system-result .chat-thread-bubble {
+  border-color: #c7bdcf;
+  border-left: 4px solid #897795;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0)),
+    #f4f0f7;
+  color: #332b3b;
+}
+
+.chat-thread-row.main-log-player-command .chat-thread-sender,
+.chat-thread-row.main-log-player-command .chat-thread-time {
+  color: #2f628c;
+}
+
+.chat-thread-row.main-log-player-command .chat-thread-bubble {
+  border-color: #8fb7dc;
+  border-right: 4px solid #3f82bd;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0)),
+    #edf6ff;
+  color: #173149;
+}
+
+.chat-thread-row.main-log-player-rp .chat-thread-sender,
+.chat-thread-row.main-log-player-rp .chat-thread-time {
+  color: #2d7075;
+}
+
+.chat-thread-row.main-log-player-rp .chat-thread-bubble {
+  border-color: #8ac7cb;
+  border-right: 4px solid #329199;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0)),
+    #ecfafb;
+  color: #173c40;
 }
 
 .session-sidebar-input {
