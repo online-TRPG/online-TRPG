@@ -17,6 +17,7 @@ import {
   CharacterResponseDto,
   CreateCharacterDto,
   InventoryItemDto,
+  normalizeSkillToKo,
   POINT_BUY_COST,
   POINT_BUY_MAX_BASE,
   POINT_BUY_MIN_BASE,
@@ -74,9 +75,9 @@ export class CharactersService {
     this.validateAbilitiesRange(abilities);
     await this.validatePointBuyForAncestry(ancestry, abilities);
     const className = dto.className.trim();
-    if (dto.proficientSkills) {
-      await this.validateProficientSkills(className, dto.proficientSkills);
-    }
+    const normalizedProficientSkills = dto.proficientSkills
+      ? await this.validateProficientSkills(className, dto.proficientSkills)
+      : [];
     const inventoryFromEquipment = await this.resolveStartingEquipment(
       className,
       dto.startingEquipmentSelection,
@@ -105,7 +106,7 @@ export class CharactersService {
         abilitiesJson: JSON.stringify(abilities),
         proficiencyBonus,
         featuresJson: JSON.stringify(dto.features ?? []),
-        proficientSkillsJson: JSON.stringify(dto.proficientSkills ?? []),
+        proficientSkillsJson: JSON.stringify(normalizedProficientSkills),
         maxHp,
         armorClass: dto.armorClass ?? 10,
         speed: dto.speed ?? 30,
@@ -171,9 +172,10 @@ export class CharactersService {
       this.validateAbilitiesRange(finalAbilities);
       await this.validatePointBuyForAncestry(finalAncestry, finalAbilities);
     }
-    if (dto.proficientSkills !== undefined) {
-      await this.validateProficientSkills(finalClassName, dto.proficientSkills);
-    }
+    const normalizedUpdateProficientSkills =
+      dto.proficientSkills !== undefined
+        ? await this.validateProficientSkills(finalClassName, dto.proficientSkills)
+        : null;
     if (dto.inventory !== undefined || dto.equippedWeaponId !== undefined) {
       await this.validateInventoryAndEquippedWeapon(finalInventory, finalEquippedWeaponId);
     }
@@ -212,7 +214,7 @@ export class CharactersService {
           resolvedStats?.proficiencyBonus ?? dto.proficiencyBonus ?? existing.proficiencyBonus,
         featuresJson: JSON.stringify(dto.features ?? JSON.parse(existing.featuresJson ?? "[]")),
         proficientSkillsJson: JSON.stringify(
-          dto.proficientSkills ?? JSON.parse(existing.proficientSkillsJson),
+          normalizedUpdateProficientSkills ?? JSON.parse(existing.proficientSkillsJson),
         ),
         maxHp: resolvedStats?.maxHp ?? dto.maxHp ?? existing.maxHp,
         armorClass: dto.armorClass ?? existing.armorClass,
@@ -495,13 +497,19 @@ export class CharactersService {
     }
   }
 
-  // 클래스 시드의 skillChoices/skillChoiceCount 와 일치 검증.
-  // - skillChoiceCount === 0 (시드에 없는 className 포함) 이면 검증 skip — legacy 호환.
+  // 클래스 시드의 skillChoices/skillChoiceCount 와 일치 검증 + 한국어 정규화.
+  // - skillChoiceCount === 0 (시드에 없는 className 포함) 이면 입력 그대로 통과 — legacy 호환.
+  // - 영문 코드("Arcana") 또는 한국어("비전학") 어느 쪽으로 들어와도 한국어로 normalize 후 비교.
+  //   DB 의 ClassDefinition.skillChoicesJson 이 한국어이므로 한국어를 정규형으로 둔다.
+  // - 반환값을 호출자가 그대로 proficientSkillsJson 에 저장하면 영/한 혼재가 사라진다.
   // - 개수 일치 / 옵션 포함 / 중복 금지.
-  private async validateProficientSkills(className: string, skills: string[]): Promise<void> {
+  private async validateProficientSkills(
+    className: string,
+    skills: string[],
+  ): Promise<string[]> {
     const klass = await this.catalogService.findClassByKey(className.toLowerCase());
     if (!klass || klass.skillChoiceCount === 0) {
-      return;
+      return skills;
     }
 
     const choices = JSON.parse(klass.skillChoicesJson) as string[];
@@ -512,18 +520,28 @@ export class CharactersService {
       );
     }
 
+    const normalized: string[] = [];
     const seen = new Set<string>();
     for (const skill of skills) {
-      if (seen.has(skill)) {
+      const ko = normalizeSkillToKo(skill);
+      if (!ko) {
+        throw new BadRequestException(
+          `스킬: 알 수 없는 항목 "${skill}" 입니다. (D&D 5e 스킬명을 영문 또는 한국어로 입력해주세요)`,
+        );
+      }
+      if (seen.has(ko)) {
         throw new BadRequestException(`스킬: 중복된 항목 "${skill}" 이 들어왔습니다.`);
       }
-      seen.add(skill);
-      if (!choices.includes(skill)) {
+      seen.add(ko);
+      if (!choices.includes(ko)) {
         throw new BadRequestException(
           `스킬: "${skill}" 은(는) ${klass.koName} 의 선택 가능 목록(${choices.join(", ")})에 없습니다.`,
         );
       }
+      normalized.push(ko);
     }
+
+    return normalized;
   }
 
   // 인벤토리/장착 무기 검증.
