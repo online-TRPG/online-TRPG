@@ -297,18 +297,34 @@ export class CombatService {
     const nextTurnNo = combat.turnNo + 1;
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      await tx.combatParticipant.update({
-        where: { id: current.id },
-        data: { turnEndedAt: new Date() },
-      });
-
-      return tx.combat.update({
-        where: { id: combat.id },
+      // S14P31A201-80: 동시 endTurn 호출 시 currentParticipantId 조건부 update 로
+      // 한 번만 통과시킨다. 이미 다음 턴으로 넘어간 뒤 재호출되면 count=0 이므로
+      // race 패배자에게 TURN_409 를 명시 반환한다 (앞단 NOT_YOUR_TURN 검증과 트랜잭션 사이의 윈도우 차단).
+      const advanced = await tx.combat.updateMany({
+        where: {
+          id: combat.id,
+          currentParticipantId: current.id,
+        },
         data: {
           currentParticipantId: next?.id ?? null,
           turnNo: nextTurnNo,
           roundNo: nextRoundNo,
         },
+      });
+
+      if (advanced.count === 0) {
+        throw conflict("TURN_409", "이미 턴이 종료되었습니다.", {
+          reason: "TURN_ALREADY_ADVANCED",
+        });
+      }
+
+      await tx.combatParticipant.update({
+        where: { id: current.id },
+        data: { turnEndedAt: new Date() },
+      });
+
+      return tx.combat.findUniqueOrThrow({
+        where: { id: combat.id },
         include: { participants: { orderBy: { turnOrder: "asc" } } },
       });
     });

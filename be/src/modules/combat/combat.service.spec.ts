@@ -186,7 +186,8 @@ describe("CombatService lifecycle", () => {
         update: jest.fn(),
       },
       combat: {
-        update: jest.fn().mockResolvedValue({
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
           ...combat,
           currentParticipantId: next.id,
           roundNo: 1,
@@ -197,18 +198,80 @@ describe("CombatService lifecycle", () => {
 
     sessionsService.getSessionEntityOrThrow.mockResolvedValue({ id: "session-1" });
     prisma.combat.findFirst.mockResolvedValue(combat);
-    prisma.sessionCharacter.findUnique.mockResolvedValue({ id: "session-character-1" });
+    prisma.sessionCharacter.findUnique.mockResolvedValue({
+      id: "session-character-1",
+      character: { ownerUserId: "user-1" },
+    });
     prisma.sessionCharacterResource.findMany.mockResolvedValue([]);
     prisma.$transaction.mockImplementation(async (callback) => callback(tx));
 
     await service.endTurn("user-1", "session-1", {});
 
+    expect(tx.combat.updateMany).toHaveBeenCalledWith({
+      where: { id: "combat-1", currentParticipantId: current.id },
+      data: {
+        currentParticipantId: next.id,
+        turnNo: 2,
+        roundNo: 1,
+      },
+    });
     expect(actionEconomy.getOrCreateTurnState).toHaveBeenCalledWith({
       combatId: "combat-1",
       roundNo: 1,
       turnNo: 2,
       sessionCharacterId: "session-character-2",
     });
+  });
+
+  it("rejects endTurn with TURN_409 when another caller already advanced the turn", async () => {
+    const { service, prisma, sessionsService } = createService();
+    const current = createParticipant({
+      id: "participant-1",
+      sessionCharacterId: "session-character-1",
+      turnOrder: 1,
+    });
+    const next = createParticipant({
+      id: "participant-2",
+      sessionCharacterId: "session-character-2",
+      turnOrder: 2,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 1,
+      currentParticipantId: current.id,
+      participants: [current, next],
+    };
+    // 동시 호출자 두 명 모두 NOT_YOUR_TURN 검증을 통과한 직후를 모사한다.
+    // 둘 중 한 명이 먼저 update 했다면 두번째 호출자의 updateMany 는 0건이 된다.
+    const tx = {
+      combatParticipant: { update: jest.fn() },
+      combat: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findUniqueOrThrow: jest.fn(),
+      },
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({ id: "session-1" });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.sessionCharacter.findUnique.mockResolvedValue({
+      id: "session-character-1",
+      character: { ownerUserId: "user-1" },
+    });
+    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+
+    await expect(service.endTurn("user-1", "session-1", {})).rejects.toMatchObject({
+      response: {
+        code: "TURN_409",
+        data: { reason: "TURN_ALREADY_ADVANCED" },
+      },
+    });
+
+    // race 패배 시 turnEndedAt 이나 fetch 가 일어나선 안 된다.
+    expect(tx.combatParticipant.update).not.toHaveBeenCalled();
+    expect(tx.combat.findUniqueOrThrow).not.toHaveBeenCalled();
   });
 
   it("ends expired Rage and clears condition tags after turn advance", async () => {
@@ -244,7 +307,8 @@ describe("CombatService lifecycle", () => {
         update: jest.fn(),
       },
       combat: {
-        update: jest.fn().mockResolvedValue(updatedCombat),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue(updatedCombat),
       },
     };
 
@@ -252,7 +316,10 @@ describe("CombatService lifecycle", () => {
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.combat.findFirst.mockResolvedValue(combat);
     prisma.sessionCharacter.findUnique
-      .mockResolvedValueOnce({ id: "session-character-1" })
+      .mockResolvedValueOnce({
+        id: "session-character-1",
+        character: { ownerUserId: "user-1" },
+      })
       .mockResolvedValueOnce({
         conditionsJson: JSON.stringify([
           "rage",

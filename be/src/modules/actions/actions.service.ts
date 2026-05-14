@@ -101,6 +101,7 @@ export class ActionsService {
       userId,
       participantRole: participant.role,
       sessionCharacterId: sessionCharacter.id,
+      sessionCharacterCurrentHp: sessionCharacter.currentHp,
       phase: state.phase,
       actionScope,
     });
@@ -366,6 +367,7 @@ export class ActionsService {
     userId: string;
     participantRole: PrismaParticipantRole;
     sessionCharacterId: string;
+    sessionCharacterCurrentHp: number;
     phase: PrismaGamePhase;
     actionScope: PrismaActionScope;
   }): Promise<void> {
@@ -414,6 +416,15 @@ export class ActionsService {
     if (!combat || current?.sessionCharacterId !== params.sessionCharacterId) {
       throw forbidden("ACTION_403", "행동을 입력할 수 없습니다.", {
         reason: "NOT_YOUR_TURN",
+      });
+    }
+
+    // S14P31A201-80: 전투 중 HP 0 (기절/사망) 상태 캐릭터의 행동을 차단한다.
+    // 비전투 시 narrative 자유도를 위해 검사하지 않는다 — UI 의 isAlive 플래그도
+    // 전투 액션(MOVE/ATTACK/CHECK/END_TURN)에 한해 사용된다 (action-rule.service.ts 참고).
+    if (params.sessionCharacterCurrentHp <= 0) {
+      throw forbidden("ACTION_403", "행동을 입력할 수 없습니다.", {
+        reason: "CHARACTER_INCAPACITATED",
       });
     }
   }
