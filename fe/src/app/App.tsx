@@ -158,6 +158,7 @@ export function App() {
   const sessionDetailId = sessionDetailMatch?.[1] ?? null;
   const gameroomMatch = /^\/gameroom\/([^/]+)\/[^/]+$/.exec(location.pathname);
   const gameroomId = gameroomMatch?.[1] ?? null;
+  const previousPathnameRef = useRef<string | null>(null);
   const publicProfileState = location.state as { profilePreview?: User | null } | null;
   const sessionDiscoverState = location.state as { initialSection?: 'public' | 'my' } | null;
   const scenarioEditMatch = /^\/scenarios\/([^/]+)\/edit$/.exec(location.pathname);
@@ -208,6 +209,18 @@ export function App() {
       setHasUnsavedScenarioChanges(false);
     }
   }, [hasUnsavedScenarioChanges, isScenarioEditorActive]);
+
+  useEffect(() => {
+    const previousPathname = previousPathnameRef.current;
+    previousPathnameRef.current = location.pathname;
+
+    if (previousPathname === null || previousPathname === location.pathname) {
+      return;
+    }
+
+    auth.clearError();
+    session.clearError();
+  }, [location.pathname]);
 
   useEffect(() => {
     void reloadScenarios();
