@@ -624,6 +624,27 @@ export function useSession(
     void refreshSessionList();
   }, [accessToken, snapshot?.session.id, snapshot?.session.status, user]);
 
+  useEffect(() => {
+    if (!user || !snapshot?.session.id) return undefined;
+    if (socketConnected) return undefined;
+
+    let disposed = false;
+    const intervalId = window.setInterval(() => {
+      void getSession(user, snapshot.session.id, accessToken)
+        .then((next) => {
+          if (!disposed) {
+            updateSnapshot(next);
+          }
+        })
+        .catch(() => undefined);
+    }, 3000);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, [accessToken, snapshot?.session.id, socketConnected, updateSnapshot, user]);
+
   async function refreshSessionListInternal(): Promise<SessionListRefreshResult | null> {
     if (!user) return null;
 
