@@ -554,7 +554,7 @@ interface PlayPageProps {
   isLoadingTurnLogs: boolean;
   busy: boolean;
   error: string | null;
-  onCreateCharacter: (payload: CharacterPayload) => void;
+  onCreateCharacter: (payload: CharacterPayload) => Promise<boolean> | void;
   onSelectCharacter: (characterId: string | null) => void;
   onSetReady: (isReady: boolean) => void;
   onStartSession: () => void;

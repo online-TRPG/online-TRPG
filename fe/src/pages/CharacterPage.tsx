@@ -43,6 +43,39 @@ const POINT_BUY_COST: Readonly<Record<number, number>> = {
   8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9,
 };
 
+// shared-types/src/constants/skills.ts 와 동기화 유지 — BE seed (be/src/database/seed/classes.ts ALL_SKILLS) 가 정답.
+// 영문 코드/한국어 어느 쪽 입력도 한국어 정규형으로 normalize 한다.
+const DND5E_SKILLS_INLINE: ReadonlyArray<{ code: string; ko: string }> = [
+  { code: 'Acrobatics', ko: '곡예' },
+  { code: 'AnimalHandling', ko: '동물 조련' },
+  { code: 'Arcana', ko: '비전학' },
+  { code: 'Athletics', ko: '운동' },
+  { code: 'Deception', ko: '기만' },
+  { code: 'History', ko: '역사' },
+  { code: 'Insight', ko: '통찰' },
+  { code: 'Intimidation', ko: '위협' },
+  { code: 'Investigation', ko: '조사' },
+  { code: 'Medicine', ko: '의학' },
+  { code: 'Nature', ko: '자연' },
+  { code: 'Perception', ko: '감지' },
+  { code: 'Performance', ko: '공연' },
+  { code: 'Persuasion', ko: '설득' },
+  { code: 'Religion', ko: '종교' },
+  { code: 'SleightOfHand', ko: '손재주' },
+  { code: 'Stealth', ko: '은신' },
+  { code: 'Survival', ko: '생존' },
+];
+const SKILL_KO_BY_CODE_INLINE = new Map(
+  DND5E_SKILLS_INLINE.map((s) => [s.code.toLowerCase(), s.ko]),
+);
+const SKILL_KO_SET_INLINE = new Set(DND5E_SKILLS_INLINE.map((s) => s.ko));
+function normalizeSkillToKo(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (SKILL_KO_SET_INLINE.has(trimmed)) return trimmed;
+  return SKILL_KO_BY_CODE_INLINE.get(trimmed.toLowerCase()) ?? null;
+}
+
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface CharacterPageProps {
   user: StoredUser;
@@ -53,9 +86,9 @@ interface CharacterPageProps {
   snapshot: SessionSnapshot | null;
   busy: boolean;
   error: string | null;
-  onCreateCharacter: (payload: CharacterPayload) => void | Promise<void>;
+  onCreateCharacter: (payload: CharacterPayload) => Promise<boolean>;
   onCloneCharacter: (characterId: string) => void | Promise<void>;
-  onUpdateCharacter: (characterId: string, payload: CharacterPayload) => void | Promise<void>;
+  onUpdateCharacter: (characterId: string, payload: CharacterPayload) => Promise<boolean>;
   onDeleteCharacter: (characterId: string) => void | Promise<void>;
 }
 
@@ -191,21 +224,8 @@ const abilityDisplayLabels: Record<AbilityKey, string> = {
   cha: '매력',
 };
 
-const suggestedSkillOptions = [
-  { value: 'Acrobatics', label: '곡예' },
-  { value: 'Arcana', label: '비전학' },
-  { value: 'Athletics', label: '운동' },
-  { value: 'History', label: '역사' },
-  { value: 'Insight', label: '통찰' },
-  { value: 'Investigation', label: '조사' },
-  { value: 'Perception', label: '인지능력' },
-  { value: 'Persuasion', label: '설득' },
-  { value: 'Stealth', label: '은신' },
-  { value: 'Survival', label: '생존' },
-] as const;
-const skillLabelMap: Map<string, string> = new Map(
-  suggestedSkillOptions.map((option) => [option.value, option.label])
-);
+// 클래스 시드의 skillChoices 가 한국어이므로 표시·전송 모두 한국어를 정규형으로 사용한다.
+const allSkillsKo: readonly string[] = DND5E_SKILLS_INLINE.map((entry) => entry.ko);
 const presetIdByClassName: Map<string, string> = new Map([
   ['Wizard', 'preset_wizard'],
   ['Ranger', 'preset_archer'],
@@ -463,8 +483,10 @@ function getCharacterAncestryLabel(ancestry: string, ancestryLabelMap: Map<strin
 }
 
 function getSkillLabel(skill: string) {
-  const normalized = skill.trim();
-  return skillLabelMap.get(normalized) ?? normalized;
+  // 영문 코드("Arcana")로 저장된 legacy 캐릭터도 한국어로 표시되도록 normalize.
+  // 매칭 실패 시 입력값 그대로 (예측 못한 한국어 변형 보존).
+  const trimmed = skill.trim();
+  return normalizeSkillToKo(trimmed) ?? trimmed;
 }
 
 function getPresetIdForClassName(className: string) {
@@ -841,12 +863,15 @@ export function CharacterPage({
       assignToSession: false,
     };
 
-    if (editingCharacterId) {
-      await onUpdateCharacter(editingCharacterId, payload);
-    } else {
-      await onCreateCharacter(payload);
+    // 검증 실패 시 모달을 유지해서 사용자가 입력한 폼 상태를 보존한다.
+    // useSession 의 setError 가 props.error 로 전달돼 모달 내부에 인라인 표시된다.
+    const succeeded = editingCharacterId
+      ? await onUpdateCharacter(editingCharacterId, payload)
+      : await onCreateCharacter(payload);
+
+    if (succeeded) {
+      closeCreateModal();
     }
-    closeCreateModal();
   }
 
   async function handleCloneSelectedCharacter() {
@@ -883,13 +908,27 @@ export function CharacterPage({
   }
 
   function addSkill(skill: string) {
-    const normalized = skill.trim();
-    if (!normalized) return;
+    // 입력값을 한국어로 정규화 — 영문 칩(Arcana)도 한국어(비전학)로 통일해 BE 검증·DB 저장 형식과 맞춘다.
+    // 매칭 실패 시 trim 한 원문 그대로 두면 BE 가 unknown 으로 거부 → 사용자 인라인 에러로 노출된다.
+    const trimmed = skill.trim();
+    if (!trimmed) return;
+    const normalized = normalizeSkillToKo(trimmed) ?? trimmed;
 
-    setFormState((current) => ({
-      ...current,
-      proficientSkills: Array.from(new Set([...(current.proficientSkills ?? []), normalized])),
-    }));
+    // 클래스가 정해져 있으면 시드 기반 갯수 제한을 그대로 강제한다 (BE 와 동일 정책).
+    const limit = selectedClass?.skillChoiceCount ?? null;
+    setFormState((current) => {
+      const existing = current.proficientSkills ?? [];
+      if (existing.includes(normalized)) {
+        return current;
+      }
+      if (limit !== null && existing.length >= limit) {
+        return current;
+      }
+      return {
+        ...current,
+        proficientSkills: [...existing, normalized],
+      };
+    });
     setSkillInput('');
   }
 
@@ -1556,29 +1595,77 @@ export function CharacterPage({
                     </div>
                   </div>
 
-                  <div className="character-skill-picker">
-                    <input
-                      value={skillInput}
-                      onChange={(event) => setSkillInput(event.target.value)}
-                      placeholder="기술 이름 입력"
-                    />
-                    <button type="button" onClick={() => addSkill(skillInput)}>
-                      추가
-                    </button>
-                  </div>
+                  {(() => {
+                    const selectedSkills = formState.proficientSkills ?? [];
+                    const requiredCount = selectedClass?.skillChoiceCount ?? null;
+                    const choices = selectedClass?.skillChoices ?? allSkillsKo;
+                    const limitReached =
+                      requiredCount !== null && selectedSkills.length >= requiredCount;
+                    return (
+                      <>
+                        {selectedClass && requiredCount ? (
+                          <p
+                            style={{
+                              margin: '0 0 12px 0',
+                              fontSize: '0.9rem',
+                              opacity: 0.85,
+                            }}
+                          >
+                            <strong>{selectedClass.koName}</strong> 클래스는 아래{' '}
+                            {choices.length}개 중{' '}
+                            <strong>{requiredCount}개</strong>를 선택해야 합니다 (현재{' '}
+                            <strong>{selectedSkills.length}</strong>개 선택).
+                          </p>
+                        ) : null}
 
-                  <div className="character-chip-row" style={{ marginTop: '14px' }}>
-                    {suggestedSkillOptions.map((skill) => (
-                      <button
-                        key={skill.value}
-                        type="button"
-                        className="character-skill-chip"
-                        onClick={() => addSkill(skill.value)}
-                      >
-                        {skill.label}
-                      </button>
-                    ))}
-                  </div>
+                        <div className="character-skill-picker">
+                          <input
+                            value={skillInput}
+                            onChange={(event) => setSkillInput(event.target.value)}
+                            placeholder="기술 이름 입력 (예: 비전학 또는 Arcana)"
+                            disabled={limitReached}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => addSkill(skillInput)}
+                            disabled={limitReached || !skillInput.trim()}
+                          >
+                            추가
+                          </button>
+                        </div>
+
+                        <div className="character-chip-row" style={{ marginTop: '14px' }}>
+                          {choices.map((skill) => {
+                            const already = selectedSkills.includes(skill);
+                            const disabled = already || limitReached;
+                            return (
+                              <button
+                                key={skill}
+                                type="button"
+                                className="character-skill-chip"
+                                onClick={() => addSkill(skill)}
+                                disabled={disabled}
+                                style={
+                                  disabled
+                                    ? { opacity: 0.45, cursor: 'not-allowed' }
+                                    : undefined
+                                }
+                                title={
+                                  already
+                                    ? '이미 선택됨'
+                                    : limitReached
+                                    ? `${requiredCount}개까지만 선택 가능`
+                                    : undefined
+                                }
+                              >
+                                {skill}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    );
+                  })()}
 
                   <div className="character-chip-row" style={{ marginTop: '12px' }}>
                     {(formState.proficientSkills ?? []).length ? (
@@ -1899,6 +1986,15 @@ export function CharacterPage({
                   </div>
                 </div>
               </div>
+              {error ? (
+                <p
+                  className="panel-error"
+                  role="alert"
+                  style={{ margin: '12px 0 0 0' }}
+                >
+                  {error}
+                </p>
+              ) : null}
               <button type="submit" className="primary" disabled={busy}>
                 {editingCharacterId ? '저장' : '생성'}
               </button>
