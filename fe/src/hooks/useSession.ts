@@ -990,6 +990,7 @@ export function useSession(
       await apiLeaveSession(user, leavingSessionId, accessToken);
       appendLog('rest', '세션 이탈', `${leavingSessionTitle} 세션에서 이탈했습니다.`);
       await refreshSessionList();
+      await refreshMyCharacters();
       return true;
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '세션 이탈에 실패했습니다.';
@@ -997,12 +998,14 @@ export function useSession(
       if (isStaleLeaveErrorMessage(message)) {
         appendLog('rest', '세션 이탈', `${leavingSessionTitle} 세션 이탈 상태를 동기화했습니다.`);
         await refreshSessionList();
+        await refreshMyCharacters();
         return true;
       }
 
       updateSnapshot(previousSnapshot);
       setError(message);
       await refreshSessionList();
+      await refreshMyCharacters();
       return false;
     } finally {
       setBusy(false);

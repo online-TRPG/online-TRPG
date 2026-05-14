@@ -1027,12 +1027,12 @@
   border: 0 !important;
   border-radius: 0 !important;
   padding: 98px 120px 116px 122px;
-  max-height: none;
+  max-height: calc(100vh - 48px);
   margin-top: 16px;
   background: transparent !important;
   box-shadow: 0 26px 60px rgba(12, 7, 2, 0.42);
   overflow-x: hidden;
-  overflow-y: visible;
+  overflow-y: auto;
 }
 
 .modal-card-wide {
@@ -1043,10 +1043,10 @@
 .character-create-modal::before {
   content: "";
   position: absolute;
-  top: -150px;
+  top: -300px;
   left: 50%;
   width: 110%;
-  height: calc(100% + 300px);
+  height: calc(455% + 460px);
   transform: translateX(-50%);
   background-image: url("../components/Profile_Border_Stats.webp");
   background-position: top center;
@@ -1137,8 +1137,8 @@
 .character-inventory-editor {
   display: grid;
   gap: 10px;
-  max-height: 290px;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
   padding-right: 8px;
 }
 
