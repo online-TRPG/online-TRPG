@@ -178,8 +178,8 @@
 
 .scenario-library-card {
   position: relative;
-  min-height: 178px;
-  padding: 20px 20px 18px;
+  height: 178px;
+  padding: 28px 22px 24px;
   border: 0;
   background: transparent;
   background-image: var(--scenario-card-frame-image);
@@ -187,10 +187,13 @@
   background-repeat: no-repeat;
   background-size: 100% 100%;
   color: var(--scenario-ink);
-  text-align: left;
-  display: grid;
-  align-content: start;
-  gap: 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  overflow: hidden;
   outline: none;
   box-shadow: none;
   transition: transform 180ms ease, filter 180ms ease;
@@ -224,68 +227,28 @@
   filter: drop-shadow(0 14px 20px rgba(74, 45, 14, 0.26));
 }
 
-.scenario-library-card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .scenario-library-card strong {
+  display: -webkit-box;
+  max-width: 88%;
+  overflow: hidden;
   color: var(--scenario-ink);
   font-size: 18px;
   line-height: 1.15;
+  text-overflow: ellipsis;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow-wrap: anywhere;
 }
 
-.scenario-library-level {
-  flex: 0 0 auto;
-  color: #6e4f2f;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.scenario-library-card p {
+.scenario-library-updated-at {
+  max-width: 88%;
   margin: 0;
   color: var(--scenario-ink-soft);
   line-height: 1.45;
-  font-size: 14px;
-  overflow-wrap: anywhere;
-}
-
-.scenario-library-card dl {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 16px;
-}
-
-.scenario-library-card dt,
-.scenario-library-card dd {
-  margin: 0;
-}
-
-.scenario-library-card dt {
-  color: rgba(96, 68, 37, 0.76);
-  font-size: 11px;
-}
-
-.scenario-library-card dd {
-  margin-top: 4px;
-  color: var(--scenario-ink);
   font-size: 13px;
-  font-weight: 700;
-}
-
-.scenario-library-card-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: auto;
-  color: #765634;
-  font-size: 11px;
-  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .scenario-library-card-create {
@@ -366,7 +329,7 @@
 .scenario-detail-panel h2 {
   margin: 0 0 16px;
   color: var(--scenario-ink);
-  font-size: 26px;
+  font-size: 22px;
   line-height: 1.12;
 }
 
@@ -378,15 +341,14 @@
 .scenario-detail-panel p {
   margin: 0;
   color: var(--scenario-ink-soft);
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .scenario-detail-panel {
-  display: grid;
-  align-content: start;
-  gap: 18px;
-  min-height: 500px;
-  padding: 38px 38px 28px;
+  position: relative;
+  min-height: 460px;
+  height: 460px;
+  padding: 0;
   border: 0;
   background: transparent;
   background-image: var(--scenario-book-image);
@@ -394,6 +356,19 @@
   background-repeat: no-repeat;
   background-size: 100% 100%;
   box-shadow: none;
+  overflow: hidden;
+}
+
+.scenario-detail-panel-scroll {
+  position: absolute;
+  top: 34px;
+  right: 28px;
+  bottom: 36px;
+  left: 28px;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  overflow-y: auto;
 }
 
 .scenario-detail-panel-heading .eyebrow {
@@ -403,11 +378,11 @@
 .scenario-detail-meta {
   margin: 0;
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .scenario-detail-meta > div {
-  padding: 10px 0;
+  padding: 8px 0;
   border: 0;
   border-bottom: 1px solid rgba(140, 103, 61, 0.18);
   background: transparent;
@@ -420,27 +395,21 @@
 
 .scenario-detail-meta dt {
   color: rgba(96, 68, 37, 0.76);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .scenario-detail-meta dd {
   margin-top: 4px;
   color: var(--scenario-ink);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   overflow-wrap: anywhere;
-}
-
-.scenario-detail-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: auto;
 }
 
 .scenario-detail-empty {
   min-height: 100%;
   align-self: stretch;
-  padding: 0 10px;
+  padding: 8px 12px 0;
   display: grid;
   align-content: center;
   justify-items: center;
