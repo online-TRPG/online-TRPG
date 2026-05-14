@@ -439,6 +439,15 @@ export class MainCommandsService {
       });
     }
 
+    // S14P31A201-80: sessionId+userId 복합키로 본인 sessionCharacter 만 얻지만,
+    // 캐릭터 이양/공유 등 향후 기능 대비해 Character.ownerUserId 도 명시 검증한다.
+    // (기존 actions.service.ts S14P31A201-71 패턴과 동일)
+    if (sessionCharacter.character.ownerUserId !== userId) {
+      throw forbidden("MAIN_COMMAND_403", "다른 유저의 캐릭터로 메인 명령을 사용할 수 없습니다.", {
+        reason: "CHARACTER_OWNERSHIP_MISMATCH",
+      });
+    }
+
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     if (!state.currentNodeId) {
       throw badRequest("MAIN_COMMAND_400", "현재 진행 중인 노드가 없습니다.", {
