@@ -109,6 +109,11 @@ export function connectSessionSocket(
   return socket;
 }
 
-export function sendRealtimeChatMessage(socket: Socket, sessionId: string, content: string): void {
-  socket.emit("chat.send", { sessionId, content });
+export function sendRealtimeChatMessage(
+  socket: Socket,
+  sessionId: string,
+  content: string,
+  scope: "CHAT" | "MAIN" = "CHAT",
+): void {
+  socket.emit("chat.send", { sessionId, content, scope });
 }

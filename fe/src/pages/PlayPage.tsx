@@ -11,13 +11,26 @@
  */
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from 'react';
-import type { InventoryItemDto, SubmitMainCommandDto, VttMapStateDto } from '@trpg/shared-types';
+import type {
+  ActionOutcome,
+  InventoryItemDto,
+  MainCommandResponseDto,
+  ResolveMainCommandCheckDto,
+  SubmitMainCommandDto,
+  VttMapStateDto,
+} from '@trpg/shared-types';
 import { BattleMap } from '../components/BattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
 import { CombatNodeSurface } from '../features/sessionPlay/components/CombatNodeSurface';
-import { ExplorationNodeSurface } from '../features/sessionPlay/components/ExplorationNodeSurface';
-import { StoryNodeSurface } from '../features/sessionPlay/components/StoryNodeSurface';
+import {
+  ExplorationNodeSurface,
+  type ExplorationMainCommandRequest,
+} from '../features/sessionPlay/components/ExplorationNodeSurface';
+import {
+  StoryNodeSurface,
+  type StoryRpUtterance,
+} from '../features/sessionPlay/components/StoryNodeSurface';
 import {
   getCharacterClassLabel,
   getCharacterImage,
@@ -98,6 +111,24 @@ type MainCommandFieldConfig = {
 type MainCommandCategoryOption = {
   label: string;
   category: SubmitMainCommandDto['category'];
+};
+
+type PendingMainCommandCheck = {
+  requestId: string;
+  message: string;
+  effect: Record<string, unknown>;
+};
+
+type MainLogTone =
+  | 'gm-narration'
+  | 'npc-dialogue'
+  | 'system-result'
+  | 'player-command'
+  | 'player-rp';
+
+type MainLogPresentation = {
+  tone: MainLogTone | null;
+  label: string | null;
 };
 
 const MainCommandScreenTypeValues = {
@@ -379,6 +410,13 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
         screenType: MainCommandScreenTypeValues.EXPLORATION,
       },
       {
+        label: '환경 이용',
+        categoryLabel: '환경',
+        category: MainCommandCategoryValues.ENVIRONMENT,
+        intent: MainCommandIntentValues.ENVIRONMENT_USE,
+        screenType: MainCommandScreenTypeValues.EXPLORATION,
+      },
+      {
         label: '도구 사용',
         categoryLabel: '도구/아이템',
         category: MainCommandCategoryValues.TOOL_ITEM,
@@ -560,7 +598,10 @@ interface PlayPageProps {
   onStartSession: () => void;
   onLeaveSession: () => void;
   onBackToLobby: () => void;
-  onMainCommand: (payload: SubmitMainCommandDto) => Promise<void> | void;
+  onMainCommand: (payload: SubmitMainCommandDto) => Promise<MainCommandResponseDto | null>;
+  onResolveMainCommandCheck: (
+    payload: ResolveMainCommandCheckDto,
+  ) => Promise<MainCommandResponseDto | null>;
   onAction: (label: string) => void;
   onLoadOlderTurnLogs: () => void;
 }
@@ -609,6 +650,63 @@ function buildProfileColorStyle(color: SessionTokenColor): CSSProperties {
 function getLogSenderLabel(title: string, rowClass: 'incoming' | 'outgoing' | 'notice') {
   if (rowClass === 'notice') return '세션 로그';
   return title || '알 수 없음';
+}
+
+function getMainLogPresentation(log: LogEntry, message: string): MainLogPresentation {
+  if (isChatScoped(log.message)) {
+    return { tone: null, label: null };
+  }
+
+  if (log.id.startsWith('turn-log:') && log.id.endsWith(':raw')) {
+    return { tone: 'player-command', label: 'GM 요청' };
+  }
+
+  if (log.id.startsWith('player-action:') && log.id.endsWith(':raw')) {
+    return { tone: 'player-rp', label: 'RP 대사' };
+  }
+
+  if (
+    log.kind === 'action' &&
+    log.message.startsWith('[MAIN]') &&
+    !log.id.startsWith('turn-log:')
+  ) {
+    return { tone: 'player-rp', label: 'RP 대사' };
+  }
+
+  if (log.id.startsWith('system-message:') || log.id.endsWith(':pending')) {
+    return { tone: 'system-result', label: '시스템 로그' };
+  }
+
+  if (log.id.startsWith('turn-log:')) {
+    const compact = message.trim();
+    const firstLine = compact.split(/\r?\n/, 1)[0] ?? '';
+    const looksLikeNpcDialogue =
+      /^[^\s:：][^:：\n]{0,32}[:：]\s+.+/.test(firstLine) &&
+      !/^(TurnLog|rawInput|outcome|narration|diceResult|stateDiff|structuredAction)[:：]/i.test(
+        firstLine
+      );
+    const looksLikeSystemResult =
+      compact.includes('TurnLog') ||
+      compact.includes('diceResult') ||
+      compact.includes('stateDiff') ||
+      compact.includes('outcome:') ||
+      compact.includes('판정') ||
+      compact.includes('주사위') ||
+      compact.includes('실패') ||
+      compact.includes('성공');
+
+    if (looksLikeNpcDialogue) {
+      return { tone: 'npc-dialogue', label: 'NPC 대사' };
+    }
+
+    if (looksLikeSystemResult) {
+      return { tone: 'system-result', label: '시스템 로그' };
+    }
+
+    return { tone: 'gm-narration', label: 'GM 지문' };
+  }
+
+  return { tone: null, label: null };
 }
 
 function getLogDate(createdAt: string): Date {
@@ -660,6 +758,13 @@ function getAbilitySummary(character: PersistentCharacter) {
   ];
 }
 
+function getMainCommandCheckEffect(response: MainCommandResponseDto | null | undefined) {
+  const data = response?.data;
+  if (!data || typeof data !== 'object') return null;
+  const effect = (data as Record<string, unknown>).checkEffect;
+  return effect && typeof effect === 'object' ? (effect as Record<string, unknown>) : null;
+}
+
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function PlayPage({
   user,
@@ -678,6 +783,7 @@ export function PlayPage({
   onLeaveSession,
   onBackToLobby,
   onMainCommand,
+  onResolveMainCommandCheck,
   onAction,
   onLoadOlderTurnLogs,
 }: PlayPageProps) {
@@ -699,6 +805,10 @@ export function PlayPage({
   const [mainPointX, setMainPointX] = useState('');
   const [mainPointY, setMainPointY] = useState('');
   const [mainCommandError, setMainCommandError] = useState<string | null>(null);
+  const [pendingMainCommandDraft, setPendingMainCommandDraft] =
+    useState<ExplorationMainCommandRequest | null>(null);
+  const [pendingMainCommandCheck, setPendingMainCommandCheck] =
+    useState<PendingMainCommandCheck | null>(null);
   const [inventoryUseFeedback, setInventoryUseFeedback] = useState<string | null>(null);
   const [isInventoryUsePending, setInventoryUsePending] = useState(false);
   const [formState, setFormState] = useState(defaultCharacter);
@@ -1047,6 +1157,8 @@ export function PlayPage({
       const normalizedMessage = stripScopePrefix(log.message);
       const isMine = log.title === user.displayName;
       const rowClass = log.kind === 'system' ? 'notice' : isMine ? 'outgoing' : 'incoming';
+      const presentation =
+        activeTab === 'Main' ? getMainLogPresentation(log, normalizedMessage) : null;
       const dateKey = getLogDateKey(log.createdAt);
       const showDateSeparator = dateKey !== previousDateKey;
       previousDateKey = dateKey;
@@ -1059,11 +1171,45 @@ export function PlayPage({
         showDateSeparator,
         dateLabel: getLogDateLabel(log.createdAt),
         rowClass,
+        logTone: presentation?.tone ?? null,
+        logToneLabel: presentation?.label ?? null,
         senderLabel: getLogSenderLabel(log.title, rowClass),
       };
     });
-  }, [scopedLogs, user.displayName]);
+  }, [activeTab, scopedLogs, user.displayName]);
   const latestRenderedLogId = renderedRows[renderedRows.length - 1]?.id ?? null;
+  const storyRpUtterances = useMemo<StoryRpUtterance[]>(() => {
+    const now = Date.now();
+    const freshWindowMs = 5_000;
+
+    return logs
+      .slice()
+      .reverse()
+      .filter((log) => {
+        if (log.kind !== 'action') return false;
+        if (!log.message.startsWith('[MAIN]')) return false;
+        if (log.id.startsWith('turn-log:') || log.id.startsWith('player-action:')) return false;
+
+        const createdAt = new Date(log.createdAt).getTime();
+        return Number.isFinite(createdAt) && now - createdAt <= freshWindowMs;
+      })
+      .map((log) => {
+        const participant = participants.find((item) => item.user.displayName === log.title);
+        const character = participant
+          ? sessionCharacters.find((item) => item.userId === participant.userId)
+          : null;
+
+        if (!character) return null;
+
+        return {
+          id: log.id,
+          characterId: character.id,
+          message: stripScopePrefix(log.message),
+          createdAt: log.createdAt,
+        };
+      })
+      .filter((utterance): utterance is StoryRpUtterance => Boolean(utterance));
+  }, [logs, participants, sessionCharacters]);
 
   const displayedParticipants = useMemo(() => {
     const minSlots = 4;
@@ -1097,6 +1243,22 @@ export function PlayPage({
     setMainPointY('');
     setMainCommandError(null);
   }, [selectedMainIntent, currentNode?.id]);
+
+  useEffect(() => {
+    if (!pendingMainCommandDraft || selectedMainIntent !== pendingMainCommandDraft.intent) return;
+
+    setMainMessage(pendingMainCommandDraft.playerText);
+    setSelectedMainTargetId(pendingMainCommandDraft.targetId ?? '');
+    setSelectedMainItemId(pendingMainCommandDraft.itemId ?? '');
+    setMainPointX(
+      pendingMainCommandDraft.mapPoint ? String(pendingMainCommandDraft.mapPoint.x) : ''
+    );
+    setMainPointY(
+      pendingMainCommandDraft.mapPoint ? String(pendingMainCommandDraft.mapPoint.y) : ''
+    );
+    setMainCommandError(null);
+    setPendingMainCommandDraft(null);
+  }, [pendingMainCommandDraft, selectedMainIntent]);
 
   useEffect(() => {
     if (
@@ -1167,7 +1329,7 @@ export function PlayPage({
         myParticipant?.characterId ??
         '';
       setMainCommandError(null);
-      await onMainCommand({
+      const response = await onMainCommand({
         commandId: selectedMainCommand.intent,
         screenType: currentScreenType,
         category: selectedMainCommand.category,
@@ -1179,18 +1341,74 @@ export function PlayPage({
         ...(selectedMainTarget?.targetType ? { targetType: selectedMainTarget.targetType } : {}),
         ...(selectedMainItemId ? { itemId: selectedMainItemId } : {}),
         ...(selectedMainSpellId.trim() ? { spellId: selectedMainSpellId.trim() } : {}),
-        ...(mapPoint && (requiresMapPoint || allowsMapPoint || requiresTargetOrPoint)
+        ...(mapPoint &&
+        (requiresMapPoint ||
+          allowsMapPoint ||
+          requiresTargetOrPoint ||
+          (requiresTarget && !selectedMainTargetId))
           ? { mapPoint }
           : {}),
         ...(selectedMainRelatedIntent
           ? { relatedIntent: selectedMainRelatedIntent as SubmitMainCommandDto['intent'] }
           : {}),
       });
+      const checkEffect = getMainCommandCheckEffect(response);
+      setPendingMainCommandCheck(
+        response?.status === 'CHECK_REQUIRED' && checkEffect
+          ? {
+              requestId: response.requestId,
+              message: response.message,
+              effect: checkEffect,
+            }
+          : null
+      );
     } else {
       onAction(`MAIN:${next}`);
+      setPendingMainCommandCheck(null);
     }
 
     setMainMessage('');
+  }
+
+  function handleExplorationMainCommandRequest(request: ExplorationMainCommandRequest) {
+    const preset = mainCommandPresetsByScreen.EXPLORATION.find(
+      (item) => item.intent === request.intent
+    );
+
+    if (!preset) {
+      setMainCommandError('현재 탐색 화면에서 사용할 수 없는 명령입니다.');
+      return;
+    }
+
+    setActiveTab('Main');
+    setSelectedMainCategory(preset.categoryLabel);
+    setOpenMainCommandCategory(null);
+    setSelectedMainIntent(preset.intent);
+    setPendingMainCommandDraft(request);
+  }
+
+  async function handleResolveMainCommandCheck(outcome: ActionOutcome) {
+    if (!pendingMainCommandCheck) return;
+
+    const actorId =
+      selectedCharacterId ??
+      myParticipant?.sessionCharacterId ??
+      myParticipant?.characterId ??
+      undefined;
+    setMainCommandError(null);
+    const response = await onResolveMainCommandCheck({
+      requestId: pendingMainCommandCheck.requestId,
+      outcome,
+      effect: pendingMainCommandCheck.effect,
+      ...(actorId ? { actorId } : {}),
+    });
+
+    if (response?.status === 'IMPOSSIBLE') {
+      setMainCommandError(response.message);
+      return;
+    }
+
+    setPendingMainCommandCheck(null);
   }
 
   async function handleUseExplorationInventoryItem(item: InventoryItemDto) {
@@ -1566,6 +1784,8 @@ export function PlayPage({
                   characters={sessionCharacters}
                   currentUserId={user.id}
                   isGmView={canManageStartedSession}
+                  rpUtterances={storyRpUtterances}
+                  onRpUtteranceClick={() => setActiveTab('Main')}
                 />
               ) : isExplorationNode ? (
                 <ExplorationNodeSurface
@@ -1582,6 +1802,7 @@ export function PlayPage({
                   inventoryFeedback={inventoryUseFeedback}
                   onMapChange={handleMapChange}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
+                  onRequestMainCommand={handleExplorationMainCommandRequest}
                 />
               ) : isCombatNode ? (
                 <CombatNodeSurface
@@ -1825,7 +2046,9 @@ export function PlayPage({
                             </div>
                           ) : null}
                           <article
-                            className={`chat-thread-row ${log.rowClass}`}
+                            className={`chat-thread-row ${log.rowClass}${
+                              log.logTone ? ` main-log-${log.logTone}` : ''
+                            }`}
                             style={chatColorStyle}
                           >
                             {log.rowClass === 'incoming' ? (
@@ -1846,6 +2069,9 @@ export function PlayPage({
                             <div className="chat-thread-stack">
                               <span className={`chat-thread-sender ${log.rowClass}`}>
                                 {log.senderLabel}
+                                {log.logToneLabel ? (
+                                  <span className="chat-thread-tone-label">{log.logToneLabel}</span>
+                                ) : null}
                               </span>
                               <div
                                 className={`chat-thread-bubble${log.isPendingAction ? ' pending' : ''}`}
@@ -2042,6 +2268,26 @@ export function PlayPage({
 
                     {mainCommandError ? (
                       <p className="main-command-error">{mainCommandError}</p>
+                    ) : null}
+
+                    {pendingMainCommandCheck ? (
+                      <div className="main-command-check-followup">
+                        <span>{pendingMainCommandCheck.message}</span>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => handleResolveMainCommandCheck('SUCCESS' as ActionOutcome)}
+                        >
+                          판정 성공
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => handleResolveMainCommandCheck('FAILURE' as ActionOutcome)}
+                        >
+                          판정 실패
+                        </button>
+                      </div>
                     ) : null}
                   </div>
                 ) : null}

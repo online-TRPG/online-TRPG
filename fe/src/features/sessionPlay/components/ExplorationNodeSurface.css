@@ -186,7 +186,7 @@
 .exploration-map-column {
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   overflow: hidden;
 }
 
@@ -246,6 +246,33 @@
 
 .exploration-map-placeholder strong {
   font-size: 20px;
+}
+
+.exploration-selection-strip {
+  min-height: 36px;
+  padding: 7px 12px;
+  display: grid;
+  grid-template-columns: minmax(180px, 0.26fr) minmax(220px, 0.34fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid #c3ced8;
+  background: #f8fafb;
+  color: #5d7082;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.exploration-selection-strip span {
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exploration-selection-strip strong {
+  color: #203040;
+  font-weight: 900;
 }
 
 .exploration-empty-text {
@@ -567,6 +594,8 @@
     max-height: 100% !important;
     overflow: hidden !important;
     box-sizing: border-box !important;
+    display: grid !important;
+    grid-template-rows: minmax(0, 1fr) 34px !important;
   }
 
   .exploration-map-panel {
@@ -581,6 +610,21 @@
     background: #10151d !important;
     overflow: hidden !important;
     box-sizing: border-box !important;
+  }
+
+  .exploration-selection-strip {
+    height: 34px !important;
+    min-height: 34px !important;
+    max-height: 34px !important;
+    padding: 5px 8px !important;
+    display: grid !important;
+    grid-template-columns: minmax(150px, 0.28fr) minmax(190px, 0.32fr) minmax(0, 1fr) !important;
+    gap: 8px !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+    border-top: 1px solid rgba(18, 52, 90, 0.16) !important;
+    background: #f8fafb !important;
+    font-size: 11px !important;
   }
 
   .exploration-map-panel > .vtt-panel {
@@ -1103,6 +1147,10 @@
     display: grid !important;
     grid-template-columns: minmax(0, 1fr) !important;
     background: rgba(255, 249, 232, 0.36) !important;
+  }
+
+  .exploration-map-column {
+    grid-template-rows: minmax(0, 1fr) 38px;
   }
 
   .exploration-map-panel {

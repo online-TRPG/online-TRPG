@@ -398,7 +398,7 @@ export function App() {
       return;
     }
 
-    void session.sendAction(message);
+    void session.sendChatMessage(message, 'MAIN');
   }
 
   if (!auth.user) {
@@ -736,7 +736,8 @@ export function App() {
               void exitSessionToDiscover();
             }}
             onBackToLobby={() => navigate('/sessions/discover')}
-            onMainCommand={(payload) => void session.sendMainCommand(payload)}
+            onMainCommand={(payload) => session.sendMainCommand(payload)}
+            onResolveMainCommandCheck={(payload) => session.resolveMainCommandCheck(payload)}
             onAction={handleSessionMessage}
             onLoadOlderTurnLogs={() => void session.loadOlderTurnLogs()}
           />
