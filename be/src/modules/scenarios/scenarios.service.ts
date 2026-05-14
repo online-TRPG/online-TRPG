@@ -130,6 +130,7 @@ export class ScenariosService {
         license: this.toPrismaScenarioLicense(dto.license ?? ScenarioLicense.ORIGINAL),
         attribution: this.nullableTrim(dto.attribution),
         startNodeId,
+        npcsJson: JSON.stringify(dto.npcs ?? []),
         nodes: {
           create: nodes.map(({ scenarioId: _scenarioId, ...node }) => node),
         },
@@ -200,6 +201,7 @@ export class ScenariosService {
               ? existing.attribution
               : this.nullableTrim(dto.attribution),
           startNodeId: nextStartNodeId,
+          npcsJson: dto.npcs === undefined ? existing.npcsJson : JSON.stringify(dto.npcs ?? []),
         },
       });
 
