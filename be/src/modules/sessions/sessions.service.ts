@@ -440,7 +440,19 @@ export class SessionsService {
     const existingMap = this.toVttMapOrNull(flags.vttMap);
 
     if (existingMap) {
-      return session.hostUserId === userId ? existingMap : this.redactVttMapForPlayer(existingMap);
+      const map = await this.applyScenarioStartingPositions(resolvedSessionId, existingMap);
+      if (JSON.stringify(map.tokens) !== JSON.stringify(existingMap.tokens)) {
+        await this.prisma.gameState.update({
+          where: { sessionScenarioId: sessionScenario.id },
+          data: {
+            flagsJson: JSON.stringify({
+              ...flags,
+              vttMap: map,
+            }),
+          },
+        });
+      }
+      return session.hostUserId === userId ? map : this.redactVttMapForPlayer(map);
     }
 
     const scenarioMap = await this.getScenarioDefaultVttMapForNode(
@@ -1084,6 +1096,21 @@ export class SessionsService {
 
     const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
     const state = activeScenario.gameState;
+    await this.ensureSessionScenarioNodeSnapshotForScenario(activeScenario.id, activeScenario.scenarioId);
+    const currentNodeId = state?.currentNodeId ?? null;
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const existingMap = this.toVttMapOrNull(flags.vttMap);
+    const scenarioMap = currentNodeId
+      ? await this.getScenarioDefaultVttMapForNode(activeScenario.id, currentNodeId)
+      : null;
+    const runtimeMap = existingMap
+      ? await this.applyScenarioStartingPositions(resolvedSessionId, existingMap)
+      : scenarioMap
+        ? await this.applyScenarioStartingPositions(
+            resolvedSessionId,
+            this.normalizeVttMap(scenarioMap, currentNodeId),
+          )
+        : await this.buildDefaultVttMap(resolvedSessionId, currentNodeId);
 
     await this.prisma.$transaction(async (tx) => {
       await this.ensureSessionScenarioNodeSnapshot(tx, activeScenario.id, activeScenario.scenarioId);
@@ -1103,6 +1130,10 @@ export class SessionsService {
         where: { sessionScenarioId: activeScenario.id },
         data: {
           phase: PrismaGamePhase.EXPLORATION,
+          flagsJson: JSON.stringify({
+            ...flags,
+            vttMap: runtimeMap,
+          }),
         },
       });
       if (state?.currentNodeId) {
@@ -1194,6 +1225,12 @@ export class SessionsService {
     });
     const flags = this.parseJson<Record<string, unknown>>(currentState?.flagsJson, {});
     const targetDefaultMap = this.extractVttMapFromCheckOptions(targetNode.checkOptionsJson);
+    const targetRuntimeMap = targetDefaultMap
+      ? await this.applyScenarioStartingPositions(
+          resolvedSessionId,
+          this.normalizeVttMap(targetDefaultMap, targetNode.nodeId),
+        )
+      : null;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.session.update({
@@ -1212,9 +1249,7 @@ export class SessionsService {
           phase: PrismaGamePhase.DIALOGUE,
           flagsJson: JSON.stringify({
             ...flags,
-            ...(targetDefaultMap
-              ? { vttMap: this.normalizeVttMap(targetDefaultMap, targetNode.nodeId) }
-              : {}),
+            ...(targetRuntimeMap ? { vttMap: targetRuntimeMap } : {}),
           }),
         },
       });
@@ -2044,8 +2079,29 @@ export class SessionsService {
       orderBy: { createdAt: "asc" },
     });
     const preservedTokens = existingTokens.filter((token) => !token.sessionCharacterId).slice(0, 68);
+    const existingPlayerTokenByCharacterId = new Map(
+      existingTokens
+        .filter((token) => token.sessionCharacterId)
+        .map((token) => [token.sessionCharacterId as string, token]),
+    );
 
     const playerTokens = sessionCharacters.slice(0, 12).map((sessionCharacter, index) => {
+      const existingToken = existingPlayerTokenByCharacterId.get(sessionCharacter.id);
+      if (existingToken) {
+        return {
+          ...existingToken,
+          id: existingToken.id || `token:${sessionCharacter.id}`,
+          sessionCharacterId: sessionCharacter.id,
+          name: existingToken.name || sessionCharacter.character.name,
+          imageUrl: existingToken.imageUrl ?? sessionCharacter.character.avatarUrl ?? null,
+          x: this.clampNumber(existingToken.x, 0, map.width - map.gridSize),
+          y: this.clampNumber(existingToken.y, 0, map.height - map.gridSize),
+          size: this.clampNumber(existingToken.size, 24, 160),
+          isHostile: false,
+          monster: null,
+        };
+      }
+
       const slot = map.startingPositions?.[index] ?? null;
       const fallback = this.getDefaultPlayerTokenPosition(index, map.gridSize, map.width, map.height);
 
@@ -2106,7 +2162,7 @@ export class SessionsService {
     const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
     const existingMap = this.toVttMapOrNull(flags.vttMap);
     if (existingMap) {
-      return existingMap;
+      return this.applyScenarioStartingPositions(sessionId, existingMap);
     }
 
     const scenarioMap = await this.getScenarioDefaultVttMapForNode(
@@ -2422,6 +2478,9 @@ export class SessionsService {
   }
 
   private ensurePlayerMapShellUnchanged(baseline: VttMapStateDto, requested: VttMapStateDto): void {
+    const isSameStartingPositions =
+      requested.startingPositions?.length === 0 ||
+      JSON.stringify(baseline.startingPositions ?? []) === JSON.stringify(requested.startingPositions ?? []);
     const sameShell =
       baseline.id === requested.id &&
       baseline.scenarioNodeId === requested.scenarioNodeId &&
@@ -2430,7 +2489,7 @@ export class SessionsService {
       baseline.gridSize === requested.gridSize &&
       baseline.width === requested.width &&
       baseline.height === requested.height &&
-      JSON.stringify(baseline.startingPositions ?? []) === JSON.stringify(requested.startingPositions ?? []) &&
+      isSameStartingPositions &&
       JSON.stringify(baseline.fogRects) === JSON.stringify(requested.fogRects) &&
       JSON.stringify(baseline.terrainCells ?? []) === JSON.stringify(requested.terrainCells ?? []) &&
       JSON.stringify(baseline.wallCells ?? []) === JSON.stringify(requested.wallCells ?? []) &&
