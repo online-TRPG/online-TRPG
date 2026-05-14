@@ -234,7 +234,8 @@ export function useSession(
   accessToken: string | null,
   appendLog: AppendLogFn,
   appendOlderLog: AppendLogFn,
-  removeLog: (id: string) => void
+  removeLog: (id: string) => void,
+  clearSessionLogs: () => void
 ): UseSessionReturn {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(() => loadStoredSnapshot());
   const [sessionList, setSessionList] = useState<AvailableSessionListItem[]>([]);
@@ -254,6 +255,7 @@ export function useSession(
   const clearLocalSessionState = useCallback(() => {
     clearStoredSnapshot();
     setSnapshot(null);
+    snapshotRef.current = null;
     setSocketConnected(false);
     socketRef.current?.disconnect();
     socketRef.current = null;
@@ -261,12 +263,21 @@ export function useSession(
     loadedTurnLogSessionIdRef.current = null;
     setTurnLogNextCursor(null);
     setIsLoadingTurnLogs(false);
-  }, []);
+    clearSessionLogs();
+  }, [clearSessionLogs]);
 
   const updateSnapshot = useCallback((next: SessionSnapshot) => {
+    if (snapshotRef.current?.session.id !== next.session.id) {
+      seenTurnLogIdsRef.current.clear();
+      loadedTurnLogSessionIdRef.current = null;
+      setTurnLogNextCursor(null);
+      setIsLoadingTurnLogs(false);
+      clearSessionLogs();
+    }
+    snapshotRef.current = next;
     setSnapshot(next);
     saveStoredSnapshot(next);
-  }, []);
+  }, [clearSessionLogs]);
 
   const reconcileSnapshotWithLists = useCallback(
     (nextSnapshot: SessionSnapshot, lists: SessionListRefreshResult | null): SessionSnapshot => {
@@ -310,6 +321,7 @@ export function useSession(
     if (!user) {
       // 로그아웃/토큰 만료 직후 이전 사용자의 세션 화면이 남지 않도록 메모리 상태까지 함께 비웁니다.
       setSnapshot(null);
+      snapshotRef.current = null;
       clearStoredSnapshot();
       setSessionList([]);
       setMySessionList([]);
@@ -319,6 +331,7 @@ export function useSession(
       loadedTurnLogSessionIdRef.current = null;
       setTurnLogNextCursor(null);
       setIsLoadingTurnLogs(false);
+      clearSessionLogs();
       return;
     }
 
@@ -336,7 +349,7 @@ export function useSession(
     void apiListMyCharacters(user, accessToken)
       .then(setMyCharacters)
       .catch(() => undefined);
-  }, [accessToken, user]);
+  }, [accessToken, clearSessionLogs, user]);
 
   useEffect(() => {
     if (!user || !snapshot || !mySessionsLoaded || busy) return;
@@ -450,12 +463,15 @@ export function useSession(
         );
 
         // 최신순으로 받은 10개를 이미 최신순인 배열에 그대로 붙이면 화면에서 오래된 것부터 보입니다.
+        if (snapshotRef.current?.session.id !== sessionId) return;
         result.turnLogs.forEach(appendHistoricalTurnLog);
         setTurnLogNextCursor(result.nextCursor);
       } catch {
         // 게임룸 진입 직후 로그 조회 실패는 입력 흐름 자체를 막을 정도의 오류가 아니므로 조용히 넘깁니다.
       } finally {
-        setIsLoadingTurnLogs(false);
+        if (snapshotRef.current?.session.id === sessionId) {
+          setIsLoadingTurnLogs(false);
+        }
       }
     },
     [accessToken, appendHistoricalTurnLog, user]
@@ -495,12 +511,15 @@ export function useSession(
         accessToken
       );
 
+      if (snapshotRef.current?.session.id !== sessionId) return;
       result.turnLogs.forEach(appendHistoricalTurnLog);
       setTurnLogNextCursor(result.nextCursor);
     } catch {
       // 이전 로그 조회 실패는 현재 입력 흐름을 막지 않으므로 화면에는 기존 로그를 그대로 둡니다.
     } finally {
-      setIsLoadingTurnLogs(false);
+      if (snapshotRef.current?.session.id === sessionId) {
+        setIsLoadingTurnLogs(false);
+      }
     }
   }, [accessToken, appendHistoricalTurnLog, isLoadingTurnLogs, turnLogNextCursor, user]);
 
