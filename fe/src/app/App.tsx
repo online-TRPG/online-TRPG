@@ -739,6 +739,8 @@ export function App() {
             onMainCommand={(payload) => void session.sendMainCommand(payload)}
             onAction={handleSessionMessage}
             onLoadOlderTurnLogs={() => void session.loadOlderTurnLogs()}
+            activeDiceRoll={session.activeDiceRoll}
+            onDismissDiceRoll={session.dismissDiceRoll}
           />
         ) : null}
       </div>

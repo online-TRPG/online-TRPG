@@ -16,6 +16,8 @@ import { BattleMap } from '../components/BattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
 import { CombatNodeSurface } from '../features/sessionPlay/components/CombatNodeSurface';
+import { DiceRollOverlay } from '../features/sessionPlay/components/DiceRollOverlay';
+import type { DiceRollOverlayData } from '../features/sessionPlay/components/DiceRollOverlay';
 import { ExplorationNodeSurface } from '../features/sessionPlay/components/ExplorationNodeSurface';
 import { StoryNodeSurface } from '../features/sessionPlay/components/StoryNodeSurface';
 import {
@@ -563,6 +565,8 @@ interface PlayPageProps {
   onMainCommand: (payload: SubmitMainCommandDto) => Promise<void> | void;
   onAction: (label: string) => void;
   onLoadOlderTurnLogs: () => void;
+  activeDiceRoll: DiceRollOverlayData | null;
+  onDismissDiceRoll: () => void;
 }
 
 // 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
@@ -680,6 +684,8 @@ export function PlayPage({
   onMainCommand,
   onAction,
   onLoadOlderTurnLogs,
+  activeDiceRoll,
+  onDismissDiceRoll,
 }: PlayPageProps) {
   // UI 상태: 현재 탭, 모달 열림, 입력창 값, 로컬 캐릭터 선택값입니다.
   const [activeTab, setActiveTab] = useState<(typeof sessionTabs)[number]>('Main');
@@ -2238,6 +2244,9 @@ export function PlayPage({
           </form>
         </div>
       ) : null}
+
+      {/* 세션 전원에게 보이는 주사위 굴림 오버레이 (turn.log.created 이벤트로 트리거). */}
+      <DiceRollOverlay data={activeDiceRoll} onDismiss={onDismissDiceRoll} />
     </main>
   );
 }
