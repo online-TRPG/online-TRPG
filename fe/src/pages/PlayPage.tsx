@@ -1017,6 +1017,7 @@ interface PlayPageProps {
   onStartSession: () => void;
   onLeaveSession: () => void;
   onBackToLobby: () => void;
+  onNavigateToCharacters: () => void;
   onMainCommand: (payload: SubmitMainCommandDto) => Promise<MainCommandResponseDto | null>;
   onResolveMainCommandCheck: (
     payload: ResolveMainCommandCheckDto,
@@ -1360,6 +1361,7 @@ export function PlayPage({
   onStartSession,
   onLeaveSession,
   onBackToLobby,
+  onNavigateToCharacters,
   onMainCommand,
   onResolveMainCommandCheck,
   onAction,
@@ -2526,15 +2528,13 @@ export function PlayPage({
                           type="button"
                           key={item.id}
                           className="character-selection-create"
-                          onClick={openCreateModal}
-                          disabled={readyLocked || !quickCreateConfigReady}
+                          onClick={onNavigateToCharacters}
+                          disabled={readyLocked}
                         >
                           <Icon name="plus" />
                           <strong>캐릭터 생성</strong>
                           <span>
-                            {quickCreateConfigReady
-                              ? '새 캐릭터를 만든 뒤 이 세션에서 바로 사용할 수 있습니다.'
-                              : '캐릭터 기본 데이터를 불러오는 중입니다.'}
+                            캐릭터 화면으로 이동해 새 캐릭터를 만든 뒤 이 세션으로 돌아오세요.
                           </span>
                         </button>
                       );
