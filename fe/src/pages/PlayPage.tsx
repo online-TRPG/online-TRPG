@@ -41,12 +41,13 @@ import type { CharacterPayload } from '../hooks/useSession';
 import { getPlayerScenario, getVttMap, updateVttMap, useInventoryItem } from '../services/api';
 import type {
   LogEntry,
+  Character,
   PersistentCharacter,
   PlayerScenarioView,
   SessionSnapshot,
   StoredUser,
 } from '../types/session';
-import { GM_TOKEN_COLOR, getPlayerTokenColor } from '../utils/sessionTokenColors';
+import { getPlayerTokenColor } from '../utils/sessionTokenColors';
 import type { SessionTokenColor } from '../utils/sessionTokenColors';
 import './CharacterPage.css';
 import './PlayPage.css';
@@ -789,6 +790,16 @@ function buildStoryPartyColorStyle(color: SessionTokenColor): CSSProperties {
     ['--story-party-frame-color' as string]: color.frame,
     ['--story-party-bg-color' as string]: color.background,
     ['--story-party-text-color' as string]: color.text,
+  } as CSSProperties;
+}
+
+function buildMapPartyColorStyle(color: SessionTokenColor): CSSProperties {
+  // 탐험 맵에 원래 있던 파티 오버레이도 캐릭터 토큰 색상 기준을 쓰도록 전용 CSS 변수에 복사합니다.
+  return {
+    ...buildProfileColorStyle(color),
+    ['--map-party-frame-color' as string]: color.frame,
+    ['--map-party-bg-color' as string]: color.background,
+    ['--map-party-text-color' as string]: color.text,
   } as CSSProperties;
 }
 
@@ -1768,9 +1779,18 @@ export function PlayPage({
     return null;
   }
 
+  function getCharacterTokenColor(character: Character): SessionTokenColor {
+    // 맵 토큰 프레임이 캐릭터 배열 순서로 색을 고르기 때문에, 프로필 계열 UI도 같은 기준을 사용합니다.
+    const characterIndex = sessionCharacters.findIndex((item) => item.id === character.id);
+    return getPlayerTokenColor(characterIndex);
+  }
+
   function getParticipantProfileColor(participantUserId: string): SessionTokenColor {
-    if (participantUserId === session?.hostUserId) {
-      return GM_TOKEN_COLOR;
+    const linkedCharacter =
+      sessionCharacters.find((character) => character.userId === participantUserId) ?? null;
+
+    if (linkedCharacter) {
+      return getCharacterTokenColor(linkedCharacter);
     }
 
     const playerIndex = playerParticipantIds.indexOf(participantUserId);
@@ -2059,7 +2079,7 @@ export function PlayPage({
                   rpUtterances={storyRpUtterances}
                   onRpUtteranceClick={() => setActiveTab('Main')}
                   getCharacterColorStyle={(character) =>
-                    buildStoryPartyColorStyle(getParticipantProfileColor(character.userId))
+                    buildStoryPartyColorStyle(getCharacterTokenColor(character))
                   }
                 />
               ) : isExplorationNode ? (
@@ -2075,6 +2095,9 @@ export function PlayPage({
                   inventory={selectedCharacterInventory}
                   isBusy={busy || isInventoryUsePending}
                   inventoryFeedback={inventoryUseFeedback}
+                  getCharacterColorStyle={(character) =>
+                    buildMapPartyColorStyle(getCharacterTokenColor(character))
+                  }
                   onMapChange={handleMapChange}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onRequestMainCommand={handleExplorationMainCommandRequest}
