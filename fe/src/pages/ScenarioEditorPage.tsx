@@ -20,7 +20,7 @@ import {
   updateScenario,
   uploadScenarioAsset,
 } from '../services/api';
-import { loadMonsterCatalog } from '../services/staticSrd';
+import { loadItemCatalog, loadMonsterCatalog } from '../services/staticSrd';
 import type { ScenarioDetail, StoredUser } from '../types/session';
 import type {
   CreateScenarioDto,
@@ -128,6 +128,8 @@ type ScenarioFormState = {
 };
 
 type ScenarioAsset = ScenarioAssetResponseDto;
+type StartingPosition = NonNullable<VttMapStateDto['startingPositions']>[number];
+type BattleMapOption = { id: string; label: string };
 
 type GraphNodeLayout = {
   node: NodeForm;
@@ -187,24 +189,62 @@ function createBlankNode(title = '새 장면'): NodeForm {
   };
 }
 
+function clampMapValue(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function createDefaultStartingPositions(
+  gridSize: number,
+  width: number,
+  height: number,
+  count = 4
+): StartingPosition[] {
+  return Array.from({ length: count }, (_, index) => {
+    const column = index % 4;
+    const row = Math.floor(index / 4);
+
+    return {
+      id: `start:${index + 1}`,
+      label: `P${index + 1}`,
+      x: clampMapValue(gridSize * (2 + column), 0, width - gridSize),
+      y: clampMapValue(height - gridSize * (3 - row), 0, height - gridSize),
+    };
+  });
+}
+
 // 탐색/전투 노드에 기본 VTT 맵 상태를 붙일 때 사용합니다.
 function createDefaultNodeMap(nodeId: string): VttMapStateDto {
+  const gridSize = 64;
+  const width = 1280;
+  const height = 832;
+
   return {
     id: `map:${nodeId}`,
     scenarioNodeId: nodeId,
     imageUrl: null,
     gridType: 'square',
-    gridSize: 64,
-    width: 1280,
-    height: 832,
+    gridSize,
+    width,
+    height,
     tokens: [],
     fogRects: [],
-    startingPositions: [],
+    startingPositions: createDefaultStartingPositions(gridSize, width, height),
     terrainCells: [],
     wallCells: [],
     doorCells: [],
     objectCells: [],
     updatedAt: new Date().toISOString(),
+  };
+}
+
+function ensureMapStartingPositions(map: VttMapStateDto): VttMapStateDto {
+  if (map.startingPositions?.length) {
+    return map;
+  }
+
+  return {
+    ...map,
+    startingPositions: createDefaultStartingPositions(map.gridSize, map.width, map.height),
   };
 }
 
@@ -378,25 +418,31 @@ function mapVttMap(value: unknown, nodeId: string): VttMapStateDto | null {
   }
 
   const candidate = value as Partial<VttMapStateDto>;
-  return {
+  const gridSize = Number(candidate.gridSize) || 64;
+  const width = Number(candidate.width) || 1280;
+  const height = Number(candidate.height) || 832;
+  const startingPositions =
+    Array.isArray(candidate.startingPositions) && candidate.startingPositions.length > 0
+      ? candidate.startingPositions
+      : createDefaultStartingPositions(gridSize, width, height);
+
+  return ensureMapStartingPositions({
     id: candidate.id || `map:${nodeId}`,
     scenarioNodeId: candidate.scenarioNodeId ?? nodeId,
     imageUrl: candidate.imageUrl ?? null,
     gridType: candidate.gridType === 'hex' ? 'hex' : 'square',
-    gridSize: Number(candidate.gridSize) || 64,
-    width: Number(candidate.width) || 1280,
-    height: Number(candidate.height) || 832,
+    gridSize,
+    width,
+    height,
     tokens: Array.isArray(candidate.tokens) ? candidate.tokens : [],
     fogRects: Array.isArray(candidate.fogRects) ? candidate.fogRects : [],
-    startingPositions: Array.isArray(candidate.startingPositions)
-      ? candidate.startingPositions
-      : [],
+    startingPositions,
     terrainCells: Array.isArray(candidate.terrainCells) ? candidate.terrainCells : [],
     wallCells: Array.isArray(candidate.wallCells) ? candidate.wallCells : [],
     doorCells: Array.isArray(candidate.doorCells) ? candidate.doorCells : [],
     objectCells: Array.isArray(candidate.objectCells) ? candidate.objectCells : [],
     updatedAt: candidate.updatedAt ?? new Date().toISOString(),
-  };
+  });
 }
 
 function mapScenarioNpcs(scenario: ScenarioDetail): NpcForm[] {
@@ -722,12 +768,19 @@ function buildGraphLayout(nodes: NodeForm[], startNodeId: string): {
 } {
   const incomingByNode = new Map<string, number>();
   const nodeIds = new Set(nodes.map((node) => node.id));
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const outgoingByNode = new Map<string, string[]>();
 
   nodes.forEach((node) => {
+    const outgoingNodeIds: string[] = [];
     node.links.forEach((link) => {
-      if (!link.nextNodeId) return;
+      if (!nodeIds.has(link.nextNodeId)) return;
       incomingByNode.set(link.nextNodeId, (incomingByNode.get(link.nextNodeId) ?? 0) + 1);
+      if (!outgoingNodeIds.includes(link.nextNodeId)) {
+        outgoingNodeIds.push(link.nextNodeId);
+      }
     });
+    outgoingByNode.set(node.id, outgoingNodeIds);
   });
 
   const depthByNode = new Map<string, number>();
@@ -737,17 +790,16 @@ function buildGraphLayout(nodes: NodeForm[], startNodeId: string): {
 
   for (let index = 0; index < queue.length; index += 1) {
     const nodeId = queue[index];
-    const node = nodes.find((candidate) => candidate.id === nodeId);
+    const node = nodeById.get(nodeId);
     if (!node) continue;
     const nextDepth = (depthByNode.get(nodeId) ?? 0) + 1;
 
-    node.links.forEach((link) => {
-      if (!nodeIds.has(link.nextNodeId)) return;
-      const currentDepth = depthByNode.get(link.nextNodeId);
+    (outgoingByNode.get(node.id) ?? []).forEach((nextNodeId) => {
+      const currentDepth = depthByNode.get(nextNodeId);
       if (currentDepth !== undefined && currentDepth >= nextDepth) return;
-      depthByNode.set(link.nextNodeId, nextDepth);
-      if (!queue.includes(link.nextNodeId)) {
-        queue.push(link.nextNodeId);
+      depthByNode.set(nextNodeId, nextDepth);
+      if (!queue.includes(nextNodeId)) {
+        queue.push(nextNodeId);
       }
     });
   }
@@ -758,20 +810,70 @@ function buildGraphLayout(nodes: NodeForm[], startNodeId: string): {
     }
   });
 
-  const nodesByDepth = new Map<number, NodeForm[]>();
+  const rowByNode = new Map<string, number>();
+  const expandedNodeIds = new Set<string>();
+  const expandingNodeIds = new Set<string>();
+
+  function setDirectChildRows(nodeId: string) {
+    const parentRow = rowByNode.get(nodeId) ?? 0;
+    const childNodeIds = outgoingByNode.get(nodeId) ?? [];
+    childNodeIds.forEach((childNodeId, childIndex) => {
+      if (rowByNode.has(childNodeId)) return;
+      const branchOffset =
+        childNodeIds.length <= 1
+          ? 0
+          : (childIndex - (childNodeIds.length - 1) / 2) * (childNodeIds.length === 2 ? 2 : 1);
+      rowByNode.set(childNodeId, parentRow + branchOffset);
+    });
+  }
+
+  function expandVisualRows(nodeId: string, row: number) {
+    if (!nodeIds.has(nodeId)) return;
+    if (!rowByNode.has(nodeId)) {
+      rowByNode.set(nodeId, row);
+    }
+    if (expandedNodeIds.has(nodeId) || expandingNodeIds.has(nodeId)) return;
+
+    expandingNodeIds.add(nodeId);
+    setDirectChildRows(nodeId);
+    (outgoingByNode.get(nodeId) ?? []).forEach((childNodeId) => {
+      expandVisualRows(childNodeId, rowByNode.get(childNodeId) ?? row);
+    });
+    expandingNodeIds.delete(nodeId);
+    expandedNodeIds.add(nodeId);
+  }
+
+  const resolvedStartNodeId = resolveScenarioStartNodeId(nodes, startNodeId);
+  if (resolvedStartNodeId) {
+    expandVisualRows(resolvedStartNodeId, 0);
+  }
+
   nodes.forEach((node) => {
-    const depth = depthByNode.get(node.id) ?? 0;
-    nodesByDepth.set(depth, [...(nodesByDepth.get(depth) ?? []), node]);
+    if (!rowByNode.has(node.id)) {
+      const nextRow = rowByNode.size ? Math.max(...Array.from(rowByNode.values())) + 1 : 0;
+      expandVisualRows(node.id, nextRow);
+    }
   });
 
-  const graphNodes = Array.from(nodesByDepth.entries()).flatMap(([depth, depthNodes]) =>
-    depthNodes.map((node, row) => ({
+  const minRow = Math.min(0, ...Array.from(rowByNode.values()));
+  const occupiedRowsByDepth = new Map<number, Set<number>>();
+  const graphNodes = nodes.map((node) => {
+    const depth = depthByNode.get(node.id) ?? 0;
+    const occupiedRows = occupiedRowsByDepth.get(depth) ?? new Set<number>();
+    let rowKey = Math.round(((rowByNode.get(node.id) ?? 0) - minRow) * 2);
+    while (occupiedRows.has(rowKey)) {
+      rowKey += 2;
+    }
+    occupiedRows.add(rowKey);
+    occupiedRowsByDepth.set(depth, occupiedRows);
+
+    return {
       node,
       x: GRAPH_PADDING + depth * GRAPH_COLUMN_GAP,
-      y: GRAPH_PADDING + row * GRAPH_ROW_GAP,
+      y: GRAPH_PADDING + (rowKey / 2) * GRAPH_ROW_GAP,
       incomingCount: incomingByNode.get(node.id) ?? 0,
-    }))
-  );
+    };
+  });
   const layoutById = new Map(graphNodes.map((item) => [item.node.id, item]));
   const edges = graphNodes.flatMap((from) =>
     from.node.links
@@ -788,13 +890,13 @@ function buildGraphLayout(nodes: NodeForm[], startNodeId: string): {
       .filter((edge): edge is NonNullable<typeof edge> => Boolean(edge))
   );
   const maxDepth = Math.max(0, ...graphNodes.map((item) => depthByNode.get(item.node.id) ?? 0));
-  const maxRows = Math.max(1, ...Array.from(nodesByDepth.values()).map((items) => items.length));
+  const maxY = Math.max(0, ...graphNodes.map((item) => item.y - GRAPH_PADDING));
 
   return {
     graphNodes,
     edges,
     width: GRAPH_PADDING * 2 + maxDepth * GRAPH_COLUMN_GAP + 180,
-    height: GRAPH_PADDING * 2 + (maxRows - 1) * GRAPH_ROW_GAP + 80,
+    height: GRAPH_PADDING * 2 + maxY + 80,
   };
 }
 
@@ -820,6 +922,8 @@ export function ScenarioEditorPage({
   const [error, setError] = useState<string | null>(null);
   const [monsterCatalog, setMonsterCatalog] = useState<SrdMonsterReferenceDto[]>([]);
   const [monsterCatalogError, setMonsterCatalogError] = useState<string | null>(null);
+  const [itemOptions, setItemOptions] = useState<BattleMapOption[]>([]);
+  const [itemCatalogError, setItemCatalogError] = useState<string | null>(null);
   const [mapAssets, setMapAssets] = useState<ScenarioAsset[]>([]);
   const [mapAssetsLoading, setMapAssetsLoading] = useState(false);
   const [mapAssetsError, setMapAssetsError] = useState<string | null>(null);
@@ -847,11 +951,14 @@ export function ScenarioEditorPage({
     if (form.ruleSetId !== 'dnd5e') {
       setMonsterCatalog([]);
       setMonsterCatalogError('현재는 dnd5e 5.1 SRD 몬스터만 지원합니다.');
+      setItemOptions([]);
+      setItemCatalogError('현재는 dnd5e 5.1 SRD 아이템만 지원합니다.');
       return;
     }
 
     let ignore = false;
     setMonsterCatalogError(null);
+    setItemCatalogError(null);
 
     loadMonsterCatalog()
       .then((monsters) => {
@@ -864,6 +971,32 @@ export function ScenarioEditorPage({
           setMonsterCatalog([]);
           setMonsterCatalogError(
             caught instanceof Error ? caught.message : 'SRD 몬스터 목록을 불러오지 못했습니다.'
+          );
+        }
+      });
+    loadItemCatalog()
+      .then((catalog) => {
+        if (!ignore) {
+          setItemOptions(
+            [...catalog.equipmentItems, ...catalog.magicItems]
+              .map((item) => {
+                const id = typeof item.id === 'string' ? item.id : '';
+                const nameKo = typeof item.nameKo === 'string' ? item.nameKo : '';
+                const nameEn = typeof item.nameEn === 'string' ? item.nameEn : '';
+                const label = [nameKo || nameEn || id, nameKo && nameEn ? nameEn : null]
+                  .filter(Boolean)
+                  .join(' / ');
+                return id ? { id, label } : null;
+              })
+              .filter((item): item is BattleMapOption => Boolean(item))
+          );
+        }
+      })
+      .catch((caught) => {
+        if (!ignore) {
+          setItemOptions([]);
+          setItemCatalogError(
+            caught instanceof Error ? caught.message : 'SRD 아이템 목록을 불러오지 못했습니다.'
           );
         }
       });
@@ -1685,6 +1818,8 @@ export function ScenarioEditorPage({
                 uploadTokenAsset={handleTokenAssetUpload}
                 monsterCatalog={monsterCatalog}
                 monsterCatalogError={monsterCatalogError}
+                itemOptions={itemOptions}
+                itemCatalogError={itemCatalogError}
                 updateNode={updateNode}
                 onAddScenarioNpc={addScenarioNpc}
                 onUpdateScenarioNpc={updateScenarioNpc}
@@ -1758,6 +1893,8 @@ function NodeDetailEditor({
   uploadTokenAsset,
   monsterCatalog,
   monsterCatalogError,
+  itemOptions,
+  itemCatalogError,
   updateNode,
   onAddScenarioNpc,
   onUpdateScenarioNpc,
@@ -1786,6 +1923,8 @@ function NodeDetailEditor({
   uploadTokenAsset: (file: File | null) => Promise<ScenarioAsset | null>;
   monsterCatalog: SrdMonsterReferenceDto[];
   monsterCatalogError: string | null;
+  itemOptions: BattleMapOption[];
+  itemCatalogError: string | null;
   updateNode: (nodeId: string, updater: (node: NodeForm) => NodeForm) => void;
   onAddScenarioNpc: () => void;
   onUpdateScenarioNpc: (index: number, patch: Partial<NpcForm>) => void;
@@ -1801,6 +1940,16 @@ function NodeDetailEditor({
   const sceneImageInputRef = useRef<HTMLInputElement | null>(null);
   const sceneAssetInputRef = useRef<HTMLInputElement | null>(null);
   const mapAssetInputRef = useRef<HTMLInputElement | null>(null);
+  const clueOptions = useMemo(
+    () =>
+      node.clues
+        .map((clue) => ({
+          id: clue.id,
+          label: clue.title.trim() || clue.text.trim() || clue.revelation.trim() || clue.id,
+        }))
+        .filter((option) => option.id.trim()),
+    [node.clues],
+  );
 
   async function handleImageFile(file: File | null) {
     if (!file) return;
@@ -1855,11 +2004,11 @@ function NodeDetailEditor({
   function updateNodeMap(nextMap: VttMapStateDto) {
     updateNode(node.id, (current) => ({
       ...current,
-      vttMap: {
+      vttMap: ensureMapStartingPositions({
         ...nextMap,
         scenarioNodeId: current.id,
         updatedAt: new Date().toISOString(),
-      },
+      }),
     }));
   }
 
@@ -1930,11 +2079,11 @@ function NodeDetailEditor({
       const baseMap = current.vttMap ?? createDefaultNodeMap(current.id);
       return {
         ...current,
-        vttMap: {
+        vttMap: ensureMapStartingPositions({
           ...baseMap,
           imageUrl: asset.publicUrl,
           updatedAt: new Date().toISOString(),
-        },
+        }),
       };
     });
   }
@@ -2253,6 +2402,7 @@ function NodeDetailEditor({
             )}
           </div>
           {monsterCatalogError ? <p className="panel-error">{monsterCatalogError}</p> : null}
+          {itemCatalogError ? <p className="panel-error">{itemCatalogError}</p> : null}
           {node.vttMap ? (
             <>
               <BattleMap
@@ -2268,6 +2418,9 @@ function NodeDetailEditor({
                 tokenAssetsLoading={tokenAssetsLoading}
                 tokenAssetsError={tokenAssetsError}
                 uploadTokenAsset={uploadTokenAsset}
+                clueOptions={clueOptions}
+                itemOptions={itemOptions}
+                enableObjectEventEditing
               />
               <button
                 type="button"

@@ -13,8 +13,6 @@ import { getCharacterClassLabel } from '../utils/characterVisuals';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import './ExplorationNodeSurface.css';
 
-type ExplorationActionTab = 'explore' | 'interact' | 'item';
-
 export type ExplorationMainCommandRequest = {
   intent: SubmitMainCommandDto['intent'];
   playerText: string;
@@ -26,6 +24,7 @@ export type ExplorationMainCommandRequest = {
 type ExplorationActionButton = {
   label: string;
   request?: ExplorationMainCommandRequest;
+  localAction?: 'move' | 'ping';
   disabled?: boolean;
 };
 
@@ -46,21 +45,6 @@ interface ExplorationNodeSurfaceProps {
   onUseInventoryItem: (item: InventoryItemDto) => void;
   onRequestMainCommand?: (request: ExplorationMainCommandRequest) => void;
 }
-
-const actionTabs: Array<{ id: ExplorationActionTab; label: string }> = [
-  {
-    id: 'explore',
-    label: '탐색',
-  },
-  {
-    id: 'interact',
-    label: '상호작용',
-  },
-  {
-    id: 'item',
-    label: '아이템',
-  },
-];
 
 const ExplorationMainCommandIntent = {
   TALK_TO_NPC: 'TALK_TO_NPC' as SubmitMainCommandDto['intent'],
@@ -122,84 +106,83 @@ function getItemMetaLabel(item: InventoryItemDto) {
   return labels.length ? labels.join(' / ') : '상세 정보 없음';
 }
 
-function formatMapPoint(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+function getCellKindLabel(
+  selection: Extract<BattleMapSelection, { kind: 'terrain' | 'wall' | 'door' | 'object' }>
+) {
+  if (selection.kind === 'terrain') return '접근불가';
+  if (selection.kind === 'wall') return '벽';
+  if (selection.kind === 'door') return '문';
+  return '오브젝트';
 }
 
-function getSelectionDisplay(selection: BattleMapSelection | null) {
+function getDoorStateLabel(state: string | undefined) {
+  if (state === 'open') return '열림';
+  if (state === 'locked') return '잠김';
+  if (state === 'broken') return '파괴됨';
+  return '닫힘';
+}
+
+function getDispositionLabel(disposition: string | null | undefined) {
+  if (disposition === 'friendly') return '우호';
+  if (disposition === 'hostile') return '적대';
+  return '중립';
+}
+
+function getVisibleTargetById(
+  node: PlayerScenarioNodeDto | null,
+  targetId: string | null | undefined
+) {
+  if (!targetId) return null;
+  return node?.visibleTargets.find((target) => target.id === targetId) ?? null;
+}
+
+function getMonsterSummary(token: VttMapStateDto['tokens'][number]) {
+  if (!token.monster) return null;
+  const parts = [
+    token.monster.armorClassRaw ? `AC: ${token.monster.armorClassRaw}` : null,
+    token.monster.hitPointsRaw ? `HP: ${token.monster.hitPointsRaw}` : null,
+    token.monster.speedRaw ? `속도: ${token.monster.speedRaw}` : null,
+    token.monster.challengeRaw ? `CR: ${token.monster.challengeRaw}` : null,
+  ]
+    .filter(Boolean)
+    .join(' / ');
+
+  return parts || token.monster.basicRaw;
+}
+
+function getSelectionDisplay(
+  selection: BattleMapSelection | null,
+  node: PlayerScenarioNodeDto | null
+) {
   if (!selection) {
     return {
       target: '없음',
       status: '맵 타일이나 토큰을 선택해 주세요',
       summary: '선택한 대상의 좌표와 상태가 여기에 표시됩니다.',
+      monsterHpLabel: null,
     };
   }
-
-  const coordinateLabel = `좌표 ${formatMapPoint(selection.point.x)}, ${formatMapPoint(
-    selection.point.y
-  )} / 타일 ${selection.tile.column}, ${selection.tile.row}`;
 
   if (selection.kind === 'tile') {
     return {
       target: `맵 타일 (${selection.tile.column}, ${selection.tile.row})`,
-      status: coordinateLabel,
-      summary: '토큰이 없는 지점입니다. 이동, 조사, 상호작용 명령의 위치 기준으로 사용할 수 있습니다.',
+      status: '타일',
+      summary: '별도 설명이 없는 일반 타일입니다.',
+      monsterHpLabel: null,
     };
   }
 
   if (selection.kind !== 'token') {
     const cell = selection.cell;
-    const kindLabel =
-      selection.kind === 'terrain'
-        ? '이동 불가 칸'
-        : selection.kind === 'wall'
-          ? '벽 칸'
-          : selection.kind === 'door'
-            ? '문 칸'
-            : '오브젝트';
+    const kindLabel = getCellKindLabel(selection);
     const doorStatus =
-      selection.kind === 'door'
-        ? `문 상태 ${
-            'state' in cell
-              ? cell.state === 'open'
-                ? '열림'
-                : cell.state === 'locked'
-                  ? '잠김'
-                  : cell.state === 'broken'
-                    ? '파괴됨'
-                    : '닫힘'
-              : '닫힘'
-          }`
-        : null;
-    const objectStatus =
-      selection.kind === 'object' && 'visibleToPlayers' in cell
-        ? cell.visibleToPlayers === false
-          ? '숨김 오브젝트'
-          : '공개 오브젝트'
-        : null;
-    const blockStatus =
-      selection.kind === 'terrain'
-        ? '이동 차단'
-        : selection.kind === 'wall'
-          ? '이동/시야 차단'
-          : selection.kind === 'door'
-            ? 'state' in cell && (cell.state === 'open' || cell.state === 'broken')
-              ? '이동 가능'
-              : '이동/시야 차단'
-            : null;
+      selection.kind === 'door' && 'state' in cell ? getDoorStateLabel(cell.state) : null;
 
     return {
       target: `${cell.name?.trim() || kindLabel} (${kindLabel})`,
-      status: [coordinateLabel, blockStatus, doorStatus, objectStatus].filter(Boolean).join(' · '),
-      summary:
-        cell.description?.trim() ||
-        (selection.kind === 'terrain'
-          ? '이 칸은 이동이 불가능한 지형입니다.'
-          : selection.kind === 'wall'
-            ? '이 칸은 이동과 시야를 모두 차단하는 벽입니다.'
-            : selection.kind === 'door'
-              ? '문 상태와 열쇠/파괴 조건은 시나리오 맵 설정을 따릅니다.'
-              : '조사 가능한 맵 오브젝트입니다.'),
+      status: [kindLabel, doorStatus].filter(Boolean).join(' · '),
+      summary: cell.description?.trim() || '시나리오 에디터에 등록된 설명이 없습니다.',
+      monsterHpLabel: null,
     };
   }
 
@@ -214,33 +197,36 @@ function getSelectionDisplay(selection: BattleMapSelection | null) {
         : token.npcId
           ? 'NPC 토큰'
           : '토큰';
-  const statusParts = [
-    coordinateLabel,
-    token.hidden ? '숨김' : '표시',
-    token.isHostile ? '적대적' : null,
-    character ? `HP ${character.currentHp}/${character.maxHp}` : null,
-    character?.conditions.length ? `상태 ${character.conditions.join(', ')}` : null,
-  ].filter(Boolean);
-  const monsterSummary = token.monster
-    ? [
-        token.monster.basicRaw,
-        token.monster.armorClassRaw ? `AC ${token.monster.armorClassRaw}` : null,
-        token.monster.hitPointsRaw ? `HP ${token.monster.hitPointsRaw}` : null,
-        token.monster.challengeRaw ? `CR ${token.monster.challengeRaw}` : null,
-      ]
-        .filter(Boolean)
-        .join(' / ')
-    : null;
+  const npcTarget = getVisibleTargetById(node, token.npcId);
+  const monsterSummary = getMonsterSummary(token);
   const characterSummary = character
     ? `${getCharacterClassLabel(character.className)} Lv ${character.level} / AC ${
         character.armorClass
       } / 이동 ${character.speed}`
     : null;
+  const npcSummary = token.npcId
+    ? npcTarget?.summary?.trim() || '등록된 NPC 요약이 없습니다.'
+    : null;
+  const tokenStatus = token.monster
+    ? '상태이상 없음'
+    : token.npcId
+      ? `Disposition: ${getDispositionLabel(
+          token.isHostile ? 'hostile' : npcTarget?.disposition
+        )}`
+      : character
+        ? [
+            `HP ${character.currentHp}/${character.maxHp}`,
+            character.conditions.length ? `상태 ${character.conditions.join(', ')}` : '상태이상 없음',
+          ].join(' · ')
+        : token.isHostile
+          ? '적대 토큰'
+          : '토큰';
 
   return {
     target: `${token.name} (${targetType})`,
-    status: statusParts.join(' · '),
-    summary: characterSummary ?? monsterSummary ?? '등록된 상세 요약이 없는 지도 토큰입니다.',
+    status: tokenStatus,
+    summary: npcSummary ?? characterSummary ?? monsterSummary ?? '등록된 상세 요약이 없는 지도 토큰입니다.',
+    monsterHpLabel: token.monster ? `HP ${token.monster.hitPointsRaw ?? '정보 없음'}` : null,
   };
 }
 
@@ -269,6 +255,98 @@ function getSelectionMapPoint(selection: BattleMapSelection | null) {
   };
 }
 
+function rectsOverlap(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number }
+) {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+function getMovementBlockers(map: VttMapStateDto) {
+  return [
+    ...(map.terrainCells ?? []),
+    ...(map.wallCells ?? []),
+    ...(map.doorCells ?? []).filter((door) => door.state !== 'open' && door.state !== 'broken'),
+  ];
+}
+
+function isTokenPlacementBlocked(
+  map: VttMapStateDto,
+  token: VttMapStateDto['tokens'][number],
+  column: number,
+  row: number
+) {
+  const x = Math.min(Math.max(column * map.gridSize, 0), map.width - token.size);
+  const y = Math.min(Math.max(row * map.gridSize, 0), map.height - token.size);
+  const tokenRect = { x, y, width: token.size, height: token.size };
+  return getMovementBlockers(map).some((blocker) => rectsOverlap(tokenRect, blocker));
+}
+
+function findReachableTokenMove(
+  map: VttMapStateDto,
+  token: VttMapStateDto['tokens'][number],
+  tile: { column: number; row: number }
+) {
+  const start = {
+    column: Math.floor(Math.min(Math.max(token.x, 0), Math.max(0, map.width - 1)) / map.gridSize),
+    row: Math.floor(Math.min(Math.max(token.y, 0), Math.max(0, map.height - 1)) / map.gridSize),
+  };
+  const destination = {
+    column: Math.max(0, tile.column - 1),
+    row: Math.max(0, tile.row - 1),
+  };
+  const maxColumn = Math.max(0, Math.ceil(map.width / map.gridSize) - 1);
+  const maxRow = Math.max(0, Math.ceil(map.height / map.gridSize) - 1);
+  if (
+    destination.column > maxColumn ||
+    destination.row > maxRow ||
+    isTokenPlacementBlocked(map, token, destination.column, destination.row)
+  ) {
+    return null;
+  }
+
+  const queue: Array<{ column: number; row: number }> = [start];
+  const visited = new Set([`${start.column}:${start.row}`]);
+  const directions = [
+    { column: 1, row: 0 },
+    { column: -1, row: 0 },
+    { column: 0, row: 1 },
+    { column: 0, row: -1 },
+  ];
+
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (current.column === destination.column && current.row === destination.row) {
+      return {
+        x: Math.min(Math.max(destination.column * map.gridSize, 0), map.width - token.size),
+        y: Math.min(Math.max(destination.row * map.gridSize, 0), map.height - token.size),
+      };
+    }
+
+    directions.forEach((direction) => {
+      const next = {
+        column: current.column + direction.column,
+        row: current.row + direction.row,
+      };
+      const key = `${next.column}:${next.row}`;
+      if (
+        next.column < 0 ||
+        next.row < 0 ||
+        next.column > maxColumn ||
+        next.row > maxRow ||
+        visited.has(key) ||
+        isTokenPlacementBlocked(map, token, next.column, next.row)
+      ) {
+        return;
+      }
+      visited.add(key);
+      queue.push(next);
+    });
+  }
+
+  return null;
+}
+
 function command(
   label: string,
   intent: SubmitMainCommandDto['intent'],
@@ -286,77 +364,49 @@ function command(
   };
 }
 
-function getContextActions(
-  tab: ExplorationActionTab,
-  selection: BattleMapSelection | null,
-  inventory: InventoryItemDto[]
-): ExplorationActionButton[] {
+function getBasePositionActions(): ExplorationActionButton[] {
+  return [
+    { label: '이동', localAction: 'move' },
+    { label: '핑 찍기', localAction: 'ping' },
+  ];
+}
+
+function getContextActions(selection: BattleMapSelection | null): ExplorationActionButton[] {
   const targetLabel = getSelectionTargetLabel(selection);
-
-  if (tab === 'explore') {
-    return [
-      command('주변 관찰', ExplorationMainCommandIntent.OBSERVE_AREA, selection, `${targetLabel} 주변을 살핍니다.`),
-      command('자세히 조사', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}을 조사합니다.`),
-      command('소리 듣기', ExplorationMainCommandIntent.LISTEN, selection, `${targetLabel} 주변의 소리를 듣습니다.`),
-      command('위험 감지', ExplorationMainCommandIntent.DETECT_DANGER, selection, `${targetLabel}에 위험이 있는지 살핍니다.`),
-    ];
-  }
-
-  if (tab === 'interact') {
-    if (selection?.kind === 'door') {
-      return [
-        command('열기', ExplorationMainCommandIntent.INTERACT_OBJECT, selection, `${targetLabel}을 엽니다.`),
-        command('잠금 확인', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}의 잠금 장치를 확인합니다.`),
-        command('함정 확인', ExplorationMainCommandIntent.DETECT_DANGER, selection, `${targetLabel}에 함정이 있는지 확인합니다.`),
-        command('부수기', ExplorationMainCommandIntent.ENVIRONMENT_USE, selection, `${targetLabel}을 힘으로 부수려 합니다.`),
-      ];
-    }
-
-    if (selection?.kind === 'object') {
-      return [
-        command('조사', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}을 자세히 조사합니다.`),
-        command('상호작용', ExplorationMainCommandIntent.INTERACT_OBJECT, selection, `${targetLabel}을 조작합니다.`),
-        command('들기/옮기기', ExplorationMainCommandIntent.ENVIRONMENT_USE, selection, `${targetLabel}을 들어 올리거나 옮겨 봅니다.`),
-        command('위험 확인', ExplorationMainCommandIntent.DETECT_DANGER, selection, `${targetLabel}에 위험 요소가 있는지 확인합니다.`),
-      ];
-    }
-
-    if (selection?.kind === 'token') {
-      return selection.token.npcId || !selection.token.sessionCharacterId
-        ? [
-            command('대화', ExplorationMainCommandIntent.TALK_TO_NPC, selection, `${targetLabel}에게 말을 겁니다.`),
-            command('관찰', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}의 상태와 행동을 살핍니다.`),
-          ]
-        : [
-            command('위치 확인', ExplorationMainCommandIntent.OBSERVE_AREA, selection, `${targetLabel} 주변 상황을 확인합니다.`),
-            command('협력 요청', ExplorationMainCommandIntent.SPLIT_PARTY_TASK, selection, `${targetLabel}에게 협력 행동을 요청합니다.`),
-          ];
-    }
-
-    return [
-      command('이동', ExplorationMainCommandIntent.SPECIAL_MOVE, selection, `${targetLabel} 위치로 이동합니다.`),
-      command('핑 찍기', ExplorationMainCommandIntent.OBSERVE_AREA, selection, `${targetLabel} 위치를 파티에 알립니다.`),
-    ];
-  }
+  const positionActions = getBasePositionActions();
 
   if (!selection) {
-    return [{ label: '대상 선택 필요', disabled: true }];
+    return positionActions;
   }
 
-  const quickItems = inventory.filter((item) => item.quantity > 0).slice(0, 4);
-  if (!quickItems.length) {
-    return [{ label: '사용 가능한 아이템 없음', disabled: true }];
+  if (selection.kind === 'token') {
+    return selection.token.npcId
+      ? [
+          ...positionActions,
+          command('대화', ExplorationMainCommandIntent.TALK_TO_NPC, selection, `${targetLabel}에게 말을 겁니다.`),
+          command('관찰', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}의 상태와 행동을 살핍니다.`),
+        ]
+      : positionActions;
   }
 
-  return quickItems.map((item) => ({
-    label: item.name,
-    request: {
-      intent: ExplorationMainCommandIntent.USE_ITEM_EXPLORE,
-      itemId: item.id,
-      mapPoint: getSelectionMapPoint(selection),
-      playerText: `${targetLabel}에 ${item.name}을 사용합니다.`,
-    },
-  }));
+  if (selection.kind === 'door') {
+    return [
+      ...positionActions,
+      command('열기', ExplorationMainCommandIntent.INTERACT_OBJECT, selection, `${targetLabel}을 엽니다.`),
+      command('조사', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}을 조사합니다.`),
+      command('잠금 해제', ExplorationMainCommandIntent.INTERACT_OBJECT, selection, `${targetLabel}의 잠금을 해제합니다.`),
+      command('부수기', ExplorationMainCommandIntent.ENVIRONMENT_USE, selection, `${targetLabel}을 힘으로 부수려 합니다.`),
+    ];
+  }
+
+  if (selection.kind === 'object') {
+    return [
+      ...positionActions,
+      command('조사', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}을 조사합니다.`),
+    ];
+  }
+
+  return positionActions;
 }
 
 export function ExplorationNodeSurface({
@@ -376,16 +426,82 @@ export function ExplorationNodeSurface({
   onUseInventoryItem,
   onRequestMainCommand,
 }: ExplorationNodeSurfaceProps) {
-  const [activeTab, setActiveTab] = useState<ExplorationActionTab>('explore');
   const [isSummaryOpen, setSummaryOpen] = useState(false);
   const [mapSelection, setMapSelection] = useState<BattleMapSelection | null>(null);
+  const [mapActionFeedback, setMapActionFeedback] = useState<string | null>(null);
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
-  const selectionDisplay = useMemo(() => getSelectionDisplay(mapSelection), [mapSelection]);
-  const contextActions = useMemo(
-    () => getContextActions(activeTab, mapSelection, inventory),
-    [activeTab, inventory, mapSelection]
+  const selectionDisplay = useMemo(
+    () => getSelectionDisplay(mapSelection, node),
+    [mapSelection, node]
   );
+  const contextActions = useMemo(
+    () => getContextActions(mapSelection),
+    [mapSelection]
+  );
+
+  function getControlledToken() {
+    if (!map || !myCharacter) return null;
+    return map.tokens.find((token) => token.sessionCharacterId === myCharacter.id) ?? null;
+  }
+
+  function handleLocalMapAction(action: NonNullable<ExplorationActionButton['localAction']>) {
+    if (!mapSelection) {
+      setMapActionFeedback('먼저 맵 타일이나 대상을 선택해 주세요.');
+      return;
+    }
+    if (!map) {
+      setMapActionFeedback('맵을 아직 불러오지 못했습니다.');
+      return;
+    }
+
+    if (action === 'ping') {
+      const expiresAt = new Date(Date.now() + 2200).toISOString();
+      onMapChange({
+        ...map,
+        pings: [
+          ...(map.pings ?? []).filter((ping) => Date.parse(ping.expiresAt) > Date.now()).slice(-4),
+          {
+            id: `ping:${Date.now()}`,
+            x: mapSelection.point.x,
+            y: mapSelection.point.y,
+            label: '!',
+            expiresAt,
+          },
+        ],
+        updatedAt: new Date().toISOString(),
+      });
+      setMapActionFeedback('선택한 위치에 핑을 찍었습니다.');
+      return;
+    }
+
+    const controlledToken = getControlledToken();
+    if (!controlledToken) {
+      setMapActionFeedback('이동할 내 캐릭터 토큰이 맵에 없습니다.');
+      return;
+    }
+
+    const nextPosition = findReachableTokenMove(map, controlledToken, mapSelection.tile);
+    if (!nextPosition) {
+      setMapActionFeedback('해당 타일까지 이동 가능한 경로가 없습니다.');
+      return;
+    }
+
+    onMapChange({
+      ...map,
+      tokens: map.tokens.map((token) =>
+        token.id === controlledToken.id
+          ? {
+              ...token,
+              x: nextPosition.x,
+              y: nextPosition.y,
+            }
+          : token
+      ),
+      updatedAt: new Date().toISOString(),
+    });
+    setMapActionFeedback(`${controlledToken.name} 토큰을 선택한 타일로 이동했습니다.`);
+  }
 
   return (
     <div className="exploration-node-surface">
@@ -463,7 +579,20 @@ export function ExplorationNodeSurface({
               선택 대상: <strong>{selectionDisplay.target}</strong>
             </span>
             <span>
-              상태: <strong>{selectionDisplay.status}</strong>
+              상태:{' '}
+              <strong>
+                {selectionDisplay.monsterHpLabel ? (
+                  <span className="exploration-selection-hp">
+                    <span className="exploration-selection-hp-bar" aria-hidden="true">
+                      <span />
+                    </span>
+                    <span>{selectionDisplay.monsterHpLabel}</span>
+                    <span>{selectionDisplay.status}</span>
+                  </span>
+                ) : (
+                  selectionDisplay.status
+                )}
+              </strong>
             </span>
             <span>
               요약: <strong>{selectionDisplay.summary}</strong>
@@ -481,26 +610,22 @@ export function ExplorationNodeSurface({
         </div>
 
         <div className="exploration-action-panel">
-          <div className="exploration-action-tabs" role="tablist" aria-label="탐색 행동 유형">
-            {actionTabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                className={activeTab === tab.id ? 'active' : ''}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
+          <span className="exploration-node-eyebrow">선택 대상 행동</span>
           <div className="exploration-action-list">
             {contextActions.map((action) => (
               <button
                 type="button"
                 key={action.label}
-                disabled={action.disabled || isBusy || !action.request || !onRequestMainCommand}
+                disabled={
+                  action.disabled ||
+                  isBusy ||
+                  (!action.localAction && (!action.request || !onRequestMainCommand))
+                }
                 onClick={() => {
+                  if (action.localAction) {
+                    handleLocalMapAction(action.localAction);
+                    return;
+                  }
                   if (!action.request) return;
                   onRequestMainCommand?.(action.request);
                 }}
@@ -509,6 +634,9 @@ export function ExplorationNodeSurface({
               </button>
             ))}
           </div>
+          {mapActionFeedback ? (
+            <p className="exploration-map-action-feedback">{mapActionFeedback}</p>
+          ) : null}
         </div>
 
         <div className="exploration-inventory-panel">
