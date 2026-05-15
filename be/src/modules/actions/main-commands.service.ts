@@ -74,6 +74,25 @@ type RuleFragmentSummary = {
   summaryKo: string;
 };
 
+type TransitionCandidate = {
+  transitionId: string | null;
+  label: string | null;
+  condition: string | null;
+  note: string | null;
+  nodeId: string;
+  title: string;
+  nodeType: ScenarioNodeType;
+  isFallback: boolean;
+};
+
+type TransitionConditionEvaluation = {
+  satisfied: boolean;
+  needsReview: boolean;
+  reason: string;
+  matchedTerms: string[];
+  missingTerms: string[];
+};
+
 type VttDoorCheckEffect = {
   type: "vttDoor";
   doorId: string;
@@ -81,6 +100,68 @@ type VttDoorCheckEffect = {
   nodeId: string;
   mapPoint: { x: number; y: number };
 };
+
+const AUTO_TRANSITION_CONDITIONS = new Set([
+  "",
+  "default",
+  "always",
+  "auto",
+  "automatic",
+  "true",
+  "none",
+  "무조건",
+  "무조건 가능",
+  "항상",
+  "항상 가능",
+  "자동",
+  "기본",
+  "없음",
+]);
+
+const TRANSITION_CONDITION_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "be",
+  "by",
+  "condition",
+  "default",
+  "for",
+  "from",
+  "if",
+  "in",
+  "is",
+  "next",
+  "node",
+  "of",
+  "on",
+  "or",
+  "scene",
+  "the",
+  "then",
+  "to",
+  "when",
+  "with",
+  "경우",
+  "그리고",
+  "기본",
+  "노드",
+  "다음",
+  "때",
+  "또는",
+  "및",
+  "상태",
+  "시",
+  "이후",
+  "이동",
+  "완료",
+  "장면",
+  "전",
+  "전이",
+  "조건",
+  "후",
+]);
 
 const INTENT_REQUIREMENTS: Partial<Record<MainCommandIntent, IntentRequirement>> = {
   [MainCommandIntent.TALK_TO_NPC]: {
@@ -344,7 +425,7 @@ export class MainCommandsService {
         response = this.handleSceneInfo(requestId, context, dto, visibleEntities, publicClues);
         break;
       case MainCommandIntent.REQUEST_SCENE_TRANSITION:
-        response = await this.handleSceneTransition(requestId, userId, context, dto);
+        response = await this.handleSceneTransition(requestId, userId, context, dto, recentLogs, publicClues);
         break;
       case MainCommandIntent.TACTIC_QUERY:
         response = await this.handleTacticQuery(requestId, userId, context, dto, recentLogs, publicClues);
@@ -2304,6 +2385,8 @@ export class MainCommandsService {
     userId: string,
     context: LoadedContext,
     dto: SubmitMainCommandDto,
+    recentLogs: string[],
+    publicClues: string[],
   ): Promise<MainCommandResponseDto> {
     const candidates = await this.loadTransitionCandidates(context);
     if (!candidates.length) {
@@ -2324,6 +2407,22 @@ export class MainCommandsService {
     }
 
     const target = matched ?? candidates[0];
+    const conditionResult = this.evaluateTransitionCondition(target, dto, recentLogs, publicClues);
+    if (!conditionResult.satisfied) {
+      return {
+        requestId,
+        status: conditionResult.needsReview
+          ? MainCommandStatus.GM_APPROVAL_REQUIRED
+          : MainCommandStatus.IMPOSSIBLE,
+        message: conditionResult.reason,
+        data: {
+          transitionCondition: target.condition ?? null,
+          matchedTerms: conditionResult.matchedTerms,
+          missingTerms: conditionResult.missingTerms,
+        },
+      };
+    }
+
     await this.applySceneTransition(context, target.nodeId);
 
     const snapshot = await this.sessionsService.buildSnapshot(context.sessionId);
@@ -2333,6 +2432,11 @@ export class MainCommandsService {
       requestId,
       status: MainCommandStatus.RESOLVED,
       message: `${target.title} 화면으로 이동했습니다.`,
+      data: {
+        transitionCondition: target.condition ?? null,
+        transitionLabel: target.label ?? null,
+        conditionMatchedTerms: conditionResult.matchedTerms,
+      },
       statePatch: {
         currentNodeId: target.nodeId,
         nodeType: target.nodeType,
@@ -2988,29 +3092,42 @@ export class MainCommandsService {
       .filter((line) => Boolean(line));
   }
 
-  private async loadTransitionCandidates(context: LoadedContext): Promise<
-    Array<{ nodeId: string; title: string; nodeType: ScenarioNodeType }>
-  > {
+  private async loadTransitionCandidates(context: LoadedContext): Promise<TransitionCandidate[]> {
     const transitions = this.parseJson<Record<string, unknown>[]>(context.currentNodeTransitionsJson, []);
-    const candidateNodeIds = new Set<string>();
+    const candidateStubs: Array<Omit<TransitionCandidate, "title" | "nodeType">> = [];
     for (const transition of transitions) {
       const nextNodeId = this.readString(transition.nextNodeId);
       if (nextNodeId) {
-        candidateNodeIds.add(nextNodeId);
+        candidateStubs.push({
+          transitionId: this.readString(transition.id),
+          label: this.readString(transition.label),
+          condition: this.readString(transition.condition),
+          note: this.readString(transition.note),
+          nodeId: nextNodeId,
+          isFallback: false,
+        });
       }
     }
-    if (context.currentNodeFallbackNodeId) {
-      candidateNodeIds.add(context.currentNodeFallbackNodeId);
+    const hasFallbackTarget = candidateStubs.some((candidate) => candidate.nodeId === context.currentNodeFallbackNodeId);
+    if (context.currentNodeFallbackNodeId && !hasFallbackTarget) {
+      candidateStubs.push({
+        transitionId: null,
+        label: "기본 이동",
+        condition: "default",
+        note: null,
+        nodeId: context.currentNodeFallbackNodeId,
+        isFallback: true,
+      });
     }
 
-    if (!candidateNodeIds.size) {
+    if (!candidateStubs.length) {
       return [];
     }
 
     const nodes = await this.prisma.sessionScenarioNode.findMany({
       where: {
         sessionScenarioId: context.sessionScenarioId,
-        nodeId: { in: Array.from(candidateNodeIds) },
+        nodeId: { in: Array.from(new Set(candidateStubs.map((candidate) => candidate.nodeId))) },
       },
       select: {
         nodeId: true,
@@ -3019,20 +3136,33 @@ export class MainCommandsService {
       },
     });
 
-    return nodes.map((node) => ({
-      nodeId: node.nodeId,
-      title: node.title,
-      nodeType: this.toScenarioNodeType(node.nodeType),
-    }));
+    const nodeByNodeId = new Map(nodes.map((node) => [node.nodeId, node]));
+    return candidateStubs
+      .map((candidate) => {
+        const node = nodeByNodeId.get(candidate.nodeId);
+        if (!node) {
+          return null;
+        }
+        return {
+          ...candidate,
+          title: node.title,
+          nodeType: this.toScenarioNodeType(node.nodeType),
+        };
+      })
+      .filter((candidate): candidate is TransitionCandidate => Boolean(candidate));
   }
 
   private matchTransitionCandidate(
-    candidates: Array<{ nodeId: string; title: string; nodeType: ScenarioNodeType }>,
+    candidates: TransitionCandidate[],
     dto: SubmitMainCommandDto,
-  ): { nodeId: string; title: string; nodeType: ScenarioNodeType } | null {
+  ): TransitionCandidate | null {
     if (dto.targetId) {
       const normalizedTargetId = dto.targetId.trim().toLowerCase();
-      const direct = candidates.find((candidate) => candidate.nodeId.trim().toLowerCase() === normalizedTargetId);
+      const direct = candidates.find((candidate) =>
+        [candidate.nodeId, candidate.transitionId, candidate.label]
+          .filter((value): value is string => Boolean(value))
+          .some((value) => value.trim().toLowerCase() === normalizedTargetId),
+      );
       if (direct) {
         return direct;
       }
@@ -3040,9 +3170,131 @@ export class MainCommandsService {
 
     const normalizedText = dto.playerText.trim().toLowerCase();
     return (
-      candidates.find((candidate) => normalizedText.includes(candidate.title.trim().toLowerCase())) ??
+      candidates.find((candidate) =>
+        [candidate.title, candidate.label, candidate.condition]
+          .filter((value): value is string => Boolean(value))
+          .some((value) => normalizedText.includes(value.trim().toLowerCase())),
+      ) ??
       null
     );
+  }
+
+  private evaluateTransitionCondition(
+    candidate: TransitionCandidate,
+    dto: SubmitMainCommandDto,
+    recentLogs: string[],
+    publicClues: string[],
+  ): TransitionConditionEvaluation {
+    const condition = candidate.condition?.trim() ?? "";
+    if (this.isAutoTransitionCondition(condition)) {
+      return {
+        satisfied: true,
+        needsReview: false,
+        reason: "조건 없이 이동 가능한 연결입니다.",
+        matchedTerms: [],
+        missingTerms: [],
+      };
+    }
+
+    const normalizedCondition = this.normalizeTransitionConditionText(condition);
+    const evidenceText = this.normalizeTransitionConditionText(
+      [
+        dto.playerText,
+        ...recentLogs.slice(-8),
+        ...publicClues,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .join(" "),
+    );
+
+    if (normalizedCondition && evidenceText.includes(normalizedCondition)) {
+      return {
+        satisfied: true,
+        needsReview: false,
+        reason: "장면 진행 조건을 만족했습니다.",
+        matchedTerms: [condition],
+        missingTerms: [],
+      };
+    }
+
+    const conditionTerms = this.extractTransitionConditionTerms(condition);
+    if (!conditionTerms.length) {
+      return {
+        satisfied: false,
+        needsReview: true,
+        reason: `장면 이동 조건 "${condition}"을 자동으로 판정하기 어렵습니다. GM 확인이 필요합니다.`,
+        matchedTerms: [],
+        missingTerms: [],
+      };
+    }
+
+    const matchedTerms = conditionTerms.filter((term) => evidenceText.includes(term));
+    const missingTerms = conditionTerms.filter((term) => !evidenceText.includes(term));
+    const requiredMatchCount =
+      conditionTerms.length <= 3 ? conditionTerms.length : Math.ceil(conditionTerms.length * 0.7);
+
+    if (matchedTerms.length >= requiredMatchCount) {
+      return {
+        satisfied: true,
+        needsReview: false,
+        reason: "장면 진행 조건을 만족했습니다.",
+        matchedTerms,
+        missingTerms,
+      };
+    }
+
+    if (matchedTerms.length > 0) {
+      return {
+        satisfied: false,
+        needsReview: true,
+        reason: `장면 이동 조건 "${condition}"을 일부만 확인했습니다. 부족한 단서: ${missingTerms.join(", ")}`,
+        matchedTerms,
+        missingTerms,
+      };
+    }
+
+    return {
+      satisfied: false,
+      needsReview: false,
+      reason: `아직 장면 이동 조건을 만족하지 못했습니다. 필요한 조건: ${condition}`,
+      matchedTerms,
+      missingTerms,
+    };
+  }
+
+  private isAutoTransitionCondition(condition: string): boolean {
+    return AUTO_TRANSITION_CONDITIONS.has(this.normalizeTransitionConditionText(condition));
+  }
+
+  private normalizeTransitionConditionText(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private extractTransitionConditionTerms(condition: string): string[] {
+    const seen = new Set<string>();
+    return this.normalizeTransitionConditionText(condition)
+      .split(" ")
+      .map((term) => this.stripKoreanCaseMarker(term))
+      .filter((term) => term.length >= 2)
+      .filter((term) => !TRANSITION_CONDITION_STOP_WORDS.has(term))
+      .filter((term) => {
+        if (seen.has(term)) {
+          return false;
+        }
+        seen.add(term);
+        return true;
+      });
+  }
+
+  private stripKoreanCaseMarker(term: string): string {
+    return term
+      .replace(/(했으면|했을|했다|한다|했고|하고|하기|되었으면|되었을|되었다|되면|었으면|았으면|었을|았을|었다|았다|으면)$/u, "")
+      .replace(/(으로는|으로서|으로써|에서|에게|부터|까지|처럼|보다|으로|로|은|는|이|가|을|를|에|의|도|만|와|과)$/u, "");
   }
 
   private async applySceneTransition(context: LoadedContext, targetNodeId: string): Promise<void> {
