@@ -25,6 +25,16 @@ import type {
 import { BattleMap } from '../components/BattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
+import tavernImage from '../components/tavern.webp';
+import emptySlotImage from '../components/player_empty_slot.webp';
+import existSlotImage from '../components/player_exist_slot.webp';
+import pinImage from '../components/pin.png';
+import corkboardNoPaperImage from '../components/corkboard_no_paper.webp';
+import paperPinnedImage from '../components/paper_pinned.webp';
+import bigBoxImage from '../components/bigbox.png';
+import smallBoxImage from '../components/smallbox.png';
+import carouselLeftImage from '../components/carousel_left.png';
+import carouselRightImage from '../components/carousel_right.png';
 import { CombatNodeSurface } from '../features/sessionPlay/components/CombatNodeSurface';
 import { DiceRollOverlay } from '../features/sessionPlay/components/DiceRollOverlay';
 import type { DiceRollOverlayData } from '../features/sessionPlay/components/DiceRollOverlay';
@@ -1114,8 +1124,6 @@ function createDefaultQuickCreateForm(
   };
 }
 
-const visibleCharacterSlots = 3;
-
 function toStoredClassName(classKey: string): string {
   const trimmed = classKey.trim();
   if (!trimmed) return 'Wizard';
@@ -1960,56 +1968,39 @@ export function PlayPage({
     [characters, readyLocked, selectedCharacterId]
   );
 
-  const characterSelectionItems = useMemo(
-    () => [
-      { kind: 'create' as const, id: 'create-character' },
-      ...joinableCharacters.map((character) => ({
-        kind: 'character' as const,
-        id: character.id,
-        character,
-      })),
-    ],
-    [joinableCharacters]
-  );
-
-  const maxCharacterCarouselIndex = Math.max(
-    0,
-    characterSelectionItems.length - visibleCharacterSlots
-  );
-
-  const visibleCharacterItems = useMemo(
+  const wantedCarouselCharacters = useMemo(
     () =>
-      characterSelectionItems.slice(
-        characterCarouselIndex,
-        characterCarouselIndex + visibleCharacterSlots
+      joinableCharacters.filter(
+        (character) => character.isSelectable || character.id === selectedCharacterId
       ),
-    [characterCarouselIndex, characterSelectionItems]
+    [joinableCharacters, selectedCharacterId]
   );
+
+  const wantedCarouselCharacter =
+    selectedCharacter ??
+    wantedCarouselCharacters[Math.min(characterCarouselIndex, wantedCarouselCharacters.length - 1)] ??
+    null;
 
   const selectedCharacterAbilitySummary = useMemo(
-    () => (selectedCharacter ? getAbilitySummary(selectedCharacter) : []),
-    [selectedCharacter]
+    () => (wantedCarouselCharacter ? getAbilitySummary(wantedCarouselCharacter) : []),
+    [wantedCarouselCharacter]
   );
 
   useEffect(() => {
-    setCharacterCarouselIndex((current) => Math.min(current, maxCharacterCarouselIndex));
-  }, [maxCharacterCarouselIndex]);
+    setCharacterCarouselIndex((current) =>
+      Math.min(current, Math.max(0, wantedCarouselCharacters.length - 1))
+    );
+  }, [wantedCarouselCharacters.length]);
 
   useEffect(() => {
     if (!selectedCharacterId) return;
-    const selectedIndex = characterSelectionItems.findIndex(
-      (item) => item.kind === 'character' && item.id === selectedCharacterId
+    const selectedIndex = wantedCarouselCharacters.findIndex(
+      (character) => character.id === selectedCharacterId
     );
     if (selectedIndex < 0) return;
 
-    setCharacterCarouselIndex((current) => {
-      if (selectedIndex < current) return selectedIndex;
-      if (selectedIndex >= current + visibleCharacterSlots) {
-        return selectedIndex - visibleCharacterSlots + 1;
-      }
-      return current;
-    });
-  }, [characterSelectionItems, selectedCharacterId]);
+    setCharacterCarouselIndex(selectedIndex);
+  }, [selectedCharacterId, wantedCarouselCharacters]);
 
   const scopedLogs = useMemo(() => {
     if (activeTab === 'Chat') {
@@ -2157,6 +2148,15 @@ export function PlayPage({
   function openCreateModal() {
     resetQuickCreateForm();
     setCreateModalOpen(true);
+  }
+
+  function handleOpenRecruitingCreate() {
+    if (quickCreateConfigReady) {
+      openCreateModal();
+      return;
+    }
+
+    onNavigateToCharacters();
   }
 
   function closeCreateModal() {
@@ -2431,6 +2431,23 @@ export function PlayPage({
     onSelectCharacter(characterId);
   }
 
+  function handleWantedCarouselStep(direction: -1 | 1) {
+    if (busy || readyLocked || !wantedCarouselCharacters.length) return;
+
+    const currentIndex = wantedCarouselCharacter
+      ? wantedCarouselCharacters.findIndex((character) => character.id === wantedCarouselCharacter.id)
+      : -1;
+    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex =
+      (safeCurrentIndex + direction + wantedCarouselCharacters.length) %
+      wantedCarouselCharacters.length;
+    const nextCharacter = wantedCarouselCharacters[nextIndex];
+    if (!nextCharacter || nextCharacter.id === selectedCharacterId) return;
+
+    setCharacterCarouselIndex(nextIndex);
+    handleCharacterClick(nextCharacter.id);
+  }
+
   async function flushPendingMapSave(sessionId: string) {
     const saveState = mapSaveRef.current;
     if (saveState.isSaving) {
@@ -2578,6 +2595,12 @@ export function PlayPage({
 
   const layoutStyle = {
     '--session-sidebar-width': `${sidebarWidth}px`,
+    '--session-recruiting-bg': `url(${tavernImage})`,
+    '--session-empty-slot-image': `url(${emptySlotImage})`,
+    '--session-corkboard-image': `url(${corkboardNoPaperImage})`,
+    '--session-wanted-paper-image': `url(${paperPinnedImage})`,
+    '--session-stat-bigbox-image': `url(${bigBoxImage})`,
+    '--session-stat-smallbox-image': `url(${smallBoxImage})`,
   } as CSSProperties;
 
   function handleSidebarResizePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -2607,13 +2630,24 @@ export function PlayPage({
   }
 
   return (
-    <main className="session-prep-layout session-prep-layout-tight" style={layoutStyle}>
+    <main
+      className={`session-prep-layout session-prep-layout-tight${
+        isRecruiting ? ' recruiting-tavern' : ''
+      }`}
+      style={layoutStyle}
+    >
       <section
-        className={`session-prep-stage${usesNodeSpecificPartyStrip ? ' node-surface-active' : ''}`}
+        className={`session-prep-stage${usesNodeSpecificPartyStrip ? ' node-surface-active' : ''}${
+          isRecruiting ? ' recruiting-stage' : ''
+        }`}
       >
-        <div className={`session-stage-canvas${!isRecruiting ? ' started' : ''}`}>
+        <div
+          className={`session-stage-canvas${!isRecruiting ? ' started' : ''}${
+            isRecruiting ? ' recruiting-stage-canvas' : ''
+          }`}
+        >
           {isRecruiting ? (
-            <section className="session-room-overlay">
+            <section className="session-room-overlay recruiting-room-overlay">
               <div className="session-room-overlay-row">
                 <div className="session-room-overlay-title">
                   <span className="eyebrow">세션 룸</span>
@@ -2651,162 +2685,140 @@ export function PlayPage({
           ) : null}
 
           {canShowCharacterSelection ? (
-            <section className="character-selection-board player-ready-board session-character-board">
-              <div className="section-heading">
-                <div>
-                  <span className="eyebrow">캐릭터 선택</span>
-                  <h2>플레이할 캐릭터를 선택해 주세요</h2>
-                </div>
-                <button
-                  type="button"
-                  className={`ready-toggle-button${myParticipant?.isReady ? ' active' : ''}`}
-                  disabled={busy || !selectedCharacter}
-                  onClick={() => onSetReady(!myParticipant?.isReady)}
-                >
-                  {myParticipant?.isReady ? '준비 해제' : '준비 완료'}
-                </button>
-              </div>
+            <section className="character-selection-board player-ready-board session-character-board recruiting-lobby-board">
+              <div className="recruiting-lobby-board-layout">
+                <section className="recruiting-wanted-poster">
+                  <button
+                    type="button"
+                    className="recruiting-wanted-nav previous"
+                    onClick={() => handleWantedCarouselStep(-1)}
+                    disabled={busy || readyLocked || wantedCarouselCharacters.length <= 1}
+                    aria-label="이전 캐릭터 보기"
+                  >
+                    <img src={carouselLeftImage} alt="" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="recruiting-wanted-nav next"
+                    onClick={() => handleWantedCarouselStep(1)}
+                    disabled={busy || readyLocked || wantedCarouselCharacters.length <= 1}
+                    aria-label="다음 캐릭터 보기"
+                  >
+                    <img src={carouselRightImage} alt="" aria-hidden="true" />
+                  </button>
 
-              <div className="character-selection-carousel">
-                <button
-                  type="button"
-                  className="character-selection-nav"
-                  onClick={() => setCharacterCarouselIndex((current) => Math.max(0, current - 1))}
-                  disabled={characterCarouselIndex === 0}
-                  aria-label="이전 캐릭터 보기"
-                >
-                  {'<'}
-                </button>
-
-                <div className="character-selection-grid">
-                  {visibleCharacterItems.map((item) => {
-                    if (item.kind === 'create') {
-                      return (
-                        <button
-                          type="button"
-                          key={item.id}
-                          className="character-selection-create"
-                          onClick={onNavigateToCharacters}
-                          disabled={readyLocked}
-                        >
-                          <Icon name="plus" />
-                          <strong>캐릭터 생성</strong>
-                          <span>
-                            캐릭터 화면으로 이동해 새 캐릭터를 만든 뒤 이 세션으로 돌아오세요.
-                          </span>
-                        </button>
-                      );
-                    }
-
-                    const { character } = item;
-                    const cardImage = getCharacterImage(character);
-                    const disabledLabel = !character.isSelectable
-                      ? '사용 중'
-                      : readyLocked && !character.isSelected
-                        ? 'READY 고정'
-                        : null;
-
-                    return (
-                      <button
-                        type="button"
-                        key={character.id}
-                        className={`fantasy-character-card session-character-option${
-                          character.isSelected ? ' selected' : ''
-                        }`}
-                        disabled={busy || character.isDisabled}
-                        onClick={() => handleCharacterClick(character.id)}
-                      >
-                        <div
-                          className="fantasy-character-card-frame session-character-option-frame"
-                          style={{ ['--frame-image' as string]: `url(${profileBorderCharacter})` }}
-                        >
-                          <img
-                            src={cardImage}
-                            alt={character.name}
-                            className="fantasy-character-card-art"
-                          />
-                          {disabledLabel ? (
-                            <div className="fantasy-character-card-overlay">{disabledLabel}</div>
-                          ) : null}
-                          <div className="session-character-option-badges">
-                            <span>LV {character.level}</span>
-                            <span>HP {character.maxHp}</span>
-                            <span>AC {character.armorClass}</span>
-                          </div>
-                          <div className="fantasy-character-card-nameplate">{character.name}</div>
-                          <div className="fantasy-character-card-class">
-                            {getCharacterClassLabel(character.className)}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <button
-                  type="button"
-                  className="character-selection-nav"
-                  onClick={() =>
-                    setCharacterCarouselIndex((current) =>
-                      Math.min(maxCharacterCarouselIndex, current + 1)
-                    )
-                  }
-                  disabled={characterCarouselIndex >= maxCharacterCarouselIndex}
-                  aria-label="다음 캐릭터 보기"
-                >
-                  {'>'}
-                </button>
-              </div>
-
-              <section className="character-selection-detail">
-                <div className="character-selection-detail-header">
-                  <span className="eyebrow">선택 캐릭터 정보</span>
-                  <strong>{selectedCharacter?.name ?? '캐릭터를 선택해 주세요'}</strong>
-                </div>
-
-                {selectedCharacter ? (
-                  <div className="character-selection-detail-body">
-                    <div className="character-selection-detail-meta">
-                      <span>{selectedCharacter.ancestry}</span>
-                      <span>{getCharacterClassLabel(selectedCharacter.className)}</span>
-                      <span>레벨 {selectedCharacter.level}</span>
-                      <span>숙련 +{selectedCharacter.proficiencyBonus}</span>
-                    </div>
-
-                    <div className="character-selection-detail-stats">
-                      <div>
-                        <strong>체력</strong>
-                        <span>{selectedCharacter.maxHp}</span>
-                      </div>
-                      <div>
-                        <strong>방어도</strong>
-                        <span>{selectedCharacter.armorClass}</span>
-                      </div>
-                      <div>
-                        <strong>이동 속도</strong>
-                        <span>{selectedCharacter.speed}</span>
-                      </div>
-                    </div>
-
-                    <div className="character-selection-detail-abilities">
-                      {selectedCharacterAbilitySummary.map((ability) => (
-                        <div key={ability.label}>
-                          <strong>{ability.label}</strong>
-                          <span>{ability.value}</span>
-                        </div>
-                      ))}
-                    </div>
-
-                    <p className="character-selection-detail-bio">
-                      {selectedCharacter.bio?.trim() || '아직 등록된 캐릭터 소개가 없습니다.'}
-                    </p>
+                  <div className="recruiting-wanted-header">
+                    <span>WANTED</span>
+                    <strong>{wantedCarouselCharacter ? 'Character Info' : 'Select Character'}</strong>
                   </div>
-                ) : (
-                  <p className="character-selection-detail-empty">
-                    캐릭터를 선택하면 능력치와 소개를 여기에서 바로 확인할 수 있습니다.
-                  </p>
-                )}
-              </section>
+
+                  <div className="recruiting-wanted-body">
+                    <div
+                      className="recruiting-wanted-portrait-frame"
+                      style={{ ['--frame-image' as string]: `url(${profileBorderCharacter})` }}
+                    >
+                      <div className="recruiting-wanted-portrait-crop">
+                        <img
+                          src={
+                            wantedCarouselCharacter
+                              ? getCharacterImage(wantedCarouselCharacter)
+                              : emptySlotImage
+                          }
+                          alt={wantedCarouselCharacter?.name ?? '빈 캐릭터 슬롯'}
+                          className={`recruiting-wanted-portrait${
+                            wantedCarouselCharacter ? '' : ' empty'
+                          }`}
+                        />
+                      </div>
+                      <strong className="recruiting-wanted-portrait-name">
+                        {wantedCarouselCharacter?.name ?? 'EMPTY'}
+                      </strong>
+                    </div>
+
+                    <div className="recruiting-wanted-copy">
+                      <div className="recruiting-wanted-copy-header">
+                        <strong>
+                          {wantedCarouselCharacter
+                            ? `${wantedCarouselCharacter.ancestry} / ${getCharacterClassLabel(wantedCarouselCharacter.className)}`
+                            : '캐릭터를 선택해 주세요'}
+                        </strong>
+                      </div>
+
+                      <div className="recruiting-wanted-stat-grid">
+                        <div>
+                          <span>LV</span>
+                          <strong>{wantedCarouselCharacter?.level ?? '-'}</strong>
+                        </div>
+                        <div>
+                          <span>HP</span>
+                          <strong>{wantedCarouselCharacter?.maxHp ?? '-'}</strong>
+                        </div>
+                        <div>
+                          <span>AC</span>
+                          <strong>{wantedCarouselCharacter?.armorClass ?? '-'}</strong>
+                        </div>
+                        <div>
+                          <span>SPD</span>
+                          <strong>{wantedCarouselCharacter?.speed ?? '-'}</strong>
+                        </div>
+                      </div>
+
+                      <div className="recruiting-wanted-abilities">
+                        {wantedCarouselCharacter ? (
+                          selectedCharacterAbilitySummary.map((ability) => (
+                            <div key={ability.label}>
+                              <span>{ability.label}</span>
+                              <strong>{ability.value}</strong>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="recruiting-wanted-empty-copy">
+                            선택한 캐릭터의 능력치가 이곳에 표시됩니다.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="recruiting-wanted-actions">
+                    <button
+                      type="button"
+                      className="recruiting-wanted-action"
+                      onClick={handleOpenRecruitingCreate}
+                      disabled={readyLocked}
+                    >
+                      캐릭터 생성
+                    </button>
+                    <button
+                      type="button"
+                      className="recruiting-wanted-action"
+                      onClick={() => {
+                        if (wantedCarouselCharacter) {
+                          handleCharacterClick(wantedCarouselCharacter.id);
+                        }
+                      }}
+                      disabled={
+                        busy ||
+                        readyLocked ||
+                        !wantedCarouselCharacter ||
+                        wantedCarouselCharacter.id === selectedCharacterId
+                      }
+                    >
+                      {wantedCarouselCharacter?.id === selectedCharacterId ? '선택됨' : '선택'}
+                    </button>
+                    <button
+                      type="button"
+                      className={`ready-toggle-button recruiting-ready-button recruiting-wanted-ready${
+                        myParticipant?.isReady ? ' active' : ''
+                      }`}
+                      disabled={busy || !selectedCharacter}
+                      onClick={() => onSetReady(!myParticipant?.isReady)}
+                    >
+                      {myParticipant?.isReady ? '준비 해제' : '준비 완료'}
+                    </button>
+                  </div>
+                </section>
+              </div>
             </section>
           ) : null}
 
@@ -2951,22 +2963,46 @@ export function PlayPage({
         ) : null}
 
         {usesNodeSpecificPartyStrip ? null : (
-          <section className="participant-strip participant-strip-four-up">
+          <section
+            className={`participant-strip participant-strip-four-up${
+              isRecruiting ? ' recruiting-party-strip' : ''
+            }`}
+          >
             {displayedParticipants.length
-              ? displayedParticipants.map((participant, index) => {
+              ? displayedParticipants.slice(0, 4).map((participant, index) => {
                   if (!participant) {
                     return (
                       <article
                         key={`empty-slot-${index}`}
-                        className="participant-strip-card placeholder"
+                        className={`participant-strip-card placeholder${
+                          isRecruiting ? ' recruiting-party-slot empty' : ''
+                        }`}
                       >
-                        <div className="participant-avatar-frame placeholder" />
-                        <div className="participant-card-body">
-                          <strong>빈 슬롯</strong>
-                          <span>참가자를 기다리는 중입니다.</span>
-                        </div>
-                        <div className="participant-state">대기</div>
-                        <div className="participant-index">{index + 1}</div>
+                        {isRecruiting ? (
+                          <>
+                            <img
+                              src={emptySlotImage}
+                              alt={`빈 파티 슬롯 ${index + 1}`}
+                              className="recruiting-party-slot-paper"
+                            />
+                            <img
+                              src={pinImage}
+                              alt=""
+                              aria-hidden="true"
+                              className="recruiting-party-slot-pin"
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <div className="participant-avatar-frame placeholder" />
+                            <div className="participant-card-body">
+                              <strong>빈 슬롯</strong>
+                              <span>참가자를 기다리는 중입니다.</span>
+                            </div>
+                            <div className="participant-state">대기</div>
+                            <div className="participant-index">{index + 1}</div>
+                          </>
+                        )}
                       </article>
                     );
                   }
@@ -2984,42 +3020,73 @@ export function PlayPage({
                   return (
                     <article
                       key={participant.id}
-                      className="participant-strip-card"
+                      className={`participant-strip-card${
+                        isRecruiting ? ' recruiting-party-slot occupied' : ''
+                      }`}
                       style={buildProfileColorStyle(profileColor)}
                     >
-                      {badgeLabel ? (
-                        <div className="participant-special-badge">{badgeLabel}</div>
-                      ) : null}
-                      <div
-                        className="participant-avatar-frame"
-                        style={{ ['--frame-image' as string]: `url(${profileBorderCharacter})` }}
-                      >
-                        {participantImage ? (
+                      {isRecruiting ? (
+                        <>
                           <img
-                            src={participantImage}
-                            alt={linkedCharacter?.name ?? participant.user.displayName}
-                            className="participant-avatar-image"
+                            src={existSlotImage}
+                            alt=""
+                            aria-hidden="true"
+                            className="recruiting-party-slot-paper"
                           />
-                        ) : (
-                          <div className="participant-avatar tone-1">
-                            {(linkedCharacter?.name ?? participant.user.displayName).slice(0, 1)}
+                          <img
+                            src={pinImage}
+                            alt=""
+                            aria-hidden="true"
+                            className="recruiting-party-slot-pin"
+                          />
+                          {participantImage ? (
+                            <img
+                              src={participantImage}
+                              alt={linkedCharacter?.name ?? participant.user.displayName}
+                              className="recruiting-party-slot-portrait"
+                            />
+                          ) : null}
+                          <strong className="recruiting-party-slot-name">
+                            {participant.user.displayName}
+                          </strong>
+                        </>
+                      ) : (
+                        <>
+                          {badgeLabel ? (
+                            <div className="participant-special-badge">{badgeLabel}</div>
+                          ) : null}
+                          <div
+                            className="participant-avatar-frame"
+                            style={{ ['--frame-image' as string]: `url(${profileBorderCharacter})` }}
+                          >
+                            {participantImage ? (
+                              <img
+                                src={participantImage}
+                                alt={linkedCharacter?.name ?? participant.user.displayName}
+                                className="participant-avatar-image"
+                              />
+                            ) : (
+                              <div className="participant-avatar tone-1">
+                                {(linkedCharacter?.name ?? participant.user.displayName).slice(0, 1)}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                      <div className="participant-card-body">
-                        <strong>{participant.user.displayName}</strong>
-                        <span>
-                          {linkedCharacter
-                            ? `${linkedCharacter.name} / ${getCharacterClassLabel(linkedCharacter.className)}`
-                            : participant.userId === user.id
-                              ? '\uCE90\uB9AD\uD130\uAC00 \uC120\uD0DD\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4'
-                              : '\uCE90\uB9AD\uD130\uB97C \uAE30\uB2E4\uB9AC\uB294 \uC911\uC785\uB2C8\uB2E4'}
-                        </span>
-                      </div>
-                      <div className={`participant-state${participant.isReady ? ' ready' : ''}`}>
-                        {stateLabel}
-                      </div>
-                      <div className="participant-index">{index + 1}</div>
+                          <div className="participant-card-body">
+                            <strong>{participant.user.displayName}</strong>
+                            <span>
+                              {linkedCharacter
+                                ? `${linkedCharacter.name} / ${getCharacterClassLabel(linkedCharacter.className)}`
+                                : participant.userId === user.id
+                                  ? '\uCE90\uB9AD\uD130\uAC00 \uC120\uD0DD\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4'
+                                  : '\uCE90\uB9AD\uD130\uB97C \uAE30\uB2E4\uB9AC\uB294 \uC911\uC785\uB2C8\uB2E4'}
+                            </span>
+                          </div>
+                          <div className={`participant-state${participant.isReady ? ' ready' : ''}`}>
+                            {stateLabel}
+                          </div>
+                          <div className="participant-index">{index + 1}</div>
+                        </>
+                      )}
                     </article>
                   );
                 })

@@ -3858,3 +3858,745 @@
     object-fit: fill !important;
   }
 }
+
+/* ------------------------------------------------------------------
+ * Recruiting Tavern Theme
+ * ------------------------------------------------------------------ */
+
+.session-prep-layout.recruiting-tavern {
+  background:
+    linear-gradient(180deg, rgba(18, 10, 4, 0.24), rgba(18, 10, 4, 0.44)),
+    var(--session-recruiting-bg) center / cover no-repeat;
+}
+
+.recruiting-tavern .recruiting-stage {
+  grid-template-rows: minmax(0, 1fr) 208px;
+}
+
+.recruiting-tavern .recruiting-stage-canvas {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 18px;
+  padding: 14px 26px 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+.recruiting-tavern .recruiting-room-overlay {
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #f8ebd2;
+}
+
+.recruiting-tavern .session-room-overlay-row {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.recruiting-tavern .session-room-overlay-title .eyebrow,
+.recruiting-tavern .session-room-overlay-title strong,
+.recruiting-tavern .invite-inline,
+.recruiting-tavern .status-pill {
+  color: #f7ecd8;
+}
+
+.recruiting-tavern .session-room-overlay-title .eyebrow {
+  opacity: 0.82;
+}
+
+.recruiting-tavern .session-room-overlay-title strong {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.44);
+}
+
+.recruiting-tavern .status-pill,
+.recruiting-tavern .invite-inline {
+  min-height: 44px;
+  border: 1px solid rgba(238, 206, 150, 0.38);
+  background: rgba(38, 24, 12, 0.54);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 241, 211, 0.16),
+    0 10px 20px rgba(0, 0, 0, 0.2);
+}
+
+.recruiting-tavern .session-room-overlay-actions {
+  gap: 10px;
+}
+
+.recruiting-tavern .session-room-overlay-actions button {
+  min-width: 118px;
+  min-height: 44px;
+  border-radius: 14px;
+  border: 1px solid rgba(238, 206, 150, 0.42);
+  background:
+    linear-gradient(180deg, rgba(73, 49, 28, 0.96), rgba(43, 28, 17, 0.96)),
+    rgba(44, 28, 16, 0.9);
+  color: #f8ecd7;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 239, 206, 0.18),
+    0 10px 22px rgba(0, 0, 0, 0.22);
+}
+
+.recruiting-tavern .recruiting-lobby-board {
+  position: relative;
+  display: block;
+  min-height: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.recruiting-lobby-board-layout {
+  display: grid;
+  grid-template-columns: minmax(0, min(960px, 100%));
+  justify-content: center;
+  gap: 0;
+  min-height: 100%;
+}
+
+.recruiting-wanted-poster {
+  position: relative;
+  width: min(960px, 100%);
+  aspect-ratio: 1559 / 1023;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--session-corkboard-image) center / contain no-repeat;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.recruiting-wanted-poster::before {
+  content: '';
+  position: absolute;
+  inset: 8% 15% 10% 20%;
+  z-index: 0;
+  background: var(--session-wanted-paper-image) center / contain no-repeat;
+  filter: drop-shadow(0 16px 18px rgba(35, 20, 9, 0.22));
+  pointer-events: none;
+}
+
+.recruiting-wanted-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 4;
+  width: 58px;
+  height: 72px;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  filter: drop-shadow(0 8px 10px rgba(29, 15, 6, 0.24));
+}
+
+.recruiting-wanted-nav img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  pointer-events: none;
+}
+
+.recruiting-wanted-nav.previous {
+  left: 20%;
+}
+
+.recruiting-wanted-nav.next {
+  right: 15%;
+}
+
+.recruiting-wanted-nav:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.recruiting-wanted-header,
+.recruiting-wanted-body {
+  position: relative;
+  z-index: 1;
+}
+
+.recruiting-wanted-header {
+  position: absolute;
+  top: 15%;
+  left: 31%;
+  right: 23%;
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  text-align: center;
+}
+
+.recruiting-wanted-header span {
+  font-size: clamp(38px, 3.8vw, 64px);
+  line-height: 0.92;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #3f2815;
+}
+
+.recruiting-wanted-header strong {
+  font-size: clamp(15px, 1.2vw, 21px);
+  color: #4e331b;
+}
+
+.recruiting-wanted-body {
+  position: absolute;
+  top: 31%;
+  left: 30%;
+  right: 22%;
+  bottom: 24%;
+  display: grid;
+  grid-template-columns: minmax(116px, 30%) minmax(0, 1fr);
+  gap: clamp(12px, 1.3vw, 22px);
+  align-items: start;
+}
+
+.recruiting-wanted-portrait-frame {
+  position: relative;
+  width: 90%;
+  max-width: 150px;
+  aspect-ratio: 180 / 232;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: 0 14px 24px rgba(47, 25, 10, 0.18);
+}
+
+.recruiting-wanted-portrait-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--frame-image);
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.recruiting-wanted-portrait-crop {
+  position: absolute;
+  inset: 9% 9% 18%;
+  z-index: 1;
+  overflow: hidden;
+  border-radius: 6px;
+  background: rgba(53, 35, 19, 0.1);
+}
+
+.recruiting-wanted-portrait {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.recruiting-wanted-portrait.empty {
+  object-fit: contain;
+  padding: 18px;
+  opacity: 0.62;
+}
+
+.recruiting-wanted-portrait-name {
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: 12%;
+  z-index: 4;
+  overflow: hidden;
+  color: #2b190d;
+  font-size: clamp(8px, 0.62vw, 10px);
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 0 rgba(255, 234, 189, 0.76);
+  white-space: nowrap;
+}
+
+.recruiting-wanted-copy {
+  display: grid;
+  gap: clamp(7px, 0.7vw, 11px);
+  min-width: 0;
+  color: #3f2815;
+  transform: translateX(-16px);
+}
+
+.recruiting-wanted-copy-header {
+  display: grid;
+  gap: 4px;
+}
+
+.recruiting-wanted-copy-header strong {
+  font-size: clamp(22px, 1.8vw, 32px);
+  line-height: 1;
+}
+
+.recruiting-wanted-copy-header span {
+  font-size: 14px;
+  color: rgba(63, 40, 21, 0.78);
+}
+
+.recruiting-wanted-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.recruiting-wanted-stat-grid div,
+.recruiting-wanted-abilities div {
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  border: 0;
+  border-radius: 0;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  text-align: center;
+  box-shadow: none;
+}
+
+.recruiting-wanted-stat-grid div {
+  min-height: 48px;
+  padding: 7px 10px 9px;
+  background-image: var(--session-stat-bigbox-image);
+}
+
+.recruiting-wanted-abilities div {
+  min-height: 40px;
+  padding: 6px 8px 8px;
+  background-image: var(--session-stat-smallbox-image);
+}
+
+.recruiting-wanted-stat-grid span,
+.recruiting-wanted-abilities span {
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(78, 51, 27, 0.74);
+}
+
+.recruiting-wanted-stat-grid strong,
+.recruiting-wanted-abilities strong {
+  font-size: 17px;
+  color: #322011;
+}
+
+.recruiting-wanted-abilities {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.recruiting-wanted-empty-copy {
+  margin: 0;
+  padding: 18px 20px;
+  border: 1px dashed rgba(93, 64, 37, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 249, 237, 0.62);
+  color: rgba(63, 40, 21, 0.78);
+}
+
+.recruiting-wanted-actions {
+  position: absolute;
+  left: 32%;
+  right: 24%;
+  bottom: 17%;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.recruiting-wanted-action,
+.recruiting-wanted-ready {
+  min-width: 92px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(94, 60, 30, 0.38);
+  background:
+    linear-gradient(180deg, rgba(93, 61, 34, 0.94), rgba(53, 33, 19, 0.96));
+  color: #f7e6c8;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px rgba(20, 9, 3, 0.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 229, 186, 0.22),
+    0 5px 10px rgba(49, 27, 10, 0.18);
+}
+
+.recruiting-wanted-action:disabled,
+.recruiting-wanted-ready:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.recruiting-character-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(138, 100, 62, 0.4);
+  background:
+    linear-gradient(180deg, rgba(255, 245, 220, 0.86), rgba(231, 206, 161, 0.88));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 240, 0.34),
+    0 12px 24px rgba(0, 0, 0, 0.16);
+}
+
+.recruiting-character-panel-header {
+  display: grid;
+  gap: 12px;
+}
+
+.recruiting-character-panel-header .eyebrow {
+  color: #734a28;
+}
+
+.recruiting-character-panel-header h2 {
+  margin: 4px 0 0;
+  color: #392313;
+}
+
+.recruiting-ready-button {
+  width: 100%;
+  min-height: 46px;
+  justify-self: stretch;
+}
+
+.recruiting-wanted-actions .recruiting-wanted-ready {
+  width: auto;
+  min-height: 38px;
+  justify-self: auto;
+}
+
+.recruiting-character-carousel {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  gap: 10px;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.recruiting-character-nav {
+  top: 0;
+  align-self: stretch;
+  width: 42px;
+  min-height: 100%;
+  background: rgba(255, 250, 238, 0.78);
+}
+
+.recruiting-character-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  min-height: 0;
+}
+
+.recruiting-character-option,
+.recruiting-character-create {
+  position: relative;
+  min-height: 212px;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid rgba(105, 72, 41, 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 248, 231, 0.98), rgba(233, 210, 169, 0.95));
+  box-shadow: 0 12px 22px rgba(43, 25, 11, 0.14);
+}
+
+.recruiting-character-option {
+  padding: 10px;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 10px;
+  text-align: left;
+}
+
+.recruiting-character-option.selected {
+  border-color: rgba(108, 170, 214, 0.52);
+  box-shadow:
+    0 16px 28px rgba(43, 25, 11, 0.2),
+    0 0 0 2px rgba(108, 170, 214, 0.28);
+}
+
+.recruiting-character-option-art {
+  width: 100%;
+  height: 132px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+.recruiting-character-option-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.recruiting-character-option-copy strong {
+  color: #322011;
+}
+
+.recruiting-character-option-copy span {
+  color: #6a4524;
+  font-size: 12px;
+}
+
+.recruiting-character-option-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(29, 17, 10, 0.54);
+  color: #fff4e1;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.recruiting-character-create {
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.recruiting-character-create strong {
+  color: #322011;
+}
+
+.recruiting-character-create span {
+  max-width: 160px;
+  color: #6a4524;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.recruiting-tavern .recruiting-party-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(104px, 148px));
+  grid-auto-flow: initial;
+  grid-auto-columns: initial;
+  justify-content: center;
+  align-items: end;
+  gap: clamp(10px, 1.4vw, 18px);
+  height: 178px;
+  padding: 0 24px 16px;
+  overflow: visible;
+  background: transparent;
+}
+
+.recruiting-tavern .recruiting-party-slot {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 146 / 190;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #352113;
+  overflow: visible;
+}
+
+.recruiting-tavern .participant-strip-card.recruiting-party-slot {
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.recruiting-tavern .participant-strip-card.recruiting-party-slot::after {
+  content: none;
+}
+
+.recruiting-party-slot-paper {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 12px rgba(0, 0, 0, 0.24));
+  user-select: none;
+  pointer-events: none;
+}
+
+.recruiting-party-slot-pin {
+  position: absolute;
+  top: 7%;
+  left: 50%;
+  z-index: 3;
+  width: 14%;
+  height: auto;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 2px 3px rgba(31, 17, 8, 0.35));
+  user-select: none;
+  pointer-events: none;
+}
+
+.recruiting-party-slot.empty .recruiting-party-slot-pin {
+  top: calc(7% - 3px);
+}
+
+.recruiting-party-slot-portrait {
+  position: absolute;
+  left: 50%;
+  top: calc(30% + 30px);
+  width: 43%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  object-fit: cover;
+  border: 1px solid rgba(70, 44, 22, 0.55);
+  background: rgba(58, 37, 20, 0.18);
+  box-shadow: 0 3px 5px rgba(40, 22, 10, 0.22);
+}
+
+.recruiting-party-slot-name {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  bottom: 28%;
+  overflow: hidden;
+  color: #2d1b0f;
+  font-size: clamp(11px, 1vw, 14px);
+  font-weight: 900;
+  line-height: 1.1;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 0 rgba(255, 232, 184, 0.7);
+  white-space: nowrap;
+}
+
+.recruiting-tavern .session-sidebar {
+  border-color: rgba(150, 113, 72, 0.36);
+  background:
+    linear-gradient(180deg, rgba(252, 244, 228, 0.96), rgba(226, 201, 161, 0.96));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 240, 0.24),
+    -14px 0 26px rgba(0, 0, 0, 0.18);
+}
+
+.recruiting-tavern .session-sidebar-resizer {
+  background: rgba(78, 54, 33, 0.54);
+  border-left: 1px solid rgba(239, 209, 153, 0.16);
+  border-right: 1px solid rgba(239, 209, 153, 0.16);
+}
+
+.recruiting-tavern .session-sidebar-tabs {
+  padding: 12px 12px 0;
+  gap: 8px;
+  border-bottom: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.recruiting-tavern .session-sidebar-tabs button {
+  min-height: 48px;
+  border-radius: 14px 14px 0 0;
+  border: 1px solid rgba(136, 98, 62, 0.34);
+  background:
+    linear-gradient(180deg, rgba(79, 56, 35, 0.92), rgba(49, 35, 22, 0.92));
+  color: #f5e9d3;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 238, 204, 0.14),
+    0 8px 16px rgba(0, 0, 0, 0.12);
+}
+
+.recruiting-tavern .session-sidebar-tabs button.active {
+  background:
+    linear-gradient(180deg, rgba(255, 247, 228, 0.98), rgba(240, 219, 181, 0.98));
+  color: #3b2414;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 10px 18px rgba(0, 0, 0, 0.14);
+}
+
+.recruiting-tavern .session-sidebar-panel {
+  padding: 0 12px 12px;
+  background: transparent;
+}
+
+.recruiting-tavern .session-sidebar-heading,
+.recruiting-tavern .session-log-stack,
+.recruiting-tavern .session-info-panel,
+.recruiting-tavern .session-settings-panel {
+  border-radius: 18px;
+  border: 1px solid rgba(143, 106, 68, 0.28);
+  background: rgba(255, 249, 235, 0.74);
+  box-shadow: 0 10px 24px rgba(50, 31, 16, 0.08);
+}
+
+.recruiting-tavern .session-sidebar-heading .eyebrow {
+  background: rgba(255, 244, 216, 0.88);
+  color: #724a28;
+}
+
+.recruiting-tavern .session-sidebar-title,
+.recruiting-tavern .session-sidebar-subtitle {
+  color: #3d2615;
+}
+
+@media (max-width: 1280px) {
+  .recruiting-lobby-board-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .recruiting-character-panel {
+    grid-template-rows: auto auto;
+  }
+}
+
+@media (max-width: 860px) {
+  .recruiting-tavern .recruiting-stage {
+    grid-template-rows: auto auto;
+  }
+
+  .recruiting-tavern .recruiting-stage-canvas {
+    padding: 12px 12px 0;
+  }
+
+  .recruiting-wanted-body {
+    grid-template-columns: 1fr;
+  }
+
+  .recruiting-wanted-portrait-frame {
+    width: min(220px, 100%);
+    margin: 0 auto;
+  }
+
+  .recruiting-wanted-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .recruiting-wanted-abilities {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .recruiting-character-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .recruiting-tavern .recruiting-party-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    height: auto;
+    padding: 12px;
+    overflow: visible;
+  }
+}
