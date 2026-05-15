@@ -31,6 +31,9 @@ interface BattleMapProps {
   tokenAssetsLoading?: boolean;
   tokenAssetsError?: string | null;
   uploadTokenAsset?: (file: File | null) => Promise<ScenarioAssetResponseDto | null>;
+  clueOptions?: Array<{ id: string; label: string }>;
+  itemOptions?: Array<{ id: string; label: string }>;
+  enableObjectEventEditing?: boolean;
   onSelectionChange?: (selection: BattleMapSelection | null) => void;
 }
 
@@ -126,13 +129,19 @@ const mapText = {
   canBreak: '파괴 가능',
   breakDc: '파괴 DC',
   visibleToPlayers: '플레이어에게 공개',
-  linkedClues: '숨겨진 단서 ID',
-  linkedItems: '숨겨진 아이템 ID',
-  linkedEvents: '숨겨진 이벤트 ID',
+  linkedClues: '숨겨진 단서',
+  linkedItems: '숨겨진 아이템',
+  fogRevealEvent: '근접 안개 해제',
+  eventName: '이벤트 이름',
+  triggerDistance: '발동 거리(ft)',
+  revealRadius: '해제 반경(ft)',
+  triggerOnce: '1회만 발동',
+  addFogEvent: '안개 해제 이벤트 추가',
+  removeEvent: '이벤트 삭제',
 } as const;
 
 type MeasurePoint = { x: number; y: number };
-type PingMarker = { id: string; x: number; y: number; label: string };
+type PingMarker = { id: string; x: number; y: number; label: string; expiresAt?: string };
 type FogAction = 'reveal' | 'hide';
 type FogRect = VttMapStateDto['fogRects'][number];
 type FogBox = Pick<FogRect, 'x' | 'y' | 'width' | 'height'>;
@@ -147,6 +156,8 @@ type TokenDragMeasure = {
 type StartingPosition = NonNullable<VttMapStateDto['startingPositions']>[number];
 type MapSizeField = 'width' | 'height' | 'gridSize';
 type ScenarioAsset = ScenarioAssetResponseDto;
+type ObjectCell = NonNullable<VttMapStateDto['objectCells']>[number];
+type ObjectEvent = NonNullable<ObjectCell['events']>[number];
 
 function useCanvasImage(src: string | null | undefined) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -439,6 +450,9 @@ export function BattleMap({
   tokenAssetsLoading = false,
   tokenAssetsError = null,
   uploadTokenAsset,
+  clueOptions = [],
+  itemOptions = [],
+  enableObjectEventEditing = false,
   onSelectionChange,
 }: BattleMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -462,6 +476,7 @@ export function BattleMap({
   const [measurePreview, setMeasurePreview] = useState<MeasurePoint | null>(null);
   const [tokenDragMeasure, setTokenDragMeasure] = useState<TokenDragMeasure | null>(null);
   const [pings, setPings] = useState<PingMarker[]>([]);
+  const [pingClock, setPingClock] = useState(Date.now());
   const [imageUrlInput, setImageUrlInput] = useState(map.imageUrl ?? '');
   const [monsterSearch, setMonsterSearch] = useState('');
   const canEditMap = isHost && interactionMode === 'editor';
@@ -1038,6 +1053,23 @@ export function BattleMap({
   }
 
   function addPingAt(point: MeasurePoint) {
+    if (interactionMode === 'session') {
+      const expiresAt = new Date(Date.now() + 2200).toISOString();
+      updateMap({
+        pings: [
+          ...(map.pings ?? []).filter((ping) => Date.parse(ping.expiresAt) > Date.now()).slice(-4),
+          {
+            id: `ping:${Date.now()}`,
+            x: point.x,
+            y: point.y,
+            label: '!',
+            expiresAt,
+          },
+        ],
+      });
+      return;
+    }
+
     const ping: PingMarker = {
       id: `ping:${Date.now()}`,
       x: point.x,
@@ -1200,6 +1232,8 @@ export function BattleMap({
   function isPointInCell(
     point: { x: number; y: number },
     cell:
+      | NonNullable<VttMapStateDto['terrainCells']>[number]
+      | NonNullable<VttMapStateDto['wallCells']>[number]
       | NonNullable<VttMapStateDto['doorCells']>[number]
       | NonNullable<VttMapStateDto['objectCells']>[number]
   ) {
@@ -1224,8 +1258,37 @@ export function BattleMap({
       return { kind: 'door' as const, cell: doorCell };
     }
 
+    const wallCell = wallCells.find((cell) => isPointInCell(point, cell));
+    if (wallCell) {
+      return { kind: 'wall' as const, cell: wallCell };
+    }
+
+    const terrainCell = terrainCells.find((cell) => isPointInCell(point, cell));
+    if (terrainCell) {
+      return { kind: 'terrain' as const, cell: terrainCell };
+    }
+
     return null;
   }
+
+  const activeMapPings = useMemo(
+    () =>
+      (map.pings ?? []).filter((ping) => {
+        const expiresAt = Date.parse(ping.expiresAt);
+        return Number.isFinite(expiresAt) && expiresAt > pingClock;
+      }),
+    [map.pings, pingClock]
+  );
+
+  useEffect(() => {
+    if (!activeMapPings.length) return undefined;
+    const nextExpiry = Math.min(...activeMapPings.map((ping) => Date.parse(ping.expiresAt)));
+    const timer = window.setTimeout(
+      () => setPingClock(Date.now()),
+      Math.max(0, nextExpiry - Date.now()) + 16
+    );
+    return () => window.clearTimeout(timer);
+  }, [activeMapPings]);
 
   function resetView() {
     setZoom(1);
@@ -1394,12 +1457,44 @@ export function BattleMap({
     }
   }
 
-  function splitIdList(value: string) {
-    return value
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .slice(0, 30);
+  function addObjectFogRevealEvent() {
+    if (selectedMapStructure?.kind !== 'object') return;
+    const objectCell = selectedMapStructureCell as ObjectCell | null;
+    if (!objectCell) return;
+
+    const events = objectCell.events ?? [];
+    const nextEvent: ObjectEvent = {
+      id: `event:fog:${Date.now()}`,
+      name: '근접 안개 해제',
+      type: 'REVEAL_FOG_ON_PROXIMITY',
+      trigger: { distanceFeet: 15, once: true },
+      effect: { revealRadiusFeet: 30 },
+    };
+    updateStructureCell('object', selectedMapStructure.id, {
+      events: [...events, nextEvent].slice(0, 20),
+    } as Partial<ObjectCell>);
+  }
+
+  function updateObjectEvent(eventId: string, updater: (event: ObjectEvent) => ObjectEvent) {
+    if (selectedMapStructure?.kind !== 'object') return;
+    const objectCell = selectedMapStructureCell as ObjectCell | null;
+    if (!objectCell) return;
+
+    updateStructureCell('object', selectedMapStructure.id, {
+      events: (objectCell.events ?? []).map((event) =>
+        event.id === eventId ? updater(event) : event
+      ),
+    } as Partial<ObjectCell>);
+  }
+
+  function deleteObjectEvent(eventId: string) {
+    if (selectedMapStructure?.kind !== 'object') return;
+    const objectCell = selectedMapStructureCell as ObjectCell | null;
+    if (!objectCell) return;
+
+    updateStructureCell('object', selectedMapStructure.id, {
+      events: (objectCell.events ?? []).filter((event) => event.id !== eventId),
+    } as Partial<ObjectCell>);
   }
 
   return (
@@ -2015,7 +2110,7 @@ export function BattleMap({
                 </>
               ) : null}
 
-              {pings.map((ping) => (
+              {[...pings, ...activeMapPings].map((ping) => (
                 <Group key={ping.id} x={ping.x} y={ping.y}>
                   <Circle
                     radius={28}
@@ -2504,46 +2599,142 @@ export function BattleMap({
                 </div>
                 <label>
                   {mapText.linkedClues}
-                  <input
-                    value={(
-                      (selectedMapStructureCell as NonNullable<VttMapStateDto['objectCells']>[number])
-                        .hiddenClueIds ?? []
-                    ).join(', ')}
+                  <select
+                    multiple
+                    size={Math.min(Math.max(clueOptions.length, 3), 8)}
+                    value={
+                      (selectedMapStructureCell as ObjectCell).hiddenClueIds ?? []
+                    }
                     onChange={(event) =>
                       updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
-                        hiddenClueIds: splitIdList(event.target.value),
-                      })
+                        hiddenClueIds: Array.from(event.target.selectedOptions, (option) => option.value).slice(
+                          0,
+                          30
+                        ),
+                      } as Partial<ObjectCell>)
                     }
-                  />
+                  >
+                    {clueOptions.length ? (
+                      clueOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))
+                    ) : (
+                      <option disabled>선택 가능한 단서 없음</option>
+                    )}
+                  </select>
                 </label>
                 <label>
                   {mapText.linkedItems}
-                  <input
-                    value={(
-                      (selectedMapStructureCell as NonNullable<VttMapStateDto['objectCells']>[number])
-                        .hiddenItemIds ?? []
-                    ).join(', ')}
+                  <select
+                    multiple
+                    size={Math.min(Math.max(itemOptions.length, 3), 8)}
+                    value={
+                      (selectedMapStructureCell as ObjectCell).hiddenItemIds ?? []
+                    }
                     onChange={(event) =>
                       updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
-                        hiddenItemIds: splitIdList(event.target.value),
-                      })
+                        hiddenItemIds: Array.from(event.target.selectedOptions, (option) => option.value).slice(
+                          0,
+                          30
+                        ),
+                      } as Partial<ObjectCell>)
                     }
-                  />
+                  >
+                    {itemOptions.length ? (
+                      itemOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))
+                    ) : (
+                      <option disabled>선택 가능한 아이템 없음</option>
+                    )}
+                  </select>
                 </label>
-                <label>
-                  {mapText.linkedEvents}
-                  <input
-                    value={(
-                      (selectedMapStructureCell as NonNullable<VttMapStateDto['objectCells']>[number])
-                        .hiddenEventIds ?? []
-                    ).join(', ')}
-                    onChange={(event) =>
-                      updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
-                        hiddenEventIds: splitIdList(event.target.value),
-                      })
-                    }
-                  />
-                </label>
+                {enableObjectEventEditing ? (
+                  <div className="vtt-object-events">
+                    <span className="eyebrow">{mapText.fogRevealEvent}</span>
+                    {((selectedMapStructureCell as ObjectCell).events ?? []).map((event) => (
+                      <div className="vtt-object-event" key={event.id}>
+                        <label>
+                          {mapText.eventName}
+                          <input
+                            value={event.name ?? ''}
+                            onChange={(changeEvent) =>
+                              updateObjectEvent(event.id, (current) => ({
+                                ...current,
+                                name: changeEvent.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <div className="vtt-field-row">
+                          <label>
+                            {mapText.triggerDistance}
+                            <input
+                              type="number"
+                              min={0}
+                              value={event.trigger.distanceFeet}
+                              onChange={(changeEvent) =>
+                                updateObjectEvent(event.id, (current) => ({
+                                  ...current,
+                                  trigger: {
+                                    ...current.trigger,
+                                    distanceFeet: clamp(Number(changeEvent.target.value) || 0, 0, 500),
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label>
+                            {mapText.revealRadius}
+                            <input
+                              type="number"
+                              min={5}
+                              value={event.effect.revealRadiusFeet}
+                              onChange={(changeEvent) =>
+                                updateObjectEvent(event.id, (current) => ({
+                                  ...current,
+                                  effect: {
+                                    ...current.effect,
+                                    revealRadiusFeet: clamp(Number(changeEvent.target.value) || 5, 5, 500),
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+                        <div className="vtt-check-row">
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={event.trigger.once !== false}
+                              onChange={(changeEvent) =>
+                                updateObjectEvent(event.id, (current) => ({
+                                  ...current,
+                                  trigger: { ...current.trigger, once: changeEvent.target.checked },
+                                }))
+                              }
+                            />
+                            {mapText.triggerOnce}
+                          </label>
+                        </div>
+                        <button
+                          type="button"
+                          className="ghost small"
+                          onClick={() => deleteObjectEvent(event.id)}
+                        >
+                          {mapText.removeEvent}
+                        </button>
+                      </div>
+                    ))}
+                    <button type="button" className="small" onClick={addObjectFogRevealEvent}>
+                      {mapText.addFogEvent}
+                    </button>
+                  </div>
+                ) : null}
               </>
             ) : null}
 

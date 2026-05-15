@@ -2,6 +2,7 @@ import { io, Socket } from "socket.io-client";
 import { SOCKET_BASE_URL } from "./api";
 import type {
   ActionAcceptedEventDto,
+  CombatResponseDto,
   DiceRollResponseDto,
   StateDiffResponseDto,
   SystemMessageEventDto,
@@ -22,6 +23,7 @@ export interface RealtimeHandlers {
   onDiceRolled(diceResult: DiceRollResponseDto): void;
   onStateDiffApplied(stateDiff: StateDiffResponseDto): void;
   onVttMapUpdated(map: VttMapStateDto): void;
+  onCombatUpdated(combat: CombatResponseDto): void;
   onStatusChange(connected: boolean): void;
   onLog(title: string, message: string): void;
 }
@@ -104,6 +106,11 @@ export function connectSessionSocket(
   socket.on("vtt.map.updated", (payload: { map: VttMapStateDto }) => {
     handlers.onVttMapUpdated(payload.map);
     handlers.onLog("Map updated", "The tabletop map changed.");
+  });
+
+  socket.on("combat.updated", (payload: { combat: CombatResponseDto }) => {
+    handlers.onCombatUpdated(payload.combat);
+    handlers.onLog("Combat updated", "The combat tracker changed.");
   });
 
   return socket;

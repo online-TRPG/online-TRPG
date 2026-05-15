@@ -1,13 +1,18 @@
 import type {
   ActionAcceptedResponseDto,
+  ApplyCombatDamageDto,
   AuthTokenResponseDto,
   CharacterResponseDto,
+  CombatActionResultDto,
+  CombatResponseDto,
   CreateScenarioDto,
+  EndTurnDto,
   GmMode,
   LoginResponseDto,
   MainCommandResponseDto,
   OAuthUrlResponseDto,
   ResolveMainCommandCheckDto,
+  ResolveCombatAttackDto,
   ScenarioAssetKind,
   ScenarioAssetResponseDto,
   ClassDefinitionResponseDto,
@@ -20,6 +25,7 @@ import type {
   SubmitMainCommandDto,
   SubmitActionDto,
   TurnLogListResponseDto,
+  StartCombatDto,
   UpdateScenarioDto,
   UpdateVttMapDto,
   UseInventoryItemDto,
@@ -850,6 +856,73 @@ export function updateVttMap(
   const payload: UpdateVttMapDto = { map };
   return requestJson<VttMapStateDto>(`/sessions/${sessionId}/map`, {
     method: 'PATCH',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function getCombat(
+  user: StoredUser,
+  sessionId: string,
+  accessToken?: string | null
+): Promise<CombatResponseDto> {
+  return requestJson<CombatResponseDto>(`/sessions/${sessionId}/combat`, {
+    user,
+    accessToken,
+  });
+}
+
+export function startCombat(
+  user: StoredUser,
+  sessionId: string,
+  payload: StartCombatDto = {},
+  accessToken?: string | null
+): Promise<CombatResponseDto> {
+  return requestJson<CombatResponseDto>(`/sessions/${sessionId}/combat/start`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function endCombatTurn(
+  user: StoredUser,
+  sessionId: string,
+  payload: EndTurnDto = {},
+  accessToken?: string | null
+): Promise<unknown> {
+  return requestJson(`/sessions/${sessionId}/combat/turn/end`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function applyCombatDamage(
+  user: StoredUser,
+  sessionId: string,
+  payload: ApplyCombatDamageDto,
+  accessToken?: string | null
+): Promise<CombatActionResultDto> {
+  return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/damage`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function resolveCombatAttack(
+  user: StoredUser,
+  sessionId: string,
+  payload: ResolveCombatAttackDto,
+  accessToken?: string | null
+): Promise<CombatActionResultDto> {
+  return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/attack`, {
+    method: 'POST',
     user,
     accessToken,
     body: payload,

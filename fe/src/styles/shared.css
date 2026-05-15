@@ -316,6 +316,25 @@
   padding: 0 8px;
 }
 
+.vtt-inspector select[multiple] {
+  height: auto;
+  min-height: 96px;
+  padding: 6px 8px;
+}
+
+.vtt-object-events,
+.vtt-object-event {
+  display: grid;
+  gap: 8px;
+}
+
+.vtt-object-event {
+  padding: 10px;
+  border: 1px solid rgba(120, 83, 41, 0.16);
+  border-radius: 6px;
+  background: rgba(255, 252, 246, 0.72);
+}
+
 .vtt-field-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -13,6 +13,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from 'react';
 import type {
   ActionOutcome,
+  CombatResponseDto,
   InventoryItemDto,
   MainCommandResponseDto,
   ResolveMainCommandCheckDto,
@@ -36,7 +37,17 @@ import {
   getCharacterImage,
 } from '../features/sessionPlay/utils/characterVisuals';
 import type { CharacterPayload } from '../hooks/useSession';
-import { getPlayerScenario, getVttMap, updateVttMap, useInventoryItem } from '../services/api';
+import {
+  applyCombatDamage,
+  endCombatTurn,
+  getCombat,
+  getPlayerScenario,
+  getVttMap,
+  resolveCombatAttack,
+  startCombat,
+  updateVttMap,
+  useInventoryItem,
+} from '../services/api';
 import type {
   LogEntry,
   PersistentCharacter,
@@ -821,6 +832,9 @@ export function PlayPage({
   // 현재 세션의 플레이어용 시나리오 노드와 VTT 맵 로딩 상태입니다.
   const [playerScenario, setPlayerScenario] = useState<PlayerScenarioView | null>(null);
   const [vttMap, setVttMap] = useState<VttMapStateDto | null>(null);
+  const [combat, setCombat] = useState<CombatResponseDto | null>(null);
+  const [combatError, setCombatError] = useState<string | null>(null);
+  const [combatBusy, setCombatBusy] = useState(false);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
   const [, setIsScenarioLoaded] = useState(false);
@@ -873,6 +887,51 @@ export function PlayPage({
   const usesNodeSpecificPartyStrip = Boolean(
     session && !isRecruiting && (isStoryNode || isExplorationNode || isCombatNode)
   );
+
+  useEffect(() => {
+    if (!session || !isCombatNode) {
+      setCombat(null);
+      setCombatError(null);
+      return;
+    }
+
+    let ignore = false;
+    getCombat(user, session.id)
+      .then((nextCombat) => {
+        if (!ignore) {
+          setCombat(nextCombat);
+          setCombatError(null);
+        }
+      })
+      .catch((caught) => {
+        if (!ignore) {
+          setCombat(null);
+          setCombatError(caught instanceof Error ? caught.message : '전투 상태를 불러오지 못했습니다.');
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [isCombatNode, session?.id, user]);
+
+  useEffect(() => {
+    if (!session || !isCombatNode) return;
+
+    const interval = window.setInterval(() => {
+      getCombat(user, session.id)
+        .then((nextCombat) => {
+          setCombat(nextCombat);
+          setCombatError(null);
+        })
+        .catch(() => {
+          // 초기 로드에서 이미 오류를 보여주므로, 폴링 실패는 다음 성공까지 조용히 넘긴다.
+        });
+    }, 3000);
+
+    return () => window.clearInterval(interval);
+  }, [isCombatNode, session?.id, user]);
+
   const mainCommandPresets = currentScreenType
     ? mainCommandPresetsByScreen[currentScreenType]
     : emptyMainCommandPresets;
@@ -1492,6 +1551,71 @@ export function PlayPage({
     void flushPendingMapSave(session.id);
   }
 
+  async function handleStartCombat() {
+    if (!session || combatBusy) return;
+    setCombatBusy(true);
+    setCombatError(null);
+    try {
+      setCombat(await startCombat(user, session.id, { autoRollInitiative: true }));
+    } catch (caught) {
+      setCombatError(caught instanceof Error ? caught.message : '전투를 시작하지 못했습니다.');
+    } finally {
+      setCombatBusy(false);
+    }
+  }
+
+  async function handleEndCombatTurn(force = false) {
+    if (!session || combatBusy) return;
+    setCombatBusy(true);
+    setCombatError(null);
+    try {
+      await endCombatTurn(user, session.id, { force });
+      setCombat(await getCombat(user, session.id));
+    } catch (caught) {
+      setCombatError(caught instanceof Error ? caught.message : '턴을 종료하지 못했습니다.');
+    } finally {
+      setCombatBusy(false);
+    }
+  }
+
+  async function handleApplyCombatDamage(targetParticipantId: string, amount: number, healing = false) {
+    if (!session || combatBusy) return;
+    setCombatBusy(true);
+    setCombatError(null);
+    try {
+      const result = await applyCombatDamage(user, session.id, {
+        targetParticipantId,
+        amount,
+        healing,
+      });
+      setCombat(result.combat);
+    } catch (caught) {
+      setCombatError(caught instanceof Error ? caught.message : 'HP를 갱신하지 못했습니다.');
+    } finally {
+      setCombatBusy(false);
+    }
+  }
+
+  async function handleResolveCombatAttack(params: {
+    attackerParticipantId: string;
+    targetParticipantId: string;
+    attackBonus: number;
+    damageDice: string;
+    damageBonus: number;
+  }) {
+    if (!session || combatBusy) return;
+    setCombatBusy(true);
+    setCombatError(null);
+    try {
+      const result = await resolveCombatAttack(user, session.id, params);
+      setCombat(result.combat);
+    } catch (caught) {
+      setCombatError(caught instanceof Error ? caught.message : '공격을 처리하지 못했습니다.');
+    } finally {
+      setCombatBusy(false);
+    }
+  }
+
   function getParticipantBadge(participantUserId: string): string | null {
     if (!session) return null;
     if (participantUserId === session.hostUserId) {
@@ -1814,7 +1938,14 @@ export function PlayPage({
                   isHost={isHost}
                   isGmView={canManageStartedSession}
                   map={vttMap}
+                  combat={combat}
+                  combatError={combatError}
+                  isCombatBusy={combatBusy}
                   onMapChange={handleMapChange}
+                  onStartCombat={handleStartCombat}
+                  onEndTurn={handleEndCombatTurn}
+                  onApplyDamage={handleApplyCombatDamage}
+                  onResolveAttack={handleResolveCombatAttack}
                 />
               ) : vttMap ? (
                 <BattleMap

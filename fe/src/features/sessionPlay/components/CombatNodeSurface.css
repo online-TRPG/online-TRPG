@@ -66,11 +66,34 @@
   min-height: 68px;
   padding: 8px 14px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: 160px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
   border-bottom: 1px solid #c9d3dc;
   background: #f8fafb;
+}
+
+.combat-tracker-head {
+  display: grid;
+  gap: 8px;
+}
+
+.combat-tracker-head button,
+.combat-resolver button {
+  min-height: 30px;
+  border: 1px solid #bdcad5;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #294058;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.combat-error {
+  margin: 0;
+  color: #9d2c2c;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .combat-turn-list {
@@ -96,7 +119,9 @@
   grid-template-columns: 24px minmax(0, 1fr);
   grid-template-areas:
     "order name"
-    "order class";
+    "order class"
+    "order state"
+    "order hp";
   gap: 1px 8px;
   align-items: center;
   border: 1px solid #cbd6df;
@@ -106,6 +131,15 @@
 .combat-turn-card.mine {
   border-color: #9a7d75;
   background: #f8f1ee;
+}
+
+.combat-turn-card.active {
+  border-color: #2f6fa3;
+  box-shadow: inset 0 0 0 2px rgba(47, 111, 163, 0.18);
+}
+
+.combat-turn-card.defeated {
+  opacity: 0.56;
 }
 
 .combat-turn-card span {
@@ -131,6 +165,45 @@
   grid-area: class;
   color: #637587;
   font-size: 11px;
+}
+
+.combat-turn-card em {
+  grid-area: state;
+  width: fit-content;
+  min-height: 18px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: #eef3f7;
+  color: #526b82;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.combat-turn-card.active em {
+  background: #e4f0fa;
+  color: #245d8c;
+}
+
+.combat-turn-card.defeated em {
+  background: #e8e8e8;
+  color: #747474;
+}
+
+.combat-hp-bar {
+  grid-area: hp;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #d7e0e8;
+}
+
+.combat-hp-bar span {
+  display: block;
+  height: 100%;
+  background: #4f8f75;
 }
 
 .combat-node-content {
@@ -288,6 +361,36 @@
   gap: 12px;
   border-top: 1px solid #c9d3dc;
   background: #e7edf0;
+}
+
+.combat-resolver {
+  display: grid;
+  gap: 8px;
+}
+
+.combat-resolver label {
+  display: grid;
+  gap: 4px;
+  color: #607184;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.combat-resolver input,
+.combat-resolver select {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid #c2ceda;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #203040;
+  padding: 0 8px;
+}
+
+.combat-resolver-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .combat-resource-panel,
