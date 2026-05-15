@@ -97,3 +97,78 @@ describe("MainCommandsService.submitMainCommand permission", () => {
     });
   });
 });
+
+describe("MainCommandsService transition condition evaluation", () => {
+  const createService = () =>
+    new MainCommandsService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+  const transitionDto: SubmitMainCommandDto = {
+    ...dto,
+    intent: MainCommandIntent.REQUEST_SCENE_TRANSITION,
+    playerText: "다음 장면으로 이동한다",
+  };
+
+  const candidate = {
+    transitionId: "transition-1",
+    label: "북쪽 철문",
+    condition: "북쪽 철문을 열었을 때",
+    note: null,
+    nodeId: "node-next",
+    title: "북쪽 통로",
+    nodeType: "exploration",
+    isFallback: false,
+  };
+
+  function evaluate(
+    service: MainCommandsService,
+    params: {
+      condition?: string | null;
+      playerText?: string;
+      recentLogs?: string[];
+      publicClues?: string[];
+    },
+  ) {
+    return (
+      service as unknown as {
+        evaluateTransitionCondition: (
+          candidate: typeof candidate,
+          dto: SubmitMainCommandDto,
+          recentLogs: string[],
+          publicClues: string[],
+        ) => { satisfied: boolean; needsReview: boolean; missingTerms: string[] };
+      }
+    ).evaluateTransitionCondition(
+      { ...candidate, condition: params.condition ?? candidate.condition },
+      { ...transitionDto, playerText: params.playerText ?? transitionDto.playerText },
+      params.recentLogs ?? [],
+      params.publicClues ?? [],
+    );
+  }
+
+  it("allows default transition conditions for existing seeded scenarios", () => {
+    const result = evaluate(createService(), { condition: "default", playerText: "아무 입력" });
+
+    expect(result.satisfied).toBe(true);
+  });
+
+  it("blocks a transition when the natural language condition has no evidence", () => {
+    const result = evaluate(createService(), { playerText: "아무 말이나 입력한다" });
+
+    expect(result.satisfied).toBe(false);
+    expect(result.needsReview).toBe(false);
+  });
+
+  it("allows a transition when recent logs satisfy the natural language condition", () => {
+    const result = evaluate(createService(), {
+      recentLogs: ["카엘: 북쪽 철문을 열었다 => 철문이 천천히 열립니다."],
+    });
+
+    expect(result.satisfied).toBe(true);
+  });
+});
