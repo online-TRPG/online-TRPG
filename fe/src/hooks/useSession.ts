@@ -926,6 +926,9 @@ export function useSession(
           return next;
         });
       },
+      onCombatUpdated: () => {
+        appendLog('socket', '전투 상태', '전투 추적기가 갱신되었습니다.');
+      },
       onStatusChange: setSocketConnected,
       onLog: (title, message) => appendLog('socket', title, message),
     });

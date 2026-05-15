@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -516,6 +517,64 @@ export class TurnAdvanceResponseDto {
 
   @ApiProperty()
   turnNo!: number;
+}
+
+export class ApplyCombatDamageDto {
+  @ApiProperty()
+  @IsString()
+  targetParticipantId!: string;
+
+  @ApiProperty()
+  @Type(() => Number)
+  @IsInt()
+  amount!: number;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  healing?: boolean;
+}
+
+export class ResolveCombatAttackDto {
+  @ApiProperty()
+  @IsString()
+  attackerParticipantId!: string;
+
+  @ApiProperty()
+  @IsString()
+  targetParticipantId!: string;
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  attackBonus?: number;
+
+  @ApiPropertyOptional({ default: "1d6" })
+  @IsOptional()
+  @IsString()
+  damageDice?: string;
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  damageBonus?: number;
+}
+
+export class CombatActionResultDto {
+  @ApiProperty({ type: CombatResponseDto })
+  combat!: CombatResponseDto;
+
+  @ApiProperty()
+  message!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  attackTotal!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  damageTotal!: number | null;
 }
 
 export class StateDiffResponseDto {
