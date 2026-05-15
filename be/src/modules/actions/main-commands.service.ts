@@ -74,6 +74,25 @@ type RuleFragmentSummary = {
   summaryKo: string;
 };
 
+type TransitionCandidate = {
+  transitionId: string | null;
+  label: string | null;
+  condition: string | null;
+  note: string | null;
+  nodeId: string;
+  title: string;
+  nodeType: ScenarioNodeType;
+  isFallback: boolean;
+};
+
+type TransitionConditionEvaluation = {
+  satisfied: boolean;
+  needsReview: boolean;
+  reason: string;
+  matchedTerms: string[];
+  missingTerms: string[];
+};
+
 type VttDoorCheckEffect = {
   type: "vttDoor";
   doorId: string;
@@ -81,6 +100,103 @@ type VttDoorCheckEffect = {
   nodeId: string;
   mapPoint: { x: number; y: number };
 };
+
+type InterpreterActionRoute =
+  | {
+      route: "MAIN_COMMAND";
+      intent: MainCommandIntent;
+    }
+  | {
+      route: "MAP_CONTROL_ACTION";
+      message: string;
+    }
+  | {
+      route: "GAME_META_QUESTION";
+    }
+  | {
+      route: "OUT_OF_SCOPE";
+      message: string;
+    };
+
+type ResolvedInterpreterActionRoute = {
+  actionType: string;
+  config: InterpreterActionRoute;
+};
+
+type InterpreterActionForRouting = {
+  type: string;
+  targetId?: string | null;
+  spellId?: string | null;
+  approach?: string | null;
+};
+
+type InterpreterParsedForRouting = {
+  action: InterpreterActionForRouting;
+  mentionedItemId?: string | null;
+  mentionedSpellId?: string | null;
+};
+
+const AUTO_TRANSITION_CONDITIONS = new Set([
+  "",
+  "default",
+  "always",
+  "auto",
+  "automatic",
+  "true",
+  "none",
+  "무조건",
+  "무조건 가능",
+  "항상",
+  "항상 가능",
+  "자동",
+  "기본",
+  "없음",
+]);
+
+const TRANSITION_CONDITION_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "be",
+  "by",
+  "condition",
+  "default",
+  "for",
+  "from",
+  "if",
+  "in",
+  "is",
+  "next",
+  "node",
+  "of",
+  "on",
+  "or",
+  "scene",
+  "the",
+  "then",
+  "to",
+  "when",
+  "with",
+  "경우",
+  "그리고",
+  "기본",
+  "노드",
+  "다음",
+  "때",
+  "또는",
+  "및",
+  "상태",
+  "시",
+  "이후",
+  "이동",
+  "완료",
+  "장면",
+  "전",
+  "전이",
+  "조건",
+  "후",
+]);
 
 const INTENT_REQUIREMENTS: Partial<Record<MainCommandIntent, IntentRequirement>> = {
   [MainCommandIntent.TALK_TO_NPC]: {
@@ -157,7 +273,6 @@ const INTENT_REQUIREMENTS: Partial<Record<MainCommandIntent, IntentRequirement>>
 };
 
 const APPROVAL_INTENTS = new Set<MainCommandIntent>([
-  MainCommandIntent.DECLARE_RP_ACTION,
   MainCommandIntent.SPLIT_PARTY_TASK,
   MainCommandIntent.COMBAT_MANEUVER,
   MainCommandIntent.ENVIRONMENT_USE,
@@ -169,6 +284,65 @@ const APPROVAL_INTENTS = new Set<MainCommandIntent>([
   MainCommandIntent.USE_ITEM_COMBAT,
   MainCommandIntent.USE_SPELL_CREATIVELY,
 ]);
+
+const INTERPRETER_ACTION_TYPE_ROUTES: Record<string, InterpreterActionRoute> = {
+  TALK_TO_NPC: { route: "MAIN_COMMAND", intent: MainCommandIntent.TALK_TO_NPC },
+  SOCIAL_PERSUADE: { route: "MAIN_COMMAND", intent: MainCommandIntent.SOCIAL_PERSUADE },
+  SOCIAL_INTIMIDATE: { route: "MAIN_COMMAND", intent: MainCommandIntent.SOCIAL_INTIMIDATE },
+  SOCIAL_DECEIVE: { route: "MAIN_COMMAND", intent: MainCommandIntent.SOCIAL_DECEIVE },
+  READ_EMOTION: { route: "MAIN_COMMAND", intent: MainCommandIntent.READ_EMOTION },
+  ASK_SCENE_INFO: { route: "MAIN_COMMAND", intent: MainCommandIntent.ASK_SCENE_INFO },
+  ASK_HINT: { route: "MAIN_COMMAND", intent: MainCommandIntent.ASK_HINT },
+  ASK_SUMMARY: { route: "MAIN_COMMAND", intent: MainCommandIntent.ASK_SUMMARY },
+  REQUEST_SCENE_TRANSITION: { route: "MAIN_COMMAND", intent: MainCommandIntent.REQUEST_SCENE_TRANSITION },
+  OBSERVE_AREA: { route: "MAIN_COMMAND", intent: MainCommandIntent.OBSERVE_AREA },
+  INSPECT_STORY_OBJECT: { route: "MAIN_COMMAND", intent: MainCommandIntent.INSPECT_STORY_OBJECT },
+  INVESTIGATE_OBJECT: { route: "MAIN_COMMAND", intent: MainCommandIntent.INVESTIGATE_OBJECT },
+  LISTEN: { route: "MAIN_COMMAND", intent: MainCommandIntent.LISTEN },
+  DETECT_DANGER: { route: "MAIN_COMMAND", intent: MainCommandIntent.DETECT_DANGER },
+  SPECIAL_MOVE: { route: "MAIN_COMMAND", intent: MainCommandIntent.SPECIAL_MOVE },
+  INTERACT_OBJECT: { route: "MAIN_COMMAND", intent: MainCommandIntent.INTERACT_OBJECT },
+  USE_TOOL: { route: "MAIN_COMMAND", intent: MainCommandIntent.USE_TOOL },
+  USE_ITEM_EXPLORE: { route: "MAIN_COMMAND", intent: MainCommandIntent.USE_ITEM_EXPLORE },
+  SPLIT_PARTY_TASK: { route: "MAIN_COMMAND", intent: MainCommandIntent.SPLIT_PARTY_TASK },
+  COMBAT_MANEUVER: { route: "MAIN_COMMAND", intent: MainCommandIntent.COMBAT_MANEUVER },
+  ENVIRONMENT_USE: { route: "MAIN_COMMAND", intent: MainCommandIntent.ENVIRONMENT_USE },
+  IMPROVISED_ATTACK: { route: "MAIN_COMMAND", intent: MainCommandIntent.IMPROVISED_ATTACK },
+  CALLED_SHOT: { route: "MAIN_COMMAND", intent: MainCommandIntent.CALLED_SHOT },
+  READY_ACTION: { route: "MAIN_COMMAND", intent: MainCommandIntent.READY_ACTION },
+  REACTION_REQUEST: { route: "MAIN_COMMAND", intent: MainCommandIntent.REACTION_REQUEST },
+  COMBAT_TALK: { route: "MAIN_COMMAND", intent: MainCommandIntent.COMBAT_TALK },
+  USE_ITEM_COMBAT: { route: "MAIN_COMMAND", intent: MainCommandIntent.USE_ITEM_COMBAT },
+  USE_SPELL_CREATIVELY: { route: "MAIN_COMMAND", intent: MainCommandIntent.USE_SPELL_CREATIVELY },
+  TACTIC_QUERY: { route: "MAIN_COMMAND", intent: MainCommandIntent.TACTIC_QUERY },
+  ASK_RULE: { route: "MAIN_COMMAND", intent: MainCommandIntent.ASK_RULE },
+  MAP_MOVE: {
+    route: "MAP_CONTROL_ACTION",
+    message: "이동은 메인탭에서 처리할 수 없습니다. 맵 하단의 이동 버튼으로 조작해주세요.",
+  },
+  MAP_ATTACK: {
+    route: "MAP_CONTROL_ACTION",
+    message: "공격은 메인탭에서 처리할 수 없습니다. 맵 하단의 공격 버튼으로 조작해주세요.",
+  },
+  MAP_CAST_SPELL: {
+    route: "MAP_CONTROL_ACTION",
+    message: "전투 주문 사용은 메인탭에서 처리할 수 없습니다. 맵 하단의 행동 버튼으로 조작해주세요.",
+  },
+  MAP_USE_CLASS_FEATURE: {
+    route: "MAP_CONTROL_ACTION",
+    message: "전투 특성 사용은 메인탭에서 처리할 수 없습니다. 맵 하단의 행동 버튼으로 조작해주세요.",
+  },
+  MAP_END_TURN: {
+    route: "MAP_CONTROL_ACTION",
+    message: "턴 종료는 메인탭에서 처리할 수 없습니다. 맵 하단의 턴 종료 버튼으로 조작해주세요.",
+  },
+  GM_ONLY_DAMAGE: { route: "OUT_OF_SCOPE", message: "처리할 수 없는 요청입니다." },
+  GM_ONLY_HEAL: { route: "OUT_OF_SCOPE", message: "처리할 수 없는 요청입니다." },
+  GM_ONLY_CONDITION: { route: "OUT_OF_SCOPE", message: "처리할 수 없는 요청입니다." },
+  GM_ONLY_INVENTORY_MUTATION: { route: "OUT_OF_SCOPE", message: "처리할 수 없는 요청입니다." },
+  OUT_OF_SCOPE: { route: "OUT_OF_SCOPE", message: "처리할 수 없는 요청입니다." },
+  GAME_META_QUESTION: { route: "GAME_META_QUESTION" },
+};
 
 @Injectable()
 export class MainCommandsService {
@@ -194,172 +368,26 @@ export class MainCommandsService {
     const publicClues = this.extractPublicClueSummaries(context.currentNodeCluesJson);
     this.validateIntentPayload(dto, visibleEntities);
 
-    let response: MainCommandResponseDto;
-    switch (dto.intent) {
-      case MainCommandIntent.TALK_TO_NPC:
-        response = await this.handleNpcDialogue(requestId, userId, context, dto, visibleEntities, recentLogs);
-        break;
-      case MainCommandIntent.SOCIAL_PERSUADE:
-        response = await this.handleSocialPersuade(requestId, userId, context, dto, visibleEntities);
-        break;
-      case MainCommandIntent.SOCIAL_INTIMIDATE:
-        response = await this.handleSocialIntimidate(requestId, userId, context, dto, visibleEntities);
-        break;
-      case MainCommandIntent.SOCIAL_DECEIVE:
-        response = await this.handleSocialDeceive(requestId, userId, context, dto, visibleEntities);
-        break;
-      case MainCommandIntent.READ_EMOTION:
-        response = await this.handleReadEmotion(requestId, userId, context, dto, visibleEntities, recentLogs);
-        break;
-      case MainCommandIntent.INSPECT_STORY_OBJECT:
-        response = await this.handleInspectStoryObject(requestId, userId, context, dto, visibleEntities);
-        break;
-      case MainCommandIntent.DECLARE_RP_ACTION:
-        response = await this.handleDeclareRpAction(requestId, userId, context, dto, visibleEntities, recentLogs);
-        break;
-      case MainCommandIntent.OBSERVE_AREA:
-        response = await this.handleObserveArea(requestId, userId, context, dto, visibleEntities, publicClues);
-        break;
-      case MainCommandIntent.INVESTIGATE_OBJECT:
-        response = await this.handleInvestigateObject(requestId, userId, context, dto, visibleEntities);
-        break;
-      case MainCommandIntent.LISTEN:
-        response = await this.handleListen(requestId, userId, context, dto, visibleEntities, recentLogs);
-        break;
-      case MainCommandIntent.DETECT_DANGER:
-        response = await this.handleDetectDanger(requestId, userId, context, dto, visibleEntities, recentLogs);
-        break;
-      case MainCommandIntent.SPECIAL_MOVE:
-        response = await this.handleSpecialMove(requestId, userId, context, dto, visibleEntities);
-        break;
-      case MainCommandIntent.INTERACT_OBJECT:
-        response = await this.handleInteractObject(requestId, userId, context, dto, visibleEntities);
-        break;
-      case MainCommandIntent.USE_TOOL:
-        response = await this.handleUseTool(requestId, userId, context, dto, visibleEntities);
-        break;
-      case MainCommandIntent.USE_ITEM_EXPLORE:
-        response = await this.handleUseItemExplore(requestId, userId, context, dto, visibleEntities);
-        break;
-      case MainCommandIntent.SPLIT_PARTY_TASK:
-        response = await this.handleSplitPartyTask(
-          requestId,
-          userId,
-          context,
-          dto,
-          visibleEntities,
-          recentLogs,
-        );
-        break;
-      case MainCommandIntent.COMBAT_MANEUVER:
-        response = await this.handleCombatManeuver(
-          requestId,
-          userId,
-          context,
-          dto,
-          visibleEntities,
-          recentLogs,
-        );
-        break;
-      case MainCommandIntent.ENVIRONMENT_USE:
-        response = await this.handleEnvironmentUse(
-          requestId,
-          userId,
-          context,
-          dto,
-          visibleEntities,
-          recentLogs,
-        );
-        break;
-      case MainCommandIntent.IMPROVISED_ATTACK:
-        response = await this.handleImprovisedAttack(
-          requestId,
-          userId,
-          context,
-          dto,
-          visibleEntities,
-          recentLogs,
-        );
-        break;
-      case MainCommandIntent.CALLED_SHOT:
-        response = await this.handleCalledShot(
-          requestId,
-          userId,
-          context,
-          dto,
-          visibleEntities,
-          recentLogs,
-        );
-        break;
-      case MainCommandIntent.READY_ACTION:
-        response = await this.handleReadyAction(
-          requestId,
-          userId,
-          context,
-          dto,
-          visibleEntities,
-          recentLogs,
-        );
-        break;
-      case MainCommandIntent.REACTION_REQUEST:
-        response = await this.handleReactionRequest(
-          requestId,
-          userId,
-          context,
-          dto,
-          visibleEntities,
-          recentLogs,
-        );
-        break;
-      case MainCommandIntent.USE_ITEM_COMBAT:
-        response = await this.handleUseItemCombat(
-          requestId,
-          userId,
-          context,
-          dto,
-          visibleEntities,
-          recentLogs,
-        );
-        break;
-      case MainCommandIntent.USE_SPELL_CREATIVELY:
-        response = await this.handleUseSpellCreatively(
-          requestId,
-          userId,
-          context,
-          dto,
-          visibleEntities,
-          recentLogs,
-        );
-        break;
-      case MainCommandIntent.COMBAT_TALK:
-        response = await this.handleCombatTalk(requestId, userId, context, dto, visibleEntities, recentLogs);
-        break;
-      case MainCommandIntent.ASK_HINT:
-        response = await this.handleHint(requestId, userId, context, dto, recentLogs, publicClues);
-        break;
-      case MainCommandIntent.ASK_SUMMARY:
-        response = await this.handleSummary(requestId, userId, context, dto, recentLogs);
-        break;
-      case MainCommandIntent.ASK_SCENE_INFO:
-        response = this.handleSceneInfo(requestId, context, dto, visibleEntities, publicClues);
-        break;
-      case MainCommandIntent.REQUEST_SCENE_TRANSITION:
-        response = await this.handleSceneTransition(requestId, userId, context, dto);
-        break;
-      case MainCommandIntent.TACTIC_QUERY:
-        response = await this.handleTacticQuery(requestId, userId, context, dto, recentLogs, publicClues);
-        break;
-      case MainCommandIntent.ASK_RULE:
-        response = await this.handleRuleQuery(requestId, userId, context, dto, visibleEntities);
-        break;
-      default:
-        response = {
-          requestId,
-          status: MainCommandStatus.IMPOSSIBLE,
-          message: "아직 처리되지 않은 메인 명령입니다.",
-        };
-        break;
-    }
+    const response =
+      dto.intent === MainCommandIntent.GENERAL_GM_REQUEST
+        ? await this.handleGeneralGmRequest(
+            requestId,
+            userId,
+            context,
+            dto,
+            visibleEntities,
+            recentLogs,
+            publicClues,
+          )
+        : await this.dispatchMainCommandIntent(
+            requestId,
+            userId,
+            context,
+            dto,
+            visibleEntities,
+            recentLogs,
+            publicClues,
+          );
 
     const turnLog = await this.persistResult(userId, context, dto, response);
     const objectRevealCount =
@@ -373,15 +401,22 @@ export class MainCommandsService {
             revealedBy: "system",
           })
         : 0;
-    const revealCount = await this.sessionsService.revealCurrentNodeCluesAfterAction({
-      sessionScenarioId: context.sessionScenarioId,
-      nodeId: context.currentNodeId,
-      actionText: dto.playerText,
-      outcome: this.toActionOutcome(response),
-      policyModes: ["PLAYER_ACTION"],
-      turnLogId: turnLog.turnLogId,
-      revealedBy: "system",
-    });
+    // 실제 행동 후보가 있는 응답만 단서 공개를 시도합니다. 질문/불가/RP 기록은 상태를 바꾸지 않습니다.
+    const revealCount =
+      dto.intent === MainCommandIntent.DECLARE_RP_ACTION ||
+      response.status === MainCommandStatus.IMPOSSIBLE ||
+      response.status === MainCommandStatus.GM_APPROVAL_REQUIRED ||
+      !response.actionCandidate
+        ? 0
+        : await this.sessionsService.revealCurrentNodeCluesAfterAction({
+            sessionScenarioId: context.sessionScenarioId,
+            nodeId: context.currentNodeId,
+            actionText: dto.playerText,
+            outcome: this.toActionOutcome(response),
+            policyModes: ["PLAYER_ACTION"],
+            turnLogId: turnLog.turnLogId,
+            revealedBy: "system",
+          });
     if (revealCount + objectRevealCount > 0) {
       this.realtimeEvents.emitSessionSnapshot(
         context.sessionId,
@@ -665,12 +700,14 @@ export class MainCommandsService {
       });
     }
 
+    const hasNaturalLanguageTarget = dto.playerText.trim().length > 0;
     if (
       (dto.intent === MainCommandIntent.INVESTIGATE_OBJECT ||
         dto.intent === MainCommandIntent.INTERACT_OBJECT ||
         dto.intent === MainCommandIntent.ENVIRONMENT_USE) &&
       !dto.targetId &&
-      !dto.mapPoint
+      !dto.mapPoint &&
+      !hasNaturalLanguageTarget
     ) {
       throw badRequest("MAIN_COMMAND_400", "이 명령은 조사 대상 또는 지도 좌표가 필요합니다.", {
         reason: "TARGET_OR_POINT_REQUIRED",
@@ -747,6 +784,372 @@ export class MainCommandsService {
       status: MainCommandStatus.MESSAGE,
       message: `${npc.name}: ${result.parsed.dialogue}`,
     };
+  }
+
+  private async handleGeneralGmRequest(
+    requestId: string,
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+    recentLogs: string[],
+    publicClues: string[],
+  ): Promise<MainCommandResponseDto> {
+    const interpreter = await this.aiService.runInterpreter(
+      context.sessionId,
+      userId,
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 6)),
+    );
+
+    if (interpreter.parsed.needsClarification) {
+      return {
+        requestId,
+        status: MainCommandStatus.MESSAGE,
+        message:
+          interpreter.parsed.clarificationQuestion ??
+          "어떤 행동이나 요청을 하려는지 조금 더 구체적으로 적어주세요.",
+      };
+    }
+
+    const actionTypeRoute = this.resolveInterpreterActionTypeRoute(interpreter.parsed.action.type);
+    if (actionTypeRoute) {
+      return await this.handleInterpreterActionTypeRoute(
+        requestId,
+        userId,
+        context,
+        dto,
+        visibleEntities,
+        recentLogs,
+        publicClues,
+        actionTypeRoute,
+        interpreter.parsed,
+      );
+    }
+
+    const actionSummary =
+      interpreter.parsed.action.approach?.trim() ||
+      interpreter.parsed.action.type ||
+      dto.playerText;
+    const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
+
+    if (interpreter.parsed.action.requiresRoll) {
+      return {
+        requestId,
+        status: MainCommandStatus.CHECK_REQUIRED,
+        message: `${actionSummary}에는 판정이 필요합니다.`,
+        checkOptions: this.buildCheckOptions(interpreter.parsed.action),
+        actionCandidate,
+      };
+    }
+
+    if ((interpreter.parsed.action.confidence ?? 0) < 0.55) {
+      return {
+        requestId,
+        status: MainCommandStatus.GM_APPROVAL_REQUIRED,
+        message: `${actionSummary}은(는) 상황 확인 또는 추가 검증이 필요합니다.`,
+        actionCandidate,
+      };
+    }
+
+    return {
+      requestId,
+      status: MainCommandStatus.GM_APPROVAL_REQUIRED,
+      message: `행동 후보로 기록했습니다: ${actionSummary}. 결과는 아직 확정되지 않았습니다.`,
+      actionCandidate,
+    };
+  }
+
+  private resolveInterpreterActionTypeRoute(actionType?: string | null): ResolvedInterpreterActionRoute | null {
+    const normalizedActionType = actionType?.trim().toUpperCase();
+    if (!normalizedActionType) {
+      return null;
+    }
+
+    const config = INTERPRETER_ACTION_TYPE_ROUTES[normalizedActionType];
+    return config ? { actionType: normalizedActionType, config } : null;
+  }
+
+  private async handleInterpreterActionTypeRoute(
+    requestId: string,
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+    recentLogs: string[],
+    publicClues: string[],
+    route: ResolvedInterpreterActionRoute,
+    parsed: InterpreterParsedForRouting,
+  ): Promise<MainCommandResponseDto> {
+    if (route.config.route === "MAIN_COMMAND") {
+      return await this.handleInterpreterMainCommandRoute(
+        requestId,
+        userId,
+        context,
+        dto,
+        visibleEntities,
+        recentLogs,
+        publicClues,
+        route,
+        parsed,
+      );
+    }
+
+    if (route.config.route === "GAME_META_QUESTION") {
+      return {
+        requestId,
+        status: MainCommandStatus.MESSAGE,
+        message:
+          "TRPG는 플레이어가 캐릭터의 말과 행동을 선언하면 GM이 장면과 결과를 이어가는 역할극 게임입니다. " +
+          "이 화면에서는 자유롭게 행동을 적거나 `/명령어`를 붙여 더 빠르게 요청할 수 있습니다.",
+        data: {
+          interpreterRoute: this.buildInterpreterRouteData(route),
+        },
+      };
+    }
+
+    return {
+      requestId,
+      status: MainCommandStatus.IMPOSSIBLE,
+      message: route.config.message,
+      data: {
+        interpreterRoute: this.buildInterpreterRouteData(route),
+      },
+    };
+  }
+
+  private async handleInterpreterMainCommandRoute(
+    requestId: string,
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+    recentLogs: string[],
+    publicClues: string[],
+    route: ResolvedInterpreterActionRoute,
+    parsed: InterpreterParsedForRouting,
+  ): Promise<MainCommandResponseDto> {
+    if (route.config.route !== "MAIN_COMMAND") {
+      return {
+        requestId,
+        status: MainCommandStatus.IMPOSSIBLE,
+        message: "처리할 수 없는 요청입니다.",
+      };
+    }
+
+    const routedDto = this.buildInterpreterRoutedMainCommandDto(dto, route.config.intent, visibleEntities, parsed);
+    const missingRequirementMessage = this.getMissingInterpreterRouteRequirementMessage(routedDto);
+    if (missingRequirementMessage) {
+      return {
+        requestId,
+        status: MainCommandStatus.MESSAGE,
+        message: missingRequirementMessage,
+        data: {
+          interpreterRoute: this.buildInterpreterRouteData(route),
+        },
+      };
+    }
+
+    // 여기부터는 기존 슬래시 명령어 handler와 같은 검증을 통과시켜서,
+    // 자연어 입력도 실제 구현된 메인 명령 체계 안에서만 실행되도록 맞춘다.
+    this.validateIntentPayload(routedDto, visibleEntities);
+    const response = await this.dispatchMainCommandIntent(
+      requestId,
+      userId,
+      context,
+      routedDto,
+      visibleEntities,
+      recentLogs,
+      publicClues,
+    );
+
+    return {
+      ...response,
+      data: {
+        ...(response.data ?? {}),
+        interpreterRoute: this.buildInterpreterRouteData(route),
+      },
+    };
+  }
+
+  private buildInterpreterRoutedMainCommandDto(
+    dto: SubmitMainCommandDto,
+    intent: MainCommandIntent,
+    visibleEntities: VisibleSceneEntity[],
+    parsed: InterpreterParsedForRouting,
+  ): SubmitMainCommandDto {
+    const target = this.resolveInterpreterRouteTarget(dto, intent, visibleEntities, parsed.action.targetId);
+    return {
+      ...dto,
+      commandId: intent,
+      intent,
+      targetId: dto.targetId ?? target?.id,
+      targetType: dto.targetType ?? target?.kind,
+      itemId: dto.itemId ?? parsed.mentionedItemId ?? undefined,
+      spellId: dto.spellId ?? parsed.action.spellId ?? parsed.mentionedSpellId ?? undefined,
+    };
+  }
+
+  private resolveInterpreterRouteTarget(
+    dto: SubmitMainCommandDto,
+    intent: MainCommandIntent,
+    visibleEntities: VisibleSceneEntity[],
+    interpreterTargetId?: string | null,
+  ): VisibleSceneEntity | null {
+    const requirement = INTENT_REQUIREMENTS[intent];
+    const allowedTargetTypes = requirement?.requiresTargetTypes ?? requirement?.allowsTargetTypes;
+    const candidates = allowedTargetTypes?.length
+      ? visibleEntities.filter((entity) => allowedTargetTypes.includes(entity.kind))
+      : visibleEntities;
+    if (dto.targetId) {
+      const normalizedTargetId = dto.targetId.trim().toLowerCase();
+      return candidates.find((entity) => entity.id.trim().toLowerCase() === normalizedTargetId) ?? null;
+    }
+
+    const matchedByText = this.resolveEntityMentionedInText(dto.playerText, candidates);
+    if (matchedByText) {
+      return matchedByText;
+    }
+
+    // 자유 입력에서 대상 후보가 여럿이면 AI가 임의로 고른 targetId를 믿지 않는다.
+    // 사용자가 이름을 쓰거나 대상 선택 버튼으로 지정한 경우에만 특정 대상으로 진행한다.
+    if (candidates.length > 1 && requirement?.requiresTargetTypes) {
+      return null;
+    }
+
+    if (interpreterTargetId) {
+      const normalizedTargetId = interpreterTargetId.trim().toLowerCase();
+      const matchedByInterpreter = candidates.find(
+        (entity) => entity.id.trim().toLowerCase() === normalizedTargetId,
+      );
+      if (matchedByInterpreter) {
+        return matchedByInterpreter;
+      }
+    }
+
+    const routedDto: SubmitMainCommandDto = {
+      ...dto,
+    };
+
+    return this.resolveEntity(routedDto, candidates, dto.targetType);
+  }
+
+  private getMissingInterpreterRouteRequirementMessage(dto: SubmitMainCommandDto): string | null {
+    const requirement = INTENT_REQUIREMENTS[dto.intent];
+    if (!requirement) {
+      return null;
+    }
+
+    if (requirement.requiresItem && !dto.itemId) {
+      return "이 요청은 아이템 선택이 필요합니다. 아이템 선택 버튼에서 사용할 아이템을 고른 뒤 다시 입력해주세요.";
+    }
+
+    if (requirement.requiresSpell && !dto.spellId) {
+      return "이 요청은 주문 선택이 필요합니다. 주문 선택 버튼에서 사용할 주문을 고른 뒤 다시 입력해주세요.";
+    }
+
+    if (requirement.requiresMapPoint && !dto.mapPoint) {
+      return "이 요청은 지도 좌표 선택이 필요합니다. 좌표 선택 버튼에서 지점을 고른 뒤 다시 입력해주세요.";
+    }
+
+    if (requirement.requiresTargetTypes && !dto.targetId) {
+      return "이 요청은 대상 선택이 필요합니다. 대상 선택 버튼에서 대상을 고른 뒤 다시 입력해주세요.";
+    }
+
+    return null;
+  }
+
+  private buildInterpreterRouteData(route: ResolvedInterpreterActionRoute): Record<string, unknown> {
+    return route.config.route === "MAIN_COMMAND"
+      ? {
+          actionType: route.actionType,
+          route: route.config.route,
+          intent: route.config.intent,
+        }
+      : {
+          actionType: route.actionType,
+          route: route.config.route,
+        };
+  }
+
+  private async dispatchMainCommandIntent(
+    requestId: string,
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+    recentLogs: string[],
+    publicClues: string[],
+  ): Promise<MainCommandResponseDto> {
+    switch (dto.intent) {
+      case MainCommandIntent.TALK_TO_NPC:
+        return await this.handleNpcDialogue(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.SOCIAL_PERSUADE:
+        return await this.handleSocialPersuade(requestId, userId, context, dto, visibleEntities);
+      case MainCommandIntent.SOCIAL_INTIMIDATE:
+        return await this.handleSocialIntimidate(requestId, userId, context, dto, visibleEntities);
+      case MainCommandIntent.SOCIAL_DECEIVE:
+        return await this.handleSocialDeceive(requestId, userId, context, dto, visibleEntities);
+      case MainCommandIntent.READ_EMOTION:
+        return await this.handleReadEmotion(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.INSPECT_STORY_OBJECT:
+        return await this.handleInspectStoryObject(requestId, userId, context, dto, visibleEntities);
+      case MainCommandIntent.DECLARE_RP_ACTION:
+        return this.handleDeclareRpAction(requestId, context, dto);
+      case MainCommandIntent.ASK_SCENE_INFO:
+        return this.handleSceneInfo(requestId, context, dto, visibleEntities, publicClues);
+      case MainCommandIntent.ASK_HINT:
+        return await this.handleHint(requestId, userId, context, dto, recentLogs, publicClues);
+      case MainCommandIntent.ASK_SUMMARY:
+        return await this.handleSummary(requestId, userId, context, dto, recentLogs);
+      case MainCommandIntent.REQUEST_SCENE_TRANSITION:
+        return await this.handleSceneTransition(requestId, userId, context, dto, recentLogs, publicClues);
+      case MainCommandIntent.OBSERVE_AREA:
+        return await this.handleObserveArea(requestId, userId, context, dto, visibleEntities, publicClues);
+      case MainCommandIntent.INVESTIGATE_OBJECT:
+        return await this.handleInvestigateObject(requestId, userId, context, dto, visibleEntities);
+      case MainCommandIntent.LISTEN:
+        return await this.handleListen(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.DETECT_DANGER:
+        return await this.handleDetectDanger(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.SPECIAL_MOVE:
+        return await this.handleSpecialMove(requestId, userId, context, dto, visibleEntities);
+      case MainCommandIntent.INTERACT_OBJECT:
+        return await this.handleInteractObject(requestId, userId, context, dto, visibleEntities);
+      case MainCommandIntent.USE_TOOL:
+        return await this.handleUseTool(requestId, userId, context, dto, visibleEntities);
+      case MainCommandIntent.USE_ITEM_EXPLORE:
+        return await this.handleUseItemExplore(requestId, userId, context, dto, visibleEntities);
+      case MainCommandIntent.SPLIT_PARTY_TASK:
+        return await this.handleSplitPartyTask(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.COMBAT_MANEUVER:
+        return await this.handleCombatManeuver(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.ENVIRONMENT_USE:
+        return await this.handleEnvironmentUse(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.IMPROVISED_ATTACK:
+        return await this.handleImprovisedAttack(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.CALLED_SHOT:
+        return await this.handleCalledShot(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.READY_ACTION:
+        return await this.handleReadyAction(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.REACTION_REQUEST:
+        return await this.handleReactionRequest(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.COMBAT_TALK:
+        return await this.handleCombatTalk(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.USE_ITEM_COMBAT:
+        return await this.handleUseItemCombat(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.USE_SPELL_CREATIVELY:
+        return await this.handleUseSpellCreatively(requestId, userId, context, dto, visibleEntities, recentLogs);
+      case MainCommandIntent.TACTIC_QUERY:
+        return await this.handleTacticQuery(requestId, userId, context, dto, recentLogs, publicClues);
+      case MainCommandIntent.ASK_RULE:
+        return await this.handleRuleQuery(requestId, userId, context, dto, visibleEntities);
+      default:
+        return {
+          requestId,
+          status: MainCommandStatus.IMPOSSIBLE,
+          message: "처리할 수 없는 요청입니다.",
+        };
+    }
   }
 
   private async handleCombatTalk(
@@ -1130,50 +1533,18 @@ export class MainCommandsService {
     };
   }
 
-  private async handleDeclareRpAction(
+  private handleDeclareRpAction(
     requestId: string,
-    userId: string,
     context: LoadedContext,
     dto: SubmitMainCommandDto,
-    visibleEntities: VisibleSceneEntity[],
-    recentLogs: string[],
-  ): Promise<MainCommandResponseDto> {
-    const interpreter = await this.aiService.runInterpreter(
-      context.sessionId,
-      userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
-    );
-
-    if (interpreter.parsed.needsClarification) {
-      return {
-        requestId,
-        status: MainCommandStatus.MESSAGE,
-        message:
-          interpreter.parsed.clarificationQuestion ??
-          "어떤 RP 행동을 어떤 분위기로 하려는지 조금 더 구체적으로 적어주세요.",
-      };
-    }
-
-    const actionSummary =
-      interpreter.parsed.action.approach?.trim() ||
-      dto.playerText;
-    const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
-    const confidence = interpreter.parsed.action.confidence ?? 0;
-
-    if (interpreter.parsed.action.requiresRoll || confidence < 0.55) {
-      return {
-        requestId,
-        status: MainCommandStatus.GM_APPROVAL_REQUIRED,
-        message: `${actionSummary}은(는) 단순 묘사를 넘어 추가 판정이나 상황 확인이 필요할 수 있습니다.`,
-        actionCandidate,
-      };
-    }
+  ): MainCommandResponseDto {
+    const actionSummary = dto.playerText.trim();
 
     return {
       requestId,
       status: MainCommandStatus.MESSAGE,
-      message: `${actionSummary} RP 선언을 기록했습니다.`,
-      actionCandidate,
+      message: "RP 행동을 기록했습니다.",
+      actionCandidate: this.buildActionCandidate(context, dto, actionSummary),
     };
   }
 
@@ -1313,6 +1684,15 @@ export class MainCommandsService {
         requestId,
         status: MainCommandStatus.GM_APPROVAL_REQUIRED,
         message: `(${dto.mapPoint.x}, ${dto.mapPoint.y}) 위치 조사는 현장 판정이나 추가 확인이 필요합니다.`,
+        actionCandidate,
+      };
+    }
+
+    if (dto.playerText.trim()) {
+      return {
+        requestId,
+        status: MainCommandStatus.GM_APPROVAL_REQUIRED,
+        message: `${actionSummary} 조사는 대상 확인이나 현장 판정이 필요합니다.`,
         actionCandidate,
       };
     }
@@ -2304,6 +2684,8 @@ export class MainCommandsService {
     userId: string,
     context: LoadedContext,
     dto: SubmitMainCommandDto,
+    recentLogs: string[],
+    publicClues: string[],
   ): Promise<MainCommandResponseDto> {
     const candidates = await this.loadTransitionCandidates(context);
     if (!candidates.length) {
@@ -2324,6 +2706,22 @@ export class MainCommandsService {
     }
 
     const target = matched ?? candidates[0];
+    const conditionResult = this.evaluateTransitionCondition(target, dto, recentLogs, publicClues);
+    if (!conditionResult.satisfied) {
+      return {
+        requestId,
+        status: conditionResult.needsReview
+          ? MainCommandStatus.GM_APPROVAL_REQUIRED
+          : MainCommandStatus.IMPOSSIBLE,
+        message: conditionResult.reason,
+        data: {
+          transitionCondition: target.condition ?? null,
+          matchedTerms: conditionResult.matchedTerms,
+          missingTerms: conditionResult.missingTerms,
+        },
+      };
+    }
+
     await this.applySceneTransition(context, target.nodeId);
 
     const snapshot = await this.sessionsService.buildSnapshot(context.sessionId);
@@ -2333,6 +2731,11 @@ export class MainCommandsService {
       requestId,
       status: MainCommandStatus.RESOLVED,
       message: `${target.title} 화면으로 이동했습니다.`,
+      data: {
+        transitionCondition: target.condition ?? null,
+        transitionLabel: target.label ?? null,
+        conditionMatchedTerms: conditionResult.matchedTerms,
+      },
       statePatch: {
         currentNodeId: target.nodeId,
         nodeType: target.nodeType,
@@ -2817,7 +3220,7 @@ export class MainCommandsService {
       sessionScenarioId: context.sessionScenarioId,
       actorUserId: userId,
       sessionCharacterId: context.sessionCharacterId,
-      rawInput: dto.playerText.trim(),
+      rawInput: this.getMainCommandRawInput(dto),
       structuredAction: {
         type: "main_command",
         commandId: dto.commandId,
@@ -2840,6 +3243,11 @@ export class MainCommandsService {
 
     this.realtimeEvents.emitTurnLogCreated(context.sessionId, turnLog);
     return turnLog;
+  }
+
+  private getMainCommandRawInput(dto: SubmitMainCommandDto): string {
+    // 슬래시 명령어는 처리용 본문과 사용자가 친 원문이 달라서 로그에는 원문을 우선 남긴다.
+    return dto.rawInputText?.trim() || dto.playerText.trim();
   }
 
   private toActionOutcome(response: MainCommandResponseDto): ActionOutcome {
@@ -2949,12 +3357,37 @@ export class MainCommandsService {
     }
 
     const normalizedText = dto.playerText.trim().toLowerCase();
-    const matchedByText = filtered.find((entity) => normalizedText.includes(entity.name.trim().toLowerCase()));
+    const matchedByText = this.resolveEntityMentionedInText(normalizedText, filtered);
     if (matchedByText) {
       return matchedByText;
     }
 
     return filtered.length === 1 ? filtered[0] : null;
+  }
+
+  private resolveEntityMentionedInText(
+    playerText: string,
+    entities: VisibleSceneEntity[],
+  ): VisibleSceneEntity | null {
+    const normalizedText = playerText.trim().toLowerCase();
+    const matched = entities.filter((entity) => {
+      const normalizedName = entity.name.trim().toLowerCase();
+      if (!normalizedName) {
+        return false;
+      }
+
+      if (normalizedText.includes(normalizedName)) {
+        return true;
+      }
+
+      // "밀라 보스턴"처럼 표시명이 길어도 사용자는 보통 "밀라"처럼 부르므로,
+      // 공백으로 나뉜 고유 이름 조각이 하나만 매칭될 때는 명시 대상으로 인정한다.
+      return normalizedName
+        .split(/\s+/)
+        .filter((part) => part.length >= 2)
+        .some((part) => normalizedText.includes(part));
+    });
+    return matched.length === 1 ? matched[0] : null;
   }
 
   private extractPublicClueSummaries(cluesJson: string): string[] {
@@ -2988,29 +3421,42 @@ export class MainCommandsService {
       .filter((line) => Boolean(line));
   }
 
-  private async loadTransitionCandidates(context: LoadedContext): Promise<
-    Array<{ nodeId: string; title: string; nodeType: ScenarioNodeType }>
-  > {
+  private async loadTransitionCandidates(context: LoadedContext): Promise<TransitionCandidate[]> {
     const transitions = this.parseJson<Record<string, unknown>[]>(context.currentNodeTransitionsJson, []);
-    const candidateNodeIds = new Set<string>();
+    const candidateStubs: Array<Omit<TransitionCandidate, "title" | "nodeType">> = [];
     for (const transition of transitions) {
       const nextNodeId = this.readString(transition.nextNodeId);
       if (nextNodeId) {
-        candidateNodeIds.add(nextNodeId);
+        candidateStubs.push({
+          transitionId: this.readString(transition.id),
+          label: this.readString(transition.label),
+          condition: this.readString(transition.condition),
+          note: this.readString(transition.note),
+          nodeId: nextNodeId,
+          isFallback: false,
+        });
       }
     }
-    if (context.currentNodeFallbackNodeId) {
-      candidateNodeIds.add(context.currentNodeFallbackNodeId);
+    const hasFallbackTarget = candidateStubs.some((candidate) => candidate.nodeId === context.currentNodeFallbackNodeId);
+    if (context.currentNodeFallbackNodeId && !hasFallbackTarget) {
+      candidateStubs.push({
+        transitionId: null,
+        label: "기본 이동",
+        condition: "default",
+        note: null,
+        nodeId: context.currentNodeFallbackNodeId,
+        isFallback: true,
+      });
     }
 
-    if (!candidateNodeIds.size) {
+    if (!candidateStubs.length) {
       return [];
     }
 
     const nodes = await this.prisma.sessionScenarioNode.findMany({
       where: {
         sessionScenarioId: context.sessionScenarioId,
-        nodeId: { in: Array.from(candidateNodeIds) },
+        nodeId: { in: Array.from(new Set(candidateStubs.map((candidate) => candidate.nodeId))) },
       },
       select: {
         nodeId: true,
@@ -3019,20 +3465,33 @@ export class MainCommandsService {
       },
     });
 
-    return nodes.map((node) => ({
-      nodeId: node.nodeId,
-      title: node.title,
-      nodeType: this.toScenarioNodeType(node.nodeType),
-    }));
+    const nodeByNodeId = new Map(nodes.map((node) => [node.nodeId, node]));
+    return candidateStubs
+      .map((candidate) => {
+        const node = nodeByNodeId.get(candidate.nodeId);
+        if (!node) {
+          return null;
+        }
+        return {
+          ...candidate,
+          title: node.title,
+          nodeType: this.toScenarioNodeType(node.nodeType),
+        };
+      })
+      .filter((candidate): candidate is TransitionCandidate => Boolean(candidate));
   }
 
   private matchTransitionCandidate(
-    candidates: Array<{ nodeId: string; title: string; nodeType: ScenarioNodeType }>,
+    candidates: TransitionCandidate[],
     dto: SubmitMainCommandDto,
-  ): { nodeId: string; title: string; nodeType: ScenarioNodeType } | null {
+  ): TransitionCandidate | null {
     if (dto.targetId) {
       const normalizedTargetId = dto.targetId.trim().toLowerCase();
-      const direct = candidates.find((candidate) => candidate.nodeId.trim().toLowerCase() === normalizedTargetId);
+      const direct = candidates.find((candidate) =>
+        [candidate.nodeId, candidate.transitionId, candidate.label]
+          .filter((value): value is string => Boolean(value))
+          .some((value) => value.trim().toLowerCase() === normalizedTargetId),
+      );
       if (direct) {
         return direct;
       }
@@ -3040,9 +3499,131 @@ export class MainCommandsService {
 
     const normalizedText = dto.playerText.trim().toLowerCase();
     return (
-      candidates.find((candidate) => normalizedText.includes(candidate.title.trim().toLowerCase())) ??
+      candidates.find((candidate) =>
+        [candidate.title, candidate.label, candidate.condition]
+          .filter((value): value is string => Boolean(value))
+          .some((value) => normalizedText.includes(value.trim().toLowerCase())),
+      ) ??
       null
     );
+  }
+
+  private evaluateTransitionCondition(
+    candidate: TransitionCandidate,
+    dto: SubmitMainCommandDto,
+    recentLogs: string[],
+    publicClues: string[],
+  ): TransitionConditionEvaluation {
+    const condition = candidate.condition?.trim() ?? "";
+    if (this.isAutoTransitionCondition(condition)) {
+      return {
+        satisfied: true,
+        needsReview: false,
+        reason: "조건 없이 이동 가능한 연결입니다.",
+        matchedTerms: [],
+        missingTerms: [],
+      };
+    }
+
+    const normalizedCondition = this.normalizeTransitionConditionText(condition);
+    const evidenceText = this.normalizeTransitionConditionText(
+      [
+        dto.playerText,
+        ...recentLogs.slice(-8),
+        ...publicClues,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .join(" "),
+    );
+
+    if (normalizedCondition && evidenceText.includes(normalizedCondition)) {
+      return {
+        satisfied: true,
+        needsReview: false,
+        reason: "장면 진행 조건을 만족했습니다.",
+        matchedTerms: [condition],
+        missingTerms: [],
+      };
+    }
+
+    const conditionTerms = this.extractTransitionConditionTerms(condition);
+    if (!conditionTerms.length) {
+      return {
+        satisfied: false,
+        needsReview: true,
+        reason: `장면 이동 조건 "${condition}"을 자동으로 판정하기 어렵습니다. GM 확인이 필요합니다.`,
+        matchedTerms: [],
+        missingTerms: [],
+      };
+    }
+
+    const matchedTerms = conditionTerms.filter((term) => evidenceText.includes(term));
+    const missingTerms = conditionTerms.filter((term) => !evidenceText.includes(term));
+    const requiredMatchCount =
+      conditionTerms.length <= 3 ? conditionTerms.length : Math.ceil(conditionTerms.length * 0.7);
+
+    if (matchedTerms.length >= requiredMatchCount) {
+      return {
+        satisfied: true,
+        needsReview: false,
+        reason: "장면 진행 조건을 만족했습니다.",
+        matchedTerms,
+        missingTerms,
+      };
+    }
+
+    if (matchedTerms.length > 0) {
+      return {
+        satisfied: false,
+        needsReview: true,
+        reason: `장면 이동 조건 "${condition}"을 일부만 확인했습니다. 부족한 단서: ${missingTerms.join(", ")}`,
+        matchedTerms,
+        missingTerms,
+      };
+    }
+
+    return {
+      satisfied: false,
+      needsReview: false,
+      reason: `아직 장면 이동 조건을 만족하지 못했습니다. 필요한 조건: ${condition}`,
+      matchedTerms,
+      missingTerms,
+    };
+  }
+
+  private isAutoTransitionCondition(condition: string): boolean {
+    return AUTO_TRANSITION_CONDITIONS.has(this.normalizeTransitionConditionText(condition));
+  }
+
+  private normalizeTransitionConditionText(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private extractTransitionConditionTerms(condition: string): string[] {
+    const seen = new Set<string>();
+    return this.normalizeTransitionConditionText(condition)
+      .split(" ")
+      .map((term) => this.stripKoreanCaseMarker(term))
+      .filter((term) => term.length >= 2)
+      .filter((term) => !TRANSITION_CONDITION_STOP_WORDS.has(term))
+      .filter((term) => {
+        if (seen.has(term)) {
+          return false;
+        }
+        seen.add(term);
+        return true;
+      });
+  }
+
+  private stripKoreanCaseMarker(term: string): string {
+    return term
+      .replace(/(했으면|했을|했다|한다|했고|하고|하기|되었으면|되었을|되었다|되면|었으면|았으면|었을|았을|었다|았다|으면)$/u, "")
+      .replace(/(으로는|으로서|으로써|에서|에게|부터|까지|처럼|보다|으로|로|은|는|이|가|을|를|에|의|도|만|와|과)$/u, "");
   }
 
   private async applySceneTransition(context: LoadedContext, targetNodeId: string): Promise<void> {

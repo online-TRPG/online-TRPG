@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -144,6 +145,15 @@ export class SubmitMainCommandDto {
   @IsNotEmpty()
   @MaxLength(2000)
   playerText!: string;
+
+  @ApiPropertyOptional({
+    description:
+      "사용자가 입력창에 적은 원문입니다. 슬래시 명령어처럼 처리용 본문과 로그 표시용 원문이 다를 때 사용합니다.",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  rawInputText?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -363,6 +373,26 @@ export class StartCombatDto {
   autoRollInitiative?: boolean;
 }
 
+export class CombatActionResourcesDto {
+  @ApiProperty()
+  actionAvailable!: boolean;
+
+  @ApiProperty()
+  bonusActionAvailable!: boolean;
+
+  @ApiProperty()
+  reactionAvailable!: boolean;
+
+  @ApiProperty()
+  additionalActionAvailable!: boolean;
+
+  @ApiProperty()
+  movementFtTotal!: number;
+
+  @ApiProperty()
+  movementFtRemaining!: number;
+}
+
 export class CombatParticipantResponseDto {
   @ApiProperty()
   sessionEntityId!: string;
@@ -372,6 +402,9 @@ export class CombatParticipantResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   sessionCharacterId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  tokenId!: string | null;
 
   @ApiProperty()
   name!: string;
@@ -396,6 +429,15 @@ export class CombatParticipantResponseDto {
 
   @ApiProperty()
   isHostile!: boolean;
+
+  @ApiProperty()
+  hasActedThisRound!: boolean;
+
+  @ApiProperty({ type: [String] })
+  conditions!: string[];
+
+  @ApiProperty({ type: CombatActionResourcesDto })
+  actionResources!: CombatActionResourcesDto;
 }
 
 export class CombatResponseDto {
@@ -413,6 +455,9 @@ export class CombatResponseDto {
 
   @ApiProperty()
   turnNo!: number;
+
+  @ApiProperty()
+  roundTurnNo!: number;
 
   @ApiPropertyOptional({ nullable: true })
   currentEntityId!: string | null;
@@ -472,6 +517,64 @@ export class TurnAdvanceResponseDto {
 
   @ApiProperty()
   turnNo!: number;
+}
+
+export class ApplyCombatDamageDto {
+  @ApiProperty()
+  @IsString()
+  targetParticipantId!: string;
+
+  @ApiProperty()
+  @Type(() => Number)
+  @IsInt()
+  amount!: number;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  healing?: boolean;
+}
+
+export class ResolveCombatAttackDto {
+  @ApiProperty()
+  @IsString()
+  attackerParticipantId!: string;
+
+  @ApiProperty()
+  @IsString()
+  targetParticipantId!: string;
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  attackBonus?: number;
+
+  @ApiPropertyOptional({ default: "1d6" })
+  @IsOptional()
+  @IsString()
+  damageDice?: string;
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  damageBonus?: number;
+}
+
+export class CombatActionResultDto {
+  @ApiProperty({ type: CombatResponseDto })
+  combat!: CombatResponseDto;
+
+  @ApiProperty()
+  message!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  attackTotal!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  damageTotal!: number | null;
 }
 
 export class StateDiffResponseDto {

@@ -1,15 +1,17 @@
 import { useMemo, useState } from 'react';
 import type {
-  PlayerCheckOptionDto,
+  CombatResponseDto,
+  InventoryItemDto,
   PlayerScenarioNodeDto,
   SessionCharacterResponseDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
 import { BattleMap } from '../../../components/BattleMap';
-import { getCharacterClassLabel } from '../utils/characterVisuals';
+import { getCharacterImage } from '../utils/characterVisuals';
 import './CombatNodeSurface.css';
 
 type CombatActionTab = 'basic' | 'ability' | 'item';
+type CombatResourceIconKind = 'action' | 'bonus' | 'reaction';
 
 interface CombatNodeSurfaceProps {
   node: PlayerScenarioNodeDto | null;
@@ -20,14 +22,23 @@ interface CombatNodeSurfaceProps {
   isHost: boolean;
   isGmView?: boolean;
   map: VttMapStateDto | null;
+  combat: CombatResponseDto | null;
+  combatError?: string | null;
+  isCombatBusy?: boolean;
+  inventory: InventoryItemDto[];
+  inventoryFeedback?: string | null;
+  isInventoryBusy?: boolean;
   onMapChange: (map: VttMapStateDto) => void;
+  onUseInventoryItem: (item: InventoryItemDto) => void;
+  onEndCombat: () => void;
+  onEndTurn: (force?: boolean) => void;
 }
 
 const actionTabs: Array<{ id: CombatActionTab; label: string; actions: string[] }> = [
   {
     id: 'basic',
     label: '일반',
-    actions: ['이동', '공격', '대시', '회피', '도움', '숨기', '상호작용', '턴 종료'],
+    actions: ['이동', '공격', '대시', '회피', '도움', '숨기', '상호작용'],
   },
   {
     id: 'ability',
@@ -51,8 +62,32 @@ function getPhaseLabel(phase: string | null | undefined) {
   return `진행: ${phase}`;
 }
 
-function getCheckOptionLabel(option: PlayerCheckOptionDto, index: number) {
-  return option.label || option.skill || option.type || `전투 판정 가이드 ${index + 1}`;
+function getInventoryItemKey(item: InventoryItemDto) {
+  return [item.itemType, item.itemDefinitionId, item.name, ...(item.properties ?? [])]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function isQuickUsableItem(item: InventoryItemDto) {
+  const key = getInventoryItemKey(item);
+  return (
+    item.quantity > 0 &&
+    (key.includes('consumable') ||
+      key.includes('potion') ||
+      key.includes('포션') ||
+      key.includes('healing'))
+  );
+}
+
+function getItemMetaLabel(item: InventoryItemDto) {
+  const labels = [
+    item.itemType,
+    item.damageDice ? `${item.damageDice}${item.damageType ? ` ${item.damageType}` : ''}` : null,
+    item.weightLb ? `${item.weightLb} lb` : null,
+  ].filter(Boolean);
+
+  return labels.length ? labels.join(' / ') : '상세 정보 없음';
 }
 
 function splitSceneParagraphs(sceneText: string | undefined) {
@@ -64,6 +99,36 @@ function splitSceneParagraphs(sceneText: string | undefined) {
   return paragraphs.length ? paragraphs : ['현재 전투 장면 설명이 아직 준비되지 않았습니다.'];
 }
 
+function CombatResourceIcon({ kind }: { kind: CombatResourceIconKind }) {
+  if (kind === 'action') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 19 17.5 6.5" />
+        <path d="m14 5 5 5" />
+        <path d="m3.5 20.5 3-1 11-11-2-2-11 11-1 3Z" />
+      </svg>
+    );
+  }
+
+  if (kind === 'bonus') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3v18" />
+        <path d="M3 12h18" />
+        <path d="m7 7 10 10" />
+        <path d="m17 7-10 10" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6l-7-3Z" />
+      <path d="M9 12h6" />
+    </svg>
+  );
+}
+
 export function CombatNodeSurface({
   node,
   scenarioTitle,
@@ -73,23 +138,59 @@ export function CombatNodeSurface({
   isHost,
   isGmView = false,
   map,
+  combat,
+  combatError = null,
+  isCombatBusy = false,
+  inventory,
+  inventoryFeedback = null,
+  isInventoryBusy = false,
   onMapChange,
+  onUseInventoryItem,
+  onEndCombat,
+  onEndTurn,
 }: CombatNodeSurfaceProps) {
   const [activeTab, setActiveTab] = useState<CombatActionTab>('basic');
   const [isSummaryOpen, setSummaryOpen] = useState(false);
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
+  const myCombatParticipant =
+    combat?.participants.find((participant) => participant.sessionCharacterId === myCharacter?.id) ?? null;
+  const myActionResources = myCombatParticipant?.actionResources ?? null;
+  const currentParticipant =
+    combat?.participants.find((participant) => participant.sessionEntityId === combat.currentEntityId) ?? null;
   const currentTab = actionTabs.find((tab) => tab.id === activeTab) ?? actionTabs[0];
-  // 전투 API 연결 전에는 파티 캐릭터 목록으로 턴 순서 자리를 먼저 채워 화면 구조를 검증합니다.
-  const turnOrder = useMemo(
-    () =>
-      [...characters].sort((left, right) => {
-        const leftMine = left.userId === currentUserId ? -1 : 0;
-        const rightMine = right.userId === currentUserId ? -1 : 0;
-        return leftMine - rightMine || left.name.localeCompare(right.name);
-      }),
-    [characters, currentUserId]
-  );
+  const turnOrder = combat?.participants ?? [];
+  const activeParticipantCount = turnOrder.filter((participant) => participant.isAlive).length;
+  const combatResources = [
+    {
+      kind: 'action' as const,
+      label: '행동',
+      available: myActionResources?.actionAvailable ?? false,
+    },
+    {
+      kind: 'bonus' as const,
+      label: '추가 행동',
+      available: myActionResources?.bonusActionAvailable ?? false,
+    },
+    {
+      kind: 'reaction' as const,
+      label: '반응',
+      available: myActionResources?.reactionAvailable ?? false,
+    },
+  ];
+
+  function getParticipantAvatar(participant: CombatResponseDto['participants'][number]) {
+    const character = participant.sessionCharacterId
+      ? characters.find((candidate) => candidate.id === participant.sessionCharacterId)
+      : null;
+    if (character) {
+      return getCharacterImage(character);
+    }
+
+    return participant.tokenId
+      ? (map?.tokens.find((token) => token.id === participant.tokenId)?.imageUrl ?? null)
+      : null;
+  }
 
   return (
     <div className="combat-node-surface">
@@ -110,7 +211,11 @@ export function CombatNodeSurface({
         <div className="combat-round-status">
           <span>COMBAT</span>
           <span>{getPhaseLabel(phase)}</span>
-          <span>라운드 -</span>
+          <span>라운드 {combat?.roundNo ?? '-'}</span>
+          <span>
+            라운드 턴 {combat ? `${combat.roundTurnNo}/${Math.max(activeParticipantCount, 1)}` : '-'}
+          </span>
+          <span>현재 턴 {currentParticipant?.name ?? '-'}</span>
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
         </div>
       </header>
@@ -136,28 +241,41 @@ export function CombatNodeSurface({
         </div>
       ) : null}
 
-      <section className="combat-initiative-strip" aria-label="턴 순서">
-        <span className="combat-node-eyebrow">턴 순서</span>
-        <div className="combat-turn-list">
-          {turnOrder.length ? (
-            turnOrder.map((character, index) => (
-              <article
-                key={character.id}
-                className={`combat-turn-card${character.userId === currentUserId ? ' mine' : ''}`}
-              >
-                <span>{index + 1}</span>
-                <strong>{character.name}</strong>
-                <small>{getCharacterClassLabel(character.className)}</small>
-              </article>
-            ))
-          ) : (
-            <p>전투 참여자 정보가 아직 없습니다.</p>
-          )}
-        </div>
-      </section>
-
       <div className="combat-node-content">
         <main className="combat-map-panel" aria-label="전투 지도">
+          <div className="combat-turn-overlay" aria-label="턴 순서">
+            {turnOrder.length ? (
+              <div className="combat-turn-list">
+                {turnOrder.map((participant) => {
+                  const avatar = getParticipantAvatar(participant);
+                  return (
+                    <button
+                      type="button"
+                      key={participant.sessionEntityId}
+                      className={[
+                        'combat-turn-card',
+                        participant.sessionEntityId === combat?.currentEntityId ? 'active' : '',
+                        participant.sessionCharacterId === myCharacter?.id ? 'mine' : '',
+                        !participant.isAlive ? 'defeated' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      title={`${participant.name} / HP ${participant.currentHp ?? '-'}/${participant.maxHp ?? '-'}`}
+                    >
+                      {avatar ? (
+                        <img src={avatar} alt={participant.name} />
+                      ) : (
+                        <span>{participant.name.slice(0, 1)}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p>{isCombatBusy ? '전투를 시작하는 중입니다.' : '전투 정보를 기다리는 중입니다.'}</p>
+            )}
+            {combatError ? <p className="combat-error">{combatError}</p> : null}
+          </div>
           {map ? (
             <BattleMap
               map={map}
@@ -179,13 +297,48 @@ export function CombatNodeSurface({
 
       <section className="combat-action-dock" aria-label="전투 행동">
         <div className="combat-resource-panel">
-          <span className="combat-node-eyebrow">행동 자원</span>
+          <div className="combat-resource-head">
+            <span className="combat-node-eyebrow">행동 자원</span>
+            {isGmView ? (
+              <button
+                type="button"
+                className="combat-end-turn-button"
+                disabled={!combat || isCombatBusy}
+                onClick={onEndCombat}
+              >
+                전투 종료
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="combat-end-turn-button"
+              disabled={!combat || isCombatBusy}
+              onClick={() => onEndTurn(isGmView)}
+            >
+              턴 종료
+            </button>
+          </div>
           <strong>{myCharacter?.name ?? '캐릭터 미선택'}</strong>
-          <div className="combat-resource-grid">
-            <span>행동 -</span>
-            <span>추가 행동 -</span>
-            <span>반응 -</span>
-            <span>이동 {myCharacter?.speed ?? '-'}ft</span>
+          <div className="combat-resource-row" aria-label="행동 자원">
+            {combatResources.map((resource) => (
+              <span
+                key={resource.kind}
+                className={`combat-resource-token${resource.available ? ' available' : ' spent'}`}
+                title={`${resource.label}: ${resource.available ? '가능' : '사용됨'}`}
+                aria-label={`${resource.label}: ${resource.available ? '가능' : '사용됨'}`}
+              >
+                <CombatResourceIcon kind={resource.kind} />
+              </span>
+            ))}
+          </div>
+          <div className="combat-resource-meta">
+            <span>HP {myCombatParticipant?.currentHp ?? myCharacter?.currentHp ?? '-'}</span>
+            <span>
+              이동{' '}
+              {myActionResources
+                ? `${myActionResources.movementFtRemaining}/${myActionResources.movementFtTotal}ft`
+                : `${myCharacter?.speed ?? '-'}ft`}
+            </span>
           </div>
         </div>
 
@@ -205,26 +358,44 @@ export function CombatNodeSurface({
 
           <div className="combat-action-list">
             {currentTab.actions.map((action) => (
-              <button type="button" key={action}>
+              <button type="button" key={action} disabled>
                 {action}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="combat-check-panel">
-          <span className="combat-node-eyebrow">판정 가이드</span>
-          {node?.checkOptions.length ? (
-            <div className="combat-check-list">
-              {node.checkOptions.map((option, index) => (
-                <span key={`${getCheckOptionLabel(option, index)}-${index}`}>
-                  {getCheckOptionLabel(option, index)}
-                </span>
-              ))}
+        <div className="combat-inventory-panel">
+          <span className="combat-node-eyebrow">인벤토리</span>
+          {inventory.length ? (
+            <div className="combat-inventory-list">
+              {inventory.map((item) => {
+                const canUse = isQuickUsableItem(item);
+                return (
+                  <article className="combat-inventory-item" key={item.id}>
+                    <div className="combat-inventory-item-body">
+                      <strong>{item.name}</strong>
+                      <span>{getItemMetaLabel(item)}</span>
+                    </div>
+                    <span className="combat-inventory-quantity">x{item.quantity}</span>
+                    <button
+                      type="button"
+                      disabled={!canUse || isInventoryBusy}
+                      title={canUse ? `${item.name} 사용` : '현재 바로 사용할 수 없는 아이템입니다.'}
+                      onClick={() => onUseInventoryItem(item)}
+                    >
+                      사용
+                    </button>
+                  </article>
+                );
+              })}
             </div>
           ) : (
-            <p>설정된 판정 가이드가 아직 없습니다.</p>
+            <p>보유 중인 아이템이 없습니다.</p>
           )}
+          {inventoryFeedback ? (
+            <p className="combat-inventory-feedback">{inventoryFeedback}</p>
+          ) : null}
         </div>
       </section>
     </div>

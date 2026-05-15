@@ -14,6 +14,7 @@ import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from
 import type {
   ActionOutcome,
   ClassDefinitionResponseDto,
+  CombatResponseDto,
   InventoryItemDto,
   MainCommandResponseDto,
   RaceResponseDto,
@@ -35,6 +36,8 @@ import smallBoxImage from '../components/smallbox.png';
 import carouselLeftImage from '../components/carousel_left.png';
 import carouselRightImage from '../components/carousel_right.png';
 import { CombatNodeSurface } from '../features/sessionPlay/components/CombatNodeSurface';
+import { DiceRollOverlay } from '../features/sessionPlay/components/DiceRollOverlay';
+import type { DiceRollOverlayData } from '../features/sessionPlay/components/DiceRollOverlay';
 import {
   ExplorationNodeSurface,
   type ExplorationMainCommandRequest,
@@ -48,15 +51,25 @@ import {
   getCharacterImage,
 } from '../features/sessionPlay/utils/characterVisuals';
 import type { CharacterPayload } from '../hooks/useSession';
-import { getPlayerScenario, getVttMap, updateVttMap, useInventoryItem } from '../services/api';
+import {
+  endCombat,
+  endCombatTurn,
+  getCombat,
+  getPlayerScenario,
+  getVttMap,
+  startCombat,
+  updateVttMap,
+  useInventoryItem,
+} from '../services/api';
 import type {
   LogEntry,
+  Character,
   PersistentCharacter,
   PlayerScenarioView,
   SessionSnapshot,
   StoredUser,
 } from '../types/session';
-import { GM_TOKEN_COLOR, getPlayerTokenColor } from '../utils/sessionTokenColors';
+import { getPlayerTokenColor } from '../utils/sessionTokenColors';
 import type { SessionTokenColor } from '../utils/sessionTokenColors';
 import './CharacterPage.css';
 import './PlayPage.css';
@@ -109,6 +122,9 @@ type MainCommandPreset = {
   category: SubmitMainCommandDto['category'];
   intent: SubmitMainCommandDto['intent'];
   screenType: SubmitMainCommandDto['screenType'];
+  slashCommands?: string[];
+  description?: string;
+  helperGroup?: MainCommandHelperGroup;
 };
 
 type MainCommandFieldConfig = {
@@ -119,6 +135,52 @@ type MainCommandFieldConfig = {
   allowsMapPoint?: boolean;
   allowsRelatedIntent?: boolean;
 };
+
+type MainCommandMode = 'GM_REQUEST' | 'RP_ACTION';
+
+type MainCommandHelperGroup =
+  | 'NPC_INTERACTION'
+  | 'OBJECT_AREA_TARGET'
+  | 'MAP_POINT_TARGET'
+  | 'ITEM_TOOL_SELECT'
+  | 'SPELL_SELECT'
+  | 'COMBAT_TARGET';
+
+type MainCommandHelperOption = {
+  id: MainCommandHelperGroup;
+  label: string;
+  description: string;
+  fieldConfig: MainCommandFieldConfig;
+  screenTypes: SubmitMainCommandDto['screenType'][];
+};
+
+type ParsedMainSlashInput =
+  | {
+      type: 'empty';
+      query: string;
+    }
+  | {
+      type: 'matched';
+      query: string;
+      preset: MainCommandPreset;
+      playerText: string;
+    }
+  | {
+      type: 'unknown';
+      query: string;
+      command: string;
+    };
+
+type MainCommandAutocompleteEntry =
+  | {
+      type: 'command';
+      command: MainCommandPreset;
+    }
+  | {
+      type: 'separator';
+      id: string;
+      label: string;
+    };
 
 type MainCommandCategoryOption = {
   label: string;
@@ -179,6 +241,7 @@ const MainCommandTargetTypeValues = {
 } as const;
 
 const MainCommandIntentValues = {
+  GENERAL_GM_REQUEST: 'GENERAL_GM_REQUEST' as SubmitMainCommandDto['intent'],
   TALK_TO_NPC: 'TALK_TO_NPC' as SubmitMainCommandDto['intent'],
   SOCIAL_PERSUADE: 'SOCIAL_PERSUADE' as SubmitMainCommandDto['intent'],
   SOCIAL_INTIMIDATE: 'SOCIAL_INTIMIDATE' as SubmitMainCommandDto['intent'],
@@ -188,6 +251,7 @@ const MainCommandIntentValues = {
   INSPECT_STORY_OBJECT: 'INSPECT_STORY_OBJECT' as SubmitMainCommandDto['intent'],
   DECLARE_RP_ACTION: 'DECLARE_RP_ACTION' as SubmitMainCommandDto['intent'],
   ASK_HINT: 'ASK_HINT' as SubmitMainCommandDto['intent'],
+  ASK_SUMMARY: 'ASK_SUMMARY' as SubmitMainCommandDto['intent'],
   REQUEST_SCENE_TRANSITION: 'REQUEST_SCENE_TRANSITION' as SubmitMainCommandDto['intent'],
   OBSERVE_AREA: 'OBSERVE_AREA' as SubmitMainCommandDto['intent'],
   INVESTIGATE_OBJECT: 'INVESTIGATE_OBJECT' as SubmitMainCommandDto['intent'],
@@ -249,6 +313,7 @@ const mainCommandFieldConfigByIntent: Partial<
   },
   [MainCommandIntentValues.INTERACT_OBJECT]: {
     targetTypes: [MainCommandTargetTypeValues.OBJECT],
+    allowsMapPoint: true,
   },
   [MainCommandIntentValues.USE_TOOL]: {
     requiresItem: true,
@@ -371,6 +436,13 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
         screenType: MainCommandScreenTypeValues.STORY,
       },
       {
+        label: '요약',
+        categoryLabel: '진행 보조',
+        category: MainCommandCategoryValues.SUPPORT,
+        intent: MainCommandIntentValues.ASK_SUMMARY,
+        screenType: MainCommandScreenTypeValues.STORY,
+      },
+      {
         label: '장면 진행 요청',
         categoryLabel: '진행 보조',
         category: MainCommandCategoryValues.SUPPORT,
@@ -461,6 +533,13 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
         categoryLabel: '진행 보조',
         category: MainCommandCategoryValues.SUPPORT,
         intent: MainCommandIntentValues.ASK_HINT,
+        screenType: MainCommandScreenTypeValues.EXPLORATION,
+      },
+      {
+        label: '요약',
+        categoryLabel: '진행 보조',
+        category: MainCommandCategoryValues.SUPPORT,
+        intent: MainCommandIntentValues.ASK_SUMMARY,
         screenType: MainCommandScreenTypeValues.EXPLORATION,
       },
       {
@@ -556,10 +635,356 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
         intent: MainCommandIntentValues.ASK_HINT,
         screenType: MainCommandScreenTypeValues.COMBAT,
       },
+      {
+        label: '요약',
+        categoryLabel: '진행 보조',
+        category: MainCommandCategoryValues.SUPPORT,
+        intent: MainCommandIntentValues.ASK_SUMMARY,
+        screenType: MainCommandScreenTypeValues.COMBAT,
+      },
     ],
   };
 
 const emptyMainCommandPresets: MainCommandPreset[] = [];
+
+const mainCommandSlashMetadataByIntent: Partial<
+  Record<
+    SubmitMainCommandDto['intent'],
+    {
+      slashCommands: string[];
+      description: string;
+      helperGroup?: MainCommandHelperGroup;
+    }
+  >
+> = {
+  [MainCommandIntentValues.TALK_TO_NPC]: {
+    slashCommands: ['/대화'],
+    description: '선택한 NPC에게 말을 걸거나 질문합니다.',
+    helperGroup: 'NPC_INTERACTION',
+  },
+  [MainCommandIntentValues.SOCIAL_PERSUADE]: {
+    slashCommands: ['/설득'],
+    description: '선택한 NPC를 논리나 호소로 설득합니다.',
+    helperGroup: 'NPC_INTERACTION',
+  },
+  [MainCommandIntentValues.SOCIAL_INTIMIDATE]: {
+    slashCommands: ['/협박'],
+    description: '선택한 NPC를 위협하거나 압박합니다.',
+    helperGroup: 'NPC_INTERACTION',
+  },
+  [MainCommandIntentValues.SOCIAL_DECEIVE]: {
+    slashCommands: ['/속이기'],
+    description: '선택한 NPC를 속이거나 사실을 숨깁니다.',
+    helperGroup: 'NPC_INTERACTION',
+  },
+  [MainCommandIntentValues.READ_EMOTION]: {
+    slashCommands: ['/눈치'],
+    description: '선택한 NPC의 태도와 감정을 살핍니다.',
+    helperGroup: 'NPC_INTERACTION',
+  },
+  [MainCommandIntentValues.COMBAT_TALK]: {
+    slashCommands: ['/말걸기'],
+    description: '전투 중 대상에게 말을 걸거나 항복을 권유합니다.',
+    helperGroup: 'COMBAT_TARGET',
+  },
+  [MainCommandIntentValues.ASK_SCENE_INFO]: {
+    slashCommands: ['/장면질문'],
+    description: '지금 공개적으로 보이는 장면 정보를 묻습니다.',
+  },
+  [MainCommandIntentValues.ASK_HINT]: {
+    slashCommands: ['/힌트'],
+    description: '현재 장면에서 놓친 단서나 다음 선택지를 안내받습니다.',
+  },
+  [MainCommandIntentValues.ASK_SUMMARY]: {
+    slashCommands: ['/요약'],
+    description: '지금까지의 흐름과 단서를 짧게 정리합니다.',
+  },
+  [MainCommandIntentValues.REQUEST_SCENE_TRANSITION]: {
+    slashCommands: ['/장면진행'],
+    description: '다른 장소나 다음 장면으로 진행을 요청합니다.',
+  },
+  [MainCommandIntentValues.TACTIC_QUERY]: {
+    slashCommands: ['/전술'],
+    description: '현재 전투에서 가능한 전술 선택지를 묻습니다.',
+  },
+  [MainCommandIntentValues.ASK_RULE]: {
+    slashCommands: ['/룰'],
+    description: '이 행동에 어떤 판정이나 룰이 필요한지 묻습니다.',
+  },
+  [MainCommandIntentValues.OBSERVE_AREA]: {
+    slashCommands: ['/관찰'],
+    description: '주변을 넓게 둘러보고 눈에 띄는 것을 찾습니다.',
+    helperGroup: 'OBJECT_AREA_TARGET',
+  },
+  [MainCommandIntentValues.INVESTIGATE_OBJECT]: {
+    slashCommands: ['/조사'],
+    description: '대상이나 장소를 자세히 살펴 단서, 구조, 이상한 점을 찾습니다.',
+    helperGroup: 'OBJECT_AREA_TARGET',
+  },
+  [MainCommandIntentValues.INSPECT_STORY_OBJECT]: {
+    slashCommands: ['/살펴보기'],
+    description: '장면 속 물건을 자세히 살펴봅니다.',
+    helperGroup: 'OBJECT_AREA_TARGET',
+  },
+  [MainCommandIntentValues.LISTEN]: {
+    slashCommands: ['/듣기'],
+    description: '주변이나 특정 대상에서 들리는 소리를 확인합니다.',
+    helperGroup: 'OBJECT_AREA_TARGET',
+  },
+  [MainCommandIntentValues.DETECT_DANGER]: {
+    slashCommands: ['/위험탐지'],
+    description: '함정, 매복, 위험 요소가 있는지 살핍니다.',
+    helperGroup: 'OBJECT_AREA_TARGET',
+  },
+  [MainCommandIntentValues.SPECIAL_MOVE]: {
+    slashCommands: ['/특수이동'],
+    description: '위험하거나 까다로운 방식으로 특정 지점까지 이동합니다.',
+    helperGroup: 'MAP_POINT_TARGET',
+  },
+  [MainCommandIntentValues.INTERACT_OBJECT]: {
+    slashCommands: ['/조작'],
+    description: '문, 레버, 상자, 장치처럼 조작 가능한 것을 다룹니다.',
+    helperGroup: 'OBJECT_AREA_TARGET',
+  },
+  [MainCommandIntentValues.ENVIRONMENT_USE]: {
+    slashCommands: ['/환경'],
+    description: '주변 지형이나 물건을 이용해 유리한 상황을 만듭니다.',
+    helperGroup: 'OBJECT_AREA_TARGET',
+  },
+  [MainCommandIntentValues.SPLIT_PARTY_TASK]: {
+    slashCommands: ['/분담'],
+    description: '파티원들이 각자 맡을 일을 나눕니다.',
+  },
+  [MainCommandIntentValues.USE_TOOL]: {
+    slashCommands: ['/도구'],
+    description: '자물쇠, 함정, 장치처럼 기능성 도구로 정해진 작업을 시도합니다.',
+    helperGroup: 'ITEM_TOOL_SELECT',
+  },
+  [MainCommandIntentValues.USE_ITEM_EXPLORE]: {
+    slashCommands: ['/아이템활용'],
+    description: '밧줄, 기름병, 천 같은 보유 아이템을 상황에 맞게 창의적으로 활용합니다.',
+    helperGroup: 'ITEM_TOOL_SELECT',
+  },
+  [MainCommandIntentValues.USE_ITEM_COMBAT]: {
+    slashCommands: ['/아이템활용'],
+    description: '전투 중 보유 아이템을 창의적으로 사용합니다.',
+    helperGroup: 'ITEM_TOOL_SELECT',
+  },
+  [MainCommandIntentValues.USE_SPELL_CREATIVELY]: {
+    slashCommands: ['/주문활용'],
+    description: '주문을 직접 공격이 아닌 창의적 방식으로 활용합니다.',
+    helperGroup: 'SPELL_SELECT',
+  },
+  [MainCommandIntentValues.COMBAT_MANEUVER]: {
+    slashCommands: ['/창의기동'],
+    description: '전투 중 위치나 몸놀림으로 유리한 상황을 만듭니다.',
+  },
+  [MainCommandIntentValues.IMPROVISED_ATTACK]: {
+    slashCommands: ['/임기응변공격'],
+    description: '주변 물건이나 즉흥적인 방법으로 공격을 시도합니다.',
+    helperGroup: 'COMBAT_TARGET',
+  },
+  [MainCommandIntentValues.CALLED_SHOT]: {
+    slashCommands: ['/부위공격'],
+    description: '대상의 특정 부위나 장비를 노립니다.',
+    helperGroup: 'COMBAT_TARGET',
+  },
+  [MainCommandIntentValues.READY_ACTION]: {
+    slashCommands: ['/조건발동'],
+    description: '조건이 발생하면 실행할 행동을 준비합니다.',
+  },
+  [MainCommandIntentValues.REACTION_REQUEST]: {
+    slashCommands: ['/반응'],
+    description: '지금 가능한 반응 행동이 있는지 확인합니다.',
+  },
+};
+
+const mainCommandHelperOptions: MainCommandHelperOption[] = [
+  {
+    id: 'NPC_INTERACTION',
+    label: 'NPC 상호작용',
+    description: 'NPC를 대상으로 대화나 사회 행동을 준비합니다.',
+    fieldConfig: { targetTypes: [MainCommandTargetTypeValues.NPC] },
+    screenTypes: [MainCommandScreenTypeValues.STORY, MainCommandScreenTypeValues.EXPLORATION],
+  },
+  {
+    id: 'OBJECT_AREA_TARGET',
+    label: '대상/장소 선택',
+    description: '물건, 장치, 문, 장소를 대상으로 탐험 행동을 준비합니다.',
+    fieldConfig: {
+      targetTypes: [MainCommandTargetTypeValues.OBJECT, MainCommandTargetTypeValues.AREA],
+    },
+    screenTypes: [
+      MainCommandScreenTypeValues.STORY,
+      MainCommandScreenTypeValues.EXPLORATION,
+      MainCommandScreenTypeValues.COMBAT,
+    ],
+  },
+  {
+    id: 'MAP_POINT_TARGET',
+    label: '좌표 선택',
+    description: '지도 좌표나 맵의 특정 지점을 지정합니다.',
+    fieldConfig: { requiresMapPoint: true },
+    screenTypes: [MainCommandScreenTypeValues.EXPLORATION],
+  },
+  {
+    id: 'ITEM_TOOL_SELECT',
+    label: '아이템 선택',
+    description: '보유 아이템을 먼저 고르고 사용 방식은 입력합니다.',
+    fieldConfig: { requiresItem: true },
+    screenTypes: [MainCommandScreenTypeValues.EXPLORATION, MainCommandScreenTypeValues.COMBAT],
+  },
+  {
+    id: 'SPELL_SELECT',
+    label: '주문 선택',
+    description: '사용할 주문을 먼저 고르고 활용 방식은 입력합니다.',
+    fieldConfig: { requiresSpell: true },
+    screenTypes: [MainCommandScreenTypeValues.COMBAT],
+  },
+  {
+    id: 'COMBAT_TARGET',
+    label: '전투 상호작용',
+    description: '전투 중 NPC나 오브젝트를 대상으로 창의 행동을 준비합니다.',
+    fieldConfig: {
+      targetTypes: [MainCommandTargetTypeValues.NPC, MainCommandTargetTypeValues.OBJECT],
+    },
+    screenTypes: [MainCommandScreenTypeValues.COMBAT],
+  },
+];
+
+const mainCommandIntentOptionsByHelperGroup: Record<
+  MainCommandHelperGroup,
+  SubmitMainCommandDto['intent'][]
+> = {
+  NPC_INTERACTION: [
+    MainCommandIntentValues.TALK_TO_NPC,
+    MainCommandIntentValues.SOCIAL_PERSUADE,
+    MainCommandIntentValues.SOCIAL_INTIMIDATE,
+    MainCommandIntentValues.SOCIAL_DECEIVE,
+    MainCommandIntentValues.READ_EMOTION,
+  ],
+  OBJECT_AREA_TARGET: [
+    MainCommandIntentValues.OBSERVE_AREA,
+    MainCommandIntentValues.INVESTIGATE_OBJECT,
+    MainCommandIntentValues.INSPECT_STORY_OBJECT,
+    MainCommandIntentValues.LISTEN,
+    MainCommandIntentValues.DETECT_DANGER,
+    MainCommandIntentValues.INTERACT_OBJECT,
+    MainCommandIntentValues.ENVIRONMENT_USE,
+  ],
+  MAP_POINT_TARGET: [
+    MainCommandIntentValues.SPECIAL_MOVE,
+    MainCommandIntentValues.INVESTIGATE_OBJECT,
+    MainCommandIntentValues.INTERACT_OBJECT,
+    MainCommandIntentValues.ENVIRONMENT_USE,
+    MainCommandIntentValues.DETECT_DANGER,
+    MainCommandIntentValues.LISTEN,
+  ],
+  ITEM_TOOL_SELECT: [
+    MainCommandIntentValues.USE_TOOL,
+    MainCommandIntentValues.USE_ITEM_EXPLORE,
+    MainCommandIntentValues.USE_ITEM_COMBAT,
+  ],
+  SPELL_SELECT: [MainCommandIntentValues.USE_SPELL_CREATIVELY],
+  COMBAT_TARGET: [
+    MainCommandIntentValues.IMPROVISED_ATTACK,
+    MainCommandIntentValues.CALLED_SHOT,
+    MainCommandIntentValues.COMBAT_TALK,
+  ],
+};
+
+function getMainCommandSlashCommands(preset: MainCommandPreset): string[] {
+  return preset.slashCommands ?? mainCommandSlashMetadataByIntent[preset.intent]?.slashCommands ?? [];
+}
+
+function getMainCommandDescription(preset: MainCommandPreset): string {
+  return preset.description ?? mainCommandSlashMetadataByIntent[preset.intent]?.description ?? '';
+}
+
+function getMainCommandHelperGroup(preset: MainCommandPreset): MainCommandHelperGroup | undefined {
+  return preset.helperGroup ?? mainCommandSlashMetadataByIntent[preset.intent]?.helperGroup;
+}
+
+function doesMainCommandNeedHelperSelection(preset: MainCommandPreset): boolean {
+  return Boolean(getMainCommandHelperGroup(preset));
+}
+
+function isMainCommandAvailableForHelperGroup(
+  preset: MainCommandPreset,
+  helperGroup: MainCommandHelperGroup,
+): boolean {
+  return mainCommandIntentOptionsByHelperGroup[helperGroup].includes(preset.intent);
+}
+
+function getMainCommandHelperGroupForSelection(
+  preset: MainCommandPreset,
+  preferredHelperGroup?: MainCommandHelperGroup,
+): MainCommandHelperGroup | null {
+  // 대상 보조를 먼저 고른 경우에는 그 대상 맥락을 유지한 채 명령어만 바꿀 수 있어야 합니다.
+  if (preferredHelperGroup && isMainCommandAvailableForHelperGroup(preset, preferredHelperGroup)) {
+    return preferredHelperGroup;
+  }
+  return getMainCommandHelperGroup(preset) ?? null;
+}
+
+function parseMainSlashInput(
+  rawText: string,
+  presets: MainCommandPreset[],
+): ParsedMainSlashInput | null {
+  const trimmed = rawText.trimStart();
+  if (!trimmed.startsWith('/')) {
+    return null;
+  }
+
+  const [commandToken = '', ...bodyParts] = trimmed.split(/\s+/);
+  if (commandToken === '/') {
+    return { type: 'empty', query: '/' };
+  }
+
+  const normalizedCommand = commandToken.trim();
+  const matchedPreset = presets.find((preset) =>
+    getMainCommandSlashCommands(preset).some((slashCommand) => slashCommand === normalizedCommand)
+  );
+
+  if (!matchedPreset) {
+    return { type: 'unknown', query: normalizedCommand, command: normalizedCommand };
+  }
+
+  return {
+    type: 'matched',
+    query: normalizedCommand,
+    preset: matchedPreset,
+    playerText: bodyParts.join(' ').trim(),
+  };
+}
+
+function buildGeneralGmPreset(
+  screenType: SubmitMainCommandDto['screenType'],
+): MainCommandPreset {
+  return {
+    label: 'GM 요청',
+    categoryLabel: 'GM 요청',
+    category: MainCommandCategoryValues.SUPPORT,
+    intent: MainCommandIntentValues.GENERAL_GM_REQUEST,
+    screenType,
+    slashCommands: [],
+    description: '자유롭게 행동을 선언하거나 상황을 질문합니다.',
+  };
+}
+
+function doesMainCommandRequireTarget(intent: SubmitMainCommandDto['intent']): boolean {
+  return (
+    intent === MainCommandIntentValues.TALK_TO_NPC ||
+    intent === MainCommandIntentValues.SOCIAL_PERSUADE ||
+    intent === MainCommandIntentValues.SOCIAL_INTIMIDATE ||
+    intent === MainCommandIntentValues.SOCIAL_DECEIVE ||
+    intent === MainCommandIntentValues.READ_EMOTION ||
+    intent === MainCommandIntentValues.INSPECT_STORY_OBJECT ||
+    intent === MainCommandIntentValues.IMPROVISED_ATTACK ||
+    intent === MainCommandIntentValues.CALLED_SHOT ||
+    intent === MainCommandIntentValues.COMBAT_TALK
+  );
+}
 
 const mainCommandCategoryIconByCategory: Record<SubmitMainCommandDto['category'], string> = {
   TALK: 'message-circle',
@@ -589,6 +1014,11 @@ function getScreenTypeFromNodeType(
   if (nodeType === 'combat') return MainCommandScreenTypeValues.COMBAT;
   return null;
 }
+
+function getCompletedCombatNodeIds(flags: Record<string, unknown> | undefined): Set<string> {
+  const value = flags?.completedCombatNodeIds;
+  return new Set(Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []);
+}
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const MIN_SIDEBAR_WIDTH = 320;
 const MAX_SIDEBAR_WIDTH = 620;
@@ -612,12 +1042,15 @@ interface PlayPageProps {
   onStartSession: () => void;
   onLeaveSession: () => void;
   onBackToLobby: () => void;
+  onNavigateToCharacters: () => void;
   onMainCommand: (payload: SubmitMainCommandDto) => Promise<MainCommandResponseDto | null>;
   onResolveMainCommandCheck: (
     payload: ResolveMainCommandCheckDto,
   ) => Promise<MainCommandResponseDto | null>;
   onAction: (label: string) => void;
   onLoadOlderTurnLogs: () => void;
+  activeDiceRoll: DiceRollOverlayData | null;
+  onDismissDiceRoll: () => void;
 }
 
 interface QuickCreateFormState {
@@ -790,6 +1223,26 @@ function buildProfileColorStyle(color: SessionTokenColor): CSSProperties {
   } as CSSProperties;
 }
 
+function buildStoryPartyColorStyle(color: SessionTokenColor): CSSProperties {
+  // 하단 파티 카드도 메인/채팅 프로필과 같은 색 출처를 쓰도록 별도 CSS 변수에 복사합니다.
+  return {
+    ...buildProfileColorStyle(color),
+    ['--story-party-frame-color' as string]: color.frame,
+    ['--story-party-bg-color' as string]: color.background,
+    ['--story-party-text-color' as string]: color.text,
+  } as CSSProperties;
+}
+
+function buildMapPartyColorStyle(color: SessionTokenColor): CSSProperties {
+  // 탐험 맵에 원래 있던 파티 오버레이도 캐릭터 토큰 색상 기준을 쓰도록 전용 CSS 변수에 복사합니다.
+  return {
+    ...buildProfileColorStyle(color),
+    ['--map-party-frame-color' as string]: color.frame,
+    ['--map-party-bg-color' as string]: color.background,
+    ['--map-party-text-color' as string]: color.text,
+  } as CSSProperties;
+}
+
 function getLogSenderLabel(title: string, rowClass: 'incoming' | 'outgoing' | 'notice') {
   if (rowClass === 'notice') return '세션 로그';
   return title || '알 수 없음';
@@ -801,6 +1254,10 @@ function getMainLogPresentation(log: LogEntry, message: string): MainLogPresenta
   }
 
   if (log.id.startsWith('turn-log:') && log.id.endsWith(':raw')) {
+    return { tone: 'player-command', label: 'GM 요청' };
+  }
+
+  if (log.id.startsWith('main-command:') && log.id.endsWith(':raw')) {
     return { tone: 'player-command', label: 'GM 요청' };
   }
 
@@ -908,6 +1365,15 @@ function getMainCommandCheckEffect(response: MainCommandResponseDto | null | und
   return effect && typeof effect === 'object' ? (effect as Record<string, unknown>) : null;
 }
 
+function isMissingCombatError(message: string) {
+  return (
+    message.includes('COMBAT_404') ||
+    message.includes('ACTIVE_COMBAT_NOT_FOUND') ||
+    message.includes('전투가 존재하지 않습니다') ||
+    message.includes('(404)')
+  );
+}
+
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function PlayPage({
   user,
@@ -927,10 +1393,13 @@ export function PlayPage({
   onStartSession,
   onLeaveSession,
   onBackToLobby,
+  onNavigateToCharacters,
   onMainCommand,
   onResolveMainCommandCheck,
   onAction,
   onLoadOlderTurnLogs,
+  activeDiceRoll,
+  onDismissDiceRoll,
 }: PlayPageProps) {
   // UI 상태: 현재 탭, 모달 열림, 입력창 값, 로컬 캐릭터 선택값입니다.
   const [activeTab, setActiveTab] = useState<(typeof sessionTabs)[number]>('Main');
@@ -938,6 +1407,10 @@ export function PlayPage({
   const [mainMessage, setMainMessage] = useState('');
   const [chatMessage, setChatMessage] = useState('');
   const [infoText, setInfoText] = useState('');
+  const [mainCommandMode, setMainCommandMode] = useState<MainCommandMode>('GM_REQUEST');
+  const [isCommandGuideOpen, setCommandGuideOpen] = useState(false);
+  const [activeMainHelperGroup, setActiveMainHelperGroup] =
+    useState<MainCommandHelperGroup | null>(null);
   const [selectedMainCategory, setSelectedMainCategory] = useState<string | null>(null);
   const [openMainCommandCategory, setOpenMainCommandCategory] = useState<string | null>(null);
   const [selectedMainIntent, setSelectedMainIntent] = useState<
@@ -954,6 +1427,16 @@ export function PlayPage({
     useState<ExplorationMainCommandRequest | null>(null);
   const [pendingMainCommandCheck, setPendingMainCommandCheck] =
     useState<PendingMainCommandCheck | null>(null);
+
+  function clearMainCommandSelectionFields() {
+    setSelectedMainTargetId('');
+    setSelectedMainItemId('');
+    setSelectedMainSpellId('');
+    setSelectedMainRelatedIntent('');
+    setMainPointX('');
+    setMainPointY('');
+  }
+
   const [inventoryUseFeedback, setInventoryUseFeedback] = useState<string | null>(null);
   const [isInventoryUsePending, setInventoryUsePending] = useState(false);
   const [formState, setFormState] = useState<QuickCreateFormState>(defaultCharacter);
@@ -966,6 +1449,10 @@ export function PlayPage({
   // 현재 세션의 플레이어용 시나리오 노드와 VTT 맵 로딩 상태입니다.
   const [playerScenario, setPlayerScenario] = useState<PlayerScenarioView | null>(null);
   const [vttMap, setVttMap] = useState<VttMapStateDto | null>(null);
+  const [combat, setCombat] = useState<CombatResponseDto | null>(null);
+  const [combatError, setCombatError] = useState<string | null>(null);
+  const [isCombatBusy, setCombatBusy] = useState(false);
+  const [isCombatChecked, setCombatChecked] = useState(false);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
   const [, setIsScenarioLoaded] = useState(false);
@@ -982,6 +1469,7 @@ export function PlayPage({
     pending: null,
     activeSessionId: null,
   });
+  const autoCombatStartKeyRef = useRef<string | null>(null);
 
   // 서버 스냅샷에서 현재 세션/참가자/선택 캐릭터/권한 상태를 계산합니다.
   const session = snapshot?.session ?? null;
@@ -1045,16 +1533,30 @@ export function PlayPage({
     QUICK_CREATE_CLASS_PRESET_BY_KEY.get(selectedQuickCreateClass?.key ?? formState.classKey) ??
     null;
   const currentNode = playerScenario?.currentNode ?? null;
-  const currentScreenType = getScreenTypeFromNodeType(currentNode?.nodeType);
+  const completedCombatNodeIds = useMemo(
+    () => getCompletedCombatNodeIds(snapshot?.state.flags),
+    [snapshot?.state.flags]
+  );
+  const isCompletedCombatNode = Boolean(
+    currentNode?.nodeType === 'combat' &&
+      currentNode.id &&
+      (completedCombatNodeIds.has(currentNode.id) ||
+        (combat?.sessionId === session?.id && combat?.status === 'ENDED'))
+  );
+  const currentScreenType = isCompletedCombatNode
+    ? MainCommandScreenTypeValues.EXPLORATION
+    : getScreenTypeFromNodeType(currentNode?.nodeType);
   const isStoryNode = currentNode?.nodeType === 'story';
-  const isExplorationNode = currentNode?.nodeType === 'exploration';
-  const isCombatNode = currentNode?.nodeType === 'combat';
+  const isExplorationNode = currentNode?.nodeType === 'exploration' || isCompletedCombatNode;
+  const isCombatNode = currentNode?.nodeType === 'combat' && !isCompletedCombatNode;
   const usesNodeSpecificPartyStrip = Boolean(
     session && !isRecruiting && (isStoryNode || isExplorationNode || isCombatNode)
   );
   const mainCommandPresets = currentScreenType
     ? mainCommandPresetsByScreen[currentScreenType]
     : emptyMainCommandPresets;
+  const selectedCharacterInventory =
+    selectedSessionCharacter?.inventory ?? selectedCharacter?.inventory ?? [];
   const mainCommandCategories = useMemo<MainCommandCategoryOption[]>(() => {
     const options = new Map<string, MainCommandCategoryOption>();
     mainCommandPresets.forEach((preset) => {
@@ -1075,11 +1577,99 @@ export function PlayPage({
   const openMainCommandOptions = openMainCommandCategory
     ? mainCommandPresets.filter((preset) => preset.categoryLabel === openMainCommandCategory)
     : [];
-  const selectedMainCommand =
-    mainCommandPresets.find((preset) => preset.intent === selectedMainIntent) ?? null;
-  const selectedMainFieldConfig = selectedMainCommand
-    ? (mainCommandFieldConfigByIntent[selectedMainCommand.intent] ?? null)
+  const parsedMainSlashInput = useMemo(
+    () =>
+      mainCommandMode === 'GM_REQUEST'
+        ? parseMainSlashInput(mainMessage, mainCommandPresets)
+        : null,
+    [mainCommandMode, mainCommandPresets, mainMessage]
+  );
+  const matchedMainSlashCommand =
+    parsedMainSlashInput?.type === 'matched' ? parsedMainSlashInput : null;
+  const selectedMainCommand = matchedMainSlashCommand?.preset ?? null;
+  const availableMainHelperOptions = useMemo(() => {
+    if (!currentScreenType) return [];
+    const visibleTargets = currentNode?.visibleTargets ?? [];
+    return mainCommandHelperOptions.filter((option) => {
+      if (!option.screenTypes.includes(currentScreenType)) return false;
+      if (
+        option.id === 'NPC_INTERACTION' &&
+        !visibleTargets.some((target) => target.targetType === MainCommandTargetTypeValues.NPC)
+      ) {
+        return false;
+      }
+      if (
+        option.id === 'OBJECT_AREA_TARGET' &&
+        !visibleTargets.some(
+          (target) =>
+            target.targetType === MainCommandTargetTypeValues.OBJECT ||
+            target.targetType === MainCommandTargetTypeValues.AREA
+        )
+      ) {
+        return false;
+      }
+      if (option.id === 'ITEM_TOOL_SELECT' && selectedCharacterInventory.length === 0) {
+        return false;
+      }
+      return true;
+    });
+  }, [currentNode?.visibleTargets, currentScreenType, selectedCharacterInventory]);
+  const selectedMainCommandHelperGroup = selectedMainCommand
+    ? getMainCommandHelperGroup(selectedMainCommand)
     : null;
+  const activeMainHelperOption =
+    availableMainHelperOptions.find(
+      (option) =>
+        option.id === activeMainHelperGroup &&
+        (!selectedMainCommand || isMainCommandAvailableForHelperGroup(selectedMainCommand, option.id))
+    ) ??
+    availableMainHelperOptions.find(
+      (option) => option.id === selectedMainCommandHelperGroup
+    ) ??
+    null;
+  const selectedMainFieldConfig = selectedMainCommand
+    ? (mainCommandFieldConfigByIntent[selectedMainCommand.intent] ??
+      activeMainHelperOption?.fieldConfig ??
+      null)
+    : activeMainHelperOption?.fieldConfig ?? null;
+  const mainSlashToken = mainMessage.trimStart().split(/\s+/)[0] ?? '';
+  const shouldShowMainCommandAutocomplete =
+    mainCommandMode === 'GM_REQUEST' &&
+    mainSlashToken.startsWith('/') &&
+    !mainMessage.trimStart().includes(' ');
+  const shouldShowCommandGuide = isCommandGuideOpen && !shouldShowMainCommandAutocomplete;
+  const mainCommandAutocompleteCandidates = shouldShowMainCommandAutocomplete
+    ? mainCommandPresets.filter((preset) => {
+        if (
+          activeMainHelperOption &&
+          !isMainCommandAvailableForHelperGroup(preset, activeMainHelperOption.id)
+        ) {
+          return false;
+        }
+        const slashCommands = getMainCommandSlashCommands(preset);
+        if (mainSlashToken === '/') return slashCommands.length > 0;
+        return slashCommands.some((slashCommand) => slashCommand.startsWith(mainSlashToken));
+      })
+    : [];
+  const mainCommandAutocompleteEntries: MainCommandAutocompleteEntry[] = activeMainHelperOption
+    ? mainCommandAutocompleteCandidates.map((command) => ({ type: 'command', command }))
+    : [
+        ...mainCommandAutocompleteCandidates
+          .filter((command) => !doesMainCommandNeedHelperSelection(command))
+          .map((command) => ({ type: 'command' as const, command })),
+        ...(mainCommandAutocompleteCandidates.some(doesMainCommandNeedHelperSelection)
+          ? [
+              {
+                type: 'separator' as const,
+                id: 'helper-selection-required',
+                label: '아래는 대상 선택 필요',
+              },
+              ...mainCommandAutocompleteCandidates
+                .filter(doesMainCommandNeedHelperSelection)
+                .map((command) => ({ type: 'command' as const, command })),
+            ]
+          : []),
+      ];
   const visibleTargetOptions = (currentNode?.visibleTargets ?? []).filter((target) =>
     selectedMainFieldConfig?.targetTypes?.length
       ? selectedMainFieldConfig.targetTypes.includes(target.targetType)
@@ -1087,8 +1677,6 @@ export function PlayPage({
   );
   const selectedMainTarget =
     visibleTargetOptions.find((target) => target.id === selectedMainTargetId) ?? null;
-  const selectedCharacterInventory =
-    selectedSessionCharacter?.inventory ?? selectedCharacter?.inventory ?? [];
   const relatedIntentOptions = mainCommandPresets.filter(
     (preset) =>
       preset.intent !== MainCommandIntentValues.ASK_RULE &&
@@ -1107,6 +1695,80 @@ export function PlayPage({
   useEffect(() => {
     setLocalSelectedCharacterId(serverSelectedCharacterId);
   }, [serverSelectedCharacterId]);
+
+  useEffect(() => {
+    if (!user || !session?.id || !isCombatNode) {
+      if (
+        combat?.status === 'ENDED' &&
+        currentNode?.nodeType === 'combat' &&
+        currentNode.id &&
+        !completedCombatNodeIds.has(currentNode.id)
+      ) {
+        return;
+      }
+      setCombat(null);
+      setCombatError(null);
+      setCombatChecked(false);
+      autoCombatStartKeyRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+    setCombatChecked(false);
+    getCombat(user, session.id)
+      .then((nextCombat) => {
+        if (cancelled) return;
+        setCombat(nextCombat);
+        setCombatError(null);
+        setCombatChecked(true);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setCombat(null);
+        const message = error instanceof Error ? error.message : '전투 상태를 불러오지 못했습니다.';
+        setCombatError(isMissingCombatError(message) ? null : message);
+        setCombatChecked(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [combat?.status, completedCombatNodeIds, currentNode?.id, currentNode?.nodeType, isCombatNode, session?.id, user]);
+
+  useEffect(() => {
+    if (!user || !session?.id || !currentNode?.id || !isCombatNode) return;
+    if (!isCombatChecked || combat || isCombatBusy || combatError) return;
+    if (session.gmMode === 'HUMAN' && !isHost) return;
+
+    const autoStartKey = `${session.id}:${currentNode.id}`;
+    if (autoCombatStartKeyRef.current === autoStartKey) return;
+    autoCombatStartKeyRef.current = autoStartKey;
+    void runCombatRequest(() => startCombat(user, session.id));
+  }, [
+    combat,
+    combatError,
+    currentNode?.id,
+    isCombatBusy,
+    isCombatChecked,
+    isCombatNode,
+    isHost,
+    session?.gmMode,
+    session?.id,
+    user,
+  ]);
+
+  useEffect(() => {
+    function handleCombatUpdated(event: Event) {
+      const detail = (event as CustomEvent<CombatResponseDto>).detail;
+      if (detail?.sessionId === session?.id) {
+        setCombat(detail);
+        setCombatError(null);
+      }
+    }
+
+    window.addEventListener('trpg:combat-updated', handleCombatUpdated);
+    return () => window.removeEventListener('trpg:combat-updated', handleCombatUpdated);
+  }, [session?.id]);
 
   useEffect(() => {
     if (!quickCreateConfigReady) {
@@ -1201,6 +1863,15 @@ export function PlayPage({
       setSelectedMainIntent(null);
     }
   }, [mainCommandPresets, selectedMainIntent]);
+
+  useEffect(() => {
+    if (
+      activeMainHelperGroup &&
+      !availableMainHelperOptions.some((option) => option.id === activeMainHelperGroup)
+    ) {
+      setActiveMainHelperGroup(null);
+    }
+  }, [activeMainHelperGroup, availableMainHelperOptions]);
 
   // 세션이 없거나 바뀌면 시나리오/맵 상태를 초기화하고 플레이어용 시나리오를 다시 불러옵니다.
   useEffect(() => {
@@ -1440,7 +2111,15 @@ export function PlayPage({
   useEffect(() => {
     if (!pendingMainCommandDraft || selectedMainIntent !== pendingMainCommandDraft.intent) return;
 
-    setMainMessage(pendingMainCommandDraft.playerText);
+    const draftPreset = mainCommandPresets.find(
+      (preset) => preset.intent === pendingMainCommandDraft.intent
+    );
+    const slashCommand = draftPreset ? getMainCommandSlashCommands(draftPreset)[0] : null;
+    setMainMessage(
+      slashCommand
+        ? `${slashCommand} ${pendingMainCommandDraft.playerText}`.trim()
+        : pendingMainCommandDraft.playerText
+    );
     setSelectedMainTargetId(pendingMainCommandDraft.targetId ?? '');
     setSelectedMainItemId(pendingMainCommandDraft.itemId ?? '');
     setMainPointX(
@@ -1451,7 +2130,7 @@ export function PlayPage({
     );
     setMainCommandError(null);
     setPendingMainCommandDraft(null);
-  }, [pendingMainCommandDraft, selectedMainIntent]);
+  }, [mainCommandPresets, pendingMainCommandDraft, selectedMainIntent]);
 
   useEffect(() => {
     if (
@@ -1469,6 +2148,15 @@ export function PlayPage({
   function openCreateModal() {
     resetQuickCreateForm();
     setCreateModalOpen(true);
+  }
+
+  function handleOpenRecruitingCreate() {
+    if (quickCreateConfigReady) {
+      openCreateModal();
+      return;
+    }
+
+    onNavigateToCharacters();
   }
 
   function closeCreateModal() {
@@ -1526,7 +2214,42 @@ export function PlayPage({
     const next = mainMessage.trim();
     if (!next) return;
 
-    if (session?.gmMode === 'AI' && currentScreenType && selectedMainCommand) {
+    if (session?.gmMode === 'AI' && currentScreenType) {
+      const parsedSlash = parseMainSlashInput(next, mainCommandPresets);
+      const isRpMode = mainCommandMode === 'RP_ACTION';
+      const submitPreset: MainCommandPreset | null = isRpMode
+        ? {
+            label: 'RP 행동',
+            categoryLabel: 'RP 행동',
+            category: MainCommandCategoryValues.RP_ACTION,
+            intent: MainCommandIntentValues.DECLARE_RP_ACTION,
+            screenType: currentScreenType,
+            description: '판정 없이 캐릭터 대사나 분위기 묘사를 기록합니다.',
+          }
+        : parsedSlash?.type === 'matched'
+          ? parsedSlash.preset
+          : parsedSlash
+            ? null
+            : buildGeneralGmPreset(currentScreenType);
+
+      if (!submitPreset) {
+        setMainCommandError(
+          parsedSlash?.type === 'unknown'
+            ? `현재 장면에서 사용할 수 없는 명령어입니다: ${parsedSlash.command}`
+            : '명령어를 선택하거나 내용을 입력해주세요.'
+        );
+        return;
+      }
+
+      const commandBody =
+        parsedSlash?.type === 'matched' ? parsedSlash.playerText : next;
+      const playerText = isRpMode
+        ? next
+        : commandBody.trim() || submitPreset.label;
+      const activeFieldConfig =
+        mainCommandFieldConfigByIntent[submitPreset.intent] ??
+        activeMainHelperOption?.fieldConfig ??
+        null;
       const pointX = mainPointX.trim();
       const pointY = mainPointY.trim();
       const hasMapPoint = pointX !== '' && pointY !== '';
@@ -1534,16 +2257,25 @@ export function PlayPage({
         hasMapPoint && Number.isFinite(Number(pointX)) && Number.isFinite(Number(pointY))
           ? { x: Number(pointX), y: Number(pointY) }
           : null;
-      const requiresTarget = Boolean(selectedMainFieldConfig?.targetTypes?.length);
-      const requiresItem = Boolean(selectedMainFieldConfig?.requiresItem);
-      const requiresSpell = Boolean(selectedMainFieldConfig?.requiresSpell);
-      const requiresMapPoint = Boolean(selectedMainFieldConfig?.requiresMapPoint);
-      const allowsMapPoint = Boolean(selectedMainFieldConfig?.allowsMapPoint);
+      const requiresTarget = doesMainCommandRequireTarget(submitPreset.intent);
+      const requiresItem = Boolean(activeFieldConfig?.requiresItem);
+      const requiresSpell = Boolean(activeFieldConfig?.requiresSpell);
+      const requiresMapPoint = Boolean(activeFieldConfig?.requiresMapPoint);
+      const allowsMapPoint = Boolean(activeFieldConfig?.allowsMapPoint);
       const requiresTargetOrPoint =
-        selectedMainCommand.intent === MainCommandIntentValues.INVESTIGATE_OBJECT ||
-        selectedMainCommand.intent === MainCommandIntentValues.ENVIRONMENT_USE;
+        submitPreset.intent === MainCommandIntentValues.INVESTIGATE_OBJECT ||
+        submitPreset.intent === MainCommandIntentValues.INTERACT_OBJECT ||
+        submitPreset.intent === MainCommandIntentValues.ENVIRONMENT_USE;
+      const shouldSubmitTarget = Boolean(
+        selectedMainTargetId && activeFieldConfig?.targetTypes?.length
+      );
+      const shouldSubmitItem = Boolean(selectedMainItemId && requiresItem);
+      const shouldSubmitSpell = Boolean(selectedMainSpellId.trim() && requiresSpell);
+      const shouldSubmitRelatedIntent = Boolean(
+        selectedMainRelatedIntent && activeFieldConfig?.allowsRelatedIntent
+      );
 
-      if (requiresTarget && !selectedMainTargetId && !mapPoint) {
+      if (requiresTarget && !selectedMainTargetId && !(allowsMapPoint && mapPoint)) {
         setMainCommandError('이 명령은 현재 장면의 공개 대상을 함께 골라야 합니다.');
         return;
       }
@@ -1559,8 +2291,8 @@ export function PlayPage({
         setMainCommandError('이 명령은 지도 좌표 x, y를 함께 입력해야 합니다.');
         return;
       }
-      if (requiresTargetOrPoint && !selectedMainTargetId && !mapPoint) {
-        setMainCommandError('이 명령은 공개 대상이나 지도 좌표 중 하나를 함께 지정해야 합니다.');
+      if (requiresTargetOrPoint && !selectedMainTargetId && !mapPoint && !commandBody.trim()) {
+        setMainCommandError('대상을 선택하거나, 무엇을 할지 입력해주세요.');
         return;
       }
       if ((pointX !== '' || pointY !== '') && !mapPoint) {
@@ -1574,18 +2306,23 @@ export function PlayPage({
         myParticipant?.characterId ??
         '';
       setMainCommandError(null);
+      setMainMessage('');
       const response = await onMainCommand({
-        commandId: selectedMainCommand.intent,
+        commandId: submitPreset.intent,
         screenType: currentScreenType,
-        category: selectedMainCommand.category,
-        intent: selectedMainCommand.intent,
+        category: submitPreset.category,
+        intent: submitPreset.intent,
         actorId,
-        playerText: next,
+        playerText,
+        // 명령어 처리는 본문만 넘기되, 로그에는 사용자가 입력한 슬래시 원문을 그대로 남긴다.
+        rawInputText: next,
         ...(currentNode ? { nodeId: currentNode.id } : {}),
-        ...(selectedMainTargetId ? { targetId: selectedMainTargetId } : {}),
-        ...(selectedMainTarget?.targetType ? { targetType: selectedMainTarget.targetType } : {}),
-        ...(selectedMainItemId ? { itemId: selectedMainItemId } : {}),
-        ...(selectedMainSpellId.trim() ? { spellId: selectedMainSpellId.trim() } : {}),
+        ...(shouldSubmitTarget ? { targetId: selectedMainTargetId } : {}),
+        ...(shouldSubmitTarget && selectedMainTarget?.targetType
+          ? { targetType: selectedMainTarget.targetType }
+          : {}),
+        ...(shouldSubmitItem ? { itemId: selectedMainItemId } : {}),
+        ...(shouldSubmitSpell ? { spellId: selectedMainSpellId.trim() } : {}),
         ...(mapPoint &&
         (requiresMapPoint ||
           allowsMapPoint ||
@@ -1593,7 +2330,7 @@ export function PlayPage({
           (requiresTarget && !selectedMainTargetId))
           ? { mapPoint }
           : {}),
-        ...(selectedMainRelatedIntent
+        ...(shouldSubmitRelatedIntent
           ? { relatedIntent: selectedMainRelatedIntent as SubmitMainCommandDto['intent'] }
           : {}),
       });
@@ -1608,11 +2345,10 @@ export function PlayPage({
           : null
       );
     } else {
+      setMainMessage('');
       onAction(`MAIN:${next}`);
       setPendingMainCommandCheck(null);
     }
-
-    setMainMessage('');
   }
 
   function handleExplorationMainCommandRequest(request: ExplorationMainCommandRequest) {
@@ -1626,9 +2362,11 @@ export function PlayPage({
     }
 
     setActiveTab('Main');
+    setMainCommandMode('GM_REQUEST');
     setSelectedMainCategory(preset.categoryLabel);
     setOpenMainCommandCategory(null);
     setSelectedMainIntent(preset.intent);
+    setActiveMainHelperGroup(getMainCommandHelperGroup(preset) ?? null);
     setPendingMainCommandDraft(request);
   }
 
@@ -1754,6 +2492,49 @@ export function PlayPage({
     void flushPendingMapSave(session.id);
   }
 
+  async function runCombatRequest(request: () => Promise<CombatResponseDto | { combat: CombatResponseDto } | unknown>) {
+    if (!session || isCombatBusy) return;
+
+    setCombatBusy(true);
+    setCombatError(null);
+    try {
+      const result = await request();
+      if (result && typeof result === 'object' && 'combat' in result) {
+        setCombat((result as { combat: CombatResponseDto }).combat);
+      } else if (result && typeof result === 'object' && 'combatId' in result) {
+        setCombat(result as CombatResponseDto);
+      } else {
+        const nextCombat = await getCombat(user, session.id);
+        setCombat(nextCombat);
+      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '전투 처리에 실패했습니다.';
+      if (message.includes('COMBAT_409') || message.includes('ACTIVE_COMBAT_EXISTS')) {
+        try {
+          const nextCombat = await getCombat(user, session.id);
+          setCombat(nextCombat);
+          setCombatError(null);
+          return;
+        } catch {
+          // 아래 공통 오류 표시 흐름으로 넘깁니다.
+        }
+      }
+      setCombatError(message);
+    } finally {
+      setCombatBusy(false);
+    }
+  }
+
+  function handleEndCombatTurn(force = false) {
+    if (!session) return;
+    void runCombatRequest(() => endCombatTurn(user, session.id, { force }));
+  }
+
+  function handleEndCombat() {
+    if (!session) return;
+    void runCombatRequest(() => endCombat(user, session.id));
+  }
+
   function getParticipantBadge(participantUserId: string): string | null {
     if (!session) return null;
     if (participantUserId === session.hostUserId) {
@@ -1762,9 +2543,18 @@ export function PlayPage({
     return null;
   }
 
+  function getCharacterTokenColor(character: Character): SessionTokenColor {
+    // 맵 토큰 프레임이 캐릭터 배열 순서로 색을 고르기 때문에, 프로필 계열 UI도 같은 기준을 사용합니다.
+    const characterIndex = sessionCharacters.findIndex((item) => item.id === character.id);
+    return getPlayerTokenColor(characterIndex);
+  }
+
   function getParticipantProfileColor(participantUserId: string): SessionTokenColor {
-    if (participantUserId === session?.hostUserId) {
-      return GM_TOKEN_COLOR;
+    const linkedCharacter =
+      sessionCharacters.find((character) => character.userId === participantUserId) ?? null;
+
+    if (linkedCharacter) {
+      return getCharacterTokenColor(linkedCharacter);
     }
 
     const playerIndex = playerParticipantIds.indexOf(participantUserId);
@@ -1994,8 +2784,8 @@ export function PlayPage({
                     <button
                       type="button"
                       className="recruiting-wanted-action"
-                      onClick={openCreateModal}
-                      disabled={readyLocked || !quickCreateConfigReady}
+                      onClick={handleOpenRecruitingCreate}
+                      disabled={readyLocked}
                     >
                       캐릭터 생성
                     </button>
@@ -2045,6 +2835,9 @@ export function PlayPage({
                   isGmView={canManageStartedSession}
                   rpUtterances={storyRpUtterances}
                   onRpUtteranceClick={() => setActiveTab('Main')}
+                  getCharacterColorStyle={(character) =>
+                    buildStoryPartyColorStyle(getCharacterTokenColor(character))
+                  }
                 />
               ) : isExplorationNode ? (
                 <ExplorationNodeSurface
@@ -2059,6 +2852,9 @@ export function PlayPage({
                   inventory={selectedCharacterInventory}
                   isBusy={busy || isInventoryUsePending}
                   inventoryFeedback={inventoryUseFeedback}
+                  getCharacterColorStyle={(character) =>
+                    buildMapPartyColorStyle(getCharacterTokenColor(character))
+                  }
                   onMapChange={handleMapChange}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onRequestMainCommand={handleExplorationMainCommandRequest}
@@ -2073,7 +2869,16 @@ export function PlayPage({
                   isHost={isHost}
                   isGmView={canManageStartedSession}
                   map={vttMap}
+                  combat={combat}
+                  combatError={combatError}
+                  isCombatBusy={isCombatBusy}
+                  inventory={selectedCharacterInventory}
+                  inventoryFeedback={inventoryUseFeedback}
+                  isInventoryBusy={busy || isInventoryUsePending}
                   onMapChange={handleMapChange}
+                  onUseInventoryItem={handleUseExplorationInventoryItem}
+                  onEndCombat={handleEndCombat}
+                  onEndTurn={handleEndCombatTurn}
                 />
               ) : vttMap ? (
                 <BattleMap
@@ -2436,64 +3241,170 @@ export function PlayPage({
               >
                 {activeTab === 'Main' && session?.gmMode === 'AI' && currentScreenType ? (
                   <div className="main-command-picker">
-                    <div className="main-command-category-row">
-                      {mainCommandCategories.map((category) => (
-                        <div key={category.label} className="main-command-category-menu">
-                          <button
-                            type="button"
-                            className={`main-command-category-button${
-                              activeMainCategory === category.label ? ' active' : ''
-                            }${openMainCommandCategory === category.label ? ' open' : ''}`}
-                            aria-label={`${category.label} 명령 열기`}
-                            aria-expanded={openMainCommandCategory === category.label}
-                            title={category.label}
-                            onClick={() => {
-                              setSelectedMainCategory(category.label);
-                              setOpenMainCommandCategory((current) =>
-                                current === category.label ? null : category.label
-                              );
-                            }}
-                          >
-                            <span className="main-command-category-icon" aria-hidden="true">
-                              <Icon name={mainCommandCategoryIconByCategory[category.category]} />
-                            </span>
-                            <span className="main-command-category-label">{category.label}</span>
-                          </button>
-
-                          {openMainCommandCategory === category.label ? (
-                            <div className="main-command-option-dropdown">
-                              {openMainCommandOptions.map((command) => (
-                                <button
-                                  key={command.intent}
-                                  type="button"
-                                  className={`main-command-option-button${
-                                    selectedMainCommand?.intent === command.intent ? ' active' : ''
-                                  }`}
-                                  onClick={() => {
-                                    setSelectedMainCategory(command.categoryLabel);
-                                    setSelectedMainIntent((current) =>
-                                      current === command.intent ? null : command.intent
-                                    );
-                                    setOpenMainCommandCategory(null);
-                                  }}
-                                >
-                                  {command.label}
-                                </button>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      ))}
+                    <div className="main-command-mode-row">
+                      <button
+                        type="button"
+                        className={`main-command-mode-button${
+                          mainCommandMode === 'GM_REQUEST' ? ' active' : ''
+                        }`}
+                        onClick={() => {
+                          setMainCommandMode('GM_REQUEST');
+                          setCommandGuideOpen(false);
+                          setSelectedMainIntent(null);
+                          setActiveMainHelperGroup(null);
+                          clearMainCommandSelectionFields();
+                        }}
+                      >
+                        <Icon name="message-circle" />
+                        <span>GM 요청</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`main-command-mode-button${
+                          mainCommandMode === 'RP_ACTION' ? ' active' : ''
+                        }`}
+                        onClick={() => {
+                          setMainCommandMode('RP_ACTION');
+                          setCommandGuideOpen(false);
+                          setSelectedMainIntent(null);
+                          setActiveMainHelperGroup(null);
+                          clearMainCommandSelectionFields();
+                        }}
+                      >
+                        <Icon name="hand" />
+                        <span>RP 행동</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`main-command-mode-button${isCommandGuideOpen ? ' active' : ''}`}
+                        onClick={() => {
+                          setMainCommandMode('GM_REQUEST');
+                          setCommandGuideOpen((current) => !current);
+                        }}
+                      >
+                        <Icon name="help-circle" />
+                        <span>명령어 가이드</span>
+                      </button>
                     </div>
 
-                    {selectedMainCommand ? (
-                      <div className="main-command-selection-chip">
-                        <span>{selectedMainCommand.categoryLabel}</span>
-                        <strong>{selectedMainCommand.label}</strong>
+                    {mainCommandMode === 'GM_REQUEST' && availableMainHelperOptions.length ? (
+                      <div className="main-command-helper-row">
+                        {availableMainHelperOptions.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className={`main-command-helper-button${
+                              activeMainHelperOption?.id === option.id ? ' active' : ''
+                            }`}
+                            title={option.description}
+                            onClick={() => {
+                              setMainCommandMode('GM_REQUEST');
+                              setActiveMainHelperGroup((current) =>
+                                current === option.id ? null : option.id
+                              );
+                              setSelectedMainIntent(null);
+                              clearMainCommandSelectionFields();
+                            }}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
                       </div>
                     ) : null}
 
-                    {selectedMainCommand && selectedMainFieldConfig ? (
+                    {shouldShowCommandGuide ? (
+                      <div className="main-command-guide-panel">
+                        <p className="main-command-guide-notice">
+                          💡 자유롭게 행동을 입력할 수 있지만,
+                          <br />
+                          `/명령어` 입력 시 보다 빠르고 정확한 응답이 옵니다!
+                        </p>
+                        {mainCommandPresets.map((command) => {
+                          const slashCommand = getMainCommandSlashCommands(command)[0];
+                          return slashCommand ? (
+                            <button
+                              key={command.intent}
+                              type="button"
+                              className="main-command-guide-option"
+                              onClick={() => {
+                                setMainCommandMode('GM_REQUEST');
+                                setMainMessage(`${slashCommand} `);
+                                setSelectedMainIntent(command.intent);
+                                setActiveMainHelperGroup(
+                                  getMainCommandHelperGroupForSelection(
+                                    command,
+                                    activeMainHelperOption?.id
+                                  )
+                                );
+                                setCommandGuideOpen(false);
+                              }}
+                            >
+                              <strong>{slashCommand}</strong>
+                              <small>{getMainCommandDescription(command)}</small>
+                            </button>
+                          ) : null;
+                        })}
+                      </div>
+                    ) : null}
+
+                    {mainCommandAutocompleteEntries.length ? (
+                      <div className="main-command-autocomplete">
+                        {mainCommandAutocompleteEntries.map((entry) => {
+                          if (entry.type === 'separator') {
+                            return (
+                              <div
+                                key={entry.id}
+                                className="main-command-autocomplete-separator"
+                              >
+                                {entry.label}
+                              </div>
+                            );
+                          }
+                          const command = entry.command;
+                          const slashCommand = getMainCommandSlashCommands(command)[0];
+                          return slashCommand ? (
+                            <button
+                              key={command.intent}
+                              type="button"
+                              className="main-command-autocomplete-option"
+                              onClick={() => {
+                                setMainCommandMode('GM_REQUEST');
+                                setMainMessage(`${slashCommand} `);
+                                setSelectedMainIntent(command.intent);
+                                setActiveMainHelperGroup(
+                                  getMainCommandHelperGroupForSelection(
+                                    command,
+                                    activeMainHelperOption?.id
+                                  )
+                                );
+                              }}
+                            >
+                              <strong>{slashCommand}</strong>
+                              <small>{getMainCommandDescription(command)}</small>
+                            </button>
+                          ) : null;
+                        })}
+                      </div>
+                    ) : null}
+
+                    {mainCommandMode === 'RP_ACTION' ? (
+                      <div className="main-command-selection-chip">
+                        <span>기록 모드</span>
+                        <strong>RP 행동</strong>
+                      </div>
+                    ) : selectedMainCommand ? (
+                      <div className="main-command-selection-chip">
+                        <span>{getMainCommandSlashCommands(selectedMainCommand)[0] ?? selectedMainCommand.categoryLabel}</span>
+                        <strong>{selectedMainCommand.label}</strong>
+                      </div>
+                    ) : activeMainHelperOption ? (
+                      <div className="main-command-selection-chip">
+                        <span>대상 보조</span>
+                        <strong>{activeMainHelperOption.label}</strong>
+                      </div>
+                    ) : null}
+
+                    {mainCommandMode === 'GM_REQUEST' && selectedMainFieldConfig ? (
                       <div className="main-command-fields">
                         {selectedMainFieldConfig.targetTypes?.length ? (
                           <label className="main-command-field">
@@ -2615,7 +3526,9 @@ export function PlayPage({
                   }
                   placeholder={
                     activeTab === 'Main'
-                      ? selectedMainCommand
+                      ? mainCommandMode === 'RP_ACTION'
+                        ? '캐릭터 대사나 분위기 묘사를 입력하세요...'
+                        : selectedMainCommand
                         ? `${selectedMainCommand.label} 내용을 입력하세요...`
                         : '행동을 선언하거나 상황을 입력하세요...'
                       : '채팅을 입력하세요...'
@@ -2832,6 +3745,9 @@ export function PlayPage({
           </form>
         </div>
       ) : null}
+
+      {/* 세션 전원에게 보이는 주사위 굴림 오버레이 (turn.log.created 이벤트로 트리거). */}
+      <DiceRollOverlay data={activeDiceRoll} onDismiss={onDismissDiceRoll} />
     </main>
   );
 }
