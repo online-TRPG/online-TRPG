@@ -170,7 +170,7 @@ Trace row 상태값은 `success`, `failure`, `fallback` 중 하나다.
 | `rulesConfidence`       | 규칙 해석 신뢰도            |
 | `safetyNotes`           | 검증 메모                   |
 
-`action.type=cast_spell`이면 `spellId`와 `attackKind`를 명확히 둔다.
+`action.type=MAP_CAST_SPELL`이면 `spellId`와 `attackKind`를 명확히 둔다.
 
 ### Narrator
 

@@ -285,7 +285,7 @@ class AiHarnessService:
     ) -> InterpreterHarnessResponse:
         parsed = InterpreterOutput(
             action=StructuredAction(
-                type="freeform",
+                type="OUT_OF_SCOPE",
                 actorCharacterId=request.actorCharacterId,
                 approach=request.rawText,
                 confidence=0.0,

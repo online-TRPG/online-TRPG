@@ -13,6 +13,20 @@ import {
 } from "@trpg/shared-types";
 import { MainCommandsService } from "./main-commands.service";
 
+type HarnessInterpreterResult = {
+  parsed: {
+    needsClarification: boolean;
+    action: {
+      type: string;
+      targetId?: string | null;
+      spellId?: string | null;
+      approach: string;
+      confidence: number;
+      requiresRoll: boolean;
+    };
+  };
+};
+
 const dto: SubmitMainCommandDto = {
   commandId: "command-1",
   actorId: "session-character-1",
@@ -22,11 +36,12 @@ const dto: SubmitMainCommandDto = {
   playerText: "주변을 관찰한다",
 };
 
-const defaultInterpreterResult = {
+const defaultInterpreterResult: HarnessInterpreterResult = {
   parsed: {
     needsClarification: false,
     action: {
-      type: "freeform",
+      type: "OUT_OF_SCOPE",
+      targetId: null,
       approach: "checks the scene",
       confidence: 0.8,
       requiresRoll: false,
@@ -36,13 +51,15 @@ const defaultInterpreterResult = {
 
 function createMainCommandHarness(options?: {
   screenType?: MainCommandScreenType;
-  interpreterResult?: typeof defaultInterpreterResult;
+  interpreterResult?: HarnessInterpreterResult;
+  nodeMetaJson?: string | null;
 }) {
   const screenType = options?.screenType ?? MainCommandScreenType.EXPLORATION;
   const aiService = {
     runInterpreter: jest.fn().mockResolvedValue(options?.interpreterResult ?? defaultInterpreterResult),
     runHint: jest.fn().mockResolvedValue({ parsed: { content: "Check the strange statue." } }),
     runSummary: jest.fn().mockResolvedValue({ parsed: { content: "Recent summary." } }),
+    runNpcDialogue: jest.fn().mockResolvedValue({ parsed: { dialogue: "Hello." } }),
   };
   const sessionsService = {
     revealVttObjectContentsAtPoint: jest.fn().mockResolvedValue(0),
@@ -79,7 +96,7 @@ function createMainCommandHarness(options?: {
     currentNodeSceneText: "A quiet room.",
     currentNodeTransitionsJson: "[]",
     currentNodeCluesJson: "[]",
-    currentNodeNodeMetaJson: null,
+    currentNodeNodeMetaJson: options?.nodeMetaJson ?? null,
     currentNodeFallbackNodeId: null,
   });
   internals.loadRecentLogLines = jest.fn().mockResolvedValue([]);
@@ -134,7 +151,7 @@ describe("MainCommandsService.submitMainCommand permission", () => {
       status: PrismaParticipantStatus.JOINED,
     });
     // sessionId+userId 복합키로 본인 sessionCharacter 를 조회하지만 character.ownerUserId 는 다른 유저
-    // (실제로는 캐릭터 이양/공유가 도입된 뒤 발생할 시나리오)
+    // 실제 서비스에서 캐릭터 이양/공유가 도입된 뒤 발생할 수 있는 시나리오를 확인한다.
     prisma.sessionCharacter.findUnique.mockResolvedValue({
       id: "session-character-1",
       characterId: "character-1",
@@ -291,7 +308,7 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
         parsed: {
           needsClarification: false,
           action: {
-            type: "investigate",
+            type: "INVESTIGATE_OBJECT",
             approach: "flip the crate",
             confidence: 0.82,
             requiresRoll: false,
@@ -325,7 +342,7 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
         parsed: {
           needsClarification: false,
           action: {
-            type: "search",
+            type: "INVESTIGATE_OBJECT",
             approach: "check under the crate",
             confidence: 0.91,
             requiresRoll: false,
@@ -339,17 +356,241 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
     });
 
     expect(response.status).toBe(MainCommandStatus.GM_APPROVAL_REQUIRED);
-    expect(response.message).toContain("결과는 아직 확정되지 않았습니다.");
+    expect(response.message).toContain("조사는 대상 확인이나 현장 판정이 필요합니다.");
     expect(response.actionCandidate?.actionSummary).toBe("check under the crate");
     expect(sessionsService.revealCurrentNodeCluesAfterAction).not.toHaveBeenCalled();
-    expect(aiService.runInterpreter).toHaveBeenCalledWith(
+    expect(aiService.runInterpreter).toHaveBeenLastCalledWith(
       "session-1",
       "user-1",
       expect.objectContaining({
-        rawText: "상자 밑을 살펴본다",
-        requestIntent: MainCommandIntent.GENERAL_GM_REQUEST,
+        requestIntent: MainCommandIntent.INVESTIGATE_OBJECT,
       }),
     );
+  });
+
+  it("routes interpreter MAIN_COMMAND action types to the matching main command handler", async () => {
+    const { aiService, submit } = createMainCommandHarness({
+      interpreterResult: {
+        parsed: {
+          needsClarification: false,
+          action: {
+            type: "INVESTIGATE_OBJECT",
+            approach: "flip the crate",
+            confidence: 0.88,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      playerText: "flip the crate",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.GM_APPROVAL_REQUIRED);
+    expect(response.actionCandidate?.actionSummary).toBe("flip the crate");
+    expect(response.data?.interpreterRoute).toEqual({
+      actionType: "INVESTIGATE_OBJECT",
+      route: "MAIN_COMMAND",
+      intent: MainCommandIntent.INVESTIGATE_OBJECT,
+    });
+    expect(aiService.runInterpreter).toHaveBeenCalledTimes(2);
+    expect(aiService.runInterpreter).toHaveBeenLastCalledWith(
+      "session-1",
+      "user-1",
+      expect.objectContaining({
+        requestIntent: MainCommandIntent.INVESTIGATE_OBJECT,
+      }),
+    );
+  });
+
+  it("routes natural-language hint requests from the interpreter to the hint handler", async () => {
+    const { aiService, submit } = createMainCommandHarness({
+      interpreterResult: {
+        parsed: {
+          needsClarification: false,
+          action: {
+            type: "ASK_HINT",
+            approach: "ask for a hint",
+            confidence: 0.94,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      playerText: "힌트 주세요",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.MESSAGE);
+    expect(response.message).toBe("Check the strange statue.");
+    expect(response.data?.interpreterRoute).toEqual({
+      actionType: "ASK_HINT",
+      route: "MAIN_COMMAND",
+      intent: MainCommandIntent.ASK_HINT,
+    });
+    expect(aiService.runInterpreter).toHaveBeenCalledTimes(1);
+    expect(aiService.runHint).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks the player to choose a target when the interpreter guesses one among multiple NPCs", async () => {
+    const { aiService, submit } = createMainCommandHarness({
+      nodeMetaJson: JSON.stringify({
+        npcs: [
+          { id: "npc-mila", name: "밀라 보스턴", isVisible: true },
+          { id: "npc-perrin", name: "페린", isVisible: true },
+        ],
+      }),
+      interpreterResult: {
+        parsed: {
+          needsClarification: false,
+          action: {
+            type: "TALK_TO_NPC",
+            targetId: "npc-mila",
+            approach: "talk to an NPC",
+            confidence: 0.91,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      playerText: "NPC에게 말을 건다",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.MESSAGE);
+    expect(response.message).toContain("대상 선택이 필요합니다");
+    expect(response.data?.interpreterRoute).toEqual({
+      actionType: "TALK_TO_NPC",
+      route: "MAIN_COMMAND",
+      intent: MainCommandIntent.TALK_TO_NPC,
+    });
+    expect(aiService.runNpcDialogue).not.toHaveBeenCalled();
+  });
+
+  it("allows a natural-language NPC request when the player names one visible NPC", async () => {
+    const { aiService, submit } = createMainCommandHarness({
+      nodeMetaJson: JSON.stringify({
+        npcs: [
+          { id: "npc-mila", name: "밀라 보스턴", isVisible: true },
+          { id: "npc-perrin", name: "페린", isVisible: true },
+        ],
+      }),
+      interpreterResult: {
+        parsed: {
+          needsClarification: false,
+          action: {
+            type: "TALK_TO_NPC",
+            targetId: "npc-mila",
+            approach: "talk to Mila",
+            confidence: 0.91,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      playerText: "밀라에게 말을 건다",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.MESSAGE);
+    expect(response.message).toBe("밀라 보스턴: Hello.");
+    expect(aiService.runNpcDialogue).toHaveBeenCalledWith(
+      "user-1",
+      "session-1",
+      expect.objectContaining({
+        npcEntityId: "npc-mila",
+        npcName: "밀라 보스턴",
+      }),
+      { emitChatMessage: false },
+    );
+  });
+
+  it("returns a map-bottom control guide for MAP_CONTROL_ACTION action types", async () => {
+    const { aiService, submit } = createMainCommandHarness({
+      interpreterResult: {
+        parsed: {
+          needsClarification: false,
+          action: {
+            type: "MAP_ATTACK",
+            approach: "attack the goblin",
+            confidence: 0.92,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      playerText: "attack the goblin",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.IMPOSSIBLE);
+    expect(response.message).toContain("맵 하단");
+    expect(response.data?.interpreterRoute).toEqual({
+      actionType: "MAP_ATTACK",
+      route: "MAP_CONTROL_ACTION",
+    });
+    expect(aiService.runInterpreter).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers game meta questions without executing a play action", async () => {
+    const { aiService, sessionsService, submit } = createMainCommandHarness({
+      interpreterResult: {
+        parsed: {
+          needsClarification: false,
+          action: {
+            type: "GAME_META_QUESTION",
+            approach: "ask what TRPG is",
+            confidence: 0.95,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      playerText: "What is a TRPG?",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.MESSAGE);
+    expect(response.message).toContain("TRPG");
+    expect(response.data?.interpreterRoute).toEqual({
+      actionType: "GAME_META_QUESTION",
+      route: "GAME_META_QUESTION",
+    });
+    expect(aiService.runInterpreter).toHaveBeenCalledTimes(1);
+    expect(sessionsService.revealCurrentNodeCluesAfterAction).not.toHaveBeenCalled();
+  });
+
+  it("rejects out-of-scope interpreter action types", async () => {
+    const { submit } = createMainCommandHarness({
+      interpreterResult: {
+        parsed: {
+          needsClarification: false,
+          action: {
+            type: "OUT_OF_SCOPE",
+            approach: "ask about dinner",
+            confidence: 0.9,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      playerText: "What should I eat today?",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.IMPOSSIBLE);
+    expect(response.message).toBe("처리할 수 없는 요청입니다.");
+    expect(response.data?.interpreterRoute).toEqual({
+      actionType: "OUT_OF_SCOPE",
+      route: "OUT_OF_SCOPE",
+    });
   });
 
 });
@@ -373,7 +614,7 @@ describe("MainCommandsService transition condition evaluation", () => {
   const candidate = {
     transitionId: "transition-1",
     label: "북쪽 철문",
-    condition: "북쪽 철문을 열었을 때",
+    condition: "북쪽 철문을 열었다",
     note: null,
     nodeId: "node-next",
     title: "북쪽 통로",
@@ -422,7 +663,7 @@ describe("MainCommandsService transition condition evaluation", () => {
 
   it("allows a transition when recent logs satisfy the natural language condition", () => {
     const result = evaluate(createService(), {
-      recentLogs: ["카엘: 북쪽 철문을 열었다 => 철문이 천천히 열립니다."],
+      recentLogs: ["북쪽 철문을 열었다 => 철문이 열렸다."],
     });
 
     expect(result.satisfied).toBe(true);
