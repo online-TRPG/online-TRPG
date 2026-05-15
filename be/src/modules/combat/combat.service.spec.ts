@@ -14,6 +14,7 @@ const createParticipant = (
     nameSnapshot: string;
     turnOrder: number;
     isAlive: boolean;
+    speedFt: number;
   }> = {},
 ) => ({
   id: overrides.id ?? "participant-1",
@@ -21,6 +22,12 @@ const createParticipant = (
   entityType: PrismaCombatEntityType.PLAYER_CHARACTER,
   sessionCharacterId: overrides.sessionCharacterId ?? "session-character-1",
   nameSnapshot: overrides.nameSnapshot ?? "Hero",
+  tokenId: null,
+  currentHp: 10,
+  maxHp: 10,
+  armorClass: 14,
+  speedFt: overrides.speedFt ?? 30,
+  conditionsJson: "[]",
   initiative: 10,
   turnOrder: overrides.turnOrder ?? 1,
   isAlive: overrides.isAlive ?? true,
@@ -37,8 +44,11 @@ describe("CombatService lifecycle", () => {
       combat: {
         findFirst: jest.fn(),
       },
+      combatTurnState: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       sessionCharacter: {
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         findUnique: jest.fn(),
         update: jest.fn(),
       },
@@ -53,16 +63,18 @@ describe("CombatService lifecycle", () => {
       getSessionEntityOrThrow: jest.fn(),
       ensureMembership: jest.fn(),
       getGameStateEntityOrThrow: jest.fn(),
+      getVttMapForUser: jest.fn().mockResolvedValue({ tokens: [] }),
       buildSnapshot: jest.fn(),
     };
     const diceService = {
-      roll: jest.fn(() => ({ total: 10 })),
+      roll: jest.fn(() => ({ total: 10, rolls: [10] })),
     };
     const actionRules = {
       getAvailableActions: jest.fn(),
     };
     const actionEconomy = {
       getOrCreateTurnState: jest.fn(),
+      spendAction: jest.fn(),
     };
     const characterResources = {
       endRage: jest.fn(),
@@ -133,7 +145,17 @@ describe("CombatService lifecycle", () => {
     prisma.sessionCharacter.findMany.mockResolvedValue([
       {
         id: "session-character-1",
-        character: { name: "Hero" },
+        currentHp: 10,
+        conditionsJson: "[]",
+        character: {
+          name: "Hero",
+          abilitiesJson: "{}",
+          maxHp: 10,
+          armorClass: 14,
+          speed: 30,
+          className: "Fighter",
+          level: 1,
+        },
       },
     ]);
     prisma.$transaction.mockImplementation(async (callback) => callback(tx));
@@ -142,15 +164,16 @@ describe("CombatService lifecycle", () => {
 
     expect(tx.combatTurnState.upsert).toHaveBeenCalledWith({
       where: {
-        combatId_roundNo_turnNo_sessionCharacterId: {
+        combatId_roundNo_turnNo_combatParticipantId: {
           combatId: "combat-1",
           roundNo: 1,
           turnNo: 1,
-          sessionCharacterId: "session-character-1",
+          combatParticipantId: participant.id,
         },
       },
       create: {
         combatId: "combat-1",
+        combatParticipantId: participant.id,
         roundNo: 1,
         turnNo: 1,
         sessionCharacterId: "session-character-1",
@@ -217,6 +240,7 @@ describe("CombatService lifecycle", () => {
     });
     expect(actionEconomy.getOrCreateTurnState).toHaveBeenCalledWith({
       combatId: "combat-1",
+      combatParticipantId: next.id,
       roundNo: 1,
       turnNo: 2,
       sessionCharacterId: "session-character-2",

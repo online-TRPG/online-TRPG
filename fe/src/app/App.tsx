@@ -745,10 +745,13 @@ export function App() {
               void exitSessionToDiscover();
             }}
             onBackToLobby={() => navigate('/sessions/discover')}
+            onNavigateToCharacters={() => navigate('/characters')}
             onMainCommand={(payload) => session.sendMainCommand(payload)}
             onResolveMainCommandCheck={(payload) => session.resolveMainCommandCheck(payload)}
             onAction={handleSessionMessage}
             onLoadOlderTurnLogs={() => void session.loadOlderTurnLogs()}
+            activeDiceRoll={session.activeDiceRoll}
+            onDismissDiceRoll={session.dismissDiceRoll}
           />
         ) : null}
       </div>

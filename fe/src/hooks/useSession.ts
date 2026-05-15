@@ -47,6 +47,11 @@ import type {
   SessionSnapshot,
   StoredUser,
 } from '../types/session';
+import type {
+  DiceAdvantage,
+  DiceRollOutcome,
+  DiceRollOverlayData,
+} from '../features/sessionPlay/components/DiceRollOverlay';
 
 export interface CharacterPayload {
   name: string;
@@ -115,6 +120,8 @@ export interface UseSessionReturn {
   refreshMyCharacters: () => Promise<void>;
   clearSnapshot: () => void;
   clearError: () => void;
+  activeDiceRoll: DiceRollOverlayData | null;
+  dismissDiceRoll: () => void;
 }
 
 type SessionListRefreshResult = {
@@ -129,6 +136,16 @@ type AppendLogFn = (
   id?: string,
   createdAt?: string
 ) => void;
+
+type PendingMainCommandLog = {
+  clientLogId: string;
+  rawLogId: string;
+  pendingLogId: string;
+  rawText: string;
+  userId: string;
+  isPendingVisible: boolean;
+  timeoutId?: number;
+};
 
 function isBlockingSessionStatus(status: string | undefined): boolean {
   return status !== 'completed' && status !== 'disbanded';
@@ -205,6 +222,16 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
   return `[MAIN]${sections.join('\n')}`;
 }
 
+function isMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
+  const structuredAction = turnLog.structuredAction;
+
+  return Boolean(
+    structuredAction &&
+      typeof structuredAction === 'object' &&
+      structuredAction.type === 'main_command'
+  );
+}
+
 function getSenderNameByUserId(userId: string, snapshot: SessionSnapshot | null): string {
   const participant = snapshot?.participants.find((item) => item.userId === userId);
 
@@ -229,6 +256,205 @@ function formatStateDiffMessage(stateDiff: StateDiffResponseDto): string {
   return `상태 버전 ${stateDiff.baseVersion} -> ${stateDiff.nextVersion} (${stateDiff.reason})`;
 }
 
+// shared-types/src/constants/skills.ts (DND5E_SKILLS) 인라인 미러.
+// Vite/Rollup 이 shared-types named value export 를 추적 못 해 직접 import 불가 — skills.ts 변경 시 함께 갱신.
+const DND5E_SKILL_INLINE: ReadonlyArray<{
+  code: string;
+  ko: string;
+  abilityKo: string;
+}> = [
+  { code: "acrobatics", ko: "곡예", abilityKo: "민첩" },
+  { code: "animalhandling", ko: "동물 조련", abilityKo: "지혜" },
+  { code: "arcana", ko: "비전학", abilityKo: "지능" },
+  { code: "athletics", ko: "운동", abilityKo: "근력" },
+  { code: "deception", ko: "기만", abilityKo: "매력" },
+  { code: "history", ko: "역사", abilityKo: "지능" },
+  { code: "insight", ko: "통찰", abilityKo: "지혜" },
+  { code: "intimidation", ko: "위협", abilityKo: "매력" },
+  { code: "investigation", ko: "조사", abilityKo: "지능" },
+  { code: "medicine", ko: "의학", abilityKo: "지혜" },
+  { code: "nature", ko: "자연", abilityKo: "지능" },
+  { code: "perception", ko: "감지", abilityKo: "지혜" },
+  { code: "performance", ko: "공연", abilityKo: "매력" },
+  { code: "persuasion", ko: "설득", abilityKo: "매력" },
+  { code: "religion", ko: "종교", abilityKo: "지능" },
+  { code: "sleightofhand", ko: "손재주", abilityKo: "민첩" },
+  { code: "stealth", ko: "은신", abilityKo: "민첩" },
+  { code: "survival", ko: "생존", abilityKo: "지혜" },
+];
+
+function resolveCheckSkillInline(
+  checkName: string,
+): { titleKo: string; abilityKo: string } | null {
+  const trimmed = checkName.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  const entry = DND5E_SKILL_INLINE.find(
+    (skill) => skill.ko === trimmed || skill.code === lower,
+  );
+  return entry ? { titleKo: entry.ko, abilityKo: entry.abilityKo } : null;
+}
+
+function readDiceNumber(source: Record<string, unknown>, key: string): number | null {
+  const value = source[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeDiceAdvantage(value: unknown): DiceAdvantage {
+  return value === "ADVANTAGE" || value === "DISADVANTAGE" ? value : "NORMAL";
+}
+
+function normalizeDiceOutcome(value: unknown): DiceRollOutcome {
+  return value === "SUCCESS" || value === "FAILURE" || value === "IMPOSSIBLE"
+    ? value
+    : "NO_ROLL";
+}
+
+// turn.log.created 이벤트의 turnLog 에서 주사위 오버레이 표시 데이터를 추출한다.
+// diceResult 가 없으면(다이스 없는 행동) null 반환 → 오버레이 표시 안 함.
+function buildDiceRollOverlayData(
+  turnLog: TurnLogResponseDto,
+  snapshot: SessionSnapshot | null,
+): DiceRollOverlayData | null {
+  const dice = turnLog.diceResult;
+  if (!dice || typeof dice !== "object") {
+    return null;
+  }
+
+  const diceRecord = dice as Record<string, unknown>;
+  const rawRolls = diceRecord.rolls;
+  const rolls = Array.isArray(rawRolls)
+    ? rawRolls.filter((roll): roll is number => typeof roll === "number")
+    : [];
+  if (!rolls.length) {
+    return null;
+  }
+
+  const modifier = readDiceNumber(diceRecord, "modifier") ?? 0;
+  const total = readDiceNumber(diceRecord, "total") ?? 0;
+  const expression =
+    typeof diceRecord.expression === "string" ? diceRecord.expression : "";
+  const advantage = normalizeDiceAdvantage(diceRecord.advantageState);
+  const isD20 = /d20/i.test(expression);
+  const naturalRoll =
+    advantage === "ADVANTAGE"
+      ? Math.max(...rolls)
+      : advantage === "DISADVANTAGE"
+        ? Math.min(...rolls)
+        : rolls[0];
+
+  const structured =
+    turnLog.structuredAction && typeof turnLog.structuredAction === "object"
+      ? (turnLog.structuredAction as Record<string, unknown>)
+      : null;
+  const actionType = typeof structured?.type === "string" ? structured.type : "";
+
+  let title = expression || "주사위";
+  let subtitle: string | null = null;
+  let targetLabel: string | null = null;
+  let targetValue: number | null = null;
+
+  if (actionType === "skill_check") {
+    const checkName =
+      typeof structured?.checkName === "string" ? structured.checkName : "";
+    const skill = resolveCheckSkillInline(checkName);
+    title = skill?.titleKo || checkName || "능력 판정";
+    subtitle = skill ? `${skill.abilityKo} 판정` : "능력 판정";
+    targetLabel = "난이도";
+    targetValue = structured ? readDiceNumber(structured, "dc") : null;
+  } else if (actionType === "attack") {
+    title = "공격";
+    subtitle = "공격 판정";
+    targetLabel = "방어도";
+    targetValue = structured
+      ? readDiceNumber(structured, "targetArmorClass") ??
+        readDiceNumber(structured, "dc")
+      : null;
+  }
+
+  const actorName = turnLog.actorUserId
+    ? getSenderNameByUserId(turnLog.actorUserId, snapshot)
+    : "알 수 없음";
+
+  return {
+    id: turnLog.turnLogId,
+    actorName,
+    title,
+    subtitle,
+    targetLabel,
+    targetValue,
+    isD20,
+    naturalRoll,
+    rolls,
+    modifier,
+    total,
+    expression,
+    advantage,
+    outcome: normalizeDiceOutcome(turnLog.outcome),
+  };
+}
+
+// CHECK_REQUIRED 응답의 checkOption.reason 텍스트에서 DC 숫자를 추출.
+// 예) "/check stealth 15 (난이도 제안: medium)" → 15. 못 찾으면 난이도 키워드로 폴백.
+function parseDcFromCheckReason(reason: string): number {
+  const match = reason.match(/\b(\d{1,2})\b/);
+  if (match) {
+    const dc = Number(match[1]);
+    if (Number.isInteger(dc) && dc >= 5 && dc <= 30) {
+      return dc;
+    }
+  }
+  const lower = reason.toLowerCase();
+  if (lower.includes('easy') || reason.includes('쉬움')) return 10;
+  if (lower.includes('hard') || reason.includes('어려움')) return 20;
+  return 15; // medium 기본
+}
+
+// CHECK_REQUIRED 시 클라이언트 로컬 d20 굴림으로 임시 오버레이 생성.
+// 한계 — BE 를 거치지 않아 다른 플레이어에겐 안 보임 (단일 클라이언트 가시).
+// 캐릭터 보정값은 v1 에서 0 고정. 서버 권위 굴림 + 브로드캐스트는 BE 합의 후 후속 작업으로 교체.
+function buildCheckRequiredOverlay(
+  checkOption: { ability?: string; skill?: string; reason: string },
+  actorUserId: string,
+  actorDisplayName: string,
+): DiceRollOverlayData {
+  const skillInput = checkOption.skill?.trim() ?? '';
+  const skill = skillInput
+    ? DND5E_SKILL_INLINE.find(
+        (entry) => entry.code === skillInput.toLowerCase() || entry.ko === skillInput,
+      )
+    : null;
+
+  const title = skill?.ko || skillInput || '능력 판정';
+  const subtitle = skill
+    ? `${skill.abilityKo} 판정`
+    : checkOption.ability
+      ? `${checkOption.ability} 판정`
+      : '능력 판정';
+
+  const dc = parseDcFromCheckReason(checkOption.reason);
+  const naturalRoll = Math.floor(Math.random() * 20) + 1;
+  const modifier = 0;
+  const total = naturalRoll + modifier;
+
+  return {
+    id: `check-required-${actorUserId}-${Date.now()}`,
+    actorName: actorDisplayName,
+    title,
+    subtitle,
+    targetLabel: '난이도',
+    targetValue: dc,
+    isD20: true,
+    naturalRoll,
+    rolls: [naturalRoll],
+    modifier,
+    total,
+    expression: '1d20',
+    advantage: 'NORMAL',
+    outcome: total >= dc ? 'SUCCESS' : 'FAILURE',
+  };
+}
+
 export function useSession(
   user: StoredUser | null,
   accessToken: string | null,
@@ -247,10 +473,35 @@ export function useSession(
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mySessionsLoaded, setMySessionsLoaded] = useState(false);
+  // 세션 진행 중 주사위 굴림을 전원에게 보여주는 오버레이. turn.log.created 이벤트로 채워진다.
+  const [activeDiceRoll, setActiveDiceRoll] = useState<DiceRollOverlayData | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const snapshotRef = useRef<SessionSnapshot | null>(snapshot);
   const seenTurnLogIdsRef = useRef<Set<string>>(new Set());
   const loadedTurnLogSessionIdRef = useRef<string | null>(null);
+  const pendingMainCommandLogsRef = useRef<PendingMainCommandLog[]>([]);
+
+  const removePendingMainCommandLog = useCallback(
+    (entry: PendingMainCommandLog, options?: { removeRaw?: boolean; removePending?: boolean }) => {
+      const shouldRemoveRaw = options?.removeRaw ?? true;
+      const shouldRemovePending = options?.removePending ?? true;
+
+      if (entry.timeoutId !== undefined) {
+        window.clearTimeout(entry.timeoutId);
+      }
+      if (shouldRemoveRaw) {
+        removeLog(entry.rawLogId);
+      }
+      if (shouldRemovePending) {
+        removeLog(entry.pendingLogId);
+      }
+
+      pendingMainCommandLogsRef.current = pendingMainCommandLogsRef.current.filter(
+        (item) => item.clientLogId !== entry.clientLogId
+      );
+    },
+    [removeLog]
+  );
 
   const clearLocalSessionState = useCallback(() => {
     clearStoredSnapshot();
@@ -261,6 +512,12 @@ export function useSession(
     socketRef.current = null;
     seenTurnLogIdsRef.current.clear();
     loadedTurnLogSessionIdRef.current = null;
+    pendingMainCommandLogsRef.current.forEach((entry) => {
+      if (entry.timeoutId !== undefined) {
+        window.clearTimeout(entry.timeoutId);
+      }
+    });
+    pendingMainCommandLogsRef.current = [];
     setTurnLogNextCursor(null);
     setIsLoadingTurnLogs(false);
     clearSessionLogs();
@@ -410,6 +667,19 @@ export function useSession(
       if (turnLog.playerActionId) {
         removeLog(`player-action:${turnLog.playerActionId}:pending`);
       }
+      if (isMainCommandTurnLog(turnLog)) {
+        const rawInput = turnLog.rawInput?.trim();
+        const matchingPending = pendingMainCommandLogsRef.current.filter(
+          (entry) => entry.rawText === rawInput && entry.userId === turnLog.actorUserId
+        );
+        const matchedPending =
+          matchingPending.find((entry) => entry.isPendingVisible) ?? matchingPending[0];
+
+        if (matchedPending) {
+          // 메인 명령은 playerActionId가 없어서, 같은 입력의 서버 TurnLog가 도착하면 로컬 임시 로그를 실제 기록으로 교체합니다.
+          removePendingMainCommandLog(matchedPending);
+        }
+      }
       appendLog(
         'action',
         '세션 로그',
@@ -418,7 +688,7 @@ export function useSession(
         turnLog.createdAt
       );
     },
-    [appendLog, appendPlayerRawInputLog, removeLog]
+    [appendLog, appendPlayerRawInputLog, removeLog, removePendingMainCommandLog]
   );
 
   const appendHistoricalTurnLog = useCallback(
@@ -431,6 +701,18 @@ export function useSession(
       if (turnLog.playerActionId) {
         removeLog(`player-action:${turnLog.playerActionId}:pending`);
       }
+      if (isMainCommandTurnLog(turnLog)) {
+        const rawInput = turnLog.rawInput?.trim();
+        const matchingPending = pendingMainCommandLogsRef.current.filter(
+          (entry) => entry.rawText === rawInput && entry.userId === turnLog.actorUserId
+        );
+        const matchedPending =
+          matchingPending.find((entry) => entry.isPendingVisible) ?? matchingPending[0];
+
+        if (matchedPending) {
+          removePendingMainCommandLog(matchedPending);
+        }
+      }
 
       // 과거 로그는 배열 앞쪽에 넣어 화면에서 현재 로그보다 위에 보이게 합니다.
       appendOlderLog(
@@ -442,7 +724,7 @@ export function useSession(
       );
       appendPlayerRawInputLog(turnLog, appendOlderLog);
     },
-    [appendOlderLog, appendPlayerRawInputLog, removeLog]
+    [appendOlderLog, appendPlayerRawInputLog, removeLog, removePendingMainCommandLog]
   );
 
   const loadRecentTurnLogs = useCallback(
@@ -589,7 +871,18 @@ export function useSession(
           removeLog(`player-action:${action.playerActionId}:pending`);
         }, 45_000);
       },
-      onTurnLogCreated: appendServerTurnLog,
+      onTurnLogCreated: (turnLog: TurnLogResponseDto) => {
+        // 라이브 turn.log.created 만 오버레이를 띄운다 (과거 로그 로딩은 별도 경로).
+        // appendServerTurnLog 가 turnLogId 를 seen 집합에 넣기 전에 신규 여부를 먼저 확인한다.
+        const isNewTurnLog = !seenTurnLogIdsRef.current.has(turnLog.turnLogId);
+        appendServerTurnLog(turnLog);
+        if (isNewTurnLog) {
+          const diceOverlay = buildDiceRollOverlayData(turnLog, snapshotRef.current);
+          if (diceOverlay) {
+            setActiveDiceRoll(diceOverlay);
+          }
+        }
+      },
       onSystemMessage: (message: SystemMessageEventDto) => {
         if (message.playerActionId) {
           removeLog(`player-action:${message.playerActionId}:pending`);
@@ -632,6 +925,9 @@ export function useSession(
           saveStoredSnapshot(next);
           return next;
         });
+      },
+      onCombatUpdated: () => {
+        appendLog('socket', '전투 상태', '전투 추적기가 갱신되었습니다.');
       },
       onStatusChange: setSocketConnected,
       onLog: (title, message) => appendLog('socket', title, message),
@@ -1065,15 +1361,61 @@ export function useSession(
   ): Promise<MainCommandResponseDto | null> {
     if (!user || !snapshot) return null;
 
+    const rawText = payload.rawInputText?.trim() || payload.playerText.trim();
+    if (!rawText) return null;
+
+    const clientLogId = crypto.randomUUID();
+    const rawLogId = `main-command:${clientLogId}:raw`;
+    const pendingLogId = `main-command:${clientLogId}:pending`;
+    const createdAt = new Date().toISOString();
+    const pendingEntry: PendingMainCommandLog = {
+      clientLogId,
+      rawLogId,
+      pendingLogId,
+      rawText,
+      userId: user.id,
+      isPendingVisible: true,
+    };
+
     setError(null);
     setBusy(true);
 
+    // API 왕복 전에 사용자의 입력과 대기 상태를 먼저 표시해 전송이 먹혔는지 즉시 알 수 있게 합니다.
+    appendLog('action', user.displayName, `[MAIN]${rawText}`, rawLogId, createdAt);
+    appendLog('action', '세션 로그', '[MAIN]...', pendingLogId);
+    pendingEntry.timeoutId = window.setTimeout(() => {
+      removeLog(pendingLogId);
+      pendingEntry.isPendingVisible = false;
+      pendingEntry.timeoutId = undefined;
+    }, 45_000);
+    pendingMainCommandLogsRef.current = [...pendingMainCommandLogsRef.current, pendingEntry];
+
     try {
-      return await apiSubmitMainCommand(user, snapshot.session.id, payload, accessToken);
+      const response = await apiSubmitMainCommand(
+        user,
+        snapshot.session.id,
+        payload,
+        accessToken,
+      );
+      // CHECK_REQUIRED 응답 시 로컬 d20 굴림으로 오버레이 띄움 (v1: 단일 클라이언트 가시).
+      // 서버 권위 굴림 + 브로드캐스트는 BE 합의 후 후속 작업으로 교체.
+      if (response?.status === 'CHECK_REQUIRED' && response.checkOptions?.[0]) {
+        setActiveDiceRoll(
+          buildCheckRequiredOverlay(response.checkOptions[0], user.id, user.displayName),
+        );
+      }
+      return response;
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '메인 명령 전송에 실패했습니다.';
+      removePendingMainCommandLog(pendingEntry, { removeRaw: false });
       setError(message);
       appendLog('socket', '메인 명령 전송 실패', message);
+      appendLog(
+        'action',
+        '세션 로그',
+        `[MAIN]메인 명령 전송 실패: ${message}`,
+        `main-command:${clientLogId}:error`
+      );
       return null;
     } finally {
       setBusy(false);
@@ -1132,6 +1474,10 @@ export function useSession(
     clearLocalSessionState();
   }
 
+  // 오버레이 컴포넌트의 onDismiss 로 넘어가므로 안정적인 참조여야 한다
+  // (매 렌더마다 새 함수면 오버레이 내부 자동 닫힘 타이머가 계속 리셋된다).
+  const dismissDiceRoll = useCallback(() => setActiveDiceRoll(null), []);
+
   return {
     snapshot,
     sessionList,
@@ -1162,5 +1508,7 @@ export function useSession(
     refreshMyCharacters,
     clearSnapshot,
     clearError: () => setError(null),
+    activeDiceRoll,
+    dismissDiceRoll,
   };
 }

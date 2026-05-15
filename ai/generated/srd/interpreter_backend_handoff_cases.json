@@ -5,7 +5,7 @@
       "rawText": "싸늘한 손길을 적 고블린에게 시전한다.",
       "interpreterOutput": {
         "action": {
-          "type": "cast_spell",
+          "type": "MAP_CAST_SPELL",
           "actorCharacterId": "wizard-1",
           "targetId": "goblin-1",
           "spellId": "spell.chill_touch",
@@ -76,7 +76,7 @@
             "advantageState": "normal"
           },
           "sourceAction": {
-            "type": "cast_spell",
+            "type": "MAP_CAST_SPELL",
             "actorCharacterId": "wizard-1",
             "targetId": "goblin-1",
             "spellId": "spell.chill_touch",
@@ -111,7 +111,7 @@
             }
           },
           "sourceAction": {
-            "type": "cast_spell",
+            "type": "MAP_CAST_SPELL",
             "actorCharacterId": "wizard-1",
             "targetId": "goblin-1",
             "spellId": "spell.chill_touch",
@@ -134,7 +134,7 @@
             "targetVulnerabilities": []
           },
           "sourceAction": {
-            "type": "cast_spell",
+            "type": "MAP_CAST_SPELL",
             "actorCharacterId": "wizard-1",
             "targetId": "goblin-1",
             "spellId": "spell.chill_touch",
@@ -153,7 +153,7 @@
       "rawText": "파이터가 롱소드로 고블린을 공격한다.",
       "interpreterOutput": {
         "action": {
-          "type": "attack",
+          "type": "MAP_ATTACK",
           "actorCharacterId": "fighter-1",
           "targetId": "goblin-1",
           "attackKind": "weapon_attack",
@@ -209,7 +209,7 @@
             "advantageState": "normal"
           },
           "sourceAction": {
-            "type": "attack",
+            "type": "MAP_ATTACK",
             "actorCharacterId": "fighter-1",
             "targetId": "goblin-1",
             "attackKind": "weapon_attack",
@@ -231,7 +231,7 @@
             "targetVulnerabilities": []
           },
           "sourceAction": {
-            "type": "attack",
+            "type": "MAP_ATTACK",
             "actorCharacterId": "fighter-1",
             "targetId": "goblin-1",
             "attackKind": "weapon_attack"
@@ -248,7 +248,7 @@
       "rawText": "넘어짐 상태에서 일어나서 적을 공격하려고 한다.",
       "interpreterOutput": {
         "action": {
-          "type": "attack",
+          "type": "MAP_ATTACK",
           "actorCharacterId": "fighter-1",
           "targetId": "goblin-1",
           "attackKind": "weapon_attack",
@@ -309,7 +309,7 @@
             "baseSpeedFt": 30
           },
           "sourceAction": {
-            "type": "attack",
+            "type": "MAP_ATTACK",
             "actorCharacterId": "fighter-1",
             "targetId": "goblin-1",
             "attackKind": "weapon_attack",
@@ -330,7 +330,7 @@
             "advantageState": "disadvantage"
           },
           "sourceAction": {
-            "type": "attack",
+            "type": "MAP_ATTACK",
             "actorCharacterId": "fighter-1",
             "targetId": "goblin-1",
             "attackKind": "weapon_attack",

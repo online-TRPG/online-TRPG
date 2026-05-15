@@ -18,7 +18,7 @@
           "advantageState": "normal"
         },
         "sourceAction": {
-          "type": "attack",
+          "type": "MAP_ATTACK",
           "actorCharacterId": "fighter-1",
           "targetId": "goblin-1",
           "attackKind": "weapon_attack",
@@ -71,7 +71,7 @@
           "targetVulnerabilities": []
         },
         "sourceAction": {
-          "type": "attack",
+          "type": "MAP_ATTACK",
           "actorCharacterId": "fighter-1",
           "targetId": "skeleton-1",
           "requiresRoll": true
@@ -120,7 +120,7 @@
           "baseSpeedFt": 30
         },
         "sourceAction": {
-          "type": "move",
+          "type": "MAP_MOVE",
           "actorCharacterId": "fighter-1",
           "targetId": "goblin-1",
           "approach": "일어나서 근접 공격을 준비한다."
@@ -181,7 +181,7 @@
           }
         },
         "sourceAction": {
-          "type": "cast_spell",
+          "type": "MAP_CAST_SPELL",
           "actorCharacterId": "wizard-1",
           "targetId": "goblin-1",
           "spellId": "spell.chill_touch",
@@ -235,7 +235,7 @@
           "advantageState": "normal"
         },
         "sourceAction": {
-          "type": "attack",
+          "type": "MAP_ATTACK",
           "actorCharacterId": "fighter-1",
           "targetId": "goblin-1",
           "attackKind": "weapon_attack",
@@ -283,7 +283,7 @@
           "advantageState": "normal"
         },
         "sourceAction": {
-          "type": "attack",
+          "type": "MAP_ATTACK",
           "actorCharacterId": "fighter-1",
           "targetId": "goblin-1",
           "attackKind": "weapon_attack",
@@ -334,7 +334,7 @@
           "targetVulnerabilities": []
         },
         "sourceAction": {
-          "type": "cast_spell",
+          "type": "MAP_CAST_SPELL",
           "actorCharacterId": "wizard-1",
           "targetId": "shadow-1",
           "spellId": "spell.chill_touch",
@@ -385,7 +385,7 @@
           ]
         },
         "sourceAction": {
-          "type": "attack",
+          "type": "MAP_ATTACK",
           "actorCharacterId": "cleric-1",
           "targetId": "skeleton-1",
           "attackKind": "weapon_attack"
@@ -432,7 +432,7 @@
           "baseSpeedFt": 30
         },
         "sourceAction": {
-          "type": "attack",
+          "type": "MAP_ATTACK",
           "actorCharacterId": "archer-1",
           "targetId": "fighter-1",
           "attackKind": "weapon_attack"
@@ -478,7 +478,7 @@
           "baseSpeedFt": 30
         },
         "sourceAction": {
-          "type": "move",
+          "type": "MAP_MOVE",
           "actorCharacterId": "fighter-1",
           "targetId": "fighter-1",
           "approach": "일어난다."
@@ -532,7 +532,7 @@
           "spellAttackRollResult": null
         },
         "sourceAction": {
-          "type": "cast_spell",
+          "type": "MAP_CAST_SPELL",
           "actorCharacterId": "wizard-1",
           "targetId": "goblin-1",
           "spellId": "spell.chill_touch",
@@ -589,7 +589,7 @@
           "spellAttackRollResult": null
         },
         "sourceAction": {
-          "type": "cast_spell",
+          "type": "MAP_CAST_SPELL",
           "actorCharacterId": "wizard-1",
           "targetId": "goblin-1",
           "spellId": "spell.chill_touch",

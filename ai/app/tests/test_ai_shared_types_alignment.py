@@ -74,7 +74,7 @@ def test_shared_types_alignment_keeps_known_adapter_differences_visible():
 
 def test_shared_type_adapters_preserve_structured_action_extension_fields():
     action = StructuredAction(
-        type="cast_spell",
+        type="MAP_CAST_SPELL",
         actorCharacterId="wizard-1",
         targetId="goblin-1",
         spellId="spell.chill_touch",
@@ -86,7 +86,7 @@ def test_shared_type_adapters_preserve_structured_action_extension_fields():
 
     payload = structured_action_to_backend(action)
 
-    assert payload["type"] == "cast_spell"
+    assert payload["type"] == "MAP_CAST_SPELL"
     assert payload["spellId"] == "spell.chill_touch"
     assert payload["attackKind"] == "ranged_spell_attack"
     assert "featureId" not in payload

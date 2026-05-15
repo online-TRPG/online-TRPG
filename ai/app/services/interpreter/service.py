@@ -14,6 +14,8 @@ from app.srd.retrieval import SrdRetriever
 
 class InterpreterService:
     PROMPT_VERSION = "interpreter.v1.md"
+    SPELL_ACTION_TYPES = {"MAP_CAST_SPELL", "USE_SPELL_CREATIVELY"}
+    CLASS_FEATURE_ACTION_TYPES = {"MAP_USE_CLASS_FEATURE"}
 
     def __init__(self, client: GoogleAiStudioClient, settings: Settings, srd_retriever: SrdRetriever | None = None):
         self._client = client
@@ -193,7 +195,7 @@ class InterpreterService:
             "relatedEngineHooks는 백엔드가 나중에 확정해야 할 deterministic 처리 계약일 뿐이다. "
             "AI는 이 후보를 근거로 상태 변화, 명중, 피해, DC, 슬롯 소비를 확정하면 안 된다.\n"
             "relatedEngineHooks 중 domain이 class_feature인 항목이 플레이어 입력과 직접 맞으면 "
-            "action.type='use_class_feature'로 두고 sourceEntityIds의 class feature ID를 action.featureId에 복사하라.\n"
+            "action.type='MAP_USE_CLASS_FEATURE'로 두고 sourceEntityIds의 class feature ID를 action.featureId에 복사하라.\n"
             "selectedTargetId, selectedItemId, selectedSpellId가 주어지면 그 값을 신뢰하고 유지하라. "
             "availableTargetDetails는 각 대상의 이름과 종류를 보여주기 위한 참고 정보다.\n"
             f"availableTargetDetails: {json.dumps(target_details, ensure_ascii=False)}\n"
@@ -238,28 +240,28 @@ class InterpreterService:
             if source_id.startswith("class.")
         }
 
-        if parsed.action.type == "cast_spell":
+        if parsed.action.type in InterpreterService.SPELL_ACTION_TYPES:
             if parsed.action.spellId is None:
-                raise ValueError("cast_spell action requires action.spellId")
+                raise ValueError("spell action requires action.spellId")
             if parsed.action.featureId is not None:
-                raise ValueError("cast_spell action cannot include action.featureId")
+                raise ValueError("spell action cannot include action.featureId")
             if parsed.mentionedSpellId != parsed.action.spellId:
-                raise ValueError("cast_spell action requires mentionedSpellId to match action.spellId")
+                raise ValueError("spell action requires mentionedSpellId to match action.spellId")
             if parsed.action.spellId not in allowed_spell_ids:
-                raise ValueError("cast_spell action.spellId must be one of retrieved spell IDs")
+                raise ValueError("spell action.spellId must be one of retrieved spell IDs")
             if parsed.action.attackKind is None and any("spell_attack" in rule_id for rule_id in allowed_rule_ids):
                 raise ValueError("spell attack actions require action.attackKind")
-        elif parsed.action.type == "use_class_feature":
+        elif parsed.action.type in InterpreterService.CLASS_FEATURE_ACTION_TYPES:
             if parsed.action.featureId is None:
-                raise ValueError("use_class_feature action requires action.featureId")
+                raise ValueError("class feature action requires action.featureId")
             if parsed.action.featureId not in allowed_feature_ids:
-                raise ValueError("use_class_feature action.featureId must be one of retrieved class feature IDs")
+                raise ValueError("class feature action.featureId must be one of retrieved class feature IDs")
             if parsed.action.spellId is not None:
-                raise ValueError("use_class_feature action cannot include action.spellId")
+                raise ValueError("class feature action cannot include action.spellId")
         elif parsed.action.spellId is not None:
-            raise ValueError("action.spellId is only allowed for cast_spell actions")
+            raise ValueError("action.spellId is only allowed for spell action types")
         elif parsed.action.featureId is not None:
-            raise ValueError("action.featureId is only allowed for use_class_feature actions")
+            raise ValueError("action.featureId is only allowed for class feature action types")
 
         if parsed.mentionedItemId is not None and parsed.mentionedItemId not in allowed_item_ids:
             raise ValueError("mentionedItemId must be one of retrieved magic item IDs")
@@ -280,7 +282,7 @@ class InterpreterService:
         prompt_context: dict[str, object],
         raw_text: str,
     ) -> InterpreterOutput:
-        if parsed.action.type == "cast_spell":
+        if parsed.action.type in InterpreterService.SPELL_ACTION_TYPES:
             return parsed
         related_rule_hooks = prompt_context["related_rule_hooks"]
         seen_feature_ids: set[str] = set()
@@ -303,13 +305,13 @@ class InterpreterService:
             chosen_feature_id = class_feature_ids[0]
         else:
             return parsed
-        if parsed.action.type == "use_class_feature" and parsed.action.featureId == chosen_feature_id:
+        if parsed.action.type == "MAP_USE_CLASS_FEATURE" and parsed.action.featureId == chosen_feature_id:
             return parsed
 
         normalized_action = StructuredAction(
             **{
                 **parsed.action.model_dump(),
-                "type": "use_class_feature",
+                "type": "MAP_USE_CLASS_FEATURE",
                 "spellId": None,
                 "featureId": chosen_feature_id,
                 "attackKind": None,
