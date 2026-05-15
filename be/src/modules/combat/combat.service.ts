@@ -148,26 +148,25 @@ export class CombatService {
         data: { currentParticipantId: firstParticipant.id },
       });
 
-      if (firstParticipant.sessionCharacterId) {
-        // 전투 시작 직후 첫 행동 검증이 안정적으로 동작하도록 첫 턴 상태를 미리 만든다.
-        await tx.combatTurnState.upsert({
-          where: {
-            combatId_roundNo_turnNo_sessionCharacterId: {
-              combatId: created.id,
-              roundNo: 1,
-              turnNo: 1,
-              sessionCharacterId: firstParticipant.sessionCharacterId,
-            },
-          },
-          create: {
+      // 전투 시작 직후 첫 행동 검증이 안정적으로 동작하도록 첫 턴 상태를 미리 만든다.
+      await tx.combatTurnState.upsert({
+        where: {
+          combatId_roundNo_turnNo_combatParticipantId: {
             combatId: created.id,
             roundNo: 1,
             turnNo: 1,
-            sessionCharacterId: firstParticipant.sessionCharacterId,
+            combatParticipantId: firstParticipant.id,
           },
-          update: {},
-        });
-      }
+        },
+        create: {
+          combatId: created.id,
+          combatParticipantId: firstParticipant.id,
+          roundNo: 1,
+          turnNo: 1,
+          sessionCharacterId: firstParticipant.sessionCharacterId,
+        },
+        update: {},
+      });
 
       // 전투 시작은 세션 전체 UI가 바뀌는 상태 전환이므로 GameState phase와 version을 함께 올린다.
       await tx.gameState.update({
@@ -329,9 +328,10 @@ export class CombatService {
       });
     });
 
-    if (next?.sessionCharacterId) {
+    if (next) {
       await this.actionEconomy.getOrCreateTurnState({
         combatId: updated.id,
+        combatParticipantId: next.id,
         roundNo: updated.roundNo,
         turnNo: updated.turnNo,
         sessionCharacterId: next.sessionCharacterId,
@@ -481,26 +481,55 @@ export class CombatService {
   }
 
   private mapCombat(combat: NonNullable<CombatWithParticipants>): CombatResponseDto {
+    const aliveParticipants = combat.participants.filter((participant) => participant.isAlive);
+    const currentParticipant =
+      combat.participants.find((participant) => participant.id === combat.currentParticipantId) ?? null;
+    const roundTurnNo = currentParticipant
+      ? Math.max(
+          1,
+          aliveParticipants.findIndex((participant) => participant.id === currentParticipant.id) + 1,
+        )
+      : 0;
+    const currentTurnOrder = currentParticipant?.turnOrder ?? Number.MAX_SAFE_INTEGER;
+
     return {
       combatId: combat.id,
       sessionId: combat.sessionId,
       status: combat.status as CombatStatus,
       roundNo: combat.roundNo,
       turnNo: combat.turnNo,
+      roundTurnNo,
       currentEntityId: combat.currentParticipantId,
-      participants: combat.participants.map((participant) => ({
-        sessionEntityId: participant.id,
-        entityType: participant.entityType as CombatEntityType,
-        sessionCharacterId: participant.sessionCharacterId,
-        name: participant.nameSnapshot,
-        currentHp: null,
-        maxHp: null,
-        armorClass: null,
-        initiative: participant.initiative,
-        turnOrder: participant.turnOrder,
-        isAlive: participant.isAlive,
-        isHostile: participant.isHostile,
-      })),
+      participants: combat.participants.map((participant) => {
+        const movementFtTotal = participant.speedFt ?? 30;
+        return {
+          sessionEntityId: participant.id,
+          entityType: participant.entityType as CombatEntityType,
+          sessionCharacterId: participant.sessionCharacterId,
+          tokenId: participant.tokenId ?? null,
+          name: participant.nameSnapshot,
+          currentHp: participant.currentHp ?? null,
+          maxHp: participant.maxHp ?? null,
+          armorClass: participant.armorClass ?? null,
+          initiative: participant.initiative,
+          turnOrder: participant.turnOrder,
+          isAlive: participant.isAlive,
+          isHostile: participant.isHostile,
+          hasActedThisRound:
+            participant.isAlive &&
+            participant.id !== combat.currentParticipantId &&
+            participant.turnOrder < currentTurnOrder,
+          conditions: this.parseConditions(participant.conditionsJson ?? "[]"),
+          actionResources: {
+            actionAvailable: true,
+            bonusActionAvailable: false,
+            reactionAvailable: true,
+            additionalActionAvailable: false,
+            movementFtTotal,
+            movementFtRemaining: movementFtTotal,
+          },
+        };
+      }),
     };
   }
 }
