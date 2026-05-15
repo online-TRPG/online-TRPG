@@ -41,12 +41,13 @@ import type { CharacterPayload } from '../hooks/useSession';
 import { getPlayerScenario, getVttMap, updateVttMap, useInventoryItem } from '../services/api';
 import type {
   LogEntry,
+  Character,
   PersistentCharacter,
   PlayerScenarioView,
   SessionSnapshot,
   StoredUser,
 } from '../types/session';
-import { GM_TOKEN_COLOR, getPlayerTokenColor } from '../utils/sessionTokenColors';
+import { getPlayerTokenColor } from '../utils/sessionTokenColors';
 import type { SessionTokenColor } from '../utils/sessionTokenColors';
 import './CharacterPage.css';
 import './PlayPage.css';
@@ -782,6 +783,26 @@ function buildProfileColorStyle(color: SessionTokenColor): CSSProperties {
   } as CSSProperties;
 }
 
+function buildStoryPartyColorStyle(color: SessionTokenColor): CSSProperties {
+  // 하단 파티 카드도 메인/채팅 프로필과 같은 색 출처를 쓰도록 별도 CSS 변수에 복사합니다.
+  return {
+    ...buildProfileColorStyle(color),
+    ['--story-party-frame-color' as string]: color.frame,
+    ['--story-party-bg-color' as string]: color.background,
+    ['--story-party-text-color' as string]: color.text,
+  } as CSSProperties;
+}
+
+function buildMapPartyColorStyle(color: SessionTokenColor): CSSProperties {
+  // 탐험 맵에 원래 있던 파티 오버레이도 캐릭터 토큰 색상 기준을 쓰도록 전용 CSS 변수에 복사합니다.
+  return {
+    ...buildProfileColorStyle(color),
+    ['--map-party-frame-color' as string]: color.frame,
+    ['--map-party-bg-color' as string]: color.background,
+    ['--map-party-text-color' as string]: color.text,
+  } as CSSProperties;
+}
+
 function getLogSenderLabel(title: string, rowClass: 'incoming' | 'outgoing' | 'notice') {
   if (rowClass === 'notice') return '세션 로그';
   return title || '알 수 없음';
@@ -793,6 +814,10 @@ function getMainLogPresentation(log: LogEntry, message: string): MainLogPresenta
   }
 
   if (log.id.startsWith('turn-log:') && log.id.endsWith(':raw')) {
+    return { tone: 'player-command', label: 'GM 요청' };
+  }
+
+  if (log.id.startsWith('main-command:') && log.id.endsWith(':raw')) {
     return { tone: 'player-command', label: 'GM 요청' };
   }
 
@@ -1754,9 +1779,18 @@ export function PlayPage({
     return null;
   }
 
+  function getCharacterTokenColor(character: Character): SessionTokenColor {
+    // 맵 토큰 프레임이 캐릭터 배열 순서로 색을 고르기 때문에, 프로필 계열 UI도 같은 기준을 사용합니다.
+    const characterIndex = sessionCharacters.findIndex((item) => item.id === character.id);
+    return getPlayerTokenColor(characterIndex);
+  }
+
   function getParticipantProfileColor(participantUserId: string): SessionTokenColor {
-    if (participantUserId === session?.hostUserId) {
-      return GM_TOKEN_COLOR;
+    const linkedCharacter =
+      sessionCharacters.find((character) => character.userId === participantUserId) ?? null;
+
+    if (linkedCharacter) {
+      return getCharacterTokenColor(linkedCharacter);
     }
 
     const playerIndex = playerParticipantIds.indexOf(participantUserId);
@@ -2044,6 +2078,9 @@ export function PlayPage({
                   isGmView={canManageStartedSession}
                   rpUtterances={storyRpUtterances}
                   onRpUtteranceClick={() => setActiveTab('Main')}
+                  getCharacterColorStyle={(character) =>
+                    buildStoryPartyColorStyle(getCharacterTokenColor(character))
+                  }
                 />
               ) : isExplorationNode ? (
                 <ExplorationNodeSurface
@@ -2058,6 +2095,9 @@ export function PlayPage({
                   inventory={selectedCharacterInventory}
                   isBusy={busy || isInventoryUsePending}
                   inventoryFeedback={inventoryUseFeedback}
+                  getCharacterColorStyle={(character) =>
+                    buildMapPartyColorStyle(getCharacterTokenColor(character))
+                  }
                   onMapChange={handleMapChange}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onRequestMainCommand={handleExplorationMainCommandRequest}
