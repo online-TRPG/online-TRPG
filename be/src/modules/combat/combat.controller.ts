@@ -8,11 +8,8 @@ import {
 } from "@nestjs/swagger";
 import {
   AvailableActionsResponseDto,
-  ApplyCombatDamageDto,
-  CombatActionResultDto,
   CombatResponseDto,
   EndTurnDto,
-  ResolveCombatAttackDto,
   StartCombatDto,
   TurnAdvanceResponseDto,
 } from "@trpg/shared-types";
@@ -82,38 +79,6 @@ export class CombatController {
       "TURN_200",
       "요청이 성공했습니다.",
       await this.combatService.endTurn(userId, sessionId, dto),
-    );
-  }
-
-  @Post("damage")
-  @HttpCode(200)
-  @ApiParam({ name: "sessionId" })
-  @ApiOkResponse({ type: CombatActionResultDto })
-  async applyDamage(
-    @CurrentUserId() userId: string,
-    @Param("sessionId") sessionId: string,
-    @Body() dto: ApplyCombatDamageDto,
-  ): Promise<ApiResponse<CombatActionResultDto>> {
-    return apiResponse(
-      "COMBAT_200",
-      "요청이 성공했습니다.",
-      await this.combatService.applyDamage(userId, sessionId, dto),
-    );
-  }
-
-  @Post("attack")
-  @HttpCode(200)
-  @ApiParam({ name: "sessionId" })
-  @ApiOkResponse({ type: CombatActionResultDto })
-  async resolveAttack(
-    @CurrentUserId() userId: string,
-    @Param("sessionId") sessionId: string,
-    @Body() dto: ResolveCombatAttackDto,
-  ): Promise<ApiResponse<CombatActionResultDto>> {
-    return apiResponse(
-      "COMBAT_200",
-      "요청이 성공했습니다.",
-      await this.combatService.resolveAttack(userId, sessionId, dto),
     );
   }
 }
