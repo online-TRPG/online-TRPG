@@ -45,6 +45,11 @@ import type {
   SessionSnapshot,
   StoredUser,
 } from "../types/session";
+import type {
+  DiceAdvantage,
+  DiceRollOutcome,
+  DiceRollOverlayData,
+} from "../features/sessionPlay/components/DiceRollOverlay";
 
 export interface CharacterPayload {
   name: string;
@@ -110,6 +115,8 @@ export interface UseSessionReturn {
   refreshMyCharacters: () => Promise<void>;
   clearSnapshot: () => void;
   clearError: () => void;
+  activeDiceRoll: DiceRollOverlayData | null;
+  dismissDiceRoll: () => void;
 }
 
 type SessionListRefreshResult = {
@@ -227,6 +234,144 @@ function formatStateDiffMessage(stateDiff: StateDiffResponseDto): string {
   return `?곹깭 踰꾩쟾 ${stateDiff.baseVersion} -> ${stateDiff.nextVersion} (${stateDiff.reason})`;
 }
 
+// shared-types/src/constants/skills.ts (DND5E_SKILLS) 인라인 미러.
+// Vite/Rollup 이 shared-types named value export 를 추적 못 해 직접 import 불가 — skills.ts 변경 시 함께 갱신.
+const DND5E_SKILL_INLINE: ReadonlyArray<{
+  code: string;
+  ko: string;
+  abilityKo: string;
+}> = [
+  { code: "acrobatics", ko: "곡예", abilityKo: "민첩" },
+  { code: "animalhandling", ko: "동물 조련", abilityKo: "지혜" },
+  { code: "arcana", ko: "비전학", abilityKo: "지능" },
+  { code: "athletics", ko: "운동", abilityKo: "근력" },
+  { code: "deception", ko: "기만", abilityKo: "매력" },
+  { code: "history", ko: "역사", abilityKo: "지능" },
+  { code: "insight", ko: "통찰", abilityKo: "지혜" },
+  { code: "intimidation", ko: "위협", abilityKo: "매력" },
+  { code: "investigation", ko: "조사", abilityKo: "지능" },
+  { code: "medicine", ko: "의학", abilityKo: "지혜" },
+  { code: "nature", ko: "자연", abilityKo: "지능" },
+  { code: "perception", ko: "감지", abilityKo: "지혜" },
+  { code: "performance", ko: "공연", abilityKo: "매력" },
+  { code: "persuasion", ko: "설득", abilityKo: "매력" },
+  { code: "religion", ko: "종교", abilityKo: "지능" },
+  { code: "sleightofhand", ko: "손재주", abilityKo: "민첩" },
+  { code: "stealth", ko: "은신", abilityKo: "민첩" },
+  { code: "survival", ko: "생존", abilityKo: "지혜" },
+];
+
+function resolveCheckSkillInline(
+  checkName: string,
+): { titleKo: string; abilityKo: string } | null {
+  const trimmed = checkName.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  const entry = DND5E_SKILL_INLINE.find(
+    (skill) => skill.ko === trimmed || skill.code === lower,
+  );
+  return entry ? { titleKo: entry.ko, abilityKo: entry.abilityKo } : null;
+}
+
+function readDiceNumber(source: Record<string, unknown>, key: string): number | null {
+  const value = source[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeDiceAdvantage(value: unknown): DiceAdvantage {
+  return value === "ADVANTAGE" || value === "DISADVANTAGE" ? value : "NORMAL";
+}
+
+function normalizeDiceOutcome(value: unknown): DiceRollOutcome {
+  return value === "SUCCESS" || value === "FAILURE" || value === "IMPOSSIBLE"
+    ? value
+    : "NO_ROLL";
+}
+
+// turn.log.created 이벤트의 turnLog 에서 주사위 오버레이 표시 데이터를 추출한다.
+// diceResult 가 없으면(다이스 없는 행동) null 반환 → 오버레이 표시 안 함.
+function buildDiceRollOverlayData(
+  turnLog: TurnLogResponseDto,
+  snapshot: SessionSnapshot | null,
+): DiceRollOverlayData | null {
+  const dice = turnLog.diceResult;
+  if (!dice || typeof dice !== "object") {
+    return null;
+  }
+
+  const diceRecord = dice as Record<string, unknown>;
+  const rawRolls = diceRecord.rolls;
+  const rolls = Array.isArray(rawRolls)
+    ? rawRolls.filter((roll): roll is number => typeof roll === "number")
+    : [];
+  if (!rolls.length) {
+    return null;
+  }
+
+  const modifier = readDiceNumber(diceRecord, "modifier") ?? 0;
+  const total = readDiceNumber(diceRecord, "total") ?? 0;
+  const expression =
+    typeof diceRecord.expression === "string" ? diceRecord.expression : "";
+  const advantage = normalizeDiceAdvantage(diceRecord.advantageState);
+  const isD20 = /d20/i.test(expression);
+  const naturalRoll =
+    advantage === "ADVANTAGE"
+      ? Math.max(...rolls)
+      : advantage === "DISADVANTAGE"
+        ? Math.min(...rolls)
+        : rolls[0];
+
+  const structured =
+    turnLog.structuredAction && typeof turnLog.structuredAction === "object"
+      ? (turnLog.structuredAction as Record<string, unknown>)
+      : null;
+  const actionType = typeof structured?.type === "string" ? structured.type : "";
+
+  let title = expression || "주사위";
+  let subtitle: string | null = null;
+  let targetLabel: string | null = null;
+  let targetValue: number | null = null;
+
+  if (actionType === "skill_check") {
+    const checkName =
+      typeof structured?.checkName === "string" ? structured.checkName : "";
+    const skill = resolveCheckSkillInline(checkName);
+    title = skill?.titleKo || checkName || "능력 판정";
+    subtitle = skill ? `${skill.abilityKo} 판정` : "능력 판정";
+    targetLabel = "난이도";
+    targetValue = structured ? readDiceNumber(structured, "dc") : null;
+  } else if (actionType === "attack") {
+    title = "공격";
+    subtitle = "공격 판정";
+    targetLabel = "방어도";
+    targetValue = structured
+      ? readDiceNumber(structured, "targetArmorClass") ??
+        readDiceNumber(structured, "dc")
+      : null;
+  }
+
+  const actorName = turnLog.actorUserId
+    ? getSenderNameByUserId(turnLog.actorUserId, snapshot)
+    : "알 수 없음";
+
+  return {
+    id: turnLog.turnLogId,
+    actorName,
+    title,
+    subtitle,
+    targetLabel,
+    targetValue,
+    isD20,
+    naturalRoll,
+    rolls,
+    modifier,
+    total,
+    expression,
+    advantage,
+    outcome: normalizeDiceOutcome(turnLog.outcome),
+  };
+}
+
 export function useSession(
   user: StoredUser | null,
   accessToken: string | null,
@@ -244,6 +389,8 @@ export function useSession(
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mySessionsLoaded, setMySessionsLoaded] = useState(false);
+  // 세션 진행 중 주사위 굴림을 전원에게 보여주는 오버레이. turn.log.created 이벤트로 채워진다.
+  const [activeDiceRoll, setActiveDiceRoll] = useState<DiceRollOverlayData | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const snapshotRef = useRef<SessionSnapshot | null>(snapshot);
   const seenTurnLogIdsRef = useRef<Set<string>>(new Set());
@@ -562,7 +709,18 @@ export function useSession(
           removeLog(`player-action:${action.playerActionId}:pending`);
         }, 45_000);
       },
-      onTurnLogCreated: appendServerTurnLog,
+      onTurnLogCreated: (turnLog: TurnLogResponseDto) => {
+        // 라이브 turn.log.created 만 오버레이를 띄운다 (과거 로그 로딩은 별도 경로).
+        // appendServerTurnLog 가 turnLogId 를 seen 집합에 넣기 전에 신규 여부를 먼저 확인한다.
+        const isNewTurnLog = !seenTurnLogIdsRef.current.has(turnLog.turnLogId);
+        appendServerTurnLog(turnLog);
+        if (isNewTurnLog) {
+          const diceOverlay = buildDiceRollOverlayData(turnLog, snapshotRef.current);
+          if (diceOverlay) {
+            setActiveDiceRoll(diceOverlay);
+          }
+        }
+      },
       onSystemMessage: (message: SystemMessageEventDto) => {
         if (message.playerActionId) {
           removeLog(`player-action:${message.playerActionId}:pending`);
@@ -1057,6 +1215,10 @@ export function useSession(
     clearLocalSessionState();
   }
 
+  // 오버레이 컴포넌트의 onDismiss 로 넘어가므로 안정적인 참조여야 한다
+  // (매 렌더마다 새 함수면 오버레이 내부 자동 닫힘 타이머가 계속 리셋된다).
+  const dismissDiceRoll = useCallback(() => setActiveDiceRoll(null), []);
+
   return {
     snapshot,
     sessionList,
@@ -1086,5 +1248,7 @@ export function useSession(
     refreshMyCharacters,
     clearSnapshot,
     clearError: () => setError(null),
+    activeDiceRoll,
+    dismissDiceRoll,
   };
 }
