@@ -36,7 +36,7 @@ def settings() -> Settings:
 
 def valid_spell_cast_payload(**overrides):
     action = {
-        "type": "cast_spell",
+        "type": "MAP_CAST_SPELL",
         "actorCharacterId": "wizard-1",
         "targetId": "goblin-1",
         "spellId": "spell.chill_touch",
@@ -120,7 +120,7 @@ def run_plain_contract_case(payload: dict):
 def test_contract_accepts_valid_spell_cast_output():
     response = run_contract_case(valid_spell_cast_payload())
 
-    assert response.parsed.action.type == "cast_spell"
+    assert response.parsed.action.type == "MAP_CAST_SPELL"
     assert response.parsed.action.spellId == "spell.chill_touch"
 
 
@@ -138,7 +138,7 @@ def test_contract_accepts_valid_class_feature_output():
     response = run_second_wind_contract_case(
         {
             "action": {
-                "type": "use_class_feature",
+                "type": "MAP_USE_CLASS_FEATURE",
                 "actorCharacterId": "fighter-1",
                 "targetId": None,
                 "spellId": None,
@@ -162,14 +162,45 @@ def test_contract_accepts_valid_class_feature_output():
         }
     )
 
-    assert response.parsed.action.type == "use_class_feature"
+    assert response.parsed.action.type == "MAP_USE_CLASS_FEATURE"
     assert response.parsed.action.featureId == "class.fighter.feature.재기의_숨결"
+
+
+def test_contract_accepts_main_command_route_action_type():
+    response = run_plain_contract_case(
+        {
+            "action": {
+                "type": "INVESTIGATE_OBJECT",
+                "actorCharacterId": "fighter-1",
+                "targetId": None,
+                "spellId": None,
+                "featureId": None,
+                "attackKind": None,
+                "ability": None,
+                "skill": None,
+                "approach": "check under the crate",
+                "confidence": 0.9,
+                "requiresRoll": False,
+                "suggestedDifficulty": None,
+            },
+            "needsClarification": False,
+            "clarificationQuestion": None,
+            "mentionedSpellId": None,
+            "mentionedItemId": None,
+            "mentionedConditionIds": [],
+            "requiredRuleCheckIds": [],
+            "rulesConfidence": 0.9,
+            "safetyNotes": [],
+        }
+    )
+
+    assert response.parsed.action.type == "INVESTIGATE_OBJECT"
 
 
 def test_contract_rejects_class_feature_id_that_was_not_retrieved():
     payload = {
         "action": {
-            "type": "use_class_feature",
+            "type": "MAP_USE_CLASS_FEATURE",
             "actorCharacterId": "fighter-1",
             "targetId": None,
             "spellId": None,
@@ -196,11 +227,11 @@ def test_contract_rejects_class_feature_id_that_was_not_retrieved():
         run_plain_contract_case(payload)
 
 
-def test_contract_normalizes_single_retrieved_class_feature_from_freeform_output():
+def test_contract_normalizes_single_retrieved_class_feature_from_generic_output():
     response = run_second_wind_contract_case(
         {
             "action": {
-                "type": "freeform",
+                "type": "OUT_OF_SCOPE",
                 "actorCharacterId": "fighter-1",
                 "targetId": None,
                 "spellId": None,
@@ -224,7 +255,7 @@ def test_contract_normalizes_single_retrieved_class_feature_from_freeform_output
         }
     )
 
-    assert response.parsed.action.type == "use_class_feature"
+    assert response.parsed.action.type == "MAP_USE_CLASS_FEATURE"
     assert response.parsed.action.featureId == "class.fighter.feature.재기의_숨결"
     assert response.parsed.safetyNotes
 
@@ -233,7 +264,7 @@ def test_contract_normalizes_class_feature_with_empty_feature_id():
     response = run_second_wind_contract_case(
         {
             "action": {
-                "type": "use_class_feature",
+                "type": "MAP_USE_CLASS_FEATURE",
                 "actorCharacterId": "fighter-1",
                 "targetId": None,
                 "spellId": None,
@@ -264,7 +295,7 @@ def test_contract_normalizes_ambiguous_class_feature_to_highest_ranked_hook_matc
     response = run_frenzy_contract_case(
         {
             "action": {
-                "type": "use_class_feature",
+                "type": "MAP_USE_CLASS_FEATURE",
                 "actorCharacterId": "barbarian-1",
                 "targetId": None,
                 "spellId": None,
@@ -288,7 +319,7 @@ def test_contract_normalizes_ambiguous_class_feature_to_highest_ranked_hook_matc
         }
     )
 
-    assert response.parsed.action.type == "use_class_feature"
+    assert response.parsed.action.type == "MAP_USE_CLASS_FEATURE"
     assert response.parsed.action.featureId == "class.barbarian.subclass_feature.광분"
 
 

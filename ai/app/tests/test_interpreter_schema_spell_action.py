@@ -5,7 +5,7 @@ def test_interpreter_output_accepts_backend_actionable_spell_cast():
     parsed = InterpreterOutput.model_validate(
         {
             "action": {
-                "type": "cast_spell",
+                "type": "MAP_CAST_SPELL",
                 "actorCharacterId": "wizard-1",
                 "targetId": "goblin-1",
                 "spellId": "spell.chill_touch",
@@ -33,7 +33,7 @@ def test_interpreter_output_accepts_backend_actionable_spell_cast():
         }
     )
 
-    assert parsed.action.type == "cast_spell"
+    assert parsed.action.type == "MAP_CAST_SPELL"
     assert parsed.action.spellId == "spell.chill_touch"
     assert parsed.action.attackKind == "ranged_spell_attack"
 
@@ -42,7 +42,7 @@ def test_interpreter_output_accepts_backend_actionable_class_feature_use():
     parsed = InterpreterOutput.model_validate(
         {
             "action": {
-                "type": "use_class_feature",
+                "type": "MAP_USE_CLASS_FEATURE",
                 "actorCharacterId": "fighter-1",
                 "targetId": None,
                 "spellId": None,
@@ -66,5 +66,5 @@ def test_interpreter_output_accepts_backend_actionable_class_feature_use():
         }
     )
 
-    assert parsed.action.type == "use_class_feature"
+    assert parsed.action.type == "MAP_USE_CLASS_FEATURE"
     assert parsed.action.featureId == "class.fighter.feature.재기의_숨결"
