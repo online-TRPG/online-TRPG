@@ -729,13 +729,15 @@ export function App() {
             user={currentUser}
             snapshot={session.snapshot}
             characters={session.myCharacters}
+            races={races}
+            classDefinitions={classDefinitions}
             logs={logs}
             socketConnected={session.socketConnected}
             hasOlderTurnLogs={session.hasOlderTurnLogs}
             isLoadingTurnLogs={session.isLoadingTurnLogs}
             busy={busy}
             error={error}
-            onCreateCharacter={(payload) => void session.createCharacter(payload)}
+            onCreateCharacter={(payload) => session.createCharacter(payload)}
             onSelectCharacter={(characterId) => void session.selectCharacter(characterId)}
             onSetReady={(isReady) => void session.setReadyState(isReady)}
             onStartSession={() => void session.startSession()}
