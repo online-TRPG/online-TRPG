@@ -660,13 +660,7 @@ model CombatParticipant {
   combatId           String
   entityType         CombatEntityType
   sessionCharacterId String?
-  tokenId            String?
   nameSnapshot       String
-  currentHp          Int?
-  maxHp              Int?
-  armorClass         Int?
-  speedFt            Int?
-  conditionsJson     String?
   initiative         Int
   turnOrder          Int
   isAlive            Boolean          @default(true)
@@ -675,7 +669,6 @@ model CombatParticipant {
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   combat             Combat           @relation(fields: [combatId], references: [id], onDelete: Cascade)
-  turnStates         CombatTurnState[]
 
   @@index([combatId, turnOrder])
 }
@@ -683,10 +676,10 @@ model CombatParticipant {
 model CombatTurnState {
   id                       String           @id @default(cuid())
   combatId                 String
-  combatParticipantId      String
+  combatParticipantId      String?
   roundNo                  Int
   turnNo                   Int
-  sessionCharacterId       String?
+  sessionCharacterId       String
   actionUsed               Boolean          @default(false)
   bonusActionUsed          Boolean          @default(false)
   reactionUsed             Boolean          @default(false)
@@ -695,11 +688,10 @@ model CombatTurnState {
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
   combat                   Combat           @relation(fields: [combatId], references: [id], onDelete: Cascade)
-  combatParticipant        CombatParticipant @relation(fields: [combatParticipantId], references: [id], onDelete: Cascade)
+  combatParticipant        CombatParticipant? @relation(fields: [combatParticipantId], references: [id], onDelete: Cascade)
   sessionCharacter         SessionCharacter? @relation(fields: [sessionCharacterId], references: [id], onDelete: Cascade)
 
-  @@unique([combatId, roundNo, turnNo, combatParticipantId])
-  @@index([combatParticipantId])
+  @@unique([combatId, roundNo, turnNo, sessionCharacterId])
   @@index([sessionCharacterId])
 }
 

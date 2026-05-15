@@ -451,9 +451,6 @@ export class PlayerVisibleTargetDto {
 
   @ApiProperty()
   summary!: string;
-
-  @ApiPropertyOptional({ nullable: true })
-  disposition?: string | null;
 }
 
 export class PlayerScenarioNodeDto {
@@ -783,31 +780,6 @@ export class VttMapStartingPositionDto {
   y!: number;
 }
 
-export class VttMapPingDto {
-  @ApiProperty()
-  @IsString()
-  @IsNotEmpty()
-  id!: string;
-
-  @ApiProperty()
-  @IsNumber()
-  x!: number;
-
-  @ApiProperty()
-  @IsNumber()
-  y!: number;
-
-  @ApiPropertyOptional({ default: "!" })
-  @IsOptional()
-  @IsString()
-  @MaxLength(8)
-  label?: string;
-
-  @ApiProperty()
-  @IsString()
-  expiresAt!: string;
-}
-
 export class VttMapTokenDto {
   @ApiProperty()
   @IsString()
@@ -948,53 +920,6 @@ export class VttDoorCellDto extends VttTerrainCellDto {
   breakCheckDc?: number | null;
 }
 
-export class VttObjectProximityTriggerDto {
-  @ApiProperty({ default: 15 })
-  @IsNumber()
-  @Min(0)
-  distanceFeet!: number;
-
-  @ApiPropertyOptional({ default: true })
-  @IsOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
-  once?: boolean;
-}
-
-export class VttObjectRevealFogEffectDto {
-  @ApiProperty({ default: 30 })
-  @IsNumber()
-  @Min(5)
-  revealRadiusFeet!: number;
-}
-
-export class VttObjectEventDto {
-  @ApiProperty()
-  @IsString()
-  @IsNotEmpty()
-  id!: string;
-
-  @ApiPropertyOptional({ nullable: true })
-  @IsOptional()
-  @IsString()
-  @MaxLength(80)
-  name?: string | null;
-
-  @ApiProperty({ enum: ["REVEAL_FOG_ON_PROXIMITY"] })
-  @IsIn(["REVEAL_FOG_ON_PROXIMITY"])
-  type!: "REVEAL_FOG_ON_PROXIMITY";
-
-  @ApiProperty({ type: VttObjectProximityTriggerDto })
-  @ValidateNested()
-  @Type(() => VttObjectProximityTriggerDto)
-  trigger!: VttObjectProximityTriggerDto;
-
-  @ApiProperty({ type: VttObjectRevealFogEffectDto })
-  @ValidateNested()
-  @Type(() => VttObjectRevealFogEffectDto)
-  effect!: VttObjectRevealFogEffectDto;
-}
-
 export class VttObjectCellDto extends VttTerrainCellDto {
   @ApiPropertyOptional({ default: true })
   @IsOptional()
@@ -1019,14 +944,6 @@ export class VttObjectCellDto extends VttTerrainCellDto {
   @IsArray()
   @IsString({ each: true })
   hiddenEventIds?: string[];
-
-  @ApiPropertyOptional({ type: [VttObjectEventDto] })
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(20)
-  @ValidateNested({ each: true })
-  @Type(() => VttObjectEventDto)
-  events?: VttObjectEventDto[];
 }
 
 export class VttMapStateDto {
@@ -1088,14 +1005,6 @@ export class VttMapStateDto {
   @ValidateNested({ each: true })
   @Type(() => VttMapStartingPositionDto)
   startingPositions?: VttMapStartingPositionDto[];
-
-  @ApiPropertyOptional({ type: [VttMapPingDto] })
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(12)
-  @ValidateNested({ each: true })
-  @Type(() => VttMapPingDto)
-  pings?: VttMapPingDto[];
 
   @ApiPropertyOptional({ type: [VttTerrainCellDto] })
   @IsOptional()

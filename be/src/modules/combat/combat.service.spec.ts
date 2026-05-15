@@ -14,7 +14,6 @@ const createParticipant = (
     nameSnapshot: string;
     turnOrder: number;
     isAlive: boolean;
-    speedFt: number;
   }> = {},
 ) => ({
   id: overrides.id ?? "participant-1",
@@ -24,14 +23,8 @@ const createParticipant = (
   nameSnapshot: overrides.nameSnapshot ?? "Hero",
   initiative: 10,
   turnOrder: overrides.turnOrder ?? 1,
-  currentHp: 10,
-  maxHp: 10,
-  armorClass: 14,
-  speedFt: overrides.speedFt ?? 30,
-  conditionsJson: "[]",
   isAlive: overrides.isAlive ?? true,
   isHostile: false,
-  hasActedThisRound: false,
   turnEndedAt: null,
   createdAt: new Date("2026-05-06T00:00:00.000Z"),
   updatedAt: new Date("2026-05-06T00:00:00.000Z"),
@@ -54,9 +47,6 @@ describe("CombatService lifecycle", () => {
       },
       sessionCharacterResource: {
         findMany: jest.fn(),
-      },
-      combatTurnState: {
-        findMany: jest.fn().mockResolvedValue([]),
       },
     };
     const sessionsService = {
@@ -95,7 +85,6 @@ describe("CombatService lifecycle", () => {
       ),
       prisma,
       sessionsService,
-      diceService,
       actionEconomy,
       characterResources,
       realtimeEvents,
@@ -153,131 +142,21 @@ describe("CombatService lifecycle", () => {
 
     expect(tx.combatTurnState.upsert).toHaveBeenCalledWith({
       where: {
-        combatId_roundNo_turnNo_combatParticipantId: {
+        combatId_roundNo_turnNo_sessionCharacterId: {
           combatId: "combat-1",
           roundNo: 1,
           turnNo: 1,
-          combatParticipantId: participant.id,
+          sessionCharacterId: "session-character-1",
         },
       },
       create: {
         combatId: "combat-1",
-        combatParticipantId: participant.id,
         roundNo: 1,
         turnNo: 1,
         sessionCharacterId: "session-character-1",
       },
       update: {},
     });
-  });
-
-  it("orders combat turns by d20 plus dexterity modifier", async () => {
-    const { service, prisma, sessionsService, diceService } = createService();
-    const tx = {
-      combat: {
-        create: jest.fn().mockResolvedValue({ id: "combat-1" }),
-        update: jest.fn(),
-        findUniqueOrThrow: jest.fn().mockResolvedValue({
-          id: "combat-1",
-          sessionId: "session-1",
-          status: PrismaCombatStatus.ACTIVE,
-          roundNo: 1,
-          turnNo: 1,
-          currentParticipantId: "participant-fast",
-          participants: [
-            createParticipant({
-              id: "participant-fast",
-              sessionCharacterId: "session-character-fast",
-              nameSnapshot: "Rogue",
-              turnOrder: 1,
-            }),
-            createParticipant({
-              id: "participant-slow",
-              sessionCharacterId: "session-character-slow",
-              nameSnapshot: "Cleric",
-              turnOrder: 2,
-            }),
-          ],
-        }),
-      },
-      combatParticipant: {
-        create: jest.fn(({ data }) =>
-          Promise.resolve({
-            id: data.sessionCharacterId === "session-character-fast" ? "participant-fast" : "participant-slow",
-            ...data,
-          }),
-        ),
-      },
-      combatTurnState: {
-        upsert: jest.fn(),
-      },
-      gameState: {
-        update: jest.fn(),
-      },
-    };
-
-    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
-      id: "session-1",
-      status: PrismaSessionStatus.PLAYING,
-      gmMode: PrismaGmMode.AI,
-    });
-    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
-      sessionScenario: { id: "session-scenario-1" },
-      state: { version: 3 },
-    });
-    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
-    prisma.combat.findFirst.mockResolvedValue(null);
-    prisma.sessionCharacter.findMany
-      .mockResolvedValueOnce([
-        {
-          id: "session-character-slow",
-          currentHp: 8,
-          conditionsJson: "[]",
-          character: {
-            name: "Cleric",
-            maxHp: 8,
-            armorClass: 16,
-            abilitiesJson: JSON.stringify({ str: 10, dex: 8, con: 10, int: 10, wis: 10, cha: 10 }),
-          },
-        },
-        {
-          id: "session-character-fast",
-          currentHp: 7,
-          conditionsJson: "[]",
-          character: {
-            name: "Rogue",
-            maxHp: 7,
-            armorClass: 14,
-            abilitiesJson: JSON.stringify({ str: 10, dex: 14, con: 10, int: 10, wis: 10, cha: 10 }),
-          },
-        },
-      ])
-      .mockResolvedValue([]);
-    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
-    diceService.roll.mockReturnValue({ total: 10 });
-
-    await service.startCombat("user-1", "session-1", { autoRollInitiative: true });
-
-    expect(tx.combatParticipant.create).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        data: expect.objectContaining({
-          sessionCharacterId: "session-character-fast",
-          initiative: 12,
-          turnOrder: 1,
-        }),
-      }),
-    );
-    expect(tx.combatParticipant.create).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        data: expect.objectContaining({
-          sessionCharacterId: "session-character-slow",
-          initiative: 9,
-          turnOrder: 2,
-        }),
-      }),
-    );
   });
 
   it("creates the next turn state when a turn ends", async () => {
@@ -338,7 +217,6 @@ describe("CombatService lifecycle", () => {
     });
     expect(actionEconomy.getOrCreateTurnState).toHaveBeenCalledWith({
       combatId: "combat-1",
-      combatParticipantId: next.id,
       roundNo: 1,
       turnNo: 2,
       sessionCharacterId: "session-character-2",
