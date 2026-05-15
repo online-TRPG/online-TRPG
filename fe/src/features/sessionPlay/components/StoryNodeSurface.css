@@ -280,10 +280,15 @@
   grid-template-columns: 42px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
-  border: 1px solid #c8d3de;
-  background: #f8fbfd;
-  color: #243140;
+  border: 2px solid var(--story-party-frame-color, #c8d3de);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.1)),
+    var(--story-party-bg-color, #f8fbfd);
+  color: var(--story-party-text-color, #243140);
   text-align: left;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.68),
+    0 0 0 1px var(--story-party-frame-color, rgba(200, 211, 222, 0.4));
   transition:
     border-color 0.16s ease,
     background-color 0.16s ease;
@@ -312,8 +317,10 @@
 }
 
 .story-party-card.selected {
-  border-color: #7898b8;
-  background: #eef5fb;
+  border-color: var(--story-party-frame-color, #7898b8);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.16)),
+    var(--story-party-bg-color, #eef5fb);
 }
 
 .story-party-card-wrap.highlighted .story-party-card {
@@ -402,17 +409,28 @@
 }
 
 .story-party-avatar {
+  position: relative;
   width: 42px;
   height: 42px;
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: #d6e1eb;
-  color: #223244;
+  border: 3px solid var(--story-party-frame-color, #8fa2b8);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0)),
+    var(--story-party-bg-color, #d6e1eb);
+  color: var(--story-party-text-color, #223244);
   font-weight: 900;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.56),
+    0 0 0 2px var(--story-party-frame-color, rgba(143, 162, 184, 0.28)),
+    0 6px 14px rgba(31, 54, 66, 0.16);
 }
 
 .story-party-avatar img {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -429,7 +447,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #203040;
+  color: var(--story-party-text-color, #203040);
   font-size: 13px;
   overflow-wrap: anywhere;
 }
@@ -448,7 +466,8 @@
 }
 
 .story-party-body small {
-  color: #667787;
+  color: var(--story-party-text-color, #667787);
+  opacity: 0.78;
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -466,7 +485,7 @@
 }
 
 .story-party-hp {
-  color: #385166;
+  color: var(--story-party-text-color, #385166);
   font-size: 12px;
   font-weight: 900;
   white-space: nowrap;

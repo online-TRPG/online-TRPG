@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type {
   PlayerScenarioNodeDto,
   SessionCharacterResponseDto,
@@ -18,6 +19,7 @@ interface StoryNodeSurfaceProps {
   isGmView?: boolean;
   rpUtterances?: StoryRpUtterance[];
   onRpUtteranceClick?: () => void;
+  getCharacterColorStyle?: (character: SessionCharacterResponseDto) => CSSProperties;
 }
 
 export interface StoryRpUtterance {
@@ -133,6 +135,7 @@ export function StoryNodeSurface({
   isGmView = false,
   rpUtterances = [],
   onRpUtteranceClick,
+  getCharacterColorStyle,
 }: StoryNodeSurfaceProps) {
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [isSummaryOpen, setSummaryOpen] = useState(false);
@@ -323,6 +326,7 @@ export function StoryNodeSurface({
               const characterImage = getCharacterImage(character);
               const speechBubble = speechBubbleByCharacterId.get(character.id) ?? null;
               const isHighlighted = highlightedCharacterIds.has(character.id);
+              const partyColorStyle = getCharacterColorStyle?.(character);
 
               return (
                 <div
@@ -342,6 +346,7 @@ export function StoryNodeSurface({
                   <button
                     type="button"
                     className={`story-party-card${isSelected ? ' selected' : ''}`}
+                    style={partyColorStyle}
                     onClick={() => setSelectedCharacterId(character.id)}
                   >
                     <span className="story-party-avatar">
