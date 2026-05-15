@@ -7,6 +7,7 @@ import {
 import {
   MainCommandCategory,
   MainCommandIntent,
+  MainCommandStatus,
   MainCommandScreenType,
   SubmitMainCommandDto,
 } from "@trpg/shared-types";
@@ -20,6 +21,82 @@ const dto: SubmitMainCommandDto = {
   screenType: MainCommandScreenType.EXPLORATION,
   playerText: "주변을 관찰한다",
 };
+
+const defaultInterpreterResult = {
+  parsed: {
+    needsClarification: false,
+    action: {
+      type: "freeform",
+      approach: "checks the scene",
+      confidence: 0.8,
+      requiresRoll: false,
+    },
+  },
+};
+
+function createMainCommandHarness(options?: {
+  screenType?: MainCommandScreenType;
+  interpreterResult?: typeof defaultInterpreterResult;
+}) {
+  const screenType = options?.screenType ?? MainCommandScreenType.EXPLORATION;
+  const aiService = {
+    runInterpreter: jest.fn().mockResolvedValue(options?.interpreterResult ?? defaultInterpreterResult),
+    runHint: jest.fn().mockResolvedValue({ parsed: { content: "Check the strange statue." } }),
+    runSummary: jest.fn().mockResolvedValue({ parsed: { content: "Recent summary." } }),
+  };
+  const sessionsService = {
+    revealVttObjectContentsAtPoint: jest.fn().mockResolvedValue(0),
+    revealCurrentNodeCluesAfterAction: jest.fn().mockResolvedValue(0),
+    buildSnapshot: jest.fn().mockResolvedValue({}),
+    describeVttObjectAtPoint: jest.fn().mockResolvedValue(null),
+  };
+  const turnLogsService = {
+    createTurnLog: jest.fn().mockResolvedValue({ turnLogId: "turn-log-1" }),
+  };
+  const realtimeEvents = {
+    emitTurnLogCreated: jest.fn(),
+    emitSessionSnapshot: jest.fn(),
+  };
+  const service = new MainCommandsService(
+    {} as never,
+    sessionsService as never,
+    aiService as never,
+    turnLogsService as never,
+    realtimeEvents as never,
+  );
+  const internals = service as unknown as {
+    loadContext: jest.Mock;
+    loadRecentLogLines: jest.Mock;
+  };
+  internals.loadContext = jest.fn().mockResolvedValue({
+    sessionId: "session-1",
+    sessionScenarioId: "session-scenario-1",
+    sessionCharacterId: "session-character-1",
+    actorCharacterId: "character-1",
+    inventoryItems: [],
+    currentNodeId: "node-1",
+    currentNodeTitle: "Scene",
+    currentNodeSceneText: "A quiet room.",
+    currentNodeTransitionsJson: "[]",
+    currentNodeCluesJson: "[]",
+    currentNodeNodeMetaJson: null,
+    currentNodeFallbackNodeId: null,
+  });
+  internals.loadRecentLogLines = jest.fn().mockResolvedValue([]);
+
+  const submit = (overrides: Partial<SubmitMainCommandDto>) =>
+    service.submitMainCommand("user-1", "session-1", {
+      ...dto,
+      commandId: overrides.intent ?? MainCommandIntent.GENERAL_GM_REQUEST,
+      intent: MainCommandIntent.GENERAL_GM_REQUEST,
+      category: MainCommandCategory.SUPPORT,
+      screenType,
+      playerText: "free input",
+      ...overrides,
+    });
+
+  return { service, aiService, sessionsService, turnLogsService, submit };
+}
 
 describe("MainCommandsService.submitMainCommand permission", () => {
   const createService = () => {
@@ -98,6 +175,183 @@ describe("MainCommandsService.submitMainCommand permission", () => {
   });
 });
 
+describe("MainCommandsService.submitMainCommand RP action", () => {
+  it("records RP actions without AI parsing or clue reveal", async () => {
+    const aiService = {
+      runInterpreter: jest.fn(),
+    };
+    const sessionsService = {
+      revealVttObjectContentsAtPoint: jest.fn(),
+      revealCurrentNodeCluesAfterAction: jest.fn(),
+      buildSnapshot: jest.fn(),
+    };
+    const turnLogsService = {
+      createTurnLog: jest.fn().mockResolvedValue({ turnLogId: "turn-log-1" }),
+    };
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitSessionSnapshot: jest.fn(),
+    };
+    const service = new MainCommandsService(
+      {} as never,
+      sessionsService as never,
+      aiService as never,
+      turnLogsService as never,
+      realtimeEvents as never,
+    );
+    const serviceInternals = service as unknown as {
+      loadContext: jest.Mock;
+      loadRecentLogLines: jest.Mock;
+    };
+    serviceInternals.loadContext = jest.fn().mockResolvedValue({
+      sessionId: "session-1",
+      sessionScenarioId: "session-scenario-1",
+      sessionCharacterId: "session-character-1",
+      actorCharacterId: "character-1",
+      inventoryItems: [],
+      currentNodeId: "node-1",
+      currentNodeTitle: "Scene",
+      currentNodeSceneText: "A quiet room.",
+      currentNodeTransitionsJson: "[]",
+      currentNodeCluesJson: "[]",
+      currentNodeNodeMetaJson: null,
+      currentNodeFallbackNodeId: null,
+    });
+    serviceInternals.loadRecentLogLines = jest.fn().mockResolvedValue([]);
+
+    const response = await service.submitMainCommand("user-1", "session-1", {
+      ...dto,
+      commandId: MainCommandIntent.DECLARE_RP_ACTION,
+      intent: MainCommandIntent.DECLARE_RP_ACTION,
+      category: MainCommandCategory.RP_ACTION,
+      screenType: MainCommandScreenType.STORY,
+      playerText: "nods silently",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.MESSAGE);
+    expect(aiService.runInterpreter).not.toHaveBeenCalled();
+    expect(sessionsService.revealCurrentNodeCluesAfterAction).not.toHaveBeenCalled();
+    expect(turnLogsService.createTurnLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rawInput: "nods silently",
+        structuredAction: expect.objectContaining({
+          intent: MainCommandIntent.DECLARE_RP_ACTION,
+          actionCandidate: expect.objectContaining({
+            actionSummary: "nods silently",
+          }),
+        }),
+      }),
+    );
+  });
+});
+
+describe("MainCommandsService.submitMainCommand input routing", () => {
+  it("handles a parsed slash command through the explicit intent handler", async () => {
+    const { aiService, sessionsService, submit } = createMainCommandHarness();
+
+    const response = await submit({
+      commandId: MainCommandIntent.ASK_HINT,
+      intent: MainCommandIntent.ASK_HINT,
+      playerText: "Where should I look next?",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.MESSAGE);
+    expect(response.message).toBe("Check the strange statue.");
+    expect(aiService.runHint).toHaveBeenCalledTimes(1);
+    expect(aiService.runInterpreter).not.toHaveBeenCalled();
+    expect(sessionsService.revealCurrentNodeCluesAfterAction).not.toHaveBeenCalled();
+  });
+
+  it("persists the original slash input for main command logs", async () => {
+    const { aiService, turnLogsService, submit } = createMainCommandHarness();
+
+    const response = await submit({
+      commandId: MainCommandIntent.ASK_SUMMARY,
+      intent: MainCommandIntent.ASK_SUMMARY,
+      category: MainCommandCategory.SUPPORT,
+      playerText: "요약",
+      rawInputText: "/요약",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.MESSAGE);
+    expect(aiService.runSummary).toHaveBeenCalledTimes(1);
+    expect(turnLogsService.createTurnLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rawInput: "/요약",
+        structuredAction: expect.objectContaining({
+          intent: MainCommandIntent.ASK_SUMMARY,
+        }),
+      }),
+    );
+  });
+
+  it("keeps the natural language body after a slash-style investigate command", async () => {
+    const { aiService, submit } = createMainCommandHarness({
+      interpreterResult: {
+        parsed: {
+          needsClarification: false,
+          action: {
+            type: "investigate",
+            approach: "flip the crate",
+            confidence: 0.82,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      commandId: MainCommandIntent.INVESTIGATE_OBJECT,
+      intent: MainCommandIntent.INVESTIGATE_OBJECT,
+      category: MainCommandCategory.OBSERVATION,
+      playerText: "상자를 뒤집어본다",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.GM_APPROVAL_REQUIRED);
+    expect(response.actionCandidate?.actionSummary).toBe("flip the crate");
+    expect(aiService.runInterpreter).toHaveBeenCalledWith(
+      "session-1",
+      "user-1",
+      expect.objectContaining({
+        rawText: "상자를 뒤집어본다",
+        requestIntent: MainCommandIntent.INVESTIGATE_OBJECT,
+      }),
+    );
+  });
+
+  it("routes commandless free input through the interpreter", async () => {
+    const { aiService, submit } = createMainCommandHarness({
+      interpreterResult: {
+        parsed: {
+          needsClarification: false,
+          action: {
+            type: "search",
+            approach: "check under the crate",
+            confidence: 0.91,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      playerText: "상자 밑을 살펴본다",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.MESSAGE);
+    expect(response.actionCandidate?.actionSummary).toBe("check under the crate");
+    expect(aiService.runInterpreter).toHaveBeenCalledWith(
+      "session-1",
+      "user-1",
+      expect.objectContaining({
+        rawText: "상자 밑을 살펴본다",
+        requestIntent: MainCommandIntent.GENERAL_GM_REQUEST,
+      }),
+    );
+  });
+
+});
+
 describe("MainCommandsService transition condition evaluation", () => {
   const createService = () =>
     new MainCommandsService(
@@ -137,7 +391,7 @@ describe("MainCommandsService transition condition evaluation", () => {
     return (
       service as unknown as {
         evaluateTransitionCondition: (
-          candidate: typeof candidate,
+          transition: typeof candidate,
           dto: SubmitMainCommandDto,
           recentLogs: string[],
           publicClues: string[],

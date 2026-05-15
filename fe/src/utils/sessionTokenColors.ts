@@ -19,21 +19,21 @@ export const PLAYER_TOKEN_COLORS: SessionTokenColor[] = [
 export const GM_TOKEN_COLOR: SessionTokenColor = {
   label: '골드',
   frame: '#C79943',
-  background: '#FFF4D2',
+  background: '#ffffff',
   text: '#5C3B08',
 };
 
 export const NPC_TOKEN_COLOR: SessionTokenColor = {
   label: '딥 틸',
   frame: '#0F766E',
-  background: '#DFF7F4',
+  background: '#ffffff',
   text: '#07423E',
 };
 
 export const MONSTER_TOKEN_COLOR: SessionTokenColor = {
   label: '크림슨 레드',
   frame: '#B42318',
-  background: '#FFE5E0',
+  background: '#ffffff',
   text: '#75180F',
 };
 
