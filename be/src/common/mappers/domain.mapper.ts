@@ -473,6 +473,7 @@ export function mapScenario(
   return {
     ...mapScenarioSummary(scenario),
     startNodeId,
+    npcs: parseJson<Record<string, unknown>[]>(scenario.npcsJson, []),
     nodes: sortScenarioNodes(scenario.nodes, startNodeId).map(mapScenarioNode),
   };
 }

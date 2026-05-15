@@ -149,9 +149,16 @@ function viewFromPathname(pathname: string): MainView | null {
 export function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { logs, appendLog, appendOlderLog, removeLog } = useLogs();
+  const { logs, appendLog, appendOlderLog, removeLog, clearSessionLogs } = useLogs();
   const auth = useAuth(appendLog);
-  const session = useSession(auth.user, auth.accessToken, appendLog, appendOlderLog, removeLog);
+  const session = useSession(
+    auth.user,
+    auth.accessToken,
+    appendLog,
+    appendOlderLog,
+    removeLog,
+    clearSessionLogs
+  );
   const publicProfileMatch = /^\/users\/([^/]+)\/[^/]+$/.exec(location.pathname);
   const publicProfileId = publicProfileMatch?.[1] ?? null;
   const sessionDetailMatch = /^\/sessions\/([^/]+)\/[^/]+$/.exec(location.pathname);
@@ -398,7 +405,7 @@ export function App() {
       return;
     }
 
-    void session.sendAction(message);
+    void session.sendChatMessage(message, 'MAIN');
   }
 
   if (!auth.user) {
@@ -722,13 +729,15 @@ export function App() {
             user={currentUser}
             snapshot={session.snapshot}
             characters={session.myCharacters}
+            races={races}
+            classDefinitions={classDefinitions}
             logs={logs}
             socketConnected={session.socketConnected}
             hasOlderTurnLogs={session.hasOlderTurnLogs}
             isLoadingTurnLogs={session.isLoadingTurnLogs}
             busy={busy}
             error={error}
-            onCreateCharacter={(payload) => void session.createCharacter(payload)}
+            onCreateCharacter={(payload) => session.createCharacter(payload)}
             onSelectCharacter={(characterId) => void session.selectCharacter(characterId)}
             onSetReady={(isReady) => void session.setReadyState(isReady)}
             onStartSession={() => void session.startSession()}
@@ -736,7 +745,8 @@ export function App() {
               void exitSessionToDiscover();
             }}
             onBackToLobby={() => navigate('/sessions/discover')}
-            onMainCommand={(payload) => void session.sendMainCommand(payload)}
+            onMainCommand={(payload) => session.sendMainCommand(payload)}
+            onResolveMainCommandCheck={(payload) => session.resolveMainCommandCheck(payload)}
             onAction={handleSessionMessage}
             onLoadOlderTurnLogs={() => void session.loadOlderTurnLogs()}
             activeDiceRoll={session.activeDiceRoll}

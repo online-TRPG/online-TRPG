@@ -67,5 +67,9 @@ export function useLogs() {
     setLogs((current) => current.filter((log) => log.id !== id));
   }, []);
 
-  return { logs, appendLog, appendOlderLog, removeLog };
+  const clearSessionLogs = useCallback(() => {
+    setLogs((current) => current.filter((log) => log.kind !== "action"));
+  }, []);
+
+  return { logs, appendLog, appendOlderLog, removeLog, clearSessionLogs };
 }

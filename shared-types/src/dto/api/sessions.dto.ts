@@ -861,6 +861,91 @@ export class VttFogRectDto {
   height!: number;
 }
 
+export class VttTerrainCellDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  id!: string;
+
+  @ApiProperty()
+  @IsNumber()
+  x!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  y!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  width!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  height!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  name?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string | null;
+}
+
+export class VttWallCellDto extends VttTerrainCellDto {}
+
+export class VttDoorCellDto extends VttTerrainCellDto {
+  @ApiProperty({ enum: ["open", "closed", "locked", "broken"] })
+  @IsIn(["open", "closed", "locked", "broken"])
+  state!: "open" | "closed" | "locked" | "broken";
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  keyItemId?: string | null;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  canBreak?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsNumber()
+  breakCheckDc?: number | null;
+}
+
+export class VttObjectCellDto extends VttTerrainCellDto {
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  visibleToPlayers?: boolean;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  hiddenClueIds?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  hiddenItemIds?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  hiddenEventIds?: string[];
+}
+
 export class VttMapStateDto {
   @ApiProperty()
   @IsString()
@@ -920,6 +1005,38 @@ export class VttMapStateDto {
   @ValidateNested({ each: true })
   @Type(() => VttMapStartingPositionDto)
   startingPositions?: VttMapStartingPositionDto[];
+
+  @ApiPropertyOptional({ type: [VttTerrainCellDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(400)
+  @ValidateNested({ each: true })
+  @Type(() => VttTerrainCellDto)
+  terrainCells?: VttTerrainCellDto[];
+
+  @ApiPropertyOptional({ type: [VttWallCellDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(400)
+  @ValidateNested({ each: true })
+  @Type(() => VttWallCellDto)
+  wallCells?: VttWallCellDto[];
+
+  @ApiPropertyOptional({ type: [VttDoorCellDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => VttDoorCellDto)
+  doorCells?: VttDoorCellDto[];
+
+  @ApiPropertyOptional({ type: [VttObjectCellDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(300)
+  @ValidateNested({ each: true })
+  @Type(() => VttObjectCellDto)
+  objectCells?: VttObjectCellDto[];
 
   @ApiProperty()
   @IsString()

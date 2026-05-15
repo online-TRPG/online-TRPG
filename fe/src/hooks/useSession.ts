@@ -1,18 +1,19 @@
-﻿import { useCallback, useEffect, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ActionAcceptedEventDto,
   ActionInputType,
   ActionScope,
   DiceRollResponseDto,
   MainCommandResponseDto,
+  ResolveMainCommandCheckDto,
   StateDiffResponseDto,
   SubmitMainCommandDto,
   SystemMessageEventDto,
   SubmitActionDto,
   TurnLogResponseDto,
   VttMapStateDto,
-} from "@trpg/shared-types";
-import type { Socket } from "socket.io-client";
+} from '@trpg/shared-types';
+import type { Socket } from 'socket.io-client';
 import {
   cloneCharacter as apiCloneCharacter,
   createCharacter as apiCreateCharacter,
@@ -28,13 +29,14 @@ import {
   listSessions,
   selectSessionCharacter as apiSelectSessionCharacter,
   startSession as apiStartSession,
+  resolveMainCommandCheck as apiResolveMainCommandCheck,
   submitMainCommand as apiSubmitMainCommand,
   submitAction as apiSubmitAction,
   updateCharacter as apiUpdateCharacter,
   updateReadyState as apiUpdateReadyState,
-} from "../services/api";
-import { connectSessionSocket, sendRealtimeChatMessage } from "../services/realtime";
-import { clearStoredSnapshot, loadStoredSnapshot, saveStoredSnapshot } from "../services/storage";
+} from '../services/api';
+import { connectSessionSocket, sendRealtimeChatMessage } from '../services/realtime';
+import { clearStoredSnapshot, loadStoredSnapshot, saveStoredSnapshot } from '../services/storage';
 import type {
   AvailableSessionListItem,
   Character,
@@ -44,18 +46,18 @@ import type {
   PersistentCharacter,
   SessionSnapshot,
   StoredUser,
-} from "../types/session";
+} from '../types/session';
 import type {
   DiceAdvantage,
   DiceRollOutcome,
   DiceRollOverlayData,
-} from "../features/sessionPlay/components/DiceRollOverlay";
+} from '../features/sessionPlay/components/DiceRollOverlay';
 
 export interface CharacterPayload {
   name: string;
   ancestry: string;
   className: string;
-  avatarType?: "DEFAULT" | "PRESET" | "UPLOAD";
+  avatarType?: 'DEFAULT' | 'PRESET' | 'UPLOAD';
   avatarPresetId?: string | null;
   avatarUrl?: string | null;
   scenarioId?: string | null;
@@ -95,7 +97,7 @@ export interface UseSessionReturn {
   error: string | null;
   createSession: (
     title: string,
-    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
+    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean }
   ) => Promise<SessionSnapshot | null>;
   joinSession: (inviteCode: string) => Promise<SessionSnapshot | null>;
   joinSessionById: (sessionId: string) => Promise<SessionSnapshot | null>;
@@ -108,8 +110,11 @@ export interface UseSessionReturn {
   startSession: () => Promise<void>;
   leaveSession: () => Promise<boolean>;
   sendMainCommand: (payload: SubmitMainCommandDto) => Promise<MainCommandResponseDto | null>;
+  resolveMainCommandCheck: (
+    payload: ResolveMainCommandCheckDto
+  ) => Promise<MainCommandResponseDto | null>;
   sendAction: (rawText: string) => Promise<void>;
-  sendChatMessage: (content: string) => Promise<void>;
+  sendChatMessage: (content: string, scope?: 'CHAT' | 'MAIN') => Promise<void>;
   loadOlderTurnLogs: () => Promise<void>;
   refreshSessionList: () => Promise<void>;
   refreshMyCharacters: () => Promise<void>;
@@ -125,32 +130,42 @@ type SessionListRefreshResult = {
 };
 
 type AppendLogFn = (
-  kind: LogEntry["kind"],
+  kind: LogEntry['kind'],
   title: string,
   message: string,
   id?: string,
-  createdAt?: string,
+  createdAt?: string
 ) => void;
 
+type PendingMainCommandLog = {
+  clientLogId: string;
+  rawLogId: string;
+  pendingLogId: string;
+  rawText: string;
+  userId: string;
+  isPendingVisible: boolean;
+  timeoutId?: number;
+};
+
 function isBlockingSessionStatus(status: string | undefined): boolean {
-  return status !== "completed" && status !== "disbanded";
+  return status !== 'completed' && status !== 'disbanded';
 }
 
 function isStaleLeaveErrorMessage(message: string): boolean {
   return (
-    message.includes("(403)") ||
-    message.includes("(404)") ||
-    message.includes("You must join the session before accessing it.") ||
-    message.includes("was not found")
+    message.includes('(403)') ||
+    message.includes('(404)') ||
+    message.includes('You must join the session before accessing it.') ||
+    message.includes('was not found')
   );
 }
 
 function formatDebugValue(value: unknown): string {
   if (value === null || value === undefined) {
-    return "(?놁쓬)";
+    return '(없음)';
   }
 
-  if (typeof value === "object") {
+  if (typeof value === 'object') {
     return JSON.stringify(value, null, 2);
   }
 
@@ -161,23 +176,23 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
   const structuredAction = turnLog.structuredAction;
   if (
     structuredAction &&
-    typeof structuredAction === "object" &&
-    structuredAction.type === "main_command"
+    typeof structuredAction === 'object' &&
+    structuredAction.type === 'main_command'
   ) {
     const narration = turnLog.narration?.trim();
-    return `[MAIN]${narration || "硫붿씤 紐낅졊??泥섎━?덉뒿?덈떎."}`;
+    return `[MAIN]${narration || '메인 명령을 처리했습니다.'}`;
   }
 
   if (
     structuredAction &&
-    typeof structuredAction === "object" &&
-    structuredAction.type === "action_error"
+    typeof structuredAction === 'object' &&
+    structuredAction.type === 'action_error'
   ) {
-    return `[MAIN]${turnLog.narration?.trim() || "?됰룞 泥섎━???ㅽ뙣?덉뒿?덈떎."}`;
+    return `[MAIN]${turnLog.narration?.trim() || '행동 처리에 실패했습니다.'}`;
   }
 
   const sections = [
-    "TurnLog",
+    'TurnLog',
     `- turnLogId: ${turnLog.turnLogId}`,
     `- turnNumber: ${turnLog.turnNumber}`,
     `- playerActionId: ${formatDebugValue(turnLog.playerActionId)}`,
@@ -186,34 +201,41 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
     `- actionClientCreatedAt: ${formatDebugValue(turnLog.actionClientCreatedAt)}`,
     `- actionCreatedAt: ${formatDebugValue(turnLog.actionCreatedAt)}`,
     `- createdAt: ${turnLog.createdAt}`,
-    "",
-    "?낅젰",
+    '',
+    '입력',
     `- rawInput: ${formatDebugValue(turnLog.rawInput)}`,
-    "",
-    "寃곌낵",
+    '',
+    '결과',
     `- outcome: ${turnLog.outcome}`,
     `- narration: ${formatDebugValue(turnLog.narration)}`,
-    "",
-    "structuredAction",
+    '',
+    'structuredAction',
     formatDebugValue(turnLog.structuredAction),
-    "",
-    "diceResult",
+    '',
+    'diceResult',
     formatDebugValue(turnLog.diceResult),
-    "",
-    "stateDiff",
+    '',
+    'stateDiff',
     formatDebugValue(turnLog.stateDiff),
   ];
 
-  return `[MAIN]${sections.join("\n")}`;
+  return `[MAIN]${sections.join('\n')}`;
 }
 
-function getSenderNameByUserId(
-  userId: string,
-  snapshot: SessionSnapshot | null,
-): string {
+function isMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
+  const structuredAction = turnLog.structuredAction;
+
+  return Boolean(
+    structuredAction &&
+      typeof structuredAction === 'object' &&
+      structuredAction.type === 'main_command'
+  );
+}
+
+function getSenderNameByUserId(userId: string, snapshot: SessionSnapshot | null): string {
   const participant = snapshot?.participants.find((item) => item.userId === userId);
 
-  return participant?.user.displayName ?? "?????놁쓬";
+  return participant?.user.displayName ?? '알 수 없음';
 }
 
 function getRawInputCreatedAt(turnLog: TurnLogResponseDto): string {
@@ -223,15 +245,15 @@ function getRawInputCreatedAt(turnLog: TurnLogResponseDto): string {
 function formatDiceRollMessage(diceResult: DiceRollResponseDto): string {
   const parts = [
     `${diceResult.expression} = ${diceResult.total}`,
-    diceResult.rolls.length ? `援대┝: ${diceResult.rolls.join(", ")}` : null,
-    diceResult.modifier ? `?섏젙移? ${diceResult.modifier}` : null,
+    diceResult.rolls.length ? `굴림: ${diceResult.rolls.join(', ')}` : null,
+    diceResult.modifier ? `수정치 ${diceResult.modifier}` : null,
   ];
 
-  return parts.filter((part): part is string => Boolean(part)).join(" / ");
+  return parts.filter((part): part is string => Boolean(part)).join(' / ');
 }
 
 function formatStateDiffMessage(stateDiff: StateDiffResponseDto): string {
-  return `?곹깭 踰꾩쟾 ${stateDiff.baseVersion} -> ${stateDiff.nextVersion} (${stateDiff.reason})`;
+  return `상태 버전 ${stateDiff.baseVersion} -> ${stateDiff.nextVersion} (${stateDiff.reason})`;
 }
 
 // shared-types/src/constants/skills.ts (DND5E_SKILLS) 인라인 미러.
@@ -378,6 +400,7 @@ export function useSession(
   appendLog: AppendLogFn,
   appendOlderLog: AppendLogFn,
   removeLog: (id: string) => void,
+  clearSessionLogs: () => void
 ): UseSessionReturn {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(() => loadStoredSnapshot());
   const [sessionList, setSessionList] = useState<AvailableSessionListItem[]>([]);
@@ -395,23 +418,62 @@ export function useSession(
   const snapshotRef = useRef<SessionSnapshot | null>(snapshot);
   const seenTurnLogIdsRef = useRef<Set<string>>(new Set());
   const loadedTurnLogSessionIdRef = useRef<string | null>(null);
+  const pendingMainCommandLogsRef = useRef<PendingMainCommandLog[]>([]);
+
+  const removePendingMainCommandLog = useCallback(
+    (entry: PendingMainCommandLog, options?: { removeRaw?: boolean; removePending?: boolean }) => {
+      const shouldRemoveRaw = options?.removeRaw ?? true;
+      const shouldRemovePending = options?.removePending ?? true;
+
+      if (entry.timeoutId !== undefined) {
+        window.clearTimeout(entry.timeoutId);
+      }
+      if (shouldRemoveRaw) {
+        removeLog(entry.rawLogId);
+      }
+      if (shouldRemovePending) {
+        removeLog(entry.pendingLogId);
+      }
+
+      pendingMainCommandLogsRef.current = pendingMainCommandLogsRef.current.filter(
+        (item) => item.clientLogId !== entry.clientLogId
+      );
+    },
+    [removeLog]
+  );
 
   const clearLocalSessionState = useCallback(() => {
     clearStoredSnapshot();
     setSnapshot(null);
+    snapshotRef.current = null;
     setSocketConnected(false);
     socketRef.current?.disconnect();
     socketRef.current = null;
     seenTurnLogIdsRef.current.clear();
     loadedTurnLogSessionIdRef.current = null;
+    pendingMainCommandLogsRef.current.forEach((entry) => {
+      if (entry.timeoutId !== undefined) {
+        window.clearTimeout(entry.timeoutId);
+      }
+    });
+    pendingMainCommandLogsRef.current = [];
     setTurnLogNextCursor(null);
     setIsLoadingTurnLogs(false);
-  }, []);
+    clearSessionLogs();
+  }, [clearSessionLogs]);
 
   const updateSnapshot = useCallback((next: SessionSnapshot) => {
+    if (snapshotRef.current?.session.id !== next.session.id) {
+      seenTurnLogIdsRef.current.clear();
+      loadedTurnLogSessionIdRef.current = null;
+      setTurnLogNextCursor(null);
+      setIsLoadingTurnLogs(false);
+      clearSessionLogs();
+    }
+    snapshotRef.current = next;
     setSnapshot(next);
     saveStoredSnapshot(next);
-  }, []);
+  }, [clearSessionLogs]);
 
   const reconcileSnapshotWithLists = useCallback(
     (nextSnapshot: SessionSnapshot, lists: SessionListRefreshResult | null): SessionSnapshot => {
@@ -421,12 +483,12 @@ export function useSession(
         lists.mySessions.find(
           (item) =>
             item.sessionId === nextSnapshot.session.id ||
-            item.sessionPublicId === nextSnapshot.session.publicId,
+            item.sessionPublicId === nextSnapshot.session.publicId
         ) ??
         lists.publicSessions.find(
           (item) =>
             item.sessionId === nextSnapshot.session.id ||
-            item.sessionPublicId === nextSnapshot.session.publicId,
+            item.sessionPublicId === nextSnapshot.session.publicId
         );
 
       if (!matchedSession) return nextSnapshot;
@@ -439,7 +501,7 @@ export function useSession(
         },
       };
     },
-    [],
+    []
   );
 
   useEffect(() => {
@@ -448,13 +510,14 @@ export function useSession(
 
   const hasBlockingSession = useCallback(
     () => mySessionList.some((item) => isBlockingSessionStatus(item.status)),
-    [mySessionList],
+    [mySessionList]
   );
 
   useEffect(() => {
     if (!user) {
-      // 濡쒓렇?꾩썐/?좏겙 留뚮즺 吏곹썑 ?댁쟾 ?ъ슜?먯쓽 ?몄뀡 ?붾㈃???⑥? ?딅룄濡?硫붾え由??곹깭源뚯? ?④퍡 鍮꾩슫??
+      // 로그아웃/토큰 만료 직후 이전 사용자의 세션 화면이 남지 않도록 메모리 상태까지 함께 비웁니다.
       setSnapshot(null);
+      snapshotRef.current = null;
       clearStoredSnapshot();
       setSessionList([]);
       setMySessionList([]);
@@ -464,6 +527,7 @@ export function useSession(
       loadedTurnLogSessionIdRef.current = null;
       setTurnLogNextCursor(null);
       setIsLoadingTurnLogs(false);
+      clearSessionLogs();
       return;
     }
 
@@ -481,15 +545,14 @@ export function useSession(
     void apiListMyCharacters(user, accessToken)
       .then(setMyCharacters)
       .catch(() => undefined);
-  }, [accessToken, user]);
+  }, [accessToken, clearSessionLogs, user]);
 
   useEffect(() => {
     if (!user || !snapshot || !mySessionsLoaded || busy) return;
 
     const matchedSession = mySessionList.find(
       (item) =>
-        item.sessionId === snapshot.session.id ||
-        item.sessionPublicId === snapshot.session.publicId,
+        item.sessionId === snapshot.session.id || item.sessionPublicId === snapshot.session.publicId
     );
 
     if (!matchedSession) {
@@ -519,17 +582,17 @@ export function useSession(
         return;
       }
 
-      // TurnLog??DB???⑥쑝誘濡? ?덈줈怨좎묠/?ъ젒???뚮룄 媛숈? id濡??ъ슜???먮Ц 留먰뭾?좎쓣 ?ㅼ떆 留뚮뱾 ???덉뒿?덈떎.
+      // TurnLog는 DB에 남으므로 새로고침/재접속 후에도 같은 id로 말풍선을 다시 만들 수 있습니다.
       const rawLogId = turnLog.playerActionId
         ? `player-action:${turnLog.playerActionId}:raw`
         : `turn-log:${turnLog.turnLogId}:raw`;
       const senderName = turnLog.actorUserId
         ? getSenderNameByUserId(turnLog.actorUserId, snapshotRef.current)
-        : "?????놁쓬";
+        : '알 수 없음';
 
-      writeLog("action", senderName, `[MAIN]${rawInput}`, rawLogId, getRawInputCreatedAt(turnLog));
+      writeLog('action', senderName, `[MAIN]${rawInput}`, rawLogId, getRawInputCreatedAt(turnLog));
     },
-    [],
+    []
   );
 
   const appendServerTurnLog = useCallback(
@@ -543,15 +606,28 @@ export function useSession(
       if (turnLog.playerActionId) {
         removeLog(`player-action:${turnLog.playerActionId}:pending`);
       }
+      if (isMainCommandTurnLog(turnLog)) {
+        const rawInput = turnLog.rawInput?.trim();
+        const matchingPending = pendingMainCommandLogsRef.current.filter(
+          (entry) => entry.rawText === rawInput && entry.userId === turnLog.actorUserId
+        );
+        const matchedPending =
+          matchingPending.find((entry) => entry.isPendingVisible) ?? matchingPending[0];
+
+        if (matchedPending) {
+          // 메인 명령은 playerActionId가 없어서, 같은 입력의 서버 TurnLog가 도착하면 로컬 임시 로그를 실제 기록으로 교체합니다.
+          removePendingMainCommandLog(matchedPending);
+        }
+      }
       appendLog(
-        "action",
-        "?몄뀡 濡쒓렇",
+        'action',
+        '세션 로그',
         formatTurnLogMessage(turnLog),
         `turn-log:${turnLog.turnLogId}`,
-        turnLog.createdAt,
+        turnLog.createdAt
       );
     },
-    [appendLog, appendPlayerRawInputLog, removeLog],
+    [appendLog, appendPlayerRawInputLog, removeLog, removePendingMainCommandLog]
   );
 
   const appendHistoricalTurnLog = useCallback(
@@ -564,18 +640,30 @@ export function useSession(
       if (turnLog.playerActionId) {
         removeLog(`player-action:${turnLog.playerActionId}:pending`);
       }
+      if (isMainCommandTurnLog(turnLog)) {
+        const rawInput = turnLog.rawInput?.trim();
+        const matchingPending = pendingMainCommandLogsRef.current.filter(
+          (entry) => entry.rawText === rawInput && entry.userId === turnLog.actorUserId
+        );
+        const matchedPending =
+          matchingPending.find((entry) => entry.isPendingVisible) ?? matchingPending[0];
 
-      // 怨쇨굅 濡쒓렇???대? 諛곗뿴???ㅼそ???ｌ뼱???붾㈃?먯꽌???꾩옱 濡쒓렇蹂대떎 ?꾩뿉 蹂댁엯?덈떎.
+        if (matchedPending) {
+          removePendingMainCommandLog(matchedPending);
+        }
+      }
+
+      // 과거 로그는 배열 앞쪽에 넣어 화면에서 현재 로그보다 위에 보이게 합니다.
       appendOlderLog(
-        "action",
-        "?몄뀡 濡쒓렇",
+        'action',
+        '세션 로그',
         formatTurnLogMessage(turnLog),
         `turn-log:${turnLog.turnLogId}`,
-        turnLog.createdAt,
+        turnLog.createdAt
       );
       appendPlayerRawInputLog(turnLog, appendOlderLog);
     },
-    [appendOlderLog, appendPlayerRawInputLog, removeLog],
+    [appendOlderLog, appendPlayerRawInputLog, removeLog, removePendingMainCommandLog]
   );
 
   const loadRecentTurnLogs = useCallback(
@@ -592,19 +680,22 @@ export function useSession(
             includeDiceResult: true,
             includeStateDiff: true,
           },
-          accessToken,
+          accessToken
         );
 
-        // 理쒖떊?쒖쑝濡?諛쏆? 10媛쒕? ?대? 理쒖떊??諛곗뿴??洹몃?濡?遺숈씠硫??붾㈃?먯꽌???ㅻ옒??寃껊???蹂댁엯?덈떎.
+        // 최신순으로 받은 10개를 이미 최신순인 배열에 그대로 붙이면 화면에서 오래된 것부터 보입니다.
+        if (snapshotRef.current?.session.id !== sessionId) return;
         result.turnLogs.forEach(appendHistoricalTurnLog);
         setTurnLogNextCursor(result.nextCursor);
       } catch {
-        // 寃뚯엫猷?吏꾩엯 吏곹썑 濡쒓렇 議고쉶 ?ㅽ뙣???낅젰 ?먮쫫 ?먯껜瑜?留됱쓣 ?뺣룄???ㅻ쪟???꾨땲誘濡?議곗슜???섍릿??
+        // 게임룸 진입 직후 로그 조회 실패는 입력 흐름 자체를 막을 정도의 오류가 아니므로 조용히 넘깁니다.
       } finally {
-        setIsLoadingTurnLogs(false);
+        if (snapshotRef.current?.session.id === sessionId) {
+          setIsLoadingTurnLogs(false);
+        }
       }
     },
-    [accessToken, appendHistoricalTurnLog, user],
+    [accessToken, appendHistoricalTurnLog, user]
   );
 
   useEffect(() => {
@@ -638,15 +729,18 @@ export function useSession(
           includeDiceResult: true,
           includeStateDiff: true,
         },
-        accessToken,
+        accessToken
       );
 
+      if (snapshotRef.current?.session.id !== sessionId) return;
       result.turnLogs.forEach(appendHistoricalTurnLog);
       setTurnLogNextCursor(result.nextCursor);
     } catch {
-      // ?댁쟾 濡쒓렇 議고쉶 ?ㅽ뙣???꾩옱 ?낅젰 ?먮쫫??留됱? ?딆쑝誘濡??붾㈃?먮뒗 湲곗〈 濡쒓렇瑜?洹몃?濡??〓땲??
+      // 이전 로그 조회 실패는 현재 입력 흐름을 막지 않으므로 화면에는 기존 로그를 그대로 둡니다.
     } finally {
-      setIsLoadingTurnLogs(false);
+      if (snapshotRef.current?.session.id === sessionId) {
+        setIsLoadingTurnLogs(false);
+      }
     }
   }, [accessToken, appendHistoricalTurnLog, isLoadingTurnLogs, turnLogNextCursor, user]);
 
@@ -682,27 +776,34 @@ export function useSession(
         });
       },
       onChatMessage: (message: ChatMessage) => {
-        // 湲곗〈 PlayPage??[CHAT] prefix媛 遺숈? 濡쒓렇瑜?Chat ??뿉 蹂댁뿬以??
-        // ?붾㈃ 而댄룷?뚰듃 異⑸룎??以꾩씠湲??꾪빐 ?섏떊 硫붿떆吏留?湲곗〈 濡쒓렇 ?먮쫫???밸뒗??
-        appendLog("action", message.senderDisplayName, `[CHAT]${message.content}`, undefined, message.createdAt);
+        const scope = message.scope === 'MAIN' ? 'MAIN' : 'CHAT';
+        // 기존 PlayPage는 scope prefix가 붙은 로그를 해당 탭에 보여줍니다.
+        // 화면 컴포넌트 충돌을 줄이기 위해 수신 메시지만 기존 로그 흐름에 넣습니다.
+        appendLog(
+          'action',
+          message.senderDisplayName,
+          `[${scope}]${message.content}`,
+          undefined,
+          message.createdAt
+        );
       },
       onActionAccepted: (action: ActionAcceptedEventDto) => {
         const rawText = action.rawText.trim();
         if (!rawText) return;
 
-        // ?ъ슜?먭? ?좎뼵???먮Ц? 泥섎━ 寃곌낵瑜?湲곕떎由ъ? ?딄퀬, ?쒕쾭媛 ?묒닔???쒖젏??紐⑤몢?먭쾶 梨꾪똿泥섎읆 蹂댁뿬以??
+        // 사용자가 선언한 문장은 처리 결과를 기다리지 않고, 서버가 접수한 시점에 모두에게 채팅처럼 보여줍니다.
         appendLog(
-          "action",
+          'action',
           getSenderNameByUserId(action.actorUserId, snapshotRef.current),
           `[MAIN]${rawText}`,
           `player-action:${action.playerActionId}:raw`,
-          action.clientCreatedAt,
+          action.clientCreatedAt
         );
         appendLog(
-          "action",
-          "?몄뀡 濡쒓렇",
-          "[MAIN]濡쒕뵫以?...",
-          `player-action:${action.playerActionId}:pending`,
+          'action',
+          '세션 로그',
+          '[MAIN]로딩 중...',
+          `player-action:${action.playerActionId}:pending`
         );
 
         window.setTimeout(() => {
@@ -726,21 +827,21 @@ export function useSession(
           removeLog(`player-action:${message.playerActionId}:pending`);
         }
 
-        // ?쒕쾭 泥섎━ ?ㅽ뙣??Main ??뿉 ?④꺼???ъ슜?먭? "?묐떟 ?놁쓬"???꾨땲???ㅽ뙣 ?먯씤??蹂????덈떎.
+        // 서버 처리 실패도 Main 탭에 남겨 사용자가 "응답 없음"이 아니라 실패 원인을 볼 수 있게 합니다.
         appendLog(
-          "action",
-          "?몄뀡 濡쒓렇",
+          'action',
+          '세션 로그',
           `[MAIN]${message.message}`,
-          `system-message:${message.code}:${message.playerActionId ?? message.message}`,
+          `system-message:${message.code}:${message.playerActionId ?? message.message}`
         );
       },
       onDiceRolled: (diceResult: DiceRollResponseDto) => {
-        // 二쇱궗??寃곌낵??TurnLog?먮룄 ?ы븿?섎?濡?Main 濡쒓렇??以묐났?쇰줈 ?ｌ? ?딄퀬, ?ㅼ떆媛??대깽???뺤씤??濡쒓렇濡쒕쭔 ?④릿??
-        appendLog("socket", "二쇱궗??寃곌낵", formatDiceRollMessage(diceResult));
+        // 주사위 결과는 TurnLog에도 포함되므로 Main 로그에 중복으로 넣지 않고, 실시간 이벤트 확인 로그로만 남깁니다.
+        appendLog('socket', '주사위 결과', formatDiceRollMessage(diceResult));
       },
       onStateDiffApplied: (stateDiff: StateDiffResponseDto) => {
-        // ?ㅼ젣 ?붾㈃ ?곹깭 媛깆떊? ?꾩슜 snapshot/?꾨찓???대깽?멸? 梨낆엫吏怨? ?ш린?쒕뒗 ?곹깭 蹂寃??대깽???섏떊 ?щ?瑜??④릿??
-        appendLog("socket", "상태 변화", formatStateDiffMessage(stateDiff));
+        // 실제 화면 상태 갱신은 전용 snapshot/도메인 이벤트가 책임지고, 여기서는 상태 변경 이벤트 수신 여부를 남깁니다.
+        appendLog('socket', '상태 변화', formatStateDiffMessage(stateDiff));
       },
       onVttMapUpdated: (map: VttMapStateDto) => {
         setSnapshot((current) => {
@@ -765,7 +866,7 @@ export function useSession(
         });
       },
       onStatusChange: setSocketConnected,
-      onLog: (title, message) => appendLog("socket", title, message),
+      onLog: (title, message) => appendLog('socket', title, message),
     });
     socketRef.current = socket;
 
@@ -781,6 +882,27 @@ export function useSession(
     if (!user || !snapshot?.session.id) return;
     void refreshSessionList();
   }, [accessToken, snapshot?.session.id, snapshot?.session.status, user]);
+
+  useEffect(() => {
+    if (!user || !snapshot?.session.id) return undefined;
+    if (socketConnected) return undefined;
+
+    let disposed = false;
+    const intervalId = window.setInterval(() => {
+      void getSession(user, snapshot.session.id, accessToken)
+        .then((next) => {
+          if (!disposed) {
+            updateSnapshot(next);
+          }
+        })
+        .catch(() => undefined);
+    }, 3000);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, [accessToken, snapshot?.session.id, socketConnected, updateSnapshot, user]);
 
   async function refreshSessionListInternal(): Promise<SessionListRefreshResult | null> {
     if (!user) return null;
@@ -826,11 +948,11 @@ export function useSession(
 
   async function createSession(
     title: string,
-    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean },
+    options?: { scenarioId?: string; maxParticipants?: number; useAiGm?: boolean }
   ): Promise<SessionSnapshot | null> {
     if (!user) return null;
     if (hasBlockingSession()) {
-      setError("紐⑥쭛 以묒씤 ?몄뀡?먮뒗 ?섎굹留?李멸??????덉뒿?덈떎.");
+      setError('모집 중인 세션에는 하나만 참가할 수 있습니다.');
       return null;
     }
 
@@ -840,7 +962,7 @@ export function useSession(
     try {
       const next = await apiCreateSession(user, title, options, accessToken);
       updateSnapshot(next);
-      appendLog("rest", "?몄뀡 ?앹꽦", `${next.session.title} ?몄뀡???앹꽦?덉뒿?덈떎.`);
+      appendLog('rest', '세션 생성', `${next.session.title} 세션을 생성했습니다.`);
       const lists = await refreshSessionListInternal();
       const reconciledSnapshot = reconcileSnapshotWithLists(next, lists);
       if (reconciledSnapshot.session.status !== next.session.status) {
@@ -848,7 +970,7 @@ export function useSession(
       }
       return reconciledSnapshot;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "?몄뀡 ?앹꽦???ㅽ뙣?덉뒿?덈떎.");
+      setError(caught instanceof Error ? caught.message : '세션 생성에 실패했습니다.');
       return null;
     } finally {
       setBusy(false);
@@ -858,7 +980,7 @@ export function useSession(
   async function joinSession(inviteCode: string): Promise<SessionSnapshot | null> {
     if (!user) return null;
     if (hasBlockingSession()) {
-      setError("紐⑥쭛 以묒씤 ?몄뀡?먮뒗 ?섎굹留?李멸??????덉뒿?덈떎.");
+      setError('모집 중인 세션에는 하나만 참가할 수 있습니다.');
       return null;
     }
 
@@ -868,7 +990,7 @@ export function useSession(
     try {
       const next = await apiJoinSession(user, inviteCode, accessToken);
       updateSnapshot(next);
-      appendLog("rest", "?몄뀡 ?낆옣", `${next.session.title} ?몄뀡???낆옣?덉뒿?덈떎.`);
+      appendLog('rest', '세션 입장', `${next.session.title} 세션에 입장했습니다.`);
       const lists = await refreshSessionListInternal();
       const reconciledSnapshot = reconcileSnapshotWithLists(next, lists);
       if (reconciledSnapshot.session.status !== next.session.status) {
@@ -876,7 +998,7 @@ export function useSession(
       }
       return reconciledSnapshot;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "?몄뀡 ?낆옣???ㅽ뙣?덉뒿?덈떎.");
+      setError(caught instanceof Error ? caught.message : '세션 입장에 실패했습니다.');
       return null;
     } finally {
       setBusy(false);
@@ -886,10 +1008,10 @@ export function useSession(
   async function joinSessionById(sessionId: string): Promise<SessionSnapshot | null> {
     if (!user) return null;
     const knownSession = mySessionList.find(
-      (item) => item.sessionId === sessionId || item.sessionPublicId === sessionId,
+      (item) => item.sessionId === sessionId || item.sessionPublicId === sessionId
     );
     if (!knownSession && hasBlockingSession()) {
-      setError("紐⑥쭛 以묒씤 ?몄뀡?먮뒗 ?섎굹留?李멸??????덉뒿?덈떎.");
+      setError('모집 중인 세션에는 하나만 참가할 수 있습니다.');
       return null;
     }
 
@@ -901,11 +1023,11 @@ export function useSession(
         ? await getSession(
             user,
             knownSession.sessionPublicId || knownSession.sessionId,
-            accessToken,
+            accessToken
           )
         : await apiJoinSessionById(user, sessionId, accessToken);
       updateSnapshot(next);
-      appendLog("rest", "?몄뀡 ?낆옣", `${next.session.title} ?몄뀡???낆옣?덉뒿?덈떎.`);
+      appendLog('rest', '세션 입장', `${next.session.title} 세션에 입장했습니다.`);
       const lists = await refreshSessionListInternal();
       const reconciledSnapshot = reconcileSnapshotWithLists(next, lists);
       if (reconciledSnapshot.session.status !== next.session.status) {
@@ -913,7 +1035,7 @@ export function useSession(
       }
       return reconciledSnapshot;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "?몄뀡 ?낆옣???ㅽ뙣?덉뒿?덈떎.");
+      setError(caught instanceof Error ? caught.message : '세션 입장에 실패했습니다.');
       return null;
     } finally {
       setBusy(false);
@@ -934,7 +1056,7 @@ export function useSession(
           ...payload,
           sessionId: shouldAssignToSession ? snapshot?.session.id : undefined,
         },
-        accessToken,
+        accessToken
       );
 
       if (next) {
@@ -943,9 +1065,9 @@ export function useSession(
 
       await refreshMyCharacters();
       succeeded = true;
-      appendLog("rest", "罹먮┃???앹꽦", `${payload.name} 罹먮┃?곕? ?앹꽦?덉뒿?덈떎.`);
+      appendLog('rest', '캐릭터 생성', `${payload.name} 캐릭터를 생성했습니다.`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "罹먮┃???앹꽦???ㅽ뙣?덉뒿?덈떎.");
+      setError(caught instanceof Error ? caught.message : '캐릭터 생성에 실패했습니다.');
     } finally {
       setBusy(false);
     }
@@ -962,18 +1084,15 @@ export function useSession(
     try {
       const cloned = await apiCloneCharacter(user, characterId, accessToken);
       await refreshMyCharacters();
-      appendLog("rest", "罹먮┃??蹂듭젣", `${cloned.name} 罹먮┃?곕? 蹂듭젣?덉뒿?덈떎.`);
+      appendLog('rest', '캐릭터 복제', `${cloned.name} 캐릭터를 복제했습니다.`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "罹먮┃??蹂듭젣???ㅽ뙣?덉뒿?덈떎.");
+      setError(caught instanceof Error ? caught.message : '캐릭터 복제에 실패했습니다.');
     } finally {
       setBusy(false);
     }
   }
 
-  async function updateCharacter(
-    characterId: string,
-    payload: CharacterPayload,
-  ): Promise<boolean> {
+  async function updateCharacter(characterId: string, payload: CharacterPayload): Promise<boolean> {
     if (!user) return false;
     setError(null);
     setBusy(true);
@@ -999,14 +1118,14 @@ export function useSession(
           speed: payload.speed,
           inventory: payload.inventory,
         },
-        accessToken,
+        accessToken
       );
 
       await refreshMyCharacters();
       succeeded = true;
-      appendLog("rest", "罹먮┃???섏젙", `${payload.name} 罹먮┃?곕? ?섏젙?덉뒿?덈떎.`);
+      appendLog('rest', '캐릭터 수정', `${payload.name} 캐릭터를 수정했습니다.`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "罹먮┃???섏젙???ㅽ뙣?덉뒿?덈떎.");
+      setError(caught instanceof Error ? caught.message : '캐릭터 수정에 실패했습니다.');
     } finally {
       setBusy(false);
     }
@@ -1021,9 +1140,9 @@ export function useSession(
     try {
       await apiDeleteCharacter(user, characterId, accessToken);
       await refreshMyCharacters();
-      appendLog("rest", "罹먮┃????젣", "罹먮┃?곕? ??젣?덉뒿?덈떎.");
+      appendLog('rest', '캐릭터 삭제', '캐릭터를 삭제했습니다.');
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "罹먮┃????젣???ㅽ뙣?덉뒿?덈떎.");
+      setError(caught instanceof Error ? caught.message : '캐릭터 삭제에 실패했습니다.');
     } finally {
       setBusy(false);
     }
@@ -1039,12 +1158,14 @@ export function useSession(
       await syncSession(snapshot.session.id);
       const selected = myCharacters.find((character) => character.id === characterId);
       appendLog(
-        "rest",
-        characterId ? "罹먮┃???좏깮" : "罹먮┃???좏깮 ?댁젣",
-        characterId ? `${selected?.name ?? "캐릭터"}를 선택했습니다.` : "캐릭터 선택을 해제했습니다.",
+        'rest',
+        characterId ? '캐릭터 선택' : '캐릭터 선택 해제',
+        characterId
+          ? `${selected?.name ?? '캐릭터'}를 선택했습니다.`
+          : '캐릭터 선택을 해제했습니다.'
       );
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "罹먮┃???좏깮???ㅽ뙣?덉뒿?덈떎.");
+      setError(caught instanceof Error ? caught.message : '캐릭터 선택에 실패했습니다.');
     } finally {
       setBusy(false);
     }
@@ -1058,9 +1179,13 @@ export function useSession(
     try {
       await apiUpdateReadyState(user, snapshot.session.id, isReady, accessToken);
       await syncSession(snapshot.session.id);
-      appendLog("rest", isReady ? "READY" : "READY ?댁젣", isReady ? "READY ?곹깭濡?蹂寃쏀뻽?듬땲??" : "READY瑜??댁젣?덉뒿?덈떎.");
+      appendLog(
+        'rest',
+        isReady ? 'READY' : 'READY 해제',
+        isReady ? 'READY 상태로 변경했습니다.' : 'READY를 해제했습니다.'
+      );
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "READY ?곹깭 蹂寃쎌뿉 ?ㅽ뙣?덉뒿?덈떎.");
+      setError(caught instanceof Error ? caught.message : 'READY 상태 변경에 실패했습니다.');
     } finally {
       setBusy(false);
     }
@@ -1075,9 +1200,9 @@ export function useSession(
       const next = await apiStartSession(user, snapshot.session.id, accessToken);
       updateSnapshot(next);
       await refreshSessionList();
-      appendLog("rest", "?몄뀡 ?쒖옉", `${next.session.title} ?몄뀡???쒖옉?덉뒿?덈떎.`);
+      appendLog('rest', '세션 시작', `${next.session.title} 세션을 시작했습니다.`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "?몄뀡 ?쒖옉???ㅽ뙣?덉뒿?덈떎.");
+      setError(caught instanceof Error ? caught.message : '세션 시작에 실패했습니다.');
     } finally {
       setBusy(false);
     }
@@ -1095,22 +1220,24 @@ export function useSession(
 
     try {
       await apiLeaveSession(user, leavingSessionId, accessToken);
-      appendLog("rest", "세션 이탈", `${leavingSessionTitle} 세션에서 이탈했습니다.`);
+      appendLog('rest', '세션 이탈', `${leavingSessionTitle} 세션에서 이탈했습니다.`);
       await refreshSessionList();
+      await refreshMyCharacters();
       return true;
     } catch (caught) {
-      const message =
-        caught instanceof Error ? caught.message : "세션 이탈에 실패했습니다.";
+      const message = caught instanceof Error ? caught.message : '세션 이탈에 실패했습니다.';
 
       if (isStaleLeaveErrorMessage(message)) {
-        appendLog("rest", "세션 이탈", `${leavingSessionTitle} 세션 이탈 상태를 동기화했습니다.`);
+        appendLog('rest', '세션 이탈', `${leavingSessionTitle} 세션 이탈 상태를 동기화했습니다.`);
         await refreshSessionList();
+        await refreshMyCharacters();
         return true;
       }
 
       updateSnapshot(previousSnapshot);
       setError(message);
       await refreshSessionList();
+      await refreshMyCharacters();
       return false;
     } finally {
       setBusy(false);
@@ -1123,15 +1250,15 @@ export function useSession(
     if (!trimmed) return;
 
     const myParticipant = snapshot.participants.find(
-      (participant) => participant.userId === user.id,
+      (participant) => participant.userId === user.id
     );
     const selectedCharacterId =
       myParticipant?.sessionCharacterId ?? myParticipant?.characterId ?? null;
 
     if (!selectedCharacterId) {
-      const message = "?됰룞???낅젰?섎젮硫?癒쇱? 罹먮┃?곕? ?좏깮?댁빞 ?⑸땲??";
+      const message = '행동을 입력하려면 먼저 캐릭터를 선택해야 합니다.';
       setError(message);
-      appendLog("socket", "?됰룞 ?꾩넚 ?ㅽ뙣", message);
+      appendLog('socket', '행동 전송 실패', message);
       return;
     }
 
@@ -1139,14 +1266,14 @@ export function useSession(
       characterId: selectedCharacterId,
       rawText: trimmed,
       clientCreatedAt: new Date().toISOString(),
-      // ?꾪닾媛 ?꾨땺 ?뚮뒗 ?뚰떚 怨듭슜 ?됰룞?쇰줈 蹂대궡???꾩옱 諛깆뿏??寃利?洹쒖튃???듦낵?쒕떎.
+      // 전투가 아닐 때는 파티 공용 행동으로 보내며, 현재 백엔드 검증 규칙을 따릅니다.
       actionScope:
-        snapshot.state.phase === "combat"
-          ? ("INDIVIDUAL_TURN" as ActionScope)
-          : ("PARTY_SHARED" as ActionScope),
-      inputType: trimmed.startsWith("/")
-        ? ("COMMAND" as ActionInputType)
-        : ("TEXT" as ActionInputType),
+        snapshot.state.phase === 'combat'
+          ? ('INDIVIDUAL_TURN' as ActionScope)
+          : ('PARTY_SHARED' as ActionScope),
+      inputType: trimmed.startsWith('/')
+        ? ('COMMAND' as ActionInputType)
+        : ('TEXT' as ActionInputType),
     };
 
     setError(null);
@@ -1154,36 +1281,91 @@ export function useSession(
 
     try {
       await apiSubmitAction(user, snapshot.session.id, payload, accessToken);
-      // ?붾㈃ ?쒖떆???쒕쾭媛 ?????釉뚮줈?쒖틦?ㅽ듃?섎뒗 turn.log.created ?대깽?몃쭔 誘용뒗??
-      // 洹몃옒??DB???⑥? 湲곕줉怨??ъ슜?먭? 蹂대뒗 濡쒓렇媛 媛숈? 異쒖쿂瑜?媛吏꾨떎.
+      // 화면 표시는 서버가 저장하고 브로드캐스트하는 turn.log.created 이벤트만 믿습니다.
+      // 그래야 DB에 남은 기록과 사용자가 보는 로그가 같은 출처를 가집니다.
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "?됰룞 ?꾩넚???ㅽ뙣?덉뒿?덈떎.";
+      const message = caught instanceof Error ? caught.message : '행동 전송에 실패했습니다.';
       setError(message);
-      appendLog("socket", "?됰룞 ?꾩넚 ?ㅽ뙣", message);
+      appendLog('socket', '행동 전송 실패', message);
     } finally {
       setBusy(false);
     }
   }
 
-  async function sendMainCommand(payload: SubmitMainCommandDto): Promise<MainCommandResponseDto | null> {
+  async function sendMainCommand(
+    payload: SubmitMainCommandDto
+  ): Promise<MainCommandResponseDto | null> {
     if (!user || !snapshot) return null;
+
+    const rawText = payload.playerText.trim();
+    if (!rawText) return null;
+
+    const clientLogId = crypto.randomUUID();
+    const rawLogId = `main-command:${clientLogId}:raw`;
+    const pendingLogId = `main-command:${clientLogId}:pending`;
+    const createdAt = new Date().toISOString();
+    const pendingEntry: PendingMainCommandLog = {
+      clientLogId,
+      rawLogId,
+      pendingLogId,
+      rawText,
+      userId: user.id,
+      isPendingVisible: true,
+    };
 
     setError(null);
     setBusy(true);
 
+    // API 왕복 전에 사용자의 입력과 대기 상태를 먼저 표시해 전송이 먹혔는지 즉시 알 수 있게 합니다.
+    appendLog('action', user.displayName, `[MAIN]${rawText}`, rawLogId, createdAt);
+    appendLog('action', '세션 로그', '[MAIN]...', pendingLogId);
+    pendingEntry.timeoutId = window.setTimeout(() => {
+      removeLog(pendingLogId);
+      pendingEntry.isPendingVisible = false;
+      pendingEntry.timeoutId = undefined;
+    }, 45_000);
+    pendingMainCommandLogsRef.current = [...pendingMainCommandLogsRef.current, pendingEntry];
+
     try {
       return await apiSubmitMainCommand(user, snapshot.session.id, payload, accessToken);
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "硫붿씤 紐낅졊 ?꾩넚???ㅽ뙣?덉뒿?덈떎.";
+      const message = caught instanceof Error ? caught.message : '메인 명령 전송에 실패했습니다.';
+      removePendingMainCommandLog(pendingEntry, { removeRaw: false });
       setError(message);
-      appendLog("socket", "硫붿씤 紐낅졊 ?꾩넚 ?ㅽ뙣", message);
+      appendLog('socket', '메인 명령 전송 실패', message);
+      appendLog(
+        'action',
+        '세션 로그',
+        `[MAIN]메인 명령 전송 실패: ${message}`,
+        `main-command:${clientLogId}:error`
+      );
       return null;
     } finally {
       setBusy(false);
     }
   }
 
-  async function sendChatMessage(content: string) {
+  async function resolveMainCommandCheck(
+    payload: ResolveMainCommandCheckDto
+  ): Promise<MainCommandResponseDto | null> {
+    if (!user || !snapshot) return null;
+
+    setError(null);
+    setBusy(true);
+
+    try {
+      return await apiResolveMainCommandCheck(user, snapshot.session.id, payload, accessToken);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '판정 결과 반영에 실패했습니다.';
+      setError(message);
+      appendLog('socket', '판정 결과 반영 실패', message);
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendChatMessage(content: string, scope: 'CHAT' | 'MAIN' = 'CHAT') {
     if (!user || !snapshot) return;
 
     const trimmed = content.trim();
@@ -1192,23 +1374,23 @@ export function useSession(
     setError(null);
 
     if (trimmed.length > 1000) {
-      const message = "梨꾪똿 硫붿떆吏??1000???댄븯濡??낅젰?댁＜?몄슂.";
+      const message = '채팅 메시지는 1000자 이하로 입력해주세요.';
       setError(message);
-      appendLog("socket", "梨꾪똿 ?꾩넚 ?ㅽ뙣", message);
+      appendLog('socket', scope === 'MAIN' ? 'RP 대사 전송 실패' : '채팅 전송 실패', message);
       return;
     }
 
     const socket = socketRef.current;
     if (!socket?.connected) {
-      const message = "?ㅼ떆媛?梨꾪똿 ?곌껐 ???ㅼ떆 ?쒕룄?댁＜?몄슂.";
+      const message = '실시간 채팅 연결 후 다시 시도해주세요.';
       setError(message);
-      appendLog("socket", "梨꾪똿 ?꾩넚 ?ㅽ뙣", message);
+      appendLog('socket', scope === 'MAIN' ? 'RP 대사 전송 실패' : '채팅 전송 실패', message);
       return;
     }
 
-    // ?쒕쾭媛 membership???ㅼ떆 ?뺤씤????媛숈? ?몄뀡 room??broadcast?쒕떎.
-    // 洹몃옒???숆???異붽?瑜??섏? ?딄퀬, ?쒕쾭媛 ?뚮젮以 chat.message ?대깽?몃쭔 ?붾㈃???쒖떆?쒕떎.
-    sendRealtimeChatMessage(socket, snapshot.session.id, trimmed);
+    // 서버가 membership을 다시 확인하고 같은 세션 room에 broadcast합니다.
+    // 그래서 로컬에 즉시 추가하지 않고, 서버가 알려준 chat.message 이벤트만 화면에 표시합니다.
+    sendRealtimeChatMessage(socket, snapshot.session.id, trimmed, scope);
   }
 
   function clearSnapshot() {
@@ -1241,6 +1423,7 @@ export function useSession(
     startSession,
     leaveSession,
     sendMainCommand,
+    resolveMainCommandCheck,
     sendAction,
     sendChatMessage,
     loadOlderTurnLogs,
