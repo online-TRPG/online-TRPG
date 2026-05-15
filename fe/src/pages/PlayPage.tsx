@@ -14,6 +14,7 @@ import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from
 import type {
   ActionOutcome,
   ClassDefinitionResponseDto,
+  CombatResponseDto,
   InventoryItemDto,
   MainCommandResponseDto,
   RaceResponseDto,
@@ -40,7 +41,16 @@ import {
   getCharacterImage,
 } from '../features/sessionPlay/utils/characterVisuals';
 import type { CharacterPayload } from '../hooks/useSession';
-import { getPlayerScenario, getVttMap, updateVttMap, useInventoryItem } from '../services/api';
+import {
+  endCombat,
+  endCombatTurn,
+  getCombat,
+  getPlayerScenario,
+  getVttMap,
+  startCombat,
+  updateVttMap,
+  useInventoryItem,
+} from '../services/api';
 import type {
   LogEntry,
   Character,
@@ -994,6 +1004,11 @@ function getScreenTypeFromNodeType(
   if (nodeType === 'combat') return MainCommandScreenTypeValues.COMBAT;
   return null;
 }
+
+function getCompletedCombatNodeIds(flags: Record<string, unknown> | undefined): Set<string> {
+  const value = flags?.completedCombatNodeIds;
+  return new Set(Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []);
+}
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const MIN_SIDEBAR_WIDTH = 320;
 const MAX_SIDEBAR_WIDTH = 620;
@@ -1342,6 +1357,15 @@ function getMainCommandCheckEffect(response: MainCommandResponseDto | null | und
   return effect && typeof effect === 'object' ? (effect as Record<string, unknown>) : null;
 }
 
+function isMissingCombatError(message: string) {
+  return (
+    message.includes('COMBAT_404') ||
+    message.includes('ACTIVE_COMBAT_NOT_FOUND') ||
+    message.includes('전투가 존재하지 않습니다') ||
+    message.includes('(404)')
+  );
+}
+
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function PlayPage({
   user,
@@ -1417,6 +1441,10 @@ export function PlayPage({
   // 현재 세션의 플레이어용 시나리오 노드와 VTT 맵 로딩 상태입니다.
   const [playerScenario, setPlayerScenario] = useState<PlayerScenarioView | null>(null);
   const [vttMap, setVttMap] = useState<VttMapStateDto | null>(null);
+  const [combat, setCombat] = useState<CombatResponseDto | null>(null);
+  const [combatError, setCombatError] = useState<string | null>(null);
+  const [isCombatBusy, setCombatBusy] = useState(false);
+  const [isCombatChecked, setCombatChecked] = useState(false);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
   const [, setIsScenarioLoaded] = useState(false);
@@ -1433,6 +1461,7 @@ export function PlayPage({
     pending: null,
     activeSessionId: null,
   });
+  const autoCombatStartKeyRef = useRef<string | null>(null);
 
   // 서버 스냅샷에서 현재 세션/참가자/선택 캐릭터/권한 상태를 계산합니다.
   const session = snapshot?.session ?? null;
@@ -1496,10 +1525,22 @@ export function PlayPage({
     QUICK_CREATE_CLASS_PRESET_BY_KEY.get(selectedQuickCreateClass?.key ?? formState.classKey) ??
     null;
   const currentNode = playerScenario?.currentNode ?? null;
-  const currentScreenType = getScreenTypeFromNodeType(currentNode?.nodeType);
+  const completedCombatNodeIds = useMemo(
+    () => getCompletedCombatNodeIds(snapshot?.state.flags),
+    [snapshot?.state.flags]
+  );
+  const isCompletedCombatNode = Boolean(
+    currentNode?.nodeType === 'combat' &&
+      currentNode.id &&
+      (completedCombatNodeIds.has(currentNode.id) ||
+        (combat?.sessionId === session?.id && combat?.status === 'ENDED'))
+  );
+  const currentScreenType = isCompletedCombatNode
+    ? MainCommandScreenTypeValues.EXPLORATION
+    : getScreenTypeFromNodeType(currentNode?.nodeType);
   const isStoryNode = currentNode?.nodeType === 'story';
-  const isExplorationNode = currentNode?.nodeType === 'exploration';
-  const isCombatNode = currentNode?.nodeType === 'combat';
+  const isExplorationNode = currentNode?.nodeType === 'exploration' || isCompletedCombatNode;
+  const isCombatNode = currentNode?.nodeType === 'combat' && !isCompletedCombatNode;
   const usesNodeSpecificPartyStrip = Boolean(
     session && !isRecruiting && (isStoryNode || isExplorationNode || isCombatNode)
   );
@@ -1646,6 +1687,80 @@ export function PlayPage({
   useEffect(() => {
     setLocalSelectedCharacterId(serverSelectedCharacterId);
   }, [serverSelectedCharacterId]);
+
+  useEffect(() => {
+    if (!user || !session?.id || !isCombatNode) {
+      if (
+        combat?.status === 'ENDED' &&
+        currentNode?.nodeType === 'combat' &&
+        currentNode.id &&
+        !completedCombatNodeIds.has(currentNode.id)
+      ) {
+        return;
+      }
+      setCombat(null);
+      setCombatError(null);
+      setCombatChecked(false);
+      autoCombatStartKeyRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+    setCombatChecked(false);
+    getCombat(user, session.id)
+      .then((nextCombat) => {
+        if (cancelled) return;
+        setCombat(nextCombat);
+        setCombatError(null);
+        setCombatChecked(true);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setCombat(null);
+        const message = error instanceof Error ? error.message : '전투 상태를 불러오지 못했습니다.';
+        setCombatError(isMissingCombatError(message) ? null : message);
+        setCombatChecked(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [combat?.status, completedCombatNodeIds, currentNode?.id, currentNode?.nodeType, isCombatNode, session?.id, user]);
+
+  useEffect(() => {
+    if (!user || !session?.id || !currentNode?.id || !isCombatNode) return;
+    if (!isCombatChecked || combat || isCombatBusy || combatError) return;
+    if (session.gmMode === 'HUMAN' && !isHost) return;
+
+    const autoStartKey = `${session.id}:${currentNode.id}`;
+    if (autoCombatStartKeyRef.current === autoStartKey) return;
+    autoCombatStartKeyRef.current = autoStartKey;
+    void runCombatRequest(() => startCombat(user, session.id));
+  }, [
+    combat,
+    combatError,
+    currentNode?.id,
+    isCombatBusy,
+    isCombatChecked,
+    isCombatNode,
+    isHost,
+    session?.gmMode,
+    session?.id,
+    user,
+  ]);
+
+  useEffect(() => {
+    function handleCombatUpdated(event: Event) {
+      const detail = (event as CustomEvent<CombatResponseDto>).detail;
+      if (detail?.sessionId === session?.id) {
+        setCombat(detail);
+        setCombatError(null);
+      }
+    }
+
+    window.addEventListener('trpg:combat-updated', handleCombatUpdated);
+    return () => window.removeEventListener('trpg:combat-updated', handleCombatUpdated);
+  }, [session?.id]);
 
   useEffect(() => {
     if (!quickCreateConfigReady) {
@@ -2360,6 +2475,49 @@ export function PlayPage({
     void flushPendingMapSave(session.id);
   }
 
+  async function runCombatRequest(request: () => Promise<CombatResponseDto | { combat: CombatResponseDto } | unknown>) {
+    if (!session || isCombatBusy) return;
+
+    setCombatBusy(true);
+    setCombatError(null);
+    try {
+      const result = await request();
+      if (result && typeof result === 'object' && 'combat' in result) {
+        setCombat((result as { combat: CombatResponseDto }).combat);
+      } else if (result && typeof result === 'object' && 'combatId' in result) {
+        setCombat(result as CombatResponseDto);
+      } else {
+        const nextCombat = await getCombat(user, session.id);
+        setCombat(nextCombat);
+      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '전투 처리에 실패했습니다.';
+      if (message.includes('COMBAT_409') || message.includes('ACTIVE_COMBAT_EXISTS')) {
+        try {
+          const nextCombat = await getCombat(user, session.id);
+          setCombat(nextCombat);
+          setCombatError(null);
+          return;
+        } catch {
+          // 아래 공통 오류 표시 흐름으로 넘깁니다.
+        }
+      }
+      setCombatError(message);
+    } finally {
+      setCombatBusy(false);
+    }
+  }
+
+  function handleEndCombatTurn(force = false) {
+    if (!session) return;
+    void runCombatRequest(() => endCombatTurn(user, session.id, { force }));
+  }
+
+  function handleEndCombat() {
+    if (!session) return;
+    void runCombatRequest(() => endCombat(user, session.id));
+  }
+
   function getParticipantBadge(participantUserId: string): string | null {
     if (!session) return null;
     if (participantUserId === session.hostUserId) {
@@ -2699,7 +2857,16 @@ export function PlayPage({
                   isHost={isHost}
                   isGmView={canManageStartedSession}
                   map={vttMap}
+                  combat={combat}
+                  combatError={combatError}
+                  isCombatBusy={isCombatBusy}
+                  inventory={selectedCharacterInventory}
+                  inventoryFeedback={inventoryUseFeedback}
+                  isInventoryBusy={busy || isInventoryUsePending}
                   onMapChange={handleMapChange}
+                  onUseInventoryItem={handleUseExplorationInventoryItem}
+                  onEndCombat={handleEndCombat}
+                  onEndTurn={handleEndCombatTurn}
                 />
               ) : vttMap ? (
                 <BattleMap

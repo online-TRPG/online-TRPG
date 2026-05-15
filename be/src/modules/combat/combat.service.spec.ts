@@ -44,8 +44,11 @@ describe("CombatService lifecycle", () => {
       combat: {
         findFirst: jest.fn(),
       },
+      combatTurnState: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       sessionCharacter: {
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         findUnique: jest.fn(),
         update: jest.fn(),
       },
@@ -60,16 +63,18 @@ describe("CombatService lifecycle", () => {
       getSessionEntityOrThrow: jest.fn(),
       ensureMembership: jest.fn(),
       getGameStateEntityOrThrow: jest.fn(),
+      getVttMapForUser: jest.fn().mockResolvedValue({ tokens: [] }),
       buildSnapshot: jest.fn(),
     };
     const diceService = {
-      roll: jest.fn(() => ({ total: 10 })),
+      roll: jest.fn(() => ({ total: 10, rolls: [10] })),
     };
     const actionRules = {
       getAvailableActions: jest.fn(),
     };
     const actionEconomy = {
       getOrCreateTurnState: jest.fn(),
+      spendAction: jest.fn(),
     };
     const characterResources = {
       endRage: jest.fn(),
@@ -140,7 +145,17 @@ describe("CombatService lifecycle", () => {
     prisma.sessionCharacter.findMany.mockResolvedValue([
       {
         id: "session-character-1",
-        character: { name: "Hero" },
+        currentHp: 10,
+        conditionsJson: "[]",
+        character: {
+          name: "Hero",
+          abilitiesJson: "{}",
+          maxHp: 10,
+          armorClass: 14,
+          speed: 30,
+          className: "Fighter",
+          level: 1,
+        },
       },
     ]);
     prisma.$transaction.mockImplementation(async (callback) => callback(tx));
