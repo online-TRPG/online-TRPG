@@ -796,6 +796,10 @@ function getMainLogPresentation(log: LogEntry, message: string): MainLogPresenta
     return { tone: 'player-command', label: 'GM 요청' };
   }
 
+  if (log.id.startsWith('main-command:') && log.id.endsWith(':raw')) {
+    return { tone: 'player-command', label: 'GM 요청' };
+  }
+
   if (log.id.startsWith('player-action:') && log.id.endsWith(':raw')) {
     return { tone: 'player-rp', label: 'RP 대사' };
   }

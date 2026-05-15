@@ -2173,14 +2173,15 @@
 .story-party-body strong,
 .participant-card-body strong,
 .combat-turn-card strong {
-  color: var(--session-kit-ink);
+  color: var(--participant-text-color, var(--session-kit-ink));
   font-weight: 900;
 }
 
 .story-party-body small,
 .participant-card-body span,
 .combat-turn-card small {
-  color: var(--session-kit-ink-soft);
+  color: var(--participant-text-color, var(--session-kit-ink-soft));
+  opacity: 0.82;
 }
 
 .story-hp-track {
@@ -2201,11 +2202,32 @@
 .participant-strip-card {
   min-height: 116px;
   border-radius: 13px;
+  isolation: isolate;
+  box-shadow:
+    0 10px 22px rgba(95, 61, 22, 0.14),
+    0 0 0 1px var(--participant-frame-color, var(--session-kit-gold-deep)),
+    var(--session-kit-frame);
 }
 
 .participant-strip-card.placeholder {
   border-style: dashed;
   background: rgba(207, 188, 147, 0.84);
+}
+
+.participant-strip-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 0;
+  width: 7px;
+  background: var(--participant-frame-color, var(--session-kit-gold-deep));
+  box-shadow: 0 0 18px var(--participant-frame-color, rgba(195, 154, 76, 0.34));
+  pointer-events: none;
+}
+
+.participant-strip-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 .participant-avatar-frame.placeholder {
@@ -2214,15 +2236,17 @@
 
 .participant-state {
   border-radius: 999px;
-  border-color: #c8a25f;
-  background: #fff1cf;
-  color: #6b4a1e;
+  border-color: var(--participant-frame-color, #c8a25f);
+  background: var(--participant-bg-color, #fff1cf);
+  color: var(--participant-text-color, #6b4a1e);
 }
 
 .participant-state.ready {
-  border-color: #7ead65;
-  background: #edf8dc;
-  color: #3d7b2d;
+  border-color: var(--participant-frame-color, #7ead65);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.16)),
+    var(--participant-bg-color, #edf8dc);
+  color: var(--participant-text-color, #3d7b2d);
 }
 
 .participant-special-badge {
@@ -2233,7 +2257,8 @@
 }
 
 .participant-index {
-  color: rgba(114, 80, 34, 0.12);
+  color: var(--participant-frame-color, rgba(114, 80, 34, 0.12));
+  opacity: 0.16;
 }
 
 .combat-action-tabs button,
@@ -2517,6 +2542,7 @@
   content: '';
   position: absolute;
   inset: 6px;
+  z-index: 2;
   border: 1px solid rgba(255, 255, 255, 0.42);
   border-radius: calc(var(--session-kit-radius-md) - 3px);
   pointer-events: none;
@@ -2532,9 +2558,13 @@
 
 .story-party-avatar,
 .participant-avatar-frame {
-  border: 2px solid #9d7330;
-  background: #ead8aa;
-  box-shadow: 0 5px 10px rgba(75, 46, 14, 0.16);
+  border: 2px solid var(--participant-frame-color, #9d7330);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0)),
+    var(--participant-bg-color, #ead8aa);
+  box-shadow:
+    0 5px 10px rgba(75, 46, 14, 0.16),
+    0 0 0 2px var(--participant-frame-color, rgba(157, 115, 48, 0.24));
 }
 
 .story-party-avatar img,
