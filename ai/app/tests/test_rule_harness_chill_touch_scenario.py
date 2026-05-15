@@ -39,7 +39,7 @@ class ChillTouchScenarioClient:
             raw_text=json.dumps(
                 {
                     "action": {
-                        "type": "cast_spell",
+                        "type": "MAP_CAST_SPELL",
                         "actorCharacterId": "wizard-1",
                         "targetId": "goblin-1",
                         "spellId": "spell.chill_touch",
@@ -72,7 +72,7 @@ class ChillTouchScenarioClient:
             ),
             parsed_json={
                 "action": {
-                    "type": "cast_spell",
+                    "type": "MAP_CAST_SPELL",
                     "actorCharacterId": "wizard-1",
                     "targetId": "goblin-1",
                     "spellId": "spell.chill_touch",
@@ -204,7 +204,7 @@ def test_frontend_level_1_wizard_casts_chill_touch_on_goblin(capsys):
     assert "긴 시전 시간" not in ai_prompt
     assert "같은 턴에 다른 주문" not in ai_prompt
     assert "relatedRules" in ai_prompt
-    assert response.parsed.action.type == "cast_spell"
+    assert response.parsed.action.type == "MAP_CAST_SPELL"
     assert response.parsed.action.actorCharacterId == "wizard-1"
     assert response.parsed.action.targetId == "goblin-1"
     assert response.parsed.action.spellId == "spell.chill_touch"
