@@ -14,6 +14,7 @@ const createParticipant = (
     nameSnapshot: string;
     turnOrder: number;
     isAlive: boolean;
+    speedFt: number;
   }> = {},
 ) => ({
   id: overrides.id ?? "participant-1",
@@ -21,6 +22,12 @@ const createParticipant = (
   entityType: PrismaCombatEntityType.PLAYER_CHARACTER,
   sessionCharacterId: overrides.sessionCharacterId ?? "session-character-1",
   nameSnapshot: overrides.nameSnapshot ?? "Hero",
+  tokenId: null,
+  currentHp: 10,
+  maxHp: 10,
+  armorClass: 14,
+  speedFt: overrides.speedFt ?? 30,
+  conditionsJson: "[]",
   initiative: 10,
   turnOrder: overrides.turnOrder ?? 1,
   isAlive: overrides.isAlive ?? true,
@@ -142,15 +149,16 @@ describe("CombatService lifecycle", () => {
 
     expect(tx.combatTurnState.upsert).toHaveBeenCalledWith({
       where: {
-        combatId_roundNo_turnNo_sessionCharacterId: {
+        combatId_roundNo_turnNo_combatParticipantId: {
           combatId: "combat-1",
           roundNo: 1,
           turnNo: 1,
-          sessionCharacterId: "session-character-1",
+          combatParticipantId: participant.id,
         },
       },
       create: {
         combatId: "combat-1",
+        combatParticipantId: participant.id,
         roundNo: 1,
         turnNo: 1,
         sessionCharacterId: "session-character-1",
@@ -217,6 +225,7 @@ describe("CombatService lifecycle", () => {
     });
     expect(actionEconomy.getOrCreateTurnState).toHaveBeenCalledWith({
       combatId: "combat-1",
+      combatParticipantId: next.id,
       roundNo: 1,
       turnNo: 2,
       sessionCharacterId: "session-character-2",

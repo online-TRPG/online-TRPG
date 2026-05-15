@@ -11,15 +11,30 @@
  */
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from 'react';
-import type { InventoryItemDto, SubmitMainCommandDto, VttMapStateDto } from '@trpg/shared-types';
+import type {
+  ActionOutcome,
+  ClassDefinitionResponseDto,
+  InventoryItemDto,
+  MainCommandResponseDto,
+  RaceResponseDto,
+  ResolveMainCommandCheckDto,
+  SubmitMainCommandDto,
+  VttMapStateDto,
+} from '@trpg/shared-types';
 import { BattleMap } from '../components/BattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
 import { CombatNodeSurface } from '../features/sessionPlay/components/CombatNodeSurface';
 import { DiceRollOverlay } from '../features/sessionPlay/components/DiceRollOverlay';
 import type { DiceRollOverlayData } from '../features/sessionPlay/components/DiceRollOverlay';
-import { ExplorationNodeSurface } from '../features/sessionPlay/components/ExplorationNodeSurface';
-import { StoryNodeSurface } from '../features/sessionPlay/components/StoryNodeSurface';
+import {
+  ExplorationNodeSurface,
+  type ExplorationMainCommandRequest,
+} from '../features/sessionPlay/components/ExplorationNodeSurface';
+import {
+  StoryNodeSurface,
+  type StoryRpUtterance,
+} from '../features/sessionPlay/components/StoryNodeSurface';
 import {
   getCharacterClassLabel,
   getCharacterImage,
@@ -28,12 +43,13 @@ import type { CharacterPayload } from '../hooks/useSession';
 import { getPlayerScenario, getVttMap, updateVttMap, useInventoryItem } from '../services/api';
 import type {
   LogEntry,
+  Character,
   PersistentCharacter,
   PlayerScenarioView,
   SessionSnapshot,
   StoredUser,
 } from '../types/session';
-import { GM_TOKEN_COLOR, getPlayerTokenColor } from '../utils/sessionTokenColors';
+import { getPlayerTokenColor } from '../utils/sessionTokenColors';
 import type { SessionTokenColor } from '../utils/sessionTokenColors';
 import './CharacterPage.css';
 import './PlayPage.css';
@@ -100,6 +116,24 @@ type MainCommandFieldConfig = {
 type MainCommandCategoryOption = {
   label: string;
   category: SubmitMainCommandDto['category'];
+};
+
+type PendingMainCommandCheck = {
+  requestId: string;
+  message: string;
+  effect: Record<string, unknown>;
+};
+
+type MainLogTone =
+  | 'gm-narration'
+  | 'npc-dialogue'
+  | 'system-result'
+  | 'player-command'
+  | 'player-rp';
+
+type MainLogPresentation = {
+  tone: MainLogTone | null;
+  label: string | null;
 };
 
 const MainCommandScreenTypeValues = {
@@ -381,6 +415,13 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
         screenType: MainCommandScreenTypeValues.EXPLORATION,
       },
       {
+        label: '환경 이용',
+        categoryLabel: '환경',
+        category: MainCommandCategoryValues.ENVIRONMENT,
+        intent: MainCommandIntentValues.ENVIRONMENT_USE,
+        screenType: MainCommandScreenTypeValues.EXPLORATION,
+      },
+      {
         label: '도구 사용',
         categoryLabel: '도구/아이템',
         category: MainCommandCategoryValues.TOOL_ITEM,
@@ -550,34 +591,170 @@ interface PlayPageProps {
   user: StoredUser;
   snapshot: SessionSnapshot | null;
   characters: PersistentCharacter[];
+  races: RaceResponseDto[];
+  classDefinitions: ClassDefinitionResponseDto[];
   logs: LogEntry[];
   socketConnected: boolean;
   hasOlderTurnLogs: boolean;
   isLoadingTurnLogs: boolean;
   busy: boolean;
   error: string | null;
-  onCreateCharacter: (payload: CharacterPayload) => Promise<boolean> | void;
+  onCreateCharacter: (payload: CharacterPayload) => Promise<boolean>;
   onSelectCharacter: (characterId: string | null) => void;
   onSetReady: (isReady: boolean) => void;
   onStartSession: () => void;
   onLeaveSession: () => void;
   onBackToLobby: () => void;
-  onMainCommand: (payload: SubmitMainCommandDto) => Promise<void> | void;
+  onMainCommand: (payload: SubmitMainCommandDto) => Promise<MainCommandResponseDto | null>;
+  onResolveMainCommandCheck: (
+    payload: ResolveMainCommandCheckDto,
+  ) => Promise<MainCommandResponseDto | null>;
   onAction: (label: string) => void;
   onLoadOlderTurnLogs: () => void;
   activeDiceRoll: DiceRollOverlayData | null;
   onDismissDiceRoll: () => void;
 }
 
-// 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
-const defaultCharacter = {
-  name: '',
-  ancestry: 'Human',
-  className: 'Wizard',
-  maxHp: 12,
+interface QuickCreateFormState {
+  name: string;
+  ancestryKey: string;
+  classKey: string;
+}
+
+type QuickCreateAbilities = NonNullable<CharacterPayload['abilities']>;
+
+const DEFAULT_QUICK_CREATE_ANCESTRY_KEY = 'human';
+const DEFAULT_QUICK_CREATE_CLASS_KEY = 'wizard';
+const HIT_DIE_AVERAGE_BY_KEY: Readonly<Record<string, number>> = {
+  d6: 4,
+  d8: 5,
+  d10: 6,
+  d12: 7,
+};
+const QUICK_CREATE_POINT_BUY_BY_CLASS_KEY: Readonly<
+  Record<string, QuickCreateAbilities>
+> = {
+  barbarian: { str: 15, dex: 13, con: 14, int: 8, wis: 12, cha: 10 },
+  bard: { str: 8, dex: 14, con: 13, int: 10, wis: 12, cha: 15 },
+  cleric: { str: 10, dex: 13, con: 14, int: 8, wis: 15, cha: 10 },
+  druid: { str: 8, dex: 14, con: 13, int: 10, wis: 15, cha: 10 },
+  fighter: { str: 15, dex: 13, con: 14, int: 8, wis: 12, cha: 10 },
+  monk: { str: 10, dex: 15, con: 13, int: 8, wis: 14, cha: 10 },
+  paladin: { str: 15, dex: 10, con: 14, int: 8, wis: 12, cha: 13 },
+  ranger: { str: 10, dex: 15, con: 13, int: 10, wis: 14, cha: 10 },
+  rogue: { str: 10, dex: 15, con: 13, int: 12, wis: 14, cha: 8 },
+  sorcerer: { str: 8, dex: 14, con: 13, int: 10, wis: 12, cha: 15 },
+  warlock: { str: 8, dex: 14, con: 13, int: 10, wis: 12, cha: 15 },
+  wizard: { str: 8, dex: 14, con: 13, int: 15, wis: 12, cha: 10 },
+};
+const QUICK_CREATE_CLASS_PRESET_BY_KEY = new Map<string, string>([
+  ['wizard', 'preset_wizard'],
+  ['ranger', 'preset_archer'],
+  ['rogue', 'preset_rogue'],
+  ['fighter', 'preset_warrior'],
+]);
+const QUICK_CREATE_CLASS_COMBAT_DEFAULTS: Readonly<
+  Record<string, { armorClass: number; speed: number }>
+> = {
+  fighter: { armorClass: 20, speed: 28 },
+  ranger: { armorClass: 16, speed: 32 },
+  rogue: { armorClass: 14, speed: 36 },
+  wizard: { armorClass: 10, speed: 30 },
 };
 
+// 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
+const defaultCharacter: QuickCreateFormState = {
+  name: '',
+  ancestryKey: DEFAULT_QUICK_CREATE_ANCESTRY_KEY,
+  classKey: DEFAULT_QUICK_CREATE_CLASS_KEY,
+};
+
+function createDefaultQuickCreateForm(
+  races: RaceResponseDto[],
+  classDefinitions: ClassDefinitionResponseDto[],
+): QuickCreateFormState {
+  return {
+    name: '',
+    ancestryKey:
+      races.find((race) => race.key === DEFAULT_QUICK_CREATE_ANCESTRY_KEY)?.key ??
+      races[0]?.key ??
+      DEFAULT_QUICK_CREATE_ANCESTRY_KEY,
+    classKey:
+      classDefinitions.find((klass) => klass.key === DEFAULT_QUICK_CREATE_CLASS_KEY)?.key ??
+      classDefinitions[0]?.key ??
+      DEFAULT_QUICK_CREATE_CLASS_KEY,
+  };
+}
+
 const visibleCharacterSlots = 3;
+
+function toStoredClassName(classKey: string): string {
+  const trimmed = classKey.trim();
+  if (!trimmed) return 'Wizard';
+  return trimmed.slice(0, 1).toUpperCase() + trimmed.slice(1).toLowerCase();
+}
+
+function getQuickCreatePointBuyBase(classKey: string): QuickCreateAbilities {
+  return (
+    QUICK_CREATE_POINT_BUY_BY_CLASS_KEY[classKey] ?? {
+      str: 10,
+      dex: 14,
+      con: 13,
+      int: 10,
+      wis: 12,
+      cha: 15,
+    }
+  );
+}
+
+function applyRaceBonuses(
+  base: QuickCreateAbilities,
+  race: RaceResponseDto | null,
+): QuickCreateAbilities {
+  const increases = race?.abilityIncreases;
+  return {
+    str: base.str + (increases?.str ?? 0),
+    dex: base.dex + (increases?.dex ?? 0),
+    con: base.con + (increases?.con ?? 0),
+    int: base.int + (increases?.int ?? 0),
+    wis: base.wis + (increases?.wis ?? 0),
+    cha: base.cha + (increases?.cha ?? 0),
+  };
+}
+
+function getProficiencyBonusForLevel(level: number): number {
+  if (level >= 17) return 6;
+  if (level >= 13) return 5;
+  if (level >= 9) return 4;
+  if (level >= 5) return 3;
+  return 2;
+}
+
+function getExpectedMaxHp(
+  hitDie: string | undefined,
+  level: number,
+  constitution: number,
+): number {
+  const normalizedHitDie = hitDie?.toLowerCase() ?? 'd6';
+  const hitDieMax = Number(normalizedHitDie.replace('d', '')) || 6;
+  const hitDieAverage = HIT_DIE_AVERAGE_BY_KEY[normalizedHitDie] ?? Math.ceil(hitDieMax / 2);
+  const constitutionModifier = Math.floor((constitution - 10) / 2);
+
+  return hitDieMax + constitutionModifier + (level - 1) * (hitDieAverage + constitutionModifier);
+}
+
+function getQuickCreateArmorClass(classKey: string, dexterity: number): number {
+  const predefined = QUICK_CREATE_CLASS_COMBAT_DEFAULTS[classKey];
+  if (predefined) {
+    return predefined.armorClass;
+  }
+
+  return Math.max(10, 10 + Math.floor((dexterity - 10) / 2));
+}
+
+function getQuickCreateSpeed(classKey: string, race: RaceResponseDto | null): number {
+  return QUICK_CREATE_CLASS_COMBAT_DEFAULTS[classKey]?.speed ?? race?.baseSpeed ?? 30;
+}
 
 // 로그 메시지 앞의 [MAIN]/[CHAT] 스코프 태그를 화면 표시용으로 제거합니다.
 function stripScopePrefix(message: string) {
@@ -610,9 +787,90 @@ function buildProfileColorStyle(color: SessionTokenColor): CSSProperties {
   } as CSSProperties;
 }
 
+function buildStoryPartyColorStyle(color: SessionTokenColor): CSSProperties {
+  // 하단 파티 카드도 메인/채팅 프로필과 같은 색 출처를 쓰도록 별도 CSS 변수에 복사합니다.
+  return {
+    ...buildProfileColorStyle(color),
+    ['--story-party-frame-color' as string]: color.frame,
+    ['--story-party-bg-color' as string]: color.background,
+    ['--story-party-text-color' as string]: color.text,
+  } as CSSProperties;
+}
+
+function buildMapPartyColorStyle(color: SessionTokenColor): CSSProperties {
+  // 탐험 맵에 원래 있던 파티 오버레이도 캐릭터 토큰 색상 기준을 쓰도록 전용 CSS 변수에 복사합니다.
+  return {
+    ...buildProfileColorStyle(color),
+    ['--map-party-frame-color' as string]: color.frame,
+    ['--map-party-bg-color' as string]: color.background,
+    ['--map-party-text-color' as string]: color.text,
+  } as CSSProperties;
+}
+
 function getLogSenderLabel(title: string, rowClass: 'incoming' | 'outgoing' | 'notice') {
   if (rowClass === 'notice') return '세션 로그';
   return title || '알 수 없음';
+}
+
+function getMainLogPresentation(log: LogEntry, message: string): MainLogPresentation {
+  if (isChatScoped(log.message)) {
+    return { tone: null, label: null };
+  }
+
+  if (log.id.startsWith('turn-log:') && log.id.endsWith(':raw')) {
+    return { tone: 'player-command', label: 'GM 요청' };
+  }
+
+  if (log.id.startsWith('main-command:') && log.id.endsWith(':raw')) {
+    return { tone: 'player-command', label: 'GM 요청' };
+  }
+
+  if (log.id.startsWith('player-action:') && log.id.endsWith(':raw')) {
+    return { tone: 'player-rp', label: 'RP 대사' };
+  }
+
+  if (
+    log.kind === 'action' &&
+    log.message.startsWith('[MAIN]') &&
+    !log.id.startsWith('turn-log:')
+  ) {
+    return { tone: 'player-rp', label: 'RP 대사' };
+  }
+
+  if (log.id.startsWith('system-message:') || log.id.endsWith(':pending')) {
+    return { tone: 'system-result', label: '시스템 로그' };
+  }
+
+  if (log.id.startsWith('turn-log:')) {
+    const compact = message.trim();
+    const firstLine = compact.split(/\r?\n/, 1)[0] ?? '';
+    const looksLikeNpcDialogue =
+      /^[^\s:：][^:：\n]{0,32}[:：]\s+.+/.test(firstLine) &&
+      !/^(TurnLog|rawInput|outcome|narration|diceResult|stateDiff|structuredAction)[:：]/i.test(
+        firstLine
+      );
+    const looksLikeSystemResult =
+      compact.includes('TurnLog') ||
+      compact.includes('diceResult') ||
+      compact.includes('stateDiff') ||
+      compact.includes('outcome:') ||
+      compact.includes('판정') ||
+      compact.includes('주사위') ||
+      compact.includes('실패') ||
+      compact.includes('성공');
+
+    if (looksLikeNpcDialogue) {
+      return { tone: 'npc-dialogue', label: 'NPC 대사' };
+    }
+
+    if (looksLikeSystemResult) {
+      return { tone: 'system-result', label: '시스템 로그' };
+    }
+
+    return { tone: 'gm-narration', label: 'GM 지문' };
+  }
+
+  return { tone: null, label: null };
 }
 
 function getLogDate(createdAt: string): Date {
@@ -664,11 +922,20 @@ function getAbilitySummary(character: PersistentCharacter) {
   ];
 }
 
+function getMainCommandCheckEffect(response: MainCommandResponseDto | null | undefined) {
+  const data = response?.data;
+  if (!data || typeof data !== 'object') return null;
+  const effect = (data as Record<string, unknown>).checkEffect;
+  return effect && typeof effect === 'object' ? (effect as Record<string, unknown>) : null;
+}
+
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function PlayPage({
   user,
   snapshot,
   characters,
+  races,
+  classDefinitions,
   logs,
   socketConnected,
   hasOlderTurnLogs,
@@ -682,6 +949,7 @@ export function PlayPage({
   onLeaveSession,
   onBackToLobby,
   onMainCommand,
+  onResolveMainCommandCheck,
   onAction,
   onLoadOlderTurnLogs,
   activeDiceRoll,
@@ -705,9 +973,13 @@ export function PlayPage({
   const [mainPointX, setMainPointX] = useState('');
   const [mainPointY, setMainPointY] = useState('');
   const [mainCommandError, setMainCommandError] = useState<string | null>(null);
+  const [pendingMainCommandDraft, setPendingMainCommandDraft] =
+    useState<ExplorationMainCommandRequest | null>(null);
+  const [pendingMainCommandCheck, setPendingMainCommandCheck] =
+    useState<PendingMainCommandCheck | null>(null);
   const [inventoryUseFeedback, setInventoryUseFeedback] = useState<string | null>(null);
   const [isInventoryUsePending, setInventoryUsePending] = useState(false);
-  const [formState, setFormState] = useState(defaultCharacter);
+  const [formState, setFormState] = useState<QuickCreateFormState>(defaultCharacter);
   const [localSelectedCharacterId, setLocalSelectedCharacterId] = useState<string | null>(null);
   const [isStatusMinimized, setStatusMinimized] = useState(false);
   const [isGameStarting, setIsGameStarting] = useState(false);
@@ -761,6 +1033,40 @@ export function PlayPage({
   const activeScenario =
     snapshot?.sessionScenarios.find((item) => item.status === 'ACTIVE') ??
     snapshot?.sessionScenarios[0];
+  const quickCreateConfigReady = races.length > 0 && classDefinitions.length > 0;
+  const selectedQuickCreateRace =
+    races.find((race) => race.key === formState.ancestryKey) ??
+    races.find((race) => race.key === DEFAULT_QUICK_CREATE_ANCESTRY_KEY) ??
+    races[0] ??
+    null;
+  const selectedQuickCreateClass =
+    classDefinitions.find((klass) => klass.key === formState.classKey) ??
+    classDefinitions.find((klass) => klass.key === DEFAULT_QUICK_CREATE_CLASS_KEY) ??
+    classDefinitions[0] ??
+    null;
+  const quickCreateLevel = activeScenario?.scenario.startLevel ?? 1;
+  const quickCreateScenarioId = activeScenario?.scenario.id ?? null;
+  const quickCreateBaseAbilities = getQuickCreatePointBuyBase(
+    selectedQuickCreateClass?.key ?? formState.classKey,
+  );
+  const quickCreateAbilities = applyRaceBonuses(quickCreateBaseAbilities, selectedQuickCreateRace);
+  const quickCreateProficiencyBonus = getProficiencyBonusForLevel(quickCreateLevel);
+  const quickCreateMaxHp = getExpectedMaxHp(
+    selectedQuickCreateClass?.hitDie,
+    quickCreateLevel,
+    quickCreateAbilities.con,
+  );
+  const quickCreateArmorClass = getQuickCreateArmorClass(
+    selectedQuickCreateClass?.key ?? formState.classKey,
+    quickCreateAbilities.dex,
+  );
+  const quickCreateSpeed = getQuickCreateSpeed(
+    selectedQuickCreateClass?.key ?? formState.classKey,
+    selectedQuickCreateRace,
+  );
+  const quickCreatePresetId =
+    QUICK_CREATE_CLASS_PRESET_BY_KEY.get(selectedQuickCreateClass?.key ?? formState.classKey) ??
+    null;
   const currentNode = playerScenario?.currentNode ?? null;
   const currentScreenType = getScreenTypeFromNodeType(currentNode?.nodeType);
   const isStoryNode = currentNode?.nodeType === 'story';
@@ -824,6 +1130,37 @@ export function PlayPage({
   useEffect(() => {
     setLocalSelectedCharacterId(serverSelectedCharacterId);
   }, [serverSelectedCharacterId]);
+
+  useEffect(() => {
+    if (!quickCreateConfigReady) {
+      return;
+    }
+
+    setFormState((current) => {
+      const nextAncestryKey = races.some((race) => race.key === current.ancestryKey)
+        ? current.ancestryKey
+        : (selectedQuickCreateRace?.key ?? DEFAULT_QUICK_CREATE_ANCESTRY_KEY);
+      const nextClassKey = classDefinitions.some((klass) => klass.key === current.classKey)
+        ? current.classKey
+        : (selectedQuickCreateClass?.key ?? DEFAULT_QUICK_CREATE_CLASS_KEY);
+
+      if (nextAncestryKey === current.ancestryKey && nextClassKey === current.classKey) {
+        return current;
+      }
+
+      return {
+        ...current,
+        ancestryKey: nextAncestryKey,
+        classKey: nextClassKey,
+      };
+    });
+  }, [
+    classDefinitions,
+    quickCreateConfigReady,
+    races,
+    selectedQuickCreateClass?.key,
+    selectedQuickCreateRace?.key,
+  ]);
 
   // 준비 상태가 풀리면 상태 패널을 다시 펼쳐 사용자가 확인할 수 있게 합니다.
   useEffect(() => {
@@ -1053,6 +1390,8 @@ export function PlayPage({
       const normalizedMessage = stripScopePrefix(log.message);
       const isMine = log.title === user.displayName;
       const rowClass = log.kind === 'system' ? 'notice' : isMine ? 'outgoing' : 'incoming';
+      const presentation =
+        activeTab === 'Main' ? getMainLogPresentation(log, normalizedMessage) : null;
       const dateKey = getLogDateKey(log.createdAt);
       const showDateSeparator = dateKey !== previousDateKey;
       previousDateKey = dateKey;
@@ -1065,11 +1404,45 @@ export function PlayPage({
         showDateSeparator,
         dateLabel: getLogDateLabel(log.createdAt),
         rowClass,
+        logTone: presentation?.tone ?? null,
+        logToneLabel: presentation?.label ?? null,
         senderLabel: getLogSenderLabel(log.title, rowClass),
       };
     });
-  }, [scopedLogs, user.displayName]);
+  }, [activeTab, scopedLogs, user.displayName]);
   const latestRenderedLogId = renderedRows[renderedRows.length - 1]?.id ?? null;
+  const storyRpUtterances = useMemo<StoryRpUtterance[]>(() => {
+    const now = Date.now();
+    const freshWindowMs = 5_000;
+
+    return logs
+      .slice()
+      .reverse()
+      .filter((log) => {
+        if (log.kind !== 'action') return false;
+        if (!log.message.startsWith('[MAIN]')) return false;
+        if (log.id.startsWith('turn-log:') || log.id.startsWith('player-action:')) return false;
+
+        const createdAt = new Date(log.createdAt).getTime();
+        return Number.isFinite(createdAt) && now - createdAt <= freshWindowMs;
+      })
+      .map((log) => {
+        const participant = participants.find((item) => item.user.displayName === log.title);
+        const character = participant
+          ? sessionCharacters.find((item) => item.userId === participant.userId)
+          : null;
+
+        if (!character) return null;
+
+        return {
+          id: log.id,
+          characterId: character.id,
+          message: stripScopePrefix(log.message),
+          createdAt: log.createdAt,
+        };
+      })
+      .filter((utterance): utterance is StoryRpUtterance => Boolean(utterance));
+  }, [logs, participants, sessionCharacters]);
 
   const displayedParticipants = useMemo(() => {
     const minSlots = 4;
@@ -1105,6 +1478,22 @@ export function PlayPage({
   }, [selectedMainIntent, currentNode?.id]);
 
   useEffect(() => {
+    if (!pendingMainCommandDraft || selectedMainIntent !== pendingMainCommandDraft.intent) return;
+
+    setMainMessage(pendingMainCommandDraft.playerText);
+    setSelectedMainTargetId(pendingMainCommandDraft.targetId ?? '');
+    setSelectedMainItemId(pendingMainCommandDraft.itemId ?? '');
+    setMainPointX(
+      pendingMainCommandDraft.mapPoint ? String(pendingMainCommandDraft.mapPoint.x) : ''
+    );
+    setMainPointY(
+      pendingMainCommandDraft.mapPoint ? String(pendingMainCommandDraft.mapPoint.y) : ''
+    );
+    setMainCommandError(null);
+    setPendingMainCommandDraft(null);
+  }, [pendingMainCommandDraft, selectedMainIntent]);
+
+  useEffect(() => {
     if (
       selectedMainTargetId &&
       !visibleTargetOptions.some((target) => target.id === selectedMainTargetId)
@@ -1113,11 +1502,63 @@ export function PlayPage({
     }
   }, [selectedMainTargetId, visibleTargetOptions]);
 
-  function handleCreateCharacter(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    onCreateCharacter(formState);
+  function resetQuickCreateForm() {
+    setFormState(createDefaultQuickCreateForm(races, classDefinitions));
+  }
+
+  function openCreateModal() {
+    resetQuickCreateForm();
+    setCreateModalOpen(true);
+  }
+
+  function closeCreateModal() {
     setCreateModalOpen(false);
-    setFormState(defaultCharacter);
+    resetQuickCreateForm();
+  }
+
+  async function handleCreateCharacter(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedQuickCreateClass) {
+      return;
+    }
+
+    const payload: CharacterPayload = {
+      name: formState.name.trim(),
+      ancestry: selectedQuickCreateRace?.koName ?? formState.ancestryKey,
+      className: toStoredClassName(selectedQuickCreateClass.key),
+      avatarType: quickCreatePresetId ? 'PRESET' : 'DEFAULT',
+      avatarPresetId: quickCreatePresetId,
+      avatarUrl: null,
+      scenarioId: quickCreateScenarioId,
+      level: quickCreateLevel,
+      abilities: quickCreateAbilities,
+      proficiencyBonus: quickCreateProficiencyBonus,
+      proficientSkills: selectedQuickCreateClass.skillChoices.slice(
+        0,
+        selectedQuickCreateClass.skillChoiceCount,
+      ),
+      maxHp: quickCreateMaxHp,
+      armorClass: quickCreateArmorClass,
+      speed: quickCreateSpeed,
+      startingEquipmentSelection: new Array(
+        selectedQuickCreateClass.startingEquipment.slots.length,
+      ).fill(0),
+      startingSpells:
+        selectedQuickCreateClass.startingCantripCount > 0 ||
+        selectedQuickCreateClass.startingSpellCount > 0
+          ? {
+              cantrips: new Array(selectedQuickCreateClass.startingCantripCount).fill(''),
+              spells: new Array(selectedQuickCreateClass.startingSpellCount).fill(''),
+            }
+          : undefined,
+      assignToSession: true,
+    };
+
+    const succeeded = await onCreateCharacter(payload);
+    if (succeeded) {
+      closeCreateModal();
+    }
   }
 
   async function handleMainSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1173,7 +1614,7 @@ export function PlayPage({
         myParticipant?.characterId ??
         '';
       setMainCommandError(null);
-      await onMainCommand({
+      const response = await onMainCommand({
         commandId: selectedMainCommand.intent,
         screenType: currentScreenType,
         category: selectedMainCommand.category,
@@ -1185,18 +1626,74 @@ export function PlayPage({
         ...(selectedMainTarget?.targetType ? { targetType: selectedMainTarget.targetType } : {}),
         ...(selectedMainItemId ? { itemId: selectedMainItemId } : {}),
         ...(selectedMainSpellId.trim() ? { spellId: selectedMainSpellId.trim() } : {}),
-        ...(mapPoint && (requiresMapPoint || allowsMapPoint || requiresTargetOrPoint)
+        ...(mapPoint &&
+        (requiresMapPoint ||
+          allowsMapPoint ||
+          requiresTargetOrPoint ||
+          (requiresTarget && !selectedMainTargetId))
           ? { mapPoint }
           : {}),
         ...(selectedMainRelatedIntent
           ? { relatedIntent: selectedMainRelatedIntent as SubmitMainCommandDto['intent'] }
           : {}),
       });
+      const checkEffect = getMainCommandCheckEffect(response);
+      setPendingMainCommandCheck(
+        response?.status === 'CHECK_REQUIRED' && checkEffect
+          ? {
+              requestId: response.requestId,
+              message: response.message,
+              effect: checkEffect,
+            }
+          : null
+      );
     } else {
       onAction(`MAIN:${next}`);
+      setPendingMainCommandCheck(null);
     }
 
     setMainMessage('');
+  }
+
+  function handleExplorationMainCommandRequest(request: ExplorationMainCommandRequest) {
+    const preset = mainCommandPresetsByScreen.EXPLORATION.find(
+      (item) => item.intent === request.intent
+    );
+
+    if (!preset) {
+      setMainCommandError('현재 탐색 화면에서 사용할 수 없는 명령입니다.');
+      return;
+    }
+
+    setActiveTab('Main');
+    setSelectedMainCategory(preset.categoryLabel);
+    setOpenMainCommandCategory(null);
+    setSelectedMainIntent(preset.intent);
+    setPendingMainCommandDraft(request);
+  }
+
+  async function handleResolveMainCommandCheck(outcome: ActionOutcome) {
+    if (!pendingMainCommandCheck) return;
+
+    const actorId =
+      selectedCharacterId ??
+      myParticipant?.sessionCharacterId ??
+      myParticipant?.characterId ??
+      undefined;
+    setMainCommandError(null);
+    const response = await onResolveMainCommandCheck({
+      requestId: pendingMainCommandCheck.requestId,
+      outcome,
+      effect: pendingMainCommandCheck.effect,
+      ...(actorId ? { actorId } : {}),
+    });
+
+    if (response?.status === 'IMPOSSIBLE') {
+      setMainCommandError(response.message);
+      return;
+    }
+
+    setPendingMainCommandCheck(null);
   }
 
   async function handleUseExplorationInventoryItem(item: InventoryItemDto) {
@@ -1288,9 +1785,18 @@ export function PlayPage({
     return null;
   }
 
+  function getCharacterTokenColor(character: Character): SessionTokenColor {
+    // 맵 토큰 프레임이 캐릭터 배열 순서로 색을 고르기 때문에, 프로필 계열 UI도 같은 기준을 사용합니다.
+    const characterIndex = sessionCharacters.findIndex((item) => item.id === character.id);
+    return getPlayerTokenColor(characterIndex);
+  }
+
   function getParticipantProfileColor(participantUserId: string): SessionTokenColor {
-    if (participantUserId === session?.hostUserId) {
-      return GM_TOKEN_COLOR;
+    const linkedCharacter =
+      sessionCharacters.find((character) => character.userId === participantUserId) ?? null;
+
+    if (linkedCharacter) {
+      return getCharacterTokenColor(linkedCharacter);
     }
 
     const playerIndex = playerParticipantIds.indexOf(participantUserId);
@@ -1439,12 +1945,16 @@ export function PlayPage({
                           type="button"
                           key={item.id}
                           className="character-selection-create"
-                          onClick={() => setCreateModalOpen(true)}
-                          disabled={readyLocked}
+                          onClick={openCreateModal}
+                          disabled={readyLocked || !quickCreateConfigReady}
                         >
                           <Icon name="plus" />
                           <strong>캐릭터 생성</strong>
-                          <span>새 캐릭터를 만든 뒤 이 세션에서 바로 사용할 수 있습니다.</span>
+                          <span>
+                            {quickCreateConfigReady
+                              ? '새 캐릭터를 만든 뒤 이 세션에서 바로 사용할 수 있습니다.'
+                              : '캐릭터 기본 데이터를 불러오는 중입니다.'}
+                          </span>
                         </button>
                       );
                     }
@@ -1572,6 +2082,11 @@ export function PlayPage({
                   characters={sessionCharacters}
                   currentUserId={user.id}
                   isGmView={canManageStartedSession}
+                  rpUtterances={storyRpUtterances}
+                  onRpUtteranceClick={() => setActiveTab('Main')}
+                  getCharacterColorStyle={(character) =>
+                    buildStoryPartyColorStyle(getCharacterTokenColor(character))
+                  }
                 />
               ) : isExplorationNode ? (
                 <ExplorationNodeSurface
@@ -1586,8 +2101,12 @@ export function PlayPage({
                   inventory={selectedCharacterInventory}
                   isBusy={busy || isInventoryUsePending}
                   inventoryFeedback={inventoryUseFeedback}
+                  getCharacterColorStyle={(character) =>
+                    buildMapPartyColorStyle(getCharacterTokenColor(character))
+                  }
                   onMapChange={handleMapChange}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
+                  onRequestMainCommand={handleExplorationMainCommandRequest}
                 />
               ) : isCombatNode ? (
                 <CombatNodeSurface
@@ -1831,7 +2350,9 @@ export function PlayPage({
                             </div>
                           ) : null}
                           <article
-                            className={`chat-thread-row ${log.rowClass}`}
+                            className={`chat-thread-row ${log.rowClass}${
+                              log.logTone ? ` main-log-${log.logTone}` : ''
+                            }`}
                             style={chatColorStyle}
                           >
                             {log.rowClass === 'incoming' ? (
@@ -1852,6 +2373,9 @@ export function PlayPage({
                             <div className="chat-thread-stack">
                               <span className={`chat-thread-sender ${log.rowClass}`}>
                                 {log.senderLabel}
+                                {log.logToneLabel ? (
+                                  <span className="chat-thread-tone-label">{log.logToneLabel}</span>
+                                ) : null}
                               </span>
                               <div
                                 className={`chat-thread-bubble${log.isPendingAction ? ' pending' : ''}`}
@@ -2049,6 +2573,26 @@ export function PlayPage({
                     {mainCommandError ? (
                       <p className="main-command-error">{mainCommandError}</p>
                     ) : null}
+
+                    {pendingMainCommandCheck ? (
+                      <div className="main-command-check-followup">
+                        <span>{pendingMainCommandCheck.message}</span>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => handleResolveMainCommandCheck('SUCCESS' as ActionOutcome)}
+                        >
+                          판정 성공
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => handleResolveMainCommandCheck('FAILURE' as ActionOutcome)}
+                        >
+                          판정 실패
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -2179,10 +2723,14 @@ export function PlayPage({
                 <span className="eyebrow">캐릭터 생성</span>
                 <h2>새 캐릭터 생성</h2>
               </div>
-              <button type="button" className="ghost" onClick={() => setCreateModalOpen(false)}>
+              <button type="button" className="ghost" onClick={closeCreateModal}>
                 Close
               </button>
             </div>
+
+            <p style={{ margin: '0 0 12px 0', opacity: 0.82 }}>
+              종족, 직업, 시작 장비, 주문, 능력치는 현재 규칙에 맞는 기본값으로 자동 완성됩니다.
+            </p>
 
             <label>
               Name
@@ -2197,47 +2745,77 @@ export function PlayPage({
 
             <label>
               Ancestry
-              <input
-                value={formState.ancestry}
+              <select
+                value={formState.ancestryKey}
                 onChange={(event) =>
-                  setFormState((current) => ({ ...current, ancestry: event.target.value }))
+                  setFormState((current) => ({ ...current, ancestryKey: event.target.value }))
                 }
                 required
-              />
+                disabled={!quickCreateConfigReady}
+              >
+                {races.map((race) => (
+                  <option key={race.id} value={race.key}>
+                    {race.koName}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label>
               Class
-              <input
-                value={formState.className}
+              <select
+                value={formState.classKey}
                 onChange={(event) =>
-                  setFormState((current) => ({ ...current, className: event.target.value }))
+                  setFormState((current) => ({ ...current, classKey: event.target.value }))
                 }
                 required
-              />
+                disabled={!quickCreateConfigReady}
+              >
+                {classDefinitions.map((klass) => (
+                  <option key={klass.id} value={klass.key}>
+                    {klass.koName}
+                  </option>
+                ))}
+              </select>
             </label>
 
-            <label>
-              Max HP
-              <input
-                type="number"
-                min={1}
-                value={formState.maxHp}
-                onChange={(event) =>
-                  setFormState((current) => ({
-                    ...current,
-                    maxHp: Number(event.target.value) || 1,
-                  }))
-                }
-                required
-              />
-            </label>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                gap: '10px',
+                marginTop: '4px',
+              }}
+            >
+              <div className="status-chip">LV {quickCreateLevel}</div>
+              <div className="status-chip">HP {quickCreateMaxHp}</div>
+              <div className="status-chip">AC {quickCreateArmorClass}</div>
+              <div className="status-chip">이동 {quickCreateSpeed}ft</div>
+            </div>
+
+            {selectedQuickCreateClass ? (
+              <p style={{ margin: '8px 0 0 0', opacity: 0.82 }}>
+                숙련 기술은{' '}
+                {selectedQuickCreateClass.skillChoiceCount > 0
+                  ? `${selectedQuickCreateClass.skillChoices
+                      .slice(0, selectedQuickCreateClass.skillChoiceCount)
+                      .join(', ')}`
+                  : '자동 선택 없음'}
+                으로 적용됩니다.
+              </p>
+            ) : null}
+
+            {error ? (
+              <p className="panel-error" role="alert" style={{ margin: '12px 0 0 0' }}>
+                {error}
+              </p>
+            ) : null}
 
             <div className="modal-actions">
-              <button type="button" className="ghost" onClick={() => setCreateModalOpen(false)}>
+              <button type="button" className="ghost" onClick={closeCreateModal}>
                 Cancel
               </button>
-              <button type="submit" className="primary" disabled={busy}>
+              <button type="submit" className="primary" disabled={busy || !quickCreateConfigReady}>
                 Save
               </button>
             </div>
