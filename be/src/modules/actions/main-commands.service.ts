@@ -460,6 +460,7 @@ export class MainCommandsService {
     const revealCount =
       dto.intent === MainCommandIntent.DECLARE_RP_ACTION ||
       response.status === MainCommandStatus.IMPOSSIBLE ||
+      response.status === MainCommandStatus.GM_APPROVAL_REQUIRED ||
       !response.actionCandidate
         ? 0
         : await this.sessionsService.revealCurrentNodeCluesAfterAction({
@@ -891,8 +892,8 @@ export class MainCommandsService {
 
     return {
       requestId,
-      status: MainCommandStatus.MESSAGE,
-      message: `${actionSummary}을(를) 진행합니다.`,
+      status: MainCommandStatus.GM_APPROVAL_REQUIRED,
+      message: `행동 후보로 기록했습니다: ${actionSummary}. 결과는 아직 확정되지 않았습니다.`,
       actionCandidate,
     };
   }

@@ -151,6 +151,17 @@ type ParsedMainSlashInput =
       command: string;
     };
 
+type MainCommandAutocompleteEntry =
+  | {
+      type: 'command';
+      command: MainCommandPreset;
+    }
+  | {
+      type: 'separator';
+      id: string;
+      label: string;
+    };
+
 type MainCommandCategoryOption = {
   label: string;
   category: SubmitMainCommandDto['category'];
@@ -821,6 +832,47 @@ const mainCommandHelperOptions: MainCommandHelperOption[] = [
   },
 ];
 
+const mainCommandIntentOptionsByHelperGroup: Record<
+  MainCommandHelperGroup,
+  SubmitMainCommandDto['intent'][]
+> = {
+  NPC_INTERACTION: [
+    MainCommandIntentValues.TALK_TO_NPC,
+    MainCommandIntentValues.SOCIAL_PERSUADE,
+    MainCommandIntentValues.SOCIAL_INTIMIDATE,
+    MainCommandIntentValues.SOCIAL_DECEIVE,
+    MainCommandIntentValues.READ_EMOTION,
+  ],
+  OBJECT_AREA_TARGET: [
+    MainCommandIntentValues.OBSERVE_AREA,
+    MainCommandIntentValues.INVESTIGATE_OBJECT,
+    MainCommandIntentValues.INSPECT_STORY_OBJECT,
+    MainCommandIntentValues.LISTEN,
+    MainCommandIntentValues.DETECT_DANGER,
+    MainCommandIntentValues.INTERACT_OBJECT,
+    MainCommandIntentValues.ENVIRONMENT_USE,
+  ],
+  MAP_POINT_TARGET: [
+    MainCommandIntentValues.SPECIAL_MOVE,
+    MainCommandIntentValues.INVESTIGATE_OBJECT,
+    MainCommandIntentValues.INTERACT_OBJECT,
+    MainCommandIntentValues.ENVIRONMENT_USE,
+    MainCommandIntentValues.DETECT_DANGER,
+    MainCommandIntentValues.LISTEN,
+  ],
+  ITEM_TOOL_SELECT: [
+    MainCommandIntentValues.USE_TOOL,
+    MainCommandIntentValues.USE_ITEM_EXPLORE,
+    MainCommandIntentValues.USE_ITEM_COMBAT,
+  ],
+  SPELL_SELECT: [MainCommandIntentValues.USE_SPELL_CREATIVELY],
+  COMBAT_TARGET: [
+    MainCommandIntentValues.IMPROVISED_ATTACK,
+    MainCommandIntentValues.CALLED_SHOT,
+    MainCommandIntentValues.COMBAT_TALK,
+  ],
+};
+
 function getMainCommandSlashCommands(preset: MainCommandPreset): string[] {
   return preset.slashCommands ?? mainCommandSlashMetadataByIntent[preset.intent]?.slashCommands ?? [];
 }
@@ -831,6 +883,28 @@ function getMainCommandDescription(preset: MainCommandPreset): string {
 
 function getMainCommandHelperGroup(preset: MainCommandPreset): MainCommandHelperGroup | undefined {
   return preset.helperGroup ?? mainCommandSlashMetadataByIntent[preset.intent]?.helperGroup;
+}
+
+function doesMainCommandNeedHelperSelection(preset: MainCommandPreset): boolean {
+  return Boolean(getMainCommandHelperGroup(preset));
+}
+
+function isMainCommandAvailableForHelperGroup(
+  preset: MainCommandPreset,
+  helperGroup: MainCommandHelperGroup,
+): boolean {
+  return mainCommandIntentOptionsByHelperGroup[helperGroup].includes(preset.intent);
+}
+
+function getMainCommandHelperGroupForSelection(
+  preset: MainCommandPreset,
+  preferredHelperGroup?: MainCommandHelperGroup,
+): MainCommandHelperGroup | null {
+  // 대상 보조를 먼저 고른 경우에는 그 대상 맥락을 유지한 채 명령어만 바꿀 수 있어야 합니다.
+  if (preferredHelperGroup && isMainCommandAvailableForHelperGroup(preset, preferredHelperGroup)) {
+    return preferredHelperGroup;
+  }
+  return getMainCommandHelperGroup(preset) ?? null;
 }
 
 function parseMainSlashInput(
@@ -1489,12 +1563,18 @@ export function PlayPage({
       return true;
     });
   }, [currentNode?.visibleTargets, currentScreenType, selectedCharacterInventory]);
+  const selectedMainCommandHelperGroup = selectedMainCommand
+    ? getMainCommandHelperGroup(selectedMainCommand)
+    : null;
   const activeMainHelperOption =
     availableMainHelperOptions.find(
       (option) =>
-        option.id === (selectedMainCommand ? getMainCommandHelperGroup(selectedMainCommand) : null)
+        option.id === activeMainHelperGroup &&
+        (!selectedMainCommand || isMainCommandAvailableForHelperGroup(selectedMainCommand, option.id))
     ) ??
-    availableMainHelperOptions.find((option) => option.id === activeMainHelperGroup) ??
+    availableMainHelperOptions.find(
+      (option) => option.id === selectedMainCommandHelperGroup
+    ) ??
     null;
   const selectedMainFieldConfig = selectedMainCommand
     ? (mainCommandFieldConfigByIntent[selectedMainCommand.intent] ??
@@ -1506,13 +1586,39 @@ export function PlayPage({
     mainCommandMode === 'GM_REQUEST' &&
     mainSlashToken.startsWith('/') &&
     !mainMessage.trimStart().includes(' ');
-  const mainCommandAutocompleteOptions = shouldShowMainCommandAutocomplete
+  const shouldShowCommandGuide = isCommandGuideOpen && !shouldShowMainCommandAutocomplete;
+  const mainCommandAutocompleteCandidates = shouldShowMainCommandAutocomplete
     ? mainCommandPresets.filter((preset) => {
+        if (
+          activeMainHelperOption &&
+          !isMainCommandAvailableForHelperGroup(preset, activeMainHelperOption.id)
+        ) {
+          return false;
+        }
         const slashCommands = getMainCommandSlashCommands(preset);
         if (mainSlashToken === '/') return slashCommands.length > 0;
         return slashCommands.some((slashCommand) => slashCommand.startsWith(mainSlashToken));
       })
     : [];
+  const mainCommandAutocompleteEntries: MainCommandAutocompleteEntry[] = activeMainHelperOption
+    ? mainCommandAutocompleteCandidates.map((command) => ({ type: 'command', command }))
+    : [
+        ...mainCommandAutocompleteCandidates
+          .filter((command) => !doesMainCommandNeedHelperSelection(command))
+          .map((command) => ({ type: 'command' as const, command })),
+        ...(mainCommandAutocompleteCandidates.some(doesMainCommandNeedHelperSelection)
+          ? [
+              {
+                type: 'separator' as const,
+                id: 'helper-selection-required',
+                label: '아래는 대상 선택 필요',
+              },
+              ...mainCommandAutocompleteCandidates
+                .filter(doesMainCommandNeedHelperSelection)
+                .map((command) => ({ type: 'command' as const, command })),
+            ]
+          : []),
+      ];
   const visibleTargetOptions = (currentNode?.visibleTargets ?? []).filter((target) =>
     selectedMainFieldConfig?.targetTypes?.length
       ? selectedMainFieldConfig.targetTypes.includes(target.targetType)
@@ -2083,6 +2189,7 @@ export function PlayPage({
         myParticipant?.characterId ??
         '';
       setMainCommandError(null);
+      setMainMessage('');
       const response = await onMainCommand({
         commandId: submitPreset.intent,
         screenType: currentScreenType,
@@ -2121,11 +2228,10 @@ export function PlayPage({
           : null
       );
     } else {
+      setMainMessage('');
       onAction(`MAIN:${next}`);
       setPendingMainCommandCheck(null);
     }
-
-    setMainMessage('');
   }
 
   function handleExplorationMainCommandRequest(request: ExplorationMainCommandRequest) {
@@ -2972,8 +3078,13 @@ export function PlayPage({
                       </div>
                     ) : null}
 
-                    {isCommandGuideOpen ? (
+                    {shouldShowCommandGuide ? (
                       <div className="main-command-guide-panel">
+                        <p className="main-command-guide-notice">
+                          💡 자유롭게 행동을 입력할 수 있지만,
+                          <br />
+                          `/명령어` 입력 시 보다 빠르고 정확한 응답이 옵니다!
+                        </p>
                         {mainCommandPresets.map((command) => {
                           const slashCommand = getMainCommandSlashCommands(command)[0];
                           return slashCommand ? (
@@ -2985,7 +3096,12 @@ export function PlayPage({
                                 setMainCommandMode('GM_REQUEST');
                                 setMainMessage(`${slashCommand} `);
                                 setSelectedMainIntent(command.intent);
-                                setActiveMainHelperGroup(getMainCommandHelperGroup(command) ?? null);
+                                setActiveMainHelperGroup(
+                                  getMainCommandHelperGroupForSelection(
+                                    command,
+                                    activeMainHelperOption?.id
+                                  )
+                                );
                                 setCommandGuideOpen(false);
                               }}
                             >
@@ -2997,9 +3113,20 @@ export function PlayPage({
                       </div>
                     ) : null}
 
-                    {mainCommandAutocompleteOptions.length ? (
+                    {mainCommandAutocompleteEntries.length ? (
                       <div className="main-command-autocomplete">
-                        {mainCommandAutocompleteOptions.map((command) => {
+                        {mainCommandAutocompleteEntries.map((entry) => {
+                          if (entry.type === 'separator') {
+                            return (
+                              <div
+                                key={entry.id}
+                                className="main-command-autocomplete-separator"
+                              >
+                                {entry.label}
+                              </div>
+                            );
+                          }
+                          const command = entry.command;
                           const slashCommand = getMainCommandSlashCommands(command)[0];
                           return slashCommand ? (
                             <button
@@ -3010,7 +3137,12 @@ export function PlayPage({
                                 setMainCommandMode('GM_REQUEST');
                                 setMainMessage(`${slashCommand} `);
                                 setSelectedMainIntent(command.intent);
-                                setActiveMainHelperGroup(getMainCommandHelperGroup(command) ?? null);
+                                setActiveMainHelperGroup(
+                                  getMainCommandHelperGroupForSelection(
+                                    command,
+                                    activeMainHelperOption?.id
+                                  )
+                                );
                               }}
                             >
                               <strong>{slashCommand}</strong>

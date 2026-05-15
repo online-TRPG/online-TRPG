@@ -319,8 +319,8 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
     );
   });
 
-  it("routes commandless free input through the interpreter", async () => {
-    const { aiService, submit } = createMainCommandHarness({
+  it("routes commandless free input through the interpreter without claiming it was resolved", async () => {
+    const { aiService, sessionsService, submit } = createMainCommandHarness({
       interpreterResult: {
         parsed: {
           needsClarification: false,
@@ -338,8 +338,10 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
       playerText: "상자 밑을 살펴본다",
     });
 
-    expect(response.status).toBe(MainCommandStatus.MESSAGE);
+    expect(response.status).toBe(MainCommandStatus.GM_APPROVAL_REQUIRED);
+    expect(response.message).toContain("결과는 아직 확정되지 않았습니다.");
     expect(response.actionCandidate?.actionSummary).toBe("check under the crate");
+    expect(sessionsService.revealCurrentNodeCluesAfterAction).not.toHaveBeenCalled();
     expect(aiService.runInterpreter).toHaveBeenCalledWith(
       "session-1",
       "user-1",
