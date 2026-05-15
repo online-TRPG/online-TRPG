@@ -6,6 +6,7 @@ import type {
   SrdMonsterReferenceDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
+import { Icon } from './Icon';
 import { TokenFrame } from './battleMap/TokenFrame';
 import type { Character } from '../types/session';
 import {
@@ -444,6 +445,7 @@ export function BattleMap({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(960);
   const [containerHeight, setContainerHeight] = useState(720);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isFogMode, setFogMode] = useState(false);
   const [isPanMode, setPanMode] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -622,6 +624,22 @@ export function BattleMap({
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', handleKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isFullscreen]);
 
   function updateMap(patch: Partial<VttMapStateDto>) {
     onChange({
@@ -1403,7 +1421,11 @@ export function BattleMap({
   }
 
   return (
-    <section className={`vtt-panel${showMapChrome ? '' : ' session-map'}`}>
+    <section
+      className={`vtt-panel${showMapChrome ? '' : ' session-map'}${
+        isFullscreen ? ' vtt-fullscreen' : ''
+      }`}
+    >
       <div className="vtt-toolbar">
         <div>
           <span className="eyebrow">{title}</span>
@@ -1509,6 +1531,15 @@ export function BattleMap({
             </button>
             <button type="button" onClick={hideFullMap}>
               {mapText.hideAll}
+            </button>
+            <button
+              type="button"
+              className={`vtt-fullscreen-toggle${isFullscreen ? ' active' : ''}`}
+              onClick={() => setIsFullscreen((value) => !value)}
+              aria-label={isFullscreen ? '전체화면 종료' : '전체화면'}
+              title={isFullscreen ? '전체화면 종료 (Esc)' : '전체화면'}
+            >
+              <Icon name={isFullscreen ? 'minimize' : 'maximize'} />
             </button>
           </div>
         ) : null}
