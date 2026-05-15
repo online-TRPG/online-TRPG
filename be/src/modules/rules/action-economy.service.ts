@@ -5,9 +5,10 @@ import { PrismaService } from "../../database/prisma.service";
 
 type TurnStateKey = {
   combatId: string;
+  combatParticipantId: string;
   roundNo: number;
   turnNo: number;
-  sessionCharacterId: string;
+  sessionCharacterId?: string | null;
 };
 
 @Injectable()
@@ -17,13 +18,14 @@ export class ActionEconomyService {
   async getOrCreateTurnState(params: TurnStateKey): Promise<CombatTurnState> {
     return this.prisma.combatTurnState.upsert({
       where: {
-        combatId_roundNo_turnNo_sessionCharacterId: this.toUniqueKey(params),
+        combatId_roundNo_turnNo_combatParticipantId: this.toUniqueKey(params),
       },
       create: {
         combatId: params.combatId,
+        combatParticipantId: params.combatParticipantId,
         roundNo: params.roundNo,
         turnNo: params.turnNo,
-        sessionCharacterId: params.sessionCharacterId,
+        sessionCharacterId: params.sessionCharacterId ?? null,
       },
       update: {},
     });
@@ -100,18 +102,21 @@ export class ActionEconomyService {
   ): Promise<CombatTurnState> {
     return this.prisma.combatTurnState.update({
       where: {
-        combatId_roundNo_turnNo_sessionCharacterId: this.toUniqueKey(params),
+        combatId_roundNo_turnNo_combatParticipantId: this.toUniqueKey(params),
       },
       data,
     });
   }
 
-  private toUniqueKey(params: TurnStateKey): TurnStateKey {
+  private toUniqueKey(params: TurnStateKey): Pick<
+    TurnStateKey,
+    "combatId" | "roundNo" | "turnNo" | "combatParticipantId"
+  > {
     return {
       combatId: params.combatId,
       roundNo: params.roundNo,
       turnNo: params.turnNo,
-      sessionCharacterId: params.sessionCharacterId,
+      combatParticipantId: params.combatParticipantId,
     };
   }
 }

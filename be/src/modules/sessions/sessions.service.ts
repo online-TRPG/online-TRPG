@@ -480,7 +480,7 @@ export class SessionsService {
     const { state, sessionScenario } = await this.getGameStateEntityOrThrow(resolvedSessionId);
     const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
     const requestedMap = this.normalizeVttMap(dto.map, state.currentNodeId ?? null);
-    const map =
+    let map =
       session.hostUserId === userId
         ? requestedMap
         : await this.applyPlayerVttMapUpdate(
@@ -490,6 +490,11 @@ export class SessionsService {
             state,
             requestedMap,
           );
+    map = await this.applyVttObjectProximityEvents({
+      sessionScenarioId: sessionScenario.id,
+      map,
+      currentNodeId: state.currentNodeId,
+    });
 
     await this.prisma.gameState.update({
       where: { sessionScenarioId: sessionScenario.id },
@@ -1334,10 +1339,7 @@ export class SessionsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const clueSnapshots = await this.getCurrentNodeClueSnapshots(tx, {
-        sessionScenarioId: params.sessionScenarioId,
-        nodeId: params.nodeId,
-      });
+      const clueSnapshots = await this.getSessionScenarioClueSnapshots(tx, params.sessionScenarioId);
       const revealInputs = [
         ...(objectCell.hiddenClueIds ?? []).map((contentId) => ({
           contentId,
@@ -2192,6 +2194,112 @@ export class SessionsService {
     return this.getVttMapBaseline(sessionId, sessionScenarioId, state);
   }
 
+  private async applyVttObjectProximityEvents(params: {
+    sessionScenarioId: string;
+    currentNodeId: string | null;
+    map: VttMapStateDto;
+  }): Promise<VttMapStateDto> {
+    const objectCells = params.map.objectCells ?? [];
+    const candidates = objectCells.flatMap((objectCell) =>
+      (objectCell.events ?? [])
+        .filter((event) => event.type === "REVEAL_FOG_ON_PROXIMITY")
+        .map((event) => ({ objectCell, event })),
+    );
+    if (!candidates.length || !params.map.fogRects.length) {
+      return params.map;
+    }
+
+    const onceEventIds = candidates
+      .filter(({ event }) => event.trigger.once !== false)
+      .map(({ event }) => event.id);
+    const revealedEventIds = onceEventIds.length
+      ? new Set(
+          (
+            await this.prisma.sessionReveal.findMany({
+              where: {
+                sessionScenarioId: params.sessionScenarioId,
+                contentKind: "event",
+                contentId: { in: onceEventIds },
+              },
+              select: { contentId: true },
+            })
+          ).map((reveal) => reveal.contentId),
+        )
+      : new Set<string>();
+
+    const partyTokens = params.map.tokens.filter(
+      (token) => token.sessionCharacterId && token.hidden !== true && token.isHostile !== true,
+    );
+    if (!partyTokens.length) {
+      return params.map;
+    }
+
+    let fogRects = params.map.fogRects;
+    const triggeredEvents: Array<{
+      objectCell: NonNullable<VttMapStateDto["objectCells"]>[number];
+      event: NonNullable<NonNullable<VttMapStateDto["objectCells"]>[number]["events"]>[number];
+    }> = [];
+
+    for (const { objectCell, event } of candidates) {
+      if (objectCell.visibleToPlayers === false || revealedEventIds.has(event.id)) {
+        continue;
+      }
+
+      const isNear = partyTokens.some(
+        (token) =>
+          this.calculatePointToRectDistanceFeet(params.map, this.getTokenCenter(token), objectCell) <=
+          event.trigger.distanceFeet,
+      );
+      if (!isNear) {
+        continue;
+      }
+
+      const revealBox = this.buildFogRevealBoxForObject(params.map, objectCell, event.effect.revealRadiusFeet);
+      const nextFogRects = fogRects.flatMap((rect) => this.subtractFogBox(rect, revealBox)).slice(0, 200);
+      if (JSON.stringify(nextFogRects) === JSON.stringify(fogRects)) {
+        continue;
+      }
+
+      fogRects = nextFogRects;
+      triggeredEvents.push({ objectCell, event });
+    }
+
+    if (!triggeredEvents.length) {
+      return params.map;
+    }
+
+    await this.prisma.$transaction((tx) =>
+      Promise.all(
+        triggeredEvents.map(({ objectCell, event }) =>
+          this.recordSessionReveal(tx, {
+            sessionScenarioId: params.sessionScenarioId,
+            contentId: event.id,
+            contentKind: "event",
+            scope: "party",
+            revealedBy: "system",
+            reason: "vtt_object_proximity",
+            snapshot: {
+              id: event.id,
+              name: event.name ?? null,
+              type: event.type,
+              sourceObjectId: objectCell.id,
+              sourceObjectName: objectCell.name ?? null,
+              currentNodeId: params.currentNodeId,
+              trigger: event.trigger,
+              effect: event.effect,
+            },
+          }),
+        ),
+      ),
+    );
+
+    return {
+      ...params.map,
+      fogRects,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   private async updateVttDoorAtPoint(
     params: {
       sessionId: string;
@@ -2364,27 +2472,23 @@ export class SessionsService {
     );
   }
 
-  private async getCurrentNodeClueSnapshots(
+  private async getSessionScenarioClueSnapshots(
     tx: Prisma.TransactionClient,
-    params: { sessionScenarioId: string; nodeId: string },
+    sessionScenarioId: string,
   ): Promise<Map<string, Record<string, unknown>>> {
-    const node = await tx.sessionScenarioNode.findUnique({
-      where: {
-        sessionScenarioId_nodeId: {
-          sessionScenarioId: params.sessionScenarioId,
-          nodeId: params.nodeId,
-        },
-      },
+    const nodes = await tx.sessionScenarioNode.findMany({
+      where: { sessionScenarioId },
       select: { cluesJson: true },
     });
 
-    const clues = this.parseJson<Record<string, unknown>[]>(node?.cluesJson, []);
     const entries: Array<[string, Record<string, unknown>]> = [];
-    clues.forEach((clue) => {
-      const contentId = this.getStringProperty(clue, "id");
-      if (contentId) {
-        entries.push([contentId, clue]);
-      }
+    nodes.forEach((node) => {
+      this.parseJson<Record<string, unknown>[]>(node.cluesJson, []).forEach((clue) => {
+        const contentId = this.getStringProperty(clue, "id");
+        if (contentId) {
+          entries.push([contentId, clue]);
+        }
+      });
     });
     return new Map(entries);
   }
@@ -2406,6 +2510,7 @@ export class SessionsService {
           hiddenClueIds: [],
           hiddenItemIds: [],
           hiddenEventIds: [],
+          events: [],
         })),
       doorCells: (map.doorCells ?? []).map((cell) => ({
         ...cell,
@@ -2445,7 +2550,7 @@ export class SessionsService {
       }
 
       this.ensureOnlyTokenPositionChanged(token, requestedToken);
-      this.ensureTokenPathIsPassable(baseline, token, requestedToken);
+      this.ensureTokenPathIsReachable(baseline, token, requestedToken);
       return {
         ...token,
         x: requestedToken.x,
@@ -2460,6 +2565,7 @@ export class SessionsService {
     return {
       ...baseline,
       tokens: nextTokens,
+      pings: requestedMap.pings ?? baseline.pings,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -2478,6 +2584,7 @@ export class SessionsService {
   }
 
   private ensurePlayerMapShellUnchanged(baseline: VttMapStateDto, requested: VttMapStateDto): void {
+    const playerBaseline = this.redactVttMapForPlayer(baseline);
     const isSameStartingPositions =
       requested.startingPositions?.length === 0 ||
       JSON.stringify(baseline.startingPositions ?? []) === JSON.stringify(requested.startingPositions ?? []);
@@ -2493,8 +2600,8 @@ export class SessionsService {
       JSON.stringify(baseline.fogRects) === JSON.stringify(requested.fogRects) &&
       JSON.stringify(baseline.terrainCells ?? []) === JSON.stringify(requested.terrainCells ?? []) &&
       JSON.stringify(baseline.wallCells ?? []) === JSON.stringify(requested.wallCells ?? []) &&
-      JSON.stringify(baseline.doorCells ?? []) === JSON.stringify(requested.doorCells ?? []) &&
-      JSON.stringify(baseline.objectCells ?? []) === JSON.stringify(requested.objectCells ?? []);
+      JSON.stringify(playerBaseline.doorCells ?? []) === JSON.stringify(requested.doorCells ?? []) &&
+      JSON.stringify(playerBaseline.objectCells ?? []) === JSON.stringify(requested.objectCells ?? []);
 
     if (!sameShell) {
       throw new ForbiddenException("Players can only move their own tokens.");
@@ -2522,39 +2629,85 @@ export class SessionsService {
     }
   }
 
-  private ensureTokenPathIsPassable(
+  private ensureTokenPathIsReachable(
     map: VttMapStateDto,
     fromToken: VttMapStateDto["tokens"][number],
     toToken: VttMapStateDto["tokens"][number],
   ): void {
+    if (!this.hasReachableTokenPath(map, fromToken, toToken)) {
+      throw new ForbiddenException("Token movement path is blocked by the map.");
+    }
+  }
+
+  private hasReachableTokenPath(
+    map: VttMapStateDto,
+    fromToken: VttMapStateDto["tokens"][number],
+    toToken: VttMapStateDto["tokens"][number],
+  ): boolean {
+    const startColumn = this.getGridIndex(fromToken.x, map.gridSize, map.width);
+    const startRow = this.getGridIndex(fromToken.y, map.gridSize, map.height);
+    const endColumn = this.getGridIndex(toToken.x, map.gridSize, map.width);
+    const endRow = this.getGridIndex(toToken.y, map.gridSize, map.height);
+    const maxColumn = Math.max(0, Math.ceil(map.width / map.gridSize) - 1);
+    const maxRow = Math.max(0, Math.ceil(map.height / map.gridSize) - 1);
+    const queue: Array<{ column: number; row: number }> = [{ column: startColumn, row: startRow }];
+    const visited = new Set([`${startColumn}:${startRow}`]);
+    const directions = [
+      { column: 1, row: 0 },
+      { column: -1, row: 0 },
+      { column: 0, row: 1 },
+      { column: 0, row: -1 },
+    ];
+
+    while (queue.length) {
+      const current = queue.shift()!;
+      if (current.column === endColumn && current.row === endRow) {
+        return true;
+      }
+
+      for (const direction of directions) {
+        const next = {
+          column: current.column + direction.column,
+          row: current.row + direction.row,
+        };
+        const key = `${next.column}:${next.row}`;
+        if (
+          next.column < 0 ||
+          next.row < 0 ||
+          next.column > maxColumn ||
+          next.row > maxRow ||
+          visited.has(key)
+        ) {
+          continue;
+        }
+
+        const x = Math.min(Math.max(next.column * map.gridSize, 0), map.width - toToken.size);
+        const y = Math.min(Math.max(next.row * map.gridSize, 0), map.height - toToken.size);
+        if (this.isTokenPlacementBlocked(map, toToken, x, y)) {
+          continue;
+        }
+
+        visited.add(key);
+        queue.push(next);
+      }
+    }
+
+    return false;
+  }
+
+  private isTokenPlacementBlocked(
+    map: VttMapStateDto,
+    token: VttMapStateDto["tokens"][number],
+    x: number,
+    y: number,
+  ): boolean {
     const blockers = [
       ...(map.terrainCells ?? []),
       ...(map.wallCells ?? []),
       ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
     ];
-    const pathBlocked = this.getGridLineCells(fromToken, toToken, map).some((position, index) => {
-      if (index === 0) return false;
-      const tokenRect = {
-        x: Math.min(Math.max(position.x, 0), map.width - toToken.size),
-        y: Math.min(Math.max(position.y, 0), map.height - toToken.size),
-        width: toToken.size,
-        height: toToken.size,
-      };
-      return blockers.some((blocker) => this.rectsOverlap(tokenRect, blocker));
-    });
-    const destinationRect = {
-      x: toToken.x,
-      y: toToken.y,
-      width: toToken.size,
-      height: toToken.size,
-    };
-    const destinationMoved = fromToken.x !== toToken.x || fromToken.y !== toToken.y;
-    const destinationBlocked =
-      destinationMoved && blockers.some((blocker) => this.rectsOverlap(destinationRect, blocker));
-
-    if (pathBlocked || destinationBlocked) {
-      throw new ForbiddenException("Token movement path is blocked by the map.");
-    }
+    const tokenRect = { x, y, width: token.size, height: token.size };
+    return blockers.some((blocker) => this.rectsOverlap(tokenRect, blocker));
   }
 
   private getGridLineCells(
@@ -2601,6 +2754,69 @@ export class SessionsService {
     b: { x: number; y: number; width: number; height: number },
   ): boolean {
     return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  }
+
+  private getTokenCenter(token: VttMapStateDto["tokens"][number]): { x: number; y: number } {
+    return {
+      x: token.x + token.size / 2,
+      y: token.y + token.size / 2,
+    };
+  }
+
+  private calculatePointToRectDistanceFeet(
+    map: VttMapStateDto,
+    point: { x: number; y: number },
+    rect: { x: number; y: number; width: number; height: number },
+  ): number {
+    const nearestX = this.clampNumber(point.x, rect.x, rect.x + rect.width);
+    const nearestY = this.clampNumber(point.y, rect.y, rect.y + rect.height);
+    return Math.round((Math.hypot(point.x - nearestX, point.y - nearestY) / map.gridSize) * 5);
+  }
+
+  private buildFogRevealBoxForObject(
+    map: VttMapStateDto,
+    objectCell: { x: number; y: number; width: number; height: number },
+    revealRadiusFeet: number,
+  ): { x: number; y: number; width: number; height: number } {
+    const radiusPx = (revealRadiusFeet / 5) * map.gridSize;
+    const centerX = objectCell.x + objectCell.width / 2;
+    const centerY = objectCell.y + objectCell.height / 2;
+    const left = this.clampNumber(centerX - radiusPx, 0, map.width);
+    const top = this.clampNumber(centerY - radiusPx, 0, map.height);
+    const right = this.clampNumber(centerX + radiusPx, 0, map.width);
+    const bottom = this.clampNumber(centerY + radiusPx, 0, map.height);
+
+    return {
+      x: left,
+      y: top,
+      width: Math.max(1, right - left),
+      height: Math.max(1, bottom - top),
+    };
+  }
+
+  private subtractFogBox(
+    rect: VttMapStateDto["fogRects"][number],
+    cut: { x: number; y: number; width: number; height: number },
+  ): VttMapStateDto["fogRects"] {
+    const rectRight = rect.x + rect.width;
+    const rectBottom = rect.y + rect.height;
+    const cutRight = cut.x + cut.width;
+    const cutBottom = cut.y + cut.height;
+    const left = Math.max(rect.x, cut.x);
+    const top = Math.max(rect.y, cut.y);
+    const right = Math.min(rectRight, cutRight);
+    const bottom = Math.min(rectBottom, cutBottom);
+
+    if (left >= right || top >= bottom) {
+      return [rect];
+    }
+
+    return [
+      { ...rect, id: `${rect.id}:top:${Date.now()}`, height: top - rect.y },
+      { ...rect, id: `${rect.id}:bottom:${Date.now()}`, y: bottom, height: rectBottom - bottom },
+      { ...rect, id: `${rect.id}:left:${Date.now()}`, y: top, width: left - rect.x, height: bottom - top },
+      { ...rect, id: `${rect.id}:right:${Date.now()}`, x: right, y: top, width: rectRight - right, height: bottom - top },
+    ].filter((piece) => piece.width > 0 && piece.height > 0);
   }
 
   private normalizeVttMap(map: VttMapStateDto, scenarioNodeId: string | null): VttMapStateDto {
@@ -2659,6 +2875,20 @@ export class SessionsService {
       x: this.clampNumber(position.x, 0, width - gridSize),
       y: this.clampNumber(position.y, 0, height - gridSize),
     }));
+    const now = Date.now();
+    const pings = (map.pings ?? [])
+      .filter((ping) => {
+        const expiresAt = Date.parse(ping.expiresAt);
+        return Number.isFinite(expiresAt) && expiresAt > now;
+      })
+      .slice(-12)
+      .map((ping, index) => ({
+        id: typeof ping.id === "string" && ping.id.trim() ? ping.id.trim().slice(0, 80) : `ping:${index + 1}`,
+        x: this.clampNumber(ping.x, 0, width),
+        y: this.clampNumber(ping.y, 0, height),
+        label: typeof ping.label === "string" && ping.label.trim() ? ping.label.trim().slice(0, 8) : "!",
+        expiresAt: ping.expiresAt,
+      }));
     const normalizeStructureCell = (
       cell: {
         id?: string;
@@ -2714,6 +2944,29 @@ export class SessionsService {
       hiddenEventIds: Array.isArray(cell.hiddenEventIds)
         ? cell.hiddenEventIds.filter((id) => typeof id === "string").slice(0, 30)
         : [],
+      events: Array.isArray(cell.events)
+        ? cell.events
+            .filter((event) => event.type === "REVEAL_FOG_ON_PROXIMITY")
+            .slice(0, 20)
+            .map((event, eventIndex) => ({
+              id:
+                typeof event.id === "string" && event.id.trim()
+                  ? event.id.trim().slice(0, 120)
+                  : `event:object:${index + 1}:${eventIndex + 1}`,
+              name:
+                typeof event.name === "string" && event.name.trim()
+                  ? event.name.trim().slice(0, 80)
+                  : null,
+              type: "REVEAL_FOG_ON_PROXIMITY" as const,
+              trigger: {
+                distanceFeet: this.clampNumber(Number(event.trigger?.distanceFeet) || 15, 0, 500),
+                once: event.trigger?.once !== false,
+              },
+              effect: {
+                revealRadiusFeet: this.clampNumber(Number(event.effect?.revealRadiusFeet) || 30, 5, 500),
+              },
+            }))
+        : [],
     }));
 
     return {
@@ -2727,6 +2980,7 @@ export class SessionsService {
       tokens,
       fogRects,
       startingPositions,
+      pings,
       terrainCells,
       wallCells,
       doorCells,
@@ -2879,7 +3133,7 @@ export class SessionsService {
     }
 
     return value
-      .map((entry) => {
+      .map((entry): PlayerVisibleTargetDto | null => {
         if (!entry || typeof entry !== "object") {
           return null;
         }
@@ -2904,6 +3158,7 @@ export class SessionsService {
             this.getStringProperty(record, "description") ??
             this.getStringProperty(record, "summary") ??
             name,
+          disposition: this.getStringProperty(record, "disposition") ?? null,
         };
       })
       .filter((entry): entry is PlayerVisibleTargetDto => Boolean(entry));
