@@ -6,9 +6,11 @@ import type {
   SubmitMainCommandDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
+import type { CSSProperties } from 'react';
 import { BattleMap } from '../../../components/BattleMap';
 import type { BattleMapSelection } from '../../../components/BattleMap';
-import { getCharacterClassLabel, getCharacterImage } from '../utils/characterVisuals';
+import { getCharacterClassLabel } from '../utils/characterVisuals';
+import { MapPartyOverlay } from './MapPartyOverlay';
 import './ExplorationNodeSurface.css';
 
 type ExplorationActionTab = 'explore' | 'interact' | 'item';
@@ -39,6 +41,7 @@ interface ExplorationNodeSurfaceProps {
   inventory: InventoryItemDto[];
   inventoryFeedback?: string | null;
   isBusy?: boolean;
+  getCharacterColorStyle?: (character: SessionCharacterResponseDto) => CSSProperties;
   onMapChange: (map: VttMapStateDto) => void;
   onUseInventoryItem: (item: InventoryItemDto) => void;
   onRequestMainCommand?: (request: ExplorationMainCommandRequest) => void;
@@ -80,11 +83,6 @@ function getPhaseLabel(phase: string | null | undefined) {
   if (phase === 'lobby') return '진행: 대기';
   if (phase === 'rest') return '진행: 휴식';
   return `진행: ${phase}`;
-}
-
-function getHpPercent(character: SessionCharacterResponseDto) {
-  if (character.maxHp <= 0) return 0;
-  return Math.max(0, Math.min(100, Math.round((character.currentHp / character.maxHp) * 100)));
 }
 
 function splitSceneParagraphs(sceneText: string | undefined) {
@@ -373,6 +371,7 @@ export function ExplorationNodeSurface({
   inventory,
   inventoryFeedback = null,
   isBusy = false,
+  getCharacterColorStyle,
   onMapChange,
   onUseInventoryItem,
   onRequestMainCommand,
@@ -436,45 +435,11 @@ export function ExplorationNodeSurface({
       <div className="exploration-node-content">
         <main className="exploration-map-column">
           <section className="exploration-map-panel" aria-label="탐색 지도">
-            <aside className="exploration-party-overlay" aria-label="파티 상태">
-              <div className="exploration-party-list">
-                {characters.length ? (
-                  characters.map((character) => {
-                    const hpPercent = getHpPercent(character);
-                    const isMine = character.userId === currentUserId;
-                    const characterImage = getCharacterImage(character);
-
-                    return (
-                      <article
-                        key={character.id}
-                        className={`exploration-party-card${isMine ? ' mine' : ''}`}
-                        title={`${character.name} / ${getCharacterClassLabel(character.className)} Lv ${character.level} / HP ${character.currentHp}/${character.maxHp}`}
-                      >
-                        <div className="exploration-party-avatar">
-                          <img src={characterImage} alt={character.name} />
-                          <span
-                            className="exploration-party-damage"
-                            style={{ height: `${100 - hpPercent}%` }}
-                            aria-hidden="true"
-                          />
-                        </div>
-                        <div className="exploration-party-body">
-                          <div className="exploration-party-line">
-                            <strong>{character.name}</strong>
-                            <span>Lv {character.level}</span>
-                          </div>
-                          <span className="exploration-party-hp">
-                            {character.currentHp}/{character.maxHp}
-                          </span>
-                        </div>
-                      </article>
-                    );
-                  })
-                ) : (
-                  <p className="exploration-empty-text">파티 캐릭터 정보가 아직 없습니다.</p>
-                )}
-              </div>
-            </aside>
+            <MapPartyOverlay
+              characters={characters}
+              currentUserId={currentUserId}
+              getCharacterColorStyle={getCharacterColorStyle}
+            />
             {map ? (
               <BattleMap
                 map={map}

@@ -130,6 +130,16 @@ type AppendLogFn = (
   createdAt?: string
 ) => void;
 
+type PendingMainCommandLog = {
+  clientLogId: string;
+  rawLogId: string;
+  pendingLogId: string;
+  rawText: string;
+  userId: string;
+  isPendingVisible: boolean;
+  timeoutId?: number;
+};
+
 function isBlockingSessionStatus(status: string | undefined): boolean {
   return status !== 'completed' && status !== 'disbanded';
 }
@@ -205,6 +215,16 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
   return `[MAIN]${sections.join('\n')}`;
 }
 
+function isMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
+  const structuredAction = turnLog.structuredAction;
+
+  return Boolean(
+    structuredAction &&
+      typeof structuredAction === 'object' &&
+      structuredAction.type === 'main_command'
+  );
+}
+
 function getSenderNameByUserId(userId: string, snapshot: SessionSnapshot | null): string {
   const participant = snapshot?.participants.find((item) => item.userId === userId);
 
@@ -251,6 +271,29 @@ export function useSession(
   const snapshotRef = useRef<SessionSnapshot | null>(snapshot);
   const seenTurnLogIdsRef = useRef<Set<string>>(new Set());
   const loadedTurnLogSessionIdRef = useRef<string | null>(null);
+  const pendingMainCommandLogsRef = useRef<PendingMainCommandLog[]>([]);
+
+  const removePendingMainCommandLog = useCallback(
+    (entry: PendingMainCommandLog, options?: { removeRaw?: boolean; removePending?: boolean }) => {
+      const shouldRemoveRaw = options?.removeRaw ?? true;
+      const shouldRemovePending = options?.removePending ?? true;
+
+      if (entry.timeoutId !== undefined) {
+        window.clearTimeout(entry.timeoutId);
+      }
+      if (shouldRemoveRaw) {
+        removeLog(entry.rawLogId);
+      }
+      if (shouldRemovePending) {
+        removeLog(entry.pendingLogId);
+      }
+
+      pendingMainCommandLogsRef.current = pendingMainCommandLogsRef.current.filter(
+        (item) => item.clientLogId !== entry.clientLogId
+      );
+    },
+    [removeLog]
+  );
 
   const clearLocalSessionState = useCallback(() => {
     clearStoredSnapshot();
@@ -261,6 +304,12 @@ export function useSession(
     socketRef.current = null;
     seenTurnLogIdsRef.current.clear();
     loadedTurnLogSessionIdRef.current = null;
+    pendingMainCommandLogsRef.current.forEach((entry) => {
+      if (entry.timeoutId !== undefined) {
+        window.clearTimeout(entry.timeoutId);
+      }
+    });
+    pendingMainCommandLogsRef.current = [];
     setTurnLogNextCursor(null);
     setIsLoadingTurnLogs(false);
     clearSessionLogs();
@@ -410,6 +459,19 @@ export function useSession(
       if (turnLog.playerActionId) {
         removeLog(`player-action:${turnLog.playerActionId}:pending`);
       }
+      if (isMainCommandTurnLog(turnLog)) {
+        const rawInput = turnLog.rawInput?.trim();
+        const matchingPending = pendingMainCommandLogsRef.current.filter(
+          (entry) => entry.rawText === rawInput && entry.userId === turnLog.actorUserId
+        );
+        const matchedPending =
+          matchingPending.find((entry) => entry.isPendingVisible) ?? matchingPending[0];
+
+        if (matchedPending) {
+          // 메인 명령은 playerActionId가 없어서, 같은 입력의 서버 TurnLog가 도착하면 로컬 임시 로그를 실제 기록으로 교체합니다.
+          removePendingMainCommandLog(matchedPending);
+        }
+      }
       appendLog(
         'action',
         '세션 로그',
@@ -418,7 +480,7 @@ export function useSession(
         turnLog.createdAt
       );
     },
-    [appendLog, appendPlayerRawInputLog, removeLog]
+    [appendLog, appendPlayerRawInputLog, removeLog, removePendingMainCommandLog]
   );
 
   const appendHistoricalTurnLog = useCallback(
@@ -431,6 +493,18 @@ export function useSession(
       if (turnLog.playerActionId) {
         removeLog(`player-action:${turnLog.playerActionId}:pending`);
       }
+      if (isMainCommandTurnLog(turnLog)) {
+        const rawInput = turnLog.rawInput?.trim();
+        const matchingPending = pendingMainCommandLogsRef.current.filter(
+          (entry) => entry.rawText === rawInput && entry.userId === turnLog.actorUserId
+        );
+        const matchedPending =
+          matchingPending.find((entry) => entry.isPendingVisible) ?? matchingPending[0];
+
+        if (matchedPending) {
+          removePendingMainCommandLog(matchedPending);
+        }
+      }
 
       // 과거 로그는 배열 앞쪽에 넣어 화면에서 현재 로그보다 위에 보이게 합니다.
       appendOlderLog(
@@ -442,7 +516,7 @@ export function useSession(
       );
       appendPlayerRawInputLog(turnLog, appendOlderLog);
     },
-    [appendOlderLog, appendPlayerRawInputLog, removeLog]
+    [appendOlderLog, appendPlayerRawInputLog, removeLog, removePendingMainCommandLog]
   );
 
   const loadRecentTurnLogs = useCallback(
@@ -1065,15 +1139,48 @@ export function useSession(
   ): Promise<MainCommandResponseDto | null> {
     if (!user || !snapshot) return null;
 
+    const rawText = payload.playerText.trim();
+    if (!rawText) return null;
+
+    const clientLogId = crypto.randomUUID();
+    const rawLogId = `main-command:${clientLogId}:raw`;
+    const pendingLogId = `main-command:${clientLogId}:pending`;
+    const createdAt = new Date().toISOString();
+    const pendingEntry: PendingMainCommandLog = {
+      clientLogId,
+      rawLogId,
+      pendingLogId,
+      rawText,
+      userId: user.id,
+      isPendingVisible: true,
+    };
+
     setError(null);
     setBusy(true);
+
+    // API 왕복 전에 사용자의 입력과 대기 상태를 먼저 표시해 전송이 먹혔는지 즉시 알 수 있게 합니다.
+    appendLog('action', user.displayName, `[MAIN]${rawText}`, rawLogId, createdAt);
+    appendLog('action', '세션 로그', '[MAIN]...', pendingLogId);
+    pendingEntry.timeoutId = window.setTimeout(() => {
+      removeLog(pendingLogId);
+      pendingEntry.isPendingVisible = false;
+      pendingEntry.timeoutId = undefined;
+    }, 45_000);
+    pendingMainCommandLogsRef.current = [...pendingMainCommandLogsRef.current, pendingEntry];
 
     try {
       return await apiSubmitMainCommand(user, snapshot.session.id, payload, accessToken);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '메인 명령 전송에 실패했습니다.';
+      removePendingMainCommandLog(pendingEntry, { removeRaw: false });
       setError(message);
       appendLog('socket', '메인 명령 전송 실패', message);
+      appendLog(
+        'action',
+        '세션 로그',
+        `[MAIN]메인 명령 전송 실패: ${message}`,
+        `main-command:${clientLogId}:error`
+      );
       return null;
     } finally {
       setBusy(false);
