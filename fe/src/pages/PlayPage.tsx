@@ -13,8 +13,10 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from 'react';
 import type {
   ActionOutcome,
+  ClassDefinitionResponseDto,
   InventoryItemDto,
   MainCommandResponseDto,
+  RaceResponseDto,
   ResolveMainCommandCheckDto,
   SubmitMainCommandDto,
   VttMapStateDto,
@@ -586,13 +588,15 @@ interface PlayPageProps {
   user: StoredUser;
   snapshot: SessionSnapshot | null;
   characters: PersistentCharacter[];
+  races: RaceResponseDto[];
+  classDefinitions: ClassDefinitionResponseDto[];
   logs: LogEntry[];
   socketConnected: boolean;
   hasOlderTurnLogs: boolean;
   isLoadingTurnLogs: boolean;
   busy: boolean;
   error: string | null;
-  onCreateCharacter: (payload: CharacterPayload) => Promise<boolean> | void;
+  onCreateCharacter: (payload: CharacterPayload) => Promise<boolean>;
   onSelectCharacter: (characterId: string | null) => void;
   onSetReady: (isReady: boolean) => void;
   onStartSession: () => void;
@@ -606,15 +610,146 @@ interface PlayPageProps {
   onLoadOlderTurnLogs: () => void;
 }
 
-// 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
-const defaultCharacter = {
-  name: '',
-  ancestry: 'Human',
-  className: 'Wizard',
-  maxHp: 12,
+interface QuickCreateFormState {
+  name: string;
+  ancestryKey: string;
+  classKey: string;
+}
+
+type QuickCreateAbilities = NonNullable<CharacterPayload['abilities']>;
+
+const DEFAULT_QUICK_CREATE_ANCESTRY_KEY = 'human';
+const DEFAULT_QUICK_CREATE_CLASS_KEY = 'wizard';
+const HIT_DIE_AVERAGE_BY_KEY: Readonly<Record<string, number>> = {
+  d6: 4,
+  d8: 5,
+  d10: 6,
+  d12: 7,
+};
+const QUICK_CREATE_POINT_BUY_BY_CLASS_KEY: Readonly<
+  Record<string, QuickCreateAbilities>
+> = {
+  barbarian: { str: 15, dex: 13, con: 14, int: 8, wis: 12, cha: 10 },
+  bard: { str: 8, dex: 14, con: 13, int: 10, wis: 12, cha: 15 },
+  cleric: { str: 10, dex: 13, con: 14, int: 8, wis: 15, cha: 10 },
+  druid: { str: 8, dex: 14, con: 13, int: 10, wis: 15, cha: 10 },
+  fighter: { str: 15, dex: 13, con: 14, int: 8, wis: 12, cha: 10 },
+  monk: { str: 10, dex: 15, con: 13, int: 8, wis: 14, cha: 10 },
+  paladin: { str: 15, dex: 10, con: 14, int: 8, wis: 12, cha: 13 },
+  ranger: { str: 10, dex: 15, con: 13, int: 10, wis: 14, cha: 10 },
+  rogue: { str: 10, dex: 15, con: 13, int: 12, wis: 14, cha: 8 },
+  sorcerer: { str: 8, dex: 14, con: 13, int: 10, wis: 12, cha: 15 },
+  warlock: { str: 8, dex: 14, con: 13, int: 10, wis: 12, cha: 15 },
+  wizard: { str: 8, dex: 14, con: 13, int: 15, wis: 12, cha: 10 },
+};
+const QUICK_CREATE_CLASS_PRESET_BY_KEY = new Map<string, string>([
+  ['wizard', 'preset_wizard'],
+  ['ranger', 'preset_archer'],
+  ['rogue', 'preset_rogue'],
+  ['fighter', 'preset_warrior'],
+]);
+const QUICK_CREATE_CLASS_COMBAT_DEFAULTS: Readonly<
+  Record<string, { armorClass: number; speed: number }>
+> = {
+  fighter: { armorClass: 20, speed: 28 },
+  ranger: { armorClass: 16, speed: 32 },
+  rogue: { armorClass: 14, speed: 36 },
+  wizard: { armorClass: 10, speed: 30 },
 };
 
+// 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
+const defaultCharacter: QuickCreateFormState = {
+  name: '',
+  ancestryKey: DEFAULT_QUICK_CREATE_ANCESTRY_KEY,
+  classKey: DEFAULT_QUICK_CREATE_CLASS_KEY,
+};
+
+function createDefaultQuickCreateForm(
+  races: RaceResponseDto[],
+  classDefinitions: ClassDefinitionResponseDto[],
+): QuickCreateFormState {
+  return {
+    name: '',
+    ancestryKey:
+      races.find((race) => race.key === DEFAULT_QUICK_CREATE_ANCESTRY_KEY)?.key ??
+      races[0]?.key ??
+      DEFAULT_QUICK_CREATE_ANCESTRY_KEY,
+    classKey:
+      classDefinitions.find((klass) => klass.key === DEFAULT_QUICK_CREATE_CLASS_KEY)?.key ??
+      classDefinitions[0]?.key ??
+      DEFAULT_QUICK_CREATE_CLASS_KEY,
+  };
+}
+
 const visibleCharacterSlots = 3;
+
+function toStoredClassName(classKey: string): string {
+  const trimmed = classKey.trim();
+  if (!trimmed) return 'Wizard';
+  return trimmed.slice(0, 1).toUpperCase() + trimmed.slice(1).toLowerCase();
+}
+
+function getQuickCreatePointBuyBase(classKey: string): QuickCreateAbilities {
+  return (
+    QUICK_CREATE_POINT_BUY_BY_CLASS_KEY[classKey] ?? {
+      str: 10,
+      dex: 14,
+      con: 13,
+      int: 10,
+      wis: 12,
+      cha: 15,
+    }
+  );
+}
+
+function applyRaceBonuses(
+  base: QuickCreateAbilities,
+  race: RaceResponseDto | null,
+): QuickCreateAbilities {
+  const increases = race?.abilityIncreases;
+  return {
+    str: base.str + (increases?.str ?? 0),
+    dex: base.dex + (increases?.dex ?? 0),
+    con: base.con + (increases?.con ?? 0),
+    int: base.int + (increases?.int ?? 0),
+    wis: base.wis + (increases?.wis ?? 0),
+    cha: base.cha + (increases?.cha ?? 0),
+  };
+}
+
+function getProficiencyBonusForLevel(level: number): number {
+  if (level >= 17) return 6;
+  if (level >= 13) return 5;
+  if (level >= 9) return 4;
+  if (level >= 5) return 3;
+  return 2;
+}
+
+function getExpectedMaxHp(
+  hitDie: string | undefined,
+  level: number,
+  constitution: number,
+): number {
+  const normalizedHitDie = hitDie?.toLowerCase() ?? 'd6';
+  const hitDieMax = Number(normalizedHitDie.replace('d', '')) || 6;
+  const hitDieAverage = HIT_DIE_AVERAGE_BY_KEY[normalizedHitDie] ?? Math.ceil(hitDieMax / 2);
+  const constitutionModifier = Math.floor((constitution - 10) / 2);
+
+  return hitDieMax + constitutionModifier + (level - 1) * (hitDieAverage + constitutionModifier);
+}
+
+function getQuickCreateArmorClass(classKey: string, dexterity: number): number {
+  const predefined = QUICK_CREATE_CLASS_COMBAT_DEFAULTS[classKey];
+  if (predefined) {
+    return predefined.armorClass;
+  }
+
+  return Math.max(10, 10 + Math.floor((dexterity - 10) / 2));
+}
+
+function getQuickCreateSpeed(classKey: string, race: RaceResponseDto | null): number {
+  return QUICK_CREATE_CLASS_COMBAT_DEFAULTS[classKey]?.speed ?? race?.baseSpeed ?? 30;
+}
 
 // 로그 메시지 앞의 [MAIN]/[CHAT] 스코프 태그를 화면 표시용으로 제거합니다.
 function stripScopePrefix(message: string) {
@@ -770,6 +905,8 @@ export function PlayPage({
   user,
   snapshot,
   characters,
+  races,
+  classDefinitions,
   logs,
   socketConnected,
   hasOlderTurnLogs,
@@ -811,7 +948,7 @@ export function PlayPage({
     useState<PendingMainCommandCheck | null>(null);
   const [inventoryUseFeedback, setInventoryUseFeedback] = useState<string | null>(null);
   const [isInventoryUsePending, setInventoryUsePending] = useState(false);
-  const [formState, setFormState] = useState(defaultCharacter);
+  const [formState, setFormState] = useState<QuickCreateFormState>(defaultCharacter);
   const [localSelectedCharacterId, setLocalSelectedCharacterId] = useState<string | null>(null);
   const [isStatusMinimized, setStatusMinimized] = useState(false);
   const [isGameStarting, setIsGameStarting] = useState(false);
@@ -865,6 +1002,40 @@ export function PlayPage({
   const activeScenario =
     snapshot?.sessionScenarios.find((item) => item.status === 'ACTIVE') ??
     snapshot?.sessionScenarios[0];
+  const quickCreateConfigReady = races.length > 0 && classDefinitions.length > 0;
+  const selectedQuickCreateRace =
+    races.find((race) => race.key === formState.ancestryKey) ??
+    races.find((race) => race.key === DEFAULT_QUICK_CREATE_ANCESTRY_KEY) ??
+    races[0] ??
+    null;
+  const selectedQuickCreateClass =
+    classDefinitions.find((klass) => klass.key === formState.classKey) ??
+    classDefinitions.find((klass) => klass.key === DEFAULT_QUICK_CREATE_CLASS_KEY) ??
+    classDefinitions[0] ??
+    null;
+  const quickCreateLevel = activeScenario?.scenario.startLevel ?? 1;
+  const quickCreateScenarioId = activeScenario?.scenario.id ?? null;
+  const quickCreateBaseAbilities = getQuickCreatePointBuyBase(
+    selectedQuickCreateClass?.key ?? formState.classKey,
+  );
+  const quickCreateAbilities = applyRaceBonuses(quickCreateBaseAbilities, selectedQuickCreateRace);
+  const quickCreateProficiencyBonus = getProficiencyBonusForLevel(quickCreateLevel);
+  const quickCreateMaxHp = getExpectedMaxHp(
+    selectedQuickCreateClass?.hitDie,
+    quickCreateLevel,
+    quickCreateAbilities.con,
+  );
+  const quickCreateArmorClass = getQuickCreateArmorClass(
+    selectedQuickCreateClass?.key ?? formState.classKey,
+    quickCreateAbilities.dex,
+  );
+  const quickCreateSpeed = getQuickCreateSpeed(
+    selectedQuickCreateClass?.key ?? formState.classKey,
+    selectedQuickCreateRace,
+  );
+  const quickCreatePresetId =
+    QUICK_CREATE_CLASS_PRESET_BY_KEY.get(selectedQuickCreateClass?.key ?? formState.classKey) ??
+    null;
   const currentNode = playerScenario?.currentNode ?? null;
   const currentScreenType = getScreenTypeFromNodeType(currentNode?.nodeType);
   const isStoryNode = currentNode?.nodeType === 'story';
@@ -928,6 +1099,37 @@ export function PlayPage({
   useEffect(() => {
     setLocalSelectedCharacterId(serverSelectedCharacterId);
   }, [serverSelectedCharacterId]);
+
+  useEffect(() => {
+    if (!quickCreateConfigReady) {
+      return;
+    }
+
+    setFormState((current) => {
+      const nextAncestryKey = races.some((race) => race.key === current.ancestryKey)
+        ? current.ancestryKey
+        : (selectedQuickCreateRace?.key ?? DEFAULT_QUICK_CREATE_ANCESTRY_KEY);
+      const nextClassKey = classDefinitions.some((klass) => klass.key === current.classKey)
+        ? current.classKey
+        : (selectedQuickCreateClass?.key ?? DEFAULT_QUICK_CREATE_CLASS_KEY);
+
+      if (nextAncestryKey === current.ancestryKey && nextClassKey === current.classKey) {
+        return current;
+      }
+
+      return {
+        ...current,
+        ancestryKey: nextAncestryKey,
+        classKey: nextClassKey,
+      };
+    });
+  }, [
+    classDefinitions,
+    quickCreateConfigReady,
+    races,
+    selectedQuickCreateClass?.key,
+    selectedQuickCreateRace?.key,
+  ]);
 
   // 준비 상태가 풀리면 상태 패널을 다시 펼쳐 사용자가 확인할 수 있게 합니다.
   useEffect(() => {
@@ -1269,11 +1471,63 @@ export function PlayPage({
     }
   }, [selectedMainTargetId, visibleTargetOptions]);
 
-  function handleCreateCharacter(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    onCreateCharacter(formState);
+  function resetQuickCreateForm() {
+    setFormState(createDefaultQuickCreateForm(races, classDefinitions));
+  }
+
+  function openCreateModal() {
+    resetQuickCreateForm();
+    setCreateModalOpen(true);
+  }
+
+  function closeCreateModal() {
     setCreateModalOpen(false);
-    setFormState(defaultCharacter);
+    resetQuickCreateForm();
+  }
+
+  async function handleCreateCharacter(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedQuickCreateClass) {
+      return;
+    }
+
+    const payload: CharacterPayload = {
+      name: formState.name.trim(),
+      ancestry: selectedQuickCreateRace?.koName ?? formState.ancestryKey,
+      className: toStoredClassName(selectedQuickCreateClass.key),
+      avatarType: quickCreatePresetId ? 'PRESET' : 'DEFAULT',
+      avatarPresetId: quickCreatePresetId,
+      avatarUrl: null,
+      scenarioId: quickCreateScenarioId,
+      level: quickCreateLevel,
+      abilities: quickCreateAbilities,
+      proficiencyBonus: quickCreateProficiencyBonus,
+      proficientSkills: selectedQuickCreateClass.skillChoices.slice(
+        0,
+        selectedQuickCreateClass.skillChoiceCount,
+      ),
+      maxHp: quickCreateMaxHp,
+      armorClass: quickCreateArmorClass,
+      speed: quickCreateSpeed,
+      startingEquipmentSelection: new Array(
+        selectedQuickCreateClass.startingEquipment.slots.length,
+      ).fill(0),
+      startingSpells:
+        selectedQuickCreateClass.startingCantripCount > 0 ||
+        selectedQuickCreateClass.startingSpellCount > 0
+          ? {
+              cantrips: new Array(selectedQuickCreateClass.startingCantripCount).fill(''),
+              spells: new Array(selectedQuickCreateClass.startingSpellCount).fill(''),
+            }
+          : undefined,
+      assignToSession: true,
+    };
+
+    const succeeded = await onCreateCharacter(payload);
+    if (succeeded) {
+      closeCreateModal();
+    }
   }
 
   async function handleMainSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1651,12 +1905,16 @@ export function PlayPage({
                           type="button"
                           key={item.id}
                           className="character-selection-create"
-                          onClick={() => setCreateModalOpen(true)}
-                          disabled={readyLocked}
+                          onClick={openCreateModal}
+                          disabled={readyLocked || !quickCreateConfigReady}
                         >
                           <Icon name="plus" />
                           <strong>캐릭터 생성</strong>
-                          <span>새 캐릭터를 만든 뒤 이 세션에서 바로 사용할 수 있습니다.</span>
+                          <span>
+                            {quickCreateConfigReady
+                              ? '새 캐릭터를 만든 뒤 이 세션에서 바로 사용할 수 있습니다.'
+                              : '캐릭터 기본 데이터를 불러오는 중입니다.'}
+                          </span>
                         </button>
                       );
                     }
@@ -2419,10 +2677,14 @@ export function PlayPage({
                 <span className="eyebrow">캐릭터 생성</span>
                 <h2>새 캐릭터 생성</h2>
               </div>
-              <button type="button" className="ghost" onClick={() => setCreateModalOpen(false)}>
+              <button type="button" className="ghost" onClick={closeCreateModal}>
                 Close
               </button>
             </div>
+
+            <p style={{ margin: '0 0 12px 0', opacity: 0.82 }}>
+              종족, 직업, 시작 장비, 주문, 능력치는 현재 규칙에 맞는 기본값으로 자동 완성됩니다.
+            </p>
 
             <label>
               Name
@@ -2437,47 +2699,77 @@ export function PlayPage({
 
             <label>
               Ancestry
-              <input
-                value={formState.ancestry}
+              <select
+                value={formState.ancestryKey}
                 onChange={(event) =>
-                  setFormState((current) => ({ ...current, ancestry: event.target.value }))
+                  setFormState((current) => ({ ...current, ancestryKey: event.target.value }))
                 }
                 required
-              />
+                disabled={!quickCreateConfigReady}
+              >
+                {races.map((race) => (
+                  <option key={race.id} value={race.key}>
+                    {race.koName}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label>
               Class
-              <input
-                value={formState.className}
+              <select
+                value={formState.classKey}
                 onChange={(event) =>
-                  setFormState((current) => ({ ...current, className: event.target.value }))
+                  setFormState((current) => ({ ...current, classKey: event.target.value }))
                 }
                 required
-              />
+                disabled={!quickCreateConfigReady}
+              >
+                {classDefinitions.map((klass) => (
+                  <option key={klass.id} value={klass.key}>
+                    {klass.koName}
+                  </option>
+                ))}
+              </select>
             </label>
 
-            <label>
-              Max HP
-              <input
-                type="number"
-                min={1}
-                value={formState.maxHp}
-                onChange={(event) =>
-                  setFormState((current) => ({
-                    ...current,
-                    maxHp: Number(event.target.value) || 1,
-                  }))
-                }
-                required
-              />
-            </label>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                gap: '10px',
+                marginTop: '4px',
+              }}
+            >
+              <div className="status-chip">LV {quickCreateLevel}</div>
+              <div className="status-chip">HP {quickCreateMaxHp}</div>
+              <div className="status-chip">AC {quickCreateArmorClass}</div>
+              <div className="status-chip">이동 {quickCreateSpeed}ft</div>
+            </div>
+
+            {selectedQuickCreateClass ? (
+              <p style={{ margin: '8px 0 0 0', opacity: 0.82 }}>
+                숙련 기술은{' '}
+                {selectedQuickCreateClass.skillChoiceCount > 0
+                  ? `${selectedQuickCreateClass.skillChoices
+                      .slice(0, selectedQuickCreateClass.skillChoiceCount)
+                      .join(', ')}`
+                  : '자동 선택 없음'}
+                으로 적용됩니다.
+              </p>
+            ) : null}
+
+            {error ? (
+              <p className="panel-error" role="alert" style={{ margin: '12px 0 0 0' }}>
+                {error}
+              </p>
+            ) : null}
 
             <div className="modal-actions">
-              <button type="button" className="ghost" onClick={() => setCreateModalOpen(false)}>
+              <button type="button" className="ghost" onClick={closeCreateModal}>
                 Cancel
               </button>
-              <button type="submit" className="primary" disabled={busy}>
+              <button type="submit" className="primary" disabled={busy || !quickCreateConfigReady}>
                 Save
               </button>
             </div>
