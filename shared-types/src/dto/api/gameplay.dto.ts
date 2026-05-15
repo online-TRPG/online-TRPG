@@ -363,6 +363,26 @@ export class StartCombatDto {
   autoRollInitiative?: boolean;
 }
 
+export class CombatActionResourcesDto {
+  @ApiProperty()
+  actionAvailable!: boolean;
+
+  @ApiProperty()
+  bonusActionAvailable!: boolean;
+
+  @ApiProperty()
+  reactionAvailable!: boolean;
+
+  @ApiProperty()
+  additionalActionAvailable!: boolean;
+
+  @ApiProperty()
+  movementFtTotal!: number;
+
+  @ApiProperty()
+  movementFtRemaining!: number;
+}
+
 export class CombatParticipantResponseDto {
   @ApiProperty()
   sessionEntityId!: string;
@@ -372,6 +392,9 @@ export class CombatParticipantResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   sessionCharacterId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  tokenId!: string | null;
 
   @ApiProperty()
   name!: string;
@@ -396,6 +419,15 @@ export class CombatParticipantResponseDto {
 
   @ApiProperty()
   isHostile!: boolean;
+
+  @ApiProperty()
+  hasActedThisRound!: boolean;
+
+  @ApiProperty({ type: [String] })
+  conditions!: string[];
+
+  @ApiProperty({ type: CombatActionResourcesDto })
+  actionResources!: CombatActionResourcesDto;
 }
 
 export class CombatResponseDto {
@@ -413,6 +445,9 @@ export class CombatResponseDto {
 
   @ApiProperty()
   turnNo!: number;
+
+  @ApiProperty()
+  roundTurnNo!: number;
 
   @ApiPropertyOptional({ nullable: true })
   currentEntityId!: string | null;
@@ -472,6 +507,69 @@ export class TurnAdvanceResponseDto {
 
   @ApiProperty()
   turnNo!: number;
+}
+
+export class ApplyCombatDamageDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  targetParticipantId!: string;
+
+  @ApiProperty()
+  @IsNumber()
+  amount!: number;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  healing?: boolean;
+}
+
+export class ResolveCombatAttackDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  attackerParticipantId!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  targetParticipantId!: string;
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @IsNumber()
+  attackBonus?: number;
+
+  @ApiPropertyOptional({ default: "1d6" })
+  @IsOptional()
+  @IsString()
+  damageDice?: string;
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @IsNumber()
+  damageBonus?: number;
+
+  @ApiPropertyOptional({ default: "weapon" })
+  @IsOptional()
+  @IsString()
+  damageType?: string;
+}
+
+export class CombatActionResultDto {
+  @ApiProperty({ type: CombatResponseDto })
+  combat!: CombatResponseDto;
+
+  @ApiProperty()
+  message!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  attackTotal!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  damageTotal!: number | null;
 }
 
 export class StateDiffResponseDto {
