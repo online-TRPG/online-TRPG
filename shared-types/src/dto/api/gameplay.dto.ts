@@ -373,6 +373,9 @@ export class CombatParticipantResponseDto {
   @ApiPropertyOptional({ nullable: true })
   sessionCharacterId!: string | null;
 
+  @ApiPropertyOptional({ nullable: true })
+  tokenId!: string | null;
+
   @ApiProperty()
   name!: string;
 
@@ -396,6 +399,35 @@ export class CombatParticipantResponseDto {
 
   @ApiProperty()
   isHostile!: boolean;
+
+  @ApiProperty()
+  hasActedThisRound!: boolean;
+
+  @ApiProperty({ type: [String] })
+  conditions!: string[];
+
+  @ApiProperty({ type: () => CombatActionResourcesDto })
+  actionResources!: CombatActionResourcesDto;
+}
+
+export class CombatActionResourcesDto {
+  @ApiProperty()
+  actionAvailable!: boolean;
+
+  @ApiProperty()
+  bonusActionAvailable!: boolean;
+
+  @ApiProperty()
+  reactionAvailable!: boolean;
+
+  @ApiProperty()
+  additionalActionAvailable!: boolean;
+
+  @ApiProperty()
+  movementFtTotal!: number;
+
+  @ApiProperty()
+  movementFtRemaining!: number;
 }
 
 export class CombatResponseDto {
@@ -413,6 +445,9 @@ export class CombatResponseDto {
 
   @ApiProperty()
   turnNo!: number;
+
+  @ApiProperty()
+  roundTurnNo!: number;
 
   @ApiPropertyOptional({ nullable: true })
   currentEntityId!: string | null;
