@@ -36,10 +36,10 @@ class FakeGoogleAiStudioClient:
         schema_properties = schema["properties"]
         if "action" in schema_properties:
             return GeneratedJsonResult(
-                raw_text='{"action":{"type":"interact","actorCharacterId":"player-1","targetId":"stone-door","ability":null,"skill":"investigation","approach":"문 틈새를 조사한다.","confidence":0.88,"requiresRoll":true,"suggestedDifficulty":"medium"},"needsClarification":false,"clarificationQuestion":null,"safetyNotes":["상태 변경은 서버가 확정해야 함"]}',
+                raw_text='{"action":{"type":"INVESTIGATE_OBJECT","actorCharacterId":"player-1","targetId":"stone-door","ability":null,"skill":"investigation","approach":"문 틈새를 조사한다.","confidence":0.88,"requiresRoll":true,"suggestedDifficulty":"medium"},"needsClarification":false,"clarificationQuestion":null,"safetyNotes":["상태 변경은 서버가 확정해야 함"]}',
                 parsed_json={
                     "action": {
-                        "type": "interact",
+                        "type": "INVESTIGATE_OBJECT",
                         "actorCharacterId": "player-1",
                         "targetId": "stone-door",
                         "ability": None,
@@ -211,7 +211,7 @@ def test_interpreter_harness_returns_valid_structured_action():
         InterpreterHarnessRequest(rawText="문을 조사해볼게.", actorCharacterId="player-1")
     )
 
-    assert response.parsed.action.type == "interact"
+    assert response.parsed.action.type == "INVESTIGATE_OBJECT"
     assert response.parsed.action.targetId == "stone-door"
     assert response.model == "gemma-4-31b-it"
     assert fake_client.calls[0]["temperature"] == 0.1
@@ -222,7 +222,7 @@ def test_interpreter_harness_returns_valid_structured_action():
     assert latest_path.exists()
     logged = json.loads(latest_path.read_text(encoding="utf-8"))
     assert logged["endpoint"] == "interpreter"
-    assert logged["response"]["parsed"]["action"]["type"] == "interact"
+    assert logged["response"]["parsed"]["action"]["type"] == "INVESTIGATE_OBJECT"
     assert logged["aiTrace"]["id"].startswith("trace-")
     assert logged["aiTrace"]["role"] == "interpreter"
     assert logged["aiTrace"]["status"] == "success"
@@ -231,11 +231,11 @@ def test_interpreter_harness_returns_valid_structured_action():
 
 def test_google_ai_studio_client_parses_fenced_json_text_fallback():
     parsed = GoogleAiStudioClient._parse_json_text(
-        '```json\n{"action":{"type":"interact","actorCharacterId":"player-1","approach":"문을 본다","confidence":0.7,"requiresRoll":false}}\n```'
+        '```json\n{"action":{"type":"INVESTIGATE_OBJECT","actorCharacterId":"player-1","approach":"문을 본다","confidence":0.7,"requiresRoll":false}}\n```'
     )
 
     assert isinstance(parsed, dict)
-    assert parsed["action"]["type"] == "interact"
+    assert parsed["action"]["type"] == "INVESTIGATE_OBJECT"
 
 
 def test_interpreter_prompt_includes_retrieved_spell_context():
@@ -254,6 +254,25 @@ def test_interpreter_prompt_includes_retrieved_spell_context():
     assert "stable IDs" in system_instruction
     assert "availableTargets" in system_instruction
     assert "required engine check" in system_instruction
+
+
+def test_interpreter_prompt_guides_natural_language_support_requests():
+    service, fake_client = build_service()
+
+    service.run_interpreter(
+        InterpreterHarnessRequest(
+            rawText="힌트 주세요",
+            actorCharacterId="player-1",
+            requestIntent="GENERAL_GM_REQUEST",
+        )
+    )
+
+    prompt = fake_client.calls[0]["prompt"]
+    system_instruction = fake_client.calls[0]["system_instruction"]
+    assert "힌트 주세요" in prompt
+    assert "ASK_HINT" in system_instruction
+    assert "요약해줘" in system_instruction
+    assert "ASK_SUMMARY" in system_instruction
 
 
 def test_interpreter_prompt_includes_retrieved_condition_and_rule_context():
@@ -298,7 +317,7 @@ def test_narrator_harness_returns_valid_narration():
         NarratorHarnessRequest(
             rawInput="문을 조사해볼게.",
             action={
-                "type": "skill_check",
+                "type": "INVESTIGATE_OBJECT",
                 "actorCharacterId": "player-1",
                 "targetId": "stone-door",
                 "ability": "wisdom",
@@ -515,7 +534,7 @@ def test_interpreter_returns_logged_fallback_when_provider_fails():
     assert response.fallback is True
     assert response.trace.failureType == "upstream_error"
     assert response.parsed.needsClarification is True
-    assert response.parsed.action.type == "freeform"
+    assert response.parsed.action.type == "OUT_OF_SCOPE"
     assert response.logPaths is not None
 
     traces = service.list_traces(status="fallback")

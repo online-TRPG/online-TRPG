@@ -2075,7 +2075,7 @@ STATIC_RULE_HOOK_FIXTURES = [
         "domain": "spellcasting",
         "titleKo": "싸늘한 손길 시전 처리",
         "engineFunction": "resolve_spell_cast",
-        "trigger": "action.type == cast_spell and action.spellId == spell.chill_touch",
+        "trigger": "action.type == MAP_CAST_SPELL and action.spellId == spell.chill_touch",
         "consumes": [
             "spell.chill_touch",
             "casterKnownCantrips",
@@ -2124,7 +2124,7 @@ STATIC_RULE_HOOK_FIXTURES = [
         "domain": "class_feature",
         "titleKo": "파이터 재기의 숨결 회복",
         "engineFunction": "apply_second_wind",
-        "trigger": "action.type == use_class_feature and action.featureId == class.fighter.feature.재기의_숨결",
+        "trigger": "action.type == MAP_USE_CLASS_FEATURE and action.featureId == class.fighter.feature.재기의_숨결",
         "consumes": ["fighterLevel", "bonusActionAvailable", "secondWindAvailable", "healingRoll.d10", "currentHitPoints", "maxHitPoints"],
         "produces": ["hitPointsRestored", "newHitPoints", "secondWindExpended", "bonusActionSpent"],
         "sourceRuleIds": [],
@@ -2142,7 +2142,7 @@ STATIC_RULE_HOOK_FIXTURES = [
         "domain": "class_feature",
         "titleKo": "파이터 행동 연쇄 추가 행동",
         "engineFunction": "apply_action_surge",
-        "trigger": "action.type == use_class_feature and action.featureId == class.fighter.feature.행동_연쇄",
+        "trigger": "action.type == MAP_USE_CLASS_FEATURE and action.featureId == class.fighter.feature.행동_연쇄",
         "consumes": ["fighterLevel", "actionSurgeAvailableUses", "turnActionState"],
         "produces": ["additionalActionGranted", "actionSurgeExpended", "remainingActionSurgeUses"],
         "sourceRuleIds": ["rule.combat.행동"],
@@ -2179,7 +2179,7 @@ STATIC_RULE_HOOK_FIXTURES = [
         "domain": "class_feature",
         "titleKo": "바바리안 격노",
         "engineFunction": "apply_rage",
-        "trigger": "action.type == use_class_feature and action.featureId == class.barbarian.feature.격노",
+        "trigger": "action.type == MAP_USE_CLASS_FEATURE and action.featureId == class.barbarian.feature.격노",
         "consumes": [
             "barbarianLevel",
             "bonusActionAvailable",
@@ -2245,7 +2245,7 @@ STATIC_RULE_HOOK_FIXTURES = [
         "domain": "class_feature",
         "titleKo": "로그 교활한 행동",
         "engineFunction": "apply_cunning_action",
-        "trigger": "action.type == use_class_feature and action.featureId == class.rogue.feature.교활한_행동",
+        "trigger": "action.type == MAP_USE_CLASS_FEATURE and action.featureId == class.rogue.feature.교활한_행동",
         "consumes": ["rogueLevel", "bonusActionAvailable", "declaredCunningAction"],
         "produces": ["bonusActionSpent", "grantedActionType"],
         "sourceRuleIds": [],
@@ -2263,7 +2263,7 @@ STATIC_RULE_HOOK_FIXTURES = [
         "domain": "class_feature",
         "titleKo": "바바리안 광분",
         "engineFunction": "apply_frenzy",
-        "trigger": "action.type == use_class_feature and action.featureId == class.barbarian.subclass_feature.광분",
+        "trigger": "action.type == MAP_USE_CLASS_FEATURE and action.featureId == class.barbarian.subclass_feature.광분",
         "consumes": ["rageActivationAccepted", "bonusActionAvailableOnFollowingTurns", "frenzyDeclared", "exhaustionState"],
         "produces": ["frenzyActive", "bonusActionMeleeAttackAvailable", "exhaustionIncreaseOnRageEnd"],
         "sourceRuleIds": [],
@@ -2328,7 +2328,7 @@ def build_backend_engine_p0_contracts(
                     "advantageState": "normal",
                 },
                 "sourceAction": {
-                    "type": "attack",
+                    "type": "MAP_ATTACK",
                     "actorCharacterId": "fighter-1",
                     "targetId": "goblin-1",
                     "attackKind": "weapon_attack",
@@ -2373,7 +2373,7 @@ def build_backend_engine_p0_contracts(
                     "targetVulnerabilities": [],
                 },
                 "sourceAction": {
-                    "type": "attack",
+                    "type": "MAP_ATTACK",
                     "actorCharacterId": "fighter-1",
                     "targetId": "skeleton-1",
                     "requiresRoll": True,
@@ -2414,7 +2414,7 @@ def build_backend_engine_p0_contracts(
                     "baseSpeedFt": 30,
                 },
                 "sourceAction": {
-                    "type": "move",
+                    "type": "MAP_MOVE",
                     "actorCharacterId": "fighter-1",
                     "targetId": "goblin-1",
                     "approach": "일어나서 근접 공격을 준비한다.",
@@ -2463,7 +2463,7 @@ def build_backend_engine_p0_contracts(
                     },
                 },
                 "sourceAction": {
-                    "type": "cast_spell",
+                    "type": "MAP_CAST_SPELL",
                     "actorCharacterId": "wizard-1",
                     "targetId": "goblin-1",
                     "spellId": "spell.chill_touch",
@@ -2511,7 +2511,7 @@ def build_backend_engine_p0_contracts(
                         "advantageState": "normal",
                     },
                     "sourceAction": {
-                        "type": "attack",
+                        "type": "MAP_ATTACK",
                         "actorCharacterId": "fighter-1",
                         "targetId": "goblin-1",
                         "attackKind": "weapon_attack",
@@ -2551,7 +2551,7 @@ def build_backend_engine_p0_contracts(
                         "advantageState": "normal",
                     },
                     "sourceAction": {
-                        "type": "attack",
+                        "type": "MAP_ATTACK",
                         "actorCharacterId": "fighter-1",
                         "targetId": "goblin-1",
                         "attackKind": "weapon_attack",
@@ -2592,7 +2592,7 @@ def build_backend_engine_p0_contracts(
                         "targetVulnerabilities": [],
                     },
                     "sourceAction": {
-                        "type": "cast_spell",
+                        "type": "MAP_CAST_SPELL",
                         "actorCharacterId": "wizard-1",
                         "targetId": "shadow-1",
                         "spellId": "spell.chill_touch",
@@ -2631,7 +2631,7 @@ def build_backend_engine_p0_contracts(
                         "targetVulnerabilities": ["bludgeoning"],
                     },
                     "sourceAction": {
-                        "type": "attack",
+                        "type": "MAP_ATTACK",
                         "actorCharacterId": "cleric-1",
                         "targetId": "skeleton-1",
                         "attackKind": "weapon_attack",
@@ -2668,7 +2668,7 @@ def build_backend_engine_p0_contracts(
                         "baseSpeedFt": 30,
                     },
                     "sourceAction": {
-                        "type": "attack",
+                        "type": "MAP_ATTACK",
                         "actorCharacterId": "archer-1",
                         "targetId": "fighter-1",
                         "attackKind": "weapon_attack",
@@ -2706,7 +2706,7 @@ def build_backend_engine_p0_contracts(
                         "baseSpeedFt": 30,
                     },
                     "sourceAction": {
-                        "type": "move",
+                        "type": "MAP_MOVE",
                         "actorCharacterId": "fighter-1",
                         "targetId": "fighter-1",
                         "approach": "일어난다.",
@@ -2746,7 +2746,7 @@ def build_backend_engine_p0_contracts(
                         "spellAttackRollResult": None,
                     },
                     "sourceAction": {
-                        "type": "cast_spell",
+                        "type": "MAP_CAST_SPELL",
                         "actorCharacterId": "wizard-1",
                         "targetId": "goblin-1",
                         "spellId": "spell.chill_touch",
@@ -2789,7 +2789,7 @@ def build_backend_engine_p0_contracts(
                         "spellAttackRollResult": None,
                     },
                     "sourceAction": {
-                        "type": "cast_spell",
+                        "type": "MAP_CAST_SPELL",
                         "actorCharacterId": "wizard-1",
                         "targetId": "goblin-1",
                         "spellId": "spell.chill_touch",
@@ -2839,7 +2839,7 @@ def build_interpreter_backend_handoff_cases(
             "rawText": "싸늘한 손길을 적 고블린에게 시전한다.",
             "interpreterOutput": {
                 "action": {
-                    "type": "cast_spell",
+                    "type": "MAP_CAST_SPELL",
                     "actorCharacterId": "wizard-1",
                     "targetId": "goblin-1",
                     "spellId": "spell.chill_touch",
@@ -2892,7 +2892,7 @@ def build_interpreter_backend_handoff_cases(
                         "advantageState": "normal",
                     },
                     "sourceAction": {
-                        "type": "cast_spell",
+                        "type": "MAP_CAST_SPELL",
                         "actorCharacterId": "wizard-1",
                         "targetId": "goblin-1",
                         "spellId": "spell.chill_touch",
@@ -2921,7 +2921,7 @@ def build_interpreter_backend_handoff_cases(
                         },
                     },
                     "sourceAction": {
-                        "type": "cast_spell",
+                        "type": "MAP_CAST_SPELL",
                         "actorCharacterId": "wizard-1",
                         "targetId": "goblin-1",
                         "spellId": "spell.chill_touch",
@@ -2944,7 +2944,7 @@ def build_interpreter_backend_handoff_cases(
                         "targetVulnerabilities": [],
                     },
                     "sourceAction": {
-                        "type": "cast_spell",
+                        "type": "MAP_CAST_SPELL",
                         "actorCharacterId": "wizard-1",
                         "targetId": "goblin-1",
                         "spellId": "spell.chill_touch",
@@ -2963,7 +2963,7 @@ def build_interpreter_backend_handoff_cases(
             "rawText": "파이터가 롱소드로 고블린을 공격한다.",
             "interpreterOutput": {
                 "action": {
-                    "type": "attack",
+                    "type": "MAP_ATTACK",
                     "actorCharacterId": "fighter-1",
                     "targetId": "goblin-1",
                     "attackKind": "weapon_attack",
@@ -3005,7 +3005,7 @@ def build_interpreter_backend_handoff_cases(
                         "advantageState": "normal",
                     },
                     "sourceAction": {
-                        "type": "attack",
+                        "type": "MAP_ATTACK",
                         "actorCharacterId": "fighter-1",
                         "targetId": "goblin-1",
                         "attackKind": "weapon_attack",
@@ -3027,7 +3027,7 @@ def build_interpreter_backend_handoff_cases(
                         "targetVulnerabilities": [],
                     },
                     "sourceAction": {
-                        "type": "attack",
+                        "type": "MAP_ATTACK",
                         "actorCharacterId": "fighter-1",
                         "targetId": "goblin-1",
                         "attackKind": "weapon_attack",
@@ -3042,7 +3042,7 @@ def build_interpreter_backend_handoff_cases(
             "rawText": "넘어짐 상태에서 일어나서 적을 공격하려고 한다.",
             "interpreterOutput": {
                 "action": {
-                    "type": "attack",
+                    "type": "MAP_ATTACK",
                     "actorCharacterId": "fighter-1",
                     "targetId": "goblin-1",
                     "attackKind": "weapon_attack",
@@ -3084,7 +3084,7 @@ def build_interpreter_backend_handoff_cases(
                         "baseSpeedFt": 30,
                     },
                     "sourceAction": {
-                        "type": "attack",
+                        "type": "MAP_ATTACK",
                         "actorCharacterId": "fighter-1",
                         "targetId": "goblin-1",
                         "attackKind": "weapon_attack",
@@ -3105,7 +3105,7 @@ def build_interpreter_backend_handoff_cases(
                         "advantageState": "disadvantage",
                     },
                     "sourceAction": {
-                        "type": "attack",
+                        "type": "MAP_ATTACK",
                         "actorCharacterId": "fighter-1",
                         "targetId": "goblin-1",
                         "attackKind": "weapon_attack",
@@ -3165,7 +3165,7 @@ def build_narrator_input_fixture_cases() -> list[NarratorInputFixtureCase]:
             "narratorRequest": {
                 "rawInput": "싸늘한 손길을 적 고블린에게 시전한다.",
                 "action": {
-                    "type": "cast_spell",
+                    "type": "MAP_CAST_SPELL",
                     "actorCharacterId": "wizard-1",
                     "targetId": "goblin-1",
                     "spellId": "spell.chill_touch",
@@ -3236,7 +3236,7 @@ def build_narrator_input_fixture_cases() -> list[NarratorInputFixtureCase]:
             "narratorRequest": {
                 "rawInput": "파이터가 롱소드로 고블린을 공격한다.",
                 "action": {
-                    "type": "attack",
+                    "type": "MAP_ATTACK",
                     "actorCharacterId": "fighter-1",
                     "targetId": "goblin-1",
                     "attackKind": "weapon_attack",
@@ -3296,7 +3296,7 @@ def build_narrator_input_fixture_cases() -> list[NarratorInputFixtureCase]:
             "narratorRequest": {
                 "rawInput": "넘어짐 상태에서 일어나서 적을 공격하려고 한다.",
                 "action": {
-                    "type": "attack",
+                    "type": "MAP_ATTACK",
                     "actorCharacterId": "fighter-1",
                     "targetId": "goblin-1",
                     "attackKind": "weapon_attack",
