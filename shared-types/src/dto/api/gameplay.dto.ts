@@ -363,6 +363,26 @@ export class StartCombatDto {
   autoRollInitiative?: boolean;
 }
 
+export class CombatActionResourcesDto {
+  @ApiProperty()
+  actionAvailable!: boolean;
+
+  @ApiProperty()
+  bonusActionAvailable!: boolean;
+
+  @ApiProperty()
+  reactionAvailable!: boolean;
+
+  @ApiProperty()
+  additionalActionAvailable!: boolean;
+
+  @ApiProperty()
+  movementFtTotal!: number;
+
+  @ApiProperty()
+  movementFtRemaining!: number;
+}
+
 export class CombatParticipantResponseDto {
   @ApiProperty()
   sessionEntityId!: string;
@@ -406,28 +426,8 @@ export class CombatParticipantResponseDto {
   @ApiProperty({ type: [String] })
   conditions!: string[];
 
-  @ApiProperty({ type: () => CombatActionResourcesDto })
+  @ApiProperty({ type: CombatActionResourcesDto })
   actionResources!: CombatActionResourcesDto;
-}
-
-export class CombatActionResourcesDto {
-  @ApiProperty()
-  actionAvailable!: boolean;
-
-  @ApiProperty()
-  bonusActionAvailable!: boolean;
-
-  @ApiProperty()
-  reactionAvailable!: boolean;
-
-  @ApiProperty()
-  additionalActionAvailable!: boolean;
-
-  @ApiProperty()
-  movementFtTotal!: number;
-
-  @ApiProperty()
-  movementFtRemaining!: number;
 }
 
 export class CombatResponseDto {
