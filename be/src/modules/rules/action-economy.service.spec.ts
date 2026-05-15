@@ -2,7 +2,6 @@ import { ActionEconomyService } from "./action-economy.service";
 
 const key = {
   combatId: "combat-1",
-  combatParticipantId: "participant-1",
   roundNo: 1,
   turnNo: 2,
   sessionCharacterId: "session-character-1",
@@ -44,12 +43,7 @@ describe("ActionEconomyService", () => {
     await expect(service.getOrCreateTurnState(key)).resolves.toBe(turnState);
     expect(prisma.combatTurnState.upsert).toHaveBeenCalledWith({
       where: {
-        combatId_roundNo_turnNo_combatParticipantId: {
-          combatId: key.combatId,
-          combatParticipantId: key.combatParticipantId,
-          roundNo: key.roundNo,
-          turnNo: key.turnNo,
-        },
+        combatId_roundNo_turnNo_sessionCharacterId: key,
       },
       create: key,
       update: {},
@@ -64,12 +58,7 @@ describe("ActionEconomyService", () => {
     await expect(service.spendAction(key)).resolves.toMatchObject({ actionUsed: true });
     expect(prisma.combatTurnState.update).toHaveBeenCalledWith({
       where: {
-        combatId_roundNo_turnNo_combatParticipantId: {
-          combatId: key.combatId,
-          combatParticipantId: key.combatParticipantId,
-          roundNo: key.roundNo,
-          turnNo: key.turnNo,
-        },
+        combatId_roundNo_turnNo_sessionCharacterId: key,
       },
       data: { actionUsed: true },
     });
@@ -90,12 +79,7 @@ describe("ActionEconomyService", () => {
     });
     expect(prisma.combatTurnState.update).toHaveBeenCalledWith({
       where: {
-        combatId_roundNo_turnNo_combatParticipantId: {
-          combatId: key.combatId,
-          combatParticipantId: key.combatParticipantId,
-          roundNo: key.roundNo,
-          turnNo: key.turnNo,
-        },
+        combatId_roundNo_turnNo_sessionCharacterId: key,
       },
       data: { additionalActionGranted: false },
     });
