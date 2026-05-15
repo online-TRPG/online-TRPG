@@ -394,6 +394,67 @@ function buildDiceRollOverlayData(
   };
 }
 
+// CHECK_REQUIRED 응답의 checkOption.reason 텍스트에서 DC 숫자를 추출.
+// 예) "/check stealth 15 (난이도 제안: medium)" → 15. 못 찾으면 난이도 키워드로 폴백.
+function parseDcFromCheckReason(reason: string): number {
+  const match = reason.match(/\b(\d{1,2})\b/);
+  if (match) {
+    const dc = Number(match[1]);
+    if (Number.isInteger(dc) && dc >= 5 && dc <= 30) {
+      return dc;
+    }
+  }
+  const lower = reason.toLowerCase();
+  if (lower.includes('easy') || reason.includes('쉬움')) return 10;
+  if (lower.includes('hard') || reason.includes('어려움')) return 20;
+  return 15; // medium 기본
+}
+
+// CHECK_REQUIRED 시 클라이언트 로컬 d20 굴림으로 임시 오버레이 생성.
+// 한계 — BE 를 거치지 않아 다른 플레이어에겐 안 보임 (단일 클라이언트 가시).
+// 캐릭터 보정값은 v1 에서 0 고정. 서버 권위 굴림 + 브로드캐스트는 BE 합의 후 후속 작업으로 교체.
+function buildCheckRequiredOverlay(
+  checkOption: { ability?: string; skill?: string; reason: string },
+  actorUserId: string,
+  actorDisplayName: string,
+): DiceRollOverlayData {
+  const skillInput = checkOption.skill?.trim() ?? '';
+  const skill = skillInput
+    ? DND5E_SKILL_INLINE.find(
+        (entry) => entry.code === skillInput.toLowerCase() || entry.ko === skillInput,
+      )
+    : null;
+
+  const title = skill?.ko || skillInput || '능력 판정';
+  const subtitle = skill
+    ? `${skill.abilityKo} 판정`
+    : checkOption.ability
+      ? `${checkOption.ability} 판정`
+      : '능력 판정';
+
+  const dc = parseDcFromCheckReason(checkOption.reason);
+  const naturalRoll = Math.floor(Math.random() * 20) + 1;
+  const modifier = 0;
+  const total = naturalRoll + modifier;
+
+  return {
+    id: `check-required-${actorUserId}-${Date.now()}`,
+    actorName: actorDisplayName,
+    title,
+    subtitle,
+    targetLabel: '난이도',
+    targetValue: dc,
+    isD20: true,
+    naturalRoll,
+    rolls: [naturalRoll],
+    modifier,
+    total,
+    expression: '1d20',
+    advantage: 'NORMAL',
+    outcome: total >= dc ? 'SUCCESS' : 'FAILURE',
+  };
+}
+
 export function useSession(
   user: StoredUser | null,
   accessToken: string | null,
@@ -1327,7 +1388,20 @@ export function useSession(
     pendingMainCommandLogsRef.current = [...pendingMainCommandLogsRef.current, pendingEntry];
 
     try {
-      return await apiSubmitMainCommand(user, snapshot.session.id, payload, accessToken);
+      const response = await apiSubmitMainCommand(
+        user,
+        snapshot.session.id,
+        payload,
+        accessToken,
+      );
+      // CHECK_REQUIRED 응답 시 로컬 d20 굴림으로 오버레이 띄움 (v1: 단일 클라이언트 가시).
+      // 서버 권위 굴림 + 브로드캐스트는 BE 합의 후 후속 작업으로 교체.
+      if (response?.status === 'CHECK_REQUIRED' && response.checkOptions?.[0]) {
+        setActiveDiceRoll(
+          buildCheckRequiredOverlay(response.checkOptions[0], user.id, user.displayName),
+        );
+      }
+      return response;
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '메인 명령 전송에 실패했습니다.';
       removePendingMainCommandLog(pendingEntry, { removeRaw: false });
