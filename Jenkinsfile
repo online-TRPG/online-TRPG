@@ -114,8 +114,19 @@ pipeline {
 
                     docker compose exec -T ai-server python -c "import urllib.request; r=urllib.request.urlopen('http://localhost:8000/internal/ai/health', timeout=5); print('smoke ai_health=' + str(r.status))"
 
-                    # backend 는 인증 필요 endpoint 라 4xx 정상. node fetch 는 status code 받으면 응답으로 인식, network 실패 시만 throw.
-                    docker compose exec -T backend node -e "fetch('http://localhost:8080/api/v1/users/me').then(r=>console.log('smoke backend_users_me=' + r.status)).catch(e=>{console.error('backend_smoke_error',e.message);process.exit(1)})"
+                    for i in $(seq 1 12); do
+                      BACKEND_CODE=$(curl -fsS -o /dev/null -w "%{http_code}" -m 10 https://k14a201.p.ssafy.io/api/v1/health || true)
+                      if [ "${BACKEND_CODE}" = "200" ]; then
+                        echo "smoke backend_health=${BACKEND_CODE}"
+                        exit 0
+                      fi
+                      echo "smoke backend_health_retry=${i} code=${BACKEND_CODE}"
+                      sleep 5
+                    done
+                    echo "backend_smoke_error health endpoint did not become ready"
+                    docker compose ps backend
+                    docker compose logs --tail=80 backend
+                    exit 1
                 '''
             }
         }
