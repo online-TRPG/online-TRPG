@@ -20,7 +20,7 @@ import {
   updateScenario,
   uploadScenarioAsset,
 } from '../services/api';
-import { loadItemCatalog, loadMonsterCatalog } from '../services/staticSrd';
+import { loadMonsterCatalog } from '../services/staticSrd';
 import type { ScenarioDetail, StoredUser } from '../types/session';
 import type {
   CreateScenarioDto,
@@ -128,7 +128,6 @@ type ScenarioFormState = {
 };
 
 type ScenarioAsset = ScenarioAssetResponseDto;
-type BattleMapOption = { id: string; label: string };
 
 type GraphNodeLayout = {
   node: NodeForm;
@@ -821,8 +820,6 @@ export function ScenarioEditorPage({
   const [error, setError] = useState<string | null>(null);
   const [monsterCatalog, setMonsterCatalog] = useState<SrdMonsterReferenceDto[]>([]);
   const [monsterCatalogError, setMonsterCatalogError] = useState<string | null>(null);
-  const [itemOptions, setItemOptions] = useState<BattleMapOption[]>([]);
-  const [itemCatalogError, setItemCatalogError] = useState<string | null>(null);
   const [mapAssets, setMapAssets] = useState<ScenarioAsset[]>([]);
   const [mapAssetsLoading, setMapAssetsLoading] = useState(false);
   const [mapAssetsError, setMapAssetsError] = useState<string | null>(null);
@@ -850,14 +847,11 @@ export function ScenarioEditorPage({
     if (form.ruleSetId !== 'dnd5e') {
       setMonsterCatalog([]);
       setMonsterCatalogError('현재는 dnd5e 5.1 SRD 몬스터만 지원합니다.');
-      setItemOptions([]);
-      setItemCatalogError('현재는 dnd5e 5.1 SRD 아이템만 지원합니다.');
       return;
     }
 
     let ignore = false;
     setMonsterCatalogError(null);
-    setItemCatalogError(null);
 
     loadMonsterCatalog()
       .then((monsters) => {
@@ -870,32 +864,6 @@ export function ScenarioEditorPage({
           setMonsterCatalog([]);
           setMonsterCatalogError(
             caught instanceof Error ? caught.message : 'SRD 몬스터 목록을 불러오지 못했습니다.'
-          );
-        }
-      });
-    loadItemCatalog()
-      .then((catalog) => {
-        if (!ignore) {
-          setItemOptions(
-            [...catalog.equipmentItems, ...catalog.magicItems]
-              .map((item) => {
-                const id = typeof item.id === 'string' ? item.id : '';
-                const nameKo = typeof item.nameKo === 'string' ? item.nameKo : '';
-                const nameEn = typeof item.nameEn === 'string' ? item.nameEn : '';
-                const label = [nameKo || nameEn || id, nameKo && nameEn ? nameEn : null]
-                  .filter(Boolean)
-                  .join(' / ');
-                return id ? { id, label } : null;
-              })
-              .filter((item): item is BattleMapOption => Boolean(item))
-          );
-        }
-      })
-      .catch((caught) => {
-        if (!ignore) {
-          setItemOptions([]);
-          setItemCatalogError(
-            caught instanceof Error ? caught.message : 'SRD 아이템 목록을 불러오지 못했습니다.'
           );
         }
       });
@@ -1717,8 +1685,6 @@ export function ScenarioEditorPage({
                 uploadTokenAsset={handleTokenAssetUpload}
                 monsterCatalog={monsterCatalog}
                 monsterCatalogError={monsterCatalogError}
-                itemOptions={itemOptions}
-                itemCatalogError={itemCatalogError}
                 updateNode={updateNode}
                 onAddScenarioNpc={addScenarioNpc}
                 onUpdateScenarioNpc={updateScenarioNpc}
@@ -1792,8 +1758,6 @@ function NodeDetailEditor({
   uploadTokenAsset,
   monsterCatalog,
   monsterCatalogError,
-  itemOptions,
-  itemCatalogError,
   updateNode,
   onAddScenarioNpc,
   onUpdateScenarioNpc,
@@ -1822,8 +1786,6 @@ function NodeDetailEditor({
   uploadTokenAsset: (file: File | null) => Promise<ScenarioAsset | null>;
   monsterCatalog: SrdMonsterReferenceDto[];
   monsterCatalogError: string | null;
-  itemOptions: BattleMapOption[];
-  itemCatalogError: string | null;
   updateNode: (nodeId: string, updater: (node: NodeForm) => NodeForm) => void;
   onAddScenarioNpc: () => void;
   onUpdateScenarioNpc: (index: number, patch: Partial<NpcForm>) => void;
@@ -1836,20 +1798,6 @@ function NodeDetailEditor({
   const [mapUploadBusy, setMapUploadBusy] = useState(false);
   const [deletingSceneAssetId, setDeletingSceneAssetId] = useState<string | null>(null);
   const [deletingMapAssetId, setDeletingMapAssetId] = useState<string | null>(null);
-  const clueOptions = useMemo(
-    () =>
-      nodes
-        .flatMap((scenarioNode) =>
-          scenarioNode.clues.map((clue) => ({
-            id: clue.id,
-            label: `${scenarioNode.title || scenarioNode.id} - ${
-              clue.title.trim() || clue.text.trim() || clue.revelation.trim() || clue.id
-            }`,
-          }))
-        )
-        .filter((clue) => clue.id.trim()),
-    [nodes]
-  );
   const sceneImageInputRef = useRef<HTMLInputElement | null>(null);
   const sceneAssetInputRef = useRef<HTMLInputElement | null>(null);
   const mapAssetInputRef = useRef<HTMLInputElement | null>(null);
@@ -2305,7 +2253,6 @@ function NodeDetailEditor({
             )}
           </div>
           {monsterCatalogError ? <p className="panel-error">{monsterCatalogError}</p> : null}
-          {itemCatalogError ? <p className="panel-error">{itemCatalogError}</p> : null}
           {node.vttMap ? (
             <>
               <BattleMap
@@ -2321,9 +2268,6 @@ function NodeDetailEditor({
                 tokenAssetsLoading={tokenAssetsLoading}
                 tokenAssetsError={tokenAssetsError}
                 uploadTokenAsset={uploadTokenAsset}
-                clueOptions={clueOptions}
-                itemOptions={itemOptions}
-                enableObjectEventEditing
               />
               <button
                 type="button"

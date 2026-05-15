@@ -31,10 +31,9 @@ import { TurnLogsService } from "../turn-logs/turn-logs.service";
 
 type RuntimeTurnStateKey = {
   combatId: string;
-  combatParticipantId: string;
   roundNo: number;
   turnNo: number;
-  sessionCharacterId?: string | null;
+  sessionCharacterId: string;
 };
 
 type RuntimeActor = {
@@ -331,7 +330,6 @@ export class ActionProcessorService {
 
     const turnStateKey = {
       combatId: combat.id,
-      combatParticipantId: currentParticipant.id,
       roundNo: combat.roundNo,
       turnNo: combat.turnNo,
       sessionCharacterId: actor.id,
