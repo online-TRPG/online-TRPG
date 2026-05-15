@@ -782,6 +782,16 @@ function buildProfileColorStyle(color: SessionTokenColor): CSSProperties {
   } as CSSProperties;
 }
 
+function buildStoryPartyColorStyle(color: SessionTokenColor): CSSProperties {
+  // 하단 파티 카드도 메인/채팅 프로필과 같은 색 출처를 쓰도록 별도 CSS 변수에 복사합니다.
+  return {
+    ...buildProfileColorStyle(color),
+    ['--story-party-frame-color' as string]: color.frame,
+    ['--story-party-bg-color' as string]: color.background,
+    ['--story-party-text-color' as string]: color.text,
+  } as CSSProperties;
+}
+
 function getLogSenderLabel(title: string, rowClass: 'incoming' | 'outgoing' | 'notice') {
   if (rowClass === 'notice') return '세션 로그';
   return title || '알 수 없음';
@@ -2048,6 +2058,9 @@ export function PlayPage({
                   isGmView={canManageStartedSession}
                   rpUtterances={storyRpUtterances}
                   onRpUtteranceClick={() => setActiveTab('Main')}
+                  getCharacterColorStyle={(character) =>
+                    buildStoryPartyColorStyle(getParticipantProfileColor(character.userId))
+                  }
                 />
               ) : isExplorationNode ? (
                 <ExplorationNodeSurface
