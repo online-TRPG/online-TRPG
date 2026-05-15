@@ -1297,7 +1297,7 @@ export function useSession(
   ): Promise<MainCommandResponseDto | null> {
     if (!user || !snapshot) return null;
 
-    const rawText = payload.playerText.trim();
+    const rawText = payload.rawInputText?.trim() || payload.playerText.trim();
     if (!rawText) return null;
 
     const clientLogId = crypto.randomUUID();
