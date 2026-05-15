@@ -159,6 +159,7 @@ export enum MainCommandCategory {
 }
 
 export enum MainCommandIntent {
+  GENERAL_GM_REQUEST = "GENERAL_GM_REQUEST",
   TALK_TO_NPC = "TALK_TO_NPC",
   SOCIAL_PERSUADE = "SOCIAL_PERSUADE",
   SOCIAL_INTIMIDATE = "SOCIAL_INTIMIDATE",

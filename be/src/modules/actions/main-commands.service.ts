@@ -238,7 +238,6 @@ const INTENT_REQUIREMENTS: Partial<Record<MainCommandIntent, IntentRequirement>>
 };
 
 const APPROVAL_INTENTS = new Set<MainCommandIntent>([
-  MainCommandIntent.DECLARE_RP_ACTION,
   MainCommandIntent.SPLIT_PARTY_TASK,
   MainCommandIntent.COMBAT_MANEUVER,
   MainCommandIntent.ENVIRONMENT_USE,
@@ -277,6 +276,9 @@ export class MainCommandsService {
 
     let response: MainCommandResponseDto;
     switch (dto.intent) {
+      case MainCommandIntent.GENERAL_GM_REQUEST:
+        response = await this.handleGeneralGmRequest(requestId, userId, context, dto, visibleEntities, recentLogs);
+        break;
       case MainCommandIntent.TALK_TO_NPC:
         response = await this.handleNpcDialogue(requestId, userId, context, dto, visibleEntities, recentLogs);
         break;
@@ -296,7 +298,7 @@ export class MainCommandsService {
         response = await this.handleInspectStoryObject(requestId, userId, context, dto, visibleEntities);
         break;
       case MainCommandIntent.DECLARE_RP_ACTION:
-        response = await this.handleDeclareRpAction(requestId, userId, context, dto, visibleEntities, recentLogs);
+        response = this.handleDeclareRpAction(requestId, context, dto);
         break;
       case MainCommandIntent.OBSERVE_AREA:
         response = await this.handleObserveArea(requestId, userId, context, dto, visibleEntities, publicClues);
@@ -454,15 +456,22 @@ export class MainCommandsService {
             revealedBy: "system",
           })
         : 0;
-    const revealCount = await this.sessionsService.revealCurrentNodeCluesAfterAction({
-      sessionScenarioId: context.sessionScenarioId,
-      nodeId: context.currentNodeId,
-      actionText: dto.playerText,
-      outcome: this.toActionOutcome(response),
-      policyModes: ["PLAYER_ACTION"],
-      turnLogId: turnLog.turnLogId,
-      revealedBy: "system",
-    });
+    // 실제 행동 후보가 있는 응답만 단서 공개를 시도합니다. 질문/불가/RP 기록은 상태를 바꾸지 않습니다.
+    const revealCount =
+      dto.intent === MainCommandIntent.DECLARE_RP_ACTION ||
+      response.status === MainCommandStatus.IMPOSSIBLE ||
+      response.status === MainCommandStatus.GM_APPROVAL_REQUIRED ||
+      !response.actionCandidate
+        ? 0
+        : await this.sessionsService.revealCurrentNodeCluesAfterAction({
+            sessionScenarioId: context.sessionScenarioId,
+            nodeId: context.currentNodeId,
+            actionText: dto.playerText,
+            outcome: this.toActionOutcome(response),
+            policyModes: ["PLAYER_ACTION"],
+            turnLogId: turnLog.turnLogId,
+            revealedBy: "system",
+          });
     if (revealCount + objectRevealCount > 0) {
       this.realtimeEvents.emitSessionSnapshot(
         context.sessionId,
@@ -746,12 +755,14 @@ export class MainCommandsService {
       });
     }
 
+    const hasNaturalLanguageTarget = dto.playerText.trim().length > 0;
     if (
       (dto.intent === MainCommandIntent.INVESTIGATE_OBJECT ||
         dto.intent === MainCommandIntent.INTERACT_OBJECT ||
         dto.intent === MainCommandIntent.ENVIRONMENT_USE) &&
       !dto.targetId &&
-      !dto.mapPoint
+      !dto.mapPoint &&
+      !hasNaturalLanguageTarget
     ) {
       throw badRequest("MAIN_COMMAND_400", "이 명령은 조사 대상 또는 지도 좌표가 필요합니다.", {
         reason: "TARGET_OR_POINT_REQUIRED",
@@ -827,6 +838,63 @@ export class MainCommandsService {
       requestId,
       status: MainCommandStatus.MESSAGE,
       message: `${npc.name}: ${result.parsed.dialogue}`,
+    };
+  }
+
+  private async handleGeneralGmRequest(
+    requestId: string,
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+    recentLogs: string[],
+  ): Promise<MainCommandResponseDto> {
+    const interpreter = await this.aiService.runInterpreter(
+      context.sessionId,
+      userId,
+      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 6)),
+    );
+
+    if (interpreter.parsed.needsClarification) {
+      return {
+        requestId,
+        status: MainCommandStatus.MESSAGE,
+        message:
+          interpreter.parsed.clarificationQuestion ??
+          "어떤 행동이나 요청을 하려는지 조금 더 구체적으로 적어주세요.",
+      };
+    }
+
+    const actionSummary =
+      interpreter.parsed.action.approach?.trim() ||
+      interpreter.parsed.action.type ||
+      dto.playerText;
+    const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
+
+    if (interpreter.parsed.action.requiresRoll) {
+      return {
+        requestId,
+        status: MainCommandStatus.CHECK_REQUIRED,
+        message: `${actionSummary}에는 판정이 필요합니다.`,
+        checkOptions: this.buildCheckOptions(interpreter.parsed.action),
+        actionCandidate,
+      };
+    }
+
+    if ((interpreter.parsed.action.confidence ?? 0) < 0.55) {
+      return {
+        requestId,
+        status: MainCommandStatus.GM_APPROVAL_REQUIRED,
+        message: `${actionSummary}은(는) 상황 확인 또는 추가 검증이 필요합니다.`,
+        actionCandidate,
+      };
+    }
+
+    return {
+      requestId,
+      status: MainCommandStatus.GM_APPROVAL_REQUIRED,
+      message: `행동 후보로 기록했습니다: ${actionSummary}. 결과는 아직 확정되지 않았습니다.`,
+      actionCandidate,
     };
   }
 
@@ -1211,50 +1279,18 @@ export class MainCommandsService {
     };
   }
 
-  private async handleDeclareRpAction(
+  private handleDeclareRpAction(
     requestId: string,
-    userId: string,
     context: LoadedContext,
     dto: SubmitMainCommandDto,
-    visibleEntities: VisibleSceneEntity[],
-    recentLogs: string[],
-  ): Promise<MainCommandResponseDto> {
-    const interpreter = await this.aiService.runInterpreter(
-      context.sessionId,
-      userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
-    );
-
-    if (interpreter.parsed.needsClarification) {
-      return {
-        requestId,
-        status: MainCommandStatus.MESSAGE,
-        message:
-          interpreter.parsed.clarificationQuestion ??
-          "어떤 RP 행동을 어떤 분위기로 하려는지 조금 더 구체적으로 적어주세요.",
-      };
-    }
-
-    const actionSummary =
-      interpreter.parsed.action.approach?.trim() ||
-      dto.playerText;
-    const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
-    const confidence = interpreter.parsed.action.confidence ?? 0;
-
-    if (interpreter.parsed.action.requiresRoll || confidence < 0.55) {
-      return {
-        requestId,
-        status: MainCommandStatus.GM_APPROVAL_REQUIRED,
-        message: `${actionSummary}은(는) 단순 묘사를 넘어 추가 판정이나 상황 확인이 필요할 수 있습니다.`,
-        actionCandidate,
-      };
-    }
+  ): MainCommandResponseDto {
+    const actionSummary = dto.playerText.trim();
 
     return {
       requestId,
       status: MainCommandStatus.MESSAGE,
-      message: `${actionSummary} RP 선언을 기록했습니다.`,
-      actionCandidate,
+      message: "RP 행동을 기록했습니다.",
+      actionCandidate: this.buildActionCandidate(context, dto, actionSummary),
     };
   }
 
@@ -1394,6 +1430,15 @@ export class MainCommandsService {
         requestId,
         status: MainCommandStatus.GM_APPROVAL_REQUIRED,
         message: `(${dto.mapPoint.x}, ${dto.mapPoint.y}) 위치 조사는 현장 판정이나 추가 확인이 필요합니다.`,
+        actionCandidate,
+      };
+    }
+
+    if (dto.playerText.trim()) {
+      return {
+        requestId,
+        status: MainCommandStatus.GM_APPROVAL_REQUIRED,
+        message: `${actionSummary} 조사는 대상 확인이나 현장 판정이 필요합니다.`,
         actionCandidate,
       };
     }
@@ -2921,7 +2966,7 @@ export class MainCommandsService {
       sessionScenarioId: context.sessionScenarioId,
       actorUserId: userId,
       sessionCharacterId: context.sessionCharacterId,
-      rawInput: dto.playerText.trim(),
+      rawInput: this.getMainCommandRawInput(dto),
       structuredAction: {
         type: "main_command",
         commandId: dto.commandId,
@@ -2944,6 +2989,11 @@ export class MainCommandsService {
 
     this.realtimeEvents.emitTurnLogCreated(context.sessionId, turnLog);
     return turnLog;
+  }
+
+  private getMainCommandRawInput(dto: SubmitMainCommandDto): string {
+    // 슬래시 명령어는 처리용 본문과 사용자가 친 원문이 달라서 로그에는 원문을 우선 남긴다.
+    return dto.rawInputText?.trim() || dto.playerText.trim();
   }
 
   private toActionOutcome(response: MainCommandResponseDto): ActionOutcome {
