@@ -3,7 +3,7 @@
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   background: #edf0f3;
   color: #243140;
@@ -62,75 +62,21 @@
   font-weight: 800;
 }
 
-.combat-initiative-strip {
-  min-height: 68px;
-  padding: 8px 14px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  border-bottom: 1px solid #c9d3dc;
-  background: #f8fafb;
-}
-
-.combat-turn-list {
-  min-width: 0;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(150px, max-content);
-  gap: 8px;
-  overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #8fa2b8 #dfe6ee;
-}
-
-.combat-turn-list p {
-  margin: 0;
-  color: #607184;
-}
-
-.combat-turn-card {
-  min-height: 44px;
-  padding: 7px 10px;
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  grid-template-areas:
-    "order name"
-    "order class";
-  gap: 1px 8px;
-  align-items: center;
-  border: 1px solid #cbd6df;
+.combat-resolver button {
+  min-height: 30px;
+  border: 1px solid #bdcad5;
+  border-radius: 6px;
   background: #ffffff;
-}
-
-.combat-turn-card.mine {
-  border-color: #9a7d75;
-  background: #f8f1ee;
-}
-
-.combat-turn-card span {
-  grid-area: order;
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  background: #dbe3e9;
-  color: #223244;
+  color: #294058;
   font-size: 12px;
   font-weight: 900;
 }
 
-.combat-turn-card strong {
-  grid-area: name;
-  color: #223244;
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-
-.combat-turn-card small {
-  grid-area: class;
-  color: #637587;
-  font-size: 11px;
+.combat-error {
+  margin: 0;
+  color: #9d2c2c;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .combat-node-content {
@@ -146,10 +92,96 @@
 }
 
 .combat-map-panel {
+  position: relative;
   min-height: 0;
   display: grid;
   overflow: hidden;
   background: #dde4e8;
+}
+
+.combat-turn-overlay {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 12;
+  width: min(100% - 32px, 720px);
+  transform: translateX(-50%);
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.combat-turn-list {
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  border: 1px solid rgba(36, 49, 64, 0.18);
+  border-radius: 999px;
+  background: rgba(248, 250, 251, 0.86);
+  box-shadow: 0 8px 22px rgba(24, 38, 52, 0.18);
+  scrollbar-width: thin;
+  scrollbar-color: #8fa2b8 transparent;
+  pointer-events: auto;
+}
+
+.combat-turn-overlay p {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(36, 49, 64, 0.14);
+  border-radius: 999px;
+  background: rgba(248, 250, 251, 0.9);
+  color: #43566b;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: 0 8px 22px rgba(24, 38, 52, 0.14);
+  pointer-events: auto;
+}
+
+.combat-turn-card {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  padding: 0;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(255, 255, 255, 0.94);
+  border-radius: 50%;
+  background: #dbe3e9;
+  color: #223244;
+  box-shadow: 0 2px 8px rgba(20, 32, 44, 0.24);
+}
+
+.combat-turn-card.mine {
+  border-color: #a67f72;
+}
+
+.combat-turn-card.active {
+  border-color: #2f6fa3;
+  box-shadow:
+    0 0 0 3px rgba(47, 111, 163, 0.28),
+    0 4px 12px rgba(20, 32, 44, 0.3);
+}
+
+.combat-turn-card.defeated {
+  opacity: 0.46;
+  filter: grayscale(0.8);
+}
+
+.combat-turn-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.combat-turn-card span {
+  font-size: 16px;
+  font-weight: 900;
 }
 
 .combat-map-panel > .vtt-panel {
@@ -281,47 +313,157 @@
 }
 
 .combat-action-dock {
-  min-height: 132px;
-  padding: 10px 14px;
+  min-height: 86px;
+  padding: 6px 10px;
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr) minmax(240px, 0.38fr);
-  gap: 12px;
+  grid-template-columns: 230px minmax(0, 1fr) minmax(220px, 0.34fr);
+  gap: 8px;
+  align-items: stretch;
   border-top: 1px solid #c9d3dc;
   background: #e7edf0;
 }
 
+.combat-resolver {
+  display: grid;
+  grid-template-columns: minmax(88px, 0.7fr) minmax(180px, 1.4fr) auto minmax(170px, 1fr);
+  align-items: end;
+  gap: 5px;
+}
+
+.combat-resolver label {
+  display: grid;
+  gap: 4px;
+  color: #607184;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.combat-resolver input,
+.combat-resolver select {
+  min-width: 0;
+  height: 24px;
+  border: 1px solid #c2ceda;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #203040;
+  padding: 0 8px;
+}
+
+.combat-resolver-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
 .combat-resource-panel,
 .combat-action-panel,
-.combat-check-panel {
+.combat-inventory-panel {
   min-width: 0;
-  padding: 12px;
+  padding: 8px;
   display: grid;
   align-content: center;
-  gap: 8px;
+  gap: 5px;
   border: 1px solid #c3ced8;
   background: #f8fafb;
 }
 
+.combat-inventory-panel {
+  align-content: start;
+  overflow: hidden;
+}
+
 .combat-resource-panel strong {
   color: #203040;
+  font-size: 12px;
+  line-height: 1.15;
   overflow-wrap: anywhere;
 }
 
-.combat-resource-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+.combat-resource-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.combat-resource-grid span {
-  min-height: 28px;
-  padding: 0 8px;
+.combat-end-turn-button {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid #9a7d75;
+  border-radius: 6px;
+  background: #f8f1ee;
+  color: #5d3c38;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.combat-end-turn-button:disabled {
+  border-color: #d1d9df;
+  background: #eef2f4;
+  color: #8a98a4;
+  cursor: not-allowed;
+}
+
+.combat-resource-row {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.combat-resource-token {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border: 2px solid #8f9ba8;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.9), transparent 34%),
+    #e7ebef;
+  color: #445668;
+  box-shadow: inset 0 -3px 0 rgba(34, 47, 60, 0.12), 0 2px 5px rgba(24, 38, 52, 0.16);
+}
+
+.combat-resource-token.available {
+  border-color: #c19a50;
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 247, 214, 0.95), transparent 35%),
+    linear-gradient(145deg, #f5d074, #9c6f28);
+  color: #3c2b13;
+}
+
+.combat-resource-token.spent {
+  opacity: 0.48;
+  filter: grayscale(0.8);
+}
+
+.combat-resource-token svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.combat-resource-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.combat-resource-meta span {
+  min-height: 22px;
+  padding: 0 7px;
   display: inline-flex;
   align-items: center;
   border: 1px solid #d4dde6;
   background: #ffffff;
   color: #43566b;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -334,8 +476,8 @@
 
 .combat-action-tabs button,
 .combat-action-list button {
-  min-height: 32px;
-  padding: 0 12px;
+  min-height: 26px;
+  padding: 0 9px;
   border: 1px solid #c2ceda;
   background: #ffffff;
   color: #294058;
@@ -349,15 +491,87 @@
   color: #5d3c38;
 }
 
-.combat-check-panel p {
+.combat-inventory-panel p {
   margin: 0;
   color: #607184;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
-.combat-check-list {
-  grid-template-columns: repeat(auto-fit, minmax(90px, max-content));
+.combat-inventory-list {
+  min-height: 0;
+  max-height: 72px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.combat-inventory-item {
+  min-width: 0;
+  min-height: 30px;
+  padding: 4px 5px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 5px;
+  align-items: center;
+  border: 1px solid #cbd7df;
+  background: #ffffff;
+}
+
+.combat-inventory-item-body {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.combat-inventory-item-body strong,
+.combat-inventory-item-body span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.combat-inventory-item-body strong {
+  color: #203040;
+  font-size: 11px;
+}
+
+.combat-inventory-item-body span,
+.combat-inventory-quantity {
+  color: #607184;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.combat-inventory-quantity {
+  min-width: 24px;
+  text-align: right;
+}
+
+.combat-inventory-item button {
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid #7da89c;
+  background: #eef8f4;
+  color: #234d45;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.combat-inventory-item button:disabled {
+  border-color: #d1d9df;
+  background: #eef2f4;
+  color: #8a98a4;
+  cursor: not-allowed;
+}
+
+.combat-inventory-feedback {
+  padding: 4px 6px;
+  border: 1px solid #b9d7ca;
+  background: #eef8f4;
+  color: #28554c !important;
+  font-size: 11px !important;
+  font-weight: 800;
 }
 
 @media (max-width: 1180px) {
@@ -373,6 +587,10 @@
   .combat-action-dock {
     grid-template-columns: 1fr;
   }
+
+  .combat-resolver {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 760px) {
@@ -385,7 +603,13 @@
     justify-content: flex-start;
   }
 
-  .combat-initiative-strip {
-    grid-template-columns: 1fr;
+  .combat-turn-overlay {
+    top: 8px;
+    width: calc(100% - 20px);
+  }
+
+  .combat-turn-card {
+    width: 38px;
+    height: 38px;
   }
 }
