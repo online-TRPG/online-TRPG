@@ -745,6 +745,7 @@ export function App() {
               void exitSessionToDiscover();
             }}
             onBackToLobby={() => navigate('/sessions/discover')}
+            onNavigateToCharacters={() => navigate('/characters')}
             onMainCommand={(payload) => session.sendMainCommand(payload)}
             onResolveMainCommandCheck={(payload) => session.resolveMainCommandCheck(payload)}
             onAction={handleSessionMessage}
