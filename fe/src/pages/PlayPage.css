@@ -1223,6 +1223,84 @@
   z-index: 6;
 }
 
+.main-command-mode-row,
+.main-command-helper-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.main-command-mode-button,
+.main-command-helper-button {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid #c6d0db;
+  border-radius: 8px;
+  background: #f7f9fc;
+  color: #294058;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.main-command-mode-button svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.main-command-mode-button.active,
+.main-command-helper-button.active {
+  border-color: #7aa6d8;
+  background: #edf4fb;
+  color: #15324f;
+}
+
+.main-command-guide-panel,
+.main-command-autocomplete {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid rgba(122, 166, 216, 0.45);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 14px 30px rgba(22, 34, 48, 0.16);
+}
+
+.main-command-guide-option,
+.main-command-autocomplete-option {
+  min-height: 44px;
+  display: grid;
+  gap: 3px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid #d5deea;
+  border-radius: 8px;
+  background: #f9fbfd;
+  color: #24364a;
+  text-align: left;
+}
+
+.main-command-guide-option strong,
+.main-command-autocomplete-option strong {
+  font-size: 12px;
+  color: #175f96;
+}
+
+.main-command-guide-option small,
+.main-command-autocomplete-option small {
+  color: #5e6f82;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .main-command-category-row {
   display: flex;
   flex-wrap: wrap;

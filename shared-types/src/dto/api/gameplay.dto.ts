@@ -145,6 +145,15 @@ export class SubmitMainCommandDto {
   @MaxLength(2000)
   playerText!: string;
 
+  @ApiPropertyOptional({
+    description:
+      "사용자가 입력창에 적은 원문입니다. 슬래시 명령어처럼 처리용 본문과 로그 표시용 원문이 다를 때 사용합니다.",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  rawInputText?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
