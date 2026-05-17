@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Literal
 
 from app.schemas.actor import ActorAllowedAction, ActorOutput
+from app.schemas.check_result import CheckResultOutput
 from app.schemas.director import DirectorOutput
 from app.schemas.interpreter import InterpreterOutput
 from app.schemas.interpreter import StructuredAction
@@ -126,6 +127,23 @@ class NpcDialogueHarnessRequest(BaseModel):
     model: str | None = None
 
 
+class CheckResultHarnessRequest(BaseModel):
+    sessionId: str | None = Field(default=None, min_length=1, max_length=100)
+    turnId: str | None = Field(default=None, min_length=1, max_length=100)
+    outcome: str = Field(pattern="^(SUCCESS|FAILURE)$")
+    intent: str = Field(min_length=1, max_length=80)
+    playerText: str = Field(min_length=1, max_length=1000)
+    actionSummary: str = Field(min_length=1, max_length=1000)
+    targetName: str | None = Field(default=None, max_length=120)
+    targetSummary: str | None = Field(default=None, max_length=700)
+    targetDisposition: str | None = Field(default=None, max_length=100)
+    sceneSummary: str = Field(min_length=1, max_length=1200)
+    publicClues: list[str] = Field(default_factory=list, max_length=10)
+    visibleEntities: list[str] = Field(default_factory=list, max_length=12)
+    outputMode: str = Field(default="GM_NARRATION", pattern="^(GM_NARRATION|NPC_REPLY|OBSERVATION)$")
+    model: str | None = None
+
+
 class HarnessResponse(BaseModel):
     provider: str
     model: str
@@ -200,3 +218,7 @@ class ActorHarnessResponse(HarnessResponse):
 
 class NpcDialogueHarnessResponse(HarnessResponse):
     parsed: NpcDialogueOutput
+
+
+class CheckResultHarnessResponse(HarnessResponse):
+    parsed: CheckResultOutput

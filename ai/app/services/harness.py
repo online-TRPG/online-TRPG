@@ -10,6 +10,8 @@ from app.core.response_logger import HarnessResponseLogger
 from app.schemas.harness import (
     ActorHarnessRequest,
     ActorHarnessResponse,
+    CheckResultHarnessRequest,
+    CheckResultHarnessResponse,
     DirectorHarnessRequest,
     DirectorHarnessResponse,
     InterpreterHarnessRequest,
@@ -31,7 +33,9 @@ from app.schemas.npc_dialogue import NpcDialogueOutput
 from app.schemas.director import DirectorOutput
 from app.schemas.summarizer import SummarizerOutput
 from app.schemas.actor import ActorOutput
+from app.schemas.check_result import CheckResultOutput
 from app.services.actor.service import ActorService
+from app.services.check_result.service import CheckResultService
 from app.services.director.service import DirectorService
 from app.services.interpreter.service import InterpreterService
 from app.services.narrator.service import NarratorService
@@ -50,6 +54,7 @@ class AiHarnessService:
         summarizer_service: SummarizerService,
         actor_service: ActorService,
         npc_dialogue_service: NpcDialogueService,
+        check_result_service: CheckResultService,
         response_logger: HarnessResponseLogger,
     ):
         self._settings = settings
@@ -60,6 +65,7 @@ class AiHarnessService:
         self._summarizer_service = summarizer_service
         self._actor_service = actor_service
         self._npc_dialogue_service = npc_dialogue_service
+        self._check_result_service = check_result_service
         self._response_logger = response_logger
 
     def run_smoke_test(self, request: SmokeHarnessRequest):
@@ -244,6 +250,26 @@ class AiHarnessService:
         response.logPaths = log_paths
         return response
 
+    def run_check_result(self, request: CheckResultHarnessRequest) -> CheckResultHarnessResponse:
+        try:
+            response = self._check_result_service.run(request)
+        except AiClientError as exc:
+            if not self._should_fallback(exc):
+                raise
+            return self._log_and_return_fallback(
+                endpoint="check-result",
+                request_payload=request.model_dump(),
+                response=self._fallback_check_result(request, exc),
+                error=exc,
+            )
+        log_paths = self._response_logger.log_success(
+            endpoint="check-result",
+            request_payload=request.model_dump(),
+            response_payload=response.model_dump(),
+        )
+        response.logPaths = log_paths
+        return response
+
     def _should_fallback(self, error: AiClientError) -> bool:
         if error.status_code < 500:
             return False
@@ -419,6 +445,36 @@ class AiHarnessService:
             fallbackReason=error.message,
         )
 
+    def _fallback_check_result(
+        self, request: CheckResultHarnessRequest, error: AiClientError
+    ) -> CheckResultHarnessResponse:
+        target = request.targetName or "대상"
+        if request.outcome == "SUCCESS":
+            reward = request.targetSummary or request.targetDisposition or (
+                request.publicClues[0] if request.publicClues else request.actionSummary
+            )
+            narration = f"판정에 성공했습니다. {target}에게서 의미 있는 정보를 얻습니다. {reward}"
+        else:
+            reward = "정보 보상 없음"
+            narration = f"판정에 실패했습니다. {target}의 반응은 확실한 정보로 이어지지 않습니다."
+        parsed = CheckResultOutput(
+            narration=narration,
+            rewardInfo=reward,
+            safetyNotes=["AI 판정 결과 생성 실패로 템플릿 fallback을 사용함"],
+        )
+        return CheckResultHarnessResponse(
+            provider="template-fallback",
+            model="local-template",
+            latencyMs=0,
+            promptVersion="check_result.fallback.v1",
+            rawOutput="",
+            finishReason="FALLBACK",
+            trace=self._fallback_trace(role="check_result", error=error),
+            parsed=parsed,
+            fallback=True,
+            fallbackReason=error.message,
+        )
+
     def log_failure(self, endpoint: str, request_payload: dict, error: AiClientError) -> dict[str, str]:
         return self._response_logger.log_failure(
             endpoint=endpoint,
@@ -494,6 +550,7 @@ def get_ai_harness_service() -> AiHarnessService:
     summarizer_service = SummarizerService(client=client, settings=settings)
     actor_service = ActorService(client=client, settings=settings)
     npc_dialogue_service = NpcDialogueService(client=client, settings=settings)
+    check_result_service = CheckResultService(client=client, settings=settings)
     response_logger = HarnessResponseLogger(settings)
     return AiHarnessService(
         settings=settings,
@@ -504,5 +561,6 @@ def get_ai_harness_service() -> AiHarnessService:
         summarizer_service=summarizer_service,
         actor_service=actor_service,
         npc_dialogue_service=npc_dialogue_service,
+        check_result_service=check_result_service,
         response_logger=response_logger,
     )
