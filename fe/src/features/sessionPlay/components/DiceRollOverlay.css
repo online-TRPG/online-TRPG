@@ -120,6 +120,17 @@
 }
 
 /* ---- d20 주사위 ---- */
+.dice-overlay-dice-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.dice-overlay-dice-row.has-pair {
+  min-width: 320px;
+}
+
 .dice-overlay-die {
   position: relative;
   width: 150px;
@@ -130,6 +141,24 @@
     radial-gradient(circle at 50% 36%, #4a3b78 0%, #2a2247 58%, #171228 100%);
   box-shadow:
     0 14px 34px rgba(0, 0, 0, 0.62),
+    inset 0 0 26px rgba(0, 0, 0, 0.55);
+}
+
+.dice-overlay-die.is-paired {
+  width: 126px;
+  height: 126px;
+}
+
+.dice-overlay-die.is-revealed.is-muted {
+  opacity: 0.58;
+  filter: saturate(0.72);
+  transform: scale(0.94);
+}
+
+.dice-overlay-die.is-revealed.is-selected {
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.62),
+    0 0 24px rgba(244, 214, 142, 0.45),
     inset 0 0 26px rgba(0, 0, 0, 0.55);
 }
 

@@ -76,6 +76,16 @@ export class ActionEconomyService {
     return this.updateTurnState(params, { additionalActionGranted: true });
   }
 
+  async grantMovement(params: TurnStateKey & { amountFt: number }): Promise<CombatTurnState> {
+    await this.getOrCreateTurnState(params);
+    return this.prisma.combatTurnState.update({
+      where: {
+        combatId_roundNo_turnNo_combatParticipantId: this.toUniqueKey(params),
+      },
+      data: { movementFtSpent: { decrement: Math.max(0, Math.floor(params.amountFt)) } },
+    });
+  }
+
   async spendSneakAttack(params: TurnStateKey): Promise<CombatTurnState> {
     const state = await this.getOrCreateTurnState(params);
     if (state.sneakAttackUsed) {

@@ -44,6 +44,7 @@ interface ExplorationNodeSurfaceProps {
   getCharacterColorStyle?: (character: SessionCharacterResponseDto) => CSSProperties;
   onMapChange: (map: VttMapStateDto) => void;
   onUseInventoryItem: (item: InventoryItemDto) => void;
+  onEquipInventoryItem?: (item: InventoryItemDto) => void;
   onSelectInventoryItem?: (item: InventoryItemDto | null) => void;
   onMapSelectionChange?: (selection: BattleMapSelection | null) => void;
   onRequestMainCommand?: (request: ExplorationMainCommandRequest) => void;
@@ -97,6 +98,29 @@ function isQuickUsableItem(item: InventoryItemDto) {
       key.includes('포션') ||
       key.includes('healing') ||
       isPack)
+  );
+}
+
+function isWeaponItem(item: InventoryItemDto) {
+  const key = getInventoryItemKey(item);
+  return item.itemType === 'weapon' || Boolean(item.damageDice) || key.includes('weapon');
+}
+
+function isArmorItem(item: InventoryItemDto) {
+  const key = getInventoryItemKey(item);
+  return (
+    item.itemType === 'armor' ||
+    item.itemType === 'shield' ||
+    key.includes('armor') ||
+    key.includes('갑옷') ||
+    key.includes('방패')
+  );
+}
+
+function isEquippedItem(item: InventoryItemDto, equippedId: string | null | undefined) {
+  return Boolean(
+    equippedId &&
+      (item.id === equippedId || item.itemDefinitionId === equippedId || item.name === equippedId)
   );
 }
 
@@ -472,6 +496,7 @@ export function ExplorationNodeSurface({
   getCharacterColorStyle,
   onMapChange,
   onUseInventoryItem,
+  onEquipInventoryItem,
   onSelectInventoryItem,
   onMapSelectionChange,
   onRequestMainCommand,
@@ -708,6 +733,11 @@ export function ExplorationNodeSurface({
               {inventory.map((item) => {
                 const canUse = isQuickUsableItem(item);
                 const isSelected = selectedInventoryItemId === item.id;
+                const isWeapon = isWeaponItem(item);
+                const isArmor = isArmorItem(item);
+                const isEquipped = isWeapon
+                  ? isEquippedItem(item, myCharacter?.equippedWeaponId)
+                  : isArmor;
                 return (
                   <article
                     className={`exploration-inventory-item${isSelected ? ' selected' : ''}`}
@@ -727,18 +757,39 @@ export function ExplorationNodeSurface({
                       <span>{getItemMetaLabel(item)}</span>
                     </div>
                     <span className="exploration-inventory-quantity">x{item.quantity}</span>
-                    <button
-                      type="button"
-                      disabled={!canUse || isBusy}
-                      title={canUse ? `${item.name} 사용` : '현재 바로 사용할 수 없는 아이템입니다.'}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onUseInventoryItem(item);
-                      }}
-                      onKeyDown={(event) => event.stopPropagation()}
-                    >
-                      사용
-                    </button>
+                    {isWeapon || isArmor ? (
+                      <button
+                        type="button"
+                        disabled={isEquipped || isArmor || isBusy || !onEquipInventoryItem}
+                        title={
+                          isArmor
+                            ? '방어구는 현재 캐릭터 AC에 이미 반영되어 있습니다.'
+                            : isEquipped
+                              ? '이미 착용 중입니다.'
+                              : `${item.name} 착용`
+                        }
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onEquipInventoryItem?.(item);
+                        }}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
+                        {isEquipped ? '착용 중' : '착용'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={!canUse || isBusy}
+                        title={canUse ? `${item.name} 사용` : '현재 바로 사용할 수 없는 아이템입니다.'}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onUseInventoryItem(item);
+                        }}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
+                        사용
+                      </button>
+                    )}
                   </article>
                 );
               })}

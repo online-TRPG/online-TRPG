@@ -14,6 +14,7 @@ import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from
 import type {
   ActionOutcome,
   ClassDefinitionResponseDto,
+  CombatActionResultDto,
   CombatResponseDto,
   InventoryItemDto,
   MainCommandResponseDto,
@@ -56,10 +57,15 @@ import type { CharacterPayload } from '../hooks/useSession';
 import {
   endCombat,
   endCombatTurn,
+  dashCombatAction,
+  dodgeCombatAction,
   getCombat,
   getPlayerScenario,
   getVttMap,
+  hideCombatAction,
+  resolveEquippedWeaponAttack,
   startCombat,
+  updateCharacterEquipment,
   updateVttMap,
   useInventoryItem,
 } from '../services/api';
@@ -862,6 +868,7 @@ interface PlayPageProps {
   ) => Promise<MainCommandResponseDto | null>;
   onAction: (label: string) => void;
   onLoadOlderTurnLogs: () => void;
+  onCombatActionLog: (message: string, turnLogId?: string | null) => void;
   activeDiceRoll: DiceRollOverlayData | null;
   onDismissDiceRoll: () => void;
 }
@@ -1080,6 +1087,14 @@ function getLogSenderLabel(title: string, rowClass: 'incoming' | 'outgoing' | 'n
   return title || '알 수 없음';
 }
 
+function isCombatResultLogMessage(message: string) {
+  return (
+    /공격\s+(명중|빗나감)/.test(message) ||
+    /\bvs\s+AC\s+\d+/i.test(message) ||
+    /에게\s+\d+\s*피해/.test(message)
+  );
+}
+
 function getMainLogPresentation(log: LogEntry, message: string): MainLogPresentation {
   if (isChatScoped(log.message)) {
     return { tone: null, label: null };
@@ -1119,12 +1134,17 @@ function getMainLogPresentation(log: LogEntry, message: string): MainLogPresenta
 
   if (log.id.startsWith('turn-log:')) {
     const compact = message.trim();
+    if (isCombatResultLogMessage(compact)) {
+      return { tone: 'system-result', label: '시스템 로그' };
+    }
+
     if (compact.startsWith('[MAIN]')) {
       const looksLikeSystemMainResult =
         compact.includes('판정') ||
         compact.includes('주사위') ||
         compact.includes('실패') ||
-        compact.includes('성공');
+        compact.includes('성공') ||
+        isCombatResultLogMessage(compact);
       return looksLikeSystemMainResult
         ? { tone: 'system-result', label: '시스템 로그' }
         : { tone: 'gm-narration', label: 'GM 지문' };
@@ -1265,6 +1285,16 @@ function isCombatResponseDto(value: unknown): value is CombatResponseDto {
   );
 }
 
+function isCombatActionResultDto(value: unknown): value is CombatActionResultDto {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'combat' in value &&
+      'message' in value &&
+      typeof (value as { message?: unknown }).message === 'string'
+  );
+}
+
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function PlayPage({
   user,
@@ -1289,6 +1319,7 @@ export function PlayPage({
   onResolveMainCommandCheck,
   onAction,
   onLoadOlderTurnLogs,
+  onCombatActionLog,
   activeDiceRoll,
   onDismissDiceRoll,
 }: PlayPageProps) {
@@ -1388,6 +1419,7 @@ export function PlayPage({
     participants.length > 0 && participants.every((participant) => participant.isReady);
   const isHost = session?.hostUserId === user.id;
   const isRecruiting = session?.status === 'recruiting';
+  const isSessionCompleted = session?.status === 'completed';
   const canManageStartedSession = Boolean(!isRecruiting && isHost);
   const canShowCharacterSelection = Boolean(session && isRecruiting);
   const canStartSession = Boolean(
@@ -1641,6 +1673,7 @@ export function PlayPage({
       preset.intent !== MainCommandIntentValues.ASK_HINT
   );
   const snapshotVttMap = snapshot?.state.flags?.vttMap;
+  const isPartyDefeated = snapshot?.state.flags?.partyDefeated === true;
   const startedSessionTabs = useMemo(
     () => ['Main', 'Chat', 'Info', 'Settings'] as const,
     []
@@ -1900,13 +1933,24 @@ export function PlayPage({
       knownPublicClueIdsRef.current = new Set();
       knownPublicClueNodeIdRef.current = null;
       setHasUnreadInfo(false);
+      setRevealedClueToast(null);
       return;
     }
 
     const nextIds = new Set((currentNode.publicClues ?? []).map((clue) => clue.id));
     const isSameNode = knownPublicClueNodeIdRef.current === currentNode.id;
-    const hasNewClue =
-      isSameNode && [...nextIds].some((clueId) => !knownPublicClueIdsRef.current.has(clueId));
+
+    if (!isSameNode) {
+      knownPublicClueIdsRef.current = nextIds;
+      knownPublicClueNodeIdRef.current = currentNode.id;
+      setHasUnreadInfo(false);
+      setRevealedClueToast(null);
+      return;
+    }
+
+    const hasNewClue = [...nextIds].some(
+      (clueId) => !knownPublicClueIdsRef.current.has(clueId)
+    );
 
     if (hasNewClue) {
       const revealedClue = (currentNode.publicClues ?? []).find(
@@ -2526,6 +2570,45 @@ export function PlayPage({
     }
   }
 
+  async function handleEquipInventoryItem(item: InventoryItemDto) {
+    if (busy || isInventoryUsePending || !selectedSessionCharacter) return;
+
+    setInventoryUseFeedback(null);
+    setInventoryUsePending(true);
+    try {
+      await updateCharacterEquipment(user, selectedSessionCharacter.characterId, {
+        equippedWeaponId: item.id,
+      });
+      setInventoryUseFeedback(`${item.name}을(를) 착용했습니다.`);
+    } catch (caught) {
+      setInventoryUseFeedback(caught instanceof Error ? caught.message : '장비 착용에 실패했습니다.');
+    } finally {
+      setInventoryUsePending(false);
+    }
+  }
+
+  async function handleEquippedWeaponAttack(targetParticipantId: string) {
+    if (!session || isCombatBusy) return;
+    await runCombatRequest(() =>
+      resolveEquippedWeaponAttack(user, session.id, { targetParticipantId })
+    );
+  }
+
+  async function handleDashCombatAction() {
+    if (!session || isCombatBusy) return;
+    await runCombatRequest(() => dashCombatAction(user, session.id));
+  }
+
+  async function handleDodgeCombatAction() {
+    if (!session || isCombatBusy) return;
+    await runCombatRequest(() => dodgeCombatAction(user, session.id));
+  }
+
+  async function handleHideCombatAction() {
+    if (!session || isCombatBusy) return;
+    await runCombatRequest(() => hideCombatAction(user, session.id));
+  }
+
   function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const next = chatMessage.trim();
@@ -2631,6 +2714,9 @@ export function PlayPage({
       }
       setCombat(nextCombat);
       logCombatRequestSucceeded(session.id, nextCombat);
+      if (isCombatActionResultDto(result)) {
+        onCombatActionLog(result.message, result.turnLogId);
+      }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '전투 처리에 실패했습니다.';
       console.error('[COMBAT_REQUEST_FAILED]', { sessionId: session.id, message, error: caught });
@@ -2951,7 +3037,17 @@ export function PlayPage({
           {session && !isRecruiting ? (
             <section className="session-game-surface">
               {scenarioLoadError ? <p className="panel-error">{scenarioLoadError}</p> : null}
-              {isStoryNode ? (
+              {isSessionCompleted ? (
+                <div className="session-game-surface__placeholder">
+                  <span className="eyebrow">GAME OVER</span>
+                  <h1>게임이 종료되었습니다</h1>
+                  <p>
+                    {isPartyDefeated
+                      ? '파티가 전멸해 세션 진행이 완료 상태로 전환되었습니다.'
+                      : '세션 진행이 완료 상태로 전환되었습니다.'}
+                  </p>
+                </div>
+              ) : isStoryNode ? (
                 <StoryNodeSurface
                   node={currentNode}
                   scenarioTitle={activeScenario?.scenario.title}
@@ -2983,6 +3079,7 @@ export function PlayPage({
                   }
                   onMapChange={handleMapChange}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
+                  onEquipInventoryItem={handleEquipInventoryItem}
                   onSelectInventoryItem={handleSelectExplorationInventoryItem}
                   onMapSelectionChange={handleExplorationMapSelection}
                   onRequestMainCommand={handleExplorationMainCommandRequest}
@@ -3004,6 +3101,11 @@ export function PlayPage({
                   isInventoryBusy={busy || isInventoryUsePending}
                   onMapChange={handleMapChange}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
+                  onEquipInventoryItem={handleEquipInventoryItem}
+                  onAttackWithEquippedWeapon={handleEquippedWeaponAttack}
+                  onDash={handleDashCombatAction}
+                  onDodge={handleDodgeCombatAction}
+                  onHide={handleHideCombatAction}
                   onEndCombat={handleEndCombat}
                   onEndTurn={handleEndCombatTurn}
                 />

@@ -858,7 +858,7 @@ export class MainCommandsService {
       });
     }
 
-    const expectedScreenType = this.toMainScreenType(currentNode.nodeType);
+    const expectedScreenType = this.toExpectedMainScreenType(currentNode.nodeType, state.flagsJson, currentNode.nodeId);
     if (dto.screenType !== expectedScreenType) {
       throw badRequest("MAIN_COMMAND_400", "현재 노드 화면 타입과 요청 screenType이 일치하지 않습니다.", {
         reason: "SCREEN_TYPE_MISMATCH",
@@ -4880,6 +4880,26 @@ export class MainCommandsService {
       default:
         return MainCommandScreenType.STORY;
     }
+  }
+
+  private toExpectedMainScreenType(
+    nodeType: string,
+    flagsJson: string | null,
+    nodeId: string,
+  ): MainCommandScreenType {
+    const screenType = this.toMainScreenType(nodeType);
+    if (screenType !== MainCommandScreenType.COMBAT) {
+      return screenType;
+    }
+
+    const flags = this.parseJson<Record<string, unknown>>(flagsJson, {});
+    const completedCombatNodeIds = Array.isArray(flags.completedCombatNodeIds)
+      ? flags.completedCombatNodeIds.filter((value): value is string => typeof value === "string")
+      : [];
+
+    return completedCombatNodeIds.includes(nodeId)
+      ? MainCommandScreenType.EXPLORATION
+      : MainCommandScreenType.COMBAT;
   }
 
   private toScenarioNodeType(nodeType: string): ScenarioNodeType {

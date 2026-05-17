@@ -568,6 +568,14 @@ export class ResolveCombatAttackDto {
   damageBonus?: number;
 }
 
+export class EquippedWeaponAttackDto {
+  @ApiProperty()
+  @IsString()
+  targetParticipantId!: string;
+}
+
+export class CombatBasicActionDto {}
+
 export class AutoMonsterTurnDto {
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
@@ -598,6 +606,9 @@ export class CombatActionResultDto {
 
   @ApiPropertyOptional({ nullable: true })
   damageTotal!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  turnLogId?: string | null;
 }
 
 export class StateDiffResponseDto {
