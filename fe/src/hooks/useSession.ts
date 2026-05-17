@@ -169,6 +169,24 @@ function isRpMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
   );
 }
 
+function isAutoHazardDetectionTurnLog(turnLog: TurnLogResponseDto): boolean {
+  const structuredAction = turnLog.structuredAction;
+  return Boolean(
+    structuredAction &&
+      typeof structuredAction === 'object' &&
+      structuredAction.type === 'auto_hazard_detection'
+  );
+}
+
+function isVttHazardTriggerTurnLog(turnLog: TurnLogResponseDto): boolean {
+  const structuredAction = turnLog.structuredAction;
+  return Boolean(
+    structuredAction &&
+      typeof structuredAction === 'object' &&
+      structuredAction.type === 'vtt_hazard_trigger'
+  );
+}
+
 function isStaleLeaveErrorMessage(message: string): boolean {
   return (
     message.includes('(403)') ||
@@ -216,6 +234,14 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
     structuredAction.type === 'action_error'
   ) {
     return `[MAIN]${turnLog.narration?.trim() || '행동 처리에 실패했습니다.'}`;
+  }
+
+  if (isAutoHazardDetectionTurnLog(turnLog)) {
+    return `[MAIN]${turnLog.narration?.trim() || '주변 위험을 자동으로 확인했습니다.'}`;
+  }
+
+  if (isVttHazardTriggerTurnLog(turnLog)) {
+    return `[MAIN]${turnLog.narration?.trim() || '함정이 발동했습니다.'}`;
   }
 
   const sections = [
@@ -398,6 +424,7 @@ function buildDiceRollOverlayData(
   let subtitle: string | null = null;
   let targetLabel: string | null = null;
   let targetValue: number | null = null;
+  let outcome = normalizeDiceOutcome(turnLog.outcome);
 
   if (actionType === "skill_check") {
     const checkName =
@@ -415,11 +442,26 @@ function buildDiceRollOverlayData(
       ? readDiceNumber(structured, "targetArmorClass") ??
         readDiceNumber(structured, "dc")
       : null;
+  } else if (actionType === "auto_hazard_detection") {
+    title = "위험 탐지";
+    subtitle = "지혜(감지) 판정";
+    targetLabel = "난이도";
+    targetValue =
+      structured ? readDiceNumber(structured, "detectionDc") : readDiceNumber(diceRecord, "dc");
+  } else if (actionType === "vtt_hazard_trigger") {
+    title = "함정 피해";
+    subtitle = "피해 굴림";
+    targetLabel = "피해";
+    targetValue = readDiceNumber(diceRecord, "total");
+    outcome = "NO_ROLL";
   }
 
   const actorName = turnLog.actorUserId
     ? getSenderNameByUserId(turnLog.actorUserId, snapshot)
-    : "알 수 없음";
+    : turnLog.sessionCharacterId
+      ? snapshot?.sessionCharacters.find((character) => character.id === turnLog.sessionCharacterId)
+          ?.name ?? "세션 로그"
+      : "세션 로그";
 
   return {
     id: turnLog.turnLogId,
@@ -435,31 +477,15 @@ function buildDiceRollOverlayData(
     total,
     expression,
     advantage,
-    outcome: normalizeDiceOutcome(turnLog.outcome),
+    outcome,
   };
-}
-
-// CHECK_REQUIRED 응답의 checkOption.reason 텍스트에서 DC 숫자를 추출.
-// 예) "/check stealth 15 (난이도 제안: medium)" → 15. 못 찾으면 난이도 키워드로 폴백.
-function parseDcFromCheckReason(reason: string): number {
-  const match = reason.match(/\b(\d{1,2})\b/);
-  if (match) {
-    const dc = Number(match[1]);
-    if (Number.isInteger(dc) && dc >= 5 && dc <= 30) {
-      return dc;
-    }
-  }
-  const lower = reason.toLowerCase();
-  if (lower.includes('easy') || reason.includes('쉬움')) return 10;
-  if (lower.includes('hard') || reason.includes('어려움')) return 20;
-  return 15; // medium 기본
 }
 
 // CHECK_REQUIRED 시 클라이언트 로컬 d20 굴림으로 임시 오버레이 생성.
 // 한계 — BE 를 거치지 않아 다른 플레이어에겐 안 보임 (단일 클라이언트 가시).
 // 캐릭터 보정값은 v1 에서 0 고정. 서버 권위 굴림 + 브로드캐스트는 BE 합의 후 후속 작업으로 교체.
 function buildCheckRequiredOverlay(
-  checkOption: { ability?: string; skill?: string; reason: string },
+  checkOption: { ability?: string; skill?: string; dc?: number; reason: string },
   actorUserId: string,
   actorDisplayName: string,
 ): DiceRollOverlayData {
@@ -477,7 +503,10 @@ function buildCheckRequiredOverlay(
       ? `${checkOption.ability} 판정`
       : '능력 판정';
 
-  const dc = parseDcFromCheckReason(checkOption.reason);
+  const dc =
+    Number.isInteger(checkOption.dc) && checkOption.dc !== undefined
+      ? Math.max(5, Math.min(30, checkOption.dc))
+      : 15;
   const naturalRoll = Math.floor(Math.random() * 20) + 1;
   const modifier = 0;
   const total = naturalRoll + modifier;
@@ -721,6 +750,10 @@ export function useSession(
 
   const appendPlayerRawInputLog = useCallback(
     (turnLog: TurnLogResponseDto, writeLog: AppendLogFn) => {
+      if (isAutoHazardDetectionTurnLog(turnLog) || isVttHazardTriggerTurnLog(turnLog)) {
+        return;
+      }
+
       const rawInput = turnLog.rawInput?.trim();
       if (!rawInput) {
         return;

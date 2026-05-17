@@ -204,6 +204,9 @@ export class MainCommandCheckOptionDto {
   @ApiPropertyOptional()
   skill?: string;
 
+  @ApiPropertyOptional({ default: 15 })
+  dc?: number;
+
   @ApiProperty()
   reason!: string;
 }
