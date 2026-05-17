@@ -132,7 +132,7 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
   Fighter: {
     base: {
       maxHp: 20,
-      armorClass: 20,
+      armorClass: 18,
       speed: 28,
       abilities: {
         str: 14,
@@ -195,7 +195,7 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
   Wizard: {
     base: {
       maxHp: 12,
-      armorClass: 10,
+      armorClass: 12,
       speed: 30,
       abilities: {
         str: 8,
