@@ -17,6 +17,7 @@ import type {
   CombatResponseDto,
   InventoryItemDto,
   MainCommandResponseDto,
+  PlayerScenarioClueDto,
   RaceResponseDto,
   ResolveMainCommandCheckDto,
   SubmitMainCommandDto,
@@ -906,10 +907,10 @@ const QUICK_CREATE_CLASS_PRESET_BY_KEY = new Map<string, string>([
 const QUICK_CREATE_CLASS_COMBAT_DEFAULTS: Readonly<
   Record<string, { armorClass: number; speed: number }>
 > = {
-  fighter: { armorClass: 20, speed: 28 },
+  fighter: { armorClass: 18, speed: 28 },
   ranger: { armorClass: 16, speed: 32 },
   rogue: { armorClass: 14, speed: 36 },
-  wizard: { armorClass: 10, speed: 30 },
+  wizard: { armorClass: 12, speed: 30 },
 };
 
 // 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
@@ -991,13 +992,32 @@ function getExpectedMaxHp(
   return hitDieMax + constitutionModifier + (level - 1) * (hitDieAverage + constitutionModifier);
 }
 
-function getQuickCreateArmorClass(classKey: string, dexterity: number): number {
-  const predefined = QUICK_CREATE_CLASS_COMBAT_DEFAULTS[classKey];
-  if (predefined) {
-    return predefined.armorClass;
+function getQuickCreateArmorClass(classKey: string, abilities: QuickCreateAbilities): number {
+  const dexterityModifier = Math.floor((abilities.dex - 10) / 2);
+  switch (classKey) {
+    case 'fighter':
+    case 'paladin':
+      return 18;
+    case 'cleric':
+      return 14 + Math.min(dexterityModifier, 2) + 2;
+    case 'ranger':
+      return 14 + Math.min(dexterityModifier, 2);
+    case 'rogue':
+    case 'bard':
+    case 'warlock':
+      return 11 + dexterityModifier;
+    case 'druid':
+      return 11 + dexterityModifier + 2;
+    case 'barbarian':
+      return 10 + dexterityModifier + Math.floor((abilities.con - 10) / 2);
+    case 'monk':
+      return 10 + dexterityModifier + Math.floor((abilities.wis - 10) / 2);
+    case 'wizard':
+    case 'sorcerer':
+      return 10 + dexterityModifier;
+    default:
+      return Math.max(10, 10 + dexterityModifier);
   }
-
-  return Math.max(10, 10 + Math.floor((dexterity - 10) / 2));
 }
 
 function getQuickCreateSpeed(classKey: string, race: RaceResponseDto | null): number {
@@ -1099,6 +1119,16 @@ function getMainLogPresentation(log: LogEntry, message: string): MainLogPresenta
 
   if (log.id.startsWith('turn-log:')) {
     const compact = message.trim();
+    if (compact.startsWith('[MAIN]')) {
+      const looksLikeSystemMainResult =
+        compact.includes('판정') ||
+        compact.includes('주사위') ||
+        compact.includes('실패') ||
+        compact.includes('성공');
+      return looksLikeSystemMainResult
+        ? { tone: 'system-result', label: '시스템 로그' }
+        : { tone: 'gm-narration', label: 'GM 지문' };
+    }
     const firstLine = compact.split(/\r?\n/, 1)[0] ?? '';
     const looksLikeNpcDialogue =
       /^[^\s:：][^:：\n]{0,32}[:：]\s+.+/.test(firstLine) &&
@@ -1291,6 +1321,7 @@ export function PlayPage({
   const [pendingMainCommandCheck, setPendingMainCommandCheck] =
     useState<PendingMainCommandCheck | null>(null);
   const [hasUnreadInfo, setHasUnreadInfo] = useState(false);
+  const [revealedClueToast, setRevealedClueToast] = useState<PlayerScenarioClueDto | null>(null);
 
   function clearMainCommandSelectionFields() {
     setSelectedMainTargetId('');
@@ -1365,6 +1396,15 @@ export function PlayPage({
   const activeScenario =
     snapshot?.sessionScenarios.find((item) => item.status === 'ACTIVE') ??
     snapshot?.sessionScenarios[0];
+
+  useEffect(() => {
+    if (!inventoryUseFeedback) return undefined;
+    const timer = window.setTimeout(() => {
+      setInventoryUseFeedback(null);
+    }, 2600);
+    return () => window.clearTimeout(timer);
+  }, [inventoryUseFeedback]);
+
   const quickCreateConfigReady = races.length > 0 && classDefinitions.length > 0;
   const selectedQuickCreateRace =
     races.find((race) => race.key === formState.ancestryKey) ??
@@ -1390,7 +1430,7 @@ export function PlayPage({
   );
   const quickCreateArmorClass = getQuickCreateArmorClass(
     selectedQuickCreateClass?.key ?? formState.classKey,
-    quickCreateAbilities.dex,
+    quickCreateAbilities,
   );
   const quickCreateSpeed = getQuickCreateSpeed(
     selectedQuickCreateClass?.key ?? formState.classKey,
@@ -1868,8 +1908,16 @@ export function PlayPage({
     const hasNewClue =
       isSameNode && [...nextIds].some((clueId) => !knownPublicClueIdsRef.current.has(clueId));
 
-    if (hasNewClue && activeTab !== 'Info') {
-      setHasUnreadInfo(true);
+    if (hasNewClue) {
+      const revealedClue = (currentNode.publicClues ?? []).find(
+        (clue) => !knownPublicClueIdsRef.current.has(clue.id)
+      );
+      if (revealedClue) {
+        setRevealedClueToast(revealedClue);
+      }
+      if (activeTab !== 'Info') {
+        setHasUnreadInfo(true);
+      }
     }
     if (activeTab === 'Info') {
       setHasUnreadInfo(false);
@@ -1878,6 +1926,14 @@ export function PlayPage({
     knownPublicClueIdsRef.current = nextIds;
     knownPublicClueNodeIdRef.current = currentNode.id;
   }, [activeTab, currentNode?.id, currentPublicClueIdSignature]);
+
+  useEffect(() => {
+    if (!revealedClueToast) return undefined;
+    const timer = window.setTimeout(() => {
+      setRevealedClueToast(null);
+    }, 3600);
+    return () => window.clearTimeout(timer);
+  }, [revealedClueToast]);
 
   useEffect(() => {
     if (snapshotVttMap && typeof snapshotVttMap === 'object') {
@@ -2921,7 +2977,6 @@ export function PlayPage({
                   map={vttMap}
                   inventory={selectedCharacterInventory}
                   isBusy={busy || isInventoryUsePending}
-                  inventoryFeedback={inventoryUseFeedback}
                   selectedInventoryItemId={selectedMainItemId}
                   getCharacterColorStyle={(character) =>
                     buildMapPartyColorStyle(getCharacterTokenColor(character))
@@ -2946,7 +3001,6 @@ export function PlayPage({
                   combatError={combatError}
                   isCombatBusy={isCombatBusy}
                   inventory={selectedCharacterInventory}
-                  inventoryFeedback={inventoryUseFeedback}
                   isInventoryBusy={busy || isInventoryUsePending}
                   onMapChange={handleMapChange}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
@@ -3822,6 +3876,20 @@ export function PlayPage({
               </button>
             </div>
           </form>
+        </div>
+      ) : null}
+
+      {inventoryUseFeedback ? (
+        <div className="session-inventory-toast" role="status" aria-live="polite">
+          {inventoryUseFeedback}
+        </div>
+      ) : null}
+
+      {revealedClueToast ? (
+        <div className="session-clue-toast" role="status" aria-live="polite">
+          <strong>새 단서 발견</strong>
+          <span>{revealedClueToast.title}</span>
+          {revealedClueToast.text ? <small>{revealedClueToast.text}</small> : null}
         </div>
       ) : null}
 

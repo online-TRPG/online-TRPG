@@ -1013,6 +1013,30 @@ export class VttObjectEventDto {
   effect!: VttObjectRevealFogEffectDto;
 }
 
+export class VttObjectRevealCheckDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  contentId!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  ability?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  skill?: string | null;
+
+  @ApiPropertyOptional({ default: 15 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(40)
+  dc?: number;
+}
+
 export class VttObjectHazardDto {
   @ApiProperty({ enum: ["TRAP", "AMBUSH", "HAZARD"], default: "TRAP" })
   @IsIn(["TRAP", "AMBUSH", "HAZARD"])
@@ -1095,6 +1119,20 @@ export class VttObjectCellDto extends VttTerrainCellDto {
   @IsArray()
   @IsString({ each: true })
   hiddenEventIds?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  observedBySessionCharacterIds?: string[];
+
+  @ApiPropertyOptional({ type: [VttObjectRevealCheckDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(60)
+  @ValidateNested({ each: true })
+  @Type(() => VttObjectRevealCheckDto)
+  revealChecks?: VttObjectRevealCheckDto[];
 
   @ApiPropertyOptional({ type: [VttObjectEventDto] })
   @IsOptional()

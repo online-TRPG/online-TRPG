@@ -7,6 +7,7 @@ import type {
   VttMapStateDto,
 } from '@trpg/shared-types';
 import { BattleMap } from '../../../components/BattleMap';
+import { CharacterDetailModal } from './CharacterDetailModal';
 import { getCharacterImage } from '../utils/characterVisuals';
 import './CombatNodeSurface.css';
 
@@ -26,7 +27,6 @@ interface CombatNodeSurfaceProps {
   combatError?: string | null;
   isCombatBusy?: boolean;
   inventory: InventoryItemDto[];
-  inventoryFeedback?: string | null;
   isInventoryBusy?: boolean;
   onMapChange: (map: VttMapStateDto) => void;
   onUseInventoryItem: (item: InventoryItemDto) => void;
@@ -71,12 +71,14 @@ function getInventoryItemKey(item: InventoryItemDto) {
 
 function isQuickUsableItem(item: InventoryItemDto) {
   const key = getInventoryItemKey(item);
+  const isPack = item.itemType === 'pack' || key.includes('꾸러미');
   return (
     item.quantity > 0 &&
     (key.includes('consumable') ||
       key.includes('potion') ||
       key.includes('포션') ||
-      key.includes('healing'))
+      key.includes('healing') ||
+      isPack)
   );
 }
 
@@ -142,7 +144,6 @@ export function CombatNodeSurface({
   combatError = null,
   isCombatBusy = false,
   inventory,
-  inventoryFeedback = null,
   isInventoryBusy = false,
   onMapChange,
   onUseInventoryItem,
@@ -151,8 +152,11 @@ export function CombatNodeSurface({
 }: CombatNodeSurfaceProps) {
   const [activeTab, setActiveTab] = useState<CombatActionTab>('basic');
   const [isSummaryOpen, setSummaryOpen] = useState(false);
+  const [selectedTurnCharacterId, setSelectedTurnCharacterId] = useState<string | null>(null);
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
+  const selectedTurnCharacter =
+    characters.find((character) => character.id === selectedTurnCharacterId) ?? null;
   const myCombatParticipant =
     combat?.participants.find((participant) => participant.sessionCharacterId === myCharacter?.id) ?? null;
   const isMyCombatTurn =
@@ -184,6 +188,18 @@ export function CombatNodeSurface({
       available: myActionResources?.reactionAvailable ?? false,
     },
   ];
+  const tokenMovementRangeFtByTokenId = useMemo(() => {
+    const entries =
+      combat?.participants
+        .filter((participant) => participant.tokenId)
+        .map((participant) => [
+          participant.tokenId as string,
+          participant.sessionEntityId === combat.currentEntityId
+            ? participant.actionResources.movementFtRemaining
+            : 0,
+        ]) ?? [];
+    return Object.fromEntries(entries);
+  }, [combat]);
 
   function getParticipantAvatar(participant: CombatResponseDto['participants'][number]) {
     const character = participant.sessionCharacterId
@@ -254,6 +270,9 @@ export function CombatNodeSurface({
               <div className="combat-turn-list">
                 {turnOrder.map((participant) => {
                   const avatar = getParticipantAvatar(participant);
+                  const detailCharacter = participant.sessionCharacterId
+                    ? characters.find((character) => character.id === participant.sessionCharacterId) ?? null
+                    : null;
                   return (
                     <button
                       type="button"
@@ -267,6 +286,11 @@ export function CombatNodeSurface({
                         .filter(Boolean)
                         .join(' ')}
                       title={`${participant.name} / HP ${participant.currentHp ?? '-'}/${participant.maxHp ?? '-'}`}
+                      onClick={() => {
+                        if (detailCharacter) {
+                          setSelectedTurnCharacterId(detailCharacter.id);
+                        }
+                      }}
                     >
                       {avatar ? (
                         <img src={avatar} alt={participant.name} />
@@ -290,6 +314,7 @@ export function CombatNodeSurface({
               currentUserId={currentUserId}
               interactionMode="session"
               isInteractionLocked={!isGmView && !isMyCombatTurn}
+              tokenMovementRangeFtByTokenId={tokenMovementRangeFtByTokenId}
               onChange={onMapChange}
               title={node?.title ?? '전투 지도'}
             />
@@ -400,11 +425,14 @@ export function CombatNodeSurface({
           ) : (
             <p>보유 중인 아이템이 없습니다.</p>
           )}
-          {inventoryFeedback ? (
-            <p className="combat-inventory-feedback">{inventoryFeedback}</p>
-          ) : null}
         </div>
       </section>
+      {selectedTurnCharacter ? (
+        <CharacterDetailModal
+          character={selectedTurnCharacter}
+          onClose={() => setSelectedTurnCharacterId(null)}
+        />
+      ) : null}
     </div>
   );
 }

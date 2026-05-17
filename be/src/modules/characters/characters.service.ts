@@ -83,7 +83,9 @@ export class CharactersService {
       dto.startingEquipmentSelection,
     );
     const inventory = inventoryFromEquipment ?? dto.inventory ?? [];
-    await this.validateInventoryAndEquippedWeapon(inventory, dto.equippedWeaponId ?? null);
+    const equippedWeaponId =
+      dto.equippedWeaponId ?? this.resolveDefaultEquippedWeaponId(inventory);
+    await this.validateInventoryAndEquippedWeapon(inventory, equippedWeaponId);
     const spellsJsonValue = await this.resolveStartingSpells(className, dto.startingSpells);
     const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
       className,
@@ -92,6 +94,7 @@ export class CharactersService {
       dto.proficiencyBonus,
       dto.maxHp,
     );
+    const armorClass = this.resolveArmorClass(className, abilities, inventory, dto.armorClass);
 
     const character = await this.prisma.character.create({
       data: {
@@ -108,11 +111,11 @@ export class CharactersService {
         featuresJson: JSON.stringify(dto.features ?? []),
         proficientSkillsJson: JSON.stringify(normalizedProficientSkills),
         maxHp,
-        armorClass: dto.armorClass ?? 10,
+        armorClass,
         speed: dto.speed ?? 30,
         inventoryJson: JSON.stringify(inventory),
         spellsJson: spellsJsonValue,
-        equippedWeaponId: dto.equippedWeaponId ?? null,
+        equippedWeaponId,
         avatarType: this.toAvatarType(dto.avatarType),
         avatarPresetId: dto.avatarPresetId ?? null,
         avatarUrl: dto.avatarUrl ?? null,
@@ -739,6 +742,82 @@ export class CharactersService {
       }
     }
     return inventory;
+  }
+
+  private resolveDefaultEquippedWeaponId(inventory: InventoryItemDto[]): string | null {
+    const weapon = inventory.find((item) => this.isWeaponInventoryItem(item));
+    return weapon?.itemDefinitionId ?? weapon?.id ?? null;
+  }
+
+  private resolveArmorClass(
+    className: string,
+    abilities: AbilityScoresDto,
+    inventory: InventoryItemDto[],
+    fallbackArmorClass: number | undefined,
+  ): number {
+    const dexMod = this.getAbilityModifier(abilities.dex);
+    const conMod = this.getAbilityModifier(abilities.con);
+    const wisMod = this.getAbilityModifier(abilities.wis);
+    const normalizedClass = className.trim().toLowerCase();
+    const shieldBonus = inventory.some((item) => this.isShieldInventoryItem(item)) ? 2 : 0;
+    const armorCandidates = inventory
+      .filter((item) => this.isArmorInventoryItem(item))
+      .map((item) => this.calculateArmorItemAc(item, dexMod))
+      .filter((value): value is number => value !== null);
+
+    const armorAc = armorCandidates.length ? Math.max(...armorCandidates) + shieldBonus : null;
+    const unarmoredAc =
+      normalizedClass.includes("barbarian")
+        ? 10 + dexMod + conMod
+        : normalizedClass.includes("monk")
+          ? 10 + dexMod + wisMod
+          : 10 + dexMod;
+    const calculatedAc = Math.max(armorAc ?? Number.MIN_SAFE_INTEGER, unarmoredAc);
+
+    return calculatedAc > 0 ? calculatedAc : fallbackArmorClass ?? 10;
+  }
+
+  private calculateArmorItemAc(item: InventoryItemDto, dexMod: number): number | null {
+    const key = this.getInventoryItemSearchKey(item);
+    if (key.includes("shield") || key.includes("방패")) {
+      return null;
+    }
+    if (key.includes("chain-mail") || key.includes("chain mail") || key.includes("체인 메일")) {
+      return 16;
+    }
+    if (key.includes("scale-mail") || key.includes("scale mail") || key.includes("스케일 메일")) {
+      return 14 + Math.min(dexMod, 2);
+    }
+    if (key.includes("leather-armor") || key.includes("leather armor") || key.includes("가죽 갑옷")) {
+      return 11 + dexMod;
+    }
+    return null;
+  }
+
+  private isWeaponInventoryItem(item: InventoryItemDto): boolean {
+    const key = this.getInventoryItemSearchKey(item);
+    return item.itemType === "weapon" || key.includes("weapon-") || key.includes("무기");
+  }
+
+  private isArmorInventoryItem(item: InventoryItemDto): boolean {
+    const key = this.getInventoryItemSearchKey(item);
+    return item.itemType === "armor" || key.includes("armor-") || key.includes("갑옷");
+  }
+
+  private isShieldInventoryItem(item: InventoryItemDto): boolean {
+    const key = this.getInventoryItemSearchKey(item);
+    return item.itemType === "shield" || key.includes("shield") || key.includes("방패");
+  }
+
+  private getInventoryItemSearchKey(item: InventoryItemDto): string {
+    return [item.id, item.itemDefinitionId, item.name, item.itemType]
+      .filter((value): value is string => Boolean(value))
+      .join(" ")
+      .toLowerCase();
+  }
+
+  private getAbilityModifier(score: number): number {
+    return Math.floor((score - 10) / 2);
   }
 
   // ancestry 입력값은 race.key('elf') 또는 race.koName('엘프') 둘 다 허용.

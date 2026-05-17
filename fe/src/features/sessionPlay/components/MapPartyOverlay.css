@@ -38,7 +38,15 @@
     linear-gradient(180deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.12)),
     var(--map-party-bg-color, rgba(248, 250, 251, 0.92));
   color: var(--map-party-text-color, #223244);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
   box-shadow: 0 4px 10px rgba(18, 31, 42, 0.12);
+}
+
+.map-party-card:focus-visible {
+  outline: 2px solid rgba(31, 100, 148, 0.7);
+  outline-offset: 2px;
 }
 
 .map-party-card.mine {

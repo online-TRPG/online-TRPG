@@ -37,6 +37,7 @@ interface BattleMapProps {
   enableObjectEventEditing?: boolean;
   onSelectionChange?: (selection: BattleMapSelection | null) => void;
   isInteractionLocked?: boolean;
+  tokenMovementRangeFtByTokenId?: Record<string, number>;
 }
 
 export type BattleMapSelection =
@@ -72,6 +73,7 @@ type MapStructureSelection = {
 
 const zoomSteps = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const feetPerGrid = 5;
+const playerVisionRangeFt = 40;
 const mapText = {
   tokenCount: (count: number) => '\uD1A0\uD070 ' + count + '\uAC1C',
   syncParty: '\uD30C\uD2F0 \uD1A0\uD070 \uB3D9\uAE30\uD654',
@@ -169,6 +171,119 @@ type ObjectCell = NonNullable<VttMapStateDto['objectCells']>[number];
 type ObjectShapeCell = NonNullable<ObjectCell['shapeCells']>[number];
 type ObjectEvent = NonNullable<ObjectCell['events']>[number];
 type ObjectHazard = NonNullable<ObjectCell['hazard']>;
+type ObjectRevealCheck = NonNullable<ObjectCell['revealChecks']>[number];
+
+const objectRevealAbilityOptions = [
+  { value: 'int', label: '지능' },
+  { value: 'wis', label: '지혜' },
+  { value: 'dex', label: '민첩' },
+  { value: 'str', label: '근력' },
+] as const;
+
+const objectRevealSkillOptions = [
+  { value: 'investigation', label: '조사' },
+  { value: 'perception', label: '감지' },
+  { value: 'insight', label: '통찰' },
+  { value: 'sleight_of_hand', label: '손재주' },
+  { value: 'athletics', label: '운동' },
+  { value: 'acrobatics', label: '곡예' },
+] as const;
+
+function rectsOverlap(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number }
+) {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+function isPointInRect(point: MeasurePoint, rect: { x: number; y: number; width: number; height: number }) {
+  return (
+    point.x >= rect.x &&
+    point.x <= rect.x + rect.width &&
+    point.y >= rect.y &&
+    point.y <= rect.y + rect.height
+  );
+}
+
+function lineIntersectsRect(
+  from: MeasurePoint,
+  to: MeasurePoint,
+  rect: { x: number; y: number; width: number; height: number }
+) {
+  if (isPointInRect(from, rect) || isPointInRect(to, rect)) return false;
+
+  const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / 8));
+  for (let index = 1; index < steps; index += 1) {
+    const ratio = index / steps;
+    const point = {
+      x: from.x + (to.x - from.x) * ratio,
+      y: from.y + (to.y - from.y) * ratio,
+    };
+    if (isPointInRect(point, rect)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getVisibleVisionCells(params: {
+  map: VttMapStateDto;
+  sourceTokens: VttMapStateDto['tokens'];
+  rangeFt: number;
+}) {
+  const { map, sourceTokens, rangeFt } = params;
+  const visible = new Set<string>();
+  if (!sourceTokens.length) return visible;
+
+  const maxColumn = Math.max(0, Math.ceil(map.width / map.gridSize) - 1);
+  const maxRow = Math.max(0, Math.ceil(map.height / map.gridSize) - 1);
+  const rangePx = (rangeFt / feetPerGrid) * map.gridSize;
+  const blockers = [
+    ...(map.wallCells ?? []),
+    ...(map.doorCells ?? []).filter((door) => door.state !== 'open' && door.state !== 'broken'),
+  ];
+
+  sourceTokens.forEach((token) => {
+    const source = {
+      x: token.x + token.size / 2,
+      y: token.y + token.size / 2,
+    };
+    const minColumn = Math.max(0, Math.floor((source.x - rangePx) / map.gridSize));
+    const maxSourceColumn = Math.min(maxColumn, Math.ceil((source.x + rangePx) / map.gridSize));
+    const minRow = Math.max(0, Math.floor((source.y - rangePx) / map.gridSize));
+    const maxSourceRow = Math.min(maxRow, Math.ceil((source.y + rangePx) / map.gridSize));
+
+    for (let row = minRow; row <= maxSourceRow; row += 1) {
+      for (let column = minColumn; column <= maxSourceColumn; column += 1) {
+        const target = {
+          x: column * map.gridSize + map.gridSize / 2,
+          y: row * map.gridSize + map.gridSize / 2,
+        };
+        if (Math.hypot(target.x - source.x, target.y - source.y) > rangePx) {
+          continue;
+        }
+        if (blockers.some((blocker) => lineIntersectsRect(source, target, blocker))) {
+          continue;
+        }
+        visible.add(`${column}:${row}`);
+      }
+    }
+  });
+
+  return visible;
+}
+
+function isVisionPointVisible(
+  point: MeasurePoint,
+  map: VttMapStateDto,
+  visibleVisionCells: Set<string> | null
+) {
+  if (!visibleVisionCells) return true;
+  const column = Math.floor(Math.min(Math.max(point.x, 0), Math.max(0, map.width - 1)) / map.gridSize);
+  const row = Math.floor(Math.min(Math.max(point.y, 0), Math.max(0, map.height - 1)) / map.gridSize);
+  return visibleVisionCells.has(`${column}:${row}`);
+}
 
 function useCanvasImage(src: string | null | undefined) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -251,13 +366,6 @@ function snapToGrid(value: number, gridSize: number) {
 function clamp(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.min(Math.max(value, min), max);
-}
-
-function rectsOverlap(
-  a: { x: number; y: number; width: number; height: number },
-  b: { x: number; y: number; width: number; height: number }
-) {
-  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 }
 
 function getGridIndex(value: number, gridSize: number, maxSize: number) {
@@ -468,6 +576,7 @@ export function BattleMap({
   enableObjectEventEditing = false,
   onSelectionChange,
   isInteractionLocked = false,
+  tokenMovementRangeFtByTokenId,
 }: BattleMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(960);
@@ -538,6 +647,14 @@ export function BattleMap({
   const visibleObjectCells = canEditMap
     ? objectCells
     : objectCells.filter((cell) => cell.visibleToPlayers !== false);
+  const detectedHazardCells = useMemo(
+    () => visibleObjectCells.filter((cell) => isDetectedHazardCell(cell)),
+    [visibleObjectCells]
+  );
+  const observedObjectCells = useMemo(
+    () => visibleObjectCells.filter((cell) => isObservedObjectCell(cell)),
+    [visibleObjectCells]
+  );
   const selectedMapStructureCell =
     selectedMapStructure?.kind === 'terrain'
       ? (terrainCells.find((cell) => cell.id === selectedMapStructure.id) ?? null)
@@ -576,7 +693,47 @@ export function BattleMap({
       ),
     [characters, currentUserId]
   );
+  const isVisionMaskEnabled = interactionMode === 'session';
+  const partyCharacterIds = useMemo(
+    () => new Set(characters.map((character) => character.id)),
+    [characters]
+  );
+  const visibleVisionCells = useMemo(
+    () =>
+      isVisionMaskEnabled
+        ? getVisibleVisionCells({
+            map,
+            sourceTokens: map.tokens.filter(
+              (token) =>
+                token.hidden !== true &&
+                token.sessionCharacterId &&
+                partyCharacterIds.has(token.sessionCharacterId) &&
+                token.isHostile !== true
+            ),
+            rangeFt: playerVisionRangeFt,
+          })
+        : null,
+    [isVisionMaskEnabled, map, partyCharacterIds]
+  );
   const activeMeasureEnd = measureEnd ?? measurePreview;
+  const selectedTokenMovementRangeFt =
+    selectedToken && tokenMovementRangeFtByTokenId?.[selectedToken.id] !== undefined
+      ? Math.max(0, tokenMovementRangeFtByTokenId[selectedToken.id])
+      : selectedCharacter?.speed;
+  const visibleTokensForDisplay = useMemo(
+    () =>
+      visibleTokens.filter((token) =>
+        isVisionPointVisible(
+          {
+            x: token.x + token.size / 2,
+            y: token.y + token.size / 2,
+          },
+          map,
+          visibleVisionCells
+        )
+      ),
+    [map, visibleTokens, visibleVisionCells]
+  );
   const gridLines = useMemo(() => {
     const lines: Array<{ isMajor: boolean; points: number[]; key: string }> = [];
     for (let x = 0, index = 0; x <= map.width; x += map.gridSize, index += 1) {
@@ -864,6 +1021,20 @@ export function BattleMap({
       : [{ x: cell.x, y: cell.y, width: cell.width, height: cell.height }];
   }
 
+  function isDetectedHazardCell(cell: ObjectCell): boolean {
+    return Boolean(cell.hazard?.armed !== false && cell.hazard?.detectedBySessionCharacterIds?.length);
+  }
+
+  function isObservedObjectCell(cell: ObjectCell): boolean {
+    return Boolean(cell.observedBySessionCharacterIds?.length);
+  }
+
+  function getHazardMarkerLabel(kind: ObjectHazard['kind'] | undefined): string {
+    if (kind === 'AMBUSH') return '매복';
+    if (kind === 'HAZARD') return '위험';
+    return '함정';
+  }
+
   function getGridShapeCellsFromBox(box: StructureBox): ObjectShapeCell[] {
     const minColumn = Math.floor(box.x / map.gridSize);
     const maxColumn = Math.max(minColumn, Math.ceil((box.x + box.width) / map.gridSize) - 1);
@@ -1031,6 +1202,48 @@ export function BattleMap({
         ...hazard,
         ...patch,
       },
+    } as Partial<ObjectCell>);
+  }
+
+  function updateObjectRevealChecks(contentIds: string[]) {
+    if (selectedMapStructure?.kind !== 'object') return;
+    const objectCell = selectedMapStructureCell as ObjectCell | null;
+    const existingChecks = objectCell?.revealChecks ?? [];
+    const nextChecks = contentIds.map((contentId) => {
+      const existing = existingChecks.find((check) => check.contentId === contentId);
+      return (
+        existing ?? {
+          contentId,
+          ability: 'int',
+          skill: 'investigation',
+          dc: 15,
+        }
+      );
+    });
+    updateStructureCell('object', selectedMapStructure.id, {
+      hiddenClueIds: contentIds,
+      revealChecks: nextChecks,
+    } as Partial<ObjectCell>);
+  }
+
+  function patchObjectRevealCheck(contentId: string, patch: Partial<ObjectRevealCheck>) {
+    if (selectedMapStructure?.kind !== 'object') return;
+    const objectCell = selectedMapStructureCell as ObjectCell | null;
+    const hiddenClueIds = objectCell?.hiddenClueIds ?? [];
+    const existingChecks = objectCell?.revealChecks ?? [];
+    const nextChecks = hiddenClueIds.map((id) => {
+      const existing =
+        existingChecks.find((check) => check.contentId === id) ??
+        ({
+          contentId: id,
+          ability: 'int',
+          skill: 'investigation',
+          dc: 15,
+        } satisfies ObjectRevealCheck);
+      return id === contentId ? { ...existing, ...patch } : existing;
+    });
+    updateStructureCell('object', selectedMapStructure.id, {
+      revealChecks: nextChecks,
     } as Partial<ObjectCell>);
   }
 
@@ -1363,6 +1576,11 @@ export function BattleMap({
   }
 
   function emitTileSelection(point: { x: number; y: number }) {
+    if (!isVisionPointVisible(point, map, visibleVisionCells)) {
+      onSelectionChange?.(null);
+      return;
+    }
+
     const structureSelection = getSessionStructureSelectionAtPoint(point);
     if (structureSelection) {
       emitStructureSelection(structureSelection.kind, structureSelection.cell);
@@ -1432,6 +1650,7 @@ export function BattleMap({
 
   function getSessionStructureSelectionAtPoint(point: { x: number; y: number }) {
     if (canEditMap) return null;
+    if (!isVisionPointVisible(point, map, visibleVisionCells)) return null;
 
     const objectCell = visibleObjectCells.find((cell) => isPointInCell(point, cell));
     if (objectCell) {
@@ -2162,6 +2381,123 @@ export function BattleMap({
               </Layer>
             ) : null}
 
+            {detectedHazardCells.length ? (
+              <Layer listening={false}>
+                {detectedHazardCells.map((cell) => {
+                  const shapeCells = getObjectShapeCells(cell);
+                  const bounds = getShapeBounds(shapeCells);
+                  const label = getHazardMarkerLabel(cell.hazard?.kind);
+
+                  return (
+                    <Group key={`detected-hazard:${cell.id}`}>
+                      {shapeCells.map((shapeCell, shapeIndex) => (
+                        <Rect
+                          key={`${cell.id}:hazard-shape:${shapeIndex}`}
+                          x={shapeCell.x}
+                          y={shapeCell.y}
+                          width={shapeCell.width}
+                          height={shapeCell.height}
+                          fill="rgba(204, 52, 52, 0.24)"
+                          stroke="#ff6b5f"
+                          strokeWidth={2}
+                          dash={[8, 5]}
+                          cornerRadius={Math.min(10, map.gridSize / 8)}
+                        />
+                      ))}
+                      <Circle
+                        x={bounds.x + bounds.width / 2}
+                        y={bounds.y + bounds.height / 2}
+                        radius={Math.max(14, Math.min(24, map.gridSize * 0.28))}
+                        fill="rgba(96, 14, 14, 0.88)"
+                        stroke="#ffd1ca"
+                        strokeWidth={2}
+                      />
+                      <Text
+                        x={bounds.x}
+                        y={bounds.y + bounds.height / 2 - 8}
+                        width={bounds.width}
+                        text="!"
+                        align="center"
+                        fontSize={18}
+                        fontStyle="bold"
+                        fill="#fff3f0"
+                      />
+                      <Text
+                        x={bounds.x - map.gridSize * 0.25}
+                        y={bounds.y + bounds.height + 4}
+                        width={bounds.width + map.gridSize * 0.5}
+                        text={label}
+                        align="center"
+                        fontSize={12}
+                        fontStyle="bold"
+                        fill="#ffd1ca"
+                        stroke="#2f0b0b"
+                        strokeWidth={2}
+                      />
+                    </Group>
+                  );
+                })}
+              </Layer>
+            ) : null}
+
+            {observedObjectCells.length ? (
+              <Layer listening={false}>
+                {observedObjectCells.map((cell) => {
+                  const shapeCells = getObjectShapeCells(cell);
+                  const bounds = getShapeBounds(shapeCells);
+
+                  return (
+                    <Group key={`observed-object:${cell.id}`}>
+                      {shapeCells.map((shapeCell, shapeIndex) => (
+                        <Rect
+                          key={`${cell.id}:observed-shape:${shapeIndex}`}
+                          x={shapeCell.x}
+                          y={shapeCell.y}
+                          width={shapeCell.width}
+                          height={shapeCell.height}
+                          fill="rgba(242, 190, 75, 0.18)"
+                          stroke="#ffd36a"
+                          strokeWidth={2}
+                          dash={[7, 5]}
+                          cornerRadius={Math.min(10, map.gridSize / 8)}
+                        />
+                      ))}
+                      <Circle
+                        x={bounds.x + bounds.width / 2}
+                        y={bounds.y + bounds.height / 2}
+                        radius={Math.max(12, Math.min(22, map.gridSize * 0.24))}
+                        fill="rgba(97, 62, 9, 0.86)"
+                        stroke="#ffe7a6"
+                        strokeWidth={2}
+                      />
+                      <Text
+                        x={bounds.x}
+                        y={bounds.y + bounds.height / 2 - 8}
+                        width={bounds.width}
+                        text="?"
+                        align="center"
+                        fontSize={18}
+                        fontStyle="bold"
+                        fill="#fff5d5"
+                      />
+                      <Text
+                        x={bounds.x - map.gridSize * 0.25}
+                        y={bounds.y + bounds.height + 4}
+                        width={bounds.width + map.gridSize * 0.5}
+                        text="관찰됨"
+                        align="center"
+                        fontSize={12}
+                        fontStyle="bold"
+                        fill="#ffe7a6"
+                        stroke="#362103"
+                        strokeWidth={2}
+                      />
+                    </Group>
+                  );
+                })}
+              </Layer>
+            ) : null}
+
             <Layer>
               {canEditMap
                 ? startingPositions.map((position, index) => (
@@ -2203,11 +2539,11 @@ export function BattleMap({
                     </Group>
                   ))
                 : null}
-              {selectedToken && selectedCharacter ? (
+              {selectedToken && selectedCharacter && selectedTokenMovementRangeFt !== undefined ? (
                 <Circle
                   x={selectedToken.x + selectedToken.size / 2}
                   y={selectedToken.y + selectedToken.size / 2}
-                  radius={(selectedCharacter.speed / feetPerGrid) * map.gridSize}
+                  radius={(selectedTokenMovementRangeFt / feetPerGrid) * map.gridSize}
                   fill="rgba(121, 216, 255, 0.08)"
                   stroke="rgba(121, 216, 255, 0.55)"
                   strokeWidth={2}
@@ -2215,7 +2551,7 @@ export function BattleMap({
                   listening={false}
                 />
               ) : null}
-              {visibleTokens.map((token) => {
+              {visibleTokensForDisplay.map((token) => {
                 const color = getBattleTokenColor(token, characters);
                 return (
                   <BattleToken
@@ -2258,6 +2594,31 @@ export function BattleMap({
                 );
               })}
             </Layer>
+
+            {visibleVisionCells ? (
+              <Layer listening={false}>
+                {Array.from({ length: Math.ceil(map.height / map.gridSize) }).flatMap((_, row) =>
+                  Array.from({ length: Math.ceil(map.width / map.gridSize) }).map((__, column) => {
+                    const key = `${column}:${row}`;
+                    if (visibleVisionCells.has(key)) {
+                      return null;
+                    }
+                    const x = column * map.gridSize;
+                    const y = row * map.gridSize;
+                    return (
+                      <Rect
+                        key={`vision-mask:${key}`}
+                        x={x}
+                        y={y}
+                        width={Math.min(map.gridSize, map.width - x)}
+                        height={Math.min(map.gridSize, map.height - y)}
+                        fill="rgba(3, 6, 10, 0.88)"
+                      />
+                    );
+                  })
+                )}
+              </Layer>
+            ) : null}
 
             <Layer listening={false}>
               {measureStart && (activeMeasureEnd || isMeasureMode) ? (
@@ -2842,12 +3203,9 @@ export function BattleMap({
                       selectedMapStructureCell as ObjectCell
                     ).hiddenClueIds ?? []}
                     onChange={(event) =>
-                      updateStructureCell(selectedMapStructure.kind, selectedMapStructure.id, {
-                        hiddenClueIds: Array.from(event.target.selectedOptions, (option) => option.value).slice(
-                          0,
-                          30
-                        ),
-                      } as Partial<ObjectCell>)
+                      updateObjectRevealChecks(
+                        Array.from(event.target.selectedOptions, (option) => option.value).slice(0, 30)
+                      )
                     }
                   >
                     {clueOptions.length ? (
@@ -2861,6 +3219,72 @@ export function BattleMap({
                     )}
                   </select>
                 </label>
+                {((selectedMapStructureCell as ObjectCell).hiddenClueIds ?? []).length ? (
+                  <div className="vtt-object-events">
+                    <span className="eyebrow">단서 조사 판정 조건</span>
+                    {((selectedMapStructureCell as ObjectCell).hiddenClueIds ?? []).map((contentId) => {
+                      const clueLabel = clueOptions.find((option) => option.id === contentId)?.label ?? contentId;
+                      const revealCheck =
+                        (selectedMapStructureCell as ObjectCell).revealChecks?.find(
+                          (check) => check.contentId === contentId
+                        ) ?? {
+                          contentId,
+                          ability: 'int',
+                          skill: 'investigation',
+                          dc: 15,
+                        };
+
+                      return (
+                        <div className="vtt-field-row" key={`reveal-check:${contentId}`}>
+                          <label>
+                            {clueLabel}
+                            <select
+                              value={revealCheck.ability ?? 'int'}
+                              onChange={(event) =>
+                                patchObjectRevealCheck(contentId, { ability: event.target.value })
+                              }
+                            >
+                              {objectRevealAbilityOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            기술
+                            <select
+                              value={revealCheck.skill ?? 'investigation'}
+                              onChange={(event) =>
+                                patchObjectRevealCheck(contentId, { skill: event.target.value })
+                              }
+                            >
+                              {objectRevealSkillOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            DC
+                            <input
+                              type="number"
+                              min={1}
+                              max={40}
+                              value={revealCheck.dc ?? 15}
+                              onChange={(event) =>
+                                patchObjectRevealCheck(contentId, {
+                                  dc: clamp(Number(event.target.value) || 15, 1, 40),
+                                })
+                              }
+                            />
+                          </label>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
                 <label>
                   {mapText.linkedItems}
                   <select
