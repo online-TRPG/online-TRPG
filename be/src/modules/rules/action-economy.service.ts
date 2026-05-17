@@ -97,6 +97,7 @@ export class ActionEconomyService {
         | "reactionUsed"
         | "additionalActionGranted"
         | "sneakAttackUsed"
+        | "movementFtSpent"
       >
     >,
   ): Promise<CombatTurnState> {
