@@ -5,6 +5,7 @@ import {
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
 import {
+  ActionOutcome,
   MainCommandCategory,
   MainCommandIntent,
   MainCommandStatus,
@@ -16,6 +17,7 @@ import { MainCommandsService } from "./main-commands.service";
 type HarnessInterpreterResult = {
   parsed: {
     needsClarification: boolean;
+    clarificationQuestion?: string | null;
     action: {
       type: string;
       targetId?: string | null;
@@ -60,6 +62,9 @@ function createMainCommandHarness(options?: {
     runHint: jest.fn().mockResolvedValue({ parsed: { content: "Check the strange statue." } }),
     runSummary: jest.fn().mockResolvedValue({ parsed: { content: "Recent summary." } }),
     runNpcDialogue: jest.fn().mockResolvedValue({ parsed: { dialogue: "Hello." } }),
+    runCheckResult: jest.fn().mockResolvedValue({
+      parsed: { narration: "판정에 성공했습니다. 의미 있는 정보를 얻습니다.", rewardInfo: "정보" },
+    }),
   };
   const sessionsService = {
     revealVttObjectContentsAtPoint: jest.fn().mockResolvedValue(0),
@@ -593,6 +598,93 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
     });
   });
 
+  it("does not ask for clarification when an intimidation command already has a concrete sentence", async () => {
+    const { submit } = createMainCommandHarness({
+      nodeMetaJson: JSON.stringify({
+        npcs: [{ id: "npc-guard", name: "경비병", isVisible: true }],
+      }),
+      interpreterResult: {
+        parsed: {
+          needsClarification: true,
+          clarificationQuestion: "행동을 조금 더 구체적으로 선택해 주세요.",
+          action: {
+            type: "SOCIAL_INTIMIDATE",
+            approach: "",
+            confidence: 0.6,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      commandId: MainCommandIntent.SOCIAL_INTIMIDATE,
+      intent: MainCommandIntent.SOCIAL_INTIMIDATE,
+      category: MainCommandCategory.SOCIAL,
+      playerText: "뭔가 숨기고 있는게 있는거 같은데? 사실대로 말하지 않으면 그냥 가겠어.",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.CHECK_REQUIRED);
+    expect(response.message).toContain("경비병 압박에는 판정이 필요합니다.");
+  });
+
+  it("does not ask for clarification when a persuasion command already has a concrete sentence", async () => {
+    const { submit } = createMainCommandHarness({
+      nodeMetaJson: JSON.stringify({
+        npcs: [{ id: "npc-mila", name: "밀라 보스턴", isVisible: true }],
+      }),
+      interpreterResult: {
+        parsed: {
+          needsClarification: true,
+          clarificationQuestion: "행동을 조금 더 구체적으로 선택해 주세요.",
+          action: {
+            type: "SOCIAL_PERSUADE",
+            approach: "",
+            confidence: 0.6,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      commandId: MainCommandIntent.SOCIAL_PERSUADE,
+      intent: MainCommandIntent.SOCIAL_PERSUADE,
+      category: MainCommandCategory.SOCIAL,
+      playerText: "우린 너흴 도와주러 온거야. 숨기는게 있다면 말을 해줘야 더 잘 도울 수 있어.",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.CHECK_REQUIRED);
+    expect(response.message).toContain("밀라 보스턴 설득에는 판정이 필요합니다.");
+  });
+
+  it("does not ask for clarification when an investigate command already describes the action", async () => {
+    const { submit } = createMainCommandHarness({
+      interpreterResult: {
+        parsed: {
+          needsClarification: true,
+          clarificationQuestion: "행동을 조금 더 구체적으로 선택해 주세요.",
+          action: {
+            type: "INVESTIGATE_OBJECT",
+            approach: "",
+            confidence: 0.6,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      commandId: MainCommandIntent.INVESTIGATE_OBJECT,
+      intent: MainCommandIntent.INVESTIGATE_OBJECT,
+      category: MainCommandCategory.OBSERVATION,
+      playerText: "책상 아래와 서랍 안쪽에 숨겨진 흔적이 있는지 자세히 조사한다",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.CHECK_REQUIRED);
+    expect(response.message).toContain("자세히 조사하려면 판정이 필요합니다.");
+  });
+
 });
 
 describe("MainCommandsService transition condition evaluation", () => {
@@ -786,5 +878,98 @@ describe("MainCommandsService transition condition evaluation", () => {
 
     expect(result.satisfied).toBe(true);
     expect(result.needsReview).toBe(false);
+  });
+});
+
+describe("MainCommandsService check result narration", () => {
+  const createService = () =>
+    new MainCommandsService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      buildMainCommandCheckResultMessage: (
+        effect: Record<string, unknown>,
+        outcome: string,
+      ) => string;
+    };
+
+  const baseEffect = {
+    type: "mainCommandCheck",
+    requestId: "request-1",
+    nodeId: "node-1",
+    screenType: MainCommandScreenType.STORY,
+    playerText: "뭔가 숨기고 있는게 있는거 같은데? 사실대로 말하지 않으면 그냥 가겠어.",
+    actionSummary: "밀라 보스턴에 대한 뭔가 숨기고 있는게 있는거 같은데? 사실대로 말하지 않으면 그냥 가겠어.",
+    targetId: "npc-mila",
+    targetName: "밀라 보스턴",
+    itemId: null,
+    itemName: null,
+    mapPoint: null,
+    checkOption: null,
+    visibleEntityNames: ["밀라 보스턴"],
+    publicClues: [],
+    sceneText: "밀라는 말을 아낀다.",
+    actionCandidate: null,
+  };
+
+  it("uses scene-like failure narration for intimidation checks instead of echoing raw input", () => {
+    const message = createService().buildMainCommandCheckResultMessage(
+      {
+        ...baseEffect,
+        intent: MainCommandIntent.SOCIAL_INTIMIDATE,
+      },
+      ActionOutcome.FAILURE,
+    );
+
+    expect(message).toContain("밀라 보스턴");
+    expect(message).toContain("버티");
+    expect(message).not.toContain("원하는 성과");
+    expect(message).not.toContain("사실대로 말하지 않으면");
+  });
+
+  it("has success and failure narration for every intent that can require a check", () => {
+    const service = createService();
+    const intents = [
+      MainCommandIntent.GENERAL_GM_REQUEST,
+      MainCommandIntent.SOCIAL_PERSUADE,
+      MainCommandIntent.SOCIAL_INTIMIDATE,
+      MainCommandIntent.SOCIAL_DECEIVE,
+      MainCommandIntent.READ_EMOTION,
+      MainCommandIntent.INSPECT_STORY_OBJECT,
+      MainCommandIntent.OBSERVE_AREA,
+      MainCommandIntent.INVESTIGATE_OBJECT,
+      MainCommandIntent.LISTEN,
+      MainCommandIntent.DETECT_DANGER,
+      MainCommandIntent.SPECIAL_MOVE,
+      MainCommandIntent.INTERACT_OBJECT,
+      MainCommandIntent.USE_TOOL,
+      MainCommandIntent.USE_ITEM_EXPLORE,
+      MainCommandIntent.COMBAT_MANEUVER,
+      MainCommandIntent.ENVIRONMENT_USE,
+      MainCommandIntent.IMPROVISED_ATTACK,
+      MainCommandIntent.CALLED_SHOT,
+      MainCommandIntent.READY_ACTION,
+      MainCommandIntent.USE_ITEM_COMBAT,
+      MainCommandIntent.USE_SPELL_CREATIVELY,
+    ];
+
+    for (const intent of intents) {
+      const success = service.buildMainCommandCheckResultMessage(
+        { ...baseEffect, intent, itemName: "밧줄" },
+        ActionOutcome.SUCCESS,
+      );
+      const failure = service.buildMainCommandCheckResultMessage(
+        { ...baseEffect, intent, itemName: "밧줄" },
+        ActionOutcome.FAILURE,
+      );
+
+      expect(success).toContain("판정에 성공했습니다.");
+      expect(failure).toContain("판정에 실패했습니다.");
+      expect(success).not.toContain("원하는 성과");
+      expect(failure).not.toContain("원하는 성과");
+    }
   });
 });

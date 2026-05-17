@@ -32,6 +32,8 @@ import {
   ActorRequestPayload,
   ActorResponsePayload,
   AiClient,
+  CheckResultRequestPayload,
+  CheckResultResponsePayload,
   DirectorRequestPayload,
   DirectorResponsePayload,
   InterpreterRequestPayload,
@@ -50,7 +52,8 @@ type HarnessResponse =
   | SummarizerResponsePayload
   | NpcDialogueResponsePayload
   | InterpreterResponsePayload
-  | ActorResponsePayload;
+  | ActorResponsePayload
+  | CheckResultResponsePayload;
 
 interface PersistTraceParams {
   sessionId: string;
@@ -254,6 +257,24 @@ export class AiService {
       fallback: result.response.fallback ?? result.isBeFallback,
       fallbackReason: result.response.fallbackReason ?? null,
     };
+  }
+
+  async runCheckResult(
+    sessionId: string,
+    userId: string,
+    payload: CheckResultRequestPayload,
+  ): Promise<CheckResultResponsePayload> {
+    await this.sessionsService.ensureMembership(userId, sessionId);
+    const requestPayload: CheckResultRequestPayload = { ...payload, sessionId };
+    const result = await this.invokeAi({
+      sessionId,
+      userId,
+      kind: PrismaAiTraceKind.NARRATION,
+      requestPayload,
+      call: () => this.aiClient.runCheckResult(requestPayload),
+      defaultFactory: (reason) => this.defaultCheckResultResponse(reason, requestPayload),
+    });
+    return result.response;
   }
 
   async runInterpreter(
@@ -488,6 +509,32 @@ export class AiService {
       parsed: {
         dialogue: "(NPC가 잠시 말이 없습니다.)",
         tone: "neutral",
+        safetyNotes: [],
+      },
+      fallback: true,
+      fallbackReason: reason,
+    };
+  }
+
+  private defaultCheckResultResponse(
+    reason: string,
+    requestPayload: CheckResultRequestPayload,
+  ): CheckResultResponsePayload {
+    const target = requestPayload.targetName ?? "대상";
+    const rewardInfo =
+      requestPayload.targetSummary ??
+      requestPayload.targetDisposition ??
+      requestPayload.publicClues?.[0] ??
+      requestPayload.actionSummary;
+    const narration =
+      requestPayload.outcome === "SUCCESS"
+        ? `판정에 성공했습니다. ${target}에게서 의미 있는 정보를 얻습니다. ${rewardInfo}`
+        : `판정에 실패했습니다. ${target}의 반응은 확실한 정보로 이어지지 않습니다.`;
+    return {
+      ...this.buildBeFallbackTrace("check_result"),
+      parsed: {
+        narration,
+        rewardInfo: requestPayload.outcome === "SUCCESS" ? rewardInfo : "정보 보상 없음",
         safetyNotes: [],
       },
       fallback: true,
