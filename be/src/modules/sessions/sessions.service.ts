@@ -490,8 +490,14 @@ export class SessionsService {
     const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
     const previousMap = await this.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
     const requestedMap = this.normalizeVttMap(dto.map, state.currentNodeId ?? null);
+    const hasActiveCombat = Boolean(
+      await this.prisma.combat.findFirst({
+        where: { sessionId: resolvedSessionId, status: PrismaCombatStatus.ACTIVE },
+        select: { id: true },
+      }),
+    );
     let map =
-      session.hostUserId === userId
+      session.hostUserId === userId && !hasActiveCombat
         ? requestedMap
         : await this.applyPlayerVttMapUpdate(
             userId,
@@ -499,6 +505,7 @@ export class SessionsService {
             sessionScenario.id,
             state,
             requestedMap,
+            session.hostUserId === userId,
           );
     map = await this.applyVttObjectProximityEvents({
       sessionScenarioId: sessionScenario.id,
@@ -569,6 +576,14 @@ export class SessionsService {
       return { map: previousMap, moved: false, distanceMovedFt: 0 };
     }
 
+    await this.emitVttTokenMovementFrames({
+      sessionId: resolvedSessionId,
+      hostUserId: session.hostUserId,
+      map: previousMap,
+      sourceTokenId: params.sourceTokenId,
+      path: movement.path,
+    });
+
     let map: VttMapStateDto = {
       ...previousMap,
       tokens: previousMap.tokens.map((token) =>
@@ -623,6 +638,62 @@ export class SessionsService {
     }
 
     return { map, moved: true, distanceMovedFt: movement.distanceMovedFt };
+  }
+
+  async hideVttToken(sessionId: string, tokenId: string): Promise<VttMapStateDto | null> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const { sessionScenario, state } = await this.getGameStateEntityOrThrow(session.id);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const previousMap = await this.getVttMapBaseline(session.id, sessionScenario.id, state);
+    const targetToken = previousMap.tokens.find((token) => token.id === tokenId);
+    if (!targetToken || targetToken.hidden === true) {
+      return targetToken ? previousMap : null;
+    }
+
+    const map: VttMapStateDto = {
+      ...previousMap,
+      tokens: previousMap.tokens.map((token) =>
+        token.id === tokenId
+          ? {
+              ...token,
+              hidden: true,
+            }
+          : token,
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: sessionScenario.id },
+      data: {
+        version: { increment: 1 },
+        flagsJson: JSON.stringify({
+          ...flags,
+          vttMap: map,
+        }),
+      },
+    });
+
+    this.realtimeEvents.emitVttMapUpdated(session.id, {
+      hostUserId: session.hostUserId,
+      hostMap: map,
+      playerMap: this.redactVttMapForPlayer(map),
+    });
+
+    return map;
+  }
+
+  async hideVttTokenForSessionCharacter(
+    sessionId: string,
+    sessionCharacterId: string,
+  ): Promise<VttMapStateDto | null> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const { sessionScenario, state } = await this.getGameStateEntityOrThrow(session.id);
+    const map = await this.getVttMapBaseline(session.id, sessionScenario.id, state);
+    const token = map.tokens.find(
+      (candidate) => candidate.sessionCharacterId === sessionCharacterId && candidate.hidden !== true,
+    );
+    return token ? this.hideVttToken(session.id, token.id) : null;
   }
 
   async getPlayerScenarioForUser(userId: string, sessionId: string): Promise<PlayerScenarioViewDto> {
@@ -1455,6 +1526,54 @@ export class SessionsService {
         });
       }
     });
+  }
+
+  async completeSessionAfterPartyDefeat(sessionId: string, combatId?: string): Promise<SessionSnapshotDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const resolvedSessionId = session.id;
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
+    const state = activeScenario.gameState;
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const defeatedAt = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.session.update({
+        where: { id: resolvedSessionId },
+        data: { status: PrismaSessionStatus.COMPLETED },
+      });
+      await tx.combat.updateMany({
+        where: {
+          sessionId: resolvedSessionId,
+          status: PrismaCombatStatus.ACTIVE,
+          ...(combatId ? { id: combatId } : {}),
+        },
+        data: {
+          status: PrismaCombatStatus.ENDED,
+          endedAt: defeatedAt,
+          currentParticipantId: null,
+        },
+      });
+      if (state) {
+        await tx.gameState.update({
+          where: { sessionScenarioId: activeScenario.id },
+          data: {
+            phase: PrismaGamePhase.COMBAT,
+            version: { increment: 1 },
+            flagsJson: JSON.stringify({
+              ...flags,
+              partyDefeated: true,
+              partyDefeatedAt: defeatedAt.toISOString(),
+              defeatedCombatNodeId: state.currentNodeId ?? null,
+            }),
+          },
+        });
+      }
+    });
+
+    const snapshot = await this.buildSnapshot(resolvedSessionId);
+    this.realtimeEvents.emitSessionStatusUpdated(resolvedSessionId, snapshot.session);
+    this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
+    return snapshot;
   }
 
   async revealCurrentNodeCluesAfterAction(params: {
@@ -3784,6 +3903,7 @@ export class SessionsService {
     sessionScenarioId: string,
     state: { currentNodeId: string | null; flagsJson: string | null },
     requestedMap: VttMapStateDto,
+    allowFullMapShell = false,
   ): Promise<VttMapStateDto> {
     const baseline = await this.getVttMapBaseline(sessionId, sessionScenarioId, state);
     const controlledTokenIds = await this.getControlledSessionCharacterIds(userId, sessionId);
@@ -3810,7 +3930,7 @@ export class SessionsService {
       distanceFt: number;
     }> = [];
 
-    this.ensurePlayerMapShellUnchanged(baseline, requestedMap);
+    this.ensurePlayerMapShellUnchanged(baseline, requestedMap, allowFullMapShell);
 
     const requestedById = new Map(requestedMap.tokens.map((token) => [token.id, token]));
     const nextTokens = baseline.tokens.map((token) => {
@@ -3888,11 +4008,15 @@ export class SessionsService {
     return new Set(sessionCharacters.map((character) => character.id));
   }
 
-  private ensurePlayerMapShellUnchanged(baseline: VttMapStateDto, requested: VttMapStateDto): void {
-    const visibleBaseline = this.redactVttMapForPlayer(baseline);
+  private ensurePlayerMapShellUnchanged(
+    baseline: VttMapStateDto,
+    requested: VttMapStateDto,
+    allowFullMapShell = false,
+  ): void {
+    const comparableBaseline = allowFullMapShell ? baseline : this.redactVttMapForPlayer(baseline);
     const isSameStartingPositions =
       requested.startingPositions?.length === 0 ||
-      JSON.stringify(visibleBaseline.startingPositions ?? []) === JSON.stringify(requested.startingPositions ?? []);
+      JSON.stringify(comparableBaseline.startingPositions ?? []) === JSON.stringify(requested.startingPositions ?? []);
     const sameShell =
       baseline.id === requested.id &&
       baseline.scenarioNodeId === requested.scenarioNodeId &&
@@ -3902,11 +4026,11 @@ export class SessionsService {
       baseline.width === requested.width &&
       baseline.height === requested.height &&
       isSameStartingPositions &&
-      JSON.stringify(visibleBaseline.fogRects) === JSON.stringify(requested.fogRects) &&
-      JSON.stringify(visibleBaseline.terrainCells ?? []) === JSON.stringify(requested.terrainCells ?? []) &&
-      JSON.stringify(visibleBaseline.wallCells ?? []) === JSON.stringify(requested.wallCells ?? []) &&
-      JSON.stringify(visibleBaseline.doorCells ?? []) === JSON.stringify(requested.doorCells ?? []) &&
-      JSON.stringify(visibleBaseline.objectCells ?? []) === JSON.stringify(requested.objectCells ?? []);
+      JSON.stringify(comparableBaseline.fogRects) === JSON.stringify(requested.fogRects) &&
+      JSON.stringify(comparableBaseline.terrainCells ?? []) === JSON.stringify(requested.terrainCells ?? []) &&
+      JSON.stringify(comparableBaseline.wallCells ?? []) === JSON.stringify(requested.wallCells ?? []) &&
+      JSON.stringify(comparableBaseline.doorCells ?? []) === JSON.stringify(requested.doorCells ?? []) &&
+      JSON.stringify(comparableBaseline.objectCells ?? []) === JSON.stringify(requested.objectCells ?? []);
 
     if (!sameShell) {
       throw new ForbiddenException("Players can only move their own tokens.");
@@ -3949,9 +4073,31 @@ export class SessionsService {
       });
     }
 
+    const sessionCharacterIds = Array.from(
+      new Set(
+        Array.from(distanceByParticipant.values())
+          .map((spend) => spend.sessionCharacterId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    const sessionCharacters = sessionCharacterIds.length
+      ? await this.prisma.sessionCharacter.findMany({
+          where: { id: { in: sessionCharacterIds } },
+          select: { id: true, character: { select: { speed: true } } },
+        })
+      : [];
+    const characterSpeedBySessionCharacterId = new Map(
+      sessionCharacters.map((entry) => [entry.id, entry.character.speed]),
+    );
+
     for (const spend of distanceByParticipant.values()) {
       const participant = activeCombat.participants.find((candidate) => candidate.id === spend.combatParticipantId);
-      const movementFtTotal = participant?.speedFt ?? 30;
+      const movementFtTotal =
+        (spend.sessionCharacterId
+          ? characterSpeedBySessionCharacterId.get(spend.sessionCharacterId)
+          : null) ??
+        participant?.speedFt ??
+        30;
       const turnState = await this.prisma.combatTurnState.upsert({
         where: {
           combatId_roundNo_turnNo_combatParticipantId: {
@@ -4083,7 +4229,7 @@ export class SessionsService {
       maxDistanceFt: number;
       stopWithinFt: number;
     },
-  ): { x: number; y: number; distanceMovedFt: number } | null {
+  ): { x: number; y: number; distanceMovedFt: number; path: Array<{ x: number; y: number }> } | null {
     const sourceToken = map.tokens.find((token) => token.id === params.sourceTokenId);
     const targetToken = map.tokens.find((token) => token.id === params.targetTokenId);
     if (!sourceToken || !targetToken) {
@@ -4102,11 +4248,18 @@ export class SessionsService {
 
     const maxColumn = Math.max(0, Math.ceil(map.width / map.gridSize) - 1);
     const maxRow = Math.max(0, Math.ceil(map.height / map.gridSize) - 1);
-    const queue: Array<{ column: number; row: number; steps: number }> = [
-      { column: startColumn, row: startRow, steps: 0 },
-    ];
+    type MovementNode = {
+      column: number;
+      row: number;
+      steps: number;
+      previousKey: string | null;
+    };
+    const startKey = `${startColumn}:${startRow}`;
+    const queue: MovementNode[] = [{ column: startColumn, row: startRow, steps: 0, previousKey: null }];
     const visited = new Set([`${startColumn}:${startRow}`]);
-    const reachable: Array<{ column: number; row: number; steps: number; targetDistance: number }> = [];
+    const nodeByKey = new Map<string, MovementNode>();
+    nodeByKey.set(startKey, queue[0]);
+    const reachable: Array<MovementNode & { targetDistance: number }> = [];
     const directions = [
       { column: 1, row: 0 },
       { column: -1, row: 0 },
@@ -4138,6 +4291,7 @@ export class SessionsService {
           column: current.column + direction.column,
           row: current.row + direction.row,
           steps: current.steps + 1,
+          previousKey: `${current.column}:${current.row}`,
         };
         const key = `${next.column}:${next.row}`;
         if (
@@ -4152,11 +4306,15 @@ export class SessionsService {
 
         const x = Math.min(Math.max(next.column * map.gridSize, 0), map.width - sourceToken.size);
         const y = Math.min(Math.max(next.row * map.gridSize, 0), map.height - sourceToken.size);
-        if (this.isTokenPlacementBlocked(map, sourceToken, x, y)) {
+        if (
+          this.isTokenPlacementBlocked(map, sourceToken, x, y) ||
+          !this.canMoveBetweenGridCells(map, sourceToken, current, next)
+        ) {
           continue;
         }
 
         visited.add(key);
+        nodeByKey.set(key, next);
         queue.push(next);
       }
     }
@@ -4171,11 +4329,104 @@ export class SessionsService {
       return null;
     }
 
+    const path = this.buildTokenMovementPath(map, sourceToken, best, nodeByKey);
+    if (!path.length) {
+      return null;
+    }
+
+    const destination = path[path.length - 1];
     return {
-      x: Math.min(Math.max(best.column * map.gridSize, 0), map.width - sourceToken.size),
-      y: Math.min(Math.max(best.row * map.gridSize, 0), map.height - sourceToken.size),
+      x: destination.x,
+      y: destination.y,
       distanceMovedFt: best.steps * 5,
+      path,
     };
+  }
+
+  private buildTokenMovementPath(
+    map: VttMapStateDto,
+    token: VttMapStateDto["tokens"][number],
+    destination: { column: number; row: number; previousKey: string | null },
+    nodeByKey: Map<string, { column: number; row: number; previousKey: string | null }>,
+  ): Array<{ x: number; y: number }> {
+    const cells: Array<{ column: number; row: number }> = [];
+    let current: { column: number; row: number; previousKey: string | null } | undefined = destination;
+
+    while (current) {
+      cells.push({ column: current.column, row: current.row });
+      current = current.previousKey ? nodeByKey.get(current.previousKey) : undefined;
+    }
+
+    return cells
+      .reverse()
+      .slice(1)
+      .map((cell) => ({
+        x: Math.min(Math.max(cell.column * map.gridSize, 0), map.width - token.size),
+        y: Math.min(Math.max(cell.row * map.gridSize, 0), map.height - token.size),
+      }));
+  }
+
+  private canMoveBetweenGridCells(
+    map: VttMapStateDto,
+    token: VttMapStateDto["tokens"][number],
+    from: { column: number; row: number },
+    to: { column: number; row: number },
+  ): boolean {
+    const deltaColumn = to.column - from.column;
+    const deltaRow = to.row - from.row;
+    if (Math.abs(deltaColumn) !== 1 || Math.abs(deltaRow) !== 1) {
+      return true;
+    }
+
+    const horizontalX = Math.min(Math.max((from.column + deltaColumn) * map.gridSize, 0), map.width - token.size);
+    const horizontalY = Math.min(Math.max(from.row * map.gridSize, 0), map.height - token.size);
+    const verticalX = Math.min(Math.max(from.column * map.gridSize, 0), map.width - token.size);
+    const verticalY = Math.min(Math.max((from.row + deltaRow) * map.gridSize, 0), map.height - token.size);
+
+    return (
+      !this.isTokenPlacementBlocked(map, token, horizontalX, horizontalY) &&
+      !this.isTokenPlacementBlocked(map, token, verticalX, verticalY)
+    );
+  }
+
+  private async emitVttTokenMovementFrames(params: {
+    sessionId: string;
+    hostUserId: string;
+    map: VttMapStateDto;
+    sourceTokenId: string;
+    path: Array<{ x: number; y: number }>;
+  }): Promise<void> {
+    if (!params.path.length) {
+      return;
+    }
+
+    let frameMap = params.map;
+    for (const step of params.path) {
+      frameMap = {
+        ...frameMap,
+        tokens: frameMap.tokens.map((token) =>
+          token.id === params.sourceTokenId
+            ? {
+                ...token,
+                x: step.x,
+                y: step.y,
+              }
+            : token,
+        ),
+        updatedAt: new Date().toISOString(),
+      };
+
+      this.realtimeEvents.emitVttMapUpdated(params.sessionId, {
+        hostUserId: params.hostUserId,
+        hostMap: frameMap,
+        playerMap: this.redactVttMapForPlayer(frameMap),
+      });
+      await this.sleep(180);
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private getChebyshevDistance(
@@ -4197,6 +4448,14 @@ export class SessionsService {
       ...(map.terrainCells ?? []),
       ...(map.wallCells ?? []),
       ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
+      ...map.tokens
+        .filter((otherToken) => otherToken.id !== token.id && otherToken.hidden !== true)
+        .map((otherToken) => ({
+          x: otherToken.x,
+          y: otherToken.y,
+          width: otherToken.size,
+          height: otherToken.size,
+        })),
     ];
     const tokenRect = { x, y, width: token.size, height: token.size };
     return blockers.some((blocker) => this.rectsOverlap(tokenRect, blocker));

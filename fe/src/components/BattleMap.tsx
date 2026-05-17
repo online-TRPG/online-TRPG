@@ -38,6 +38,7 @@ interface BattleMapProps {
   onSelectionChange?: (selection: BattleMapSelection | null) => void;
   isInteractionLocked?: boolean;
   tokenMovementRangeFtByTokenId?: Record<string, number>;
+  attackRangeOverlay?: { tokenId: string; rangeFt: number } | null;
 }
 
 export type BattleMapSelection =
@@ -205,26 +206,82 @@ function isPointInRect(point: MeasurePoint, rect: { x: number; y: number; width:
   );
 }
 
-function lineIntersectsRect(
+function getVisionBlockerEntryCellKey(
   from: MeasurePoint,
   to: MeasurePoint,
-  rect: { x: number; y: number; width: number; height: number }
+  rect: { x: number; y: number; width: number; height: number },
+  map: VttMapStateDto
 ) {
-  if (isPointInRect(from, rect) || isPointInRect(to, rect)) return false;
+  if (isPointInRect(from, rect)) return null;
 
   const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / 8));
-  for (let index = 1; index < steps; index += 1) {
+  for (let index = 1; index <= steps; index += 1) {
     const ratio = index / steps;
     const point = {
       x: from.x + (to.x - from.x) * ratio,
       y: from.y + (to.y - from.y) * ratio,
     };
     if (isPointInRect(point, rect)) {
-      return true;
+      const column = getGridIndex(point.x, map.gridSize, map.width);
+      const row = getGridIndex(point.y, map.gridSize, map.height);
+      return `${column}:${row}`;
     }
   }
 
-  return false;
+  return null;
+}
+
+function getCellCenter(column: number, row: number, map: VttMapStateDto): MeasurePoint {
+  return {
+    x: column * map.gridSize + map.gridSize / 2,
+    y: row * map.gridSize + map.gridSize / 2,
+  };
+}
+
+function addVisionCell(visible: Set<string>, column: number, row: number, maxColumn: number, maxRow: number) {
+  if (column < 0 || row < 0 || column > maxColumn || row > maxRow) return;
+  visible.add(`${column}:${row}`);
+}
+
+function addAdjacentVisionCells(
+  visible: Set<string>,
+  source: MeasurePoint,
+  map: VttMapStateDto,
+  maxColumn: number,
+  maxRow: number
+) {
+  const sourceColumn = getGridIndex(source.x, map.gridSize, map.width);
+  const sourceRow = getGridIndex(source.y, map.gridSize, map.height);
+
+  for (let row = sourceRow - 1; row <= sourceRow + 1; row += 1) {
+    for (let column = sourceColumn - 1; column <= sourceColumn + 1; column += 1) {
+      addVisionCell(visible, column, row, maxColumn, maxRow);
+    }
+  }
+}
+
+function addRectVisionCells(
+  visible: Set<string>,
+  rect: { x: number; y: number; width: number; height: number },
+  source: MeasurePoint,
+  map: VttMapStateDto,
+  maxColumn: number,
+  maxRow: number,
+  rangePx: number
+) {
+  const minColumn = Math.max(0, Math.floor(rect.x / map.gridSize));
+  const maxRectColumn = Math.min(maxColumn, Math.ceil((rect.x + rect.width) / map.gridSize) - 1);
+  const minRow = Math.max(0, Math.floor(rect.y / map.gridSize));
+  const maxRectRow = Math.min(maxRow, Math.ceil((rect.y + rect.height) / map.gridSize) - 1);
+
+  for (let row = minRow; row <= maxRectRow; row += 1) {
+    for (let column = minColumn; column <= maxRectColumn; column += 1) {
+      const center = getCellCenter(column, row, map);
+      if (Math.hypot(center.x - source.x, center.y - source.y) <= rangePx + map.gridSize / 2) {
+        addVisionCell(visible, column, row, maxColumn, maxRow);
+      }
+    }
+  }
 }
 
 function getVisibleVisionCells(params: {
@@ -240,6 +297,7 @@ function getVisibleVisionCells(params: {
   const maxRow = Math.max(0, Math.ceil(map.height / map.gridSize) - 1);
   const rangePx = (rangeFt / feetPerGrid) * map.gridSize;
   const blockers = [
+    ...(map.terrainCells ?? []),
     ...(map.wallCells ?? []),
     ...(map.doorCells ?? []).filter((door) => door.state !== 'open' && door.state !== 'broken'),
   ];
@@ -249,6 +307,8 @@ function getVisibleVisionCells(params: {
       x: token.x + token.size / 2,
       y: token.y + token.size / 2,
     };
+    addAdjacentVisionCells(visible, source, map, maxColumn, maxRow);
+
     const minColumn = Math.max(0, Math.floor((source.x - rangePx) / map.gridSize));
     const maxSourceColumn = Math.min(maxColumn, Math.ceil((source.x + rangePx) / map.gridSize));
     const minRow = Math.max(0, Math.floor((source.y - rangePx) / map.gridSize));
@@ -263,7 +323,25 @@ function getVisibleVisionCells(params: {
         if (Math.hypot(target.x - source.x, target.y - source.y) > rangePx) {
           continue;
         }
-        if (blockers.some((blocker) => lineIntersectsRect(source, target, blocker))) {
+        const blockerHit = blockers.reduce<{
+          blocker: (typeof blockers)[number];
+          cellKey: string;
+          distance: number;
+        } | null>((nearest, blocker) => {
+          const nextKey = getVisionBlockerEntryCellKey(source, target, blocker, map);
+          if (!nextKey) return nearest;
+
+          const [nextColumn, nextRow] = nextKey.split(':').map(Number);
+          const nextPoint = getCellCenter(nextColumn, nextRow, map);
+          const distance = Math.hypot(nextPoint.x - source.x, nextPoint.y - source.y);
+          if (!nearest || distance < nearest.distance) {
+            return { blocker, cellKey: nextKey, distance };
+          }
+          return nearest;
+        }, null);
+        if (blockerHit) {
+          visible.add(blockerHit.cellKey);
+          addRectVisionCells(visible, blockerHit.blocker, source, map, maxColumn, maxRow, rangePx);
           continue;
         }
         visible.add(`${column}:${row}`);
@@ -430,6 +508,18 @@ function formatDistance(from: MeasurePoint, to: MeasurePoint, gridSize: number) 
   return `${distanceFt} ft`;
 }
 
+function getGridMovementDistanceFt(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  map: VttMapStateDto
+) {
+  const fromColumn = getGridIndex(from.x, map.gridSize, map.width);
+  const fromRow = getGridIndex(from.y, map.gridSize, map.height);
+  const toColumn = getGridIndex(to.x, map.gridSize, map.width);
+  const toRow = getGridIndex(to.y, map.gridSize, map.height);
+  return Math.max(Math.abs(toColumn - fromColumn), Math.abs(toRow - fromRow)) * feetPerGrid;
+}
+
 function BattleToken({
   token,
   color,
@@ -577,6 +667,7 @@ export function BattleMap({
   onSelectionChange,
   isInteractionLocked = false,
   tokenMovementRangeFtByTokenId,
+  attackRangeOverlay = null,
 }: BattleMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(960);
@@ -720,6 +811,10 @@ export function BattleMap({
     selectedToken && tokenMovementRangeFtByTokenId?.[selectedToken.id] !== undefined
       ? Math.max(0, tokenMovementRangeFtByTokenId[selectedToken.id])
       : selectedCharacter?.speed;
+  const attackRangeOverlayToken =
+    attackRangeOverlay && attackRangeOverlay.rangeFt > 0
+      ? (map.tokens.find((token) => token.id === attackRangeOverlay.tokenId) ?? null)
+      : null;
   const visibleTokensForDisplay = useMemo(
     () =>
       visibleTokens.filter((token) =>
@@ -1320,6 +1415,10 @@ export function BattleMap({
       return false;
     }
 
+    if (isTokenMovementOverRange(targetToken, nextPosition.x, nextPosition.y)) {
+      return false;
+    }
+
     updateMap({
       tokens: map.tokens.map((token) =>
         token.id === tokenId
@@ -1511,6 +1610,17 @@ export function BattleMap({
     ];
   }
 
+  function getTokenOccupancyBlockers(tokenId: string) {
+    return map.tokens
+      .filter((token) => token.id !== tokenId && token.hidden !== true)
+      .map((token) => ({
+        x: token.x,
+        y: token.y,
+        width: token.size,
+        height: token.size,
+      }));
+  }
+
   function getTokenMovePosition(
     token: VttMapStateDto['tokens'][number],
     x: number,
@@ -1523,6 +1633,31 @@ export function BattleMap({
     };
   }
 
+  function getTokenRemainingMovementFt(token: VttMapStateDto['tokens'][number]) {
+    const range = tokenMovementRangeFtByTokenId?.[token.id];
+    return range === undefined ? null : Math.max(0, range);
+  }
+
+  function getTokenMovementDistanceFt(
+    token: VttMapStateDto['tokens'][number],
+    x: number,
+    y: number
+  ) {
+    return getGridMovementDistanceFt({ x: token.x, y: token.y }, { x, y }, map);
+  }
+
+  function isTokenMovementOverRange(
+    token: VttMapStateDto['tokens'][number],
+    x: number,
+    y: number
+  ) {
+    const remainingMovementFt = getTokenRemainingMovementFt(token);
+    return (
+      remainingMovementFt !== null &&
+      getTokenMovementDistanceFt(token, x, y) > remainingMovementFt
+    );
+  }
+
   function isTokenPositionBlocked(token: VttMapStateDto['tokens'][number], x: number, y: number) {
     if (canEditMap) return false;
 
@@ -1533,7 +1668,9 @@ export function BattleMap({
       height: token.size,
     };
 
-    return getMovementBlockers().some((blocker) => rectsOverlap(tokenRect, blocker));
+    return [...getMovementBlockers(), ...getTokenOccupancyBlockers(token.id)].some((blocker) =>
+      rectsOverlap(tokenRect, blocker)
+    );
   }
 
   function getTokenMovementPath(
@@ -1554,10 +1691,11 @@ export function BattleMap({
 
     const destinationBlocked =
       (token.x !== x || token.y !== y) && isTokenPositionBlocked(token, x, y);
+    const overRange = isTokenMovementOverRange(token, x, y);
 
     return {
       cells,
-      blocked: cells.some((cell) => cell.blocked) || destinationBlocked,
+      blocked: cells.some((cell) => cell.blocked) || destinationBlocked || overRange,
     };
   }
 
@@ -2548,6 +2686,18 @@ export function BattleMap({
                   stroke="rgba(121, 216, 255, 0.55)"
                   strokeWidth={2}
                   dash={[10, 10]}
+                  listening={false}
+                />
+              ) : null}
+              {attackRangeOverlay && attackRangeOverlayToken ? (
+                <Circle
+                  x={attackRangeOverlayToken.x + attackRangeOverlayToken.size / 2}
+                  y={attackRangeOverlayToken.y + attackRangeOverlayToken.size / 2}
+                  radius={(attackRangeOverlay.rangeFt / feetPerGrid) * map.gridSize}
+                  fill="rgba(255, 139, 76, 0.1)"
+                  stroke="rgba(255, 139, 76, 0.72)"
+                  strokeWidth={2}
+                  dash={[8, 7]}
                   listening={false}
                 />
               ) : null}
