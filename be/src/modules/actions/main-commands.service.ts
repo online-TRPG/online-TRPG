@@ -57,6 +57,7 @@ type LoadedContext = {
   currentNodeCluesJson: string;
   currentNodeNodeMetaJson: string | null;
   currentNodeFallbackNodeId: string | null;
+  flagsJson: string | null;
 };
 
 type IntentRequirement = {
@@ -93,12 +94,63 @@ type TransitionConditionEvaluation = {
   missingTerms: string[];
 };
 
+type TransitionConditionContractRequirement = {
+  type:
+    | "ACTION_EVIDENCE"
+    | "CLUE_REVEALED"
+    | "CLUE_NOT_REVEALED"
+    | "OBJECT_STATE"
+    | "FLAG_SET"
+    | "COMBAT_RESOLVED"
+    | "GM_APPROVAL";
+  text: string;
+  polarity?: "MUST" | "MUST_NOT";
+};
+
+type TransitionConditionCandidateContract = {
+  transitionId?: string | null;
+  targetNodeId: string;
+  logic: "ALL" | "ANY";
+  requirements: TransitionConditionContractRequirement[];
+  confidence: number;
+  rationale?: string | null;
+};
+
+type TransitionEvidence = {
+  recentLogs: string[];
+  revealedClues: string[];
+  unrevealedClues: string[];
+  flags: Record<string, unknown>;
+  currentNodeId: string;
+  combatResolvedForCurrentNode: boolean;
+};
+
 type VttDoorCheckEffect = {
   type: "vttDoor";
   doorId: string;
   effect: "open" | "broken";
   nodeId: string;
   mapPoint: { x: number; y: number };
+};
+
+type MainCommandCheckEffect = {
+  type: "mainCommandCheck";
+  requestId: string;
+  nodeId: string;
+  intent: MainCommandIntent;
+  screenType: MainCommandScreenType;
+  playerText: string;
+  actionSummary: string;
+  targetId: string | null;
+  targetName: string | null;
+  itemId: string | null;
+  itemName: string | null;
+  mapPoint: { x: number; y: number } | null;
+  checkOption: MainCommandCheckOptionDto | null;
+  visibleEntityNames: string[];
+  publicClues: string[];
+  sceneText: string;
+  actionCandidate: MainCommandActionCandidateDto | null;
 };
 
 type InterpreterActionRoute =
@@ -134,6 +186,10 @@ type InterpreterParsedForRouting = {
   action: InterpreterActionForRouting;
   mentionedItemId?: string | null;
   mentionedSpellId?: string | null;
+  sceneTransition?: {
+    selectedTargetNodeId?: string | null;
+    candidates?: TransitionConditionCandidateContract[];
+  } | null;
 };
 
 const AUTO_TRANSITION_CONDITIONS = new Set([
@@ -182,15 +238,27 @@ const TRANSITION_CONDITION_STOP_WORDS = new Set([
   "그리고",
   "기본",
   "노드",
+  "가능",
+  "가능한",
+  "가능해야",
   "다음",
   "때",
   "또는",
   "및",
+  "밝혀야",
+  "밝히기",
+  "성공",
   "상태",
   "시",
   "이후",
   "이동",
+  "이동가능",
   "완료",
+  "하거나",
+  "오브젝트",
+  "요구",
+  "필요",
+  "필요함",
   "장면",
   "전",
   "전이",
@@ -368,7 +436,7 @@ export class MainCommandsService {
     const publicClues = this.extractPublicClueSummaries(context.currentNodeCluesJson);
     this.validateIntentPayload(dto, visibleEntities);
 
-    const response =
+    let response =
       dto.intent === MainCommandIntent.GENERAL_GM_REQUEST
         ? await this.handleGeneralGmRequest(
             requestId,
@@ -388,10 +456,20 @@ export class MainCommandsService {
             recentLogs,
             publicClues,
           );
+    response = this.attachMainCommandCheckEffect(
+      response,
+      requestId,
+      context,
+      dto,
+      visibleEntities,
+      publicClues,
+    );
 
     const turnLog = await this.persistResult(userId, context, dto, response);
     const objectRevealCount =
-      dto.intent === MainCommandIntent.INVESTIGATE_OBJECT && dto.mapPoint
+      response.status !== MainCommandStatus.CHECK_REQUIRED &&
+      dto.intent === MainCommandIntent.INVESTIGATE_OBJECT &&
+      dto.mapPoint
         ? await this.sessionsService.revealVttObjectContentsAtPoint({
             sessionId: context.sessionId,
             sessionScenarioId: context.sessionScenarioId,
@@ -406,6 +484,7 @@ export class MainCommandsService {
       dto.intent === MainCommandIntent.DECLARE_RP_ACTION ||
       response.status === MainCommandStatus.IMPOSSIBLE ||
       response.status === MainCommandStatus.GM_APPROVAL_REQUIRED ||
+      response.status === MainCommandStatus.CHECK_REQUIRED ||
       !response.actionCandidate
         ? 0
         : await this.sessionsService.revealCurrentNodeCluesAfterAction({
@@ -418,6 +497,7 @@ export class MainCommandsService {
             revealedBy: "system",
           });
     if (revealCount + objectRevealCount > 0) {
+      await this.markScenarioStateChanged(context.sessionScenarioId);
       this.realtimeEvents.emitSessionSnapshot(
         context.sessionId,
         await this.sessionsService.buildSnapshot(context.sessionId),
@@ -436,60 +516,136 @@ export class MainCommandsService {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     const effect = this.parseVttDoorCheckEffect(dto.effect);
 
-    if (!effect) {
+    if (effect) {
+      if (state.currentNodeId && effect.nodeId !== state.currentNodeId) {
+        return {
+          requestId: dto.requestId ?? randomUUID(),
+          status: MainCommandStatus.IMPOSSIBLE,
+          message: "현재 노드와 다른 문 판정 결과는 반영할 수 없습니다.",
+        };
+      }
+
+      const result =
+        dto.outcome === ActionOutcome.SUCCESS
+          ? await this.sessionsService.applyVttDoorCheckSuccess({
+              sessionId: session.id,
+              sessionScenarioId: sessionScenario.id,
+              doorId: effect.doorId,
+              nodeId: effect.nodeId,
+              effect: effect.effect,
+            })
+          : {
+              status: MainCommandStatus.MESSAGE,
+              message:
+                effect.effect === "open"
+                  ? "판정에 실패해 문은 아직 잠겨 있습니다."
+                  : "판정에 실패해 문은 부서지지 않았습니다.",
+            };
+
+      const turnLog = await this.turnLogsService.createTurnLog({
+        sessionId: session.id,
+        sessionScenarioId: sessionScenario.id,
+        actorUserId: userId,
+        sessionCharacterId: dto.actorId ?? null,
+        rawInput: null,
+        structuredAction: {
+          type: "main_command_check_result",
+          requestId: dto.requestId ?? null,
+          outcome: dto.outcome,
+          effect,
+        },
+        outcome: dto.outcome,
+        narration: result.message,
+      });
+      this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
+
+      return {
+        requestId: dto.requestId ?? randomUUID(),
+        status: result.status,
+        message: result.message,
+        data: { effect },
+      };
+    }
+
+    const mainCommandEffect = this.parseMainCommandCheckEffect(dto.effect);
+    if (!mainCommandEffect) {
       return {
         requestId: dto.requestId ?? randomUUID(),
         status: MainCommandStatus.IMPOSSIBLE,
         message: "처리할 수 없는 판정 후속 효과입니다.",
       };
     }
-    if (state.currentNodeId && effect.nodeId !== state.currentNodeId) {
+    if (state.currentNodeId && mainCommandEffect.nodeId !== state.currentNodeId) {
       return {
         requestId: dto.requestId ?? randomUUID(),
         status: MainCommandStatus.IMPOSSIBLE,
-        message: "현재 노드와 다른 문 판정 결과는 반영할 수 없습니다.",
+        message: "현재 노드와 다른 판정 결과는 반영할 수 없습니다.",
       };
     }
 
-    const result =
-      dto.outcome === ActionOutcome.SUCCESS
-        ? await this.sessionsService.applyVttDoorCheckSuccess({
-            sessionId: session.id,
-            sessionScenarioId: sessionScenario.id,
-            doorId: effect.doorId,
-            nodeId: effect.nodeId,
-            effect: effect.effect,
-          })
-        : {
-            status: MainCommandStatus.MESSAGE,
-            message:
-              effect.effect === "open"
-                ? "판정에 실패해 문은 아직 잠겨 있습니다."
-                : "판정에 실패해 문은 부서지지 않았습니다.",
-          };
+    const result = {
+      status:
+        dto.outcome === ActionOutcome.SUCCESS
+          ? MainCommandStatus.RESOLVED
+          : MainCommandStatus.MESSAGE,
+      message: this.buildMainCommandCheckResultMessage(mainCommandEffect, dto.outcome),
+    };
 
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId: session.id,
       sessionScenarioId: sessionScenario.id,
       actorUserId: userId,
       sessionCharacterId: dto.actorId ?? null,
-      rawInput: result.message,
+      rawInput: null,
       structuredAction: {
         type: "main_command_check_result",
         requestId: dto.requestId ?? null,
         outcome: dto.outcome,
-        effect,
+        effect: mainCommandEffect,
       },
       outcome: dto.outcome,
       narration: result.message,
     });
     this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
 
+    if (dto.outcome === ActionOutcome.SUCCESS) {
+      const revealCount = mainCommandEffect.actionCandidate
+        ? await this.sessionsService.revealCurrentNodeCluesAfterAction({
+            sessionScenarioId: sessionScenario.id,
+            nodeId: mainCommandEffect.nodeId,
+            actionText: mainCommandEffect.playerText,
+            outcome: ActionOutcome.SUCCESS,
+            policyModes: ["PLAYER_ACTION"],
+            turnLogId: turnLog.turnLogId,
+            revealedBy: "system",
+          })
+        : 0;
+      const objectRevealCount =
+        mainCommandEffect.intent === MainCommandIntent.INVESTIGATE_OBJECT &&
+        mainCommandEffect.mapPoint
+          ? await this.sessionsService.revealVttObjectContentsAtPoint({
+              sessionId: session.id,
+              sessionScenarioId: sessionScenario.id,
+              nodeId: mainCommandEffect.nodeId,
+              mapPoint: mainCommandEffect.mapPoint,
+              turnLogId: turnLog.turnLogId,
+              revealedBy: "system",
+            })
+          : 0;
+      if (revealCount + objectRevealCount > 0) {
+        await this.markScenarioStateChanged(sessionScenario.id);
+        this.realtimeEvents.emitSessionSnapshot(
+          session.id,
+          await this.sessionsService.buildSnapshot(session.id),
+        );
+      }
+    }
+
     return {
       requestId: dto.requestId ?? randomUUID(),
       status: result.status,
       message: result.message,
-      data: { effect },
+      data: { effect: mainCommandEffect },
     };
   }
 
@@ -625,6 +781,7 @@ export class MainCommandsService {
       currentNodeCluesJson: currentNode.cluesJson,
       currentNodeNodeMetaJson: currentNode.nodeMetaJson,
       currentNodeFallbackNodeId: currentNode.fallbackNodeId,
+      flagsJson: state.flagsJson,
     };
   }
 
@@ -1096,7 +1253,7 @@ export class MainCommandsService {
       case MainCommandIntent.DECLARE_RP_ACTION:
         return this.handleDeclareRpAction(requestId, context, dto);
       case MainCommandIntent.ASK_SCENE_INFO:
-        return this.handleSceneInfo(requestId, context, dto, visibleEntities, publicClues);
+        return this.handleSceneInfo(requestId, context, dto, visibleEntities);
       case MainCommandIntent.ASK_HINT:
         return await this.handleHint(requestId, userId, context, dto, recentLogs, publicClues);
       case MainCommandIntent.ASK_SUMMARY:
@@ -1104,7 +1261,7 @@ export class MainCommandsService {
       case MainCommandIntent.REQUEST_SCENE_TRANSITION:
         return await this.handleSceneTransition(requestId, userId, context, dto, recentLogs, publicClues);
       case MainCommandIntent.OBSERVE_AREA:
-        return await this.handleObserveArea(requestId, userId, context, dto, visibleEntities, publicClues);
+        return await this.handleObserveArea(requestId, userId, context, dto, visibleEntities);
       case MainCommandIntent.INVESTIGATE_OBJECT:
         return await this.handleInvestigateObject(requestId, userId, context, dto, visibleEntities);
       case MainCommandIntent.LISTEN:
@@ -1554,7 +1711,6 @@ export class MainCommandsService {
     context: LoadedContext,
     dto: SubmitMainCommandDto,
     visibleEntities: VisibleSceneEntity[],
-    publicClues: string[],
   ): Promise<MainCommandResponseDto> {
     const interpreter = await this.aiService.runInterpreter(
       context.sessionId,
@@ -1589,9 +1745,6 @@ export class MainCommandsService {
     const visibleSummary = visibleEntities.length
       ? `보이는 대상: ${visibleEntities.map((entity) => entity.name).join(", ")}.`
       : "눈에 띄는 대상은 아직 없습니다.";
-    const clueSummary = publicClues.length
-      ? ` 공개 단서: ${publicClues.join(" / ")}`
-      : "";
     const pointSummary = dto.mapPoint
       ? ` (${dto.mapPoint.x}, ${dto.mapPoint.y}) 주변을 기준으로 살펴봅니다.`
       : "";
@@ -1599,7 +1752,7 @@ export class MainCommandsService {
     return {
       requestId,
       status: MainCommandStatus.MESSAGE,
-      message: `${context.currentNodeSceneText}${pointSummary} ${visibleSummary}${clueSummary}`.trim(),
+      message: `${context.currentNodeSceneText}${pointSummary} ${visibleSummary}`.trim(),
       actionCandidate: this.buildActionCandidate(context, dto, actionSummary),
     };
   }
@@ -2660,7 +2813,6 @@ export class MainCommandsService {
     context: LoadedContext,
     dto: SubmitMainCommandDto,
     visibleEntities: VisibleSceneEntity[],
-    publicClues: string[],
   ): MainCommandResponseDto {
     const entity = this.resolveEntity(dto, visibleEntities, dto.targetType);
     if (entity) {
@@ -2671,11 +2823,10 @@ export class MainCommandsService {
       };
     }
 
-    const clueText = publicClues.length ? ` 공개 단서: ${publicClues.join(" / ")}` : "";
     return {
       requestId,
       status: MainCommandStatus.MESSAGE,
-      message: `${context.currentNodeSceneText}${clueText}`,
+      message: context.currentNodeSceneText,
     };
   }
 
@@ -2698,15 +2849,87 @@ export class MainCommandsService {
 
     const matched = this.matchTransitionCandidate(candidates, dto);
     if (!matched && candidates.length > 1) {
+      const aiSelected = await this.selectTransitionCandidateWithAi(
+        userId,
+        context,
+        dto,
+        candidates,
+        recentLogs,
+      );
+      if (!aiSelected) {
+        return {
+          requestId,
+          status: MainCommandStatus.GM_APPROVAL_REQUIRED,
+          message: `이동 후보를 더 분명히 지정해주세요. 가능한 목적지: ${candidates.map((item) => item.title).join(", ")}`,
+        };
+      }
+      const aiConditionResult = aiSelected.conditionResult;
+      const finalConditionResult = aiConditionResult.satisfied
+        ? aiConditionResult
+        : await this.evaluateTransitionConditionWithRevealedClues(
+            context,
+            aiSelected.target,
+            dto,
+            recentLogs,
+            publicClues,
+          );
+      if (!finalConditionResult.satisfied) {
+        return {
+          requestId,
+          status: finalConditionResult.needsReview
+            ? MainCommandStatus.GM_APPROVAL_REQUIRED
+            : MainCommandStatus.IMPOSSIBLE,
+          message: finalConditionResult.reason,
+          data: {
+            transitionCondition: aiSelected.target.condition ?? null,
+            matchedTerms: finalConditionResult.matchedTerms,
+            missingTerms: finalConditionResult.missingTerms,
+          },
+        };
+      }
+
+      await this.applySceneTransition(context, aiSelected.target.nodeId);
+
+      const snapshot = await this.sessionsService.buildSnapshot(context.sessionId);
+      this.realtimeEvents.emitSessionSnapshot(context.sessionId, snapshot);
+
       return {
         requestId,
-        status: MainCommandStatus.GM_APPROVAL_REQUIRED,
-        message: `이동 후보를 더 분명히 지정해주세요. 가능한 목적지: ${candidates.map((item) => item.title).join(", ")}`,
+        status: MainCommandStatus.RESOLVED,
+        message: `${aiSelected.target.title} 화면으로 이동했습니다.`,
+        data: {
+          transitionCondition: aiSelected.target.condition ?? null,
+          transitionLabel: aiSelected.target.label ?? null,
+          conditionMatchedTerms: finalConditionResult.matchedTerms,
+        },
+        statePatch: {
+          currentNodeId: aiSelected.target.nodeId,
+          nodeType: aiSelected.target.nodeType,
+          phase: this.toPhaseForNodeType(aiSelected.target.nodeType),
+        },
       };
     }
 
     const target = matched ?? candidates[0];
-    const conditionResult = this.evaluateTransitionCondition(target, dto, recentLogs, publicClues);
+    const aiSelected = this.isAutoTransitionCondition(target.condition?.trim() ?? "")
+      ? null
+      : await this.selectTransitionCandidateWithAi(
+          userId,
+          context,
+          dto,
+          [target],
+          recentLogs,
+        );
+    const fallbackConditionResult = await this.evaluateTransitionConditionWithRevealedClues(
+      context,
+      target,
+      dto,
+      recentLogs,
+      publicClues,
+    );
+    const conditionResult = aiSelected?.conditionResult.satisfied
+      ? aiSelected.conditionResult
+      : fallbackConditionResult;
     if (!conditionResult.satisfied) {
       return {
         requestId,
@@ -2841,12 +3064,137 @@ export class MainCommandsService {
     };
   }
 
+  private buildTransitionInterpreterPayload(
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    candidates: TransitionCandidate[],
+    evidence: TransitionEvidence,
+  ) {
+    return {
+      ...this.buildInterpreterPayload(context, dto, [], evidence.recentLogs.slice(-6)),
+      transitionCandidates: candidates.map((candidate) => ({
+        transitionId: candidate.transitionId,
+        label: candidate.label,
+        condition: candidate.condition,
+        note: candidate.note,
+        targetNodeId: candidate.nodeId,
+        targetTitle: candidate.title,
+        nodeType: candidate.nodeType,
+      })),
+      transitionEvidence: evidence,
+    };
+  }
+
+  private async selectTransitionCandidateWithAi(
+    userId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    candidates: TransitionCandidate[],
+    recentLogs: string[],
+  ): Promise<{ target: TransitionCandidate; conditionResult: TransitionConditionEvaluation } | null> {
+    const evidence = await this.buildTransitionEvidence(context, recentLogs);
+    const interpreter = await this.aiService
+      .runInterpreter(
+        context.sessionId,
+        userId,
+        this.buildTransitionInterpreterPayload(context, dto, candidates, evidence),
+      )
+      .catch(() => null);
+    if (!interpreter) {
+      return null;
+    }
+    const contract = interpreter.parsed.sceneTransition;
+    const contracts = contract?.candidates ?? [];
+    if (!contracts.length) {
+      return null;
+    }
+
+    const validContracts = contracts.filter((contractCandidate) =>
+      candidates.some((candidate) => candidate.nodeId === contractCandidate.targetNodeId),
+    );
+    if (!validContracts.length) {
+      return null;
+    }
+
+    const evaluatedContracts = validContracts.map((contractCandidate) => ({
+      contract: contractCandidate,
+      conditionResult: this.evaluateTransitionConditionContract(contractCandidate, evidence),
+    }));
+    const selectedTargetNodeId = contract?.selectedTargetNodeId ?? null;
+    const selectedEvaluation = selectedTargetNodeId
+      ? evaluatedContracts.find((candidate) => candidate.contract.targetNodeId === selectedTargetNodeId)
+      : null;
+    const chosenEvaluation =
+      (selectedEvaluation?.conditionResult.satisfied ? selectedEvaluation : null) ??
+      evaluatedContracts.find((candidate) => candidate.conditionResult.satisfied) ??
+      selectedEvaluation ??
+      evaluatedContracts[0];
+    const target = candidates.find((candidate) => candidate.nodeId === chosenEvaluation.contract.targetNodeId);
+    if (!target) {
+      return null;
+    }
+
+    return {
+      target,
+      conditionResult: chosenEvaluation.conditionResult,
+    };
+  }
+
+  private async buildTransitionEvidence(
+    context: LoadedContext,
+    recentLogs: string[],
+  ): Promise<TransitionEvidence> {
+    const flags = this.parseJson<Record<string, unknown>>(context.flagsJson, {});
+    const completedCombatNodeIds = Array.isArray(flags.completedCombatNodeIds)
+      ? flags.completedCombatNodeIds.filter((value): value is string => typeof value === "string")
+      : [];
+    const revealedClues = await this.loadRevealedClueSummaries(context.sessionScenarioId);
+    const revealedClueText = this.normalizeTransitionConditionText(revealedClues.join(" "));
+    const unrevealedClues = this.extractPublicClueSummaries(context.currentNodeCluesJson).filter(
+      (clue) => !this.textEvidenceMatches(clue, revealedClueText),
+    );
+
+    return {
+      recentLogs,
+      revealedClues,
+      unrevealedClues,
+      flags,
+      currentNodeId: context.currentNodeId,
+      combatResolvedForCurrentNode: completedCombatNodeIds.includes(context.currentNodeId),
+    };
+  }
+
+  private async loadRevealedClueSummaries(sessionScenarioId: string): Promise<string[]> {
+    const reveals = await this.prisma.sessionReveal.findMany({
+      where: {
+        sessionScenarioId,
+        contentKind: "clue",
+      },
+      orderBy: { revealedAt: "asc" },
+    });
+
+    return reveals
+      .map((reveal) => {
+        const snapshot = this.parseJson<Record<string, unknown>>(reveal.snapshotJson, {});
+        const title = this.readString(snapshot.title) ?? reveal.contentId;
+        const text =
+          this.readString(snapshot.handoutText) ??
+          this.readString(snapshot.playerText) ??
+          this.readString(snapshot.text) ??
+          this.readString(snapshot.revelation);
+        return [title, text].filter((value): value is string => Boolean(value)).join(": ");
+      })
+      .filter(Boolean);
+  }
+
   private loadRuleFragments(): RuleFragmentSummary[] {
     if (this.ruleFragmentsCache) {
       return this.ruleFragmentsCache;
     }
 
     const candidatePaths = [
+      join(process.cwd(), "srd-data", "generated", "srd", "rule_fragments.jsonl"),
+      join(process.cwd(), "..", "srd-data", "generated", "srd", "rule_fragments.jsonl"),
       join(process.cwd(), "ai", "generated", "srd", "rule_fragments.jsonl"),
       join(process.cwd(), "..", "ai", "generated", "srd", "rule_fragments.jsonl"),
     ];
@@ -3208,6 +3556,121 @@ export class MainCommandsService {
     };
   }
 
+  private attachMainCommandCheckEffect(
+    response: MainCommandResponseDto,
+    requestId: string,
+    context: LoadedContext,
+    dto: SubmitMainCommandDto,
+    visibleEntities: VisibleSceneEntity[],
+    publicClues: string[],
+  ): MainCommandResponseDto {
+    if (response.status !== MainCommandStatus.CHECK_REQUIRED) {
+      return response;
+    }
+
+    const data: Record<string, unknown> = response.data ?? {};
+    if (data.checkEffect) {
+      return response;
+    }
+
+    const target = dto.targetId
+      ? visibleEntities.find((entity) => entity.id === dto.targetId)
+      : null;
+    const item = dto.itemId
+      ? context.inventoryItems.find((entry) => entry.id === dto.itemId)
+      : null;
+    const effect: MainCommandCheckEffect = {
+      type: "mainCommandCheck",
+      requestId,
+      nodeId: context.currentNodeId,
+      intent: dto.intent,
+      screenType: dto.screenType,
+      playerText: dto.playerText,
+      actionSummary: response.actionCandidate?.actionSummary ?? dto.playerText,
+      targetId: dto.targetId ?? null,
+      targetName: target?.name ?? null,
+      itemId: dto.itemId ?? null,
+      itemName: item?.name ?? null,
+      mapPoint: dto.mapPoint ?? null,
+      checkOption: response.checkOptions?.[0] ?? null,
+      visibleEntityNames: visibleEntities.map((entity) => entity.name),
+      publicClues,
+      sceneText: context.currentNodeSceneText,
+      actionCandidate: response.actionCandidate ?? null,
+    };
+
+    return {
+      ...response,
+      data: {
+        ...data,
+        checkEffect: effect,
+      },
+    };
+  }
+
+  private buildMainCommandCheckResultMessage(
+    effect: MainCommandCheckEffect,
+    outcome: ActionOutcome,
+  ): string {
+    const actionSummary = effect.actionSummary || effect.playerText || "시도";
+    const targetLabel = effect.targetName ? `${effect.targetName}에 대한 ` : "";
+    const pointLabel = effect.mapPoint
+      ? ` (${effect.mapPoint.x}, ${effect.mapPoint.y}) 주변`
+      : "";
+
+    if (outcome !== ActionOutcome.SUCCESS) {
+      if (effect.intent === MainCommandIntent.OBSERVE_AREA) {
+        return `판정에 실패했습니다. ${pointLabel || "주변"}을 살폈지만 확실한 단서나 위협은 파악하지 못했습니다.`;
+      }
+      if (effect.intent === MainCommandIntent.LISTEN) {
+        return "판정에 실패했습니다. 소리와 기척이 주변 소음에 묻혀 뚜렷한 정보를 얻지 못했습니다.";
+      }
+      if (effect.intent === MainCommandIntent.DETECT_DANGER) {
+        return "판정에 실패했습니다. 당장은 위험의 징후를 특정하지 못했습니다.";
+      }
+      return `판정에 실패했습니다. ${targetLabel}${actionSummary}은(는) 원하는 성과를 내지 못했습니다.`;
+    }
+
+    const visibleSummary = effect.visibleEntityNames.length
+      ? ` 눈에 띄는 대상: ${effect.visibleEntityNames.join(", ")}.`
+      : "";
+
+    if (effect.intent === MainCommandIntent.OBSERVE_AREA) {
+      return `판정에 성공했습니다. ${pointLabel || "주변"}을 면밀히 살펴 현재 장면의 중요한 변화와 단서를 파악합니다.${visibleSummary}`.trim();
+    }
+    if (
+      effect.intent === MainCommandIntent.INVESTIGATE_OBJECT ||
+      effect.intent === MainCommandIntent.INSPECT_STORY_OBJECT
+    ) {
+      const objectLabel = effect.targetName ?? "대상";
+      return `판정에 성공했습니다. ${objectLabel}을(를) 조사해 겉으로 보이지 않던 정보를 알아냅니다.`;
+    }
+    if (effect.intent === MainCommandIntent.LISTEN) {
+      return "판정에 성공했습니다. 주변 소리와 기척을 구분해 의미 있는 단서를 잡아냅니다.";
+    }
+    if (effect.intent === MainCommandIntent.DETECT_DANGER) {
+      return "판정에 성공했습니다. 위험의 징후를 감지해 다음 행동을 더 조심스럽게 정할 수 있습니다.";
+    }
+    if (
+      effect.intent === MainCommandIntent.SOCIAL_PERSUADE ||
+      effect.intent === MainCommandIntent.SOCIAL_INTIMIDATE ||
+      effect.intent === MainCommandIntent.SOCIAL_DECEIVE ||
+      effect.intent === MainCommandIntent.READ_EMOTION
+    ) {
+      const npcLabel = effect.targetName ?? "대상";
+      return `판정에 성공했습니다. ${npcLabel}에게 시도가 통하며 반응에서 의미 있는 정보를 얻습니다.`;
+    }
+
+    return `판정에 성공했습니다. ${targetLabel}${actionSummary}이(가) 의도대로 진행됩니다.`;
+  }
+
+  private async markScenarioStateChanged(sessionScenarioId: string): Promise<void> {
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId },
+      data: { version: { increment: 1 } },
+    });
+  }
+
   private async persistResult(
     userId: string,
     context: LoadedContext,
@@ -3256,6 +3719,90 @@ export class MainCommandsService {
       : response.status === MainCommandStatus.RESOLVED
         ? ActionOutcome.SUCCESS
         : ActionOutcome.NO_ROLL;
+  }
+
+  private parseMainCommandCheckEffect(value: Record<string, unknown>): MainCommandCheckEffect | null {
+    if (value.type !== "mainCommandCheck") {
+      return null;
+    }
+
+    const requestId = this.readString(value.requestId);
+    const nodeId = this.readString(value.nodeId);
+    const intent = this.readString(value.intent);
+    const screenType = this.readString(value.screenType);
+    const playerText = this.readString(value.playerText);
+    const actionSummary = this.readString(value.actionSummary) ?? playerText;
+    if (
+      !requestId ||
+      !nodeId ||
+      !intent ||
+      !screenType ||
+      !playerText ||
+      !Object.values(MainCommandIntent).includes(intent as MainCommandIntent) ||
+      !Object.values(MainCommandScreenType).includes(screenType as MainCommandScreenType)
+    ) {
+      return null;
+    }
+
+    const mapPoint = this.readPoint(value.mapPoint);
+    const checkOption =
+      value.checkOption && typeof value.checkOption === "object"
+        ? this.parseCheckOption(value.checkOption as Record<string, unknown>)
+        : null;
+    const actionCandidate =
+      value.actionCandidate && typeof value.actionCandidate === "object"
+        ? this.parseActionCandidate(value.actionCandidate as Record<string, unknown>)
+        : null;
+
+    return {
+      type: "mainCommandCheck",
+      requestId,
+      nodeId,
+      intent: intent as MainCommandIntent,
+      screenType: screenType as MainCommandScreenType,
+      playerText,
+      actionSummary: actionSummary ?? playerText,
+      targetId: this.readString(value.targetId),
+      targetName: this.readString(value.targetName),
+      itemId: this.readString(value.itemId),
+      itemName: this.readString(value.itemName),
+      mapPoint,
+      checkOption,
+      visibleEntityNames: this.readStringArray(value.visibleEntityNames),
+      publicClues: this.readStringArray(value.publicClues),
+      sceneText: this.readString(value.sceneText) ?? "",
+      actionCandidate,
+    };
+  }
+
+  private parseCheckOption(value: Record<string, unknown>): MainCommandCheckOptionDto | null {
+    const reason = this.readString(value.reason);
+    if (!reason) {
+      return null;
+    }
+
+    return {
+      ...(this.readString(value.ability) ? { ability: this.readString(value.ability) ?? undefined } : {}),
+      ...(this.readString(value.skill) ? { skill: this.readString(value.skill) ?? undefined } : {}),
+      reason,
+    };
+  }
+
+  private parseActionCandidate(
+    value: Record<string, unknown>,
+  ): MainCommandActionCandidateDto | null {
+    const actorId = this.readString(value.actorId);
+    const actionSummary = this.readString(value.actionSummary);
+    if (!actorId || !actionSummary) {
+      return null;
+    }
+
+    return {
+      actorId,
+      targetId: this.readString(value.targetId),
+      actionSummary,
+      declaredMethod: this.readString(value.declaredMethod),
+    };
   }
 
   private parseVttDoorCheckEffect(value: Record<string, unknown>): VttDoorCheckEffect | null {
@@ -3546,7 +4093,12 @@ export class MainCommandsService {
       };
     }
 
-    const conditionTerms = this.extractTransitionConditionTerms(condition);
+    const alternatives = this.extractTransitionConditionAlternatives(condition);
+    const candidateTermGroups = alternatives.length
+      ? alternatives.map((alternative) => this.extractTransitionConditionTerms(alternative))
+      : [this.extractTransitionConditionTerms(condition)];
+    const nonEmptyTermGroups = candidateTermGroups.filter((terms) => terms.length > 0);
+    const conditionTerms = this.dedupeTerms(nonEmptyTermGroups.flat());
     if (!conditionTerms.length) {
       return {
         satisfied: false,
@@ -3557,12 +4109,107 @@ export class MainCommandsService {
       };
     }
 
-    const matchedTerms = conditionTerms.filter((term) => evidenceText.includes(term));
-    const missingTerms = conditionTerms.filter((term) => !evidenceText.includes(term));
-    const requiredMatchCount =
-      conditionTerms.length <= 3 ? conditionTerms.length : Math.ceil(conditionTerms.length * 0.7);
+    const evaluations = nonEmptyTermGroups.map((terms) => {
+      const matchedTerms = terms.filter((term) => evidenceText.includes(term));
+      const missingTerms = terms.filter((term) => !evidenceText.includes(term));
+      const requiredMatchCount = terms.length <= 3 ? terms.length : Math.ceil(terms.length * 0.7);
+      return {
+        terms,
+        matchedTerms,
+        missingTerms,
+        requiredMatchCount,
+      };
+    });
+    const satisfiedEvaluation = evaluations.find(
+      (evaluation) => evaluation.matchedTerms.length >= evaluation.requiredMatchCount,
+    );
 
-    if (matchedTerms.length >= requiredMatchCount) {
+    if (satisfiedEvaluation) {
+      return {
+        satisfied: true,
+        needsReview: false,
+        reason: "장면 진행 조건을 만족했습니다.",
+        matchedTerms: satisfiedEvaluation.matchedTerms,
+        missingTerms: satisfiedEvaluation.missingTerms,
+      };
+    }
+
+    const bestEvaluation =
+      evaluations
+        .filter((evaluation) => evaluation.matchedTerms.length > 0)
+        .sort((left, right) => {
+          const leftScore = left.matchedTerms.length / left.terms.length;
+          const rightScore = right.matchedTerms.length / right.terms.length;
+          return rightScore - leftScore;
+        })[0] ?? null;
+
+    if (bestEvaluation) {
+      return {
+        satisfied: false,
+        needsReview: true,
+        reason: `장면 이동 조건 "${condition}"을 아직 만족하지 못했습니다. 조건을 만족하는 행동이나 단서가 기록되어 있는지 확인해주세요.`,
+        matchedTerms: bestEvaluation.matchedTerms,
+        missingTerms: bestEvaluation.missingTerms,
+      };
+    }
+
+    return {
+      satisfied: false,
+      needsReview: false,
+      reason: `아직 장면 이동 조건을 만족하지 못했습니다. 필요한 조건: ${condition}`,
+      matchedTerms: [],
+      missingTerms: conditionTerms,
+    };
+  }
+
+  private async evaluateTransitionConditionWithRevealedClues(
+    context: LoadedContext,
+    candidate: TransitionCandidate,
+    dto: SubmitMainCommandDto,
+    recentLogs: string[],
+    publicClues: string[],
+  ): Promise<TransitionConditionEvaluation> {
+    const revealedClues = await this.loadRevealedClueSummaries(context.sessionScenarioId);
+    return this.evaluateTransitionCondition(
+      candidate,
+      dto,
+      recentLogs,
+      this.dedupeTerms([...publicClues, ...revealedClues]),
+    );
+  }
+
+  private evaluateTransitionConditionContract(
+    contract: TransitionConditionCandidateContract,
+    evidence: TransitionEvidence,
+  ): TransitionConditionEvaluation {
+    if (!contract.requirements.length) {
+      return {
+        satisfied: true,
+        needsReview: false,
+        reason: "조건 없이 이동 가능한 연결입니다.",
+        matchedTerms: [],
+        missingTerms: [],
+      };
+    }
+
+    const results = contract.requirements.map((requirement) => {
+      const satisfied = this.evaluateTransitionRequirement(requirement, evidence);
+      return {
+        requirement,
+        satisfied,
+        label: `${requirement.type}:${requirement.text}`,
+      };
+    });
+    const satisfied =
+      contract.logic === "ANY" ? results.some((result) => result.satisfied) : results.every((result) => result.satisfied);
+    const matchedTerms = results
+      .filter((result) => result.satisfied)
+      .map((result) => result.label);
+    const missingTerms = results
+      .filter((result) => !result.satisfied)
+      .map((result) => result.label);
+
+    if (satisfied) {
       return {
         satisfied: true,
         needsReview: false,
@@ -3572,23 +4219,65 @@ export class MainCommandsService {
       };
     }
 
-    if (matchedTerms.length > 0) {
-      return {
-        satisfied: false,
-        needsReview: true,
-        reason: `장면 이동 조건 "${condition}"을 일부만 확인했습니다. 부족한 단서: ${missingTerms.join(", ")}`,
-        matchedTerms,
-        missingTerms,
-      };
-    }
+    const requiresGmApproval = results.some(
+      (result) => result.requirement.type === "GM_APPROVAL" || contract.confidence < 0.55,
+    );
 
     return {
       satisfied: false,
-      needsReview: false,
-      reason: `아직 장면 이동 조건을 만족하지 못했습니다. 필요한 조건: ${condition}`,
+      needsReview: requiresGmApproval || matchedTerms.length > 0,
+      reason: matchedTerms.length
+        ? `장면 이동 조건을 일부만 확인했습니다. 부족한 조건: ${missingTerms.join(", ")}`
+        : `아직 장면 이동 조건을 만족하지 못했습니다. 필요한 조건: ${missingTerms.join(", ")}`,
       matchedTerms,
       missingTerms,
     };
+  }
+
+  private evaluateTransitionRequirement(
+    requirement: TransitionConditionContractRequirement,
+    evidence: TransitionEvidence,
+  ): boolean {
+    const polarity = requirement.polarity ?? "MUST";
+    const positiveResult = (() => {
+      switch (requirement.type) {
+        case "ACTION_EVIDENCE":
+        case "OBJECT_STATE":
+          return this.textEvidenceMatches(
+            requirement.text,
+            this.normalizeTransitionConditionText(evidence.recentLogs.join(" ")),
+          );
+        case "CLUE_REVEALED":
+          return this.textEvidenceMatches(
+            requirement.text,
+            this.normalizeTransitionConditionText(evidence.revealedClues.join(" ")),
+          );
+        case "CLUE_NOT_REVEALED":
+          return !this.textEvidenceMatches(
+            requirement.text,
+            this.normalizeTransitionConditionText(evidence.revealedClues.join(" ")),
+          );
+        case "COMBAT_RESOLVED":
+          return (
+            evidence.combatResolvedForCurrentNode ||
+            this.textEvidenceMatches(
+              requirement.text || "전투 종료",
+              this.normalizeTransitionConditionText(evidence.recentLogs.join(" ")),
+            )
+          );
+        case "FLAG_SET":
+          return this.textEvidenceMatches(
+            requirement.text,
+            this.normalizeTransitionConditionText(JSON.stringify(evidence.flags)),
+          );
+        case "GM_APPROVAL":
+          return false;
+        default:
+          return false;
+      }
+    })();
+
+    return polarity === "MUST_NOT" ? !positiveResult : positiveResult;
   }
 
   private isAutoTransitionCondition(condition: string): boolean {
@@ -3604,25 +4293,55 @@ export class MainCommandsService {
       .trim();
   }
 
+  private textEvidenceMatches(needle: string, normalizedEvidenceText: string): boolean {
+    const normalizedNeedle = this.normalizeTransitionConditionText(needle);
+    if (!normalizedNeedle) {
+      return false;
+    }
+    if (normalizedEvidenceText.includes(normalizedNeedle)) {
+      return true;
+    }
+
+    const terms = this.extractTransitionConditionTerms(normalizedNeedle);
+    if (!terms.length) {
+      return false;
+    }
+    const matchedCount = terms.filter((term) => normalizedEvidenceText.includes(term)).length;
+    const requiredMatchCount = terms.length <= 3 ? terms.length : Math.ceil(terms.length * 0.7);
+    return matchedCount >= requiredMatchCount;
+  }
+
   private extractTransitionConditionTerms(condition: string): string[] {
+    return this.dedupeTerms(
+      this.normalizeTransitionConditionText(condition)
+        .split(" ")
+        .map((term) => this.stripKoreanCaseMarker(term))
+        .filter((term) => term.length >= 2)
+        .filter((term) => !TRANSITION_CONDITION_STOP_WORDS.has(term)),
+    );
+  }
+
+  private extractTransitionConditionAlternatives(condition: string): string[] {
+    return condition
+      .split(/\b(?:or)\b|또는|혹은|아니면|하거나|거나|든지|던지/iu)
+      .map((alternative) => alternative.trim())
+      .filter(Boolean);
+  }
+
+  private dedupeTerms(terms: string[]): string[] {
     const seen = new Set<string>();
-    return this.normalizeTransitionConditionText(condition)
-      .split(" ")
-      .map((term) => this.stripKoreanCaseMarker(term))
-      .filter((term) => term.length >= 2)
-      .filter((term) => !TRANSITION_CONDITION_STOP_WORDS.has(term))
-      .filter((term) => {
-        if (seen.has(term)) {
-          return false;
-        }
-        seen.add(term);
-        return true;
-      });
+    return terms.filter((term) => {
+      if (seen.has(term)) {
+        return false;
+      }
+      seen.add(term);
+      return true;
+    });
   }
 
   private stripKoreanCaseMarker(term: string): string {
     return term
-      .replace(/(했으면|했을|했다|한다|했고|하고|하기|되었으면|되었을|되었다|되면|었으면|았으면|었을|았을|었다|았다|으면)$/u, "")
+      .replace(/(해야만|해야|하여야|했으면|했을|했다|한다|했고|하고|하기|하거나|되었으면|되었을|되었다|되면|었으면|았으면|었을|았을|었다|았다|으면)$/u, "")
       .replace(/(으로는|으로서|으로써|에서|에게|부터|까지|처럼|보다|으로|로|은|는|이|가|을|를|에|의|도|만|와|과)$/u, "");
   }
 
@@ -3753,5 +4472,27 @@ export class MainCommandsService {
 
   private readString(value: unknown): string | null {
     return typeof value === "string" && value.trim() ? value.trim() : null;
+  }
+
+  private readStringArray(value: unknown): string[] {
+    return Array.isArray(value)
+      ? value
+          .map((item) => this.readString(item))
+          .filter((item): item is string => Boolean(item))
+      : [];
+  }
+
+  private readPoint(value: unknown): { x: number; y: number } | null {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const point = value as Record<string, unknown>;
+    return typeof point.x === "number" &&
+      Number.isFinite(point.x) &&
+      typeof point.y === "number" &&
+      Number.isFinite(point.y)
+      ? { x: point.x, y: point.y }
+      : null;
   }
 }

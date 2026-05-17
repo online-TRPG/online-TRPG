@@ -638,7 +638,7 @@ describe("MainCommandsService transition condition evaluation", () => {
           dto: SubmitMainCommandDto,
           recentLogs: string[],
           publicClues: string[],
-        ) => { satisfied: boolean; needsReview: boolean; missingTerms: string[] };
+        ) => { satisfied: boolean; needsReview: boolean; reason: string; missingTerms: string[] };
       }
     ).evaluateTransitionCondition(
       { ...candidate, condition: params.condition ?? candidate.condition },
@@ -667,5 +667,124 @@ describe("MainCommandsService transition condition evaluation", () => {
     });
 
     expect(result.satisfied).toBe(true);
+  });
+
+  it("allows a transition when one Korean OR branch is satisfied", () => {
+    const result = evaluate(createService(), {
+      condition: "수로 통로 오브젝트를 조사하거나 철창 너머의 우회로 단서를 밝혀야 이동 가능",
+      recentLogs: ["수로 통로를 조사했다. 물길 아래로 지나갈 수 있는 틈을 확인했다."],
+    });
+
+    expect(result.satisfied).toBe(true);
+    expect(result.needsReview).toBe(false);
+  });
+
+  it("allows a transition when the clue branch of a Korean OR condition is satisfied", () => {
+    const result = evaluate(createService(), {
+      condition: "수로 통로 오브젝트를 조사하거나 철창 너머의 우회로 단서를 밝혀야 이동 가능",
+      publicClues: ["철창 너머의 우회로 단서: 좁은 배수구가 다음 구역으로 이어진다."],
+    });
+
+    expect(result.satisfied).toBe(true);
+    expect(result.needsReview).toBe(false);
+  });
+
+  it("does not expose tokenized grammar words when a Korean OR condition is incomplete", () => {
+    const result = evaluate(createService(), {
+      condition: "수로 통로 오브젝트를 조사하거나 철창 너머의 우회로 단서를 밝혀야 이동 가능",
+      recentLogs: ["수로 통로 근처에 도착했다."],
+    });
+
+    expect(result.satisfied).toBe(false);
+    expect(result.reason).not.toContain("부족한 단서: 오브젝트, 조사하거나, 밝혀야, 가능");
+  });
+
+  it("allows an AI transition contract for combat ended and a revealed clue", () => {
+    const result = (
+      createService() as unknown as {
+        evaluateTransitionConditionContract: (
+          contract: {
+            targetNodeId: string;
+            logic: "ALL" | "ANY";
+            confidence: number;
+            requirements: Array<{ type: string; text: string; polarity?: "MUST" | "MUST_NOT" }>;
+          },
+          evidence: {
+            recentLogs: string[];
+            revealedClues: string[];
+            unrevealedClues: string[];
+            flags: Record<string, unknown>;
+            currentNodeId: string;
+            combatResolvedForCurrentNode: boolean;
+          },
+        ) => { satisfied: boolean; needsReview: boolean; missingTerms: string[] };
+      }
+    ).evaluateTransitionConditionContract(
+      {
+        targetNodeId: "N05",
+        logic: "ALL",
+        confidence: 0.9,
+        requirements: [
+          { type: "COMBAT_RESOLVED", text: "전투 종료" },
+          { type: "CLUE_REVEALED", text: "고블린의 조잡한 표식" },
+        ],
+      },
+      {
+        recentLogs: [],
+        revealedClues: ["고블린의 조잡한 표식: 검은 안료로 그은 비뚤어진 부족 표식이다."],
+        unrevealedClues: [],
+        flags: { completedCombatNodeIds: ["N04"] },
+        currentNodeId: "N04",
+        combatResolvedForCurrentNode: true,
+      },
+    );
+
+    expect(result.satisfied).toBe(true);
+    expect(result.needsReview).toBe(false);
+  });
+
+  it("allows an AI transition contract for combat ended, object investigated, and clue not revealed", () => {
+    const result = (
+      createService() as unknown as {
+        evaluateTransitionConditionContract: (
+          contract: {
+            targetNodeId: string;
+            logic: "ALL" | "ANY";
+            confidence: number;
+            requirements: Array<{ type: string; text: string; polarity?: "MUST" | "MUST_NOT" }>;
+          },
+          evidence: {
+            recentLogs: string[];
+            revealedClues: string[];
+            unrevealedClues: string[];
+            flags: Record<string, unknown>;
+            currentNodeId: string;
+            combatResolvedForCurrentNode: boolean;
+          },
+        ) => { satisfied: boolean; needsReview: boolean; missingTerms: string[] };
+      }
+    ).evaluateTransitionConditionContract(
+      {
+        targetNodeId: "N06",
+        logic: "ALL",
+        confidence: 0.9,
+        requirements: [
+          { type: "COMBAT_RESOLVED", text: "전투 종료" },
+          { type: "ACTION_EVIDENCE", text: "깊은 통로 조사" },
+          { type: "CLUE_NOT_REVEALED", text: "고블린의 조잡한 표식" },
+        ],
+      },
+      {
+        recentLogs: ["깊은 통로 오브젝트를 조사했다 => 어둠 속으로 이어지는 길을 확인했다."],
+        revealedClues: [],
+        unrevealedClues: ["고블린의 조잡한 표식"],
+        flags: { completedCombatNodeIds: ["N04"] },
+        currentNodeId: "N04",
+        combatResolvedForCurrentNode: true,
+      },
+    );
+
+    expect(result.satisfied).toBe(true);
+    expect(result.needsReview).toBe(false);
   });
 });

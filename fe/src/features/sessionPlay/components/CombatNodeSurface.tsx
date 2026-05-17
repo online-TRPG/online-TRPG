@@ -156,6 +156,8 @@ export function CombatNodeSurface({
   const myCombatParticipant =
     combat?.participants.find((participant) => participant.sessionCharacterId === myCharacter?.id) ?? null;
   const myActionResources = myCombatParticipant?.actionResources ?? null;
+  const myCurrentHp = myCombatParticipant?.currentHp ?? myCharacter?.currentHp ?? null;
+  const myMaxHp = myCombatParticipant?.maxHp ?? myCharacter?.maxHp ?? null;
   const currentParticipant =
     combat?.participants.find((participant) => participant.sessionEntityId === combat.currentEntityId) ?? null;
   const currentTab = actionTabs.find((tab) => tab.id === activeTab) ?? actionTabs[0];
@@ -332,7 +334,7 @@ export function CombatNodeSurface({
             ))}
           </div>
           <div className="combat-resource-meta">
-            <span>HP {myCombatParticipant?.currentHp ?? myCharacter?.currentHp ?? '-'}</span>
+            <span>HP {myCurrentHp ?? '-'}/{myMaxHp ?? '-'}</span>
             <span>
               이동{' '}
               {myActionResources

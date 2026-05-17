@@ -9,7 +9,7 @@
  * 5) handler: 캐릭터 생성, 채팅/액션 전송, VTT 맵 변경 저장
  * 6) JSX: 모집 대기 화면, 플레이 탭, VTT 맵, 사이드 패널, 캐릭터 생성 모달
  */
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from 'react';
 import type {
   ActionOutcome,
@@ -23,6 +23,7 @@ import type {
   VttMapStateDto,
 } from '@trpg/shared-types';
 import { BattleMap } from '../components/BattleMap';
+import type { BattleMapSelection } from '../components/BattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
 import tavernImage from '../components/tavern.webp';
@@ -394,13 +395,6 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
         screenType: MainCommandScreenTypeValues.STORY,
       },
       {
-        label: '속이기',
-        categoryLabel: '사회 행동',
-        category: MainCommandCategoryValues.SOCIAL,
-        intent: MainCommandIntentValues.SOCIAL_DECEIVE,
-        screenType: MainCommandScreenTypeValues.STORY,
-      },
-      {
         label: '태도 살피기',
         categoryLabel: '사회 행동',
         category: MainCommandCategoryValues.SOCIAL,
@@ -408,17 +402,10 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
         screenType: MainCommandScreenTypeValues.STORY,
       },
       {
-        label: '장면 질문',
+        label: '정보',
         categoryLabel: '질문',
         category: MainCommandCategoryValues.QUESTION,
         intent: MainCommandIntentValues.ASK_SCENE_INFO,
-        screenType: MainCommandScreenTypeValues.STORY,
-      },
-      {
-        label: '물건 살펴보기',
-        categoryLabel: '조사',
-        category: MainCommandCategoryValues.INSPECTION,
-        intent: MainCommandIntentValues.INSPECT_STORY_OBJECT,
         screenType: MainCommandScreenTypeValues.STORY,
       },
       {
@@ -672,11 +659,6 @@ const mainCommandSlashMetadataByIntent: Partial<
     description: '선택한 NPC를 위협하거나 압박합니다.',
     helperGroup: 'NPC_INTERACTION',
   },
-  [MainCommandIntentValues.SOCIAL_DECEIVE]: {
-    slashCommands: ['/속이기'],
-    description: '선택한 NPC를 속이거나 사실을 숨깁니다.',
-    helperGroup: 'NPC_INTERACTION',
-  },
   [MainCommandIntentValues.READ_EMOTION]: {
     slashCommands: ['/눈치'],
     description: '선택한 NPC의 태도와 감정을 살핍니다.',
@@ -688,8 +670,8 @@ const mainCommandSlashMetadataByIntent: Partial<
     helperGroup: 'COMBAT_TARGET',
   },
   [MainCommandIntentValues.ASK_SCENE_INFO]: {
-    slashCommands: ['/장면질문'],
-    description: '지금 공개적으로 보이는 장면 정보를 묻습니다.',
+    slashCommands: ['/정보'],
+    description: '현재 장면이나 선택 대상의 공개 정보를 확인합니다.',
   },
   [MainCommandIntentValues.ASK_HINT]: {
     slashCommands: ['/힌트'],
@@ -712,12 +694,12 @@ const mainCommandSlashMetadataByIntent: Partial<
     description: '이 행동에 어떤 판정이나 룰이 필요한지 묻습니다.',
   },
   [MainCommandIntentValues.OBSERVE_AREA]: {
-    slashCommands: ['/관찰'],
+    slashCommands: [],
     description: '주변을 넓게 둘러보고 눈에 띄는 것을 찾습니다.',
     helperGroup: 'OBJECT_AREA_TARGET',
   },
   [MainCommandIntentValues.INVESTIGATE_OBJECT]: {
-    slashCommands: ['/조사'],
+    slashCommands: [],
     description: '대상이나 장소를 자세히 살펴 단서, 구조, 이상한 점을 찾습니다.',
     helperGroup: 'OBJECT_AREA_TARGET',
   },
@@ -727,12 +709,12 @@ const mainCommandSlashMetadataByIntent: Partial<
     helperGroup: 'OBJECT_AREA_TARGET',
   },
   [MainCommandIntentValues.LISTEN]: {
-    slashCommands: ['/듣기'],
+    slashCommands: [],
     description: '주변이나 특정 대상에서 들리는 소리를 확인합니다.',
     helperGroup: 'OBJECT_AREA_TARGET',
   },
   [MainCommandIntentValues.DETECT_DANGER]: {
-    slashCommands: ['/위험탐지'],
+    slashCommands: [],
     description: '함정, 매복, 위험 요소가 있는지 살핍니다.',
     helperGroup: 'OBJECT_AREA_TARGET',
   },
@@ -752,7 +734,7 @@ const mainCommandSlashMetadataByIntent: Partial<
     helperGroup: 'OBJECT_AREA_TARGET',
   },
   [MainCommandIntentValues.SPLIT_PARTY_TASK]: {
-    slashCommands: ['/분담'],
+    slashCommands: [],
     description: '파티원들이 각자 맡을 일을 나눕니다.',
   },
   [MainCommandIntentValues.USE_TOOL]: {
@@ -805,7 +787,7 @@ const mainCommandHelperOptions: MainCommandHelperOption[] = [
     label: 'NPC 상호작용',
     description: 'NPC를 대상으로 대화나 사회 행동을 준비합니다.',
     fieldConfig: { targetTypes: [MainCommandTargetTypeValues.NPC] },
-    screenTypes: [MainCommandScreenTypeValues.STORY, MainCommandScreenTypeValues.EXPLORATION],
+    screenTypes: [MainCommandScreenTypeValues.EXPLORATION],
   },
   {
     id: 'OBJECT_AREA_TARGET',
@@ -815,7 +797,6 @@ const mainCommandHelperOptions: MainCommandHelperOption[] = [
       targetTypes: [MainCommandTargetTypeValues.OBJECT, MainCommandTargetTypeValues.AREA],
     },
     screenTypes: [
-      MainCommandScreenTypeValues.STORY,
       MainCommandScreenTypeValues.EXPLORATION,
       MainCommandScreenTypeValues.COMBAT,
     ],
@@ -860,7 +841,6 @@ const mainCommandIntentOptionsByHelperGroup: Record<
     MainCommandIntentValues.TALK_TO_NPC,
     MainCommandIntentValues.SOCIAL_PERSUADE,
     MainCommandIntentValues.SOCIAL_INTIMIDATE,
-    MainCommandIntentValues.SOCIAL_DECEIVE,
     MainCommandIntentValues.READ_EMOTION,
   ],
   OBJECT_AREA_TARGET: [
@@ -1257,8 +1237,16 @@ function getMainLogPresentation(log: LogEntry, message: string): MainLogPresenta
     return { tone: 'player-command', label: 'GM 요청' };
   }
 
+  if (log.id.startsWith('turn-log:') && log.id.endsWith(':rp-raw')) {
+    return { tone: 'player-rp', label: 'RP 행동' };
+  }
+
   if (log.id.startsWith('main-command:') && log.id.endsWith(':raw')) {
     return { tone: 'player-command', label: 'GM 요청' };
+  }
+
+  if (log.id.startsWith('main-command:') && log.id.endsWith(':rp-raw')) {
+    return { tone: 'player-rp', label: 'RP 행동' };
   }
 
   if (log.id.startsWith('player-action:') && log.id.endsWith(':raw')) {
@@ -1290,6 +1278,7 @@ function getMainLogPresentation(log: LogEntry, message: string): MainLogPresenta
       compact.includes('diceResult') ||
       compact.includes('stateDiff') ||
       compact.includes('outcome:') ||
+      compact.includes('RP 행동을 기록했습니다.') ||
       compact.includes('판정') ||
       compact.includes('주사위') ||
       compact.includes('실패') ||
@@ -1374,6 +1363,46 @@ function isMissingCombatError(message: string) {
   );
 }
 
+function logCombatRequestSucceeded(sessionId: string, combat: CombatResponseDto) {
+  const currentParticipant =
+    combat.participants.find((participant) => participant.sessionEntityId === combat.currentEntityId) ?? null;
+  console.info('[COMBAT_REQUEST_SUCCEEDED]', {
+    sessionId,
+    combatId: combat.combatId,
+    status: combat.status,
+    roundNo: combat.roundNo,
+    turnNo: combat.turnNo,
+    currentEntityId: combat.currentEntityId,
+    currentParticipant: currentParticipant
+      ? {
+          id: currentParticipant.sessionEntityId,
+          name: currentParticipant.name,
+          type: currentParticipant.entityType,
+          isHostile: currentParticipant.isHostile,
+          isAlive: currentParticipant.isAlive,
+        }
+      : null,
+    participants: combat.participants.map((participant) => ({
+      id: participant.sessionEntityId,
+      name: participant.name,
+      type: participant.entityType,
+      isHostile: participant.isHostile,
+      isAlive: participant.isAlive,
+      turnOrder: participant.turnOrder,
+      initiative: participant.initiative,
+    })),
+  });
+}
+
+function isCombatResponseDto(value: unknown): value is CombatResponseDto {
+  if (!value || typeof value !== 'object') return false;
+  return (
+    'combatId' in value &&
+    'participants' in value &&
+    Array.isArray((value as { participants?: unknown }).participants)
+  );
+}
+
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function PlayPage({
   user,
@@ -1422,11 +1451,14 @@ export function PlayPage({
   const [selectedMainRelatedIntent, setSelectedMainRelatedIntent] = useState('');
   const [mainPointX, setMainPointX] = useState('');
   const [mainPointY, setMainPointY] = useState('');
+  const [selectedExplorationMapSelection, setSelectedExplorationMapSelection] =
+    useState<BattleMapSelection | null>(null);
   const [mainCommandError, setMainCommandError] = useState<string | null>(null);
   const [pendingMainCommandDraft, setPendingMainCommandDraft] =
     useState<ExplorationMainCommandRequest | null>(null);
   const [pendingMainCommandCheck, setPendingMainCommandCheck] =
     useState<PendingMainCommandCheck | null>(null);
+  const [hasUnreadInfo, setHasUnreadInfo] = useState(false);
 
   function clearMainCommandSelectionFields() {
     setSelectedMainTargetId('');
@@ -1435,6 +1467,7 @@ export function PlayPage({
     setSelectedMainRelatedIntent('');
     setMainPointX('');
     setMainPointY('');
+    setSelectedExplorationMapSelection(null);
   }
 
   const [inventoryUseFeedback, setInventoryUseFeedback] = useState<string | null>(null);
@@ -1470,6 +1503,8 @@ export function PlayPage({
     activeSessionId: null,
   });
   const autoCombatStartKeyRef = useRef<string | null>(null);
+  const knownPublicClueIdsRef = useRef<Set<string>>(new Set());
+  const knownPublicClueNodeIdRef = useRef<string | null>(null);
 
   // 서버 스냅샷에서 현재 세션/참가자/선택 캐릭터/권한 상태를 계산합니다.
   const session = snapshot?.session ?? null;
@@ -1533,6 +1568,10 @@ export function PlayPage({
     QUICK_CREATE_CLASS_PRESET_BY_KEY.get(selectedQuickCreateClass?.key ?? formState.classKey) ??
     null;
   const currentNode = playerScenario?.currentNode ?? null;
+  const currentPublicClueIdSignature = useMemo(
+    () => (currentNode?.publicClues ?? []).map((clue) => clue.id).sort().join('|'),
+    [currentNode?.publicClues]
+  );
   const completedCombatNodeIds = useMemo(
     () => getCompletedCombatNodeIds(snapshot?.state.flags),
     [snapshot?.state.flags]
@@ -1552,9 +1591,23 @@ export function PlayPage({
   const usesNodeSpecificPartyStrip = Boolean(
     session && !isRecruiting && (isStoryNode || isExplorationNode || isCombatNode)
   );
-  const mainCommandPresets = currentScreenType
-    ? mainCommandPresetsByScreen[currentScreenType]
-    : emptyMainCommandPresets;
+  const isExplorationMainCommandContext =
+    currentScreenType === MainCommandScreenTypeValues.EXPLORATION;
+  const mainCommandPresets = useMemo(() => {
+    if (!currentScreenType) return emptyMainCommandPresets;
+
+    const presets = mainCommandPresetsByScreen[currentScreenType];
+    return isExplorationMainCommandContext
+      ? presets.filter(
+          (preset) =>
+            preset.intent !== MainCommandIntentValues.OBSERVE_AREA &&
+            preset.intent !== MainCommandIntentValues.INVESTIGATE_OBJECT &&
+            preset.intent !== MainCommandIntentValues.LISTEN &&
+            preset.intent !== MainCommandIntentValues.DETECT_DANGER &&
+            preset.intent !== MainCommandIntentValues.SPLIT_PARTY_TASK
+        )
+      : presets;
+  }, [currentScreenType, isExplorationMainCommandContext]);
   const selectedCharacterInventory =
     selectedSessionCharacter?.inventory ?? selectedCharacter?.inventory ?? [];
   const mainCommandCategories = useMemo<MainCommandCategoryOption[]>(() => {
@@ -1617,16 +1670,20 @@ export function PlayPage({
   const selectedMainCommandHelperGroup = selectedMainCommand
     ? getMainCommandHelperGroup(selectedMainCommand)
     : null;
-  const activeMainHelperOption =
-    availableMainHelperOptions.find(
-      (option) =>
-        option.id === activeMainHelperGroup &&
-        (!selectedMainCommand || isMainCommandAvailableForHelperGroup(selectedMainCommand, option.id))
-    ) ??
-    availableMainHelperOptions.find(
-      (option) => option.id === selectedMainCommandHelperGroup
-    ) ??
-    null;
+  const activeMainHelperOption = isExplorationMainCommandContext
+    ? (availableMainHelperOptions.find(
+        (option) => option.id === selectedMainCommandHelperGroup
+      ) ?? null)
+    : (availableMainHelperOptions.find(
+        (option) =>
+          option.id === activeMainHelperGroup &&
+          (!selectedMainCommand ||
+            isMainCommandAvailableForHelperGroup(selectedMainCommand, option.id))
+      ) ??
+      availableMainHelperOptions.find(
+        (option) => option.id === selectedMainCommandHelperGroup
+      ) ??
+      null);
   const selectedMainFieldConfig = selectedMainCommand
     ? (mainCommandFieldConfigByIntent[selectedMainCommand.intent] ??
       activeMainHelperOption?.fieldConfig ??
@@ -1677,6 +1734,34 @@ export function PlayPage({
   );
   const selectedMainTarget =
     visibleTargetOptions.find((target) => target.id === selectedMainTargetId) ?? null;
+  const selectedMainItem =
+    selectedCharacterInventory.find((item) => item.id === selectedMainItemId) ?? null;
+  const selectedExplorationMapLabel = useMemo(() => {
+    const selection = selectedExplorationMapSelection;
+    if (!selection) return '맵 선택 없음';
+    if (selection.kind === 'tile') {
+      return `타일 (${selection.tile.column}, ${selection.tile.row})`;
+    }
+    if (selection.kind === 'token') {
+      const npcTarget = selection.token.npcId
+        ? currentNode?.visibleTargets.find((target) => target.id === selection.token.npcId)
+        : null;
+      return `${npcTarget?.name ?? selection.token.name} (${selection.tile.column}, ${selection.tile.row})`;
+    }
+
+    const fallback =
+      selection.kind === 'door'
+        ? '문'
+        : selection.kind === 'object'
+          ? '오브젝트'
+          : selection.kind === 'wall'
+            ? '벽'
+            : '지형';
+    return `${selection.cell.name?.trim() || fallback} (${selection.tile.column}, ${selection.tile.row})`;
+  }, [currentNode?.visibleTargets, selectedExplorationMapSelection]);
+  const selectedExplorationItemLabel = selectedMainItem
+    ? `${selectedMainItem.name} x${selectedMainItem.quantity}`
+    : '아이템 선택 없음';
   const relatedIntentOptions = mainCommandPresets.filter(
     (preset) =>
       preset.intent !== MainCommandIntentValues.ASK_RULE &&
@@ -1726,14 +1811,34 @@ export function PlayPage({
         if (cancelled) return;
         setCombat(null);
         const message = error instanceof Error ? error.message : '전투 상태를 불러오지 못했습니다.';
-        setCombatError(isMissingCombatError(message) ? null : message);
+        const missingCombat = isMissingCombatError(message);
+        setCombatError(missingCombat ? null : message);
         setCombatChecked(true);
+        if (
+          missingCombat &&
+          currentNode?.id &&
+          !isCombatBusy &&
+          (session.gmMode !== 'HUMAN' || isHost)
+        ) {
+          const autoStartKey = `${session.id}:${currentNode.id}`;
+          if (autoCombatStartKeyRef.current !== autoStartKey) {
+            autoCombatStartKeyRef.current = autoStartKey;
+            console.info('[COMBAT_AUTO_START] active combat missing; starting combat', {
+              sessionId: session.id,
+              nodeId: currentNode.id,
+              gmMode: session.gmMode,
+            });
+            void runCombatRequest(() => startCombat(user, session.id));
+          }
+        } else if (!missingCombat) {
+          console.error('[COMBAT_LOAD_FAILED]', { sessionId: session.id, message, error });
+        }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [combat?.status, completedCombatNodeIds, currentNode?.id, currentNode?.nodeType, isCombatNode, session?.id, user]);
+  }, [combat?.status, completedCombatNodeIds, currentNode?.id, currentNode?.nodeType, isCombatNode, isHost, session?.gmMode, session?.id, user]);
 
   useEffect(() => {
     if (!user || !session?.id || !currentNode?.id || !isCombatNode) return;
@@ -1915,7 +2020,31 @@ export function PlayPage({
     return () => {
       ignore = true;
     };
-  }, [session, snapshot?.state.currentNodeId, user]);
+  }, [session, snapshot?.state.currentNodeId, snapshot?.state.version, user]);
+
+  useEffect(() => {
+    if (!currentNode) {
+      knownPublicClueIdsRef.current = new Set();
+      knownPublicClueNodeIdRef.current = null;
+      setHasUnreadInfo(false);
+      return;
+    }
+
+    const nextIds = new Set((currentNode.publicClues ?? []).map((clue) => clue.id));
+    const isSameNode = knownPublicClueNodeIdRef.current === currentNode.id;
+    const hasNewClue =
+      isSameNode && [...nextIds].some((clueId) => !knownPublicClueIdsRef.current.has(clueId));
+
+    if (hasNewClue && activeTab !== 'Info') {
+      setHasUnreadInfo(true);
+    }
+    if (activeTab === 'Info') {
+      setHasUnreadInfo(false);
+    }
+
+    knownPublicClueIdsRef.current = nextIds;
+    knownPublicClueNodeIdRef.current = currentNode.id;
+  }, [activeTab, currentNode?.id, currentPublicClueIdSignature]);
 
   useEffect(() => {
     if (snapshotVttMap && typeof snapshotVttMap === 'object') {
@@ -2052,7 +2181,14 @@ export function PlayPage({
       .filter((log) => {
         if (log.kind !== 'action') return false;
         if (!log.message.startsWith('[MAIN]')) return false;
-        if (log.id.startsWith('turn-log:') || log.id.startsWith('player-action:')) return false;
+        if (
+          log.id.startsWith('turn-log:') ||
+          log.id.startsWith('player-action:') ||
+          log.id.startsWith('main-command:') ||
+          log.id.startsWith('system-message:')
+        ) {
+          return false;
+        }
 
         const createdAt = new Date(log.createdAt).getTime();
         return Number.isFinite(createdAt) && now - createdAt <= freshWindowMs;
@@ -2105,8 +2241,22 @@ export function PlayPage({
     setSelectedMainRelatedIntent('');
     setMainPointX('');
     setMainPointY('');
+    setSelectedExplorationMapSelection(null);
     setMainCommandError(null);
-  }, [selectedMainIntent, currentNode?.id]);
+  }, [currentNode?.id]);
+
+  useEffect(() => {
+    setSelectedMainSpellId('');
+    setSelectedMainRelatedIntent('');
+    if (!isExplorationMainCommandContext) {
+      setSelectedMainTargetId('');
+      setSelectedMainItemId('');
+      setMainPointX('');
+      setMainPointY('');
+      setSelectedExplorationMapSelection(null);
+    }
+    setMainCommandError(null);
+  }, [isExplorationMainCommandContext, selectedMainIntent]);
 
   useEffect(() => {
     if (!pendingMainCommandDraft || selectedMainIntent !== pendingMainCommandDraft.intent) return;
@@ -2214,23 +2364,21 @@ export function PlayPage({
     const next = mainMessage.trim();
     if (!next) return;
 
+    if (mainCommandMode === 'RP_ACTION') {
+      setMainCommandError(null);
+      setMainMessage('');
+      setPendingMainCommandCheck(null);
+      onAction(`MAIN:${next}`);
+      return;
+    }
+
     if (session?.gmMode === 'AI' && currentScreenType) {
       const parsedSlash = parseMainSlashInput(next, mainCommandPresets);
-      const isRpMode = mainCommandMode === 'RP_ACTION';
-      const submitPreset: MainCommandPreset | null = isRpMode
-        ? {
-            label: 'RP 행동',
-            categoryLabel: 'RP 행동',
-            category: MainCommandCategoryValues.RP_ACTION,
-            intent: MainCommandIntentValues.DECLARE_RP_ACTION,
-            screenType: currentScreenType,
-            description: '판정 없이 캐릭터 대사나 분위기 묘사를 기록합니다.',
-          }
-        : parsedSlash?.type === 'matched'
-          ? parsedSlash.preset
-          : parsedSlash
-            ? null
-            : buildGeneralGmPreset(currentScreenType);
+      const submitPreset: MainCommandPreset | null = parsedSlash?.type === 'matched'
+        ? parsedSlash.preset
+        : parsedSlash
+          ? null
+          : buildGeneralGmPreset(currentScreenType);
 
       if (!submitPreset) {
         setMainCommandError(
@@ -2243,9 +2391,7 @@ export function PlayPage({
 
       const commandBody =
         parsedSlash?.type === 'matched' ? parsedSlash.playerText : next;
-      const playerText = isRpMode
-        ? next
-        : commandBody.trim() || submitPreset.label;
+      const playerText = commandBody.trim() || submitPreset.label;
       const activeFieldConfig =
         mainCommandFieldConfigByIntent[submitPreset.intent] ??
         activeMainHelperOption?.fieldConfig ??
@@ -2267,19 +2413,23 @@ export function PlayPage({
         submitPreset.intent === MainCommandIntentValues.INTERACT_OBJECT ||
         submitPreset.intent === MainCommandIntentValues.ENVIRONMENT_USE;
       const shouldSubmitTarget = Boolean(
-        selectedMainTargetId && activeFieldConfig?.targetTypes?.length
+        selectedMainTargetId &&
+          (activeFieldConfig?.targetTypes?.length ||
+            (isExplorationMainCommandContext && selectedMainTarget))
       );
-      const shouldSubmitItem = Boolean(selectedMainItemId && requiresItem);
+      const shouldSubmitItem = Boolean(
+        selectedMainItemId && selectedMainItem && (requiresItem || isExplorationMainCommandContext)
+      );
       const shouldSubmitSpell = Boolean(selectedMainSpellId.trim() && requiresSpell);
       const shouldSubmitRelatedIntent = Boolean(
         selectedMainRelatedIntent && activeFieldConfig?.allowsRelatedIntent
       );
 
-      if (requiresTarget && !selectedMainTargetId && !(allowsMapPoint && mapPoint)) {
+      if (requiresTarget && !shouldSubmitTarget && !(allowsMapPoint && mapPoint)) {
         setMainCommandError('이 명령은 현재 장면의 공개 대상을 함께 골라야 합니다.');
         return;
       }
-      if (requiresItem && !selectedMainItemId) {
+      if (requiresItem && !shouldSubmitItem) {
         setMainCommandError('이 명령은 사용할 아이템을 함께 골라야 합니다.');
         return;
       }
@@ -2291,7 +2441,7 @@ export function PlayPage({
         setMainCommandError('이 명령은 지도 좌표 x, y를 함께 입력해야 합니다.');
         return;
       }
-      if (requiresTargetOrPoint && !selectedMainTargetId && !mapPoint && !commandBody.trim()) {
+      if (requiresTargetOrPoint && !shouldSubmitTarget && !mapPoint && !commandBody.trim()) {
         setMainCommandError('대상을 선택하거나, 무엇을 할지 입력해주세요.');
         return;
       }
@@ -2327,23 +2477,15 @@ export function PlayPage({
         (requiresMapPoint ||
           allowsMapPoint ||
           requiresTargetOrPoint ||
-          (requiresTarget && !selectedMainTargetId))
+          (requiresTarget && !shouldSubmitTarget) ||
+          isExplorationMainCommandContext)
           ? { mapPoint }
           : {}),
         ...(shouldSubmitRelatedIntent
           ? { relatedIntent: selectedMainRelatedIntent as SubmitMainCommandDto['intent'] }
           : {}),
       });
-      const checkEffect = getMainCommandCheckEffect(response);
-      setPendingMainCommandCheck(
-        response?.status === 'CHECK_REQUIRED' && checkEffect
-          ? {
-              requestId: response.requestId,
-              message: response.message,
-              effect: checkEffect,
-            }
-          : null
-      );
+      setPendingMainCommandCheck(null);
     } else {
       setMainMessage('');
       onAction(`MAIN:${next}`);
@@ -2351,7 +2493,7 @@ export function PlayPage({
     }
   }
 
-  function handleExplorationMainCommandRequest(request: ExplorationMainCommandRequest) {
+  async function handleExplorationMainCommandRequest(request: ExplorationMainCommandRequest) {
     const preset = mainCommandPresetsByScreen.EXPLORATION.find(
       (item) => item.intent === request.intent
     );
@@ -2361,14 +2503,96 @@ export function PlayPage({
       return;
     }
 
+    const shouldSendImmediately =
+      preset.intent === MainCommandIntentValues.INVESTIGATE_OBJECT ||
+      preset.intent === MainCommandIntentValues.OBSERVE_AREA;
+
+    if (!shouldSendImmediately) {
+      setActiveTab('Main');
+      setMainCommandMode('GM_REQUEST');
+      setSelectedMainCategory(preset.categoryLabel);
+      setOpenMainCommandCategory(null);
+      setSelectedMainIntent(preset.intent);
+      setActiveMainHelperGroup(getMainCommandHelperGroup(preset) ?? null);
+      setPendingMainCommandDraft(request);
+      return;
+    }
+
+    const actorId =
+      selectedCharacterId ??
+      myParticipant?.sessionCharacterId ??
+      myParticipant?.characterId ??
+      '';
+    const fieldConfig = mainCommandFieldConfigByIntent[preset.intent] ?? null;
+    const target = request.targetId
+      ? currentNode?.visibleTargets.find((item) => {
+          if (item.id !== request.targetId) return false;
+          return fieldConfig?.targetTypes?.length
+            ? fieldConfig.targetTypes.includes(item.targetType)
+            : true;
+        }) ?? null
+      : null;
+    const item = request.itemId
+      ? selectedCharacterInventory.find((entry) => entry.id === request.itemId) ?? null
+      : null;
+    const requiresItem = Boolean(fieldConfig?.requiresItem);
+    const requiresMapPoint = Boolean(fieldConfig?.requiresMapPoint);
+    const allowsMapPoint = Boolean(fieldConfig?.allowsMapPoint);
+    const requiresTargetOrPoint =
+      preset.intent === MainCommandIntentValues.INVESTIGATE_OBJECT ||
+      preset.intent === MainCommandIntentValues.INTERACT_OBJECT ||
+      preset.intent === MainCommandIntentValues.ENVIRONMENT_USE;
+    const shouldSubmitMapPoint = Boolean(
+      request.mapPoint &&
+        (requiresMapPoint || allowsMapPoint || requiresTargetOrPoint || !target)
+    );
+    const slashCommand = getMainCommandSlashCommands(preset)[0] ?? '';
+    const rawInputText = slashCommand
+      ? `${slashCommand} ${request.playerText}`.trim()
+      : request.playerText;
+
     setActiveTab('Main');
     setMainCommandMode('GM_REQUEST');
     setSelectedMainCategory(preset.categoryLabel);
     setOpenMainCommandCategory(null);
     setSelectedMainIntent(preset.intent);
     setActiveMainHelperGroup(getMainCommandHelperGroup(preset) ?? null);
-    setPendingMainCommandDraft(request);
+    setSelectedMainTargetId(target?.id ?? '');
+    setSelectedMainItemId(item?.id ?? '');
+    setMainPointX(request.mapPoint ? String(request.mapPoint.x) : '');
+    setMainPointY(request.mapPoint ? String(request.mapPoint.y) : '');
+    setMainMessage('');
+    setPendingMainCommandCheck(null);
+    setPendingMainCommandDraft(null);
+    setMainCommandError(null);
+
+    await onMainCommand({
+      commandId: preset.intent,
+      screenType: MainCommandScreenTypeValues.EXPLORATION,
+      category: preset.category,
+      intent: preset.intent,
+      actorId,
+      playerText: request.playerText,
+      rawInputText,
+      ...(currentNode ? { nodeId: currentNode.id } : {}),
+      ...(target ? { targetId: target.id, targetType: target.targetType } : {}),
+      ...(item && (requiresItem || isExplorationMainCommandContext) ? { itemId: item.id } : {}),
+      ...(shouldSubmitMapPoint && request.mapPoint ? { mapPoint: request.mapPoint } : {}),
+    });
   }
+
+  const handleExplorationMapSelection = useCallback((selection: BattleMapSelection | null) => {
+    setSelectedExplorationMapSelection(selection);
+    setSelectedMainTargetId(
+      selection?.kind === 'token' && selection.token.npcId ? selection.token.npcId : ''
+    );
+    setMainPointX(selection ? String(Math.round(selection.point.x)) : '');
+    setMainPointY(selection ? String(Math.round(selection.point.y)) : '');
+  }, []);
+
+  const handleSelectExplorationInventoryItem = useCallback((item: InventoryItemDto | null) => {
+    setSelectedMainItemId((current) => (item && current !== item.id ? item.id : ''));
+  }, []);
 
   async function handleResolveMainCommandCheck(outcome: ActionOutcome) {
     if (!pendingMainCommandCheck) return;
@@ -2499,20 +2723,27 @@ export function PlayPage({
     setCombatError(null);
     try {
       const result = await request();
+      let nextCombat: CombatResponseDto | null = null;
       if (result && typeof result === 'object' && 'combat' in result) {
-        setCombat((result as { combat: CombatResponseDto }).combat);
-      } else if (result && typeof result === 'object' && 'combatId' in result) {
-        setCombat(result as CombatResponseDto);
+        const maybeCombat = (result as { combat?: unknown }).combat;
+        nextCombat = isCombatResponseDto(maybeCombat)
+          ? maybeCombat
+          : await getCombat(user, session.id);
+      } else if (isCombatResponseDto(result)) {
+        nextCombat = result;
       } else {
-        const nextCombat = await getCombat(user, session.id);
-        setCombat(nextCombat);
+        nextCombat = await getCombat(user, session.id);
       }
+      setCombat(nextCombat);
+      logCombatRequestSucceeded(session.id, nextCombat);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '전투 처리에 실패했습니다.';
+      console.error('[COMBAT_REQUEST_FAILED]', { sessionId: session.id, message, error: caught });
       if (message.includes('COMBAT_409') || message.includes('ACTIVE_COMBAT_EXISTS')) {
         try {
           const nextCombat = await getCombat(user, session.id);
           setCombat(nextCombat);
+          logCombatRequestSucceeded(session.id, nextCombat);
           setCombatError(null);
           return;
         } catch {
@@ -2852,11 +3083,14 @@ export function PlayPage({
                   inventory={selectedCharacterInventory}
                   isBusy={busy || isInventoryUsePending}
                   inventoryFeedback={inventoryUseFeedback}
+                  selectedInventoryItemId={selectedMainItemId}
                   getCharacterColorStyle={(character) =>
                     buildMapPartyColorStyle(getCharacterTokenColor(character))
                   }
                   onMapChange={handleMapChange}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
+                  onSelectInventoryItem={handleSelectExplorationInventoryItem}
+                  onMapSelectionChange={handleExplorationMapSelection}
                   onRequestMainCommand={handleExplorationMainCommandRequest}
                 />
               ) : isCombatNode ? (
@@ -3111,10 +3345,18 @@ export function PlayPage({
             <button
               key={tab}
               type="button"
-              className={activeTab === tab ? 'active' : ''}
+              className={[
+                activeTab === tab ? 'active' : '',
+                tab === 'Info' && hasUnreadInfo ? 'has-unread-info' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
               onClick={() => setActiveTab(tab)}
             >
               {sessionTabLabels[tab]}
+              {tab === 'Info' && hasUnreadInfo ? (
+                <span className="session-sidebar-tab-badge" aria-hidden="true" />
+              ) : null}
             </button>
           ))}
         </div>
@@ -3287,7 +3529,18 @@ export function PlayPage({
                       </button>
                     </div>
 
-                    {mainCommandMode === 'GM_REQUEST' && availableMainHelperOptions.length ? (
+                    {mainCommandMode === 'GM_REQUEST' && isExplorationMainCommandContext ? (
+                      <div className="main-command-selection-row" aria-label="탐색 선택 대상">
+                        <div className="main-command-selection-chip">
+                          <span>맵 선택</span>
+                          <strong>{selectedExplorationMapLabel}</strong>
+                        </div>
+                        <div className="main-command-selection-chip">
+                          <span>아이템 선택</span>
+                          <strong>{selectedExplorationItemLabel}</strong>
+                        </div>
+                      </div>
+                    ) : mainCommandMode === 'GM_REQUEST' && availableMainHelperOptions.length ? (
                       <div className="main-command-helper-row">
                         {availableMainHelperOptions.map((option) => (
                           <button
@@ -3404,7 +3657,9 @@ export function PlayPage({
                       </div>
                     ) : null}
 
-                    {mainCommandMode === 'GM_REQUEST' && selectedMainFieldConfig ? (
+                    {mainCommandMode === 'GM_REQUEST' &&
+                    selectedMainFieldConfig &&
+                    !isExplorationMainCommandContext ? (
                       <div className="main-command-fields">
                         {selectedMainFieldConfig.targetTypes?.length ? (
                           <label className="main-command-field">
@@ -3493,26 +3748,6 @@ export function PlayPage({
 
                     {mainCommandError ? (
                       <p className="main-command-error">{mainCommandError}</p>
-                    ) : null}
-
-                    {pendingMainCommandCheck ? (
-                      <div className="main-command-check-followup">
-                        <span>{pendingMainCommandCheck.message}</span>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => handleResolveMainCommandCheck('SUCCESS' as ActionOutcome)}
-                        >
-                          판정 성공
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => handleResolveMainCommandCheck('FAILURE' as ActionOutcome)}
-                        >
-                          판정 실패
-                        </button>
-                      </div>
                     ) : null}
                   </div>
                 ) : null}

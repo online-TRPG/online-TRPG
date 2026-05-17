@@ -51,6 +51,8 @@ class InterpreterHarnessRequest(BaseModel):
     spellId: str | None = Field(default=None, max_length=120)
     mapPoint: dict[str, float] | None = None
     relatedIntent: str | None = Field(default=None, max_length=80)
+    transitionCandidates: list[dict] = Field(default_factory=list, max_length=8)
+    transitionEvidence: dict | None = None
     model: str | None = None
 
 
