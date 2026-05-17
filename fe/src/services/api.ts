@@ -3,10 +3,12 @@ import type {
   ApplyCombatDamageDto,
   AutoMonsterTurnDto,
   AuthTokenResponseDto,
+  CombatBasicActionDto,
   CharacterResponseDto,
   CombatActionResultDto,
   CombatResponseDto,
   CreateScenarioDto,
+  EquippedWeaponAttackDto,
   EndTurnDto,
   GmMode,
   LoginResponseDto,
@@ -28,6 +30,7 @@ import type {
   StartCombatDto,
   TurnAdvanceResponseDto,
   TurnLogListResponseDto,
+  UpdateCharacterEquipmentDto,
   UpdateScenarioDto,
   UpdateVttMapDto,
   UseInventoryItemDto,
@@ -955,6 +958,62 @@ export function resolveCombatAttack(
   });
 }
 
+export function resolveEquippedWeaponAttack(
+  user: StoredUser,
+  sessionId: string,
+  payload: EquippedWeaponAttackDto,
+  accessToken?: string | null
+): Promise<CombatActionResultDto> {
+  return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/attack/equipped`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function dashCombatAction(
+  user: StoredUser,
+  sessionId: string,
+  payload: CombatBasicActionDto = {},
+  accessToken?: string | null
+): Promise<CombatActionResultDto> {
+  return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/dash`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function dodgeCombatAction(
+  user: StoredUser,
+  sessionId: string,
+  payload: CombatBasicActionDto = {},
+  accessToken?: string | null
+): Promise<CombatActionResultDto> {
+  return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/dodge`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function hideCombatAction(
+  user: StoredUser,
+  sessionId: string,
+  payload: CombatBasicActionDto = {},
+  accessToken?: string | null
+): Promise<CombatActionResultDto> {
+  return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/hide`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
 export function autoMonsterTurn(
   user: StoredUser,
   sessionId: string,
@@ -1062,6 +1121,20 @@ export function updateCharacter(
       speed: payload.speed,
       inventory: payload.inventory,
     },
+  });
+}
+
+export function updateCharacterEquipment(
+  user: StoredUser,
+  characterId: string,
+  payload: UpdateCharacterEquipmentDto,
+  accessToken?: string | null
+): Promise<CharacterResponseDto> {
+  return requestJson<CharacterResponseDto>(`/characters/${characterId}/equipment`, {
+    method: 'PATCH',
+    user,
+    accessToken,
+    body: payload,
   });
 }
 

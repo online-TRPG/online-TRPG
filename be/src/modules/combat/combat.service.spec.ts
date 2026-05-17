@@ -84,6 +84,11 @@ describe("CombatService lifecycle", () => {
       emitSessionSnapshot: jest.fn(),
       emitTurnChanged: jest.fn(),
       emitSystemMessage: jest.fn(),
+      emitDiceRolled: jest.fn(),
+      emitTurnLogCreated: jest.fn(),
+    };
+    const turnLogsService = {
+      createTurnLog: jest.fn(),
     };
     const srdEngine = {
       chooseMvpMonsterAction: jest.fn(),
@@ -99,6 +104,7 @@ describe("CombatService lifecycle", () => {
         actionEconomy as never,
         characterResources as never,
         realtimeEvents as never,
+        turnLogsService as never,
         srdEngine as never,
       ),
       prisma,
@@ -106,6 +112,7 @@ describe("CombatService lifecycle", () => {
       actionEconomy,
       characterResources,
       realtimeEvents,
+      turnLogsService,
       srdEngine,
     };
   };

@@ -10,8 +10,10 @@ import {
   ApplyCombatDamageDto,
   AutoMonsterTurnDto,
   AvailableActionsResponseDto,
+  CombatBasicActionDto,
   CombatActionResultDto,
   CombatResponseDto,
+  EquippedWeaponAttackDto,
   EndTurnDto,
   ResolveCombatAttackDto,
   StartCombatDto,
@@ -130,6 +132,70 @@ export class CombatController {
       "COMBAT_200",
       "요청이 성공했습니다.",
       await this.combatService.resolveAttack(userId, sessionId, dto),
+    );
+  }
+
+  @Post("attack/equipped")
+  @HttpCode(200)
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatActionResultDto })
+  async resolveEquippedWeaponAttack(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: EquippedWeaponAttackDto,
+  ): Promise<ApiResponse<CombatActionResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.resolveEquippedWeaponAttack(userId, sessionId, dto),
+    );
+  }
+
+  @Post("dash")
+  @HttpCode(200)
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatActionResultDto })
+  async dash(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: CombatBasicActionDto,
+  ): Promise<ApiResponse<CombatActionResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.dash(userId, sessionId, dto),
+    );
+  }
+
+  @Post("dodge")
+  @HttpCode(200)
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatActionResultDto })
+  async dodge(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: CombatBasicActionDto,
+  ): Promise<ApiResponse<CombatActionResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.dodge(userId, sessionId, dto),
+    );
+  }
+
+  @Post("hide")
+  @HttpCode(200)
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatActionResultDto })
+  async hide(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: CombatBasicActionDto,
+  ): Promise<ApiResponse<CombatActionResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.hide(userId, sessionId, dto),
     );
   }
 

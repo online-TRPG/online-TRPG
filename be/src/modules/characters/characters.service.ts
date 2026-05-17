@@ -351,13 +351,14 @@ export class CharactersService {
     dto: UpdateCharacterEquipmentDto,
   ): Promise<CharacterResponseDto> {
     const character = await this.getOwnedCharacterOrThrow(userId, characterId);
-    await this.assertCharacterNotLocked(characterId);
 
     const finalEquippedWeaponId =
       dto.equippedWeaponId === undefined ? character.equippedWeaponId : dto.equippedWeaponId;
     if (dto.equippedWeaponId !== undefined) {
       const inventory = JSON.parse(character.inventoryJson) as InventoryItemDto[];
-      await this.validateInventoryAndEquippedWeapon(inventory, finalEquippedWeaponId);
+      await this.validateInventoryAndEquippedWeapon(inventory, finalEquippedWeaponId, {
+        allowSessionInventoryForCharacterId: characterId,
+      });
     }
 
     const updated = await this.prisma.character.update({
@@ -371,6 +372,18 @@ export class CharactersService {
         },
       },
     });
+
+    for (const assignment of updated.sessionCharacters) {
+      if (
+        assignment.session.status === PrismaSessionStatus.PLAYING ||
+        assignment.session.status === PrismaSessionStatus.PAUSED
+      ) {
+        this.realtimeEvents.emitSessionSnapshot(
+          assignment.sessionId,
+          await this.sessionsService.buildSnapshot(assignment.sessionId),
+        );
+      }
+    }
 
     return mapCharacter(updated);
   }
@@ -554,6 +567,7 @@ export class CharactersService {
   private async validateInventoryAndEquippedWeapon(
     inventory: InventoryItemDto[],
     equippedWeaponId: string | null,
+    options?: { allowSessionInventoryForCharacterId?: string },
   ): Promise<void> {
     const definitionIds = inventory
       .map((item) => item.itemDefinitionId)
@@ -572,9 +586,42 @@ export class CharactersService {
     }
 
     if (equippedWeaponId) {
-      const matched = inventory.some(
+      const matched = inventory.find(
         (item) => item.id === equippedWeaponId || item.itemDefinitionId === equippedWeaponId,
       );
+      if (matched) {
+        if (!this.isWeaponInventoryItem(matched)) {
+          throw new BadRequestException(
+            `장비: 장착 대상(${equippedWeaponId})은 무기가 아닙니다.`,
+          );
+        }
+        return;
+      }
+
+      if (options?.allowSessionInventoryForCharacterId) {
+        const sessionInventoryMatch = await this.prisma.inventoryEntry.findFirst({
+          where: {
+            sessionCharacter: {
+              characterId: options.allowSessionInventoryForCharacterId,
+            },
+            OR: [{ id: equippedWeaponId }, { itemDefinitionId: equippedWeaponId }],
+          },
+          include: { itemDefinition: true },
+        });
+
+        if (sessionInventoryMatch) {
+          if (
+            sessionInventoryMatch.itemDefinition.itemType !== "weapon" &&
+            !sessionInventoryMatch.itemDefinition.damageDice
+          ) {
+            throw new BadRequestException(
+              `장비: 장착 대상(${equippedWeaponId})은 무기가 아닙니다.`,
+            );
+          }
+          return;
+        }
+      }
+
       if (!matched) {
         throw new BadRequestException(
           `장비: 장착 무기 id(${equippedWeaponId})가 인벤토리에 없습니다.`,
