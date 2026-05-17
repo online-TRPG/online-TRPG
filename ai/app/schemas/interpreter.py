@@ -60,6 +60,34 @@ class StructuredAction(BaseModel):
     suggestedDifficulty: Literal["easy", "medium", "hard"] | None = None
 
 
+class SceneTransitionRequirement(BaseModel):
+    type: Literal[
+        "ACTION_EVIDENCE",
+        "CLUE_REVEALED",
+        "CLUE_NOT_REVEALED",
+        "OBJECT_STATE",
+        "FLAG_SET",
+        "COMBAT_RESOLVED",
+        "GM_APPROVAL",
+    ]
+    text: str = Field(min_length=1, max_length=200)
+    polarity: Literal["MUST", "MUST_NOT"] = "MUST"
+
+
+class SceneTransitionCandidateContract(BaseModel):
+    transitionId: str | None = None
+    targetNodeId: str = Field(min_length=1, max_length=100)
+    logic: Literal["ALL", "ANY"] = "ALL"
+    requirements: list[SceneTransitionRequirement] = Field(default_factory=list, max_length=10)
+    confidence: float = Field(ge=0.0, le=1.0)
+    rationale: str | None = Field(default=None, max_length=300)
+
+
+class SceneTransitionContract(BaseModel):
+    selectedTargetNodeId: str | None = Field(default=None, max_length=100)
+    candidates: list[SceneTransitionCandidateContract] = Field(default_factory=list, max_length=8)
+
+
 class InterpreterOutput(BaseModel):
     action: StructuredAction
     needsClarification: bool
@@ -70,3 +98,4 @@ class InterpreterOutput(BaseModel):
     requiredRuleCheckIds: list[str] = Field(default_factory=list)
     rulesConfidence: float | None = Field(default=None, ge=0.0, le=1.0)
     safetyNotes: list[str] = Field(default_factory=list)
+    sceneTransition: SceneTransitionContract | None = None

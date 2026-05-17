@@ -127,6 +127,17 @@ const mapText = {
   visibleToPlayers: '플레이어에게 공개',
   linkedClues: '숨겨진 단서',
   linkedItems: '숨겨진 아이템',
+  hazard: '위험 요소',
+  hazardEnabled: '함정/매복으로 사용',
+  hazardKind: '위험 종류',
+  hazardTrap: '함정',
+  hazardAmbush: '매복',
+  hazardGeneric: '위험',
+  hazardRadius: '탐지 반경(칸)',
+  hazardDc: '탐지 DC',
+  hazardLinkedClues: '탐지 성공 단서',
+  hazardTriggerOnce: '1회만 성공 처리',
+  hazardResetState: '탐지 기록 초기화',
   fogRevealEvent: '근접 안개 해제',
   eventName: '이벤트 이름',
   triggerDistance: '발동 거리(ft)',
@@ -154,7 +165,9 @@ type StartingPosition = NonNullable<VttMapStateDto['startingPositions']>[number]
 type MapSizeField = 'width' | 'height' | 'gridSize';
 type ScenarioAsset = ScenarioAssetResponseDto;
 type ObjectCell = NonNullable<VttMapStateDto['objectCells']>[number];
+type ObjectShapeCell = NonNullable<ObjectCell['shapeCells']>[number];
 type ObjectEvent = NonNullable<ObjectCell['events']>[number];
+type ObjectHazard = NonNullable<ObjectCell['hazard']>;
 
 function useCanvasImage(src: string | null | undefined) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -166,6 +179,13 @@ function useCanvasImage(src: string | null | undefined) {
     }
 
     let cancelled = false;
+    const isCrossOrigin = (() => {
+      try {
+        return new URL(src, window.location.href).origin !== window.location.origin;
+      } catch {
+        return true;
+      }
+    })();
 
     const loadImage = (mode: 'anonymous' | 'default') => {
       const nextImage = new window.Image();
@@ -188,8 +208,9 @@ function useCanvasImage(src: string | null | undefined) {
       nextImage.src = src;
     };
 
-    // Some R2/public bucket images render in <img> but fail anonymous canvas fetches.
-    loadImage('anonymous');
+    // R2 public URLs may omit CORS headers. Loading them anonymously makes the browser reject
+    // otherwise displayable images, so only same-origin assets use anonymous mode by default.
+    loadImage(isCrossOrigin ? 'default' : 'anonymous');
 
     return () => {
       cancelled = true;
@@ -466,6 +487,8 @@ export function BattleMap({
   const [structureDragStart, setStructureDragStart] = useState<{
     kind: MapStructureKind;
     point: MeasurePoint;
+    mode?: 'create' | 'extend';
+    targetObjectId?: string;
   } | null>(null);
   const [structureDraft, setStructureDraft] = useState<{
     kind: MapStructureKind;
@@ -832,6 +855,48 @@ export function BattleMap({
     return '오브젝트';
   }
 
+  function getObjectShapeCells(cell: ObjectCell): ObjectShapeCell[] {
+    return cell.shapeCells?.length
+      ? cell.shapeCells
+      : [{ x: cell.x, y: cell.y, width: cell.width, height: cell.height }];
+  }
+
+  function getGridShapeCellsFromBox(box: StructureBox): ObjectShapeCell[] {
+    const minColumn = Math.floor(box.x / map.gridSize);
+    const maxColumn = Math.max(minColumn, Math.ceil((box.x + box.width) / map.gridSize) - 1);
+    const minRow = Math.floor(box.y / map.gridSize);
+    const maxRow = Math.max(minRow, Math.ceil((box.y + box.height) / map.gridSize) - 1);
+    const cells: ObjectShapeCell[] = [];
+
+    for (let row = minRow; row <= maxRow; row += 1) {
+      for (let column = minColumn; column <= maxColumn; column += 1) {
+        const x = clamp(column * map.gridSize, 0, map.width - map.gridSize);
+        const y = clamp(row * map.gridSize, 0, map.height - map.gridSize);
+        cells.push({ x, y, width: map.gridSize, height: map.gridSize });
+      }
+    }
+
+    return cells;
+  }
+
+  function getShapeCellKey(cell: ObjectShapeCell) {
+    return `${cell.x}:${cell.y}:${cell.width}:${cell.height}`;
+  }
+
+  function getShapeBounds(shapeCells: ObjectShapeCell[]): StructureBox {
+    const left = Math.min(...shapeCells.map((cell) => cell.x));
+    const top = Math.min(...shapeCells.map((cell) => cell.y));
+    const right = Math.max(...shapeCells.map((cell) => cell.x + cell.width));
+    const bottom = Math.max(...shapeCells.map((cell) => cell.y + cell.height));
+
+    return {
+      x: left,
+      y: top,
+      width: Math.max(map.gridSize, right - left),
+      height: Math.max(map.gridSize, bottom - top),
+    };
+  }
+
   function addStructureBox(kind: MapStructureKind, box: StructureBox) {
     const id = `${kind}:${Date.now()}`;
     const base = {
@@ -846,15 +911,41 @@ export function BattleMap({
         : kind === 'object'
           ? {
               ...base,
+              shapeCells: getGridShapeCellsFromBox(box),
               visibleToPlayers: true,
               hiddenClueIds: [],
               hiddenItemIds: [],
               hiddenEventIds: [],
               events: [],
+              hazard: null,
             }
           : base;
     updateStructureCells(kind, [...getStructureCells(kind), nextCell]);
     setSelectedMapStructure({ kind, id });
+    setSelectedTokenId(null);
+    setSelectedFogId(null);
+  }
+
+  function extendObjectCell(cellId: string, box: StructureBox) {
+    const target = objectCells.find((cell) => cell.id === cellId);
+    if (!target) return;
+
+    const shapeByKey = new Map(
+      [...getObjectShapeCells(target), ...getGridShapeCellsFromBox(box)].map((cell) => [
+        getShapeCellKey(cell),
+        cell,
+      ])
+    );
+    const shapeCells = Array.from(shapeByKey.values()).sort((left, right) =>
+      left.y === right.y ? left.x - right.x : left.y - right.y
+    );
+    const bounds = getShapeBounds(shapeCells);
+
+    updateStructureCell('object', cellId, {
+      ...bounds,
+      shapeCells,
+    } as Partial<ObjectCell>);
+    setSelectedMapStructure({ kind: 'object', id: cellId });
     setSelectedTokenId(null);
     setSelectedFogId(null);
   }
@@ -905,6 +996,47 @@ export function BattleMap({
     }
 
     updateMapSize({ gridSize: parsedValue });
+  }
+
+  function setObjectHazardEnabled(enabled: boolean) {
+    if (selectedMapStructure?.kind !== 'object') return;
+
+    updateStructureCell('object', selectedMapStructure.id, {
+      hazard: enabled
+        ? {
+            kind: 'TRAP',
+            armed: true,
+            triggerOnce: true,
+            detectionRadiusCells: 3,
+            detectionDc: 12,
+            linkedClueIds: [],
+            attemptedBySessionCharacterIds: [],
+            detectedBySessionCharacterIds: [],
+          }
+        : null,
+    } as Partial<ObjectCell>);
+  }
+
+  function updateObjectHazard(patch: Partial<ObjectHazard>) {
+    if (selectedMapStructure?.kind !== 'object') return;
+    const objectCell = selectedMapStructureCell as ObjectCell | null;
+    const hazard = objectCell?.hazard;
+    if (!hazard) return;
+
+    updateStructureCell('object', selectedMapStructure.id, {
+      hazard: {
+        ...hazard,
+        ...patch,
+      },
+    } as Partial<ObjectCell>);
+  }
+
+  function resetObjectHazardState() {
+    updateObjectHazard({
+      attemptedBySessionCharacterIds: [],
+      detectedBySessionCharacterIds: [],
+      armed: true,
+    });
   }
 
   function handleMapSizeDraftKeyDown(
@@ -1284,11 +1416,13 @@ export function BattleMap({
       | NonNullable<VttMapStateDto['doorCells']>[number]
       | NonNullable<VttMapStateDto['objectCells']>[number]
   ) {
-    return (
-      point.x >= cell.x &&
-      point.x <= cell.x + cell.width &&
-      point.y >= cell.y &&
-      point.y <= cell.y + cell.height
+    const shapeCells = 'shapeCells' in cell ? getObjectShapeCells(cell as ObjectCell) : [cell];
+    return shapeCells.some(
+      (shapeCell) =>
+        point.x >= shapeCell.x &&
+        point.x <= shapeCell.x + shapeCell.width &&
+        point.y >= shapeCell.y &&
+        point.y <= shapeCell.y + shapeCell.height
     );
   }
 
@@ -1413,6 +1547,38 @@ export function BattleMap({
     setFogDraft(null);
   }
 
+  function beginObjectExtensionDrag(
+    cell: ObjectCell,
+    event: Parameters<NonNullable<ComponentProps<typeof Rect>['onMouseDown']>>[0]
+  ) {
+    const isSelectedObject =
+      selectedMapStructure?.kind === 'object' && selectedMapStructure.id === cell.id;
+    if (
+      !canEditMap ||
+      (mapStructureTool !== 'object' && !isSelectedObject) ||
+      isPanMode ||
+      event.evt.button !== 0
+    ) {
+      return;
+    }
+    event.cancelBubble = true;
+    const stage = event.target.getStage();
+    const pointer = stage?.getPointerPosition();
+    if (!pointer) return;
+    const world = getWorldPointer(pointer);
+
+    setSelectedMapStructure({ kind: 'object', id: cell.id });
+    setSelectedTokenId(null);
+    setSelectedFogId(null);
+    setStructureDragStart({
+      kind: 'object',
+      point: world,
+      mode: 'extend',
+      targetObjectId: cell.id,
+    });
+    setStructureDraft({ kind: 'object', box: getSnappedStructureBox(world, world) });
+  }
+
   function handleStagePointerMove(
     event: Parameters<NonNullable<ComponentProps<typeof Stage>['onMouseMove']>>[0]
   ) {
@@ -1448,7 +1614,11 @@ export function BattleMap({
 
   function handleStagePointerUp() {
     if (structureDragStart && structureDraft) {
-      addStructureBox(structureDraft.kind, structureDraft.box);
+      if (structureDragStart.mode === 'extend' && structureDragStart.targetObjectId) {
+        extendObjectCell(structureDragStart.targetObjectId, structureDraft.box);
+      } else {
+        addStructureBox(structureDraft.kind, structureDraft.box);
+      }
       suppressStageClickRef.current = true;
     }
     setStructureDragStart(null);
@@ -1933,26 +2103,29 @@ export function BattleMap({
                     />
                   );
                 })}
-                {visibleObjectCells.map((cell) => (
-                  <Rect
-                    key={cell.id}
-                    x={cell.x}
-                    y={cell.y}
-                    width={cell.width}
-                    height={cell.height}
-                    fill="rgba(121, 86, 185, 0.5)"
-                    stroke={selectedMapStructure?.id === cell.id ? '#ffffff' : '#cbbcff'}
-                    strokeWidth={selectedMapStructure?.id === cell.id ? 3 : 2}
-                    cornerRadius={Math.min(10, map.gridSize / 8)}
-                    onClick={(event) => {
-                      event.cancelBubble = true;
-                      setSelectedMapStructure({ kind: 'object', id: cell.id });
-                      setSelectedTokenId(null);
-                      setSelectedFogId(null);
-                      emitStructureSelection('object', cell);
-                    }}
-                  />
-                ))}
+                {visibleObjectCells.flatMap((cell) =>
+                  getObjectShapeCells(cell).map((shapeCell, shapeIndex) => (
+                    <Rect
+                      key={`${cell.id}:shape:${shapeIndex}`}
+                      x={shapeCell.x}
+                      y={shapeCell.y}
+                      width={shapeCell.width}
+                      height={shapeCell.height}
+                      fill="rgba(121, 86, 185, 0.5)"
+                      stroke={selectedMapStructure?.id === cell.id ? '#ffffff' : '#cbbcff'}
+                      strokeWidth={selectedMapStructure?.id === cell.id ? 3 : 2}
+                      cornerRadius={Math.min(10, map.gridSize / 8)}
+                      onMouseDown={(event) => beginObjectExtensionDrag(cell, event)}
+                      onClick={(event) => {
+                        event.cancelBubble = true;
+                        setSelectedMapStructure({ kind: 'object', id: cell.id });
+                        setSelectedTokenId(null);
+                        setSelectedFogId(null);
+                        emitStructureSelection('object', cell);
+                      }}
+                    />
+                  ))
+                )}
                 {structureDraft ? (
                   <Rect
                     x={structureDraft.box.x}
@@ -2053,6 +2226,11 @@ export function BattleMap({
                     isMeasureMode={isMeasureMode}
                     isPingMode={isPingMode}
                     onSelect={() => {
+                      if (selectedTokenId === token.id) {
+                        setSelectedTokenId(null);
+                        onSelectionChange?.(null);
+                        return;
+                      }
                       setSelectedTokenId(token.id);
                       setSelectedFogId(null);
                       setSelectedMapStructure(null);
@@ -2707,6 +2885,111 @@ export function BattleMap({
                     )}
                   </select>
                 </label>
+                <div className="vtt-object-events">
+                  <span className="eyebrow">{mapText.hazard}</span>
+                  <div className="vtt-check-row">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={Boolean((selectedMapStructureCell as ObjectCell).hazard)}
+                        onChange={(event) => setObjectHazardEnabled(event.target.checked)}
+                      />
+                      {mapText.hazardEnabled}
+                    </label>
+                  </div>
+                  {(selectedMapStructureCell as ObjectCell).hazard ? (
+                    <>
+                      <label>
+                        {mapText.hazardKind}
+                        <select
+                          value={(selectedMapStructureCell as ObjectCell).hazard?.kind ?? 'TRAP'}
+                          onChange={(event) =>
+                            updateObjectHazard({
+                              kind: event.target.value as ObjectHazard['kind'],
+                            })
+                          }
+                        >
+                          <option value="TRAP">{mapText.hazardTrap}</option>
+                          <option value="AMBUSH">{mapText.hazardAmbush}</option>
+                          <option value="HAZARD">{mapText.hazardGeneric}</option>
+                        </select>
+                      </label>
+                      <div className="vtt-field-row">
+                        <label>
+                          {mapText.hazardRadius}
+                          <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={
+                              (selectedMapStructureCell as ObjectCell).hazard?.detectionRadiusCells ?? 3
+                            }
+                            onChange={(event) =>
+                              updateObjectHazard({
+                                detectionRadiusCells: clamp(Number(event.target.value) || 3, 1, 20),
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          {mapText.hazardDc}
+                          <input
+                            type="number"
+                            min={1}
+                            max={40}
+                            value={(selectedMapStructureCell as ObjectCell).hazard?.detectionDc ?? 12}
+                            onChange={(event) =>
+                              updateObjectHazard({
+                                detectionDc: clamp(Number(event.target.value) || 12, 1, 40),
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                      <label>
+                        {mapText.hazardLinkedClues}
+                        <select
+                          multiple
+                          size={Math.min(Math.max(clueOptions.length, 3), 8)}
+                          value={(selectedMapStructureCell as ObjectCell).hazard?.linkedClueIds ?? []}
+                          onChange={(event) =>
+                            updateObjectHazard({
+                              linkedClueIds: Array.from(
+                                event.target.selectedOptions,
+                                (option) => option.value
+                              ).slice(0, 30),
+                            })
+                          }
+                        >
+                          {clueOptions.length ? (
+                            clueOptions.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.label}
+                              </option>
+                            ))
+                          ) : (
+                            <option disabled>선택 가능한 단서 없음</option>
+                          )}
+                        </select>
+                      </label>
+                      <div className="vtt-check-row">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={(selectedMapStructureCell as ObjectCell).hazard?.triggerOnce !== false}
+                            onChange={(event) =>
+                              updateObjectHazard({ triggerOnce: event.target.checked })
+                            }
+                          />
+                          {mapText.hazardTriggerOnce}
+                        </label>
+                      </div>
+                      <button type="button" className="ghost small" onClick={resetObjectHazardState}>
+                        {mapText.hazardResetState}
+                      </button>
+                    </>
+                  ) : null}
+                </div>
                 {enableObjectEventEditing ? (
                   <div className="vtt-object-events">
                     <span className="eyebrow">{mapText.fogRevealEvent}</span>

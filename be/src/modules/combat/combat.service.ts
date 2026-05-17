@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
   CombatEntityType as PrismaCombatEntityType,
   CombatStatus as PrismaCombatStatus,
@@ -11,6 +11,7 @@ import {
 import {
   AvailableActionsResponseDto,
   ApplyCombatDamageDto,
+  AutoMonsterTurnDto,
   CombatActionResultDto,
   CombatEntityType,
   CombatResponseDto,
@@ -30,6 +31,8 @@ import { ActionEconomyService } from "../rules/action-economy.service";
 import { CharacterResourceService } from "../rules/character-resource.service";
 import { DiceService } from "../rules/dice.service";
 import { SessionsService } from "../sessions/sessions.service";
+import { SrdEngineLoaderService } from "./srd-engine-loader.service";
+import type { SrdEngineExecutableMonsterAction } from "./srd-engine.types";
 
 type CombatWithParticipants = Awaited<ReturnType<CombatService["getActiveCombatEntity"]>>;
 type CombatParticipantEntity = NonNullable<CombatWithParticipants>["participants"][number];
@@ -46,6 +49,10 @@ const DEFAULT_MONSTER_HP = 1;
 
 @Injectable()
 export class CombatService {
+  private readonly logger = new Logger(CombatService.name);
+  private readonly serverAutoMonsterTurnSessions = new Set<string>();
+  private readonly serverAutoMonsterTurnScheduledSessions = new Set<string>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessionsService: SessionsService,
@@ -54,6 +61,7 @@ export class CombatService {
     private readonly actionEconomy: ActionEconomyService,
     private readonly characterResources: CharacterResourceService,
     private readonly realtimeEvents: RealtimeEventsService,
+    private readonly srdEngine: SrdEngineLoaderService,
   ) {}
 
   async startCombat(
@@ -113,6 +121,21 @@ export class CombatService {
     const monsterTokens = (map.tokens ?? [])
       .filter((token) => token.hidden !== true && token.isHostile === true)
       .filter((token) => !dto.participantEntityIds?.length || dto.participantEntityIds.includes(token.id));
+
+    this.logAutoMonsterTurn("startCombat participants prepared", {
+      sessionId: session.id,
+      nodeId: state.currentNodeId,
+      gmMode: session.gmMode,
+      playerCount: candidates.length,
+      monsterTokenCount: monsterTokens.length,
+      playerIds: candidates.map((candidate) => candidate.id),
+      monsterTokens: monsterTokens.map((token) => ({
+        tokenId: token.id,
+        name: this.resolveTokenName(token),
+        isHostile: token.isHostile,
+        hidden: token.hidden,
+      })),
+    });
 
     const playerInitiativeRows = candidates.map((candidate) => ({
       kind: "player" as const,
@@ -243,15 +266,59 @@ export class CombatService {
     });
 
     const response = await this.mapCombat(combat);
+    this.logAutoMonsterTurn("startCombat created combat", {
+      sessionId: session.id,
+      combatId: combat.id,
+      status: combat.status,
+      currentParticipantId: combat.currentParticipantId,
+      participants: combat.participants.map((participant) => ({
+        id: participant.id,
+        name: participant.nameSnapshot,
+        type: participant.entityType,
+        isHostile: participant.isHostile,
+        turnOrder: participant.turnOrder,
+        initiative: participant.initiative,
+        isCurrent: participant.id === combat.currentParticipantId,
+      })),
+    });
+    const currentParticipant = combat.participants.find(
+      (participant) => participant.id === combat.currentParticipantId,
+    );
+    this.realtimeEvents.emitSystemMessage(
+      session.id,
+      "COMBAT_STARTED",
+      currentParticipant
+        ? `전투가 시작되었습니다. 현재 턴: ${currentParticipant.nameSnapshot}`
+        : "전투가 시작되었습니다.",
+    );
     this.realtimeEvents.emitCombatUpdated(session.id, response);
     this.realtimeEvents.emitSessionSnapshot(session.id, await this.sessionsService.buildSnapshot(session.id));
+    if (session.gmMode !== PrismaGmMode.HUMAN && this.isCurrentTurnAutoMonster(combat)) {
+      this.logAutoMonsterTurn("startCombat detected monster current turn", {
+        sessionId: session.id,
+        combatId: combat.id,
+        currentParticipantId: combat.currentParticipantId,
+      });
+      await this.runServerAutoMonsterTurns(session.id);
+      return this.mapCombat(await this.getCombatEntityById(combat.id));
+    }
     return response;
   }
 
   async getCombat(userId: string, sessionId: string): Promise<CombatResponseDto> {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     await this.sessionsService.ensureMembership(userId, session.id);
-    return this.mapCombat(await this.getActiveCombatEntity(session.id));
+    const combat = await this.getActiveCombatEntity(session.id);
+    if (session.gmMode !== PrismaGmMode.HUMAN && this.isCurrentTurnAutoMonster(combat)) {
+      this.logAutoMonsterTurn("getCombat detected monster current turn", {
+        sessionId: session.id,
+        combatId: combat.id,
+        currentParticipantId: combat.currentParticipantId,
+      });
+      await this.runServerAutoMonsterTurns(session.id);
+      return this.mapCombat(await this.getCombatEntityById(combat.id));
+    }
+    return this.mapCombat(combat);
   }
 
   async endCombat(userId: string, sessionId: string): Promise<CombatResponseDto> {
@@ -361,6 +428,23 @@ export class CombatService {
       }
     }
 
+    return this.advanceCurrentTurn(session.id, combat);
+  }
+
+  private async advanceCurrentTurn(
+    sessionId: string,
+    combat: NonNullable<CombatWithParticipants>,
+  ): Promise<TurnAdvanceResponseDto> {
+    const current = combat.participants.find(
+      (participant) => participant.id === combat.currentParticipantId,
+    );
+
+    if (!current) {
+      throw conflict("TURN_409", "이미 턴이 종료되었습니다.", {
+        reason: "CURRENT_TURN_NOT_FOUND",
+      });
+    }
+
     const aliveParticipants = combat.participants.filter((participant) => participant.isAlive);
     const currentIndex = aliveParticipants.findIndex((participant) => participant.id === current.id);
     const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % aliveParticipants.length : 0;
@@ -422,13 +506,21 @@ export class CombatService {
       turnNo: updated.turnNo,
     };
 
-    this.realtimeEvents.emitTurnChanged(session.id, response);
-    this.realtimeEvents.emitCombatUpdated(session.id, await this.mapCombat(updated));
+    this.realtimeEvents.emitTurnChanged(sessionId, response);
+    this.realtimeEvents.emitCombatUpdated(sessionId, await this.mapCombat(updated));
     if (expiredRageCount > 0) {
       this.realtimeEvents.emitSessionSnapshot(
-        session.id,
-        await this.sessionsService.buildSnapshot(session.id),
+        sessionId,
+        await this.sessionsService.buildSnapshot(sessionId),
       );
+    }
+    if (!this.serverAutoMonsterTurnSessions.has(sessionId)) {
+      this.logAutoMonsterTurn("advanceCurrentTurn checking monster automation", {
+        sessionId,
+        combatId: updated.id,
+        currentParticipantId: updated.currentParticipantId,
+      });
+      await this.runServerAutoMonsterTurns(sessionId);
     }
     return response;
   }
@@ -515,6 +607,412 @@ export class CombatService {
       attackTotal: attackRoll.total,
       damageTotal: damageRoll?.total ?? null,
     };
+  }
+
+  async autoMonsterTurn(
+    userId: string,
+    sessionId: string,
+    dto: AutoMonsterTurnDto = {},
+  ): Promise<CombatActionResultDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    await this.sessionsService.ensureMembership(userId, session.id);
+    if (session.gmMode === PrismaGmMode.HUMAN) {
+      await this.ensureHost(userId, session.id);
+    }
+
+    return this.executeAutoMonsterTurn(userId, session, dto);
+  }
+
+  private async executeAutoMonsterTurn(
+    userId: string,
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>,
+    dto: AutoMonsterTurnDto = {},
+  ): Promise<CombatActionResultDto> {
+    this.logAutoMonsterTurn("executeAutoMonsterTurn entered", {
+      sessionId: session.id,
+      userId,
+      targetParticipantId: dto.targetParticipantId ?? null,
+      actionId: dto.actionId ?? null,
+      autoEndTurn: dto.autoEndTurn ?? null,
+    });
+    const combat = await this.getActiveCombatEntity(session.id);
+    const attacker = combat.participants.find(
+      (participant) => participant.id === combat.currentParticipantId,
+    );
+    if (!attacker || attacker.entityType !== PrismaCombatEntityType.MONSTER || !attacker.isHostile) {
+      this.logAutoMonsterTurn("executeAutoMonsterTurn rejected: current turn is not hostile monster", {
+        sessionId: session.id,
+        combatId: combat.id,
+        currentParticipantId: combat.currentParticipantId,
+        currentParticipant: attacker
+          ? {
+              id: attacker.id,
+              name: attacker.nameSnapshot,
+              entityType: attacker.entityType,
+              isHostile: attacker.isHostile,
+              isAlive: attacker.isAlive,
+            }
+          : null,
+      });
+      throw conflict("COMBAT_409", "현재 턴의 몬스터가 없습니다.", {
+        reason: "CURRENT_TURN_IS_NOT_MONSTER",
+      });
+    }
+
+    const map = await this.sessionsService.getVttMapForUser(session.hostUserId ?? userId, session.id);
+    const token = (map.tokens ?? []).find((candidate) => candidate.id === attacker.tokenId);
+    const monsterId = token?.monster?.id ?? this.inferMvpMonsterId(attacker.nameSnapshot);
+    const action =
+      this.srdEngine.chooseMvpMonsterAction(monsterId, dto.actionId) ??
+      this.buildFallbackMonsterAction(monsterId, attacker.nameSnapshot);
+    this.logAutoMonsterTurn("monster action selected", {
+      sessionId: session.id,
+      combatId: combat.id,
+      attackerId: attacker.id,
+      attackerName: attacker.nameSnapshot,
+      tokenId: attacker.tokenId,
+      tokenFound: Boolean(token),
+      tokenMonsterId: token?.monster?.id ?? null,
+      inferredMonsterId: monsterId,
+      actionId: action?.actionId ?? null,
+      actionLabel: action?.label ?? null,
+    });
+    if (!action) {
+      throw unprocessable("COMBAT_422", "자동 실행 가능한 몬스터 행동이 없습니다.", {
+        reason: "EXECUTABLE_MONSTER_ACTION_NOT_FOUND",
+        monsterId,
+      });
+    }
+
+    const target = dto.targetParticipantId
+      ? this.findCombatParticipantOrThrow(combat, dto.targetParticipantId)
+      : combat.participants.find((participant) => !participant.isHostile && participant.isAlive);
+    this.logAutoMonsterTurn("monster target selected", {
+      sessionId: session.id,
+      combatId: combat.id,
+      attackerId: attacker.id,
+      targetId: target?.id ?? null,
+      targetName: target?.nameSnapshot ?? null,
+      targetIsHostile: target?.isHostile ?? null,
+      targetIsAlive: target?.isAlive ?? null,
+    });
+    if (!target || target.isHostile || !target.isAlive) {
+      throw unprocessable("COMBAT_422", "몬스터가 공격할 수 있는 대상이 없습니다.", {
+        reason: "MONSTER_TARGET_NOT_FOUND",
+      });
+    }
+
+    const targetToken = target.tokenId
+      ? (map.tokens ?? []).find((candidate) => candidate.id === target.tokenId)
+      : (map.tokens ?? []).find((candidate) => candidate.sessionCharacterId === target.sessionCharacterId);
+    const movementResult =
+      attacker.tokenId && targetToken
+        ? await this.sessionsService.moveVttTokenTowardToken({
+            sessionId: session.id,
+            sourceTokenId: attacker.tokenId,
+            targetTokenId: targetToken.id,
+            maxDistanceFt: attacker.speedFt ?? 30,
+            stopWithinFt: action.reachFt ?? 5,
+          })
+        : null;
+    this.logAutoMonsterTurn("monster movement resolved", {
+      sessionId: session.id,
+      combatId: combat.id,
+      attackerId: attacker.id,
+      sourceTokenId: attacker.tokenId,
+      targetTokenId: targetToken?.id ?? null,
+      targetTokenFound: Boolean(targetToken),
+      moved: movementResult?.moved ?? false,
+      distanceMovedFt: movementResult?.distanceMovedFt ?? 0,
+    });
+
+    this.logAutoMonsterTurn("monster attack resolving", {
+      sessionId: session.id,
+      combatId: combat.id,
+      attackerId: attacker.id,
+      targetId: target.id,
+      attackBonus: action.attackBonus,
+      damageDice: action.damageDice,
+    });
+    const result = await this.resolveAttack(userId, session.id, {
+      attackerParticipantId: attacker.id,
+      targetParticipantId: target.id,
+      attackBonus: action.attackBonus,
+      damageDice: action.damageDice,
+      damageBonus: 0,
+    });
+    this.logAutoMonsterTurn("monster attack resolved", {
+      sessionId: session.id,
+      combatId: result.combat.combatId,
+      attackerId: attacker.id,
+      targetId: target.id,
+      attackTotal: result.attackTotal,
+      damageTotal: result.damageTotal,
+      combatStatus: result.combat.status,
+    });
+
+    const movementMessage =
+      movementResult?.moved === true ? ` ${movementResult.distanceMovedFt}ft 이동 후` : "";
+    const actionMessage = `${attacker.nameSnapshot}${movementMessage} ${action.label}`;
+    if (dto.autoEndTurn === false || result.combat.status !== CombatStatus.ACTIVE) {
+      return {
+        ...result,
+        message: `${actionMessage}: ${result.message}`,
+      };
+    }
+
+    const updated = await this.getActiveCombatEntity(session.id);
+    if (updated.currentParticipantId === attacker.id) {
+      this.logAutoMonsterTurn("monster auto ending turn", {
+        sessionId: session.id,
+        combatId: updated.id,
+        attackerId: attacker.id,
+      });
+      await this.advanceCurrentTurn(session.id, updated);
+    }
+
+    return {
+      ...result,
+      combat: await this.mapCombat(await this.getCombatEntityById(result.combat.combatId)),
+      message: `${actionMessage}: ${result.message} / 턴 종료`,
+    };
+  }
+
+  private scheduleServerAutoMonsterTurns(sessionId: string): void {
+    if (
+      this.serverAutoMonsterTurnSessions.has(sessionId) ||
+      this.serverAutoMonsterTurnScheduledSessions.has(sessionId)
+    ) {
+      this.logAutoMonsterTurn("schedule skipped: automation already running or scheduled", {
+        sessionId,
+        running: this.serverAutoMonsterTurnSessions.has(sessionId),
+        scheduled: this.serverAutoMonsterTurnScheduledSessions.has(sessionId),
+      });
+      return;
+    }
+
+    this.logAutoMonsterTurn("schedule queued", { sessionId });
+    this.serverAutoMonsterTurnScheduledSessions.add(sessionId);
+    setTimeout(() => {
+      this.serverAutoMonsterTurnScheduledSessions.delete(sessionId);
+      this.logAutoMonsterTurn("scheduled run starting", { sessionId });
+      void this.runServerAutoMonsterTurns(sessionId);
+    }, 50);
+  }
+
+  private isCurrentTurnAutoMonster(combat: NonNullable<CombatWithParticipants>): boolean {
+    const current = combat.participants.find(
+      (participant) => participant.id === combat.currentParticipantId,
+    );
+    return Boolean(
+      current &&
+        current.entityType === PrismaCombatEntityType.MONSTER &&
+        current.isHostile &&
+        current.isAlive,
+    );
+  }
+
+  private inferMvpMonsterId(name: string | null | undefined): string | null {
+    const normalized = (name ?? "").trim().toLowerCase();
+    if (!normalized) {
+      return null;
+    }
+    if (normalized.includes("goblin") || normalized.includes("고블린")) {
+      return "monster.goblin";
+    }
+    if (
+      normalized.includes("giant rat") ||
+      normalized.includes("거대 쥐") ||
+      normalized.includes("큰 쥐")
+    ) {
+      return "monster.giant_rat";
+    }
+    return null;
+  }
+
+  private buildFallbackMonsterAction(
+    monsterId: string | null,
+    name: string,
+  ): SrdEngineExecutableMonsterAction {
+    if (monsterId === "monster.goblin") {
+      return {
+        monsterId,
+        actionId: "fallback.scimitar",
+        label: "Scimitar",
+        attackKind: "melee",
+        attackBonus: 4,
+        damageDice: "1d6+2",
+        damageType: "slashing",
+        reachFt: 5,
+        rangeFt: null,
+        confidence: "medium",
+      };
+    }
+
+    if (monsterId === "monster.giant_rat") {
+      return {
+        monsterId,
+        actionId: "fallback.bite",
+        label: "Bite",
+        attackKind: "melee",
+        attackBonus: 4,
+        damageDice: "1d4+2",
+        damageType: "piercing",
+        reachFt: 5,
+        rangeFt: null,
+        confidence: "medium",
+      };
+    }
+
+    return {
+      monsterId: monsterId ?? "monster.unknown",
+      actionId: "fallback.strike",
+      label: `${name} Attack`,
+      attackKind: "melee",
+      attackBonus: 3,
+      damageDice: "1d6+1",
+      damageType: null,
+      reachFt: 5,
+      rangeFt: null,
+      confidence: "low",
+    };
+  }
+
+  private async runServerAutoMonsterTurns(sessionId: string): Promise<void> {
+    if (this.serverAutoMonsterTurnSessions.has(sessionId)) {
+      this.logAutoMonsterTurn("run skipped: automation already running", { sessionId });
+      return;
+    }
+
+    this.logAutoMonsterTurn("run started", { sessionId });
+    this.serverAutoMonsterTurnSessions.add(sessionId);
+    try {
+      for (let step = 0; step < 20; step += 1) {
+        const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+        this.logAutoMonsterTurn("run step session loaded", {
+          sessionId: session.id,
+          step,
+          gmMode: session.gmMode,
+        });
+        if (session.gmMode === PrismaGmMode.HUMAN) {
+          this.logAutoMonsterTurn("run stopped: HUMAN GM session", { sessionId: session.id, step });
+          return;
+        }
+
+        let combat: NonNullable<CombatWithParticipants>;
+        try {
+          combat = await this.getActiveCombatEntity(session.id);
+        } catch {
+          this.logAutoMonsterTurn("run stopped: active combat not found", { sessionId: session.id, step });
+          return;
+        }
+
+        const current = combat.participants.find(
+          (participant) => participant.id === combat.currentParticipantId,
+        );
+        this.logAutoMonsterTurn("run step combat loaded", {
+          sessionId: session.id,
+          step,
+          combatId: combat.id,
+          status: combat.status,
+          roundNo: combat.roundNo,
+          turnNo: combat.turnNo,
+          currentParticipantId: combat.currentParticipantId,
+          currentParticipant: current
+            ? {
+                id: current.id,
+                name: current.nameSnapshot,
+                entityType: current.entityType,
+                isHostile: current.isHostile,
+                isAlive: current.isAlive,
+                tokenId: current.tokenId,
+              }
+            : null,
+        });
+        if (this.isCombatResolved(combat)) {
+          this.logAutoMonsterTurn("run completing resolved combat", {
+            sessionId: session.id,
+            step,
+            combatId: combat.id,
+          });
+          await this.completeCombat(session.id, combat.id);
+          return;
+        }
+        if (
+          !current ||
+          current.entityType !== PrismaCombatEntityType.MONSTER ||
+          !current.isHostile ||
+          !current.isAlive
+        ) {
+          this.logAutoMonsterTurn("run stopped: current participant is not actionable monster", {
+            sessionId: session.id,
+            step,
+            currentParticipantId: combat.currentParticipantId,
+          });
+          return;
+        }
+
+        try {
+          const result = await this.executeAutoMonsterTurn(session.hostUserId, session, {});
+          this.realtimeEvents.emitSystemMessage(
+            session.id,
+            "AUTO_MONSTER_TURN_RESOLVED",
+            `몬스터 자동 턴: ${result.message}`,
+          );
+        } catch (error) {
+          const message = this.extractErrorMessage(error);
+          this.logger.warn(
+            `Auto monster turn failed session=${session.id} participant=${current.id}: ${message}`,
+          );
+          this.realtimeEvents.emitSystemMessage(
+            session.id,
+            "AUTO_MONSTER_TURN_FAILED",
+            `몬스터 자동 턴 실패: ${current.nameSnapshot} 행동을 처리하지 못했습니다. 원인: ${message}. 턴을 넘깁니다.`,
+          );
+
+          const latestCombat = await this.getActiveCombatEntity(session.id);
+          if (latestCombat.currentParticipantId === current.id) {
+            await this.advanceCurrentTurn(session.id, latestCombat);
+          }
+        }
+      }
+      this.logAutoMonsterTurn("run stopped: max step guard reached", { sessionId, maxSteps: 20 });
+    } catch (error) {
+      this.realtimeEvents.emitSystemMessage(
+        sessionId,
+        "AUTO_MONSTER_TURN_LOOP_FAILED",
+        `몬스터 자동 턴 루프가 중단되었습니다. 원인: ${this.extractErrorMessage(error)}`,
+      );
+      this.logger.error(
+        `Auto monster turn loop failed session=${sessionId}: ${this.extractErrorMessage(error)}`,
+      );
+    } finally {
+      this.serverAutoMonsterTurnSessions.delete(sessionId);
+      this.logAutoMonsterTurn("run finished", { sessionId });
+    }
+  }
+
+  private logAutoMonsterTurn(message: string, data: Record<string, unknown> = {}): void {
+    const line = `[AUTO_MONSTER] ${message} ${JSON.stringify(data)}`;
+    this.logger.log(line);
+    // Nest Logger 설정/transport가 꺼져 있어도 전투 자동 진행 추적은 개발 콘솔에 반드시 남긴다.
+    console.log(line);
+  }
+
+  private extractErrorMessage(error: unknown): string {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    if (error && typeof error === "object" && "response" in error) {
+      const response = (error as { response?: unknown }).response;
+      if (response && typeof response === "object" && "message" in response) {
+        const message = (response as { message?: unknown }).message;
+        if (typeof message === "string" && message.trim()) {
+          return message;
+        }
+      }
+    }
+    return "알 수 없는 오류";
   }
 
   private async getActiveCombatEntity(sessionId: string) {
@@ -708,6 +1206,15 @@ export class CombatService {
     maxHp: number;
     armorClass: number;
   } {
+    const engineStats = this.srdEngine.getMonsterCombatStats(token.monster?.id);
+    if (engineStats) {
+      return {
+        currentHp: engineStats.currentHp,
+        maxHp: engineStats.maxHp,
+        armorClass: engineStats.armorClass,
+      };
+    }
+
     const maxHp =
       this.parseFirstInteger(token.monster?.hitPointsRaw) ??
       this.parseFirstInteger(token.monster?.basicRaw) ??
@@ -740,6 +1247,11 @@ export class CombatService {
   }
 
   private resolveMonsterSpeedFt(token: VttMapStateDto["tokens"][number]): number {
+    const engineStats = this.srdEngine.getMonsterCombatStats(token.monster?.id);
+    if (engineStats) {
+      return engineStats.speedFt;
+    }
+
     return (
       this.parseFirstInteger(token.monster?.speedRaw) ??
       this.parseSpeedFromText(token.monster?.basicRaw) ??

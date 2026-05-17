@@ -410,6 +410,19 @@
   align-items: center;
   border: 1px solid #cbd7df;
   background: #ffffff;
+  cursor: pointer;
+}
+
+.exploration-inventory-item:hover,
+.exploration-inventory-item:focus-visible {
+  border-color: #86a9c8;
+  background: #f3f8fc;
+}
+
+.exploration-inventory-item.selected {
+  border-color: #3d7fb0;
+  background: #edf6ff;
+  box-shadow: inset 0 0 0 1px rgba(61, 127, 176, 0.28);
 }
 
 .exploration-inventory-item-body {

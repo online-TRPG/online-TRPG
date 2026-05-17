@@ -151,6 +151,19 @@ function isBlockingSessionStatus(status: string | undefined): boolean {
   return status !== 'completed' && status !== 'disbanded';
 }
 
+function isDeclareRpActionIntent(value: unknown): boolean {
+  return value === 'DECLARE_RP_ACTION';
+}
+
+function isRpMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
+  const structuredAction = turnLog.structuredAction;
+  return (
+    Boolean(structuredAction) &&
+    typeof structuredAction === 'object' &&
+    isDeclareRpActionIntent((structuredAction as { intent?: unknown }).intent)
+  );
+}
+
 function isStaleLeaveErrorMessage(message: string): boolean {
   return (
     message.includes('(403)') ||
@@ -181,6 +194,15 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
   ) {
     const narration = turnLog.narration?.trim();
     return `[MAIN]${narration || '메인 명령을 처리했습니다.'}`;
+  }
+
+  if (
+    structuredAction &&
+    typeof structuredAction === 'object' &&
+    structuredAction.type === 'main_command_check_result'
+  ) {
+    const narration = turnLog.narration?.trim();
+    return `[MAIN]${narration || '판정 결과를 반영했습니다.'}`;
   }
 
   if (
@@ -230,6 +252,24 @@ function isMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
       typeof structuredAction === 'object' &&
       structuredAction.type === 'main_command'
   );
+}
+
+function isCheckRequiredMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
+  const structuredAction = turnLog.structuredAction;
+
+  return Boolean(
+    structuredAction &&
+      typeof structuredAction === 'object' &&
+      structuredAction.type === 'main_command' &&
+      (structuredAction as Record<string, unknown>).status === 'CHECK_REQUIRED'
+  );
+}
+
+function getMainCommandCheckEffect(response: MainCommandResponseDto): Record<string, unknown> | null {
+  const data = response.data;
+  if (!data || typeof data !== 'object') return null;
+  const effect = (data as Record<string, unknown>).checkEffect;
+  return effect && typeof effect === 'object' ? (effect as Record<string, unknown>) : null;
 }
 
 function getSenderNameByUserId(userId: string, snapshot: SessionSnapshot | null): string {
@@ -646,7 +686,7 @@ export function useSession(
       // TurnLog는 DB에 남으므로 새로고침/재접속 후에도 같은 id로 말풍선을 다시 만들 수 있습니다.
       const rawLogId = turnLog.playerActionId
         ? `player-action:${turnLog.playerActionId}:raw`
-        : `turn-log:${turnLog.turnLogId}:raw`;
+        : `turn-log:${turnLog.turnLogId}:${isRpMainCommandTurnLog(turnLog) ? 'rp-raw' : 'raw'}`;
       const senderName = turnLog.actorUserId
         ? getSenderNameByUserId(turnLog.actorUserId, snapshotRef.current)
         : '알 수 없음';
@@ -680,6 +720,9 @@ export function useSession(
           removePendingMainCommandLog(matchedPending);
         }
       }
+      if (isCheckRequiredMainCommandTurnLog(turnLog)) {
+        return;
+      }
       appendLog(
         'action',
         '세션 로그',
@@ -712,6 +755,10 @@ export function useSession(
         if (matchedPending) {
           removePendingMainCommandLog(matchedPending);
         }
+      }
+      if (isCheckRequiredMainCommandTurnLog(turnLog)) {
+        appendPlayerRawInputLog(turnLog, appendOlderLog);
+        return;
       }
 
       // 과거 로그는 배열 앞쪽에 넣어 화면에서 현재 로그보다 위에 보이게 합니다.
@@ -1365,7 +1412,8 @@ export function useSession(
     if (!rawText) return null;
 
     const clientLogId = crypto.randomUUID();
-    const rawLogId = `main-command:${clientLogId}:raw`;
+    const isRpAction = isDeclareRpActionIntent(payload.intent);
+    const rawLogId = `main-command:${clientLogId}:${isRpAction ? 'rp-raw' : 'raw'}`;
     const pendingLogId = `main-command:${clientLogId}:pending`;
     const createdAt = new Date().toISOString();
     const pendingEntry: PendingMainCommandLog = {
@@ -1400,9 +1448,37 @@ export function useSession(
       // CHECK_REQUIRED 응답 시 로컬 d20 굴림으로 오버레이 띄움 (v1: 단일 클라이언트 가시).
       // 서버 권위 굴림 + 브로드캐스트는 BE 합의 후 후속 작업으로 교체.
       if (response?.status === 'CHECK_REQUIRED' && response.checkOptions?.[0]) {
-        setActiveDiceRoll(
-          buildCheckRequiredOverlay(response.checkOptions[0], user.id, user.displayName),
+        const diceOverlay = buildCheckRequiredOverlay(
+          response.checkOptions[0],
+          user.id,
+          user.displayName,
         );
+        setActiveDiceRoll(diceOverlay);
+        const checkEffect = getMainCommandCheckEffect(response);
+        if (checkEffect) {
+          try {
+            const resolved = await apiResolveMainCommandCheck(
+              user,
+              snapshot.session.id,
+              {
+                requestId: response.requestId,
+                actorId: payload.actorId,
+                outcome:
+                  diceOverlay.outcome === 'SUCCESS'
+                    ? ('SUCCESS' as ResolveMainCommandCheckDto['outcome'])
+                    : ('FAILURE' as ResolveMainCommandCheckDto['outcome']),
+                effect: checkEffect,
+              },
+              accessToken,
+            );
+            return resolved;
+          } catch (caught) {
+            const message =
+              caught instanceof Error ? caught.message : '판정 결과 반영에 실패했습니다.';
+            setError(message);
+            appendLog('socket', '판정 결과 반영 실패', message);
+          }
+        }
       }
       return response;
     } catch (caught) {

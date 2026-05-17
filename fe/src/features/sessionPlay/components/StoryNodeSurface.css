@@ -254,6 +254,9 @@
 .story-party-strip {
   min-height: 150px;
   padding: 10px 16px;
+  position: relative;
+  z-index: 5;
+  overflow: visible;
   border-top: 1px solid rgba(87, 99, 114, 0.2);
   background: #e8edf2;
 }
@@ -262,12 +265,9 @@
   min-width: 0;
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(220px, 1fr);
+  grid-auto-columns: calc((100% - 24px) / 4);
   gap: 8px;
-  overflow-x: auto;
-  overflow-y: visible;
-  scrollbar-width: thin;
-  scrollbar-color: #8fa2b8 #d9e1ea;
+  overflow: visible;
 }
 
 .story-party-card {
@@ -297,13 +297,13 @@
 .story-party-card-wrap {
   position: relative;
   min-width: 0;
-  padding-top: 50px;
+  overflow: visible;
 }
 
 .story-party-card-wrap.highlighted::after {
   content: '';
   position: absolute;
-  top: 50px;
+  top: 0;
   right: 0;
   bottom: 0;
   left: 0;
@@ -346,13 +346,15 @@
 
 .story-speech-bubble {
   position: absolute;
-  top: 0;
+  bottom: calc(100% + 10px);
   left: 10px;
-  right: 10px;
-  z-index: 3;
-  max-height: 52px;
+  z-index: 12;
+  width: min(360px, calc(100vw - 40px));
+  max-width: max-content;
+  min-width: min(180px, calc(100vw - 40px));
+  min-height: 0;
   padding: 9px 11px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid #8ac7cb;
   border-radius: 8px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0)), #ecfafb;
@@ -361,9 +363,9 @@
   font-size: 13px;
   font-weight: 800;
   line-height: 1.42;
-  text-overflow: ellipsis;
   word-break: keep-all;
   overflow-wrap: anywhere;
+  white-space: normal;
   box-shadow: 0 10px 24px rgba(31, 54, 66, 0.18);
   opacity: 1;
   transform: translateY(0);

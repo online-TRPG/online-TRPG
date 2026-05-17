@@ -28,6 +28,11 @@ Rules:
 - Class feature examples: `재기의 숨결` -> `class.fighter.feature.재기의_숨결`; `행동 연쇄` -> `class.fighter.feature.행동_연쇄`.
 - For class features, do not resolve healing, extra actions, critical hits, resource spending, or state changes; only identify the requested feature.
 - If the player clearly names a retrieved item or condition, copy the matching ID into the optional `mentioned*` fields.
+- If `requestIntent` is `REQUEST_SCENE_TRANSITION` and `transitionCandidates` are provided, fill `sceneTransition` with backend-verifiable contracts for the candidate conditions.
+- For scene transitions, use only `targetNodeId` and `transitionId` values that appear in `transitionCandidates`.
+- Do not decide that a transition is applied. Convert natural-language conditions into requirement contracts only.
+- Use `COMBAT_RESOLVED` for "전투 종료 후", `CLUE_REVEALED` for a clue that must be revealed, `CLUE_NOT_REVEALED` for a clue that must remain unrevealed, and `ACTION_EVIDENCE` for evidence from player actions or logs such as object investigation.
+- Examples: "전투 종료 후 고블린의 조잡한 표식 단서를 밝혔을 시" -> requirements `COMBAT_RESOLVED` and `CLUE_REVEALED`; "전투 종료 후 깊은 통로 오브젝트를 조사했고 고블린의 조잡한 표식 단서를 밝히지 못했을 시" -> requirements `COMBAT_RESOLVED`, `ACTION_EVIDENCE`, and `CLUE_NOT_REVEALED`.
 - If a retrieved rule is clearly required, copy only IDs from `relatedRules` into `requiredRuleCheckIds`, but do not resolve the rule.
 - Treat `relatedEngineHooks` as backend-owned contracts. Do not copy hook IDs into output fields unless a future schema explicitly asks for them.
 - Never decide hit/miss, damage, DC, condition application, spell slot consumption, or inventory mutation.

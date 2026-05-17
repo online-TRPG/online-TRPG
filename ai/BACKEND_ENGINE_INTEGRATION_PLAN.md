@@ -1,6 +1,6 @@
 # 백엔드 엔진 연결 계획
 
-이 문서는 `generated/srd/rules_hooks.json`의 hook fixture를 실제 백엔드 룰 엔진으로 옮기는 순서를 고정한다.
+이 문서는 `srd-data/generated/srd/rules_hooks.json`의 hook fixture를 실제 백엔드 룰 엔진으로 옮기는 순서를 고정한다.
 
 현재 이 폴더 안의 파일들은 엔진 구현이 아니다. 백엔드가 구현할 계약과 테스트 seed다.
 
@@ -15,10 +15,10 @@
 
 | 파일                                                   | 뜻                                               |
 | ------------------------------------------------------ | ------------------------------------------------ |
-| `generated/srd/rules_hooks.json`                       | 전체 hook fixture 12개                           |
-| `generated/srd/backend_engine_p0_contracts.json`       | P0 hook 4개의 정상/경계/거절 case 12개           |
-| `generated/srd/interpreter_backend_handoff_cases.json` | Interpreter 결과에서 hook 요청으로 넘기는 예 3개 |
-| `generated/srd/narrator_input_fixtures.json`           | hook 결과에서 Narrator 요청으로 넘기는 예 3개    |
+| `srd-data/generated/srd/rules_hooks.json`                       | 전체 hook fixture 12개                           |
+| `srd-data/generated/srd/backend_engine_p0_contracts.json`       | P0 hook 4개의 정상/경계/거절 case 12개           |
+| `srd-data/generated/srd/interpreter_backend_handoff_cases.json` | Interpreter 결과에서 hook 요청으로 넘기는 예 3개 |
+| `srd-data/generated/srd/narrator_input_fixtures.json`           | hook 결과에서 Narrator 요청으로 넘기는 예 3개    |
 | `app/tests/test_srd_rule_hooks.py`                     | fixture와 source ID 동기화 검증                  |
 
 ## 구현 순서

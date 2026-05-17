@@ -37,7 +37,7 @@ from app.srd.models import (
 AI_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = AI_ROOT.parent
 TRANSLATED_ROOT = AI_ROOT / "translated"
-GENERATED_ROOT = AI_ROOT / "generated" / "srd"
+GENERATED_ROOT = REPO_ROOT / "srd-data" / "generated" / "srd"
 ORIGINAL_RULEBOOK_PATH = REPO_ROOT / "doc" / "SRD-OGL_V5.1.md"
 
 EXPECTED_COUNTS = {

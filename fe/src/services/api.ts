@@ -1,6 +1,7 @@
 import type {
   ActionAcceptedResponseDto,
   ApplyCombatDamageDto,
+  AutoMonsterTurnDto,
   AuthTokenResponseDto,
   CharacterResponseDto,
   CombatActionResultDto,
@@ -61,7 +62,10 @@ const isLocalFrontend =
   import.meta.env.DEV &&
   typeof globalThis.location !== 'undefined' &&
   ['localhost', '127.0.0.1', '::1'].includes(globalThis.location.hostname);
-const preferredBaseUrl = configuredBaseUrl?.replace(/\/$/, '');
+const allowRemoteApiFromLocalDev = import.meta.env.VITE_USE_REMOTE_API === 'true';
+const shouldIgnoreConfiguredBaseUrl =
+  isLocalFrontend && Boolean(configuredBaseUrl) && !allowRemoteApiFromLocalDev;
+const preferredBaseUrl = shouldIgnoreConfiguredBaseUrl ? undefined : configuredBaseUrl?.replace(/\/$/, '');
 const rawBaseUrl = (
   preferredBaseUrl || (isLocalFrontend ? localDevBaseUrls[0] : defaultBase)
 ).replace(/\/$/, '');
@@ -78,6 +82,15 @@ const fallbackApiBaseUrls = import.meta.env.PROD
 export const SOCKET_BASE_URL = (
   configuredWsBaseUrl || API_BASE_URL.replace(/\/api\/v1$/, '')
 ).replace(/\/$/, '');
+
+if (import.meta.env.DEV && typeof console !== 'undefined') {
+  console.info('[API_BASE_URL]', {
+    apiBaseUrl: API_BASE_URL,
+    socketBaseUrl: SOCKET_BASE_URL,
+    configuredBaseUrl: configuredBaseUrl ?? null,
+    ignoredConfiguredBaseUrl: shouldIgnoreConfiguredBaseUrl,
+  });
+}
 export const AUTH_EXPIRED_EVENT = 'trpg:auth-expired';
 export const AUTH_TOKEN_REISSUED_EVENT = 'trpg:auth-token-reissued';
 
@@ -935,6 +948,20 @@ export function resolveCombatAttack(
   accessToken?: string | null
 ): Promise<CombatActionResultDto> {
   return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/attack`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function autoMonsterTurn(
+  user: StoredUser,
+  sessionId: string,
+  payload: AutoMonsterTurnDto = {},
+  accessToken?: string | null
+): Promise<CombatActionResultDto> {
+  return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/monster/act`, {
     method: 'POST',
     user,
     accessToken,
