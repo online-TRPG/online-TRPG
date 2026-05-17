@@ -38,6 +38,81 @@
   overflow: hidden;
 }
 
+.session-inventory-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  z-index: 90;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 10px 14px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(120, 154, 139, 0.62);
+  border-radius: 8px;
+  background: rgba(242, 248, 245, 0.96);
+  color: #234d45;
+  box-shadow: 0 12px 28px rgba(18, 31, 42, 0.2);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.45;
+  text-align: center;
+  pointer-events: none;
+  animation: session-inventory-toast-in 180ms ease-out;
+}
+
+.session-clue-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  z-index: 91;
+  width: min(420px, calc(100vw - 32px));
+  padding: 12px 14px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(185, 129, 52, 0.7);
+  border-radius: 8px;
+  background: rgba(255, 250, 238, 0.97);
+  color: #4b3417;
+  box-shadow: 0 14px 32px rgba(18, 31, 42, 0.24);
+  pointer-events: none;
+  animation: session-inventory-toast-in 180ms ease-out;
+}
+
+.session-clue-toast strong,
+.session-clue-toast span,
+.session-clue-toast small {
+  display: block;
+}
+
+.session-clue-toast strong {
+  margin-bottom: 4px;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.session-clue-toast span {
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.session-clue-toast small {
+  margin-top: 4px;
+  color: rgba(75, 52, 23, 0.78);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@keyframes session-inventory-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
 .session-stage-canvas.started .vtt-panel {
   border: 0;
   border-radius: 0;

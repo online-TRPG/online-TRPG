@@ -201,6 +201,10 @@ export class InventoryRuntimeService {
     return entries.map((entry) => this.mapEntryToInventoryItem(entry));
   }
 
+  async syncSessionInventorySnapshot(sessionCharacterId: string): Promise<void> {
+    await this.updateSessionInventorySnapshot(sessionCharacterId);
+  }
+
   async recalculateContainerState(containerEntryId: string): Promise<ContainerState> {
     return this.prisma.$transaction((tx) =>
       this.recalculateContainerStateWithClient(tx, containerEntryId),

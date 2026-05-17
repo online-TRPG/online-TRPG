@@ -10,6 +10,7 @@ import type { CSSProperties } from 'react';
 import { BattleMap } from '../../../components/BattleMap';
 import type { BattleMapSelection } from '../../../components/BattleMap';
 import { getCharacterClassLabel } from '../utils/characterVisuals';
+import { CharacterDetailModal } from './CharacterDetailModal';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import './ExplorationNodeSurface.css';
 
@@ -38,7 +39,6 @@ interface ExplorationNodeSurfaceProps {
   isGmView?: boolean;
   map: VttMapStateDto | null;
   inventory: InventoryItemDto[];
-  inventoryFeedback?: string | null;
   isBusy?: boolean;
   selectedInventoryItemId?: string;
   getCharacterColorStyle?: (character: SessionCharacterResponseDto) => CSSProperties;
@@ -89,12 +89,14 @@ function getInventoryItemKey(item: InventoryItemDto) {
 
 function isQuickUsableItem(item: InventoryItemDto) {
   const key = getInventoryItemKey(item);
+  const isPack = item.itemType === 'pack' || key.includes('꾸러미');
   return (
     item.quantity > 0 &&
     (key.includes('consumable') ||
       key.includes('potion') ||
       key.includes('포션') ||
-      key.includes('healing'))
+      key.includes('healing') ||
+      isPack)
   );
 }
 
@@ -366,6 +368,18 @@ function command(
   };
 }
 
+function isDetectedArmedHazardSelection(selection: BattleMapSelection | null): boolean {
+  if (!selection || selection.kind !== 'object') return false;
+  if (!('hazard' in selection.cell)) return false;
+  const hazard = selection.cell.hazard;
+  return Boolean(
+    hazard &&
+      hazard.armed !== false &&
+      Array.isArray(hazard.detectedBySessionCharacterIds) &&
+      hazard.detectedBySessionCharacterIds.length > 0
+  );
+}
+
 function getBasePositionActions(): ExplorationActionButton[] {
   return [
     { label: '이동', localAction: 'move' },
@@ -422,8 +436,20 @@ function getContextActions(selection: BattleMapSelection | null): ExplorationAct
   }
 
   if (selection.kind === 'object') {
+    const hazardActions = isDetectedArmedHazardSelection(selection)
+      ? [
+          command(
+            '함정 해제',
+            ExplorationMainCommandIntent.INTERACT_OBJECT,
+            selection,
+            `${targetLabel}의 함정을 해제합니다.`
+          ),
+        ]
+      : [];
+
     return [
       ...positionActions,
+      ...hazardActions,
       command('조사', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}을 조사합니다.`),
     ];
   }
@@ -441,7 +467,6 @@ export function ExplorationNodeSurface({
   isGmView = false,
   map,
   inventory,
-  inventoryFeedback = null,
   isBusy = false,
   selectedInventoryItemId = '',
   getCharacterColorStyle,
@@ -454,8 +479,11 @@ export function ExplorationNodeSurface({
   const [isSummaryOpen, setSummaryOpen] = useState(false);
   const [mapSelection, setMapSelection] = useState<BattleMapSelection | null>(null);
   const [mapActionFeedback, setMapActionFeedback] = useState<string | null>(null);
+  const [selectedMapCharacterId, setSelectedMapCharacterId] = useState<string | null>(null);
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
+  const selectedMapCharacter =
+    characters.find((character) => character.id === selectedMapCharacterId) ?? null;
   const selectionDisplay = useMemo(
     () => getSelectionDisplay(mapSelection, node),
     [mapSelection, node]
@@ -584,6 +612,7 @@ export function ExplorationNodeSurface({
               characters={characters}
               currentUserId={currentUserId}
               getCharacterColorStyle={getCharacterColorStyle}
+              onCharacterClick={(character) => setSelectedMapCharacterId(character.id)}
             />
             {map ? (
               <BattleMap
@@ -717,11 +746,14 @@ export function ExplorationNodeSurface({
           ) : (
             <p>보유 중인 아이템이 없습니다.</p>
           )}
-          {inventoryFeedback ? (
-            <p className="exploration-inventory-feedback">{inventoryFeedback}</p>
-          ) : null}
         </div>
       </section>
+      {selectedMapCharacter ? (
+        <CharacterDetailModal
+          character={selectedMapCharacter}
+          onClose={() => setSelectedMapCharacterId(null)}
+        />
+      ) : null}
     </div>
   );
 }

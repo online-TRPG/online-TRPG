@@ -7,6 +7,7 @@ interface MapPartyOverlayProps {
   characters: SessionCharacterResponseDto[];
   currentUserId: string;
   getCharacterColorStyle?: (character: SessionCharacterResponseDto) => CSSProperties;
+  onCharacterClick?: (character: SessionCharacterResponseDto) => void;
 }
 
 function getHpPercent(character: SessionCharacterResponseDto) {
@@ -18,6 +19,7 @@ export function MapPartyOverlay({
   characters,
   currentUserId,
   getCharacterColorStyle,
+  onCharacterClick,
 }: MapPartyOverlayProps) {
   return (
     <aside className="map-party-overlay" aria-label="파티 상태">
@@ -31,11 +33,13 @@ export function MapPartyOverlay({
             const characterColorStyle = getCharacterColorStyle?.(character);
 
             return (
-              <article
+              <button
+                type="button"
                 key={character.id}
                 className={`map-party-card${isMine ? ' mine' : ''}`}
                 style={characterColorStyle}
                 title={`${character.name} / ${getCharacterClassLabel(character.className)} Lv ${character.level} / HP ${character.currentHp}/${character.maxHp}`}
+                onClick={() => onCharacterClick?.(character)}
               >
                 <div className="map-party-avatar">
                   <img src={characterImage} alt={character.name} />
@@ -54,7 +58,7 @@ export function MapPartyOverlay({
                     {character.currentHp}/{character.maxHp}
                   </span>
                 </div>
-              </article>
+              </button>
             );
           })
         ) : (

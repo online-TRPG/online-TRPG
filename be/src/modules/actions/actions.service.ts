@@ -1,4 +1,6 @@
 import { Injectable } from "@nestjs/common";
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 import {
   ActionInputType as PrismaActionInputType,
   ActionQueueStatus as PrismaActionQueueStatus,
@@ -27,8 +29,41 @@ import { InventoryRuntimeService } from "../rules/inventory-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { ActionProcessorService } from "./action-processor.service";
 
+type SrdEquipmentContent = {
+  itemId: string;
+  quantity: number;
+};
+
+type SrdEquipmentRecord = {
+  id: string;
+  name?: {
+    en?: string;
+    ko?: string;
+    aliases?: string[];
+  };
+  category?: {
+    kind?: string;
+    equipmentCategory?: string;
+  };
+  economy?: {
+    weight?: {
+      lb?: number;
+    } | null;
+  };
+  weapon?: {
+    damage?: {
+      dice?: string;
+    };
+    damageType?: string;
+    properties?: Array<{ id?: string; raw?: string }>;
+  };
+  contents?: SrdEquipmentContent[];
+};
+
 @Injectable()
 export class ActionsService {
+  private srdEquipmentCache: SrdEquipmentRecord[] | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessionsService: SessionsService,
@@ -207,6 +242,53 @@ export class ActionsService {
       });
     }
 
+    const catalogItem = await this.prisma.item.findUnique({
+      where: { id: item.itemDefinitionId },
+    });
+    const pack = this.resolveSrdPackRecord(item.itemDefinition, catalogItem?.key ?? null);
+    if (pack?.contents?.length) {
+      await this.unpackInventoryPack(sessionCharacter.id, item.id, pack);
+      const updatedCharacter = await this.prisma.sessionCharacter.findUniqueOrThrow({
+        where: { id: sessionCharacter.id },
+        include: {
+          character: true,
+          inventoryEntries: {
+            include: { itemDefinition: true },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      });
+      const mappedCharacter = mapSessionCharacter(updatedCharacter);
+      const addedSummary = pack.contents
+        .map((content) => {
+          const contentRecord = this.findSrdEquipmentById(content.itemId);
+          return `${this.getSrdEquipmentName(contentRecord, content.itemId)} x${content.quantity}`;
+        })
+        .join(", ");
+      const message = `${mappedCharacter.name}이(가) ${item.itemDefinition.name}을(를) 풀어 내용물을 획득했습니다: ${addedSummary}`;
+
+      this.realtimeEvents.emitCharacterUpdated(session.id, mappedCharacter);
+      this.realtimeEvents.emitSessionSnapshot(
+        session.id,
+        await this.sessionsService.buildSnapshot(session.id),
+      );
+
+      return {
+        sessionId: session.id,
+        itemId: item.id,
+        itemName: item.itemDefinition.name,
+        consumedQuantity: 1,
+        healedHp: null,
+        message,
+        character: mappedCharacter,
+      };
+    }
+    if (this.isPackLikeInventoryItem(item.itemDefinition)) {
+      throw badRequest("INVENTORY_400", "꾸러미 내용물 데이터를 찾을 수 없습니다.", {
+        reason: "PACK_CONTENTS_NOT_FOUND",
+      });
+    }
+
     const healingAmount = this.resolveHealingAmount(item.itemDefinition);
     const healedHp = healingAmount
       ? Math.max(
@@ -283,8 +365,19 @@ export class ActionsService {
       key.includes("consumable") ||
       key.includes("potion") ||
       key.includes("포션") ||
-      key.includes("healing")
+      key.includes("healing") ||
+      this.isPackLikeInventoryItem(item)
     );
+  }
+
+  private isPackLikeInventoryItem(item: {
+    id: string;
+    name: string;
+    itemType: string;
+    propertiesJson: string | null;
+  }): boolean {
+    const key = this.buildItemSearchKey(item);
+    return item.itemType === "pack" || key.includes("꾸러미");
   }
 
   private resolveHealingAmount(item: {
@@ -308,6 +401,158 @@ export class ActionsService {
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
+  }
+
+  private async unpackInventoryPack(
+    sessionCharacterId: string,
+    packEntryId: string,
+    pack: SrdEquipmentRecord,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const packEntry = await tx.inventoryEntry.findUnique({
+        where: { id: packEntryId },
+        include: { itemDefinition: true },
+      });
+      if (!packEntry || packEntry.sessionCharacterId !== sessionCharacterId || packEntry.quantity < 1) {
+        throw badRequest("INVENTORY_400", "사용할 꾸러미를 찾을 수 없습니다.", {
+          reason: "INVENTORY_PACK_NOT_FOUND",
+        });
+      }
+
+      for (const content of pack.contents ?? []) {
+        const contentRecord = this.findSrdEquipmentById(content.itemId);
+        if (!contentRecord) {
+          throw badRequest("INVENTORY_400", "꾸러미 내용물 정의를 찾을 수 없습니다.", {
+            reason: "PACK_CONTENT_DEFINITION_NOT_FOUND",
+            itemId: content.itemId,
+          });
+        }
+        const quantity = Number.isInteger(content.quantity) && content.quantity > 0 ? content.quantity : 1;
+        await tx.itemDefinition.upsert({
+          where: { id: contentRecord.id },
+          update: this.toItemDefinitionData(contentRecord),
+          create: {
+            id: contentRecord.id,
+            ...this.toItemDefinitionData(contentRecord),
+          },
+        });
+        await tx.inventoryEntry.create({
+          data: {
+            sessionCharacterId,
+            itemDefinitionId: contentRecord.id,
+            quantity,
+          },
+        });
+      }
+
+      if (packEntry.quantity > 1) {
+        await tx.inventoryEntry.update({
+          where: { id: packEntry.id },
+          data: { quantity: { decrement: 1 } },
+        });
+      } else {
+        await tx.inventoryEntry.delete({ where: { id: packEntry.id } });
+      }
+    });
+
+    await this.inventoryRuntime.syncSessionInventorySnapshot(sessionCharacterId);
+  }
+
+  private toItemDefinitionData(record: SrdEquipmentRecord): {
+    name: string;
+    itemType: string;
+    weightLb: number | null;
+    damageDice: string | null;
+    damageType: string | null;
+    propertiesJson: string;
+  } {
+    const properties = [
+      "srd-engine",
+      record.category?.equipmentCategory,
+      ...(record.weapon?.properties ?? []).map((property) => property.id ?? property.raw),
+    ].filter((property): property is string => Boolean(property));
+    return {
+      name: this.getSrdEquipmentName(record, record.id),
+      itemType: record.category?.kind ?? "gear",
+      weightLb: typeof record.economy?.weight?.lb === "number" ? record.economy.weight.lb : null,
+      damageDice: record.weapon?.damage?.dice ?? null,
+      damageType: record.weapon?.damageType ?? null,
+      propertiesJson: JSON.stringify([...new Set(properties)]),
+    };
+  }
+
+  private resolveSrdPackRecord(
+    item: { id: string; name: string; itemType: string; propertiesJson: string | null },
+    catalogKey: string | null,
+  ): SrdEquipmentRecord | null {
+    const keyCandidates = [
+      item.id,
+      item.name,
+      catalogKey,
+      catalogKey ? catalogKey.replace(/-/g, " ") : null,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => this.normalizeEquipmentLookupKey(value));
+    return (
+      this.loadSrdEquipment().find((record) => {
+        if (!record.contents?.length) return false;
+        const recordCandidates = [
+          record.id,
+          record.name?.en,
+          record.name?.ko,
+          ...(record.name?.aliases ?? []),
+        ].map((value) => this.normalizeEquipmentLookupKey(value ?? ""));
+        return keyCandidates.some((candidate) => recordCandidates.includes(candidate));
+      }) ?? null
+    );
+  }
+
+  private findSrdEquipmentById(itemId: string): SrdEquipmentRecord | null {
+    return this.loadSrdEquipment().find((record) => record.id === itemId) ?? null;
+  }
+
+  private loadSrdEquipment(): SrdEquipmentRecord[] {
+    if (this.srdEquipmentCache) {
+      return this.srdEquipmentCache;
+    }
+
+    const candidates = [
+      join(process.cwd(), "srd-data", "generated", "srd-engine", "equipment.jsonl"),
+      join(process.cwd(), "..", "srd-data", "generated", "srd-engine", "equipment.jsonl"),
+      join(process.cwd(), "..", "..", "srd-data", "generated", "srd-engine", "equipment.jsonl"),
+    ];
+    const filePath = candidates.find((candidate) => existsSync(candidate));
+    if (!filePath) {
+      this.srdEquipmentCache = [];
+      return this.srdEquipmentCache;
+    }
+
+    this.srdEquipmentCache = readFileSync(filePath, "utf-8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        try {
+          return JSON.parse(line) as SrdEquipmentRecord;
+        } catch {
+          return null;
+        }
+      })
+      .filter((record): record is SrdEquipmentRecord => Boolean(record?.id));
+    return this.srdEquipmentCache;
+  }
+
+  private getSrdEquipmentName(record: SrdEquipmentRecord | null | undefined, fallback: string): string {
+    return record?.name?.ko?.trim() || record?.name?.en?.trim() || fallback;
+  }
+
+  private normalizeEquipmentLookupKey(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/equipment[._-]/g, "")
+      .replace(/['’]/g, "")
+      .replace(/[^a-z0-9가-힣]+/g, "")
+      .replace(/s(?=pack$)/g, "");
   }
 
   private parseStringArrayJson(value: string | null): string[] {

@@ -753,6 +753,15 @@ describe("MainCommandsService transition condition evaluation", () => {
     expect(result.needsReview).toBe(false);
   });
 
+  it("does not treat the player's transition request text as condition evidence", () => {
+    const result = evaluate(createService(), {
+      condition: "수로 통로 오브젝트를 조사하거나 철창 너머의 우회로 단서를 밝혀야 이동 가능",
+      playerText: "수로 통로 오브젝트를 조사하거나 철창 너머의 우회로 단서를 밝혀야 이동 가능",
+    });
+
+    expect(result.satisfied).toBe(false);
+  });
+
   it("allows a transition when recent logs satisfy the natural language condition", () => {
     const result = evaluate(createService(), {
       recentLogs: ["북쪽 철문을 열었다 => 철문이 열렸다."],
@@ -789,6 +798,45 @@ describe("MainCommandsService transition condition evaluation", () => {
 
     expect(result.satisfied).toBe(false);
     expect(result.reason).not.toContain("부족한 단서: 오브젝트, 조사하거나, 밝혀야, 가능");
+  });
+
+  it("does not let previous scene transition titles satisfy a condition", () => {
+    const result = evaluate(createService(), {
+      condition: "수로 통로 오브젝트를 조사하거나 철창 너머의 우회로 단서를 밝혀야 이동 가능",
+      recentLogs: [
+        "/장면진행 ㄱㄱ => N02 검은 우물 조사 화면으로 이동했습니다.",
+        "/장면진행 ㄱㄱ => N03 지하 수로 입구 화면으로 이동했습니다.",
+      ],
+    });
+
+    expect(result.satisfied).toBe(false);
+  });
+
+  it("requires actually revealed clues instead of unrevealed node clue text", async () => {
+    const service = createService() as unknown as {
+      loadRevealedClueSummaries: () => Promise<string[]>;
+      evaluateTransitionConditionWithRevealedClues: (
+        context: { sessionScenarioId: string },
+        transition: typeof candidate,
+        dto: SubmitMainCommandDto,
+        recentLogs: string[],
+        publicClues: string[],
+      ) => Promise<{ satisfied: boolean }>;
+    };
+    service.loadRevealedClueSummaries = async () => [];
+
+    const result = await service.evaluateTransitionConditionWithRevealedClues(
+      { sessionScenarioId: "session-scenario-1" },
+      {
+        ...candidate,
+        condition: "수로 통로 오브젝트를 조사하거나 철창 너머의 우회로 단서를 밝혀야 이동 가능",
+      },
+      transitionDto,
+      [],
+      ["철창 너머의 우회로 단서: 좁은 배수구가 다음 구역으로 이어진다."],
+    );
+
+    expect(result.satisfied).toBe(false);
   });
 
   it("allows an AI transition contract for combat ended and a revealed clue", () => {
@@ -833,6 +881,47 @@ describe("MainCommandsService transition condition evaluation", () => {
 
     expect(result.satisfied).toBe(true);
     expect(result.needsReview).toBe(false);
+  });
+
+  it("does not allow an empty AI transition contract to bypass a condition", () => {
+    const result = (
+      createService() as unknown as {
+        evaluateTransitionConditionContract: (
+          contract: {
+            targetNodeId: string;
+            logic: "ALL" | "ANY";
+            confidence: number;
+            requirements: Array<{ type: string; text: string; polarity?: "MUST" | "MUST_NOT" }>;
+          },
+          evidence: {
+            recentLogs: string[];
+            revealedClues: string[];
+            unrevealedClues: string[];
+            flags: Record<string, unknown>;
+            currentNodeId: string;
+            combatResolvedForCurrentNode: boolean;
+          },
+        ) => { satisfied: boolean; needsReview: boolean; reason: string };
+      }
+    ).evaluateTransitionConditionContract(
+      {
+        targetNodeId: "node-next",
+        logic: "ALL",
+        confidence: 0.9,
+        requirements: [],
+      },
+      {
+        recentLogs: [],
+        revealedClues: [],
+        unrevealedClues: [],
+        flags: {},
+        currentNodeId: "node-current",
+        combatResolvedForCurrentNode: false,
+      },
+    );
+
+    expect(result.satisfied).toBe(false);
+    expect(result.needsReview).toBe(true);
   });
 
   it("allows an AI transition contract for combat ended, object investigated, and clue not revealed", () => {

@@ -8,6 +8,7 @@ import {
   getCharacterClassLabel,
   getCharacterImage,
 } from '../utils/characterVisuals';
+import { CharacterDetailModal } from './CharacterDetailModal';
 import './StoryNodeSurface.css';
 
 interface StoryNodeSurfaceProps {
@@ -156,10 +157,6 @@ export function StoryNodeSurface({
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const selectedCharacter =
     characters.find((character) => character.id === selectedCharacterId) ?? null;
-  const selectedCharacterImage = selectedCharacter ? getCharacterImage(selectedCharacter) : null;
-  const selectedEquippedWeapon =
-    selectedCharacter?.inventory.find((item) => item.id === selectedCharacter.equippedWeaponId) ??
-    null;
   const speechBubbleByCharacterId = useMemo(() => {
     const next = new Map<string, VisibleStoryRpUtterance>();
     speechBubbles.forEach((bubble) => {
@@ -379,192 +376,10 @@ export function StoryNodeSurface({
       </section>
 
       {selectedCharacter ? (
-        <div
-          className="story-character-modal-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              setSelectedCharacterId(null);
-            }
-          }}
-        >
-          <section
-            className="story-character-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="story-character-modal-title"
-          >
-            <header className="story-character-modal-header">
-              <div className="story-character-modal-identity">
-                <span className="story-character-modal-avatar">
-                  {selectedCharacterImage ? (
-                    <img src={selectedCharacterImage} alt={selectedCharacter.name} />
-                  ) : null}
-                </span>
-                <div>
-                  <span className="story-node-eyebrow">현재 캐릭터 상태</span>
-                  <h2 id="story-character-modal-title">{selectedCharacter.name}</h2>
-                  <p>
-                    {selectedCharacter.ancestry || '종족 미정'} ·{' '}
-                    {getCharacterClassLabel(selectedCharacter.className)} Lv {selectedCharacter.level}
-                    {selectedCharacter.subclassName ? ` · ${selectedCharacter.subclassName}` : ''}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                className="story-character-modal-close"
-                onClick={() => setSelectedCharacterId(null)}
-                aria-label="캐릭터 상세 닫기"
-              >
-                닫기
-              </button>
-            </header>
-
-            <div className="story-character-modal-body">
-              <section className="story-character-modal-panel story-character-modal-vitals">
-                <h3>전투 및 현재 상태</h3>
-                <div className="story-character-hp-summary">
-                  <div>
-                    <span>현재 HP</span>
-                    <strong>
-                      {formatStat(selectedCharacter.currentHp)} / {formatStat(selectedCharacter.maxHp)}
-                    </strong>
-                    <small>임시 HP {formatStat(selectedCharacter.tempHp)}</small>
-                  </div>
-                  <div className="story-character-hp-bar" aria-label="현재 HP 비율">
-                    <span style={{ width: `${getHpPercent(selectedCharacter)}%` }} />
-                  </div>
-                </div>
-                <dl className="story-character-stat-grid">
-                  <div>
-                    <dt>방어도</dt>
-                    <dd>{formatStat(selectedCharacter.armorClass)}</dd>
-                  </div>
-                  <div>
-                    <dt>이동</dt>
-                    <dd>{formatStat(selectedCharacter.speed)}</dd>
-                  </div>
-                  <div>
-                    <dt>숙련 보너스</dt>
-                    <dd>+{formatStat(selectedCharacter.proficiencyBonus)}</dd>
-                  </div>
-                  <div>
-                    <dt>이니셔티브</dt>
-                    <dd>{formatStat(selectedCharacter.initiative)}</dd>
-                  </div>
-                  <div>
-                    <dt>세션 상태</dt>
-                    <dd>{selectedCharacter.status}</dd>
-                  </div>
-                  <div>
-                    <dt>상태 이상</dt>
-                    <dd>{getConditionLabel(selectedCharacter)}</dd>
-                  </div>
-                </dl>
-              </section>
-
-              <section className="story-character-modal-panel">
-                <h3>능력치</h3>
-                <div className="story-character-abilities-grid">
-                  {abilityKeys.map((ability) => (
-                    <div key={ability}>
-                      <span>{abilityDisplayLabels[ability]}</span>
-                      <strong>{formatStat(selectedCharacter.abilities[ability])}</strong>
-                      <small>{formatModifier(selectedCharacter.abilities[ability])}</small>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section className="story-character-modal-panel">
-                <h3>기술 숙련</h3>
-                {selectedCharacter.proficientSkills.length ? (
-                  <div className="story-character-chip-list">
-                    {selectedCharacter.proficientSkills.map((skill) => (
-                      <span key={skill}>{getSkillLabel(skill)}</span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="story-character-empty">선택된 기술 숙련이 없습니다.</p>
-                )}
-              </section>
-
-              <section className="story-character-modal-panel">
-                <h3>특성</h3>
-                {selectedCharacter.features.length ? (
-                  <ul className="story-character-text-list">
-                    {selectedCharacter.features.map((feature) => (
-                      <li key={feature}>{feature}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="story-character-empty">등록된 특성이 없습니다.</p>
-                )}
-              </section>
-
-              <section className="story-character-modal-panel story-character-modal-wide">
-                <h3>인벤토리</h3>
-                {selectedEquippedWeapon ? (
-                  <p className="story-character-equipped">
-                    장착 무기: <strong>{selectedEquippedWeapon.name}</strong>
-                  </p>
-                ) : (
-                  <p className="story-character-equipped">장착 무기 없음</p>
-                )}
-                {selectedCharacter.inventory.length ? (
-                  <div className="story-character-inventory-list">
-                    {selectedCharacter.inventory.map((item) => (
-                      <article
-                        key={item.id}
-                        className={`story-character-inventory-item${
-                          item.id === selectedCharacter.equippedWeaponId ? ' equipped' : ''
-                        }`}
-                      >
-                        <div>
-                          <strong>{item.name}</strong>
-                          <small>{getInventoryMetaLabel(item)}</small>
-                        </div>
-                        <span>x{item.quantity}</span>
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="story-character-empty">인벤토리가 비어 있습니다.</p>
-                )}
-              </section>
-
-              <section className="story-character-modal-panel">
-                <h3>소개</h3>
-                <p className="story-character-bio">
-                  {selectedCharacter.bio?.trim() || '아직 등록된 캐릭터 소개가 없습니다.'}
-                </p>
-              </section>
-
-              <section className="story-character-modal-panel">
-                <h3>세션 메타</h3>
-                <dl className="story-character-meta-list">
-                  <div>
-                    <dt>캐릭터 ID</dt>
-                    <dd>{selectedCharacter.characterId}</dd>
-                  </div>
-                  <div>
-                    <dt>세션 캐릭터 ID</dt>
-                    <dd>{selectedCharacter.id}</dd>
-                  </div>
-                  <div>
-                    <dt>생성</dt>
-                    <dd>{new Date(selectedCharacter.createdAt).toLocaleString()}</dd>
-                  </div>
-                  <div>
-                    <dt>수정</dt>
-                    <dd>{new Date(selectedCharacter.updatedAt).toLocaleString()}</dd>
-                  </div>
-                </dl>
-              </section>
-            </div>
-          </section>
-        </div>
+        <CharacterDetailModal
+          character={selectedCharacter}
+          onClose={() => setSelectedCharacterId(null)}
+        />
       ) : null}
     </div>
   );

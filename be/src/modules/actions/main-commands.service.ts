@@ -133,6 +133,14 @@ type VttDoorCheckEffect = {
   mapPoint: { x: number; y: number };
 };
 
+type VttHazardCheckEffect = {
+  type: "vttHazard";
+  hazardId: string;
+  effect: "disarm";
+  nodeId: string;
+  mapPoint: { x: number; y: number };
+};
+
 type MainCommandCheckEffect = {
   type: "mainCommandCheck";
   requestId: string;
@@ -467,8 +475,7 @@ export class MainCommandsService {
       publicClues,
     );
 
-    const turnLog = await this.persistResult(userId, context, dto, response);
-    const objectRevealCount =
+    const objectRevealResult =
       response.status !== MainCommandStatus.CHECK_REQUIRED &&
       dto.intent === MainCommandIntent.INVESTIGATE_OBJECT &&
       dto.mapPoint
@@ -477,10 +484,14 @@ export class MainCommandsService {
             sessionScenarioId: context.sessionScenarioId,
             nodeId: context.currentNodeId,
             mapPoint: dto.mapPoint,
-            turnLogId: turnLog.turnLogId,
             revealedBy: "system",
           })
-        : 0;
+        : { count: 0, revealedClues: [] };
+    if (objectRevealResult.count > 0) {
+      response = this.withRevealedObjectContents(response, objectRevealResult.revealedClues);
+    }
+
+    const turnLog = await this.persistResult(userId, context, dto, response);
     // 실제 행동 후보가 있는 응답만 단서 공개를 시도합니다. 질문/불가/RP 기록은 상태를 바꾸지 않습니다.
     const revealCount =
       dto.intent === MainCommandIntent.DECLARE_RP_ACTION ||
@@ -498,7 +509,7 @@ export class MainCommandsService {
             turnLogId: turnLog.turnLogId,
             revealedBy: "system",
           });
-    if (revealCount + objectRevealCount > 0) {
+    if (revealCount + objectRevealResult.count > 0) {
       await this.markScenarioStateChanged(context.sessionScenarioId);
       this.realtimeEvents.emitSessionSnapshot(
         context.sessionId,
@@ -517,6 +528,7 @@ export class MainCommandsService {
     await this.sessionsService.ensureMembership(userId, session.id);
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     const effect = this.parseVttDoorCheckEffect(dto.effect);
+    const hazardEffect = this.parseVttHazardCheckEffect(dto.effect);
 
     if (effect) {
       if (state.currentNodeId && effect.nodeId !== state.currentNodeId) {
@@ -569,6 +581,53 @@ export class MainCommandsService {
       };
     }
 
+    if (hazardEffect) {
+      if (state.currentNodeId && hazardEffect.nodeId !== state.currentNodeId) {
+        return {
+          requestId: dto.requestId ?? randomUUID(),
+          status: MainCommandStatus.IMPOSSIBLE,
+          message: "현재 노드와 다른 함정 판정 결과는 반영할 수 없습니다.",
+        };
+      }
+
+      const result =
+        dto.outcome === ActionOutcome.SUCCESS
+          ? await this.sessionsService.applyVttHazardDisarmSuccess({
+              sessionId: session.id,
+              sessionScenarioId: sessionScenario.id,
+              nodeId: hazardEffect.nodeId,
+              hazardId: hazardEffect.hazardId,
+            })
+          : {
+              status: MainCommandStatus.MESSAGE,
+              message: "판정에 실패해 함정은 아직 작동 가능한 상태입니다.",
+            };
+
+      const turnLog = await this.turnLogsService.createTurnLog({
+        sessionId: session.id,
+        sessionScenarioId: sessionScenario.id,
+        actorUserId: userId,
+        sessionCharacterId: dto.actorId ?? null,
+        rawInput: null,
+        structuredAction: {
+          type: "main_command_check_result",
+          requestId: dto.requestId ?? null,
+          outcome: dto.outcome,
+          effect: hazardEffect,
+        },
+        outcome: dto.outcome,
+        narration: result.message,
+      });
+      this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
+
+      return {
+        requestId: dto.requestId ?? randomUUID(),
+        status: result.status,
+        message: result.message,
+        data: { effect: hazardEffect },
+      };
+    }
+
     const mainCommandEffect = this.parseMainCommandCheckEffect(dto.effect);
     if (!mainCommandEffect) {
       return {
@@ -591,13 +650,66 @@ export class MainCommandsService {
       mainCommandEffect,
       dto.outcome,
     );
-    const result = {
+    let result = {
       status:
         dto.outcome === ActionOutcome.SUCCESS
           ? MainCommandStatus.RESOLVED
           : MainCommandStatus.MESSAGE,
       message: resultMessage,
     };
+
+    let objectRevealResult: {
+      count: number;
+      revealedClues: Array<{ id: string; title: string; text: string | null }>;
+    } = { count: 0, revealedClues: [] };
+    let observedObjectResult: { count: number; objectNames: string[] } = {
+      count: 0,
+      objectNames: [],
+    };
+    if (
+      dto.outcome === ActionOutcome.SUCCESS &&
+      mainCommandEffect.intent === MainCommandIntent.INVESTIGATE_OBJECT &&
+      mainCommandEffect.mapPoint
+    ) {
+      objectRevealResult = await this.sessionsService.revealVttObjectContentsAtPoint({
+        sessionId: session.id,
+        sessionScenarioId: sessionScenario.id,
+        nodeId: mainCommandEffect.nodeId,
+        mapPoint: mainCommandEffect.mapPoint,
+        revealedBy: "system",
+        checkOption: mainCommandEffect.checkOption,
+      });
+      if (objectRevealResult.count > 0) {
+        const augmented = this.withRevealedObjectContents(
+          {
+            requestId: dto.requestId ?? randomUUID(),
+            status: result.status,
+            message: result.message,
+          },
+          objectRevealResult.revealedClues,
+        );
+        result = {
+          status: augmented.status,
+          message: augmented.message,
+        };
+      }
+    }
+    if (
+      dto.outcome === ActionOutcome.SUCCESS &&
+      mainCommandEffect.intent === MainCommandIntent.OBSERVE_AREA
+    ) {
+      observedObjectResult = await this.sessionsService.revealObservableVttObjectsInPartyVision({
+        sessionId: session.id,
+        sessionScenarioId: sessionScenario.id,
+        nodeId: mainCommandEffect.nodeId,
+      });
+      if (observedObjectResult.count > 0) {
+        result = {
+          ...result,
+          message: `${result.message}\n\n시야 안에서 수상한 오브젝트를 발견했습니다: ${observedObjectResult.objectNames.join(", ")}. 맵에 표시됩니다.`,
+        };
+      }
+    }
 
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId: session.id,
@@ -617,7 +729,8 @@ export class MainCommandsService {
     this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
 
     if (dto.outcome === ActionOutcome.SUCCESS) {
-      const revealCount = mainCommandEffect.actionCandidate
+      const revealCount = mainCommandEffect.actionCandidate &&
+        mainCommandEffect.intent !== MainCommandIntent.OBSERVE_AREA
         ? await this.sessionsService.revealCurrentNodeCluesAfterAction({
             sessionScenarioId: sessionScenario.id,
             nodeId: mainCommandEffect.nodeId,
@@ -628,19 +741,7 @@ export class MainCommandsService {
             revealedBy: "system",
           })
         : 0;
-      const objectRevealCount =
-        mainCommandEffect.intent === MainCommandIntent.INVESTIGATE_OBJECT &&
-        mainCommandEffect.mapPoint
-          ? await this.sessionsService.revealVttObjectContentsAtPoint({
-              sessionId: session.id,
-              sessionScenarioId: sessionScenario.id,
-              nodeId: mainCommandEffect.nodeId,
-              mapPoint: mainCommandEffect.mapPoint,
-              turnLogId: turnLog.turnLogId,
-              revealedBy: "system",
-            })
-          : 0;
-      if (revealCount + objectRevealCount > 0) {
+      if (revealCount + objectRevealResult.count + observedObjectResult.count > 0) {
         await this.markScenarioStateChanged(sessionScenario.id);
         this.realtimeEvents.emitSessionSnapshot(
           session.id,
@@ -1269,7 +1370,7 @@ export class MainCommandsService {
       case MainCommandIntent.REQUEST_SCENE_TRANSITION:
         return await this.handleSceneTransition(requestId, userId, context, dto, recentLogs, publicClues);
       case MainCommandIntent.OBSERVE_AREA:
-        return await this.handleObserveArea(requestId, userId, context, dto, visibleEntities);
+        return this.handleObserveArea(requestId, context, dto);
       case MainCommandIntent.INVESTIGATE_OBJECT:
         return await this.handleInvestigateObject(requestId, userId, context, dto, visibleEntities);
       case MainCommandIntent.LISTEN:
@@ -1718,52 +1819,21 @@ export class MainCommandsService {
 
   private async handleObserveArea(
     requestId: string,
-    userId: string,
     context: LoadedContext,
     dto: SubmitMainCommandDto,
-    visibleEntities: VisibleSceneEntity[],
   ): Promise<MainCommandResponseDto> {
-    const interpreter = await this.aiService.runInterpreter(
-      context.sessionId,
-      userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities),
-    );
-
-    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
-      return {
-        requestId,
-        status: MainCommandStatus.MESSAGE,
-        message:
-          interpreter.parsed.clarificationQuestion ??
-          "어느 방향이나 어떤 범위를 살펴보는지 조금 더 구체적으로 적어주세요.",
-      };
-    }
-
-    const actionSummary =
-      interpreter.parsed.action.approach?.trim() ||
-      dto.playerText;
-
-    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
-      return {
-        requestId,
-        status: MainCommandStatus.CHECK_REQUIRED,
-        message: "주변을 면밀하게 살피려면 판정이 필요합니다.",
-        checkOptions: this.buildPerceptionCheckOptions(interpreter.parsed.action),
-        actionCandidate: this.buildActionCandidate(context, dto, actionSummary),
-      };
-    }
-
-    const visibleSummary = visibleEntities.length
-      ? `보이는 대상: ${visibleEntities.map((entity) => entity.name).join(", ")}.`
-      : "눈에 띄는 대상은 아직 없습니다.";
-    const pointSummary = dto.mapPoint
-      ? ` (${dto.mapPoint.x}, ${dto.mapPoint.y}) 주변을 기준으로 살펴봅니다.`
-      : "";
+    const actionSummary = dto.playerText.trim() || "주변을 살핀다";
 
     return {
       requestId,
-      status: MainCommandStatus.MESSAGE,
-      message: `${context.currentNodeSceneText}${pointSummary} ${visibleSummary}`.trim(),
+      status: MainCommandStatus.CHECK_REQUIRED,
+      message: "주변을 면밀하게 살피려면 판정이 필요합니다.",
+      checkOptions: this.buildPerceptionCheckOptions({
+        ability: "wis",
+        skill: "perception",
+        approach: actionSummary,
+        suggestedDifficulty: "medium",
+      }),
       actionCandidate: this.buildActionCandidate(context, dto, actionSummary),
     };
   }
@@ -1784,6 +1854,15 @@ export class MainCommandsService {
       });
 
       if (objectResult) {
+        if (objectResult.checkOptions?.length) {
+          return {
+            requestId,
+            status: MainCommandStatus.CHECK_REQUIRED,
+            message: objectResult.message,
+            checkOptions: objectResult.checkOptions,
+            actionCandidate: this.buildActionCandidate(context, dto, dto.playerText),
+          };
+        }
         return {
           requestId,
           status: MainCommandStatus.MESSAGE,
@@ -2055,6 +2134,26 @@ export class MainCommandsService {
     visibleEntities: VisibleSceneEntity[],
   ): Promise<MainCommandResponseDto> {
     if (dto.mapPoint) {
+      if (this.isHazardDisarmInteraction(dto.playerText)) {
+        const hazardResult = await this.sessionsService.disarmVttHazardAtPoint({
+          sessionId: context.sessionId,
+          sessionScenarioId: context.sessionScenarioId,
+          nodeId: context.currentNodeId,
+          mapPoint: dto.mapPoint,
+        });
+
+        if (hazardResult) {
+          return {
+            requestId,
+            status: hazardResult.status,
+            message: hazardResult.message,
+            checkOptions: hazardResult.checkOptions,
+            data: hazardResult.checkEffect ? { checkEffect: hazardResult.checkEffect } : null,
+            actionCandidate: this.buildActionCandidate(context, dto, dto.playerText),
+          };
+        }
+      }
+
       const doorResult = this.isDoorBreakInteraction(dto.playerText)
         ? await this.sessionsService.breakVttDoorAtPoint({
             sessionId: context.sessionId,
@@ -2146,6 +2245,10 @@ export class MainCommandsService {
 
   private isDoorBreakInteraction(text: string): boolean {
     return /부수|부숴|부쉈|파괴|깨뜨|깨부|박살|강제로\s*열|힘으로/.test(text);
+  }
+
+  private isHazardDisarmInteraction(text: string): boolean {
+    return /(함정|덫|트랩|위험|장치).*(해제|무력화|분해|제거)|(해제|무력화|분해|제거).*(함정|덫|트랩|위험|장치)/.test(text);
   }
 
   private async handleUseTool(
@@ -2887,16 +2990,13 @@ export class MainCommandsService {
           message: `이동 후보를 더 분명히 지정해주세요. 가능한 목적지: ${candidates.map((item) => item.title).join(", ")}`,
         };
       }
-      const aiConditionResult = aiSelected.conditionResult;
-      const finalConditionResult = aiConditionResult.satisfied
-        ? aiConditionResult
-        : await this.evaluateTransitionConditionWithRevealedClues(
-            context,
-            aiSelected.target,
-            dto,
-            recentLogs,
-            publicClues,
-          );
+      const finalConditionResult = await this.evaluateTransitionConditionWithRevealedClues(
+        context,
+        aiSelected.target,
+        dto,
+        recentLogs,
+        publicClues,
+      );
       if (!finalConditionResult.satisfied) {
         return {
           requestId,
@@ -2935,15 +3035,6 @@ export class MainCommandsService {
     }
 
     const target = matched ?? candidates[0];
-    const aiSelected = this.isAutoTransitionCondition(target.condition?.trim() ?? "")
-      ? null
-      : await this.selectTransitionCandidateWithAi(
-          userId,
-          context,
-          dto,
-          [target],
-          recentLogs,
-        );
     const fallbackConditionResult = await this.evaluateTransitionConditionWithRevealedClues(
       context,
       target,
@@ -2951,9 +3042,7 @@ export class MainCommandsService {
       recentLogs,
       publicClues,
     );
-    const conditionResult = aiSelected?.conditionResult.satisfied
-      ? aiSelected.conditionResult
-      : fallbackConditionResult;
+    const conditionResult = fallbackConditionResult;
     if (!conditionResult.satisfied) {
       return {
         requestId,
@@ -3258,9 +3347,11 @@ export class MainCommandsService {
     approach: string;
     suggestedDifficulty?: string | null;
   }): MainCommandCheckOptionDto[] {
+    const dc = this.resolveCheckDc(action.suggestedDifficulty);
     if (!action.ability && !action.skill) {
       return [
         {
+          dc,
           reason: action.approach,
         },
       ];
@@ -3270,6 +3361,7 @@ export class MainCommandsService {
       {
         ...(action.ability ? { ability: action.ability } : {}),
         ...(action.skill ? { skill: action.skill } : {}),
+        dc,
         reason: action.suggestedDifficulty
           ? `${action.approach} (난이도 제안: ${action.suggestedDifficulty})`
           : action.approach,
@@ -3294,6 +3386,7 @@ export class MainCommandsService {
       {
         ability: "cha",
         skill: "persuasion",
+        dc: this.resolveCheckDc(action.suggestedDifficulty),
         reason: action.suggestedDifficulty
           ? `${npcName} 설득 (난이도 제안: ${action.suggestedDifficulty})`
           : `${npcName} 설득`,
@@ -3318,6 +3411,7 @@ export class MainCommandsService {
       {
         ability: "cha",
         skill: "intimidation",
+        dc: this.resolveCheckDc(action.suggestedDifficulty),
         reason: action.suggestedDifficulty
           ? `${npcName} 압박 (난이도 제안: ${action.suggestedDifficulty})`
           : `${npcName} 압박`,
@@ -3342,6 +3436,7 @@ export class MainCommandsService {
       {
         ability: "cha",
         skill: "deception",
+        dc: this.resolveCheckDc(action.suggestedDifficulty),
         reason: action.suggestedDifficulty
           ? `${npcName} 속이기(난이도 제안: ${action.suggestedDifficulty})`
           : `${npcName} 속이기`,
@@ -3366,6 +3461,7 @@ export class MainCommandsService {
       {
         ability: "wis",
         skill: "insight",
+        dc: this.resolveCheckDc(action.suggestedDifficulty),
         reason: action.suggestedDifficulty
           ? `${npcName} 감정 읽기 (난이도 제안: ${action.suggestedDifficulty})`
           : `${npcName} 감정 읽기`,
@@ -3390,6 +3486,7 @@ export class MainCommandsService {
       {
         ability: "int",
         skill: "investigation",
+        dc: this.resolveCheckDc(action.suggestedDifficulty),
         reason: action.suggestedDifficulty
           ? `${objectName} 조사 (난이도 제안: ${action.suggestedDifficulty})`
           : `${objectName} 조사`,
@@ -3413,6 +3510,7 @@ export class MainCommandsService {
       {
         ability: "wis",
         skill: "perception",
+        dc: this.resolveCheckDc(action.suggestedDifficulty),
         reason: action.suggestedDifficulty
           ? `주변 관찰 (난이도 제안: ${action.suggestedDifficulty})`
           : "주변 관찰",
@@ -3436,6 +3534,7 @@ export class MainCommandsService {
       {
         ability: "wis",
         skill: "perception",
+        dc: this.resolveCheckDc(action.suggestedDifficulty),
         reason: action.suggestedDifficulty
           ? `위험 감지 (난이도 제안: ${action.suggestedDifficulty})`
           : "위험 감지",
@@ -3459,6 +3558,7 @@ export class MainCommandsService {
       {
         ability: "str",
         skill: "athletics",
+        dc: this.resolveCheckDc(action.suggestedDifficulty),
         reason: action.suggestedDifficulty
           ? `특수 이동 (난이도 제안: ${action.suggestedDifficulty})`
           : "특수 이동",
@@ -3466,6 +3566,7 @@ export class MainCommandsService {
       {
         ability: "dex",
         skill: "acrobatics",
+        dc: this.resolveCheckDc(action.suggestedDifficulty),
         reason: action.suggestedDifficulty
           ? `특수 이동 대안(난이도 제안: ${action.suggestedDifficulty})`
           : "특수 이동 대안",
@@ -3490,6 +3591,7 @@ export class MainCommandsService {
       {
         ability: "dex",
         skill: "sleight_of_hand",
+        dc: this.resolveCheckDc(action.suggestedDifficulty),
         reason: action.suggestedDifficulty
           ? `${objectName} 조작 (난이도 제안: ${action.suggestedDifficulty})`
           : `${objectName} 조작`,
@@ -3517,6 +3619,7 @@ export class MainCommandsService {
       {
         ability: "dex",
         skill: "sleight_of_hand",
+        dc: this.resolveCheckDc(action.suggestedDifficulty),
         reason: action.suggestedDifficulty
           ? `${toolName}${reasonTarget} 사용 (난이도 제안: ${action.suggestedDifficulty})`
           : `${toolName}${reasonTarget} 사용`,
@@ -3544,11 +3647,52 @@ export class MainCommandsService {
       {
         ability: "dex",
         skill: "sleight_of_hand",
+        dc: this.resolveCheckDc(action.suggestedDifficulty),
         reason: action.suggestedDifficulty
           ? `${itemName}${reasonTarget} 창의적 활용 (난이도 제안: ${action.suggestedDifficulty})`
           : `${itemName}${reasonTarget} 창의적 활용`,
       },
     ];
+  }
+
+  private resolveCheckDc(suggestedDifficulty?: string | null): number {
+    const normalized = suggestedDifficulty?.trim().toLowerCase() ?? "";
+    const explicitDc = normalized.match(/\b(?:dc\s*)?([1-3]?\d)\b/);
+    if (explicitDc) {
+      const dc = Number(explicitDc[1]);
+      if (Number.isInteger(dc) && dc >= 5 && dc <= 30) {
+        return dc;
+      }
+    }
+
+    const compact = normalized.replace(/[\s_-]+/g, "");
+    if (
+      compact.includes("trivial") ||
+      compact.includes("veryeasy") ||
+      compact.includes("매우쉬움")
+    ) {
+      return 5;
+    }
+    if (compact.includes("easy") || compact.includes("쉬움") || compact.includes("낮음")) {
+      return 10;
+    }
+    if (
+      compact.includes("hard") ||
+      compact.includes("difficult") ||
+      compact.includes("어려움") ||
+      compact.includes("높음")
+    ) {
+      return compact.includes("very") || compact.includes("매우") ? 25 : 20;
+    }
+    if (
+      compact.includes("nearlyimpossible") ||
+      compact.includes("impossible") ||
+      compact.includes("거의불가능")
+    ) {
+      return 30;
+    }
+
+    return 15;
   }
 
   private resolveOwnedItemName(context: LoadedContext, itemId?: string | null): string {
@@ -3907,6 +4051,31 @@ export class MainCommandsService {
     return turnLog;
   }
 
+  private withRevealedObjectContents(
+    response: MainCommandResponseDto,
+    revealedClues: Array<{ id: string; title: string; text: string | null }>,
+  ): MainCommandResponseDto {
+    if (!revealedClues.length) {
+      return response;
+    }
+
+    const clueLines = revealedClues.map((clue) =>
+      clue.text?.trim()
+        ? `- ${clue.title}: ${clue.text.trim()}`
+        : `- ${clue.title}`,
+    );
+
+    return {
+      ...response,
+      status: response.status === MainCommandStatus.MESSAGE ? MainCommandStatus.RESOLVED : response.status,
+      message: `${response.message.trim()}\n\n새 단서를 발견했습니다.\n${clueLines.join("\n")}`,
+      data: {
+        ...(response.data ?? {}),
+        revealedClues,
+      },
+    };
+  }
+
   private getMainCommandRawInput(dto: SubmitMainCommandDto): string {
     // 슬래시 명령어는 처리용 본문과 사용자가 친 원문이 달라서 로그에는 원문을 우선 남긴다.
     return dto.rawInputText?.trim() || dto.playerText.trim();
@@ -3985,6 +4154,7 @@ export class MainCommandsService {
     return {
       ...(this.readString(value.ability) ? { ability: this.readString(value.ability) ?? undefined } : {}),
       ...(this.readString(value.skill) ? { skill: this.readString(value.skill) ?? undefined } : {}),
+      ...(this.readDc(value.dc) ? { dc: this.readDc(value.dc) ?? undefined } : {}),
       reason,
     };
   }
@@ -4029,6 +4199,35 @@ export class MainCommandsService {
     return {
       type,
       doorId,
+      effect,
+      nodeId,
+      mapPoint: { x: point.x, y: point.y },
+    };
+  }
+
+  private parseVttHazardCheckEffect(value: Record<string, unknown>): VttHazardCheckEffect | null {
+    const type = value.type;
+    const hazardId = value.hazardId;
+    const effect = value.effect;
+    const nodeId = value.nodeId;
+    const mapPoint = value.mapPoint;
+    if (
+      type !== "vttHazard" ||
+      typeof hazardId !== "string" ||
+      typeof nodeId !== "string" ||
+      effect !== "disarm" ||
+      !mapPoint ||
+      typeof mapPoint !== "object"
+    ) {
+      return null;
+    }
+    const point = mapPoint as Record<string, unknown>;
+    if (typeof point.x !== "number" || typeof point.y !== "number") {
+      return null;
+    }
+    return {
+      type,
+      hazardId,
       effect,
       nodeId,
       mapPoint: { x: point.x, y: point.y },
@@ -4225,8 +4424,8 @@ export class MainCommandsService {
         });
       }
     }
-    const hasFallbackTarget = candidateStubs.some((candidate) => candidate.nodeId === context.currentNodeFallbackNodeId);
-    if (context.currentNodeFallbackNodeId && !hasFallbackTarget) {
+    const hasExplicitTransition = candidateStubs.length > 0;
+    if (context.currentNodeFallbackNodeId && !hasExplicitTransition) {
       candidateStubs.push({
         transitionId: null,
         label: "기본 이동",
@@ -4316,8 +4515,7 @@ export class MainCommandsService {
     const normalizedCondition = this.normalizeTransitionConditionText(condition);
     const evidenceText = this.normalizeTransitionConditionText(
       [
-        dto.playerText,
-        ...recentLogs.slice(-8),
+        ...recentLogs.slice(-8).filter((line) => !this.isSceneTransitionLogLine(line)),
         ...publicClues,
       ]
         .filter((value): value is string => Boolean(value))
@@ -4408,14 +4606,14 @@ export class MainCommandsService {
     candidate: TransitionCandidate,
     dto: SubmitMainCommandDto,
     recentLogs: string[],
-    publicClues: string[],
+    _publicClues: string[],
   ): Promise<TransitionConditionEvaluation> {
     const revealedClues = await this.loadRevealedClueSummaries(context.sessionScenarioId);
     return this.evaluateTransitionCondition(
       candidate,
       dto,
       recentLogs,
-      this.dedupeTerms([...publicClues, ...revealedClues]),
+      revealedClues,
     );
   }
 
@@ -4425,9 +4623,9 @@ export class MainCommandsService {
   ): TransitionConditionEvaluation {
     if (!contract.requirements.length) {
       return {
-        satisfied: true,
-        needsReview: false,
-        reason: "조건 없이 이동 가능한 연결입니다.",
+        satisfied: false,
+        needsReview: true,
+        reason: "장면 이동 조건을 구조화하지 못했습니다. GM 확인이 필요합니다.",
         matchedTerms: [],
         missingTerms: [],
       };
@@ -4550,6 +4748,15 @@ export class MainCommandsService {
     const matchedCount = terms.filter((term) => normalizedEvidenceText.includes(term)).length;
     const requiredMatchCount = terms.length <= 3 ? terms.length : Math.ceil(terms.length * 0.7);
     return matchedCount >= requiredMatchCount;
+  }
+
+  private isSceneTransitionLogLine(line: string): boolean {
+    const normalized = line.trim();
+    return (
+      normalized.includes("/장면진행") ||
+      normalized.includes("화면으로 이동했습니다") ||
+      normalized.includes("장면으로 이동했습니다")
+    );
   }
 
   private extractTransitionConditionTerms(condition: string): string[] {
@@ -4721,6 +4928,11 @@ export class MainCommandsService {
           .map((item) => this.readString(item))
           .filter((item): item is string => Boolean(item))
       : [];
+  }
+
+  private readDc(value: unknown): number | null {
+    const dc = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+    return Number.isInteger(dc) && dc >= 5 && dc <= 30 ? dc : null;
   }
 
   private readPoint(value: unknown): { x: number; y: number } | null {

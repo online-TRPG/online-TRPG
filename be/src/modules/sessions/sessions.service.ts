@@ -24,6 +24,7 @@ import {
   ConnectionStatus,
   ActionOutcome,
   CreateSessionDto,
+  DiceAdvantageState,
   GameStateResponseDto,
   GmMode,
   HumanGmMessageDto,
@@ -56,6 +57,7 @@ import {
   UpdateSessionDto,
   UpdateSessionNodeDto,
   UpdateVttMapDto,
+  VttObjectHazardDto,
   VttMapStateDto,
 } from "@trpg/shared-types";
 import {
@@ -503,6 +505,13 @@ export class SessionsService {
       currentNodeId: state.currentNodeId,
       map,
     });
+    const hazardTriggerResult = await this.applyVttHazardTriggers({
+      sessionId: resolvedSessionId,
+      sessionScenarioId: sessionScenario.id,
+      map,
+      previousMap,
+    });
+    map = hazardTriggerResult.map;
     const beforeHazardDetectionMap = map;
     map = await this.applyVttHazardDetections({
       sessionId: resolvedSessionId,
@@ -531,7 +540,7 @@ export class SessionsService {
       hostMap: map,
       playerMap,
     });
-    if (hazardDetectionChanged) {
+    if (hazardTriggerResult.triggered || hazardDetectionChanged) {
       this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, await this.buildSnapshot(resolvedSessionId));
     }
     return session.hostUserId === userId ? map : playerMap;
@@ -578,6 +587,13 @@ export class SessionsService {
       currentNodeId: state.currentNodeId,
       map,
     });
+    const hazardTriggerResult = await this.applyVttHazardTriggers({
+      sessionId: resolvedSessionId,
+      sessionScenarioId: sessionScenario.id,
+      map,
+      previousMap,
+    });
+    map = hazardTriggerResult.map;
     map = await this.applyVttHazardDetections({
       sessionId: resolvedSessionId,
       sessionScenarioId: sessionScenario.id,
@@ -602,6 +618,9 @@ export class SessionsService {
       hostMap: map,
       playerMap: this.redactVttMapForPlayer(map),
     });
+    if (hazardTriggerResult.triggered) {
+      this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, await this.buildSnapshot(resolvedSessionId));
+    }
 
     return { map, moved: true, distanceMovedFt: movement.distanceMovedFt };
   }
@@ -1465,7 +1484,7 @@ export class SessionsService {
     sessionScenarioId: string;
     nodeId: string;
     mapPoint: { x: number; y: number };
-  }): Promise<{ message: string } | null> {
+  }): Promise<{ message: string; checkOptions?: MainCommandCheckOptionDto[] } | null> {
     const map = await this.getVttMapForSessionScenario(params.sessionId, params.sessionScenarioId);
     const objectCell = this.findVttObjectAtPoint(map, params.mapPoint);
     if (!objectCell || objectCell.visibleToPlayers === false) {
@@ -1474,6 +1493,20 @@ export class SessionsService {
 
     const name = objectCell.name?.trim() || "오브젝트";
     const description = objectCell.description?.trim() || "겉으로 드러난 추가 설명은 없습니다.";
+    const revealCheck = this.getFirstVttObjectRevealCheck(objectCell);
+    if (revealCheck) {
+      return {
+        message: `${name}을(를) 자세히 조사하려면 판정이 필요합니다.`,
+        checkOptions: [
+          {
+            ...(revealCheck.ability ? { ability: revealCheck.ability } : {}),
+            ...(revealCheck.skill ? { skill: revealCheck.skill } : {}),
+            dc: revealCheck.dc,
+            reason: `${name} 조사`,
+          },
+        ],
+      };
+    }
     return { message: `${name}: ${description}` };
   }
 
@@ -1484,11 +1517,15 @@ export class SessionsService {
     mapPoint: { x: number; y: number };
     turnLogId?: string | null;
     revealedBy?: string;
-  }): Promise<number> {
+    checkOption?: MainCommandCheckOptionDto | null;
+  }): Promise<{
+    count: number;
+    revealedClues: Array<{ id: string; title: string; text: string | null }>;
+  }> {
     const map = await this.getVttMapForSessionScenario(params.sessionId, params.sessionScenarioId);
     const objectCell = this.findVttObjectAtPoint(map, params.mapPoint);
     if (!objectCell || objectCell.visibleToPlayers === false) {
-      return 0;
+      return { count: 0, revealedClues: [] };
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -1513,9 +1550,36 @@ export class SessionsService {
           snapshot: { id: contentId, sourceObjectId: objectCell.id },
         })),
       ].filter((item) => item.contentId.trim());
+      const revealChecks = this.getVttObjectRevealChecks(objectCell);
+      const filteredRevealInputs = revealInputs.filter((item) =>
+        this.canRevealVttObjectContentByCheck(item.contentId, revealChecks, params.checkOption),
+      );
+      const existingReveals = filteredRevealInputs.length
+        ? await tx.sessionReveal.findMany({
+            where: {
+              sessionScenarioId: params.sessionScenarioId,
+              scope: "party",
+              recipientKey: "party",
+              OR: filteredRevealInputs.map((item) => ({
+                contentId: item.contentId,
+                contentKind: item.contentKind,
+              })),
+            },
+            select: {
+              contentId: true,
+              contentKind: true,
+            },
+          })
+        : [];
+      const existingRevealKeys = new Set(
+        existingReveals.map((reveal) => `${reveal.contentKind}:${reveal.contentId}`),
+      );
+      const newRevealInputs = filteredRevealInputs.filter(
+        (item) => !existingRevealKeys.has(`${item.contentKind}:${item.contentId}`),
+      );
 
       await Promise.all(
-        revealInputs.map((item) =>
+        newRevealInputs.map((item) =>
           this.recordSessionReveal(tx, {
             sessionScenarioId: params.sessionScenarioId,
             contentId: item.contentId,
@@ -1529,8 +1593,100 @@ export class SessionsService {
         ),
       );
 
-      return revealInputs.length;
+      return {
+        count: newRevealInputs.length,
+        revealedClues: newRevealInputs
+          .filter((item) => item.contentKind === "clue")
+          .map((item) => this.toRevealClueSummary(item.contentId, item.snapshot)),
+      };
     });
+  }
+
+  async revealObservableVttObjectsInPartyVision(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    nodeId: string;
+    visionRangeFeet?: number;
+  }): Promise<{ count: number; objectNames: string[] }> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: params.sessionScenarioId },
+      select: { currentNodeId: true, flagsJson: true },
+    });
+    if (!state) {
+      throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
+    }
+    if (state.currentNodeId && params.nodeId !== state.currentNodeId) {
+      return { count: 0, objectNames: [] };
+    }
+
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
+    const objectCells = map.objectCells ?? [];
+    const partyTokens = map.tokens.filter(
+      (token) => token.sessionCharacterId && token.hidden !== true && token.isHostile !== true,
+    );
+    if (!objectCells.length || !partyTokens.length) {
+      return { count: 0, objectNames: [] };
+    }
+
+    const visionRangeFeet = params.visionRangeFeet ?? 40;
+    const observableObjectIds = new Set<string>();
+    const objectNames: string[] = [];
+    for (const objectCell of objectCells) {
+      if (this.isVttObjectObserved(objectCell)) {
+        continue;
+      }
+      if (!this.hasDiscoverableVttObjectContent(objectCell)) {
+        continue;
+      }
+      if (!this.isVttObjectInPartyVision(map, objectCell, partyTokens, visionRangeFeet)) {
+        continue;
+      }
+
+      observableObjectIds.add(objectCell.id);
+      objectNames.push(objectCell.name?.trim() || "수상한 오브젝트");
+    }
+
+    if (!observableObjectIds.size) {
+      return { count: 0, objectNames: [] };
+    }
+
+    const nextMap = this.normalizeVttMap(
+      {
+        ...map,
+        objectCells: objectCells.map((objectCell) =>
+          observableObjectIds.has(objectCell.id)
+            ? {
+                ...objectCell,
+                visibleToPlayers: true,
+                observedBySessionCharacterIds: Array.from(
+                  new Set([...(objectCell.observedBySessionCharacterIds ?? []), "party"]),
+                ),
+              }
+            : objectCell,
+        ),
+      },
+      state.currentNodeId ?? null,
+    );
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: params.sessionScenarioId },
+      data: {
+        version: { increment: 1 },
+        flagsJson: JSON.stringify({
+          ...flags,
+          vttMap: nextMap,
+        }),
+      },
+    });
+
+    const session = await this.getSessionEntityOrThrow(params.sessionId);
+    this.realtimeEvents.emitVttMapUpdated(session.id, {
+      hostUserId: session.hostUserId,
+      hostMap: nextMap,
+      playerMap: this.redactVttMapForPlayer(nextMap),
+    });
+
+    return { count: observableObjectIds.size, objectNames };
   }
 
   async openVttDoorAtPoint(params: {
@@ -1569,7 +1725,7 @@ export class SessionsService {
             door,
             status: MainCommandStatus.CHECK_REQUIRED,
             message: `${doorName}은 잠겨 있습니다. 자물쇠를 열려면 판정이 필요합니다.`,
-            checkOptions: [{ skill: "sleight_of_hand", reason: "잠긴 문 해제" }],
+            checkOptions: [{ skill: "sleight_of_hand", dc: 15, reason: "잠긴 문 해제" }],
             checkEffect: this.buildVttDoorCheckEffect(door, params, "open"),
           };
         }
@@ -1624,7 +1780,7 @@ export class SessionsService {
           door,
           status: MainCommandStatus.CHECK_REQUIRED,
           message: `${doorName}을 부수려면 DC ${door.breakCheckDc} 판정이 필요합니다.`,
-          checkOptions: [{ ability: "str", reason: `문 파괴 DC ${door.breakCheckDc}` }],
+          checkOptions: [{ ability: "str", dc: door.breakCheckDc, reason: "문 파괴" }],
           checkEffect: this.buildVttDoorCheckEffect(door, params, "broken"),
         };
       }
@@ -1674,6 +1830,106 @@ export class SessionsService {
       result ?? {
         status: MainCommandStatus.IMPOSSIBLE,
         message: "판정 대상 문을 현재 맵에서 찾을 수 없습니다.",
+      }
+    );
+  }
+
+  async disarmVttHazardAtPoint(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    nodeId: string;
+    mapPoint: { x: number; y: number };
+  }): Promise<{
+    status: MainCommandStatus;
+    message: string;
+    checkOptions?: MainCommandCheckOptionDto[];
+    checkEffect?: Record<string, unknown>;
+  } | null> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: params.sessionScenarioId },
+      select: { currentNodeId: true, flagsJson: true },
+    });
+    if (!state) {
+      throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
+    }
+    if (state.currentNodeId && params.nodeId !== state.currentNodeId) {
+      return {
+        status: MainCommandStatus.IMPOSSIBLE,
+        message: "현재 노드와 다른 함정은 해제할 수 없습니다.",
+      };
+    }
+
+    const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
+    const hazardCell = this.findVttObjectAtPoint(map, params.mapPoint);
+    const hazard = hazardCell?.hazard;
+    if (!hazardCell || !hazard) {
+      return null;
+    }
+
+    const hazardName = hazardCell.name?.trim() || this.getHazardKindLabel(hazard.kind);
+    if (hazard.armed === false) {
+      return {
+        status: MainCommandStatus.MESSAGE,
+        message: `${hazardName}은 이미 해제되어 있습니다.`,
+      };
+    }
+    if (!this.isVttHazardDetected(hazard)) {
+      return {
+        status: MainCommandStatus.IMPOSSIBLE,
+        message: `${hazardName}의 정확한 구조를 아직 파악하지 못했습니다. 먼저 위험을 탐지해야 합니다.`,
+      };
+    }
+
+    const dc = this.clampNumber(Number(hazard.detectionDc) || 15, 5, 30);
+    return {
+      status: MainCommandStatus.CHECK_REQUIRED,
+      message: `${hazardName}을 해제하려면 판정이 필요합니다.`,
+      checkOptions: [{ skill: "sleight_of_hand", dc, reason: "함정 해제" }],
+      checkEffect: this.buildVttHazardCheckEffect(hazardCell, params, "disarm"),
+    };
+  }
+
+  async applyVttHazardDisarmSuccess(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    nodeId: string;
+    hazardId: string;
+  }): Promise<{ status: MainCommandStatus; message: string }> {
+    const result = await this.updateVttHazardById(params, (cell) => {
+      const hazardName = cell.name?.trim() || this.getHazardKindLabel(cell.hazard?.kind ?? "TRAP");
+      if (!cell.hazard) {
+        return {
+          cell,
+          status: MainCommandStatus.IMPOSSIBLE,
+          message: "판정 대상 함정을 현재 맵에서 찾을 수 없습니다.",
+        };
+      }
+      if (cell.hazard.armed === false) {
+        return {
+          cell,
+          status: MainCommandStatus.MESSAGE,
+          message: `${hazardName}은 이미 해제되어 있습니다.`,
+        };
+      }
+      return {
+        cell: {
+          ...cell,
+          hazard: {
+            ...cell.hazard,
+            armed: false,
+            attemptedBySessionCharacterIds: [],
+            detectedBySessionCharacterIds: [],
+          },
+        },
+        status: MainCommandStatus.RESOLVED,
+        message: `판정에 성공해 ${hazardName}을 해제했습니다. 맵의 위험 표시가 제거됩니다.`,
+      };
+    });
+
+    return (
+      result ?? {
+        status: MainCommandStatus.IMPOSSIBLE,
+        message: "판정 대상 함정을 현재 맵에서 찾을 수 없습니다.",
       }
     );
   }
@@ -2548,9 +2804,6 @@ export class SessionsService {
           detected.add(sessionCharacterId);
         }
 
-        const linkedClueIds = Array.from(
-          new Set([...(hazard.linkedClueIds ?? []), ...(objectCell.hiddenClueIds ?? [])]),
-        ).filter((id) => id.trim());
         const turnLog = await this.createAutoHazardTurnLog({
           sessionId: params.sessionId,
           sessionScenarioId: params.sessionScenarioId,
@@ -2564,19 +2817,8 @@ export class SessionsService {
           detectionRadiusFeet,
           check,
           success,
-          linkedClueIds,
+          linkedClueIds: [],
         });
-
-        if (success && linkedClueIds.length) {
-          await this.revealHazardLinkedClues({
-            sessionScenarioId: params.sessionScenarioId,
-            nodeId: params.currentNodeId,
-            clueIds: linkedClueIds,
-            hazardId: objectCell.id,
-            hazardName: objectCell.name ?? null,
-            turnLogId: turnLog.turnLogId,
-          });
-        }
 
         this.realtimeEvents.emitTurnLogCreated(params.sessionId, turnLog);
         break;
@@ -2652,8 +2894,8 @@ export class SessionsService {
     const turnNumber = (lastTurn?.turnNumber ?? 0) + 1;
     const hazardLabel = params.hazardName?.trim() || this.getHazardKindLabel(params.hazardKind);
     const narration = params.success
-      ? `${params.characterName}이(가) ${hazardLabel}의 위험 징후를 감지했습니다. 공개된 단서는 정보 탭에 기록됩니다.`
-      : `${params.characterName}이(가) 주변을 경계했지만 당장은 위험의 징후를 특정하지 못했습니다.`;
+      ? `${params.characterName}은(는) 발걸음을 늦추고 ${hazardLabel} 주변의 어긋난 흔적을 알아차립니다. 위험 위치가 맵에 표시됩니다.`
+      : `${params.characterName}은(는) 주변을 살폈지만, 숨어 있는 위험은 아직 평범한 바닥과 그림자 속에 묻혀 있습니다.`;
     const structuredAction = {
       type: "auto_hazard_detection",
       intent: "DETECT_DANGER",
@@ -2708,6 +2950,255 @@ export class SessionsService {
       narration: created.narration,
       createdAt: created.createdAt.toISOString(),
     };
+  }
+
+  private async applyVttHazardTriggers(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    map: VttMapStateDto;
+    previousMap: VttMapStateDto;
+  }): Promise<{ map: VttMapStateDto; triggered: boolean }> {
+    const objectCells = params.map.objectCells ?? [];
+    const hazardCells = objectCells.filter((cell) => cell.hazard && cell.hazard.armed !== false);
+    if (!hazardCells.length) {
+      return { map: params.map, triggered: false };
+    }
+
+    const movedTokens = params.map.tokens
+      .map((token) => {
+        const previousToken = params.previousMap.tokens.find((candidate) => candidate.id === token.id);
+        if (!previousToken || !token.sessionCharacterId || token.hidden === true) {
+          return null;
+        }
+        if (previousToken.x === token.x && previousToken.y === token.y) {
+          return null;
+        }
+        return { token, previousToken };
+      })
+      .filter((entry): entry is { token: VttMapStateDto["tokens"][number]; previousToken: VttMapStateDto["tokens"][number] } =>
+        Boolean(entry),
+      );
+
+    if (!movedTokens.length) {
+      return { map: params.map, triggered: false };
+    }
+
+    const nextObjectCells = [...objectCells];
+    let objectCellsChanged = false;
+    let triggered = false;
+
+    for (const { token, previousToken } of movedTokens) {
+      const sessionCharacterId = token.sessionCharacterId;
+      if (!sessionCharacterId) {
+        continue;
+      }
+
+      const hazardIndex = nextObjectCells.findIndex((cell) => {
+        const hazard = cell.hazard;
+        return Boolean(
+          hazard &&
+            hazard.armed !== false &&
+            this.doesTokenMovementCrossCell(params.map, previousToken, token, cell),
+        );
+      });
+      if (hazardIndex < 0) {
+        continue;
+      }
+
+      const hazardCell = nextObjectCells[hazardIndex];
+      const hazard = hazardCell.hazard;
+      if (!hazard) {
+        continue;
+      }
+
+      const character = await this.prisma.sessionCharacter.findUnique({
+        where: { id: sessionCharacterId },
+        include: { character: true },
+      });
+      if (!character || character.sessionId !== params.sessionId || character.status !== PrismaSessionCharacterStatus.ACTIVE) {
+        continue;
+      }
+
+      const damage = this.rollVttHazardDamage(hazard.kind);
+      const nextHp = this.clampNumber(character.currentHp - damage.total, 0, character.character.maxHp);
+      const nextStatus = nextHp > 0 ? PrismaSessionCharacterStatus.ACTIVE : PrismaSessionCharacterStatus.DEAD;
+      await this.prisma.sessionCharacter.update({
+        where: { id: character.id },
+        data: {
+          currentHp: nextHp,
+          status: nextStatus,
+        },
+      });
+
+      const hazardName = hazardCell.name?.trim() || this.getHazardKindLabel(hazard.kind);
+      await this.createVttHazardTriggerTurnLog({
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        sessionCharacterId,
+        characterName: character.character.name,
+        hazardId: hazardCell.id,
+        hazardName,
+        hazardKind: hazard.kind,
+        damage,
+        currentHp: nextHp,
+        maxHp: character.character.maxHp,
+      });
+
+      const nextHazard = {
+        ...hazard,
+        armed: hazard.triggerOnce === false,
+        attemptedBySessionCharacterIds: [],
+        detectedBySessionCharacterIds: [],
+      };
+      nextObjectCells[hazardIndex] = { ...hazardCell, hazard: nextHazard };
+      objectCellsChanged = true;
+      triggered = true;
+    }
+
+    if (!objectCellsChanged) {
+      return { map: params.map, triggered };
+    }
+
+    return {
+      map: {
+        ...params.map,
+        objectCells: nextObjectCells,
+        updatedAt: new Date().toISOString(),
+      },
+      triggered,
+    };
+  }
+
+  private rollVttHazardDamage(kind: "TRAP" | "AMBUSH" | "HAZARD"): {
+    expression: string;
+    rolls: number[];
+    modifier: number;
+    total: number;
+    damageType: string;
+  } {
+    const damageType = kind === "HAZARD" ? "bludgeoning" : "piercing";
+    const roll = Math.floor(Math.random() * 6) + 1;
+    return {
+      expression: "1d6",
+      rolls: [roll],
+      modifier: 0,
+      total: roll,
+      damageType,
+    };
+  }
+
+  private async createVttHazardTriggerTurnLog(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    sessionCharacterId: string;
+    characterName: string;
+    hazardId: string;
+    hazardName: string;
+    hazardKind: "TRAP" | "AMBUSH" | "HAZARD";
+    damage: { expression: string; rolls: number[]; modifier: number; total: number; damageType: string };
+    currentHp: number;
+    maxHp: number;
+  }): Promise<void> {
+    const lastTurn = await this.prisma.turnLog.findFirst({
+      where: { sessionId: params.sessionId },
+      orderBy: { turnNumber: "desc" },
+      select: { turnNumber: true },
+    });
+    const turnNumber = (lastTurn?.turnNumber ?? 0) + 1;
+    const narration = `${params.characterName}이(가) ${params.hazardName}을(를) 밟았습니다. 함정이 발동해 ${params.damage.total} 피해를 입었습니다.`;
+    const structuredAction = {
+      type: "vtt_hazard_trigger",
+      hazardId: params.hazardId,
+      hazardName: params.hazardName,
+      hazardKind: params.hazardKind,
+      damageType: params.damage.damageType,
+      damageTotal: params.damage.total,
+    };
+    const diceResult = {
+      expression: params.damage.expression,
+      rolls: params.damage.rolls,
+      modifier: params.damage.modifier,
+      total: params.damage.total,
+      advantageState: DiceAdvantageState.NORMAL,
+      damageType: params.damage.damageType,
+      outcome: "SUCCESS",
+    };
+    const stateDiff = {
+      reason: "vtt_hazard_trigger",
+      diff: {
+        characters: [
+          {
+            id: params.sessionCharacterId,
+            currentHp: params.currentHp,
+            maxHp: params.maxHp,
+          },
+        ],
+      },
+    };
+    const created = await this.prisma.turnLog.create({
+      data: {
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        playerActionId: null,
+        actorUserId: null,
+        sessionCharacterId: params.sessionCharacterId,
+        turnNumber,
+        rawInput: "[함정 발동]",
+        structuredActionJson: JSON.stringify(structuredAction),
+        diceResultJson: JSON.stringify(diceResult),
+        stateDiffJson: JSON.stringify(stateDiff),
+        outcome: PrismaActionOutcome.SUCCESS,
+        narration,
+      },
+    });
+
+    this.realtimeEvents.emitTurnLogCreated(params.sessionId, {
+      turnLogId: created.id,
+      turnNumber: created.turnNumber,
+      playerActionId: created.playerActionId,
+      actorUserId: created.actorUserId,
+      sessionCharacterId: created.sessionCharacterId,
+      actionClientCreatedAt: null,
+      actionCreatedAt: null,
+      rawInput: created.rawInput,
+      structuredAction,
+      diceResult,
+      stateDiff,
+      outcome: ActionOutcome.SUCCESS,
+      narration: created.narration,
+      createdAt: created.createdAt.toISOString(),
+    });
+    this.realtimeEvents.emitDiceRolled(params.sessionId, diceResult);
+  }
+
+  private doesTokenMovementCrossCell(
+    map: VttMapStateDto,
+    previousToken: VttMapStateDto["tokens"][number],
+    token: VttMapStateDto["tokens"][number],
+    cell: NonNullable<VttMapStateDto["objectCells"]>[number],
+  ): boolean {
+    const from = this.getTokenCenter(previousToken);
+    const to = this.getTokenCenter(token);
+    const distancePx = Math.hypot(to.x - from.x, to.y - from.y);
+    const steps = Math.max(1, Math.ceil(distancePx / Math.max(8, map.gridSize / 2)));
+    for (let index = 1; index <= steps; index += 1) {
+      const ratio = index / steps;
+      const center = {
+        x: from.x + (to.x - from.x) * ratio,
+        y: from.y + (to.y - from.y) * ratio,
+      };
+      const tokenRect = {
+        x: center.x - token.size / 2,
+        y: center.y - token.size / 2,
+        width: token.size,
+        height: token.size,
+      };
+      const shapeCells = cell.shapeCells?.length ? cell.shapeCells : [cell];
+      if (shapeCells.some((shapeCell) => this.rectsOverlap(tokenRect, shapeCell))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private async revealHazardLinkedClues(params: {
@@ -2899,6 +3390,71 @@ export class SessionsService {
     return { status: result.status, message: result.message };
   }
 
+  private async updateVttHazardById(
+    params: {
+      sessionId: string;
+      sessionScenarioId: string;
+      nodeId: string;
+      hazardId: string;
+    },
+    updateHazard: (
+      cell: NonNullable<VttMapStateDto["objectCells"]>[number],
+    ) => {
+      cell: NonNullable<VttMapStateDto["objectCells"]>[number];
+      status: MainCommandStatus;
+      message: string;
+    },
+  ): Promise<{ status: MainCommandStatus; message: string } | null> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: params.sessionScenarioId },
+      select: { currentNodeId: true, flagsJson: true },
+    });
+    if (!state) {
+      throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
+    }
+    if (state.currentNodeId && params.nodeId !== state.currentNodeId) {
+      return null;
+    }
+
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
+    const objectCells = map.objectCells ?? [];
+    const objectIndex = objectCells.findIndex((cell) => cell.id === params.hazardId);
+    if (objectIndex < 0) {
+      return null;
+    }
+
+    const result = updateHazard(objectCells[objectIndex]);
+    if (result.cell !== objectCells[objectIndex]) {
+      const nextMap = this.normalizeVttMap(
+        {
+          ...map,
+          objectCells: objectCells.map((cell, index) => (index === objectIndex ? result.cell : cell)),
+        },
+        state.currentNodeId ?? null,
+      );
+      await this.prisma.gameState.update({
+        where: { sessionScenarioId: params.sessionScenarioId },
+        data: {
+          version: { increment: 1 },
+          flagsJson: JSON.stringify({
+            ...flags,
+            vttMap: nextMap,
+          }),
+        },
+      });
+
+      const session = await this.getSessionEntityOrThrow(params.sessionId);
+      this.realtimeEvents.emitVttMapUpdated(session.id, {
+        hostUserId: session.hostUserId,
+        hostMap: nextMap,
+        playerMap: this.redactVttMapForPlayer(nextMap),
+      });
+    }
+
+    return { status: result.status, message: result.message };
+  }
+
   private buildVttDoorCheckEffect(
     door: NonNullable<VttMapStateDto["doorCells"]>[number],
     params: { nodeId: string; mapPoint: { x: number; y: number } },
@@ -2913,6 +3469,20 @@ export class SessionsService {
     };
   }
 
+  private buildVttHazardCheckEffect(
+    cell: NonNullable<VttMapStateDto["objectCells"]>[number],
+    params: { nodeId: string; mapPoint: { x: number; y: number } },
+    effect: "disarm",
+  ): Record<string, unknown> {
+    return {
+      type: "vttHazard",
+      hazardId: cell.id,
+      effect,
+      nodeId: params.nodeId,
+      mapPoint: params.mapPoint,
+    };
+  }
+
   private findVttObjectAtPoint(
     map: VttMapStateDto,
     point: { x: number; y: number },
@@ -2920,11 +3490,129 @@ export class SessionsService {
     return (map.objectCells ?? []).find((cell) => this.isPointInVttCell(point, cell)) ?? null;
   }
 
+  private getFirstVttObjectRevealCheck(
+    objectCell: NonNullable<VttMapStateDto["objectCells"]>[number],
+  ): { contentId: string; ability: string | null; skill: string | null; dc: number } | null {
+    return this.getVttObjectRevealChecks(objectCell)[0] ?? null;
+  }
+
+  private getVttObjectRevealChecks(
+    objectCell: NonNullable<VttMapStateDto["objectCells"]>[number],
+  ): Array<{ contentId: string; ability: string | null; skill: string | null; dc: number }> {
+    return (objectCell.revealChecks ?? [])
+      .map((check) => {
+        const contentId = typeof check.contentId === "string" ? check.contentId.trim() : "";
+        if (!contentId) {
+          return null;
+        }
+        return {
+          contentId,
+          ability: typeof check.ability === "string" && check.ability.trim() ? check.ability.trim() : null,
+          skill: typeof check.skill === "string" && check.skill.trim() ? check.skill.trim() : null,
+          dc: this.clampNumber(Number(check.dc) || 15, 1, 40),
+        };
+      })
+      .filter((check): check is { contentId: string; ability: string | null; skill: string | null; dc: number } =>
+        Boolean(check),
+      );
+  }
+
+  private canRevealVttObjectContentByCheck(
+    contentId: string,
+    revealChecks: Array<{ contentId: string; ability: string | null; skill: string | null; dc: number }>,
+    checkOption?: MainCommandCheckOptionDto | null,
+  ): boolean {
+    const checksForContent = revealChecks.filter((check) => check.contentId === contentId);
+    if (!checksForContent.length) {
+      return true;
+    }
+    if (!checkOption) {
+      return false;
+    }
+
+    return checksForContent.some((check) => {
+      const abilityMatches = !check.ability || !checkOption.ability || check.ability === checkOption.ability;
+      const skillMatches = !check.skill || !checkOption.skill || check.skill === checkOption.skill;
+      const dcMatches = !checkOption.dc || check.dc === checkOption.dc;
+      return abilityMatches && skillMatches && dcMatches;
+    });
+  }
+
+  private hasDiscoverableVttObjectContent(
+    objectCell: NonNullable<VttMapStateDto["objectCells"]>[number],
+  ): boolean {
+    return Boolean(
+      objectCell.hiddenClueIds?.length ||
+        objectCell.hiddenItemIds?.length,
+    );
+  }
+
+  private isVttObjectObserved(
+    objectCell: NonNullable<VttMapStateDto["objectCells"]>[number],
+  ): boolean {
+    return Boolean(
+      Array.isArray(objectCell.observedBySessionCharacterIds) &&
+        objectCell.observedBySessionCharacterIds.length,
+    );
+  }
+
+  private isVttObjectInPartyVision(
+    map: VttMapStateDto,
+    objectCell: NonNullable<VttMapStateDto["objectCells"]>[number],
+    partyTokens: VttMapStateDto["tokens"],
+    visionRangeFeet: number,
+  ): boolean {
+    return partyTokens.some((token) => {
+      const tokenCenter = this.getTokenCenter(token);
+      const objectCenter = this.getVttCellCenter(objectCell);
+      return (
+        this.calculatePointToRectDistanceFeet(map, tokenCenter, objectCell) <= visionRangeFeet &&
+        !this.isVttLineOfSightBlocked(map, tokenCenter, objectCenter)
+      );
+    });
+  }
+
+  private getVttCellCenter(cell: { x: number; y: number; width: number; height: number }): { x: number; y: number } {
+    return {
+      x: cell.x + cell.width / 2,
+      y: cell.y + cell.height / 2,
+    };
+  }
+
   private getTokenCenter(token: VttMapStateDto["tokens"][number]): { x: number; y: number } {
     return {
       x: token.x + token.size / 2,
       y: token.y + token.size / 2,
     };
+  }
+
+  private isVttLineOfSightBlocked(
+    map: VttMapStateDto,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+  ): boolean {
+    const blockers = [
+      ...(map.wallCells ?? []),
+      ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
+    ];
+    if (!blockers.length) {
+      return false;
+    }
+
+    const distancePx = Math.hypot(to.x - from.x, to.y - from.y);
+    const steps = Math.max(1, Math.ceil(distancePx / Math.max(8, map.gridSize / 4)));
+    for (let index = 1; index < steps; index += 1) {
+      const ratio = index / steps;
+      const point = {
+        x: from.x + (to.x - from.x) * ratio,
+        y: from.y + (to.y - from.y) * ratio,
+      };
+      if (blockers.some((blocker) => this.isPointInVttCell(point, blocker))) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private calculatePointToRectDistanceFeet(
@@ -3051,20 +3739,43 @@ export class SessionsService {
         })),
       startingPositions: [],
       objectCells: (map.objectCells ?? [])
-        .filter((cell) => cell.visibleToPlayers !== false)
+        .filter((cell) => cell.visibleToPlayers !== false || this.isVttHazardDetected(cell.hazard))
         .map((cell) => ({
           ...cell,
+          visibleToPlayers: cell.visibleToPlayers !== false || this.isVttHazardDetected(cell.hazard),
           hiddenClueIds: [],
           hiddenItemIds: [],
           hiddenEventIds: [],
+          observedBySessionCharacterIds: this.isVttObjectObserved(cell) ? ["party"] : [],
+          revealChecks: [],
           events: [],
-          hazard: null,
+          hazard: this.isVttHazardDetected(cell.hazard)
+            ? {
+                kind: this.normalizeHazardKind(cell.hazard?.kind),
+                armed: cell.hazard?.armed !== false,
+                triggerOnce: cell.hazard?.triggerOnce !== false,
+                detectionRadiusCells: 0,
+                detectionDc: 0,
+                linkedClueIds: [],
+                attemptedBySessionCharacterIds: [],
+                detectedBySessionCharacterIds: ["party"],
+              }
+            : null,
         })),
       doorCells: (map.doorCells ?? []).map((cell) => ({
         ...cell,
         keyItemId: null,
       })),
     };
+  }
+
+  private isVttHazardDetected(hazard: VttObjectHazardDto | null | undefined): boolean {
+    return Boolean(
+      hazard &&
+        hazard.armed !== false &&
+        Array.isArray(hazard.detectedBySessionCharacterIds) &&
+        hazard.detectedBySessionCharacterIds.length
+    );
   }
 
   private async applyPlayerVttMapUpdate(
@@ -3688,6 +4399,20 @@ export class SessionsService {
         hiddenEventIds: Array.isArray(cell.hiddenEventIds)
           ? cell.hiddenEventIds.filter((id) => typeof id === "string").slice(0, 30)
           : [],
+        observedBySessionCharacterIds: Array.isArray(cell.observedBySessionCharacterIds)
+          ? cell.observedBySessionCharacterIds.filter((id) => typeof id === "string").slice(0, 30)
+          : [],
+        revealChecks: Array.isArray(cell.revealChecks)
+          ? cell.revealChecks
+              .map((check) => ({
+                contentId: typeof check.contentId === "string" ? check.contentId.trim() : "",
+                ability: typeof check.ability === "string" && check.ability.trim() ? check.ability.trim() : null,
+                skill: typeof check.skill === "string" && check.skill.trim() ? check.skill.trim() : null,
+                dc: this.clampNumber(Number(check.dc) || 15, 1, 40),
+              }))
+              .filter((check) => check.contentId)
+              .slice(0, 60)
+          : [],
         events: Array.isArray(cell.events)
         ? cell.events
             .filter((event) => event.type === "REVEAL_FOG_ON_PROXIMITY")
@@ -4306,6 +5031,21 @@ export class SessionsService {
   private getStringProperty(value: Record<string, unknown>, key: string): string | null {
     const candidate = value[key];
     return typeof candidate === "string" && candidate.trim() ? candidate : null;
+  }
+
+  private toRevealClueSummary(
+    contentId: string,
+    snapshot: Record<string, unknown>,
+  ): { id: string; title: string; text: string | null } {
+    return {
+      id: contentId,
+      title: this.getStringProperty(snapshot, "title") ?? contentId,
+      text:
+        this.getStringProperty(snapshot, "handoutText") ??
+        this.getStringProperty(snapshot, "playerText") ??
+        this.getStringProperty(snapshot, "text") ??
+        this.getStringProperty(snapshot, "revelation"),
+    };
   }
 
   private toScenarioNodeType(value: string): PlayerScenarioNodeDto["nodeType"] {
