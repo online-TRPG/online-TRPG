@@ -908,6 +908,7 @@
 }
 
 .session-sidebar-tabs button {
+  position: relative;
   min-height: 42px;
   min-width: 0;
   padding: 0 10px;
@@ -940,6 +941,28 @@
 .session-sidebar-tabs button:hover:not(.active):not(:disabled) {
   color: #213041;
   background: #e4ebf3;
+}
+
+.session-sidebar-tabs button.has-unread-info::before {
+  content: '';
+  position: absolute;
+  top: 9px;
+  right: 12px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #e73d45;
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.9),
+    0 0 8px rgba(231, 61, 69, 0.55);
+}
+
+.session-sidebar-tab-badge {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 
 .session-sidebar-panel {
@@ -1444,13 +1467,28 @@
   color: #1d3d5f;
 }
 
+.main-command-selection-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.main-command-selection-row .main-command-selection-chip {
+  width: 100%;
+  min-width: 0;
+}
+
 .main-command-selection-chip span {
+  flex: 0 0 auto;
   font-size: 11px;
   font-weight: 700;
   color: #5c7a97;
 }
 
 .main-command-selection-chip strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 12px;
 }
 

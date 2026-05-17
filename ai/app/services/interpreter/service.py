@@ -188,12 +188,24 @@ class InterpreterService:
             f"- selectedSpellId: {request.spellId}\n"
             f"- relatedIntent: {request.relatedIntent}\n"
             f"- mapPoint: {json.dumps(request.mapPoint, ensure_ascii=False)}\n"
+            f"- transitionCandidates: {json.dumps(request.transitionCandidates, ensure_ascii=False)}\n"
+            f"- transitionEvidence: {json.dumps(request.transitionEvidence, ensure_ascii=False)}\n"
             f"- rawText: {request.rawText}\n"
             "\n"
             "relatedEntities는 SRD 번역본에서 추출한 구조화 참고 후보일 뿐이다. "
             "relatedRules는 현재 행동에 필요한 작은 SRD 규칙 조각일 뿐이다. "
             "relatedEngineHooks는 백엔드가 나중에 확정해야 할 deterministic 처리 계약일 뿐이다. "
             "AI는 이 후보를 근거로 상태 변화, 명중, 피해, DC, 슬롯 소비를 확정하면 안 된다.\n"
+            "requestIntent가 REQUEST_SCENE_TRANSITION이고 transitionCandidates가 있으면 "
+            "각 후보의 자연어 condition을 백엔드가 판정 가능한 sceneTransition 계약으로 구조화하라. "
+            "이때 후보 targetNodeId와 transitionId는 transitionCandidates에 있는 값만 사용하라. "
+            "sceneTransition.candidates에는 각 후보의 요구 조건을 넣고, 플레이어 입력과 증거상 가장 의도에 맞는 후보가 있으면 "
+            "sceneTransition.selectedTargetNodeId에 그 targetNodeId를 넣어라. "
+            "조건은 ALL/ANY와 요구 타입으로 표현한다: ACTION_EVIDENCE, CLUE_REVEALED, CLUE_NOT_REVEALED, "
+            "OBJECT_STATE, FLAG_SET, COMBAT_RESOLVED, GM_APPROVAL. "
+            "예: '전투 종료 후 고블린 표식 단서를 밝혔을 시'는 COMBAT_RESOLVED + CLUE_REVEALED, "
+            "'표식 단서를 밝히지 못했을 시'는 CLUE_NOT_REVEALED로 표현하라. "
+            "AI는 이동 가능 여부를 확정하지 말고, 판정 계약만 구조화하라.\n"
             "relatedEngineHooks 중 domain이 class_feature인 항목이 플레이어 입력과 직접 맞으면 "
             "action.type='MAP_USE_CLASS_FEATURE'로 두고 sourceEntityIds의 class feature ID를 action.featureId에 복사하라.\n"
             "selectedTargetId, selectedItemId, selectedSpellId가 주어지면 그 값을 신뢰하고 유지하라. "
@@ -275,6 +287,26 @@ class InterpreterService:
         unexpected_rule_ids = set(parsed.requiredRuleCheckIds) - allowed_rule_ids
         if unexpected_rule_ids:
             raise ValueError(f"requiredRuleCheckIds include unavailable rule IDs: {sorted(unexpected_rule_ids)}")
+
+        if parsed.sceneTransition is not None:
+            allowed_transition_node_ids = {
+                str(candidate.get("targetNodeId"))
+                for candidate in request.transitionCandidates
+                if candidate.get("targetNodeId") is not None
+            }
+            allowed_transition_ids = {
+                str(candidate.get("transitionId"))
+                for candidate in request.transitionCandidates
+                if candidate.get("transitionId") is not None
+            }
+            if parsed.sceneTransition.selectedTargetNodeId is not None:
+                if parsed.sceneTransition.selectedTargetNodeId not in allowed_transition_node_ids:
+                    raise ValueError("sceneTransition.selectedTargetNodeId must be one of transitionCandidates")
+            for candidate in parsed.sceneTransition.candidates:
+                if candidate.targetNodeId not in allowed_transition_node_ids:
+                    raise ValueError("sceneTransition candidate targetNodeId must be one of transitionCandidates")
+                if candidate.transitionId is not None and candidate.transitionId not in allowed_transition_ids:
+                    raise ValueError("sceneTransition candidate transitionId must be one of transitionCandidates")
 
     @staticmethod
     def _normalize_class_feature_output(

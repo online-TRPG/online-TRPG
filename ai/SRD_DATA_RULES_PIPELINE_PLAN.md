@@ -1,16 +1,16 @@
 # SRD 데이터 파이프라인
 
-이 문서는 `translated/`의 긴 SRD Markdown을 `generated/srd/`의 작은 런타임 JSON으로 바꾸는 현재 기준이다.
+이 문서는 `translated/`의 긴 SRD Markdown을 repo root의 `srd-data/generated/srd/`에 있는 작은 런타임 JSON으로 바꾸는 현재 기준이다.
 
 한 줄 요약:
 
-> 사람은 `translated/`를 읽고, 서버와 AI는 `generated/srd/`를 읽는다.
+> 사람은 `translated/`를 읽고, 서버와 AI는 `srd-data/generated/srd/`를 읽는다.
 
 ## 왜 나누는가
 
 `translated/`는 사람이 검수하기 좋은 자료다. 길고, 설명형이고, Markdown 구조가 균일하지 않다.
 
-`generated/srd/`는 런타임 자료다. 작고, 구조화되어 있고, 테스트로 개수와 필드를 검증한다.
+`srd-data/generated/srd/`는 런타임 자료다. 작고, 구조화되어 있고, 테스트로 개수와 필드를 검증한다.
 
 AI prompt에는 원문 Markdown 전체를 넣지 않는다. 현재 행동에 필요한 entity, rule fragment, hook fixture만 넣는다.
 
@@ -46,7 +46,7 @@ AI prompt에는 원문 Markdown 전체를 넣지 않는다. 현재 행동에 필
 | `source_manifest.json`                   |    1 | 테스트           | 원천 파일 hash/크기/영역                   |
 | `srd_qa_report.json`                     |    1 | 검수             | 개수와 필드 coverage                       |
 
-`generated/srd/`의 compact catalog는 런타임 자산이다. debug/raw 중간 산출물만 커밋하지 않는다.
+`srd-data/generated/srd/`의 compact catalog는 런타임 자산이다. debug/raw 중간 산출물만 커밋하지 않는다.
 
 ## 빌드 명령
 

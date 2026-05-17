@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import type {
   InventoryItemDto,
   PlayerScenarioNodeDto,
@@ -40,9 +40,12 @@ interface ExplorationNodeSurfaceProps {
   inventory: InventoryItemDto[];
   inventoryFeedback?: string | null;
   isBusy?: boolean;
+  selectedInventoryItemId?: string;
   getCharacterColorStyle?: (character: SessionCharacterResponseDto) => CSSProperties;
   onMapChange: (map: VttMapStateDto) => void;
   onUseInventoryItem: (item: InventoryItemDto) => void;
+  onSelectInventoryItem?: (item: InventoryItemDto | null) => void;
+  onMapSelectionChange?: (selection: BattleMapSelection | null) => void;
   onRequestMainCommand?: (request: ExplorationMainCommandRequest) => void;
 }
 
@@ -371,12 +374,32 @@ function getBasePositionActions(): ExplorationActionButton[] {
   ];
 }
 
+function isSameMapSelection(
+  left: BattleMapSelection | null,
+  right: BattleMapSelection | null
+): boolean {
+  if (!left || !right || left.kind !== right.kind) return false;
+  if (left.kind === 'token' && right.kind === 'token') {
+    return left.token.id === right.token.id;
+  }
+  if (left.kind === 'tile' && right.kind === 'tile') {
+    return left.tile.column === right.tile.column && left.tile.row === right.tile.row;
+  }
+  if (left.kind !== 'token' && left.kind !== 'tile' && right.kind !== 'token' && right.kind !== 'tile') {
+    return left.cell.id === right.cell.id;
+  }
+  return false;
+}
+
 function getContextActions(selection: BattleMapSelection | null): ExplorationActionButton[] {
   const targetLabel = getSelectionTargetLabel(selection);
   const positionActions = getBasePositionActions();
 
   if (!selection) {
-    return positionActions;
+    return [
+      command('관찰', ExplorationMainCommandIntent.OBSERVE_AREA, null, '주변을 살핍니다.'),
+      ...positionActions,
+    ];
   }
 
   if (selection.kind === 'token') {
@@ -384,7 +407,7 @@ function getContextActions(selection: BattleMapSelection | null): ExplorationAct
       ? [
           ...positionActions,
           command('대화', ExplorationMainCommandIntent.TALK_TO_NPC, selection, `${targetLabel}에게 말을 겁니다.`),
-          command('관찰', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}의 상태와 행동을 살핍니다.`),
+          command('조사', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}의 상태와 행동을 살핍니다.`),
         ]
       : positionActions;
   }
@@ -421,9 +444,12 @@ export function ExplorationNodeSurface({
   inventory,
   inventoryFeedback = null,
   isBusy = false,
+  selectedInventoryItemId = '',
   getCharacterColorStyle,
   onMapChange,
   onUseInventoryItem,
+  onSelectInventoryItem,
+  onMapSelectionChange,
   onRequestMainCommand,
 }: ExplorationNodeSurfaceProps) {
   const [isSummaryOpen, setSummaryOpen] = useState(false);
@@ -439,6 +465,10 @@ export function ExplorationNodeSurface({
     () => getContextActions(mapSelection),
     [mapSelection]
   );
+
+  useEffect(() => {
+    onMapSelectionChange?.(mapSelection);
+  }, [mapSelection, onMapSelectionChange]);
 
   function getControlledToken() {
     if (!map || !myCharacter) return null;
@@ -564,7 +594,11 @@ export function ExplorationNodeSurface({
                 currentUserId={currentUserId}
                 interactionMode="session"
                 onChange={onMapChange}
-                onSelectionChange={setMapSelection}
+                onSelectionChange={(nextSelection) =>
+                  setMapSelection((current) =>
+                    isSameMapSelection(current, nextSelection) ? null : nextSelection
+                  )
+                }
                 title={node?.title ?? '탐색 지도'}
               />
             ) : (
@@ -645,8 +679,21 @@ export function ExplorationNodeSurface({
             <div className="exploration-inventory-list">
               {inventory.map((item) => {
                 const canUse = isQuickUsableItem(item);
+                const isSelected = selectedInventoryItemId === item.id;
                 return (
-                  <article className="exploration-inventory-item" key={item.id}>
+                  <article
+                    className={`exploration-inventory-item${isSelected ? ' selected' : ''}`}
+                    key={item.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={isSelected}
+                    onClick={() => onSelectInventoryItem?.(item)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      onSelectInventoryItem?.(item);
+                    }}
+                  >
                     <div className="exploration-inventory-item-body">
                       <strong>{item.name}</strong>
                       <span>{getItemMetaLabel(item)}</span>
@@ -656,7 +703,11 @@ export function ExplorationNodeSurface({
                       type="button"
                       disabled={!canUse || isBusy}
                       title={canUse ? `${item.name} 사용` : '현재 바로 사용할 수 없는 아이템입니다.'}
-                      onClick={() => onUseInventoryItem(item)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onUseInventoryItem(item);
+                      }}
+                      onKeyDown={(event) => event.stopPropagation()}
                     >
                       사용
                     </button>

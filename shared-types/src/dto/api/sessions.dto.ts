@@ -889,6 +889,24 @@ export class VttFogRectDto {
   height!: number;
 }
 
+export class VttObjectShapeCellDto {
+  @ApiProperty()
+  @IsNumber()
+  x!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  y!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  width!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  height!: number;
+}
+
 export class VttTerrainCellDto {
   @ApiProperty()
   @IsString()
@@ -995,7 +1013,65 @@ export class VttObjectEventDto {
   effect!: VttObjectRevealFogEffectDto;
 }
 
+export class VttObjectHazardDto {
+  @ApiProperty({ enum: ["TRAP", "AMBUSH", "HAZARD"], default: "TRAP" })
+  @IsIn(["TRAP", "AMBUSH", "HAZARD"])
+  kind!: "TRAP" | "AMBUSH" | "HAZARD";
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  armed?: boolean;
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  triggerOnce?: boolean;
+
+  @ApiPropertyOptional({ default: 3 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(20)
+  detectionRadiusCells?: number;
+
+  @ApiPropertyOptional({ default: 12 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(40)
+  detectionDc?: number;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  linkedClueIds?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  attemptedBySessionCharacterIds?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  detectedBySessionCharacterIds?: string[];
+}
+
 export class VttObjectCellDto extends VttTerrainCellDto {
+  @ApiPropertyOptional({ type: [VttObjectShapeCellDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(80)
+  @ValidateNested({ each: true })
+  @Type(() => VttObjectShapeCellDto)
+  shapeCells?: VttObjectShapeCellDto[];
+
   @ApiPropertyOptional({ default: true })
   @IsOptional()
   @Type(() => Boolean)
@@ -1027,6 +1103,12 @@ export class VttObjectCellDto extends VttTerrainCellDto {
   @ValidateNested({ each: true })
   @Type(() => VttObjectEventDto)
   events?: VttObjectEventDto[];
+
+  @ApiPropertyOptional({ type: VttObjectHazardDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => VttObjectHazardDto)
+  hazard?: VttObjectHazardDto | null;
 }
 
 export class VttMapStateDto {

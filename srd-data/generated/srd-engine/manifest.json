@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "srd-catalog-manifest-v2.0",
+  "source": {
+    "document": "SRD 5.1",
+    "file": "SRD-OGL_V5.1.pdf",
+    "license": "CC-BY-4.0"
+  },
+  "files": [
+    {
+      "path": "equipment.jsonl",
+      "kind": "equipment",
+      "count": 222
+    },
+    {
+      "path": "monsters.jsonl",
+      "kind": "monster",
+      "count": 317
+    },
+    {
+      "path": "spells.jsonl",
+      "kind": "spell",
+      "count": 319
+    }
+  ],
+  "notes": [
+    "V2 is intentionally not compatible with the previous Pydantic models.py schema. Keep legacy exports only as adapters if old code still depends on them."
+  ]
+}

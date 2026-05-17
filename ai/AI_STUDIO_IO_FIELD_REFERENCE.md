@@ -130,7 +130,7 @@ NpcDialogue는 행동을 고르지 않는다.
 
 ## SRD Prompt Context
 
-Interpreter는 `generated/srd/`에서 찾은 작은 문맥만 받는다.
+Interpreter는 repo root의 `srd-data/generated/srd/`에서 찾은 작은 문맥만 받는다.
 
 | 필드                 | 뜻                                                  |
 | -------------------- | --------------------------------------------------- |

@@ -9,6 +9,7 @@ COPY package.json package-lock.json tsconfig.base.json ./
 COPY shared-types/package.json ./shared-types/
 COPY be/package.json ./be/
 COPY fe/package.json ./fe/
+COPY srd-data/package.json ./srd-data/
 
 # 전체 workspace 의존성 설치 (hoisted 된 node_modules 가 루트에 생성됨)
 RUN npm ci
@@ -36,6 +37,7 @@ COPY package.json package-lock.json ./
 COPY shared-types/package.json ./shared-types/
 COPY be/package.json ./be/
 COPY fe/package.json ./fe/
+COPY srd-data/package.json ./srd-data/
 RUN npm ci --omit=dev && npm cache clean --force
 
 # 빌드 산출물 복사
@@ -48,6 +50,8 @@ COPY --from=builder --chown=node:node /app/node_modules/prisma ./node_modules/pr
 COPY --from=builder --chown=node:node /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 # Prisma schema
 COPY --from=builder --chown=node:node /app/be/prisma ./be/prisma
+# SRD runtime catalog used by backend rule fragment lookups
+COPY --chown=node:node srd-data/ ./srd-data/
 
 WORKDIR /app/be
 
