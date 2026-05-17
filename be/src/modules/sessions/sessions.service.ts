@@ -13,6 +13,7 @@ import {
   GmMode as PrismaGmMode,
   ParticipantRole as PrismaParticipantRole,
   ParticipantStatus as PrismaParticipantStatus,
+  ActionOutcome as PrismaActionOutcome,
   Prisma,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
   SessionScenarioStatus as PrismaSessionScenarioStatus,
@@ -50,6 +51,7 @@ import {
   SessionSnapshotDto,
   SessionStatus,
   SessionVisibility,
+  TurnLogResponseDto,
   UpdateParticipantReadyDto,
   UpdateSessionDto,
   UpdateSessionNodeDto,
@@ -480,6 +482,7 @@ export class SessionsService {
     await this.ensureMembership(userId, resolvedSessionId);
     const { state, sessionScenario } = await this.getGameStateEntityOrThrow(resolvedSessionId);
     const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const previousMap = await this.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
     const requestedMap = this.normalizeVttMap(dto.map, state.currentNodeId ?? null);
     let map =
       session.hostUserId === userId
@@ -496,6 +499,16 @@ export class SessionsService {
       currentNodeId: state.currentNodeId,
       map,
     });
+    const beforeHazardDetectionMap = map;
+    map = await this.applyVttHazardDetections({
+      sessionId: resolvedSessionId,
+      sessionScenarioId: sessionScenario.id,
+      currentNodeId: state.currentNodeId,
+      map,
+      previousMap,
+    });
+    const hazardDetectionChanged =
+      JSON.stringify(beforeHazardDetectionMap.objectCells ?? []) !== JSON.stringify(map.objectCells ?? []);
 
     await this.prisma.gameState.update({
       where: { sessionScenarioId: sessionScenario.id },
@@ -514,7 +527,79 @@ export class SessionsService {
       hostMap: map,
       playerMap,
     });
+    if (hazardDetectionChanged) {
+      this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, await this.buildSnapshot(resolvedSessionId));
+    }
     return session.hostUserId === userId ? map : playerMap;
+  }
+
+  async moveVttTokenTowardToken(params: {
+    sessionId: string;
+    sourceTokenId: string;
+    targetTokenId: string;
+    maxDistanceFt: number;
+    stopWithinFt?: number | null;
+  }): Promise<{ map: VttMapStateDto; moved: boolean; distanceMovedFt: number }> {
+    const session = await this.getSessionEntityOrThrow(params.sessionId);
+    const resolvedSessionId = session.id;
+    const { sessionScenario, state } = await this.getGameStateEntityOrThrow(resolvedSessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const previousMap = await this.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
+    const movement = this.calculateTokenStepTowardTarget(previousMap, {
+      sourceTokenId: params.sourceTokenId,
+      targetTokenId: params.targetTokenId,
+      maxDistanceFt: params.maxDistanceFt,
+      stopWithinFt: params.stopWithinFt ?? 5,
+    });
+
+    if (!movement) {
+      return { map: previousMap, moved: false, distanceMovedFt: 0 };
+    }
+
+    let map: VttMapStateDto = {
+      ...previousMap,
+      tokens: previousMap.tokens.map((token) =>
+        token.id === params.sourceTokenId
+          ? {
+              ...token,
+              x: movement.x,
+              y: movement.y,
+            }
+          : token,
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+    map = await this.applyVttObjectProximityEvents({
+      sessionScenarioId: sessionScenario.id,
+      currentNodeId: state.currentNodeId,
+      map,
+    });
+    map = await this.applyVttHazardDetections({
+      sessionId: resolvedSessionId,
+      sessionScenarioId: sessionScenario.id,
+      currentNodeId: state.currentNodeId,
+      map,
+      previousMap,
+    });
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: sessionScenario.id },
+      data: {
+        version: { increment: 1 },
+        flagsJson: JSON.stringify({
+          ...flags,
+          vttMap: map,
+        }),
+      },
+    });
+
+    this.realtimeEvents.emitVttMapUpdated(resolvedSessionId, {
+      hostUserId: session.hostUserId,
+      hostMap: map,
+      playerMap: this.redactVttMapForPlayer(map),
+    });
+
+    return { map, moved: true, distanceMovedFt: movement.distanceMovedFt };
   }
 
   async getPlayerScenarioForUser(userId: string, sessionId: string): Promise<PlayerScenarioViewDto> {
@@ -2369,6 +2454,308 @@ export class SessionsService {
     };
   }
 
+  private async applyVttHazardDetections(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    currentNodeId: string | null;
+    map: VttMapStateDto;
+    previousMap: VttMapStateDto;
+  }): Promise<VttMapStateDto> {
+    if (!params.currentNodeId) {
+      return params.map;
+    }
+
+    const objectCells = params.map.objectCells ?? [];
+    const hazardCells = objectCells.filter((cell) => cell.hazard && cell.hazard.armed !== false);
+    if (!hazardCells.length) {
+      return params.map;
+    }
+
+    const partyTokens = params.map.tokens.filter(
+      (token) => token.sessionCharacterId && token.hidden !== true && token.isHostile !== true,
+    );
+    if (!partyTokens.length) {
+      return params.map;
+    }
+
+    const sessionCharacters = await this.prisma.sessionCharacter.findMany({
+      where: {
+        sessionId: params.sessionId,
+        id: { in: partyTokens.map((token) => token.sessionCharacterId as string) },
+        status: PrismaSessionCharacterStatus.ACTIVE,
+      },
+      include: { character: true },
+    });
+    const characterBySessionId = new Map(sessionCharacters.map((entry) => [entry.id, entry]));
+
+    let objectCellsChanged = false;
+    const nextObjectCells = [...objectCells];
+
+    for (let index = 0; index < nextObjectCells.length; index += 1) {
+      const objectCell = nextObjectCells[index];
+      const hazard = objectCell.hazard;
+      if (!hazard || hazard.armed === false) {
+        continue;
+      }
+
+      const detectionRadiusFeet = this.clampNumber(Number(hazard.detectionRadiusCells) || 3, 1, 20) * 5;
+      const attempted = new Set(hazard.attemptedBySessionCharacterIds ?? []);
+      const detected = new Set(hazard.detectedBySessionCharacterIds ?? []);
+      const alreadyDetected = hazard.triggerOnce !== false && detected.size > 0;
+      if (alreadyDetected) {
+        continue;
+      }
+
+      for (const token of partyTokens) {
+        const sessionCharacterId = token.sessionCharacterId;
+        if (!sessionCharacterId || attempted.has(sessionCharacterId) || detected.has(sessionCharacterId)) {
+          continue;
+        }
+        const distanceFeet = this.calculatePointToRectDistanceFeet(
+          params.map,
+          this.getTokenCenter(token),
+          objectCell,
+        );
+        if (distanceFeet > detectionRadiusFeet) {
+          continue;
+        }
+        const previousToken = params.previousMap.tokens.find((candidate) => candidate.id === token.id);
+        const previousDistanceFeet = previousToken
+          ? this.calculatePointToRectDistanceFeet(
+              params.previousMap,
+              this.getTokenCenter(previousToken),
+              objectCell,
+            )
+          : Number.POSITIVE_INFINITY;
+        if (previousDistanceFeet <= detectionRadiusFeet) {
+          continue;
+        }
+
+        const sessionCharacter = characterBySessionId.get(sessionCharacterId);
+        if (!sessionCharacter) {
+          continue;
+        }
+
+        const check = this.rollHazardDetection(sessionCharacter.character);
+        const detectionDc = this.clampNumber(Number(hazard.detectionDc) || 12, 1, 40);
+        const success = check.total >= detectionDc;
+        attempted.add(sessionCharacterId);
+        if (success) {
+          detected.add(sessionCharacterId);
+        }
+
+        const linkedClueIds = Array.from(
+          new Set([...(hazard.linkedClueIds ?? []), ...(objectCell.hiddenClueIds ?? [])]),
+        ).filter((id) => id.trim());
+        const turnLog = await this.createAutoHazardTurnLog({
+          sessionId: params.sessionId,
+          sessionScenarioId: params.sessionScenarioId,
+          sessionCharacterId,
+          characterName: sessionCharacter.character.name,
+          hazardId: objectCell.id,
+          hazardName: objectCell.name ?? null,
+          hazardKind: hazard.kind,
+          detectionDc,
+          distanceFeet,
+          detectionRadiusFeet,
+          check,
+          success,
+          linkedClueIds,
+        });
+
+        if (success && linkedClueIds.length) {
+          await this.revealHazardLinkedClues({
+            sessionScenarioId: params.sessionScenarioId,
+            nodeId: params.currentNodeId,
+            clueIds: linkedClueIds,
+            hazardId: objectCell.id,
+            hazardName: objectCell.name ?? null,
+            turnLogId: turnLog.turnLogId,
+          });
+        }
+
+        this.realtimeEvents.emitTurnLogCreated(params.sessionId, turnLog);
+        break;
+      }
+
+      const nextHazard = {
+        ...hazard,
+        attemptedBySessionCharacterIds: Array.from(attempted).slice(0, 80),
+        detectedBySessionCharacterIds: Array.from(detected).slice(0, 80),
+      };
+      if (JSON.stringify(nextHazard) !== JSON.stringify(hazard)) {
+        nextObjectCells[index] = { ...objectCell, hazard: nextHazard };
+        objectCellsChanged = true;
+      }
+    }
+
+    if (!objectCellsChanged) {
+      return params.map;
+    }
+
+    return {
+      ...params.map,
+      objectCells: nextObjectCells,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  private rollHazardDetection(character: {
+    abilitiesJson: string;
+    proficiencyBonus: number;
+    proficientSkillsJson: string;
+  }): { expression: string; roll: number; modifier: number; total: number; skill: string; ability: string } {
+    const abilities = this.parseJson<Record<string, number>>(character.abilitiesJson, {});
+    const wis = Number(abilities.wis) || 10;
+    const abilityModifier = Math.floor((wis - 10) / 2);
+    const proficientSkills = this.parseJson<string[]>(character.proficientSkillsJson, []);
+    const hasPerception = proficientSkills.some((skill) => {
+      const normalized = skill.toLocaleLowerCase("ko-KR").replace(/\s+/g, "");
+      return normalized === "perception" || normalized === "감지";
+    });
+    const modifier = abilityModifier + (hasPerception ? character.proficiencyBonus : 0);
+    const roll = Math.floor(Math.random() * 20) + 1;
+    return {
+      expression: `1d20${modifier >= 0 ? "+" : ""}${modifier}`,
+      roll,
+      modifier,
+      total: roll + modifier,
+      skill: "perception",
+      ability: "wis",
+    };
+  }
+
+  private async createAutoHazardTurnLog(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    sessionCharacterId: string;
+    characterName: string;
+    hazardId: string;
+    hazardName: string | null;
+    hazardKind: "TRAP" | "AMBUSH" | "HAZARD";
+    detectionDc: number;
+    distanceFeet: number;
+    detectionRadiusFeet: number;
+    check: { expression: string; roll: number; modifier: number; total: number; skill: string; ability: string };
+    success: boolean;
+    linkedClueIds: string[];
+  }): Promise<TurnLogResponseDto> {
+    const lastTurn = await this.prisma.turnLog.findFirst({
+      where: { sessionId: params.sessionId },
+      orderBy: { turnNumber: "desc" },
+      select: { turnNumber: true },
+    });
+    const turnNumber = (lastTurn?.turnNumber ?? 0) + 1;
+    const hazardLabel = params.hazardName?.trim() || this.getHazardKindLabel(params.hazardKind);
+    const narration = params.success
+      ? `${params.characterName}이(가) ${hazardLabel}의 위험 징후를 감지했습니다. 공개된 단서는 정보 탭에 기록됩니다.`
+      : `${params.characterName}이(가) 주변을 경계했지만 당장은 위험의 징후를 특정하지 못했습니다.`;
+    const structuredAction = {
+      type: "auto_hazard_detection",
+      intent: "DETECT_DANGER",
+      hazardId: params.hazardId,
+      hazardName: params.hazardName,
+      hazardKind: params.hazardKind,
+      detectionDc: params.detectionDc,
+      distanceFeet: params.distanceFeet,
+      detectionRadiusFeet: params.detectionRadiusFeet,
+      linkedClueIds: params.linkedClueIds,
+    };
+    const diceResult = {
+      expression: params.check.expression,
+      rolls: [params.check.roll],
+      modifier: params.check.modifier,
+      total: params.check.total,
+      dc: params.detectionDc,
+      ability: params.check.ability,
+      skill: params.check.skill,
+      outcome: params.success ? "SUCCESS" : "FAILURE",
+    };
+    const created = await this.prisma.turnLog.create({
+      data: {
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        playerActionId: null,
+        actorUserId: null,
+        sessionCharacterId: params.sessionCharacterId,
+        turnNumber,
+        rawInput: "[자동 위험탐지]",
+        structuredActionJson: JSON.stringify(structuredAction),
+        diceResultJson: JSON.stringify(diceResult),
+        stateDiffJson: null,
+        outcome: params.success ? PrismaActionOutcome.SUCCESS : PrismaActionOutcome.FAILURE,
+        narration,
+      },
+    });
+
+    return {
+      turnLogId: created.id,
+      turnNumber: created.turnNumber,
+      playerActionId: created.playerActionId,
+      actorUserId: created.actorUserId,
+      sessionCharacterId: created.sessionCharacterId,
+      actionClientCreatedAt: null,
+      actionCreatedAt: null,
+      rawInput: created.rawInput,
+      structuredAction,
+      diceResult,
+      stateDiff: null,
+      outcome: params.success ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
+      narration: created.narration,
+      createdAt: created.createdAt.toISOString(),
+    };
+  }
+
+  private async revealHazardLinkedClues(params: {
+    sessionScenarioId: string;
+    nodeId: string;
+    clueIds: string[];
+    hazardId: string;
+    hazardName: string | null;
+    turnLogId: string;
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const clueSnapshots = await this.getCurrentNodeClueSnapshots(tx, {
+        sessionScenarioId: params.sessionScenarioId,
+        nodeId: params.nodeId,
+      });
+      await Promise.all(
+        params.clueIds.map((contentId) =>
+          this.recordSessionReveal(tx, {
+            sessionScenarioId: params.sessionScenarioId,
+            contentId,
+            contentKind: "clue",
+            scope: "party",
+            revealedBy: "system",
+            reason: "auto_hazard_detection",
+            turnLogId: params.turnLogId,
+            snapshot: {
+              ...(clueSnapshots.get(contentId) ?? { id: contentId }),
+              sourceHazardId: params.hazardId,
+              sourceHazardName: params.hazardName,
+            },
+          }),
+        ),
+      );
+    });
+  }
+
+  private getHazardKindLabel(kind: "TRAP" | "AMBUSH" | "HAZARD"): string {
+    switch (kind) {
+      case "AMBUSH":
+        return "매복";
+      case "HAZARD":
+        return "위험 요소";
+      case "TRAP":
+      default:
+        return "함정";
+    }
+  }
+
+  private normalizeHazardKind(value: unknown): "TRAP" | "AMBUSH" | "HAZARD" {
+    return value === "AMBUSH" || value === "HAZARD" ? value : "TRAP";
+  }
+
   private async updateVttDoorAtPoint(
     params: {
       sessionId: string;
@@ -2539,11 +2926,23 @@ export class SessionsService {
   private calculatePointToRectDistanceFeet(
     map: VttMapStateDto,
     point: { x: number; y: number },
-    rect: { x: number; y: number; width: number; height: number },
+    rect: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      shapeCells?: Array<{ x: number; y: number; width: number; height: number }>;
+    },
   ): number {
-    const nearestX = this.clampNumber(point.x, rect.x, rect.x + rect.width);
-    const nearestY = this.clampNumber(point.y, rect.y, rect.y + rect.height);
-    return Math.round((Math.hypot(point.x - nearestX, point.y - nearestY) / map.gridSize) * 5);
+    const shapeCells = rect.shapeCells?.length ? rect.shapeCells : [rect];
+    const distancePx = Math.min(
+      ...shapeCells.map((shapeCell) => {
+        const nearestX = this.clampNumber(point.x, shapeCell.x, shapeCell.x + shapeCell.width);
+        const nearestY = this.clampNumber(point.y, shapeCell.y, shapeCell.y + shapeCell.height);
+        return Math.hypot(point.x - nearestX, point.y - nearestY);
+      }),
+    );
+    return Math.round((distancePx / map.gridSize) * 5);
   }
 
   private buildFogRevealBoxForObject(
@@ -2594,13 +2993,21 @@ export class SessionsService {
 
   private isPointInVttCell(
     point: { x: number; y: number },
-    cell: { x: number; y: number; width: number; height: number },
+    cell: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      shapeCells?: Array<{ x: number; y: number; width: number; height: number }>;
+    },
   ): boolean {
-    return (
-      point.x >= cell.x &&
-      point.x <= cell.x + cell.width &&
-      point.y >= cell.y &&
-      point.y <= cell.y + cell.height
+    const shapeCells = cell.shapeCells?.length ? cell.shapeCells : [cell];
+    return shapeCells.some(
+      (shapeCell) =>
+        point.x >= shapeCell.x &&
+        point.x <= shapeCell.x + shapeCell.width &&
+        point.y >= shapeCell.y &&
+        point.y <= shapeCell.y + shapeCell.height,
     );
   }
 
@@ -2647,6 +3054,7 @@ export class SessionsService {
           hiddenItemIds: [],
           hiddenEventIds: [],
           events: [],
+          hazard: null,
         })),
       doorCells: (map.doorCells ?? []).map((cell) => ({
         ...cell,
@@ -2831,6 +3239,118 @@ export class SessionsService {
     return false;
   }
 
+  private calculateTokenStepTowardTarget(
+    map: VttMapStateDto,
+    params: {
+      sourceTokenId: string;
+      targetTokenId: string;
+      maxDistanceFt: number;
+      stopWithinFt: number;
+    },
+  ): { x: number; y: number; distanceMovedFt: number } | null {
+    const sourceToken = map.tokens.find((token) => token.id === params.sourceTokenId);
+    const targetToken = map.tokens.find((token) => token.id === params.targetTokenId);
+    if (!sourceToken || !targetToken) {
+      return null;
+    }
+
+    const startColumn = this.getGridIndex(sourceToken.x, map.gridSize, map.width);
+    const startRow = this.getGridIndex(sourceToken.y, map.gridSize, map.height);
+    const targetColumn = this.getGridIndex(targetToken.x, map.gridSize, map.width);
+    const targetRow = this.getGridIndex(targetToken.y, map.gridSize, map.height);
+    const stopWithinCells = Math.max(1, Math.ceil(params.stopWithinFt / 5));
+    const maxSteps = Math.max(0, Math.floor(params.maxDistanceFt / 5));
+    if (!maxSteps || this.getChebyshevDistance(startColumn, startRow, targetColumn, targetRow) <= stopWithinCells) {
+      return null;
+    }
+
+    const maxColumn = Math.max(0, Math.ceil(map.width / map.gridSize) - 1);
+    const maxRow = Math.max(0, Math.ceil(map.height / map.gridSize) - 1);
+    const queue: Array<{ column: number; row: number; steps: number }> = [
+      { column: startColumn, row: startRow, steps: 0 },
+    ];
+    const visited = new Set([`${startColumn}:${startRow}`]);
+    const reachable: Array<{ column: number; row: number; steps: number; targetDistance: number }> = [];
+    const directions = [
+      { column: 1, row: 0 },
+      { column: -1, row: 0 },
+      { column: 0, row: 1 },
+      { column: 0, row: -1 },
+      { column: 1, row: 1 },
+      { column: 1, row: -1 },
+      { column: -1, row: 1 },
+      { column: -1, row: -1 },
+    ];
+
+    while (queue.length) {
+      const current = queue.shift()!;
+      const targetDistance = this.getChebyshevDistance(
+        current.column,
+        current.row,
+        targetColumn,
+        targetRow,
+      );
+      if (current.steps > 0 && targetDistance >= stopWithinCells) {
+        reachable.push({ ...current, targetDistance });
+      }
+      if (current.steps >= maxSteps) {
+        continue;
+      }
+
+      for (const direction of directions) {
+        const next = {
+          column: current.column + direction.column,
+          row: current.row + direction.row,
+          steps: current.steps + 1,
+        };
+        const key = `${next.column}:${next.row}`;
+        if (
+          next.column < 0 ||
+          next.row < 0 ||
+          next.column > maxColumn ||
+          next.row > maxRow ||
+          visited.has(key)
+        ) {
+          continue;
+        }
+
+        const x = Math.min(Math.max(next.column * map.gridSize, 0), map.width - sourceToken.size);
+        const y = Math.min(Math.max(next.row * map.gridSize, 0), map.height - sourceToken.size);
+        if (this.isTokenPlacementBlocked(map, sourceToken, x, y)) {
+          continue;
+        }
+
+        visited.add(key);
+        queue.push(next);
+      }
+    }
+
+    const best = reachable.sort((left, right) => {
+      if (left.targetDistance !== right.targetDistance) {
+        return left.targetDistance - right.targetDistance;
+      }
+      return right.steps - left.steps;
+    })[0];
+    if (!best || (best.column === startColumn && best.row === startRow)) {
+      return null;
+    }
+
+    return {
+      x: Math.min(Math.max(best.column * map.gridSize, 0), map.width - sourceToken.size),
+      y: Math.min(Math.max(best.row * map.gridSize, 0), map.height - sourceToken.size),
+      distanceMovedFt: best.steps * 5,
+    };
+  }
+
+  private getChebyshevDistance(
+    leftColumn: number,
+    leftRow: number,
+    rightColumn: number,
+    rightRow: number,
+  ): number {
+    return Math.max(Math.abs(leftColumn - rightColumn), Math.abs(leftRow - rightRow));
+  }
+
   private isTokenPlacementBlocked(
     map: VttMapStateDto,
     token: VttMapStateDto["tokens"][number],
@@ -2936,6 +3456,12 @@ export class SessionsService {
         y?: number;
         width?: number;
         height?: number;
+        shapeCells?: Array<{
+          x?: number;
+          y?: number;
+          width?: number;
+          height?: number;
+        }>;
       },
       prefix: string,
       index: number,
@@ -2951,6 +3477,55 @@ export class SessionsService {
       width: this.clampNumber(Number(cell.width) || gridSize, gridSize, width),
       height: this.clampNumber(Number(cell.height) || gridSize, gridSize, height),
     });
+    const normalizeObjectShapeCells = (
+      cell: {
+        x?: number;
+        y?: number;
+        width?: number;
+        height?: number;
+        shapeCells?: Array<{
+          x?: number;
+          y?: number;
+          width?: number;
+          height?: number;
+        }>;
+      },
+      fallback: { x: number; y: number; width: number; height: number },
+    ) => {
+      const rawShapeCells = Array.isArray(cell.shapeCells) && cell.shapeCells.length ? cell.shapeCells : [fallback];
+      const shapeByKey = new Map<string, { x: number; y: number; width: number; height: number }>();
+
+      rawShapeCells.slice(0, 80).forEach((shapeCell) => {
+        const normalized = {
+          x: this.clampNumber(Number(shapeCell.x), 0, width - gridSize),
+          y: this.clampNumber(Number(shapeCell.y), 0, height - gridSize),
+          width: this.clampNumber(Number(shapeCell.width) || gridSize, gridSize, width),
+          height: this.clampNumber(Number(shapeCell.height) || gridSize, gridSize, height),
+        };
+        shapeByKey.set(
+          `${normalized.x}:${normalized.y}:${normalized.width}:${normalized.height}`,
+          normalized,
+        );
+      });
+
+      const shapeCells = Array.from(shapeByKey.values()).sort((left, right) =>
+        left.y === right.y ? left.x - right.x : left.y - right.y,
+      );
+      const left = Math.min(...shapeCells.map((shapeCell) => shapeCell.x));
+      const top = Math.min(...shapeCells.map((shapeCell) => shapeCell.y));
+      const right = Math.max(...shapeCells.map((shapeCell) => shapeCell.x + shapeCell.width));
+      const bottom = Math.max(...shapeCells.map((shapeCell) => shapeCell.y + shapeCell.height));
+
+      return {
+        shapeCells,
+        bounds: {
+          x: this.clampNumber(left, 0, width - gridSize),
+          y: this.clampNumber(top, 0, height - gridSize),
+          width: this.clampNumber(right - left, gridSize, width),
+          height: this.clampNumber(bottom - top, gridSize, height),
+        },
+      };
+    };
     const terrainCells = (map.terrainCells ?? [])
       .slice(0, 400)
       .map((cell, index) => normalizeStructureCell(cell, "terrain", index));
@@ -2970,19 +3545,25 @@ export class SessionsService {
           ? this.clampNumber(cell.breakCheckDc, 1, 40)
           : null,
     }));
-    const objectCells = (map.objectCells ?? []).slice(0, 300).map((cell, index) => ({
-      ...normalizeStructureCell(cell, "object", index),
-      visibleToPlayers: cell.visibleToPlayers !== false,
-      hiddenClueIds: Array.isArray(cell.hiddenClueIds)
-        ? cell.hiddenClueIds.filter((id) => typeof id === "string").slice(0, 30)
-        : [],
-      hiddenItemIds: Array.isArray(cell.hiddenItemIds)
-        ? cell.hiddenItemIds.filter((id) => typeof id === "string").slice(0, 30)
-        : [],
-      hiddenEventIds: Array.isArray(cell.hiddenEventIds)
-        ? cell.hiddenEventIds.filter((id) => typeof id === "string").slice(0, 30)
-        : [],
-      events: Array.isArray(cell.events)
+    const objectCells = (map.objectCells ?? []).slice(0, 300).map((cell, index) => {
+      const baseCell = normalizeStructureCell(cell, "object", index);
+      const normalizedShape = normalizeObjectShapeCells(cell, baseCell);
+
+      return {
+        ...baseCell,
+        ...normalizedShape.bounds,
+        shapeCells: normalizedShape.shapeCells,
+        visibleToPlayers: cell.visibleToPlayers !== false,
+        hiddenClueIds: Array.isArray(cell.hiddenClueIds)
+          ? cell.hiddenClueIds.filter((id) => typeof id === "string").slice(0, 30)
+          : [],
+        hiddenItemIds: Array.isArray(cell.hiddenItemIds)
+          ? cell.hiddenItemIds.filter((id) => typeof id === "string").slice(0, 30)
+          : [],
+        hiddenEventIds: Array.isArray(cell.hiddenEventIds)
+          ? cell.hiddenEventIds.filter((id) => typeof id === "string").slice(0, 30)
+          : [],
+        events: Array.isArray(cell.events)
         ? cell.events
             .filter((event) => event.type === "REVEAL_FOG_ON_PROXIMITY")
             .slice(0, 20)
@@ -3005,7 +3586,36 @@ export class SessionsService {
               },
             }))
         : [],
-    }));
+        hazard:
+          cell.hazard && typeof cell.hazard === "object"
+            ? {
+                kind:
+                  this.normalizeHazardKind(cell.hazard.kind),
+                armed: cell.hazard.armed !== false,
+                triggerOnce: cell.hazard.triggerOnce !== false,
+                detectionRadiusCells: this.clampNumber(
+                  Number(cell.hazard.detectionRadiusCells) || 3,
+                  1,
+                  20,
+                ),
+                detectionDc: this.clampNumber(Number(cell.hazard.detectionDc) || 12, 1, 40),
+                linkedClueIds: Array.isArray(cell.hazard.linkedClueIds)
+                  ? cell.hazard.linkedClueIds.filter((id) => typeof id === "string").slice(0, 30)
+                  : [],
+                attemptedBySessionCharacterIds: Array.isArray(cell.hazard.attemptedBySessionCharacterIds)
+                  ? cell.hazard.attemptedBySessionCharacterIds
+                      .filter((id) => typeof id === "string")
+                      .slice(0, 80)
+                  : [],
+                detectedBySessionCharacterIds: Array.isArray(cell.hazard.detectedBySessionCharacterIds)
+                  ? cell.hazard.detectedBySessionCharacterIds
+                      .filter((id) => typeof id === "string")
+                      .slice(0, 80)
+                  : [],
+              }
+            : null,
+      };
+    });
 
     return {
       id: map.id || randomUUID(),

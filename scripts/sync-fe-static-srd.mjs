@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
-const generatedDir = path.join(repoRoot, 'ai', 'generated', 'srd');
+const generatedDir = path.join(repoRoot, 'srd-data', 'generated', 'srd');
 const publicDir = path.join(repoRoot, 'fe', 'public');
 const publicSrdDir = path.join(publicDir, 'srd');
 const publicRulebookDir = path.join(publicDir, 'rulebooks');

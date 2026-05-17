@@ -83,6 +83,11 @@ describe("CombatService lifecycle", () => {
       emitCombatUpdated: jest.fn(),
       emitSessionSnapshot: jest.fn(),
       emitTurnChanged: jest.fn(),
+      emitSystemMessage: jest.fn(),
+    };
+    const srdEngine = {
+      chooseMvpMonsterAction: jest.fn(),
+      getMonsterCombatStats: jest.fn(),
     };
 
     return {
@@ -94,12 +99,14 @@ describe("CombatService lifecycle", () => {
         actionEconomy as never,
         characterResources as never,
         realtimeEvents as never,
+        srdEngine as never,
       ),
       prisma,
       sessionsService,
       actionEconomy,
       characterResources,
       realtimeEvents,
+      srdEngine,
     };
   };
 

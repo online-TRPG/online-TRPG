@@ -11,6 +11,7 @@ COPY package.json package-lock.json tsconfig.base.json ./
 COPY shared-types/package.json ./shared-types/
 COPY be/package.json ./be/
 COPY fe/package.json ./fe/
+COPY srd-data/package.json ./srd-data/
 
 RUN npm ci
 
@@ -18,8 +19,11 @@ RUN npm ci
 COPY shared-types/ ./shared-types/
 RUN npm run build -w @trpg/shared-types
 
-# fe 소스 복사 후 빌드
+# FE 정적 SRD asset 생성 후 fe 소스 빌드
+COPY scripts/sync-fe-static-srd.mjs ./scripts/sync-fe-static-srd.mjs
+COPY srd-data/ ./srd-data/
 COPY fe/ ./fe/
+RUN npm run sync:fe:srd
 RUN npm run build -w @trpg/fe
 # 결과물: /app/fe/dist
 

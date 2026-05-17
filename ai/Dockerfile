@@ -29,6 +29,7 @@ FROM python:3.12-slim-bookworm AS runtime
 RUN groupadd --system app && useradd --system --gid app --home-dir /app app
 
 COPY --from=builder --chown=app:app /app /app
+COPY --chown=app:app srd-data/ /srd-data/
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

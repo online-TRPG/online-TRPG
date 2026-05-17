@@ -7,6 +7,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -250,6 +251,7 @@ export class ResolveMainCommandCheckDto {
   outcome!: ActionOutcome;
 
   @ApiProperty({ type: Object })
+  @IsObject()
   effect!: Record<string, unknown>;
 
   @ApiPropertyOptional()
@@ -561,6 +563,24 @@ export class ResolveCombatAttackDto {
   @Type(() => Number)
   @IsInt()
   damageBonus?: number;
+}
+
+export class AutoMonsterTurnDto {
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  targetParticipantId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  actionId?: string | null;
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  autoEndTurn?: boolean;
 }
 
 export class CombatActionResultDto {

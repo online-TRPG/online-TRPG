@@ -141,9 +141,30 @@ export interface InterpreterRequestPayload {
   spellId?: string | null;
   mapPoint?: { x: number; y: number } | null;
   relatedIntent?: string | null;
+  transitionCandidates?: InterpreterTransitionCandidate[];
+  transitionEvidence?: InterpreterTransitionEvidence | null;
   sessionId?: string;
   turnId?: string;
   model?: string;
+}
+
+export interface InterpreterTransitionCandidate {
+  transitionId?: string | null;
+  label?: string | null;
+  condition?: string | null;
+  note?: string | null;
+  targetNodeId: string;
+  targetTitle: string;
+  nodeType?: string | null;
+}
+
+export interface InterpreterTransitionEvidence {
+  recentLogs: string[];
+  revealedClues: string[];
+  unrevealedClues: string[];
+  flags: Record<string, unknown>;
+  currentNodeId?: string | null;
+  combatResolvedForCurrentNode: boolean;
 }
 
 export interface InterpreterStructuredAction {
@@ -171,6 +192,34 @@ export interface InterpreterParsed {
   requiredRuleCheckIds?: string[];
   rulesConfidence?: number | null;
   safetyNotes?: string[];
+  sceneTransition?: InterpreterSceneTransitionContract | null;
+}
+
+export interface InterpreterSceneTransitionRequirement {
+  type:
+    | "ACTION_EVIDENCE"
+    | "CLUE_REVEALED"
+    | "CLUE_NOT_REVEALED"
+    | "OBJECT_STATE"
+    | "FLAG_SET"
+    | "COMBAT_RESOLVED"
+    | "GM_APPROVAL";
+  text: string;
+  polarity?: "MUST" | "MUST_NOT";
+}
+
+export interface InterpreterSceneTransitionCandidateContract {
+  transitionId?: string | null;
+  targetNodeId: string;
+  logic: "ALL" | "ANY";
+  requirements: InterpreterSceneTransitionRequirement[];
+  confidence: number;
+  rationale?: string | null;
+}
+
+export interface InterpreterSceneTransitionContract {
+  selectedTargetNodeId?: string | null;
+  candidates?: InterpreterSceneTransitionCandidateContract[];
 }
 
 export type InterpreterResponsePayload = BaseHarnessResponse<InterpreterParsed>;
