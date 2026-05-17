@@ -316,15 +316,6 @@ const mainCommandFieldConfigByIntent: Partial<
     targetTypes: [MainCommandTargetTypeValues.OBJECT],
     allowsMapPoint: true,
   },
-  [MainCommandIntentValues.USE_TOOL]: {
-    requiresItem: true,
-    targetTypes: [
-      MainCommandTargetTypeValues.OBJECT,
-      MainCommandTargetTypeValues.AREA,
-      MainCommandTargetTypeValues.NPC,
-    ],
-    allowsMapPoint: true,
-  },
   [MainCommandIntentValues.USE_ITEM_EXPLORE]: {
     requiresItem: true,
     targetTypes: [
@@ -467,8 +458,8 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
         screenType: MainCommandScreenTypeValues.EXPLORATION,
       },
       {
-        label: '특수 이동',
-        categoryLabel: '이동',
+        label: '위험한 이동',
+        categoryLabel: '위험 이동',
         category: MainCommandCategoryValues.MOVEMENT,
         intent: MainCommandIntentValues.SPECIAL_MOVE,
         screenType: MainCommandScreenTypeValues.EXPLORATION,
@@ -478,20 +469,6 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
         categoryLabel: '상호작용',
         category: MainCommandCategoryValues.INTERACTION,
         intent: MainCommandIntentValues.INTERACT_OBJECT,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: '환경 이용',
-        categoryLabel: '환경',
-        category: MainCommandCategoryValues.ENVIRONMENT,
-        intent: MainCommandIntentValues.ENVIRONMENT_USE,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: '도구 사용',
-        categoryLabel: '도구/아이템',
-        category: MainCommandCategoryValues.TOOL_ITEM,
-        intent: MainCommandIntentValues.USE_TOOL,
         screenType: MainCommandScreenTypeValues.EXPLORATION,
       },
       {
@@ -543,13 +520,6 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
         categoryLabel: '창의 행동',
         category: MainCommandCategoryValues.CREATIVE_ACTION,
         intent: MainCommandIntentValues.COMBAT_MANEUVER,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
-      {
-        label: '환경 이용',
-        categoryLabel: '환경',
-        category: MainCommandCategoryValues.ENVIRONMENT,
-        intent: MainCommandIntentValues.ENVIRONMENT_USE,
         screenType: MainCommandScreenTypeValues.COMBAT,
       },
       {
@@ -720,31 +690,21 @@ const mainCommandSlashMetadataByIntent: Partial<
   },
   [MainCommandIntentValues.SPECIAL_MOVE]: {
     slashCommands: ['/특수이동'],
-    description: '위험하거나 까다로운 방식으로 특정 지점까지 이동합니다.',
+    description: '도약, 등반, 균형 잡기처럼 위험한 방식으로 특정 지점까지 이동합니다.',
     helperGroup: 'MAP_POINT_TARGET',
   },
   [MainCommandIntentValues.INTERACT_OBJECT]: {
-    slashCommands: ['/조작'],
+    slashCommands: [],
     description: '문, 레버, 상자, 장치처럼 조작 가능한 것을 다룹니다.',
-    helperGroup: 'OBJECT_AREA_TARGET',
-  },
-  [MainCommandIntentValues.ENVIRONMENT_USE]: {
-    slashCommands: ['/환경'],
-    description: '주변 지형이나 물건을 이용해 유리한 상황을 만듭니다.',
     helperGroup: 'OBJECT_AREA_TARGET',
   },
   [MainCommandIntentValues.SPLIT_PARTY_TASK]: {
     slashCommands: [],
     description: '파티원들이 각자 맡을 일을 나눕니다.',
   },
-  [MainCommandIntentValues.USE_TOOL]: {
-    slashCommands: ['/도구'],
-    description: '자물쇠, 함정, 장치처럼 기능성 도구로 정해진 작업을 시도합니다.',
-    helperGroup: 'ITEM_TOOL_SELECT',
-  },
   [MainCommandIntentValues.USE_ITEM_EXPLORE]: {
     slashCommands: ['/아이템활용'],
-    description: '밧줄, 기름병, 천 같은 보유 아이템을 상황에 맞게 창의적으로 활용합니다.',
+    description: '기름병 같은 보유 아이템을 상황에 맞게 창의적으로 활용합니다.',
     helperGroup: 'ITEM_TOOL_SELECT',
   },
   [MainCommandIntentValues.USE_ITEM_COMBAT]: {
@@ -850,18 +810,15 @@ const mainCommandIntentOptionsByHelperGroup: Record<
     MainCommandIntentValues.LISTEN,
     MainCommandIntentValues.DETECT_DANGER,
     MainCommandIntentValues.INTERACT_OBJECT,
-    MainCommandIntentValues.ENVIRONMENT_USE,
   ],
   MAP_POINT_TARGET: [
     MainCommandIntentValues.SPECIAL_MOVE,
     MainCommandIntentValues.INVESTIGATE_OBJECT,
     MainCommandIntentValues.INTERACT_OBJECT,
-    MainCommandIntentValues.ENVIRONMENT_USE,
     MainCommandIntentValues.DETECT_DANGER,
     MainCommandIntentValues.LISTEN,
   ],
   ITEM_TOOL_SELECT: [
-    MainCommandIntentValues.USE_TOOL,
     MainCommandIntentValues.USE_ITEM_EXPLORE,
     MainCommandIntentValues.USE_ITEM_COMBAT,
   ],
@@ -1604,6 +1561,7 @@ export function PlayPage({
             preset.intent !== MainCommandIntentValues.INVESTIGATE_OBJECT &&
             preset.intent !== MainCommandIntentValues.LISTEN &&
             preset.intent !== MainCommandIntentValues.DETECT_DANGER &&
+            preset.intent !== MainCommandIntentValues.INTERACT_OBJECT &&
             preset.intent !== MainCommandIntentValues.SPLIT_PARTY_TASK
         )
       : presets;
@@ -2505,7 +2463,9 @@ export function PlayPage({
 
     const shouldSendImmediately =
       preset.intent === MainCommandIntentValues.INVESTIGATE_OBJECT ||
-      preset.intent === MainCommandIntentValues.OBSERVE_AREA;
+      preset.intent === MainCommandIntentValues.OBSERVE_AREA ||
+      preset.intent === MainCommandIntentValues.INTERACT_OBJECT ||
+      preset.intent === MainCommandIntentValues.ENVIRONMENT_USE;
 
     if (!shouldSendImmediately) {
       setActiveTab('Main');
@@ -3654,6 +3614,11 @@ export function PlayPage({
                       <div className="main-command-selection-chip">
                         <span>대상 보조</span>
                         <strong>{activeMainHelperOption.label}</strong>
+                      </div>
+                    ) : mainCommandMode === 'GM_REQUEST' && !isCommandGuideOpen ? (
+                      <div className="main-command-selection-chip">
+                        <span>요청 모드</span>
+                        <strong>GM 요청</strong>
                       </div>
                     ) : null}
 

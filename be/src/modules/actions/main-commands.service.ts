@@ -143,6 +143,8 @@ type MainCommandCheckEffect = {
   actionSummary: string;
   targetId: string | null;
   targetName: string | null;
+  targetSummary: string | null;
+  targetDisposition: string | null;
   itemId: string | null;
   itemName: string | null;
   mapPoint: { x: number; y: number } | null;
@@ -583,12 +585,18 @@ export class MainCommandsService {
       };
     }
 
+    const resultMessage = await this.buildMainCommandCheckResultMessageForOutcome(
+      userId,
+      session.id,
+      mainCommandEffect,
+      dto.outcome,
+    );
     const result = {
       status:
         dto.outcome === ActionOutcome.SUCCESS
           ? MainCommandStatus.RESOLVED
           : MainCommandStatus.MESSAGE,
-      message: this.buildMainCommandCheckResultMessage(mainCommandEffect, dto.outcome),
+      message: resultMessage,
     };
 
     const turnLog = await this.turnLogsService.createTurnLog({
@@ -958,7 +966,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 6)),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -989,7 +997,7 @@ export class MainCommandsService {
       dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -1323,7 +1331,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1337,7 +1345,7 @@ export class MainCommandsService {
       interpreter.parsed.action.approach?.trim() ||
       interpreter.parsed.action.type ||
       dto.playerText;
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -1386,7 +1394,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1403,7 +1411,7 @@ export class MainCommandsService {
     const normalizedDisposition = npc.disposition.trim().toLowerCase();
     const confidence = interpreter.parsed.action.confidence ?? 0;
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -1457,7 +1465,10 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    const bypassClarification = this.canUseExplicitPlayerText(dto, {
+      acceptsTarget: true,
+    });
+    if (interpreter.parsed.needsClarification && !bypassClarification) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1474,7 +1485,7 @@ export class MainCommandsService {
     const normalizedDisposition = npc.disposition.trim().toLowerCase();
     const confidence = interpreter.parsed.action.confidence ?? 0;
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -1537,7 +1548,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1553,7 +1564,7 @@ export class MainCommandsService {
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
     const confidence = interpreter.parsed.action.confidence ?? 0;
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -1608,7 +1619,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 6)),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1658,7 +1669,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1672,7 +1683,7 @@ export class MainCommandsService {
       interpreter.parsed.action.approach?.trim() ||
       dto.playerText;
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -1718,7 +1729,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1732,7 +1743,7 @@ export class MainCommandsService {
       interpreter.parsed.action.approach?.trim() ||
       dto.playerText;
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -1797,7 +1808,11 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    const bypassClarification = this.canUseExplicitPlayerText(dto, {
+      acceptsMapPoint: true,
+      acceptsTarget: Boolean(target),
+    });
+    if (interpreter.parsed.needsClarification && !bypassClarification) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1812,7 +1827,7 @@ export class MainCommandsService {
       dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       const label = target?.name ?? "해당 위치";
       return {
         requestId,
@@ -1881,7 +1896,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1896,7 +1911,7 @@ export class MainCommandsService {
       dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -1944,7 +1959,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -1959,7 +1974,7 @@ export class MainCommandsService {
       dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -1997,7 +2012,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -2012,7 +2027,7 @@ export class MainCommandsService {
       dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.requiresRoll || interpreter.parsed.action.confidence < 0.8) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification) || interpreter.parsed.action.confidence < 0.8) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -2040,13 +2055,20 @@ export class MainCommandsService {
     visibleEntities: VisibleSceneEntity[],
   ): Promise<MainCommandResponseDto> {
     if (dto.mapPoint) {
-      const doorResult = await this.sessionsService.openVttDoorAtPoint({
-        sessionId: context.sessionId,
-        sessionScenarioId: context.sessionScenarioId,
-        nodeId: context.currentNodeId,
-        mapPoint: dto.mapPoint,
-        itemId: dto.itemId,
-      });
+      const doorResult = this.isDoorBreakInteraction(dto.playerText)
+        ? await this.sessionsService.breakVttDoorAtPoint({
+            sessionId: context.sessionId,
+            sessionScenarioId: context.sessionScenarioId,
+            nodeId: context.currentNodeId,
+            mapPoint: dto.mapPoint,
+          })
+        : await this.sessionsService.openVttDoorAtPoint({
+            sessionId: context.sessionId,
+            sessionScenarioId: context.sessionScenarioId,
+            nodeId: context.currentNodeId,
+            mapPoint: dto.mapPoint,
+            itemId: dto.itemId,
+          });
 
       if (doorResult) {
         return {
@@ -2080,7 +2102,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -2095,7 +2117,7 @@ export class MainCommandsService {
       dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -2122,6 +2144,10 @@ export class MainCommandsService {
     };
   }
 
+  private isDoorBreakInteraction(text: string): boolean {
+    return /부수|부숴|부쉈|파괴|깨뜨|깨부|박살|강제로\s*열|힘으로/.test(text);
+  }
+
   private async handleUseTool(
     requestId: string,
     userId: string,
@@ -2139,7 +2165,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       const targetLabel = target?.name ?? locationLabel ?? "어디에";
       return {
         requestId,
@@ -2155,7 +2181,7 @@ export class MainCommandsService {
       dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -2202,7 +2228,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       const targetLabel = target?.name ?? locationLabel ?? "어디에";
       return {
         requestId,
@@ -2218,7 +2244,7 @@ export class MainCommandsService {
       dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -2253,7 +2279,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 6)),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -2277,7 +2303,7 @@ export class MainCommandsService {
       };
     }
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.GM_APPROVAL_REQUIRED,
@@ -2309,7 +2335,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -2324,7 +2350,7 @@ export class MainCommandsService {
       dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -2379,7 +2405,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       const targetLabel = target?.name ?? locationLabel ?? "주변 환경";
       return {
         requestId,
@@ -2395,7 +2421,7 @@ export class MainCommandsService {
       dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -2437,7 +2463,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -2452,7 +2478,7 @@ export class MainCommandsService {
       dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -2493,7 +2519,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -2508,7 +2534,7 @@ export class MainCommandsService {
       dto.playerText;
     const actionCandidate = this.buildActionCandidate(context, dto, actionSummary);
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -2540,7 +2566,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -2568,8 +2594,7 @@ export class MainCommandsService {
       requestId,
       status: MainCommandStatus.GM_APPROVAL_REQUIRED,
       message: "준비 행동은 발동 조건과 실행 순서를 함께 확인해야 해서 GM 승인이 필요합니다.",
-      checkOptions: interpreter.parsed.action.requiresRoll
-        ? this.buildCheckOptions(interpreter.parsed.action)
+      checkOptions: this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification) ? this.buildCheckOptions(interpreter.parsed.action)
         : undefined,
       actionCandidate,
     };
@@ -2589,7 +2614,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       return {
         requestId,
         status: MainCommandStatus.MESSAGE,
@@ -2617,8 +2642,7 @@ export class MainCommandsService {
       requestId,
       status: MainCommandStatus.GM_APPROVAL_REQUIRED,
       message: "반응 행동은 현재 트리거 성립 여부와 실행 순서를 함께 확인해야 해서 GM 승인이 필요합니다.",
-      checkOptions: interpreter.parsed.action.requiresRoll
-        ? this.buildCheckOptions(interpreter.parsed.action)
+      checkOptions: this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification) ? this.buildCheckOptions(interpreter.parsed.action)
         : undefined,
       actionCandidate,
     };
@@ -2642,7 +2666,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       const targetLabel = target?.name ?? locationLabel ?? "어디에";
       return {
         requestId,
@@ -2667,7 +2691,7 @@ export class MainCommandsService {
       };
     }
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -2706,7 +2730,7 @@ export class MainCommandsService {
       this.buildInterpreterPayload(context, dto, visibleEntities, recentLogs.slice(0, 4)),
     );
 
-    if (interpreter.parsed.needsClarification) {
+    if (interpreter.parsed.needsClarification && !this.canUseExplicitPlayerText(dto, { acceptsMapPoint: true, acceptsTarget: Boolean(dto.targetId) })) {
       const targetLabel = target?.name ?? locationLabel ?? "어디에";
       return {
         requestId,
@@ -2731,7 +2755,7 @@ export class MainCommandsService {
       };
     }
 
-    if (interpreter.parsed.action.requiresRoll) {
+    if (this.shouldRequireMainCommandCheck(interpreter.parsed.action, dto, interpreter.parsed.needsClarification)) {
       return {
         requestId,
         status: MainCommandStatus.CHECK_REQUIRED,
@@ -3589,6 +3613,8 @@ export class MainCommandsService {
       actionSummary: response.actionCandidate?.actionSummary ?? dto.playerText,
       targetId: dto.targetId ?? null,
       targetName: target?.name ?? null,
+      targetSummary: target?.summary ?? null,
+      targetDisposition: target?.disposition ?? null,
       itemId: dto.itemId ?? null,
       itemName: item?.name ?? null,
       mapPoint: dto.mapPoint ?? null,
@@ -3612,56 +3638,229 @@ export class MainCommandsService {
     effect: MainCommandCheckEffect,
     outcome: ActionOutcome,
   ): string {
-    const actionSummary = effect.actionSummary || effect.playerText || "시도";
-    const targetLabel = effect.targetName ? `${effect.targetName}에 대한 ` : "";
     const pointLabel = effect.mapPoint
       ? ` (${effect.mapPoint.x}, ${effect.mapPoint.y}) 주변`
       : "";
+    const targetLabel = effect.targetName ?? this.inferTargetLabel(effect);
+    const itemLabel = effect.itemName ?? "준비한 물건";
 
     if (outcome !== ActionOutcome.SUCCESS) {
-      if (effect.intent === MainCommandIntent.OBSERVE_AREA) {
-        return `판정에 실패했습니다. ${pointLabel || "주변"}을 살폈지만 확실한 단서나 위협은 파악하지 못했습니다.`;
-      }
-      if (effect.intent === MainCommandIntent.LISTEN) {
-        return "판정에 실패했습니다. 소리와 기척이 주변 소음에 묻혀 뚜렷한 정보를 얻지 못했습니다.";
-      }
-      if (effect.intent === MainCommandIntent.DETECT_DANGER) {
-        return "판정에 실패했습니다. 당장은 위험의 징후를 특정하지 못했습니다.";
-      }
-      return `판정에 실패했습니다. ${targetLabel}${actionSummary}은(는) 원하는 성과를 내지 못했습니다.`;
+      return this.buildFailedCheckNarration(effect, targetLabel, itemLabel, pointLabel);
     }
 
     const visibleSummary = effect.visibleEntityNames.length
       ? ` 눈에 띄는 대상: ${effect.visibleEntityNames.join(", ")}.`
       : "";
 
-    if (effect.intent === MainCommandIntent.OBSERVE_AREA) {
-      return `판정에 성공했습니다. ${pointLabel || "주변"}을 면밀히 살펴 현재 장면의 중요한 변화와 단서를 파악합니다.${visibleSummary}`.trim();
+    return this.buildSuccessfulCheckNarration(effect, targetLabel, itemLabel, pointLabel, visibleSummary);
+  }
+
+  private async buildMainCommandCheckResultMessageForOutcome(
+    userId: string,
+    sessionId: string,
+    effect: MainCommandCheckEffect,
+    outcome: ActionOutcome,
+  ): Promise<string> {
+    if (outcome !== ActionOutcome.SUCCESS) {
+      return this.buildMainCommandCheckResultMessage(effect, outcome);
     }
-    if (
-      effect.intent === MainCommandIntent.INVESTIGATE_OBJECT ||
-      effect.intent === MainCommandIntent.INSPECT_STORY_OBJECT
-    ) {
-      const objectLabel = effect.targetName ?? "대상";
-      return `판정에 성공했습니다. ${objectLabel}을(를) 조사해 겉으로 보이지 않던 정보를 알아냅니다.`;
+
+    try {
+      if (this.isSocialInformationCheck(effect.intent)) {
+        return await this.buildSocialInformationSuccessMessage(userId, sessionId, effect);
+      }
+      if (effect.intent === MainCommandIntent.READ_EMOTION) {
+        return await this.buildReadEmotionSuccessMessage(userId, sessionId, effect);
+      }
+    } catch {
+      return this.buildMainCommandCheckResultMessage(effect, outcome);
     }
-    if (effect.intent === MainCommandIntent.LISTEN) {
-      return "판정에 성공했습니다. 주변 소리와 기척을 구분해 의미 있는 단서를 잡아냅니다.";
+
+    return this.buildMainCommandCheckResultMessage(effect, outcome);
+  }
+
+  private isSocialInformationCheck(intent: MainCommandIntent): boolean {
+    return [
+      MainCommandIntent.SOCIAL_PERSUADE,
+      MainCommandIntent.SOCIAL_INTIMIDATE,
+      MainCommandIntent.SOCIAL_DECEIVE,
+    ].includes(intent);
+  }
+
+  private async buildSocialInformationSuccessMessage(
+    userId: string,
+    sessionId: string,
+    effect: MainCommandCheckEffect,
+  ): Promise<string> {
+    const aiResult = await this.aiService.runCheckResult(sessionId, userId, {
+      outcome: "SUCCESS",
+      intent: effect.intent,
+      playerText: effect.playerText,
+      actionSummary: effect.actionSummary,
+      targetName: effect.targetName,
+      targetSummary: effect.targetSummary,
+      targetDisposition: effect.targetDisposition,
+      sceneSummary: effect.sceneText,
+      publicClues: effect.publicClues,
+      visibleEntities: effect.visibleEntityNames,
+      outputMode: "NPC_REPLY",
+    });
+    const narration = aiResult.parsed.narration.trim();
+    return narration
+      ? narration
+      : this.buildMainCommandCheckResultMessage(effect, ActionOutcome.SUCCESS);
+  }
+
+  private async buildReadEmotionSuccessMessage(
+    userId: string,
+    sessionId: string,
+    effect: MainCommandCheckEffect,
+  ): Promise<string> {
+    const aiResult = await this.aiService.runCheckResult(sessionId, userId, {
+      outcome: "SUCCESS",
+      intent: effect.intent,
+      playerText: effect.playerText,
+      actionSummary: effect.actionSummary,
+      targetName: effect.targetName,
+      targetSummary: effect.targetSummary,
+      targetDisposition: effect.targetDisposition,
+      sceneSummary: effect.sceneText,
+      publicClues: effect.publicClues,
+      visibleEntities: effect.visibleEntityNames,
+      outputMode: "OBSERVATION",
+    });
+    const narration = aiResult.parsed.narration.trim();
+    return narration
+      ? narration
+      : this.buildMainCommandCheckResultMessage(effect, ActionOutcome.SUCCESS);
+  }
+
+  private formatCheckIntentLabel(intent: MainCommandIntent): string {
+    switch (intent) {
+      case MainCommandIntent.SOCIAL_PERSUADE:
+        return "설득";
+      case MainCommandIntent.SOCIAL_INTIMIDATE:
+        return "협박";
+      case MainCommandIntent.SOCIAL_DECEIVE:
+        return "속이기";
+      case MainCommandIntent.READ_EMOTION:
+        return "눈치";
+      default:
+        return "행동";
     }
-    if (effect.intent === MainCommandIntent.DETECT_DANGER) {
-      return "판정에 성공했습니다. 위험의 징후를 감지해 다음 행동을 더 조심스럽게 정할 수 있습니다.";
+  }
+
+  private buildSuccessfulCheckNarration(
+    effect: MainCommandCheckEffect,
+    targetLabel: string,
+    itemLabel: string,
+    pointLabel: string,
+    visibleSummary: string,
+  ): string {
+    switch (effect.intent) {
+      case MainCommandIntent.OBSERVE_AREA:
+        return `판정에 성공했습니다. ${pointLabel || "주변"}을 차분히 훑자 장면의 흐름과 눈에 띄는 단서가 또렷해집니다.${visibleSummary}`.trim();
+      case MainCommandIntent.INVESTIGATE_OBJECT:
+      case MainCommandIntent.INSPECT_STORY_OBJECT:
+        return `판정에 성공했습니다. ${targetLabel}을(를) 꼼꼼히 조사해 겉보기만으로는 알 수 없던 흔적을 찾아냅니다.`;
+      case MainCommandIntent.LISTEN:
+        return "판정에 성공했습니다. 주변 소음 사이에서 의미 있는 기척과 방향을 구분해냅니다.";
+      case MainCommandIntent.DETECT_DANGER:
+        return "판정에 성공했습니다. 사소한 어긋남을 눈치채고 위험의 징후를 먼저 포착합니다.";
+      case MainCommandIntent.SOCIAL_PERSUADE:
+        return `판정에 성공했습니다. ${targetLabel}은(는) 말의 무게를 받아들이고 태도를 누그러뜨립니다.`;
+      case MainCommandIntent.SOCIAL_INTIMIDATE:
+        return `판정에 성공했습니다. ${targetLabel}은(는) 압박을 버티지 못하고 눈에 띄게 동요합니다.`;
+      case MainCommandIntent.SOCIAL_DECEIVE:
+        return `판정에 성공했습니다. ${targetLabel}은(는) 꾸며낸 말에 빈틈을 찾지 못하고 넘어갑니다.`;
+      case MainCommandIntent.READ_EMOTION:
+        return `판정에 성공했습니다. ${targetLabel}의 표정과 말 사이에서 감춰진 감정의 결을 읽어냅니다.`;
+      case MainCommandIntent.SPECIAL_MOVE:
+        return "판정에 성공했습니다. 아슬아슬한 움직임이 통하며 원하는 위치까지 몸을 실어냅니다.";
+      case MainCommandIntent.INTERACT_OBJECT:
+        return `판정에 성공했습니다. ${targetLabel}을(를) 조작하자 의도한 반응이 나타납니다.`;
+      case MainCommandIntent.USE_TOOL:
+      case MainCommandIntent.USE_ITEM_EXPLORE:
+      case MainCommandIntent.USE_ITEM_COMBAT:
+        return `판정에 성공했습니다. ${itemLabel} 활용이 제대로 맞아떨어져 상황을 유리하게 바꿉니다.`;
+      case MainCommandIntent.COMBAT_MANEUVER:
+        return "판정에 성공했습니다. 전투 기동이 먹혀들어 상대의 균형과 흐름을 흔듭니다.";
+      case MainCommandIntent.ENVIRONMENT_USE:
+        return `판정에 성공했습니다. ${targetLabel}을(를) 전술적으로 활용해 장면의 지형을 유리하게 끌어옵니다.`;
+      case MainCommandIntent.IMPROVISED_ATTACK:
+        return `판정에 성공했습니다. 즉석 공격이 허를 찌르며 ${targetLabel}에게 제대로 닿습니다.`;
+      case MainCommandIntent.CALLED_SHOT:
+        return `판정에 성공했습니다. 노린 지점이 정확히 맞아 ${targetLabel}의 움직임에 빈틈이 생깁니다.`;
+      case MainCommandIntent.READY_ACTION:
+        return "판정에 성공했습니다. 준비한 행동이 정확한 순간에 이어질 수 있게 자세를 잡습니다.";
+      case MainCommandIntent.USE_SPELL_CREATIVELY:
+        return "판정에 성공했습니다. 주문의 효과를 창의적으로 응용해 예상 밖의 돌파구를 만듭니다.";
+      default:
+        return `판정에 성공했습니다. 시도가 장면 안에서 설득력 있게 작동합니다.`;
     }
-    if (
-      effect.intent === MainCommandIntent.SOCIAL_PERSUADE ||
+  }
+
+  private buildFailedCheckNarration(
+    effect: MainCommandCheckEffect,
+    targetLabel: string,
+    itemLabel: string,
+    pointLabel: string,
+  ): string {
+    switch (effect.intent) {
+      case MainCommandIntent.OBSERVE_AREA:
+        return `판정에 실패했습니다. ${pointLabel || "주변"}을 살폈지만 시야가 어수선해 확실한 단서를 잡지 못합니다.`;
+      case MainCommandIntent.INVESTIGATE_OBJECT:
+      case MainCommandIntent.INSPECT_STORY_OBJECT:
+        return `판정에 실패했습니다. ${targetLabel}을(를) 살펴보지만 눈에 띄는 흔적은 끝내 드러나지 않습니다.`;
+      case MainCommandIntent.LISTEN:
+        return "판정에 실패했습니다. 소리와 기척이 주변 소음에 묻혀 뚜렷한 정보를 얻지 못합니다.";
+      case MainCommandIntent.DETECT_DANGER:
+        return "판정에 실패했습니다. 불길한 낌새는 느껴지지만 위험의 정체까지는 특정하지 못합니다.";
+      case MainCommandIntent.SOCIAL_PERSUADE:
+        return `판정에 실패했습니다. ${targetLabel}은(는) 말을 끝까지 듣지만 마음을 바꾸지는 않습니다.`;
+      case MainCommandIntent.SOCIAL_INTIMIDATE:
+        return `판정에 실패했습니다. ${targetLabel}은(는) 잠시 굳지만, 이내 버티듯 시선을 피하지 않습니다.`;
+      case MainCommandIntent.SOCIAL_DECEIVE:
+        return `판정에 실패했습니다. ${targetLabel}은(는) 말의 빈틈을 눈치채고 경계심을 높입니다.`;
+      case MainCommandIntent.READ_EMOTION:
+        return `판정에 실패했습니다. ${targetLabel}의 반응은 읽히는 듯하다가도 곧 흐려져 확신을 주지 않습니다.`;
+      case MainCommandIntent.SPECIAL_MOVE:
+        return "판정에 실패했습니다. 시도한 움직임은 이어지지만, 원하는 만큼 민첩하게 자리를 잡지는 못합니다.";
+      case MainCommandIntent.INTERACT_OBJECT:
+        return `판정에 실패했습니다. ${targetLabel}을(를) 건드려 보지만 기대한 반응은 일어나지 않습니다.`;
+      case MainCommandIntent.USE_TOOL:
+      case MainCommandIntent.USE_ITEM_EXPLORE:
+      case MainCommandIntent.USE_ITEM_COMBAT:
+        return `판정에 실패했습니다. ${itemLabel}을(를) 꺼내 써보지만 상황에 맞게 풀리지는 않습니다.`;
+      case MainCommandIntent.COMBAT_MANEUVER:
+        return "판정에 실패했습니다. 전투 기동은 상대의 대응에 막혀 흐름을 빼앗지 못합니다.";
+      case MainCommandIntent.ENVIRONMENT_USE:
+        return `판정에 실패했습니다. ${targetLabel}을(를) 이용하려 하지만 장면은 의도한 만큼 따라주지 않습니다.`;
+      case MainCommandIntent.IMPROVISED_ATTACK:
+        return `판정에 실패했습니다. 즉석 공격은 빗나가거나 힘이 실리지 않아 ${targetLabel}에게 결정타가 되지 못합니다.`;
+      case MainCommandIntent.CALLED_SHOT:
+        return `판정에 실패했습니다. 노린 지점은 어긋나고 ${targetLabel}은(는) 결정적인 빈틈을 내주지 않습니다.`;
+      case MainCommandIntent.READY_ACTION:
+        return "판정에 실패했습니다. 타이밍을 재려 했지만 전장의 흐름이 어긋나 준비가 흔들립니다.";
+      case MainCommandIntent.USE_SPELL_CREATIVELY:
+        return "판정에 실패했습니다. 주문의 응용은 가능성을 보이지만 원하는 효과로 이어지지는 않습니다.";
+      default:
+        return "판정에 실패했습니다. 시도는 장면 안에서 충분한 성과로 이어지지 않습니다.";
+    }
+  }
+
+  private inferTargetLabel(effect: MainCommandCheckEffect): string {
+    if (effect.mapPoint) {
+      return `(${effect.mapPoint.x}, ${effect.mapPoint.y}) 지점`;
+    }
+    if (effect.intent === MainCommandIntent.SOCIAL_PERSUADE ||
       effect.intent === MainCommandIntent.SOCIAL_INTIMIDATE ||
       effect.intent === MainCommandIntent.SOCIAL_DECEIVE ||
       effect.intent === MainCommandIntent.READ_EMOTION
     ) {
-      const npcLabel = effect.targetName ?? "대상";
-      return `판정에 성공했습니다. ${npcLabel}에게 시도가 통하며 반응에서 의미 있는 정보를 얻습니다.`;
+      return "상대";
     }
-
-    return `판정에 성공했습니다. ${targetLabel}${actionSummary}이(가) 의도대로 진행됩니다.`;
+    return "대상";
   }
 
   private async markScenarioStateChanged(sessionScenarioId: string): Promise<void> {
@@ -3764,6 +3963,8 @@ export class MainCommandsService {
       actionSummary: actionSummary ?? playerText,
       targetId: this.readString(value.targetId),
       targetName: this.readString(value.targetName),
+      targetSummary: this.readString(value.targetSummary),
+      targetDisposition: this.readString(value.targetDisposition),
       itemId: this.readString(value.itemId),
       itemName: this.readString(value.itemName),
       mapPoint,
@@ -3935,6 +4136,46 @@ export class MainCommandsService {
         .some((part) => normalizedText.includes(part));
     });
     return matched.length === 1 ? matched[0] : null;
+  }
+
+  private canUseExplicitPlayerText(
+    dto: SubmitMainCommandDto,
+    options: { acceptsMapPoint?: boolean; acceptsTarget?: boolean } = {},
+  ): boolean {
+    const text = dto.playerText.trim();
+    if (!text) {
+      return false;
+    }
+
+    if (options.acceptsMapPoint && dto.mapPoint) {
+      return true;
+    }
+
+    if (options.acceptsTarget || dto.targetId) {
+      return text.length >= 3;
+    }
+
+    const normalized = text.replace(/\s+/g, "");
+    if (normalized.length >= 8) {
+      return true;
+    }
+
+    return /[?!.。！？]|한다|하겠다|말|묻|찾|살피|조사|협박|위협|압박|보여|열|뒤지|확인/.test(text);
+  }
+
+  private shouldRequireMainCommandCheck(
+    action: { requiresRoll?: boolean | null },
+    dto: SubmitMainCommandDto,
+    needsClarification: boolean,
+  ): boolean {
+    return (
+      Boolean(action.requiresRoll) ||
+      (needsClarification &&
+        this.canUseExplicitPlayerText(dto, {
+          acceptsMapPoint: true,
+          acceptsTarget: Boolean(dto.targetId),
+        }))
+    );
   }
 
   private extractPublicClueSummaries(cluesJson: string): string[] {

@@ -4,6 +4,7 @@ from typing import Annotated
 from app.core.errors import AiClientError
 from app.schemas.harness import (
     ActorHarnessRequest,
+    CheckResultHarnessRequest,
     DirectorHarnessRequest,
     ActorHarnessRequest,
     DirectorHarnessRequest,
@@ -125,6 +126,20 @@ def run_npc_dialogue(
         return service.run_npc_dialogue(request)
     except AiClientError as exc:
         log_paths = service.log_failure("npc-dialogue", request.model_dump(), exc)
+        detail = exc.as_dict()
+        detail["logPaths"] = log_paths
+        raise HTTPException(status_code=exc.status_code, detail=detail) from exc
+
+
+@router.post("/check-result")
+def run_check_result(
+    request: CheckResultHarnessRequest,
+    service: AiHarnessService = Depends(get_ai_harness_service),
+):
+    try:
+        return service.run_check_result(request)
+    except AiClientError as exc:
+        log_paths = service.log_failure("check-result", request.model_dump(), exc)
         detail = exc.as_dict()
         detail["logPaths"] = log_paths
         raise HTTPException(status_code=exc.status_code, detail=detail) from exc

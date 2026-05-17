@@ -118,6 +118,31 @@ export interface NpcDialogueParsed {
 
 export type NpcDialogueResponsePayload = BaseHarnessResponse<NpcDialogueParsed>;
 
+export interface CheckResultRequestPayload {
+  outcome: "SUCCESS" | "FAILURE";
+  intent: string;
+  playerText: string;
+  actionSummary: string;
+  targetName?: string | null;
+  targetSummary?: string | null;
+  targetDisposition?: string | null;
+  sceneSummary: string;
+  publicClues?: string[];
+  visibleEntities?: string[];
+  outputMode?: "GM_NARRATION" | "NPC_REPLY" | "OBSERVATION";
+  sessionId?: string;
+  turnId?: string;
+  model?: string;
+}
+
+export interface CheckResultParsed {
+  narration: string;
+  rewardInfo: string;
+  safetyNotes?: string[];
+}
+
+export type CheckResultResponsePayload = BaseHarnessResponse<CheckResultParsed>;
+
 export interface InterpreterAvailableTargetDetail {
   id: string;
   name: string;
@@ -283,6 +308,10 @@ export class AiClient {
 
   async runNpcDialogue(payload: NpcDialogueRequestPayload): Promise<NpcDialogueResponsePayload> {
     return this.postJson<NpcDialogueResponsePayload>("/internal/ai/npc-dialogue", payload);
+  }
+
+  async runCheckResult(payload: CheckResultRequestPayload): Promise<CheckResultResponsePayload> {
+    return this.postJson<CheckResultResponsePayload>("/internal/ai/check-result", payload);
   }
 
   async runInterpreter(payload: InterpreterRequestPayload): Promise<InterpreterResponsePayload> {

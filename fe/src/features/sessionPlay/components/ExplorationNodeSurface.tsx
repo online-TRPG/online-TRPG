@@ -59,7 +59,6 @@ const ExplorationMainCommandIntent = {
   INTERACT_OBJECT: 'INTERACT_OBJECT' as SubmitMainCommandDto['intent'],
   USE_ITEM_EXPLORE: 'USE_ITEM_EXPLORE' as SubmitMainCommandDto['intent'],
   SPLIT_PARTY_TASK: 'SPLIT_PARTY_TASK' as SubmitMainCommandDto['intent'],
-  ENVIRONMENT_USE: 'ENVIRONMENT_USE' as SubmitMainCommandDto['intent'],
 };
 
 function getPhaseLabel(phase: string | null | undefined) {
@@ -418,7 +417,7 @@ function getContextActions(selection: BattleMapSelection | null): ExplorationAct
       command('열기', ExplorationMainCommandIntent.INTERACT_OBJECT, selection, `${targetLabel}을 엽니다.`),
       command('조사', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}을 조사합니다.`),
       command('잠금 해제', ExplorationMainCommandIntent.INTERACT_OBJECT, selection, `${targetLabel}의 잠금을 해제합니다.`),
-      command('부수기', ExplorationMainCommandIntent.ENVIRONMENT_USE, selection, `${targetLabel}을 힘으로 부수려 합니다.`),
+      command('부수기', ExplorationMainCommandIntent.INTERACT_OBJECT, selection, `${targetLabel}을 힘으로 부수려 합니다.`),
     ];
   }
 

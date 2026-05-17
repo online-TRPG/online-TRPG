@@ -147,6 +147,11 @@ type PendingMainCommandLog = {
   timeoutId?: number;
 };
 
+type PendingMainCommandCheckLog = {
+  pendingLogId: string;
+  timeoutId?: number;
+};
+
 function isBlockingSessionStatus(status: string | undefined): boolean {
   return status !== 'completed' && status !== 'disbanded';
 }
@@ -520,6 +525,7 @@ export function useSession(
   const seenTurnLogIdsRef = useRef<Set<string>>(new Set());
   const loadedTurnLogSessionIdRef = useRef<string | null>(null);
   const pendingMainCommandLogsRef = useRef<PendingMainCommandLog[]>([]);
+  const pendingMainCommandCheckLogsRef = useRef<PendingMainCommandCheckLog[]>([]);
 
   const removePendingMainCommandLog = useCallback(
     (entry: PendingMainCommandLog, options?: { removeRaw?: boolean; removePending?: boolean }) => {
@@ -543,6 +549,37 @@ export function useSession(
     [removeLog]
   );
 
+  const removePendingMainCommandCheckLog = useCallback(
+    (entry: PendingMainCommandCheckLog) => {
+      if (entry.timeoutId !== undefined) {
+        window.clearTimeout(entry.timeoutId);
+      }
+      removeLog(entry.pendingLogId);
+      pendingMainCommandCheckLogsRef.current = pendingMainCommandCheckLogsRef.current.filter(
+        (item) => item.pendingLogId !== entry.pendingLogId
+      );
+    },
+    [removeLog]
+  );
+
+  const appendPendingMainCommandCheckLog = useCallback(
+    (requestId?: string | null): PendingMainCommandCheckLog => {
+      const pendingLogId = `main-command-check:${requestId || crypto.randomUUID()}:pending`;
+      const entry: PendingMainCommandCheckLog = { pendingLogId };
+
+      appendLog('action', '세션 로그', '[MAIN]...', pendingLogId);
+      entry.timeoutId = window.setTimeout(() => {
+        removePendingMainCommandCheckLog(entry);
+      }, 45_000);
+      pendingMainCommandCheckLogsRef.current = [
+        ...pendingMainCommandCheckLogsRef.current,
+        entry,
+      ];
+      return entry;
+    },
+    [appendLog, removePendingMainCommandCheckLog]
+  );
+
   const clearLocalSessionState = useCallback(() => {
     clearStoredSnapshot();
     setSnapshot(null);
@@ -558,6 +595,12 @@ export function useSession(
       }
     });
     pendingMainCommandLogsRef.current = [];
+    pendingMainCommandCheckLogsRef.current.forEach((entry) => {
+      if (entry.timeoutId !== undefined) {
+        window.clearTimeout(entry.timeoutId);
+      }
+    });
+    pendingMainCommandCheckLogsRef.current = [];
     setTurnLogNextCursor(null);
     setIsLoadingTurnLogs(false);
     clearSessionLogs();
@@ -1456,6 +1499,7 @@ export function useSession(
         setActiveDiceRoll(diceOverlay);
         const checkEffect = getMainCommandCheckEffect(response);
         if (checkEffect) {
+          const checkPendingEntry = appendPendingMainCommandCheckLog(response.requestId);
           try {
             const resolved = await apiResolveMainCommandCheck(
               user,
@@ -1477,6 +1521,8 @@ export function useSession(
               caught instanceof Error ? caught.message : '판정 결과 반영에 실패했습니다.';
             setError(message);
             appendLog('socket', '판정 결과 반영 실패', message);
+          } finally {
+            removePendingMainCommandCheckLog(checkPendingEntry);
           }
         }
       }
@@ -1505,6 +1551,7 @@ export function useSession(
 
     setError(null);
     setBusy(true);
+    const checkPendingEntry = appendPendingMainCommandCheckLog(payload.requestId);
 
     try {
       return await apiResolveMainCommandCheck(user, snapshot.session.id, payload, accessToken);
@@ -1514,6 +1561,7 @@ export function useSession(
       appendLog('socket', '판정 결과 반영 실패', message);
       return null;
     } finally {
+      removePendingMainCommandCheckLog(checkPendingEntry);
       setBusy(false);
     }
   }
