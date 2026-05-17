@@ -155,6 +155,10 @@ export function CombatNodeSurface({
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
   const myCombatParticipant =
     combat?.participants.find((participant) => participant.sessionCharacterId === myCharacter?.id) ?? null;
+  const isMyCombatTurn =
+    Boolean(combat?.currentEntityId) &&
+    Boolean(myCombatParticipant?.sessionEntityId) &&
+    combat?.currentEntityId === myCombatParticipant?.sessionEntityId;
   const myActionResources = myCombatParticipant?.actionResources ?? null;
   const myCurrentHp = myCombatParticipant?.currentHp ?? myCharacter?.currentHp ?? null;
   const myMaxHp = myCombatParticipant?.maxHp ?? myCharacter?.maxHp ?? null;
@@ -285,6 +289,7 @@ export function CombatNodeSurface({
               isHost={isHost}
               currentUserId={currentUserId}
               interactionMode="session"
+              isInteractionLocked={!isGmView && !isMyCombatTurn}
               onChange={onMapChange}
               title={node?.title ?? '전투 지도'}
             />
