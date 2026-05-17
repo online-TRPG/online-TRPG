@@ -63,9 +63,10 @@ function DiceRollOverlayInner({
   onDismiss: () => void;
 }) {
   const [phase, setPhase] = useState<'tumbling' | 'revealed' | 'leaving'>('tumbling');
-  // 텀블 중 빠르게 바뀌는 숫자. d20 이면 1, 아니면 최종값으로 시작.
-  const [displayRoll, setDisplayRoll] = useState<number>(() =>
-    data.isD20 ? 1 : data.naturalRoll,
+  // 텀블 중 빠르게 바뀌는 숫자. 유리함/불리함이면 d20 두 개를 같이 보여준다.
+  const d20Count = data.isD20 && data.advantage !== 'NORMAL' && data.rolls.length > 1 ? 2 : 1;
+  const [displayRolls, setDisplayRolls] = useState<number[]>(() =>
+    data.isD20 ? Array.from({ length: d20Count }, () => 1) : [data.naturalRoll],
   );
   const dismissedRef = useRef(false);
 
@@ -86,17 +87,17 @@ function DiceRollOverlayInner({
 
     // 모션 최소화 선호 시 숫자 깜빡임 없이 곧바로 결과만 공개한다.
     if (!data.isD20 || reduceMotion) {
-      setDisplayRoll(data.naturalRoll);
+      setDisplayRolls(data.isD20 ? data.rolls.slice(0, d20Count) : [data.naturalRoll]);
       const revealTimer = window.setTimeout(() => setPhase('revealed'), SETTLE_MS);
       return () => window.clearTimeout(revealTimer);
     }
 
     const interval = window.setInterval(() => {
-      setDisplayRoll(Math.floor(Math.random() * 20) + 1);
+      setDisplayRolls(Array.from({ length: d20Count }, () => Math.floor(Math.random() * 20) + 1));
     }, 70);
     const revealTimer = window.setTimeout(() => {
       window.clearInterval(interval);
-      setDisplayRoll(data.naturalRoll);
+      setDisplayRolls(data.rolls.slice(0, d20Count));
       setPhase('revealed');
     }, TUMBLE_MS);
     return () => {
@@ -124,14 +125,26 @@ function DiceRollOverlayInner({
     phase === 'leaving' ? 'is-leaving' : 'is-entering',
   ].join(' ');
 
-  const dieClass = [
-    'dice-overlay-die',
-    phase === 'tumbling' ? 'is-tumbling' : 'is-revealed',
-    isCrit ? 'is-crit' : '',
-    isFumble ? 'is-fumble' : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const selectedRollIndex =
+    data.advantage === 'ADVANTAGE'
+      ? data.rolls.indexOf(Math.max(...data.rolls))
+      : data.advantage === 'DISADVANTAGE'
+        ? data.rolls.indexOf(Math.min(...data.rolls))
+        : 0;
+
+  function getDieClass(index: number) {
+    const isSelected = index === selectedRollIndex;
+    return [
+      'dice-overlay-die',
+      d20Count > 1 ? 'is-paired' : '',
+      phase === 'tumbling' ? 'is-tumbling' : 'is-revealed',
+      isSelected ? 'is-selected' : 'is-muted',
+      isSelected && isCrit ? 'is-crit' : '',
+      isSelected && isFumble ? 'is-fumble' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
 
   return (
     <div
@@ -161,11 +174,15 @@ function DiceRollOverlayInner({
 
         <div className="dice-overlay-stage">
           {data.isD20 ? (
-            <div className={dieClass} aria-hidden="true">
-              <div className="dice-overlay-die-face">
-                <span className="dice-overlay-die-value">{displayRoll}</span>
+            <div className={`dice-overlay-dice-row${d20Count > 1 ? ' has-pair' : ''}`}>
+              {displayRolls.slice(0, d20Count).map((displayRoll, index) => (
+                <div className={getDieClass(index)} aria-hidden="true" key={`d20-${index}`}>
+                  <div className="dice-overlay-die-face">
+                    <span className="dice-overlay-die-value">{displayRoll}</span>
+                  </div>
+                </div>
+              ))}
               </div>
-            </div>
           ) : (
             <div className="dice-overlay-roll-card" aria-hidden="true">
               <span className="dice-overlay-roll-expression">{data.expression}</span>

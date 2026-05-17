@@ -115,7 +115,7 @@
 .combat-turn-list {
   min-width: 0;
   max-width: 100%;
-  padding: 6px;
+  padding: 14px 18px 16px;
   display: flex;
   gap: 6px;
   overflow-x: auto;
@@ -161,11 +161,68 @@
   border-color: #a67f72;
 }
 
-.combat-turn-card.active {
-  border-color: #2f6fa3;
+.combat-turn-card.selected {
+  z-index: 1;
+  border-color: #79d8ff;
+  transform: translateY(-3px) scale(1.12);
   box-shadow:
-    0 0 0 3px rgba(47, 111, 163, 0.28),
-    0 4px 12px rgba(20, 32, 44, 0.3);
+    0 0 0 3px rgba(121, 216, 255, 0.32),
+    0 10px 22px rgba(24, 38, 52, 0.28),
+    0 0 20px rgba(121, 216, 255, 0.48);
+}
+
+.combat-turn-card.active {
+  z-index: 2;
+  overflow: visible;
+  border-color: #fff6bf;
+  background: #081927;
+  transform: translateY(-4px) scale(1.18);
+  box-shadow:
+    0 0 0 3px #081927,
+    0 0 0 6px rgba(255, 246, 191, 0.92),
+    0 12px 24px rgba(4, 14, 26, 0.42),
+    0 0 20px rgba(255, 190, 70, 0.66);
+}
+
+.combat-turn-card.active.selected {
+  transform: translateY(-5px) scale(1.22);
+  box-shadow:
+    0 0 0 3px #081927,
+    0 0 0 6px rgba(255, 246, 191, 0.94),
+    0 0 0 10px rgba(121, 216, 255, 0.46),
+    0 14px 26px rgba(4, 14, 26, 0.46),
+    0 0 24px rgba(121, 216, 255, 0.58);
+}
+
+.combat-turn-card.active img,
+.combat-turn-card.active > span {
+  border-radius: 50%;
+}
+
+.combat-turn-card.active::before {
+  content: 'TURN';
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  z-index: 3;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: #d86145;
+  color: #ffffff;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 0;
+  transform: translateX(-50%);
+  box-shadow: 0 2px 8px rgba(4, 14, 26, 0.42);
+}
+
+.combat-turn-card.active::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  pointer-events: none;
 }
 
 .combat-turn-card.defeated {
@@ -489,6 +546,21 @@
   border-color: #9a7d75;
   background: #f8f1ee;
   color: #5d3c38;
+}
+
+.combat-action-list button.targeting {
+  border-color: #d07843;
+  background: #fff1e7;
+  color: #7a3b17;
+  box-shadow: 0 0 0 2px rgba(255, 139, 76, 0.2);
+}
+
+.combat-targeting-hint {
+  margin: 2px 0 0;
+  color: #7a3b17;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
 }
 
 .combat-inventory-panel p {

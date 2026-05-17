@@ -750,6 +750,14 @@ export function App() {
             onResolveMainCommandCheck={(payload) => session.resolveMainCommandCheck(payload)}
             onAction={handleSessionMessage}
             onLoadOlderTurnLogs={() => void session.loadOlderTurnLogs()}
+            onCombatActionLog={(message, turnLogId) =>
+              appendLog(
+                'action',
+                '세션 로그',
+                `[MAIN]${message}`,
+                turnLogId ? `turn-log:${turnLogId}` : undefined,
+              )
+            }
             activeDiceRoll={session.activeDiceRoll}
             onDismissDiceRoll={session.dismissDiceRoll}
           />

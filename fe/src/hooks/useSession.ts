@@ -244,6 +244,14 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
     return `[MAIN]${turnLog.narration?.trim() || '함정이 발동했습니다.'}`;
   }
 
+  if (
+    structuredAction &&
+    typeof structuredAction === 'object' &&
+    structuredAction.type === 'attack'
+  ) {
+    return `[MAIN]${turnLog.narration?.trim() || '공격을 처리했습니다.'}`;
+  }
+
   const sections = [
     'TurnLog',
     `- turnLogId: ${turnLog.turnLogId}`,
@@ -442,6 +450,11 @@ function buildDiceRollOverlayData(
       ? readDiceNumber(structured, "targetArmorClass") ??
         readDiceNumber(structured, "dc")
       : null;
+  } else if (actionType === "combat_hide") {
+    title = "숨기";
+    subtitle = "민첩(은신) 판정";
+    targetLabel = "난이도";
+    targetValue = structured ? readDiceNumber(structured, "dc") : null;
   } else if (actionType === "auto_hazard_detection") {
     title = "위험 탐지";
     subtitle = "지혜(감지) 판정";
