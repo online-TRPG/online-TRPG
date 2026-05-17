@@ -1552,7 +1552,7 @@ export class CombatService {
             reactionAvailable: !Boolean(turnState?.reactionUsed),
             additionalActionAvailable: Boolean(turnState?.additionalActionGranted),
             movementFtTotal,
-            movementFtRemaining: movementFtTotal,
+            movementFtRemaining: Math.max(0, movementFtTotal - (turnState?.movementFtSpent ?? 0)),
           },
         };
       }),
