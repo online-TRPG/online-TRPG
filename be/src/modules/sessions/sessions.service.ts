@@ -121,6 +121,10 @@ export type SessionPageResult = {
   totalElements: number;
 };
 
+type ActiveCombatForPlayerMapUpdate = Prisma.CombatGetPayload<{
+  include: { participants: true };
+}>;
+
 function isSessionListItem(
   item: SessionListItemResponseDto | null,
 ): item is SessionListItemResponseDto {
@@ -3072,6 +3076,28 @@ export class SessionsService {
   ): Promise<VttMapStateDto> {
     const baseline = await this.getVttMapBaseline(sessionId, sessionScenarioId, state);
     const controlledTokenIds = await this.getControlledSessionCharacterIds(userId, sessionId);
+    const activeCombat = await this.prisma.combat.findFirst({
+      where: { sessionId, status: PrismaCombatStatus.ACTIVE },
+      include: { participants: { orderBy: { turnOrder: "asc" } } },
+    });
+    const currentCombatParticipant = activeCombat
+      ? activeCombat.participants.find((participant) => participant.id === activeCombat.currentParticipantId) ?? null
+      : null;
+    if (
+      activeCombat &&
+      (!currentCombatParticipant?.sessionCharacterId ||
+        !controlledTokenIds.has(currentCombatParticipant.sessionCharacterId))
+    ) {
+      throw new ForbiddenException("Only the current combat actor can manipulate the map.");
+    }
+    const movementSpends: Array<{
+      combatId: string;
+      combatParticipantId: string;
+      roundNo: number;
+      turnNo: number;
+      sessionCharacterId: string | null;
+      distanceFt: number;
+    }> = [];
 
     this.ensurePlayerMapShellUnchanged(baseline, requestedMap);
 
@@ -3095,6 +3121,28 @@ export class SessionsService {
 
       this.ensureOnlyTokenPositionChanged(token, requestedToken);
       this.ensureTokenPathIsReachable(baseline, token, requestedToken);
+      if (activeCombat && currentCombatParticipant) {
+        const participant =
+          activeCombat.participants.find((candidate) => candidate.tokenId === token.id) ??
+          activeCombat.participants.find(
+            (candidate) => candidate.sessionCharacterId === token.sessionCharacterId,
+          ) ??
+          null;
+        if (!participant || participant.id !== currentCombatParticipant.id) {
+          throw new ForbiddenException("Only the current combat actor can move this token.");
+        }
+        const distanceFt = this.calculateTokenGridMovementFt(baseline, token, requestedToken);
+        if (distanceFt > 0) {
+          movementSpends.push({
+            combatId: activeCombat.id,
+            combatParticipantId: participant.id,
+            roundNo: activeCombat.roundNo,
+            turnNo: activeCombat.turnNo,
+            sessionCharacterId: participant.sessionCharacterId,
+            distanceFt,
+          });
+        }
+      }
       return {
         ...token,
         x: requestedToken.x,
@@ -3105,6 +3153,8 @@ export class SessionsService {
     if (requestedMap.tokens.some((token) => !baseline.tokens.some((base) => base.id === token.id))) {
       throw new ForbiddenException("Players cannot add map tokens.");
     }
+
+    await this.spendCombatMovement(activeCombat, movementSpends);
 
     return {
       ...baseline,
@@ -3149,6 +3199,81 @@ export class SessionsService {
 
     if (!sameShell) {
       throw new ForbiddenException("Players can only move their own tokens.");
+    }
+  }
+
+  private calculateTokenGridMovementFt(
+    map: VttMapStateDto,
+    fromToken: VttMapStateDto["tokens"][number],
+    toToken: VttMapStateDto["tokens"][number],
+  ): number {
+    const fromColumn = this.getGridIndex(fromToken.x, map.gridSize, map.width);
+    const fromRow = this.getGridIndex(fromToken.y, map.gridSize, map.height);
+    const toColumn = this.getGridIndex(toToken.x, map.gridSize, map.width);
+    const toRow = this.getGridIndex(toToken.y, map.gridSize, map.height);
+    return this.getChebyshevDistance(fromColumn, fromRow, toColumn, toRow) * 5;
+  }
+
+  private async spendCombatMovement(
+    activeCombat: ActiveCombatForPlayerMapUpdate | null,
+    movementSpends: Array<{
+      combatId: string;
+      combatParticipantId: string;
+      roundNo: number;
+      turnNo: number;
+      sessionCharacterId: string | null;
+      distanceFt: number;
+    }>,
+  ): Promise<void> {
+    if (!activeCombat || movementSpends.length === 0) {
+      return;
+    }
+
+    const distanceByParticipant = new Map<string, (typeof movementSpends)[number]>();
+    for (const spend of movementSpends) {
+      const current = distanceByParticipant.get(spend.combatParticipantId);
+      distanceByParticipant.set(spend.combatParticipantId, {
+        ...spend,
+        distanceFt: (current?.distanceFt ?? 0) + spend.distanceFt,
+      });
+    }
+
+    for (const spend of distanceByParticipant.values()) {
+      const participant = activeCombat.participants.find((candidate) => candidate.id === spend.combatParticipantId);
+      const movementFtTotal = participant?.speedFt ?? 30;
+      const turnState = await this.prisma.combatTurnState.upsert({
+        where: {
+          combatId_roundNo_turnNo_combatParticipantId: {
+            combatId: spend.combatId,
+            roundNo: spend.roundNo,
+            turnNo: spend.turnNo,
+            combatParticipantId: spend.combatParticipantId,
+          },
+        },
+        create: {
+          combatId: spend.combatId,
+          combatParticipantId: spend.combatParticipantId,
+          roundNo: spend.roundNo,
+          turnNo: spend.turnNo,
+          sessionCharacterId: spend.sessionCharacterId,
+        },
+        update: {},
+      });
+      if (turnState.movementFtSpent + spend.distanceFt > movementFtTotal) {
+        throw new ForbiddenException("Not enough movement remaining for this combat turn.");
+      }
+
+      await this.prisma.combatTurnState.update({
+        where: {
+          combatId_roundNo_turnNo_combatParticipantId: {
+            combatId: spend.combatId,
+            roundNo: spend.roundNo,
+            turnNo: spend.turnNo,
+            combatParticipantId: spend.combatParticipantId,
+          },
+        },
+        data: { movementFtSpent: { increment: spend.distanceFt } },
+      });
     }
   }
 

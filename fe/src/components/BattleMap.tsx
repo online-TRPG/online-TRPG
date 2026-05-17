@@ -36,6 +36,7 @@ interface BattleMapProps {
   itemOptions?: Array<{ id: string; label: string }>;
   enableObjectEventEditing?: boolean;
   onSelectionChange?: (selection: BattleMapSelection | null) => void;
+  isInteractionLocked?: boolean;
 }
 
 export type BattleMapSelection =
@@ -466,6 +467,7 @@ export function BattleMap({
   itemOptions = [],
   enableObjectEventEditing = false,
   onSelectionChange,
+  isInteractionLocked = false,
 }: BattleMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(960);
@@ -665,6 +667,7 @@ export function BattleMap({
   }, [isFullscreen]);
 
   function updateMap(patch: Partial<VttMapStateDto>) {
+    if (isInteractionLocked) return;
     onChange({
       ...map,
       ...patch,
@@ -1280,6 +1283,7 @@ export function BattleMap({
   }
 
   function canControlToken(token: VttMapStateDto['tokens'][number]) {
+    if (isInteractionLocked) return false;
     return (
       canEditMap ||
       Boolean(token.sessionCharacterId && controlledTokenIds.has(token.sessionCharacterId))

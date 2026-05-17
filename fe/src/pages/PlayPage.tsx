@@ -144,7 +144,6 @@ type MainCommandHelperGroup =
   | 'OBJECT_AREA_TARGET'
   | 'MAP_POINT_TARGET'
   | 'ITEM_TOOL_SELECT'
-  | 'SPELL_SELECT'
   | 'COMBAT_TARGET';
 
 type MainCommandHelperOption = {
@@ -325,36 +324,8 @@ const mainCommandFieldConfigByIntent: Partial<
     ],
     allowsMapPoint: true,
   },
-  [MainCommandIntentValues.ENVIRONMENT_USE]: {
-    targetTypes: [MainCommandTargetTypeValues.OBJECT, MainCommandTargetTypeValues.AREA],
-    allowsMapPoint: true,
-  },
-  [MainCommandIntentValues.IMPROVISED_ATTACK]: {
-    targetTypes: [MainCommandTargetTypeValues.NPC, MainCommandTargetTypeValues.OBJECT],
-  },
-  [MainCommandIntentValues.CALLED_SHOT]: {
-    targetTypes: [MainCommandTargetTypeValues.NPC],
-  },
   [MainCommandIntentValues.COMBAT_TALK]: {
     targetTypes: [MainCommandTargetTypeValues.NPC],
-  },
-  [MainCommandIntentValues.USE_ITEM_COMBAT]: {
-    requiresItem: true,
-    targetTypes: [
-      MainCommandTargetTypeValues.NPC,
-      MainCommandTargetTypeValues.OBJECT,
-      MainCommandTargetTypeValues.AREA,
-    ],
-    allowsMapPoint: true,
-  },
-  [MainCommandIntentValues.USE_SPELL_CREATIVELY]: {
-    requiresSpell: true,
-    targetTypes: [
-      MainCommandTargetTypeValues.NPC,
-      MainCommandTargetTypeValues.OBJECT,
-      MainCommandTargetTypeValues.AREA,
-    ],
-    allowsMapPoint: true,
   },
   [MainCommandIntentValues.ASK_RULE]: {
     allowsRelatedIntent: true,
@@ -516,59 +487,10 @@ const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], Mai
     ],
     COMBAT: [
       {
-        label: '창의적 기동',
-        categoryLabel: '창의 행동',
-        category: MainCommandCategoryValues.CREATIVE_ACTION,
-        intent: MainCommandIntentValues.COMBAT_MANEUVER,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
-      {
-        label: '임기응변 공격',
-        categoryLabel: '특수 공격',
-        category: MainCommandCategoryValues.SPECIAL_ATTACK,
-        intent: MainCommandIntentValues.IMPROVISED_ATTACK,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
-      {
-        label: '특정 부위/장비 노리기',
-        categoryLabel: '특수 공격',
-        category: MainCommandCategoryValues.SPECIAL_ATTACK,
-        intent: MainCommandIntentValues.CALLED_SHOT,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
-      {
-        label: '준비 행동',
-        categoryLabel: '반응/준비',
-        category: MainCommandCategoryValues.REACTION_READY,
-        intent: MainCommandIntentValues.READY_ACTION,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
-      {
-        label: '반응 행동 문의',
-        categoryLabel: '반응/준비',
-        category: MainCommandCategoryValues.REACTION_READY,
-        intent: MainCommandIntentValues.REACTION_REQUEST,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
-      {
         label: '전투 중 대화',
         categoryLabel: '대화',
         category: MainCommandCategoryValues.TALK,
         intent: MainCommandIntentValues.COMBAT_TALK,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
-      {
-        label: '아이템 창의 사용',
-        categoryLabel: '아이템/주문',
-        category: MainCommandCategoryValues.ITEM_SPELL,
-        intent: MainCommandIntentValues.USE_ITEM_COMBAT,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
-      {
-        label: '주문 창의 사용',
-        categoryLabel: '아이템/주문',
-        category: MainCommandCategoryValues.ITEM_SPELL,
-        intent: MainCommandIntentValues.USE_SPELL_CREATIVELY,
         screenType: MainCommandScreenTypeValues.COMBAT,
       },
       {
@@ -707,38 +629,6 @@ const mainCommandSlashMetadataByIntent: Partial<
     description: '기름병 같은 보유 아이템을 상황에 맞게 창의적으로 활용합니다.',
     helperGroup: 'ITEM_TOOL_SELECT',
   },
-  [MainCommandIntentValues.USE_ITEM_COMBAT]: {
-    slashCommands: ['/아이템활용'],
-    description: '전투 중 보유 아이템을 창의적으로 사용합니다.',
-    helperGroup: 'ITEM_TOOL_SELECT',
-  },
-  [MainCommandIntentValues.USE_SPELL_CREATIVELY]: {
-    slashCommands: ['/주문활용'],
-    description: '주문을 직접 공격이 아닌 창의적 방식으로 활용합니다.',
-    helperGroup: 'SPELL_SELECT',
-  },
-  [MainCommandIntentValues.COMBAT_MANEUVER]: {
-    slashCommands: ['/창의기동'],
-    description: '전투 중 위치나 몸놀림으로 유리한 상황을 만듭니다.',
-  },
-  [MainCommandIntentValues.IMPROVISED_ATTACK]: {
-    slashCommands: ['/임기응변공격'],
-    description: '주변 물건이나 즉흥적인 방법으로 공격을 시도합니다.',
-    helperGroup: 'COMBAT_TARGET',
-  },
-  [MainCommandIntentValues.CALLED_SHOT]: {
-    slashCommands: ['/부위공격'],
-    description: '대상의 특정 부위나 장비를 노립니다.',
-    helperGroup: 'COMBAT_TARGET',
-  },
-  [MainCommandIntentValues.READY_ACTION]: {
-    slashCommands: ['/조건발동'],
-    description: '조건이 발생하면 실행할 행동을 준비합니다.',
-  },
-  [MainCommandIntentValues.REACTION_REQUEST]: {
-    slashCommands: ['/반응'],
-    description: '지금 가능한 반응 행동이 있는지 확인합니다.',
-  },
 };
 
 const mainCommandHelperOptions: MainCommandHelperOption[] = [
@@ -773,21 +663,14 @@ const mainCommandHelperOptions: MainCommandHelperOption[] = [
     label: '아이템 선택',
     description: '보유 아이템을 먼저 고르고 사용 방식은 입력합니다.',
     fieldConfig: { requiresItem: true },
-    screenTypes: [MainCommandScreenTypeValues.EXPLORATION, MainCommandScreenTypeValues.COMBAT],
-  },
-  {
-    id: 'SPELL_SELECT',
-    label: '주문 선택',
-    description: '사용할 주문을 먼저 고르고 활용 방식은 입력합니다.',
-    fieldConfig: { requiresSpell: true },
-    screenTypes: [MainCommandScreenTypeValues.COMBAT],
+    screenTypes: [MainCommandScreenTypeValues.EXPLORATION],
   },
   {
     id: 'COMBAT_TARGET',
-    label: '전투 상호작용',
-    description: '전투 중 NPC나 오브젝트를 대상으로 창의 행동을 준비합니다.',
+    label: '전투 대화 대상',
+    description: '전투 중 대화할 NPC를 먼저 고릅니다.',
     fieldConfig: {
-      targetTypes: [MainCommandTargetTypeValues.NPC, MainCommandTargetTypeValues.OBJECT],
+      targetTypes: [MainCommandTargetTypeValues.NPC],
     },
     screenTypes: [MainCommandScreenTypeValues.COMBAT],
   },
@@ -820,14 +703,8 @@ const mainCommandIntentOptionsByHelperGroup: Record<
   ],
   ITEM_TOOL_SELECT: [
     MainCommandIntentValues.USE_ITEM_EXPLORE,
-    MainCommandIntentValues.USE_ITEM_COMBAT,
   ],
-  SPELL_SELECT: [MainCommandIntentValues.USE_SPELL_CREATIVELY],
-  COMBAT_TARGET: [
-    MainCommandIntentValues.IMPROVISED_ATTACK,
-    MainCommandIntentValues.CALLED_SHOT,
-    MainCommandIntentValues.COMBAT_TALK,
-  ],
+  COMBAT_TARGET: [MainCommandIntentValues.COMBAT_TALK],
 };
 
 function getMainCommandSlashCommands(preset: MainCommandPreset): string[] {
@@ -917,8 +794,6 @@ function doesMainCommandRequireTarget(intent: SubmitMainCommandDto['intent']): b
     intent === MainCommandIntentValues.SOCIAL_DECEIVE ||
     intent === MainCommandIntentValues.READ_EMOTION ||
     intent === MainCommandIntentValues.INSPECT_STORY_OBJECT ||
-    intent === MainCommandIntentValues.IMPROVISED_ATTACK ||
-    intent === MainCommandIntentValues.CALLED_SHOT ||
     intent === MainCommandIntentValues.COMBAT_TALK
   );
 }
@@ -2652,6 +2527,10 @@ export function PlayPage({
         latestConfirmedMapRef.current = savedMap;
         setMapLoadError(null);
         setVttMap((current) => (current === mapToSave ? savedMap : current));
+        if (combat?.sessionId === sessionId && combat.status === 'ACTIVE') {
+          const refreshedCombat = await getCombat(user, sessionId);
+          setCombat(refreshedCombat);
+        }
       }
     } catch (caught) {
       if (mapSaveRef.current.activeSessionId === sessionId) {
