@@ -65,10 +65,7 @@ const isLocalFrontend =
   import.meta.env.DEV &&
   typeof globalThis.location !== 'undefined' &&
   ['localhost', '127.0.0.1', '::1'].includes(globalThis.location.hostname);
-const allowRemoteApiFromLocalDev = import.meta.env.VITE_USE_REMOTE_API === 'true';
-const shouldIgnoreConfiguredBaseUrl =
-  isLocalFrontend && Boolean(configuredBaseUrl) && !allowRemoteApiFromLocalDev;
-const preferredBaseUrl = shouldIgnoreConfiguredBaseUrl ? undefined : configuredBaseUrl?.replace(/\/$/, '');
+const preferredBaseUrl = configuredBaseUrl?.replace(/\/$/, '');
 const rawBaseUrl = (
   preferredBaseUrl || (isLocalFrontend ? localDevBaseUrls[0] : defaultBase)
 ).replace(/\/$/, '');
@@ -91,7 +88,6 @@ if (import.meta.env.DEV && typeof console !== 'undefined') {
     apiBaseUrl: API_BASE_URL,
     socketBaseUrl: SOCKET_BASE_URL,
     configuredBaseUrl: configuredBaseUrl ?? null,
-    ignoredConfiguredBaseUrl: shouldIgnoreConfiguredBaseUrl,
   });
 }
 export const AUTH_EXPIRED_EVENT = 'trpg:auth-expired';
