@@ -201,6 +201,7 @@ export function ScenarioPage({
         startNodeTitle: startNode?.title,
         startSceneText: startNode?.sceneText,
         nodes,
+        npcs: source.npcs,
       };
 
       const created = await createScenario(user, payload, accessToken);
