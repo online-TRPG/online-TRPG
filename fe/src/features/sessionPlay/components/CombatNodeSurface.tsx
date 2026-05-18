@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type {
+  ClassDefinitionResponseDto,
   CombatResponseDto,
   InventoryItemDto,
   PlayerScenarioNodeDto,
@@ -9,17 +11,28 @@ import type {
 import { BattleMap } from '../../../components/BattleMap';
 import type { BattleMapSelection } from '../../../components/BattleMap';
 import { CharacterDetailModal } from './CharacterDetailModal';
+import { MapPartyOverlay } from './MapPartyOverlay';
 import { getCharacterImage } from '../utils/characterVisuals';
 import './CombatNodeSurface.css';
 
-type CombatActionTab = 'basic' | 'ability' | 'item';
+type CombatActionTab = 'basic' | 'ability' | 'spell';
 type CombatResourceIconKind = 'action' | 'bonus' | 'reaction';
+
+type CombatAbilityButton = {
+  key: string;
+  label: string;
+  action: 'second_wind';
+  title: string;
+  requiresBonusAction?: boolean;
+  disabled?: boolean;
+};
 
 interface CombatNodeSurfaceProps {
   node: PlayerScenarioNodeDto | null;
   scenarioTitle?: string | null;
   phase?: string | null;
   characters: SessionCharacterResponseDto[];
+  classDefinitions: ClassDefinitionResponseDto[];
   currentUserId: string;
   isHost: boolean;
   isGmView?: boolean;
@@ -29,18 +42,32 @@ interface CombatNodeSurfaceProps {
   isCombatBusy?: boolean;
   inventory: InventoryItemDto[];
   isInventoryBusy?: boolean;
+  getCharacterColorStyle?: (character: SessionCharacterResponseDto) => CSSProperties;
   onMapChange: (map: VttMapStateDto) => void;
   onUseInventoryItem: (item: InventoryItemDto) => void;
   onEquipInventoryItem: (item: InventoryItemDto) => void;
   onAttackWithEquippedWeapon: (targetParticipantId: string) => void | Promise<void>;
+  onAttackWithOffhandWeapon: (targetParticipantId: string) => void | Promise<void>;
   onDash: () => void | Promise<void>;
   onDodge: () => void | Promise<void>;
   onHide: () => void | Promise<void>;
+  onUseClassFeature: (action: CombatAbilityButton['action']) => void | Promise<void>;
   onEndCombat: () => void;
   onEndTurn: (force?: boolean) => void;
 }
 
-const actionTabs: Array<{ id: CombatActionTab; label: string; actions: string[] }> = [
+const spellcastingClassKeys = new Set([
+  'bard',
+  'cleric',
+  'druid',
+  'paladin',
+  'ranger',
+  'sorcerer',
+  'warlock',
+  'wizard',
+]);
+
+const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: string[] }> = [
   {
     id: 'basic',
     label: '일반',
@@ -49,14 +76,66 @@ const actionTabs: Array<{ id: CombatActionTab; label: string; actions: string[] 
   {
     id: 'ability',
     label: '능력',
-    actions: ['특수 행동', '전술 질문', '준비 행동', '반응 요청'],
-  },
-  {
-    id: 'item',
-    label: '아이템',
-    actions: ['아이템 사용', '주문 사용', '도구 사용', '임기응변'],
+    actions: [],
   },
 ];
+
+const spellActionTab: { id: CombatActionTab; label: string; actions: string[] } = {
+  id: 'spell',
+  label: '마법',
+  actions: [],
+};
+
+function normalizeClassKey(value: string | null | undefined) {
+  return (value ?? '').trim().toLowerCase().replace(/\s+/g, '-');
+}
+
+function getClassAbilityButtons(
+  character: SessionCharacterResponseDto | null,
+  participantConditions: string[] | undefined
+): CombatAbilityButton[] {
+  if (!character) return [];
+
+  const classKey = normalizeClassKey(character.className);
+  const buttons: CombatAbilityButton[] = [];
+
+  if (classKey.includes('fighter')) {
+    buttons.push({
+      key: 'second_wind',
+      label: 'Second Wind',
+      action: 'second_wind',
+      title: 'Bonus Action을 사용해 1d10 + Fighter 레벨만큼 자신을 회복합니다.',
+      requiresBonusAction: true,
+      disabled: (participantConditions ?? []).includes('resource:second_wind_expended'),
+    });
+  }
+
+  return buttons;
+}
+
+function canLearnSpells(
+  character: SessionCharacterResponseDto | null,
+  classDefinitions: ClassDefinitionResponseDto[]
+) {
+  const classKey = normalizeClassKey(character?.className);
+  if (!classKey) return false;
+
+  const classDefinition = classDefinitions.find((klass) => {
+    const definitionKey = normalizeClassKey(klass.key);
+    const definitionName = normalizeClassKey(klass.koName);
+    return definitionKey === classKey || definitionName === classKey;
+  });
+
+  if (classDefinition) {
+    return (
+      classDefinition.startingCantripCount > 0 ||
+      classDefinition.startingSpellCount > 0 ||
+      spellcastingClassKeys.has(normalizeClassKey(classDefinition.key))
+    );
+  }
+
+  return spellcastingClassKeys.has(classKey);
+}
 
 function getPhaseLabel(phase: string | null | undefined) {
   if (!phase) return '상태 미확인';
@@ -125,6 +204,54 @@ function getWeaponFallbackRangeFt(item: InventoryItemDto) {
   return 5;
 }
 
+function getWeaponPropertySet(item: InventoryItemDto) {
+  const key = getInventoryItemKey(item).replace(/_/g, '-');
+  const properties = new Set(
+    (item.properties ?? []).map((property) => property.toLowerCase().replace(/[_\s]+/g, '-'))
+  );
+
+  if (key.includes('longbow') || key.includes('shortbow') || key.includes('crossbow') || key.includes('dart')) {
+    properties.add('ranged');
+  } else if (isWeaponItem(item)) {
+    properties.add('melee');
+  }
+
+  if (
+    key.includes('dagger') ||
+    key.includes('handaxe') ||
+    key.includes('scimitar') ||
+    key.includes('shortsword') ||
+    key.includes('단검') ||
+    key.includes('핸드액스') ||
+    key.includes('시미터') ||
+    key.includes('쇼트소드')
+  ) {
+    properties.add('light');
+    properties.add('melee');
+  }
+
+  if (
+    key.includes('greataxe') ||
+    key.includes('longbow') ||
+    key.includes('shortbow') ||
+    key.includes('crossbow') ||
+    key.includes('그레이트액스') ||
+    key.includes('롱보우') ||
+    key.includes('쇼트보우') ||
+    key.includes('크로스보우')
+  ) {
+    properties.add('two-handed');
+  }
+
+  return properties;
+}
+
+function isLightMeleeWeaponItem(item: InventoryItemDto | null) {
+  if (!item || !isWeaponItem(item)) return false;
+  const properties = getWeaponPropertySet(item);
+  return properties.has('light') && (properties.has('melee') || !properties.has('ranged')) && !properties.has('two-handed');
+}
+
 function getGridDistanceFt(
   map: VttMapStateDto,
   left: VttMapStateDto['tokens'][number],
@@ -191,6 +318,7 @@ export function CombatNodeSurface({
   scenarioTitle,
   phase,
   characters,
+  classDefinitions,
   currentUserId,
   isHost,
   isGmView = false,
@@ -200,13 +328,16 @@ export function CombatNodeSurface({
   isCombatBusy = false,
   inventory,
   isInventoryBusy = false,
+  getCharacterColorStyle,
   onMapChange,
   onUseInventoryItem,
   onEquipInventoryItem,
   onAttackWithEquippedWeapon,
+  onAttackWithOffhandWeapon,
   onDash,
   onDodge,
   onHide,
+  onUseClassFeature,
   onEndCombat,
   onEndTurn,
 }: CombatNodeSurfaceProps) {
@@ -218,6 +349,13 @@ export function CombatNodeSurface({
   const [isAttackTargeting, setAttackTargeting] = useState(false);
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
+  const actionTabs = useMemo(
+    () =>
+      canLearnSpells(myCharacter, classDefinitions)
+        ? [...baseActionTabs, spellActionTab]
+        : baseActionTabs,
+    [classDefinitions, myCharacter]
+  );
   const selectedTurnCharacter =
     characters.find((character) => character.id === selectedTurnCharacterId) ?? null;
   const myCombatParticipant =
@@ -231,6 +369,8 @@ export function CombatNodeSurface({
   const myMaxHp = myCombatParticipant?.maxHp ?? myCharacter?.maxHp ?? null;
   const equippedWeapon =
     inventory.find((item) => isEquippedItem(item, myCharacter?.equippedWeaponId)) ?? null;
+  const offhandWeapon =
+    inventory.find((item) => isEquippedItem(item, myCharacter?.offhandWeaponId)) ?? null;
   const currentParticipant =
     combat?.participants.find((participant) => participant.sessionEntityId === combat.currentEntityId) ?? null;
   const selectedTargetParticipant =
@@ -239,6 +379,9 @@ export function CombatNodeSurface({
     ) ?? null;
   const attackName = equippedWeapon?.name ?? '기본 공격';
   const attackRangeFt = equippedWeapon ? getWeaponFallbackRangeFt(equippedWeapon) : 5;
+  const offhandAttackName = offhandWeapon ? `보조 공격(${offhandWeapon.name})` : '보조 공격';
+  const offhandAttackRangeFt = offhandWeapon ? getWeaponFallbackRangeFt(offhandWeapon) : 5;
+  const offhandWeaponIsLightMelee = isLightMeleeWeaponItem(offhandWeapon);
   const isSelectedTargetInRange = useMemo(() => {
     if (!map || !myCombatParticipant || !selectedTargetParticipant) return false;
     const sourceTokenId = getParticipantTokenId(myCombatParticipant);
@@ -248,6 +391,15 @@ export function CombatNodeSurface({
     if (!sourceToken || !targetToken) return false;
     return getGridDistanceFt(map, sourceToken, targetToken) <= attackRangeFt;
   }, [attackRangeFt, map, myCombatParticipant, selectedTargetParticipant]);
+  const isSelectedTargetInOffhandRange = useMemo(() => {
+    if (!map || !myCombatParticipant || !selectedTargetParticipant) return false;
+    const sourceTokenId = getParticipantTokenId(myCombatParticipant);
+    const targetTokenId = getParticipantTokenId(selectedTargetParticipant);
+    const sourceToken = sourceTokenId ? map.tokens.find((token) => token.id === sourceTokenId) : null;
+    const targetToken = targetTokenId ? map.tokens.find((token) => token.id === targetTokenId) : null;
+    if (!sourceToken || !targetToken) return false;
+    return getGridDistanceFt(map, sourceToken, targetToken) <= offhandAttackRangeFt;
+  }, [offhandAttackRangeFt, map, myCombatParticipant, selectedTargetParticipant]);
   const canAttackWithEquippedWeapon = Boolean(
     isMyCombatTurn &&
       myActionResources?.actionAvailable &&
@@ -263,6 +415,21 @@ export function CombatNodeSurface({
       !isCombatBusy
   );
   const canUseAction = Boolean(isMyCombatTurn && myActionResources?.actionAvailable && !isCombatBusy);
+  const canUseOffhandAttack = Boolean(
+    isMyCombatTurn &&
+      myActionResources?.twoWeaponAttackAvailable &&
+      myActionResources?.bonusActionAvailable &&
+      offhandWeapon &&
+      offhandWeaponIsLightMelee &&
+      selectedTargetParticipant?.isHostile &&
+      selectedTargetParticipant.isAlive &&
+      isSelectedTargetInOffhandRange &&
+      !isCombatBusy
+  );
+  const classAbilityButtons = useMemo(
+    () => getClassAbilityButtons(myCharacter, myCombatParticipant?.conditions),
+    [myCharacter, myCombatParticipant?.conditions]
+  );
   const currentTab = actionTabs.find((tab) => tab.id === activeTab) ?? actionTabs[0];
   const turnOrder = combat?.participants ?? [];
   const activeParticipantCount = turnOrder.filter((participant) => participant.isAlive).length;
@@ -283,6 +450,12 @@ export function CombatNodeSurface({
       available: myActionResources?.reactionAvailable ?? false,
     },
   ];
+
+  useEffect(() => {
+    if (!actionTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab('basic');
+    }
+  }, [activeTab, actionTabs]);
 
   function getMapToken(tokenId: string | null | undefined) {
     return tokenId ? (map?.tokens.find((token) => token.id === tokenId) ?? null) : null;
@@ -363,6 +536,11 @@ export function CombatNodeSurface({
   function runEquippedWeaponAttack(targetParticipantId: string) {
     setAttackTargeting(false);
     void onAttackWithEquippedWeapon(targetParticipantId);
+  }
+
+  function runOffhandWeaponAttack(targetParticipantId: string) {
+    setAttackTargeting(false);
+    void onAttackWithOffhandWeapon(targetParticipantId);
   }
 
   function handleCombatMapSelection(selection: BattleMapSelection | null) {
@@ -497,19 +675,27 @@ export function CombatNodeSurface({
             {combatError ? <p className="combat-error">{combatError}</p> : null}
           </div>
           {map ? (
-            <BattleMap
-              map={map}
-              characters={characters}
-              isHost={isHost}
-              currentUserId={currentUserId}
-              interactionMode="session"
-              isInteractionLocked={!isMyCombatTurn}
-              tokenMovementRangeFtByTokenId={tokenMovementRangeFtByTokenId}
-              attackRangeOverlay={attackRangeOverlay}
-              onChange={onMapChange}
-              onSelectionChange={handleCombatMapSelection}
-              title={node?.title ?? '전투 지도'}
-            />
+            <>
+              <MapPartyOverlay
+                characters={characters}
+                currentUserId={currentUserId}
+                getCharacterColorStyle={getCharacterColorStyle}
+                onCharacterClick={(character) => setSelectedTurnCharacterId(character.id)}
+              />
+              <BattleMap
+                map={map}
+                characters={characters}
+                isHost={isHost}
+                currentUserId={currentUserId}
+                interactionMode="session"
+                isInteractionLocked={!isMyCombatTurn}
+                tokenMovementRangeFtByTokenId={tokenMovementRangeFtByTokenId}
+                attackRangeOverlay={attackRangeOverlay}
+                onChange={onMapChange}
+                onSelectionChange={handleCombatMapSelection}
+                title={node?.title ?? '전투 지도'}
+              />
+            </>
           ) : (
             <div className="combat-map-placeholder">
               <span>전투 지도</span>
@@ -581,35 +767,86 @@ export function CombatNodeSurface({
           </div>
 
           <div className="combat-action-list">
-            {currentTab.actions.map((action) => {
+            {currentTab.id === 'ability' ? (
+              classAbilityButtons.length ? (
+                classAbilityButtons.map((ability) => {
+                  const canUseFeature = Boolean(
+                    isMyCombatTurn &&
+                      !isCombatBusy &&
+                      !ability.disabled &&
+                      (!ability.requiresBonusAction || myActionResources?.bonusActionAvailable)
+                  );
+                  return (
+                    <button
+                      type="button"
+                      key={ability.key}
+                      disabled={!canUseFeature}
+                      title={ability.disabled ? '이미 사용한 능력입니다.' : ability.title}
+                      onClick={() => void onUseClassFeature(ability.action)}
+                    >
+                      {ability.label}
+                    </button>
+                  );
+                })
+              ) : (
+                <button type="button" disabled>
+                  사용 가능한 직업 능력 없음
+                </button>
+              )
+            ) : currentTab.actions.map((action) => {
               if (action === '공격') {
                 return (
-                  <button
-                    type="button"
-                    key={action}
-                    className={isAttackTargeting ? 'targeting' : ''}
-                    disabled={!canAttackWithEquippedWeapon && !canStartAttackTargeting}
-                    title={
-                      isAttackTargeting
-                        ? `${attackName} 사거리 ${attackRangeFt}ft 안의 적 토큰을 선택하세요.`
-                        : !selectedTargetParticipant
-                          ? `${attackName} 버튼을 눌러 사거리를 확인하고 적 토큰을 선택하세요.`
-                        : !isSelectedTargetInRange
-                          ? `대상이 ${attackName} 사거리 ${attackRangeFt}ft 밖에 있습니다.`
-                          : `${attackName} 공격`
-                    }
-                    onClick={() => {
-                      if (canAttackWithEquippedWeapon && selectedTargetParticipant) {
-                        runEquippedWeaponAttack(selectedTargetParticipant.sessionEntityId);
-                        return;
+                  <Fragment key={action}>
+                    <button
+                      type="button"
+                      className={isAttackTargeting ? 'targeting' : ''}
+                      disabled={!canAttackWithEquippedWeapon && !canStartAttackTargeting}
+                      title={
+                        isAttackTargeting
+                          ? `${attackName} 사거리 ${attackRangeFt}ft 안의 적 토큰을 선택하세요.`
+                          : !selectedTargetParticipant
+                            ? `${attackName} 버튼을 눌러 사거리를 확인하고 적 토큰을 선택하세요.`
+                          : !isSelectedTargetInRange
+                            ? `대상이 ${attackName} 사거리 ${attackRangeFt}ft 밖에 있습니다.`
+                            : `${attackName} 공격`
                       }
-                      if (canStartAttackTargeting) {
-                        setAttackTargeting((current) => !current);
-                      }
-                    }}
-                  >
-                    공격
-                  </button>
+                      onClick={() => {
+                        if (canAttackWithEquippedWeapon && selectedTargetParticipant) {
+                          runEquippedWeaponAttack(selectedTargetParticipant.sessionEntityId);
+                          return;
+                        }
+                        if (canStartAttackTargeting) {
+                          setAttackTargeting((current) => !current);
+                        }
+                      }}
+                    >
+                      공격
+                    </button>
+                    {offhandWeapon ? (
+                      <button
+                        type="button"
+                        disabled={!canUseOffhandAttack}
+                        title={
+                          !offhandWeaponIsLightMelee
+                            ? 'SRD 기준 쌍수 보조 공격은 light 근접 무기로만 가능합니다.'
+                            : !myActionResources?.twoWeaponAttackAvailable
+                              ? '먼저 Attack action으로 다른 손의 light 근접 무기 공격을 해야 합니다.'
+                          : !selectedTargetParticipant
+                            ? '보조 공격할 적 토큰을 먼저 선택하세요.'
+                            : !isSelectedTargetInOffhandRange
+                              ? `대상이 ${offhandAttackName} 사거리 ${offhandAttackRangeFt}ft 밖에 있습니다.`
+                              : `${offhandAttackName} - 추가 행동 소모`
+                        }
+                        onClick={() => {
+                          if (canUseOffhandAttack && selectedTargetParticipant) {
+                            runOffhandWeaponAttack(selectedTargetParticipant.sessionEntityId);
+                          }
+                        }}
+                      >
+                        보조 공격
+                      </button>
+                    ) : null}
+                  </Fragment>
                 );
               }
               if (action === '대시') {
@@ -674,7 +911,8 @@ export function CombatNodeSurface({
                 const isWeapon = isWeaponItem(item);
                 const isArmor = isArmorItem(item);
                 const isEquipped = isWeapon
-                  ? isEquippedItem(item, myCharacter?.equippedWeaponId)
+                  ? isEquippedItem(item, myCharacter?.equippedWeaponId) ||
+                    isEquippedItem(item, myCharacter?.offhandWeaponId)
                   : isArmor;
                 return (
                   <article className="combat-inventory-item" key={item.id}>

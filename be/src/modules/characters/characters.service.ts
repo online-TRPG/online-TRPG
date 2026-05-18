@@ -82,11 +82,13 @@ export class CharactersService {
     const inventoryFromEquipment = await this.resolveStartingEquipment(
       className,
       dto.startingEquipmentSelection,
+      dto.startingEquipmentItemSelections,
     );
     const inventory = inventoryFromEquipment ?? dto.inventory ?? [];
     const equippedWeaponId =
       dto.equippedWeaponId ?? this.resolveDefaultEquippedWeaponId(inventory);
-    await this.validateInventoryAndEquippedWeapon(inventory, equippedWeaponId);
+    const offhandWeaponId = dto.offhandWeaponId ?? null;
+    await this.validateEquipmentLoadout(inventory, equippedWeaponId, offhandWeaponId);
     const spellsJsonValue = await this.resolveStartingSpells(className, dto.startingSpells);
     const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
       className,
@@ -117,6 +119,7 @@ export class CharactersService {
         inventoryJson: JSON.stringify(inventory),
         spellsJson: spellsJsonValue,
         equippedWeaponId,
+        offhandWeaponId,
         avatarType: this.toAvatarType(dto.avatarType),
         avatarPresetId: dto.avatarPresetId ?? null,
         avatarUrl: dto.avatarUrl ?? null,
@@ -171,6 +174,8 @@ export class CharactersService {
       dto.inventory ?? (JSON.parse(existing.inventoryJson) as InventoryItemDto[]);
     const finalEquippedWeaponId =
       dto.equippedWeaponId === undefined ? existing.equippedWeaponId : dto.equippedWeaponId;
+    const finalOffhandWeaponId =
+      dto.offhandWeaponId === undefined ? existing.offhandWeaponId : dto.offhandWeaponId;
 
     if (dto.abilities !== undefined) {
       this.validateAbilitiesRange(finalAbilities);
@@ -180,8 +185,12 @@ export class CharactersService {
       dto.proficientSkills !== undefined
         ? await this.validateProficientSkills(finalClassName, dto.proficientSkills)
         : null;
-    if (dto.inventory !== undefined || dto.equippedWeaponId !== undefined) {
-      await this.validateInventoryAndEquippedWeapon(finalInventory, finalEquippedWeaponId);
+    if (
+      dto.inventory !== undefined ||
+      dto.equippedWeaponId !== undefined ||
+      dto.offhandWeaponId !== undefined
+    ) {
+      await this.validateEquipmentLoadout(finalInventory, finalEquippedWeaponId, finalOffhandWeaponId);
     }
 
     // abilities/level/className/maxHp/proficiencyBonus 중 어느 하나라도 변경되면 룰북 공식 재계산.
@@ -225,6 +234,7 @@ export class CharactersService {
         speed: dto.speed ?? existing.speed,
         inventoryJson: JSON.stringify(finalInventory),
         equippedWeaponId: finalEquippedWeaponId,
+        offhandWeaponId: finalOffhandWeaponId,
         avatarType:
           dto.avatarType === undefined ? existing.avatarType : this.toAvatarType(dto.avatarType),
         avatarPresetId:
@@ -317,6 +327,7 @@ export class CharactersService {
         inventoryJson: source.inventoryJson,
         spellsJson: source.spellsJson,
         equippedWeaponId: source.equippedWeaponId,
+        offhandWeaponId: source.offhandWeaponId,
         bio: source.bio,
         avatarType: source.avatarType,
         avatarPresetId: source.avatarPresetId,
@@ -343,6 +354,7 @@ export class CharactersService {
       characterId: character.id,
       inventory: JSON.parse(character.inventoryJson) as CharacterInventoryResponseDto["inventory"],
       equippedWeaponId: character.equippedWeaponId ?? null,
+      offhandWeaponId: character.offhandWeaponId ?? null,
     };
   }
 
@@ -353,19 +365,21 @@ export class CharactersService {
   ): Promise<CharacterResponseDto> {
     const character = await this.getOwnedCharacterOrThrow(userId, characterId);
 
-    const finalEquippedWeaponId =
-      dto.equippedWeaponId === undefined ? character.equippedWeaponId : dto.equippedWeaponId;
-    if (dto.equippedWeaponId !== undefined) {
-      const inventory = JSON.parse(character.inventoryJson) as InventoryItemDto[];
-      await this.validateInventoryAndEquippedWeapon(inventory, finalEquippedWeaponId, {
-        allowSessionInventoryForCharacterId: characterId,
-      });
-    }
+    const inventory = JSON.parse(character.inventoryJson) as InventoryItemDto[];
+    const finalLoadout = await this.resolveNextEquipmentLoadout({
+      characterId,
+      inventory,
+      currentMainWeaponId: character.equippedWeaponId ?? null,
+      currentOffhandWeaponId: character.offhandWeaponId ?? null,
+      requestedMainWeaponId: dto.equippedWeaponId,
+      requestedOffhandWeaponId: dto.offhandWeaponId,
+    });
 
     const updated = await this.prisma.character.update({
       where: { id: characterId },
       data: {
-        equippedWeaponId: finalEquippedWeaponId,
+        equippedWeaponId: finalLoadout.equippedWeaponId,
+        offhandWeaponId: finalLoadout.offhandWeaponId,
       },
       include: {
         sessionCharacters: {
@@ -569,6 +583,104 @@ export class CharactersService {
     return normalized;
   }
 
+  private async resolveNextEquipmentLoadout(params: {
+    characterId: string;
+    inventory: InventoryItemDto[];
+    currentMainWeaponId: string | null;
+    currentOffhandWeaponId: string | null;
+    requestedMainWeaponId?: string | null;
+    requestedOffhandWeaponId?: string | null;
+  }): Promise<{ equippedWeaponId: string | null; offhandWeaponId: string | null }> {
+    let equippedWeaponId =
+      params.requestedMainWeaponId === undefined
+        ? params.currentMainWeaponId
+        : params.requestedMainWeaponId;
+    let offhandWeaponId =
+      params.requestedOffhandWeaponId === undefined
+        ? params.currentOffhandWeaponId
+        : params.requestedOffhandWeaponId;
+
+    if (
+      params.requestedMainWeaponId &&
+      params.requestedOffhandWeaponId === undefined &&
+      params.currentMainWeaponId &&
+      params.currentMainWeaponId !== params.requestedMainWeaponId &&
+      !params.currentOffhandWeaponId
+    ) {
+      const currentMain = await this.resolveEquippedWeaponCandidate(
+        params.inventory,
+        params.currentMainWeaponId,
+        { allowSessionInventoryForCharacterId: params.characterId },
+      );
+      const requestedMain = await this.resolveEquippedWeaponCandidate(
+        params.inventory,
+        params.requestedMainWeaponId,
+        { allowSessionInventoryForCharacterId: params.characterId },
+      );
+
+      if (
+        currentMain &&
+        requestedMain &&
+        this.isOneHandWeaponCandidate(currentMain) &&
+        this.isOneHandWeaponCandidate(requestedMain)
+      ) {
+        equippedWeaponId = params.currentMainWeaponId;
+        offhandWeaponId = params.requestedMainWeaponId;
+      }
+    }
+
+    if (equippedWeaponId && offhandWeaponId && equippedWeaponId === offhandWeaponId) {
+      offhandWeaponId = null;
+    }
+
+    if (!equippedWeaponId) {
+      offhandWeaponId = null;
+    }
+
+    if (equippedWeaponId) {
+      const main = await this.resolveEquippedWeaponCandidate(params.inventory, equippedWeaponId, {
+        allowSessionInventoryForCharacterId: params.characterId,
+      });
+      if (main && !this.isOneHandWeaponCandidate(main)) {
+        offhandWeaponId = null;
+      }
+    }
+
+    await this.validateEquipmentLoadout(params.inventory, equippedWeaponId, offhandWeaponId, {
+      allowSessionInventoryForCharacterId: params.characterId,
+    });
+
+    return { equippedWeaponId, offhandWeaponId };
+  }
+
+  private async validateEquipmentLoadout(
+    inventory: InventoryItemDto[],
+    equippedWeaponId: string | null,
+    offhandWeaponId: string | null,
+    options?: { allowSessionInventoryForCharacterId?: string },
+  ): Promise<void> {
+    await this.validateInventoryAndEquippedWeapon(inventory, equippedWeaponId, options);
+    await this.validateInventoryAndEquippedWeapon(inventory, offhandWeaponId, options);
+
+    if (!equippedWeaponId || !offhandWeaponId) {
+      return;
+    }
+    if (equippedWeaponId === offhandWeaponId) {
+      throw new BadRequestException("장비: 같은 무기를 양손에 동시에 장착할 수 없습니다.");
+    }
+
+    const main = await this.resolveEquippedWeaponCandidate(inventory, equippedWeaponId, options);
+    const offhand = await this.resolveEquippedWeaponCandidate(inventory, offhandWeaponId, options);
+    if (!main || !offhand) {
+      return;
+    }
+    if (!this.isOneHandWeaponCandidate(main) || !this.isOneHandWeaponCandidate(offhand)) {
+      throw new BadRequestException(
+        "장비: 쌍수 장착은 한손 근접 무기 두 개일 때만 가능합니다.",
+      );
+    }
+  }
+
   // 인벤토리/장착 무기 검증.
   // - inventory 의 모든 itemDefinitionId 가 ItemDefinition 카탈로그에 존재 (legacy: itemDefinitionId 없는 항목은 skip)
   // - equippedWeaponId 가 null 이 아니면 inventory 안에 entry.id 또는 itemDefinitionId 가 일치하는 항목 있어야 함
@@ -637,6 +749,52 @@ export class CharactersService {
         );
       }
     }
+  }
+
+  private async resolveEquippedWeaponCandidate(
+    inventory: InventoryItemDto[],
+    equippedWeaponId: string | null,
+    options?: { allowSessionInventoryForCharacterId?: string },
+  ): Promise<InventoryItemDto | null> {
+    if (!equippedWeaponId) {
+      return null;
+    }
+
+    const matched = inventory.find(
+      (item) => item.id === equippedWeaponId || item.itemDefinitionId === equippedWeaponId,
+    );
+    if (matched) {
+      return matched;
+    }
+
+    if (!options?.allowSessionInventoryForCharacterId) {
+      return null;
+    }
+
+    const sessionInventoryMatch = await this.prisma.inventoryEntry.findFirst({
+      where: {
+        sessionCharacter: {
+          characterId: options.allowSessionInventoryForCharacterId,
+        },
+        OR: [{ id: equippedWeaponId }, { itemDefinitionId: equippedWeaponId }],
+      },
+      include: { itemDefinition: true },
+    });
+
+    if (!sessionInventoryMatch) {
+      return null;
+    }
+
+    return {
+      id: sessionInventoryMatch.id,
+      name: sessionInventoryMatch.itemDefinition.name,
+      quantity: sessionInventoryMatch.quantity,
+      itemDefinitionId: sessionInventoryMatch.itemDefinitionId,
+      itemType: sessionInventoryMatch.itemDefinition.itemType,
+      damageDice: sessionInventoryMatch.itemDefinition.damageDice ?? undefined,
+      damageType: sessionInventoryMatch.itemDefinition.damageType ?? undefined,
+      properties: this.parseStringArrayJson(sessionInventoryMatch.itemDefinition.propertiesJson),
+    };
   }
 
   // 캐릭터가 PLAYING/PAUSED 세션에 속해 있으면 ConflictException(409).
@@ -755,6 +913,7 @@ export class CharactersService {
   private async resolveStartingEquipment(
     className: string,
     selection: number[] | undefined,
+    itemSelections: Record<string, string> | undefined,
   ): Promise<InventoryItemDto[] | null> {
     const lower = className.toLowerCase();
     const klass = await this.catalogService.findClassByKey(lower);
@@ -781,13 +940,20 @@ export class CharactersService {
         );
       }
       const option = slot.options[optionIndex]!;
-      for (const item of option.items) {
-        const catalogItem = await this.prisma.item.findUnique({ where: { key: item.itemKey } });
-        if (!catalogItem) {
+      for (let itemIndex = 0; itemIndex < option.items.length; itemIndex++) {
+        const item = option.items[itemIndex]!;
+        const baseCatalogItem = await this.prisma.item.findUnique({ where: { key: item.itemKey } });
+        if (!baseCatalogItem) {
           throw new BadRequestException(
             `시작 장비: 아이템 시드에 ${item.itemKey} 가 없습니다.`,
           );
         }
+        const catalogItem = await this.resolveConcreteStartingEquipmentItem(
+          baseCatalogItem,
+          itemSelections?.[`${slotIndex}:${itemIndex}`],
+          slotIndex,
+          itemIndex,
+        );
         inventory.push({
           id: `${catalogItem.key}-${slotIndex}-${inventory.length}`,
           name: catalogItem.koName,
@@ -798,6 +964,77 @@ export class CharactersService {
       }
     }
     return inventory;
+  }
+
+  private async resolveConcreteStartingEquipmentItem(
+    baseCatalogItem: { id: string; key: string; koName: string; category: string },
+    selectedItemKey: string | undefined,
+    slotIndex: number,
+    itemIndex: number,
+  ): Promise<{ id: string; key: string; koName: string; category: string }> {
+    const matcher = this.getStartingEquipmentPlaceholderMatcher(baseCatalogItem.category);
+    if (!matcher) {
+      return baseCatalogItem;
+    }
+
+    const normalizedSelectedItemKey = selectedItemKey?.trim();
+    if (!normalizedSelectedItemKey) {
+      throw new BadRequestException(
+        `시작 장비: 슬롯 ${slotIndex} 의 ${itemIndex}번째 항목(${baseCatalogItem.koName})은 실제 아이템 선택이 필요합니다.`,
+      );
+    }
+
+    const selectedCatalogItem = await this.prisma.item.findUnique({
+      where: { key: normalizedSelectedItemKey },
+    });
+    if (!selectedCatalogItem) {
+      throw new BadRequestException(
+        `시작 장비: 선택한 아이템 ${normalizedSelectedItemKey} 이(가) 아이템 시드에 없습니다.`,
+      );
+    }
+    if (!matcher.isAllowed(selectedCatalogItem.category)) {
+      throw new BadRequestException(
+        `시작 장비: ${baseCatalogItem.koName} 자리에는 ${matcher.label}만 선택할 수 있습니다. (받은 값: ${selectedCatalogItem.koName})`,
+      );
+    }
+
+    return selectedCatalogItem;
+  }
+
+  private getStartingEquipmentPlaceholderMatcher(category: string):
+    | { label: string; isAllowed: (candidateCategory: string) => boolean }
+    | null {
+    switch (category) {
+      case "placeholder-weapon-simple":
+        return {
+          label: "단순 무기",
+          isAllowed: (candidateCategory) =>
+            candidateCategory.startsWith("weapon-") && candidateCategory.endsWith("-simple"),
+        };
+      case "placeholder-weapon-simple-melee":
+        return {
+          label: "단순 근접 무기",
+          isAllowed: (candidateCategory) => candidateCategory === "weapon-melee-simple",
+        };
+      case "placeholder-weapon-martial":
+        return {
+          label: "군용 무기",
+          isAllowed: (candidateCategory) =>
+            candidateCategory.startsWith("weapon-") && candidateCategory.endsWith("-martial"),
+        };
+      case "placeholder-weapon-martial-melee":
+        return {
+          label: "군용 근접 무기",
+          isAllowed: (candidateCategory) => candidateCategory === "weapon-melee-martial",
+        };
+      case "placeholder-instrument":
+        return {
+          label: "악기",
+          isAllowed: (candidateCategory) => candidateCategory === "instrument",
+        };
+      default:
+        return null;
+    }
   }
 
   private resolveDefaultEquippedWeaponId(inventory: InventoryItemDto[]): string | null {
@@ -855,6 +1092,17 @@ export class CharactersService {
     return item.itemType === "weapon" || key.includes("weapon-") || key.includes("무기");
   }
 
+  private isOneHandWeaponCandidate(item: InventoryItemDto): boolean {
+    if (!this.isWeaponInventoryItem(item)) {
+      return false;
+    }
+    const properties = new Set(
+      [...(item.properties ?? []), ...this.getFallbackWeaponProperties(item)]
+        .map((property) => property.toLowerCase().replace(/\s+/g, "-")),
+    );
+    return !properties.has("two-handed") && !properties.has("ranged");
+  }
+
   private isArmorInventoryItem(item: InventoryItemDto): boolean {
     const key = this.getInventoryItemSearchKey(item);
     return item.itemType === "armor" || key.includes("armor-") || key.includes("갑옷");
@@ -870,6 +1118,60 @@ export class CharactersService {
       .filter((value): value is string => Boolean(value))
       .join(" ")
       .toLowerCase();
+  }
+
+  private getFallbackWeaponProperties(item: InventoryItemDto): string[] {
+    const key = this.getInventoryItemSearchKey(item).replace(/_/g, "-");
+    const profiles: Record<string, string[]> = {
+      dagger: ["finesse", "light", "thrown"],
+      dart: ["ranged", "thrown"],
+      greataxe: ["melee", "heavy", "two-handed"],
+      handaxe: ["light", "thrown"],
+      javelin: ["thrown"],
+      "light-crossbow": ["ranged", "two-handed"],
+      longsword: ["melee", "versatile"],
+      longbow: ["ranged", "two-handed"],
+      mace: ["melee"],
+      quarterstaff: ["melee", "versatile"],
+      rapier: ["melee", "finesse"],
+      scimitar: ["melee", "finesse", "light"],
+      shortbow: ["ranged", "two-handed"],
+      shortsword: ["melee", "finesse", "light"],
+      warhammer: ["melee", "versatile"],
+    };
+    const matchedKey = Object.keys(profiles).find((profileKey) => key.includes(profileKey));
+    if (matchedKey) return profiles[matchedKey]!;
+
+    const koreanProfiles: Array<[string, string[]]> = [
+      ["단검", profiles.dagger],
+      ["다트", profiles.dart],
+      ["그레이트액스", profiles.greataxe],
+      ["핸드액스", profiles.handaxe],
+      ["재블린", profiles.javelin],
+      ["라이트 크로스보우", profiles["light-crossbow"]],
+      ["롱소드", profiles.longsword],
+      ["롱보우", profiles.longbow],
+      ["메이스", profiles.mace],
+      ["쿼터스태프", profiles.quarterstaff],
+      ["레이피어", profiles.rapier],
+      ["시미터", profiles.scimitar],
+      ["쇼트보우", profiles.shortbow],
+      ["쇼트소드", profiles.shortsword],
+      ["워해머", profiles.warhammer],
+    ];
+    return koreanProfiles.find(([name]) => key.includes(name))?.[1] ?? [];
+  }
+
+  private parseStringArrayJson(value: string | null | undefined): string[] {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return Array.isArray(parsed)
+        ? parsed.filter((entry): entry is string => typeof entry === "string")
+        : [];
+    } catch {
+      return [];
+    }
   }
 
   private getAbilityModifier(score: number): number {

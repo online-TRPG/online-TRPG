@@ -247,6 +247,136 @@ const classNameByPresetId: Map<string, string> = new Map([
   ['preset_warrior', 'Fighter'],
 ]);
 
+const fightingStyleOptions = [
+  { value: 'archery', label: 'Archery', effect: '원거리 무기 공격 명중 굴림 +2' },
+  { value: 'defense', label: 'Defense', effect: '갑옷 착용 중 AC +1' },
+  {
+    value: 'dueling',
+    label: 'Dueling',
+    effect: '한 손 근접 무기 하나만 들고 싸우면 피해 +2',
+  },
+  {
+    value: 'great_weapon_fighting',
+    label: 'Great Weapon Fighting',
+    effect: '양손/겸용 근접 무기 피해 주사위 1 또는 2 재굴림',
+  },
+  {
+    value: 'protection',
+    label: 'Protection',
+    effect: '방패 착용 중 5ft 이내 아군 피격 시 reaction으로 공격 불리점 부여',
+  },
+  {
+    value: 'two_weapon_fighting',
+    label: 'Two-Weapon Fighting',
+    effect: '쌍수 보조 공격 피해에도 능력 수정치 추가',
+  },
+];
+
+const favoredEnemyOptions = [
+  { value: 'aberrations', label: '변이체' },
+  { value: 'beasts', label: '야수' },
+  { value: 'celestials', label: '천상체' },
+  { value: 'constructs', label: '구조체' },
+  { value: 'dragons', label: '용' },
+  { value: 'elementals', label: '정령' },
+  { value: 'fey', label: '요정' },
+  { value: 'fiends', label: '악마' },
+  { value: 'giants', label: '거인' },
+  { value: 'monstrosities', label: '괴수' },
+  { value: 'oozes', label: '점액체' },
+  { value: 'plants', label: '식물' },
+  { value: 'undead', label: '언데드' },
+  { value: 'humanoid', label: '인간형 2종' },
+];
+
+const favoredHumanoidOptions = [
+  { value: 'dwarves', label: '드워프' },
+  { value: 'elves', label: '엘프' },
+  { value: 'halflings', label: '하플링' },
+  { value: 'humans', label: '인간' },
+  { value: 'dragonborn', label: '드래곤본' },
+  { value: 'gnomes', label: '노움' },
+  { value: 'half-elves', label: '하프엘프' },
+  { value: 'half-orcs', label: '하프오크' },
+  { value: 'tieflings', label: '티플링' },
+  { value: 'gnolls', label: '놀' },
+  { value: 'goblins', label: '고블린' },
+  { value: 'hobgoblins', label: '홉고블린' },
+  { value: 'kobolds', label: '코볼드' },
+  { value: 'lizardfolk', label: '리자드포크' },
+  { value: 'orcs', label: '오크' },
+];
+
+const startingEquipmentConcreteChoiceOptions = {
+  simpleWeapon: {
+    label: '단순 무기',
+    options: [
+      { value: 'dagger', label: '단검' },
+      { value: 'dart', label: '다트' },
+      { value: 'handaxe', label: '핸드액스' },
+      { value: 'javelin', label: '재블린' },
+      { value: 'light-crossbow', label: '라이트 크로스보우' },
+      { value: 'mace', label: '메이스' },
+      { value: 'quarterstaff', label: '쿼터스태프' },
+      { value: 'shortbow', label: '쇼트보우' },
+    ],
+  },
+  simpleMeleeWeapon: {
+    label: '단순 근접 무기',
+    options: [
+      { value: 'dagger', label: '단검' },
+      { value: 'handaxe', label: '핸드액스' },
+      { value: 'javelin', label: '재블린' },
+      { value: 'mace', label: '메이스' },
+      { value: 'quarterstaff', label: '쿼터스태프' },
+    ],
+  },
+  martialWeapon: {
+    label: '군용 무기',
+    options: [
+      { value: 'greataxe', label: '그레이트액스' },
+      { value: 'longsword', label: '롱소드' },
+      { value: 'longbow', label: '롱보우' },
+      { value: 'rapier', label: '레이피어' },
+      { value: 'scimitar', label: '시미터' },
+      { value: 'shortsword', label: '쇼트소드' },
+      { value: 'warhammer', label: '워해머' },
+    ],
+  },
+  martialMeleeWeapon: {
+    label: '군용 근접 무기',
+    options: [
+      { value: 'greataxe', label: '그레이트액스' },
+      { value: 'longsword', label: '롱소드' },
+      { value: 'rapier', label: '레이피어' },
+      { value: 'scimitar', label: '시미터' },
+      { value: 'shortsword', label: '쇼트소드' },
+      { value: 'warhammer', label: '워해머' },
+    ],
+  },
+  instrument: {
+    label: '악기',
+    options: [{ value: 'lute', label: '류트' }],
+  },
+} as const;
+
+type StartingEquipmentConcreteChoice =
+  (typeof startingEquipmentConcreteChoiceOptions)[keyof typeof startingEquipmentConcreteChoiceOptions];
+
+const classFeatureIdsByClassKey: Record<string, string[]> = {
+  fighter: ['class.fighter.feature.second_wind', 'class.fighter.feature.fighting_style'],
+  ranger: ['class.ranger.feature.favored_enemy'],
+  rogue: ['class.rogue.feature.expertise', 'class.rogue.feature.sneak_attack'],
+};
+const managedClassFeatureIds = new Set(Object.values(classFeatureIdsByClassKey).flat());
+
+const classChoiceFeaturePrefixes = [
+  'fighting_style:',
+  'favored_enemy:',
+  'favored_enemy_humanoid:',
+  'expertise:',
+];
+
 // D&D식 능력치 보정치 계산 함수입니다. 예: 14 -> +2, 8 -> -1.
 function calcModifier(score: number) {
   return Math.floor((score - 10) / 2);
@@ -273,6 +403,26 @@ function normalizeComputedStat(value: number) {
 
 function normalizeIntegerValue(value: number, min = 0) {
   return Math.max(min, Math.round(Number(value) || 0));
+}
+
+function clampAbilitiesToPointBuyRange(
+  abilities: Record<AbilityKey, number>,
+  abilityIncreases: Record<AbilityKey, number>
+) {
+  const clampBase = (ability: AbilityKey) =>
+    Math.min(
+      POINT_BUY_MAX_BASE,
+      Math.max(POINT_BUY_MIN_BASE, abilities[ability] - abilityIncreases[ability])
+    ) + abilityIncreases[ability];
+
+  return {
+    str: clampBase('str'),
+    dex: clampBase('dex'),
+    con: clampBase('con'),
+    int: clampBase('int'),
+    wis: clampBase('wis'),
+    cha: clampBase('cha'),
+  };
 }
 
 function formatStat(value: number) {
@@ -429,10 +579,14 @@ function createDefaultCharacter(): CharacterPayload {
     abilities: baseEightAbilities,
     proficiencyBonus: recommendedStats.proficiencyBonus,
     proficientSkills: [],
+    features: [],
+    startingEquipmentItemSelections: {},
     maxHp: recommendedStats.maxHp,
     armorClass: recommendedStats.armorClass,
     speed: recommendedStats.speed,
     inventory: [],
+    equippedWeaponId: null,
+    offhandWeaponId: null,
   };
 }
 
@@ -501,6 +655,127 @@ function getPresetIdForClassName(className: string) {
 
 function getClassNameForPresetId(presetId: string) {
   return classNameByPresetId.get(presetId) ?? 'Wizard';
+}
+
+function getFeatureValue(features: string[] | undefined, prefix: string) {
+  return (features ?? []).find((feature) => feature.startsWith(prefix))?.slice(prefix.length) ?? '';
+}
+
+function getFeatureValues(features: string[] | undefined, prefix: string) {
+  return (features ?? [])
+    .filter((feature) => feature.startsWith(prefix))
+    .map((feature) => feature.slice(prefix.length));
+}
+
+function replaceFeatureTags(
+  features: string[] | undefined,
+  removedPrefixes: string[],
+  addedFeatures: string[],
+) {
+  const next = (features ?? []).filter(
+    (feature) => !removedPrefixes.some((prefix) => feature.startsWith(prefix))
+  );
+  return Array.from(new Set([...next, ...addedFeatures.filter(Boolean)]));
+}
+
+function buildClassFeaturesForSubmit(className: string, features: string[] | undefined) {
+  const classKey = normalizeClassValue(className).toLowerCase();
+  const baseFeatures = classFeatureIdsByClassKey[classKey] ?? [];
+  const unmanagedFeatures = (features ?? []).filter(
+    (feature) =>
+      !managedClassFeatureIds.has(feature) &&
+      !classChoiceFeaturePrefixes.some((prefix) => feature.startsWith(prefix))
+  );
+  const choiceFeatures = (features ?? []).filter((feature) =>
+    classChoiceFeaturePrefixes.some((prefix) => feature.startsWith(prefix))
+  );
+  return Array.from(new Set([...unmanagedFeatures, ...baseFeatures, ...choiceFeatures]));
+}
+
+function hasRequiredClassFeatureChoices(className: string, features: string[] | undefined) {
+  const classKey = normalizeClassValue(className).toLowerCase();
+  if (classKey === 'fighter') {
+    return Boolean(getFeatureValue(features, 'fighting_style:'));
+  }
+  if (classKey === 'ranger') {
+    const favoredEnemy = getFeatureValue(features, 'favored_enemy:');
+    if (!favoredEnemy) return false;
+    if (favoredEnemy !== 'humanoid') return true;
+    const humanoidRaces = getFeatureValues(features, 'favored_enemy_humanoid:');
+    return humanoidRaces.length === 2 && new Set(humanoidRaces).size === 2;
+  }
+  if (classKey === 'rogue') {
+    return getFeatureValues(features, 'expertise:').length === 2;
+  }
+  return true;
+}
+
+function getStartingEquipmentItemSelectionKey(slotIndex: number, itemIndex: number) {
+  return `${slotIndex}:${itemIndex}`;
+}
+
+function getStartingEquipmentConcreteChoice(
+  itemKey: string,
+): StartingEquipmentConcreteChoice | null {
+  switch (itemKey) {
+    case 'simple-weapon-1':
+    case 'simple-weapon-2':
+      return startingEquipmentConcreteChoiceOptions.simpleWeapon;
+    case 'simple-melee-weapon-1':
+    case 'simple-melee-weapon-2':
+      return startingEquipmentConcreteChoiceOptions.simpleMeleeWeapon;
+    case 'martial-weapon-1':
+    case 'martial-weapon-2':
+      return startingEquipmentConcreteChoiceOptions.martialWeapon;
+    case 'martial-melee-weapon-1':
+      return startingEquipmentConcreteChoiceOptions.martialMeleeWeapon;
+    case 'musical-instrument-1':
+      return startingEquipmentConcreteChoiceOptions.instrument;
+    default:
+      return null;
+  }
+}
+
+function clearStartingEquipmentItemSelectionsForSlot(
+  selections: Record<string, string> | undefined,
+  slotIndex: number,
+) {
+  if (!selections) return {};
+  return Object.fromEntries(
+    Object.entries(selections).filter(([key]) => !key.startsWith(`${slotIndex}:`)),
+  );
+}
+
+function hasRequiredStartingEquipmentItemSelections(
+  selectedClass: ClassDefinitionResponseDto | null | undefined,
+  payload: CharacterPayload,
+) {
+  if (!selectedClass) return true;
+  return getClassStartingEquipmentSlots(selectedClass).every((slot, slotIndex) => {
+    const selectedOptionIndex = payload.startingEquipmentSelection?.[slotIndex] ?? 0;
+    const selectedOption = slot.options[selectedOptionIndex] ?? slot.options[0];
+    if (!selectedOption) return false;
+
+    return selectedOption.items.every((item, itemIndex) => {
+      const choice = getStartingEquipmentConcreteChoice(item.itemKey);
+      if (!choice) return true;
+      const selectionKey = getStartingEquipmentItemSelectionKey(slotIndex, itemIndex);
+      return Boolean(payload.startingEquipmentItemSelections?.[selectionKey]);
+    });
+  });
+}
+
+function getClassStartingEquipmentSlots(selectedClass: ClassDefinitionResponseDto) {
+  if (selectedClass.key !== 'fighter') {
+    return selectedClass.startingEquipment.slots;
+  }
+
+  return selectedClass.startingEquipment.slots.map((slot) => ({
+    ...slot,
+    options: slot.options.filter(
+      (option) => !option.items.some((item) => item.itemKey === 'martial-weapon-2'),
+    ),
+  }));
 }
 
 function getRaceByValue(raceCatalog: RaceData[], value: string): RaceData | null {
@@ -822,6 +1097,7 @@ export function CharacterPage({
       scenarioId: defaultScenario?.id ?? null,
       level: defaultScenario ? normalizeLevel(defaultScenario.startLevel) : defaults.level,
       startingEquipmentSelection,
+      startingEquipmentItemSelections: {},
       startingSpells,
     });
     setInventoryDraft([]);
@@ -852,10 +1128,14 @@ export function CharacterPage({
       abilities: { ...selectedCharacter.abilities },
       proficiencyBonus: selectedCharacter.proficiencyBonus,
       proficientSkills: [...selectedCharacter.proficientSkills],
+      features: [...selectedCharacter.features],
       maxHp: selectedCharacter.maxHp,
       armorClass: selectedCharacter.armorClass,
       speed: selectedCharacter.speed,
       inventory: selectedCharacter.inventory.map((item) => ({ ...item })),
+      equippedWeaponId: selectedCharacter.equippedWeaponId ?? null,
+      offhandWeaponId: selectedCharacter.offhandWeaponId ?? null,
+      startingEquipmentItemSelections: {},
     });
     setInventoryDraft(selectedCharacter.inventory.map((item) => ({ ...item })));
     setSkillInput('');
@@ -882,6 +1162,7 @@ export function CharacterPage({
     const payload = {
       ...formState,
       proficientSkills: formState.proficientSkills?.filter(Boolean) ?? [],
+      features: buildClassFeaturesForSubmit(formState.className, formState.features),
       inventory: inventoryDraft.filter((item) => item.name.trim()),
       assignToSession: !editingCharacterId && Boolean(onReturnToSession),
     };
@@ -962,6 +1243,11 @@ export function CharacterPage({
     setFormState((current) => ({
       ...current,
       proficientSkills: (current.proficientSkills ?? []).filter((entry) => entry !== skill),
+      features: replaceFeatureTags(
+        current.features,
+        [`expertise:${skill}`],
+        [],
+      ),
     }));
   }
 
@@ -1386,7 +1672,11 @@ export function CharacterPage({
                               wis: currentFinals.wis - currentBonus.wis + nextBonus.wis,
                               cha: currentFinals.cha - currentBonus.cha + nextBonus.cha,
                             };
-                            return { ...current, ancestry: nextAncestry, abilities: nextAbilities };
+                            return {
+                              ...current,
+                              ancestry: nextAncestry,
+                              abilities: clampAbilitiesToPointBuyRange(nextAbilities, nextBonus),
+                            };
                           });
                         }}
                         required
@@ -1431,6 +1721,15 @@ export function CharacterPage({
                             const nextSelection = nextClass
                               ? new Array(nextClass.startingEquipment.slots.length).fill(0)
                               : undefined;
+                            const raceBonus = selectedRace?.abilityIncreases ?? {
+                              str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0,
+                            };
+                            const nextAbilities = clampAbilitiesToPointBuyRange(
+                              current.abilities ?? {
+                                str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8,
+                              },
+                              raceBonus,
+                            );
                             const nextSpells = nextClass && (nextClass.startingCantripCount > 0 || nextClass.startingSpellCount > 0)
                               ? {
                                   cantrips: new Array(nextClass.startingCantripCount).fill(''),
@@ -1447,8 +1746,11 @@ export function CharacterPage({
                               armorClass: recommendedStats.armorClass,
                               speed: recommendedStats.speed,
                               proficiencyBonus: recommendedStats.proficiencyBonus,
+                              abilities: nextAbilities,
                               startingEquipmentSelection: nextSelection,
+                              startingEquipmentItemSelections: {},
                               startingSpells: nextSpells,
+                              features: [],
                             };
                           })
                         }
@@ -1774,6 +2076,198 @@ export function CharacterPage({
                   </div>
                 </section>
 
+                {(() => {
+                  const classKey = normalizeClassValue(formState.className).toLowerCase();
+                  const features = formState.features ?? [];
+                  const fightingStyle = getFeatureValue(features, 'fighting_style:');
+                  const selectedFightingStyle = fightingStyleOptions.find(
+                    (option) => option.value === fightingStyle
+                  );
+                  const favoredEnemy = getFeatureValue(features, 'favored_enemy:');
+                  const humanoidRaces = getFeatureValues(features, 'favored_enemy_humanoid:');
+                  const expertiseSelections = getFeatureValues(features, 'expertise:');
+                  const expertiseChoices = [
+                    ...(formState.proficientSkills ?? []),
+                    "thieves_tools",
+                  ];
+
+                  if (!['fighter', 'ranger', 'rogue'].includes(classKey)) {
+                    return null;
+                  }
+
+                  return (
+                    <section className="character-form-section">
+                      <div className="section-heading compact">
+                        <div>
+                          <span className="eyebrow">직업 기능</span>
+                          <h2>1레벨 선택</h2>
+                        </div>
+                      </div>
+
+                      {classKey === 'fighter' ? (
+                        <div>
+                          <label htmlFor="character-fighting-style">Fighting Style</label>
+                          <select
+                            id="character-fighting-style"
+                            value={fightingStyle}
+                            required
+                            onChange={(event) =>
+                              setFormState((current) => ({
+                                ...current,
+                                features: replaceFeatureTags(
+                                  current.features,
+                                  ['fighting_style:'],
+                                  event.target.value ? [`fighting_style:${event.target.value}`] : [],
+                                ),
+                              }))
+                            }
+                          >
+                            <option value="" disabled>
+                              전투 유파 선택
+                            </option>
+                            {fightingStyleOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label} - {option.effect}
+                              </option>
+                            ))}
+                          </select>
+                          {selectedFightingStyle ? (
+                            <p style={{ margin: '8px 0 0 0', fontSize: '0.9rem', opacity: 0.85 }}>
+                              <strong>{selectedFightingStyle.label}</strong>: {selectedFightingStyle.effect}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {classKey === 'ranger' ? (
+                        <div>
+                          <label htmlFor="character-favored-enemy">Favored Enemy</label>
+                          <select
+                            id="character-favored-enemy"
+                            value={favoredEnemy}
+                            required
+                            onChange={(event) =>
+                              setFormState((current) => ({
+                                ...current,
+                                features: replaceFeatureTags(
+                                  current.features,
+                                  ['favored_enemy:', 'favored_enemy_humanoid:'],
+                                  event.target.value ? [`favored_enemy:${event.target.value}`] : [],
+                                ),
+                              }))
+                            }
+                          >
+                            <option value="" disabled>
+                              주적 선택
+                            </option>
+                            {favoredEnemyOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          {favoredEnemy === 'humanoid' ? (
+                            <div className="field-row" style={{ marginTop: 10 }}>
+                              {[0, 1].map((index) => (
+                                <div key={index}>
+                                  <label htmlFor={`character-favored-humanoid-${index}`}>
+                                    인간형 종족 {index + 1}
+                                  </label>
+                                  <select
+                                    id={`character-favored-humanoid-${index}`}
+                                    value={humanoidRaces[index] ?? ''}
+                                    required
+                                    onChange={(event) => {
+                                      const nextRaces = [...humanoidRaces];
+                                      nextRaces[index] = event.target.value;
+                                      setFormState((current) => ({
+                                        ...current,
+                                        features: replaceFeatureTags(
+                                          current.features,
+                                          ['favored_enemy:', 'favored_enemy_humanoid:'],
+                                          [
+                                            'favored_enemy:humanoid',
+                                            ...nextRaces
+                                              .filter(Boolean)
+                                              .map((race) => `favored_enemy_humanoid:${race}`),
+                                          ],
+                                        ),
+                                      }));
+                                    }}
+                                  >
+                                    <option value="" disabled>
+                                      인간형 종족 선택
+                                    </option>
+                                    {favoredHumanoidOptions.map((option) => (
+                                      <option
+                                        key={option.value}
+                                        value={option.value}
+                                        disabled={
+                                          humanoidRaces.some(
+                                            (race, raceIndex) =>
+                                              raceIndex !== index && race === option.value,
+                                          )
+                                        }
+                                      >
+                                        {option.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {classKey === 'rogue' ? (
+                        <div>
+                          <p style={{ margin: '0 0 12px 0', fontSize: '0.9rem', opacity: 0.85 }}>
+                            숙련 기술 2개, 또는 숙련 기술 1개와 Thieves' tools를 선택합니다
+                            (현재 {expertiseSelections.length}/2).
+                          </p>
+                          <div className="character-chip-row">
+                            {expertiseChoices.map((choice) => {
+                              const selected = expertiseSelections.includes(choice);
+                              const disabled = !selected && expertiseSelections.length >= 2;
+                              return (
+                                <button
+                                  key={choice}
+                                  type="button"
+                                  className="character-skill-chip"
+                                  aria-pressed={selected}
+                                  disabled={disabled}
+                                  onClick={() =>
+                                    setFormState((current) => {
+                                      const currentSelections = getFeatureValues(
+                                        current.features,
+                                        'expertise:',
+                                      );
+                                      const nextSelections = currentSelections.includes(choice)
+                                        ? currentSelections.filter((entry) => entry !== choice)
+                                        : [...currentSelections, choice].slice(0, 2);
+                                      return {
+                                        ...current,
+                                        features: replaceFeatureTags(
+                                          current.features,
+                                          ['expertise:'],
+                                          nextSelections.map((entry) => `expertise:${entry}`),
+                                        ),
+                                      };
+                                    })
+                                  }
+                                >
+                                  {choice === 'thieves_tools' ? "Thieves' tools" : getSkillLabel(choice)}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                    </section>
+                  );
+                })()}
+
                 {selectedClass ? (
                   <section className="character-form-section">
                     <div className="section-heading compact">
@@ -1782,13 +2276,17 @@ export function CharacterPage({
                         <h2>슬롯 선택 (룰북 강제)</h2>
                       </div>
                     </div>
-                    {selectedClass.startingEquipment.slots.map((slot, slotIndex) => {
+                    {getClassStartingEquipmentSlots(selectedClass).map((slot, slotIndex) => {
                       const selectedOptionIndex =
                         formState.startingEquipmentSelection?.[slotIndex] ?? 0;
+                      const selectedOption = slot.options[selectedOptionIndex] ?? slot.options[0];
                       const formatOption = (option: typeof slot.options[number]) =>
                         option.items
                           .map((it) => {
-                            const ko = itemKoNameByKey.get(it.itemKey) ?? it.itemKey;
+                            const concreteChoice = getStartingEquipmentConcreteChoice(it.itemKey);
+                            const ko = concreteChoice
+                              ? `${concreteChoice.label} 선택`
+                              : itemKoNameByKey.get(it.itemKey) ?? it.itemKey;
                             return it.quantity > 1 ? `${ko} ×${it.quantity}` : ko;
                           })
                           .join(' + ');
@@ -1810,10 +2308,18 @@ export function CharacterPage({
                                 setFormState((current) => {
                                   const base =
                                     current.startingEquipmentSelection ??
-                                    new Array(selectedClass.startingEquipment.slots.length).fill(0);
+                                    new Array(getClassStartingEquipmentSlots(selectedClass).length).fill(0);
                                   const next = [...base];
                                   next[slotIndex] = idx;
-                                  return { ...current, startingEquipmentSelection: next };
+                                  return {
+                                    ...current,
+                                    startingEquipmentSelection: next,
+                                    startingEquipmentItemSelections:
+                                      clearStartingEquipmentItemSelectionsForSlot(
+                                        current.startingEquipmentItemSelections,
+                                        slotIndex,
+                                      ),
+                                  };
                                 });
                               }}
                             >
@@ -1824,6 +2330,46 @@ export function CharacterPage({
                               ))}
                             </select>
                           )}
+                          {selectedOption?.items.map((item, itemIndex) => {
+                            const concreteChoice = getStartingEquipmentConcreteChoice(item.itemKey);
+                            if (!concreteChoice) return null;
+                            const selectionKey = getStartingEquipmentItemSelectionKey(
+                              slotIndex,
+                              itemIndex,
+                            );
+                            return (
+                              <div key={selectionKey} style={{ marginTop: 8 }}>
+                                <label htmlFor={`starting-equipment-item-${selectionKey}`}>
+                                  {item.quantity > 1
+                                    ? `${concreteChoice.label} ${item.quantity}개`
+                                    : concreteChoice.label}
+                                </label>
+                                <select
+                                  id={`starting-equipment-item-${selectionKey}`}
+                                  value={formState.startingEquipmentItemSelections?.[selectionKey] ?? ''}
+                                  required
+                                  onChange={(event) =>
+                                    setFormState((current) => ({
+                                      ...current,
+                                      startingEquipmentItemSelections: {
+                                        ...(current.startingEquipmentItemSelections ?? {}),
+                                        [selectionKey]: event.target.value,
+                                      },
+                                    }))
+                                  }
+                                >
+                                  <option value="" disabled>
+                                    {concreteChoice.label} 선택
+                                  </option>
+                                  {concreteChoice.options.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            );
+                          })}
                         </div>
                       );
                     })}
@@ -1970,6 +2516,21 @@ export function CharacterPage({
                                   current.level ?? 1,
                                   current.abilities
                                 );
+                                const raceBonus = selectedRace?.abilityIncreases ?? {
+                                  str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0,
+                                };
+                                const recommendedAbilitiesWithRace = {
+                                  ...recommendedAbilities,
+                                  str: recommendedAbilities.str + raceBonus.str,
+                                  dex: recommendedAbilities.dex + raceBonus.dex,
+                                  int: recommendedAbilities.int + raceBonus.int,
+                                };
+                                const nextClass = classDefinitions.find(
+                                  (c) => c.key === className.toLowerCase(),
+                                );
+                                const nextSelection = nextClass
+                                  ? new Array(nextClass.startingEquipment.slots.length).fill(0)
+                                  : undefined;
 
                                 return {
                                   ...current,
@@ -1981,7 +2542,13 @@ export function CharacterPage({
                                   armorClass: recommendedStats.armorClass,
                                   speed: recommendedStats.speed,
                                   proficiencyBonus: recommendedStats.proficiencyBonus,
-                                  abilities: recommendedAbilities,
+                                  abilities: clampAbilitiesToPointBuyRange(
+                                    recommendedAbilitiesWithRace,
+                                    raceBonus,
+                                  ),
+                                  features: [],
+                                  startingEquipmentSelection: nextSelection,
+                                  startingEquipmentItemSelections: {},
                                 };
                               })
                             }
@@ -2080,10 +2647,35 @@ export function CharacterPage({
                   클래스 정의를 불러오는 중입니다. 잠시만 기다려 주세요.
                 </p>
               ) : null}
+              {classDefinitions.length > 0 &&
+              !hasRequiredClassFeatureChoices(formState.className, formState.features) ? (
+                <p
+                  className="panel-error"
+                  role="status"
+                  style={{ margin: '12px 0 0 0', fontSize: '0.85rem', opacity: 0.8 }}
+                >
+                  선택한 직업의 1레벨 기능 선택을 완료해야 합니다.
+                </p>
+              ) : null}
+              {classDefinitions.length > 0 &&
+              !hasRequiredStartingEquipmentItemSelections(selectedClass, formState) ? (
+                <p
+                  className="panel-error"
+                  role="status"
+                  style={{ margin: '12px 0 0 0', fontSize: '0.85rem', opacity: 0.8 }}
+                >
+                  시작 장비의 자유 선택 항목에서 실제 아이템을 선택해야 합니다.
+                </p>
+              ) : null}
               <button
                 type="submit"
                 className="primary"
-                disabled={busy || classDefinitions.length === 0}
+                disabled={
+                  busy ||
+                  classDefinitions.length === 0 ||
+                  !hasRequiredClassFeatureChoices(formState.className, formState.features) ||
+                  !hasRequiredStartingEquipmentItemSelections(selectedClass, formState)
+                }
               >
                 {editingCharacterId ? '저장' : '생성'}
               </button>

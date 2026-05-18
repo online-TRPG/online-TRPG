@@ -96,6 +96,7 @@ export type CharacterModel = {
   speed: number;
   inventory: InventoryItem[];
   equippedWeaponId?: string | null;
+  offhandWeaponId?: string | null;
   avatarType: CharacterAvatarType;
   avatarPresetId?: string | null;
   avatarUrl?: string | null;
@@ -130,6 +131,7 @@ export type SessionCharacterModel = {
   speed: number;
   inventory: InventoryItem[];
   equippedWeaponId?: string | null;
+  offhandWeaponId?: string | null;
   avatarType: CharacterAvatarType;
   avatarPresetId?: string | null;
   avatarUrl?: string | null;

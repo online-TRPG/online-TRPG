@@ -7,6 +7,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -141,6 +142,15 @@ export class CreateCharacterDto {
   startingEquipmentSelection?: number[];
 
   @ApiPropertyOptional({
+    type: Object,
+    description: "시작 장비 옵션 안의 자유 선택 placeholder별 실제 아이템 key. key 형식: `${slotIndex}:${itemIndex}`.",
+    example: { "1:0": "longsword" },
+  })
+  @IsOptional()
+  @IsObject()
+  startingEquipmentItemSelections?: Record<string, string>;
+
+  @ApiPropertyOptional({
     type: StartingSpellsDto,
     description: "마법 클래스(startingCantripCount + startingSpellCount > 0)일 때 필수. 개수가 클래스 시드와 일치해야 함.",
   })
@@ -239,6 +249,11 @@ export class CreateCharacterDto {
   @IsOptional()
   @IsString()
   equippedWeaponId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  offhandWeaponId?: string;
 
   @ApiPropertyOptional({ enum: CharacterAvatarType, default: CharacterAvatarType.DEFAULT })
   @IsOptional()
@@ -351,6 +366,11 @@ export class UpdateCharacterDto {
   @IsString()
   equippedWeaponId?: string | null;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  offhandWeaponId?: string | null;
+
   @ApiPropertyOptional({ enum: CharacterAvatarType })
   @IsOptional()
   @IsEnum(CharacterAvatarType)
@@ -372,6 +392,11 @@ export class UpdateCharacterEquipmentDto {
   @IsOptional()
   @IsString()
   equippedWeaponId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  offhandWeaponId?: string | null;
 }
 
 export class CharacterInventoryResponseDto {
@@ -383,6 +408,9 @@ export class CharacterInventoryResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   equippedWeaponId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  offhandWeaponId!: string | null;
 }
 
 export class CharacterResponseDto {
@@ -442,6 +470,9 @@ export class CharacterResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   equippedWeaponId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  offhandWeaponId!: string | null;
 
   @ApiProperty({ enum: CharacterAvatarType })
   @IsEnum(CharacterAvatarType)
@@ -536,6 +567,9 @@ export class SessionCharacterResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   equippedWeaponId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  offhandWeaponId!: string | null;
 
   @ApiPropertyOptional({ nullable: true })
   bio!: string | null;

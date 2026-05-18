@@ -6,8 +6,11 @@ export const RULE_HOOK_IDS = {
   VALIDATE_BAG_OF_HOLDING_CAPACITY: "hook.item.bag_of_holding_capacity",
   APPLY_SECOND_WIND: "hook.class.fighter.second_wind",
   APPLY_ACTION_SURGE: "hook.class.fighter.action_surge",
+  APPLY_FIGHTING_STYLE: "hook.class.fighter.fighting_style",
   APPLY_RAGE: "hook.class.barbarian.rage",
   APPLY_SNEAK_ATTACK: "hook.class.rogue.sneak_attack",
+  APPLY_EXPERTISE: "hook.class.rogue.expertise",
+  APPLY_FAVORED_ENEMY: "hook.class.ranger.favored_enemy",
   APPLY_CRITICAL_THRESHOLD_MODIFIER: "hook.class.fighter.champion_critical_threshold",
   APPLY_CUNNING_ACTION: "hook.class.rogue.cunning_action",
   APPLY_FRENZY: "hook.class.barbarian.frenzy",
@@ -146,6 +149,20 @@ export type ActionSurgeProduced = {
   remainingActionSurgeUses: number;
 };
 
+export type FightingStyleInput = {
+  fighterLevel: number;
+  selectedStyle: string;
+};
+
+export type FightingStyleProduced = {
+  selectedStyle: string | null;
+  effectKind: string | null;
+  attackBonus: number;
+  armorClassBonus: number;
+  damageBonus: number;
+  reactionAvailable: boolean;
+};
+
 export type RageArmorCategory = "none" | "light" | "medium" | "heavy";
 
 export type RageInput = {
@@ -192,6 +209,33 @@ export type SneakAttackProduced = {
     totalDamage: number;
     damageType: "weapon";
   } | null;
+};
+
+export type ExpertiseInput = {
+  rogueLevel: number;
+  selections: string[];
+  proficientSkills: string[];
+  hasThievesToolsProficiency: boolean;
+};
+
+export type ExpertiseProduced = {
+  expertiseSelections: string[];
+  doubleProficiencyBonus: boolean;
+};
+
+export type FavoredEnemyInput = {
+  rangerLevel: number;
+  selectedEnemy: string;
+  humanoidRaceSelections?: string[];
+};
+
+export type FavoredEnemyProduced = {
+  selectedEnemy: string | null;
+  humanoidRaceSelections: string[];
+  survivalTrackingAdvantage: boolean;
+  intelligenceRecallAdvantage: boolean;
+  languageCount: number;
+  affectsCombatStats: false;
 };
 
 export type CriticalThresholdModifierInput = {

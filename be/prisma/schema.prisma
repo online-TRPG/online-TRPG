@@ -318,6 +318,7 @@ model Character {
   inventoryJson          String
   spellsJson             String?
   equippedWeaponId       String?
+  offhandWeaponId        String?
   avatarType             CharacterAvatarType @default(DEFAULT)
   avatarPresetId         String?
   avatarUrl              String?
@@ -691,6 +692,8 @@ model CombatTurnState {
   bonusActionUsed          Boolean          @default(false)
   reactionUsed             Boolean          @default(false)
   additionalActionGranted  Boolean          @default(false)
+  attackActionWeaponId     String?
+  attackActionWeaponIsLightMelee Boolean    @default(false)
   sneakAttackUsed          Boolean          @default(false)
   movementFtSpent          Int              @default(0)
   createdAt                DateTime         @default(now())

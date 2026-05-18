@@ -62,6 +62,7 @@ export interface CharacterPayload {
   avatarUrl?: string | null;
   scenarioId?: string | null;
   startingEquipmentSelection?: number[];
+  startingEquipmentItemSelections?: Record<string, string>;
   startingSpells?: { cantrips: string[]; spells: string[] };
   level?: number;
   abilities?: {
@@ -74,6 +75,7 @@ export interface CharacterPayload {
   };
   proficiencyBonus?: number;
   proficientSkills?: string[];
+  features?: string[];
   maxHp?: number;
   armorClass?: number;
   speed?: number;
@@ -82,6 +84,8 @@ export interface CharacterPayload {
     name: string;
     quantity: number;
   }>;
+  equippedWeaponId?: string | null;
+  offhandWeaponId?: string | null;
   assignToSession?: boolean;
 }
 
