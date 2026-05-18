@@ -121,4 +121,11 @@ export interface LogEntry {
   message: string;
   time: string;
   createdAt: string;
+  metadata?: {
+    mainCommand?: {
+      intent?: string | null;
+      targetId?: string | null;
+      targetType?: string | null;
+    };
+  };
 }
