@@ -3,6 +3,7 @@ import { IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from "class-validat
 import { SessionCharacterResponseDto } from "../api/characters.dto";
 import {
   CombatResponseDto,
+  CombatReactionPromptDto,
   DiceRollResponseDto,
   StateDiffResponseDto,
   TurnAdvanceResponseDto,
@@ -117,6 +118,14 @@ export class CombatUpdatedEventDto {
 
   @ApiProperty({ type: CombatResponseDto })
   combat!: CombatResponseDto;
+}
+
+export class CombatReactionPromptEventDto {
+  @ApiProperty()
+  sessionId!: string;
+
+  @ApiProperty({ type: CombatReactionPromptDto })
+  reaction!: CombatReactionPromptDto;
 }
 
 export class TurnChangedEventDto {

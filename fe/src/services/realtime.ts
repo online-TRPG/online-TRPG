@@ -2,6 +2,7 @@ import { io, Socket } from "socket.io-client";
 import { SOCKET_BASE_URL } from "./api";
 import type {
   ActionAcceptedEventDto,
+  CombatReactionPromptDto,
   CombatResponseDto,
   DiceRollResponseDto,
   StateDiffResponseDto,
@@ -112,6 +113,11 @@ export function connectSessionSocket(
     handlers.onCombatUpdated(payload.combat);
     window.dispatchEvent(new CustomEvent("trpg:combat-updated", { detail: payload.combat }));
     handlers.onLog("Combat updated", "The combat tracker changed.");
+  });
+
+  socket.on("combat.reaction.prompt", (payload: { reaction: CombatReactionPromptDto }) => {
+    window.dispatchEvent(new CustomEvent("trpg:combat-reaction-prompt", { detail: payload.reaction }));
+    handlers.onLog("Reaction prompt", payload.reaction.message);
   });
 
   return socket;

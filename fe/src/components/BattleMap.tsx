@@ -39,6 +39,11 @@ interface BattleMapProps {
   isInteractionLocked?: boolean;
   tokenMovementRangeFtByTokenId?: Record<string, number>;
   attackRangeOverlay?: { tokenId: string; rangeFt: number } | null;
+  onTokenMoveRequest?: (
+    token: VttMapStateDto['tokens'][number],
+    to: { x: number; y: number },
+    path: Array<{ x: number; y: number }>
+  ) => Promise<VttMapStateDto | null>;
 }
 
 export type BattleMapSelection =
@@ -164,6 +169,7 @@ type TokenDragMeasure = {
   from: MeasurePoint;
   to: MeasurePoint;
   path: TokenMovementPath;
+  route: Array<{ x: number; y: number }>;
 };
 type StartingPosition = NonNullable<VttMapStateDto['startingPositions']>[number];
 type MapSizeField = 'width' | 'height' | 'gridSize';
@@ -306,15 +312,16 @@ function addRectVisionCells(
 function getVisibleVisionCells(params: {
   map: VttMapStateDto;
   sourceTokens: VttMapStateDto['tokens'];
+  lightSources?: NonNullable<VttMapStateDto['lightSources']>;
   rangeFt: number;
 }) {
   const { map, sourceTokens, rangeFt } = params;
+  const lightSources = params.lightSources ?? [];
   const visible = new Set<string>();
-  if (!sourceTokens.length) return visible;
+  if (!sourceTokens.length && !lightSources.length) return visible;
 
   const maxColumn = Math.max(0, Math.ceil(map.width / map.gridSize) - 1);
   const maxRow = Math.max(0, Math.ceil(map.height / map.gridSize) - 1);
-  const rangePx = (rangeFt / feetPerGrid) * map.gridSize;
   const blockers = [
     ...(map.terrainCells ?? []),
     ...(map.wallCells ?? []),
@@ -336,17 +343,14 @@ function getVisibleVisionCells(params: {
     }
   };
 
-  sourceTokens.forEach((token) => {
-    const source = {
-      x: token.x + token.size / 2,
-      y: token.y + token.size / 2,
-    };
+  const revealFromSource = (source: MeasurePoint, sourceRangeFt: number) => {
     addAdjacentVisionCells(visible, source, map, maxColumn, maxRow);
 
-    const minColumn = Math.max(0, Math.floor((source.x - rangePx) / map.gridSize));
-    const maxSourceColumn = Math.min(maxColumn, Math.ceil((source.x + rangePx) / map.gridSize));
-    const minRow = Math.max(0, Math.floor((source.y - rangePx) / map.gridSize));
-    const maxSourceRow = Math.min(maxRow, Math.ceil((source.y + rangePx) / map.gridSize));
+    const sourceRangePx = (sourceRangeFt / feetPerGrid) * map.gridSize;
+    const minColumn = Math.max(0, Math.floor((source.x - sourceRangePx) / map.gridSize));
+    const maxSourceColumn = Math.min(maxColumn, Math.ceil((source.x + sourceRangePx) / map.gridSize));
+    const minRow = Math.max(0, Math.floor((source.y - sourceRangePx) / map.gridSize));
+    const maxSourceRow = Math.min(maxRow, Math.ceil((source.y + sourceRangePx) / map.gridSize));
 
     for (let row = minRow; row <= maxSourceRow; row += 1) {
       for (let column = minColumn; column <= maxSourceColumn; column += 1) {
@@ -354,7 +358,7 @@ function getVisibleVisionCells(params: {
           x: column * map.gridSize + map.gridSize / 2,
           y: row * map.gridSize + map.gridSize / 2,
         };
-        if (!isGridRangeWithin(source, target, map, rangeFt)) {
+        if (!isGridRangeWithin(source, target, map, sourceRangeFt)) {
           continue;
         }
         const rayCells = getVisionRayCells(source, target, map, maxColumn, maxRow);
@@ -389,6 +393,25 @@ function getVisibleVisionCells(params: {
         visible.add(getCellKey(column, row));
       }
     }
+  };
+
+  sourceTokens.forEach((token) => {
+    revealFromSource(
+      {
+        x: token.x + token.size / 2,
+        y: token.y + token.size / 2,
+      },
+      rangeFt
+    );
+  });
+  lightSources.forEach((light) => {
+    revealFromSource(
+      {
+        x: light.x + map.gridSize / 2,
+        y: light.y + map.gridSize / 2,
+      },
+      light.rangeFt || rangeFt
+    );
   });
 
   return visible;
@@ -575,6 +598,75 @@ function formatGridDistance(from: MeasurePoint, to: MeasurePoint, map: VttMapSta
   return `${getGridMovementDistanceFt(from, to, map)} ft`;
 }
 
+function appendTokenRoutePoint(
+  route: Array<{ x: number; y: number }>,
+  point: { x: number; y: number }
+) {
+  const last = route[route.length - 1];
+  if (last && last.x === point.x && last.y === point.y) {
+    return route;
+  }
+  return [...route, { x: point.x, y: point.y }];
+}
+
+function expandTokenRoute(
+  route: Array<{ x: number; y: number }>,
+  map: VttMapStateDto
+) {
+  if (route.length <= 1) {
+    return route;
+  }
+  return route.reduce<Array<{ x: number; y: number }>>((expanded, point) => {
+    const last = expanded[expanded.length - 1];
+    if (!last) {
+      return [point];
+    }
+    const segment = getGridLineCells(last, point, map)
+      .slice(1)
+      .map((cell) => ({
+        x: clamp(cell.column * map.gridSize, 0, map.width - map.gridSize),
+        y: clamp(cell.row * map.gridSize, 0, map.height - map.gridSize),
+      }));
+    for (const entry of segment) {
+      const previous = expanded[expanded.length - 1];
+      if (!previous || previous.x !== entry.x || previous.y !== entry.y) {
+        expanded.push(entry);
+      }
+    }
+    return expanded;
+  }, []);
+}
+
+function compactTokenRoute(
+  route: Array<{ x: number; y: number }>,
+  map: VttMapStateDto
+) {
+  const compacted: Array<{ x: number; y: number }> = [];
+  for (const point of route) {
+    const previous = compacted[compacted.length - 1];
+    if (!previous || previous.x !== point.x || previous.y !== point.y) {
+      compacted.push(point);
+    }
+  }
+  let index = 1;
+  while (index < compacted.length - 1) {
+    const before = compacted[index - 1];
+    const current = compacted[index];
+    const after = compacted[index + 1];
+    const directDistance = getGridMovementDistanceFt(before, after, map);
+    const viaDistance =
+      getGridMovementDistanceFt(before, current, map) +
+      getGridMovementDistanceFt(current, after, map);
+    if (directDistance < viaDistance) {
+      compacted.splice(index, 1);
+      index = Math.max(1, index - 1);
+      continue;
+    }
+    index += 1;
+  }
+  return compacted;
+}
+
 function BattleToken({
   token,
   color,
@@ -602,7 +694,7 @@ function BattleToken({
   onSelect: () => void;
   onDragStart: () => void;
   onDragMove: (x: number, y: number, shiftKey: boolean) => void;
-  onDragEnd: (x: number, y: number, shiftKey: boolean) => boolean;
+  onDragEnd: (x: number, y: number, shiftKey: boolean) => boolean | Promise<boolean>;
 }) {
   const tokenImage = useCanvasImage(token.imageUrl);
 
@@ -620,10 +712,12 @@ function BattleToken({
       onDragMove={(event) => onDragMove(event.target.x(), event.target.y(), event.evt.shiftKey)}
       onDragEnd={(event) => {
         event.cancelBubble = true;
-        const wasMoved = onDragEnd(event.target.x(), event.target.y(), event.evt.shiftKey);
-        if (!wasMoved) {
-          event.target.position({ x: token.x, y: token.y });
-        }
+        const node = event.target;
+        void Promise.resolve(onDragEnd(node.x(), node.y(), event.evt.shiftKey)).then((wasMoved) => {
+          if (!wasMoved) {
+            node.position({ x: token.x, y: token.y });
+          }
+        });
       }}
     >
       <TokenFrame
@@ -723,6 +817,7 @@ export function BattleMap({
   isInteractionLocked = false,
   tokenMovementRangeFtByTokenId,
   attackRangeOverlay = null,
+  onTokenMoveRequest,
 }: BattleMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(960);
@@ -755,6 +850,8 @@ export function BattleMap({
   const [measureEnd, setMeasureEnd] = useState<MeasurePoint | null>(null);
   const [measurePreview, setMeasurePreview] = useState<MeasurePoint | null>(null);
   const [tokenDragMeasure, setTokenDragMeasure] = useState<TokenDragMeasure | null>(null);
+  const tokenDragMeasureRef = useRef<TokenDragMeasure | null>(null);
+  const tokenDragFrameRef = useRef<number | null>(null);
   const [pings, setPings] = useState<PingMarker[]>([]);
   const [pingClock, setPingClock] = useState(Date.now());
   const suppressStageClickRef = useRef(false);
@@ -856,6 +953,7 @@ export function BattleMap({
                 partyCharacterIds.has(token.sessionCharacterId) &&
                 token.isHostile !== true
             ),
+            lightSources: map.lightSources ?? [],
             rangeFt: playerVisionRangeFt,
           })
         : null,
@@ -1492,23 +1590,39 @@ export function BattleMap({
     } as Partial<ObjectCell>);
   }
 
-  function handleTokenMove(
+  async function handleTokenMove(
     tokenId: string,
     x: number,
     y: number,
     snap = isTokenSnapEnabled
-  ): boolean {
+  ): Promise<boolean> {
     const targetToken = map.tokens.find((token) => token.id === tokenId);
     if (!targetToken || !canControlToken(targetToken)) return false;
 
     const nextPosition = getTokenMovePosition(targetToken, x, y, snap);
 
-    if (getTokenMovementPath(targetToken, nextPosition.x, nextPosition.y).blocked) {
+    const movementPath = getTokenMovementPath(targetToken, nextPosition.x, nextPosition.y);
+    if (movementPath.blocked) {
       return false;
     }
 
     if (isTokenMovementOverRange(targetToken, nextPosition.x, nextPosition.y)) {
       return false;
+    }
+
+    if (onTokenMoveRequest) {
+      const trackedRoute =
+        tokenDragMeasureRef.current?.tokenId === tokenId && tokenDragMeasureRef.current.route.length > 1
+          ? expandTokenRoute(
+              compactTokenRoute(
+                appendTokenRoutePoint(tokenDragMeasureRef.current.route, nextPosition),
+                map
+              ),
+              map
+            )
+          : movementPath.cells;
+      const requestedMap = await onTokenMoveRequest(targetToken, nextPosition, trackedRoute);
+      return Boolean(requestedMap);
     }
 
     updateMap({
@@ -2091,12 +2205,15 @@ export function BattleMap({
       x: token.x + token.size / 2,
       y: token.y + token.size / 2,
     };
-    setTokenDragMeasure({
+    const nextMeasure = {
       tokenId: token.id,
       from: center,
       to: center,
       path: getTokenMovementPath(token, token.x, token.y),
-    });
+      route: [{ x: token.x, y: token.y }],
+    };
+    tokenDragMeasureRef.current = nextMeasure;
+    setTokenDragMeasure(nextMeasure);
   }
 
   function updateTokenDragMeasure(
@@ -2106,22 +2223,60 @@ export function BattleMap({
     snap = isTokenSnapEnabled
   ) {
     const nextPosition = getTokenMovePosition(token, x, y, snap);
-    setTokenDragMeasure((current) => {
-      const from =
-        current?.tokenId === token.id
-          ? current.from
-          : { x: token.x + token.size / 2, y: token.y + token.size / 2 };
-
-      return {
+    const current = tokenDragMeasureRef.current;
+    const previousRoute =
+      current?.tokenId === token.id ? current.route : [{ x: token.x, y: token.y }];
+    const nextRoute = appendTokenRoutePoint(previousRoute, nextPosition);
+    const nextCenter = {
+      x: nextPosition.x + token.size / 2,
+      y: nextPosition.y + token.size / 2,
+    };
+    if (
+      current?.tokenId === token.id &&
+      current.to.x === nextCenter.x &&
+      current.to.y === nextCenter.y
+    ) {
+      return;
+    }
+    tokenDragMeasureRef.current = {
+      ...(current ?? {
         tokenId: token.id,
-        from,
-        to: {
-          x: nextPosition.x + token.size / 2,
-          y: nextPosition.y + token.size / 2,
-        },
-        path: getTokenMovementPath(token, nextPosition.x, nextPosition.y),
+        from: { x: token.x + token.size / 2, y: token.y + token.size / 2 },
+        to: nextCenter,
+        path: getTokenMovementPath(token, token.x, token.y),
+        route: previousRoute,
+      }),
+      tokenId: token.id,
+      to: nextCenter,
+      route: nextRoute,
+    };
+    if (tokenDragFrameRef.current !== null) {
+      return;
+    }
+    tokenDragFrameRef.current = window.requestAnimationFrame(() => {
+      tokenDragFrameRef.current = null;
+      const latest = tokenDragMeasureRef.current;
+      if (!latest || latest.tokenId !== token.id) {
+        return;
+      }
+      const latestPosition = {
+        x: latest.to.x - token.size / 2,
+        y: latest.to.y - token.size / 2,
       };
+      setTokenDragMeasure({
+        ...latest,
+        path: getTokenMovementPath(token, latestPosition.x, latestPosition.y),
+      });
     });
+  }
+
+  function finishTokenDragMeasure() {
+    if (tokenDragFrameRef.current !== null) {
+      window.cancelAnimationFrame(tokenDragFrameRef.current);
+      tokenDragFrameRef.current = null;
+    }
+    tokenDragMeasureRef.current = null;
+    setTokenDragMeasure(null);
   }
 
   function setExclusiveTool(tool: 'pan' | 'fog' | 'measure' | 'ping' | MapStructureKind) {
@@ -2832,7 +2987,7 @@ export function BattleMap({
                         y,
                         isTokenSnapEnabled && !shiftKey
                       );
-                      setTokenDragMeasure(null);
+                      finishTokenDragMeasure();
                       return wasMoved;
                     }}
                   />
