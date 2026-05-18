@@ -107,6 +107,7 @@ interface CharacterMutationPayload {
   avatarUrl?: string | null;
   scenarioId?: string | null;
   startingEquipmentSelection?: number[];
+  startingEquipmentItemSelections?: Record<string, string>;
   startingSpells?: { cantrips: string[]; spells: string[] };
   level?: number;
   abilities?: {
@@ -119,6 +120,7 @@ interface CharacterMutationPayload {
   };
   proficiencyBonus?: number;
   proficientSkills?: string[];
+  features?: string[];
   maxHp?: number;
   armorClass?: number;
   speed?: number;
@@ -127,6 +129,8 @@ interface CharacterMutationPayload {
     name: string;
     quantity: number;
   }>;
+  equippedWeaponId?: string | null;
+  offhandWeaponId?: string | null;
 }
 
 interface RequestOptions {
@@ -997,6 +1001,34 @@ export function resolveEquippedWeaponAttack(
   });
 }
 
+export function resolveOffhandWeaponAttack(
+  user: StoredUser,
+  sessionId: string,
+  payload: EquippedWeaponAttackDto,
+  accessToken?: string | null
+): Promise<CombatActionResultDto> {
+  return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/attack/offhand`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function useSecondWindCombatAction(
+  user: StoredUser,
+  sessionId: string,
+  payload: CombatBasicActionDto = {},
+  accessToken?: string | null
+): Promise<CombatActionResultDto> {
+  return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/features/second-wind`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
 export function dashCombatAction(
   user: StoredUser,
   sessionId: string,
@@ -1074,15 +1106,19 @@ export function createCharacter(
       avatarUrl: payload.avatarUrl,
       scenarioId: payload.scenarioId,
       startingEquipmentSelection: payload.startingEquipmentSelection,
+      startingEquipmentItemSelections: payload.startingEquipmentItemSelections,
       startingSpells: payload.startingSpells,
       level: payload.level,
       abilities: payload.abilities,
       proficiencyBonus: payload.proficiencyBonus,
       proficientSkills: payload.proficientSkills,
+      features: payload.features,
       maxHp: payload.maxHp,
       armorClass: payload.armorClass,
       speed: payload.speed,
       inventory: payload.inventory,
+      equippedWeaponId: payload.equippedWeaponId,
+      offhandWeaponId: payload.offhandWeaponId,
     },
   }).then((character) => {
     if (!payload.sessionId || payload.assignToSession !== true) {
@@ -1141,10 +1177,13 @@ export function updateCharacter(
       abilities: payload.abilities,
       proficiencyBonus: payload.proficiencyBonus,
       proficientSkills: payload.proficientSkills,
+      features: payload.features,
       maxHp: payload.maxHp,
       armorClass: payload.armorClass,
       speed: payload.speed,
       inventory: payload.inventory,
+      equippedWeaponId: payload.equippedWeaponId,
+      offhandWeaponId: payload.offhandWeaponId,
     },
   });
 }

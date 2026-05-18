@@ -76,6 +76,19 @@ export class ActionEconomyService {
     return this.updateTurnState(params, { additionalActionGranted: true });
   }
 
+  async recordAttackAction(
+    params: TurnStateKey & { weaponId?: string | null; weaponIsLightMelee: boolean },
+  ): Promise<CombatTurnState> {
+    const state = await this.getOrCreateTurnState(params);
+    return this.updateTurnState(params, {
+      attackActionWeaponId: params.weaponIsLightMelee
+        ? params.weaponId ?? null
+        : state.attackActionWeaponId,
+      attackActionWeaponIsLightMelee:
+        state.attackActionWeaponIsLightMelee || params.weaponIsLightMelee,
+    });
+  }
+
   async grantMovement(params: TurnStateKey & { amountFt: number }): Promise<CombatTurnState> {
     await this.getOrCreateTurnState(params);
     return this.prisma.combatTurnState.update({
@@ -106,6 +119,8 @@ export class ActionEconomyService {
         | "bonusActionUsed"
         | "reactionUsed"
         | "additionalActionGranted"
+        | "attackActionWeaponId"
+        | "attackActionWeaponIsLightMelee"
         | "sneakAttackUsed"
         | "movementFtSpent"
       >

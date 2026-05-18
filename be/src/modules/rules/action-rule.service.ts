@@ -24,12 +24,24 @@ const CHILL_TOUCH_SPELL_ID = "spell.chill_touch";
 const CHILL_TOUCH_DAMAGE_TYPE = "necrotic";
 const SECOND_WIND_FEATURE_ID = "class.fighter.feature.second_wind";
 const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
+const FIGHTING_STYLE_FEATURE_ID = "class.fighter.feature.fighting_style";
 const RAGE_FEATURE_ID = "class.barbarian.feature.rage";
+const SNEAK_ATTACK_FEATURE_ID = "class.rogue.feature.sneak_attack";
+const EXPERTISE_FEATURE_ID = "class.rogue.feature.expertise";
+const FAVORED_ENEMY_FEATURE_ID = "class.ranger.feature.favored_enemy";
 const CUNNING_ACTION_FEATURE_ID = "class.rogue.feature.cunning_action";
 const FRENZY_FEATURE_ID = "class.barbarian.subclass_feature.frenzy";
+const FIGHTING_STYLE_DATA_FEATURE_ID = "feature.fighter.fighting_style";
+const SNEAK_ATTACK_DATA_FEATURE_ID = "feature.rogue.sneak_attack";
+const EXPERTISE_DATA_FEATURE_ID = "feature.rogue.expertise";
+const FAVORED_ENEMY_DATA_FEATURE_ID = "feature.ranger.favored_enemy";
 const SECOND_WIND_EXPENDED_TAG = "resource:second_wind_expended";
 const ACTION_SURGE_EXPENDED_TAG = "resource:action_surge_expended";
 const ACTION_SURGE_GRANTED_TAG = "action_surge:additional_action_granted";
+const FIGHTING_STYLE_TAG_PREFIX = "fighting_style:";
+const EXPERTISE_TAG_PREFIX = "expertise:";
+const FAVORED_ENEMY_TAG_PREFIX = "favored_enemy:";
+const FAVORED_ENEMY_HUMANOID_TAG_PREFIX = "favored_enemy_humanoid:";
 const RAGE_EXPENDED_TAG = "resource:rage_expended";
 const RAGE_ACTIVE_TAG = "rage";
 const RAGE_RESISTANCE_TAGS = [
@@ -338,7 +350,10 @@ export class ActionRuleService {
     const target = command.target
       ? this.findTarget(command.target, sessionCharacters)
       : sessionCharacters.find((candidate) => candidate.id !== actor.id) ?? null;
-    const modifier = actor.character.proficiencyBonus;
+    const weaponProfile = this.resolveEquippedWeaponProfile(actor);
+    const modifier =
+      actor.character.proficiencyBonus +
+      this.resolveFightingStyleAttackBonus(actor, weaponProfile);
     const targetArmorClass = target?.character.armorClass ?? command.dc;
     const proneRuleContext = this.resolveAttackProneContext(actor, target);
     const attackAdvantageState = this.toDiceAdvantageState(proneRuleContext.advantageState);
@@ -364,13 +379,14 @@ export class ActionRuleService {
     const runtimeEffects: ActionRuntimeEffect[] = [{ type: "SPEND_ACTION" }];
 
     if (success && target) {
-      const weaponProfile = this.resolveEquippedWeaponProfile(actor);
       damageRoll = this.diceService.roll(weaponProfile.damageDice);
+      const baseWeaponDamage =
+        damageRoll.total + this.resolveFightingStyleDamageBonus(actor, weaponProfile);
       const sneakAttack = this.resolveSneakAttackDamage({
         actor,
         target,
         attackAdvantageState,
-        baseDamage: damageRoll.total,
+        baseDamage: baseWeaponDamage,
         weaponProperties: weaponProfile.properties,
         attackKind: weaponProfile.attackKind,
         runtimeContext,
@@ -403,7 +419,7 @@ export class ActionRuleService {
         dc: command.dc,
         targetArmorClass,
         advantageState: attackAdvantageState,
-        damageType: this.resolveEquippedWeaponProfile(actor).damageType,
+        damageType: weaponProfile.damageType,
         damageRoll: damageRoll ? { ...damageRoll } : null,
         finalDamage,
         ruleResults,
@@ -528,8 +544,20 @@ export class ActionRuleService {
         return this.resolveSecondWind(actor, runtimeContext);
       case ACTION_SURGE_FEATURE_ID:
         return this.resolveActionSurge(actor, runtimeContext);
+      case FIGHTING_STYLE_FEATURE_ID:
+      case FIGHTING_STYLE_DATA_FEATURE_ID:
+        return this.resolveFightingStyle(command, actor);
       case RAGE_FEATURE_ID:
         return this.resolveRage(actor, runtimeContext);
+      case SNEAK_ATTACK_FEATURE_ID:
+      case SNEAK_ATTACK_DATA_FEATURE_ID:
+        return this.resolveSneakAttackCommand();
+      case EXPERTISE_FEATURE_ID:
+      case EXPERTISE_DATA_FEATURE_ID:
+        return this.resolveExpertise(command, actor);
+      case FAVORED_ENEMY_FEATURE_ID:
+      case FAVORED_ENEMY_DATA_FEATURE_ID:
+        return this.resolveFavoredEnemy(command, actor);
       case CUNNING_ACTION_FEATURE_ID:
         return this.resolveCunningAction(command, actor, runtimeContext);
       case FRENZY_FEATURE_ID:
@@ -675,6 +703,141 @@ export class ActionRuleService {
         : [],
       runtimeEffects: ruleResult.accepted
         ? [{ type: "SPEND_ACTION_SURGE_USE" }, { type: "GRANT_ADDITIONAL_ACTION" }]
+        : [],
+    };
+  }
+
+  private resolveFightingStyle(
+    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
+    actor: SessionCharacterForRules,
+  ): ActionResolution {
+    const selectedStyle = command.option ?? "";
+    const currentConditions = this.getConditions(actor);
+    const ruleResult = this.ruleEngine.applyFightingStyle({
+      fighterLevel: this.isClass(actor, "fighter") ? actor.character.level : 0,
+      selectedStyle,
+    });
+
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: FIGHTING_STYLE_FEATURE_ID,
+        option: selectedStyle || null,
+        ruleResults: [ruleResult],
+      },
+      diceResult: null,
+      outcome: ruleResult.accepted ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: ruleResult.accepted
+        ? `Fighting Style(${ruleResult.produced.selectedStyle})을 적용했습니다.`
+        : this.createClassFeatureRejectedNarration(ruleResult.rejectedReason),
+      stateChanges: ruleResult.accepted
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              conditions: this.addConditions(currentConditions, [
+                `${FIGHTING_STYLE_TAG_PREFIX}${ruleResult.produced.selectedStyle}`,
+              ]),
+            },
+          ]
+        : [],
+    };
+  }
+
+  private resolveSneakAttackCommand(): ActionResolution {
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: SNEAK_ATTACK_FEATURE_ID,
+        ruleResults: [],
+      },
+      diceResult: null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: "Sneak Attack은 조건을 만족한 무기 공격 명중 시 자동 적용됩니다.",
+      stateChanges: [],
+    };
+  }
+
+  private resolveExpertise(
+    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
+    actor: SessionCharacterForRules,
+  ): ActionResolution {
+    const selections = this.parseFeatureOptionTokens(command.option);
+    const currentConditions = this.getConditions(actor);
+    const proficientSkills = this.parseJson<string[]>(actor.character.proficientSkillsJson, []);
+    const ruleResult = this.ruleEngine.applyExpertise({
+      rogueLevel: this.isClass(actor, "rogue") ? actor.character.level : 0,
+      selections,
+      proficientSkills,
+      hasThievesToolsProficiency:
+        this.isClass(actor, "rogue") || this.hasFeatureTag(actor, "tool:thieves_tools"),
+    });
+
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: EXPERTISE_FEATURE_ID,
+        option: command.option,
+        ruleResults: [ruleResult],
+      },
+      diceResult: null,
+      outcome: ruleResult.accepted ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: ruleResult.accepted
+        ? `Expertise(${ruleResult.produced.expertiseSelections.join(", ")})를 적용했습니다.`
+        : this.createClassFeatureRejectedNarration(ruleResult.rejectedReason),
+      stateChanges: ruleResult.accepted
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              conditions: this.addConditions(
+                currentConditions,
+                ruleResult.produced.expertiseSelections.map(
+                  (selection) => `${EXPERTISE_TAG_PREFIX}${selection}`,
+                ),
+              ),
+            },
+          ]
+        : [],
+    };
+  }
+
+  private resolveFavoredEnemy(
+    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
+    actor: SessionCharacterForRules,
+  ): ActionResolution {
+    const [selectedEnemy = "", ...humanoidRaceSelections] = this.parseFeatureOptionTokens(
+      command.option,
+    );
+    const currentConditions = this.getConditions(actor);
+    const ruleResult = this.ruleEngine.applyFavoredEnemy({
+      rangerLevel: this.isClass(actor, "ranger") ? actor.character.level : 0,
+      selectedEnemy,
+      humanoidRaceSelections,
+    });
+
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: FAVORED_ENEMY_FEATURE_ID,
+        option: command.option,
+        ruleResults: [ruleResult],
+      },
+      diceResult: null,
+      outcome: ruleResult.accepted ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: ruleResult.accepted
+        ? `Favored Enemy(${ruleResult.produced.selectedEnemy})를 적용했습니다.`
+        : this.createClassFeatureRejectedNarration(ruleResult.rejectedReason),
+      stateChanges: ruleResult.accepted
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              conditions: this.addConditions(currentConditions, [
+                `${FAVORED_ENEMY_TAG_PREFIX}${ruleResult.produced.selectedEnemy}`,
+                ...ruleResult.produced.humanoidRaceSelections.map(
+                  (race) => `${FAVORED_ENEMY_HUMANOID_TAG_PREFIX}${race}`,
+                ),
+              ]),
+            },
+          ]
         : [],
     };
   }
@@ -978,11 +1141,16 @@ export class ActionRuleService {
   private getCheckModifier(actor: SessionCharacterForRules, checkName: string): number {
     const abilities = this.parseJson<Record<string, number>>(actor.character.abilitiesJson, {});
     const proficientSkills = this.parseJson<string[]>(actor.character.proficientSkillsJson, []);
+    const normalizedCheckName = this.normalizeRuleToken(checkName);
     const abilityKey = this.resolveAbilityKey(checkName);
     const abilityScore = abilities[abilityKey] ?? 10;
     const abilityModifier = Math.floor((abilityScore - 10) / 2);
-    const proficiency = proficientSkills.includes(checkName.toLowerCase())
-      ? actor.character.proficiencyBonus
+    const hasProficiency = proficientSkills
+      .map((skill) => this.normalizeRuleToken(skill))
+      .includes(normalizedCheckName);
+    const hasExpertise = this.hasFeatureTag(actor, `${EXPERTISE_TAG_PREFIX}${normalizedCheckName}`);
+    const proficiency = hasProficiency
+      ? actor.character.proficiencyBonus * (hasExpertise ? 2 : 1)
       : 0;
     return abilityModifier + proficiency;
   }
@@ -1167,6 +1335,34 @@ export class ActionRuleService {
     };
   }
 
+  private resolveFightingStyleAttackBonus(
+    actor: SessionCharacterForRules,
+    weaponProfile: EquippedWeaponProfile,
+  ): number {
+    if (
+      weaponProfile.attackKind === "ranged_weapon_attack" &&
+      this.hasFeatureTag(actor, `${FIGHTING_STYLE_TAG_PREFIX}archery`)
+    ) {
+      return 2;
+    }
+
+    return 0;
+  }
+
+  private resolveFightingStyleDamageBonus(
+    actor: SessionCharacterForRules,
+    weaponProfile: EquippedWeaponProfile,
+  ): number {
+    if (
+      weaponProfile.attackKind === "melee_weapon_attack" &&
+      this.hasFeatureTag(actor, `${FIGHTING_STYLE_TAG_PREFIX}dueling`)
+    ) {
+      return 2;
+    }
+
+    return 0;
+  }
+
   private resolveInventoryEntryWeaponProfile(
     inventoryEntries: InventoryEntryForRules[],
     equippedWeaponId: string | null | undefined,
@@ -1258,6 +1454,25 @@ export class ActionRuleService {
     return this.normalizeRuleToken(actor.character.className).includes(className);
   }
 
+  private parseFeatureOptionTokens(option: string | null): string[] {
+    return (option ?? "")
+      .split(/[\s,]+/)
+      .map((token) => this.normalizeRuleToken(token).replace(/-/g, "_"))
+      .filter(Boolean);
+  }
+
+  private hasFeatureTag(actor: SessionCharacterForRules, tag: string): boolean {
+    const normalizedTag = this.normalizeRuleToken(tag);
+    return this.getFeatureTags(actor).some((featureTag) => featureTag === normalizedTag);
+  }
+
+  private getFeatureTags(actor: SessionCharacterForRules): string[] {
+    return [
+      ...this.getConditions(actor),
+      ...this.parseJson<string[]>(actor.character.featuresJson, []),
+    ].map((tag) => this.normalizeRuleToken(tag));
+  }
+
   private resolveActionSurgeUses(actor: SessionCharacterForRules): number {
     if (!this.isClass(actor, "fighter")) {
       return 0;
@@ -1339,12 +1554,27 @@ export class ActionRuleService {
       case "action_surge_unavailable":
       case "action_surge_already_used_this_turn":
         return "Action Surge를 사용할 수 없습니다.";
+      case "invalid_fighting_style":
+        return "선택할 수 없는 Fighting Style입니다.";
       case "rage_unavailable":
         return "Rage를 이미 사용했습니다.";
       case "bonus_action_unavailable":
         return "사용 가능한 bonus action이 없습니다.";
+      case "rogue_level_required":
       case "rogue_level_too_low":
         return "Rogue 레벨 조건을 만족하지 못했습니다.";
+      case "expertise_requires_two_selections":
+        return "Expertise는 숙련 2개를 선택해야 합니다.";
+      case "expertise_requires_thieves_tools_proficiency":
+        return "Thieves' tools 숙련이 없어 Expertise를 적용할 수 없습니다.";
+      case "expertise_requires_skill_proficiency":
+        return "숙련된 기술에만 Expertise를 적용할 수 있습니다.";
+      case "ranger_level_required":
+        return "Ranger 레벨 조건을 만족하지 못했습니다.";
+      case "favored_enemy_requires_two_humanoid_races":
+        return "Humanoid Favored Enemy는 인간형 종족 2개를 선택해야 합니다.";
+      case "invalid_favored_enemy":
+        return "선택할 수 없는 Favored Enemy입니다.";
       case "invalid_cunning_action":
         return "Cunning Action으로 선택할 수 없는 행동입니다.";
       case "rage_activation_required":

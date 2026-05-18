@@ -101,7 +101,7 @@ const classSeeds: ClassDefinitionSeed[] = [
     key: "fighter", koName: "파이터", hitDie: "d10",
     startingEquipment: { slots: [
       { options: [{ items: [{ itemKey: "chain-mail", quantity: 1 }, { itemKey: "longbow", quantity: 1 }, { itemKey: "arrow", quantity: 20 }] }, { items: [{ itemKey: "leather-armor", quantity: 1 }, { itemKey: "longbow", quantity: 1 }, { itemKey: "arrow", quantity: 20 }] }] },
-      { options: [{ items: [{ itemKey: "martial-weapon-1", quantity: 1 }, { itemKey: "shield", quantity: 1 }] }, { items: [{ itemKey: "martial-weapon-2", quantity: 2 }] }] },
+      { options: [{ items: [{ itemKey: "martial-weapon-1", quantity: 1 }, { itemKey: "shield", quantity: 1 }] }] },
       { options: [{ items: [{ itemKey: "light-crossbow", quantity: 1 }, { itemKey: "bolt", quantity: 20 }] }, { items: [{ itemKey: "handaxe", quantity: 2 }] }] },
       { options: [{ items: [{ itemKey: "dungeoneer-pack", quantity: 1 }] }, { items: [{ itemKey: "explorer-pack", quantity: 1 }] }] },
     ]},

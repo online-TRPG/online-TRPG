@@ -325,6 +325,7 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
       ? parseJson<{ cantrips: string[]; spells: string[] } | null>(character.spellsJson, null)
       : null,
     equippedWeaponId: character.equippedWeaponId ?? null,
+    offhandWeaponId: character.offhandWeaponId ?? null,
     avatarType: characterAvatarTypeMap[character.avatarType],
     avatarPresetId: character.avatarPresetId ?? null,
     avatarUrl: character.avatarUrl ?? null,
@@ -370,6 +371,7 @@ export function mapSessionCharacter(
     speed: sessionCharacter.character.speed,
     inventory: mapSessionCharacterInventory(sessionCharacter),
     equippedWeaponId: sessionCharacter.character.equippedWeaponId ?? null,
+    offhandWeaponId: sessionCharacter.character.offhandWeaponId ?? null,
     avatarType: characterAvatarTypeMap[sessionCharacter.character.avatarType],
     avatarPresetId: sessionCharacter.character.avatarPresetId ?? null,
     avatarUrl: sessionCharacter.character.avatarUrl ?? null,
