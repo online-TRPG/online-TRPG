@@ -1255,26 +1255,81 @@
 }
 
 .session-sidebar-heading {
-  display: grid;
-  gap: 4px;
-  padding: 0 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 8px;
 }
 
 .session-sidebar-title {
   color: #1d2734;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 800;
   letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+.session-sidebar-info-trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: #8fa2b8;
+  cursor: help;
+  transition: color 0.2s;
+}
+
+.session-sidebar-info-trigger:hover {
+  color: #526172;
+}
+
+.session-sidebar-info-trigger svg {
+  width: 15px;
+  height: 15px;
+}
+
+.session-sidebar-info-tooltip {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  width: max-content;
+  max-width: 240px;
+  padding: 8px 12px;
+  background: #1a2430;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  border-radius: 6px;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  z-index: 100;
+  pointer-events: none;
+  word-break: keep-all;
   overflow-wrap: anywhere;
 }
 
-.session-sidebar-subtitle {
-  margin: 0;
-  color: #667487;
-  font-size: 13px;
-  line-height: 1.5;
-  word-break: keep-all;
-  overflow-wrap: anywhere;
+.session-sidebar-info-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 5px;
+  border-style: solid;
+  border-color: transparent transparent #1a2430 transparent;
+}
+
+.session-sidebar-info-trigger:hover .session-sidebar-info-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(8px);
 }
 
 .session-log-area {
@@ -4915,7 +4970,6 @@
   background: transparent;
 }
 
-.recruiting-tavern .session-sidebar-heading,
 .recruiting-tavern .session-log-stack,
 .recruiting-tavern .session-info-panel,
 .recruiting-tavern .session-settings-panel {
@@ -4925,14 +4979,25 @@
   box-shadow: 0 10px 24px rgba(50, 31, 16, 0.08);
 }
 
-.recruiting-tavern .session-sidebar-heading .eyebrow {
-  background: rgba(255, 244, 216, 0.88);
-  color: #724a28;
+.recruiting-tavern .session-sidebar-title {
+  color: #3d2615;
 }
 
-.recruiting-tavern .session-sidebar-title,
-.recruiting-tavern .session-sidebar-subtitle {
+.recruiting-tavern .session-sidebar-info-trigger {
+  color: rgba(143, 106, 68, 0.6);
+}
+
+.recruiting-tavern .session-sidebar-info-trigger:hover {
   color: #3d2615;
+}
+
+.recruiting-tavern .session-sidebar-info-tooltip {
+  background: #3d2615;
+  color: #fcebd2;
+}
+
+.recruiting-tavern .session-sidebar-info-tooltip::before {
+  border-color: transparent transparent #3d2615 transparent;
 }
 
 @media (max-width: 1280px) {
