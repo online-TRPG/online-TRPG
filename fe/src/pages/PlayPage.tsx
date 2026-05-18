@@ -1498,6 +1498,7 @@ export function PlayPage({
   const [, setIsMapLoaded] = useState(false);
   // 로그 자동 스크롤과 맵 저장 큐를 관리하는 ref입니다. 렌더링 없이 최신 값을 유지합니다.
   const logEndRef = useRef<HTMLDivElement | null>(null);
+  const mainCommandAutocompleteRef = useRef<HTMLDivElement | null>(null);
   const scenarioDescriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
   const mapSaveRef = useRef<{
@@ -1765,6 +1766,13 @@ export function PlayPage({
   const mainCommandAutocompleteIndexByIntent = new Map(
     mainCommandAutocompleteCommandEntries.map((entry, index) => [entry.command.intent, index])
   );
+  const activeMainCommandAutocompleteEntry =
+    mainCommandAutocompleteIndex >= 0
+      ? mainCommandAutocompleteCommandEntries[mainCommandAutocompleteIndex] ?? null
+      : null;
+  const activeMainCommandAutocompleteId = activeMainCommandAutocompleteEntry
+    ? `main-command-autocomplete-${activeMainCommandAutocompleteEntry.command.intent}`
+    : undefined;
   const visibleTargetOptions = (currentNode?.visibleTargets ?? []).filter((target) =>
     selectedMainFieldConfig?.targetTypes?.length
       ? selectedMainFieldConfig.targetTypes.includes(target.targetType)
@@ -1844,6 +1852,13 @@ export function PlayPage({
       return current >= 0 && current < mainCommandAutocompleteCommandEntries.length ? current : 0;
     });
   }, [mainCommandAutocompleteCommandEntries.length, mainSlashToken]);
+
+  useEffect(() => {
+    const activeOption = mainCommandAutocompleteRef.current?.querySelector<HTMLElement>(
+      '[data-autocomplete-active="true"]'
+    );
+    activeOption?.scrollIntoView({ block: 'nearest' });
+  }, [mainCommandAutocompleteIndex]);
   const availableTabs = isRecruiting
     ? (['Main', 'Chat', 'Info', 'Settings'] as const)
     : startedSessionTabs;
@@ -2490,6 +2505,7 @@ export function PlayPage({
     if (
       activeTab !== 'Main' ||
       mainCommandMode !== 'GM_REQUEST' ||
+      !shouldShowMainCommandAutocomplete ||
       !mainCommandAutocompleteCommandEntries.length
     ) {
       return;
@@ -2497,27 +2513,41 @@ export function PlayPage({
 
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setMainCommandAutocompleteIndex((current) =>
-        (Math.max(current, 0) + 1) % mainCommandAutocompleteCommandEntries.length
-      );
+      setMainCommandAutocompleteIndex((current) => {
+        const baseIndex = current >= 0 ? current : -1;
+        return (baseIndex + 1) % mainCommandAutocompleteCommandEntries.length;
+      });
       return;
     }
 
     if (event.key === 'ArrowUp') {
       event.preventDefault();
-      setMainCommandAutocompleteIndex((current) =>
-        (Math.max(current, 0) - 1 + mainCommandAutocompleteCommandEntries.length) %
-        mainCommandAutocompleteCommandEntries.length
-      );
+      setMainCommandAutocompleteIndex((current) => {
+        const baseIndex = current >= 0 ? current : 0;
+        return (
+          (baseIndex - 1 + mainCommandAutocompleteCommandEntries.length) %
+          mainCommandAutocompleteCommandEntries.length
+        );
+      });
       return;
     }
 
-    if (event.key === 'Tab') {
+    if (event.key === 'Home') {
+      event.preventDefault();
+      setMainCommandAutocompleteIndex(0);
+      return;
+    }
+
+    if (event.key === 'End') {
+      event.preventDefault();
+      setMainCommandAutocompleteIndex(mainCommandAutocompleteCommandEntries.length - 1);
+      return;
+    }
+
+    if (event.key === 'Tab' || event.key === 'Enter') {
       event.preventDefault();
       const selectedEntry =
-        mainCommandAutocompleteCommandEntries[
-        mainCommandAutocompleteIndex >= 0 ? mainCommandAutocompleteIndex : 0
-        ];
+        activeMainCommandAutocompleteEntry ?? mainCommandAutocompleteCommandEntries[0];
       if (selectedEntry) {
         applyMainCommandAutocomplete(selectedEntry.command);
       }
@@ -3933,7 +3963,12 @@ export function PlayPage({
                     ) : null}
 
                     {mainCommandAutocompleteEntries.length ? (
-                      <div className="main-command-autocomplete">
+                      <div
+                        ref={mainCommandAutocompleteRef}
+                        className="main-command-autocomplete"
+                        role="listbox"
+                        aria-label="명령어 자동완성"
+                      >
                         {mainCommandAutocompleteEntries.map((entry) => {
                           if (entry.type === 'separator') {
                             return (
@@ -3954,10 +3989,13 @@ export function PlayPage({
                           return slashCommand ? (
                             <button
                               key={command.intent}
+                              id={`main-command-autocomplete-${command.intent}`}
                               type="button"
+                              role="option"
                               className={`main-command-autocomplete-option${isAutocompleteActive ? ' active' : ''
                                 }`}
                               aria-selected={isAutocompleteActive}
+                              data-autocomplete-active={isAutocompleteActive ? 'true' : undefined}
                               onMouseEnter={() => {
                                 if (autocompleteIndex >= 0) {
                                   setMainCommandAutocompleteIndex(autocompleteIndex);
@@ -4097,6 +4135,18 @@ export function PlayPage({
                       : setChatMessage(event.target.value)
                   }
                   onKeyDown={handleSidebarInputKeyDown}
+                  role={activeTab === 'Main' ? 'combobox' : undefined}
+                  aria-autocomplete={activeTab === 'Main' ? 'list' : undefined}
+                  aria-expanded={
+                    activeTab === 'Main' && shouldShowMainCommandAutocomplete
+                      ? mainCommandAutocompleteCommandEntries.length > 0
+                      : undefined
+                  }
+                  aria-activedescendant={
+                    activeTab === 'Main' && shouldShowMainCommandAutocomplete
+                      ? activeMainCommandAutocompleteId
+                      : undefined
+                  }
                   placeholder={
                     activeTab === 'Main'
                       ? mainCommandMode === 'RP_ACTION'
