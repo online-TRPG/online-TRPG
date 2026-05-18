@@ -1191,6 +1191,7 @@ function isSimilarNpcSpeakerName(left: string | null | undefined, right: string 
 
 function isNpcDialogueMainCommandLog(log: LogEntry) {
   const mainCommand = log.metadata?.mainCommand;
+  if (mainCommand?.npcDialogue) return true;
   if (!mainCommand?.targetId) return false;
 
   return (
@@ -1449,6 +1450,8 @@ export function PlayPage({
   // UI 상태: 현재 탭, 모달 열림, 입력창 값, 로컬 캐릭터 선택값입니다.
   const [activeTab, setActiveTab] = useState<(typeof sessionTabs)[number]>('Main');
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
+  // 브라우저 기본 confirm 대신, 세션 준비 오버레이와 같은 디자인의 확인창을 보여준다.
+  const [isLeaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const [mainMessage, setMainMessage] = useState('');
   const [chatMessage, setChatMessage] = useState('');
   const [infoText, setInfoText] = useState('');
@@ -1488,6 +1491,19 @@ export function PlayPage({
     setSelectedExplorationMapSelection(null);
   }
 
+  function requestLeaveSession() {
+    setLeaveConfirmOpen(true);
+  }
+
+  function cancelLeaveSession() {
+    setLeaveConfirmOpen(false);
+  }
+
+  function confirmLeaveSession() {
+    setLeaveConfirmOpen(false);
+    onLeaveSession();
+  }
+
   const [inventoryUseFeedback, setInventoryUseFeedback] = useState<string | null>(null);
   const [isInventoryUsePending, setInventoryUsePending] = useState(false);
   const [formState, setFormState] = useState<QuickCreateFormState>(defaultCharacter);
@@ -1510,6 +1526,7 @@ export function PlayPage({
   const [, setIsMapLoaded] = useState(false);
   // 로그 자동 스크롤과 맵 저장 큐를 관리하는 ref입니다. 렌더링 없이 최신 값을 유지합니다.
   const logEndRef = useRef<HTMLDivElement | null>(null);
+  const mainCommandAutocompleteRef = useRef<HTMLDivElement | null>(null);
   const scenarioDescriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
   const mapSaveRef = useRef<{
@@ -1777,10 +1794,43 @@ export function PlayPage({
   const mainCommandAutocompleteIndexByIntent = new Map(
     mainCommandAutocompleteCommandEntries.map((entry, index) => [entry.command.intent, index])
   );
+  const activeMainCommandAutocompleteEntry =
+    mainCommandAutocompleteIndex >= 0
+      ? mainCommandAutocompleteCommandEntries[mainCommandAutocompleteIndex] ?? null
+      : null;
+  const activeMainCommandAutocompleteId = activeMainCommandAutocompleteEntry
+    ? `main-command-autocomplete-${activeMainCommandAutocompleteEntry.command.intent}`
+    : undefined;
   const visibleTargetOptions = (currentNode?.visibleTargets ?? []).filter((target) =>
     selectedMainFieldConfig?.targetTypes?.length
       ? selectedMainFieldConfig.targetTypes.includes(target.targetType)
       : true
+  );
+  // 탐험노드는 기본적으로 맵/아이템 칩을 쓰지만, NPC 대화처럼 명시 대상이 필요한 명령은 선택창을 열어준다.
+  const shouldShowExplorationTargetField = Boolean(
+    isExplorationMainCommandContext &&
+      selectedMainFieldConfig?.targetTypes?.includes(MainCommandTargetTypeValues.NPC)
+  );
+  const shouldShowMainCommandFields = Boolean(
+    selectedMainFieldConfig &&
+      (!isExplorationMainCommandContext || shouldShowExplorationTargetField)
+  );
+  const shouldShowMainTargetField = Boolean(
+    selectedMainFieldConfig?.targetTypes?.length &&
+      (!isExplorationMainCommandContext || shouldShowExplorationTargetField)
+  );
+  const shouldShowMainItemField = Boolean(
+    selectedMainFieldConfig?.requiresItem && !isExplorationMainCommandContext
+  );
+  const shouldShowMainSpellField = Boolean(
+    selectedMainFieldConfig?.requiresSpell && !isExplorationMainCommandContext
+  );
+  const shouldShowMainRelatedIntentField = Boolean(
+    selectedMainFieldConfig?.allowsRelatedIntent && !isExplorationMainCommandContext
+  );
+  const shouldShowMainPointField = Boolean(
+    !isExplorationMainCommandContext &&
+      (selectedMainFieldConfig?.requiresMapPoint || selectedMainFieldConfig?.allowsMapPoint)
   );
   const selectedMainTarget =
     visibleTargetOptions.find((target) => target.id === selectedMainTargetId) ?? null;
@@ -1830,6 +1880,13 @@ export function PlayPage({
       return current >= 0 && current < mainCommandAutocompleteCommandEntries.length ? current : 0;
     });
   }, [mainCommandAutocompleteCommandEntries.length, mainSlashToken]);
+
+  useEffect(() => {
+    const activeOption = mainCommandAutocompleteRef.current?.querySelector<HTMLElement>(
+      '[data-autocomplete-active="true"]'
+    );
+    activeOption?.scrollIntoView({ block: 'nearest' });
+  }, [mainCommandAutocompleteIndex]);
   const availableTabs = isRecruiting
     ? (['Main', 'Chat', 'Info', 'Settings'] as const)
     : startedSessionTabs;
@@ -2229,7 +2286,11 @@ export function PlayPage({
   }, [activeTab, logs]);
 
   function getMainCommandNpcSpeakerName(log: LogEntry) {
-    const targetId = log.metadata?.mainCommand?.targetId;
+    const mainCommand = log.metadata?.mainCommand;
+    const metadataSpeakerName = mainCommand?.npcDialogue?.speakerName?.trim();
+    if (metadataSpeakerName) return metadataSpeakerName;
+
+    const targetId = mainCommand?.npcDialogue?.npcId ?? mainCommand?.targetId;
     if (!targetId) return null;
 
     return (
@@ -2474,6 +2535,7 @@ export function PlayPage({
     if (
       activeTab !== 'Main' ||
       mainCommandMode !== 'GM_REQUEST' ||
+      !shouldShowMainCommandAutocomplete ||
       !mainCommandAutocompleteCommandEntries.length
     ) {
       return;
@@ -2481,27 +2543,41 @@ export function PlayPage({
 
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setMainCommandAutocompleteIndex((current) =>
-        (Math.max(current, 0) + 1) % mainCommandAutocompleteCommandEntries.length
-      );
+      setMainCommandAutocompleteIndex((current) => {
+        const baseIndex = current >= 0 ? current : -1;
+        return (baseIndex + 1) % mainCommandAutocompleteCommandEntries.length;
+      });
       return;
     }
 
     if (event.key === 'ArrowUp') {
       event.preventDefault();
-      setMainCommandAutocompleteIndex((current) =>
-        (Math.max(current, 0) - 1 + mainCommandAutocompleteCommandEntries.length) %
-        mainCommandAutocompleteCommandEntries.length
-      );
+      setMainCommandAutocompleteIndex((current) => {
+        const baseIndex = current >= 0 ? current : 0;
+        return (
+          (baseIndex - 1 + mainCommandAutocompleteCommandEntries.length) %
+          mainCommandAutocompleteCommandEntries.length
+        );
+      });
       return;
     }
 
-    if (event.key === 'Tab') {
+    if (event.key === 'Home') {
+      event.preventDefault();
+      setMainCommandAutocompleteIndex(0);
+      return;
+    }
+
+    if (event.key === 'End') {
+      event.preventDefault();
+      setMainCommandAutocompleteIndex(mainCommandAutocompleteCommandEntries.length - 1);
+      return;
+    }
+
+    if (event.key === 'Tab' || event.key === 'Enter') {
       event.preventDefault();
       const selectedEntry =
-        mainCommandAutocompleteCommandEntries[
-        mainCommandAutocompleteIndex >= 0 ? mainCommandAutocompleteIndex : 0
-        ];
+        activeMainCommandAutocompleteEntry ?? mainCommandAutocompleteCommandEntries[0];
       if (selectedEntry) {
         applyMainCommandAutocomplete(selectedEntry.command);
       }
@@ -3179,10 +3255,10 @@ export function PlayPage({
 
                 <div className="session-room-overlay-actions">
                   <button type="button" className="ghost" onClick={onBackToLobby}>
-                    로비
+                    로비로 이동
                   </button>
-                  <button type="button" className="ghost" onClick={onLeaveSession}>
-                    나가기
+                  <button type="button" className="danger-button" onClick={requestLeaveSession}>
+                    세션 영구 퇴장
                   </button>
                 </div>
               </div>
@@ -3495,6 +3571,48 @@ export function PlayPage({
                   </button>
                 </div>
               ) : null}
+
+              <div className="session-ready-card-ornament bottom" aria-hidden="true" />
+            </section>
+          </div>
+        ) : null}
+
+        {isLeaveConfirmOpen ? (
+          <div className="session-status-floating-layer expanded session-leave-confirm-layer">
+            <section className="session-ready-card session-main-ready-overlay session-leave-confirm-overlay">
+              <button
+                type="button"
+                className="session-ready-close-button"
+                aria-label="세션 영구 퇴장 확인창 닫기"
+                onClick={cancelLeaveSession}
+              >
+                <Icon name="x" />
+              </button>
+              <div className="session-ready-card-ornament top" aria-hidden="true" />
+
+
+
+
+              <strong className="session-ready-subtitle">
+                정말 퇴장하시겠습니까?
+              </strong>
+              <p className="session-ready-desc">
+                재입장이 불가능합니다.
+              </p>
+
+              <div className="ready-actions">
+                <button type="button" className="ready-btn-cancel" onClick={cancelLeaveSession}>
+                  취소
+                </button>
+                <button
+                  type="button"
+                  className="ready-btn-start ready-btn-leave"
+                  disabled={busy}
+                  onClick={confirmLeaveSession}
+                >
+                  퇴장
+                </button>
+              </div>
 
               <div className="session-ready-card-ornament bottom" aria-hidden="true" />
             </section>
@@ -3904,7 +4022,12 @@ export function PlayPage({
                     ) : null}
 
                     {mainCommandAutocompleteEntries.length ? (
-                      <div className="main-command-autocomplete">
+                      <div
+                        ref={mainCommandAutocompleteRef}
+                        className="main-command-autocomplete"
+                        role="listbox"
+                        aria-label="명령어 자동완성"
+                      >
                         {mainCommandAutocompleteEntries.map((entry) => {
                           if (entry.type === 'separator') {
                             return (
@@ -3925,10 +4048,13 @@ export function PlayPage({
                           return slashCommand ? (
                             <button
                               key={command.intent}
+                              id={`main-command-autocomplete-${command.intent}`}
                               type="button"
+                              role="option"
                               className={`main-command-autocomplete-option${isAutocompleteActive ? ' active' : ''
                                 }`}
                               aria-selected={isAutocompleteActive}
+                              data-autocomplete-active={isAutocompleteActive ? 'true' : undefined}
                               onMouseEnter={() => {
                                 if (autocompleteIndex >= 0) {
                                   setMainCommandAutocompleteIndex(autocompleteIndex);
@@ -3968,11 +4094,9 @@ export function PlayPage({
                       </div>
                     ) : null}
 
-                    {mainCommandMode === 'GM_REQUEST' &&
-                      selectedMainFieldConfig &&
-                      !isExplorationMainCommandContext ? (
+                    {mainCommandMode === 'GM_REQUEST' && shouldShowMainCommandFields ? (
                       <div className="main-command-fields">
-                        {selectedMainFieldConfig.targetTypes?.length ? (
+                        {shouldShowMainTargetField ? (
                           <label className="main-command-field">
                             <span>대상</span>
                             <select
@@ -3989,7 +4113,7 @@ export function PlayPage({
                           </label>
                         ) : null}
 
-                        {selectedMainFieldConfig.requiresItem ? (
+                        {shouldShowMainItemField ? (
                           <label className="main-command-field">
                             <span>아이템</span>
                             <select
@@ -4006,7 +4130,7 @@ export function PlayPage({
                           </label>
                         ) : null}
 
-                        {selectedMainFieldConfig.requiresSpell ? (
+                        {shouldShowMainSpellField ? (
                           <label className="main-command-field">
                             <span>주문</span>
                             <input
@@ -4017,7 +4141,7 @@ export function PlayPage({
                           </label>
                         ) : null}
 
-                        {selectedMainFieldConfig.allowsRelatedIntent ? (
+                        {shouldShowMainRelatedIntentField ? (
                           <label className="main-command-field">
                             <span>관련 명령</span>
                             <select
@@ -4034,8 +4158,7 @@ export function PlayPage({
                           </label>
                         ) : null}
 
-                        {selectedMainFieldConfig.requiresMapPoint ||
-                          selectedMainFieldConfig.allowsMapPoint ? (
+                        {shouldShowMainPointField ? (
                           <div className="main-command-field main-command-point-field">
                             <span>좌표</span>
                             <div>
@@ -4071,6 +4194,18 @@ export function PlayPage({
                       : setChatMessage(event.target.value)
                   }
                   onKeyDown={handleSidebarInputKeyDown}
+                  role={activeTab === 'Main' ? 'combobox' : undefined}
+                  aria-autocomplete={activeTab === 'Main' ? 'list' : undefined}
+                  aria-expanded={
+                    activeTab === 'Main' && shouldShowMainCommandAutocomplete
+                      ? mainCommandAutocompleteCommandEntries.length > 0
+                      : undefined
+                  }
+                  aria-activedescendant={
+                    activeTab === 'Main' && shouldShowMainCommandAutocomplete
+                      ? activeMainCommandAutocompleteId
+                      : undefined
+                  }
                   placeholder={
                     activeTab === 'Main'
                       ? mainCommandMode === 'RP_ACTION'
@@ -4154,10 +4289,10 @@ export function PlayPage({
                     <strong>{session?.inviteCode ?? '------'}</strong>
                   </div>
                   <button type="button" className="ghost" onClick={onBackToLobby}>
-                    Lobby
+                    로비로 이동
                   </button>
-                  <button type="button" className="danger-button" onClick={onLeaveSession}>
-                    Leave
+                  <button type="button" className="danger-button" onClick={requestLeaveSession}>
+                    세션 영구 퇴장
                   </button>
                 </div>
               ) : null}

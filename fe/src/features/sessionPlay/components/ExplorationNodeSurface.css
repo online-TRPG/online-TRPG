@@ -1,58 +1,159 @@
-/* ExplorationNodeSurface.cleaned.css
- * ExplorationNodeSurface.tsx에서 쓰는 클래스만 남긴 정리본입니다.
- */
+/* ============================================================
+ * ExplorationNodeSurface.css
+ * 양피지 + 금색 장식 테두리 + 우드 배경 테마
+ * CombatNodeSurface.css와 동일한 디자인 언어를 사용합니다.
+ * ============================================================ */
 
+/* ── 색상 토큰 ──────────────────────────────────────────────── */
+/* 우드: #1e1208, #2c1a0a, #3b2410                              */
+/* 양피지: #fbf5eb, #f5e8ca, #ede0c0                           */
+/* 금색 테두리: #c9922a, #d8b671, #e8c97a                      */
+/* 텍스트 어두운: #3e3226, #213045                              */
+/* ─────────────────────────────────────────────────────────── */
+
+/* ── 전체 레이아웃 ─────────────────────────────────────────── */
 .exploration-node-surface {
+  position: relative;
   height: 100%;
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 16px;
+  box-sizing: border-box;
   overflow: hidden;
-  background: #fbf5eb;
+  /* 제공된 다크우드 텍스처 배경 (늘이거나 줄이지 않고 원본 크기 그대로 반복하여 채움) */
+  background-color: #1e1208;
+  background-image: url('../../../assets/images/darkwood.webp');
+  background-repeat: repeat;
+  background-size: auto;
+  background-position: top left;
   color: #3e3226;
 }
 
+/* ── 공통 앤틱 프레임 (이중 액자 + 모서리 뾰족별 장식) ──────────────── */
+.exploration-node-header,
+.exploration-map-column,
+.exploration-actor-status,
+.exploration-action-panel,
+.exploration-inventory-panel {
+  position: relative;
+  box-sizing: border-box;
+  /* 이중 액자 (바깥은 outline, 안은 border) */
+  border: 1px solid #8a6020;
+  outline: 1px solid rgba(201, 146, 42, 0.55);
+  outline-offset: 2px;
+  box-shadow:
+    inset 0 0 0 1px rgba(232, 201, 122, 0.45),
+    0 4px 10px rgba(30, 18, 8, 0.5);
+  overflow: visible !important; /* 별 장식이 잘리지 않도록 강제 (맵 패널 내부에서 hidden 처리됨) */
+}
+
+/* 맵 영역 제외 패널들 및 맵 하단 스트립에 낡고 진한 양피지 질감 적용 */
+.exploration-node-header,
+.exploration-actor-status,
+.exploration-action-panel,
+.exploration-inventory-panel,
+.exploration-selection-strip {
+  background-color: #e2d1b3;
+  background-image:
+    /* 1. 가장자리 부드러운 그을림 (Vignette) */
+    radial-gradient(ellipse at center, transparent 55%, rgba(100,60,30,0.1) 85%, rgba(70,35,15,0.3) 100%),
+    /* 2. 미세하고 거친 종이 알갱이 (Grain) */
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23grain)' opacity='0.15'/%3E%3C/svg%3E"),
+    /* 3. 굵고 눈에 띄는 낡은 얼룩 및 구김 (Smudges/Creases) - 채도를 빼고 강도를 높여 선명하고 깊은 주름을 표현 */
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='smudge'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.008' numOctaves='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23smudge)' opacity='0.35'/%3E%3C/svg%3E"),
+    /* 4. 베이스 양피지 - 중앙에서 바깥으로 퍼지는 방사형 그라데이션 */
+    radial-gradient(circle at center, #f4ead5 0%, #e2d1b3 100%);
+  background-blend-mode: multiply, color-burn, color-burn, normal;
+}
+
+/* 4모서리 금색 뾰족별 장식 (각 요소의 코너 밖으로 살짝 튀어나옴) */
+.exploration-node-header::before,
+.exploration-map-column::before,
+.exploration-actor-status::before,
+.exploration-action-panel::before,
+.exploration-inventory-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 25;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' width='18' height='18'%3E%3Cpolygon points='9,0 11,7 18,9 11,11 9,18 7,11 0,9 7,7' fill='%23b07d28'/%3E%3Cpolygon points='9,3.5 10.5,7.5 14.5,9 10.5,10.5 9,14.5 7.5,10.5 3.5,9 7.5,7.5' fill='%23e8c97a'/%3E%3Ccircle cx='9' cy='9' r='2' fill='%23673f0a'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' width='18' height='18'%3E%3Cpolygon points='9,0 11,7 18,9 11,11 9,18 7,11 0,9 7,7' fill='%23b07d28'/%3E%3Cpolygon points='9,3.5 10.5,7.5 14.5,9 10.5,10.5 9,14.5 7.5,10.5 3.5,9 7.5,7.5' fill='%23e8c97a'/%3E%3Ccircle cx='9' cy='9' r='2' fill='%23673f0a'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' width='18' height='18'%3E%3Cpolygon points='9,0 11,7 18,9 11,11 9,18 7,11 0,9 7,7' fill='%23b07d28'/%3E%3Cpolygon points='9,3.5 10.5,7.5 14.5,9 10.5,10.5 9,14.5 7.5,10.5 3.5,9 7.5,7.5' fill='%23e8c97a'/%3E%3Ccircle cx='9' cy='9' r='2' fill='%23673f0a'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' width='18' height='18'%3E%3Cpolygon points='9,0 11,7 18,9 11,11 9,18 7,11 0,9 7,7' fill='%23b07d28'/%3E%3Cpolygon points='9,3.5 10.5,7.5 14.5,9 10.5,10.5 9,14.5 7.5,10.5 3.5,9 7.5,7.5' fill='%23e8c97a'/%3E%3Ccircle cx='9' cy='9' r='2' fill='%23673f0a'/%3E%3C/svg%3E");
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat;
+  background-size: 18px 18px, 18px 18px, 18px 18px, 18px 18px;
+  background-position:
+    left -9px top -9px,
+    right -9px top -9px,
+    left -9px bottom -9px,
+    right -9px bottom -9px;
+}
+
+/* ── 헤더 ─────────────────────────────────────────────────── */
 .exploration-node-header {
+  position: relative;
+  z-index: 20;
   min-height: 70px;
-  padding: 12px 16px;
+  padding: 16px 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border-bottom: none;
-  background: transparent;
+  /* background, border는 상단 공통 클래스에서 처리됨 */
+}
+
+.exploration-node-title-row {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
 }
 
 .exploration-node-header h1 {
-  margin: 4px 0 0;
-  color: #213045;
-  font-size: 23px;
+  min-width: 0;
+  margin: 0;
+  flex: 0 1 auto;
+  color: #2a1a06;
+  font-size: 22px;
+  font-weight: 900;
   line-height: 1.2;
-  overflow-wrap: anywhere;
-}
-
-.exploration-node-header-summary {
-  max-width: min(820px, 58vw);
-  margin: 8px 0 0;
-  color: #5f6f80;
-  font-size: 13px;
-  line-height: 1.45;
-  word-break: keep-all;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 0 rgba(255, 230, 160, 0.4);
 }
 
 .exploration-node-eyebrow {
-  color: #667787;
-  font-size: 11px;
-  font-weight: 800;
+  flex: 0 0 auto;
+  min-height: 22px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #c9922a;
+  border-radius: 4px;
+  background: rgba(255, 248, 220, 0.85);
+  color: #7a4e1a;
+  font-size: 10px;
+  font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
+/* 헤더 우측 상태 배지 */
 .exploration-node-status-row {
+  flex: 0 0 auto;
+  margin-left: auto;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
   gap: 6px;
 }
 
@@ -61,19 +162,175 @@
   padding: 0 10px;
   display: inline-flex;
   align-items: center;
-  border: 1px solid #bdcad5;
-  background: #ffffff;
-  color: #31475c;
+  border: 1px solid #c9922a;
+  background: #fdfaf3;
+  color: #5a3410;
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
 }
 
+/* ── 장면 설명 버튼 ───────────────────────────────────────── */
+.exploration-node-summary-button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid #d8b671;
+  border-radius: 6px;
+  background: #fdfaf3;
+  color: #3e3226;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.exploration-node-summary-button:hover {
+  border-color: #c9922a;
+  background: #f4e8d3;
+}
+
+.exploration-node-summary-button.active {
+  border-color: #c9922a;
+  background: #d8b671;
+  color: #1f2f45;
+}
+
+/* ── 장면 설명 팝업 ───────────────────────────────────────── */
+.exploration-node-summary-popover {
+  position: absolute;
+  top: 80px;
+  left: 16px;
+  z-index: 120;
+  width: min(560px, calc(100% - 32px));
+  max-height: 260px;
+  padding: 14px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  border: 1px solid #c9922a;
+  border-radius: 10px;
+  background: rgba(253, 248, 235, 0.98);
+  box-shadow:
+    0 14px 32px rgba(30, 18, 8, 0.35),
+    inset 0 0 0 3px rgba(232, 201, 122, 0.3);
+  color: #3e3226;
+}
+
+.exploration-node-summary-popover-head {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.exploration-node-summary-popover-head strong {
+  color: #2a1a06;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.exploration-node-summary-popover-head button {
+  height: 24px;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid #c9922a;
+  border-radius: 4px;
+  background: #fdfaf3;
+  color: #3e3226;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.exploration-node-summary-popover-body {
+  display: grid;
+  gap: 8px;
+}
+
+.exploration-node-summary-popover-body p {
+  margin: 0;
+  color: #4a3520;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* ── 중앙 콘텐츠 (맵 영역) ───────────────────────────────── */
 .exploration-node-content {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 0;
   overflow: hidden;
+}
+
+.exploration-map-column {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  /* 공통 프레임 디자인 적용되므로 여기서는 구조적 속성만 남깁니다 */
+}
+
+.exploration-map-panel {
+  position: relative;
+  min-height: 0;
+  display: grid;
+  overflow: hidden;
+  background: #1a1008;
+}
+
+.exploration-map-panel > .vtt-panel {
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* 맵 로딩 플레이스홀더 */
+.exploration-map-placeholder {
+  min-height: 320px;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  text-align: center;
+  color: #d8b671;
+  background: #1e1208;
+}
+
+.exploration-map-placeholder span {
+  color: #9a7a3a;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.exploration-map-placeholder strong {
+  font-size: 20px;
+  color: #d8b671;
+}
+
+/* ── 파티 오버레이 ────────────────────────────────────────── */
+.exploration-party-overlay {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 4;
+  width: max-content;
+  max-width: calc(100% - 12px);
+  max-height: calc(100% - 12px);
+  padding: 2px;
+  display: grid;
+  gap: 2px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  border: 1px solid rgba(201, 146, 42, 0.5);
+  background: rgba(32, 20, 8, 0.72);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 8px 18px rgba(20, 10, 0, 0.5);
 }
 
 .exploration-party-list,
@@ -96,14 +353,14 @@
   grid-template-columns: 22px max-content;
   gap: 3px;
   align-items: center;
-  border: 1px solid rgba(203, 214, 223, 0.9);
-  background: rgba(248, 250, 251, 0.9);
-  box-shadow: 0 4px 10px rgba(18, 31, 42, 0.12);
+  border: 1px solid rgba(201, 146, 42, 0.6);
+  background: rgba(253, 245, 220, 0.88);
+  box-shadow: 0 4px 10px rgba(18, 10, 0, 0.3);
 }
 
 .exploration-party-card.mine {
-  border-color: #7fa492;
-  background: #f0f7f3;
+  border-color: #c9922a;
+  background: #f9efd0;
 }
 
 .exploration-party-avatar {
@@ -113,8 +370,8 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: #d7e1e8;
-  color: #223244;
+  background: #d4b87a;
+  color: #2a1a06;
   font-weight: 900;
 }
 
@@ -156,7 +413,7 @@
   min-width: 0;
   flex: 0 1 auto;
   max-width: 64px;
-  color: #223244;
+  color: #2a1a06;
   font-size: 11px;
   line-height: 1;
   overflow: hidden;
@@ -166,7 +423,7 @@
 
 .exploration-party-line span {
   flex: 0 0 auto;
-  color: #637587;
+  color: #7a4e1a;
   font-size: 9px;
   font-weight: 800;
   line-height: 1;
@@ -176,78 +433,14 @@
 .exploration-party-hp {
   display: block;
   width: max-content;
-  color: #345746;
+  color: #4a3520;
   font-size: 10px;
   font-weight: 900;
   line-height: 1;
   white-space: nowrap;
 }
 
-.exploration-map-column {
-  min-height: 0;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  overflow: hidden;
-}
-
-.exploration-map-panel {
-  position: relative;
-  min-height: 0;
-  display: grid;
-  overflow: hidden;
-  background: #dde4e8;
-}
-
-.exploration-party-overlay {
-  position: absolute;
-  left: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 4;
-  width: max-content;
-  max-width: calc(100% - 12px);
-  max-height: calc(100% - 12px);
-  padding: 2px;
-  display: grid;
-  gap: 2px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  border: 1px solid rgba(116, 135, 151, 0.32);
-  background: rgba(240, 245, 247, 0.62);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 8px 18px rgba(20, 34, 45, 0.14);
-}
-
-.exploration-map-panel > .vtt-panel {
-  height: 100%;
-  min-height: 0;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.exploration-map-placeholder {
-  min-height: 320px;
-  display: grid;
-  place-content: center;
-  gap: 8px;
-  text-align: center;
-  color: #314457;
-  background: #e3e8ec;
-}
-
-.exploration-map-placeholder span {
-  color: #6b7c8d;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.exploration-map-placeholder strong {
-  font-size: 20px;
-}
-
+/* ── 선택 정보 스트립 (맵 아래) ──────────────────────────── */
 .exploration-selection-strip {
   min-height: 36px;
   padding: 7px 12px;
@@ -255,11 +448,15 @@
   grid-template-columns: minmax(180px, 0.26fr) minmax(220px, 0.34fr) minmax(0, 1fr);
   gap: 8px;
   align-items: center;
-  border-top: 1px solid #c3ced8;
-  background: #f8fafb;
-  color: #5d7082;
+  /* 배경은 상단 공통 양피지 질감 클래스에서 처리됨 */
+  color: #4a3010; /* 어두워진 배경에 맞춰 대비 조정 */
   font-size: 12px;
   font-weight: 800;
+  /* 앤틱 금색 이중 액자: 상단만 두껍게, 내부 밝은 선 */
+  border-top: 2px solid #b07d28;
+  box-shadow:
+    inset 0 2px 0 rgba(232, 201, 122, 0.5),
+    inset 0 -1px 0 rgba(201, 146, 42, 0.35);
 }
 
 .exploration-selection-strip > span {
@@ -278,10 +475,11 @@
 }
 
 .exploration-selection-strip strong {
-  color: #203040;
+  color: #2a1a06;
   font-weight: 900;
 }
 
+/* HP 바 */
 .exploration-selection-hp {
   display: inline-flex;
   min-width: 0;
@@ -314,35 +512,25 @@
   white-space: nowrap;
 }
 
-.exploration-empty-text {
-  margin: 0;
-  color: #5f6f80;
-  font-size: 13px;
-  line-height: 1.55;
-  word-break: keep-all;
-  overflow-wrap: anywhere;
-}
-
+/* ── 액션 독 (하단) ───────────────────────────────────────── */
 .exploration-action-dock {
   min-height: 126px;
-  padding: 10px 14px;
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr) minmax(240px, 0.42fr);
-  gap: 12px;
-  border-top: 1px solid #c9d3dc;
-  background: #e7edf0;
+  gap: 16px;
+  /* 배경과 테두리를 제거하여 뒤의 우드 배경이 보이도록 함 */
 }
 
+/* 액션 독 내부 패널 3종 공통 */
 .exploration-actor-status,
 .exploration-action-panel,
 .exploration-inventory-panel {
   min-width: 0;
-  padding: 12px;
+  padding: 14px 16px;
   display: grid;
   align-content: center;
-  gap: 8px;
-  border: 1px solid #c3ced8;
-  background: #f8fafb;
+  gap: 7px;
+  /* background, border 등은 상단 공통 프레임 클래스에서 자동 처리됨 */
 }
 
 .exploration-action-panel {
@@ -350,19 +538,29 @@
   text-align: center;
 }
 
+.exploration-inventory-panel {
+  align-content: start;
+  overflow: hidden;
+}
+
+/* 캐릭터 이름 */
 .exploration-actor-status strong {
-  color: #203040;
+  color: #2a1a06;
+  font-size: 14px;
+  font-weight: 900;
   overflow-wrap: anywhere;
 }
 
+/* 안내 텍스트 */
 .exploration-actor-status p,
 .exploration-inventory-panel p {
   margin: 0;
-  color: #607184;
-  font-size: 13px;
+  color: #4a2808; /* 어두워진 배경에 맞춰 텍스트 가독성 확보 */
+  font-size: 12px;
   line-height: 1.45;
 }
 
+/* ── 액션 버튼 리스트 ──────────────────────────────────────── */
 .exploration-action-list {
   display: flex;
   flex-wrap: wrap;
@@ -371,33 +569,48 @@
 }
 
 .exploration-action-list button {
-  min-height: 32px;
+  min-height: 30px;
   padding: 0 12px;
-  border: 1px solid #c2ceda;
-  background: #ffffff;
-  color: #294058;
+  border: 1px solid #c9922a;
+  border-radius: 4px;
+  background: #fdfaf3;
+  color: #3e2a10;
   font-size: 12px;
   font-weight: 800;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
 }
 
+.exploration-action-list button:hover:not(:disabled) {
+  border-color: #a87020;
+  background: #f4e8d3;
+}
+
+.exploration-action-list button:disabled {
+  border-color: #d1c5a8;
+  background: #f0ebdf;
+  color: #a89070;
+  cursor: not-allowed;
+}
+
+/* 맵 액션 피드백 메시지 */
 .exploration-map-action-feedback {
   margin: 0;
-  color: #557066;
+  color: #6a4c10;
   font-size: 12px;
   font-weight: 800;
   line-height: 1.35;
 }
 
-.exploration-inventory-panel {
-  align-content: start;
-  overflow: hidden;
-}
-
+/* ── 인벤토리 ──────────────────────────────────────────────── */
 .exploration-inventory-list {
   min-height: 0;
   max-height: 112px;
+  display: grid;
+  gap: 4px;
   overflow-y: auto;
   scrollbar-width: thin;
+  scrollbar-color: #c9922a transparent;
 }
 
 .exploration-inventory-item {
@@ -408,21 +621,22 @@
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 6px;
   align-items: center;
-  border: 1px solid #cbd7df;
-  background: #ffffff;
+  border: 1px solid #c9b882;
+  background: #fdfaf3;
   cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
 }
 
 .exploration-inventory-item:hover,
 .exploration-inventory-item:focus-visible {
-  border-color: #86a9c8;
-  background: #f3f8fc;
+  border-color: #c9922a;
+  background: #f9efd0;
 }
 
 .exploration-inventory-item.selected {
-  border-color: #3d7fb0;
-  background: #edf6ff;
-  box-shadow: inset 0 0 0 1px rgba(61, 127, 176, 0.28);
+  border-color: #a87020;
+  background: #f4e4b8;
+  box-shadow: inset 0 0 0 1px rgba(168, 112, 32, 0.3);
 }
 
 .exploration-inventory-item-body {
@@ -440,13 +654,14 @@
 }
 
 .exploration-inventory-item-body strong {
-  color: #203040;
+  color: #2a1a06;
   font-size: 12px;
+  font-weight: 800;
 }
 
 .exploration-inventory-item-body span,
 .exploration-inventory-quantity {
-  color: #607184;
+  color: #7a5a30;
   font-size: 11px;
   font-weight: 700;
 }
@@ -456,32 +671,53 @@
   text-align: right;
 }
 
+/* 인벤토리 아이템 버튼 (사용/착용) */
 .exploration-inventory-item button {
   min-height: 26px;
   padding: 0 8px;
-  border: 1px solid #7da89c;
-  background: #eef8f4;
-  color: #234d45;
+  border: 1px solid #9a7d3a;
+  border-radius: 3px;
+  background: #f4e8c8;
+  color: #4a3010;
   font-size: 11px;
   font-weight: 800;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.exploration-inventory-item button:hover:not(:disabled) {
+  background: #e8d4a0;
 }
 
 .exploration-inventory-item button:disabled {
-  border-color: #d1d9df;
-  background: #eef2f4;
-  color: #8a98a4;
+  border-color: #d1c5a8;
+  background: #f0ebdf;
+  color: #a89070;
   cursor: not-allowed;
 }
 
+/* 인벤토리 피드백 */
 .exploration-inventory-feedback {
   padding: 6px 8px;
-  border: 1px solid #b9d7ca;
-  background: #eef8f4;
-  color: #28554c !important;
+  border: 1px solid #c9922a;
+  border-radius: 3px;
+  background: #fdf4dc;
+  color: #5a3c10 !important;
   font-size: 12px !important;
   font-weight: 800;
 }
 
+/* 빈 텍스트 */
+.exploration-empty-text {
+  margin: 0;
+  color: #5a3c10;
+  font-size: 13px;
+  line-height: 1.55;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* ── 반응형 ────────────────────────────────────────────────── */
 @media (max-width: 1180px) {
   .exploration-node-surface {
     min-height: 840px;
@@ -492,8 +728,19 @@
     overflow-y: auto;
   }
 
-  .exploration-party-overlay .exploration-party-list {
+  .exploration-action-dock {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .exploration-node-surface {
+    min-height: 840px;
+  }
+
+  .exploration-node-content {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
   }
 
   .exploration-action-dock {
@@ -505,25 +752,24 @@
   .exploration-node-header {
     align-items: flex-start;
     flex-direction: column;
+    gap: 8px;
   }
 
   .exploration-node-status-row {
     justify-content: flex-start;
   }
 
-  .exploration-node-header-summary {
-    max-width: 100%;
+  .exploration-node-summary-popover {
+    position: relative;
+    top: auto;
+    left: auto;
+    margin: 8px 12px;
+    width: auto;
   }
 }
 
-/* ------------------------------------------------------------------
- * FIX v2
- * 탐색 화면이 1180px 이하에서 1열로 바뀌며 화면을 과하게 차지하던 문제 수정.
- * PlayPage의 우측 채팅 사이드바가 유지되는 폭에서는 탐색 내부도
- * 맵 + 대상 패널 2열 구조를 유지한다.
- * ------------------------------------------------------------------ */
-
 @media (min-width: 861px) {
+  /* 고정 높이 그리드: 헤더(auto) + 맵(확장) + 독(auto) */
   .exploration-node-surface {
     height: 100%;
     min-height: 0;
@@ -531,718 +777,59 @@
     overflow: hidden;
   }
 
+  .exploration-node-header {
+    overflow: visible;
+  }
+
   .exploration-node-content {
     min-height: 0;
-    grid-template-columns: minmax(0, 1fr);
+    height: 100%;
     overflow: hidden;
   }
 
-  .exploration-action-dock {
-    grid-template-columns: 220px minmax(0, 1fr) minmax(240px, 0.42fr);
-  }
-}
-
-@media (max-width: 860px) {
-  .exploration-node-surface {
-    min-height: 840px;
-  }
-
-  .exploration-node-content {
-    grid-template-columns: 1fr;
-    overflow-y: auto;
-  }
-
-  .exploration-action-dock {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* ------------------------------------------------------------------
- * FIX v9: 탐색 화면 정상 grid + 맵 확대
- * 기준:
- * - 헤더/대상패널/action dock은 절대배치하지 않음.
- * - 서로 침범하지 않음.
- * - 높이를 작게 잡아 맵이 남은 영역을 최대한 차지하게 함.
- * ------------------------------------------------------------------ */
-
-@media (min-width: 861px) {
-  .exploration-node-surface {
-    position: relative !important;
-    height: 100% !important;
-    min-height: 0 !important;
-    max-height: 100% !important;
-    display: grid !important;
-    grid-template-rows: 34px minmax(0, 1fr) 72px !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-    background: #10151d !important;
-  }
-
-  .exploration-node-header {
-    position: relative !important;
-    inset: auto !important;
-    z-index: 1 !important;
-    height: 34px !important;
-    min-height: 34px !important;
-    max-height: 34px !important;
-    padding: 3px 8px !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-    border: 0 !important;
-    border-bottom: 1px solid rgba(18, 52, 90, 0.18) !important;
-    border-radius: 0 !important;
-    background: #e8edf2 !important;
-    backdrop-filter: none !important;
-    box-shadow: none !important;
-  }
-
-  .exploration-node-header h1 {
-    margin: 0 !important;
-    font-size: 14px !important;
-    line-height: 1 !important;
-    white-space: nowrap !important;
-  }
-
-  .exploration-node-header-summary {
-    display: none !important;
-  }
-
-  .exploration-node-eyebrow {
-    min-height: 18px !important;
-    padding: 0 7px !important;
-    font-size: 9px !important;
-    line-height: 1 !important;
-    white-space: nowrap !important;
-  }
-
-  .exploration-node-status-row {
-    margin-left: auto !important;
-    gap: 4px !important;
-    flex-wrap: nowrap !important;
-  }
-
-  .exploration-node-status-row span {
-    min-height: 20px !important;
-    padding: 0 7px !important;
-    font-size: 10px !important;
-    white-space: nowrap !important;
-  }
-
-  .exploration-node-content {
-    position: relative !important;
-    inset: auto !important;
-    height: 100% !important;
-    min-height: 0 !important;
-    max-height: 100% !important;
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-  }
-
   .exploration-map-column {
-    position: relative !important;
-    inset: auto !important;
-    grid-column: auto !important;
-    height: 100% !important;
-    min-height: 0 !important;
-    max-height: 100% !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-    display: grid !important;
-    grid-template-rows: minmax(0, 1fr) 34px !important;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    grid-template-rows: minmax(0, 1fr) auto;
   }
 
   .exploration-map-panel {
-    position: relative !important;
-    inset: auto !important;
-    height: 100% !important;
-    min-height: 0 !important;
-    max-height: 100% !important;
-    padding: 0 !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-    background: #10151d !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-  }
-
-  .exploration-selection-strip {
-    height: 34px !important;
-    min-height: 34px !important;
-    max-height: 34px !important;
-    padding: 5px 8px !important;
-    display: grid !important;
-    grid-template-columns: minmax(150px, 0.28fr) minmax(190px, 0.32fr) minmax(0, 1fr) !important;
-    gap: 8px !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-    border-top: 1px solid rgba(18, 52, 90, 0.16) !important;
-    background: #f8fafb !important;
-    font-size: 11px !important;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .exploration-map-panel > .vtt-panel {
-    position: relative !important;
-    height: 100% !important;
-    min-height: 0 !important;
-    max-height: 100% !important;
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: hidden !important;
+    position: relative;
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .exploration-selection-strip {
+    height: 38px;
+    min-height: 38px;
+    max-height: 38px;
+    overflow: hidden;
+    box-sizing: border-box;
   }
 
   .exploration-action-dock {
-    position: relative !important;
-    inset: auto !important;
-    z-index: 1 !important;
-    height: 72px !important;
-    min-height: 72px !important;
-    max-height: 72px !important;
-    box-sizing: border-box !important;
-    padding: 5px 6px !important;
-    display: grid !important;
-    grid-template-columns: 170px minmax(0, 1fr) 160px !important;
-    gap: 6px !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    overflow: hidden !important;
-    border: 0 !important;
-    border-top: 1px solid rgba(18, 52, 90, 0.18) !important;
-    border-radius: 0 !important;
-    background: #e7edf0 !important;
-    backdrop-filter: none !important;
-    box-shadow: none !important;
-  }
-
-  .exploration-actor-status,
-  .exploration-action-panel,
-  .exploration-inventory-panel {
-    min-height: 0 !important;
-    height: 100% !important;
-    padding: 5px 6px !important;
-    gap: 4px !important;
-    overflow: hidden !important;
-    align-content: center !important;
-    box-sizing: border-box !important;
-  }
-
-  .exploration-action-tabs,
-  .exploration-action-list {
-    min-height: 0 !important;
-    gap: 4px !important;
-  }
-
-  .exploration-action-tabs button,
-  .exploration-action-list button {
-    min-height: 22px !important;
-    height: 22px !important;
-    padding: 0 7px !important;
-    font-size: 10px !important;
-    line-height: 1 !important;
+    height: auto;
+    min-height: 126px;
+    max-height: none;
+    grid-template-columns: 220px minmax(0, 1fr) minmax(240px, 0.42fr);
   }
 
   .exploration-party-overlay {
-    position: absolute !important;
-    left: 8px !important;
-    top: 50% !important;
-    z-index: 3 !important;
-    max-height: calc(100% - 120px) !important;
-    transform: translateY(-50%) !important;
-  }
-}
-
-/* ------------------------------------------------------------------
- * FIX v10: 탐색 헤더 내부 배치 수정
- *
- * 원인:
- * - exploration-node-header 높이를 34px로 줄였지만,
- *   header의 첫 번째 자식 div 안에서 eyebrow와 h1이 세로로 쌓이고 있었음.
- * - 그래서 헤더 영역을 침범한 것이 아니라, 헤더 내부 텍스트가 위아래로 잘림.
- *
- * 수정:
- * - header 내부 첫 번째 div를 한 줄 flex로 변경.
- * - [탐색 노드] [Cave Entrance] [상태 배지들] 형태로 한 줄 배치.
- * - 제목이 길면 말줄임 처리.
- * ------------------------------------------------------------------ */
-
-@media (min-width: 861px) {
-  .exploration-node-header {
-    height: 34px !important;
-    min-height: 34px !important;
-    max-height: 34px !important;
-    padding: 3px 8px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: flex-start !important;
-    gap: 10px !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-  }
-
-  .exploration-node-header > div:first-child {
-    min-width: 0 !important;
-    flex: 1 1 auto !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    overflow: hidden !important;
-  }
-
-  .exploration-node-eyebrow {
-    flex: 0 0 auto !important;
-    height: 20px !important;
-    min-height: 20px !important;
-    padding: 0 8px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    border: 1px solid rgba(18, 52, 90, 0.16) !important;
-    border-radius: 4px !important;
-    background: rgba(255, 255, 255, 0.8) !important;
-    color: #4d5d6f !important;
-    font-size: 10px !important;
-    font-weight: 900 !important;
-    line-height: 1 !important;
-    white-space: nowrap !important;
-  }
-
-  .exploration-node-header h1 {
-    min-width: 0 !important;
-    margin: 0 !important;
-    flex: 1 1 auto !important;
-    color: #172433 !important;
-    font-size: 14px !important;
-    font-weight: 900 !important;
-    line-height: 1 !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-  }
-
-  .exploration-node-header-summary {
-    display: none !important;
-  }
-
-  .exploration-node-status-row {
-    flex: 0 0 auto !important;
-    margin-left: auto !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 4px !important;
-    flex-wrap: nowrap !important;
-    overflow: hidden !important;
-  }
-
-  .exploration-node-status-row span {
-    height: 22px !important;
-    min-height: 22px !important;
-    padding: 0 8px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    border: 1px solid rgba(18, 52, 90, 0.2) !important;
-    border-radius: 4px !important;
-    background: #ffffff !important;
-    color: #172433 !important;
-    font-size: 10px !important;
-    font-weight: 900 !important;
-    line-height: 1 !important;
-    white-space: nowrap !important;
-  }
-}
-
-/* ------------------------------------------------------------------
- * FIX v11: exploration-node-header-summary를 헤더 직접 노출에서 팝업으로 분리
- * - 헤더는 한 줄 정보만 유지
- * - 장면 설명은 버튼 클릭 시 팝업으로 표시
- * ------------------------------------------------------------------ */
-
-@media (min-width: 861px) {
-  .exploration-node-header {
-    overflow: visible !important;
-  }
-
-  .exploration-node-title-row {
-    min-width: 0 !important;
-    flex: 1 1 auto !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    overflow: hidden !important;
-  }
-
-  .exploration-node-summary-button {
-    flex: 0 0 auto !important;
-    height: 22px !important;
-    min-height: 22px !important;
-    padding: 0 8px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    border: 1px solid rgba(18, 52, 90, 0.22) !important;
-    border-radius: 4px !important;
-    background: #ffffff !important;
-    color: #172433 !important;
-    font-size: 10px !important;
-    font-weight: 900 !important;
-    line-height: 1 !important;
-    white-space: nowrap !important;
-    cursor: pointer !important;
-  }
-
-  .exploration-node-summary-button:hover {
-    border-color: #173b67 !important;
-    background: #eef4fa !important;
-  }
-
-  .exploration-node-summary-button.active {
-    border-color: #173b67 !important;
-    background: #173b67 !important;
-    color: #ffffff !important;
-  }
-
-  .exploration-node-summary-popover {
-    position: absolute !important;
-    top: calc(100% + 6px) !important;
-    left: 8px !important;
-    z-index: 120 !important;
-    width: min(520px, calc(100% - 16px)) !important;
-    max-height: 240px !important;
-    padding: 12px !important;
-    overflow-y: auto !important;
-    box-sizing: border-box !important;
-    border: 1px solid rgba(18, 52, 90, 0.22) !important;
-    border-radius: 8px !important;
-    background: rgba(248, 250, 251, 0.98) !important;
-    box-shadow: 0 10px 24px rgba(18, 31, 42, 0.18) !important;
-    color: #172433 !important;
-  }
-
-  .exploration-node-summary-popover-head {
-    margin-bottom: 8px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    gap: 12px !important;
-  }
-
-  .exploration-node-summary-popover-head strong {
-    color: #172433 !important;
-    font-size: 13px !important;
-    font-weight: 900 !important;
-    line-height: 1.2 !important;
-  }
-
-  .exploration-node-summary-popover-head button {
-    height: 24px !important;
-    min-height: 24px !important;
-    padding: 0 8px !important;
-    border: 1px solid rgba(18, 52, 90, 0.2) !important;
-    border-radius: 4px !important;
-    background: #ffffff !important;
-    color: #172433 !important;
-    font-size: 11px !important;
-    font-weight: 800 !important;
-    cursor: pointer !important;
-  }
-
-  .exploration-node-summary-popover-body {
-    display: grid !important;
-    gap: 8px !important;
-  }
-
-  .exploration-node-summary-popover-body p {
-    margin: 0 !important;
-    color: #314255 !important;
-    font-size: 13px !important;
-    line-height: 1.55 !important;
-    white-space: pre-wrap !important;
-  }
-}
-
-@media (max-width: 860px) {
-  .exploration-node-title-row {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .exploration-node-summary-button {
-    min-height: 30px;
-    padding: 0 10px;
-    border: 1px solid rgba(18, 52, 90, 0.22);
-    border-radius: 6px;
-    background: #ffffff;
-    color: #172433;
-    font-size: 12px;
-    font-weight: 900;
-  }
-
-  .exploration-node-summary-popover {
-    margin-top: 8px;
-    padding: 12px;
-    border: 1px solid rgba(18, 52, 90, 0.22);
-    border-radius: 8px;
-    background: #f8fafb;
-  }
-
-  .exploration-node-summary-popover-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 8px;
-  }
-
-  .exploration-node-summary-popover-body {
-    display: grid;
-    gap: 8px;
-  }
-
-  .exploration-node-summary-popover-body p {
-    margin: 0;
-    color: #314255;
-    font-size: 13px;
-    line-height: 1.55;
-    white-space: pre-wrap;
-  }
-}
-
-/* ------------------------------------------------------------------
- * FIX v12: 장면 설명 팝업을 헤더 내부가 아니라 surface 레이어로 표시
- * - JSX에서 popover를 header 밖으로 이동
- * - 기준점은 .exploration-node-surface
- * - 팝업은 헤더 아래 맵 위에 별도 레이어로 뜸
- * ------------------------------------------------------------------ */
-
-@media (min-width: 861px) {
-  .exploration-node-surface {
-    position: relative !important;
-    overflow: hidden !important;
-  }
-
-  .exploration-node-header {
-    position: relative !important;
-    overflow: hidden !important;
-    z-index: 20 !important;
-  }
-
-  .exploration-node-summary-popover {
-    position: absolute !important;
-    top: 42px !important;
-    left: 10px !important;
-    z-index: 120 !important;
-    width: min(560px, calc(100% - 250px)) !important;
-    max-height: 260px !important;
-    padding: 12px !important;
-    overflow-y: auto !important;
-    box-sizing: border-box !important;
-    border: 1px solid rgba(18, 52, 90, 0.24) !important;
-    border-radius: 10px !important;
-    background: rgba(248, 250, 251, 0.98) !important;
-    box-shadow: 0 14px 32px rgba(18, 31, 42, 0.26) !important;
-    color: #172433 !important;
-  }
-
-  .exploration-node-summary-popover-head {
-    margin-bottom: 8px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    gap: 12px !important;
-  }
-
-  .exploration-node-summary-popover-head strong {
-    color: #172433 !important;
-    font-size: 13px !important;
-    font-weight: 900 !important;
-    line-height: 1.2 !important;
-  }
-
-  .exploration-node-summary-popover-head button {
-    height: 24px !important;
-    min-height: 24px !important;
-    padding: 0 8px !important;
-    border: 1px solid rgba(18, 52, 90, 0.2) !important;
-    border-radius: 4px !important;
-    background: #ffffff !important;
-    color: #172433 !important;
-    font-size: 11px !important;
-    font-weight: 800 !important;
-    cursor: pointer !important;
-  }
-
-  .exploration-node-summary-popover-body {
-    display: grid !important;
-    gap: 8px !important;
-  }
-
-  .exploration-node-summary-popover-body p {
-    margin: 0 !important;
-    color: #314255 !important;
-    font-size: 13px !important;
-    line-height: 1.55 !important;
-    white-space: pre-wrap !important;
-  }
-}
-
-@media (max-width: 860px) {
-  .exploration-node-summary-popover {
-    position: relative;
-    margin: 8px 12px;
-    padding: 12px;
-    border: 1px solid rgba(18, 52, 90, 0.22);
-    border-radius: 8px;
-    background: #f8fafb;
-  }
-}
-
-/* 노드 화면 공통 정렬: 탐색 화면을 스토리/전투 화면과 같은 톤과 밀도로 맞춥니다. */
-@media (min-width: 861px) {
-  .exploration-node-surface {
-    height: 100% !important;
-    min-height: 0 !important;
-    display: grid !important;
-    grid-template-rows: auto minmax(0, 1fr) auto !important;
-    overflow: hidden !important;
-    background: #edf0f3 !important;
-    color: #243140 !important;
-  }
-
-  .exploration-node-header {
-    height: auto !important;
-    min-height: 70px !important;
-    max-height: none !important;
-    padding: 12px 16px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    gap: 16px !important;
-    overflow: hidden !important;
-    border-bottom: 1px solid #c9d3dc !important;
-    background: #eef2f5 !important;
-  }
-
-  .exploration-node-title-row {
-    min-width: 0 !important;
-    flex: 0 1 auto !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    overflow: hidden !important;
-  }
-
-  .exploration-node-eyebrow {
-    min-height: 22px !important;
-    height: auto !important;
-    padding: 0 8px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    border: 1px solid rgba(18, 52, 90, 0.16) !important;
-    border-radius: 4px !important;
-    background: rgba(255, 255, 255, 0.8) !important;
-    color: #4d5d6f !important;
-    font-size: 10px !important;
-    font-weight: 900 !important;
-    line-height: 1 !important;
-    white-space: nowrap !important;
-  }
-
-  .exploration-node-header h1 {
-    min-width: 0 !important;
-    margin: 4px 0 0 !important;
-    flex: 0 1 auto !important;
-    color: #172433 !important;
-    font-size: 23px !important;
-    line-height: 1.2 !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-  }
-
-  .exploration-node-summary-button {
-    flex: 0 0 auto !important;
-    height: 28px !important;
-    min-height: 28px !important;
-    padding: 0 10px !important;
-    border: 1px solid rgba(18, 52, 90, 0.22) !important;
-    border-radius: 6px !important;
-    background: #ffffff !important;
-    color: #172433 !important;
-    font-size: 12px !important;
-    font-weight: 900 !important;
-  }
-
-  .exploration-node-summary-button.active {
-    border-color: #173b67 !important;
-    background: #173b67 !important;
-    color: #ffffff !important;
-  }
-
-  .exploration-node-status-row span {
-    min-height: 28px !important;
-    height: auto !important;
-    padding: 0 10px !important;
-    border: 1px solid #bdcad5 !important;
-    border-radius: 0 !important;
-    background: #ffffff !important;
-    color: #31475c !important;
-    font-size: 12px !important;
-  }
-
-  .exploration-node-summary-popover {
-    top: 80px !important;
-    left: 16px !important;
-    width: min(560px, calc(100% - 32px)) !important;
-  }
-
-  .exploration-node-content {
-    height: auto !important;
-    min-height: 0 !important;
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) !important;
-    background: rgba(255, 249, 232, 0.36) !important;
-  }
-
-  .exploration-map-column {
-    grid-template-rows: minmax(0, 1fr) 38px;
-  }
-
-  .exploration-map-panel {
-    background: #dde4e8 !important;
-  }
-
-  .exploration-action-dock {
-    height: auto !important;
-    min-height: 126px !important;
-    max-height: none !important;
-    padding: 10px 14px !important;
-    display: grid !important;
-    grid-template-columns: 220px minmax(0, 1fr) minmax(240px, 0.42fr) !important;
-    gap: 12px !important;
-    border-top: 1px solid #c9d3dc !important;
-    background: #e7edf0 !important;
-  }
-
-  .exploration-actor-status,
-  .exploration-action-panel,
-  .exploration-inventory-panel {
-    height: auto !important;
-    padding: 12px !important;
-    gap: 8px !important;
-    align-content: center !important;
-    border: 1px solid #c3ced8 !important;
-    background: #f8fafb !important;
-  }
-
-  .exploration-action-tabs button,
-  .exploration-action-list button {
-    min-height: 32px !important;
-    height: auto !important;
-    padding: 0 12px !important;
-    font-size: 12px !important;
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    z-index: 3;
+    max-height: calc(100% - 120px);
+    transform: translateY(-50%);
   }
 }
