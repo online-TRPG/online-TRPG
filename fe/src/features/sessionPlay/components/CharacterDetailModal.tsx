@@ -87,6 +87,12 @@ export function CharacterDetailModal({ character, onClose }: CharacterDetailModa
         item.id === character.equippedWeaponId ||
         item.itemDefinitionId === character.equippedWeaponId
     ) ?? null;
+  const offhandWeapon =
+    character.inventory.find(
+      (item) =>
+        item.id === character.offhandWeaponId ||
+        item.itemDefinitionId === character.offhandWeaponId
+    ) ?? null;
   const equippedArmor =
     character.inventory.find((item) => isArmorItem(item)) ?? null;
   const equippedShield =
@@ -231,6 +237,7 @@ export function CharacterDetailModal({ character, onClose }: CharacterDetailModa
             {equippedWeapon ? (
               <p className="story-character-equipped">
                 장착 무기: <strong>{equippedWeapon.name}</strong>
+                {offhandWeapon ? <> + <strong>{offhandWeapon.name}</strong></> : null}
               </p>
             ) : (
               <p className="story-character-equipped">장착 무기 없음</p>
@@ -251,7 +258,10 @@ export function CharacterDetailModal({ character, onClose }: CharacterDetailModa
                   <article
                     key={item.id}
                     className={`story-character-inventory-item${
-                      isEquippedItem(item, character.equippedWeaponId) ? ' equipped' : ''
+                      isEquippedItem(item, character.equippedWeaponId) ||
+                      isEquippedItem(item, character.offhandWeaponId)
+                        ? ' equipped'
+                        : ''
                     }`}
                   >
                     <div>

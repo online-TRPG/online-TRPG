@@ -14,6 +14,12 @@ import {
   CunningActionProduced,
   DamageModifierInput,
   DamageModifierProduced,
+  ExpertiseInput,
+  ExpertiseProduced,
+  FavoredEnemyInput,
+  FavoredEnemyProduced,
+  FightingStyleInput,
+  FightingStyleProduced,
   FrenzyInput,
   FrenzyProduced,
   ProneModifierInput,
@@ -366,6 +372,92 @@ export class RuleEngineService {
     );
   }
 
+  applyFightingStyle(input: FightingStyleInput): RuleHookResult<FightingStyleProduced> {
+    this.assertInteger(input.fighterLevel, "fighterLevel");
+
+    const selectedStyle = this.normalizeFeatureToken(input.selectedStyle);
+    const styleEffects: Record<string, Omit<FightingStyleProduced, "selectedStyle">> = {
+      archery: {
+        effectKind: "ranged_weapon_attack_bonus",
+        attackBonus: 2,
+        armorClassBonus: 0,
+        damageBonus: 0,
+        reactionAvailable: false,
+      },
+      defense: {
+        effectKind: "armor_class_bonus_while_armored",
+        attackBonus: 0,
+        armorClassBonus: 1,
+        damageBonus: 0,
+        reactionAvailable: false,
+      },
+      dueling: {
+        effectKind: "one_handed_melee_damage_bonus",
+        attackBonus: 0,
+        armorClassBonus: 0,
+        damageBonus: 2,
+        reactionAvailable: false,
+      },
+      great_weapon_fighting: {
+        effectKind: "two_handed_damage_die_reroll",
+        attackBonus: 0,
+        armorClassBonus: 0,
+        damageBonus: 0,
+        reactionAvailable: false,
+      },
+      protection: {
+        effectKind: "shield_reaction_attack_disadvantage",
+        attackBonus: 0,
+        armorClassBonus: 0,
+        damageBonus: 0,
+        reactionAvailable: true,
+      },
+      two_weapon_fighting: {
+        effectKind: "offhand_damage_ability_modifier",
+        attackBonus: 0,
+        armorClassBonus: 0,
+        damageBonus: 0,
+        reactionAvailable: false,
+      },
+    };
+    const rejectedProduced: FightingStyleProduced = {
+      selectedStyle: null,
+      effectKind: null,
+      attackBonus: 0,
+      armorClassBonus: 0,
+      damageBonus: 0,
+      reactionAvailable: false,
+    };
+
+    if (input.fighterLevel < 1) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_FIGHTING_STYLE,
+        rejectedProduced,
+        "class_feature_rejected",
+        "fighter_level_required",
+      );
+    }
+
+    const effect = styleEffects[selectedStyle];
+    if (!effect) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_FIGHTING_STYLE,
+        rejectedProduced,
+        "class_feature_rejected",
+        "invalid_fighting_style",
+      );
+    }
+
+    return this.accepted(
+      RULE_HOOK_IDS.APPLY_FIGHTING_STYLE,
+      {
+        selectedStyle,
+        ...effect,
+      },
+      "class_feature_applied",
+    );
+  }
+
   applyRage(input: RageInput): RuleHookResult<RageProduced> {
     this.assertInteger(input.barbarianLevel, "barbarianLevel");
     this.assertInteger(input.rageAvailableUses, "rageAvailableUses");
@@ -503,6 +595,168 @@ export class RuleEngineService {
           totalDamage: input.baseDamage + input.sneakAttackDamageRollTotal,
           damageType: "weapon",
         },
+      },
+      "class_feature_applied",
+    );
+  }
+
+  applyExpertise(input: ExpertiseInput): RuleHookResult<ExpertiseProduced> {
+    this.assertInteger(input.rogueLevel, "rogueLevel");
+
+    const expertiseSelections = Array.from(
+      new Set(input.selections.map((selection) => this.normalizeFeatureToken(selection))),
+    ).filter(Boolean);
+    const proficientSkills = this.toFeatureTokenSet(input.proficientSkills);
+    const rejectedProduced: ExpertiseProduced = {
+      expertiseSelections: [],
+      doubleProficiencyBonus: false,
+    };
+
+    if (input.rogueLevel < 1) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_EXPERTISE,
+        rejectedProduced,
+        "class_feature_rejected",
+        "rogue_level_required",
+      );
+    }
+
+    if (expertiseSelections.length !== 2) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_EXPERTISE,
+        rejectedProduced,
+        "class_feature_rejected",
+        "expertise_requires_two_selections",
+      );
+    }
+
+    for (const selection of expertiseSelections) {
+      if (selection === "thieves_tools") {
+        if (!input.hasThievesToolsProficiency) {
+          return this.rejected(
+            RULE_HOOK_IDS.APPLY_EXPERTISE,
+            rejectedProduced,
+            "class_feature_rejected",
+            "expertise_requires_thieves_tools_proficiency",
+          );
+        }
+        continue;
+      }
+
+      if (!proficientSkills.has(selection)) {
+        return this.rejected(
+          RULE_HOOK_IDS.APPLY_EXPERTISE,
+          rejectedProduced,
+          "class_feature_rejected",
+          "expertise_requires_skill_proficiency",
+        );
+      }
+    }
+
+    return this.accepted(
+      RULE_HOOK_IDS.APPLY_EXPERTISE,
+      {
+        expertiseSelections,
+        doubleProficiencyBonus: true,
+      },
+      "class_feature_applied",
+    );
+  }
+
+  applyFavoredEnemy(input: FavoredEnemyInput): RuleHookResult<FavoredEnemyProduced> {
+    this.assertInteger(input.rangerLevel, "rangerLevel");
+
+    const selectedEnemy = this.normalizeFeatureToken(input.selectedEnemy);
+    const humanoidRaceSelections = Array.from(
+      new Set((input.humanoidRaceSelections ?? []).map((race) => this.normalizeFeatureToken(race))),
+    ).filter(Boolean);
+    const rejectedProduced: FavoredEnemyProduced = {
+      selectedEnemy: null,
+      humanoidRaceSelections: [],
+      survivalTrackingAdvantage: false,
+      intelligenceRecallAdvantage: false,
+      languageCount: 0,
+      affectsCombatStats: false,
+    };
+
+    if (input.rangerLevel < 1) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_FAVORED_ENEMY,
+        rejectedProduced,
+        "class_feature_rejected",
+        "ranger_level_required",
+      );
+    }
+
+    if (selectedEnemy === "humanoid" || selectedEnemy === "humanoids") {
+      if (humanoidRaceSelections.length !== 2) {
+        return this.rejected(
+          RULE_HOOK_IDS.APPLY_FAVORED_ENEMY,
+          rejectedProduced,
+          "class_feature_rejected",
+          "favored_enemy_requires_two_humanoid_races",
+        );
+      }
+
+      return this.accepted(
+        RULE_HOOK_IDS.APPLY_FAVORED_ENEMY,
+        {
+          selectedEnemy: "humanoid",
+          humanoidRaceSelections,
+          survivalTrackingAdvantage: true,
+          intelligenceRecallAdvantage: true,
+          languageCount: 1,
+          affectsCombatStats: false,
+        },
+        "class_feature_applied",
+      );
+    }
+
+    const creatureTypes = new Set([
+      "aberration",
+      "aberrations",
+      "beast",
+      "beasts",
+      "celestial",
+      "celestials",
+      "construct",
+      "constructs",
+      "dragon",
+      "dragons",
+      "elemental",
+      "elementals",
+      "fey",
+      "fiend",
+      "fiends",
+      "giant",
+      "giants",
+      "monstrosity",
+      "monstrosities",
+      "ooze",
+      "oozes",
+      "plant",
+      "plants",
+      "undead",
+    ]);
+
+    if (!creatureTypes.has(selectedEnemy)) {
+      return this.rejected(
+        RULE_HOOK_IDS.APPLY_FAVORED_ENEMY,
+        rejectedProduced,
+        "class_feature_rejected",
+        "invalid_favored_enemy",
+      );
+    }
+
+    return this.accepted(
+      RULE_HOOK_IDS.APPLY_FAVORED_ENEMY,
+      {
+        selectedEnemy,
+        humanoidRaceSelections: [],
+        survivalTrackingAdvantage: true,
+        intelligenceRecallAdvantage: true,
+        languageCount: 1,
+        affectsCombatStats: false,
       },
       "class_feature_applied",
     );
@@ -735,6 +989,14 @@ export class RuleEngineService {
       throw new Error("rule token must not be empty.");
     }
     return normalized;
+  }
+
+  private normalizeFeatureToken(value: string): string {
+    return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  }
+
+  private toFeatureTokenSet(values: string[] | undefined): Set<string> {
+    return new Set((values ?? []).map((value) => this.normalizeFeatureToken(value)));
   }
 
   private assertInteger(value: number, field: string): void {

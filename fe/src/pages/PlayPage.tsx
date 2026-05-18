@@ -70,9 +70,11 @@ import {
   getVttMap,
   hideCombatAction,
   resolveEquippedWeaponAttack,
+  resolveOffhandWeaponAttack,
   startCombat,
   updateCharacterEquipment,
   updateVttMap,
+  useSecondWindCombatAction,
   useInventoryItem,
 } from '../services/api';
 import type {
@@ -953,6 +955,32 @@ function toStoredClassName(classKey: string): string {
   const trimmed = classKey.trim();
   if (!trimmed) return 'Wizard';
   return trimmed.slice(0, 1).toUpperCase() + trimmed.slice(1).toLowerCase();
+}
+
+function getDefaultStartingEquipmentItemSelections(
+  klass: ClassDefinitionResponseDto,
+): Record<string, string> {
+  const defaults: Record<string, string> = {
+    'martial-weapon-1': 'longsword',
+    'martial-weapon-2': 'longsword',
+    'martial-melee-weapon-1': 'longsword',
+    'simple-weapon-1': 'dagger',
+    'simple-weapon-2': 'dagger',
+    'simple-melee-weapon-1': 'dagger',
+    'simple-melee-weapon-2': 'dagger',
+    'musical-instrument-1': 'lute',
+  };
+  const selections: Record<string, string> = {};
+  klass.startingEquipment.slots.forEach((slot, slotIndex) => {
+    const option = slot.options[0];
+    option?.items.forEach((item, itemIndex) => {
+      const selectedItemKey = defaults[item.itemKey];
+      if (selectedItemKey) {
+        selections[`${slotIndex}:${itemIndex}`] = selectedItemKey;
+      }
+    });
+  });
+  return selections;
 }
 
 function getQuickCreatePointBuyBase(classKey: string): QuickCreateAbilities {
@@ -2409,6 +2437,8 @@ export function PlayPage({
       startingEquipmentSelection: new Array(
         selectedQuickCreateClass.startingEquipment.slots.length,
       ).fill(0),
+      startingEquipmentItemSelections:
+        getDefaultStartingEquipmentItemSelections(selectedQuickCreateClass),
       startingSpells:
         selectedQuickCreateClass.startingCantripCount > 0 ||
           selectedQuickCreateClass.startingSpellCount > 0
@@ -2764,16 +2794,25 @@ export function PlayPage({
       (item.id === selectedSessionCharacter.equippedWeaponId ||
         item.itemDefinitionId === selectedSessionCharacter.equippedWeaponId ||
         item.name === selectedSessionCharacter.equippedWeaponId);
-    const nextEquippedWeaponId = isEquipped ? null : item.id;
+    const isOffhandEquipped =
+      Boolean(selectedSessionCharacter.offhandWeaponId) &&
+      (item.id === selectedSessionCharacter.offhandWeaponId ||
+        item.itemDefinitionId === selectedSessionCharacter.offhandWeaponId ||
+        item.name === selectedSessionCharacter.offhandWeaponId);
+    const nextEquippedWeaponId = isEquipped ? null : isOffhandEquipped ? undefined : item.id;
+    const nextOffhandWeaponId = isOffhandEquipped ? null : undefined;
 
     setInventoryUseFeedback(null);
     setInventoryUsePending(true);
     try {
       await updateCharacterEquipment(user, selectedSessionCharacter.characterId, {
         equippedWeaponId: nextEquippedWeaponId,
+        offhandWeaponId: nextOffhandWeaponId,
       });
       setInventoryUseFeedback(
-        isEquipped ? `${item.name} 착용을 해제했습니다.` : `${item.name}을(를) 착용했습니다.`
+        isEquipped || isOffhandEquipped
+          ? `${item.name} 착용을 해제했습니다.`
+          : `${item.name}을(를) 착용했습니다.`
       );
     } catch (caught) {
       setInventoryUseFeedback(caught instanceof Error ? caught.message : '장비 변경에 실패했습니다.');
@@ -2786,6 +2825,13 @@ export function PlayPage({
     if (!session || isCombatBusy) return;
     await runCombatRequest(() =>
       resolveEquippedWeaponAttack(user, session.id, { targetParticipantId })
+    );
+  }
+
+  async function handleOffhandWeaponAttack(targetParticipantId: string) {
+    if (!session || isCombatBusy) return;
+    await runCombatRequest(() =>
+      resolveOffhandWeaponAttack(user, session.id, { targetParticipantId })
     );
   }
 
@@ -2802,6 +2848,13 @@ export function PlayPage({
   async function handleHideCombatAction() {
     if (!session || isCombatBusy) return;
     await runCombatRequest(() => hideCombatAction(user, session.id));
+  }
+
+  async function handleCombatClassFeature(action: 'second_wind') {
+    if (!session || isCombatBusy) return;
+    if (action === 'second_wind') {
+      await runCombatRequest(() => useSecondWindCombatAction(user, session.id));
+    }
   }
 
   function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
@@ -3339,6 +3392,7 @@ export function PlayPage({
                   scenarioTitle={activeScenario?.scenario.title}
                   phase={snapshot?.state.phase}
                   characters={sessionCharacters}
+                  classDefinitions={classDefinitions}
                   currentUserId={user.id}
                   isHost={isHost}
                   isGmView={canManageStartedSession}
@@ -3348,13 +3402,18 @@ export function PlayPage({
                   isCombatBusy={isCombatBusy}
                   inventory={selectedCharacterInventory}
                   isInventoryBusy={busy || isInventoryUsePending}
+                  getCharacterColorStyle={(character) =>
+                    buildMapPartyColorStyle(getCharacterTokenColor(character))
+                  }
                   onMapChange={handleMapChange}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onEquipInventoryItem={handleEquipInventoryItem}
                   onAttackWithEquippedWeapon={handleEquippedWeaponAttack}
+                  onAttackWithOffhandWeapon={handleOffhandWeaponAttack}
                   onDash={handleDashCombatAction}
                   onDodge={handleDodgeCombatAction}
                   onHide={handleHideCombatAction}
+                  onUseClassFeature={handleCombatClassFeature}
                   onEndCombat={handleEndCombat}
                   onEndTurn={handleEndCombatTurn}
                 />
