@@ -10,7 +10,12 @@
  * 6) JSX: 모집 대기 화면, 플레이 탭, VTT 맵, 사이드 패널, 캐릭터 생성 모달
  */
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from 'react';
+import type {
+  CSSProperties,
+  FormEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from 'react';
 import type {
   ActionOutcome,
   ClassDefinitionResponseDto,
@@ -1351,6 +1356,7 @@ export function PlayPage({
     useState<ExplorationMainCommandRequest | null>(null);
   const [pendingMainCommandCheck, setPendingMainCommandCheck] =
     useState<PendingMainCommandCheck | null>(null);
+  const [mainCommandAutocompleteIndex, setMainCommandAutocompleteIndex] = useState(-1);
   const [hasUnreadInfo, setHasUnreadInfo] = useState(false);
   const [revealedClueToast, setRevealedClueToast] = useState<PlayerScenarioClueDto | null>(null);
 
@@ -1632,6 +1638,13 @@ export function PlayPage({
             ]
           : []),
       ];
+  const mainCommandAutocompleteCommandEntries = mainCommandAutocompleteEntries.filter(
+    (entry): entry is Extract<MainCommandAutocompleteEntry, { type: 'command' }> =>
+      entry.type === 'command' && getMainCommandSlashCommands(entry.command).length > 0
+  );
+  const mainCommandAutocompleteIndexByIntent = new Map(
+    mainCommandAutocompleteCommandEntries.map((entry, index) => [entry.command.intent, index])
+  );
   const visibleTargetOptions = (currentNode?.visibleTargets ?? []).filter((target) =>
     selectedMainFieldConfig?.targetTypes?.length
       ? selectedMainFieldConfig.targetTypes.includes(target.targetType)
@@ -1678,6 +1691,13 @@ export function PlayPage({
     () => ['Main', 'Chat', 'Info', 'Settings'] as const,
     []
   );
+
+  useEffect(() => {
+    setMainCommandAutocompleteIndex((current) => {
+      if (!mainCommandAutocompleteCommandEntries.length) return -1;
+      return current >= 0 && current < mainCommandAutocompleteCommandEntries.length ? current : 0;
+    });
+  }, [mainCommandAutocompleteCommandEntries.length, mainSlashToken]);
   const availableTabs = isRecruiting
     ? (['Main', 'Chat', 'Info', 'Settings'] as const)
     : startedSessionTabs;
@@ -2292,6 +2312,58 @@ export function PlayPage({
     }
   }
 
+  function applyMainCommandAutocomplete(command: MainCommandPreset) {
+    const slashCommand = getMainCommandSlashCommands(command)[0];
+    if (!slashCommand) return;
+
+    setMainCommandMode('GM_REQUEST');
+    setMainMessage(`${slashCommand} `);
+    setSelectedMainIntent(command.intent);
+    setActiveMainHelperGroup(
+      getMainCommandHelperGroupForSelection(command, activeMainHelperOption?.id)
+    );
+    setCommandGuideOpen(false);
+    setMainCommandError(null);
+  }
+
+  function handleSidebarInputKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (
+      activeTab !== 'Main' ||
+      mainCommandMode !== 'GM_REQUEST' ||
+      !mainCommandAutocompleteCommandEntries.length
+    ) {
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setMainCommandAutocompleteIndex((current) =>
+        (Math.max(current, 0) + 1) % mainCommandAutocompleteCommandEntries.length
+      );
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setMainCommandAutocompleteIndex((current) =>
+        (Math.max(current, 0) - 1 + mainCommandAutocompleteCommandEntries.length) %
+        mainCommandAutocompleteCommandEntries.length
+      );
+      return;
+    }
+
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      const selectedEntry =
+        mainCommandAutocompleteCommandEntries[
+          mainCommandAutocompleteIndex >= 0 ? mainCommandAutocompleteIndex : 0
+        ];
+      if (selectedEntry) {
+        applyMainCommandAutocomplete(selectedEntry.command);
+      }
+    }
+  }
+
   async function handleMainSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const next = mainMessage.trim();
@@ -2573,15 +2645,24 @@ export function PlayPage({
   async function handleEquipInventoryItem(item: InventoryItemDto) {
     if (busy || isInventoryUsePending || !selectedSessionCharacter) return;
 
+    const isEquipped =
+      Boolean(selectedSessionCharacter.equippedWeaponId) &&
+      (item.id === selectedSessionCharacter.equippedWeaponId ||
+        item.itemDefinitionId === selectedSessionCharacter.equippedWeaponId ||
+        item.name === selectedSessionCharacter.equippedWeaponId);
+    const nextEquippedWeaponId = isEquipped ? null : item.id;
+
     setInventoryUseFeedback(null);
     setInventoryUsePending(true);
     try {
       await updateCharacterEquipment(user, selectedSessionCharacter.characterId, {
-        equippedWeaponId: item.id,
+        equippedWeaponId: nextEquippedWeaponId,
       });
-      setInventoryUseFeedback(`${item.name}을(를) 착용했습니다.`);
+      setInventoryUseFeedback(
+        isEquipped ? `${item.name} 착용을 해제했습니다.` : `${item.name}을(를) 착용했습니다.`
+      );
     } catch (caught) {
-      setInventoryUseFeedback(caught instanceof Error ? caught.message : '장비 착용에 실패했습니다.');
+      setInventoryUseFeedback(caught instanceof Error ? caught.message : '장비 변경에 실패했습니다.');
     } finally {
       setInventoryUsePending(false);
     }
@@ -3610,21 +3691,25 @@ export function PlayPage({
                           }
                           const command = entry.command;
                           const slashCommand = getMainCommandSlashCommands(command)[0];
+                          const autocompleteIndex =
+                            mainCommandAutocompleteIndexByIntent.get(command.intent) ?? -1;
+                          const isAutocompleteActive =
+                            autocompleteIndex === mainCommandAutocompleteIndex;
                           return slashCommand ? (
                             <button
                               key={command.intent}
                               type="button"
-                              className="main-command-autocomplete-option"
+                              className={`main-command-autocomplete-option${
+                                isAutocompleteActive ? ' active' : ''
+                              }`}
+                              aria-selected={isAutocompleteActive}
+                              onMouseEnter={() => {
+                                if (autocompleteIndex >= 0) {
+                                  setMainCommandAutocompleteIndex(autocompleteIndex);
+                                }
+                              }}
                               onClick={() => {
-                                setMainCommandMode('GM_REQUEST');
-                                setMainMessage(`${slashCommand} `);
-                                setSelectedMainIntent(command.intent);
-                                setActiveMainHelperGroup(
-                                  getMainCommandHelperGroupForSelection(
-                                    command,
-                                    activeMainHelperOption?.id
-                                  )
-                                );
+                                applyMainCommandAutocomplete(command);
                               }}
                             >
                               <strong>{slashCommand}</strong>
@@ -3759,6 +3844,7 @@ export function PlayPage({
                       ? setMainMessage(event.target.value)
                       : setChatMessage(event.target.value)
                   }
+                  onKeyDown={handleSidebarInputKeyDown}
                   placeholder={
                     activeTab === 'Main'
                       ? mainCommandMode === 'RP_ACTION'
@@ -3784,10 +3870,22 @@ export function PlayPage({
                   <h2>{activeScenario?.scenario.title ?? '시나리오가 없습니다'}</h2>
                 </div>
               </div>
-              <textarea
-                value={infoText || activeScenario?.scenario.description || ''}
-                onChange={(event) => setInfoText(event.target.value)}
-              />
+
+              <article className="scenario-node-panel">
+                <span className="eyebrow">밝혀진 단서</span>
+                {currentNode?.publicClues.length ? (
+                  <ul className="scenario-node-list">
+                    {currentNode.publicClues.map((clue) => (
+                      <li key={clue.id}>
+                        <strong>{clue.title}</strong>
+                        <span>{clue.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>현재 씬에 공개 단서가 없습니다.</p>
+                )}
+              </article>
 
               <article className="scenario-node-panel">
                 <span className="eyebrow">판정 가이드</span>
@@ -3808,19 +3906,11 @@ export function PlayPage({
               </article>
 
               <article className="scenario-node-panel">
-                <span className="eyebrow">밝혀진 단서</span>
-                {currentNode?.publicClues.length ? (
-                  <ul className="scenario-node-list">
-                    {currentNode.publicClues.map((clue) => (
-                      <li key={clue.id}>
-                        <strong>{clue.title}</strong>
-                        <span>{clue.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>현재 씬에 공개 단서가 없습니다.</p>
-                )}
+                <span className="eyebrow">시나리오 인포</span>
+                <textarea
+                  value={infoText || activeScenario?.scenario.description || ''}
+                  onChange={(event) => setInfoText(event.target.value)}
+                />
               </article>
             </div>
           ) : null}
