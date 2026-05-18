@@ -808,6 +808,36 @@ export class VttMapPingDto {
   expiresAt!: string;
 }
 
+export class VttLightSourceDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  id!: string;
+
+  @ApiProperty()
+  @IsNumber()
+  x!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  y!: number;
+
+  @ApiProperty({ default: 40 })
+  @IsNumber()
+  @Min(5)
+  rangeFt!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  label?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  createdBySessionCharacterId?: string | null;
+}
+
 export class VttMapTokenDto {
   @ApiProperty()
   @IsString()
@@ -1222,6 +1252,14 @@ export class VttMapStateDto {
   @ValidateNested({ each: true })
   @Type(() => VttMapPingDto)
   pings?: VttMapPingDto[];
+
+  @ApiPropertyOptional({ type: [VttLightSourceDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(40)
+  @ValidateNested({ each: true })
+  @Type(() => VttLightSourceDto)
+  lightSources?: VttLightSourceDto[];
 
   @ApiPropertyOptional({ type: [VttTerrainCellDto] })
   @IsOptional()

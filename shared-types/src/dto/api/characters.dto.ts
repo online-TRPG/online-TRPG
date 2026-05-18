@@ -406,6 +406,9 @@ export class CharacterInventoryResponseDto {
   @ApiProperty({ type: [InventoryItemDto] })
   inventory!: InventoryItemDto[];
 
+  @ApiPropertyOptional({ type: StartingSpellsDto, nullable: true })
+  spells!: StartingSpellsDto | null;
+
   @ApiPropertyOptional({ nullable: true })
   equippedWeaponId!: string | null;
 
@@ -564,6 +567,9 @@ export class SessionCharacterResponseDto {
 
   @ApiProperty({ type: [InventoryItemDto] })
   inventory!: InventoryItemDto[];
+
+  @ApiPropertyOptional({ type: StartingSpellsDto, nullable: true })
+  spells!: StartingSpellsDto | null;
 
   @ApiPropertyOptional({ nullable: true })
   equippedWeaponId!: string | null;

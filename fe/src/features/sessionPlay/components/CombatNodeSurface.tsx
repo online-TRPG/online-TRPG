@@ -44,6 +44,11 @@ interface CombatNodeSurfaceProps {
   isInventoryBusy?: boolean;
   getCharacterColorStyle?: (character: SessionCharacterResponseDto) => CSSProperties;
   onMapChange: (map: VttMapStateDto) => void;
+  onTokenMoveRequest?: (
+    token: VttMapStateDto['tokens'][number],
+    to: { x: number; y: number },
+    path: Array<{ x: number; y: number }>
+  ) => Promise<VttMapStateDto | null>;
   onUseInventoryItem: (item: InventoryItemDto) => void;
   onEquipInventoryItem: (item: InventoryItemDto) => void;
   onAttackWithEquippedWeapon: (targetParticipantId: string) => void | Promise<void>;
@@ -52,6 +57,10 @@ interface CombatNodeSurfaceProps {
   onDodge: () => void | Promise<void>;
   onHide: () => void | Promise<void>;
   onUseClassFeature: (action: CombatAbilityButton['action']) => void | Promise<void>;
+  onCastSpell: (
+    spellId: string,
+    payload: { targetParticipantIds?: string[]; point?: { x: number; y: number } | null }
+  ) => void | Promise<void>;
   onEndCombat: () => void;
   onEndTurn: (force?: boolean) => void;
 }
@@ -83,7 +92,22 @@ const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: strin
 const spellActionTab: { id: CombatActionTab; label: string; actions: string[] } = {
   id: 'spell',
   label: '마법',
-  actions: [],
+  actions: ['Fire Bolt', 'Light', 'Magic Missile', 'Shield', 'Sleep'],
+};
+
+const mvpSpellIdsByLabel: Record<string, string> = {
+  'Fire Bolt': 'spell.fire_bolt',
+  Light: 'spell.light',
+  'Magic Missile': 'spell.magic_missile',
+  Shield: 'spell.shield',
+  Sleep: 'spell.sleep',
+};
+
+const mvpSpellRangeFtById: Record<string, number> = {
+  'spell.fire_bolt': 120,
+  'spell.light': 120,
+  'spell.magic_missile': 120,
+  'spell.sleep': 90,
 };
 
 function normalizeClassKey(value: string | null | undefined) {
@@ -135,6 +159,21 @@ function canLearnSpells(
   }
 
   return spellcastingClassKeys.has(classKey);
+}
+
+function normalizeSpellId(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return normalized.startsWith('spell.') ? normalized : `spell.${normalized}`;
+}
+
+function hasMvpSpell(character: SessionCharacterResponseDto | null, spellId: string) {
+  if (!character) return false;
+  const learned = [
+    ...(character.spells?.cantrips ?? []),
+    ...(character.spells?.spells ?? []),
+  ].map(normalizeSpellId);
+  if (learned.includes(spellId)) return true;
+  return normalizeClassKey(character.className).includes('wizard');
 }
 
 function getPhaseLabel(phase: string | null | undefined) {
@@ -330,6 +369,7 @@ export function CombatNodeSurface({
   isInventoryBusy = false,
   getCharacterColorStyle,
   onMapChange,
+  onTokenMoveRequest,
   onUseInventoryItem,
   onEquipInventoryItem,
   onAttackWithEquippedWeapon,
@@ -338,6 +378,7 @@ export function CombatNodeSurface({
   onDodge,
   onHide,
   onUseClassFeature,
+  onCastSpell,
   onEndCombat,
   onEndTurn,
 }: CombatNodeSurfaceProps) {
@@ -346,7 +387,9 @@ export function CombatNodeSurface({
   const [selectedTurnCharacterId, setSelectedTurnCharacterId] = useState<string | null>(null);
   const [selectedTargetParticipantId, setSelectedTargetParticipantId] = useState<string | null>(null);
   const [selectedMapTokenId, setSelectedMapTokenId] = useState<string | null>(null);
+  const [selectedMapSelection, setSelectedMapSelection] = useState<BattleMapSelection | null>(null);
   const [isAttackTargeting, setAttackTargeting] = useState(false);
+  const [targetingSpellId, setTargetingSpellId] = useState<string | null>(null);
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
   const actionTabs = useMemo(
@@ -494,10 +537,11 @@ export function CombatNodeSurface({
     return Object.fromEntries(entries);
   }, [combat, map?.tokens]);
   const attackRangeOverlay = useMemo(() => {
-    if (!isAttackTargeting || !myCombatParticipant) return null;
+    if ((!isAttackTargeting && !targetingSpellId) || !myCombatParticipant) return null;
     const tokenId = getParticipantTokenId(myCombatParticipant);
-    return tokenId ? { tokenId, rangeFt: attackRangeFt } : null;
-  }, [attackRangeFt, isAttackTargeting, map?.tokens, myCombatParticipant]);
+    const rangeFt = targetingSpellId ? (mvpSpellRangeFtById[targetingSpellId] ?? attackRangeFt) : attackRangeFt;
+    return tokenId ? { tokenId, rangeFt } : null;
+  }, [attackRangeFt, isAttackTargeting, map?.tokens, myCombatParticipant, targetingSpellId]);
 
   function getParticipantAvatar(participant: CombatResponseDto['participants'][number]) {
     const character = participant.sessionCharacterId
@@ -523,6 +567,25 @@ export function CombatNodeSurface({
     return getGridDistanceFt(map, sourceToken, targetToken) <= attackRangeFt;
   }
 
+  function isParticipantSpellTargetInRange(
+    participant: CombatResponseDto['participants'][number] | null,
+    spellId: string
+  ) {
+    if (!map || !myCombatParticipant || !participant) return false;
+    const sourceToken = getMapToken(getParticipantTokenId(myCombatParticipant));
+    const targetToken = getMapToken(getParticipantTokenId(participant));
+    if (!sourceToken || !targetToken) return false;
+    return getGridDistanceFt(map, sourceToken, targetToken) <= (mvpSpellRangeFtById[spellId] ?? 0);
+  }
+
+  function isPointSpellTargetInRange(point: { x: number; y: number }, spellId: string) {
+    if (!map || !myCombatParticipant) return false;
+    const sourceToken = getMapToken(getParticipantTokenId(myCombatParticipant));
+    if (!sourceToken) return false;
+    const pointToken = { ...sourceToken, x: point.x, y: point.y };
+    return getGridDistanceFt(map, sourceToken, pointToken) <= (mvpSpellRangeFtById[spellId] ?? 0);
+  }
+
   function getParticipantByTokenId(tokenId: string) {
     return (
       combat?.participants.find((candidate) => {
@@ -535,15 +598,63 @@ export function CombatNodeSurface({
 
   function runEquippedWeaponAttack(targetParticipantId: string) {
     setAttackTargeting(false);
+    setTargetingSpellId(null);
     void onAttackWithEquippedWeapon(targetParticipantId);
   }
 
   function runOffhandWeaponAttack(targetParticipantId: string) {
     setAttackTargeting(false);
+    setTargetingSpellId(null);
     void onAttackWithOffhandWeapon(targetParticipantId);
   }
 
+  function startSpellTargeting(spellId: string) {
+    if (!spellId || spellId === 'spell.shield') return;
+    setAttackTargeting(false);
+    setTargetingSpellId((current) => (current === spellId ? null : spellId));
+  }
+
+  function castTargetingSpell(spellId: string, selection: BattleMapSelection | null) {
+    if (spellId === 'spell.fire_bolt' || spellId === 'spell.magic_missile') {
+      if (selection?.kind !== 'token') return;
+      const participant = getParticipantByTokenId(selection.token.id);
+      if (!participant?.isHostile || !participant.isAlive) return;
+      if (!isParticipantSpellTargetInRange(participant, spellId)) return;
+      setTargetingSpellId(null);
+      void onCastSpell(spellId, { targetParticipantIds: [participant.sessionEntityId] });
+      return;
+    }
+    if (spellId === 'spell.sleep') {
+      const point = selection?.point ?? null;
+      if (!point || !isPointSpellTargetInRange(point, spellId)) return;
+      setTargetingSpellId(null);
+      void onCastSpell(spellId, { point });
+      return;
+    }
+    if (spellId === 'spell.light') {
+      const point = selection?.point ?? null;
+      if (!point || !isPointSpellTargetInRange(point, spellId)) return;
+      setTargetingSpellId(null);
+      void onCastSpell(spellId, { point });
+    }
+  }
+
   function handleCombatMapSelection(selection: BattleMapSelection | null) {
+    setSelectedMapSelection(selection);
+    if (targetingSpellId) {
+      if (selection?.kind === 'token') {
+        setSelectedMapTokenId(selection.token.id);
+        const participant = getParticipantByTokenId(selection.token.id);
+        setSelectedTargetParticipantId(
+          participant?.isHostile && participant.isAlive ? participant.sessionEntityId : null
+        );
+      } else {
+        setSelectedTargetParticipantId(null);
+        setSelectedMapTokenId(null);
+      }
+      castTargetingSpell(targetingSpellId, selection);
+      return;
+    }
     if (selection?.kind !== 'token') {
       setSelectedTargetParticipantId(null);
       setSelectedMapTokenId(null);
@@ -575,6 +686,7 @@ export function CombatNodeSurface({
   useEffect(() => {
     if (!canStartAttackTargeting) {
       setAttackTargeting(false);
+      setTargetingSpellId(null);
     }
   }, [canStartAttackTargeting]);
 
@@ -692,6 +804,7 @@ export function CombatNodeSurface({
                 tokenMovementRangeFtByTokenId={tokenMovementRangeFtByTokenId}
                 attackRangeOverlay={attackRangeOverlay}
                 onChange={onMapChange}
+                onTokenMoveRequest={onTokenMoveRequest}
                 onSelectionChange={handleCombatMapSelection}
                 title={node?.title ?? '전투 지도'}
               />
@@ -767,7 +880,38 @@ export function CombatNodeSurface({
           </div>
 
           <div className="combat-action-list">
-            {currentTab.id === 'ability' ? (
+            {currentTab.id === 'spell' ? (
+              currentTab.actions.map((action) => {
+                const spellId = mvpSpellIdsByLabel[action];
+                const isKnown = Boolean(spellId && hasMvpSpell(myCharacter, spellId));
+                const disabled =
+                  !isMyCombatTurn ||
+                  !canUseAction ||
+                  isCombatBusy ||
+                  !isKnown ||
+                  spellId === 'spell.shield';
+                return (
+                  <button
+                    type="button"
+                    className={targetingSpellId === spellId ? 'targeting' : ''}
+                    key={action}
+                    disabled={disabled}
+                    title={
+                      spellId === 'spell.shield'
+                        ? 'Shield는 공격받을 때 반응 팝업으로 사용합니다.'
+                        : !isKnown
+                          ? '익히지 않은 주문입니다.'
+                          : targetingSpellId === spellId
+                            ? `${action} 사거리 안의 유효한 대상 또는 지점을 선택하세요.`
+                            : `${action} 타겟팅`
+                    }
+                    onClick={() => spellId && startSpellTargeting(spellId)}
+                  >
+                    {action}
+                  </button>
+                );
+              })
+            ) : currentTab.id === 'ability' ? (
               classAbilityButtons.length ? (
                 classAbilityButtons.map((ability) => {
                   const canUseFeature = Boolean(
@@ -816,6 +960,7 @@ export function CombatNodeSurface({
                           return;
                         }
                         if (canStartAttackTargeting) {
+                          setTargetingSpellId(null);
                           setAttackTargeting((current) => !current);
                         }
                       }}
@@ -898,6 +1043,13 @@ export function CombatNodeSurface({
           {isAttackTargeting ? (
             <p className="combat-targeting-hint" title={`${attackName} 사거리 안의 적 토큰을 선택하세요.`}>
               {attackName} 사거리 안의 적 토큰을 선택하세요.
+            </p>
+          ) : null}
+          {targetingSpellId ? (
+            <p className="combat-targeting-hint" title="사거리 안의 유효한 대상 또는 지점을 선택하세요.">
+              {targetingSpellId === 'spell.fire_bolt' || targetingSpellId === 'spell.magic_missile'
+                ? '사거리 안의 적 토큰을 선택하세요.'
+                : '사거리 안의 타일을 선택하세요.'}
             </p>
           ) : null}
         </div>

@@ -125,6 +125,31 @@ type ClassName = ClassOptionValue;
 
 const defaultAncestry = 'Human';
 
+const implementedWizardCantrips = [
+  { id: 'spell.fire_bolt', label: 'Fire Bolt / 화염 화살' },
+  { id: 'spell.light', label: 'Light / 빛' },
+];
+
+const implementedWizardLevel1Spells = [
+  { id: 'spell.magic_missile', label: 'Magic Missile / 마법 화살' },
+  { id: 'spell.shield', label: 'Shield / 방패' },
+  { id: 'spell.sleep', label: 'Sleep / 수면' },
+];
+
+function getImplementedSpellOptions(className: string | null | undefined, kind: 'cantrip' | 'level1') {
+  const classKey = normalizeClassValue(className ?? '').toLowerCase();
+  if (classKey !== 'wizard') return [];
+  return kind === 'cantrip' ? implementedWizardCantrips : implementedWizardLevel1Spells;
+}
+
+function isSpellAlreadySelected(
+  selectedIds: string[] | undefined,
+  spellId: string,
+  currentIndex: number
+) {
+  return (selectedIds ?? []).some((selectedId, index) => index !== currentIndex && selectedId === spellId);
+}
+
 // 직업별 기본 초상화 프리셋입니다. 사용자가 이미지를 올리기 전 기본 이미지로 씁니다.
 const avatarPresets = [
   { id: 'preset_wizard', label: '위자드', image: defaultWizardImage },
@@ -850,6 +875,14 @@ export function CharacterPage({
     if (!className) return null;
     return classDefinitions.find((c) => c.key === className) ?? null;
   }, [formState.className, classDefinitions]);
+  const cantripOptions = useMemo(
+    () => getImplementedSpellOptions(formState.className, 'cantrip'),
+    [formState.className]
+  );
+  const level1SpellOptions = useMemo(
+    () => getImplementedSpellOptions(formState.className, 'level1'),
+    [formState.className]
+  );
 
   // ancestry → race(시드)룩업. ancestry 가 race.key 또는 race.koName 와 매칭되면 보정 적용.
   const selectedRace = useMemo<RaceResponseDto | null>(() => {
@@ -2390,7 +2423,7 @@ export function CharacterPage({
                       <div style={{ marginBottom: 12 }}>
                         <label style={{ display: 'block', marginBottom: 6 }}>캔트립</label>
                         {Array.from({ length: selectedClass.startingCantripCount }).map((_, idx) => (
-                          <input
+                          <select
                             key={`cantrip-${idx}`}
                             value={formState.startingSpells?.cantrips[idx] ?? ''}
                             onChange={(event) => {
@@ -2405,9 +2438,23 @@ export function CharacterPage({
                                 return { ...current, startingSpells: { ...base, cantrips } };
                               });
                             }}
-                            placeholder={`캔트립 ${idx + 1} 이름`}
                             style={{ marginRight: 6, marginBottom: 4 }}
-                          />
+                          >
+                            <option value="">캔트립 {idx + 1} 선택</option>
+                            {cantripOptions.map((spell) => (
+                              <option
+                                key={spell.id}
+                                value={spell.id}
+                                disabled={isSpellAlreadySelected(
+                                  formState.startingSpells?.cantrips,
+                                  spell.id,
+                                  idx
+                                )}
+                              >
+                                {spell.label}
+                              </option>
+                            ))}
+                          </select>
                         ))}
                       </div>
                     )}
@@ -2415,7 +2462,7 @@ export function CharacterPage({
                       <div>
                         <label style={{ display: 'block', marginBottom: 6 }}>1레벨 주문</label>
                         {Array.from({ length: selectedClass.startingSpellCount }).map((_, idx) => (
-                          <input
+                          <select
                             key={`spell-${idx}`}
                             value={formState.startingSpells?.spells[idx] ?? ''}
                             onChange={(event) => {
@@ -2430,9 +2477,23 @@ export function CharacterPage({
                                 return { ...current, startingSpells: { ...base, spells } };
                               });
                             }}
-                            placeholder={`주문 ${idx + 1} 이름`}
                             style={{ marginRight: 6, marginBottom: 4 }}
-                          />
+                          >
+                            <option value="">1레벨 주문 {idx + 1} 선택</option>
+                            {level1SpellOptions.map((spell) => (
+                              <option
+                                key={spell.id}
+                                value={spell.id}
+                                disabled={isSpellAlreadySelected(
+                                  formState.startingSpells?.spells,
+                                  spell.id,
+                                  idx
+                                )}
+                              >
+                                {spell.label}
+                              </option>
+                            ))}
+                          </select>
                         ))}
                       </div>
                     )}
