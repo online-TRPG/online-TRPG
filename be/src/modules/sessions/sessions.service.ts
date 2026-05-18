@@ -4683,6 +4683,7 @@ export class SessionsService {
           ? cell.revealChecks
               .map((check) => ({
                 contentId: typeof check.contentId === "string" ? check.contentId.trim() : "",
+                requiresCheck: check.requiresCheck !== false,
                 ability: typeof check.ability === "string" && check.ability.trim() ? check.ability.trim() : null,
                 skill: typeof check.skill === "string" && check.skill.trim() ? check.skill.trim() : null,
                 dc: this.clampNumber(Number(check.dc) || 15, 1, 40),

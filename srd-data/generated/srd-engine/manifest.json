@@ -7,6 +7,11 @@
   },
   "files": [
     {
+      "path": "classes.jsonl",
+      "kind": "class_rule",
+      "count": 4
+    },
+    {
       "path": "equipment.jsonl",
       "kind": "equipment",
       "count": 222
@@ -20,6 +25,11 @@
       "path": "spells.jsonl",
       "kind": "spell",
       "count": 319
+    },
+    {
+      "path": "spellcasting_rules.json",
+      "kind": "spellcasting_rule",
+      "count": 5
     }
   ],
   "notes": [

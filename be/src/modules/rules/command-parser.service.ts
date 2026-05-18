@@ -125,7 +125,7 @@ export class CommandParserService {
     return {
       type: "use_class_feature",
       featureId: this.normalizeClassFeatureId(featureToken),
-      option: args[1] ?? null,
+      option: args.slice(1).join(" ").trim() || null,
     };
   }
 
@@ -254,9 +254,15 @@ export class CommandParserService {
       secondwind: "class.fighter.feature.second_wind",
       action_surge: "class.fighter.feature.action_surge",
       actionsurge: "class.fighter.feature.action_surge",
+      fighting_style: "class.fighter.feature.fighting_style",
+      fightingstyle: "class.fighter.feature.fighting_style",
+      style: "class.fighter.feature.fighting_style",
       rage: "class.barbarian.feature.rage",
       sneak_attack: "class.rogue.feature.sneak_attack",
       sneakattack: "class.rogue.feature.sneak_attack",
+      expertise: "class.rogue.feature.expertise",
+      favored_enemy: "class.ranger.feature.favored_enemy",
+      favoredenemy: "class.ranger.feature.favored_enemy",
       cunning_action: "class.rogue.feature.cunning_action",
       cunningaction: "class.rogue.feature.cunning_action",
       frenzy: "class.barbarian.subclass_feature.frenzy",
