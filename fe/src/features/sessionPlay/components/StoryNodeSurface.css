@@ -252,7 +252,7 @@
 }
 
 .story-party-strip {
-  padding: 10px 16px;
+  padding: 0;
   position: relative;
   z-index: 5;
   overflow: visible;
@@ -262,9 +262,10 @@
 
 .story-party-list {
   min-width: 0;
+  height: 100%;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  gap: 0;
   overflow: visible;
 }
 
@@ -539,10 +540,6 @@
 
   .story-node-status-row {
     justify-content: flex-start;
-  }
-
-  .story-party-list {
-    gap: 6px;
   }
 }
 
