@@ -237,20 +237,20 @@ export function CombatNodeSurface({
     combat?.participants.find(
       (participant) => participant.sessionEntityId === selectedTargetParticipantId
     ) ?? null;
-  const attackRangeFt = equippedWeapon ? getWeaponFallbackRangeFt(equippedWeapon) : 0;
+  const attackName = equippedWeapon?.name ?? '기본 공격';
+  const attackRangeFt = equippedWeapon ? getWeaponFallbackRangeFt(equippedWeapon) : 5;
   const isSelectedTargetInRange = useMemo(() => {
-    if (!map || !myCombatParticipant || !selectedTargetParticipant || !equippedWeapon) return false;
+    if (!map || !myCombatParticipant || !selectedTargetParticipant) return false;
     const sourceTokenId = getParticipantTokenId(myCombatParticipant);
     const targetTokenId = getParticipantTokenId(selectedTargetParticipant);
     const sourceToken = sourceTokenId ? map.tokens.find((token) => token.id === sourceTokenId) : null;
     const targetToken = targetTokenId ? map.tokens.find((token) => token.id === targetTokenId) : null;
     if (!sourceToken || !targetToken) return false;
     return getGridDistanceFt(map, sourceToken, targetToken) <= attackRangeFt;
-  }, [attackRangeFt, equippedWeapon, map, myCombatParticipant, selectedTargetParticipant]);
+  }, [attackRangeFt, map, myCombatParticipant, selectedTargetParticipant]);
   const canAttackWithEquippedWeapon = Boolean(
     isMyCombatTurn &&
       myActionResources?.actionAvailable &&
-      equippedWeapon &&
       selectedTargetParticipant?.isHostile &&
       selectedTargetParticipant.isAlive &&
       isSelectedTargetInRange &&
@@ -259,7 +259,6 @@ export function CombatNodeSurface({
   const canStartAttackTargeting = Boolean(
     isMyCombatTurn &&
       myActionResources?.actionAvailable &&
-      equippedWeapon &&
       myCombatParticipant &&
       !isCombatBusy
   );
@@ -322,10 +321,10 @@ export function CombatNodeSurface({
     return Object.fromEntries(entries);
   }, [combat, map?.tokens]);
   const attackRangeOverlay = useMemo(() => {
-    if (!isAttackTargeting || !myCombatParticipant || !equippedWeapon) return null;
+    if (!isAttackTargeting || !myCombatParticipant) return null;
     const tokenId = getParticipantTokenId(myCombatParticipant);
     return tokenId ? { tokenId, rangeFt: attackRangeFt } : null;
-  }, [attackRangeFt, equippedWeapon, isAttackTargeting, map?.tokens, myCombatParticipant]);
+  }, [attackRangeFt, isAttackTargeting, map?.tokens, myCombatParticipant]);
 
   function getParticipantAvatar(participant: CombatResponseDto['participants'][number]) {
     const character = participant.sessionCharacterId
@@ -344,7 +343,7 @@ export function CombatNodeSurface({
   function isParticipantAttackTargetInRange(
     participant: CombatResponseDto['participants'][number] | null
   ) {
-    if (!map || !myCombatParticipant || !participant || !equippedWeapon) return false;
+    if (!map || !myCombatParticipant || !participant) return false;
     const sourceToken = getMapToken(getParticipantTokenId(myCombatParticipant));
     const targetToken = getMapToken(getParticipantTokenId(participant));
     if (!sourceToken || !targetToken) return false;
@@ -585,22 +584,21 @@ export function CombatNodeSurface({
           <div className="combat-action-list">
             {currentTab.actions.map((action) => {
               if (action === '공격') {
-                const title = !equippedWeapon
-                  ? '장착한 무기가 없습니다.'
-                  : isAttackTargeting
-                    ? `사거리 ${attackRangeFt}ft 안의 적 토큰을 선택하세요.`
-                    : !selectedTargetParticipant
-                      ? '공격 버튼을 눌러 사거리를 확인한 뒤 적 토큰을 선택하세요.'
-                    : !isSelectedTargetInRange
-                      ? `대상이 사거리 ${attackRangeFt}ft 밖에 있습니다.`
-                      : `${equippedWeapon.name} 공격`;
                 return (
                   <button
                     type="button"
                     key={action}
                     className={isAttackTargeting ? 'targeting' : ''}
                     disabled={!canAttackWithEquippedWeapon && !canStartAttackTargeting}
-                    title={title}
+                    title={
+                      isAttackTargeting
+                        ? `${attackName} 사거리 ${attackRangeFt}ft 안의 적 토큰을 선택하세요.`
+                        : !selectedTargetParticipant
+                          ? `${attackName} 버튼을 눌러 사거리를 확인하고 적 토큰을 선택하세요.`
+                        : !isSelectedTargetInRange
+                          ? `대상이 ${attackName} 사거리 ${attackRangeFt}ft 밖에 있습니다.`
+                          : `${attackName} 공격`
+                    }
                     onClick={() => {
                       if (canAttackWithEquippedWeapon && selectedTargetParticipant) {
                         runEquippedWeaponAttack(selectedTargetParticipant.sessionEntityId);
@@ -662,8 +660,8 @@ export function CombatNodeSurface({
             })}
           </div>
           {isAttackTargeting ? (
-            <p className="combat-targeting-hint">
-              {equippedWeapon?.name ?? '장착 무기'} 사거리 안의 적 토큰을 선택하세요.
+            <p className="combat-targeting-hint" title={`${attackName} 사거리 안의 적 토큰을 선택하세요.`}>
+              {attackName} 사거리 안의 적 토큰을 선택하세요.
             </p>
           ) : null}
         </div>
