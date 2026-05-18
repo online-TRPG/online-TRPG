@@ -603,7 +603,6 @@ export function ExplorationNodeSurface({
         </div>
 
         <div className="exploration-node-status-row" aria-label="탐색 상태">
-          <span>EXPLORATION</span>
           <span>{getPhaseLabel(phase)}</span>
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
         </div>

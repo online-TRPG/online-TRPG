@@ -18,6 +18,7 @@ function createLogEntry(
   message: string,
   id: string,
   createdAt?: string,
+  metadata?: LogEntry["metadata"],
 ): LogEntry {
   const normalizedCreatedAt = normalizeLogCreatedAt(createdAt);
 
@@ -28,6 +29,7 @@ function createLogEntry(
     message,
     time: formatLogTime(normalizedCreatedAt),
     createdAt: normalizedCreatedAt,
+    metadata,
   };
 }
 
@@ -41,9 +43,9 @@ export function useLogs() {
     ),
   ]);
 
-  const appendLog = useCallback((kind: LogEntry["kind"], title: string, message: string, id?: string, createdAt?: string) => {
+  const appendLog = useCallback((kind: LogEntry["kind"], title: string, message: string, id?: string, createdAt?: string, metadata?: LogEntry["metadata"]) => {
     const nextId = id ?? crypto.randomUUID();
-    const nextLog = createLogEntry(kind, title, message, nextId, createdAt);
+    const nextLog = createLogEntry(kind, title, message, nextId, createdAt, metadata);
 
     setLogs((current) =>
       current.some((log) => log.id === nextId)
@@ -52,9 +54,9 @@ export function useLogs() {
     );
   }, []);
 
-  const appendOlderLog = useCallback((kind: LogEntry["kind"], title: string, message: string, id?: string, createdAt?: string) => {
+  const appendOlderLog = useCallback((kind: LogEntry["kind"], title: string, message: string, id?: string, createdAt?: string, metadata?: LogEntry["metadata"]) => {
     const nextId = id ?? crypto.randomUUID();
-    const nextLog = createLogEntry(kind, title, message, nextId, createdAt);
+    const nextLog = createLogEntry(kind, title, message, nextId, createdAt, metadata);
 
     setLogs((current) =>
       current.some((log) => log.id === nextId)

@@ -34,6 +34,7 @@ import type { BattleMapSelection } from '../components/BattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
 import tavernImage from '../components/tavern.webp';
+import dragonPeekImage from '../assets/images/Peak_a_Boo_Dragon.webp';
 import emptySlotImage from '../components/player_empty_slot.webp';
 import existSlotImage from '../components/player_exist_slot.webp';
 import pinImage from '../components/pin.png';
@@ -82,7 +83,7 @@ import type {
   SessionSnapshot,
   StoredUser,
 } from '../types/session';
-import { getPlayerTokenColor } from '../utils/sessionTokenColors';
+import { getPlayerTokenColor, GM_TOKEN_COLOR, NPC_TOKEN_COLOR } from '../utils/sessionTokenColors';
 import type { SessionTokenColor } from '../utils/sessionTokenColors';
 import './CharacterPage.css';
 import './PlayPage.css';
@@ -90,10 +91,10 @@ import './PlayPage.css';
 // 플레이 화면 상단 탭 이름입니다. 각 탭은 로그/채팅/정보/설정을 구분합니다.
 const sessionTabs = ['Main', 'Chat', 'Info', 'Settings'] as const;
 const sessionTabLabels: Record<(typeof sessionTabs)[number], string> = {
-  Main: '\uBA54\uC778',
-  Chat: '\uCC44\uD305',
-  Info: '\uC815\uBCF4',
-  Settings: '\uC124\uC815',
+  Main: '메인',
+  Chat: '채팅',
+  Info: '정보',
+  Settings: '설정',
 };
 const sessionTabDescriptions: Record<
   (typeof sessionTabs)[number],
@@ -105,27 +106,23 @@ const sessionTabDescriptions: Record<
 > = {
   Main: {
     eyebrow: 'Session log',
-    title: '\uBA54\uC778 \uB85C\uADF8',
-    description:
-      '\uD589\uB3D9 \uC120\uC5B8\uACFC \uC9C4\uD589 \uC0C1\uD669\uC774 \uC2DC\uAC04\uC21C\uC73C\uB85C \uAE30\uB85D\uB429\uB2C8\uB2E4.',
+    title: '메인 로그',
+    description: '행동 선언과 진행 상황이 시간순으로 기록됩니다.',
   },
   Chat: {
     eyebrow: 'Party chat',
-    title: '\uD30C\uD2F0 \uCC44\uD305',
-    description:
-      '\uC138\uC158 \uAD6C\uC131\uC6D0\uB07C\uB9AC \uC790\uC720\uB86D\uAC8C \uBA54\uC2DC\uC9C0\uB97C \uC8FC\uACE0\uBC1B\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.',
+    title: '파티 채팅',
+    description: '파티원들과 자유롭게 메시지를 주고받을 수 있습니다.',
   },
   Info: {
     eyebrow: 'Scenario guide',
-    title: '\uC2DC\uB098\uB9AC\uC624 \uC815\uBCF4\uC640 \uC7A5\uBA74 \uAC00\uC774\uB4DC',
-    description:
-      '\uC2DC\uB098\uB9AC\uC624 \uC124\uBA85\uACFC \uD604\uC7AC \uC7A5\uBA74\uC758 \uD310\uC815 \uAC00\uC774\uB4DC, \uBC1D\uD600\uC9C4 \uB2E8\uC11C\uB97C \uD55C\uACF3\uC5D0\uC11C \uD655\uC778\uD569\uB2C8\uB2E4.',
+    title: '시나리오 정보와 장면 가이드',
+    description: '시나리오 설명과 판정 가이드, 단서를 확인합니다.',
   },
   Settings: {
     eyebrow: 'Room settings',
-    title: '\uC138\uC158 \uC124\uC815',
-    description:
-      '\uBC29 \uC815\uBCF4\uC640 \uC774\uB3D9, \uB098\uAC00\uAE30 \uAC19\uC740 \uAE30\uB2A5\uC744 \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.',
+    title: '세션 설정',
+    description: '세션 정보를 확인하고 세션에서 나갈 수 있습니다.',
   },
 };
 
@@ -215,6 +212,9 @@ type MainLogTone =
 type MainLogPresentation = {
   tone: MainLogTone | null;
   label: string | null;
+  speakerKind?: 'gm' | 'npc' | null;
+  speakerName?: string | null;
+  displayMessage?: string | null;
 };
 
 const MainCommandScreenTypeValues = {
@@ -1087,9 +1087,88 @@ function buildMapPartyColorStyle(color: SessionTokenColor): CSSProperties {
   } as CSSProperties;
 }
 
-function getLogSenderLabel(title: string, rowClass: 'incoming' | 'outgoing' | 'notice') {
-  if (rowClass === 'notice') return '세션 로그';
+function isSessionLogTitle(title: string) {
+  const normalizedTitle = title.trim().toLowerCase();
+  return normalizedTitle === '세션 로그' || normalizedTitle === 'session log';
+}
+
+function getLogSenderLabel(
+  title: string,
+  rowClass: 'incoming' | 'outgoing' | 'notice',
+  presentation?: MainLogPresentation | null
+) {
+  if (presentation?.speakerKind === 'npc') return presentation.speakerName?.trim() || 'NPC';
+  if (
+    rowClass === 'notice' ||
+    presentation?.speakerKind === 'gm' ||
+    presentation?.tone === 'gm-narration' ||
+    presentation?.tone === 'system-result' ||
+    isSessionLogTitle(title)
+  ) {
+    return 'GM';
+  }
   return title || '알 수 없음';
+}
+
+function isSessionLogProfile(title: string, logTone?: string | null) {
+  return (
+    isSessionLogTitle(title) ||
+    logTone === 'gm-narration' ||
+    logTone === 'system-result'
+  );
+}
+
+function parseNpcDialogueMessage(message: string) {
+  const lines = message.trim().split(/\r?\n/);
+  const firstLine = lines[0] ?? '';
+  const match = firstLine.match(/^([^\s:：][^:：\n]{0,32})[:：]\s*(.+)$/);
+
+  if (!match) return null;
+  if (
+    /^(TurnLog|rawInput|outcome|narration|diceResult|stateDiff|structuredAction)$/i.test(
+      match[1].trim()
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    speakerName: match[1].trim(),
+    displayMessage: [match[2].trim(), ...lines.slice(1)].join('\n').trim(),
+  };
+}
+
+function normalizeNpcSpeakerKey(value: string | null | undefined) {
+  return (value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[“”"']/g, '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\s*\[[^\]]*\]\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isSimilarNpcSpeakerName(left: string | null | undefined, right: string | null | undefined) {
+  const normalizedLeft = normalizeNpcSpeakerKey(left);
+  const normalizedRight = normalizeNpcSpeakerKey(right);
+
+  if (!normalizedLeft || !normalizedRight) return false;
+  return (
+    normalizedLeft === normalizedRight ||
+    normalizedLeft.includes(normalizedRight) ||
+    normalizedRight.includes(normalizedLeft)
+  );
+}
+
+function isNpcDialogueMainCommandLog(log: LogEntry) {
+  const mainCommand = log.metadata?.mainCommand;
+  if (!mainCommand?.targetId) return false;
+
+  return (
+    mainCommand.intent === MainCommandIntentValues.TALK_TO_NPC ||
+    mainCommand.intent === MainCommandIntentValues.COMBAT_TALK
+  );
 }
 
 function isCombatResultLogMessage(message: string) {
@@ -1100,7 +1179,11 @@ function isCombatResultLogMessage(message: string) {
   );
 }
 
-function getMainLogPresentation(log: LogEntry, message: string): MainLogPresentation {
+function getMainLogPresentation(
+  log: LogEntry,
+  message: string,
+  npcSpeakerName?: string | null
+): MainLogPresentation {
   if (isChatScoped(log.message)) {
     return { tone: null, label: null };
   }
@@ -1130,17 +1213,34 @@ function getMainLogPresentation(log: LogEntry, message: string): MainLogPresenta
     log.message.startsWith('[MAIN]') &&
     !log.id.startsWith('turn-log:')
   ) {
+    if (isSessionLogTitle(log.title)) {
+      return { tone: 'system-result', label: '시스템 로그', speakerKind: 'gm' };
+    }
+
     return { tone: 'player-rp', label: 'RP 대사' };
   }
 
   if (log.id.startsWith('system-message:') || log.id.endsWith(':pending')) {
-    return { tone: 'system-result', label: '시스템 로그' };
+    return { tone: 'system-result', label: '시스템 로그', speakerKind: 'gm' };
   }
 
   if (log.id.startsWith('turn-log:')) {
     const compact = message.trim();
     if (isCombatResultLogMessage(compact)) {
-      return { tone: 'system-result', label: '시스템 로그' };
+      return { tone: 'system-result', label: '시스템 로그', speakerKind: 'gm' };
+    }
+
+    if (isNpcDialogueMainCommandLog(log)) {
+      const dialogueBody = compact.replace(/^\[MAIN\]/, '').trim();
+      const npcDialogue = parseNpcDialogueMessage(dialogueBody);
+
+      return {
+        tone: 'npc-dialogue',
+        label: null,
+        speakerKind: 'npc',
+        speakerName: npcDialogue?.speakerName ?? npcSpeakerName ?? 'NPC',
+        displayMessage: npcDialogue?.displayMessage ?? dialogueBody,
+      };
     }
 
     if (compact.startsWith('[MAIN]')) {
@@ -1151,15 +1251,9 @@ function getMainLogPresentation(log: LogEntry, message: string): MainLogPresenta
         compact.includes('성공') ||
         isCombatResultLogMessage(compact);
       return looksLikeSystemMainResult
-        ? { tone: 'system-result', label: '시스템 로그' }
-        : { tone: 'gm-narration', label: 'GM 지문' };
+        ? { tone: 'system-result', label: '시스템 로그', speakerKind: 'gm' }
+        : { tone: 'gm-narration', label: null, speakerKind: 'gm' };
     }
-    const firstLine = compact.split(/\r?\n/, 1)[0] ?? '';
-    const looksLikeNpcDialogue =
-      /^[^\s:：][^:：\n]{0,32}[:：]\s+.+/.test(firstLine) &&
-      !/^(TurnLog|rawInput|outcome|narration|diceResult|stateDiff|structuredAction)[:：]/i.test(
-        firstLine
-      );
     const looksLikeSystemResult =
       compact.includes('TurnLog') ||
       compact.includes('diceResult') ||
@@ -1171,15 +1265,11 @@ function getMainLogPresentation(log: LogEntry, message: string): MainLogPresenta
       compact.includes('실패') ||
       compact.includes('성공');
 
-    if (looksLikeNpcDialogue) {
-      return { tone: 'npc-dialogue', label: 'NPC 대사' };
-    }
-
     if (looksLikeSystemResult) {
-      return { tone: 'system-result', label: '시스템 로그' };
+      return { tone: 'system-result', label: '시스템 로그', speakerKind: 'gm' };
     }
 
-    return { tone: 'gm-narration', label: 'GM 지문' };
+    return { tone: 'gm-narration', label: null, speakerKind: 'gm' };
   }
 
   return { tone: null, label: null };
@@ -1392,6 +1482,7 @@ export function PlayPage({
   const [, setIsMapLoaded] = useState(false);
   // 로그 자동 스크롤과 맵 저장 큐를 관리하는 ref입니다. 렌더링 없이 최신 값을 유지합니다.
   const logEndRef = useRef<HTMLDivElement | null>(null);
+  const scenarioDescriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
   const mapSaveRef = useRef<{
     isSaving: boolean;
@@ -1437,6 +1528,16 @@ export function PlayPage({
   const activeScenario =
     snapshot?.sessionScenarios.find((item) => item.status === 'ACTIVE') ??
     snapshot?.sessionScenarios[0];
+  const scenarioDescriptionText = infoText || activeScenario?.scenario.description || '';
+
+  useEffect(() => {
+    const textarea = scenarioDescriptionTextareaRef.current;
+    if (!textarea) return;
+
+    // 설명 영역은 내부 스크롤 대신 내용 높이만큼 자연스럽게 늘어나게 맞춥니다.
+    textarea.style.height = 'auto';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [activeTab, scenarioDescriptionText]);
 
   useEffect(() => {
     if (!inventoryUseFeedback) return undefined;
@@ -2099,6 +2200,17 @@ export function PlayPage({
     return [];
   }, [activeTab, logs]);
 
+  function getMainCommandNpcSpeakerName(log: LogEntry) {
+    const targetId = log.metadata?.mainCommand?.targetId;
+    if (!targetId) return null;
+
+    return (
+      currentNode?.visibleTargets.find((target) => target.id === targetId)?.name ??
+      vttMap?.tokens.find((token) => token.npcId === targetId || token.id === targetId)?.name ??
+      null
+    );
+  }
+
   const renderedRows = useMemo(() => {
     let previousDateKey: string | null = null;
 
@@ -2107,14 +2219,16 @@ export function PlayPage({
       const isMine = log.title === user.displayName;
       const rowClass = log.kind === 'system' ? 'notice' : isMine ? 'outgoing' : 'incoming';
       const presentation =
-        activeTab === 'Main' ? getMainLogPresentation(log, normalizedMessage) : null;
+        activeTab === 'Main'
+          ? getMainLogPresentation(log, normalizedMessage, getMainCommandNpcSpeakerName(log))
+          : null;
       const dateKey = getLogDateKey(log.createdAt);
       const showDateSeparator = dateKey !== previousDateKey;
       previousDateKey = dateKey;
 
       return {
         ...log,
-        message: normalizedMessage,
+        message: presentation?.displayMessage ?? normalizedMessage,
         // 서버 응답을 기다리는 임시 로그는 멈춘 것처럼 보이지 않도록 별도 표시를 붙입니다.
         isPendingAction: log.id.endsWith(':pending'),
         showDateSeparator,
@@ -2122,10 +2236,12 @@ export function PlayPage({
         rowClass,
         logTone: presentation?.tone ?? null,
         logToneLabel: presentation?.label ?? null,
-        senderLabel: getLogSenderLabel(log.title, rowClass),
+        speakerKind: presentation?.speakerKind ?? null,
+        speakerName: presentation?.speakerName ?? null,
+        senderLabel: getLogSenderLabel(log.title, rowClass, presentation),
       };
     });
-  }, [activeTab, scopedLogs, user.displayName]);
+  }, [activeTab, currentNode?.visibleTargets, scopedLogs, user.displayName, vttMap?.tokens]);
   const latestRenderedLogId = renderedRows[renderedRows.length - 1]?.id ?? null;
   const storyRpUtterances = useMemo<StoryRpUtterance[]>(() => {
     const now = Date.now();
@@ -2863,7 +2979,10 @@ export function PlayPage({
     });
   }
 
-  function getLogProfileColor(title: string): SessionTokenColor {
+  function getLogProfileColor(title: string, logTone?: string | null): SessionTokenColor {
+    if (logTone === 'npc-dialogue') return NPC_TOKEN_COLOR;
+    if (isSessionLogProfile(title, logTone)) return GM_TOKEN_COLOR;
+
     const matchedParticipant = getLogParticipant(title);
 
     // 로그 작성자 이름만 넘어오는 경우가 있어 매칭 실패 시 첫 플레이어 색으로 안전하게 표시합니다.
@@ -2872,7 +2991,46 @@ export function PlayPage({
       : getPlayerTokenColor(0);
   }
 
-  function getLogProfileImage(title: string): string | null {
+  function findNpcTokenByName(speakerName?: string | null, targetId?: string | null) {
+    const normalizedSpeakerName = normalizeNpcSpeakerKey(speakerName);
+    if ((!normalizedSpeakerName && !targetId) || !vttMap?.tokens.length) return null;
+
+    const npcLikeTokens = vttMap.tokens.filter((token) => !token.sessionCharacterId);
+    const visibleTarget =
+      currentNode?.visibleTargets.find((target) => target.id === targetId) ??
+      currentNode?.visibleTargets.find((target) =>
+        isSimilarNpcSpeakerName(target.name, normalizedSpeakerName)
+      );
+
+    return (
+      (targetId
+        ? npcLikeTokens.find((token) => (token.npcId === targetId || token.id === targetId) && token.imageUrl)
+        : null) ??
+      (targetId ? npcLikeTokens.find((token) => token.npcId === targetId || token.id === targetId) : null) ??
+      (visibleTarget
+        ? npcLikeTokens.find((token) => token.npcId === visibleTarget.id && token.imageUrl)
+        : null) ??
+      (visibleTarget ? npcLikeTokens.find((token) => token.npcId === visibleTarget.id) : null) ??
+      npcLikeTokens.find(
+        (token) => token.imageUrl && isSimilarNpcSpeakerName(token.name, normalizedSpeakerName)
+      ) ??
+      npcLikeTokens.find((token) => isSimilarNpcSpeakerName(token.name, normalizedSpeakerName)) ??
+      null
+    );
+  }
+
+  function getLogProfileImage(
+    title: string,
+    logTone?: string | null,
+    speakerName?: string | null,
+    targetId?: string | null
+  ): string | null {
+    if (logTone === 'npc-dialogue') {
+      return findNpcTokenByName(speakerName, targetId)?.imageUrl?.trim() || null;
+    }
+
+    if (isSessionLogProfile(title, logTone)) return dragonPeekImage;
+
     const matchedParticipant = getLogParticipant(title);
     if (!matchedParticipant) return null;
 
@@ -2926,6 +3084,12 @@ export function PlayPage({
         }`}
       style={layoutStyle}
     >
+      <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none' }}>
+        <filter id="torn-paper-edge">
+          <feTurbulence type="fractalNoise" baseFrequency="0.06" numOctaves="3" result="noise" />
+          <feDisplacementMap in="SourceGraphic" in2="noise" scale="4" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+      </svg>
       <section
         className={`session-prep-stage${usesNodeSpecificPartyStrip ? ' node-surface-active' : ''}${isRecruiting ? ' recruiting-stage' : ''
           }`}
@@ -2938,7 +3102,7 @@ export function PlayPage({
             <section className="session-room-overlay recruiting-room-overlay">
               <div className="session-room-overlay-row">
                 <div className="session-room-overlay-title">
-                  <span className="eyebrow">세션 룸</span>
+
                   <strong>{session?.title ?? '활성 세션이 없습니다'}</strong>
                 </div>
 
@@ -3095,9 +3259,8 @@ export function PlayPage({
                     </button>
                     <button
                       type="button"
-                      className={`ready-toggle-button recruiting-ready-button recruiting-wanted-ready${
-                        myParticipant?.isReady ? ' active' : ''
-                      }`}
+                      className={`ready-toggle-button recruiting-ready-button recruiting-wanted-ready${myParticipant?.isReady ? ' active' : ''
+                        }`}
                       disabled={busy || !selectedCharacter}
                       onClick={() => onSetReady(!myParticipant?.isReady)}
                     >
@@ -3228,51 +3391,51 @@ export function PlayPage({
               <div className="session-ready-card-ornament top" aria-hidden="true" />
               <span className="eyebrow ready-eyebrow">✦ Session status ✦</span>
 
-                <div className="session-ready-title-row">
-                  <h2>세션 시작</h2>
-                  <span className="ready-badge">
-                    <Icon name="check-circle" /> {readyParticipantCount}/{participantCount} READY
-                  </span>
+              <div className="session-ready-title-row">
+                <h2>세션 시작</h2>
+                <span className="ready-badge">
+                  <Icon name="check-circle" /> {readyParticipantCount}/{participantCount} READY
+                </span>
+              </div>
+
+              <div className="session-ready-divider" aria-hidden="true">
+                <div className="diamond" />
+              </div>
+
+              <strong className="session-ready-subtitle">
+                모든 참가자가 준비를 완료했습니다.
+              </strong>
+              <p className="session-ready-desc">
+                {isHost
+                  ? '지금 게임을 시작하시겠습니까?'
+                  : '호스트가 세션을 시작할 때까지 기다려주세요.'}
+              </p>
+
+
+              {isHost ? (
+                <div className="ready-actions">
+                  <button
+                    type="button"
+                    className="ready-btn-cancel"
+                    onClick={() => setStatusMinimized(true)}
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    className="ready-btn-start"
+                    disabled={!canStartSession || busy}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setIsStartTransitionPending(true);
+                      setIsGameStarting(true);
+                      onStartSession();
+                    }}
+                  >
+                    게임 시작
+                  </button>
                 </div>
-
-                <div className="session-ready-divider" aria-hidden="true">
-                  <div className="diamond" />
-                </div>
-
-                <strong className="session-ready-subtitle">
-                  모든 참가자가 준비를 완료했습니다.
-                </strong>
-                <p className="session-ready-desc">
-                  {isHost
-                    ? '지금 게임을 시작하시겠습니까?'
-                    : '호스트가 세션을 시작할 때까지 기다려주세요.'}
-                </p>
-
-
-                {isHost ? (
-                  <div className="ready-actions">
-                    <button
-                      type="button"
-                      className="ready-btn-cancel"
-                      onClick={() => setStatusMinimized(true)}
-                    >
-                      취소
-                    </button>
-                    <button
-                      type="button"
-                      className="ready-btn-start"
-                      disabled={!canStartSession || busy}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setIsStartTransitionPending(true);
-                        setIsGameStarting(true);
-                        onStartSession();
-                      }}
-                    >
-                      게임 시작
-                    </button>
-                  </div>
-                ) : null}
+              ) : null}
 
               <div className="session-ready-card-ornament bottom" aria-hidden="true" />
             </section>
@@ -3442,16 +3605,8 @@ export function PlayPage({
         </div>
 
         <div className="session-sidebar-panel">
-          <div className="session-sidebar-heading">
-            <strong className="session-sidebar-title">
-              {sessionTabDescriptions[activeTab].title}
-            </strong>
-            <div className="session-sidebar-info-trigger">
-              <Icon name="help-circle" />
-              <div className="session-sidebar-info-tooltip">
-                {sessionTabDescriptions[activeTab].description}
-              </div>
-            </div>
+          <div className="session-sidebar-description">
+            <p>{sessionTabDescriptions[activeTab].description}</p>
           </div>
 
           {activeTab === 'Main' || activeTab === 'Chat' ? (
@@ -3476,10 +3631,18 @@ export function PlayPage({
                       const chatColorStyle =
                         log.rowClass === 'notice'
                           ? undefined
-                          : buildProfileColorStyle(getLogProfileColor(log.title));
+                          : buildProfileColorStyle(getLogProfileColor(log.title, log.logTone));
                       const chatProfileImage =
-                        log.rowClass === 'notice' ? null : getLogProfileImage(log.title);
-                      const chatAvatarLabel = getAvatarLabel(log.title, user.displayName);
+                        log.rowClass === 'notice'
+                          ? null
+                          : getLogProfileImage(
+                              log.title,
+                              log.logTone,
+                              log.speakerName,
+                              log.metadata?.mainCommand?.targetId
+                            );
+                      const isDragonProfile = chatProfileImage === dragonPeekImage;
+                      const chatAvatarLabel = getAvatarLabel(log.senderLabel, user.displayName);
 
                       return (
                         <Fragment key={log.id}>
@@ -3495,7 +3658,9 @@ export function PlayPage({
                           >
                             {log.rowClass === 'incoming' ? (
                               <div
-                                className={`chat-thread-avatar${chatProfileImage ? ' has-image' : ''}`}
+                                className={`chat-thread-avatar${chatProfileImage ? ' has-image' : ''}${
+                                  isDragonProfile ? ' dragon-profile' : ''
+                                }`}
                               >
                                 {chatProfileImage ? (
                                   <img
@@ -3529,7 +3694,9 @@ export function PlayPage({
                             </div>
                             {log.rowClass === 'outgoing' ? (
                               <div
-                                className={`chat-thread-avatar${chatProfileImage ? ' has-image' : ''}`}
+                                className={`chat-thread-avatar${chatProfileImage ? ' has-image' : ''}${
+                                  isDragonProfile ? ' dragon-profile' : ''
+                                }`}
                               >
                                 {chatProfileImage ? (
                                   <img
@@ -3549,7 +3716,6 @@ export function PlayPage({
                   ) : (
                     <article className="chat-thread-row notice">
                       <div className="chat-thread-stack">
-                        <span className="chat-thread-sender notice">세션 로그</span>
                         <div className="chat-thread-bubble">아직 기록된 메시지가 없습니다.</div>
                       </div>
                     </article>
@@ -3604,7 +3770,7 @@ export function PlayPage({
                         }}
                       >
                         <Icon name="help-circle" />
-                        <span>명령어 가이드</span>
+                        <span>명령어</span>
                       </button>
                     </div>
 
@@ -3856,8 +4022,9 @@ export function PlayPage({
                       : '채팅을 입력하세요...'
                   }
                 />
-                <button type="submit" disabled={busy}>
-                  전송
+                <button type="submit" disabled={busy} className="chat-submit-btn">
+                  <Icon name="send" />
+                  <span>전송</span>
                 </button>
               </form>
             </>
@@ -3867,7 +4034,7 @@ export function PlayPage({
             <div className="session-info-panel">
               <div className="section-heading">
                 <div>
-                  <span className="eyebrow">Scenario info</span>
+                  <span className="eyebrow">현재 시나리오</span>
                   <h2>{activeScenario?.scenario.title ?? '시나리오가 없습니다'}</h2>
                 </div>
               </div>
@@ -3907,9 +4074,10 @@ export function PlayPage({
               </article>
 
               <article className="scenario-node-panel">
-                <span className="eyebrow">시나리오 인포</span>
+                <span className="eyebrow">시나리오 설명</span>
                 <textarea
-                  value={infoText || activeScenario?.scenario.description || ''}
+                  ref={scenarioDescriptionTextareaRef}
+                  value={scenarioDescriptionText}
                   onChange={(event) => setInfoText(event.target.value)}
                 />
               </article>
@@ -3918,7 +4086,7 @@ export function PlayPage({
 
           {activeTab === 'Settings' ? (
             <div className="session-settings-panel">
-              <span className="eyebrow">세션 룸</span>
+
               {!isRecruiting ? (
                 <div className="session-settings-room">
                   <strong>{session?.title ?? '활성 세션이 없습니다'}</strong>

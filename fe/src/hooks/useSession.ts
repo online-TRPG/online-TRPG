@@ -134,7 +134,8 @@ type AppendLogFn = (
   title: string,
   message: string,
   id?: string,
-  createdAt?: string
+  createdAt?: string,
+  metadata?: LogEntry['metadata']
 ) => void;
 
 type PendingMainCommandLog = {
@@ -281,6 +282,32 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
   ];
 
   return `[MAIN]${sections.join('\n')}`;
+}
+
+function getTurnLogMainCommandMetadata(turnLog: TurnLogResponseDto): LogEntry['metadata'] | undefined {
+  const structuredAction = turnLog.structuredAction;
+
+  if (
+    !structuredAction ||
+    typeof structuredAction !== 'object' ||
+    (structuredAction as { type?: unknown }).type !== 'main_command'
+  ) {
+    return undefined;
+  }
+
+  const command = structuredAction as {
+    intent?: unknown;
+    targetId?: unknown;
+    targetType?: unknown;
+  };
+
+  return {
+    mainCommand: {
+      intent: typeof command.intent === 'string' ? command.intent : null,
+      targetId: typeof command.targetId === 'string' ? command.targetId : null,
+      targetType: typeof command.targetType === 'string' ? command.targetType : null,
+    },
+  };
 }
 
 function isMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
@@ -817,7 +844,8 @@ export function useSession(
         '세션 로그',
         formatTurnLogMessage(turnLog),
         `turn-log:${turnLog.turnLogId}`,
-        turnLog.createdAt
+        turnLog.createdAt,
+        getTurnLogMainCommandMetadata(turnLog)
       );
     },
     [appendLog, appendPlayerRawInputLog, removeLog, removePendingMainCommandLog]
@@ -856,7 +884,8 @@ export function useSession(
         '세션 로그',
         formatTurnLogMessage(turnLog),
         `turn-log:${turnLog.turnLogId}`,
-        turnLog.createdAt
+        turnLog.createdAt,
+        getTurnLogMainCommandMetadata(turnLog)
       );
       appendPlayerRawInputLog(turnLog, appendOlderLog);
     },
