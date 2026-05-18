@@ -90,6 +90,9 @@ interface CharacterPageProps {
   onCloneCharacter: (characterId: string) => void | Promise<void>;
   onUpdateCharacter: (characterId: string, payload: CharacterPayload) => Promise<boolean>;
   onDeleteCharacter: (characterId: string) => void | Promise<void>;
+  autoOpenCreate?: boolean;
+  sessionReturnTitle?: string | null;
+  onReturnToSession?: () => void;
 }
 
 type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
@@ -538,6 +541,9 @@ export function CharacterPage({
   onCloneCharacter,
   onUpdateCharacter,
   onDeleteCharacter,
+  autoOpenCreate = false,
+  sessionReturnTitle = null,
+  onReturnToSession,
 }: CharacterPageProps) {
   // 모달/선택/폼 상태입니다. 생성과 수정 모달이 같은 formState를 공유합니다.
   const [classCatalog, setClassCatalog] = useState<ClassOption[]>([]);
@@ -554,6 +560,7 @@ export function CharacterPage({
   const [itemCatalog, setItemCatalog] = useState<ItemResponseDto[]>([]);
   // 인벤토리 편집 영역 DOM 참조입니다. 필요 시 스크롤/포커스 제어에 씁니다.
   const inventoryEditorRef = useRef<HTMLDivElement | null>(null);
+  const didAutoOpenCreateRef = useRef(false);
 
   useEffect(() => {
     listItems()
@@ -853,6 +860,15 @@ export function CharacterPage({
     resetCreateForm();
   }
 
+  useEffect(() => {
+    if (!autoOpenCreate || didAutoOpenCreateRef.current) {
+      return;
+    }
+
+    didAutoOpenCreateRef.current = true;
+    openCreateModal();
+  }, [autoOpenCreate]);
+
   async function submitCreateCharacter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -860,7 +876,7 @@ export function CharacterPage({
       ...formState,
       proficientSkills: formState.proficientSkills?.filter(Boolean) ?? [],
       inventory: inventoryDraft.filter((item) => item.name.trim()),
-      assignToSession: false,
+      assignToSession: !editingCharacterId && Boolean(onReturnToSession),
     };
 
     // 검증 실패 시 모달을 유지해서 사용자가 입력한 폼 상태를 보존한다.
@@ -871,6 +887,9 @@ export function CharacterPage({
 
     if (succeeded) {
       closeCreateModal();
+      if (!editingCharacterId && onReturnToSession) {
+        onReturnToSession();
+      }
     }
   }
 
@@ -973,6 +992,16 @@ export function CharacterPage({
       {/* 좌측 사이드바: 캐릭터 생성 버튼과 안내 영역입니다. */}
       <section className="fantasy-character-layout">
         <aside className="fantasy-character-sidebar">
+          {onReturnToSession ? (
+            <button
+              type="button"
+              className="fantasy-character-sidebutton"
+              style={{ backgroundImage: `url(${sidePanelImage})` }}
+              onClick={onReturnToSession}
+            >
+              {sessionReturnTitle ? `${sessionReturnTitle} 세션으로` : '세션으로'} 돌아가기
+            </button>
+          ) : null}
           <button
             type="button"
             className="fantasy-character-sidebutton"
@@ -1540,7 +1569,7 @@ export function CharacterPage({
                       </div>
                     ) : (
                       <div style={{ fontSize: '0.85rem', opacity: 0.7 }}>
-                        종족 미선택 시 Point Buy 검증 비활성
+                        종족을 먼저 선택해 주세요!
                       </div>
                     )}
                   </div>
