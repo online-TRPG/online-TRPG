@@ -194,17 +194,17 @@ export function SessionCreatePage({
 
             <div className="session-create-inline-grid">
               <div className="session-create-field session-create-range-field">
-                <label htmlFor="max-players-page">참가 인원 (1 ~ 8)</label>
+                <label htmlFor="max-players-page">참가 인원 (1 ~ 4)</label>
                 <input
                   id="max-players-page"
                   type="number"
                   min={1}
-                  max={8}
+                  max={4}
                   value={maxPlayers}
                   step={1}
                   onChange={(event) => {
                     const next = Number(event.target.value);
-                    setMaxPlayers(Number.isFinite(next) ? Math.min(8, Math.max(1, next)) : 1);
+                    setMaxPlayers(Number.isFinite(next) ? Math.min(4, Math.max(1, next)) : 1);
                   }}
                 />
               </div>
