@@ -8,8 +8,8 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
-  background: #eef1ed;
-  color: #23313d;
+  background: #fbf5eb;
+  color: #3e3226;
 }
 
 .exploration-node-header {
@@ -19,13 +19,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border-bottom: 1px solid #c9d3dc;
-  background: #edf3f5;
+  border-bottom: none;
+  background: transparent;
 }
 
 .exploration-node-header h1 {
   margin: 4px 0 0;
-  color: #172433;
+  color: #213045;
   font-size: 23px;
   line-height: 1.2;
   overflow-wrap: anywhere;

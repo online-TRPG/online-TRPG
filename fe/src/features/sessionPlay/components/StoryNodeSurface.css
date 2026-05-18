@@ -5,19 +5,19 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
-  background: #f4f1e8;
-  color: #243140;
+  background: #fbf5eb;
+  color: #3e3226;
 }
 
 .story-node-header {
   min-height: 76px;
-  padding: 14px 18px;
+  padding: 14px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border-bottom: 1px solid rgba(87, 99, 114, 0.22);
-  background: #eef2f5;
+  border-bottom: none;
+  background: transparent;
 }
 
 .story-node-title-row {
@@ -29,7 +29,7 @@
 
 .story-node-header h1 {
   margin: 4px 0 0;
-  color: #172433;
+  color: #213045;
   font-size: 24px;
   line-height: 1.2;
   overflow-wrap: anywhere;
@@ -39,23 +39,23 @@
   flex: 0 0 auto;
   min-height: 28px;
   padding: 0 10px;
-  border: 1px solid rgba(18, 52, 90, 0.22);
+  border: 1px solid #d8b671;
   border-radius: 6px;
-  background: #ffffff;
-  color: #172433;
+  background: #fdfaf3;
+  color: #3e3226;
   font-size: 12px;
   font-weight: 900;
 }
 
 .story-node-summary-button:hover {
-  border-color: #173b67;
-  background: #eef4fa;
+  border-color: #d8b671;
+  background: #f4e8d3;
 }
 
 .story-node-summary-button.active {
-  border-color: #173b67;
-  background: #173b67;
-  color: #ffffff;
+  border-color: #d8b671;
+  background: #d8b671;
+  color: #1f2f45;
 }
 
 .story-node-summary-popover {
@@ -257,8 +257,8 @@
   position: relative;
   z-index: 5;
   overflow: visible;
-  border-top: 1px solid rgba(87, 99, 114, 0.2);
-  background: #e8edf2;
+  border-top: none;
+  background: transparent;
 }
 
 .story-party-list {
@@ -280,11 +280,10 @@
   grid-template-columns: 42px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
-  border: 2px solid var(--story-party-frame-color, #c8d3de);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.1)),
-    var(--story-party-bg-color, #f8fbfd);
-  color: var(--story-party-text-color, #243140);
+  border: 2px solid #d8b671;
+  background: var(--story-party-bg-color, #fdfaf3);
+  border-radius: 8px;
+  color: var(--story-party-text-color, #3e3226);
   text-align: left;
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.68),
