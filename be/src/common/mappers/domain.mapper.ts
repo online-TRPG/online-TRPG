@@ -12,6 +12,7 @@ import {
   Scenario,
   ScenarioLicense as PrismaScenarioLicense,
   ScenarioNode,
+  ScenarioSourceType as PrismaScenarioSourceType,
   Session,
   SessionCharacter,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
@@ -37,6 +38,7 @@ import {
   ScenarioNodeResponseDto,
   ScenarioNodeType,
   ScenarioResponseDto,
+  ScenarioSourceType,
   ScenarioSummaryResponseDto,
   SessionCharacterResponseDto,
   SessionCharacterStatus,
@@ -134,6 +136,12 @@ const scenarioLicenseMap: Record<PrismaScenarioLicense, ScenarioLicense> = {
   ORIGINAL: ScenarioLicense.ORIGINAL,
   CC_BY_4_0: ScenarioLicense.CC_BY_4_0,
   OTHER_FREE: ScenarioLicense.OTHER_FREE,
+};
+
+const scenarioSourceTypeMap: Record<PrismaScenarioSourceType, ScenarioSourceType> = {
+  SYSTEM: ScenarioSourceType.SYSTEM,
+  USER: ScenarioSourceType.USER,
+  CLONED: ScenarioSourceType.CLONED,
 };
 
 const sessionCharacterStatusMap: Record<PrismaSessionCharacterStatus, SessionCharacterStatus> = {
@@ -429,6 +437,7 @@ export function mapScenarioSummary(scenario: Scenario): ScenarioSummaryResponseD
     startLevel: scenario.startLevel,
     recommendedEndLevel: scenario.recommendedEndLevel ?? null,
     license: scenarioLicenseMap[scenario.license],
+    sourceType: scenarioSourceTypeMap[scenario.sourceType],
     attribution: scenario.attribution ?? null,
     startNodeId: scenario.startNodeId ?? null,
     createdAt: toIsoString(scenario.createdAt),

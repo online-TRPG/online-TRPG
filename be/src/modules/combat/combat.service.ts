@@ -45,10 +45,10 @@ type CombatParticipantEntity = NonNullable<CombatWithParticipants>["participants
 type EquippedWeaponProfile = {
   name: string;
   attackBonus: number;
-  damageDice: string;
-  damageBonus: number;
+  damageDice?: string;
+  damageBonus?: number;
   rangeFt: number;
-  minimumDamage?: number;
+  fixedDamageTotal?: number;
   isBasicAttack?: boolean;
 };
 
@@ -585,7 +585,7 @@ export class CombatService {
     userId: string,
     sessionId: string,
     dto: ResolveCombatAttackDto,
-    options: { messagePrefix?: string; minimumDamage?: number } = {},
+    options: { messagePrefix?: string; fixedDamageTotal?: number } = {},
   ): Promise<CombatActionResultDto> {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     await this.sessionsService.ensureMembership(userId, session.id);
@@ -617,16 +617,17 @@ export class CombatService {
     const criticalHit = naturalD20 === 20;
     const criticalMiss = naturalD20 === 1;
     const hit = criticalHit || (!criticalMiss && attackRoll.total >= targetArmorClass);
-    const rolledDamage = hit
+    const fixedDamageTotal =
+      hit && options.fixedDamageTotal !== undefined
+        ? Math.max(0, Math.floor(options.fixedDamageTotal))
+        : null;
+    const damageRoll = hit && fixedDamageTotal === null
       ? this.diceService.roll(this.buildDamageExpression(dto.damageDice, dto.damageBonus, criticalHit))
       : null;
-    const damageRoll =
-      rolledDamage && options.minimumDamage !== undefined && rolledDamage.total < options.minimumDamage
-        ? { ...rolledDamage, total: options.minimumDamage }
-        : rolledDamage;
+    const damageTotal = fixedDamageTotal ?? damageRoll?.total ?? null;
 
-    if (damageRoll) {
-      await this.applyHitPointDelta(combat, target, -damageRoll.total);
+    if (damageTotal !== null && damageTotal > 0) {
+      await this.applyHitPointDelta(combat, target, -damageTotal);
     }
     await this.spendCurrentActionIfNeeded(combat, attacker);
     if (attackerConditions.includes(COMBAT_CONDITION_HIDDEN)) {
@@ -636,7 +637,7 @@ export class CombatService {
     const updated = await this.getActiveCombatEntity(session.id);
     const response = await this.completeCombatIfResolved(session.id, updated);
     const baseMessage = hit
-      ? `${attacker.nameSnapshot} 공격 명중: ${target.nameSnapshot}에게 ${damageRoll?.total ?? 0} 피해`
+      ? `${attacker.nameSnapshot} 공격 명중: ${target.nameSnapshot}에게 ${damageTotal ?? 0} 피해`
       : `${attacker.nameSnapshot} 공격 빗나감: ${attackRoll.total} vs AC ${targetArmorClass}`;
     const message = options.messagePrefix ? `${options.messagePrefix}: ${baseMessage}` : baseMessage;
     const turnLog = await this.turnLogsService.createTurnLog({
@@ -655,7 +656,7 @@ export class CombatService {
         criticalHit,
         criticalMiss,
         advantageState: attackAdvantageState,
-        damageTotal: damageRoll?.total ?? null,
+        damageTotal,
       },
       diceResult: { ...attackRoll },
       outcome: hit ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
@@ -673,7 +674,7 @@ export class CombatService {
       combat: response,
       message,
       attackTotal: attackRoll.total,
-      damageTotal: damageRoll?.total ?? null,
+      damageTotal,
       turnLogId: turnLog.turnLogId,
     };
   }
@@ -745,7 +746,7 @@ export class CombatService {
         messagePrefix: weapon.isBasicAttack
           ? `${attacker.nameSnapshot} 기본 공격 처리`
           : `${attacker.nameSnapshot} ${weapon.name}`,
-        minimumDamage: weapon.minimumDamage,
+        fixedDamageTotal: weapon.fixedDamageTotal,
       },
     );
   }
@@ -1253,12 +1254,11 @@ export class CombatService {
       const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
       const strMod = this.getAbilityModifier(abilities.str);
       return {
-        name: "기본 공격",
+        name: "맨손공격",
         attackBonus: sessionCharacter.character.proficiencyBonus + strMod,
-        damageDice: "1d4",
-        damageBonus: strMod,
         rangeFt: 5,
-        minimumDamage: 1,
+        // 룰북 기준: 비무장 공격은 피해 주사위가 아니라 1 + 근력 수정치 고정 피해입니다.
+        fixedDamageTotal: 1 + strMod,
         isBasicAttack: true,
       };
     };

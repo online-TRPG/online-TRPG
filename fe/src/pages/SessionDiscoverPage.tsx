@@ -16,11 +16,13 @@ import sidebarFooterImage from "../assets/images/Sidebar_Footer_Image.webp";
 import dragonPeekImage from "../assets/images/Peak_a_Boo_Dragon.webp";
 import { findSessionVisualByTitle, sessionVisualPresets } from "../data/sessionVisuals";
 import { getScenario } from "../services/api";
-import type { AvailableSessionListItem, SessionDetail, SessionSnapshot, User } from "../types/session";
+import type { AvailableSessionListItem, SessionDetail, SessionSnapshot, StoredUser, User } from "../types/session";
 import "./SessionDiscoverPage.css";
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface SessionDiscoverPageProps {
+  user: StoredUser;
+  accessToken: string | null;
   snapshot: SessionSnapshot | null;
   sessionList: AvailableSessionListItem[];
   mySessionList: AvailableSessionListItem[];
@@ -105,6 +107,8 @@ function getPageErrorMessage(error: string | null): string | null {
 
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function SessionDiscoverPage({
+  user,
+  accessToken,
   snapshot,
   sessionList,
   mySessionList,
@@ -232,7 +236,7 @@ export function SessionDiscoverPage({
     void Promise.all(
       pending.map(async (item) => {
         try {
-          const detail = await getScenario(item.scenarioId);
+          const detail = await getScenario(item.scenarioId, user, accessToken);
           const firstNodeImage =
             detail.nodes.find((node) => typeof node.imageUrl === "string" && node.imageUrl.trim())?.imageUrl?.trim() ??
             null;
@@ -257,7 +261,7 @@ export function SessionDiscoverPage({
     return () => {
       ignore = true;
     };
-  }, [pagedSessions, scenarioPreviewImages]);
+  }, [accessToken, pagedSessions, scenarioPreviewImages, user]);
 
   const pageNumbers = useMemo(() => Array.from({ length: totalPages }, (_, index) => index), [totalPages]);
 

@@ -6,6 +6,7 @@ import type {
   ParticipantRole,
   ScenarioLicense,
   ScenarioNodeType,
+  ScenarioSourceType,
   SessionCharacterStatus,
   SessionParticipantStatus,
   SessionScenarioStatus,
@@ -159,6 +160,7 @@ export type ScenarioModel = {
   startLevel: number;
   recommendedEndLevel?: number | null;
   license: ScenarioLicense;
+  sourceType: ScenarioSourceType;
   attribution?: string | null;
   startNodeId?: string | null;
   createdAt: string;

@@ -7,7 +7,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useLogs } from '../hooks/useLogs';
 import { useSession } from '../hooks/useSession';
 import type { ClassDefinitionResponseDto, RaceResponseDto } from '@trpg/shared-types';
-import { getOAuthUrl, getSessionDetail, listClassDefinitions, listRaces, listScenarios } from '../services/api';
+import { getOAuthUrl, getSessionDetail, listAvailableScenarios, listClassDefinitions, listRaces } from '../services/api';
 import { AccountPage } from '../pages/AccountPage';
 import { CharacterPage } from '../pages/CharacterPage';
 import { LobbyPage } from '../pages/LobbyPage';
@@ -216,10 +216,10 @@ export function App() {
       return Promise.resolve();
     }
 
-    return listScenarios()
+    return listAvailableScenarios(auth.user, auth.accessToken)
       .then(setScenarios)
       .catch(() => undefined);
-  }, [auth.user]);
+  }, [auth.accessToken, auth.user]);
 
   useEffect(() => {
     if (!isScenarioEditorActive && hasUnsavedScenarioChanges) {
@@ -658,9 +658,11 @@ export function App() {
           />
         ) : null}
 
-        {!isPlayView && activeView === 'sessionsDiscover' ? (
-          <SessionDiscoverPage
-            snapshot={session.snapshot}
+          {!isPlayView && activeView === 'sessionsDiscover' ? (
+            <SessionDiscoverPage
+              user={currentUser}
+              accessToken={auth.accessToken}
+              snapshot={session.snapshot}
             sessionList={session.sessionList}
             mySessionList={session.mySessionList}
             initialSection={sessionDiscoverState?.initialSection ?? 'public'}
@@ -709,10 +711,12 @@ export function App() {
           />
         ) : null}
 
-        {!isPlayView && activeView === 'sessionsNew' ? (
-          <SessionCreatePage
-            scenarios={scenarios}
-            mySessionList={session.mySessionList}
+          {!isPlayView && activeView === 'sessionsNew' ? (
+            <SessionCreatePage
+              user={currentUser}
+              accessToken={auth.accessToken}
+              scenarios={scenarios}
+              mySessionList={session.mySessionList}
             busy={busy}
             error={error}
             onCreateSession={handleCreateSession}

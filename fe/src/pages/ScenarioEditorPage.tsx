@@ -1171,7 +1171,7 @@ export function ScenarioEditorPage({
     setBusy(true);
     setError(null);
 
-    getScenario(scenarioId)
+    getScenario(scenarioId, user, accessToken)
       .then((scenario) => {
         if (!ignore) {
           const nextForm = formFromScenario(scenario);
@@ -1197,7 +1197,7 @@ export function ScenarioEditorPage({
     return () => {
       ignore = true;
     };
-  }, [scenarioId]);
+  }, [accessToken, scenarioId, user]);
 
   // 주기적으로 현재 폼을 저장합니다. 필수값이 비어 있으면 저장을 건너뜁니다.
   const autoSave = useCallback(async () => {

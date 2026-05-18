@@ -396,29 +396,26 @@ describe("CombatService lifecycle", () => {
         },
       });
     turnLogsService.createTurnLog.mockResolvedValue({ turnLogId: "turn-log-1" });
-    diceService.roll
-      .mockReturnValueOnce({
-        expression: "1d20+2",
-        rolls: [12],
-        modifier: 2,
-        total: 14,
-        advantageState: "NORMAL",
-      })
-      .mockReturnValueOnce({
-        expression: "1d4",
-        rolls: [3],
-        modifier: 0,
-        total: 3,
-        advantageState: "NORMAL",
-      });
+    diceService.roll.mockReturnValueOnce({
+      expression: "1d20+2",
+      rolls: [12],
+      modifier: 2,
+      total: 14,
+      advantageState: "NORMAL",
+    });
 
     const result = await service.resolveEquippedWeaponAttack("user-1", "session-1", {
       targetParticipantId: target.id,
     });
 
     expect(result.message).toContain("기본 공격 처리");
+    expect(result.damageTotal).toBe(1);
     expect(diceService.roll).toHaveBeenNthCalledWith(1, "1d20+2", "NORMAL");
-    expect(diceService.roll).toHaveBeenNthCalledWith(2, "1d4");
+    expect(diceService.roll).toHaveBeenCalledTimes(1);
+    expect(prisma.combatParticipant.update).toHaveBeenCalledWith({
+      where: { id: target.id },
+      data: { currentHp: 9, isAlive: true },
+    });
     expect(actionEconomy.spendAction).toHaveBeenCalledWith({
       combatId: combat.id,
       combatParticipantId: attacker.id,

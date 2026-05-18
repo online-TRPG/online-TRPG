@@ -13,11 +13,13 @@ import buttonSimpleBeigeImage from '../components/Button_Simple_Beige.webp';
 import boxBulletinImage from '../components/Box_Bulletin_Rectangle.webp';
 import { buildSessionScenarioOptions } from '../data/sessionVisuals';
 import { getScenario } from '../services/api';
-import type { AvailableSessionListItem, Scenario } from '../types/session';
+import type { AvailableSessionListItem, Scenario, StoredUser } from '../types/session';
 import './SessionCreatePage.css';
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface SessionCreatePageProps {
+  user: StoredUser;
+  accessToken: string | null;
   scenarios: Scenario[];
   mySessionList: AvailableSessionListItem[];
   busy: boolean;
@@ -51,6 +53,8 @@ function UsersIcon() {
 }
 
 export function SessionCreatePage({
+  user,
+  accessToken,
   scenarios,
   mySessionList,
   busy,
@@ -59,12 +63,12 @@ export function SessionCreatePage({
 }: SessionCreatePageProps) {
   // 시나리오 데이터를 셀렉트 박스와 프리뷰 카드에서 쓰기 쉬운 형태로 변환합니다.
   const scenarioOptions = useMemo(() => buildSessionScenarioOptions(scenarios), [scenarios]);
-  const presetScenarioOptions = useMemo(
-    () => scenarioOptions.filter((scenarioOption) => scenarioOption.group === 'preset'),
+  const providedScenarioOptions = useMemo(
+    () => scenarioOptions.filter((scenarioOption) => scenarioOption.group === 'provided'),
     [scenarioOptions]
   );
   const customScenarioOptions = useMemo(
-    () => scenarioOptions.filter((scenarioOption) => scenarioOption.group === 'scenario'),
+    () => scenarioOptions.filter((scenarioOption) => scenarioOption.group === 'custom'),
     [scenarioOptions]
   );
   // 세션 생성 폼에서 사용자가 입력/선택하는 값들입니다.
@@ -77,9 +81,12 @@ export function SessionCreatePage({
   // 이미 모집 중인 세션이 있으면 중복 생성을 막기 위한 플래그입니다.
   const hasRecruitingSession = mySessionList.some((item) => item.status === 'recruiting');
 
-  // 시나리오 옵션이 로드되면 첫 번째 옵션을 기본 선택합니다.
+  // 시나리오 옵션이 로드되면 구현 완료된 기본 제공 시나리오를 우선 선택합니다.
   useEffect(() => {
-    if (!selectedScenarioKey && scenarioOptions.length) {
+    const selectedOptionExists = scenarioOptions.some(
+      (scenarioOption) => scenarioOption.key === selectedScenarioKey
+    );
+    if ((!selectedScenarioKey || !selectedOptionExists) && scenarioOptions.length) {
       setSelectedScenarioKey(scenarioOptions[0].key);
     }
   }, [scenarioOptions, selectedScenarioKey]);
@@ -108,7 +115,7 @@ export function SessionCreatePage({
       };
     }
 
-    void getScenario(selectedScenario.scenarioId)
+    void getScenario(selectedScenario.scenarioId, user, accessToken)
       .then((detail) => {
         if (ignore) return;
         const firstNodeImage =
@@ -125,7 +132,7 @@ export function SessionCreatePage({
     return () => {
       ignore = true;
     };
-  }, [selectedScenario]);
+  }, [accessToken, selectedScenario, user]);
 
   // 폼 제출 시 부모의 세션 생성 콜백으로 입력값을 전달합니다.
   function submitSession(event: FormEvent<HTMLFormElement>) {
@@ -164,15 +171,17 @@ export function SessionCreatePage({
                 value={selectedScenarioKey}
                 onChange={(event) => setSelectedScenarioKey(event.target.value)}
               >
-                <optgroup label="추천 프리셋">
-                  {presetScenarioOptions.map((scenarioOption) => (
-                    <option key={scenarioOption.key} value={scenarioOption.key}>
-                      {scenarioOption.title}
-                    </option>
-                  ))}
-                </optgroup>
+                {providedScenarioOptions.length ? (
+                  <optgroup label="기본 제공 시나리오">
+                    {providedScenarioOptions.map((scenarioOption) => (
+                      <option key={scenarioOption.key} value={scenarioOption.key}>
+                        {scenarioOption.title}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
                 {customScenarioOptions.length ? (
-                  <optgroup label="등록된 시나리오">
+                  <optgroup label="내가 만든 시나리오">
                     {customScenarioOptions.map((scenarioOption) => (
                       <option key={scenarioOption.key} value={scenarioOption.key}>
                         {scenarioOption.title}

@@ -53,6 +53,12 @@ export enum ScenarioLicense {
   OTHER_FREE = "other-free",
 }
 
+export enum ScenarioSourceType {
+  SYSTEM = "SYSTEM",
+  USER = "USER",
+  CLONED = "CLONED",
+}
+
 export enum ScenarioNodeType {
   STORY = "story",
   EXPLORATION = "exploration",

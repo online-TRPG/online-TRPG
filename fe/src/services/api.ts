@@ -93,7 +93,7 @@ if (import.meta.env.DEV && typeof console !== 'undefined') {
 export const AUTH_EXPIRED_EVENT = 'trpg:auth-expired';
 export const AUTH_TOKEN_REISSUED_EVENT = 'trpg:auth-token-reissued';
 
-const DEFAULT_SCENARIO_ID = 'scenario_goblin_cave';
+export const DEFAULT_SCENARIO_ID = 'scenario_goblin_cave';
 const DEFAULT_RULE_SET_ID = 'dnd5e';
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
@@ -462,6 +462,28 @@ export function listScenarios(): Promise<Scenario[]> {
   return requestJson<Scenario[]>('/scenarios');
 }
 
+function isProvidedScenarioForSelection(scenario: Scenario): boolean {
+  return scenario.id === DEFAULT_SCENARIO_ID && scenario.sourceType === 'SYSTEM';
+}
+
+export async function listAvailableScenarios(
+  user: StoredUser,
+  accessToken?: string | null
+): Promise<Scenario[]> {
+  const [allScenarios, myScenarios] = await Promise.all([
+    listScenarios(),
+    listMyScenarios(user, accessToken),
+  ]);
+  const providedScenarios = allScenarios.filter(isProvidedScenarioForSelection);
+  const seenScenarioIds = new Set<string>();
+
+  return [...providedScenarios, ...myScenarios].filter((scenario) => {
+    if (seenScenarioIds.has(scenario.id)) return false;
+    seenScenarioIds.add(scenario.id);
+    return true;
+  });
+}
+
 export function listRaces(): Promise<RaceResponseDto[]> {
   return requestJson<RaceResponseDto[]>('/races');
 }
@@ -474,8 +496,15 @@ export function listItems(): Promise<ItemResponseDto[]> {
   return requestJson<ItemResponseDto[]>('/items');
 }
 
-export function getScenario(scenarioId: string): Promise<ScenarioDetail> {
-  return requestJson<ScenarioResponseDto>(`/scenarios/${scenarioId}`);
+export function getScenario(
+  scenarioId: string,
+  user?: StoredUser | null,
+  accessToken?: string | null
+): Promise<ScenarioDetail> {
+  return requestJson<ScenarioResponseDto>(`/scenarios/${scenarioId}`, {
+    user,
+    accessToken,
+  });
 }
 
 export function getPlayerScenario(

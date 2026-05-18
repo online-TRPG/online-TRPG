@@ -13,13 +13,13 @@ const NODE_SCREEN_TEST_EXPLORATION_NODE_ID = "node_screen_test_exploration";
 // 가장 작은 형태의 기본 시나리오를 코드로 함께 넣어둔다.
 const defaultScenario = {
   id: DEFAULT_SCENARIO_ID,
-  title: "Goblin Cave Run",
-  description: "A short introductory cave scenario for MVP session-service verification.",
+  title: "검은 우물의 쥐떼",
+  description: "검은 우물 아래 쥐떼 소굴을 조사하는 기본 제공 시나리오입니다.",
   thumbnailUrl: null,
   ruleSetId: "dnd5e",
   difficulty: "easy",
   license: ScenarioLicense.ORIGINAL,
-  attribution: "Original scenario seed for development and API verification.",
+  attribution: "모두의 TRPG 기본 제공 시나리오.",
   startNodeId: DEFAULT_START_NODE_ID,
 };
 
