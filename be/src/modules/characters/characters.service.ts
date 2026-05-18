@@ -353,6 +353,9 @@ export class CharactersService {
     return {
       characterId: character.id,
       inventory: JSON.parse(character.inventoryJson) as CharacterInventoryResponseDto["inventory"],
+      spells: character.spellsJson
+        ? (JSON.parse(character.spellsJson) as CharacterInventoryResponseDto["spells"])
+        : null,
       equippedWeaponId: character.equippedWeaponId ?? null,
       offhandWeaponId: character.offhandWeaponId ?? null,
     };

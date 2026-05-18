@@ -6,6 +6,9 @@ import type {
   CombatBasicActionDto,
   CharacterResponseDto,
   CombatActionResultDto,
+  CombatMoveResultDto,
+  CastCombatSpellDto,
+  CombatReactionResponseDto,
   CombatResponseDto,
   CreateScenarioDto,
   EquippedWeaponAttackDto,
@@ -13,6 +16,7 @@ import type {
   GmMode,
   LoginResponseDto,
   MainCommandResponseDto,
+  MoveCombatParticipantDto,
   OAuthUrlResponseDto,
   ResolveCombatAttackDto,
   ResolveMainCommandCheckDto,
@@ -1078,6 +1082,60 @@ export function autoMonsterTurn(
   accessToken?: string | null
 ): Promise<CombatActionResultDto> {
   return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/monster/act`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function castCombatSpell(
+  user: StoredUser,
+  sessionId: string,
+  payload: CastCombatSpellDto
+): Promise<CombatActionResultDto> {
+  return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/spells/cast`, {
+    method: 'POST',
+    user,
+    body: payload,
+  });
+}
+
+export function moveCombatParticipant(
+  user: StoredUser,
+  sessionId: string,
+  payload: MoveCombatParticipantDto,
+  accessToken?: string | null
+): Promise<CombatMoveResultDto> {
+  return requestJson<CombatMoveResultDto>(`/sessions/${sessionId}/combat/move`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function acceptCombatReaction(
+  user: StoredUser,
+  sessionId: string,
+  payload: CombatReactionResponseDto,
+  accessToken?: string | null
+): Promise<CombatMoveResultDto> {
+  return requestJson<CombatMoveResultDto>(`/sessions/${sessionId}/combat/reactions/accept`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function declineCombatReaction(
+  user: StoredUser,
+  sessionId: string,
+  payload: CombatReactionResponseDto,
+  accessToken?: string | null
+): Promise<CombatMoveResultDto> {
+  return requestJson<CombatMoveResultDto>(`/sessions/${sessionId}/combat/reactions/decline`, {
     method: 'POST',
     user,
     accessToken,

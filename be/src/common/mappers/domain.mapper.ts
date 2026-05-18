@@ -49,6 +49,7 @@ import {
   SessionScenarioStatus,
   SessionStatus,
   SessionVisibility,
+  StartingSpellsDto,
   UserResponseDto,
 } from "@trpg/shared-types";
 
@@ -370,6 +371,7 @@ export function mapSessionCharacter(
     armorClass: sessionCharacter.character.armorClass,
     speed: sessionCharacter.character.speed,
     inventory: mapSessionCharacterInventory(sessionCharacter),
+    spells: parseJson<StartingSpellsDto | null>(sessionCharacter.character.spellsJson, null),
     equippedWeaponId: sessionCharacter.character.equippedWeaponId ?? null,
     offhandWeaponId: sessionCharacter.character.offhandWeaponId ?? null,
     avatarType: characterAvatarTypeMap[sessionCharacter.character.avatarType],

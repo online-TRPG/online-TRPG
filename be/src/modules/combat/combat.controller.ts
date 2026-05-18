@@ -10,11 +10,15 @@ import {
   ApplyCombatDamageDto,
   AutoMonsterTurnDto,
   AvailableActionsResponseDto,
+  CastCombatSpellDto,
   CombatBasicActionDto,
   CombatActionResultDto,
+  CombatMoveResultDto,
+  CombatReactionResponseDto,
   CombatResponseDto,
   EquippedWeaponAttackDto,
   EndTurnDto,
+  MoveCombatParticipantDto,
   ResolveCombatAttackDto,
   StartCombatDto,
   TurnAdvanceResponseDto,
@@ -103,6 +107,54 @@ export class CombatController {
     );
   }
 
+  @Post("move")
+  @HttpCode(200)
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatMoveResultDto })
+  async moveParticipant(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: MoveCombatParticipantDto,
+  ): Promise<ApiResponse<CombatMoveResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.moveParticipant(userId, sessionId, dto),
+    );
+  }
+
+  @Post("reactions/accept")
+  @HttpCode(200)
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatMoveResultDto })
+  async acceptReaction(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: CombatReactionResponseDto,
+  ): Promise<ApiResponse<CombatMoveResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.acceptReaction(userId, sessionId, dto),
+    );
+  }
+
+  @Post("reactions/decline")
+  @HttpCode(200)
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatMoveResultDto })
+  async declineReaction(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: CombatReactionResponseDto,
+  ): Promise<ApiResponse<CombatMoveResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.declineReaction(userId, sessionId, dto),
+    );
+  }
+
   @Post("damage")
   @HttpCode(200)
   @ApiParam({ name: "sessionId" })
@@ -164,6 +216,22 @@ export class CombatController {
       "COMBAT_200",
       "요청이 성공했습니다.",
       await this.combatService.resolveOffhandWeaponAttack(userId, sessionId, dto),
+    );
+  }
+
+  @Post("spells/cast")
+  @HttpCode(200)
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatActionResultDto })
+  async castSpell(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: CastCombatSpellDto,
+  ): Promise<ApiResponse<CombatActionResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.castSpell(userId, sessionId, dto),
     );
   }
 
