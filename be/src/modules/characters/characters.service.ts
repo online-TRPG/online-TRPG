@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import {
   CharacterAvatarType as PrismaCharacterAvatarType,
+  ScenarioSourceType as PrismaScenarioSourceType,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
@@ -30,6 +31,7 @@ import {
   UpdateCharacterEquipmentDto,
 } from "@trpg/shared-types";
 import { mapCharacter, mapSessionCharacter } from "../../common/mappers/domain.mapper";
+import { DEFAULT_SCENARIO_ID } from "../../database/seed/default-scenario";
 import { PrismaService } from "../../database/prisma.service";
 import { CatalogService } from "../catalog/catalog.service";
 import { RacesService } from "../races/races.service";
@@ -69,7 +71,7 @@ export class CharactersService {
     await this.ensureUserExists(userId);
 
     const level = dto.level ?? 1;
-    const scenarioId = await this.resolveScenarioForLevel(dto.scenarioId ?? null, level);
+    const scenarioId = await this.resolveScenarioForLevel(userId, dto.scenarioId ?? null, level);
     const ancestry = dto.ancestry.trim();
     const abilities = dto.abilities ?? defaultAbilityScores;
     this.validateAbilitiesRange(abilities);
@@ -436,6 +438,7 @@ export class CharactersService {
   }
 
   private async resolveScenarioForLevel(
+    userId: string,
     scenarioId: string | null,
     level: number,
   ): Promise<string | null> {
@@ -445,10 +448,18 @@ export class CharactersService {
 
     const scenario = await this.prisma.scenario.findUnique({
       where: { id: scenarioId },
-      select: { id: true, startLevel: true },
+      select: { id: true, createdByUserId: true, sourceType: true, startLevel: true },
     });
 
     if (!scenario) {
+      throw new NotFoundException(`Scenario ${scenarioId} was not found.`);
+    }
+
+    const isDefaultProvidedScenario =
+      scenario.id === DEFAULT_SCENARIO_ID && scenario.sourceType === PrismaScenarioSourceType.SYSTEM;
+    const isOwnScenario = scenario.createdByUserId === userId;
+    if (!isDefaultProvidedScenario && !isOwnScenario) {
+      // 다른 사용자가 만든 시나리오는 캐릭터 생성 선택지와 API 응답에서 모두 숨깁니다.
       throw new NotFoundException(`Scenario ${scenarioId} was not found.`);
     }
 

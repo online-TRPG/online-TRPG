@@ -29,6 +29,7 @@ import {
   type RaceAbilityBonus,
   type RaceData,
 } from '../services/staticSrd';
+import { getPreferredScenario, splitScenariosBySource } from '../data/sessionVisuals';
 import type { CharacterPayload } from '../hooks/useSession';
 import type { PersistentCharacter, Scenario, SessionSnapshot, StoredUser } from '../types/session';
 import type { ClassDefinitionResponseDto, ItemResponseDto, RaceResponseDto } from '@trpg/shared-types';
@@ -785,12 +786,26 @@ export function CharacterPage({
 
     return ids;
   }, [characters, snapshot]);
+  const scenarioGroups = useMemo(() => splitScenariosBySource(scenarios), [scenarios]);
+
+  useEffect(() => {
+    if (!isCreateModalOpen || editingCharacterId || formState.scenarioId || !scenarios.length) return;
+    const defaultScenario = getPreferredScenario(scenarios);
+    if (!defaultScenario) return;
+
+    // 시나리오 목록이 모달보다 늦게 로드되어도 생성 폼은 기본 제공 시나리오로 맞춥니다.
+    setFormState((current) => ({
+      ...current,
+      scenarioId: defaultScenario.id,
+      level: normalizeLevel(defaultScenario.startLevel),
+    }));
+  }, [editingCharacterId, formState.scenarioId, isCreateModalOpen, scenarios]);
 
   // 생성/수정 폼을 기본값으로 되돌립니다.
   function resetCreateForm() {
     setEditingCharacterId(null);
     const defaults = createDefaultCharacter();
-    const defaultScenario = scenarios[0] ?? null;
+    const defaultScenario = getPreferredScenario(scenarios);
     const defaultClass = classDefinitions.find(
       (c) => c.key === (defaults.className ?? '').toLowerCase(),
     );
@@ -1284,11 +1299,24 @@ export function CharacterPage({
                             ? '사용 가능한 시나리오가 없습니다'
                             : '시나리오를 선택하세요'}
                         </option>
-                        {scenarios.map((scenario) => (
-                          <option key={scenario.id} value={scenario.id}>
-                            {scenario.title} (시작 {scenario.startLevel}레벨)
-                          </option>
-                        ))}
+                        {scenarioGroups.provided.length ? (
+                          <optgroup label="기본 제공 시나리오">
+                            {scenarioGroups.provided.map((scenario) => (
+                              <option key={scenario.id} value={scenario.id}>
+                                {scenario.title} (시작 {scenario.startLevel}레벨)
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
+                        {scenarioGroups.custom.length ? (
+                          <optgroup label="내가 만든 시나리오">
+                            {scenarioGroups.custom.map((scenario) => (
+                              <option key={scenario.id} value={scenario.id}>
+                                {scenario.title} (시작 {scenario.startLevel}레벨)
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
                       </select>
                     </div>
                     <div>

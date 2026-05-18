@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import {
   ApiCreatedResponse,
   ApiNoContentResponse,
@@ -20,12 +20,22 @@ import {
   UpdateScenarioDto,
 } from "@trpg/shared-types";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
+import type { AuthenticatedRequest } from "../../common/auth/authenticated-request";
 import { ScenariosService } from "./scenarios.service";
 
 @ApiTags("scenarios")
 @Controller("scenarios")
 export class ScenariosController {
   constructor(private readonly scenariosService: ScenariosService) {}
+
+  private getOptionalUserId(request: AuthenticatedRequest): string | null {
+    if (request.accessTokenAuth?.userId) {
+      return request.accessTokenAuth.userId;
+    }
+
+    const fallbackUserId = request.headers["x-user-id"];
+    return typeof fallbackUserId === "string" && fallbackUserId ? fallbackUserId : null;
+  }
 
   @Get()
   @ApiOkResponse({ type: [ScenarioSummaryResponseDto] })
@@ -58,8 +68,11 @@ export class ScenariosController {
   @Get(":id")
   @ApiParam({ name: "id" })
   @ApiOkResponse({ type: ScenarioResponseDto })
-  getScenario(@Param("id") id: string): Promise<ScenarioResponseDto> {
-    return this.scenariosService.getScenario(id);
+  getScenario(
+    @Param("id") id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<ScenarioResponseDto> {
+    return this.scenariosService.getScenario(id, this.getOptionalUserId(request));
   }
 
   @Patch(":id")

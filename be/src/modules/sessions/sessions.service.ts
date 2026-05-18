@@ -146,7 +146,7 @@ export class SessionsService {
     await this.usersService.getUserEntityOrThrow(userId);
 
     const scenario = dto.scenarioId
-      ? await this.scenariosService.getScenarioEntityById(dto.scenarioId)
+      ? await this.scenariosService.getScenarioEntityForViewer(dto.scenarioId, userId)
       : await this.scenariosService.getDefaultScenarioEntity();
 
     const startNodeId = this.resolveScenarioStartNodeId(scenario.nodes, scenario.startNodeId);

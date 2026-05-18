@@ -44,13 +44,15 @@ export class ScenariosService {
 
   async listScenarios(query?: ScenarioQueryDto): Promise<ScenarioSummaryResponseDto[]> {
     const scenarios = await this.prisma.scenario.findMany({
-      where: query?.search
-        ? {
-            title: {
+      where: {
+        id: DEFAULT_SCENARIO_ID,
+        sourceType: PrismaScenarioSourceType.SYSTEM,
+        title: query?.search
+          ? {
               contains: query.search,
-            },
-          }
-        : undefined,
+            }
+          : undefined,
+      },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -76,9 +78,15 @@ export class ScenariosService {
     return scenarios.map(mapScenarioSummary);
   }
 
-  async getScenario(id: string): Promise<ScenarioResponseDto> {
-    const scenario = await this.getScenarioEntityById(id);
+  async getScenario(id: string, viewerUserId?: string | null): Promise<ScenarioResponseDto> {
+    const scenario = await this.getScenarioEntityForViewer(id, viewerUserId);
     return mapScenario(scenario);
+  }
+
+  async getScenarioEntityForViewer(id: string, viewerUserId?: string | null) {
+    const scenario = await this.getScenarioEntityById(id);
+    this.ensureScenarioVisibleToViewer(scenario, viewerUserId);
+    return scenario;
   }
 
   async listScenarioAssets(
@@ -222,7 +230,7 @@ export class ScenariosService {
       }
     });
 
-    return this.getScenario(id);
+    return this.getScenario(id, userId);
   }
 
   async deleteScenario(userId: string, id: string): Promise<void> {
@@ -398,6 +406,22 @@ export class ScenariosService {
     }
 
     return scenario;
+  }
+
+  private ensureScenarioVisibleToViewer(
+    scenario: Awaited<ReturnType<ScenariosService['getScenarioEntityById']>>,
+    viewerUserId?: string | null
+  ): void {
+    const isDefaultProvidedScenario =
+      scenario.id === DEFAULT_SCENARIO_ID && scenario.sourceType === PrismaScenarioSourceType.SYSTEM;
+    const isOwnScenario = Boolean(viewerUserId && scenario.createdByUserId === viewerUserId);
+
+    if (isDefaultProvidedScenario || isOwnScenario) {
+      return;
+    }
+
+    // 다른 사용자가 만든 시나리오는 존재 여부도 노출하지 않도록 404로 숨깁니다.
+    throw new NotFoundException(`Scenario ${scenario.id} was not found.`);
   }
 
   async getScenarioNodeEntityById(scenarioId: string, nodeId: string): Promise<ScenarioNode> {
