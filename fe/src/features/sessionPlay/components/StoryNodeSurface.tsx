@@ -309,63 +309,71 @@ export function StoryNodeSurface({
 
       <section className="story-party-strip" aria-label="파티 캐릭터">
         <div className="story-party-list">
-          {characters.length ? (
-            characters.map((character) => {
-              const isMine = character.userId === currentUserId;
-              const isSelected = selectedCharacter?.id === character.id;
-              const hpPercent = getHpPercent(character);
-              const characterImage = getCharacterImage(character);
-              const speechBubble = speechBubbleByCharacterId.get(character.id) ?? null;
-              const isHighlighted = highlightedCharacterIds.has(character.id);
-              const partyColorStyle = getCharacterColorStyle?.(character);
+          {Array.from({ length: 4 }).map((_, index) => {
+            const character = characters[index] ?? null;
 
+            if (!character) {
               return (
-                <div
-                  className={`story-party-card-wrap${isHighlighted ? ' highlighted' : ''}`}
-                  key={character.id}
-                >
-                  {speechBubble ? (
-                    <button
-                      type="button"
-                      className={`story-speech-bubble${speechBubble.isFading ? ' fading' : ''}`}
-                      onClick={onRpUtteranceClick}
-                      aria-label="메인 채팅에서 RP 대사 보기"
-                    >
-                      {speechBubble.message}
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className={`story-party-card${isSelected ? ' selected' : ''}`}
-                    style={partyColorStyle}
-                    onClick={() => setSelectedCharacterId(character.id)}
-                  >
-                    <span className="story-party-avatar">
-                      <img src={characterImage} alt={character.name} />
-                    </span>
-                    <span className="story-party-body">
-                      <strong>
-                        {character.name}
-                        {isMine ? <em>나</em> : null}
-                      </strong>
-                      <small>{getCharacterClassLabel(character.className)} / Lv {character.level}</small>
-                      <span
-                        className="story-hp-track"
-                        aria-label={`HP ${character.currentHp}/${character.maxHp}`}
-                      >
-                        <span style={{ width: `${hpPercent}%` }} />
-                      </span>
-                    </span>
-                    <span className="story-party-hp">
-                      {character.currentHp}/{character.maxHp}
-                    </span>
-                  </button>
+                <div className="story-party-card-wrap empty" key={`empty-${index}`}>
+                  <div className="story-party-card placeholder" aria-hidden="true">
+                    <span className="story-party-empty-label">빈 슬롯</span>
+                  </div>
                 </div>
               );
-            })
-          ) : (
-            <p className="story-empty-text">파티 캐릭터 정보가 아직 없습니다.</p>
-          )}
+            }
+
+            const isMine = character.userId === currentUserId;
+            const isSelected = selectedCharacter?.id === character.id;
+            const hpPercent = getHpPercent(character);
+            const characterImage = getCharacterImage(character);
+            const speechBubble = speechBubbleByCharacterId.get(character.id) ?? null;
+            const isHighlighted = highlightedCharacterIds.has(character.id);
+            const partyColorStyle = getCharacterColorStyle?.(character);
+
+            return (
+              <div
+                className={`story-party-card-wrap${isHighlighted ? ' highlighted' : ''}`}
+                key={character.id}
+              >
+                {speechBubble ? (
+                  <button
+                    type="button"
+                    className={`story-speech-bubble${speechBubble.isFading ? ' fading' : ''}`}
+                    onClick={onRpUtteranceClick}
+                    aria-label="메인 채팅에서 RP 대사 보기"
+                  >
+                    {speechBubble.message}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={`story-party-card${isSelected ? ' selected' : ''}`}
+                  style={partyColorStyle}
+                  onClick={() => setSelectedCharacterId(character.id)}
+                >
+                  <span className="story-party-avatar">
+                    <img src={characterImage} alt={character.name} />
+                  </span>
+                  <span className="story-party-body">
+                    <strong>
+                      {character.name}
+                      {isMine ? <em>나</em> : null}
+                    </strong>
+                    <small>{getCharacterClassLabel(character.className)} / Lv {character.level}</small>
+                    <span
+                      className="story-hp-track"
+                      aria-label={`HP ${character.currentHp}/${character.maxHp}`}
+                    >
+                      <span style={{ width: `${hpPercent}%` }} />
+                    </span>
+                  </span>
+                  <span className="story-party-hp">
+                    {character.currentHp}/{character.maxHp}
+                  </span>
+                </button>
+              </div>
+            );
+          })}
         </div>
       </section>
 

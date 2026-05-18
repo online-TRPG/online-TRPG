@@ -295,6 +295,7 @@ function getMovementBlockers(map: VttMapStateDto) {
     ...(map.terrainCells ?? []),
     ...(map.wallCells ?? []),
     ...(map.doorCells ?? []).filter((door) => door.state !== 'open' && door.state !== 'broken'),
+    ...(map.fogRects ?? []),
   ];
 }
 

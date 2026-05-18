@@ -252,8 +252,7 @@
 }
 
 .story-party-strip {
-  min-height: 150px;
-  padding: 10px 16px;
+  padding: 0;
   position: relative;
   z-index: 5;
   overflow: visible;
@@ -263,10 +262,10 @@
 
 .story-party-list {
   min-width: 0;
+  height: 100%;
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: calc((100% - 24px) / 4);
-  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
   overflow: visible;
 }
 
@@ -297,6 +296,26 @@
   position: relative;
   min-width: 0;
   overflow: visible;
+}
+
+.story-party-card.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.04)),
+    #eef2f7;
+  border-style: dashed;
+  border-color: rgba(140, 156, 174, 0.55);
+  color: #8a98a9;
+  cursor: default;
+  box-shadow: none;
+}
+
+.story-party-empty-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .story-party-card-wrap.highlighted::after {
@@ -520,14 +539,6 @@
 
   .story-node-status-row {
     justify-content: flex-start;
-  }
-
-  .story-party-strip {
-    display: block;
-  }
-
-  .story-party-list {
-    grid-auto-columns: minmax(210px, 86%);
   }
 }
 
