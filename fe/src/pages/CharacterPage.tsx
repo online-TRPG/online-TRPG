@@ -21,6 +21,8 @@ import profileBorderStats from '../components/Profile_Border_Stats.webp';
 import sidePanelImage from '../components/Side_Panel.webp';
 import {
   getClassLabel,
+  localizeAbilityText,
+  localizeSrdTermText,
   loadClassOptions,
   loadRaceData,
   normalizeClassValue,
@@ -90,6 +92,9 @@ interface CharacterPageProps {
   onCloneCharacter: (characterId: string) => void | Promise<void>;
   onUpdateCharacter: (characterId: string, payload: CharacterPayload) => Promise<boolean>;
   onDeleteCharacter: (characterId: string) => void | Promise<void>;
+  autoOpenCreate?: boolean;
+  sessionReturnTitle?: string | null;
+  onReturnToSession?: () => void;
 }
 
 type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
@@ -515,16 +520,6 @@ function formatAbilityBonus(abilityBonus: RaceAbilityBonus) {
   return `${abilityLabel} +${abilityBonus.amount}${abilityBonus.note ? ` (${abilityBonus.note})` : ''}`;
 }
 
-function localizeAbilityText(value: string) {
-  return value
-    .replace(/Strength/g, '근력')
-    .replace(/Dexterity/g, '민첩')
-    .replace(/Constitution/g, '건강')
-    .replace(/Intelligence/g, '지능')
-    .replace(/Wisdom/g, '지혜')
-    .replace(/Charisma/g, '매력');
-}
-
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function CharacterPage({
   characters,
@@ -538,6 +533,9 @@ export function CharacterPage({
   onCloneCharacter,
   onUpdateCharacter,
   onDeleteCharacter,
+  autoOpenCreate = false,
+  sessionReturnTitle = null,
+  onReturnToSession,
 }: CharacterPageProps) {
   // 모달/선택/폼 상태입니다. 생성과 수정 모달이 같은 formState를 공유합니다.
   const [classCatalog, setClassCatalog] = useState<ClassOption[]>([]);
@@ -554,6 +552,7 @@ export function CharacterPage({
   const [itemCatalog, setItemCatalog] = useState<ItemResponseDto[]>([]);
   // 인벤토리 편집 영역 DOM 참조입니다. 필요 시 스크롤/포커스 제어에 씁니다.
   const inventoryEditorRef = useRef<HTMLDivElement | null>(null);
+  const didAutoOpenCreateRef = useRef(false);
 
   useEffect(() => {
     listItems()
@@ -853,6 +852,15 @@ export function CharacterPage({
     resetCreateForm();
   }
 
+  useEffect(() => {
+    if (!autoOpenCreate || didAutoOpenCreateRef.current) {
+      return;
+    }
+
+    didAutoOpenCreateRef.current = true;
+    openCreateModal();
+  }, [autoOpenCreate]);
+
   async function submitCreateCharacter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -860,7 +868,7 @@ export function CharacterPage({
       ...formState,
       proficientSkills: formState.proficientSkills?.filter(Boolean) ?? [],
       inventory: inventoryDraft.filter((item) => item.name.trim()),
-      assignToSession: false,
+      assignToSession: !editingCharacterId && Boolean(onReturnToSession),
     };
 
     // 검증 실패 시 모달을 유지해서 사용자가 입력한 폼 상태를 보존한다.
@@ -871,6 +879,9 @@ export function CharacterPage({
 
     if (succeeded) {
       closeCreateModal();
+      if (!editingCharacterId && onReturnToSession) {
+        onReturnToSession();
+      }
     }
   }
 
@@ -973,6 +984,16 @@ export function CharacterPage({
       {/* 좌측 사이드바: 캐릭터 생성 버튼과 안내 영역입니다. */}
       <section className="fantasy-character-layout">
         <aside className="fantasy-character-sidebar">
+          {onReturnToSession ? (
+            <button
+              type="button"
+              className="fantasy-character-sidebutton"
+              style={{ backgroundImage: `url(${sidePanelImage})` }}
+              onClick={onReturnToSession}
+            >
+              {sessionReturnTitle ? `${sessionReturnTitle} 세션으로` : '세션으로'} 돌아가기
+            </button>
+          ) : null}
           <button
             type="button"
             className="fantasy-character-sidebutton"
@@ -1540,7 +1561,7 @@ export function CharacterPage({
                       </div>
                     ) : (
                       <div style={{ fontSize: '0.85rem', opacity: 0.7 }}>
-                        종족 미선택 시 Point Buy 검증 비활성
+                        종족을 먼저 선택해 주세요!
                       </div>
                     )}
                   </div>
@@ -1989,7 +2010,12 @@ export function CharacterPage({
                           : '정보 없음'}
                       </p>
                       <p>히트다이: {selectedClassInfo?.hitDieRaw ?? '정보 없음'}</p>
-                      <p>주문 사용: {selectedClassInfo?.spellcastingAbility ? '사용' : '없음'}</p>
+                      <p>
+                        주문시전 능력치:{' '}
+                        {selectedClassInfo?.spellcastingAbility
+                          ? localizeSrdTermText(selectedClassInfo.spellcastingAbility)
+                          : '없음'}
+                      </p>
                       <ul className="fantasy-character-text-list">
                         {(selectedClassInfo?.levelFeatureSummary ?? [])
                           .slice(0, 3)

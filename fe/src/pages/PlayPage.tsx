@@ -2234,11 +2234,6 @@ export function PlayPage({
   }
 
   function handleOpenRecruitingCreate() {
-    if (quickCreateConfigReady) {
-      openCreateModal();
-      return;
-    }
-
     onNavigateToCharacters();
   }
 
