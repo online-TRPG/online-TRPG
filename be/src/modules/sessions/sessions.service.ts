@@ -3611,13 +3611,13 @@ export class SessionsService {
 
   private getFirstVttObjectRevealCheck(
     objectCell: NonNullable<VttMapStateDto["objectCells"]>[number],
-  ): { contentId: string; ability: string | null; skill: string | null; dc: number } | null {
-    return this.getVttObjectRevealChecks(objectCell)[0] ?? null;
+  ): { contentId: string; requiresCheck: boolean; ability: string | null; skill: string | null; dc: number } | null {
+    return this.getVttObjectRevealChecks(objectCell).find((check) => check.requiresCheck) ?? null;
   }
 
   private getVttObjectRevealChecks(
     objectCell: NonNullable<VttMapStateDto["objectCells"]>[number],
-  ): Array<{ contentId: string; ability: string | null; skill: string | null; dc: number }> {
+  ): Array<{ contentId: string; requiresCheck: boolean; ability: string | null; skill: string | null; dc: number }> {
     return (objectCell.revealChecks ?? [])
       .map((check) => {
         const contentId = typeof check.contentId === "string" ? check.contentId.trim() : "";
@@ -3626,30 +3626,48 @@ export class SessionsService {
         }
         return {
           contentId,
+          requiresCheck: check.requiresCheck !== false,
           ability: typeof check.ability === "string" && check.ability.trim() ? check.ability.trim() : null,
           skill: typeof check.skill === "string" && check.skill.trim() ? check.skill.trim() : null,
           dc: this.clampNumber(Number(check.dc) || 15, 1, 40),
         };
       })
-      .filter((check): check is { contentId: string; ability: string | null; skill: string | null; dc: number } =>
-        Boolean(check),
+      .filter(
+        (
+          check,
+        ): check is {
+          contentId: string;
+          requiresCheck: boolean;
+          ability: string | null;
+          skill: string | null;
+          dc: number;
+        } => Boolean(check),
       );
   }
 
   private canRevealVttObjectContentByCheck(
     contentId: string,
-    revealChecks: Array<{ contentId: string; ability: string | null; skill: string | null; dc: number }>,
+    revealChecks: Array<{
+      contentId: string;
+      requiresCheck: boolean;
+      ability: string | null;
+      skill: string | null;
+      dc: number;
+    }>,
     checkOption?: MainCommandCheckOptionDto | null,
   ): boolean {
     const checksForContent = revealChecks.filter((check) => check.contentId === contentId);
     if (!checksForContent.length) {
       return true;
     }
+    if (checksForContent.some((check) => !check.requiresCheck)) {
+      return true;
+    }
     if (!checkOption) {
       return false;
     }
 
-    return checksForContent.some((check) => {
+    return checksForContent.filter((check) => check.requiresCheck).some((check) => {
       const abilityMatches = !check.ability || !checkOption.ability || check.ability === checkOption.ability;
       const skillMatches = !check.skill || !checkOption.skill || check.skill === checkOption.skill;
       const dcMatches = !checkOption.dc || check.dc === checkOption.dc;
