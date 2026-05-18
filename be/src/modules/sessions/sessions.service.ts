@@ -696,6 +696,32 @@ export class SessionsService {
     return token ? this.hideVttToken(session.id, token.id) : null;
   }
 
+  async saveSystemVttMap(sessionId: string, map: VttMapStateDto): Promise<VttMapStateDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const { sessionScenario, state } = await this.getGameStateEntityOrThrow(session.id);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const normalizedMap = this.normalizeVttMap(map, state.currentNodeId ?? null);
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: sessionScenario.id },
+      data: {
+        version: { increment: 1 },
+        flagsJson: JSON.stringify({
+          ...flags,
+          vttMap: normalizedMap,
+        }),
+      },
+    });
+
+    this.realtimeEvents.emitVttMapUpdated(session.id, {
+      hostUserId: session.hostUserId,
+      hostMap: normalizedMap,
+      playerMap: this.redactVttMapForPlayer(normalizedMap),
+    });
+
+    return normalizedMap;
+  }
+
   async getPlayerScenarioForUser(userId: string, sessionId: string): Promise<PlayerScenarioViewDto> {
     const session = await this.getSessionEntityOrThrow(sessionId);
     const resolvedSessionId = session.id;
@@ -4560,6 +4586,17 @@ export class SessionsService {
         label: typeof ping.label === "string" && ping.label.trim() ? ping.label.trim().slice(0, 8) : "!",
         expiresAt: ping.expiresAt,
       }));
+    const lightSources = (map.lightSources ?? []).slice(-40).map((source, index) => ({
+      id: typeof source.id === "string" && source.id.trim() ? source.id.trim().slice(0, 80) : `light:${index + 1}`,
+      x: this.clampNumber(source.x, 0, width - gridSize),
+      y: this.clampNumber(source.y, 0, height - gridSize),
+      rangeFt: this.clampNumber(source.rangeFt, 5, 120),
+      label: typeof source.label === "string" && source.label.trim() ? source.label.trim().slice(0, 40) : null,
+      createdBySessionCharacterId:
+        typeof source.createdBySessionCharacterId === "string" && source.createdBySessionCharacterId.trim()
+          ? source.createdBySessionCharacterId.trim()
+          : null,
+    }));
     const normalizeStructureCell = (
       cell: {
         id?: string;
@@ -4757,6 +4794,7 @@ export class SessionsService {
       fogRects,
       startingPositions,
       pings,
+      lightSources,
       terrainCells,
       wallCells,
       doorCells,
@@ -4786,6 +4824,7 @@ export class SessionsService {
         height: Number(candidate.height) || 832,
         tokens: candidate.tokens,
         fogRects: candidate.fogRects,
+        lightSources: Array.isArray(candidate.lightSources) ? candidate.lightSources : [],
         startingPositions: Array.isArray(candidate.startingPositions) ? candidate.startingPositions : [],
         pings: Array.isArray(candidate.pings) ? candidate.pings : [],
         terrainCells: Array.isArray(candidate.terrainCells) ? candidate.terrainCells : [],

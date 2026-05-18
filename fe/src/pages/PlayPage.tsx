@@ -20,6 +20,7 @@ import type {
   ActionOutcome,
   ClassDefinitionResponseDto,
   CombatActionResultDto,
+  CombatReactionPromptDto,
   CombatResponseDto,
   InventoryItemDto,
   MainCommandResponseDto,
@@ -63,12 +64,16 @@ import type { CharacterPayload } from '../hooks/useSession';
 import {
   endCombat,
   endCombatTurn,
+  acceptCombatReaction,
+  castCombatSpell,
   dashCombatAction,
+  declineCombatReaction,
   dodgeCombatAction,
   getCombat,
   getPlayerScenario,
   getVttMap,
   hideCombatAction,
+  moveCombatParticipant,
   resolveEquippedWeaponAttack,
   resolveOffhandWeaponAttack,
   startCombat,
@@ -2933,6 +2938,102 @@ export function PlayPage({
     }
   }
 
+  async function handleCastCombatSpell(
+    spellId: string,
+    payload: { targetParticipantIds?: string[]; point?: { x: number; y: number } | null }
+  ) {
+    if (!session || isCombatBusy) return;
+    await runCombatRequest(async () => {
+      const result = await castCombatSpell(user, session.id, { spellId, ...payload });
+      if (result.map) {
+        setVttMap(result.map);
+        latestConfirmedMapRef.current = result.map;
+      }
+      return result;
+    });
+  }
+
+  async function handleCombatTokenMoveRequest(
+    token: VttMapStateDto['tokens'][number],
+    to: { x: number; y: number },
+    path: Array<{ x: number; y: number }>
+  ): Promise<VttMapStateDto | null> {
+    if (!session || !combat || isCombatBusy) return null;
+    const participant = combat.participants.find(
+      (candidate) =>
+        candidate.tokenId === token.id ||
+        (candidate.sessionCharacterId && candidate.sessionCharacterId === token.sessionCharacterId)
+    );
+    if (!participant) {
+      setMapLoadError('이동할 전투 참여자를 찾을 수 없습니다.');
+      return null;
+    }
+
+    setCombatBusy(true);
+    setCombatError(null);
+    setMapLoadError(null);
+    try {
+      let result = await moveCombatParticipant(user, session.id, {
+        participantId: participant.sessionEntityId,
+        to,
+        path,
+      });
+
+      if (result.pendingReaction) {
+        const isMine = combat.participants.some(
+          (candidate) =>
+            candidate.sessionEntityId === result.pendingReaction?.reactorParticipantId &&
+            candidate.sessionCharacterId &&
+            sessionCharacters.some(
+              (character) => character.id === candidate.sessionCharacterId && character.userId === user.id
+            )
+        );
+        if (!isMine) {
+          return null;
+        }
+        const accepted = window.confirm(result.pendingReaction.message);
+        result = accepted
+          ? await acceptCombatReaction(user, session.id, { reactionId: result.pendingReaction.id })
+          : await declineCombatReaction(user, session.id, { reactionId: result.pendingReaction.id });
+      }
+
+      setCombat(result.combat);
+      setVttMap(result.map);
+      latestConfirmedMapRef.current = result.map;
+      return result.map;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '전투 이동에 실패했습니다.';
+      setCombatError(message);
+      setMapLoadError(message);
+      return null;
+    } finally {
+      setCombatBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    function handleReactionPrompt(event: Event) {
+      if (!session) return;
+      const reaction = (event as CustomEvent<CombatReactionPromptDto>).detail;
+      if (!reaction || (reaction.type !== 'opportunity_attack' && reaction.type !== 'shield')) return;
+      const accepted = window.confirm(reaction.message);
+      const request = accepted ? acceptCombatReaction : declineCombatReaction;
+      void request(user, session.id, { reactionId: reaction.id })
+        .then((result) => {
+          setCombat(result.combat);
+          setVttMap(result.map);
+          latestConfirmedMapRef.current = result.map;
+        })
+        .catch((caught) => {
+          const message = caught instanceof Error ? caught.message : '반응 처리에 실패했습니다.';
+          setCombatError(message);
+        });
+    }
+
+    window.addEventListener('trpg:combat-reaction-prompt', handleReactionPrompt);
+    return () => window.removeEventListener('trpg:combat-reaction-prompt', handleReactionPrompt);
+  }, [session, user]);
+
   function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const next = chatMessage.trim();
@@ -3482,6 +3583,7 @@ export function PlayPage({
                     buildMapPartyColorStyle(getCharacterTokenColor(character))
                   }
                   onMapChange={handleMapChange}
+                  onTokenMoveRequest={handleCombatTokenMoveRequest}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onEquipInventoryItem={handleEquipInventoryItem}
                   onAttackWithEquippedWeapon={handleEquippedWeaponAttack}
@@ -3490,6 +3592,7 @@ export function PlayPage({
                   onDodge={handleDodgeCombatAction}
                   onHide={handleHideCombatAction}
                   onUseClassFeature={handleCombatClassFeature}
+                  onCastSpell={handleCastCombatSpell}
                   onEndCombat={handleEndCombat}
                   onEndTurn={handleEndCombatTurn}
                 />

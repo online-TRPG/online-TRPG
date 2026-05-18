@@ -28,6 +28,7 @@ import {
   MainCommandTargetType,
 } from "../../constants/enums";
 import { SessionCharacterResponseDto } from "./characters.dto";
+import { VttMapStateDto } from "./sessions.dto";
 
 export class SubmitActionDto {
   @ApiProperty()
@@ -579,6 +580,94 @@ export class EquippedWeaponAttackDto {
 
 export class CombatBasicActionDto {}
 
+export class CombatMapPointDto {
+  @ApiProperty()
+  @Type(() => Number)
+  @IsNumber()
+  x!: number;
+
+  @ApiProperty()
+  @Type(() => Number)
+  @IsNumber()
+  y!: number;
+}
+
+export class CastCombatSpellDto {
+  @ApiProperty()
+  @IsString()
+  spellId!: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsString({ each: true })
+  targetParticipantIds?: string[];
+
+  @ApiPropertyOptional({ type: CombatMapPointDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CombatMapPointDto)
+  point?: CombatMapPointDto | null;
+}
+
+export class MoveCombatParticipantDto {
+  @ApiProperty()
+  @IsString()
+  participantId!: string;
+
+  @ApiProperty({ type: CombatMapPointDto })
+  @ValidateNested()
+  @Type(() => CombatMapPointDto)
+  to!: CombatMapPointDto;
+
+  @ApiPropertyOptional({ type: [CombatMapPointDto] })
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => CombatMapPointDto)
+  path?: CombatMapPointDto[];
+}
+
+export class CombatReactionPromptDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  type!: "opportunity_attack" | "shield";
+
+  @ApiProperty()
+  reactorParticipantId!: string;
+
+  @ApiProperty()
+  reactorName!: string;
+
+  @ApiProperty()
+  moverParticipantId!: string;
+
+  @ApiProperty()
+  moverName!: string;
+
+  @ApiProperty()
+  message!: string;
+}
+
+export class CombatReactionResponseDto {
+  @ApiProperty()
+  reactionId!: string;
+}
+
+export class CombatMoveResultDto {
+  @ApiProperty({ type: CombatResponseDto })
+  combat!: CombatResponseDto;
+
+  @ApiProperty({ type: Object })
+  map!: VttMapStateDto;
+
+  @ApiProperty()
+  message!: string;
+
+  @ApiPropertyOptional({ type: CombatReactionPromptDto, nullable: true })
+  pendingReaction!: CombatReactionPromptDto | null;
+}
+
 export class AutoMonsterTurnDto {
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
@@ -612,6 +701,9 @@ export class CombatActionResultDto {
 
   @ApiPropertyOptional({ nullable: true })
   turnLogId?: string | null;
+
+  @ApiPropertyOptional({ type: Object, nullable: true })
+  map?: VttMapStateDto | null;
 }
 
 export class StateDiffResponseDto {

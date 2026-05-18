@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import {
   ChatMessageEventDto,
+  CombatReactionPromptDto,
   CombatResponseDto,
   DiceRollResponseDto,
   CharacterUpdatedEventDto,
@@ -144,6 +145,21 @@ export class RealtimeEventsService {
     this.server.to(this.getRoomName(sessionId)).emit("turn.changed", {
       sessionId,
       turn,
+    });
+  }
+
+  emitCombatReactionPrompt(
+    sessionId: string,
+    userId: string,
+    reaction: CombatReactionPromptDto,
+  ): void {
+    if (!this.server) {
+      return;
+    }
+
+    this.server.to(this.getUserRoomName(sessionId, userId)).emit("combat.reaction.prompt", {
+      sessionId,
+      reaction,
     });
   }
 
