@@ -21,6 +21,8 @@ import profileBorderStats from '../components/Profile_Border_Stats.webp';
 import sidePanelImage from '../components/Side_Panel.webp';
 import {
   getClassLabel,
+  localizeAbilityText,
+  localizeSrdTermText,
   loadClassOptions,
   loadRaceData,
   normalizeClassValue,
@@ -516,16 +518,6 @@ function formatAbilityBonus(abilityBonus: RaceAbilityBonus) {
 
   const abilityLabel = abilityDisplayLabels[abilityBonus.ability];
   return `${abilityLabel} +${abilityBonus.amount}${abilityBonus.note ? ` (${abilityBonus.note})` : ''}`;
-}
-
-function localizeAbilityText(value: string) {
-  return value
-    .replace(/Strength/g, '근력')
-    .replace(/Dexterity/g, '민첩')
-    .replace(/Constitution/g, '건강')
-    .replace(/Intelligence/g, '지능')
-    .replace(/Wisdom/g, '지혜')
-    .replace(/Charisma/g, '매력');
 }
 
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
@@ -2018,7 +2010,12 @@ export function CharacterPage({
                           : '정보 없음'}
                       </p>
                       <p>히트다이: {selectedClassInfo?.hitDieRaw ?? '정보 없음'}</p>
-                      <p>주문 사용: {selectedClassInfo?.spellcastingAbility ? '사용' : '없음'}</p>
+                      <p>
+                        주문시전 능력치:{' '}
+                        {selectedClassInfo?.spellcastingAbility
+                          ? localizeSrdTermText(selectedClassInfo.spellcastingAbility)
+                          : '없음'}
+                      </p>
                       <ul className="fantasy-character-text-list">
                         {(selectedClassInfo?.levelFeatureSummary ?? [])
                           .slice(0, 3)
