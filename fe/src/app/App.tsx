@@ -98,6 +98,15 @@ const viewLabel: Partial<Record<MainView, string>> = {
 
 const UNSAVED_SCENARIO_MESSAGE =
   '저장하지 않은 변경 사항이 있습니다. 화면을 이동하면 작업 내용이 사라질 수 있습니다.';
+
+type CharacterPageState = {
+  characterCreateReturn?: {
+    path: string;
+    sessionTitle: string;
+    autoOpenCreate?: boolean;
+  };
+};
+
 function viewFromPathname(pathname: string): MainView | null {
   if (pathname === '/play') {
     return 'gameroom';
@@ -168,6 +177,7 @@ export function App() {
   const previousPathnameRef = useRef<string | null>(null);
   const publicProfileState = location.state as { profilePreview?: User | null } | null;
   const sessionDiscoverState = location.state as { initialSection?: 'public' | 'my' } | null;
+  const characterPageState = location.state as CharacterPageState | null;
   const scenarioEditMatch = /^\/scenarios\/([^/]+)\/edit$/.exec(location.pathname);
   const scenarioEditId = scenarioEditMatch?.[1] ?? null;
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
@@ -570,6 +580,13 @@ export function App() {
             onCloneCharacter={(characterId) => session.cloneCharacter(characterId)}
             onUpdateCharacter={(characterId, payload) => session.updateCharacter(characterId, payload)}
             onDeleteCharacter={(characterId) => session.deleteCharacter(characterId)}
+            autoOpenCreate={characterPageState?.characterCreateReturn?.autoOpenCreate === true}
+            sessionReturnTitle={characterPageState?.characterCreateReturn?.sessionTitle ?? null}
+            onReturnToSession={
+              characterPageState?.characterCreateReturn?.path
+                ? () => guardedNavigate(characterPageState.characterCreateReturn!.path)
+                : undefined
+            }
           />
         ) : null}
 
@@ -749,7 +766,22 @@ export function App() {
               void exitSessionToDiscover();
             }}
             onBackToLobby={() => navigate('/sessions/discover')}
-            onNavigateToCharacters={() => navigate('/characters')}
+            onNavigateToCharacters={() => {
+              if (!session.snapshot) {
+                navigate('/characters');
+                return;
+              }
+
+              navigate('/characters', {
+                state: {
+                  characterCreateReturn: {
+                    path: buildGameroomPath(session.snapshot.session),
+                    sessionTitle: session.snapshot.session.title,
+                    autoOpenCreate: true,
+                  },
+                } satisfies CharacterPageState,
+              });
+            }}
             onMainCommand={(payload) => session.sendMainCommand(payload)}
             onResolveMainCommandCheck={(payload) => session.resolveMainCommandCheck(payload)}
             onAction={handleSessionMessage}
