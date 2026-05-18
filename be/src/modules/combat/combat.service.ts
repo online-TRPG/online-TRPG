@@ -48,6 +48,8 @@ type EquippedWeaponProfile = {
   damageDice: string;
   damageBonus: number;
   rangeFt: number;
+  minimumDamage?: number;
+  isBasicAttack?: boolean;
 };
 
 const RAGE_CONDITION_TAGS = [
@@ -583,7 +585,7 @@ export class CombatService {
     userId: string,
     sessionId: string,
     dto: ResolveCombatAttackDto,
-    options: { messagePrefix?: string } = {},
+    options: { messagePrefix?: string; minimumDamage?: number } = {},
   ): Promise<CombatActionResultDto> {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     await this.sessionsService.ensureMembership(userId, session.id);
@@ -615,9 +617,13 @@ export class CombatService {
     const criticalHit = naturalD20 === 20;
     const criticalMiss = naturalD20 === 1;
     const hit = criticalHit || (!criticalMiss && attackRoll.total >= targetArmorClass);
-    const damageRoll = hit
+    const rolledDamage = hit
       ? this.diceService.roll(this.buildDamageExpression(dto.damageDice, dto.damageBonus, criticalHit))
       : null;
+    const damageRoll =
+      rolledDamage && options.minimumDamage !== undefined && rolledDamage.total < options.minimumDamage
+        ? { ...rolledDamage, total: options.minimumDamage }
+        : rolledDamage;
 
     if (damageRoll) {
       await this.applyHitPointDelta(combat, target, -damageRoll.total);
@@ -735,7 +741,12 @@ export class CombatService {
         damageDice: weapon.damageDice,
         damageBonus: weapon.damageBonus,
       },
-      { messagePrefix: `${attacker.nameSnapshot} ${weapon.name}` },
+      {
+        messagePrefix: weapon.isBasicAttack
+          ? `${attacker.nameSnapshot} 기본 공격 처리`
+          : `${attacker.nameSnapshot} ${weapon.name}`,
+        minimumDamage: weapon.minimumDamage,
+      },
     );
   }
 
@@ -1238,11 +1249,24 @@ export class CombatService {
       });
     }
 
+    const buildBasicAttackProfile = (): EquippedWeaponProfile => {
+      const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
+      const strMod = this.getAbilityModifier(abilities.str);
+      return {
+        name: "기본 공격",
+        attackBonus: sessionCharacter.character.proficiencyBonus + strMod,
+        damageDice: "1d4",
+        damageBonus: strMod,
+        rangeFt: 5,
+        minimumDamage: 1,
+        isBasicAttack: true,
+      };
+    };
+
     const equippedWeaponId = sessionCharacter.character.equippedWeaponId;
     if (!equippedWeaponId) {
-      throw conflict("COMBAT_409", "장착한 무기가 없습니다.", {
-        reason: "EQUIPPED_WEAPON_NOT_FOUND",
-      });
+      // 장착 무기가 없어도 전투 턴이 막히지 않도록 5ft 기본 공격으로 내려갑니다.
+      return buildBasicAttackProfile();
     }
 
     const entry = sessionCharacter.inventoryEntries.find(
@@ -1269,9 +1293,8 @@ export class CombatService {
       : snapshotItem;
 
     if (!item || (item.itemType !== "weapon" && !item.damageDice)) {
-      throw conflict("COMBAT_409", "장착한 무기를 찾을 수 없습니다.", {
-        reason: "EQUIPPED_WEAPON_NOT_FOUND",
-      });
+      // 세션 스냅샷과 장착 무기 ID가 어긋난 경우도 플레이를 멈추지 않고 기본 공격으로 복구합니다.
+      return buildBasicAttackProfile();
     }
 
     const fallback = this.getFallbackWeaponProfile(
