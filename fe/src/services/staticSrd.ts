@@ -137,6 +137,36 @@ const LEGACY_CLASS_LABEL_MAP = new Map<string, string>([
   ['Archer', '레인저'],
   ['Warrior', '파이터'],
 ]);
+const ABILITY_LABEL_TEXT_MAP = new Map<string, string>([
+  ['Strength', '근력'],
+  ['Dexterity', '민첩'],
+  ['Constitution', '건강'],
+  ['Intelligence', '지능'],
+  ['Wisdom', '지혜'],
+  ['Charisma', '매력'],
+]);
+const SRD_TERM_MAP = new Map<string, string>([
+  ['School of Abjuration', '방호학파'],
+  ['School of Conjuration', '소환학파'],
+  ['School of Divination', '예지학파'],
+  ['School of Enchantment', '매혹학파'],
+  ['School of Evocation', '방출학파'],
+  ['School of Illusion', '환영학파'],
+  ['School of Necromancy', '사령학파'],
+  ['School of Transmutation', '변환학파'],
+  ['Evocation', '방출술'],
+  ['Abjuration', '방호술'],
+  ['Conjuration', '소환술'],
+  ['Divination', '예지술'],
+  ['Enchantment', '매혹술'],
+  ['Illusion', '환영술'],
+  ['Necromancy', '사령술'],
+  ['Transmutation', '변환술'],
+  ['Arcane Tradition', '비전 전통'],
+  ...Array.from(ABILITY_LABEL_TEXT_MAP.entries()),
+  ...Array.from(CLASS_LABEL_MAP.entries()),
+  ...Array.from(LEGACY_CLASS_LABEL_MAP.entries()),
+]);
 const ABILITY_NAME_MAP = new Map<string, Exclude<RaceAbilityBonus['ability'], 'any'>>([
   ['strength', 'str'],
   ['dexterity', 'dex'],
@@ -179,18 +209,40 @@ export function getClassLabel(value: string) {
   return CLASS_LABEL_MAP.get(value as ClassOptionValue) ?? LEGACY_CLASS_LABEL_MAP.get(value) ?? value;
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function localizeSrdTermText(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+
+  return Array.from(SRD_TERM_MAP.entries())
+    .sort((left, right) => right[0].length - left[0].length)
+    .reduce((current, [from, to]) => current.replace(new RegExp(escapeRegExp(from), 'g'), to), trimmed);
+}
+
+export function localizeAbilityText(value: string) {
+  return localizeSrdTermText(value);
+}
+
 function extractHitDieValue(raw: string) {
   const matched = /d(\d+)/i.exec(raw.trim());
   return matched ? Number(matched[1]) : 0;
 }
 
 function buildClassSummary(entry: RawClassEntry) {
+  const primaryAbilityText = localizeAbilityText(entry.primaryAbilitiesRaw);
+  const spellcastingAbilityText = entry.spellcasting?.ability
+    ? localizeAbilityText(entry.spellcasting.ability)
+    : null;
+  const subclassText = entry.srdSubclassRaw ? localizeSrdTermText(entry.srdSubclassRaw) : null;
   const parts = [
-    `${entry.nameKo}는 ${entry.primaryAbilitiesRaw} 중심 클래스입니다.`,
-    entry.spellcasting?.ability
-      ? `${entry.spellcasting.ability}을 주문시전 능력치로 사용합니다.`
+    `${entry.nameKo}는 ${primaryAbilityText} 중심 클래스입니다.`,
+    spellcastingAbilityText
+      ? `${spellcastingAbilityText}을 주문시전 능력치로 사용합니다.`
       : '주문시전 능력이 없는 클래스입니다.',
-    entry.srdSubclassRaw ? `SRD 대표 서브클래스는 ${entry.srdSubclassRaw}입니다.` : null,
+    subclassText ? `SRD 대표 서브클래스는 ${subclassText}입니다.` : null,
   ];
 
   return parts.filter(Boolean).join(' ');
