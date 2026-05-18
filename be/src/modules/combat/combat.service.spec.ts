@@ -10,28 +10,35 @@ const createParticipant = (
   overrides: Partial<{
     id: string;
     combatId: string;
-    sessionCharacterId: string;
+    sessionCharacterId: string | null;
     nameSnapshot: string;
+    tokenId: string | null;
+    entityType: PrismaCombatEntityType;
     turnOrder: number;
     isAlive: boolean;
+    isHostile: boolean;
+    currentHp: number;
+    maxHp: number;
+    armorClass: number;
     speedFt: number;
   }> = {},
 ) => ({
   id: overrides.id ?? "participant-1",
   combatId: overrides.combatId ?? "combat-1",
-  entityType: PrismaCombatEntityType.PLAYER_CHARACTER,
-  sessionCharacterId: overrides.sessionCharacterId ?? "session-character-1",
+  entityType: overrides.entityType ?? PrismaCombatEntityType.PLAYER_CHARACTER,
+  sessionCharacterId:
+    overrides.sessionCharacterId === undefined ? "session-character-1" : overrides.sessionCharacterId,
   nameSnapshot: overrides.nameSnapshot ?? "Hero",
-  tokenId: null,
-  currentHp: 10,
-  maxHp: 10,
-  armorClass: 14,
+  tokenId: overrides.tokenId ?? null,
+  currentHp: overrides.currentHp ?? 10,
+  maxHp: overrides.maxHp ?? 10,
+  armorClass: overrides.armorClass ?? 14,
   speedFt: overrides.speedFt ?? 30,
   conditionsJson: "[]",
   initiative: 10,
   turnOrder: overrides.turnOrder ?? 1,
   isAlive: overrides.isAlive ?? true,
-  isHostile: false,
+  isHostile: overrides.isHostile ?? false,
   turnEndedAt: null,
   createdAt: new Date("2026-05-06T00:00:00.000Z"),
   updatedAt: new Date("2026-05-06T00:00:00.000Z"),
@@ -43,6 +50,9 @@ describe("CombatService lifecycle", () => {
       $transaction: jest.fn(),
       combat: {
         findFirst: jest.fn(),
+      },
+      combatParticipant: {
+        update: jest.fn(),
       },
       combatTurnState: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -67,7 +77,13 @@ describe("CombatService lifecycle", () => {
       buildSnapshot: jest.fn(),
     };
     const diceService = {
-      roll: jest.fn(() => ({ total: 10, rolls: [10] })),
+      roll: jest.fn(() => ({
+        expression: "1d20",
+        rolls: [10],
+        modifier: 0,
+        total: 10,
+        advantageState: "NORMAL",
+      })),
     };
     const actionRules = {
       getAvailableActions: jest.fn(),
@@ -109,6 +125,7 @@ describe("CombatService lifecycle", () => {
       ),
       prisma,
       sessionsService,
+      diceService,
       actionEconomy,
       characterResources,
       realtimeEvents,
@@ -312,6 +329,105 @@ describe("CombatService lifecycle", () => {
     expect(tx.combat.findUniqueOrThrow).not.toHaveBeenCalled();
   });
 
+  it("uses a basic attack when the current player has no equipped weapon", async () => {
+    const { service, prisma, sessionsService, diceService, actionEconomy, turnLogsService } =
+      createService();
+    const attacker = createParticipant({
+      id: "participant-hero",
+      sessionCharacterId: "session-character-hero",
+      tokenId: "token-hero",
+      nameSnapshot: "Hero",
+      turnOrder: 1,
+    });
+    const target = createParticipant({
+      id: "participant-monster",
+      sessionCharacterId: null,
+      tokenId: "token-monster",
+      entityType: PrismaCombatEntityType.MONSTER,
+      nameSnapshot: "Goblin",
+      isHostile: true,
+      armorClass: 8,
+      turnOrder: 2,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 1,
+      currentParticipantId: attacker.id,
+      participants: [attacker, target],
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: PrismaGmMode.AI,
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue({
+      width: 200,
+      height: 200,
+      gridSize: 50,
+      tokens: [
+        { id: "token-hero", sessionCharacterId: attacker.sessionCharacterId, x: 0, y: 0 },
+        { id: "token-monster", x: 50, y: 0, hidden: false },
+      ],
+    });
+    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.sessionCharacter.findUnique
+      .mockResolvedValueOnce({
+        id: attacker.sessionCharacterId,
+        userId: "user-1",
+        character: { ownerUserId: "user-1" },
+      })
+      .mockResolvedValueOnce({
+        id: attacker.sessionCharacterId,
+        inventorySnapshotJson: "[]",
+        inventoryEntries: [],
+        character: {
+          equippedWeaponId: null,
+          inventoryJson: "[]",
+          abilitiesJson: JSON.stringify({ str: 10, dex: 10 }),
+          proficiencyBonus: 2,
+        },
+      });
+    turnLogsService.createTurnLog.mockResolvedValue({ turnLogId: "turn-log-1" });
+    diceService.roll
+      .mockReturnValueOnce({
+        expression: "1d20+2",
+        rolls: [12],
+        modifier: 2,
+        total: 14,
+        advantageState: "NORMAL",
+      })
+      .mockReturnValueOnce({
+        expression: "1d4",
+        rolls: [3],
+        modifier: 0,
+        total: 3,
+        advantageState: "NORMAL",
+      });
+
+    const result = await service.resolveEquippedWeaponAttack("user-1", "session-1", {
+      targetParticipantId: target.id,
+    });
+
+    expect(result.message).toContain("기본 공격 처리");
+    expect(diceService.roll).toHaveBeenNthCalledWith(1, "1d20+2", "NORMAL");
+    expect(diceService.roll).toHaveBeenNthCalledWith(2, "1d4");
+    expect(actionEconomy.spendAction).toHaveBeenCalledWith({
+      combatId: combat.id,
+      combatParticipantId: attacker.id,
+      roundNo: combat.roundNo,
+      turnNo: combat.turnNo,
+      sessionCharacterId: attacker.sessionCharacterId,
+    });
+  });
+
   it("ends expired Rage and clears condition tags after turn advance", async () => {
     const { service, prisma, sessionsService, characterResources, realtimeEvents } =
       createService();
@@ -353,18 +469,36 @@ describe("CombatService lifecycle", () => {
     sessionsService.getSessionEntityOrThrow.mockResolvedValue({ id: "session-1" });
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.combat.findFirst.mockResolvedValue(combat);
-    prisma.sessionCharacter.findUnique
-      .mockResolvedValueOnce({
-        id: "session-character-1",
-        character: { ownerUserId: "user-1" },
-      })
-      .mockResolvedValueOnce({
-        conditionsJson: JSON.stringify([
-          "rage",
-          "resistance:slashing",
-          "blessed",
-        ]),
-      });
+    prisma.sessionCharacter.findUnique.mockImplementation(async (args: {
+      where?: { id?: string; sessionId_userId?: { sessionId: string; userId: string } };
+      include?: unknown;
+    }) => {
+      if (args.where?.sessionId_userId) {
+        return {
+          id: "session-character-1",
+          character: { ownerUserId: "user-1" },
+        };
+      }
+      if (args.where?.id === "session-character-1" && args.include) {
+        return {
+          id: "session-character-1",
+          character: { ownerUserId: "user-1" },
+        };
+      }
+      if (args.where?.id === "session-character-1") {
+        return {
+          conditionsJson: JSON.stringify([
+            "rage",
+            "resistance:slashing",
+            "blessed",
+          ]),
+        };
+      }
+      if (args.where?.id === "session-character-2") {
+        return { conditionsJson: JSON.stringify([]) };
+      }
+      return null;
+    });
     prisma.sessionCharacter.update.mockResolvedValue({});
     prisma.sessionCharacterResource.findMany.mockResolvedValue([
       {
