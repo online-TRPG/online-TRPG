@@ -476,7 +476,6 @@ export class MainCommandsService {
     );
 
     const objectRevealResult =
-      response.status !== MainCommandStatus.CHECK_REQUIRED &&
       dto.intent === MainCommandIntent.INVESTIGATE_OBJECT &&
       dto.mapPoint
         ? await this.sessionsService.revealVttObjectContentsAtPoint({

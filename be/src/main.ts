@@ -66,6 +66,7 @@ async function bootstrap(): Promise<void> {
 
   const port = Number(process.env.PORT ?? "8080");
   await app.listen(port);
+  console.log(`[LOCAL_CODE_CHECK] Backend booted from local source at ${new Date().toISOString()}`);
   Logger.log(`Nest application is listening on port ${port}`, "Bootstrap");
 }
 
