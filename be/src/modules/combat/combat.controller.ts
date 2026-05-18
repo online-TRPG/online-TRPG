@@ -151,6 +151,38 @@ export class CombatController {
     );
   }
 
+  @Post("attack/offhand")
+  @HttpCode(200)
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatActionResultDto })
+  async resolveOffhandWeaponAttack(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: EquippedWeaponAttackDto,
+  ): Promise<ApiResponse<CombatActionResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.resolveOffhandWeaponAttack(userId, sessionId, dto),
+    );
+  }
+
+  @Post("features/second-wind")
+  @HttpCode(200)
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatActionResultDto })
+  async useSecondWind(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: CombatBasicActionDto,
+  ): Promise<ApiResponse<CombatActionResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.useSecondWind(userId, sessionId, dto),
+    );
+  }
+
   @Post("dash")
   @HttpCode(200)
   @ApiParam({ name: "sessionId" })

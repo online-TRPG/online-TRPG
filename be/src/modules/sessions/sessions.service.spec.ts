@@ -240,6 +240,7 @@ describe("SessionsService player scenario mapping", () => {
 describe("SessionsService VTT map structures", () => {
   const service = Object.create(SessionsService.prototype) as {
     redactVttMapForPlayer: (map: Record<string, unknown>) => Record<string, unknown>;
+    normalizeVttMap: (map: Record<string, unknown>, scenarioNodeId: string | null) => Record<string, unknown>;
     ensureTokenPathIsPassable: (
       map: Record<string, unknown>,
       fromToken: Record<string, unknown>,
@@ -316,6 +317,51 @@ describe("SessionsService VTT map structures", () => {
         hiddenClueIds: [],
         hiddenItemIds: [],
         hiddenEventIds: [],
+      }),
+    ]);
+  });
+
+  it("preserves no-check clue reveal settings while normalizing object cells", () => {
+    const normalized = service.normalizeVttMap(
+      {
+        id: "map-1",
+        width: 640,
+        height: 480,
+        gridSize: 64,
+        tokens: [],
+        fogRects: [],
+        objectCells: [
+          {
+            id: "object-1",
+            x: 0,
+            y: 0,
+            width: 64,
+            height: 64,
+            hiddenClueIds: ["clue-1"],
+            revealChecks: [
+              {
+                contentId: "clue-1",
+                requiresCheck: false,
+                ability: "int",
+                skill: "investigation",
+                dc: 15,
+              },
+            ],
+          },
+        ],
+      },
+      "node-1",
+    );
+
+    expect(normalized.objectCells).toEqual([
+      expect.objectContaining({
+        id: "object-1",
+        revealChecks: [
+          expect.objectContaining({
+            contentId: "clue-1",
+            requiresCheck: false,
+          }),
+        ],
       }),
     ]);
   });
