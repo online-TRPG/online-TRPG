@@ -154,7 +154,7 @@ export function ScenarioPage({
     setLocalError(null);
 
     try {
-      const source = await getScenario(selectedScenario.id);
+      const source = await getScenario(selectedScenario.id, user, accessToken);
       const nodeIdMap = new Map(source.nodes.map((node) => [node.id, makeCloneId("node")]));
       const nodes = source.nodes.map((node) => ({
         id: nodeIdMap.get(node.id) ?? makeCloneId("node"),

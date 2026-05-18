@@ -18,6 +18,7 @@ import {
   ScenarioAssetKind,
   ScenarioLicense,
   ScenarioNodeType,
+  ScenarioSourceType,
 } from "../../constants/enums";
 
 export class ScenarioNodeResponseDto {
@@ -83,6 +84,10 @@ export class ScenarioSummaryResponseDto {
   @ApiProperty({ enum: ScenarioLicense })
   @IsEnum(ScenarioLicense)
   license!: ScenarioLicense;
+
+  @ApiProperty({ enum: ScenarioSourceType })
+  @IsEnum(ScenarioSourceType)
+  sourceType!: ScenarioSourceType;
 
   @ApiPropertyOptional({ nullable: true })
   attribution!: string | null;
