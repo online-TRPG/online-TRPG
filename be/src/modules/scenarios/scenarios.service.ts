@@ -36,7 +36,10 @@ import {
 } from '@trpg/shared-types';
 import { PrismaService } from '../../database/prisma.service';
 import { mapScenario, mapScenarioSummary } from '../../common/mappers/domain.mapper';
-import { DEFAULT_SCENARIO_ID } from '../../database/seed/default-scenario';
+import {
+  DEFAULT_PROVIDED_SCENARIO_ID,
+  isDefaultProvidedScenarioId,
+} from './provided-scenario.constants';
 
 @Injectable()
 export class ScenariosService {
@@ -45,8 +48,7 @@ export class ScenariosService {
   async listScenarios(query?: ScenarioQueryDto): Promise<ScenarioSummaryResponseDto[]> {
     const scenarios = await this.prisma.scenario.findMany({
       where: {
-        id: DEFAULT_SCENARIO_ID,
-        sourceType: PrismaScenarioSourceType.SYSTEM,
+        id: DEFAULT_PROVIDED_SCENARIO_ID,
         title: query?.search
           ? {
               contains: query.search,
@@ -367,7 +369,7 @@ export class ScenariosService {
   }
 
   async getDefaultScenarioEntity() {
-    return this.getScenarioEntityById(DEFAULT_SCENARIO_ID);
+    return this.getScenarioEntityById(DEFAULT_PROVIDED_SCENARIO_ID);
   }
 
   async getScenarioEntityById(id: string) {
@@ -412,8 +414,7 @@ export class ScenariosService {
     scenario: Awaited<ReturnType<ScenariosService['getScenarioEntityById']>>,
     viewerUserId?: string | null
   ): void {
-    const isDefaultProvidedScenario =
-      scenario.id === DEFAULT_SCENARIO_ID && scenario.sourceType === PrismaScenarioSourceType.SYSTEM;
+    const isDefaultProvidedScenario = isDefaultProvidedScenarioId(scenario.id);
     const isOwnScenario = Boolean(viewerUserId && scenario.createdByUserId === viewerUserId);
 
     if (isDefaultProvidedScenario || isOwnScenario) {
