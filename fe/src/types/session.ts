@@ -126,6 +126,10 @@ export interface LogEntry {
       intent?: string | null;
       targetId?: string | null;
       targetType?: string | null;
+      npcDialogue?: {
+        npcId?: string | null;
+        speakerName?: string | null;
+      };
     };
   };
 }

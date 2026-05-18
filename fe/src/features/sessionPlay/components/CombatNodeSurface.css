@@ -1,11 +1,80 @@
+/* ── 공통 앤틱 프레임 (이중 액자 + 모서리 뾰족별 장식) ──────────────── */
+.combat-turn-bar,
+.combat-map-panel,
+.combat-resource-panel,
+.combat-action-panel,
+.combat-inventory-panel {
+  position: relative;
+  box-sizing: border-box;
+  /* 이중 액자 (바깥은 outline, 안은 border) */
+  border: 1px solid #8a6020;
+  outline: 1px solid rgba(201, 146, 42, 0.55);
+  outline-offset: 2px;
+  box-shadow:
+    inset 0 0 0 1px rgba(232, 201, 122, 0.45),
+    0 4px 10px rgba(30, 18, 8, 0.5);
+  overflow: visible !important; /* 별 장식이 잘리지 않도록 강제 (맵 내부에서 처리) */
+}
+
+/* 맵 영역 제외 패널들에 낡고 진한 양피지 질감 적용 */
+.combat-turn-bar,
+.combat-resource-panel,
+.combat-action-panel,
+.combat-inventory-panel {
+  background-color: #e2d1b3;
+  background-image:
+    /* 1. 가장자리 부드러운 그을림 (Vignette) */
+    radial-gradient(ellipse at center, transparent 55%, rgba(100,60,30,0.1) 85%, rgba(70,35,15,0.3) 100%),
+    /* 2. 미세하고 거친 종이 알갱이 (Grain) */
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23grain)' opacity='0.15'/%3E%3C/svg%3E"),
+    /* 3. 굵고 눈에 띄는 낡은 얼룩 및 구김 (Smudges) */
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='smudge'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.008' numOctaves='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23smudge)' opacity='0.35'/%3E%3C/svg%3E"),
+    /* 4. 베이스 양피지 */
+    radial-gradient(circle at center, #f4ead5 0%, #e2d1b3 100%);
+  background-blend-mode: multiply, color-burn, color-burn, normal;
+}
+
+/* 4모서리 금색 뾰족별 장식 */
+.combat-turn-bar::before,
+.combat-map-panel::before,
+.combat-resource-panel::before,
+.combat-action-panel::before,
+.combat-inventory-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 25;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' width='18' height='18'%3E%3Cpolygon points='9,0 11,7 18,9 11,11 9,18 7,11 0,9 7,7' fill='%23b07d28'/%3E%3Cpolygon points='9,3.5 10.5,7.5 14.5,9 10.5,10.5 9,14.5 7.5,10.5 3.5,9 7.5,7.5' fill='%23e8c97a'/%3E%3Ccircle cx='9' cy='9' r='2' fill='%23673f0a'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' width='18' height='18'%3E%3Cpolygon points='9,0 11,7 18,9 11,11 9,18 7,11 0,9 7,7' fill='%23b07d28'/%3E%3Cpolygon points='9,3.5 10.5,7.5 14.5,9 10.5,10.5 9,14.5 7.5,10.5 3.5,9 7.5,7.5' fill='%23e8c97a'/%3E%3Ccircle cx='9' cy='9' r='2' fill='%23673f0a'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' width='18' height='18'%3E%3Cpolygon points='9,0 11,7 18,9 11,11 9,18 7,11 0,9 7,7' fill='%23b07d28'/%3E%3Cpolygon points='9,3.5 10.5,7.5 14.5,9 10.5,10.5 9,14.5 7.5,10.5 3.5,9 7.5,7.5' fill='%23e8c97a'/%3E%3Ccircle cx='9' cy='9' r='2' fill='%23673f0a'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18' width='18' height='18'%3E%3Cpolygon points='9,0 11,7 18,9 11,11 9,18 7,11 0,9 7,7' fill='%23b07d28'/%3E%3Cpolygon points='9,3.5 10.5,7.5 14.5,9 10.5,10.5 9,14.5 7.5,10.5 3.5,9 7.5,7.5' fill='%23e8c97a'/%3E%3Ccircle cx='9' cy='9' r='2' fill='%23673f0a'/%3E%3C/svg%3E");
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat;
+  background-size: 18px 18px, 18px 18px, 18px 18px, 18px 18px;
+  background-position:
+    left -9px top -9px,
+    right -9px top -9px,
+    left -9px bottom -9px,
+    right -9px bottom -9px;
+}
+
 .combat-node-surface {
   position: relative;
   height: 100%;
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 16px;
+  box-sizing: border-box;
   overflow: hidden;
-  background: #fbf5eb;
+  /* 우드 배경 */
+  background-color: #1e1208;
+  background-image: url('../../../assets/images/darkwood.webp');
+  background-repeat: repeat;
+  background-size: auto;
+  background-position: top left;
   color: #3e3226;
 }
 
@@ -16,8 +85,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border-bottom: none;
-  background: transparent;
+  /* 배경/테두리는 상단 공통 클래스에서 처리됨 */
 }
 
 .combat-node-title-row {
@@ -29,14 +97,15 @@
 
 .combat-turn-bar h1 {
   margin: 4px 0 0;
-  color: #213045;
+  color: #2a1a06;
   font-size: 23px;
   line-height: 1.2;
   overflow-wrap: anywhere;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .combat-node-eyebrow {
-  color: #667787;
+  color: #5a3c10;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -55,11 +124,12 @@
   padding: 0 10px;
   display: inline-flex;
   align-items: center;
-  border: 1px solid #bdcad5;
-  background: #ffffff;
-  color: #31475c;
+  border: 1px solid #bda885;
+  background: #fdfaf3;
+  color: #4a2808;
   font-size: 12px;
   font-weight: 800;
+  box-shadow: inset 0 2px 0 rgba(255,255,255,0.5);
 }
 
 .combat-resolver button {
@@ -92,11 +162,9 @@
 }
 
 .combat-map-panel {
-  position: relative;
   min-height: 0;
   display: grid;
-  overflow: hidden;
-  background: #dde4e8;
+  /* 프레임 디자인 및 별 장식은 공통 클래스 사용 */
 }
 
 .combat-turn-overlay {
@@ -119,10 +187,10 @@
   display: flex;
   gap: 6px;
   overflow-x: auto;
-  border: 1px solid rgba(36, 49, 64, 0.18);
+  border: 1px solid #8a6020;
   border-radius: 999px;
-  background: rgba(248, 250, 251, 0.86);
-  box-shadow: 0 8px 22px rgba(24, 38, 52, 0.18);
+  background: linear-gradient(135deg, #dfcdab 0%, #d4b886 100%);
+  box-shadow: 0 8px 22px rgba(30, 18, 8, 0.5);
   scrollbar-width: thin;
   scrollbar-color: #8fa2b8 transparent;
   pointer-events: auto;
@@ -131,13 +199,13 @@
 .combat-turn-overlay p {
   margin: 0;
   padding: 6px 10px;
-  border: 1px solid rgba(36, 49, 64, 0.14);
+  border: 1px solid #8a6020;
   border-radius: 999px;
-  background: rgba(248, 250, 251, 0.9);
-  color: #43566b;
+  background: #f4ead5;
+  color: #3e2a10;
   font-size: 12px;
   font-weight: 800;
-  box-shadow: 0 8px 22px rgba(24, 38, 52, 0.14);
+  box-shadow: 0 8px 22px rgba(30, 18, 8, 0.3);
   pointer-events: auto;
 }
 
@@ -150,11 +218,11 @@
   overflow: hidden;
   display: grid;
   place-items: center;
-  border: 2px solid rgba(255, 255, 255, 0.94);
+  border: 2px solid rgba(255, 255, 255, 0.7);
   border-radius: 50%;
-  background: #dbe3e9;
-  color: #223244;
-  box-shadow: 0 2px 8px rgba(20, 32, 44, 0.24);
+  background: #e2d1b3;
+  color: #3e2a10;
+  box-shadow: 0 2px 8px rgba(30, 18, 8, 0.4);
 }
 
 .combat-turn-card.mine {
@@ -247,6 +315,7 @@
   border: 0;
   border-radius: 0;
   box-shadow: none;
+  overflow: hidden; /* 맵이 프레임 밖으로 튀어나가지 않도록 */
 }
 
 .combat-map-placeholder {
@@ -255,8 +324,9 @@
   place-content: center;
   gap: 8px;
   text-align: center;
-  color: #314457;
-  background: #e3e8ec;
+  color: #5a3c10;
+  background: transparent;
+  overflow: hidden;
 }
 
 .combat-map-placeholder span {
@@ -371,13 +441,11 @@
 
 .combat-action-dock {
   min-height: 86px;
-  padding: 6px 10px;
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr) minmax(220px, 0.34fr);
-  gap: 8px;
+  gap: 16px;
   align-items: stretch;
-  border-top: 1px solid #c9d3dc;
-  background: #e7edf0;
+  /* 우드 배경이 비치도록 투명하게 유지, 각각의 독립 카드로 렌더링됨 */
 }
 
 .combat-resolver {
@@ -416,12 +484,11 @@
 .combat-action-panel,
 .combat-inventory-panel {
   min-width: 0;
-  padding: 8px;
+  padding: 14px 16px;
   display: grid;
   align-content: center;
-  gap: 5px;
-  border: 1px solid #c3ced8;
-  background: #f8fafb;
+  gap: 7px;
+  /* background, border 등은 상단 공통 클래스에서 자동 적용됨 */
 }
 
 .combat-inventory-panel {
@@ -430,7 +497,7 @@
 }
 
 .combat-resource-panel strong {
-  color: #203040;
+  color: #2a1a06;
   font-size: 12px;
   line-height: 1.15;
   overflow-wrap: anywhere;
@@ -565,7 +632,7 @@
 
 .combat-inventory-panel p {
   margin: 0;
-  color: #607184;
+  color: #4a2808;
   font-size: 12px;
   line-height: 1.45;
 }
