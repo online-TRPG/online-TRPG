@@ -3443,13 +3443,15 @@ export function PlayPage({
 
         <div className="session-sidebar-panel">
           <div className="session-sidebar-heading">
-            <span className="eyebrow">{sessionTabDescriptions[activeTab].eyebrow}</span>
             <strong className="session-sidebar-title">
               {sessionTabDescriptions[activeTab].title}
             </strong>
-            <p className="session-sidebar-subtitle">
-              {sessionTabDescriptions[activeTab].description}
-            </p>
+            <div className="session-sidebar-info-trigger">
+              <Icon name="help-circle" />
+              <div className="session-sidebar-info-tooltip">
+                {sessionTabDescriptions[activeTab].description}
+              </div>
+            </div>
           </div>
 
           {activeTab === 'Main' || activeTab === 'Chat' ? (
