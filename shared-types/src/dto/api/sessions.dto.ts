@@ -34,7 +34,7 @@ import { ScenarioSummaryResponseDto } from "./scenarios.dto";
 import { UserResponseDto } from "./users.dto";
 
 export class CreateSessionDto {
-  @ApiProperty({ example: "Goblin Cave Run" })
+  @ApiProperty({ example: "검은 우물의 쥐떼" })
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
@@ -46,7 +46,7 @@ export class CreateSessionDto {
   @MaxLength(500)
   description?: string;
 
-  @ApiPropertyOptional({ example: "scenario_goblin_cave" })
+  @ApiPropertyOptional({ example: "scenario_77758fa0-3b35-4f95-bb2d-0ffe11c989ac" })
   @IsOptional()
   @IsString()
   @IsNotEmpty()
