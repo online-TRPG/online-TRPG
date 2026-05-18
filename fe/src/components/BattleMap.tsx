@@ -1699,6 +1699,7 @@ export function BattleMap({
       ...terrainCells,
       ...wallCells,
       ...doorCells.filter((door) => door.state !== 'open' && door.state !== 'broken'),
+      ...map.fogRects,
     ];
   }
 
