@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "srd-engine-spellcasting-rules-v1.0",
+  "source": {
+    "document": "SRD 5.1",
+    "file": "SRD-OGL_V5.1.pdf",
+    "license": "CC-BY-4.0",
+    "notes": "Common spellcasting formulas are normalized from SRD class Spellcasting features and are referenced by MVP spell records."
+  },
+  "rules": [
+    {
+      "id": "rule.spell_attack_bonus",
+      "kind": "formula",
+      "label": "Spell attack roll",
+      "formula": "d20 + proficiencyBonus + spellcastingAbilityModifier",
+      "inputs": ["d20", "proficiencyBonus", "spellcastingAbilityModifier"],
+      "appliesTo": ["resolution.kind:spell_attack"]
+    },
+    {
+      "id": "rule.spell_save_dc",
+      "kind": "formula",
+      "label": "Spell save DC",
+      "formula": "8 + proficiencyBonus + spellcastingAbilityModifier",
+      "inputs": ["proficiencyBonus", "spellcastingAbilityModifier"],
+      "appliesTo": ["resolution.kind:saving_throw"]
+    },
+    {
+      "id": "rule.first_level_spell_slot_cost",
+      "kind": "resource_cost",
+      "label": "1st-level spell slot cost",
+      "resourceKey": "1st_level_spell_slot",
+      "quantity": 1,
+      "appliesTo": ["spell.level:1"]
+    },
+    {
+      "id": "rule.cantrip_no_spell_slot",
+      "kind": "resource_cost",
+      "label": "Cantrip slot cost",
+      "resourceKey": null,
+      "quantity": 0,
+      "appliesTo": ["spell.level:0"]
+    },
+    {
+      "id": "rule.concentration_single_spell",
+      "kind": "state_limit",
+      "label": "Single concentration spell",
+      "limit": {
+        "stateKey": "concentration.activeSpellId",
+        "maxActive": 1,
+        "replaceExistingOnNewConcentration": true
+      },
+      "appliesTo": ["casting.concentration:true"]
+    }
+  ]
+}

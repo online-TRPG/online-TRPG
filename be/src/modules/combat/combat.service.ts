@@ -43,11 +43,13 @@ type CombatWithParticipants = Awaited<ReturnType<CombatService["getActiveCombatE
 type CombatParticipantEntity = NonNullable<CombatWithParticipants>["participants"][number];
 
 type EquippedWeaponProfile = {
+  weaponId?: string | null;
   name: string;
   attackBonus: number;
   damageDice?: string;
   damageBonus?: number;
   rangeFt: number;
+  isLightMeleeWeapon?: boolean;
   fixedDamageTotal?: number;
   isBasicAttack?: boolean;
 };
@@ -64,6 +66,7 @@ const DEFAULT_MONSTER_HP = 1;
 const COMBAT_CONDITION_DODGE = "combat:dodge";
 const COMBAT_CONDITION_HIDDEN = "combat:hidden";
 const COMBAT_HIDE_DC = 12;
+const SECOND_WIND_EXPENDED_TAG = "resource:second_wind_expended";
 
 @Injectable()
 export class CombatService {
@@ -585,7 +588,12 @@ export class CombatService {
     userId: string,
     sessionId: string,
     dto: ResolveCombatAttackDto,
-    options: { messagePrefix?: string; fixedDamageTotal?: number } = {},
+    options: {
+      messagePrefix?: string;
+      fixedDamageTotal?: number;
+      actionCost?: "action" | "bonus_action";
+      attackAction?: { weaponId?: string | null; weaponIsLightMelee: boolean };
+    } = {},
   ): Promise<CombatActionResultDto> {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     await this.sessionsService.ensureMembership(userId, session.id);
@@ -626,10 +634,26 @@ export class CombatService {
       : null;
     const damageTotal = fixedDamageTotal ?? damageRoll?.total ?? null;
 
+    if (options.actionCost === "bonus_action") {
+      await this.spendCurrentBonusActionIfNeeded(combat, attacker);
+    } else {
+      await this.spendCurrentActionIfNeeded(combat, attacker);
+      if (options.attackAction && combat.currentParticipantId === attacker.id) {
+        await this.actionEconomy.recordAttackAction({
+          combatId: combat.id,
+          combatParticipantId: attacker.id,
+          roundNo: combat.roundNo,
+          turnNo: combat.turnNo,
+          sessionCharacterId: attacker.sessionCharacterId,
+          weaponId: options.attackAction.weaponId,
+          weaponIsLightMelee: options.attackAction.weaponIsLightMelee,
+        });
+      }
+    }
+
     if (damageTotal !== null && damageTotal > 0) {
       await this.applyHitPointDelta(combat, target, -damageTotal);
     }
-    await this.spendCurrentActionIfNeeded(combat, attacker);
     if (attackerConditions.includes(COMBAT_CONDITION_HIDDEN)) {
       await this.removeCombatCondition(attacker, COMBAT_CONDITION_HIDDEN);
     }
@@ -747,8 +771,208 @@ export class CombatService {
           ? `${attacker.nameSnapshot} 기본 공격 처리`
           : `${attacker.nameSnapshot} ${weapon.name}`,
         fixedDamageTotal: weapon.fixedDamageTotal,
+        attackAction: {
+          weaponId: weapon.weaponId,
+          weaponIsLightMelee: Boolean(weapon.isLightMeleeWeapon),
+        },
       },
     );
+  }
+
+  async resolveOffhandWeaponAttack(
+    userId: string,
+    sessionId: string,
+    dto: EquippedWeaponAttackDto,
+  ): Promise<CombatActionResultDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    await this.sessionsService.ensureMembership(userId, session.id);
+    const combat = await this.getActiveCombatEntity(session.id);
+    const attacker = combat.participants.find(
+      (participant) => participant.id === combat.currentParticipantId,
+    );
+    if (!attacker || attacker.isHostile || !attacker.sessionCharacterId) {
+      throw conflict("COMBAT_409", "현재 플레이어 캐릭터 턴이 아닙니다.", {
+        reason: "CURRENT_TURN_IS_NOT_PLAYER_CHARACTER",
+      });
+    }
+    await this.ensureActorCanAct(userId, session.id, combat, attacker);
+
+    const target = this.findCombatParticipantOrThrow(combat, dto.targetParticipantId);
+    if (!target.isHostile || !target.isAlive) {
+      throw conflict("COMBAT_409", "공격할 수 있는 대상이 아닙니다.", {
+        reason: "INVALID_ATTACK_TARGET",
+      });
+    }
+    const turnState = await this.actionEconomy.getOrCreateTurnState({
+      combatId: combat.id,
+      combatParticipantId: attacker.id,
+      roundNo: combat.roundNo,
+      turnNo: combat.turnNo,
+      sessionCharacterId: attacker.sessionCharacterId,
+    });
+    if (turnState.bonusActionUsed) {
+      throw conflict("COMBAT_409", "사용 가능한 bonus action이 없습니다.", {
+        reason: "BONUS_ACTION_ALREADY_USED",
+      });
+    }
+    if (!turnState.attackActionWeaponIsLightMelee) {
+      throw conflict(
+        "COMBAT_409",
+        "쌍수 보조 공격은 이번 턴에 Attack action으로 light 근접 무기 공격을 한 뒤에만 할 수 있습니다.",
+        { reason: "TWO_WEAPON_ATTACK_ACTION_REQUIRED" },
+      );
+    }
+
+    const weapon = await this.resolveEquippedWeaponProfile(attacker.sessionCharacterId, "offhand");
+    if (!weapon.isLightMeleeWeapon) {
+      throw conflict("COMBAT_409", "쌍수 보조 공격은 light 속성의 근접 무기로만 할 수 있습니다.", {
+        reason: "OFFHAND_WEAPON_MUST_BE_LIGHT_MELEE",
+      });
+    }
+    if (turnState.attackActionWeaponId && turnState.attackActionWeaponId === weapon.weaponId) {
+      throw conflict("COMBAT_409", "쌍수 보조 공격은 다른 손에 든 다른 무기로 해야 합니다.", {
+        reason: "OFFHAND_WEAPON_MUST_BE_DIFFERENT",
+      });
+    }
+    const map = await this.sessionsService.getVttMapForUser(session.hostUserId ?? userId, session.id);
+    const attackerToken = attacker.tokenId
+      ? map.tokens.find((token) => token.id === attacker.tokenId && token.hidden !== true)
+      : map.tokens.find(
+          (token) => token.sessionCharacterId === attacker.sessionCharacterId && token.hidden !== true,
+        );
+    const targetToken = target.tokenId
+      ? map.tokens.find((token) => token.id === target.tokenId && token.hidden !== true)
+      : map.tokens.find(
+          (token) => token.sessionCharacterId === target.sessionCharacterId && token.hidden !== true,
+        );
+
+    if (!attackerToken || !targetToken) {
+      throw conflict("COMBAT_409", "공격 거리 판정에 필요한 토큰을 찾을 수 없습니다.", {
+        reason: "ATTACK_TOKEN_NOT_FOUND",
+      });
+    }
+
+    const distanceFt = this.getTokenGridDistanceFt(map, attackerToken, targetToken);
+    if (distanceFt > weapon.rangeFt) {
+      throw conflict("COMBAT_409", "대상이 무기 사거리 밖에 있습니다.", {
+        reason: "TARGET_OUT_OF_WEAPON_RANGE",
+        distanceFt,
+        rangeFt: weapon.rangeFt,
+      });
+    }
+
+    return this.resolveAttack(
+      userId,
+      session.id,
+      {
+        attackerParticipantId: attacker.id,
+        targetParticipantId: target.id,
+        attackBonus: weapon.attackBonus,
+        damageDice: weapon.damageDice,
+        damageBonus: weapon.damageBonus,
+      },
+      {
+        messagePrefix: `${attacker.nameSnapshot} 보조 공격(${weapon.name})`,
+        fixedDamageTotal: weapon.fixedDamageTotal,
+        actionCost: "bonus_action",
+      },
+    );
+  }
+
+  async useSecondWind(
+    userId: string,
+    sessionId: string,
+    _dto: CombatBasicActionDto = {},
+  ): Promise<CombatActionResultDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    await this.sessionsService.ensureMembership(userId, session.id);
+    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
+    const combat = await this.getActiveCombatEntity(session.id);
+    const actor = this.getCurrentPlayerParticipantOrThrow(combat);
+    await this.ensureActorCanAct(userId, session.id, combat, actor);
+    if (!actor.sessionCharacterId) {
+      throw conflict("COMBAT_409", "Second Wind를 사용할 캐릭터를 찾을 수 없습니다.", {
+        reason: "SESSION_CHARACTER_NOT_FOUND",
+      });
+    }
+
+    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+      where: { id: actor.sessionCharacterId },
+      include: { character: true },
+    });
+    if (!sessionCharacter) {
+      throw notFound("COMBAT_404", "캐릭터 전투 참여자를 찾을 수 없습니다.", {
+        reason: "SESSION_CHARACTER_NOT_FOUND",
+      });
+    }
+    if (!sessionCharacter.character.className.toLowerCase().includes("fighter")) {
+      throw conflict("COMBAT_409", "Second Wind는 Fighter만 사용할 수 있습니다.", {
+        reason: "SECOND_WIND_REQUIRES_FIGHTER",
+      });
+    }
+
+    const turnState = await this.actionEconomy.getOrCreateTurnState({
+      combatId: combat.id,
+      combatParticipantId: actor.id,
+      roundNo: combat.roundNo,
+      turnNo: combat.turnNo,
+      sessionCharacterId: actor.sessionCharacterId,
+    });
+    if (turnState.bonusActionUsed) {
+      throw conflict("COMBAT_409", "사용 가능한 bonus action이 없습니다.", {
+        reason: "BONUS_ACTION_ALREADY_USED",
+      });
+    }
+
+    const resource = await this.characterResources.getOrCreateResource(actor.sessionCharacterId, {
+      secondWindAvailable: true,
+    });
+    if (!resource.secondWindAvailable) {
+      throw conflict("COMBAT_409", "Second Wind를 이미 사용했습니다.", {
+        reason: "SECOND_WIND_UNAVAILABLE",
+      });
+    }
+
+    const roll = this.diceService.roll("1d10");
+    const healingAmount = roll.total + sessionCharacter.character.level;
+    await this.spendCurrentBonusActionIfNeeded(combat, actor);
+    await this.characterResources.spendSecondWind(actor.sessionCharacterId);
+    await this.addCombatCondition(actor, SECOND_WIND_EXPENDED_TAG);
+    await this.applyHitPointDelta(combat, actor, healingAmount);
+
+    const updated = await this.getActiveCombatEntity(session.id);
+    const response = await this.mapCombat(updated);
+    const healedActor = response.participants.find(
+      (participant) => participant.sessionEntityId === actor.id,
+    );
+    const message = `${actor.nameSnapshot}은(는) Second Wind로 HP를 ${healedActor?.currentHp ?? "-"}까지 회복했습니다.`;
+    const turnLog = await this.turnLogsService.createTurnLog({
+      sessionId: session.id,
+      sessionScenarioId: sessionScenario.id,
+      actorUserId: userId,
+      sessionCharacterId: actor.sessionCharacterId,
+      rawInput: null,
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: "class.fighter.feature.second_wind",
+        healingAmount,
+      },
+      diceResult: { ...roll },
+      outcome: ActionOutcome.SUCCESS,
+      narration: message,
+    });
+    this.realtimeEvents.emitDiceRolled(session.id, roll);
+    this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
+    this.realtimeEvents.emitCombatUpdated(session.id, response);
+    this.realtimeEvents.emitSessionSnapshot(session.id, await this.sessionsService.buildSnapshot(session.id));
+
+    return {
+      combat: response,
+      message,
+      attackTotal: null,
+      damageTotal: healingAmount,
+      turnLogId: turnLog.turnLogId,
+    };
   }
 
   async dash(
@@ -1236,7 +1460,10 @@ export class CombatService {
     return Math.floor(Math.min(Math.max(value, 0), Math.max(0, maxSize - 1)) / gridSize);
   }
 
-  private async resolveEquippedWeaponProfile(sessionCharacterId: string): Promise<EquippedWeaponProfile> {
+  private async resolveEquippedWeaponProfile(
+    sessionCharacterId: string,
+    slot: "main" | "offhand" = "main",
+  ): Promise<EquippedWeaponProfile> {
     const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
       where: { id: sessionCharacterId },
       include: {
@@ -1263,8 +1490,16 @@ export class CombatService {
       };
     };
 
-    const equippedWeaponId = sessionCharacter.character.equippedWeaponId;
+    const equippedWeaponId =
+      slot === "offhand"
+        ? sessionCharacter.character.offhandWeaponId
+        : sessionCharacter.character.equippedWeaponId;
     if (!equippedWeaponId) {
+      if (slot === "offhand") {
+        throw conflict("COMBAT_409", "보조 손에 장착한 무기가 없습니다.", {
+          reason: "OFFHAND_WEAPON_NOT_EQUIPPED",
+        });
+      }
       // 장착 무기가 없어도 전투 턴이 막히지 않도록 5ft 기본 공격으로 내려갑니다.
       return buildBasicAttackProfile();
     }
@@ -1300,20 +1535,39 @@ export class CombatService {
     const fallback = this.getFallbackWeaponProfile(
       [item.itemDefinitionId, item.id, item.name].filter(Boolean).join(" "),
     );
-    const properties = new Set([...(item.properties ?? []), ...(fallback.properties ?? [])].map((value) => value.toLowerCase()));
+    const properties = new Set(
+      [...(item.properties ?? []), ...(fallback.properties ?? [])].map((value) =>
+        value.toLowerCase().replace(/[_\s]+/g, "-"),
+      ),
+    );
     const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
     const strMod = this.getAbilityModifier(abilities.str);
     const dexMod = this.getAbilityModifier(abilities.dex);
     const isRanged = properties.has("ranged");
+    const isMelee = properties.has("melee") || !isRanged;
     const isFinesse = properties.has("finesse");
+    const isTwoHanded = properties.has("two-handed");
+    const isLightMeleeWeapon = isMelee && properties.has("light") && !isTwoHanded;
+    if (slot === "offhand" && !isLightMeleeWeapon) {
+      throw conflict("COMBAT_409", "쌍수 보조 공격은 light 속성의 근접 무기로만 할 수 있습니다.", {
+        reason: "INVALID_OFFHAND_WEAPON",
+      });
+    }
     const abilityMod = isRanged ? dexMod : isFinesse ? Math.max(strMod, dexMod) : strMod;
+    const featureTags = this.parseJsonArray<string>(sessionCharacter.character.featuresJson);
+    const hasTwoWeaponFighting = featureTags.some(
+      (feature) => feature.toLowerCase() === "fighting_style:two_weapon_fighting",
+    );
 
     return {
+      weaponId: equippedWeaponId,
       name: item.name ?? fallback.name ?? "무기",
       attackBonus: sessionCharacter.character.proficiencyBonus + abilityMod,
       damageDice: item.damageDice ?? fallback.damageDice ?? "1d6",
-      damageBonus: abilityMod,
+      damageBonus:
+        slot === "offhand" && !hasTwoWeaponFighting ? Math.min(0, abilityMod) : abilityMod,
       rangeFt: fallback.rangeFt ?? (isRanged ? 80 : 5),
+      isLightMeleeWeapon,
     };
   }
 
@@ -1698,6 +1952,23 @@ export class CombatService {
     }
 
     await this.actionEconomy.spendAction({
+      combatId: combat.id,
+      combatParticipantId: attacker.id,
+      roundNo: combat.roundNo,
+      turnNo: combat.turnNo,
+      sessionCharacterId: attacker.sessionCharacterId,
+    });
+  }
+
+  private async spendCurrentBonusActionIfNeeded(
+    combat: NonNullable<CombatWithParticipants>,
+    attacker: CombatParticipantEntity,
+  ): Promise<void> {
+    if (combat.currentParticipantId !== attacker.id) {
+      return;
+    }
+
+    await this.actionEconomy.spendBonusAction({
       combatId: combat.id,
       combatParticipantId: attacker.id,
       roundNo: combat.roundNo,
@@ -2192,10 +2463,14 @@ export class CombatService {
           actionResources: {
             actionAvailable: !turnState?.actionUsed || Boolean(turnState?.additionalActionGranted),
             bonusActionAvailable:
-              this.hasBonusActionOption(participant, sessionCharacter?.character ?? null) &&
+              (this.hasBonusActionOption(participant, sessionCharacter?.character ?? null) ||
+                Boolean(turnState?.attackActionWeaponIsLightMelee)) &&
               !Boolean(turnState?.bonusActionUsed),
             reactionAvailable: !Boolean(turnState?.reactionUsed),
             additionalActionAvailable: Boolean(turnState?.additionalActionGranted),
+            twoWeaponAttackAvailable: Boolean(
+              turnState?.attackActionWeaponIsLightMelee && !turnState?.bonusActionUsed,
+            ),
             movementFtTotal,
             movementFtRemaining: Math.max(0, movementFtTotal - (turnState?.movementFtSpent ?? 0)),
           },

@@ -392,6 +392,9 @@ export class CombatActionResourcesDto {
   additionalActionAvailable!: boolean;
 
   @ApiProperty()
+  twoWeaponAttackAvailable!: boolean;
+
+  @ApiProperty()
   movementFtTotal!: number;
 
   @ApiProperty()
