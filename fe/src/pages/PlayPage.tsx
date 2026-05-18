@@ -168,31 +168,31 @@ type MainCommandHelperOption = {
 
 type ParsedMainSlashInput =
   | {
-      type: 'empty';
-      query: string;
-    }
+    type: 'empty';
+    query: string;
+  }
   | {
-      type: 'matched';
-      query: string;
-      preset: MainCommandPreset;
-      playerText: string;
-    }
+    type: 'matched';
+    query: string;
+    preset: MainCommandPreset;
+    playerText: string;
+  }
   | {
-      type: 'unknown';
-      query: string;
-      command: string;
-    };
+    type: 'unknown';
+    query: string;
+    command: string;
+  };
 
 type MainCommandAutocompleteEntry =
   | {
-      type: 'command';
-      command: MainCommandPreset;
-    }
+    type: 'command';
+    command: MainCommandPreset;
+  }
   | {
-      type: 'separator';
-      id: string;
-      label: string;
-    };
+    type: 'separator';
+    id: string;
+    label: string;
+  };
 
 type MainCommandCategoryOption = {
   label: string;
@@ -345,196 +345,196 @@ const mainCommandFieldConfigByIntent: Partial<
 };
 
 const mainCommandPresetsByScreen: Record<SubmitMainCommandDto['screenType'], MainCommandPreset[]> =
-  {
-    STORY: [
-      {
-        label: 'NPC에게 말하기',
-        categoryLabel: '대화',
-        category: MainCommandCategoryValues.TALK,
-        intent: MainCommandIntentValues.TALK_TO_NPC,
-        screenType: MainCommandScreenTypeValues.STORY,
-      },
-      {
-        label: '설득하기',
-        categoryLabel: '사회 행동',
-        category: MainCommandCategoryValues.SOCIAL,
-        intent: MainCommandIntentValues.SOCIAL_PERSUADE,
-        screenType: MainCommandScreenTypeValues.STORY,
-      },
-      {
-        label: '협박하기',
-        categoryLabel: '사회 행동',
-        category: MainCommandCategoryValues.SOCIAL,
-        intent: MainCommandIntentValues.SOCIAL_INTIMIDATE,
-        screenType: MainCommandScreenTypeValues.STORY,
-      },
-      {
-        label: '태도 살피기',
-        categoryLabel: '사회 행동',
-        category: MainCommandCategoryValues.SOCIAL,
-        intent: MainCommandIntentValues.READ_EMOTION,
-        screenType: MainCommandScreenTypeValues.STORY,
-      },
-      {
-        label: '정보',
-        categoryLabel: '질문',
-        category: MainCommandCategoryValues.QUESTION,
-        intent: MainCommandIntentValues.ASK_SCENE_INFO,
-        screenType: MainCommandScreenTypeValues.STORY,
-      },
-      {
-        label: 'RP 행동',
-        categoryLabel: 'RP 행동',
-        category: MainCommandCategoryValues.RP_ACTION,
-        intent: MainCommandIntentValues.DECLARE_RP_ACTION,
-        screenType: MainCommandScreenTypeValues.STORY,
-      },
-      {
-        label: '힌트 요청',
-        categoryLabel: '진행 보조',
-        category: MainCommandCategoryValues.SUPPORT,
-        intent: MainCommandIntentValues.ASK_HINT,
-        screenType: MainCommandScreenTypeValues.STORY,
-      },
-      {
-        label: '요약',
-        categoryLabel: '진행 보조',
-        category: MainCommandCategoryValues.SUPPORT,
-        intent: MainCommandIntentValues.ASK_SUMMARY,
-        screenType: MainCommandScreenTypeValues.STORY,
-      },
-      {
-        label: '장면 진행 요청',
-        categoryLabel: '진행 보조',
-        category: MainCommandCategoryValues.SUPPORT,
-        intent: MainCommandIntentValues.REQUEST_SCENE_TRANSITION,
-        screenType: MainCommandScreenTypeValues.STORY,
-      },
-    ],
-    EXPLORATION: [
-      {
-        label: '주변 살피기',
-        categoryLabel: '관찰',
-        category: MainCommandCategoryValues.OBSERVATION,
-        intent: MainCommandIntentValues.OBSERVE_AREA,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: '조사하기',
-        categoryLabel: '조사',
-        category: MainCommandCategoryValues.INSPECTION,
-        intent: MainCommandIntentValues.INVESTIGATE_OBJECT,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: '듣기',
-        categoryLabel: '감각',
-        category: MainCommandCategoryValues.SENSE,
-        intent: MainCommandIntentValues.LISTEN,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: '위험 감지',
-        categoryLabel: '감각',
-        category: MainCommandCategoryValues.SENSE,
-        intent: MainCommandIntentValues.DETECT_DANGER,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: '위험한 이동',
-        categoryLabel: '위험 이동',
-        category: MainCommandCategoryValues.MOVEMENT,
-        intent: MainCommandIntentValues.SPECIAL_MOVE,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: '조작하기',
-        categoryLabel: '상호작용',
-        category: MainCommandCategoryValues.INTERACTION,
-        intent: MainCommandIntentValues.INTERACT_OBJECT,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: '아이템 창의 사용',
-        categoryLabel: '도구/아이템',
-        category: MainCommandCategoryValues.TOOL_ITEM,
-        intent: MainCommandIntentValues.USE_ITEM_EXPLORE,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: 'NPC에게 말하기',
-        categoryLabel: '대화',
-        category: MainCommandCategoryValues.TALK,
-        intent: MainCommandIntentValues.TALK_TO_NPC,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: '파티 분담',
-        categoryLabel: '진행 보조',
-        category: MainCommandCategoryValues.SUPPORT,
-        intent: MainCommandIntentValues.SPLIT_PARTY_TASK,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: '힌트 요청',
-        categoryLabel: '진행 보조',
-        category: MainCommandCategoryValues.SUPPORT,
-        intent: MainCommandIntentValues.ASK_HINT,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: '요약',
-        categoryLabel: '진행 보조',
-        category: MainCommandCategoryValues.SUPPORT,
-        intent: MainCommandIntentValues.ASK_SUMMARY,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-      {
-        label: '장면 진행 요청',
-        categoryLabel: '진행 보조',
-        category: MainCommandCategoryValues.SUPPORT,
-        intent: MainCommandIntentValues.REQUEST_SCENE_TRANSITION,
-        screenType: MainCommandScreenTypeValues.EXPLORATION,
-      },
-    ],
-    COMBAT: [
-      {
-        label: '전투 중 대화',
-        categoryLabel: '대화',
-        category: MainCommandCategoryValues.TALK,
-        intent: MainCommandIntentValues.COMBAT_TALK,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
-      {
-        label: '전술 질문',
-        categoryLabel: '전술',
-        category: MainCommandCategoryValues.TACTIC,
-        intent: MainCommandIntentValues.TACTIC_QUERY,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
-      {
-        label: '룰 질문',
-        categoryLabel: '질문',
-        category: MainCommandCategoryValues.QUESTION,
-        intent: MainCommandIntentValues.ASK_RULE,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
-      {
-        label: '힌트 요청',
-        categoryLabel: '진행 보조',
-        category: MainCommandCategoryValues.SUPPORT,
-        intent: MainCommandIntentValues.ASK_HINT,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
-      {
-        label: '요약',
-        categoryLabel: '진행 보조',
-        category: MainCommandCategoryValues.SUPPORT,
-        intent: MainCommandIntentValues.ASK_SUMMARY,
-        screenType: MainCommandScreenTypeValues.COMBAT,
-      },
-    ],
-  };
+{
+  STORY: [
+    {
+      label: 'NPC에게 말하기',
+      categoryLabel: '대화',
+      category: MainCommandCategoryValues.TALK,
+      intent: MainCommandIntentValues.TALK_TO_NPC,
+      screenType: MainCommandScreenTypeValues.STORY,
+    },
+    {
+      label: '설득하기',
+      categoryLabel: '사회 행동',
+      category: MainCommandCategoryValues.SOCIAL,
+      intent: MainCommandIntentValues.SOCIAL_PERSUADE,
+      screenType: MainCommandScreenTypeValues.STORY,
+    },
+    {
+      label: '협박하기',
+      categoryLabel: '사회 행동',
+      category: MainCommandCategoryValues.SOCIAL,
+      intent: MainCommandIntentValues.SOCIAL_INTIMIDATE,
+      screenType: MainCommandScreenTypeValues.STORY,
+    },
+    {
+      label: '태도 살피기',
+      categoryLabel: '사회 행동',
+      category: MainCommandCategoryValues.SOCIAL,
+      intent: MainCommandIntentValues.READ_EMOTION,
+      screenType: MainCommandScreenTypeValues.STORY,
+    },
+    {
+      label: '정보',
+      categoryLabel: '질문',
+      category: MainCommandCategoryValues.QUESTION,
+      intent: MainCommandIntentValues.ASK_SCENE_INFO,
+      screenType: MainCommandScreenTypeValues.STORY,
+    },
+    {
+      label: 'RP 행동',
+      categoryLabel: 'RP 행동',
+      category: MainCommandCategoryValues.RP_ACTION,
+      intent: MainCommandIntentValues.DECLARE_RP_ACTION,
+      screenType: MainCommandScreenTypeValues.STORY,
+    },
+    {
+      label: '힌트 요청',
+      categoryLabel: '진행 보조',
+      category: MainCommandCategoryValues.SUPPORT,
+      intent: MainCommandIntentValues.ASK_HINT,
+      screenType: MainCommandScreenTypeValues.STORY,
+    },
+    {
+      label: '요약',
+      categoryLabel: '진행 보조',
+      category: MainCommandCategoryValues.SUPPORT,
+      intent: MainCommandIntentValues.ASK_SUMMARY,
+      screenType: MainCommandScreenTypeValues.STORY,
+    },
+    {
+      label: '장면 진행 요청',
+      categoryLabel: '진행 보조',
+      category: MainCommandCategoryValues.SUPPORT,
+      intent: MainCommandIntentValues.REQUEST_SCENE_TRANSITION,
+      screenType: MainCommandScreenTypeValues.STORY,
+    },
+  ],
+  EXPLORATION: [
+    {
+      label: '주변 살피기',
+      categoryLabel: '관찰',
+      category: MainCommandCategoryValues.OBSERVATION,
+      intent: MainCommandIntentValues.OBSERVE_AREA,
+      screenType: MainCommandScreenTypeValues.EXPLORATION,
+    },
+    {
+      label: '조사하기',
+      categoryLabel: '조사',
+      category: MainCommandCategoryValues.INSPECTION,
+      intent: MainCommandIntentValues.INVESTIGATE_OBJECT,
+      screenType: MainCommandScreenTypeValues.EXPLORATION,
+    },
+    {
+      label: '듣기',
+      categoryLabel: '감각',
+      category: MainCommandCategoryValues.SENSE,
+      intent: MainCommandIntentValues.LISTEN,
+      screenType: MainCommandScreenTypeValues.EXPLORATION,
+    },
+    {
+      label: '위험 감지',
+      categoryLabel: '감각',
+      category: MainCommandCategoryValues.SENSE,
+      intent: MainCommandIntentValues.DETECT_DANGER,
+      screenType: MainCommandScreenTypeValues.EXPLORATION,
+    },
+    {
+      label: '위험한 이동',
+      categoryLabel: '위험 이동',
+      category: MainCommandCategoryValues.MOVEMENT,
+      intent: MainCommandIntentValues.SPECIAL_MOVE,
+      screenType: MainCommandScreenTypeValues.EXPLORATION,
+    },
+    {
+      label: '조작하기',
+      categoryLabel: '상호작용',
+      category: MainCommandCategoryValues.INTERACTION,
+      intent: MainCommandIntentValues.INTERACT_OBJECT,
+      screenType: MainCommandScreenTypeValues.EXPLORATION,
+    },
+    {
+      label: '아이템 창의 사용',
+      categoryLabel: '도구/아이템',
+      category: MainCommandCategoryValues.TOOL_ITEM,
+      intent: MainCommandIntentValues.USE_ITEM_EXPLORE,
+      screenType: MainCommandScreenTypeValues.EXPLORATION,
+    },
+    {
+      label: 'NPC에게 말하기',
+      categoryLabel: '대화',
+      category: MainCommandCategoryValues.TALK,
+      intent: MainCommandIntentValues.TALK_TO_NPC,
+      screenType: MainCommandScreenTypeValues.EXPLORATION,
+    },
+    {
+      label: '파티 분담',
+      categoryLabel: '진행 보조',
+      category: MainCommandCategoryValues.SUPPORT,
+      intent: MainCommandIntentValues.SPLIT_PARTY_TASK,
+      screenType: MainCommandScreenTypeValues.EXPLORATION,
+    },
+    {
+      label: '힌트 요청',
+      categoryLabel: '진행 보조',
+      category: MainCommandCategoryValues.SUPPORT,
+      intent: MainCommandIntentValues.ASK_HINT,
+      screenType: MainCommandScreenTypeValues.EXPLORATION,
+    },
+    {
+      label: '요약',
+      categoryLabel: '진행 보조',
+      category: MainCommandCategoryValues.SUPPORT,
+      intent: MainCommandIntentValues.ASK_SUMMARY,
+      screenType: MainCommandScreenTypeValues.EXPLORATION,
+    },
+    {
+      label: '장면 진행 요청',
+      categoryLabel: '진행 보조',
+      category: MainCommandCategoryValues.SUPPORT,
+      intent: MainCommandIntentValues.REQUEST_SCENE_TRANSITION,
+      screenType: MainCommandScreenTypeValues.EXPLORATION,
+    },
+  ],
+  COMBAT: [
+    {
+      label: '전투 중 대화',
+      categoryLabel: '대화',
+      category: MainCommandCategoryValues.TALK,
+      intent: MainCommandIntentValues.COMBAT_TALK,
+      screenType: MainCommandScreenTypeValues.COMBAT,
+    },
+    {
+      label: '전술 질문',
+      categoryLabel: '전술',
+      category: MainCommandCategoryValues.TACTIC,
+      intent: MainCommandIntentValues.TACTIC_QUERY,
+      screenType: MainCommandScreenTypeValues.COMBAT,
+    },
+    {
+      label: '룰 질문',
+      categoryLabel: '질문',
+      category: MainCommandCategoryValues.QUESTION,
+      intent: MainCommandIntentValues.ASK_RULE,
+      screenType: MainCommandScreenTypeValues.COMBAT,
+    },
+    {
+      label: '힌트 요청',
+      categoryLabel: '진행 보조',
+      category: MainCommandCategoryValues.SUPPORT,
+      intent: MainCommandIntentValues.ASK_HINT,
+      screenType: MainCommandScreenTypeValues.COMBAT,
+    },
+    {
+      label: '요약',
+      categoryLabel: '진행 보조',
+      category: MainCommandCategoryValues.SUPPORT,
+      intent: MainCommandIntentValues.ASK_SUMMARY,
+      screenType: MainCommandScreenTypeValues.COMBAT,
+    },
+  ],
+};
 
 const emptyMainCommandPresets: MainCommandPreset[] = [];
 
@@ -1262,12 +1262,12 @@ function logCombatRequestSucceeded(sessionId: string, combat: CombatResponseDto)
     currentEntityId: combat.currentEntityId,
     currentParticipant: currentParticipant
       ? {
-          id: currentParticipant.sessionEntityId,
-          name: currentParticipant.name,
-          type: currentParticipant.entityType,
-          isHostile: currentParticipant.isHostile,
-          isAlive: currentParticipant.isAlive,
-        }
+        id: currentParticipant.sessionEntityId,
+        name: currentParticipant.name,
+        type: currentParticipant.entityType,
+        isHostile: currentParticipant.isHostile,
+        isAlive: currentParticipant.isAlive,
+      }
       : null,
     participants: combat.participants.map((participant) => ({
       id: participant.sessionEntityId,
@@ -1293,10 +1293,10 @@ function isCombatResponseDto(value: unknown): value is CombatResponseDto {
 function isCombatActionResultDto(value: unknown): value is CombatActionResultDto {
   return Boolean(
     value &&
-      typeof value === 'object' &&
-      'combat' in value &&
-      'message' in value &&
-      typeof (value as { message?: unknown }).message === 'string'
+    typeof value === 'object' &&
+    'combat' in value &&
+    'message' in value &&
+    typeof (value as { message?: unknown }).message === 'string'
   );
 }
 
@@ -1421,8 +1421,11 @@ export function PlayPage({
         character.id === selectedCharacterId || character.characterId === selectedCharacterId
     ) ?? null;
   const readyLocked = Boolean(myParticipant?.isReady);
+  // 준비 배지는 빈 슬롯이 아니라 실제로 세션에 들어온 참가자 수를 기준으로 표시합니다.
+  const readyParticipantCount = participants.filter((participant) => participant.isReady).length;
+  const participantCount = participants.length;
   const allPlayersReady =
-    participants.length > 0 && participants.every((participant) => participant.isReady);
+    participantCount > 0 && readyParticipantCount === participantCount;
   const isHost = session?.hostUserId === user.id;
   const isRecruiting = session?.status === 'recruiting';
   const isSessionCompleted = session?.status === 'completed';
@@ -1488,9 +1491,9 @@ export function PlayPage({
   );
   const isCompletedCombatNode = Boolean(
     currentNode?.nodeType === 'combat' &&
-      currentNode.id &&
-      (completedCombatNodeIds.has(currentNode.id) ||
-        (combat?.sessionId === session?.id && combat?.status === 'ENDED'))
+    currentNode.id &&
+    (completedCombatNodeIds.has(currentNode.id) ||
+      (combat?.sessionId === session?.id && combat?.status === 'ENDED'))
   );
   const currentScreenType = isCompletedCombatNode
     ? MainCommandScreenTypeValues.EXPLORATION
@@ -1509,14 +1512,14 @@ export function PlayPage({
     const presets = mainCommandPresetsByScreen[currentScreenType];
     return isExplorationMainCommandContext
       ? presets.filter(
-          (preset) =>
-            preset.intent !== MainCommandIntentValues.OBSERVE_AREA &&
-            preset.intent !== MainCommandIntentValues.INVESTIGATE_OBJECT &&
-            preset.intent !== MainCommandIntentValues.LISTEN &&
-            preset.intent !== MainCommandIntentValues.DETECT_DANGER &&
-            preset.intent !== MainCommandIntentValues.INTERACT_OBJECT &&
-            preset.intent !== MainCommandIntentValues.SPLIT_PARTY_TASK
-        )
+        (preset) =>
+          preset.intent !== MainCommandIntentValues.OBSERVE_AREA &&
+          preset.intent !== MainCommandIntentValues.INVESTIGATE_OBJECT &&
+          preset.intent !== MainCommandIntentValues.LISTEN &&
+          preset.intent !== MainCommandIntentValues.DETECT_DANGER &&
+          preset.intent !== MainCommandIntentValues.INTERACT_OBJECT &&
+          preset.intent !== MainCommandIntentValues.SPLIT_PARTY_TASK
+      )
       : presets;
   }, [currentScreenType, isExplorationMainCommandContext]);
   const selectedCharacterInventory =
@@ -1583,14 +1586,14 @@ export function PlayPage({
     : null;
   const activeMainHelperOption = isExplorationMainCommandContext
     ? (availableMainHelperOptions.find(
-        (option) => option.id === selectedMainCommandHelperGroup
-      ) ?? null)
+      (option) => option.id === selectedMainCommandHelperGroup
+    ) ?? null)
     : (availableMainHelperOptions.find(
-        (option) =>
-          option.id === activeMainHelperGroup &&
-          (!selectedMainCommand ||
-            isMainCommandAvailableForHelperGroup(selectedMainCommand, option.id))
-      ) ??
+      (option) =>
+        option.id === activeMainHelperGroup &&
+        (!selectedMainCommand ||
+          isMainCommandAvailableForHelperGroup(selectedMainCommand, option.id))
+    ) ??
       availableMainHelperOptions.find(
         (option) => option.id === selectedMainCommandHelperGroup
       ) ??
@@ -1608,36 +1611,36 @@ export function PlayPage({
   const shouldShowCommandGuide = isCommandGuideOpen && !shouldShowMainCommandAutocomplete;
   const mainCommandAutocompleteCandidates = shouldShowMainCommandAutocomplete
     ? mainCommandPresets.filter((preset) => {
-        if (
-          activeMainHelperOption &&
-          !isMainCommandAvailableForHelperGroup(preset, activeMainHelperOption.id)
-        ) {
-          return false;
-        }
-        const slashCommands = getMainCommandSlashCommands(preset);
-        if (mainSlashToken === '/') return slashCommands.length > 0;
-        return slashCommands.some((slashCommand) => slashCommand.startsWith(mainSlashToken));
-      })
+      if (
+        activeMainHelperOption &&
+        !isMainCommandAvailableForHelperGroup(preset, activeMainHelperOption.id)
+      ) {
+        return false;
+      }
+      const slashCommands = getMainCommandSlashCommands(preset);
+      if (mainSlashToken === '/') return slashCommands.length > 0;
+      return slashCommands.some((slashCommand) => slashCommand.startsWith(mainSlashToken));
+    })
     : [];
   const mainCommandAutocompleteEntries: MainCommandAutocompleteEntry[] = activeMainHelperOption
     ? mainCommandAutocompleteCandidates.map((command) => ({ type: 'command', command }))
     : [
-        ...mainCommandAutocompleteCandidates
-          .filter((command) => !doesMainCommandNeedHelperSelection(command))
-          .map((command) => ({ type: 'command' as const, command })),
-        ...(mainCommandAutocompleteCandidates.some(doesMainCommandNeedHelperSelection)
-          ? [
-              {
-                type: 'separator' as const,
-                id: 'helper-selection-required',
-                label: '아래는 대상 선택 필요',
-              },
-              ...mainCommandAutocompleteCandidates
-                .filter(doesMainCommandNeedHelperSelection)
-                .map((command) => ({ type: 'command' as const, command })),
-            ]
-          : []),
-      ];
+      ...mainCommandAutocompleteCandidates
+        .filter((command) => !doesMainCommandNeedHelperSelection(command))
+        .map((command) => ({ type: 'command' as const, command })),
+      ...(mainCommandAutocompleteCandidates.some(doesMainCommandNeedHelperSelection)
+        ? [
+          {
+            type: 'separator' as const,
+            id: 'helper-selection-required',
+            label: '아래는 대상 선택 필요',
+          },
+          ...mainCommandAutocompleteCandidates
+            .filter(doesMainCommandNeedHelperSelection)
+            .map((command) => ({ type: 'command' as const, command })),
+        ]
+        : []),
+    ];
   const mainCommandAutocompleteCommandEntries = mainCommandAutocompleteEntries.filter(
     (entry): entry is Extract<MainCommandAutocompleteEntry, { type: 'command' }> =>
       entry.type === 'command' && getMainCommandSlashCommands(entry.command).length > 0
@@ -2292,11 +2295,11 @@ export function PlayPage({
       ).fill(0),
       startingSpells:
         selectedQuickCreateClass.startingCantripCount > 0 ||
-        selectedQuickCreateClass.startingSpellCount > 0
+          selectedQuickCreateClass.startingSpellCount > 0
           ? {
-              cantrips: new Array(selectedQuickCreateClass.startingCantripCount).fill(''),
-              spells: new Array(selectedQuickCreateClass.startingSpellCount).fill(''),
-            }
+            cantrips: new Array(selectedQuickCreateClass.startingCantripCount).fill(''),
+            spells: new Array(selectedQuickCreateClass.startingSpellCount).fill(''),
+          }
           : undefined,
       assignToSession: true,
     };
@@ -2351,7 +2354,7 @@ export function PlayPage({
       event.preventDefault();
       const selectedEntry =
         mainCommandAutocompleteCommandEntries[
-          mainCommandAutocompleteIndex >= 0 ? mainCommandAutocompleteIndex : 0
+        mainCommandAutocompleteIndex >= 0 ? mainCommandAutocompleteIndex : 0
         ];
       if (selectedEntry) {
         applyMainCommandAutocomplete(selectedEntry.command);
@@ -2414,8 +2417,8 @@ export function PlayPage({
         submitPreset.intent === MainCommandIntentValues.ENVIRONMENT_USE;
       const shouldSubmitTarget = Boolean(
         selectedMainTargetId &&
-          (activeFieldConfig?.targetTypes?.length ||
-            (isExplorationMainCommandContext && selectedMainTarget))
+        (activeFieldConfig?.targetTypes?.length ||
+          (isExplorationMainCommandContext && selectedMainTarget))
       );
       const shouldSubmitItem = Boolean(
         selectedMainItemId && selectedMainItem && (requiresItem || isExplorationMainCommandContext)
@@ -2474,11 +2477,11 @@ export function PlayPage({
         ...(shouldSubmitItem ? { itemId: selectedMainItemId } : {}),
         ...(shouldSubmitSpell ? { spellId: selectedMainSpellId.trim() } : {}),
         ...(mapPoint &&
-        (requiresMapPoint ||
-          allowsMapPoint ||
-          requiresTargetOrPoint ||
-          (requiresTarget && !shouldSubmitTarget) ||
-          isExplorationMainCommandContext)
+          (requiresMapPoint ||
+            allowsMapPoint ||
+            requiresTargetOrPoint ||
+            (requiresTarget && !shouldSubmitTarget) ||
+            isExplorationMainCommandContext)
           ? { mapPoint }
           : {}),
         ...(shouldSubmitRelatedIntent
@@ -2528,11 +2531,11 @@ export function PlayPage({
     const fieldConfig = mainCommandFieldConfigByIntent[preset.intent] ?? null;
     const target = request.targetId
       ? currentNode?.visibleTargets.find((item) => {
-          if (item.id !== request.targetId) return false;
-          return fieldConfig?.targetTypes?.length
-            ? fieldConfig.targetTypes.includes(item.targetType)
-            : true;
-        }) ?? null
+        if (item.id !== request.targetId) return false;
+        return fieldConfig?.targetTypes?.length
+          ? fieldConfig.targetTypes.includes(item.targetType)
+          : true;
+      }) ?? null
       : null;
     const item = request.itemId
       ? selectedCharacterInventory.find((entry) => entry.id === request.itemId) ?? null
@@ -2546,7 +2549,7 @@ export function PlayPage({
       preset.intent === MainCommandIntentValues.ENVIRONMENT_USE;
     const shouldSubmitMapPoint = Boolean(
       request.mapPoint &&
-        (requiresMapPoint || allowsMapPoint || requiresTargetOrPoint || !target)
+      (requiresMapPoint || allowsMapPoint || requiresTargetOrPoint || !target)
     );
     const slashCommand = getMainCommandSlashCommands(preset)[0] ?? '';
     const rawInputText = slashCommand
@@ -2919,20 +2922,17 @@ export function PlayPage({
 
   return (
     <main
-      className={`session-prep-layout session-prep-layout-tight${
-        isRecruiting ? ' recruiting-tavern' : ''
-      }`}
+      className={`session-prep-layout session-prep-layout-tight${isRecruiting ? ' recruiting-tavern' : ''
+        }`}
       style={layoutStyle}
     >
       <section
-        className={`session-prep-stage${usesNodeSpecificPartyStrip ? ' node-surface-active' : ''}${
-          isRecruiting ? ' recruiting-stage' : ''
-        }`}
+        className={`session-prep-stage${usesNodeSpecificPartyStrip ? ' node-surface-active' : ''}${isRecruiting ? ' recruiting-stage' : ''
+          }`}
       >
         <div
-          className={`session-stage-canvas${!isRecruiting ? ' started' : ''}${
-            isRecruiting ? ' recruiting-stage-canvas' : ''
-          }`}
+          className={`session-stage-canvas${!isRecruiting ? ' started' : ''}${isRecruiting ? ' recruiting-stage-canvas' : ''
+            }`}
         >
           {isRecruiting ? (
             <section className="session-room-overlay recruiting-room-overlay">
@@ -3013,9 +3013,8 @@ export function PlayPage({
                               : emptySlotImage
                           }
                           alt={wantedCarouselCharacter?.name ?? '빈 캐릭터 슬롯'}
-                          className={`recruiting-wanted-portrait${
-                            wantedCarouselCharacter ? '' : ' empty'
-                          }`}
+                          className={`recruiting-wanted-portrait${wantedCarouselCharacter ? '' : ' empty'
+                            }`}
                         />
                       </div>
                       <strong className="recruiting-wanted-portrait-name">
@@ -3105,6 +3104,17 @@ export function PlayPage({
                       {myParticipant?.isReady ? '준비 해제' : '준비 완료'}
                     </button>
                   </div>
+                  {/* 호스트가 오버레이를 닫아도 시작 확인창으로 다시 돌아올 수 있는 진입점입니다. */}
+                  {isHost && allPlayersReady && isStatusMinimized ? (
+                    <button
+                      type="button"
+                      className="recruiting-wanted-start-button"
+                      disabled={!canStartSession || busy}
+                      onClick={() => setStatusMinimized(false)}
+                    >
+                      세션 시작
+                    </button>
+                  ) : null}
                 </section>
               </div>
             </section>
@@ -3204,52 +3214,53 @@ export function PlayPage({
           ) : null}
         </div>
 
-        {allPlayersReady && isRecruiting ? (
-          <div
-            className={`session-status-floating-layer${isStatusMinimized ? ' minimized' : ' expanded'}`}
-          >
-            {isStatusMinimized ? (
-              <section
-                className="session-main-ready-minimized session-status-toggle-surface"
-                onClick={() => setStatusMinimized(false)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    setStatusMinimized(false);
-                  }
-                }}
-              >
-                <span className="eyebrow">Session status</span>
-                <strong>All players ready</strong>
-              </section>
-            ) : (
-              <section
-                className="session-ready-card session-main-ready-overlay session-status-toggle-surface"
+        {allPlayersReady && isRecruiting && !isStatusMinimized ? (
+          <div className="session-status-floating-layer expanded">
+            <section className="session-ready-card session-main-ready-overlay">
+              <button
+                type="button"
+                className="session-ready-close-button"
+                aria-label="세션 시작 오버레이 닫기"
                 onClick={() => setStatusMinimized(true)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    setStatusMinimized(true);
-                  }
-                }}
               >
-                <span className="eyebrow">Session status</span>
-                <h2>{isRecruiting ? 'Recruiting lobby' : 'Session in progress'}</h2>
-                <p>
-                  {activeScenario
-                    ? `${activeScenario.scenario.title} / ${activeScenario.scenario.ruleSetId ?? 'TRPG'}`
-                    : 'Scenario not assigned'}
+                <Icon name="x" />
+              </button>
+              <div className="session-ready-card-ornament top" aria-hidden="true" />
+              <span className="eyebrow ready-eyebrow">✦ Session status ✦</span>
+
+                <div className="session-ready-title-row">
+                  <h2>세션 시작</h2>
+                  <span className="ready-badge">
+                    <Icon name="check-circle" /> {readyParticipantCount}/{participantCount} READY
+                  </span>
+                </div>
+
+                <div className="session-ready-divider" aria-hidden="true">
+                  <div className="diamond" />
+                </div>
+
+                <strong className="session-ready-subtitle">
+                  모든 참가자가 준비를 완료했습니다.
+                </strong>
+                <p className="session-ready-desc">
+                  {isHost
+                    ? '지금 게임을 시작하시겠습니까?'
+                    : '호스트가 세션을 시작할 때까지 기다려주세요.'}
                 </p>
-                <p>All participants are READY. The host can start the session.</p>
+
+
                 {isHost ? (
                   <div className="ready-actions">
                     <button
                       type="button"
-                      className="primary"
+                      className="ready-btn-cancel"
+                      onClick={() => setStatusMinimized(true)}
+                    >
+                      취소
+                    </button>
+                    <button
+                      type="button"
+                      className="ready-btn-start"
                       disabled={!canStartSession || busy}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -3258,84 +3269,35 @@ export function PlayPage({
                         onStartSession();
                       }}
                     >
-                      Start session
+                      게임 시작
                     </button>
                   </div>
                 ) : null}
-              </section>
-            )}
+
+              <div className="session-ready-card-ornament bottom" aria-hidden="true" />
+            </section>
           </div>
         ) : null}
 
         {usesNodeSpecificPartyStrip ? null : (
           <section
-            className={`participant-strip participant-strip-four-up${
-              isRecruiting ? ' recruiting-party-strip' : ''
-            }`}
+            className={`participant-strip participant-strip-four-up${isRecruiting ? ' recruiting-party-strip' : ''
+              }`}
           >
             {displayedParticipants.length
               ? displayedParticipants.slice(0, 4).map((participant, index) => {
-                  if (!participant) {
-                    return (
-                      <article
-                        key={`empty-slot-${index}`}
-                        className={`participant-strip-card placeholder${
-                          isRecruiting ? ' recruiting-party-slot empty' : ''
-                        }`}
-                      >
-                        {isRecruiting ? (
-                          <>
-                            <img
-                              src={emptySlotImage}
-                              alt={`빈 파티 슬롯 ${index + 1}`}
-                              className="recruiting-party-slot-paper"
-                            />
-                            <img
-                              src={pinImage}
-                              alt=""
-                              aria-hidden="true"
-                              className="recruiting-party-slot-pin"
-                            />
-                          </>
-                        ) : (
-                          <>
-                            <div className="participant-avatar-frame placeholder" />
-                            <div className="participant-card-body">
-                              <strong>빈 슬롯</strong>
-                              <span>참가자를 기다리는 중입니다.</span>
-                            </div>
-                            <div className="participant-state">대기</div>
-                            <div className="participant-index">{index + 1}</div>
-                          </>
-                        )}
-                      </article>
-                    );
-                  }
-
-                  const linkedCharacter =
-                    sessionCharacters.find((character) => character.userId === participant.userId) ??
-                    null;
-                  const badgeLabel = getParticipantBadge(participant.userId);
-                  const stateLabel = participant.isReady ? 'READY' : participant.connectionStatus;
-                  const participantImage = linkedCharacter
-                    ? getCharacterImage(linkedCharacter)
-                    : null;
-                  const profileColor = getParticipantProfileColor(participant.userId);
-
+                if (!participant) {
                   return (
                     <article
-                      key={participant.id}
-                      className={`participant-strip-card${
-                        isRecruiting ? ' recruiting-party-slot occupied' : ''
-                      }`}
-                      style={buildProfileColorStyle(profileColor)}
+                      key={`empty-slot-${index}`}
+                      className={`participant-strip-card placeholder${isRecruiting ? ' recruiting-party-slot empty' : ''
+                        }`}
                     >
                       {isRecruiting ? (
                         <>
                           <img
-                            src={existSlotImage}
-                            alt=""
-                            aria-hidden="true"
+                            src={emptySlotImage}
+                            alt={`빈 파티 슬롯 ${index + 1}`}
                             className="recruiting-party-slot-paper"
                           />
                           <img
@@ -3344,57 +3306,104 @@ export function PlayPage({
                             aria-hidden="true"
                             className="recruiting-party-slot-pin"
                           />
-                          {participantImage ? (
-                            <img
-                              src={participantImage}
-                              alt={linkedCharacter?.name ?? participant.user.displayName}
-                              className="recruiting-party-slot-portrait"
-                            />
-                          ) : null}
-                          <strong className="recruiting-party-slot-name">
-                            {participant.user.displayName}
-                          </strong>
                         </>
                       ) : (
                         <>
-                          {badgeLabel ? (
-                            <div className="participant-special-badge">{badgeLabel}</div>
-                          ) : null}
-                          <div
-                            className="participant-avatar-frame"
-                            style={{ ['--frame-image' as string]: `url(${profileBorderCharacter})` }}
-                          >
-                            {participantImage ? (
-                              <img
-                                src={participantImage}
-                                alt={linkedCharacter?.name ?? participant.user.displayName}
-                                className="participant-avatar-image"
-                              />
-                            ) : (
-                              <div className="participant-avatar tone-1">
-                                {(linkedCharacter?.name ?? participant.user.displayName).slice(0, 1)}
-                              </div>
-                            )}
-                          </div>
+                          <div className="participant-avatar-frame placeholder" />
                           <div className="participant-card-body">
-                            <strong>{participant.user.displayName}</strong>
-                            <span>
-                              {linkedCharacter
-                                ? `${linkedCharacter.name} / ${getCharacterClassLabel(linkedCharacter.className)}`
-                                : participant.userId === user.id
-                                  ? '\uCE90\uB9AD\uD130\uAC00 \uC120\uD0DD\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4'
-                                  : '\uCE90\uB9AD\uD130\uB97C \uAE30\uB2E4\uB9AC\uB294 \uC911\uC785\uB2C8\uB2E4'}
-                            </span>
+                            <strong>빈 슬롯</strong>
+                            <span>참가자를 기다리는 중입니다.</span>
                           </div>
-                          <div className={`participant-state${participant.isReady ? ' ready' : ''}`}>
-                            {stateLabel}
-                          </div>
+                          <div className="participant-state">대기</div>
                           <div className="participant-index">{index + 1}</div>
                         </>
                       )}
                     </article>
                   );
-                })
+                }
+
+                const linkedCharacter =
+                  sessionCharacters.find((character) => character.userId === participant.userId) ??
+                  null;
+                const badgeLabel = getParticipantBadge(participant.userId);
+                const stateLabel = participant.isReady ? 'READY' : participant.connectionStatus;
+                const participantImage = linkedCharacter
+                  ? getCharacterImage(linkedCharacter)
+                  : null;
+                const profileColor = getParticipantProfileColor(participant.userId);
+
+                return (
+                  <article
+                    key={participant.id}
+                    className={`participant-strip-card${isRecruiting ? ' recruiting-party-slot occupied' : ''
+                      }`}
+                    style={buildProfileColorStyle(profileColor)}
+                  >
+                    {isRecruiting ? (
+                      <>
+                        <img
+                          src={existSlotImage}
+                          alt=""
+                          aria-hidden="true"
+                          className="recruiting-party-slot-paper"
+                        />
+                        <img
+                          src={pinImage}
+                          alt=""
+                          aria-hidden="true"
+                          className="recruiting-party-slot-pin"
+                        />
+                        {participantImage ? (
+                          <img
+                            src={participantImage}
+                            alt={linkedCharacter?.name ?? participant.user.displayName}
+                            className="recruiting-party-slot-portrait"
+                          />
+                        ) : null}
+                        <strong className="recruiting-party-slot-name">
+                          {participant.user.displayName}
+                        </strong>
+                      </>
+                    ) : (
+                      <>
+                        {badgeLabel ? (
+                          <div className="participant-special-badge">{badgeLabel}</div>
+                        ) : null}
+                        <div
+                          className="participant-avatar-frame"
+                          style={{ ['--frame-image' as string]: `url(${profileBorderCharacter})` }}
+                        >
+                          {participantImage ? (
+                            <img
+                              src={participantImage}
+                              alt={linkedCharacter?.name ?? participant.user.displayName}
+                              className="participant-avatar-image"
+                            />
+                          ) : (
+                            <div className="participant-avatar tone-1">
+                              {(linkedCharacter?.name ?? participant.user.displayName).slice(0, 1)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="participant-card-body">
+                          <strong>{participant.user.displayName}</strong>
+                          <span>
+                            {linkedCharacter
+                              ? `${linkedCharacter.name} / ${getCharacterClassLabel(linkedCharacter.className)}`
+                              : participant.userId === user.id
+                                ? '\uCE90\uB9AD\uD130\uAC00 \uC120\uD0DD\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4'
+                                : '\uCE90\uB9AD\uD130\uB97C \uAE30\uB2E4\uB9AC\uB294 \uC911\uC785\uB2C8\uB2E4'}
+                          </span>
+                        </div>
+                        <div className={`participant-state${participant.isReady ? ' ready' : ''}`}>
+                          {stateLabel}
+                        </div>
+                        <div className="participant-index">{index + 1}</div>
+                      </>
+                    )}
+                  </article>
+                );
+              })
               : null}
           </section>
         )}
@@ -3478,9 +3487,8 @@ export function PlayPage({
                             </div>
                           ) : null}
                           <article
-                            className={`chat-thread-row ${log.rowClass}${
-                              log.logTone ? ` main-log-${log.logTone}` : ''
-                            }`}
+                            className={`chat-thread-row ${log.rowClass}${log.logTone ? ` main-log-${log.logTone}` : ''
+                              }`}
                             style={chatColorStyle}
                           >
                             {log.rowClass === 'incoming' ? (
@@ -3557,9 +3565,8 @@ export function PlayPage({
                     <div className="main-command-mode-row">
                       <button
                         type="button"
-                        className={`main-command-mode-button${
-                          mainCommandMode === 'GM_REQUEST' ? ' active' : ''
-                        }`}
+                        className={`main-command-mode-button${mainCommandMode === 'GM_REQUEST' ? ' active' : ''
+                          }`}
                         onClick={() => {
                           setMainCommandMode('GM_REQUEST');
                           setCommandGuideOpen(false);
@@ -3573,9 +3580,8 @@ export function PlayPage({
                       </button>
                       <button
                         type="button"
-                        className={`main-command-mode-button${
-                          mainCommandMode === 'RP_ACTION' ? ' active' : ''
-                        }`}
+                        className={`main-command-mode-button${mainCommandMode === 'RP_ACTION' ? ' active' : ''
+                          }`}
                         onClick={() => {
                           setMainCommandMode('RP_ACTION');
                           setCommandGuideOpen(false);
@@ -3617,9 +3623,8 @@ export function PlayPage({
                           <button
                             key={option.id}
                             type="button"
-                            className={`main-command-helper-button${
-                              activeMainHelperOption?.id === option.id ? ' active' : ''
-                            }`}
+                            className={`main-command-helper-button${activeMainHelperOption?.id === option.id ? ' active' : ''
+                              }`}
                             title={option.description}
                             onClick={() => {
                               setMainCommandMode('GM_REQUEST');
@@ -3694,9 +3699,8 @@ export function PlayPage({
                             <button
                               key={command.intent}
                               type="button"
-                              className={`main-command-autocomplete-option${
-                                isAutocompleteActive ? ' active' : ''
-                              }`}
+                              className={`main-command-autocomplete-option${isAutocompleteActive ? ' active' : ''
+                                }`}
                               aria-selected={isAutocompleteActive}
                               onMouseEnter={() => {
                                 if (autocompleteIndex >= 0) {
@@ -3738,8 +3742,8 @@ export function PlayPage({
                     ) : null}
 
                     {mainCommandMode === 'GM_REQUEST' &&
-                    selectedMainFieldConfig &&
-                    !isExplorationMainCommandContext ? (
+                      selectedMainFieldConfig &&
+                      !isExplorationMainCommandContext ? (
                       <div className="main-command-fields">
                         {selectedMainFieldConfig.targetTypes?.length ? (
                           <label className="main-command-field">
@@ -3804,7 +3808,7 @@ export function PlayPage({
                         ) : null}
 
                         {selectedMainFieldConfig.requiresMapPoint ||
-                        selectedMainFieldConfig.allowsMapPoint ? (
+                          selectedMainFieldConfig.allowsMapPoint ? (
                           <div className="main-command-field main-command-point-field">
                             <span>좌표</span>
                             <div>
@@ -3845,8 +3849,8 @@ export function PlayPage({
                       ? mainCommandMode === 'RP_ACTION'
                         ? '캐릭터 대사나 분위기 묘사를 입력하세요...'
                         : selectedMainCommand
-                        ? `${selectedMainCommand.label} 내용을 입력하세요...`
-                        : '행동을 선언하거나 상황을 입력하세요...'
+                          ? `${selectedMainCommand.label} 내용을 입력하세요...`
+                          : '행동을 선언하거나 상황을 입력하세요...'
                       : '채팅을 입력하세요...'
                   }
                 />
@@ -4041,8 +4045,8 @@ export function PlayPage({
                 숙련 기술은{' '}
                 {selectedQuickCreateClass.skillChoiceCount > 0
                   ? `${selectedQuickCreateClass.skillChoices
-                      .slice(0, selectedQuickCreateClass.skillChoiceCount)
-                      .join(', ')}`
+                    .slice(0, selectedQuickCreateClass.skillChoiceCount)
+                    .join(', ')}`
                   : '자동 선택 없음'}
                 으로 적용됩니다.
               </p>
