@@ -2,7 +2,7 @@ import type { Scenario } from "../types/session";
 import goblinThumbnail from "../assets/images/Thumbnail_Goblin_Cave.webp";
 
 export const DEFAULT_PROVIDED_SCENARIO_TITLE = "검은 우물의 쥐떼";
-export const DEFAULT_PROVIDED_SCENARIO_ID = "scenario_goblin_cave";
+export const DEFAULT_PROVIDED_SCENARIO_ID = "scenario_77758fa0-3b35-4f95-bb2d-0ffe11c989ac";
 
 export interface SessionVisualPreset {
   key: string;
@@ -29,7 +29,6 @@ export interface SessionScenarioOption {
 
 const GENERAL_GM_LABEL = "\uC77C\uBC18 GM";
 const AI_GM_LABEL = "AI GM";
-const SYSTEM_SCENARIO_SOURCE = "SYSTEM";
 
 export const sessionVisualPresets: SessionVisualPreset[] = [
   {
@@ -58,10 +57,7 @@ function normalizeText(value: string): string {
 export function isDefaultProvidedScenario(
   scenario: Pick<Scenario, "id" | "title"> & { sourceType?: string | null }
 ): boolean {
-  return (
-    scenario.id === DEFAULT_PROVIDED_SCENARIO_ID &&
-    (!scenario.sourceType || scenario.sourceType === SYSTEM_SCENARIO_SOURCE)
-  );
+  return scenario.id === DEFAULT_PROVIDED_SCENARIO_ID;
 }
 
 export function splitScenariosBySource<T extends Pick<Scenario, "id" | "title"> & { sourceType?: string | null }>(
