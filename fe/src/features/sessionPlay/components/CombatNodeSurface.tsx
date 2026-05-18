@@ -687,17 +687,17 @@ export function CombatNodeSurface({
                     {isWeapon || isArmor ? (
                       <button
                         type="button"
-                        disabled={isEquipped || isArmor || isInventoryBusy}
+                        disabled={isArmor || isInventoryBusy}
                         title={
                           isArmor
                             ? '방어구는 현재 캐릭터 AC에 이미 반영되어 있습니다.'
                             : isEquipped
-                              ? '이미 착용 중입니다.'
+                              ? `${item.name} 착용 해제`
                               : `${item.name} 착용`
                         }
                         onClick={() => onEquipInventoryItem(item)}
                       >
-                        {isEquipped ? '착용 중' : '착용'}
+                        {isEquipped ? '해제' : '착용'}
                       </button>
                     ) : (
                       <button
