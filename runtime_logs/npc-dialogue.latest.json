@@ -1,0 +1,91 @@
+{
+  "timestamp": "2026-05-18T10:57:06.842585+00:00",
+  "endpoint": "npc-dialogue",
+  "status": "fallback",
+  "request": {
+    "sessionId": "cmp67obwx001sw534p81fwamg",
+    "turnId": null,
+    "npcEntityId": "npc_mp2dh5z2_p00dxb",
+    "npcName": "페린",
+    "npcSummary": "우물에서 초록빛 눈을 목격한 겁 많은 우물지기 소년.",
+    "disposition": "friendly",
+    "sceneSummary": "N02 검은 우물 조사: 우물 가까이 다가가자 축축한 흙냄새와 썩은 물비린내가 더 강하게 느껴집니다.\n\n우물 주변의 흙은 검게 물들어 있고, 나무 덮개에는 안쪽에서 긁힌 듯한 자국이 남아 있습니다.\n\n우물 안으로 내려가는 밧줄은 젖어 있으며, 최근 누군가 사용한 흔적처럼 보입니다.\n\n어둠 아래에서는 간헐적으로 물방울 떨어지는 소리가 울립니다.",
+    "recentContext": [
+      "힌트 주세요 => 행동을 조금 더 구체적으로 선택해 주세요.",
+      "힌트 줘. => AI 힌트를 만들지 못했습니다. 공개된 단서 안에서 다음 시도 후보만 제안합니다.",
+      "NPC에게 말을 건다. => 밀라 보스턴: 저... 혹시 우물 상태는 좀 어떠신가요? 냄새가 너무 지독해서 저는 더 가까이 가기가 겁나네요.",
+      "넌 누구야? => 페린: 아, 안녕하세요...! 저는 여기서 우물을 관리하는 페린이라고 해요. 저... 혹시 우물 안에 있는 그 무서운 눈을 보러 오신 건가요?",
+      "/대화 무서운 눈이 뭔데? => 페린: 그, 그게... 정말 무서웠어요! 어둠 속에서 갑자기 번쩍이는 초록색 눈 두 개가 저를 빤히 쳐다봤다니까요! 절대 평범한 동물의 눈이 아니었어요!",
+      "NPC에게 말을 건다 => 이 요청은 대상 선택이 필요합니다. 대상 선택 버튼에서 대상을 고른 뒤 다시 입력해주세요."
+    ],
+    "selectedActionId": null,
+    "dialogueIntent": "안녕",
+    "audienceIds": [
+      "cmp27jb3x000ww5483briwpeh"
+    ],
+    "maxLength": 160,
+    "model": null
+  },
+  "response": {
+    "provider": "template-fallback",
+    "model": "local-template",
+    "latencyMs": 0,
+    "promptVersion": "npc_dialogue.fallback.v1",
+    "rawOutput": "",
+    "finishReason": "FALLBACK",
+    "providerRequestId": null,
+    "trace": {
+      "role": "npc_dialogue",
+      "provider": "template-fallback",
+      "model": "local-template",
+      "promptVersion": "npc_dialogue.fallback.v1",
+      "latencyMs": 0,
+      "attempts": 2,
+      "failureType": "upstream_error",
+      "finishReason": "FALLBACK",
+      "providerRequestId": null
+    },
+    "logPaths": null,
+    "fallback": true,
+    "fallbackReason": "500 INTERNAL. {'error': {'code': 500, 'message': 'Internal error encountered.', 'status': 'INTERNAL'}}",
+    "parsed": {
+      "dialogue": "페린: 지금은 말보다 행동으로 답하겠다.",
+      "tone": "friendly",
+      "safetyNotes": [
+        "NPC 대사 fallback이며 행동 선택이나 상태 변경은 포함하지 않음"
+      ]
+    }
+  },
+  "error": {
+    "message": "500 INTERNAL. {'error': {'code': 500, 'message': 'Internal error encountered.', 'status': 'INTERNAL'}}",
+    "failureType": "upstream_error",
+    "retryable": true,
+    "attempts": 2
+  },
+  "aiTrace": {
+    "id": "trace-78152ebe-abed-4b74-a573-417f09a73c05",
+    "sessionId": "cmp67obwx001sw534p81fwamg",
+    "turnId": null,
+    "actorCharacterId": null,
+    "endpoint": "npc-dialogue",
+    "role": "npc_dialogue",
+    "status": "fallback",
+    "provider": "template-fallback",
+    "model": "local-template",
+    "promptVersion": "npc_dialogue.fallback.v1",
+    "latencyMs": 0,
+    "attempts": 2,
+    "failureType": "upstream_error",
+    "finishReason": "FALLBACK",
+    "providerRequestId": null,
+    "createdAt": "2026-05-18T10:57:06.842585+00:00",
+    "logPaths": {
+      "latest": "C:\\Users\\SSAFY\\Desktop\\my_git\\A201_trpg\\S14P31A201\\runtime_logs\\npc-dialogue.latest.json",
+      "history": "C:\\Users\\SSAFY\\Desktop\\my_git\\A201_trpg\\S14P31A201\\runtime_logs\\harness_history.jsonl"
+    }
+  },
+  "logPaths": {
+    "latest": "C:\\Users\\SSAFY\\Desktop\\my_git\\A201_trpg\\S14P31A201\\runtime_logs\\npc-dialogue.latest.json",
+    "history": "C:\\Users\\SSAFY\\Desktop\\my_git\\A201_trpg\\S14P31A201\\runtime_logs\\harness_history.jsonl"
+  }
+}

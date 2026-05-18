@@ -413,6 +413,20 @@
   height: 14px;
 }
 
+.leave-badge {
+  background: #FFF3E0;
+  border-color: #D9A66A;
+  color: #8A3F1D;
+}
+
+.session-leave-confirm-layer {
+  z-index: 12;
+}
+
+.session-leave-confirm-overlay .session-ready-subtitle {
+  font-size: 20px;
+}
+
 .session-ready-divider {
   display: flex;
   align-items: center;
@@ -506,6 +520,23 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.2),
     inset 0 0 0 1px rgba(212, 184, 114, 0.5),
     0 6px 16px rgba(26, 40, 56, 0.4);
+}
+
+.ready-btn-leave {
+  background: linear-gradient(180deg, #8F3B27, #5E2417);
+  border-color: #4E1D13;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 0 1px rgba(212, 184, 114, 0.42),
+    0 4px 12px rgba(94, 36, 23, 0.3);
+}
+
+.ready-btn-leave:hover:not(:disabled) {
+  background: linear-gradient(180deg, #A54A33, #71301F);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 0 0 1px rgba(212, 184, 114, 0.5),
+    0 6px 16px rgba(94, 36, 23, 0.38);
 }
 
 .ready-btn-start:disabled {
@@ -1713,6 +1744,7 @@ button.chat-submit-btn:disabled,
 
 .main-command-guide-option,
 .main-command-autocomplete-option {
+  position: relative;
   min-height: 44px;
   display: grid;
   gap: 3px;
@@ -1726,9 +1758,32 @@ button.chat-submit-btn:disabled,
 }
 
 .main-command-autocomplete-option.active {
-  border-color: #7aa6d8;
-  background: #edf4fb;
-  box-shadow: inset 0 0 0 1px rgba(122, 166, 216, 0.3);
+  border-color: #17375a;
+  background: linear-gradient(180deg, #fff8df, #ead398);
+  color: #24170d;
+  box-shadow:
+    inset 0 0 0 2px rgba(23, 55, 90, 0.28),
+    0 0 0 2px rgba(212, 184, 114, 0.45),
+    0 6px 14px rgba(43, 27, 10, 0.16);
+}
+
+.main-command-autocomplete-option.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 4px;
+  border-radius: 0 999px 999px 0;
+  background: #17375a;
+}
+
+.main-command-autocomplete-option.active strong {
+  color: #17375a;
+}
+
+.main-command-autocomplete-option.active small {
+  color: #4e3513;
 }
 
 .main-command-autocomplete-option {
@@ -2475,7 +2530,7 @@ button.chat-submit-btn:disabled,
   color: #fff8dd;
 }
 
-.session-game-surface :is(.story-node-surface, .combat-node-surface) {
+.session-game-surface .story-node-surface {
   border-radius: 12px;
   background:
     linear-gradient(rgba(255, 248, 229, 0.97), rgba(255, 241, 207, 0.97)),
@@ -2483,27 +2538,27 @@ button.chat-submit-btn:disabled,
   color: var(--session-kit-ink);
 }
 
-.session-game-surface :is(.story-node-header, .combat-turn-bar) {
+.session-game-surface .story-node-header {
   min-height: 78px;
   padding: 16px 20px;
   border-bottom: 1px solid rgba(124, 88, 36, 0.28);
   background: rgba(255, 249, 232, 0.68);
 }
 
-.session-game-surface :is(.story-node-eyebrow, .combat-node-eyebrow) {
+.session-game-surface .story-node-eyebrow {
   color: #1677b4;
   font-weight: 900;
   letter-spacing: 0;
 }
 
-.session-game-surface :is(.story-node-header h1, .combat-turn-bar h1) {
+.session-game-surface .story-node-header h1 {
   color: var(--session-kit-ink);
   font-size: clamp(24px, 2.6vw, 42px);
   font-weight: 900;
   letter-spacing: 0;
 }
 
-.session-game-surface :is(.story-node-status-row, .combat-round-status) span {
+.session-game-surface .story-node-status-row span {
   min-height: 36px;
   border: 2px solid #5b7285;
   border-radius: 999px;
@@ -2512,8 +2567,7 @@ button.chat-submit-btn:disabled,
   font-weight: 900;
 }
 
-.story-node-content,
-.combat-node-content {
+.story-node-content {
   background: rgba(255, 249, 232, 0.36);
 }
 
@@ -2521,8 +2575,7 @@ button.chat-submit-btn:disabled,
   scrollbar-color: #b08642 rgba(239, 220, 179, 0.88);
 }
 
-.story-scene-visual,
-.combat-map-panel {
+.story-scene-visual {
   border: 5px solid #211b16;
   border-radius: 12px;
   background: #090b0d;
@@ -2532,9 +2585,7 @@ button.chat-submit-btn:disabled,
 }
 
 .story-scene-visual::before,
-.combat-map-panel::before,
-.story-scene-visual::after,
-.combat-map-panel::after {
+.story-scene-visual::after {
   content: '';
   position: absolute;
   width: 34px;
@@ -2545,22 +2596,16 @@ button.chat-submit-btn:disabled,
   pointer-events: none;
 }
 
-.story-scene-visual::before,
-.combat-map-panel::before {
+.story-scene-visual::before {
   left: -8px;
   top: -8px;
   border-radius: 0 0 14px;
 }
 
-.story-scene-visual::after,
-.combat-map-panel::after {
+.story-scene-visual::after {
   right: -8px;
   bottom: -8px;
   border-radius: 14px 0 0;
-}
-
-.combat-map-panel {
-  position: relative;
 }
 
 .story-scene-empty {
@@ -2623,9 +2668,6 @@ button.chat-submit-btn:disabled,
 }
 
 .story-party-detail,
-.combat-resource-panel,
-.combat-action-panel,
-.combat-check-panel,
 .session-settings-room,
 .session-info-panel textarea {
   border: 1px solid #dec48a;
@@ -2634,45 +2676,21 @@ button.chat-submit-btn:disabled,
   box-shadow: 0 8px 18px rgba(95, 61, 22, 0.1);
 }
 
-.combat-resource-panel strong,
 .story-party-detail strong {
   color: #1f344b;
 }
 
-.combat-resource-grid span {
-  border: 1px solid #ddc58d;
-  border-radius: 8px;
-  background: rgba(255, 250, 235, 0.92);
-  color: var(--session-kit-ink);
-}
-
-.combat-check-list span {
-  border-color: #bd9140;
-  border-radius: 999px;
-  background: #fff1cf;
-  color: #6b4a1e;
-}
-
 .story-empty-text,
-.combat-empty-text,
-.combat-check-panel p,
 .story-party-detail p {
   color: var(--session-kit-ink-soft);
 }
 
-.story-party-strip,
-.combat-action-dock,
-.combat-initiative-strip {
+.story-party-strip {
   border-top: 1px solid rgba(124, 88, 36, 0.28);
   background: rgba(239, 220, 179, 0.58);
 }
 
-.combat-initiative-strip {
-  border-bottom: 1px solid rgba(124, 88, 36, 0.24);
-}
-
 .story-party-card,
-.combat-turn-card,
 .participant-strip-card {
   border: 3px solid var(--participant-frame-color, var(--session-kit-gold-deep));
   border-radius: 12px;
@@ -2685,8 +2703,7 @@ button.chat-submit-btn:disabled,
     var(--session-kit-frame);
 }
 
-.story-party-card.selected,
-.combat-turn-card.mine {
+.story-party-card.selected {
   border-color: #346699;
   background: #fff8df;
 }
@@ -2698,15 +2715,13 @@ button.chat-submit-btn:disabled,
 }
 
 .story-party-body strong,
-.participant-card-body strong,
-.combat-turn-card strong {
+.participant-card-body strong {
   color: var(--participant-text-color, var(--session-kit-ink));
   font-weight: 900;
 }
 
 .story-party-body small,
-.participant-card-body span,
-.combat-turn-card small {
+.participant-card-body span {
   color: var(--participant-text-color, var(--session-kit-ink-soft));
   opacity: 0.82;
 }
@@ -2788,107 +2803,7 @@ button.chat-submit-btn:disabled,
   opacity: 0.16;
 }
 
-.combat-action-tabs button,
-.combat-action-list button {
-  min-height: 38px;
-  border: 2px solid #9b7330;
-  border-radius: 9px;
-  background:
-    linear-gradient(#fff9e7, #f0daa2), radial-gradient(circle at 15% 15%, #fff, transparent 36%);
-  color: var(--session-kit-ink);
-  font-weight: 900;
-  box-shadow: 0 3px 0 #75551f;
-}
-
-.combat-action-tabs button.active {
-  border-color: #346699;
-  background: linear-gradient(#315d87, #173657);
-  color: #fff8dd;
-  box-shadow: 0 3px 0 #0f243d;
-}
-
-.combat-action-tabs button:hover:not(:disabled),
-.combat-action-list button:hover:not(:disabled) {
-  border-color: #725022;
-  color: var(--session-kit-ink);
-}
-
-.combat-action-tabs button.active:hover:not(:disabled) {
-  color: #fff8dd;
-}
-
-.combat-map-panel > .vtt-panel {
-  position: relative;
-  z-index: 1;
-  border: 0;
-  border-radius: 6px;
-  background: #090b0d;
-}
-
-.combat-map-panel .vtt-toolbar,
-.combat-map-panel .vtt-subtoolbar {
-  border-color: rgba(182, 138, 54, 0.32);
-  background: rgba(255, 247, 221, 0.94);
-  color: var(--session-kit-ink);
-}
-
-.combat-map-panel .vtt-toolbar strong {
-  color: var(--session-kit-ink);
-}
-
-.combat-map-panel .vtt-controls input,
-.combat-map-panel .vtt-controls select,
-.combat-map-panel .vtt-map-settings input,
-.combat-map-panel .vtt-zoom-controls select {
-  border-color: #bd9140;
-  border-radius: 7px;
-  background: #fffaf0;
-  color: var(--session-kit-ink);
-}
-
-.combat-map-panel .vtt-controls button,
-.combat-map-panel .vtt-zoom-controls button,
-.combat-map-panel .vtt-clear-measure,
-.combat-map-panel .vtt-fog-tools button,
-.combat-map-panel .vtt-inspector-actions button {
-  border-color: #9b7330;
-  border-radius: 7px;
-  background: #fff1cf;
-  color: #5c3a1c;
-  font-weight: 900;
-}
-
-.combat-map-panel .vtt-controls button.active,
-.combat-map-panel .vtt-fog-tools button.active {
-  border-color: #346699;
-  background: #edf4fb;
-  color: #173b67;
-}
-
-.combat-map-panel .vtt-stage-wrap {
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px), #090b0d;
-  background-size: 64px 64px;
-}
-
-.combat-map-panel .vtt-inspector {
-  border-left-color: rgba(182, 138, 54, 0.32);
-  background: rgba(255, 247, 221, 0.96);
-  color: var(--session-kit-ink);
-}
-
-.combat-map-panel .vtt-inspector input {
-  border-color: #bd9140;
-  background: #fffaf0;
-  color: var(--session-kit-ink);
-}
-
-.combat-map-panel .vtt-map-settings label,
-.combat-map-panel .vtt-fog-tools label,
-.combat-map-panel .vtt-token-snap {
-  color: #806845;
-}
+/* Legacy combat map and action dock styles removed in favor of CombatNodeSurface.css */
 
 .session-game-surface__placeholder {
   border: 3px solid var(--session-kit-gold-deep);
@@ -2919,7 +2834,7 @@ button.chat-submit-btn:disabled,
     border-radius: 14px;
   }
 
-  .session-game-surface :is(.story-node-header, .combat-turn-bar) {
+  .session-game-surface .story-node-header {
     padding: 14px;
   }
 
@@ -2959,19 +2874,19 @@ button.chat-submit-btn:disabled,
   font-family: 'Pretendard', 'Noto Sans KR', 'Segoe UI', system-ui, sans-serif;
 }
 
-.session-game-surface :is(.story-node-surface, .combat-node-surface),
+.session-game-surface .story-node-surface,
 .session-sidebar,
 .session-room-overlay {
   border-color: var(--session-kit-gold-deep);
   box-shadow: var(--session-kit-shadow), var(--session-kit-frame);
 }
 
-.session-game-surface :is(.story-node-surface, .combat-node-surface) {
+.session-game-surface .story-node-surface {
   border: 2px solid rgba(114, 80, 34, 0.8);
   overflow: hidden;
 }
 
-.session-game-surface :is(.story-node-header, .combat-turn-bar) {
+.session-game-surface .story-node-header {
   position: relative;
   isolation: isolate;
   background:
@@ -2980,7 +2895,7 @@ button.chat-submit-btn:disabled,
   box-shadow: inset 0 -1px 0 rgba(114, 80, 34, 0.24);
 }
 
-.session-game-surface :is(.story-node-header, .combat-turn-bar)::after {
+.session-game-surface .story-node-header::after {
   content: '';
   position: absolute;
   left: 20px;
@@ -2991,11 +2906,11 @@ button.chat-submit-btn:disabled,
   pointer-events: none;
 }
 
-.session-game-surface :is(.story-node-header h1, .combat-turn-bar h1) {
+.session-game-surface .story-node-header h1 {
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
-.session-game-surface :is(.story-node-eyebrow, .combat-node-eyebrow),
+.session-game-surface .story-node-eyebrow,
 .session-sidebar-heading .eyebrow,
 .session-room-overlay-title .eyebrow {
   display: inline-flex;
@@ -3011,7 +2926,7 @@ button.chat-submit-btn:disabled,
   line-height: 1;
 }
 
-.session-game-surface :is(.story-node-status-row, .combat-round-status) span,
+.session-game-surface .story-node-status-row span,
 .status-pill,
 .participant-state,
 .main-command-selection-chip {
@@ -3030,9 +2945,6 @@ button.chat-submit-btn:disabled,
 }
 
 .story-party-detail,
-.combat-resource-panel,
-.combat-action-panel,
-.combat-check-panel,
 .session-settings-room,
 .session-info-panel textarea {
   border: 2px solid #d6b06c;
@@ -3048,22 +2960,13 @@ button.chat-submit-btn:disabled,
   font-weight: 900;
 }
 
-.combat-resource-grid span {
-  border: 1px solid #d9bd7a;
-  border-radius: var(--session-kit-radius-sm);
-  background: rgba(255, 250, 235, 0.94);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
-}
-
 .story-party-card,
-.combat-turn-card,
 .participant-strip-card {
   position: relative;
   overflow: hidden;
 }
 
 .story-party-card::after,
-.combat-turn-card::after,
 .participant-strip-card::after {
   content: '';
   position: absolute;
@@ -3075,7 +2978,6 @@ button.chat-submit-btn:disabled,
 }
 
 .story-party-card:hover,
-.combat-turn-card:hover,
 .participant-strip-card:hover {
   box-shadow:
     0 10px 22px rgba(95, 61, 22, 0.16),
@@ -3110,8 +3012,6 @@ button.chat-submit-btn:disabled,
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
-.combat-action-tabs button,
-.combat-action-list button,
 .session-sidebar-input button,
 .session-log-history-button,
 .main-command-category-button,
@@ -3133,8 +3033,6 @@ button.chat-submit-btn:disabled,
     background 0.14s ease;
 }
 
-.combat-action-tabs button:hover:not(:disabled),
-.combat-action-list button:hover:not(:disabled),
 .session-sidebar-input button:hover:not(:disabled),
 .session-log-history-button:hover:not(:disabled),
 .main-command-category-button:hover:not(:disabled),
@@ -3147,8 +3045,6 @@ button.chat-submit-btn:disabled,
     0 10px 16px rgba(81, 52, 17, 0.14);
 }
 
-.combat-action-tabs button:active:not(:disabled),
-.combat-action-list button:active:not(:disabled),
 .session-sidebar-input button:active:not(:disabled),
 .main-command-category-button:active:not(:disabled),
 .main-command-option-button:active:not(:disabled),
@@ -3157,7 +3053,6 @@ button.chat-submit-btn:disabled,
   box-shadow: 0 1px 0 #75551f;
 }
 
-.combat-action-tabs button.active,
 .main-command-category-button.active,
 .main-command-option-button.active,
 .session-room-overlay-actions .ghost:first-child {
@@ -3179,46 +3074,12 @@ button.chat-submit-btn:disabled,
     0 8px 14px rgba(91, 31, 20, 0.18);
 }
 
-.combat-map-panel,
 .story-scene-visual {
   border-color: #1f1a14;
   border-radius: var(--session-kit-radius-md);
   box-shadow:
     inset 0 0 0 3px var(--session-kit-gold),
     0 8px 16px rgba(65, 42, 13, 0.32);
-}
-
-.combat-map-panel > .vtt-panel {
-  border-radius: calc(var(--session-kit-radius-md) - 4px);
-  overflow: hidden;
-}
-
-.combat-map-panel .vtt-toolbar,
-.combat-map-panel .vtt-subtoolbar {
-  background:
-    linear-gradient(180deg, rgba(255, 251, 236, 0.97), rgba(244, 226, 184, 0.94)),
-    rgba(255, 247, 221, 0.94);
-  border-color: rgba(182, 138, 54, 0.42);
-}
-
-.combat-map-panel .vtt-controls button,
-.combat-map-panel .vtt-zoom-controls button,
-.combat-map-panel .vtt-clear-measure,
-.combat-map-panel .vtt-fog-tools button,
-.combat-map-panel .vtt-inspector-actions button {
-  min-height: 28px;
-  border-color: #9b7330;
-  background: #fff1cf;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
-}
-
-.combat-map-panel .vtt-stage-wrap {
-  box-shadow: inset 0 0 0 1px rgba(199, 153, 67, 0.18);
-}
-
-.combat-map-panel .vtt-inspector {
-  background: var(--session-kit-panel-bg);
-  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.46);
 }
 
 .session-sidebar {
@@ -3293,196 +3154,7 @@ button.chat-submit-btn:disabled,
   color: rgba(91, 68, 39, 0.58);
 }
 
-.session-prep-layout .session-game-surface .combat-node-surface {
-  background:
-    linear-gradient(rgba(255, 248, 229, 0.86), rgba(244, 224, 181, 0.78)),
-    url('../assets/images/parchment_scroll.webp') center / cover;
-}
-
-.session-prep-layout .session-game-surface .combat-turn-bar {
-  margin: 0;
-  border: 0;
-  border-bottom: 2px solid rgba(114, 80, 34, 0.42);
-  background:
-    linear-gradient(90deg, rgba(255, 250, 235, 0.98), rgba(244, 224, 181, 0.95)),
-    radial-gradient(circle at 0% 0%, rgba(255, 255, 255, 0.96), transparent 42%);
-}
-
-.session-prep-layout .combat-turn-bar h1 {
-  color: #24170d;
-  font-size: clamp(26px, 2.2vw, 38px);
-  font-weight: 900;
-}
-
-.session-prep-layout .combat-round-status span {
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid #c79943;
-  background: #fff4d6;
-  color: #513814;
-}
-
-
-.session-prep-layout .combat-initiative-strip {
-  min-height: 70px;
-  padding: 9px 14px;
-  border-bottom: 2px solid rgba(114, 80, 34, 0.32);
-  background:
-    linear-gradient(180deg, rgba(239, 220, 179, 0.72), rgba(228, 207, 161, 0.76)),
-    rgba(239, 220, 179, 0.58);
-}
-
-.session-prep-layout .combat-turn-card {
-  border: 2px solid #c79943;
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0)), #fff4d6;
-  box-shadow: 0 5px 10px rgba(84, 53, 18, 0.14);
-}
-
-.session-prep-layout .combat-turn-card.mine {
-  border-color: #315d87;
-  background: #edf4fb;
-}
-
-.session-prep-layout .combat-turn-card span {
-  border: 1px solid #d4b66f;
-  border-radius: 6px;
-  background: #fff9e7;
-  color: #17375a;
-}
-
-.session-prep-layout .combat-node-content {
-  gap: 10px;
-  padding: 10px;
-  background: rgba(246, 229, 188, 0.58);
-}
-
-.session-prep-layout .combat-map-panel {
-  padding: 8px;
-  border: 5px solid #211b16;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #17120d, #312414), #090b0d;
-  box-shadow:
-    inset 0 0 0 3px #c79943,
-    0 10px 18px rgba(48, 29, 10, 0.34);
-}
-
-.session-prep-layout .combat-map-panel > .vtt-panel {
-  border-radius: 10px;
-  background: #090b0d;
-}
-
-.session-prep-layout .combat-map-panel .vtt-toolbar {
-  padding: 8px 10px;
-  border-bottom: 2px solid rgba(114, 80, 34, 0.36);
-  background:
-    linear-gradient(180deg, rgba(255, 250, 232, 0.98), rgba(235, 212, 164, 0.96)), #fff5da;
-}
-
-.session-prep-layout .combat-map-panel .vtt-toolbar > div:first-child {
-  min-height: 32px;
-  padding: 0 8px;
-  border-right: 1px solid rgba(114, 80, 34, 0.24);
-}
-
-.session-prep-layout .combat-map-panel .vtt-toolbar .eyebrow {
-  color: #1677b4;
-  font-weight: 900;
-}
-
-.session-prep-layout .combat-map-panel .vtt-controls {
-  gap: 7px;
-}
-
-.session-prep-layout .combat-map-panel .vtt-controls input,
-.session-prep-layout .combat-map-panel .vtt-controls select,
-.session-prep-layout .combat-map-panel .vtt-map-settings input,
-.session-prep-layout .combat-map-panel .vtt-zoom-controls select {
-  min-height: 32px;
-  border: 2px solid #bd9140;
-  border-radius: 8px;
-  background: #fffaf0;
-}
-
-.session-prep-layout .combat-map-panel .vtt-controls button,
-.session-prep-layout .combat-map-panel .vtt-zoom-controls button,
-.session-prep-layout .combat-map-panel .vtt-clear-measure,
-.session-prep-layout .combat-map-panel .vtt-fog-tools button,
-.session-prep-layout .combat-map-panel .vtt-inspector-actions button {
-  min-height: 32px;
-  border: 2px solid #8d6729;
-  border-radius: 8px;
-  background: var(--session-kit-button-bg);
-  color: #2f2115;
-  box-shadow: 0 2px 0 #75551f;
-}
-
-.session-prep-layout .combat-map-panel .vtt-subtoolbar {
-  padding: 7px 10px;
-  border-top: 2px solid rgba(114, 80, 34, 0.3);
-  background:
-    linear-gradient(180deg, rgba(255, 250, 232, 0.98), rgba(235, 212, 164, 0.96)), #fff5da;
-}
-
-.session-prep-layout .combat-map-panel .vtt-stage-wrap {
-  border-top: 1px solid rgba(199, 153, 67, 0.3);
-  border-bottom: 1px solid rgba(199, 153, 67, 0.3);
-}
-
-.session-prep-layout .combat-map-panel .vtt-inspector {
-  border-left: 2px solid rgba(114, 80, 34, 0.36);
-  background:
-    linear-gradient(180deg, rgba(255, 250, 232, 0.98), rgba(245, 227, 184, 0.96)), #fff5da;
-}
-
-.session-prep-layout .combat-resource-panel,
-.session-prep-layout .combat-action-panel,
-.session-prep-layout .combat-check-panel {
-  border: 2px solid #c79943;
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0)), #fff6df;
-  box-shadow: 0 8px 16px rgba(84, 53, 18, 0.12);
-}
-
-.session-prep-layout .combat-resource-grid span {
-  border: 1px solid #d7b772;
-  border-radius: 10px;
-  background: #fff9e7;
-}
-
-.session-prep-layout .combat-check-list span {
-  border-color: #c79943;
-  border-radius: 999px;
-  background: #fff4d2;
-  color: #6b4a1e;
-}
-
-.session-prep-layout .combat-action-dock {
-  min-height: 142px;
-  padding: 10px;
-  gap: 12px;
-  border-top: 3px solid rgba(114, 80, 34, 0.38);
-  background:
-    linear-gradient(180deg, rgba(239, 220, 179, 0.82), rgba(222, 199, 151, 0.76)),
-    rgba(239, 220, 179, 0.58);
-}
-
-.session-prep-layout .combat-action-tabs button,
-.session-prep-layout .combat-action-list button {
-  min-height: 36px;
-  border: 2px solid #8d6729;
-  border-radius: 9px;
-  background: var(--session-kit-button-bg);
-  color: #2f2115;
-  box-shadow: 0 3px 0 #75551f;
-}
-
-.session-prep-layout .combat-action-tabs button.active {
-  border-color: #0f2f52;
-  background: linear-gradient(#315d87, #17375a);
-  color: #fff8dd;
-  box-shadow: 0 3px 0 #0f243d;
-}
+/* Legacy combat nodes layout block removed */
 
 .session-prep-layout {
   --session-kit-button-bg: #fff6df;
@@ -3497,12 +3169,8 @@ button.chat-submit-btn:disabled,
     .session-stage-canvas.started,
     .session-sidebar,
     .session-room-overlay,
-    .combat-map-panel,
     .story-scene-visual,
     .story-party-detail,
-    .combat-resource-panel,
-    .combat-action-panel,
-    .combat-check-panel,
     .session-settings-room,
     .session-sidebar-heading
   ) {
@@ -3511,33 +3179,26 @@ button.chat-submit-btn:disabled,
   box-shadow: 0 6px 14px rgba(43, 27, 10, 0.1);
 }
 
-.session-prep-layout :is(.combat-map-panel, .story-scene-visual) {
+.session-prep-layout .story-scene-visual {
   border-width: 2px;
   border-color: rgba(64, 48, 30, 0.72);
   box-shadow: 0 8px 16px rgba(43, 27, 10, 0.14);
 }
 
-.session-prep-layout :is(.combat-map-panel, .story-scene-visual)::before,
-.session-prep-layout :is(.combat-map-panel, .story-scene-visual)::after {
+.session-prep-layout .story-scene-visual::before,
+.session-prep-layout .story-scene-visual::after {
   display: none;
 }
 
 .session-prep-layout
   :is(
-    .combat-action-tabs button,
-    .combat-action-list button,
     .session-sidebar-input button,
     .session-log-history-button,
     .main-command-category-button,
     .main-command-option-button,
     .session-settings-room button,
     .session-room-overlay-actions button,
-    .danger-button,
-    .combat-map-panel .vtt-controls button,
-    .combat-map-panel .vtt-zoom-controls button,
-    .combat-map-panel .vtt-clear-measure,
-    .combat-map-panel .vtt-fog-tools button,
-    .combat-map-panel .vtt-inspector-actions button
+    .danger-button
   ) {
   border-width: 1px;
   border-color: rgba(159, 118, 48, 0.54);
@@ -3548,7 +3209,6 @@ button.chat-submit-btn:disabled,
 
 .session-prep-layout
   :is(
-    .combat-action-tabs button.active,
     .main-command-category-button.active,
     .main-command-option-button.active,
     .session-room-overlay-actions .ghost:first-child,
@@ -3569,41 +3229,17 @@ button.chat-submit-btn:disabled,
 
 .session-prep-layout
   :is(
-    .combat-turn-card,
     .story-party-card,
-    .combat-turn-card,
-    .participant-strip-card,
-    .combat-resource-grid span
+    .participant-strip-card
   ) {
   border-width: 1px;
   border-color: rgba(184, 139, 65, 0.42);
   box-shadow: 0 3px 8px rgba(75, 46, 14, 0.08);
 }
 
-.session-prep-layout
-  :is(
-    .combat-turn-card.mine,
-    .story-party-card.selected
-  ) {
+.session-prep-layout .story-party-card.selected {
   border-color: rgba(49, 93, 135, 0.58);
   background: #edf4fb;
-}
-
-.session-prep-layout :is(.combat-map-panel .vtt-toolbar, .combat-map-panel .vtt-subtoolbar) {
-  border-color: rgba(184, 139, 65, 0.28);
-  background: #fff5da;
-}
-
-.session-prep-layout :is(.combat-map-panel) {
-  padding: 6px;
-  border: 1px solid rgba(199, 153, 67, 0.42);
-  background: rgba(255, 245, 218, 0.72);
-  box-shadow: 0 6px 14px rgba(43, 27, 10, 0.1);
-}
-
-.session-prep-layout :is(.combat-map-panel) > .vtt-panel {
-  border: 1px solid rgba(199, 153, 67, 0.22);
-  background: transparent;
 }
 
 .session-prep-layout {
@@ -3633,24 +3269,6 @@ button.chat-submit-btn:disabled,
   box-shadow: var(--surface-shadow);
 }
 
-.session-prep-layout .session-game-surface .combat-node-surface {
-  background: var(--page-bg);
-  color: var(--text-main);
-}
-
-.session-prep-layout .session-game-surface .combat-turn-bar {
-  border-bottom: 1px solid rgba(18, 52, 90, 0.12);
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.96), rgba(255, 249, 234, 0.9)),
-    var(--card-bg-white);
-}
-
-.session-prep-layout .combat-turn-bar h1 {
-  color: var(--text-main);
-  letter-spacing: 0;
-}
-
-.session-prep-layout .combat-node-eyebrow,
 .session-prep-layout .session-sidebar-heading .eyebrow {
   min-height: 22px;
   border: 1px solid rgba(18, 52, 90, 0.16);
@@ -3658,13 +3276,6 @@ button.chat-submit-btn:disabled,
   color: var(--navy);
 }
 
-.session-prep-layout .combat-round-status span {
-  border: 1px solid rgba(200, 155, 60, 0.36);
-  background: var(--card-bg);
-  color: var(--text-sub);
-}
-
-.session-prep-layout .combat-action-tabs button.active,
 .session-prep-layout .session-sidebar-tabs button.active {
   border-color: rgba(18, 52, 90, 0.55);
   background: var(--navy);
@@ -3672,21 +3283,6 @@ button.chat-submit-btn:disabled,
   box-shadow: 0 4px 10px rgba(18, 52, 90, 0.18);
 }
 
-.session-prep-layout .combat-initiative-strip,
-.session-prep-layout .combat-action-dock {
-  border-color: rgba(18, 52, 90, 0.1);
-  background: #eef5fa;
-}
-
-.session-prep-layout .combat-node-content {
-  gap: 12px;
-  padding: 12px;
-  background: #f6f9fb;
-}
-
-.session-prep-layout .combat-resource-panel,
-.session-prep-layout .combat-action-panel,
-.session-prep-layout .combat-check-panel,
 .session-prep-layout .session-info-panel,
 .session-prep-layout .session-settings-panel {
   border: 1px solid var(--surface-line);
@@ -3694,122 +3290,6 @@ button.chat-submit-btn:disabled,
   box-shadow: 0 6px 16px rgba(31, 52, 76, 0.08);
 }
 
-.session-prep-layout .combat-map-panel {
-  padding: 8px;
-  border: 1px solid var(--surface-line-strong);
-  border-radius: 16px;
-  background: var(--card-bg-white);
-  box-shadow:
-    0 18px 38px rgba(18, 52, 90, 0.2),
-    0 0 0 1px rgba(200, 155, 60, 0.18);
-}
-
-.session-prep-layout .combat-map-panel > .vtt-panel {
-  border: 0;
-  border-radius: 12px;
-  background: #ffffff;
-}
-
-.session-prep-layout .combat-map-panel .vtt-workspace {
-  background: #10151d;
-}
-
-.session-prep-layout .combat-map-panel .vtt-toolbar,
-.session-prep-layout .combat-map-panel .vtt-subtoolbar {
-  padding: 6px 8px;
-  border-color: rgba(18, 52, 90, 0.1);
-  background: rgba(255, 255, 255, 0.94);
-}
-
-.session-prep-layout .combat-map-panel .vtt-toolbar > div:first-child {
-  padding-right: 8px;
-  border-right: 1px solid rgba(18, 52, 90, 0.1);
-}
-
-.session-prep-layout .combat-map-panel .vtt-toolbar strong {
-  color: var(--text-main);
-}
-
-.session-prep-layout .combat-map-panel .vtt-toolbar .eyebrow {
-  color: #2b78a6;
-}
-
-.session-prep-layout .combat-map-panel .vtt-controls input,
-.session-prep-layout .combat-map-panel .vtt-controls select,
-.session-prep-layout .combat-map-panel .vtt-map-settings input,
-.session-prep-layout .combat-map-panel .vtt-zoom-controls select {
-  min-height: 28px;
-  border: 1px solid rgba(200, 155, 60, 0.34);
-  border-radius: 8px;
-  background: #ffffff;
-  color: var(--text-main);
-  box-shadow: none;
-}
-
-.session-prep-layout
-  :is(
-    .combat-map-panel .vtt-controls button,
-    .combat-map-panel .vtt-zoom-controls button,
-    .combat-map-panel .vtt-clear-measure,
-    .combat-map-panel .vtt-fog-tools button,
-    .combat-map-panel .vtt-inspector-actions button
-  ) {
-  min-height: 28px;
-  border: 1px solid rgba(200, 155, 60, 0.32);
-  border-radius: 8px;
-  background: var(--card-bg);
-  color: var(--text-main);
-  box-shadow: none;
-}
-
-.session-prep-layout
-  :is(
-    .combat-map-panel .vtt-controls button:hover:not(:disabled),
-    .combat-map-panel .vtt-zoom-controls button:hover:not(:disabled),
-    .combat-map-panel .vtt-clear-measure:hover:not(:disabled),
-    .combat-map-panel .vtt-fog-tools button:hover:not(:disabled),
-    .combat-map-panel .vtt-inspector-actions button:hover:not(:disabled)
-  ) {
-  border-color: rgba(18, 52, 90, 0.34);
-  background: #f5fbff;
-}
-
-.session-prep-layout .combat-map-panel .vtt-stage-wrap {
-  border-color: rgba(18, 52, 90, 0.1);
-}
-
-.session-prep-layout .combat-map-panel .vtt-inspector {
-  border-left: 1px solid rgba(18, 52, 90, 0.12);
-  background: var(--card-bg-white);
-}
-
-.session-prep-layout .combat-resource-panel strong {
-  color: var(--navy);
-}
-
-.session-prep-layout .combat-resource-grid span {
-  border: 1px solid rgba(18, 52, 90, 0.1);
-  background: var(--card-bg-white);
-}
-
-.session-prep-layout .combat-check-list span {
-  border: 1px solid rgba(200, 155, 60, 0.34);
-  background: #fff8e8;
-  color: var(--gold-dark);
-}
-
-.session-prep-layout .combat-action-tabs,
-.session-prep-layout .combat-action-list {
-  gap: 8px;
-}
-
-.session-prep-layout .combat-action-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
-}
-
-.session-prep-layout .combat-action-tabs button,
-.session-prep-layout .combat-action-list button,
 .session-prep-layout .session-sidebar-input button,
 .session-prep-layout .main-command-category-button,
 .session-prep-layout .main-command-option-button {
@@ -3821,8 +3301,6 @@ button.chat-submit-btn:disabled,
   box-shadow: 0 2px 5px rgba(31, 52, 76, 0.08);
 }
 
-.session-prep-layout .combat-action-tabs button:hover:not(:disabled),
-.session-prep-layout .combat-action-list button:hover:not(:disabled),
 .session-prep-layout .session-sidebar-input button:hover:not(:disabled),
 .session-prep-layout .main-command-category-button:hover:not(:disabled),
 .session-prep-layout .main-command-option-button:hover:not(:disabled) {
@@ -3830,7 +3308,6 @@ button.chat-submit-btn:disabled,
   transform: translateY(-1px);
 }
 
-.session-prep-layout .combat-action-tabs button.active,
 .session-prep-layout .main-command-category-button.active,
 .session-prep-layout .main-command-option-button.active {
   border-color: var(--navy);
@@ -5054,4 +4531,14 @@ button.chat-submit-btn:disabled,
 
 .session-info-panel textarea:focus {
   outline: none !important;
+}
+
+/* 전투 노드 또는 탐험 노드가 활성화되었을 때, 좌측 전체 영역의 라운딩과 패딩을 완전히 없애서 우드 배경이 꽉 차게 만듭니다. */
+.session-prep-stage.node-surface-active .session-stage-canvas.started,
+.session-prep-stage.node-surface-active .session-game-surface {
+  border-radius: 0 !important;
+  border: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }

@@ -303,13 +303,31 @@ function getTurnLogMainCommandMetadata(turnLog: TurnLogResponseDto): LogEntry['m
     intent?: unknown;
     targetId?: unknown;
     targetType?: unknown;
+    data?: unknown;
   };
+  const data = command.data && typeof command.data === 'object'
+    ? (command.data as Record<string, unknown>)
+    : null;
+  const npcDialogue = data?.npcDialogue && typeof data.npcDialogue === 'object'
+    ? (data.npcDialogue as Record<string, unknown>)
+    : null;
+  const npcDialogueId = typeof npcDialogue?.npcId === 'string' ? npcDialogue.npcId : null;
+  const npcDialogueSpeakerName =
+    typeof npcDialogue?.speakerName === 'string' ? npcDialogue.speakerName : null;
 
   return {
     mainCommand: {
       intent: typeof command.intent === 'string' ? command.intent : null,
-      targetId: typeof command.targetId === 'string' ? command.targetId : null,
+      targetId: typeof command.targetId === 'string' ? command.targetId : npcDialogueId,
       targetType: typeof command.targetType === 'string' ? command.targetType : null,
+      ...(npcDialogueId || npcDialogueSpeakerName
+        ? {
+            npcDialogue: {
+              npcId: npcDialogueId,
+              speakerName: npcDialogueSpeakerName,
+            },
+          }
+        : {}),
     },
   };
 }

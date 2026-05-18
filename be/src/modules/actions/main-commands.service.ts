@@ -202,6 +202,17 @@ type InterpreterParsedForRouting = {
   } | null;
 };
 
+type EffectiveMainCommandData = {
+  commandId: SubmitMainCommandDto["commandId"];
+  category: SubmitMainCommandDto["category"];
+  intent: SubmitMainCommandDto["intent"];
+  screenType: SubmitMainCommandDto["screenType"];
+  targetId: string | null;
+  targetType: SubmitMainCommandDto["targetType"] | null;
+  itemId: string | null;
+  spellId: string | null;
+};
+
 const AUTO_TRANSITION_CONDITIONS = new Set([
   "",
   "default",
@@ -1048,6 +1059,12 @@ export class MainCommandsService {
       requestId,
       status: MainCommandStatus.MESSAGE,
       message: `${npc.name}: ${result.parsed.dialogue}`,
+      data: {
+        npcDialogue: {
+          npcId: npc.id,
+          speakerName: npc.name,
+        },
+      },
     };
   }
 
@@ -1231,6 +1248,8 @@ export class MainCommandsService {
       ...response,
       data: {
         ...(response.data ?? {}),
+        // 자유입력은 원본 DTO가 GENERAL_GM_REQUEST라서, 로그에는 실제 라우팅된 명령 정보를 함께 남긴다.
+        effectiveMainCommand: this.buildEffectiveMainCommandData(routedDto),
         interpreterRoute: this.buildInterpreterRouteData(route),
       },
     };
@@ -4013,6 +4032,64 @@ export class MainCommandsService {
     });
   }
 
+  private buildEffectiveMainCommandData(dto: SubmitMainCommandDto): EffectiveMainCommandData {
+    return {
+      commandId: dto.commandId,
+      category: dto.category,
+      intent: dto.intent,
+      screenType: dto.screenType,
+      targetId: dto.targetId ?? null,
+      targetType: dto.targetType ?? null,
+      itemId: dto.itemId ?? null,
+      spellId: dto.spellId ?? null,
+    };
+  }
+
+  private resolvePersistedMainCommand(
+    dto: SubmitMainCommandDto,
+    response: MainCommandResponseDto,
+  ): EffectiveMainCommandData {
+    const fallback = this.buildEffectiveMainCommandData(dto);
+    const data = response.data;
+    const effectiveMainCommand =
+      data?.effectiveMainCommand && typeof data.effectiveMainCommand === "object"
+        ? (data.effectiveMainCommand as Partial<EffectiveMainCommandData>)
+        : null;
+
+    if (!effectiveMainCommand) {
+      return fallback;
+    }
+
+    return {
+      commandId:
+        typeof effectiveMainCommand.commandId === "string"
+          ? effectiveMainCommand.commandId
+          : fallback.commandId,
+      category: effectiveMainCommand.category ?? fallback.category,
+      intent: effectiveMainCommand.intent ?? fallback.intent,
+      screenType: effectiveMainCommand.screenType ?? fallback.screenType,
+      targetId:
+        typeof effectiveMainCommand.targetId === "string"
+          ? effectiveMainCommand.targetId
+          : effectiveMainCommand.targetId === null
+            ? null
+            : fallback.targetId,
+      targetType: effectiveMainCommand.targetType ?? fallback.targetType,
+      itemId:
+        typeof effectiveMainCommand.itemId === "string"
+          ? effectiveMainCommand.itemId
+          : effectiveMainCommand.itemId === null
+            ? null
+            : fallback.itemId,
+      spellId:
+        typeof effectiveMainCommand.spellId === "string"
+          ? effectiveMainCommand.spellId
+          : effectiveMainCommand.spellId === null
+            ? null
+            : fallback.spellId,
+    };
+  }
+
   private async persistResult(
     userId: string,
     context: LoadedContext,
@@ -4020,6 +4097,7 @@ export class MainCommandsService {
     response: MainCommandResponseDto,
   ) {
     const outcome = this.toActionOutcome(response);
+    const persistedCommand = this.resolvePersistedMainCommand(dto, response);
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId: context.sessionId,
       sessionScenarioId: context.sessionScenarioId,
@@ -4028,14 +4106,14 @@ export class MainCommandsService {
       rawInput: this.getMainCommandRawInput(dto),
       structuredAction: {
         type: "main_command",
-        commandId: dto.commandId,
-        category: dto.category,
-        intent: dto.intent,
-        screenType: dto.screenType,
-        targetId: dto.targetId ?? null,
-        targetType: dto.targetType ?? null,
-        itemId: dto.itemId ?? null,
-        spellId: dto.spellId ?? null,
+        commandId: persistedCommand.commandId,
+        category: persistedCommand.category,
+        intent: persistedCommand.intent,
+        screenType: persistedCommand.screenType,
+        targetId: persistedCommand.targetId,
+        targetType: persistedCommand.targetType,
+        itemId: persistedCommand.itemId,
+        spellId: persistedCommand.spellId,
         status: response.status,
         checkOptions: response.checkOptions ?? [],
         actionCandidate: response.actionCandidate ?? null,
