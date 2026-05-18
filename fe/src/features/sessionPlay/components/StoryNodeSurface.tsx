@@ -102,11 +102,6 @@ function getInventoryMetaLabel(item: SessionCharacterResponseDto['inventory'][nu
   return parts.length ? parts.join(' · ') : '추가 속성 없음';
 }
 
-function getNodeTypeLabel(node: PlayerScenarioNodeDto | null) {
-  if (!node) return 'STORY';
-  return node.nodeType.toUpperCase();
-}
-
 function getPhaseLabel(phase: string | null | undefined) {
   if (!phase) return '상태 미확인';
   if (phase === 'dialogue') return '진행: 대화';
@@ -260,7 +255,6 @@ export function StoryNodeSurface({
           </button>
         </div>
         <div className="story-node-status-row" aria-label="장면 상태">
-          <span>{getNodeTypeLabel(node)}</span>
           <span>{getPhaseLabel(phase)}</span>
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
         </div>

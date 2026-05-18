@@ -417,7 +417,6 @@ export function CombatNodeSurface({
           </button>
         </div>
         <div className="combat-round-status">
-          <span>COMBAT</span>
           <span>{getPhaseLabel(phase)}</span>
           <span>라운드 {combat?.roundNo ?? '-'}</span>
           <span>
