@@ -93,7 +93,7 @@ if (import.meta.env.DEV && typeof console !== 'undefined') {
 export const AUTH_EXPIRED_EVENT = 'trpg:auth-expired';
 export const AUTH_TOKEN_REISSUED_EVENT = 'trpg:auth-token-reissued';
 
-export const DEFAULT_SCENARIO_ID = 'scenario_goblin_cave';
+export const DEFAULT_SCENARIO_ID = 'scenario_77758fa0-3b35-4f95-bb2d-0ffe11c989ac';
 const DEFAULT_RULE_SET_ID = 'dnd5e';
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
@@ -463,7 +463,7 @@ export function listScenarios(): Promise<Scenario[]> {
 }
 
 function isProvidedScenarioForSelection(scenario: Scenario): boolean {
-  return scenario.id === DEFAULT_SCENARIO_ID && scenario.sourceType === 'SYSTEM';
+  return scenario.id === DEFAULT_SCENARIO_ID;
 }
 
 export async function listAvailableScenarios(

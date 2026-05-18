@@ -7,7 +7,6 @@ import {
 } from "@nestjs/common";
 import {
   CharacterAvatarType as PrismaCharacterAvatarType,
-  ScenarioSourceType as PrismaScenarioSourceType,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
@@ -31,7 +30,7 @@ import {
   UpdateCharacterEquipmentDto,
 } from "@trpg/shared-types";
 import { mapCharacter, mapSessionCharacter } from "../../common/mappers/domain.mapper";
-import { DEFAULT_SCENARIO_ID } from "../../database/seed/default-scenario";
+import { isDefaultProvidedScenarioId } from "../scenarios/provided-scenario.constants";
 import { PrismaService } from "../../database/prisma.service";
 import { CatalogService } from "../catalog/catalog.service";
 import { RacesService } from "../races/races.service";
@@ -455,8 +454,7 @@ export class CharactersService {
       throw new NotFoundException(`Scenario ${scenarioId} was not found.`);
     }
 
-    const isDefaultProvidedScenario =
-      scenario.id === DEFAULT_SCENARIO_ID && scenario.sourceType === PrismaScenarioSourceType.SYSTEM;
+    const isDefaultProvidedScenario = isDefaultProvidedScenarioId(scenario.id);
     const isOwnScenario = scenario.createdByUserId === userId;
     if (!isDefaultProvidedScenario && !isOwnScenario) {
       // 다른 사용자가 만든 시나리오는 캐릭터 생성 선택지와 API 응답에서 모두 숨깁니다.
