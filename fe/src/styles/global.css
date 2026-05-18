@@ -30,12 +30,14 @@ button {
   transition:
     border-color 160ms ease,
     background 160ms ease,
-    transform 160ms ease;
+    transform 160ms ease,
+    filter 160ms ease,
+    box-shadow 160ms ease;
 }
 
 button:hover:not(:disabled) {
   border-color: var(--cyan);
-  background: #172638;
+  filter: brightness(1.03);
 }
 
 button:active:not(:disabled) {
