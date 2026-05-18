@@ -1019,6 +1019,12 @@ export class VttObjectRevealCheckDto {
   @IsNotEmpty()
   contentId!: string;
 
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  requiresCheck?: boolean;
+
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
   @IsString()

@@ -197,38 +197,57 @@ function rectsOverlap(
   return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 }
 
-function isPointInRect(point: MeasurePoint, rect: { x: number; y: number; width: number; height: number }) {
-  return (
-    point.x >= rect.x &&
-    point.x <= rect.x + rect.width &&
-    point.y >= rect.y &&
-    point.y <= rect.y + rect.height
-  );
+function getCellKey(column: number, row: number) {
+  return `${column}:${row}`;
 }
 
-function getVisionBlockerEntryCellKey(
+function getRectCellKeys(
+  rect: { x: number; y: number; width: number; height: number },
+  map: VttMapStateDto,
+  maxColumn: number,
+  maxRow: number
+) {
+  const keys: string[] = [];
+  const minColumn = Math.max(0, Math.floor(rect.x / map.gridSize));
+  const maxRectColumn = Math.min(maxColumn, Math.ceil((rect.x + rect.width) / map.gridSize) - 1);
+  const minRow = Math.max(0, Math.floor(rect.y / map.gridSize));
+  const maxRectRow = Math.min(maxRow, Math.ceil((rect.y + rect.height) / map.gridSize) - 1);
+
+  for (let row = minRow; row <= maxRectRow; row += 1) {
+    for (let column = minColumn; column <= maxRectColumn; column += 1) {
+      keys.push(getCellKey(column, row));
+    }
+  }
+
+  return keys;
+}
+
+function getVisionRayCells(
   from: MeasurePoint,
   to: MeasurePoint,
-  rect: { x: number; y: number; width: number; height: number },
-  map: VttMapStateDto
+  map: VttMapStateDto,
+  maxColumn: number,
+  maxRow: number
 ) {
-  if (isPointInRect(from, rect)) return null;
+  const cells: Array<{ column: number; row: number; key: string }> = [];
+  const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / (map.gridSize / 4)));
 
-  const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / 8));
-  for (let index = 1; index <= steps; index += 1) {
+  for (let index = 0; index <= steps; index += 1) {
     const ratio = index / steps;
     const point = {
       x: from.x + (to.x - from.x) * ratio,
       y: from.y + (to.y - from.y) * ratio,
     };
-    if (isPointInRect(point, rect)) {
-      const column = getGridIndex(point.x, map.gridSize, map.width);
-      const row = getGridIndex(point.y, map.gridSize, map.height);
-      return `${column}:${row}`;
+    const column = Math.min(maxColumn, Math.max(0, getGridIndex(point.x, map.gridSize, map.width)));
+    const row = Math.min(maxRow, Math.max(0, getGridIndex(point.y, map.gridSize, map.height)));
+    const key = getCellKey(column, row);
+
+    if (cells[cells.length - 1]?.key !== key) {
+      cells.push({ column, row, key });
     }
   }
 
-  return null;
+  return cells;
 }
 
 function getCellCenter(column: number, row: number, map: VttMapStateDto): MeasurePoint {
@@ -267,7 +286,7 @@ function addRectVisionCells(
   map: VttMapStateDto,
   maxColumn: number,
   maxRow: number,
-  rangePx: number
+  rangeFt: number
 ) {
   const minColumn = Math.max(0, Math.floor(rect.x / map.gridSize));
   const maxRectColumn = Math.min(maxColumn, Math.ceil((rect.x + rect.width) / map.gridSize) - 1);
@@ -277,7 +296,7 @@ function addRectVisionCells(
   for (let row = minRow; row <= maxRectRow; row += 1) {
     for (let column = minColumn; column <= maxRectColumn; column += 1) {
       const center = getCellCenter(column, row, map);
-      if (Math.hypot(center.x - source.x, center.y - source.y) <= rangePx + map.gridSize / 2) {
+      if (isGridRangeWithin(source, center, map, rangeFt + feetPerGrid)) {
         addVisionCell(visible, column, row, maxColumn, maxRow);
       }
     }
@@ -301,6 +320,21 @@ function getVisibleVisionCells(params: {
     ...(map.wallCells ?? []),
     ...(map.doorCells ?? []).filter((door) => door.state !== 'open' && door.state !== 'broken'),
   ];
+  const blockerCellMap = new Map<string, (typeof blockers)[number]>();
+  blockers.forEach((blocker) => {
+    getRectCellKeys(blocker, map, maxColumn, maxRow).forEach((cellKey) => {
+      blockerCellMap.set(cellKey, blocker);
+    });
+  });
+  const blockerCellKeys = new Set(blockerCellMap.keys());
+
+  const revealBlockerCell = (cellKey: string, source: MeasurePoint) => {
+    visible.add(cellKey);
+    const blocker = blockerCellMap.get(cellKey);
+    if (blocker) {
+      addRectVisionCells(visible, blocker, source, map, maxColumn, maxRow, rangeFt);
+    }
+  };
 
   sourceTokens.forEach((token) => {
     const source = {
@@ -320,31 +354,39 @@ function getVisibleVisionCells(params: {
           x: column * map.gridSize + map.gridSize / 2,
           y: row * map.gridSize + map.gridSize / 2,
         };
-        if (Math.hypot(target.x - source.x, target.y - source.y) > rangePx) {
+        if (!isGridRangeWithin(source, target, map, rangeFt)) {
           continue;
         }
-        const blockerHit = blockers.reduce<{
-          blocker: (typeof blockers)[number];
-          cellKey: string;
-          distance: number;
-        } | null>((nearest, blocker) => {
-          const nextKey = getVisionBlockerEntryCellKey(source, target, blocker, map);
-          if (!nextKey) return nearest;
+        const rayCells = getVisionRayCells(source, target, map, maxColumn, maxRow);
+        let blocked = false;
 
-          const [nextColumn, nextRow] = nextKey.split(':').map(Number);
-          const nextPoint = getCellCenter(nextColumn, nextRow, map);
-          const distance = Math.hypot(nextPoint.x - source.x, nextPoint.y - source.y);
-          if (!nearest || distance < nearest.distance) {
-            return { blocker, cellKey: nextKey, distance };
+        for (let index = 1; index < rayCells.length; index += 1) {
+          const previous = rayCells[index - 1];
+          const current = rayCells[index];
+
+          if (current.column !== previous.column && current.row !== previous.row) {
+            const sideAKey = getCellKey(current.column, previous.row);
+            const sideBKey = getCellKey(previous.column, current.row);
+            if (blockerCellKeys.has(sideAKey) && blockerCellKeys.has(sideBKey)) {
+              revealBlockerCell(sideAKey, source);
+              revealBlockerCell(sideBKey, source);
+              blocked = true;
+              break;
+            }
           }
-          return nearest;
-        }, null);
-        if (blockerHit) {
-          visible.add(blockerHit.cellKey);
-          addRectVisionCells(visible, blockerHit.blocker, source, map, maxColumn, maxRow, rangePx);
+
+          if (blockerCellKeys.has(current.key)) {
+            revealBlockerCell(current.key, source);
+            blocked = true;
+            break;
+          }
+        }
+
+        if (blocked) {
           continue;
         }
-        visible.add(`${column}:${row}`);
+
+        visible.add(getCellKey(column, row));
       }
     }
   });
@@ -518,6 +560,19 @@ function getGridMovementDistanceFt(
   const toColumn = getGridIndex(to.x, map.gridSize, map.width);
   const toRow = getGridIndex(to.y, map.gridSize, map.height);
   return Math.max(Math.abs(toColumn - fromColumn), Math.abs(toRow - fromRow)) * feetPerGrid;
+}
+
+function isGridRangeWithin(
+  from: MeasurePoint,
+  to: MeasurePoint,
+  map: VttMapStateDto,
+  rangeFt: number
+) {
+  return getGridMovementDistanceFt(from, to, map) <= rangeFt;
+}
+
+function formatGridDistance(from: MeasurePoint, to: MeasurePoint, map: VttMapStateDto) {
+  return `${getGridMovementDistanceFt(from, to, map)} ft`;
 }
 
 function BattleToken({
@@ -829,6 +884,41 @@ export function BattleMap({
       ),
     [map, visibleTokens, visibleVisionCells]
   );
+  const sessionObstacleLayer = useMemo(() => {
+    if (canEditMap || (!terrainCells.length && !wallCells.length)) {
+      return null;
+    }
+
+    return (
+      <Layer listening={false}>
+        {terrainCells.map((cell) => (
+          <Rect
+            key={`session-terrain:${cell.id}`}
+            x={cell.x}
+            y={cell.y}
+            width={cell.width}
+            height={cell.height}
+            fill="rgba(96, 103, 111, 0.44)"
+            stroke="rgba(218, 226, 234, 0.42)"
+            strokeWidth={1.5}
+            dash={[8, 5]}
+          />
+        ))}
+        {wallCells.map((cell) => (
+          <Rect
+            key={`session-wall:${cell.id}`}
+            x={cell.x}
+            y={cell.y}
+            width={cell.width}
+            height={cell.height}
+            fill="rgba(58, 64, 72, 0.66)"
+            stroke="rgba(236, 241, 247, 0.5)"
+            strokeWidth={2}
+          />
+        ))}
+      </Layer>
+    );
+  }, [canEditMap, terrainCells, wallCells]);
   const gridLines = useMemo(() => {
     const lines: Array<{ isMajor: boolean; points: number[]; key: string }> = [];
     for (let x = 0, index = 0; x <= map.width; x += map.gridSize, index += 1) {
@@ -1309,6 +1399,7 @@ export function BattleMap({
       return (
         existing ?? {
           contentId,
+          requiresCheck: true,
           ability: 'int',
           skill: 'investigation',
           dc: 15,
@@ -1331,6 +1422,7 @@ export function BattleMap({
         existingChecks.find((check) => check.contentId === id) ??
         ({
           contentId: id,
+          requiresCheck: true,
           ability: 'int',
           skill: 'investigation',
           dc: 15,
@@ -2519,6 +2611,8 @@ export function BattleMap({
               </Layer>
             ) : null}
 
+            {sessionObstacleLayer}
+
             {detectedHazardCells.length ? (
               <Layer listening={false}>
                 {detectedHazardCells.map((cell) => {
@@ -2843,7 +2937,7 @@ export function BattleMap({
                     fill={tokenDragMeasure.path.blocked ? '#ff7771' : '#9ee6a8'}
                   />
                   <Text
-                    text={formatDistance(tokenDragMeasure.from, tokenDragMeasure.to, map.gridSize)}
+                    text={formatGridDistance(tokenDragMeasure.from, tokenDragMeasure.to, map)}
                     x={(tokenDragMeasure.from.x + tokenDragMeasure.to.x) / 2 + 10}
                     y={(tokenDragMeasure.from.y + tokenDragMeasure.to.y) / 2 - 28}
                     fill={tokenDragMeasure.path.blocked ? '#fff7f5' : '#061017'}
@@ -3379,17 +3473,32 @@ export function BattleMap({
                           (check) => check.contentId === contentId
                         ) ?? {
                           contentId,
+                          requiresCheck: true,
                           ability: 'int',
                           skill: 'investigation',
                           dc: 15,
                         };
+                      const requiresCheck = revealCheck.requiresCheck !== false;
 
                       return (
                         <div className="vtt-field-row" key={`reveal-check:${contentId}`}>
+                          <label className="vtt-check-row">
+                            <input
+                              type="checkbox"
+                              checked={!requiresCheck}
+                              onChange={(event) =>
+                                patchObjectRevealCheck(contentId, {
+                                  requiresCheck: !event.target.checked,
+                                })
+                              }
+                            />
+                            판정 필요 없음
+                          </label>
                           <label>
                             {clueLabel}
                             <select
                               value={revealCheck.ability ?? 'int'}
+                              disabled={!requiresCheck}
                               onChange={(event) =>
                                 patchObjectRevealCheck(contentId, { ability: event.target.value })
                               }
@@ -3405,6 +3514,7 @@ export function BattleMap({
                             기술
                             <select
                               value={revealCheck.skill ?? 'investigation'}
+                              disabled={!requiresCheck}
                               onChange={(event) =>
                                 patchObjectRevealCheck(contentId, { skill: event.target.value })
                               }
@@ -3423,6 +3533,7 @@ export function BattleMap({
                               min={1}
                               max={40}
                               value={revealCheck.dc ?? 15}
+                              disabled={!requiresCheck}
                               onChange={(event) =>
                                 patchObjectRevealCheck(contentId, {
                                   dc: clamp(Number(event.target.value) || 15, 1, 40),
