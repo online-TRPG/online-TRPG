@@ -201,26 +201,15 @@ function isStaleLeaveErrorMessage(message: string): boolean {
   );
 }
 
-function formatDebugValue(value: unknown): string {
-  if (value === null || value === undefined) {
-    return '(없음)';
-  }
-
-  if (typeof value === 'object') {
-    return JSON.stringify(value, null, 2);
-  }
-
-  return String(value);
-}
-
 function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
   const structuredAction = turnLog.structuredAction;
+  const narration = turnLog.narration?.trim();
+
   if (
     structuredAction &&
     typeof structuredAction === 'object' &&
     structuredAction.type === 'main_command'
   ) {
-    const narration = turnLog.narration?.trim();
     return `[MAIN]${narration || '메인 명령을 처리했습니다.'}`;
   }
 
@@ -229,7 +218,6 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
     typeof structuredAction === 'object' &&
     structuredAction.type === 'main_command_check_result'
   ) {
-    const narration = turnLog.narration?.trim();
     return `[MAIN]${narration || '판정 결과를 반영했습니다.'}`;
   }
 
@@ -238,15 +226,15 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
     typeof structuredAction === 'object' &&
     structuredAction.type === 'action_error'
   ) {
-    return `[MAIN]${turnLog.narration?.trim() || '행동 처리에 실패했습니다.'}`;
+    return `[MAIN]${narration || '행동 처리에 실패했습니다.'}`;
   }
 
   if (isAutoHazardDetectionTurnLog(turnLog)) {
-    return `[MAIN]${turnLog.narration?.trim() || '주변 위험을 자동으로 확인했습니다.'}`;
+    return `[MAIN]${narration || '주변 위험을 자동으로 확인했습니다.'}`;
   }
 
   if (isVttHazardTriggerTurnLog(turnLog)) {
-    return `[MAIN]${turnLog.narration?.trim() || '함정이 발동했습니다.'}`;
+    return `[MAIN]${narration || '함정이 발동했습니다.'}`;
   }
 
   if (
@@ -254,38 +242,10 @@ function formatTurnLogMessage(turnLog: TurnLogResponseDto): string {
     typeof structuredAction === 'object' &&
     structuredAction.type === 'attack'
   ) {
-    return `[MAIN]${turnLog.narration?.trim() || '공격을 처리했습니다.'}`;
+    return `[MAIN]${narration || '공격을 처리했습니다.'}`;
   }
 
-  const sections = [
-    'TurnLog',
-    `- turnLogId: ${turnLog.turnLogId}`,
-    `- turnNumber: ${turnLog.turnNumber}`,
-    `- playerActionId: ${formatDebugValue(turnLog.playerActionId)}`,
-    `- actorUserId: ${formatDebugValue(turnLog.actorUserId)}`,
-    `- sessionCharacterId: ${formatDebugValue(turnLog.sessionCharacterId)}`,
-    `- actionClientCreatedAt: ${formatDebugValue(turnLog.actionClientCreatedAt)}`,
-    `- actionCreatedAt: ${formatDebugValue(turnLog.actionCreatedAt)}`,
-    `- createdAt: ${turnLog.createdAt}`,
-    '',
-    '입력',
-    `- rawInput: ${formatDebugValue(turnLog.rawInput)}`,
-    '',
-    '결과',
-    `- outcome: ${turnLog.outcome}`,
-    `- narration: ${formatDebugValue(turnLog.narration)}`,
-    '',
-    'structuredAction',
-    formatDebugValue(turnLog.structuredAction),
-    '',
-    'diceResult',
-    formatDebugValue(turnLog.diceResult),
-    '',
-    'stateDiff',
-    formatDebugValue(turnLog.stateDiff),
-  ];
-
-  return `[MAIN]${sections.join('\n')}`;
+  return `[MAIN]${narration || '행동을 처리했습니다.'}`;
 }
 
 function getTurnLogMainCommandMetadata(turnLog: TurnLogResponseDto): LogEntry['metadata'] | undefined {

@@ -185,6 +185,31 @@
   padding: 0 10px;
 }
 
+.vtt-inline-toggle,
+.vtt-compact-field {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #5c3a1c;
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.vtt-controls .vtt-inline-toggle input {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0;
+}
+
+.vtt-controls .vtt-compact-field input {
+  width: 58px;
+  min-width: 58px;
+  padding: 0 6px;
+}
+
 .vtt-monster-picker {
   flex: 0 1 360px;
   min-width: 260px;
