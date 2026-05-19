@@ -219,6 +219,22 @@ export class CombatController {
     );
   }
 
+  @Post("features/sneak-attack")
+  @HttpCode(200)
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatActionResultDto })
+  async resolveSneakAttack(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: EquippedWeaponAttackDto,
+  ): Promise<ApiResponse<CombatActionResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.resolveSneakAttack(userId, sessionId, dto),
+    );
+  }
+
   @Post("spells/cast")
   @HttpCode(200)
   @ApiParam({ name: "sessionId" })
