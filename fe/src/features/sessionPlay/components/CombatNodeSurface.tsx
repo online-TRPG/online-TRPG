@@ -879,6 +879,10 @@ export function CombatNodeSurface({
 
       <section className="combat-action-dock" aria-label="전투 행동">
         <div className="combat-resource-panel">
+          <span className="combat-frame-corner top-left" aria-hidden="true" />
+          <span className="combat-frame-corner top-right" aria-hidden="true" />
+          <span className="combat-frame-corner bottom-left" aria-hidden="true" />
+          <span className="combat-frame-corner bottom-right" aria-hidden="true" />
           <div className="combat-resource-head">
             <span className="combat-node-eyebrow">행동 자원</span>
             <div className="combat-resource-actions">
@@ -916,7 +920,7 @@ export function CombatNodeSurface({
             ))}
           </div>
           <div className="combat-resource-meter-grid">
-            <div className="combat-resource-meter" style={hpMeterStyle}>
+            <div className="combat-resource-meter hp" style={hpMeterStyle}>
               <div className="combat-resource-meter-label">
                 <span>HP</span>
                 <strong>{myCurrentHp ?? '-'}/{myMaxHp ?? '-'}</strong>
@@ -940,6 +944,10 @@ export function CombatNodeSurface({
         </div>
 
         <div className="combat-action-panel">
+          <span className="combat-frame-corner top-left" aria-hidden="true" />
+          <span className="combat-frame-corner top-right" aria-hidden="true" />
+          <span className="combat-frame-corner bottom-left" aria-hidden="true" />
+          <span className="combat-frame-corner bottom-right" aria-hidden="true" />
           <div className="combat-action-tabs" role="tablist" aria-label="전투 행동 유형">
             {actionTabs.map((tab) => (
               <button
@@ -1138,6 +1146,10 @@ export function CombatNodeSurface({
             className={`combat-inventory-panel${isInventoryExpanded ? ' expanded' : ''}`}
             style={inventoryPanelStyle}
           >
+            <span className="combat-frame-corner top-left" aria-hidden="true" />
+            <span className="combat-frame-corner top-right" aria-hidden="true" />
+            <span className="combat-frame-corner bottom-left" aria-hidden="true" />
+            <span className="combat-frame-corner bottom-right" aria-hidden="true" />
             <div className="combat-inventory-head">
               <span className="combat-node-eyebrow">인벤토리</span>
               {inventory.length ? (

@@ -748,12 +748,20 @@ export function ExplorationNodeSurface({
 
       <section className="exploration-action-dock" aria-label="탐색 행동">
         <div className="exploration-actor-status">
+          <span className="exploration-frame-corner top-left" aria-hidden="true" />
+          <span className="exploration-frame-corner top-right" aria-hidden="true" />
+          <span className="exploration-frame-corner bottom-left" aria-hidden="true" />
+          <span className="exploration-frame-corner bottom-right" aria-hidden="true" />
           <span className="exploration-node-eyebrow">현재 조작 캐릭터</span>
           <strong>{myCharacter?.name ?? '캐릭터 미선택'}</strong>
           <p>지도에서 위치를 확인하고 메인 명령으로 행동을 선언하세요.</p>
         </div>
 
         <div className="exploration-action-panel">
+          <span className="exploration-frame-corner top-left" aria-hidden="true" />
+          <span className="exploration-frame-corner top-right" aria-hidden="true" />
+          <span className="exploration-frame-corner bottom-left" aria-hidden="true" />
+          <span className="exploration-frame-corner bottom-right" aria-hidden="true" />
           <span className="exploration-node-eyebrow">선택 대상 행동</span>
           <div className="exploration-action-list">
             {contextActions.map((action) => {
@@ -804,6 +812,10 @@ export function ExplorationNodeSurface({
             className={`exploration-inventory-panel${isInventoryExpanded ? ' expanded' : ''}`}
             style={inventoryPanelStyle}
           >
+            <span className="exploration-frame-corner top-left" aria-hidden="true" />
+            <span className="exploration-frame-corner top-right" aria-hidden="true" />
+            <span className="exploration-frame-corner bottom-left" aria-hidden="true" />
+            <span className="exploration-frame-corner bottom-right" aria-hidden="true" />
             <div className="exploration-inventory-head">
               <span className="exploration-node-eyebrow">인벤토리</span>
               {inventory.length ? (

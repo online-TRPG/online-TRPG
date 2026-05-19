@@ -504,6 +504,10 @@
 .combat-resource-panel,
 .combat-action-panel,
 .combat-inventory-panel {
+  --combat-frame-corner-size: 22px;
+  --combat-frame-corner-image-size: 50px;
+  --combat-frame-corner-offset-x: -12px;
+  --combat-frame-corner-offset-y: -12px;
   min-width: 0;
   padding: 14px 16px;
   display: grid;
@@ -545,6 +549,55 @@
     inset 0 0 0 1px rgba(232, 201, 122, 0.18),
     inset 0 0 22px rgba(0, 0, 0, 0.4),
     0 4px 10px rgba(30, 18, 8, 0.5);
+}
+
+.combat-resource-panel::before,
+.combat-action-panel::before,
+.combat-inventory-panel::before {
+  background-image: none;
+}
+
+.combat-resource-panel > :not(.combat-frame-corner),
+.combat-action-panel > :not(.combat-frame-corner),
+.combat-inventory-panel > :not(.combat-frame-corner) {
+  position: relative;
+  z-index: 2;
+}
+
+.combat-frame-corner {
+  position: absolute;
+  z-index: 3;
+  width: var(--combat-frame-corner-size);
+  height: var(--combat-frame-corner-size);
+  pointer-events: none;
+  background-image: url('../../../components/gold_frame_corner_1.webp');
+  background-repeat: no-repeat;
+  background-size: var(--combat-frame-corner-image-size) var(--combat-frame-corner-image-size);
+  background-position: var(--combat-frame-corner-offset-x) var(--combat-frame-corner-offset-y);
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.72));
+}
+
+.combat-frame-corner.top-left {
+  top: -4px;
+  left: -4px;
+}
+
+.combat-frame-corner.top-right {
+  top: -4px;
+  right: -4px;
+  transform: scaleX(-1);
+}
+
+.combat-frame-corner.bottom-left {
+  bottom: -4px;
+  left: -4px;
+  transform: scaleY(-1);
+}
+
+.combat-frame-corner.bottom-right {
+  right: -4px;
+  bottom: -4px;
+  transform: scale(-1);
 }
 
 .combat-action-panel {
@@ -730,6 +783,11 @@
   display: block;
   background: linear-gradient(90deg, #5168c9, #8aa5ff);
   box-shadow: 0 0 8px rgba(106, 132, 245, 0.45);
+}
+
+.combat-resource-meter.hp .combat-resource-meter-fill {
+  background: linear-gradient(90deg, #4f8a3a, #8bc95b);
+  box-shadow: 0 0 7px rgba(112, 183, 78, 0.42);
 }
 
 .combat-action-tabs {
