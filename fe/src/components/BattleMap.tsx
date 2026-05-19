@@ -8,6 +8,7 @@ import type {
 } from '@trpg/shared-types';
 import { Icon } from './Icon';
 import { TokenFrame } from './battleMap/TokenFrame';
+import type { TokenHealthFrame } from './battleMap/TokenFrame';
 import type { Character } from '../types/session';
 import {
   MONSTER_TOKEN_COLOR,
@@ -38,6 +39,7 @@ interface BattleMapProps {
   onSelectionChange?: (selection: BattleMapSelection | null) => void;
   isInteractionLocked?: boolean;
   tokenMovementRangeFtByTokenId?: Record<string, number>;
+  tokenHealthByTokenId?: Record<string, TokenHealthFrame>;
   attackRangeOverlay?: { tokenId: string; rangeFt: number } | null;
   onTokenMoveRequest?: (
     token: VttMapStateDto['tokens'][number],
@@ -677,6 +679,7 @@ function BattleToken({
   isPanMode,
   isMeasureMode,
   isPingMode,
+  health,
   onSelect,
   onDragStart,
   onDragMove,
@@ -691,6 +694,7 @@ function BattleToken({
   isPanMode: boolean;
   isMeasureMode: boolean;
   isPingMode: boolean;
+  health?: TokenHealthFrame;
   onSelect: () => void;
   onDragStart: () => void;
   onDragMove: (x: number, y: number, shiftKey: boolean) => void;
@@ -727,6 +731,7 @@ function BattleToken({
         color={color}
         isSelected={isSelected}
         isHidden={Boolean(token.hidden)}
+        health={health}
       />
     </Group>
   );
@@ -816,6 +821,7 @@ export function BattleMap({
   onSelectionChange,
   isInteractionLocked = false,
   tokenMovementRangeFtByTokenId,
+  tokenHealthByTokenId,
   attackRangeOverlay = null,
   onTokenMoveRequest,
 }: BattleMapProps) {
@@ -2965,6 +2971,7 @@ export function BattleMap({
                     isPanMode={isPanMode}
                     isMeasureMode={isMeasureMode}
                     isPingMode={isPingMode}
+                    health={tokenHealthByTokenId?.[token.id]}
                     onSelect={() => {
                       if (selectedTokenId === token.id) {
                         setSelectedTokenId(null);

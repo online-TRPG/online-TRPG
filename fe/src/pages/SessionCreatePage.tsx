@@ -254,13 +254,12 @@ export function SessionCreatePage({
                 />
 
                 <div className="session-create-preview-body">
-                  <div className="session-create-preview-pill-row">
+                  <div className="session-create-preview-title-row">
+                    <h2>{selectedScenario.title}</h2>
                     <span className="session-create-preview-pill">
                       {useAiGm ? 'AI GM' : '인간 GM'}
                     </span>
                   </div>
-
-                  <h2>{selectedScenario.title}</h2>
                   <p className="session-create-preview-description">{selectedScenario.description}</p>
 
                   <div className="session-create-preview-foot">

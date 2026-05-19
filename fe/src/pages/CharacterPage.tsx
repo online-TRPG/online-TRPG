@@ -1180,6 +1180,14 @@ export function CharacterPage({
     resetCreateForm();
   }
 
+  function dismissCreateModal() {
+    const shouldReturnToSession = !editingCharacterId && Boolean(onReturnToSession);
+    closeCreateModal();
+    if (shouldReturnToSession) {
+      onReturnToSession?.();
+    }
+  }
+
   useEffect(() => {
     if (!autoOpenCreate || didAutoOpenCreateRef.current) {
       return;
@@ -1558,7 +1566,7 @@ export function CharacterPage({
 
       {/* 캐릭터 생성/수정 모달입니다. editingCharacterId가 있으면 수정 모드로 동작합니다. */}
       {isCreateModalOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={closeCreateModal}>
+        <div className="modal-backdrop" role="presentation" onClick={dismissCreateModal}>
           <div
             className="modal-card modal-card-wide character-create-modal"
             role="dialog"
@@ -1572,7 +1580,7 @@ export function CharacterPage({
                 </span>
                 <h2>{editingCharacterId ? '캐릭터 수정' : '새 캐릭터'}</h2>
               </div>
-              <button type="button" className="modal-close" onClick={closeCreateModal}>
+              <button type="button" className="modal-close" onClick={dismissCreateModal}>
                 닫기
               </button>
             </div>

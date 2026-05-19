@@ -3014,6 +3014,10 @@ button.chat-submit-btn:disabled,
   font-family: 'Pretendard', 'Noto Sans KR', 'Segoe UI', system-ui, sans-serif;
 }
 
+.session-prep-layout :where(h1, h2, h3, h4, h5, h6, button) {
+  font-family: 'NEXON Lv1 Gothic', Pretendard, 'Noto Sans KR', 'Segoe UI', system-ui, sans-serif;
+}
+
 .session-game-surface .story-node-surface,
 .session-sidebar,
 .session-room-overlay {

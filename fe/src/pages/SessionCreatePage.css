@@ -242,17 +242,19 @@
 
 .session-create-preview-body {
   display: grid;
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: auto auto 1fr;
   gap: 14px;
 }
 
-.session-create-preview-pill-row {
+.session-create-preview-title-row {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .session-create-preview-pill {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   min-height: 30px;
@@ -266,11 +268,17 @@
 
 .session-create-panel-preview h2,
 .session-create-empty h2 {
+  min-width: 0;
   margin: 0;
   color: #17110a;
+  font-family: 'NEXON Warhaven', Pretendard, 'Segoe UI', sans-serif;
   font-size: clamp(26px, 2.4vw, 38px);
+  font-weight: 700;
   line-height: 1.1;
-  letter-spacing: -0.05em;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .session-create-panel-preview p,
