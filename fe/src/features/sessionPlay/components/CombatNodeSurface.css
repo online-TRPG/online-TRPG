@@ -567,6 +567,18 @@
     0 4px 10px rgba(30, 18, 8, 0.5);
 }
 
+.combat-resource-panel.my-turn {
+  border-color: #f0c76a;
+  outline-color: rgba(255, 218, 126, 0.95);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 231, 157, 0.36),
+    inset 0 0 24px rgba(255, 197, 77, 0.14),
+    0 0 0 1px rgba(255, 232, 160, 0.26),
+    0 0 22px rgba(244, 184, 72, 0.46),
+    0 7px 18px rgba(30, 18, 8, 0.64);
+  animation: combat-my-turn-pulse 1.55s ease-in-out infinite alternate;
+}
+
 .combat-resource-panel::before,
 .combat-action-panel::before,
 .combat-inventory-panel::before {
@@ -657,6 +669,25 @@
   gap: 6px;
 }
 
+.combat-turn-alert {
+  min-height: 24px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(255, 219, 119, 0.86);
+  background:
+    linear-gradient(180deg, rgba(255, 248, 207, 0.24), rgba(255, 205, 85, 0.06)),
+    rgba(76, 50, 13, 0.78);
+  color: #ffe59b;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.28),
+    0 0 10px rgba(247, 195, 74, 0.36);
+}
+
 .combat-end-turn-button {
   flex: 0 0 auto;
   min-height: 30px;
@@ -702,6 +733,32 @@
   box-shadow:
     inset 0 0 0 2px rgba(0, 0, 0, 0.3),
     inset 0 0 0 3px rgba(140, 123, 88, 0.12);
+}
+
+@keyframes combat-my-turn-pulse {
+  from {
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 231, 157, 0.32),
+      inset 0 0 22px rgba(255, 197, 77, 0.1),
+      0 0 0 1px rgba(255, 232, 160, 0.2),
+      0 0 14px rgba(244, 184, 72, 0.34),
+      0 7px 18px rgba(30, 18, 8, 0.6);
+  }
+
+  to {
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 231, 157, 0.42),
+      inset 0 0 28px rgba(255, 197, 77, 0.18),
+      0 0 0 1px rgba(255, 232, 160, 0.34),
+      0 0 26px rgba(244, 184, 72, 0.56),
+      0 8px 20px rgba(30, 18, 8, 0.68);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .combat-resource-panel.my-turn {
+    animation: none;
+  }
 }
 
 .combat-resource-row {
