@@ -2259,7 +2259,6 @@ export function PlayPage({
   );
 
   const wantedCarouselCharacter =
-    selectedCharacter ??
     wantedCarouselCharacters[Math.min(characterCarouselIndex, wantedCarouselCharacters.length - 1)] ??
     null;
 
@@ -3066,20 +3065,23 @@ export function PlayPage({
     setChatMessage('');
   }
 
-  function handleCharacterClick(characterId: string) {
-    if (busy || readyLocked) return;
-    if (selectedCharacterId === characterId) {
-      setLocalSelectedCharacterId(null);
-      onSelectCharacter(null);
-      return;
-    }
+  function handleCharacterSelectionConfirm() {
+    if (busy || readyLocked || !wantedCarouselCharacter) return;
+    if (wantedCarouselCharacter.id === selectedCharacterId) return;
 
-    setLocalSelectedCharacterId(characterId);
-    onSelectCharacter(characterId);
+    setLocalSelectedCharacterId(wantedCarouselCharacter.id);
+    onSelectCharacter(wantedCarouselCharacter.id);
+  }
+
+  function handleCharacterSelectionClear() {
+    if (busy || readyLocked || !selectedCharacterId) return;
+
+    setLocalSelectedCharacterId(null);
+    onSelectCharacter(null);
   }
 
   function handleWantedCarouselStep(direction: -1 | 1) {
-    if (busy || readyLocked || !wantedCarouselCharacters.length) return;
+    if (busy || readyLocked || selectedCharacterId || !wantedCarouselCharacters.length) return;
 
     const currentIndex = wantedCarouselCharacter
       ? wantedCarouselCharacters.findIndex((character) => character.id === wantedCarouselCharacter.id)
@@ -3088,11 +3090,7 @@ export function PlayPage({
     const nextIndex =
       (safeCurrentIndex + direction + wantedCarouselCharacters.length) %
       wantedCarouselCharacters.length;
-    const nextCharacter = wantedCarouselCharacters[nextIndex];
-    if (!nextCharacter || nextCharacter.id === selectedCharacterId) return;
-
     setCharacterCarouselIndex(nextIndex);
-    handleCharacterClick(nextCharacter.id);
   }
 
   async function flushPendingMapSave(sessionId: string) {
@@ -3411,7 +3409,7 @@ export function PlayPage({
                     type="button"
                     className="recruiting-wanted-nav previous"
                     onClick={() => handleWantedCarouselStep(-1)}
-                    disabled={busy || readyLocked || wantedCarouselCharacters.length <= 1}
+                    disabled={busy || readyLocked || Boolean(selectedCharacterId) || wantedCarouselCharacters.length <= 1}
                     aria-label="이전 캐릭터 보기"
                   >
                     <img src={carouselLeftImage} alt="" aria-hidden="true" />
@@ -3420,7 +3418,7 @@ export function PlayPage({
                     type="button"
                     className="recruiting-wanted-nav next"
                     onClick={() => handleWantedCarouselStep(1)}
-                    disabled={busy || readyLocked || wantedCarouselCharacters.length <= 1}
+                    disabled={busy || readyLocked || Boolean(selectedCharacterId) || wantedCarouselCharacters.length <= 1}
                     aria-label="다음 캐릭터 보기"
                   >
                     <img src={carouselRightImage} alt="" aria-hidden="true" />
@@ -3510,19 +3508,18 @@ export function PlayPage({
                     <button
                       type="button"
                       className="recruiting-wanted-action"
-                      onClick={() => {
-                        if (wantedCarouselCharacter) {
-                          handleCharacterClick(wantedCarouselCharacter.id);
-                        }
-                      }}
+                      onClick={
+                        selectedCharacterId
+                          ? handleCharacterSelectionClear
+                          : handleCharacterSelectionConfirm
+                      }
                       disabled={
                         busy ||
                         readyLocked ||
-                        !wantedCarouselCharacter ||
-                        wantedCarouselCharacter.id === selectedCharacterId
+                        (!selectedCharacterId && !wantedCarouselCharacter)
                       }
                     >
-                      {wantedCarouselCharacter?.id === selectedCharacterId ? '선택됨' : '선택'}
+                      {selectedCharacterId ? '선택 해제' : '캐릭터 선택'}
                     </button>
                     <button
                       type="button"
@@ -3839,9 +3836,7 @@ export function PlayPage({
                             className="recruiting-party-slot-portrait"
                           />
                         ) : (
-                          <div className="recruiting-party-slot-fallback" aria-hidden="true">
-                            {(linkedCharacter?.name ?? participant.user.displayName).slice(0, 1)}
-                          </div>
+                          <div className="recruiting-party-slot-fallback" aria-hidden="true" />
                         )}
                         {badgeLabel ? (
                           <div className="recruiting-party-slot-badge">{badgeLabel}</div>
