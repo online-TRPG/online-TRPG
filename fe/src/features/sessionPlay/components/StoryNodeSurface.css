@@ -49,7 +49,9 @@
   flex: 0 1 auto;
   margin: 0;
   color: #213045;
+  font-family: 'NEXON Warhaven', Pretendard, 'Segoe UI', sans-serif;
   font-size: 24px;
+  font-weight: 700;
   line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
@@ -58,6 +60,7 @@
 
 .story-node-summary-button {
   flex: 0 0 auto;
+  margin-left: 18px;
   min-height: 28px;
   padding: 0 10px;
   border: 1px solid #d8b671;
