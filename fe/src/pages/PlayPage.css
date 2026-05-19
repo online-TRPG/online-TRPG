@@ -4241,6 +4241,7 @@ button.chat-submit-btn:disabled,
   color: #f7e6c8;
   font-size: 14px;
   font-weight: 900;
+  font-family: 'Pretendard', 'Noto Sans KR', 'Segoe UI', system-ui, sans-serif;
   letter-spacing: 0.02em;
   text-shadow: 0 1px 2px rgba(20, 9, 3, 0.48);
   box-shadow:
@@ -4513,14 +4514,8 @@ button.chat-submit-btn:disabled,
 }
 
 .recruiting-party-slot-fallback {
-  display: grid;
-  place-items: center;
   background:
     radial-gradient(circle at 30% 30%, rgba(255, 246, 228, 0.95), rgba(173, 131, 84, 0.94));
-  color: var(--participant-text-color, #fff4dc);
-  font-size: clamp(24px, 2vw, 34px);
-  font-weight: 900;
-  text-shadow: 0 1px 2px rgba(39, 21, 8, 0.35);
 }
 
 .recruiting-party-slot-badge {
@@ -4540,6 +4535,7 @@ button.chat-submit-btn:disabled,
   color: #f8e8bb;
   font-size: 10px;
   font-weight: 800;
+  font-family: 'Pretendard', 'Noto Sans KR', 'Segoe UI', system-ui, sans-serif;
   letter-spacing: 0.04em;
 }
 
@@ -4576,6 +4572,7 @@ button.chat-submit-btn:disabled,
   transform: translateX(-50%);
   font-size: 10px;
   font-weight: 900;
+  font-family: 'Pretendard', 'Noto Sans KR', 'Segoe UI', system-ui, sans-serif;
   letter-spacing: 0.02em;
 }
 
