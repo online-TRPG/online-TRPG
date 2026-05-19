@@ -191,31 +191,49 @@
 
 .combat-turn-overlay {
   position: absolute;
-  top: 10px;
+  top: 14px;
   left: 50%;
   z-index: 12;
-  width: min(100% - 32px, 720px);
+  width: max-content;
+  max-width: none;
   transform: translateX(-50%);
   display: grid;
   justify-items: center;
-  gap: 6px;
+  gap: 8px;
   pointer-events: none;
 }
 
 .combat-turn-list {
-  min-width: 0;
-  max-width: 100%;
-  padding: 14px 18px 16px;
+  position: relative;
+  isolation: isolate;
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
+  min-height: 96px;
+  padding: 12px 48px 16px;
   display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  border: 1px solid #8a6020;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #dfcdab 0%, #d4b886 100%);
-  box-shadow: 0 8px 22px rgba(30, 18, 8, 0.5);
-  scrollbar-width: thin;
-  scrollbar-color: #8fa2b8 transparent;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0;
+  overflow: visible;
   pointer-events: auto;
+}
+
+.combat-turn-divider {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  width: 155%;
+  height: auto;
+  display: block;
+  transform: translate(-50%, -50%);
+  opacity: 0.95;
+  filter:
+    drop-shadow(0 2px 3px rgba(0, 0, 0, 0.74))
+    drop-shadow(0 0 8px rgba(218, 169, 77, 0.42));
+  pointer-events: none;
+  user-select: none;
 }
 
 .combat-turn-overlay p {
@@ -232,32 +250,70 @@
 }
 
 .combat-turn-card {
+  --combat-turn-accent: #c9963d;
+  --combat-turn-bg: #f4ead5;
+  --combat-turn-text: #2f2115;
   position: relative;
-  width: 42px;
-  height: 42px;
+  z-index: 2;
+  width: 87px;
+  height: 70px;
   flex: 0 0 auto;
-  padding: 0;
-  overflow: hidden;
+  margin: 0 -11px;
+  padding: 0 8px;
+  overflow: visible;
   display: grid;
   place-items: center;
-  border: 2px solid rgba(255, 255, 255, 0.7);
-  border-radius: 50%;
-  background: #e2d1b3;
-  color: #3e2a10;
-  box-shadow: 0 2px 8px rgba(30, 18, 8, 0.4);
+  border: 1px solid color-mix(in srgb, var(--combat-turn-accent) 76%, #1b1410);
+  border-radius: 3px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--combat-turn-accent) 42%, transparent), transparent 16% 84%, color-mix(in srgb, var(--combat-turn-accent) 32%, transparent)),
+    radial-gradient(circle at 50% 28%, color-mix(in srgb, var(--combat-turn-bg) 18%, transparent), transparent 42%),
+    linear-gradient(145deg, #17110d 0%, #0c0d0f 100%);
+  color: var(--combat-turn-text);
+  cursor: pointer;
+  transform: skewX(-11deg);
+  transition:
+    transform 0.14s ease,
+    border-color 0.14s ease,
+    filter 0.14s ease,
+    box-shadow 0.14s ease;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 3px color-mix(in srgb, var(--combat-turn-accent) 34%, transparent),
+    inset 0 -18px 20px rgba(0, 0, 0, 0.46),
+    0 7px 16px rgba(0, 0, 0, 0.42);
+}
+
+.combat-turn-card::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border: 1px solid color-mix(in srgb, var(--combat-turn-accent) 46%, transparent);
+  pointer-events: none;
 }
 
 .combat-turn-card.mine {
-  border-color: #a67f72;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 3px color-mix(in srgb, var(--combat-turn-accent) 46%, transparent),
+    inset 0 -18px 20px rgba(0, 0, 0, 0.46),
+    0 0 0 1px color-mix(in srgb, var(--combat-turn-accent) 38%, transparent),
+    0 7px 16px rgba(0, 0, 0, 0.42);
+}
+
+.combat-turn-card.active + .combat-turn-card.next-turn {
+  margin-left: 12px;
 }
 
 .combat-turn-card.selected {
-  z-index: 1;
+  z-index: 3;
   border-color: #79d8ff;
-  transform: translateY(-3px) scale(1.12);
+  transform: translateY(-3px) scale(1.04) skewX(-11deg);
   box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 3px color-mix(in srgb, var(--combat-turn-accent) 38%, transparent),
     0 0 0 3px rgba(121, 216, 255, 0.32),
-    0 10px 22px rgba(24, 38, 52, 0.28),
+    0 10px 22px rgba(24, 38, 52, 0.34),
     0 0 20px rgba(121, 216, 255, 0.48);
 }
 
@@ -275,57 +331,35 @@
 }
 
 .combat-turn-card.active {
-  z-index: 2;
-  overflow: visible;
-  border-color: #fff6bf;
-  background: #081927;
-  transform: translateY(-4px) scale(1.18);
+  z-index: 4;
+  width: 102px;
+  height: 82px;
+  border-color: color-mix(in srgb, var(--combat-turn-accent) 78%, #fff4b8);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--combat-turn-accent) 42%, transparent), transparent 16% 84%, color-mix(in srgb, var(--combat-turn-accent) 32%, transparent)),
+    radial-gradient(circle at 50% 28%, color-mix(in srgb, var(--combat-turn-bg) 18%, transparent), transparent 42%),
+    linear-gradient(145deg, #17110d 0%, #0c0d0f 100%);
+  transform: translateY(-8px) scale(1.08) skewX(-11deg);
   box-shadow:
-    0 0 0 3px #081927,
-    0 0 0 6px rgba(255, 246, 191, 0.92),
-    0 12px 24px rgba(4, 14, 26, 0.42),
-    0 0 20px rgba(255, 190, 70, 0.66);
+    inset 0 0 0 2px rgba(0, 0, 0, 0.44),
+    inset 0 0 0 3px color-mix(in srgb, var(--combat-turn-accent) 64%, transparent),
+    inset 0 -22px 24px rgba(0, 0, 0, 0.5),
+    0 0 0 3px rgba(10, 12, 14, 0.94),
+    0 0 0 6px color-mix(in srgb, var(--combat-turn-accent) 70%, transparent),
+    0 14px 28px rgba(0, 0, 0, 0.52),
+    0 0 24px color-mix(in srgb, var(--combat-turn-accent) 55%, transparent);
 }
 
 .combat-turn-card.active.selected {
-  transform: translateY(-5px) scale(1.22);
+  transform: translateY(-9px) scale(1.1) skewX(-11deg);
   box-shadow:
-    0 0 0 3px #081927,
-    0 0 0 6px rgba(255, 246, 191, 0.94),
+    inset 0 0 0 2px rgba(0, 0, 0, 0.44),
+    inset 0 0 0 3px color-mix(in srgb, var(--combat-turn-accent) 64%, transparent),
+    0 0 0 3px rgba(10, 12, 14, 0.94),
+    0 0 0 6px color-mix(in srgb, var(--combat-turn-accent) 70%, transparent),
     0 0 0 10px rgba(121, 216, 255, 0.46),
-    0 14px 26px rgba(4, 14, 26, 0.46),
+    0 14px 26px rgba(4, 14, 26, 0.52),
     0 0 24px rgba(121, 216, 255, 0.58);
-}
-
-.combat-turn-card.active img,
-.combat-turn-card.active > span {
-  border-radius: 50%;
-}
-
-.combat-turn-card.active::before {
-  content: 'TURN';
-  position: absolute;
-  left: 50%;
-  bottom: -4px;
-  z-index: 3;
-  padding: 1px 5px;
-  border-radius: 999px;
-  background: #d86145;
-  color: #ffffff;
-  font-size: 8px;
-  font-weight: 950;
-  letter-spacing: 0;
-  transform: translateX(-50%);
-  box-shadow: 0 2px 8px rgba(4, 14, 26, 0.42);
-}
-
-.combat-turn-card.active::after {
-  content: '';
-  position: absolute;
-  inset: 3px;
-  border: 2px solid rgba(255, 255, 255, 0.92);
-  border-radius: 50%;
-  pointer-events: none;
 }
 
 .combat-turn-card.defeated {
@@ -333,15 +367,68 @@
   filter: grayscale(0.8);
 }
 
-.combat-turn-card img {
+.combat-turn-card-content {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  transform: skewX(11deg);
+  isolation: isolate;
+}
+
+.combat-turn-card.active .combat-turn-card-content::before {
+  content: '';
+  position: absolute;
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle,
+      color-mix(in srgb, var(--combat-turn-accent) 78%, transparent) 0%,
+      color-mix(in srgb, var(--combat-turn-accent) 42%, transparent) 42%,
+      transparent 72%);
+  filter: blur(2px);
+  opacity: 0.92;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.combat-turn-portrait {
+  position: relative;
+  z-index: 1;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  display: inline-grid;
+  place-items: center;
+  border: 3px solid var(--combat-turn-accent);
+  border-radius: 50%;
+  background: var(--combat-turn-bg);
+  color: var(--combat-turn-text);
+  font-size: 16px;
+  font-weight: 900;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.38),
+    0 0 0 2px rgba(0, 0, 0, 0.54),
+    0 0 12px color-mix(in srgb, var(--combat-turn-accent) 54%, transparent);
+}
+
+.combat-turn-card.active .combat-turn-portrait {
+  width: 73px;
+  height: 73px;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.38),
+    0 0 0 2px rgba(0, 0, 0, 0.58),
+    0 0 18px color-mix(in srgb, var(--combat-turn-accent) 78%, transparent),
+    0 0 34px color-mix(in srgb, var(--combat-turn-accent) 58%, transparent);
+}
+
+.combat-turn-portrait img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.combat-turn-card span {
-  font-size: 16px;
-  font-weight: 900;
 }
 
 .combat-map-panel > .vtt-panel {
@@ -1276,11 +1363,38 @@
 
   .combat-turn-overlay {
     top: 8px;
-    width: calc(100% - 20px);
+    width: max-content;
+    max-width: none;
+  }
+
+  .combat-turn-list {
+    min-height: 82px;
+    padding: 10px 24px 14px;
   }
 
   .combat-turn-card {
+    width: 73px;
+    height: 58px;
+    margin: 0 -12px;
+    padding: 0 7px;
+  }
+
+  .combat-turn-card.active {
+    width: 84px;
+    height: 68px;
+  }
+
+  .combat-turn-card.active + .combat-turn-card.next-turn {
+    margin-left: 6px;
+  }
+
+  .combat-turn-portrait {
     width: 38px;
     height: 38px;
+  }
+
+  .combat-turn-card.active .combat-turn-portrait {
+    width: 57px;
+    height: 57px;
   }
 }
