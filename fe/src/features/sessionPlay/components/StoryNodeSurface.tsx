@@ -8,6 +8,7 @@ import {
   getCharacterClassLabel,
   getCharacterImage,
 } from '../utils/characterVisuals';
+import storyNodeBadge from '../../../components/node_badge_story.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import './StoryNodeSurface.css';
 
@@ -242,7 +243,11 @@ export function StoryNodeSurface({
     <div className="story-node-surface">
       <header className="story-node-header">
         <div className="story-node-title-row">
-          <span className="story-node-eyebrow">스토리 노드</span>
+          <img
+            src={storyNodeBadge}
+            alt="스토리 노드"
+            className="session-node-type-badge"
+          />
           <h1>{node?.title ?? scenarioTitle ?? '진행 중인 장면'}</h1>
           <button
             type="button"

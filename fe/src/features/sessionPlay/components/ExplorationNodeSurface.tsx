@@ -9,6 +9,9 @@ import type {
 import type { CSSProperties } from 'react';
 import { BattleMap } from '../../../components/BattleMap';
 import type { BattleMapSelection } from '../../../components/BattleMap';
+import { GameIcon } from '../../../components/GameIcon';
+import type { GameIconName } from '../../../components/GameIcon';
+import explorationNodeBadge from '../../../components/node_badge_exploration.webp';
 import { getCharacterClassLabel } from '../utils/characterVisuals';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { MapPartyOverlay } from './MapPartyOverlay';
@@ -27,6 +30,8 @@ type ExplorationActionButton = {
   request?: ExplorationMainCommandRequest;
   localAction?: 'move' | 'ping';
   disabled?: boolean;
+  // 기본 탐험 행동은 전투/채팅 버튼과 바로 구분되도록 RPG풍 아이콘을 함께 표시합니다.
+  iconName?: GameIconName;
 };
 
 interface ExplorationNodeSurfaceProps {
@@ -61,6 +66,23 @@ const ExplorationMainCommandIntent = {
   USE_ITEM_EXPLORE: 'USE_ITEM_EXPLORE' as SubmitMainCommandDto['intent'],
   SPLIT_PARTY_TASK: 'SPLIT_PARTY_TASK' as SubmitMainCommandDto['intent'],
 };
+
+const explorationActionIconNames: Partial<Record<string, GameIconName>> = {
+  관찰: 'game-icons:eye-target',
+  이동: 'game-icons:boots',
+  '핑 찍기': 'game-icons:flag-objective',
+  대화: 'game-icons:conversation',
+  조사: 'game-icons:magnifying-glass',
+  열기: 'game-icons:open-gate',
+  '잠금 해제': 'game-icons:padlock-open',
+  부수기: 'game-icons:hammer-break',
+  '함정 해제': 'game-icons:wolf-trap',
+};
+
+function getExplorationActionIconName(label: string): GameIconName | undefined {
+  // 탐험 행동 아이콘은 라벨 기준으로 모아 두어, 같은 행동이 여러 선택 대상에서 반복되어도 같은 그림을 쓰게 합니다.
+  return explorationActionIconNames[label];
+}
 
 function getPhaseLabel(phase: string | null | undefined) {
   if (!phase) return '상태 미확인';
@@ -122,6 +144,26 @@ function isEquippedItem(item: InventoryItemDto, equippedId: string | null | unde
     equippedId &&
       (item.id === equippedId || item.itemDefinitionId === equippedId || item.name === equippedId)
   );
+}
+
+function getInventoryItemIconName(item: InventoryItemDto): GameIconName {
+  const key = getInventoryItemKey(item).replace(/_/g, '-');
+
+  // 기타 아이템 기본값은 가방보다 중립적인 보급 상자로 두어, 꾸러미 전용 아이콘과 역할이 섞이지 않게 합니다.
+  if (key.includes('shield') || key.includes('방패')) return 'game-icons:shield';
+  if (item.itemType === 'armor' || key.includes('armor') || key.includes('갑옷')) return 'game-icons:armor-vest';
+  if (key.includes('bow') || key.includes('crossbow') || key.includes('활') || key.includes('석궁')) return 'game-icons:bow-arrow';
+  if (key.includes('dagger') || key.includes('knife') || key.includes('단검')) return 'game-icons:plain-dagger';
+  if (key.includes('axe') || key.includes('액스') || key.includes('도끼')) return 'game-icons:battle-axe';
+  if (isWeaponItem(item)) return 'game-icons:rune-sword';
+  if (key.includes('potion') || key.includes('healing') || key.includes('포션')) return 'game-icons:health-potion';
+  if (item.itemType === 'pack' || key.includes('꾸러미')) return 'game-icons:swap-bag';
+  if (key.includes('scroll') || key.includes('spell') || key.includes('두루마리')) return 'game-icons:scroll-unfurled';
+  if (key.includes('book') || key.includes('책')) return 'game-icons:spell-book';
+  if (key.includes('key') || key.includes('열쇠')) return 'game-icons:key';
+  if (key.includes('tool') || key.includes('kit') || key.includes('도구')) return 'game-icons:toolbox';
+  if (key.includes('coin') || key.includes('gold') || key.includes('코인') || key.includes('금화')) return 'game-icons:coins';
+  return 'game-icons:wooden-crate';
 }
 
 function getItemMetaLabel(item: InventoryItemDto) {
@@ -384,6 +426,7 @@ function command(
 ): ExplorationActionButton {
   return {
     label,
+    iconName: getExplorationActionIconName(label),
     request: {
       intent,
       playerText,
@@ -407,8 +450,8 @@ function isDetectedArmedHazardSelection(selection: BattleMapSelection | null): b
 
 function getBasePositionActions(): ExplorationActionButton[] {
   return [
-    { label: '이동', localAction: 'move' },
-    { label: '핑 찍기', localAction: 'ping' },
+    { label: '이동', localAction: 'move', iconName: getExplorationActionIconName('이동') },
+    { label: '핑 찍기', localAction: 'ping', iconName: getExplorationActionIconName('핑 찍기') },
   ];
 }
 
@@ -503,6 +546,7 @@ export function ExplorationNodeSurface({
   onRequestMainCommand,
 }: ExplorationNodeSurfaceProps) {
   const [isSummaryOpen, setSummaryOpen] = useState(false);
+  const [isInventoryExpanded, setInventoryExpanded] = useState(false);
   const [mapSelection, setMapSelection] = useState<BattleMapSelection | null>(null);
   const [mapActionFeedback, setMapActionFeedback] = useState<string | null>(null);
   const [selectedMapCharacterId, setSelectedMapCharacterId] = useState<string | null>(null);
@@ -518,10 +562,19 @@ export function ExplorationNodeSurface({
     () => getContextActions(mapSelection),
     [mapSelection]
   );
+  const inventoryPanelStyle = {
+    '--exploration-inventory-item-count': Math.max(inventory.length, 1),
+  } as CSSProperties;
 
   useEffect(() => {
     onMapSelectionChange?.(mapSelection);
   }, [mapSelection, onMapSelectionChange]);
+
+  useEffect(() => {
+    if (!inventory.length && isInventoryExpanded) {
+      setInventoryExpanded(false);
+    }
+  }, [inventory.length, isInventoryExpanded]);
 
   function getControlledToken() {
     if (!map || !myCharacter) return null;
@@ -590,7 +643,11 @@ export function ExplorationNodeSurface({
     <div className="exploration-node-surface">
       <header className="exploration-node-header">
         <div className="exploration-node-title-row">
-          <span className="exploration-node-eyebrow">탐색 노드</span>
+          <img
+            src={explorationNodeBadge}
+            alt="탐험 노드"
+            className="session-node-type-badge"
+          />
           <h1>{node?.title ?? scenarioTitle ?? '탐색 중인 지역'}</h1>
           <button
             type="button"
@@ -699,104 +756,145 @@ export function ExplorationNodeSurface({
         <div className="exploration-action-panel">
           <span className="exploration-node-eyebrow">선택 대상 행동</span>
           <div className="exploration-action-list">
-            {contextActions.map((action) => (
-              <button
-                type="button"
-                key={action.label}
-                disabled={
-                  action.disabled ||
-                  isBusy ||
-                  (!action.localAction && (!action.request || !onRequestMainCommand))
-                }
-                onClick={() => {
-                  if (action.localAction) {
-                    handleLocalMapAction(action.localAction);
-                    return;
+            {contextActions.map((action) => {
+              const hasIcon = Boolean(action.iconName);
+
+              return (
+                <button
+                  type="button"
+                  key={action.label}
+                  className={hasIcon ? 'exploration-action-button has-action-icon' : 'exploration-action-button'}
+                  disabled={
+                    action.disabled ||
+                    isBusy ||
+                    (!action.localAction && (!action.request || !onRequestMainCommand))
                   }
-                  if (!action.request) return;
-                  onRequestMainCommand?.(action.request);
-                }}
-              >
-                {action.label}
-              </button>
-            ))}
+                  onClick={() => {
+                    if (action.localAction) {
+                      handleLocalMapAction(action.localAction);
+                      return;
+                    }
+                    if (!action.request) return;
+                    onRequestMainCommand?.(action.request);
+                  }}
+                >
+                  {action.iconName ? (
+                    <>
+                      <GameIcon
+                        name={action.iconName}
+                        size={36}
+                        className="exploration-action-button-icon"
+                      />
+                      <span className="exploration-action-button-label">{action.label}</span>
+                    </>
+                  ) : (
+                    action.label
+                  )}
+                </button>
+              );
+            })}
           </div>
           {mapActionFeedback ? (
             <p className="exploration-map-action-feedback">{mapActionFeedback}</p>
           ) : null}
         </div>
 
-        <div className="exploration-inventory-panel">
-          <span className="exploration-node-eyebrow">인벤토리</span>
-          {inventory.length ? (
-            <div className="exploration-inventory-list">
-              {inventory.map((item) => {
-                const canUse = isQuickUsableItem(item);
-                const isSelected = selectedInventoryItemId === item.id;
-                const isWeapon = isWeaponItem(item);
-                const isArmor = isArmorItem(item);
-                const isEquipped = isWeapon
-                  ? isEquippedItem(item, myCharacter?.equippedWeaponId)
-                  : isArmor;
-                return (
-                  <article
-                    className={`exploration-inventory-item${isSelected ? ' selected' : ''}`}
-                    key={item.id}
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={isSelected}
-                    onClick={() => onSelectInventoryItem?.(item)}
-                    onKeyDown={(event) => {
-                      if (event.key !== 'Enter' && event.key !== ' ') return;
-                      event.preventDefault();
-                      onSelectInventoryItem?.(item);
-                    }}
-                  >
-                    <div className="exploration-inventory-item-body">
-                      <strong>{item.name}</strong>
-                      <span>{getItemMetaLabel(item)}</span>
-                    </div>
-                    <span className="exploration-inventory-quantity">x{item.quantity}</span>
-                    {isWeapon || isArmor ? (
-                      <button
-                        type="button"
-                        disabled={isArmor || isBusy || !onEquipInventoryItem}
-                        title={
-                          isArmor
-                            ? '방어구는 현재 캐릭터 AC에 이미 반영되어 있습니다.'
-                            : isEquipped
-                              ? `${item.name} 착용 해제`
-                              : `${item.name} 착용`
-                        }
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onEquipInventoryItem?.(item);
-                        }}
-                        onKeyDown={(event) => event.stopPropagation()}
-                      >
-                        {isEquipped ? '해제' : '착용'}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={!canUse || isBusy}
-                        title={canUse ? `${item.name} 사용` : '현재 바로 사용할 수 없는 아이템입니다.'}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onUseInventoryItem(item);
-                        }}
-                        onKeyDown={(event) => event.stopPropagation()}
-                      >
-                        사용
-                      </button>
-                    )}
-                  </article>
-                );
-              })}
+        <div className="exploration-inventory-slot">
+          <div
+            className={`exploration-inventory-panel${isInventoryExpanded ? ' expanded' : ''}`}
+            style={inventoryPanelStyle}
+          >
+            <div className="exploration-inventory-head">
+              <span className="exploration-node-eyebrow">인벤토리</span>
+              {inventory.length ? (
+                <button
+                  type="button"
+                  className="exploration-inventory-toggle"
+                  aria-expanded={isInventoryExpanded}
+                  aria-controls="exploration-inventory-list"
+                  title={isInventoryExpanded ? '인벤토리 접기' : '인벤토리 펼치기'}
+                  onClick={() => setInventoryExpanded((current) => !current)}
+                >
+                  <span className="exploration-inventory-toggle-arrow" aria-hidden="true" />
+                </button>
+              ) : null}
             </div>
-          ) : (
-            <p>보유 중인 아이템이 없습니다.</p>
-          )}
+            {inventory.length ? (
+              <div
+                id="exploration-inventory-list"
+                className={`exploration-inventory-list${isInventoryExpanded ? ' expanded' : ''}`}
+              >
+                {inventory.map((item) => {
+                  const canUse = isQuickUsableItem(item);
+                  const isSelected = selectedInventoryItemId === item.id;
+                  const isWeapon = isWeaponItem(item);
+                  const isArmor = isArmorItem(item);
+                  const isEquipped = isWeapon
+                    ? isEquippedItem(item, myCharacter?.equippedWeaponId)
+                    : isArmor;
+                  return (
+                    <article
+                      className={`exploration-inventory-item${isSelected ? ' selected' : ''}`}
+                      key={item.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={isSelected}
+                      onClick={() => onSelectInventoryItem?.(item)}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
+                        onSelectInventoryItem?.(item);
+                      }}
+                    >
+                      <span className="exploration-inventory-item-icon" aria-hidden="true">
+                        <GameIcon name={getInventoryItemIconName(item)} size={28} />
+                      </span>
+                      <div className="exploration-inventory-item-body">
+                        <strong>{item.name}</strong>
+                        <span>{getItemMetaLabel(item)}</span>
+                      </div>
+                      <span className="exploration-inventory-quantity">x{item.quantity}</span>
+                      {isWeapon || isArmor ? (
+                        <button
+                          type="button"
+                          disabled={isArmor || isBusy || !onEquipInventoryItem}
+                          title={
+                            isArmor
+                              ? '방어구는 현재 캐릭터 AC에 이미 반영되어 있습니다.'
+                              : isEquipped
+                                ? `${item.name} 착용 해제`
+                                : `${item.name} 착용`
+                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onEquipInventoryItem?.(item);
+                          }}
+                          onKeyDown={(event) => event.stopPropagation()}
+                        >
+                          {isEquipped ? '해제' : '착용'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!canUse || isBusy}
+                          title={canUse ? `${item.name} 사용` : '현재 바로 사용할 수 없는 아이템입니다.'}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onUseInventoryItem(item);
+                          }}
+                          onKeyDown={(event) => event.stopPropagation()}
+                        >
+                          사용
+                        </button>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <p>보유 중인 아이템이 없습니다.</p>
+            )}
+          </div>
         </div>
       </section>
       {selectedMapCharacter ? (

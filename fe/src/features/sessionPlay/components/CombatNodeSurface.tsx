@@ -10,6 +10,9 @@ import type {
 } from '@trpg/shared-types';
 import { BattleMap } from '../../../components/BattleMap';
 import type { BattleMapSelection } from '../../../components/BattleMap';
+import { GameIcon } from '../../../components/GameIcon';
+import type { GameIconName } from '../../../components/GameIcon';
+import battleNodeBadge from '../../../components/node_badge_battle.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { getCharacterImage } from '../utils/characterVisuals';
@@ -109,6 +112,39 @@ const mvpSpellRangeFtById: Record<string, number> = {
   'spell.magic_missile': 120,
   'spell.sleep': 90,
 };
+
+const combatActionIconNames: Partial<Record<string, GameIconName>> = {
+  공격: 'game-icons:crossed-swords',
+  '보조 공격': 'game-icons:two-handed-sword',
+  대시: 'game-icons:running-shoe',
+  회피: 'game-icons:dodge',
+  숨기: 'game-icons:ninja-mask',
+  상호작용: 'game-icons:hand',
+  'Second Wind': 'game-icons:health-increase',
+  'Fire Bolt': 'game-icons:fireball',
+  Light: 'game-icons:sun',
+  'Magic Missile': 'game-icons:magic-swirl',
+  Shield: 'game-icons:magic-shield',
+  Sleep: 'game-icons:night-sleep',
+};
+
+function getCombatActionIconName(label: string): GameIconName | undefined {
+  // 전투 하위 액션은 상위 탭과 구분되도록 라벨별 RPG 아이콘을 한곳에서 관리합니다.
+  return combatActionIconNames[label];
+}
+
+function CombatActionButtonContent({ label }: { label: string }) {
+  const iconName = getCombatActionIconName(label);
+
+  if (!iconName) return <span className="combat-action-button-label">{label}</span>;
+
+  return (
+    <>
+      <GameIcon name={iconName} size={36} className="combat-action-button-icon" />
+      <span className="combat-action-button-label">{label}</span>
+    </>
+  );
+}
 
 function normalizeClassKey(value: string | null | undefined) {
   return (value ?? '').trim().toLowerCase().replace(/\s+/g, '-');
@@ -229,6 +265,26 @@ function isEquippedItem(item: InventoryItemDto, equippedId: string | null | unde
   );
 }
 
+function getInventoryItemIconName(item: InventoryItemDto): GameIconName {
+  const key = getInventoryItemKey(item).replace(/_/g, '-');
+
+  // 기타 아이템 기본값은 가방보다 중립적인 보급 상자로 두어, 꾸러미 전용 아이콘과 역할이 섞이지 않게 합니다.
+  if (key.includes('shield') || key.includes('방패')) return 'game-icons:shield';
+  if (item.itemType === 'armor' || key.includes('armor') || key.includes('갑옷')) return 'game-icons:armor-vest';
+  if (key.includes('bow') || key.includes('crossbow') || key.includes('활') || key.includes('석궁')) return 'game-icons:bow-arrow';
+  if (key.includes('dagger') || key.includes('knife') || key.includes('단검')) return 'game-icons:plain-dagger';
+  if (key.includes('axe') || key.includes('액스') || key.includes('도끼')) return 'game-icons:battle-axe';
+  if (isWeaponItem(item)) return 'game-icons:rune-sword';
+  if (key.includes('potion') || key.includes('healing') || key.includes('포션')) return 'game-icons:health-potion';
+  if (item.itemType === 'pack' || key.includes('꾸러미')) return 'game-icons:swap-bag';
+  if (key.includes('scroll') || key.includes('spell') || key.includes('두루마리')) return 'game-icons:scroll-unfurled';
+  if (key.includes('book') || key.includes('책')) return 'game-icons:spell-book';
+  if (key.includes('key') || key.includes('열쇠')) return 'game-icons:key';
+  if (key.includes('tool') || key.includes('kit') || key.includes('도구')) return 'game-icons:toolbox';
+  if (key.includes('coin') || key.includes('gold') || key.includes('코인') || key.includes('금화')) return 'game-icons:coins';
+  return 'game-icons:wooden-crate';
+}
+
 function getWeaponFallbackRangeFt(item: InventoryItemDto) {
   const key = getInventoryItemKey(item).replace(/_/g, '-');
   if (key.includes('longbow')) return 150;
@@ -303,6 +359,11 @@ function getGridDistanceFt(
   return Math.max(Math.abs(leftColumn - rightColumn), Math.abs(leftRow - rightRow)) * 5;
 }
 
+function getResourceFillPercent(current: number | null | undefined, max: number | null | undefined) {
+  if (typeof current !== 'number' || typeof max !== 'number' || max <= 0) return 0;
+  return Math.min(100, Math.max(0, (current / max) * 100));
+}
+
 function getItemMetaLabel(item: InventoryItemDto) {
   const labels = [
     item.itemType,
@@ -323,33 +384,9 @@ function splitSceneParagraphs(sceneText: string | undefined) {
 }
 
 function CombatResourceIcon({ kind }: { kind: CombatResourceIconKind }) {
-  if (kind === 'action') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M5 19 17.5 6.5" />
-        <path d="m14 5 5 5" />
-        <path d="m3.5 20.5 3-1 11-11-2-2-11 11-1 3Z" />
-      </svg>
-    );
-  }
-
-  if (kind === 'bonus') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 3v18" />
-        <path d="M3 12h18" />
-        <path d="m7 7 10 10" />
-        <path d="m17 7-10 10" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6l-7-3Z" />
-      <path d="M9 12h6" />
-    </svg>
-  );
+  if (kind === 'action') return <GameIcon name="game-icons:rune-sword" size={21} />;
+  if (kind === 'bonus') return <GameIcon name="game-icons:sun" size={21} />;
+  return <GameIcon name="game-icons:shield" size={21} />;
 }
 
 export function CombatNodeSurface({
@@ -384,6 +421,7 @@ export function CombatNodeSurface({
 }: CombatNodeSurfaceProps) {
   const [activeTab, setActiveTab] = useState<CombatActionTab>('basic');
   const [isSummaryOpen, setSummaryOpen] = useState(false);
+  const [isInventoryExpanded, setInventoryExpanded] = useState(false);
   const [selectedTurnCharacterId, setSelectedTurnCharacterId] = useState<string | null>(null);
   const [selectedTargetParticipantId, setSelectedTargetParticipantId] = useState<string | null>(null);
   const [selectedMapTokenId, setSelectedMapTokenId] = useState<string | null>(null);
@@ -493,12 +531,29 @@ export function CombatNodeSurface({
       available: myActionResources?.reactionAvailable ?? false,
     },
   ];
+  const movementCurrent = myActionResources?.movementFtRemaining ?? myCharacter?.speed ?? null;
+  const movementTotal = myActionResources?.movementFtTotal ?? myCharacter?.speed ?? null;
+  const hpMeterStyle = {
+    '--combat-resource-fill': `${getResourceFillPercent(myCurrentHp, myMaxHp)}%`,
+  } as CSSProperties;
+  const movementMeterStyle = {
+    '--combat-resource-fill': `${getResourceFillPercent(movementCurrent, movementTotal)}%`,
+  } as CSSProperties;
+  const inventoryPanelStyle = {
+    '--combat-inventory-item-count': Math.max(inventory.length, 1),
+  } as CSSProperties;
 
   useEffect(() => {
     if (!actionTabs.some((tab) => tab.id === activeTab)) {
       setActiveTab('basic');
     }
   }, [activeTab, actionTabs]);
+
+  useEffect(() => {
+    if (!inventory.length && isInventoryExpanded) {
+      setInventoryExpanded(false);
+    }
+  }, [inventory.length, isInventoryExpanded]);
 
   function getMapToken(tokenId: string | null | undefined) {
     return tokenId ? (map?.tokens.find((token) => token.id === tokenId) ?? null) : null;
@@ -694,7 +749,11 @@ export function CombatNodeSurface({
     <div className="combat-node-surface">
       <header className="combat-turn-bar" aria-label="전투 턴 정보">
         <div className="combat-node-title-row">
-          <span className="combat-node-eyebrow">전투 노드</span>
+          <img
+            src={battleNodeBadge}
+            alt="전투 노드"
+            className="session-node-type-badge"
+          />
           <h1>{node?.title ?? scenarioTitle ?? '전투 진행 중'}</h1>
           <button
             type="button"
@@ -822,24 +881,26 @@ export function CombatNodeSurface({
         <div className="combat-resource-panel">
           <div className="combat-resource-head">
             <span className="combat-node-eyebrow">행동 자원</span>
-            {isGmView ? (
+            <div className="combat-resource-actions">
+              {isGmView ? (
+                <button
+                  type="button"
+                  className="combat-end-turn-button danger"
+                  disabled={!combat || isCombatBusy}
+                  onClick={onEndCombat}
+                >
+                  전투 종료
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="combat-end-turn-button"
                 disabled={!combat || isCombatBusy}
-                onClick={onEndCombat}
+                onClick={() => onEndTurn(isGmView)}
               >
-                전투 종료
+                턴 종료
               </button>
-            ) : null}
-            <button
-              type="button"
-              className="combat-end-turn-button"
-              disabled={!combat || isCombatBusy}
-              onClick={() => onEndTurn(isGmView)}
-            >
-              턴 종료
-            </button>
+            </div>
           </div>
           <strong>{myCharacter?.name ?? '캐릭터 미선택'}</strong>
           <div className="combat-resource-row" aria-label="행동 자원">
@@ -854,14 +915,27 @@ export function CombatNodeSurface({
               </span>
             ))}
           </div>
-          <div className="combat-resource-meta">
-            <span>HP {myCurrentHp ?? '-'}/{myMaxHp ?? '-'}</span>
-            <span>
-              이동{' '}
-              {myActionResources
-                ? `${myActionResources.movementFtRemaining}/${myActionResources.movementFtTotal}ft`
-                : `${myCharacter?.speed ?? '-'}ft`}
-            </span>
+          <div className="combat-resource-meter-grid">
+            <div className="combat-resource-meter" style={hpMeterStyle}>
+              <div className="combat-resource-meter-label">
+                <span>HP</span>
+                <strong>{myCurrentHp ?? '-'}/{myMaxHp ?? '-'}</strong>
+              </div>
+              <span className="combat-resource-meter-track" aria-hidden="true">
+                <span className="combat-resource-meter-fill" />
+              </span>
+            </div>
+            <div className="combat-resource-meter" style={movementMeterStyle}>
+              <div className="combat-resource-meter-label">
+                <span>이동</span>
+                <strong>
+                  {movementCurrent ?? '-'}/{movementTotal ?? '-'}ft
+                </strong>
+              </div>
+              <span className="combat-resource-meter-track" aria-hidden="true">
+                <span className="combat-resource-meter-fill" />
+              </span>
+            </div>
           </div>
         </div>
 
@@ -893,7 +967,7 @@ export function CombatNodeSurface({
                 return (
                   <button
                     type="button"
-                    className={targetingSpellId === spellId ? 'targeting' : ''}
+                    className={`combat-action-button has-action-icon${targetingSpellId === spellId ? ' targeting' : ''}`}
                     key={action}
                     disabled={disabled}
                     title={
@@ -907,7 +981,7 @@ export function CombatNodeSurface({
                     }
                     onClick={() => spellId && startSpellTargeting(spellId)}
                   >
-                    {action}
+                    <CombatActionButtonContent label={action} />
                   </button>
                 );
               })
@@ -924,16 +998,17 @@ export function CombatNodeSurface({
                     <button
                       type="button"
                       key={ability.key}
+                      className="combat-action-button has-action-icon"
                       disabled={!canUseFeature}
                       title={ability.disabled ? '이미 사용한 능력입니다.' : ability.title}
                       onClick={() => void onUseClassFeature(ability.action)}
                     >
-                      {ability.label}
+                      <CombatActionButtonContent label={ability.label} />
                     </button>
                   );
                 })
               ) : (
-                <button type="button" disabled>
+                <button type="button" className="combat-action-empty-button" disabled>
                   사용 가능한 직업 능력 없음
                 </button>
               )
@@ -943,7 +1018,7 @@ export function CombatNodeSurface({
                   <Fragment key={action}>
                     <button
                       type="button"
-                      className={isAttackTargeting ? 'targeting' : ''}
+                      className={`combat-action-button has-action-icon${isAttackTargeting ? ' targeting' : ''}`}
                       disabled={!canAttackWithEquippedWeapon && !canStartAttackTargeting}
                       title={
                         isAttackTargeting
@@ -965,11 +1040,12 @@ export function CombatNodeSurface({
                         }
                       }}
                     >
-                      공격
+                      <CombatActionButtonContent label="공격" />
                     </button>
                     {offhandWeapon ? (
                       <button
                         type="button"
+                        className="combat-action-button has-action-icon"
                         disabled={!canUseOffhandAttack}
                         title={
                           !offhandWeaponIsLightMelee
@@ -988,7 +1064,7 @@ export function CombatNodeSurface({
                           }
                         }}
                       >
-                        보조 공격
+                        <CombatActionButtonContent label="보조 공격" />
                       </button>
                     ) : null}
                   </Fragment>
@@ -999,11 +1075,12 @@ export function CombatNodeSurface({
                   <button
                     type="button"
                     key={action}
+                    className="combat-action-button has-action-icon"
                     disabled={!canUseAction}
                     title="행동을 소모해 이번 턴 이동 가능 거리를 기본 이동속도만큼 늘립니다."
                     onClick={() => void onDash()}
                   >
-                    대시
+                    <CombatActionButtonContent label="대시" />
                   </button>
                 );
               }
@@ -1012,11 +1089,12 @@ export function CombatNodeSurface({
                   <button
                     type="button"
                     key={action}
+                    className="combat-action-button has-action-icon"
                     disabled={!canUseAction}
                     title="행동을 소모해 다음 자기 턴 시작 전까지 자신을 향한 공격 굴림에 불리점을 줍니다."
                     onClick={() => void onDodge()}
                   >
-                    회피
+                    <CombatActionButtonContent label="회피" />
                   </button>
                 );
               }
@@ -1025,17 +1103,18 @@ export function CombatNodeSurface({
                   <button
                     type="button"
                     key={action}
+                    className="combat-action-button has-action-icon"
                     disabled={!canUseAction}
                     title="행동을 소모하고 민첩(은신) 판정에 성공하면 다음 공격 굴림에 이점을 얻습니다."
                     onClick={() => void onHide()}
                   >
-                    숨기
+                    <CombatActionButtonContent label="숨기" />
                   </button>
                 );
               }
               return (
-                <button type="button" key={action} disabled>
-                  {action}
+                <button type="button" key={action} className="combat-action-button has-action-icon" disabled>
+                  <CombatActionButtonContent label={action} />
                 </button>
               );
             })}
@@ -1054,57 +1133,82 @@ export function CombatNodeSurface({
           ) : null}
         </div>
 
-        <div className="combat-inventory-panel">
-          <span className="combat-node-eyebrow">인벤토리</span>
-          {inventory.length ? (
-            <div className="combat-inventory-list">
-              {inventory.map((item) => {
-                const canUse = isQuickUsableItem(item);
-                const isWeapon = isWeaponItem(item);
-                const isArmor = isArmorItem(item);
-                const isEquipped = isWeapon
-                  ? isEquippedItem(item, myCharacter?.equippedWeaponId) ||
-                    isEquippedItem(item, myCharacter?.offhandWeaponId)
-                  : isArmor;
-                return (
-                  <article className="combat-inventory-item" key={item.id}>
-                    <div className="combat-inventory-item-body">
-                      <strong>{item.name}</strong>
-                      <span>{getItemMetaLabel(item)}</span>
-                    </div>
-                    <span className="combat-inventory-quantity">x{item.quantity}</span>
-                    {isWeapon || isArmor ? (
-                      <button
-                        type="button"
-                        disabled={isArmor || isInventoryBusy}
-                        title={
-                          isArmor
-                            ? '방어구는 현재 캐릭터 AC에 이미 반영되어 있습니다.'
-                            : isEquipped
-                              ? `${item.name} 착용 해제`
-                              : `${item.name} 착용`
-                        }
-                        onClick={() => onEquipInventoryItem(item)}
-                      >
-                        {isEquipped ? '해제' : '착용'}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={!canUse || isInventoryBusy}
-                        title={canUse ? `${item.name} 사용` : '현재 바로 사용할 수 없는 아이템입니다.'}
-                        onClick={() => onUseInventoryItem(item)}
-                      >
-                        사용
-                      </button>
-                    )}
-                  </article>
-                );
-              })}
+        <div className="combat-inventory-slot">
+          <div
+            className={`combat-inventory-panel${isInventoryExpanded ? ' expanded' : ''}`}
+            style={inventoryPanelStyle}
+          >
+            <div className="combat-inventory-head">
+              <span className="combat-node-eyebrow">인벤토리</span>
+              {inventory.length ? (
+                <button
+                  type="button"
+                  className="combat-inventory-toggle"
+                  aria-expanded={isInventoryExpanded}
+                  aria-controls="combat-inventory-list"
+                  title={isInventoryExpanded ? '인벤토리 접기' : '인벤토리 펼치기'}
+                  onClick={() => setInventoryExpanded((current) => !current)}
+                >
+                  <span className="combat-inventory-toggle-arrow" aria-hidden="true" />
+                </button>
+              ) : null}
             </div>
-          ) : (
-            <p>보유 중인 아이템이 없습니다.</p>
-          )}
+            {inventory.length ? (
+              <div
+                id="combat-inventory-list"
+                className={`combat-inventory-list${isInventoryExpanded ? ' expanded' : ''}`}
+              >
+                {inventory.map((item) => {
+                  const canUse = isQuickUsableItem(item);
+                  const isWeapon = isWeaponItem(item);
+                  const isArmor = isArmorItem(item);
+                  const isEquipped = isWeapon
+                    ? isEquippedItem(item, myCharacter?.equippedWeaponId) ||
+                      isEquippedItem(item, myCharacter?.offhandWeaponId)
+                    : isArmor;
+                  return (
+                    <article className="combat-inventory-item" key={item.id}>
+                      <span className="combat-inventory-item-icon" aria-hidden="true">
+                        <GameIcon name={getInventoryItemIconName(item)} size={28} />
+                      </span>
+                      <div className="combat-inventory-item-body">
+                        <strong>{item.name}</strong>
+                        <span>{getItemMetaLabel(item)}</span>
+                      </div>
+                      <span className="combat-inventory-quantity">x{item.quantity}</span>
+                      {isWeapon || isArmor ? (
+                        <button
+                          type="button"
+                          disabled={isArmor || isInventoryBusy}
+                          title={
+                            isArmor
+                              ? '방어구는 현재 캐릭터 AC에 이미 반영되어 있습니다.'
+                              : isEquipped
+                                ? `${item.name} 착용 해제`
+                                : `${item.name} 착용`
+                          }
+                          onClick={() => onEquipInventoryItem(item)}
+                        >
+                          {isEquipped ? '해제' : '착용'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!canUse || isInventoryBusy}
+                          title={canUse ? `${item.name} 사용` : '현재 바로 사용할 수 없는 아이템입니다.'}
+                          onClick={() => onUseInventoryItem(item)}
+                        >
+                          사용
+                        </button>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <p>보유 중인 아이템이 없습니다.</p>
+            )}
+          </div>
         </div>
       </section>
       {selectedTurnCharacter ? (

@@ -36,6 +36,7 @@ import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
 import tavernImage from '../components/tavern.webp';
 import dragonPeekImage from '../assets/images/Peak_a_Boo_Dragon.webp';
+import ornamentArrowUpGold from '../assets/images/Ornament_Arrow_Up_Gold.webp';
 import emptySlotImage from '../components/player_empty_slot.webp';
 import existSlotImage from '../components/player_exist_slot.webp';
 import pinImage from '../components/pin.png';
@@ -3901,7 +3902,13 @@ export function PlayPage({
                   disabled={isLoadingTurnLogs}
                   onClick={onLoadOlderTurnLogs}
                 >
-                  {isLoadingTurnLogs ? '불러오는 중...' : '⬆ 이전 로그 보기'}
+                  <img
+                    src={ornamentArrowUpGold}
+                    alt=""
+                    aria-hidden="true"
+                    className="session-log-history-button-icon"
+                  />
+                  <span>{isLoadingTurnLogs ? '불러오는 중...' : '이전 로그 보기'}</span>
                 </button>
               </div>
             ) : (

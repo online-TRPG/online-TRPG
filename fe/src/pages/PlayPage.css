@@ -1116,6 +1116,10 @@
 }
 
 .session-game-surface {
+  --session-node-badge-width: 195px;
+  --session-node-badge-height: 115px;
+  --session-node-badge-vertical-margin: -34.5px;
+  --session-node-badge-y: 5.5px;
   min-height: 0;
   height: 100%;
   padding: 0;
@@ -1323,6 +1327,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  min-height: 48px;
   padding: 8px 12px 14px;
   margin: 0 4px;
   color: #8b6426;
@@ -1344,7 +1349,7 @@
 }
 
 .session-sidebar-description.has-history-button {
-  padding-block: 8px 12px;
+  padding: 8px 12px 14px;
 }
 
 .session-sidebar-description.has-history-button .session-log-history-bar {
@@ -1354,6 +1359,7 @@
 
 .session-log-area {
   min-height: 0;
+  margin-top: -10px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1370,7 +1376,7 @@
   display: grid;
   gap: 8px;
   align-content: start;
-  padding: 6px 0 2px;
+  padding: 0 0 2px;
   padding-right: 4px;
   padding-bottom: 6px;
 }
@@ -1395,6 +1401,41 @@
 .session-log-history-button:disabled {
   cursor: wait;
   opacity: 0.68;
+}
+
+.session-prep-layout .session-sidebar-description.has-history-button .session-log-history-button {
+  min-height: 32px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #7c5b22 !important;
+  box-shadow: none !important;
+  font-size: 14px !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+}
+
+.session-prep-layout
+  .session-sidebar-description.has-history-button
+  .session-log-history-button:hover:not(:disabled) {
+  transform: none !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #4f3410 !important;
+  box-shadow: none !important;
+}
+
+.session-log-history-button-icon {
+  width: 30px;
+  height: 40px;
+  flex: 0 0 auto;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 1px rgba(75, 46, 14, 0.24));
 }
 
 .chat-thread-date-divider {
@@ -1723,8 +1764,12 @@ button.chat-submit-btn:disabled,
 
 .main-command-mode-button svg {
   width: 16px;
+  min-width: 16px;
+  max-width: 16px;
   height: 16px;
-  flex: 0 0 auto;
+  min-height: 16px;
+  max-height: 16px;
+  flex: 0 0 16px;
 }
 
 @container (max-width: 396px) {
@@ -1734,6 +1779,16 @@ button.chat-submit-btn:disabled,
     justify-content: center;
     gap: 0 !important;
     padding-inline: 0 !important;
+  }
+
+  .main-command-mode-button.main-command-command-mode-button svg {
+    width: 16px !important;
+    min-width: 16px !important;
+    max-width: 16px !important;
+    height: 16px !important;
+    min-height: 16px !important;
+    max-height: 16px !important;
+    flex: 0 0 16px !important;
   }
 
   .main-command-mode-button.main-command-command-mode-button span {
@@ -4460,7 +4515,12 @@ button.chat-submit-btn:disabled,
   box-shadow:
     inset 0 0 0 2.5px rgba(197, 158, 70, 0.45),
     0 2px 6px rgba(100, 65, 10, 0.1) !important;
-  transition: all 0.18s !important;
+  /* 버튼 축약 시 width/padding까지 애니메이션되면 아이콘이 순간적으로 작아 보이므로 색상 계열만 전환합니다. */
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease !important;
 }
 
 .main-command-mode-button:hover,
