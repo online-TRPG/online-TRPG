@@ -366,6 +366,164 @@ describe("SessionsService VTT map structures", () => {
     ]);
   });
 
+  it("adds newly revealed hidden object items to the investigating character inventory", async () => {
+    const tx = {
+      sessionScenarioNode: {
+        findUnique: jest.fn().mockResolvedValue({ cluesJson: "[]" }),
+      },
+      itemDefinition: {
+        findMany: jest.fn().mockResolvedValue([{ id: "item.rope", name: "Rope" }]),
+      },
+      sessionReveal: {
+        findMany: jest.fn().mockResolvedValue([]),
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      inventoryEntry: {
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (txClient: typeof tx) => Promise<unknown>) => callback(tx)),
+    };
+    const runtimeService = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      revealVttObjectContentsAtPoint: SessionsService["revealVttObjectContentsAtPoint"];
+      getVttMapForSessionScenario: jest.Mock;
+      refreshSessionInventorySnapshot: jest.Mock;
+    };
+    runtimeService.getVttMapForSessionScenario = jest.fn().mockResolvedValue({
+      id: "map-1",
+      scenarioNodeId: "node-1",
+      imageUrl: null,
+      gridType: "square",
+      gridSize: 64,
+      width: 640,
+      height: 480,
+      tokens: [],
+      fogRects: [],
+      objectCells: [
+        {
+          id: "object-1",
+          x: 0,
+          y: 0,
+          width: 64,
+          height: 64,
+          visibleToPlayers: true,
+          hiddenClueIds: [],
+          hiddenItemIds: ["item.rope"],
+          hiddenEventIds: [],
+        },
+      ],
+      updatedAt: "2026-05-19T00:00:00.000Z",
+    });
+    runtimeService.refreshSessionInventorySnapshot = jest.fn().mockResolvedValue(undefined);
+
+    const result = await runtimeService.revealVttObjectContentsAtPoint({
+      sessionId: "session-1",
+      sessionScenarioId: "session-scenario-1",
+      nodeId: "node-1",
+      mapPoint: { x: 12, y: 12 },
+      sessionCharacterId: "session-character-1",
+    });
+
+    expect(tx.inventoryEntry.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          sessionCharacterId: "session-character-1",
+          itemDefinitionId: "item.rope",
+          quantity: 1,
+        },
+      ],
+    });
+    expect(runtimeService.refreshSessionInventorySnapshot).toHaveBeenCalledWith("session-character-1");
+    expect(result.revealedItems).toEqual([{ id: "item.rope", name: "Rope", quantity: 1 }]);
+  });
+
+  it("does not require another investigation check after an object's hidden contents are exhausted", async () => {
+    const prisma = {
+      sessionReveal: {
+        findMany: jest.fn().mockResolvedValue([
+          { contentId: "clue-1", contentKind: "clue" },
+          { contentId: "item.rope", contentKind: "item" },
+        ]),
+      },
+    };
+    const runtimeService = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      describeVttObjectAtPoint: SessionsService["describeVttObjectAtPoint"];
+      getVttMapForSessionScenario: jest.Mock;
+    };
+    runtimeService.getVttMapForSessionScenario = jest.fn().mockResolvedValue({
+      id: "map-1",
+      scenarioNodeId: "node-1",
+      imageUrl: null,
+      gridType: "square",
+      gridSize: 64,
+      width: 640,
+      height: 480,
+      tokens: [],
+      fogRects: [],
+      objectCells: [
+        {
+          id: "object-1",
+          name: "낡은 책상",
+          description: "먼지가 쌓인 책상입니다.",
+          x: 0,
+          y: 0,
+          width: 64,
+          height: 64,
+          visibleToPlayers: true,
+          hiddenClueIds: ["clue-1"],
+          hiddenItemIds: ["item.rope"],
+          hiddenEventIds: [],
+          revealChecks: [
+            {
+              contentId: "clue-1",
+              requiresCheck: true,
+              ability: "int",
+              skill: "investigation",
+              dc: 15,
+            },
+          ],
+        },
+      ],
+      updatedAt: "2026-05-19T00:00:00.000Z",
+    });
+
+    const result = await runtimeService.describeVttObjectAtPoint({
+      sessionId: "session-1",
+      sessionScenarioId: "session-scenario-1",
+      nodeId: "node-1",
+      mapPoint: { x: 12, y: 12 },
+    });
+
+    expect(result).toEqual({ message: "여기에는 더 숨겨진 것이 없습니다." });
+    expect(result?.checkOptions).toBeUndefined();
+    expect(prisma.sessionReveal.findMany).toHaveBeenCalledWith({
+      where: {
+        sessionScenarioId: "session-scenario-1",
+        scope: "party",
+        recipientKey: "party",
+        OR: [
+          { contentId: "clue-1", contentKind: "clue" },
+          { contentId: "item.rope", contentKind: "item" },
+        ],
+      },
+      select: {
+        contentId: true,
+        contentKind: true,
+      },
+    });
+  });
+
   it("blocks player token paths through terrain, walls, and closed doors", () => {
     const map = {
       width: 256,

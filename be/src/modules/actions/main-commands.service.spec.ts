@@ -76,7 +76,27 @@ function createMainCommandHarness(options?: {
     }),
   };
   const sessionsService = {
-    revealVttObjectContentsAtPoint: jest.fn().mockResolvedValue(0),
+    getSessionEntityOrThrow: jest.fn().mockResolvedValue({
+      id: "session-1",
+      gmMode: PrismaGmMode.AI,
+      status: PrismaSessionStatus.PLAYING,
+    }),
+    ensureMembership: jest.fn().mockResolvedValue(undefined),
+    getGameStateEntityOrThrow: jest.fn().mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: { currentNodeId: "node-1", flagsJson: "{}" },
+    }),
+    moveSessionCharacterTokenToMapPoint: jest.fn().mockResolvedValue({
+      status: MainCommandStatus.RESOLVED,
+      message: "임시은이(가) 목표 위치로 이동했습니다.",
+      map: null,
+    }),
+    revealVttObjectContentsAtPoint: jest.fn().mockResolvedValue({
+      count: 0,
+      revealedClues: [],
+      revealedItems: [],
+    }),
+    revealObservableVttObjectsInPartyVision: jest.fn().mockResolvedValue({ count: 0, objectNames: [] }),
     revealCurrentNodeCluesAfterAction: jest.fn().mockResolvedValue(0),
     buildSnapshot: jest.fn().mockResolvedValue({}),
     describeVttObjectAtPoint: jest.fn().mockResolvedValue(null),
@@ -360,6 +380,77 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
       }),
       { emitSystemMessage: false },
     );
+  });
+
+  it("moves the actor token when special movement succeeds without a check", async () => {
+    const { sessionsService, submit } = createMainCommandHarness({
+      interpreterResult: {
+        parsed: {
+          needsClarification: false,
+          action: {
+            type: "SPECIAL_MOVE",
+            targetId: null,
+            approach: "vaults across the gap",
+            confidence: 0.95,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      commandId: MainCommandIntent.SPECIAL_MOVE,
+      intent: MainCommandIntent.SPECIAL_MOVE,
+      category: MainCommandCategory.MOVEMENT,
+      playerText: "뛰어서 건너편 타일로 이동한다",
+      mapPoint: { x: 320, y: 192 },
+    });
+
+    expect(response.status).toBe(MainCommandStatus.RESOLVED);
+    expect(sessionsService.moveSessionCharacterTokenToMapPoint).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      sessionCharacterId: "session-character-1",
+      mapPoint: { x: 320, y: 192 },
+    });
+  });
+
+  it("moves the actor token when a special movement check succeeds", async () => {
+    const { service, sessionsService } = createMainCommandHarness();
+
+    const response = await service.resolveMainCommandCheck("user-1", "session-1", {
+      requestId: "request-1",
+      actorId: "character-1",
+      outcome: ActionOutcome.SUCCESS,
+      effect: {
+        type: "mainCommandCheck",
+        requestId: "request-1",
+        nodeId: "node-1",
+        sessionCharacterId: "session-character-1",
+        intent: MainCommandIntent.SPECIAL_MOVE,
+        screenType: MainCommandScreenType.EXPLORATION,
+        playerText: "뛰어서 건너편 타일로 이동한다",
+        actionSummary: "vaults across the gap",
+        targetId: null,
+        targetName: null,
+        targetSummary: null,
+        targetDisposition: null,
+        itemId: null,
+        itemName: null,
+        mapPoint: { x: 320, y: 192 },
+        checkOption: { skill: "acrobatics", dc: 15, reason: "특수 이동" },
+        visibleEntityNames: [],
+        publicClues: [],
+        sceneText: "A gap blocks the way.",
+        actionCandidate: null,
+      },
+    });
+
+    expect(response.status).toBe(MainCommandStatus.RESOLVED);
+    expect(sessionsService.moveSessionCharacterTokenToMapPoint).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      sessionCharacterId: "session-character-1",
+      mapPoint: { x: 320, y: 192 },
+    });
   });
 
   it("persists the original slash input for main command logs", async () => {
