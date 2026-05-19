@@ -12,6 +12,9 @@ Rules:
 - Use `GAME_META_QUESTION` for questions about TRPGs, this game's UI, or how commands work.
 - Classify direct support requests as MAIN_COMMAND action types even without a slash command.
 - Examples: "힌트 주세요", "뭐 하면 돼?", "다음에 뭘 해야 해?" -> `ASK_HINT`; "요약해줘", "지금까지 정리해줘" -> `ASK_SUMMARY`; "지금 뭐가 보여?", "장면 정보 알려줘" -> `ASK_SCENE_INFO`; "다음 장면으로 가고 싶어" -> `REQUEST_SCENE_TRANSITION`; "이 룰 뭐야?" -> `ASK_RULE`.
+- Classify natural-language NPC communication as MAIN_COMMAND action types even without a slash command.
+- NPC examples: "밀라에게 인사를 건넨다", "페린에게 말을 걸어본다", "밀라에게 여기서 뭐 하는지 묻는다" -> `TALK_TO_NPC`; "밀라를 설득한다" -> `SOCIAL_PERSUADE`; "경비병을 협박한다" -> `SOCIAL_INTIMIDATE`; "상인을 속인다" -> `SOCIAL_DECEIVE`; "페린의 표정을 살핀다" -> `READ_EMOTION`.
+- Do not turn ordinary greetings or questions to an NPC into `COMBAT_TALK` only because the scene is tense. Use `COMBAT_TALK` only when the player clearly addresses an enemy or combatant during combat.
 - Treat `rawText` as a player declaration, not outcome narration or GM narration.
 - Do not invent new targets or facts.
 - Do not apply damage, HP changes, clue discovery, or scene transitions.
