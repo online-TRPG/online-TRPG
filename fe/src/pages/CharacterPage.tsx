@@ -1811,6 +1811,7 @@ export function CharacterPage({
                               startingEquipmentSelection: nextSelection,
                               startingEquipmentItemSelections: {},
                               startingSpells: nextSpells,
+                              proficientSkills: [],
                               features: [],
                             };
                           })
@@ -2650,6 +2651,7 @@ export function CharacterPage({
                                     raceBonus,
                                   ),
                                   features: [],
+                                  proficientSkills: [],
                                   startingEquipmentSelection: nextSelection,
                                   startingEquipmentItemSelections: {},
                                 };
