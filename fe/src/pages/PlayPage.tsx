@@ -851,7 +851,7 @@ function getCompletedCombatNodeIds(flags: Record<string, unknown> | undefined): 
   return new Set(Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []);
 }
 const DEFAULT_SIDEBAR_WIDTH = 360;
-const MIN_SIDEBAR_WIDTH = 320;
+const MIN_SIDEBAR_WIDTH = 360;
 const MAX_SIDEBAR_WIDTH = 620;
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
@@ -1760,6 +1760,9 @@ export function PlayPage({
     mainSlashToken.startsWith('/') &&
     !mainMessage.trimStart().includes(' ');
   const shouldShowCommandGuide = isCommandGuideOpen && !shouldShowMainCommandAutocomplete;
+  const isMainCommandButtonActive =
+    isCommandGuideOpen || shouldShowMainCommandAutocomplete || Boolean(selectedMainCommand);
+  const isGmRequestModeButtonActive = mainCommandMode === 'GM_REQUEST';
   const mainCommandAutocompleteCandidates = shouldShowMainCommandAutocomplete
     ? mainCommandPresets.filter((preset) => {
       if (
@@ -3885,26 +3888,30 @@ export function PlayPage({
         </div>
 
         <div className="session-sidebar-panel">
-          <div className="session-sidebar-description">
-            <p>{sessionTabDescriptions[activeTab].description}</p>
+          <div
+            className={`session-sidebar-description${
+              activeTab === 'Main' && hasOlderTurnLogs ? ' has-history-button' : ''
+            }`}
+          >
+            {activeTab === 'Main' && hasOlderTurnLogs ? (
+              <div className="session-log-history-bar">
+                <button
+                  type="button"
+                  className="session-log-history-button"
+                  disabled={isLoadingTurnLogs}
+                  onClick={onLoadOlderTurnLogs}
+                >
+                  {isLoadingTurnLogs ? '불러오는 중...' : '⬆ 이전 로그 보기'}
+                </button>
+              </div>
+            ) : (
+              <p>{sessionTabDescriptions[activeTab].description}</p>
+            )}
           </div>
 
           {activeTab === 'Main' || activeTab === 'Chat' ? (
             <>
               <div className="session-log-area">
-                {activeTab === 'Main' && hasOlderTurnLogs ? (
-                  <div className="session-log-history-bar">
-                    <button
-                      type="button"
-                      className="session-log-history-button"
-                      disabled={isLoadingTurnLogs}
-                      onClick={onLoadOlderTurnLogs}
-                    >
-                      {isLoadingTurnLogs ? '불러오는 중...' : '이전 로그 보기'}
-                    </button>
-                  </div>
-                ) : null}
-
                 <div className="session-log-stack">
                   {renderedRows.length ? (
                     renderedRows.map((log) => {
@@ -4010,11 +4017,13 @@ export function PlayPage({
               >
                 {activeTab === 'Main' && session?.gmMode === 'AI' && currentScreenType ? (
                   <div className="main-command-picker">
+                    {/* 선택 상태는 별도 태그 대신 버튼 자체의 색과 테두리로 보여 시선 이동을 줄입니다. */}
                     <div className="main-command-mode-row">
                       <button
                         type="button"
-                        className={`main-command-mode-button${mainCommandMode === 'GM_REQUEST' ? ' active' : ''
+                        className={`main-command-mode-button main-command-primary-mode-button${isGmRequestModeButtonActive ? ' active' : ''
                           }`}
+                        aria-pressed={isGmRequestModeButtonActive}
                         onClick={() => {
                           setMainCommandMode('GM_REQUEST');
                           setCommandGuideOpen(false);
@@ -4028,8 +4037,9 @@ export function PlayPage({
                       </button>
                       <button
                         type="button"
-                        className={`main-command-mode-button${mainCommandMode === 'RP_ACTION' ? ' active' : ''
+                        className={`main-command-mode-button main-command-primary-mode-button${mainCommandMode === 'RP_ACTION' ? ' active' : ''
                           }`}
+                        aria-pressed={mainCommandMode === 'RP_ACTION'}
                         onClick={() => {
                           setMainCommandMode('RP_ACTION');
                           setCommandGuideOpen(false);
@@ -4043,7 +4053,10 @@ export function PlayPage({
                       </button>
                       <button
                         type="button"
-                        className={`main-command-mode-button${isCommandGuideOpen ? ' active' : ''}`}
+                        className={`main-command-mode-button main-command-outline-mode-button main-command-command-mode-button${isMainCommandButtonActive ? ' active' : ''}`}
+                        aria-label="명령어"
+                        aria-pressed={isMainCommandButtonActive}
+                        title="명령어"
                         onClick={() => {
                           setMainCommandMode('GM_REQUEST');
                           setCommandGuideOpen((current) => !current);
@@ -4071,8 +4084,9 @@ export function PlayPage({
                           <button
                             key={option.id}
                             type="button"
-                            className={`main-command-helper-button${activeMainHelperOption?.id === option.id ? ' active' : ''
+                            className={`main-command-helper-button main-command-target-helper-button${activeMainHelperOption?.id === option.id ? ' active' : ''
                               }`}
+                            aria-pressed={activeMainHelperOption?.id === option.id}
                             title={option.description}
                             onClick={() => {
                               setMainCommandMode('GM_REQUEST');
@@ -4172,28 +4186,6 @@ export function PlayPage({
                             </button>
                           ) : null;
                         })}
-                      </div>
-                    ) : null}
-
-                    {mainCommandMode === 'RP_ACTION' ? (
-                      <div className="main-command-selection-chip">
-                        <span>기록 모드</span>
-                        <strong>RP 행동</strong>
-                      </div>
-                    ) : selectedMainCommand ? (
-                      <div className="main-command-selection-chip">
-                        <span>{getMainCommandSlashCommands(selectedMainCommand)[0] ?? selectedMainCommand.categoryLabel}</span>
-                        <strong>{selectedMainCommand.label}</strong>
-                      </div>
-                    ) : activeMainHelperOption ? (
-                      <div className="main-command-selection-chip">
-                        <span>대상 보조</span>
-                        <strong>{activeMainHelperOption.label}</strong>
-                      </div>
-                    ) : mainCommandMode === 'GM_REQUEST' && !isCommandGuideOpen ? (
-                      <div className="main-command-selection-chip">
-                        <span>요청 모드</span>
-                        <strong>GM 요청</strong>
                       </div>
                     ) : null}
 
