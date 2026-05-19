@@ -488,6 +488,9 @@ def test_npc_dialogue_harness_generates_dialogue_without_selecting_action():
     assert '"directSpeechOnly": true' in prompt
     assert "goblin.shortbow" in prompt
     assert "Do not choose NPC actions" in system_instruction
+    assert "generic attempt to start conversation" in system_instruction
+    assert "밀라에게 아침 인사를 건넨다" in system_instruction
+    assert "Do not proactively explain scene clues" in system_instruction
 
 
 def test_trace_list_filters_history_by_role():
