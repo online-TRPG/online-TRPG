@@ -696,11 +696,79 @@ export class SessionsService {
     return token ? this.hideVttToken(session.id, token.id) : null;
   }
 
-  async saveSystemVttMap(sessionId: string, map: VttMapStateDto): Promise<VttMapStateDto> {
-    const session = await this.getSessionEntityOrThrow(sessionId);
+  async moveSessionCharacterTokenToMapPoint(params: {
+    sessionId: string;
+    sessionCharacterId: string;
+    mapPoint: { x: number; y: number };
+  }): Promise<{ status: MainCommandStatus; message: string; map: VttMapStateDto | null }> {
+    const session = await this.getSessionEntityOrThrow(params.sessionId);
     const { sessionScenario, state } = await this.getGameStateEntityOrThrow(session.id);
     const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-    const normalizedMap = this.normalizeVttMap(map, state.currentNodeId ?? null);
+    const previousMap = await this.getVttMapBaseline(session.id, sessionScenario.id, state);
+    const token = previousMap.tokens.find(
+      (candidate) =>
+        candidate.sessionCharacterId === params.sessionCharacterId &&
+        candidate.hidden !== true &&
+        candidate.isHostile !== true,
+    );
+
+    if (!token) {
+      return {
+        status: MainCommandStatus.IMPOSSIBLE,
+        message: "이동할 플레이어 토큰을 현재 맵에서 찾을 수 없습니다.",
+        map: null,
+      };
+    }
+
+    const destination = this.getTokenDestinationFromMapPoint(previousMap, token, params.mapPoint);
+    const requestedToken = {
+      ...token,
+      x: destination.x,
+      y: destination.y,
+    };
+
+    if (token.x === requestedToken.x && token.y === requestedToken.y) {
+      return {
+        status: MainCommandStatus.RESOLVED,
+        message: `${token.name}은(는) 이미 목표 위치에 있습니다.`,
+        map: previousMap,
+      };
+    }
+
+    if (this.isTokenPlacementBlocked(previousMap, token, requestedToken.x, requestedToken.y)) {
+      return {
+        status: MainCommandStatus.IMPOSSIBLE,
+        message: "목표 타일이 막혀 있어 그 위치로 이동할 수 없습니다.",
+        map: previousMap,
+      };
+    }
+
+    let map: VttMapStateDto = {
+      ...previousMap,
+      tokens: previousMap.tokens.map((candidate) =>
+        candidate.id === token.id ? requestedToken : candidate,
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+    map = await this.applyVttObjectProximityEvents({
+      sessionScenarioId: sessionScenario.id,
+      currentNodeId: state.currentNodeId,
+      map,
+    });
+    const hazardTriggerResult = await this.applyVttHazardTriggers({
+      sessionId: session.id,
+      sessionScenarioId: sessionScenario.id,
+      map,
+      previousMap,
+    });
+    map = hazardTriggerResult.map;
+    map = await this.applyVttHazardDetections({
+      sessionId: session.id,
+      sessionScenarioId: sessionScenario.id,
+      currentNodeId: state.currentNodeId,
+      map,
+      previousMap,
+    });
 
     await this.prisma.gameState.update({
       where: { sessionScenarioId: sessionScenario.id },
@@ -708,18 +776,56 @@ export class SessionsService {
         version: { increment: 1 },
         flagsJson: JSON.stringify({
           ...flags,
-          vttMap: normalizedMap,
+          vttMap: map,
         }),
       },
     });
 
     this.realtimeEvents.emitVttMapUpdated(session.id, {
       hostUserId: session.hostUserId,
-      hostMap: normalizedMap,
-      playerMap: this.redactVttMapForPlayer(normalizedMap),
+      hostMap: map,
+      playerMap: this.redactVttMapForPlayer(map),
+    });
+    if (hazardTriggerResult.triggered) {
+      this.realtimeEvents.emitSessionSnapshot(session.id, await this.buildSnapshot(session.id));
+    }
+
+    return {
+      status: MainCommandStatus.RESOLVED,
+      message: `${token.name}이(가) 목표 위치로 이동했습니다.`,
+      map,
+    };
+  }
+
+  async saveSystemVttMap(sessionId: string, map: VttMapStateDto): Promise<VttMapStateDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const { sessionScenario, state } = await this.getGameStateEntityOrThrow(session.id);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const normalizedMap = this.normalizeVttMap(map, state.currentNodeId ?? null);
+    const runtimeMap = await this.applyVttObjectProximityEvents({
+      sessionScenarioId: sessionScenario.id,
+      currentNodeId: state.currentNodeId,
+      map: normalizedMap,
     });
 
-    return normalizedMap;
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: sessionScenario.id },
+      data: {
+        version: { increment: 1 },
+        flagsJson: JSON.stringify({
+          ...flags,
+          vttMap: runtimeMap,
+        }),
+      },
+    });
+
+    this.realtimeEvents.emitVttMapUpdated(session.id, {
+      hostUserId: session.hostUserId,
+      hostMap: runtimeMap,
+      playerMap: this.redactVttMapForPlayer(runtimeMap),
+    });
+
+    return runtimeMap;
   }
 
   async getPlayerScenarioForUser(userId: string, sessionId: string): Promise<PlayerScenarioViewDto> {
@@ -1638,6 +1744,10 @@ export class SessionsService {
 
     const name = objectCell.name?.trim() || "오브젝트";
     const description = objectCell.description?.trim() || "겉으로 드러난 추가 설명은 없습니다.";
+    if (await this.isVttObjectHiddenContentExhausted(params.sessionScenarioId, objectCell)) {
+      return { message: "여기에는 더 숨겨진 것이 없습니다." };
+    }
+
     const revealCheck = this.getFirstVttObjectRevealCheck(objectCell);
     if (revealCheck) {
       return {
@@ -1660,41 +1770,74 @@ export class SessionsService {
     sessionScenarioId: string;
     nodeId: string;
     mapPoint: { x: number; y: number };
+    sessionCharacterId?: string | null;
     turnLogId?: string | null;
     revealedBy?: string;
     checkOption?: MainCommandCheckOptionDto | null;
   }): Promise<{
     count: number;
     revealedClues: Array<{ id: string; title: string; text: string | null }>;
+    revealedItems: Array<{ id: string; name: string; quantity: number }>;
   }> {
     const map = await this.getVttMapForSessionScenario(params.sessionId, params.sessionScenarioId);
     const objectCell = this.findVttObjectAtPoint(map, params.mapPoint);
     if (!objectCell || objectCell.visibleToPlayers === false) {
-      return { count: 0, revealedClues: [] };
+      return { count: 0, revealedClues: [], revealedItems: [] };
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const clueSnapshots = await this.getCurrentNodeClueSnapshots(tx, {
         sessionScenarioId: params.sessionScenarioId,
         nodeId: params.nodeId,
       });
-      const revealInputs = [
-        ...(objectCell.hiddenClueIds ?? []).map((contentId) => ({
-          contentId,
-          contentKind: "clue",
-          snapshot: clueSnapshots.get(contentId) ?? { id: contentId },
-        })),
-        ...(objectCell.hiddenItemIds ?? []).map((contentId) => ({
-          contentId,
-          contentKind: "item",
-          snapshot: { id: contentId, sourceObjectId: objectCell.id },
-        })),
-        ...(objectCell.hiddenEventIds ?? []).map((contentId) => ({
-          contentId,
-          contentKind: "event",
-          snapshot: { id: contentId, sourceObjectId: objectCell.id },
-        })),
-      ].filter((item) => item.contentId.trim());
+      const hiddenItemIds = (objectCell.hiddenItemIds ?? [])
+        .map((contentId) => contentId.trim())
+        .filter((contentId) => contentId);
+      const itemDefinitions = hiddenItemIds.length
+        ? await tx.itemDefinition.findMany({
+            where: {
+              OR: [
+                { id: { in: hiddenItemIds } },
+                { name: { in: hiddenItemIds } },
+              ],
+            },
+            select: { id: true, name: true },
+          })
+        : [];
+      const itemDefinitionByLookup = new Map<string, { id: string; name: string }>();
+      itemDefinitions.forEach((itemDefinition) => {
+        itemDefinitionByLookup.set(itemDefinition.id, itemDefinition);
+        itemDefinitionByLookup.set(itemDefinition.name, itemDefinition);
+      });
+      const revealInputs: Array<{
+        contentId: string;
+        contentKind: "clue" | "item" | "event";
+        snapshot: Record<string, unknown>;
+      }> = this.getVttObjectHiddenContentKeys(objectCell)
+        .map((item) => {
+          if (item.contentKind === "clue") {
+            return {
+              ...item,
+              snapshot: clueSnapshots.get(item.contentId) ?? { id: item.contentId },
+            };
+          }
+          if (item.contentKind === "item") {
+            const itemDefinition = itemDefinitionByLookup.get(item.contentId);
+            return {
+              ...item,
+              snapshot: {
+                id: itemDefinition?.id ?? item.contentId,
+                name: itemDefinition?.name ?? item.contentId,
+                sourceObjectId: objectCell.id,
+              },
+            };
+          }
+          return {
+            ...item,
+            snapshot: { id: item.contentId, sourceObjectId: objectCell.id },
+          };
+        })
+        .filter((item) => item.contentId.trim());
       const revealChecks = this.getVttObjectRevealChecks(objectCell);
       const filteredRevealInputs = revealInputs.filter((item) =>
         this.canRevealVttObjectContentByCheck(item.contentId, revealChecks, params.checkOption),
@@ -1722,6 +1865,10 @@ export class SessionsService {
       const newRevealInputs = filteredRevealInputs.filter(
         (item) => !existingRevealKeys.has(`${item.contentKind}:${item.contentId}`),
       );
+      const revealedItemDefinitions = newRevealInputs
+        .filter((item) => item.contentKind === "item")
+        .map((item) => itemDefinitionByLookup.get(item.contentId))
+        .filter((item): item is { id: string; name: string } => Boolean(item));
 
       await Promise.all(
         newRevealInputs.map((item) =>
@@ -1737,14 +1884,32 @@ export class SessionsService {
           }),
         ),
       );
+      if (params.sessionCharacterId && revealedItemDefinitions.length) {
+        await tx.inventoryEntry.createMany({
+          data: revealedItemDefinitions.map((itemDefinition) => ({
+            sessionCharacterId: params.sessionCharacterId!,
+            itemDefinitionId: itemDefinition.id,
+            quantity: 1,
+          })),
+        });
+      }
 
       return {
         count: newRevealInputs.length,
         revealedClues: newRevealInputs
           .filter((item) => item.contentKind === "clue")
           .map((item) => this.toRevealClueSummary(item.contentId, item.snapshot)),
+        revealedItems: revealedItemDefinitions.map((itemDefinition) => ({
+          id: itemDefinition.id,
+          name: itemDefinition.name,
+          quantity: 1,
+        })),
       };
     });
+    if (params.sessionCharacterId && result.revealedItems.length) {
+      await this.refreshSessionInventorySnapshot(params.sessionCharacterId);
+    }
+    return result;
   }
 
   async revealObservableVttObjectsInPartyVision(params: {
@@ -2736,7 +2901,7 @@ export class SessionsService {
     return this.buildDefaultVttMap(sessionId, state.currentNodeId ?? null);
   }
 
-  private async getVttMapForSessionScenario(
+  async getVttMapForSessionScenario(
     sessionId: string,
     sessionScenarioId: string,
   ): Promise<VttMapStateDto> {
@@ -3635,6 +3800,63 @@ export class SessionsService {
     return (map.objectCells ?? []).find((cell) => this.isPointInVttCell(point, cell)) ?? null;
   }
 
+  private async isVttObjectHiddenContentExhausted(
+    sessionScenarioId: string,
+    objectCell: NonNullable<VttMapStateDto["objectCells"]>[number],
+  ): Promise<boolean> {
+    const hiddenContentKeys = this.getVttObjectHiddenContentKeys(objectCell);
+    if (!hiddenContentKeys.length) {
+      return false;
+    }
+
+    const existingReveals = await this.prisma.sessionReveal.findMany({
+      where: {
+        sessionScenarioId,
+        scope: "party",
+        recipientKey: "party",
+        OR: hiddenContentKeys.map((item) => ({
+          contentId: item.contentId,
+          contentKind: item.contentKind,
+        })),
+      },
+      select: {
+        contentId: true,
+        contentKind: true,
+      },
+    });
+    const existingRevealKeys = new Set(
+      existingReveals.map((reveal) => `${reveal.contentKind}:${reveal.contentId}`),
+    );
+
+    return hiddenContentKeys.every((item) =>
+      existingRevealKeys.has(`${item.contentKind}:${item.contentId}`),
+    );
+  }
+
+  private getVttObjectHiddenContentKeys(
+    objectCell: NonNullable<VttMapStateDto["objectCells"]>[number],
+  ): Array<{ contentId: string; contentKind: "clue" | "item" | "event" }> {
+    return [
+      ...(objectCell.hiddenClueIds ?? []).map((contentId) => ({
+        contentId,
+        contentKind: "clue" as const,
+      })),
+      ...(objectCell.hiddenItemIds ?? []).map((contentId) => ({
+        contentId,
+        contentKind: "item" as const,
+      })),
+      ...(objectCell.hiddenEventIds ?? []).map((contentId) => ({
+        contentId,
+        contentKind: "event" as const,
+      })),
+    ]
+      .map((item) => ({
+        contentId: item.contentId.trim(),
+        contentKind: item.contentKind,
+      }))
+      .filter((item) => item.contentId);
+  }
+
   private getFirstVttObjectRevealCheck(
     objectCell: NonNullable<VttMapStateDto["objectCells"]>[number],
   ): { contentId: string; requiresCheck: boolean; ability: string | null; skill: string | null; dc: number } | null {
@@ -4505,6 +4727,20 @@ export class SessionsService {
     return blockers.some((blocker) => this.rectsOverlap(tokenRect, blocker));
   }
 
+  private getTokenDestinationFromMapPoint(
+    map: VttMapStateDto,
+    token: VttMapStateDto["tokens"][number],
+    point: { x: number; y: number },
+  ): { x: number; y: number } {
+    const column = this.getGridIndex(point.x, map.gridSize, map.width);
+    const row = this.getGridIndex(point.y, map.gridSize, map.height);
+
+    return {
+      x: this.clampNumber(column * map.gridSize, 0, map.width - token.size),
+      y: this.clampNumber(row * map.gridSize, 0, map.height - token.size),
+    };
+  }
+
   private getGridIndex(value: number, gridSize: number, maxSize: number): number {
     return Math.floor(Math.min(Math.max(value, 0), Math.max(0, maxSize - 1)) / gridSize);
   }
@@ -4531,6 +4767,16 @@ export class SessionsService {
       size: this.clampNumber(token.size, 24, 160),
       hidden: token.hidden === true,
       isHostile: token.isHostile === true,
+      ...(token.monster || token.isHostile
+        ? {
+            encounterRole: token.encounterRole === "fixed" ? ("fixed" as const) : ("scalable" as const),
+            encounterGroupId:
+              typeof token.encounterGroupId === "string" && token.encounterGroupId.trim()
+                ? token.encounterGroupId.trim().slice(0, 80)
+                : null,
+            encounterPriority: this.clampNumber(Number(token.encounterPriority) || 0, 0, 99),
+          }
+        : {}),
       monster: token.monster
         ? {
             id: token.monster.id,
@@ -4597,6 +4843,15 @@ export class SessionsService {
           ? source.createdBySessionCharacterId.trim()
           : null,
     }));
+    const encounterScaling =
+      map.encounterScaling && typeof map.encounterScaling === "object"
+        ? {
+            enabled: map.encounterScaling.enabled === true,
+            basePartySize: this.clampNumber(Number(map.encounterScaling.basePartySize) || 4, 1, 12),
+            minMonsterCount: this.clampNumber(Number(map.encounterScaling.minMonsterCount) || 1, 0, 80),
+            mode: "by_party_ratio" as const,
+          }
+        : null;
     const normalizeStructureCell = (
       cell: {
         id?: string;
@@ -4791,6 +5046,7 @@ export class SessionsService {
       width,
       height,
       tokens,
+      encounterScaling,
       fogRects,
       startingPositions,
       pings,
@@ -4823,6 +5079,10 @@ export class SessionsService {
         width: Number(candidate.width) || 1280,
         height: Number(candidate.height) || 832,
         tokens: candidate.tokens,
+        encounterScaling:
+          candidate.encounterScaling && typeof candidate.encounterScaling === "object"
+            ? candidate.encounterScaling
+            : null,
         fogRects: candidate.fogRects,
         lightSources: Array.isArray(candidate.lightSources) ? candidate.lightSources : [],
         startingPositions: Array.isArray(candidate.startingPositions) ? candidate.startingPositions : [],

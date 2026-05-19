@@ -14,6 +14,7 @@ import {
   ResolveMainCommandCheckDto,
   ScenarioNodeType,
   SubmitMainCommandDto,
+  VttMapStateDto,
 } from "@trpg/shared-types";
 import {
   GamePhase as PrismaGamePhase,
@@ -125,6 +126,13 @@ type TransitionEvidence = {
   combatResolvedForCurrentNode: boolean;
 };
 
+type VttObjectEventHint = {
+  objectName: string;
+  eventName: string | null;
+  distanceFeet: number;
+  revealRadiusFeet: number;
+};
+
 type VttDoorCheckEffect = {
   type: "vttDoor";
   doorId: string;
@@ -145,6 +153,7 @@ type MainCommandCheckEffect = {
   type: "mainCommandCheck";
   requestId: string;
   nodeId: string;
+  sessionCharacterId: string;
   intent: MainCommandIntent;
   screenType: MainCommandScreenType;
   playerText: string;
@@ -494,11 +503,16 @@ export class MainCommandsService {
             sessionScenarioId: context.sessionScenarioId,
             nodeId: context.currentNodeId,
             mapPoint: dto.mapPoint,
+            sessionCharacterId: context.sessionCharacterId,
             revealedBy: "system",
           })
-        : { count: 0, revealedClues: [] };
+        : { count: 0, revealedClues: [], revealedItems: [] };
     if (objectRevealResult.count > 0) {
-      response = this.withRevealedObjectContents(response, objectRevealResult.revealedClues);
+      response = this.withRevealedObjectContents(
+        response,
+        objectRevealResult.revealedClues,
+        objectRevealResult.revealedItems,
+      );
     }
 
     const turnLog = await this.persistResult(userId, context, dto, response);
@@ -667,11 +681,13 @@ export class MainCommandsService {
           : MainCommandStatus.MESSAGE,
       message: resultMessage,
     };
+    let turnLogOutcome = dto.outcome;
 
     let objectRevealResult: {
       count: number;
       revealedClues: Array<{ id: string; title: string; text: string | null }>;
-    } = { count: 0, revealedClues: [] };
+      revealedItems: Array<{ id: string; name: string; quantity: number }>;
+    } = { count: 0, revealedClues: [], revealedItems: [] };
     let observedObjectResult: { count: number; objectNames: string[] } = {
       count: 0,
       objectNames: [],
@@ -686,6 +702,7 @@ export class MainCommandsService {
         sessionScenarioId: sessionScenario.id,
         nodeId: mainCommandEffect.nodeId,
         mapPoint: mainCommandEffect.mapPoint,
+        sessionCharacterId: mainCommandEffect.sessionCharacterId,
         revealedBy: "system",
         checkOption: mainCommandEffect.checkOption,
       });
@@ -697,6 +714,7 @@ export class MainCommandsService {
             message: result.message,
           },
           objectRevealResult.revealedClues,
+          objectRevealResult.revealedItems,
         );
         result = {
           status: augmented.status,
@@ -720,6 +738,27 @@ export class MainCommandsService {
         };
       }
     }
+    if (
+      dto.outcome === ActionOutcome.SUCCESS &&
+      mainCommandEffect.intent === MainCommandIntent.SPECIAL_MOVE &&
+      mainCommandEffect.mapPoint
+    ) {
+      const moveResult = await this.sessionsService.moveSessionCharacterTokenToMapPoint({
+        sessionId: session.id,
+        sessionCharacterId: mainCommandEffect.sessionCharacterId,
+        mapPoint: mainCommandEffect.mapPoint,
+      });
+      result = {
+        status: moveResult.status,
+        message:
+          moveResult.status === MainCommandStatus.RESOLVED
+            ? `${result.message}\n\n${moveResult.message}`
+            : moveResult.message,
+      };
+      if (moveResult.status === MainCommandStatus.IMPOSSIBLE) {
+        turnLogOutcome = ActionOutcome.IMPOSSIBLE;
+      }
+    }
 
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId: session.id,
@@ -733,13 +772,14 @@ export class MainCommandsService {
         outcome: dto.outcome,
         effect: mainCommandEffect,
       },
-      outcome: dto.outcome,
+      outcome: turnLogOutcome,
       narration: result.message,
     });
     this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
 
     if (dto.outcome === ActionOutcome.SUCCESS) {
       const revealCount = mainCommandEffect.actionCandidate &&
+        result.status !== MainCommandStatus.IMPOSSIBLE &&
         mainCommandEffect.intent !== MainCommandIntent.OBSERVE_AREA
         ? await this.sessionsService.revealCurrentNodeCluesAfterAction({
             sessionScenarioId: sessionScenario.id,
@@ -2135,11 +2175,19 @@ export class MainCommandsService {
     }
 
     const itemSummary = dto.itemId ? ` 도구 ${dto.itemId} 사용을 함께 고려합니다.` : "";
+    const moveResult = await this.sessionsService.moveSessionCharacterTokenToMapPoint({
+      sessionId: context.sessionId,
+      sessionCharacterId: context.sessionCharacterId,
+      mapPoint: dto.mapPoint!,
+    });
 
     return {
       requestId,
-      status: MainCommandStatus.MESSAGE,
-      message: `(${dto.mapPoint?.x}, ${dto.mapPoint?.y}) 방향 특수 이동을 시도할 수 있습니다.${itemSummary}`,
+      status: moveResult.status,
+      message:
+        moveResult.status === MainCommandStatus.RESOLVED
+          ? `(${dto.mapPoint?.x}, ${dto.mapPoint?.y}) 방향 특수 이동에 성공했습니다.${itemSummary}\n\n${moveResult.message}`
+          : moveResult.message,
       actionCandidate,
     };
   }
@@ -2905,6 +2953,7 @@ export class MainCommandsService {
     recentLogs: string[],
     publicClues: string[],
   ): Promise<MainCommandResponseDto> {
+    const eventHints = await this.loadUntriggeredVttEventHintSummaries(context);
     const result = await this.aiService.runHint(
       userId,
       context.sessionId,
@@ -2913,7 +2962,7 @@ export class MainCommandsService {
         question: dto.playerText,
         sceneSummary: `${context.currentNodeTitle}: ${context.currentNodeSceneText}`,
         recentLogs: recentLogs.slice(0, 5),
-        publicClues,
+        publicClues: [...publicClues, ...eventHints],
       },
       { emitSystemMessage: false },
     );
@@ -2923,6 +2972,75 @@ export class MainCommandsService {
       status: MainCommandStatus.MESSAGE,
       message: result.parsed.content,
     };
+  }
+
+  private async loadUntriggeredVttEventHintSummaries(context: LoadedContext): Promise<string[]> {
+    const map = await this.sessionsService
+      .getVttMapForSessionScenario(context.sessionId, context.sessionScenarioId)
+      .catch(() => null);
+    if (!map) {
+      return [];
+    }
+
+    const eventEntries = this.extractUntriggeredVttObjectEventHints(map);
+    if (!eventEntries.length) {
+      return [];
+    }
+
+    const onceEventIds = eventEntries.map((entry) => entry.eventId);
+    const revealedEventIds = new Set(
+      (
+        await this.prisma.sessionReveal.findMany({
+          where: {
+            sessionScenarioId: context.sessionScenarioId,
+            contentKind: "event",
+            contentId: { in: onceEventIds },
+          },
+          select: { contentId: true },
+        })
+      ).map((reveal) => reveal.contentId),
+    );
+
+    return eventEntries
+      .filter((entry) => !revealedEventIds.has(entry.eventId))
+      .slice(0, 5)
+      .map(({ hint }) => this.formatVttObjectEventHint(hint));
+  }
+
+  private extractUntriggeredVttObjectEventHints(
+    map: VttMapStateDto,
+  ): Array<{ eventId: string; hint: VttObjectEventHint }> {
+    return (map.objectCells ?? []).flatMap((objectCell) => {
+      if (objectCell.visibleToPlayers === false) {
+        return [];
+      }
+
+      const objectName =
+        objectCell.name?.trim() ||
+        objectCell.description?.trim().slice(0, 80) ||
+        "지도 오브젝트";
+
+      return (objectCell.events ?? [])
+        .filter((event) => event.type === "REVEAL_FOG_ON_PROXIMITY" && event.trigger?.once !== false)
+        .map((event) => ({
+          eventId: event.id,
+          hint: {
+            objectName,
+            eventName: event.name?.trim() || null,
+            distanceFeet: this.clampHintNumber(event.trigger?.distanceFeet, 0, 500, 15),
+            revealRadiusFeet: this.clampHintNumber(event.effect?.revealRadiusFeet, 5, 500, 30),
+          },
+        }));
+    });
+  }
+
+  private formatVttObjectEventHint(hint: VttObjectEventHint): string {
+    const eventLabel = hint.eventName ? ` (${hint.eventName})` : "";
+    return [
+      `아직 발동하지 않은 지도 이벤트: ${hint.objectName}${eventLabel}`,
+      `${hint.distanceFeet}ft 이내로 접근하면 숨겨진 공간이나 안개가 드러날 수 있습니다.`,
+      `드러나는 범위: ${hint.revealRadiusFeet}ft.`,
+    ].join(" ");
   }
 
   private async handleSummary(
@@ -3769,6 +3887,7 @@ export class MainCommandsService {
       type: "mainCommandCheck",
       requestId,
       nodeId: context.currentNodeId,
+      sessionCharacterId: context.sessionCharacterId,
       intent: dto.intent,
       screenType: dto.screenType,
       playerText: dto.playerText,
@@ -4131,8 +4250,9 @@ export class MainCommandsService {
   private withRevealedObjectContents(
     response: MainCommandResponseDto,
     revealedClues: Array<{ id: string; title: string; text: string | null }>,
+    revealedItems: Array<{ id: string; name: string; quantity: number }> = [],
   ): MainCommandResponseDto {
-    if (!revealedClues.length) {
+    if (!revealedClues.length && !revealedItems.length) {
       return response;
     }
 
@@ -4141,14 +4261,22 @@ export class MainCommandsService {
         ? `- ${clue.title}: ${clue.text.trim()}`
         : `- ${clue.title}`,
     );
+    const itemLines = revealedItems.map((item) =>
+      item.quantity > 1 ? `- ${item.name} x${item.quantity}` : `- ${item.name}`,
+    );
+    const sections = [
+      clueLines.length ? `새 단서를 발견했습니다.\n${clueLines.join("\n")}` : null,
+      itemLines.length ? `아이템을 획득했습니다.\n${itemLines.join("\n")}` : null,
+    ].filter((section): section is string => Boolean(section));
 
     return {
       ...response,
       status: response.status === MainCommandStatus.MESSAGE ? MainCommandStatus.RESOLVED : response.status,
-      message: `${response.message.trim()}\n\n새 단서를 발견했습니다.\n${clueLines.join("\n")}`,
+      message: `${response.message.trim()}\n\n${sections.join("\n\n")}`,
       data: {
         ...(response.data ?? {}),
         revealedClues,
+        revealedItems,
       },
     };
   }
@@ -4203,6 +4331,7 @@ export class MainCommandsService {
       type: "mainCommandCheck",
       requestId,
       nodeId,
+      sessionCharacterId: this.readString(value.sessionCharacterId) ?? "",
       intent: intent as MainCommandIntent,
       screenType: screenType as MainCommandScreenType,
       playerText,
@@ -4564,7 +4693,7 @@ export class MainCommandsService {
     const normalizedText = dto.playerText.trim().toLowerCase();
     return (
       candidates.find((candidate) =>
-        [candidate.title, candidate.label, candidate.condition]
+        [candidate.nodeId, candidate.transitionId, candidate.title, candidate.label, candidate.condition]
           .filter((value): value is string => Boolean(value))
           .some((value) => normalizedText.includes(value.trim().toLowerCase())),
       ) ??
@@ -5030,6 +5159,14 @@ export class MainCommandsService {
   private readDc(value: unknown): number | null {
     const dc = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
     return Number.isInteger(dc) && dc >= 5 && dc <= 30 ? dc : null;
+  }
+
+  private clampHintNumber(value: unknown, min: number, max: number, fallback: number): number {
+    const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+    return Math.min(Math.max(Math.floor(parsed), min), max);
   }
 
   private readPoint(value: unknown): { x: number; y: number } | null {

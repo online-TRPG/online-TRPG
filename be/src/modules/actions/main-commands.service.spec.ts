@@ -55,8 +55,17 @@ function createMainCommandHarness(options?: {
   screenType?: MainCommandScreenType;
   interpreterResult?: HarnessInterpreterResult;
   nodeMetaJson?: string | null;
+  vttMap?: Record<string, unknown>;
+  revealedEventIds?: string[];
 }) {
   const screenType = options?.screenType ?? MainCommandScreenType.EXPLORATION;
+  const prisma = {
+    sessionReveal: {
+      findMany: jest.fn().mockResolvedValue(
+        (options?.revealedEventIds ?? []).map((contentId) => ({ contentId })),
+      ),
+    },
+  };
   const aiService = {
     runInterpreter: jest.fn().mockResolvedValue(options?.interpreterResult ?? defaultInterpreterResult),
     runHint: jest.fn().mockResolvedValue({ parsed: { content: "Check the strange statue." } }),
@@ -67,10 +76,45 @@ function createMainCommandHarness(options?: {
     }),
   };
   const sessionsService = {
-    revealVttObjectContentsAtPoint: jest.fn().mockResolvedValue(0),
+    getSessionEntityOrThrow: jest.fn().mockResolvedValue({
+      id: "session-1",
+      gmMode: PrismaGmMode.AI,
+      status: PrismaSessionStatus.PLAYING,
+    }),
+    ensureMembership: jest.fn().mockResolvedValue(undefined),
+    getGameStateEntityOrThrow: jest.fn().mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: { currentNodeId: "node-1", flagsJson: "{}" },
+    }),
+    moveSessionCharacterTokenToMapPoint: jest.fn().mockResolvedValue({
+      status: MainCommandStatus.RESOLVED,
+      message: "임시은이(가) 목표 위치로 이동했습니다.",
+      map: null,
+    }),
+    revealVttObjectContentsAtPoint: jest.fn().mockResolvedValue({
+      count: 0,
+      revealedClues: [],
+      revealedItems: [],
+    }),
+    revealObservableVttObjectsInPartyVision: jest.fn().mockResolvedValue({ count: 0, objectNames: [] }),
     revealCurrentNodeCluesAfterAction: jest.fn().mockResolvedValue(0),
     buildSnapshot: jest.fn().mockResolvedValue({}),
     describeVttObjectAtPoint: jest.fn().mockResolvedValue(null),
+    getVttMapForSessionScenario: jest.fn().mockResolvedValue(
+      options?.vttMap ?? {
+        id: "map-1",
+        scenarioNodeId: "node-1",
+        imageUrl: null,
+        gridType: "square",
+        gridSize: 64,
+        width: 1280,
+        height: 832,
+        tokens: [],
+        fogRects: [],
+        objectCells: [],
+        updatedAt: "2026-05-19T00:00:00.000Z",
+      },
+    ),
   };
   const turnLogsService = {
     createTurnLog: jest.fn().mockResolvedValue({ turnLogId: "turn-log-1" }),
@@ -80,7 +124,7 @@ function createMainCommandHarness(options?: {
     emitSessionSnapshot: jest.fn(),
   };
   const service = new MainCommandsService(
-    {} as never,
+    prisma as never,
     sessionsService as never,
     aiService as never,
     turnLogsService as never,
@@ -117,7 +161,7 @@ function createMainCommandHarness(options?: {
       ...overrides,
     });
 
-  return { service, aiService, sessionsService, turnLogsService, submit };
+  return { service, prisma, aiService, sessionsService, turnLogsService, submit };
 }
 
 describe("MainCommandsService.submitMainCommand permission", () => {
@@ -282,6 +326,131 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
     expect(aiService.runHint).toHaveBeenCalledTimes(1);
     expect(aiService.runInterpreter).not.toHaveBeenCalled();
     expect(sessionsService.revealCurrentNodeCluesAfterAction).not.toHaveBeenCalled();
+  });
+
+  it("adds untriggered VTT proximity events to hint context", async () => {
+    const { aiService, submit } = createMainCommandHarness({
+      vttMap: {
+        id: "map-1",
+        scenarioNodeId: "node-1",
+        imageUrl: null,
+        gridType: "square",
+        gridSize: 64,
+        width: 1280,
+        height: 832,
+        tokens: [],
+        fogRects: [{ id: "fog-1", x: 0, y: 0, width: 640, height: 640 }],
+        objectCells: [
+          {
+            id: "object-secret-door",
+            name: "수상한 석상",
+            x: 320,
+            y: 320,
+            width: 64,
+            height: 64,
+            visibleToPlayers: true,
+            events: [
+              {
+                id: "event-secret-room-fog",
+                name: "숨겨진 공간 발견",
+                type: "REVEAL_FOG_ON_PROXIMITY",
+                trigger: { distanceFeet: 15, once: true },
+                effect: { revealRadiusFeet: 30 },
+              },
+            ],
+          },
+        ],
+        updatedAt: "2026-05-19T00:00:00.000Z",
+      },
+    });
+
+    await submit({
+      commandId: MainCommandIntent.ASK_HINT,
+      intent: MainCommandIntent.ASK_HINT,
+      playerText: "힌트",
+    });
+
+    expect(aiService.runHint).toHaveBeenCalledWith(
+      "user-1",
+      "session-1",
+      expect.objectContaining({
+        publicClues: expect.arrayContaining([
+          expect.stringContaining("수상한 석상"),
+        ]),
+      }),
+      { emitSystemMessage: false },
+    );
+  });
+
+  it("moves the actor token when special movement succeeds without a check", async () => {
+    const { sessionsService, submit } = createMainCommandHarness({
+      interpreterResult: {
+        parsed: {
+          needsClarification: false,
+          action: {
+            type: "SPECIAL_MOVE",
+            targetId: null,
+            approach: "vaults across the gap",
+            confidence: 0.95,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      commandId: MainCommandIntent.SPECIAL_MOVE,
+      intent: MainCommandIntent.SPECIAL_MOVE,
+      category: MainCommandCategory.MOVEMENT,
+      playerText: "뛰어서 건너편 타일로 이동한다",
+      mapPoint: { x: 320, y: 192 },
+    });
+
+    expect(response.status).toBe(MainCommandStatus.RESOLVED);
+    expect(sessionsService.moveSessionCharacterTokenToMapPoint).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      sessionCharacterId: "session-character-1",
+      mapPoint: { x: 320, y: 192 },
+    });
+  });
+
+  it("moves the actor token when a special movement check succeeds", async () => {
+    const { service, sessionsService } = createMainCommandHarness();
+
+    const response = await service.resolveMainCommandCheck("user-1", "session-1", {
+      requestId: "request-1",
+      actorId: "character-1",
+      outcome: ActionOutcome.SUCCESS,
+      effect: {
+        type: "mainCommandCheck",
+        requestId: "request-1",
+        nodeId: "node-1",
+        sessionCharacterId: "session-character-1",
+        intent: MainCommandIntent.SPECIAL_MOVE,
+        screenType: MainCommandScreenType.EXPLORATION,
+        playerText: "뛰어서 건너편 타일로 이동한다",
+        actionSummary: "vaults across the gap",
+        targetId: null,
+        targetName: null,
+        targetSummary: null,
+        targetDisposition: null,
+        itemId: null,
+        itemName: null,
+        mapPoint: { x: 320, y: 192 },
+        checkOption: { skill: "acrobatics", dc: 15, reason: "특수 이동" },
+        visibleEntityNames: [],
+        publicClues: [],
+        sceneText: "A gap blocks the way.",
+        actionCandidate: null,
+      },
+    });
+
+    expect(response.status).toBe(MainCommandStatus.RESOLVED);
+    expect(sessionsService.moveSessionCharacterTokenToMapPoint).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      sessionCharacterId: "session-character-1",
+      mapPoint: { x: 320, y: 192 },
+    });
   });
 
   it("persists the original slash input for main command logs", async () => {
@@ -739,6 +908,24 @@ describe("MainCommandsService transition condition evaluation", () => {
       params.publicClues ?? [],
     );
   }
+
+  it("matches a requested transition by node id before asking the interpreter", () => {
+    const service = createService() as unknown as {
+      matchTransitionCandidate: (
+        candidates: Array<typeof candidate>,
+        dto: SubmitMainCommandDto,
+      ) => typeof candidate | null;
+    };
+    const n05 = { ...candidate, nodeId: "N05", title: "왼쪽 갈림길" };
+    const n06 = { ...candidate, nodeId: "N06", title: "오른쪽 갈림길" };
+
+    const result = service.matchTransitionCandidate(
+      [n05, n06],
+      { ...transitionDto, playerText: "N06 ㄱㄱ" },
+    );
+
+    expect(result?.nodeId).toBe("N06");
+  });
 
   it("allows default transition conditions for existing seeded scenarios", () => {
     const result = evaluate(createService(), { condition: "default", playerText: "아무 입력" });

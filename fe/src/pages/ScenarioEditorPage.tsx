@@ -227,6 +227,12 @@ function createDefaultNodeMap(nodeId: string): VttMapStateDto {
     width,
     height,
     tokens: [],
+    encounterScaling: {
+      enabled: false,
+      basePartySize: 4,
+      minMonsterCount: 1,
+      mode: 'by_party_ratio',
+    },
     fogRects: [],
     startingPositions: createDefaultStartingPositions(gridSize, width, height),
     terrainCells: [],
@@ -435,6 +441,21 @@ function mapVttMap(value: unknown, nodeId: string): VttMapStateDto | null {
     width,
     height,
     tokens: Array.isArray(candidate.tokens) ? candidate.tokens : [],
+    encounterScaling:
+      candidate.encounterScaling && typeof candidate.encounterScaling === 'object'
+        ? {
+            enabled: candidate.encounterScaling.enabled === true,
+            basePartySize:
+              typeof candidate.encounterScaling.basePartySize === 'number'
+                ? Math.min(12, Math.max(1, Math.trunc(candidate.encounterScaling.basePartySize)))
+                : 4,
+            minMonsterCount:
+              typeof candidate.encounterScaling.minMonsterCount === 'number'
+                ? Math.min(80, Math.max(0, Math.trunc(candidate.encounterScaling.minMonsterCount)))
+                : 1,
+            mode: 'by_party_ratio',
+          }
+        : null,
     fogRects: Array.isArray(candidate.fogRects) ? candidate.fogRects : [],
     startingPositions,
     terrainCells: Array.isArray(candidate.terrainCells) ? candidate.terrainCells : [],
