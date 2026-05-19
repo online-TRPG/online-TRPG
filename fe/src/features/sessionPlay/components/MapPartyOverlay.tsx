@@ -30,7 +30,10 @@ export function MapPartyOverlay({
             const isMine = character.userId === currentUserId;
             const characterImage = getCharacterImage(character);
             // 메인챗/파티 카드와 같은 참가자 색상값을 받아 맵 오버레이도 한 기준으로 맞춥니다.
-            const characterColorStyle = getCharacterColorStyle?.(character);
+            const characterColorStyle = {
+              ...getCharacterColorStyle?.(character),
+              ['--map-party-hp-percent' as string]: `${hpPercent}%`,
+            } as CSSProperties;
 
             return (
               <button
@@ -41,21 +44,27 @@ export function MapPartyOverlay({
                 title={`${character.name} / ${getCharacterClassLabel(character.className)} Lv ${character.level} / HP ${character.currentHp}/${character.maxHp}`}
                 onClick={() => onCharacterClick?.(character)}
               >
+                <span className="map-party-corner top-left" aria-hidden="true" />
+                <span className="map-party-corner top-right" aria-hidden="true" />
+                <span className="map-party-corner bottom-left" aria-hidden="true" />
+                <span className="map-party-corner bottom-right" aria-hidden="true" />
                 <div className="map-party-avatar">
                   <img src={characterImage} alt={character.name} />
-                  <span
-                    className="map-party-damage"
-                    style={{ height: `${100 - hpPercent}%` }}
-                    aria-hidden="true"
-                  />
                 </div>
                 <div className="map-party-body">
                   <div className="map-party-line">
                     <strong>{character.name}</strong>
                     <span>Lv {character.level}</span>
                   </div>
-                  <span className="map-party-hp">
-                    {character.currentHp}/{character.maxHp}
+                  <div className="map-party-hp-row">
+                    <span>HP</span>
+                    <strong>{character.currentHp}/{character.maxHp}</strong>
+                  </div>
+                  <span
+                    className="map-party-hp-track"
+                    aria-label={`HP ${character.currentHp}/${character.maxHp}`}
+                  >
+                    <span className="map-party-hp-fill" />
                   </span>
                 </div>
               </button>

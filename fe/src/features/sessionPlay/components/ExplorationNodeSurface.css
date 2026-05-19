@@ -539,6 +539,10 @@
 .exploration-actor-status,
 .exploration-action-panel,
 .exploration-inventory-panel {
+  --exploration-frame-corner-size: 22px;
+  --exploration-frame-corner-image-size: 50px;
+  --exploration-frame-corner-offset-x: -12px;
+  --exploration-frame-corner-offset-y: -12px;
   min-width: 0;
   padding: 14px 16px;
   display: grid;
@@ -547,17 +551,110 @@
   /* background, border 등은 상단 공통 프레임 클래스에서 자동 처리됨 */
 }
 
+.exploration-actor-status,
+.exploration-action-panel,
+.exploration-inventory-panel {
+  border-color: #7c5a2d;
+  outline-color: rgba(217, 168, 79, 0.38);
+  background-color: #111419;
+  background-image:
+    radial-gradient(circle at 18% 16%, rgba(203, 163, 88, 0.12), transparent 26%),
+    linear-gradient(180deg, rgba(255, 237, 188, 0.05), transparent 38%),
+    linear-gradient(145deg, #18191c 0%, #0d1013 100%);
+  color: #ead9b0;
+  box-shadow:
+    inset 0 0 0 1px rgba(232, 201, 122, 0.18),
+    inset 0 0 22px rgba(0, 0, 0, 0.4),
+    0 4px 10px rgba(30, 18, 8, 0.5);
+}
+
+.exploration-actor-status::before,
+.exploration-action-panel::before,
+.exploration-inventory-panel::before {
+  background-image: none;
+}
+
+.exploration-actor-status > :not(.exploration-frame-corner),
+.exploration-action-panel > :not(.exploration-frame-corner),
+.exploration-inventory-panel > :not(.exploration-frame-corner) {
+  position: relative;
+  z-index: 2;
+}
+
+.exploration-frame-corner {
+  position: absolute;
+  z-index: 3;
+  width: var(--exploration-frame-corner-size);
+  height: var(--exploration-frame-corner-size);
+  pointer-events: none;
+  background-image: url('../../../components/gold_frame_corner_1.webp');
+  background-repeat: no-repeat;
+  background-size: var(--exploration-frame-corner-image-size) var(--exploration-frame-corner-image-size);
+  background-position: var(--exploration-frame-corner-offset-x) var(--exploration-frame-corner-offset-y);
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.72));
+}
+
+.exploration-frame-corner.top-left {
+  top: -4px;
+  left: -4px;
+}
+
+.exploration-frame-corner.top-right {
+  top: -4px;
+  right: -4px;
+  transform: scaleX(-1);
+}
+
+.exploration-frame-corner.bottom-left {
+  bottom: -4px;
+  left: -4px;
+  transform: scaleY(-1);
+}
+
+.exploration-frame-corner.bottom-right {
+  right: -4px;
+  bottom: -4px;
+  transform: scale(-1);
+}
+
 .exploration-action-panel {
+  padding: 16px 18px 18px;
+  align-content: start;
+  gap: 14px;
   justify-items: center;
   text-align: center;
 }
 
+.exploration-actor-status {
+  padding: 16px 18px 18px;
+  align-content: start;
+  justify-items: start;
+  gap: 10px;
+  text-align: left;
+}
+
+.exploration-actor-status .exploration-node-eyebrow,
+.exploration-action-panel .exploration-node-eyebrow,
+.exploration-inventory-panel .exploration-node-eyebrow {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #f0d48e;
+  font-size: 14px;
+  letter-spacing: 0;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.65);
+}
+
 /* 캐릭터 이름 */
 .exploration-actor-status strong {
-  color: #2a1a06;
+  color: #ead9b0;
   font-size: 14px;
   font-weight: 900;
+  line-height: 1.15;
   overflow-wrap: anywhere;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.65);
 }
 
 /* 안내 텍스트 */
@@ -640,6 +737,86 @@
 }
 
 /* ── 인벤토리 ──────────────────────────────────────────────── */
+.exploration-actor-status p {
+  color: #b6a987;
+}
+
+.exploration-action-list {
+  gap: 14px;
+}
+
+.exploration-action-list button {
+  position: relative;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid #6f5631;
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 240, 194, 0.06), rgba(255, 240, 194, 0) 38%),
+    linear-gradient(145deg, #1b1c1e, #0e1114);
+  color: #e5d1a3;
+  font-size: 13px;
+  font-weight: 900;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 3px rgba(202, 154, 63, 0.25),
+    0 2px 8px rgba(0, 0, 0, 0.36);
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+
+.exploration-action-list button::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(206, 164, 86, 0.34);
+  pointer-events: none;
+}
+
+.exploration-action-list .exploration-action-button.has-action-icon {
+  width: 86px;
+  min-height: 92px;
+  padding: 10px 8px 9px;
+  gap: 7px;
+}
+
+.exploration-action-button-icon {
+  color: #c4b89d;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55));
+}
+
+.exploration-action-button-label {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.exploration-action-list button:hover:not(:disabled) {
+  border-color: #c9963d;
+  color: #ffe2a0;
+  background:
+    linear-gradient(180deg, rgba(255, 218, 135, 0.12), rgba(255, 218, 135, 0.02) 42%),
+    linear-gradient(145deg, #24211b, #121417);
+}
+
+.exploration-action-list button:disabled {
+  border-color: #4e4c47;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 42%),
+    linear-gradient(145deg, #18191a, #101113);
+  color: #7e7769;
+  opacity: 0.68;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.3),
+    inset 0 0 0 3px rgba(140, 123, 88, 0.12);
+}
+
+.exploration-action-list button:disabled .exploration-action-button-icon {
+  color: #777166;
+}
+
+.exploration-map-action-feedback {
+  color: #e2bf75;
+}
+
 .exploration-inventory-slot {
   grid-column: 3;
   position: relative;
