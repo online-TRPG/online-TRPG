@@ -16,10 +16,13 @@ import battleNodeBadge from '../../../components/node_badge_battle.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { getCharacterImage } from '../utils/characterVisuals';
+import { MONSTER_TOKEN_COLOR, NPC_TOKEN_COLOR } from '../../../utils/sessionTokenColors';
+import type { SessionTokenColor } from '../../../utils/sessionTokenColors';
 import './CombatNodeSurface.css';
 
 type CombatActionTab = 'basic' | 'ability' | 'spell';
 type CombatResourceIconKind = 'action' | 'bonus' | 'reaction';
+type CombatParticipant = CombatResponseDto['participants'][number];
 
 type CombatAbilityButton = {
   key: string;
@@ -384,6 +387,32 @@ function splitSceneParagraphs(sceneText: string | undefined) {
   return paragraphs.length ? paragraphs : ['현재 전투 장면 설명이 아직 준비되지 않았습니다.'];
 }
 
+function readParticipantColorVar(
+  colorStyle: CSSProperties | undefined,
+  name: '--participant-frame-color' | '--participant-bg-color' | '--participant-text-color',
+  fallback: string
+) {
+  const value = (colorStyle as Record<string, string> | undefined)?.[name];
+  return typeof value === 'string' && value.trim() ? value : fallback;
+}
+
+function getTurnCardColorStyle(
+  colorStyle: CSSProperties | undefined,
+  fallbackColor: SessionTokenColor
+): CSSProperties {
+  const accentColor = readParticipantColorVar(colorStyle, '--participant-frame-color', fallbackColor.frame);
+  const backgroundColor = readParticipantColorVar(colorStyle, '--participant-bg-color', fallbackColor.background);
+  const textColor = readParticipantColorVar(colorStyle, '--participant-text-color', fallbackColor.text);
+
+  return {
+    ...colorStyle,
+    // 턴 카드는 플레이어별 고정 색을 가장 먼저 보이게 해야 해서 전용 CSS 변수로 한 번 더 연결합니다.
+    ['--combat-turn-accent' as string]: accentColor,
+    ['--combat-turn-bg' as string]: backgroundColor,
+    ['--combat-turn-text' as string]: textColor,
+  } as CSSProperties;
+}
+
 function CombatResourceIcon({ kind }: { kind: CombatResourceIconKind }) {
   if (kind === 'action') return <GameIcon name="game-icons:rune-sword" size={21} />;
   if (kind === 'bonus') return <GameIcon name="game-icons:sun" size={21} />;
@@ -672,6 +701,17 @@ export function CombatNodeSurface({
       : null;
   }
 
+  function getParticipantTurnCardStyle(
+    participant: CombatParticipant,
+    character: SessionCharacterResponseDto | null
+  ) {
+    const fallbackColor = participant.isHostile ? MONSTER_TOKEN_COLOR : NPC_TOKEN_COLOR;
+    return getTurnCardColorStyle(
+      character ? getCharacterColorStyle?.(character) : undefined,
+      fallbackColor
+    );
+  }
+
   function isParticipantAttackTargetInRange(
     participant: CombatResponseDto['participants'][number] | null
   ) {
@@ -919,13 +959,15 @@ export function CombatNodeSurface({
                   const detailCharacter = participant.sessionCharacterId
                     ? characters.find((character) => character.id === participant.sessionCharacterId) ?? null
                     : null;
+                  const isCurrentTurn = participant.sessionEntityId === combat?.currentEntityId;
                   return (
                     <button
                       type="button"
                       key={participant.sessionEntityId}
+                      style={getParticipantTurnCardStyle(participant, detailCharacter)}
                       className={[
                         'combat-turn-card',
-                        participant.sessionEntityId === combat?.currentEntityId ? 'active' : '',
+                        isCurrentTurn ? 'active' : '',
                         tokenId && tokenId === selectedMapTokenId ? 'selected' : '',
                         participant.sessionCharacterId === myCharacter?.id ? 'mine' : '',
                         !participant.isAlive ? 'defeated' : '',
@@ -960,11 +1002,20 @@ export function CombatNodeSurface({
                         }
                       }}
                     >
-                      {avatar ? (
-                        <img src={avatar} alt={participant.name} />
-                      ) : (
-                        <span>{participant.name.slice(0, 1)}</span>
-                      )}
+                      <span className="combat-turn-card-content">
+                        <span className="combat-turn-portrait" aria-hidden="true">
+                          {avatar ? (
+                            <img src={avatar} alt="" />
+                          ) : (
+                            <span>{participant.name.slice(0, 1)}</span>
+                          )}
+                        </span>
+                        <span className="combat-turn-name">{participant.name}</span>
+                        <span className="combat-turn-hp">
+                          HP {participant.currentHp ?? '-'}/{participant.maxHp ?? '-'}
+                        </span>
+                      </span>
+                      {isCurrentTurn ? <span className="combat-turn-ribbon">턴</span> : null}
                     </button>
                   );
                 })}
