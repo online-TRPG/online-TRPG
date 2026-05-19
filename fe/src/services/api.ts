@@ -1033,6 +1033,20 @@ export function useSecondWindCombatAction(
   });
 }
 
+export function resolveSneakAttackCombatAction(
+  user: StoredUser,
+  sessionId: string,
+  payload: EquippedWeaponAttackDto,
+  accessToken?: string | null
+): Promise<CombatActionResultDto> {
+  return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/features/sneak-attack`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
 export function dashCombatAction(
   user: StoredUser,
   sessionId: string,

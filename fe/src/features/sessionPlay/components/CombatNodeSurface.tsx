@@ -24,8 +24,9 @@ type CombatResourceIconKind = 'action' | 'bonus' | 'reaction';
 type CombatAbilityButton = {
   key: string;
   label: string;
-  action: 'second_wind';
+  action: 'second_wind' | 'sneak_attack';
   title: string;
+  requiresAction?: boolean;
   requiresBonusAction?: boolean;
   disabled?: boolean;
 };
@@ -56,10 +57,11 @@ interface CombatNodeSurfaceProps {
   onEquipInventoryItem: (item: InventoryItemDto) => void;
   onAttackWithEquippedWeapon: (targetParticipantId: string) => void | Promise<void>;
   onAttackWithOffhandWeapon: (targetParticipantId: string) => void | Promise<void>;
+  onSneakAttack: (targetParticipantId: string) => void | Promise<void>;
   onDash: () => void | Promise<void>;
   onDodge: () => void | Promise<void>;
   onHide: () => void | Promise<void>;
-  onUseClassFeature: (action: CombatAbilityButton['action']) => void | Promise<void>;
+  onUseClassFeature: (action: 'second_wind') => void | Promise<void>;
   onCastSpell: (
     spellId: string,
     payload: { targetParticipantIds?: string[]; point?: { x: number; y: number } | null }
@@ -67,17 +69,6 @@ interface CombatNodeSurfaceProps {
   onEndCombat: () => void;
   onEndTurn: (force?: boolean) => void;
 }
-
-const spellcastingClassKeys = new Set([
-  'bard',
-  'cleric',
-  'druid',
-  'paladin',
-  'ranger',
-  'sorcerer',
-  'warlock',
-  'wizard',
-]);
 
 const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: string[] }> = [
   {
@@ -92,11 +83,7 @@ const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: strin
   },
 ];
 
-const spellActionTab: { id: CombatActionTab; label: string; actions: string[] } = {
-  id: 'spell',
-  label: '마법',
-  actions: ['Fire Bolt', 'Light', 'Magic Missile', 'Shield', 'Sleep'],
-};
+const mvpSpellLabels = ['Fire Bolt', 'Light', 'Magic Missile', 'Shield', 'Sleep'];
 
 const mvpSpellIdsByLabel: Record<string, string> = {
   'Fire Bolt': 'spell.fire_bolt',
@@ -170,31 +157,18 @@ function getClassAbilityButtons(
     });
   }
 
-  return buttons;
-}
-
-function canLearnSpells(
-  character: SessionCharacterResponseDto | null,
-  classDefinitions: ClassDefinitionResponseDto[]
-) {
-  const classKey = normalizeClassKey(character?.className);
-  if (!classKey) return false;
-
-  const classDefinition = classDefinitions.find((klass) => {
-    const definitionKey = normalizeClassKey(klass.key);
-    const definitionName = normalizeClassKey(klass.koName);
-    return definitionKey === classKey || definitionName === classKey;
-  });
-
-  if (classDefinition) {
-    return (
-      classDefinition.startingCantripCount > 0 ||
-      classDefinition.startingSpellCount > 0 ||
-      spellcastingClassKeys.has(normalizeClassKey(classDefinition.key))
-    );
+  if (classKey.includes('rogue')) {
+    buttons.push({
+      key: 'sneak_attack',
+      label: '암습',
+      action: 'sneak_attack',
+      title: 'Action을 사용해 이점이 있는 finesse 또는 원거리 무기 공격을 합니다. 명중하면 턴당 한 번 추가 피해를 줍니다.',
+      requiresAction: true,
+      disabled: participantConditions?.includes('resource:sneak_attack_expended'),
+    });
   }
 
-  return spellcastingClassKeys.has(classKey);
+  return buttons;
 }
 
 function normalizeSpellId(value: string) {
@@ -208,8 +182,14 @@ function hasMvpSpell(character: SessionCharacterResponseDto | null, spellId: str
     ...(character.spells?.cantrips ?? []),
     ...(character.spells?.spells ?? []),
   ].map(normalizeSpellId);
-  if (learned.includes(spellId)) return true;
-  return normalizeClassKey(character.className).includes('wizard');
+  return learned.includes(spellId);
+}
+
+function getKnownMvpSpellActions(character: SessionCharacterResponseDto | null) {
+  return mvpSpellLabels.filter((label) => {
+    const spellId = mvpSpellIdsByLabel[label];
+    return Boolean(spellId && hasMvpSpell(character, spellId));
+  });
 }
 
 function getPhaseLabel(phase: string | null | undefined) {
@@ -313,16 +293,31 @@ function getWeaponPropertySet(item: InventoryItemDto) {
 
   if (
     key.includes('dagger') ||
+    key.includes('rapier') ||
     key.includes('handaxe') ||
     key.includes('scimitar') ||
     key.includes('shortsword') ||
     key.includes('단검') ||
+    key.includes('레이피어') ||
     key.includes('핸드액스') ||
     key.includes('시미터') ||
     key.includes('쇼트소드')
   ) {
     properties.add('light');
     properties.add('melee');
+  }
+
+  if (
+    key.includes('dagger') ||
+    key.includes('rapier') ||
+    key.includes('scimitar') ||
+    key.includes('shortsword') ||
+    key.includes('단검') ||
+    key.includes('레이피어') ||
+    key.includes('시미터') ||
+    key.includes('쇼트소드')
+  ) {
+    properties.add('finesse');
   }
 
   if (
@@ -345,6 +340,12 @@ function isLightMeleeWeaponItem(item: InventoryItemDto | null) {
   if (!item || !isWeaponItem(item)) return false;
   const properties = getWeaponPropertySet(item);
   return properties.has('light') && (properties.has('melee') || !properties.has('ranged')) && !properties.has('two-handed');
+}
+
+function isSneakAttackWeaponItem(item: InventoryItemDto | null) {
+  if (!item || !isWeaponItem(item)) return false;
+  const properties = getWeaponPropertySet(item);
+  return properties.has('finesse') || properties.has('ranged');
 }
 
 function getGridDistanceFt(
@@ -394,7 +395,6 @@ export function CombatNodeSurface({
   scenarioTitle,
   phase,
   characters,
-  classDefinitions,
   currentUserId,
   isHost,
   isGmView = false,
@@ -411,6 +411,7 @@ export function CombatNodeSurface({
   onEquipInventoryItem,
   onAttackWithEquippedWeapon,
   onAttackWithOffhandWeapon,
+  onSneakAttack,
   onDash,
   onDodge,
   onHide,
@@ -427,16 +428,20 @@ export function CombatNodeSurface({
   const [selectedMapTokenId, setSelectedMapTokenId] = useState<string | null>(null);
   const [selectedMapSelection, setSelectedMapSelection] = useState<BattleMapSelection | null>(null);
   const [isAttackTargeting, setAttackTargeting] = useState(false);
+  const [isSneakAttackTargeting, setSneakAttackTargeting] = useState(false);
   const [targetingSpellId, setTargetingSpellId] = useState<string | null>(null);
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
-  const actionTabs = useMemo(
-    () =>
-      canLearnSpells(myCharacter, classDefinitions)
-        ? [...baseActionTabs, spellActionTab]
-        : baseActionTabs,
-    [classDefinitions, myCharacter]
-  );
+  const knownMvpSpellActions = useMemo(() => getKnownMvpSpellActions(myCharacter), [myCharacter]);
+  const actionTabs = useMemo(() => {
+    if (!knownMvpSpellActions.length) {
+      return baseActionTabs;
+    }
+    return [
+      ...baseActionTabs,
+      { id: 'spell' as const, label: '마법', actions: knownMvpSpellActions },
+    ];
+  }, [knownMvpSpellActions]);
   const selectedTurnCharacter =
     characters.find((character) => character.id === selectedTurnCharacterId) ?? null;
   const myCombatParticipant =
@@ -472,6 +477,17 @@ export function CombatNodeSurface({
     if (!sourceToken || !targetToken) return false;
     return getGridDistanceFt(map, sourceToken, targetToken) <= attackRangeFt;
   }, [attackRangeFt, map, myCombatParticipant, selectedTargetParticipant]);
+  const isSneakAttackWeaponEquipped = isSneakAttackWeaponItem(equippedWeapon);
+  const isSelectedTargetSneakAttackEligible = useMemo(() => {
+    return isParticipantSneakAttackEligible(selectedTargetParticipant);
+  }, [
+    combat?.participants,
+    isSelectedTargetInRange,
+    isSneakAttackWeaponEquipped,
+    map,
+    myCombatParticipant,
+    selectedTargetParticipant,
+  ]);
   const isSelectedTargetInOffhandRange = useMemo(() => {
     if (!map || !myCombatParticipant || !selectedTargetParticipant) return false;
     const sourceTokenId = getParticipantTokenId(myCombatParticipant);
@@ -496,6 +512,22 @@ export function CombatNodeSurface({
       !isCombatBusy
   );
   const canUseAction = Boolean(isMyCombatTurn && myActionResources?.actionAvailable && !isCombatBusy);
+  const canUseSneakAttack = Boolean(
+    isMyCombatTurn &&
+      myActionResources?.actionAvailable &&
+      myActionResources?.sneakAttackAvailable &&
+      selectedTargetParticipant &&
+      isSelectedTargetSneakAttackEligible &&
+      !isCombatBusy
+  );
+  const canStartSneakAttackTargeting = Boolean(
+    isMyCombatTurn &&
+      myActionResources?.actionAvailable &&
+      myActionResources?.sneakAttackAvailable &&
+      isSneakAttackWeaponEquipped &&
+      myCombatParticipant &&
+      !isCombatBusy
+  );
   const canUseOffhandAttack = Boolean(
     isMyCombatTurn &&
       myActionResources?.twoWeaponAttackAvailable &&
@@ -592,11 +624,11 @@ export function CombatNodeSurface({
     return Object.fromEntries(entries);
   }, [combat, map?.tokens]);
   const attackRangeOverlay = useMemo(() => {
-    if ((!isAttackTargeting && !targetingSpellId) || !myCombatParticipant) return null;
+    if ((!isAttackTargeting && !isSneakAttackTargeting && !targetingSpellId) || !myCombatParticipant) return null;
     const tokenId = getParticipantTokenId(myCombatParticipant);
     const rangeFt = targetingSpellId ? (mvpSpellRangeFtById[targetingSpellId] ?? attackRangeFt) : attackRangeFt;
     return tokenId ? { tokenId, rangeFt } : null;
-  }, [attackRangeFt, isAttackTargeting, map?.tokens, myCombatParticipant, targetingSpellId]);
+  }, [attackRangeFt, isAttackTargeting, isSneakAttackTargeting, map?.tokens, myCombatParticipant, targetingSpellId]);
 
   function getParticipantAvatar(participant: CombatResponseDto['participants'][number]) {
     const character = participant.sessionCharacterId
@@ -620,6 +652,33 @@ export function CombatNodeSurface({
     const targetToken = getMapToken(getParticipantTokenId(participant));
     if (!sourceToken || !targetToken) return false;
     return getGridDistanceFt(map, sourceToken, targetToken) <= attackRangeFt;
+  }
+
+  function isParticipantSneakAttackEligible(
+    participant: CombatResponseDto['participants'][number] | null
+  ) {
+    if (!map || !myCombatParticipant || !participant) return false;
+    if (!participant.isHostile || !participant.isAlive) return false;
+    if (!isSneakAttackWeaponEquipped || !isParticipantAttackTargetInRange(participant)) return false;
+    if (participant.conditions.includes('combat:dodge')) return false;
+    if (myCombatParticipant.conditions.includes('combat:hidden')) return true;
+
+    const targetToken = getMapToken(getParticipantTokenId(participant));
+    if (!targetToken) return false;
+    return Boolean(
+      combat?.participants.some((candidate) => {
+        if (
+          candidate.sessionEntityId === myCombatParticipant.sessionEntityId ||
+          candidate.sessionEntityId === participant.sessionEntityId ||
+          !candidate.isAlive ||
+          candidate.isHostile !== myCombatParticipant.isHostile
+        ) {
+          return false;
+        }
+        const allyToken = getMapToken(getParticipantTokenId(candidate));
+        return Boolean(allyToken && getGridDistanceFt(map, allyToken, targetToken) <= 5);
+      })
+    );
   }
 
   function isParticipantSpellTargetInRange(
@@ -653,19 +712,29 @@ export function CombatNodeSurface({
 
   function runEquippedWeaponAttack(targetParticipantId: string) {
     setAttackTargeting(false);
+    setSneakAttackTargeting(false);
     setTargetingSpellId(null);
     void onAttackWithEquippedWeapon(targetParticipantId);
   }
 
   function runOffhandWeaponAttack(targetParticipantId: string) {
     setAttackTargeting(false);
+    setSneakAttackTargeting(false);
     setTargetingSpellId(null);
     void onAttackWithOffhandWeapon(targetParticipantId);
+  }
+
+  function runSneakAttack(targetParticipantId: string) {
+    setAttackTargeting(false);
+    setSneakAttackTargeting(false);
+    setTargetingSpellId(null);
+    void onSneakAttack(targetParticipantId);
   }
 
   function startSpellTargeting(spellId: string) {
     if (!spellId || spellId === 'spell.shield') return;
     setAttackTargeting(false);
+    setSneakAttackTargeting(false);
     setTargetingSpellId((current) => (current === spellId ? null : spellId));
   }
 
@@ -716,6 +785,9 @@ export function CombatNodeSurface({
       if (isAttackTargeting) {
         setAttackTargeting(false);
       }
+      if (isSneakAttackTargeting) {
+        setSneakAttackTargeting(false);
+      }
       return;
     }
     setSelectedMapTokenId(selection.token.id);
@@ -724,9 +796,14 @@ export function CombatNodeSurface({
       participant?.isHostile && participant.isAlive ? participant.sessionEntityId : null
     );
 
-    if (!isAttackTargeting) return;
+    if (!isAttackTargeting && !isSneakAttackTargeting) return;
     if (!participant?.isHostile || !participant.isAlive) return;
     if (!isParticipantAttackTargetInRange(participant)) return;
+    if (isSneakAttackTargeting) {
+      if (!isParticipantSneakAttackEligible(participant)) return;
+      runSneakAttack(participant.sessionEntityId);
+      return;
+    }
     runEquippedWeaponAttack(participant.sessionEntityId);
   }
 
@@ -744,6 +821,12 @@ export function CombatNodeSurface({
       setTargetingSpellId(null);
     }
   }, [canStartAttackTargeting]);
+
+  useEffect(() => {
+    if (!canStartSneakAttackTargeting) {
+      setSneakAttackTargeting(false);
+    }
+  }, [canStartSneakAttackTargeting]);
 
   return (
     <div className="combat-node-surface">
@@ -818,12 +901,30 @@ export function CombatNodeSurface({
                         tokenId && tokenId === selectedMapTokenId ? 'selected' : '',
                         participant.sessionCharacterId === myCharacter?.id ? 'mine' : '',
                         !participant.isAlive ? 'defeated' : '',
+                        isSneakAttackTargeting && participant.isHostile && participant.isAlive
+                          ? isParticipantSneakAttackEligible(participant)
+                            ? 'sneak-eligible'
+                            : 'sneak-ineligible'
+                          : '',
                       ]
                         .filter(Boolean)
                         .join(' ')}
-                      title={`${participant.name} / HP ${participant.currentHp ?? '-'}/${participant.maxHp ?? '-'}`}
+                      title={
+                        isSneakAttackTargeting && participant.isHostile
+                          ? isParticipantSneakAttackEligible(participant)
+                            ? `${participant.name} / 암습 가능`
+                            : `${participant.name} / 암습 조건 불충족`
+                          : `${participant.name} / HP ${participant.currentHp ?? '-'}/${participant.maxHp ?? '-'}`
+                      }
                       onClick={() => {
                         setSelectedMapTokenId(tokenId ?? null);
+                        if (isSneakAttackTargeting && participant.isHostile && participant.isAlive) {
+                          setSelectedTargetParticipantId(participant.sessionEntityId);
+                          if (isParticipantSneakAttackEligible(participant)) {
+                            runSneakAttack(participant.sessionEntityId);
+                          }
+                          return;
+                        }
                         if (detailCharacter) {
                           setSelectedTurnCharacterId(detailCharacter.id);
                         } else if (participant.isHostile && participant.isAlive) {
@@ -965,12 +1066,10 @@ export function CombatNodeSurface({
             {currentTab.id === 'spell' ? (
               currentTab.actions.map((action) => {
                 const spellId = mvpSpellIdsByLabel[action];
-                const isKnown = Boolean(spellId && hasMvpSpell(myCharacter, spellId));
                 const disabled =
                   !isMyCombatTurn ||
                   !canUseAction ||
                   isCombatBusy ||
-                  !isKnown ||
                   spellId === 'spell.shield';
                 return (
                   <button
@@ -981,11 +1080,9 @@ export function CombatNodeSurface({
                     title={
                       spellId === 'spell.shield'
                         ? 'Shield는 공격받을 때 반응 팝업으로 사용합니다.'
-                        : !isKnown
-                          ? '익히지 않은 주문입니다.'
-                          : targetingSpellId === spellId
-                            ? `${action} 사거리 안의 유효한 대상 또는 지점을 선택하세요.`
-                            : `${action} 타겟팅`
+                        : targetingSpellId === spellId
+                          ? `${action} 사거리 안의 유효한 대상 또는 지점을 선택하세요.`
+                          : `${action} 타겟팅`
                     }
                     onClick={() => spellId && startSpellTargeting(spellId)}
                   >
@@ -1000,16 +1097,47 @@ export function CombatNodeSurface({
                     isMyCombatTurn &&
                       !isCombatBusy &&
                       !ability.disabled &&
+                      (!ability.requiresAction || myActionResources?.actionAvailable) &&
                       (!ability.requiresBonusAction || myActionResources?.bonusActionAvailable)
                   );
+                  const isSneakAttack = ability.action === 'sneak_attack';
+                  const canUseSneakFeature = isSneakAttack
+                    ? Boolean(canUseFeature && isSneakAttackWeaponEquipped && myActionResources?.sneakAttackAvailable)
+                    : canUseFeature;
                   return (
                     <button
                       type="button"
                       key={ability.key}
-                      className="combat-action-button has-action-icon"
-                      disabled={!canUseFeature}
-                      title={ability.disabled ? '이미 사용한 능력입니다.' : ability.title}
-                      onClick={() => void onUseClassFeature(ability.action)}
+                      className={`combat-action-button has-action-icon${isSneakAttackTargeting && isSneakAttack ? ' targeting' : ''}`}
+                      disabled={!canUseSneakFeature}
+                      title={
+                        ability.disabled || (isSneakAttack && !myActionResources?.sneakAttackAvailable)
+                          ? '이미 사용한 능력입니다.'
+                          : isSneakAttack && !isSneakAttackWeaponEquipped
+                            ? '암습은 finesse 또는 원거리 무기를 장착해야 사용할 수 있습니다.'
+                            : isSneakAttackTargeting
+                              ? '암습 가능한 적 토큰을 선택하세요.'
+                              : isSneakAttack && selectedTargetParticipant && !isSelectedTargetSneakAttackEligible
+                                ? '선택한 대상은 현재 암습 조건을 만족하지 않습니다.'
+                                : ability.title
+                      }
+                      onClick={() => {
+                        if (isSneakAttack) {
+                          if (canUseSneakAttack && selectedTargetParticipant) {
+                            runSneakAttack(selectedTargetParticipant.sessionEntityId);
+                            return;
+                          }
+                          if (canStartSneakAttackTargeting) {
+                            setAttackTargeting(false);
+                            setTargetingSpellId(null);
+                            setSneakAttackTargeting((current) => !current);
+                          }
+                          return;
+                        }
+                        if (ability.action === 'second_wind') {
+                          void onUseClassFeature(ability.action);
+                        }
+                      }}
                     >
                       <CombatActionButtonContent label={ability.label} />
                     </button>
@@ -1132,6 +1260,11 @@ export function CombatNodeSurface({
               {attackName} 사거리 안의 적 토큰을 선택하세요.
             </p>
           ) : null}
+          {isSneakAttackTargeting ? (
+            <p className="combat-targeting-hint" title="암습 조건을 만족하는 적 토큰을 선택하세요.">
+              암습 가능한 적 토큰을 선택하세요.
+            </p>
+          ) : null}
           {targetingSpellId ? (
             <p className="combat-targeting-hint" title="사거리 안의 유효한 대상 또는 지점을 선택하세요.">
               {targetingSpellId === 'spell.fire_bolt' || targetingSpellId === 'spell.magic_missile'
@@ -1170,16 +1303,49 @@ export function CombatNodeSurface({
                 id="combat-inventory-list"
                 className={`combat-inventory-list${isInventoryExpanded ? ' expanded' : ''}`}
               >
-                {inventory.map((item) => {
+                {inventory.flatMap((item) => {
+                  const isWeapon = isWeaponItem(item);
+                  const equippedCount = isWeapon
+                    ? Number(isEquippedItem(item, myCharacter?.equippedWeaponId)) +
+                      Number(isEquippedItem(item, myCharacter?.offhandWeaponId))
+                    : 0;
+                  const availableCount = Math.max(0, item.quantity - equippedCount);
+                  if (!equippedCount) {
+                    return [{ item, equipmentDisplayState: 'available' as const }];
+                  }
+
+                  const rows: Array<{
+                    item: InventoryItemDto;
+                    equipmentDisplayState: 'equipped' | 'available';
+                  }> = [
+                    {
+                      item: { ...item, quantity: equippedCount },
+                      equipmentDisplayState: 'equipped' as const,
+                    },
+                  ];
+                  if (availableCount > 0) {
+                    rows.push({
+                      item: { ...item, quantity: availableCount },
+                      equipmentDisplayState: 'available' as const,
+                    });
+                  }
+                  return rows;
+                }).map(({ item, equipmentDisplayState }) => {
                   const canUse = isQuickUsableItem(item);
                   const isWeapon = isWeaponItem(item);
                   const isArmor = isArmorItem(item);
                   const isEquipped = isWeapon
-                    ? isEquippedItem(item, myCharacter?.equippedWeaponId) ||
-                      isEquippedItem(item, myCharacter?.offhandWeaponId)
+                    ? equipmentDisplayState === 'equipped'
                     : isArmor;
+                  const equipmentActionItem = {
+                    ...item,
+                    __equipmentDisplayState: equipmentDisplayState,
+                  } as InventoryItemDto;
                   return (
-                    <article className="combat-inventory-item" key={item.id}>
+                    <article
+                      className="combat-inventory-item"
+                      key={`${item.id}-${equipmentDisplayState}`}
+                    >
                       <span className="combat-inventory-item-icon" aria-hidden="true">
                         <GameIcon name={getInventoryItemIconName(item)} size={28} />
                       </span>
@@ -1199,7 +1365,7 @@ export function CombatNodeSurface({
                                 ? `${item.name} 착용 해제`
                                 : `${item.name} 착용`
                           }
-                          onClick={() => onEquipInventoryItem(item)}
+                          onClick={() => onEquipInventoryItem(equipmentActionItem)}
                         >
                           {isEquipped ? '해제' : '착용'}
                         </button>

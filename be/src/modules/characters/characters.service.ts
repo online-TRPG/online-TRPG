@@ -594,30 +594,51 @@ export class CharactersService {
     requestedMainWeaponId?: string | null;
     requestedOffhandWeaponId?: string | null;
   }): Promise<{ equippedWeaponId: string | null; offhandWeaponId: string | null }> {
-    let equippedWeaponId =
+    const currentMainWeaponId = await this.normalizeEquippedWeaponId(
+      params.inventory,
+      params.currentMainWeaponId,
+      params.characterId,
+    );
+    const currentOffhandWeaponId = await this.normalizeEquippedWeaponId(
+      params.inventory,
+      params.currentOffhandWeaponId,
+      params.characterId,
+    );
+    const requestedMainWeaponId =
       params.requestedMainWeaponId === undefined
-        ? params.currentMainWeaponId
-        : params.requestedMainWeaponId;
-    let offhandWeaponId =
+        ? undefined
+        : await this.normalizeEquippedWeaponId(
+            params.inventory,
+            params.requestedMainWeaponId,
+            params.characterId,
+          );
+    const requestedOffhandWeaponId =
       params.requestedOffhandWeaponId === undefined
-        ? params.currentOffhandWeaponId
-        : params.requestedOffhandWeaponId;
+        ? undefined
+        : await this.normalizeEquippedWeaponId(
+            params.inventory,
+            params.requestedOffhandWeaponId,
+            params.characterId,
+          );
+    let equippedWeaponId =
+      requestedMainWeaponId === undefined ? currentMainWeaponId : requestedMainWeaponId;
+    let offhandWeaponId =
+      requestedOffhandWeaponId === undefined ? currentOffhandWeaponId : requestedOffhandWeaponId;
 
     if (
-      params.requestedMainWeaponId &&
-      params.requestedOffhandWeaponId === undefined &&
-      params.currentMainWeaponId &&
-      params.currentMainWeaponId !== params.requestedMainWeaponId &&
-      !params.currentOffhandWeaponId
+      requestedMainWeaponId &&
+      requestedOffhandWeaponId === undefined &&
+      currentMainWeaponId &&
+      !currentOffhandWeaponId
     ) {
       const currentMain = await this.resolveEquippedWeaponCandidate(
         params.inventory,
-        params.currentMainWeaponId,
+        currentMainWeaponId,
         { allowSessionInventoryForCharacterId: params.characterId },
       );
       const requestedMain = await this.resolveEquippedWeaponCandidate(
         params.inventory,
-        params.requestedMainWeaponId,
+        requestedMainWeaponId,
         { allowSessionInventoryForCharacterId: params.characterId },
       );
 
@@ -625,15 +646,24 @@ export class CharactersService {
         currentMain &&
         requestedMain &&
         this.isOneHandWeaponCandidate(currentMain) &&
-        this.isOneHandWeaponCandidate(requestedMain)
+        this.isOneHandWeaponCandidate(requestedMain) &&
+        (currentMainWeaponId !== requestedMainWeaponId ||
+          (requestedMain.quantity ?? 0) >= 2)
       ) {
-        equippedWeaponId = params.currentMainWeaponId;
-        offhandWeaponId = params.requestedMainWeaponId;
+        equippedWeaponId = currentMainWeaponId;
+        offhandWeaponId = requestedMainWeaponId;
       }
     }
 
     if (equippedWeaponId && offhandWeaponId && equippedWeaponId === offhandWeaponId) {
-      offhandWeaponId = null;
+      const duplicatedWeapon = await this.resolveEquippedWeaponCandidate(
+        params.inventory,
+        equippedWeaponId,
+        { allowSessionInventoryForCharacterId: params.characterId },
+      );
+      if ((duplicatedWeapon?.quantity ?? 0) < 2) {
+        offhandWeaponId = null;
+      }
     }
 
     if (!equippedWeaponId) {
@@ -656,6 +686,20 @@ export class CharactersService {
     return { equippedWeaponId, offhandWeaponId };
   }
 
+  private async normalizeEquippedWeaponId(
+    inventory: InventoryItemDto[],
+    equippedWeaponId: string | null | undefined,
+    characterId: string,
+  ): Promise<string | null> {
+    if (!equippedWeaponId) {
+      return null;
+    }
+    const matched = await this.resolveEquippedWeaponCandidate(inventory, equippedWeaponId, {
+      allowSessionInventoryForCharacterId: characterId,
+    });
+    return matched?.itemDefinitionId ?? matched?.id ?? equippedWeaponId;
+  }
+
   private async validateEquipmentLoadout(
     inventory: InventoryItemDto[],
     equippedWeaponId: string | null,
@@ -668,12 +712,13 @@ export class CharactersService {
     if (!equippedWeaponId || !offhandWeaponId) {
       return;
     }
-    if (equippedWeaponId === offhandWeaponId) {
+    const main = await this.resolveEquippedWeaponCandidate(inventory, equippedWeaponId, options);
+    const offhand = await this.resolveEquippedWeaponCandidate(inventory, offhandWeaponId, options);
+
+    if (equippedWeaponId === offhandWeaponId && (main?.quantity ?? 0) < 2) {
       throw new BadRequestException("장비: 같은 무기를 양손에 동시에 장착할 수 없습니다.");
     }
 
-    const main = await this.resolveEquippedWeaponCandidate(inventory, equippedWeaponId, options);
-    const offhand = await this.resolveEquippedWeaponCandidate(inventory, offhandWeaponId, options);
     if (!main || !offhand) {
       return;
     }
@@ -710,8 +755,10 @@ export class CharactersService {
     }
 
     if (equippedWeaponId) {
-      const matched = inventory.find(
-        (item) => item.id === equippedWeaponId || item.itemDefinitionId === equippedWeaponId,
+      const matched = await this.resolveEquippedWeaponCandidate(
+        inventory,
+        equippedWeaponId,
+        options,
       );
       if (matched) {
         if (!this.isWeaponInventoryItem(matched)) {
@@ -720,30 +767,6 @@ export class CharactersService {
           );
         }
         return;
-      }
-
-      if (options?.allowSessionInventoryForCharacterId) {
-        const sessionInventoryMatch = await this.prisma.inventoryEntry.findFirst({
-          where: {
-            sessionCharacter: {
-              characterId: options.allowSessionInventoryForCharacterId,
-            },
-            OR: [{ id: equippedWeaponId }, { itemDefinitionId: equippedWeaponId }],
-          },
-          include: { itemDefinition: true },
-        });
-
-        if (sessionInventoryMatch) {
-          if (
-            sessionInventoryMatch.itemDefinition.itemType !== "weapon" &&
-            !sessionInventoryMatch.itemDefinition.damageDice
-          ) {
-            throw new BadRequestException(
-              `장비: 장착 대상(${equippedWeaponId})은 무기가 아닙니다.`,
-            );
-          }
-          return;
-        }
       }
 
       if (!matched) {
@@ -778,26 +801,60 @@ export class CharactersService {
       where: {
         sessionCharacter: {
           characterId: options.allowSessionInventoryForCharacterId,
+          status: PrismaSessionCharacterStatus.ACTIVE,
+          session: {
+            status: { in: [PrismaSessionStatus.PLAYING, PrismaSessionStatus.PAUSED] },
+          },
         },
         OR: [{ id: equippedWeaponId }, { itemDefinitionId: equippedWeaponId }],
       },
       include: { itemDefinition: true },
     });
 
-    if (!sessionInventoryMatch) {
-      return null;
+    if (sessionInventoryMatch) {
+      return {
+        id: sessionInventoryMatch.id,
+        name: sessionInventoryMatch.itemDefinition.name,
+        quantity: sessionInventoryMatch.quantity,
+        itemDefinitionId: sessionInventoryMatch.itemDefinitionId,
+        itemType: sessionInventoryMatch.itemDefinition.itemType,
+        damageDice: sessionInventoryMatch.itemDefinition.damageDice ?? undefined,
+        damageType: sessionInventoryMatch.itemDefinition.damageType ?? undefined,
+        properties: this.parseStringArrayJson(sessionInventoryMatch.itemDefinition.propertiesJson),
+      };
     }
 
-    return {
-      id: sessionInventoryMatch.id,
-      name: sessionInventoryMatch.itemDefinition.name,
-      quantity: sessionInventoryMatch.quantity,
-      itemDefinitionId: sessionInventoryMatch.itemDefinitionId,
-      itemType: sessionInventoryMatch.itemDefinition.itemType,
-      damageDice: sessionInventoryMatch.itemDefinition.damageDice ?? undefined,
-      damageType: sessionInventoryMatch.itemDefinition.damageType ?? undefined,
-      properties: this.parseStringArrayJson(sessionInventoryMatch.itemDefinition.propertiesJson),
-    };
+    const sessionCharacter = await this.prisma.sessionCharacter.findFirst({
+      where: {
+        characterId: options.allowSessionInventoryForCharacterId,
+        status: PrismaSessionCharacterStatus.ACTIVE,
+        session: {
+          status: { in: [PrismaSessionStatus.PLAYING, PrismaSessionStatus.PAUSED] },
+        },
+      },
+      select: {
+        inventorySnapshotJson: true,
+        character: { select: { inventoryJson: true } },
+      },
+    });
+    const snapshotInventory = this.parseInventoryItemsJson(
+      sessionCharacter?.inventorySnapshotJson ?? sessionCharacter?.character.inventoryJson,
+    );
+    return (
+      snapshotInventory.find(
+        (item) => item.id === equippedWeaponId || item.itemDefinitionId === equippedWeaponId,
+      ) ?? null
+    );
+  }
+
+  private parseInventoryItemsJson(value: string | null | undefined): InventoryItemDto[] {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as InventoryItemDto[]) : [];
+    } catch {
+      return [];
+    }
   }
 
   // 캐릭터가 PLAYING/PAUSED 세션에 속해 있으면 ConflictException(409).
