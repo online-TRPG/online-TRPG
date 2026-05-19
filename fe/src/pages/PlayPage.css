@@ -1530,6 +1530,7 @@
 .chat-thread-stack {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
   min-width: 0;
   width: fit-content;
@@ -1541,11 +1542,15 @@
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.02em;
+  max-width: 100%;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .chat-thread-sender.outgoing {
   color: #4277b6;
-  align-self: flex-start;
+  align-self: flex-end;
+  text-align: right;
 }
 
 .chat-thread-sender.incoming {
@@ -1632,7 +1637,11 @@
 
 .chat-thread-row.outgoing .chat-thread-stack {
   text-align: left;
-  align-items: flex-start;
+  align-items: flex-end;
+}
+
+.chat-thread-row.outgoing .chat-thread-time {
+  align-self: flex-end;
 }
 
 .chat-thread-row.outgoing .chat-thread-bubble {
@@ -2513,11 +2522,7 @@ button.chat-submit-btn:disabled,
 
 
 .chat-thread-row.main-log-system-result {
-  justify-content: center;
-}
-
-.chat-thread-row.main-log-system-result .chat-thread-stack {
-  max-width: 92%;
+  justify-content: flex-start;
 }
 
 .chat-thread-row.main-log-system-result .chat-thread-sender,
