@@ -55,6 +55,10 @@ type HarnessResponse =
   | ActorResponsePayload
   | CheckResultResponsePayload;
 
+// NPC 대사 생성 실패가 캐릭터의 행동 선언처럼 보이지 않도록, 재입력을 부탁하는 중립 대사로 통일합니다.
+const NPC_DIALOGUE_FALLBACK_DIALOGUE =
+  "잠시만요. 다시 한 번 말해 줄래요?";
+
 interface PersistTraceParams {
   sessionId: string;
   userId: string;
@@ -237,6 +241,14 @@ export class AiService {
       defaultFactory: (reason) => this.defaultNpcDialogueResponse(reason),
     });
 
+    const isFallback = result.response.fallback === true || result.isBeFallback;
+    const parsed = isFallback
+      ? {
+          ...result.response.parsed,
+          dialogue: NPC_DIALOGUE_FALLBACK_DIALOGUE,
+        }
+      : result.response.parsed;
+
     if (options?.emitChatMessage !== false) {
       const speakerName = dto.npcName ?? "NPC";
       const speakerUserId = `ai:npc:${dto.npcEntityId}`;
@@ -244,13 +256,13 @@ export class AiService {
         sessionId,
         speakerUserId,
         speakerName,
-        result.response.parsed.dialogue,
+        parsed.dialogue,
         result.traceId,
       );
     }
 
     return {
-      parsed: result.response.parsed,
+      parsed,
       model: result.response.model,
       latencyMs: result.response.latencyMs ?? result.elapsedMs,
       traceId: result.traceId ?? "",
@@ -507,7 +519,7 @@ export class AiService {
     return {
       ...this.buildBeFallbackTrace("npc_dialogue"),
       parsed: {
-        dialogue: "(NPC가 잠시 말이 없습니다.)",
+        dialogue: NPC_DIALOGUE_FALLBACK_DIALOGUE,
         tone: "neutral",
         safetyNotes: [],
       },

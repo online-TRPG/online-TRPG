@@ -16,6 +16,7 @@ from app.schemas.harness import (
 )
 from app.services.harness import AiHarnessService
 from app.services.actor.service import ActorService
+from app.services.check_result.service import CheckResultService
 from app.services.director.service import DirectorService
 from app.services.interpreter.service import InterpreterService
 from app.services.narrator.service import NarratorService
@@ -199,6 +200,7 @@ def build_service(
         summarizer_service=SummarizerService(fake_client, settings),
         actor_service=ActorService(fake_client, settings),
         npc_dialogue_service=NpcDialogueService(fake_client, settings),
+        check_result_service=CheckResultService(fake_client, settings),
         response_logger=HarnessResponseLogger(settings),
     )
     return service, fake_client
@@ -273,6 +275,10 @@ def test_interpreter_prompt_guides_natural_language_support_requests():
     assert "ASK_HINT" in system_instruction
     assert "요약해줘" in system_instruction
     assert "ASK_SUMMARY" in system_instruction
+    assert "밀라에게 인사를 건넨다" in system_instruction
+    assert "TALK_TO_NPC" in system_instruction
+    assert "밀라를 설득한다" in system_instruction
+    assert "SOCIAL_PERSUADE" in system_instruction
 
 
 def test_interpreter_prompt_includes_retrieved_condition_and_rule_context():
@@ -482,6 +488,9 @@ def test_npc_dialogue_harness_generates_dialogue_without_selecting_action():
     assert '"directSpeechOnly": true' in prompt
     assert "goblin.shortbow" in prompt
     assert "Do not choose NPC actions" in system_instruction
+    assert "generic attempt to start conversation" in system_instruction
+    assert "밀라에게 아침 인사를 건넨다" in system_instruction
+    assert "Do not proactively explain scene clues" in system_instruction
 
 
 def test_trace_list_filters_history_by_role():
@@ -541,6 +550,52 @@ def test_interpreter_returns_logged_fallback_when_provider_fails():
     assert traces.filtered == 1
     assert traces.items[0].role == "interpreter"
     assert traces.items[0].failureType == "upstream_error"
+
+
+def test_interpreter_fallback_routes_clear_general_gm_npc_dialogue():
+    service, _fake_client = build_service(
+        TEST_LOG_DIR / "interpreter_general_gm_dialogue_fallback",
+        AlwaysFailingGoogleAiStudioClient(),
+    )
+
+    response = service.run_interpreter(
+        InterpreterHarnessRequest(
+            rawText="밀라에게 인사를 건넨다",
+            actorCharacterId="player-1",
+            requestIntent="GENERAL_GM_REQUEST",
+            availableTargets=["npc-mila", "npc-perrin"],
+            availableTargetDetails=[
+                {"id": "npc-mila", "name": "밀라 보스턴", "kind": "NPC"},
+                {"id": "npc-perrin", "name": "페린", "kind": "NPC"},
+            ],
+        )
+    )
+
+    assert response.fallback is True
+    assert response.parsed.needsClarification is False
+    assert response.parsed.action.type == "TALK_TO_NPC"
+    assert response.parsed.action.targetId == "npc-mila"
+    assert response.parsed.safetyNotes == ["AI 해석 실패로 로컬 fallback 분류를 사용함", "게임 상태는 변경하지 않음"]
+
+
+def test_interpreter_fallback_routes_clear_general_gm_support_request():
+    service, _fake_client = build_service(
+        TEST_LOG_DIR / "interpreter_general_gm_support_fallback",
+        AlwaysFailingGoogleAiStudioClient(),
+    )
+
+    response = service.run_interpreter(
+        InterpreterHarnessRequest(
+            rawText="힌트 주세요",
+            actorCharacterId="player-1",
+            requestIntent="GENERAL_GM_REQUEST",
+        )
+    )
+
+    assert response.fallback is True
+    assert response.parsed.needsClarification is False
+    assert response.parsed.action.type == "ASK_HINT"
+    assert response.parsed.action.targetId is None
 
 
 def test_actor_fallback_selects_allowed_action_only():
@@ -614,6 +669,7 @@ def test_interpreter_retries_once_on_retryable_client_error():
         summarizer_service=SummarizerService(fake_client, settings),
         actor_service=ActorService(fake_client, settings),
         npc_dialogue_service=NpcDialogueService(fake_client, settings),
+        check_result_service=CheckResultService(fake_client, settings),
         response_logger=HarnessResponseLogger(settings),
     )
 
