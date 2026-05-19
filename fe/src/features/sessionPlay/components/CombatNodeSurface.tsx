@@ -450,6 +450,7 @@ export function CombatNodeSurface({
     Boolean(combat?.currentEntityId) &&
     Boolean(myCombatParticipant?.sessionEntityId) &&
     combat?.currentEntityId === myCombatParticipant?.sessionEntityId;
+  const canShowEndTurnButton = Boolean(combat && (isMyCombatTurn || isGmView));
   const myActionResources = myCombatParticipant?.actionResources ?? null;
   const myCurrentHp = myCombatParticipant?.currentHp ?? myCharacter?.currentHp ?? null;
   const myMaxHp = myCombatParticipant?.maxHp ?? myCharacter?.maxHp ?? null;
@@ -1007,7 +1008,7 @@ export function CombatNodeSurface({
       </div>
 
       <section className="combat-action-dock" aria-label="전투 행동">
-        <div className="combat-resource-panel">
+        <div className={`combat-resource-panel${isMyCombatTurn ? ' my-turn' : ''}`}>
           <span className="combat-frame-corner top-left" aria-hidden="true" />
           <span className="combat-frame-corner top-right" aria-hidden="true" />
           <span className="combat-frame-corner bottom-left" aria-hidden="true" />
@@ -1015,6 +1016,11 @@ export function CombatNodeSurface({
           <div className="combat-resource-head">
             <span className="combat-node-eyebrow">행동 자원</span>
             <div className="combat-resource-actions">
+              {isMyCombatTurn ? (
+                <span className="combat-turn-alert" aria-label="현재 내 턴">
+                  내 턴
+                </span>
+              ) : null}
               {isGmView ? (
                 <button
                   type="button"
@@ -1025,14 +1031,16 @@ export function CombatNodeSurface({
                   전투 종료
                 </button>
               ) : null}
-              <button
-                type="button"
-                className="combat-end-turn-button"
-                disabled={!combat || isCombatBusy}
-                onClick={() => onEndTurn(isGmView)}
-              >
-                턴 종료
-              </button>
+              {canShowEndTurnButton ? (
+                <button
+                  type="button"
+                  className="combat-end-turn-button"
+                  disabled={!combat || isCombatBusy}
+                  onClick={() => onEndTurn(isGmView)}
+                >
+                  턴 종료
+                </button>
+              ) : null}
             </div>
           </div>
           <strong>{myCharacter?.name ?? '캐릭터 미선택'}</strong>
