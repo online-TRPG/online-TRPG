@@ -850,6 +850,7 @@ export function CharacterPage({
   const [skillInput, setSkillInput] = useState('');
   const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftItem[]>([]);
   const [formState, setFormState] = useState<CharacterPayload>(() => createDefaultCharacter());
+  const [formValidationError, setFormValidationError] = useState<string | null>(null);
   const [itemCatalog, setItemCatalog] = useState<ItemResponseDto[]>([]);
   // 인벤토리 편집 영역 DOM 참조입니다. 필요 시 스크롤/포커스 제어에 씁니다.
   const inventoryEditorRef = useRef<HTMLDivElement | null>(null);
@@ -1135,6 +1136,7 @@ export function CharacterPage({
     });
     setInventoryDraft([]);
     setSkillInput('');
+    setFormValidationError(null);
   }
 
   // 새 캐릭터 생성 모달을 여는 함수입니다.
@@ -1199,6 +1201,24 @@ export function CharacterPage({
 
   async function submitCreateCharacter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (selectedClass?.key === 'wizard' && (selectedClass.startingCantripCount > 0 || selectedClass.startingSpellCount > 0)) {
+      const cantrips = formState.startingSpells?.cantrips ?? [];
+      const spells = formState.startingSpells?.spells ?? [];
+      const cantripFilled = cantrips.slice(0, selectedClass.startingCantripCount).every((value) => value.trim().length > 0);
+      const spellFilled = spells.slice(0, selectedClass.startingSpellCount).every((value) => value.trim().length > 0);
+      const cantripCountOk = cantrips.filter((value) => value.trim().length > 0).length >= selectedClass.startingCantripCount;
+      const spellCountOk = spells.filter((value) => value.trim().length > 0).length >= selectedClass.startingSpellCount;
+      if (!cantripFilled || !spellFilled || !cantripCountOk || !spellCountOk) {
+        setFormValidationError(
+          `위저드 클래스는 시작 주문을 모두 선택해야 캐릭터를 생성할 수 있습니다. ` +
+            `(캔트립 ${selectedClass.startingCantripCount}개, 1레벨 주문 ${selectedClass.startingSpellCount}개)`
+        );
+        return;
+      }
+    }
+
+    setFormValidationError(null);
 
     const payload = {
       ...formState,
@@ -2436,6 +2456,7 @@ export function CharacterPage({
                             value={formState.startingSpells?.cantrips[idx] ?? ''}
                             onChange={(event) => {
                               const v = event.target.value;
+                              setFormValidationError(null);
                               setFormState((current) => {
                                 const base = current.startingSpells ?? {
                                   cantrips: new Array(selectedClass.startingCantripCount).fill(''),
@@ -2475,6 +2496,7 @@ export function CharacterPage({
                             value={formState.startingSpells?.spells[idx] ?? ''}
                             onChange={(event) => {
                               const v = event.target.value;
+                              setFormValidationError(null);
                               setFormState((current) => {
                                 const base = current.startingSpells ?? {
                                   cantrips: new Array(selectedClass.startingCantripCount).fill(''),
@@ -2698,6 +2720,15 @@ export function CharacterPage({
                   </div>
                 </div>
               </div>
+              {formValidationError ? (
+                <p
+                  className="panel-error"
+                  role="alert"
+                  style={{ margin: '12px 0 0 0' }}
+                >
+                  {formValidationError}
+                </p>
+              ) : null}
               {error ? (
                 <p
                   className="panel-error"
