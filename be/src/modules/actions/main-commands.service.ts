@@ -153,6 +153,7 @@ type MainCommandCheckEffect = {
   type: "mainCommandCheck";
   requestId: string;
   nodeId: string;
+  sessionCharacterId: string;
   intent: MainCommandIntent;
   screenType: MainCommandScreenType;
   playerText: string;
@@ -502,11 +503,16 @@ export class MainCommandsService {
             sessionScenarioId: context.sessionScenarioId,
             nodeId: context.currentNodeId,
             mapPoint: dto.mapPoint,
+            sessionCharacterId: context.sessionCharacterId,
             revealedBy: "system",
           })
-        : { count: 0, revealedClues: [] };
+        : { count: 0, revealedClues: [], revealedItems: [] };
     if (objectRevealResult.count > 0) {
-      response = this.withRevealedObjectContents(response, objectRevealResult.revealedClues);
+      response = this.withRevealedObjectContents(
+        response,
+        objectRevealResult.revealedClues,
+        objectRevealResult.revealedItems,
+      );
     }
 
     const turnLog = await this.persistResult(userId, context, dto, response);
@@ -675,11 +681,13 @@ export class MainCommandsService {
           : MainCommandStatus.MESSAGE,
       message: resultMessage,
     };
+    let turnLogOutcome = dto.outcome;
 
     let objectRevealResult: {
       count: number;
       revealedClues: Array<{ id: string; title: string; text: string | null }>;
-    } = { count: 0, revealedClues: [] };
+      revealedItems: Array<{ id: string; name: string; quantity: number }>;
+    } = { count: 0, revealedClues: [], revealedItems: [] };
     let observedObjectResult: { count: number; objectNames: string[] } = {
       count: 0,
       objectNames: [],
@@ -694,6 +702,7 @@ export class MainCommandsService {
         sessionScenarioId: sessionScenario.id,
         nodeId: mainCommandEffect.nodeId,
         mapPoint: mainCommandEffect.mapPoint,
+        sessionCharacterId: mainCommandEffect.sessionCharacterId,
         revealedBy: "system",
         checkOption: mainCommandEffect.checkOption,
       });
@@ -705,6 +714,7 @@ export class MainCommandsService {
             message: result.message,
           },
           objectRevealResult.revealedClues,
+          objectRevealResult.revealedItems,
         );
         result = {
           status: augmented.status,
@@ -728,6 +738,27 @@ export class MainCommandsService {
         };
       }
     }
+    if (
+      dto.outcome === ActionOutcome.SUCCESS &&
+      mainCommandEffect.intent === MainCommandIntent.SPECIAL_MOVE &&
+      mainCommandEffect.mapPoint
+    ) {
+      const moveResult = await this.sessionsService.moveSessionCharacterTokenToMapPoint({
+        sessionId: session.id,
+        sessionCharacterId: mainCommandEffect.sessionCharacterId,
+        mapPoint: mainCommandEffect.mapPoint,
+      });
+      result = {
+        status: moveResult.status,
+        message:
+          moveResult.status === MainCommandStatus.RESOLVED
+            ? `${result.message}\n\n${moveResult.message}`
+            : moveResult.message,
+      };
+      if (moveResult.status === MainCommandStatus.IMPOSSIBLE) {
+        turnLogOutcome = ActionOutcome.IMPOSSIBLE;
+      }
+    }
 
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId: session.id,
@@ -741,13 +772,14 @@ export class MainCommandsService {
         outcome: dto.outcome,
         effect: mainCommandEffect,
       },
-      outcome: dto.outcome,
+      outcome: turnLogOutcome,
       narration: result.message,
     });
     this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
 
     if (dto.outcome === ActionOutcome.SUCCESS) {
       const revealCount = mainCommandEffect.actionCandidate &&
+        result.status !== MainCommandStatus.IMPOSSIBLE &&
         mainCommandEffect.intent !== MainCommandIntent.OBSERVE_AREA
         ? await this.sessionsService.revealCurrentNodeCluesAfterAction({
             sessionScenarioId: sessionScenario.id,
@@ -2143,11 +2175,19 @@ export class MainCommandsService {
     }
 
     const itemSummary = dto.itemId ? ` 도구 ${dto.itemId} 사용을 함께 고려합니다.` : "";
+    const moveResult = await this.sessionsService.moveSessionCharacterTokenToMapPoint({
+      sessionId: context.sessionId,
+      sessionCharacterId: context.sessionCharacterId,
+      mapPoint: dto.mapPoint!,
+    });
 
     return {
       requestId,
-      status: MainCommandStatus.MESSAGE,
-      message: `(${dto.mapPoint?.x}, ${dto.mapPoint?.y}) 방향 특수 이동을 시도할 수 있습니다.${itemSummary}`,
+      status: moveResult.status,
+      message:
+        moveResult.status === MainCommandStatus.RESOLVED
+          ? `(${dto.mapPoint?.x}, ${dto.mapPoint?.y}) 방향 특수 이동에 성공했습니다.${itemSummary}\n\n${moveResult.message}`
+          : moveResult.message,
       actionCandidate,
     };
   }
@@ -3847,6 +3887,7 @@ export class MainCommandsService {
       type: "mainCommandCheck",
       requestId,
       nodeId: context.currentNodeId,
+      sessionCharacterId: context.sessionCharacterId,
       intent: dto.intent,
       screenType: dto.screenType,
       playerText: dto.playerText,
@@ -4209,8 +4250,9 @@ export class MainCommandsService {
   private withRevealedObjectContents(
     response: MainCommandResponseDto,
     revealedClues: Array<{ id: string; title: string; text: string | null }>,
+    revealedItems: Array<{ id: string; name: string; quantity: number }> = [],
   ): MainCommandResponseDto {
-    if (!revealedClues.length) {
+    if (!revealedClues.length && !revealedItems.length) {
       return response;
     }
 
@@ -4219,14 +4261,22 @@ export class MainCommandsService {
         ? `- ${clue.title}: ${clue.text.trim()}`
         : `- ${clue.title}`,
     );
+    const itemLines = revealedItems.map((item) =>
+      item.quantity > 1 ? `- ${item.name} x${item.quantity}` : `- ${item.name}`,
+    );
+    const sections = [
+      clueLines.length ? `새 단서를 발견했습니다.\n${clueLines.join("\n")}` : null,
+      itemLines.length ? `아이템을 획득했습니다.\n${itemLines.join("\n")}` : null,
+    ].filter((section): section is string => Boolean(section));
 
     return {
       ...response,
       status: response.status === MainCommandStatus.MESSAGE ? MainCommandStatus.RESOLVED : response.status,
-      message: `${response.message.trim()}\n\n새 단서를 발견했습니다.\n${clueLines.join("\n")}`,
+      message: `${response.message.trim()}\n\n${sections.join("\n\n")}`,
       data: {
         ...(response.data ?? {}),
         revealedClues,
+        revealedItems,
       },
     };
   }
@@ -4281,6 +4331,7 @@ export class MainCommandsService {
       type: "mainCommandCheck",
       requestId,
       nodeId,
+      sessionCharacterId: this.readString(value.sessionCharacterId) ?? "",
       intent: intent as MainCommandIntent,
       screenType: screenType as MainCommandScreenType,
       playerText,
