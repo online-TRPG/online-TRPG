@@ -701,6 +701,11 @@ export class SessionsService {
     const { sessionScenario, state } = await this.getGameStateEntityOrThrow(session.id);
     const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
     const normalizedMap = this.normalizeVttMap(map, state.currentNodeId ?? null);
+    const runtimeMap = await this.applyVttObjectProximityEvents({
+      sessionScenarioId: sessionScenario.id,
+      currentNodeId: state.currentNodeId,
+      map: normalizedMap,
+    });
 
     await this.prisma.gameState.update({
       where: { sessionScenarioId: sessionScenario.id },
@@ -708,18 +713,18 @@ export class SessionsService {
         version: { increment: 1 },
         flagsJson: JSON.stringify({
           ...flags,
-          vttMap: normalizedMap,
+          vttMap: runtimeMap,
         }),
       },
     });
 
     this.realtimeEvents.emitVttMapUpdated(session.id, {
       hostUserId: session.hostUserId,
-      hostMap: normalizedMap,
-      playerMap: this.redactVttMapForPlayer(normalizedMap),
+      hostMap: runtimeMap,
+      playerMap: this.redactVttMapForPlayer(runtimeMap),
     });
 
-    return normalizedMap;
+    return runtimeMap;
   }
 
   async getPlayerScenarioForUser(userId: string, sessionId: string): Promise<PlayerScenarioViewDto> {
@@ -2736,7 +2741,7 @@ export class SessionsService {
     return this.buildDefaultVttMap(sessionId, state.currentNodeId ?? null);
   }
 
-  private async getVttMapForSessionScenario(
+  async getVttMapForSessionScenario(
     sessionId: string,
     sessionScenarioId: string,
   ): Promise<VttMapStateDto> {
@@ -4531,6 +4536,16 @@ export class SessionsService {
       size: this.clampNumber(token.size, 24, 160),
       hidden: token.hidden === true,
       isHostile: token.isHostile === true,
+      ...(token.monster || token.isHostile
+        ? {
+            encounterRole: token.encounterRole === "fixed" ? ("fixed" as const) : ("scalable" as const),
+            encounterGroupId:
+              typeof token.encounterGroupId === "string" && token.encounterGroupId.trim()
+                ? token.encounterGroupId.trim().slice(0, 80)
+                : null,
+            encounterPriority: this.clampNumber(Number(token.encounterPriority) || 0, 0, 99),
+          }
+        : {}),
       monster: token.monster
         ? {
             id: token.monster.id,
@@ -4597,6 +4612,15 @@ export class SessionsService {
           ? source.createdBySessionCharacterId.trim()
           : null,
     }));
+    const encounterScaling =
+      map.encounterScaling && typeof map.encounterScaling === "object"
+        ? {
+            enabled: map.encounterScaling.enabled === true,
+            basePartySize: this.clampNumber(Number(map.encounterScaling.basePartySize) || 4, 1, 12),
+            minMonsterCount: this.clampNumber(Number(map.encounterScaling.minMonsterCount) || 1, 0, 80),
+            mode: "by_party_ratio" as const,
+          }
+        : null;
     const normalizeStructureCell = (
       cell: {
         id?: string;
@@ -4791,6 +4815,7 @@ export class SessionsService {
       width,
       height,
       tokens,
+      encounterScaling,
       fogRects,
       startingPositions,
       pings,
@@ -4823,6 +4848,10 @@ export class SessionsService {
         width: Number(candidate.width) || 1280,
         height: Number(candidate.height) || 832,
         tokens: candidate.tokens,
+        encounterScaling:
+          candidate.encounterScaling && typeof candidate.encounterScaling === "object"
+            ? candidate.encounterScaling
+            : null,
         fogRects: candidate.fogRects,
         lightSources: Array.isArray(candidate.lightSources) ? candidate.lightSources : [],
         startingPositions: Array.isArray(candidate.startingPositions) ? candidate.startingPositions : [],

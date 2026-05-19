@@ -48,6 +48,7 @@ import type { SrdEngineExecutableMonsterAction } from "./srd-engine.types";
 
 type CombatWithParticipants = Awaited<ReturnType<CombatService["getActiveCombatEntity"]>>;
 type CombatParticipantEntity = NonNullable<CombatWithParticipants>["participants"][number];
+type VttMapToken = VttMapStateDto["tokens"][number];
 
 type EquippedWeaponProfile = {
   weaponId?: string | null;
@@ -200,9 +201,28 @@ export class CombatService {
         .filter((token) => token.sessionCharacterId)
         .map((token) => [token.sessionCharacterId as string, token.id]),
     );
-    const monsterTokens = (map.tokens ?? [])
+    const rawMonsterTokens = (map.tokens ?? [])
       .filter((token) => token.hidden !== true && token.isHostile === true)
       .filter((token) => !dto.participantEntityIds?.length || dto.participantEntityIds.includes(token.id));
+    const scalingResult = dto.participantEntityIds?.length
+      ? {
+          monsterTokens: rawMonsterTokens,
+          excludedTokenIds: [] as string[],
+          applied: false,
+        }
+      : this.scaleMonsterTokensForParty(rawMonsterTokens, candidates.length, map);
+    const monsterTokens = scalingResult.monsterTokens;
+    const excludedTokenIdSet = new Set(scalingResult.excludedTokenIds);
+    const runtimeMap =
+      excludedTokenIdSet.size > 0
+        ? {
+            ...map,
+            tokens: map.tokens.map((token) =>
+              excludedTokenIdSet.has(token.id) ? { ...token, hidden: true } : token,
+            ),
+            updatedAt: new Date().toISOString(),
+          }
+        : map;
 
     this.logAutoMonsterTurn("startCombat participants prepared", {
       sessionId: session.id,
@@ -210,6 +230,7 @@ export class CombatService {
       gmMode: session.gmMode,
       playerCount: candidates.length,
       monsterTokenCount: monsterTokens.length,
+      excludedMonsterTokenCount: scalingResult.excludedTokenIds.length,
       playerIds: candidates.map((candidate) => candidate.id),
       monsterTokens: monsterTokens.map((token) => ({
         tokenId: token.id,
@@ -337,12 +358,25 @@ export class CombatService {
             (value): value is string => typeof value === "string" && value !== state.currentNodeId,
           )
         : [];
+      const encounterScalingApplied =
+        scalingResult.applied || scalingResult.excludedTokenIds.length
+          ? {
+              nodeId: state.currentNodeId,
+              playerCount: candidates.length,
+              basePartySize: map.encounterScaling?.basePartySize ?? 4,
+              includedTokenIds: monsterTokens.map((token) => token.id),
+              excludedTokenIds: scalingResult.excludedTokenIds,
+              appliedAt: new Date().toISOString(),
+            }
+          : undefined;
       await tx.gameState.update({
         where: { sessionScenarioId: sessionScenario.id },
         data: {
           phase: PrismaGamePhase.COMBAT,
           flagsJson: JSON.stringify({
             ...flags,
+            ...(scalingResult.excludedTokenIds.length ? { vttMap: runtimeMap } : {}),
+            ...(encounterScalingApplied ? { encounterScalingApplied } : {}),
             completedCombatNodeIds,
           }),
           version: state.version + 1,
@@ -3413,6 +3447,75 @@ export class CombatService {
       DEFAULT_MONSTER_AC;
 
     return { currentHp: maxHp, maxHp, armorClass };
+  }
+
+  private scaleMonsterTokensForParty(
+    monsterTokens: VttMapToken[],
+    playerCount: number,
+    map: VttMapStateDto,
+  ): { monsterTokens: VttMapToken[]; excludedTokenIds: string[]; applied: boolean } {
+    const scaling = map.encounterScaling;
+    if (!scaling?.enabled || scaling.mode !== "by_party_ratio" || !monsterTokens.length) {
+      return { monsterTokens, excludedTokenIds: [], applied: false };
+    }
+
+    const basePartySize = this.clampNumber(Number(scaling.basePartySize) || 4, 1, 12);
+    const minMonsterCount = this.clampNumber(Number(scaling.minMonsterCount) || 1, 0, monsterTokens.length);
+    const fixedTokens = monsterTokens.filter((token) => token.encounterRole === "fixed");
+    const scalableEntries = monsterTokens
+      .map((token, index) => ({ token, index }))
+      .filter(({ token }) => token.encounterRole !== "fixed");
+
+    if (!scalableEntries.length || playerCount >= basePartySize) {
+      return { monsterTokens, excludedTokenIds: [], applied: true };
+    }
+
+    const groups = new Map<string, Array<{ token: VttMapToken; index: number }>>();
+    for (const entry of scalableEntries) {
+      const groupId =
+        entry.token.encounterGroupId?.trim() ||
+        entry.token.monster?.id ||
+        entry.token.name?.trim() ||
+        "default";
+      groups.set(groupId, [...(groups.get(groupId) ?? []), entry]);
+    }
+
+    const includedIds = new Set(fixedTokens.map((token) => token.id));
+    for (const entries of groups.values()) {
+      const targetCount = this.clampNumber(
+        Math.ceil((entries.length * Math.max(playerCount, 1)) / basePartySize),
+        0,
+        entries.length,
+      );
+      entries
+        .slice()
+        .sort((left, right) => {
+          const leftPriority = left.token.encounterPriority ?? 0;
+          const rightPriority = right.token.encounterPriority ?? 0;
+          return rightPriority - leftPriority || left.index - right.index;
+        })
+        .slice(0, targetCount)
+        .forEach(({ token }) => includedIds.add(token.id));
+    }
+
+    if (includedIds.size < minMonsterCount) {
+      scalableEntries
+        .filter(({ token }) => !includedIds.has(token.id))
+        .sort((left, right) => {
+          const leftPriority = left.token.encounterPriority ?? 0;
+          const rightPriority = right.token.encounterPriority ?? 0;
+          return rightPriority - leftPriority || left.index - right.index;
+        })
+        .slice(0, minMonsterCount - includedIds.size)
+        .forEach(({ token }) => includedIds.add(token.id));
+    }
+
+    const scaledMonsterTokens = monsterTokens.filter((token) => includedIds.has(token.id));
+    const excludedTokenIds = monsterTokens
+      .filter((token) => !includedIds.has(token.id))
+      .map((token) => token.id);
+
+    return { monsterTokens: scaledMonsterTokens, excludedTokenIds, applied: true };
   }
 
   private rollInitiative(dexterityModifier: number, autoRollInitiative: boolean | undefined): number {
