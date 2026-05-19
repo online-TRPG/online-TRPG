@@ -889,11 +889,56 @@ export class VttMapTokenDto {
   @IsBoolean()
   isHostile?: boolean;
 
+  @ApiPropertyOptional({ enum: ["fixed", "scalable"] })
+  @IsOptional()
+  @IsIn(["fixed", "scalable"])
+  encounterRole?: "fixed" | "scalable";
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  encounterGroupId?: string | null;
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(99)
+  encounterPriority?: number;
+
   @ApiPropertyOptional({ type: SrdMonsterReferenceDto, nullable: true })
   @IsOptional()
   @ValidateNested()
   @Type(() => SrdMonsterReferenceDto)
   monster?: SrdMonsterReferenceDto | null;
+}
+
+export class VttEncounterScalingDto {
+  @ApiProperty({ default: false })
+  @Type(() => Boolean)
+  @IsBoolean()
+  enabled!: boolean;
+
+  @ApiProperty({ default: 4 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  basePartySize!: number;
+
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(80)
+  minMonsterCount?: number;
+
+  @ApiProperty({ default: "by_party_ratio" })
+  @IsIn(["by_party_ratio"])
+  mode!: "by_party_ratio";
 }
 
 export class VttFogRectDto {
@@ -1229,6 +1274,12 @@ export class VttMapStateDto {
   @ValidateNested({ each: true })
   @Type(() => VttMapTokenDto)
   tokens!: VttMapTokenDto[];
+
+  @ApiPropertyOptional({ type: VttEncounterScalingDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => VttEncounterScalingDto)
+  encounterScaling?: VttEncounterScalingDto | null;
 
   @ApiProperty({ type: [VttFogRectDto] })
   @IsArray()
