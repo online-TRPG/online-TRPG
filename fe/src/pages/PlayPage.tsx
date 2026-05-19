@@ -2338,10 +2338,10 @@ export function PlayPage({
         logToneLabel: presentation?.label ?? null,
         speakerKind: presentation?.speakerKind ?? null,
         speakerName: presentation?.speakerName ?? null,
-        senderLabel: getLogSenderLabel(log.title, rowClass, presentation),
+        senderLabel: getRenderedLogSenderLabel(log.title, rowClass, presentation),
       };
     });
-  }, [activeTab, currentNode?.visibleTargets, scopedLogs, user.displayName, vttMap?.tokens]);
+  }, [activeTab, currentNode?.visibleTargets, participants, scopedLogs, sessionCharacters, user.displayName, vttMap?.tokens]);
   const latestRenderedLogId = renderedRows[renderedRows.length - 1]?.id ?? null;
   const storyRpUtterances = useMemo<StoryRpUtterance[]>(() => {
     const now = Date.now();
@@ -2366,10 +2366,8 @@ export function PlayPage({
         return Number.isFinite(createdAt) && now - createdAt <= freshWindowMs;
       })
       .map((log) => {
-        const participant = participants.find((item) => item.user.displayName === log.title);
-        const character = participant
-          ? sessionCharacters.find((item) => item.userId === participant.userId)
-          : null;
+        const participant = getLogParticipant(log.title);
+        const character = participant ? getParticipantLinkedCharacter(participant) : null;
 
         if (!character) return null;
 
@@ -3246,6 +3244,30 @@ export function PlayPage({
       const linkedCharacter = getParticipantLinkedCharacter(participant);
       return linkedCharacter?.name === title;
     });
+  }
+
+  function getParticipantDisplayLabel(participant: Participant | null): string | null {
+    if (!participant) return null;
+
+    const accountName = participant.user.displayName?.trim() || '알 수 없음';
+    const characterName = getParticipantLinkedCharacter(participant)?.name?.trim() || '';
+
+    if (!characterName) return accountName;
+    if (characterName === accountName) return characterName;
+    return `${characterName}(${accountName})`;
+  }
+
+  function getRenderedLogSenderLabel(
+    title: string,
+    rowClass: 'incoming' | 'outgoing' | 'notice',
+    presentation?: MainLogPresentation | null
+  ) {
+    const baseLabel = getLogSenderLabel(title, rowClass, presentation);
+    if (baseLabel === 'GM') return baseLabel;
+    if (presentation?.speakerKind === 'npc') return baseLabel;
+
+    const matchedParticipant = getLogParticipant(title);
+    return getParticipantDisplayLabel(matchedParticipant) ?? baseLabel;
   }
 
   function getLogProfileColor(title: string, logTone?: string | null): SessionTokenColor {
