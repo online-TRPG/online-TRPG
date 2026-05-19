@@ -2375,6 +2375,26 @@ export function PlayPage({
     );
   }
 
+  function getLogDisplaySenderLabel(
+    log: LogEntry,
+    rowClass: 'incoming' | 'outgoing' | 'notice',
+    presentation?: MainLogPresentation | null
+  ) {
+    const baseLabel = getLogSenderLabel(log.title, rowClass, presentation);
+
+    if (baseLabel !== log.title) {
+      return baseLabel;
+    }
+
+    const participant = getLogParticipant(log.title);
+    if (!participant) return baseLabel;
+
+    const character = sessionCharacters.find((item) => item.userId === participant.userId) ?? null;
+
+    // 로그에는 유저명이 먼저 남아 있어서, 플레이 중에는 캐릭터명과 유저명을 함께 보여줍니다.
+    return character ? `${character.name} (${participant.user.displayName})` : baseLabel;
+  }
+
   const renderedRows = useMemo(() => {
     let previousDateKey: string | null = null;
 
@@ -2402,10 +2422,18 @@ export function PlayPage({
         logToneLabel: presentation?.label ?? null,
         speakerKind: presentation?.speakerKind ?? null,
         speakerName: presentation?.speakerName ?? null,
-        senderLabel: getLogSenderLabel(log.title, rowClass, presentation),
+        senderLabel: getLogDisplaySenderLabel(log, rowClass, presentation),
       };
     });
-  }, [activeTab, currentNode?.visibleTargets, scopedLogs, user.displayName, vttMap?.tokens]);
+  }, [
+    activeTab,
+    currentNode?.visibleTargets,
+    participants,
+    scopedLogs,
+    sessionCharacters,
+    user.displayName,
+    vttMap?.tokens,
+  ]);
   const latestRenderedLogId = renderedRows[renderedRows.length - 1]?.id ?? null;
   const storyRpUtterances = useMemo<StoryRpUtterance[]>(() => {
     const now = Date.now();
