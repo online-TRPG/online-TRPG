@@ -596,7 +596,8 @@
 .story-character-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  /* 노드 헤더(80)와 휘장(120)보다 위에 떠야 상세창이 가려지지 않습니다. */
+  z-index: 500;
   padding: 24px;
   display: grid;
   place-items: center;
