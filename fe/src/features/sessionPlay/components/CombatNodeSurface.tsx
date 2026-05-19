@@ -13,6 +13,7 @@ import type { BattleMapSelection } from '../../../components/BattleMap';
 import { GameIcon } from '../../../components/GameIcon';
 import type { GameIconName } from '../../../components/GameIcon';
 import battleNodeBadge from '../../../components/node_badge_battle.webp';
+import turnDividerArrow from '../../../components/divider-arrow-gold-horizontal.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { getCharacterImage } from '../utils/characterVisuals';
@@ -575,6 +576,13 @@ export function CombatNodeSurface({
   );
   const currentTab = actionTabs.find((tab) => tab.id === activeTab) ?? actionTabs[0];
   const turnOrder = combat?.participants ?? [];
+  const currentTurnIndex = combat?.currentEntityId
+    ? turnOrder.findIndex((participant) => participant.sessionEntityId === combat.currentEntityId)
+    : -1;
+  const nextTurnEntityId =
+    currentTurnIndex >= 0 && turnOrder.length > 1
+      ? turnOrder[(currentTurnIndex + 1) % turnOrder.length]?.sessionEntityId
+      : null;
   const activeParticipantCount = turnOrder.filter((participant) => participant.isAlive).length;
   const combatResources = [
     {
@@ -953,6 +961,12 @@ export function CombatNodeSurface({
           <div className="combat-turn-overlay" aria-label="턴 순서">
             {turnOrder.length ? (
               <div className="combat-turn-list">
+                <img
+                  className="combat-turn-divider"
+                  src={turnDividerArrow}
+                  alt=""
+                  aria-hidden="true"
+                />
                 {turnOrder.map((participant) => {
                   const avatar = getParticipantAvatar(participant);
                   const tokenId = getParticipantTokenId(participant);
@@ -960,6 +974,7 @@ export function CombatNodeSurface({
                     ? characters.find((character) => character.id === participant.sessionCharacterId) ?? null
                     : null;
                   const isCurrentTurn = participant.sessionEntityId === combat?.currentEntityId;
+                  const isNextTurn = participant.sessionEntityId === nextTurnEntityId;
                   return (
                     <button
                       type="button"
@@ -968,6 +983,7 @@ export function CombatNodeSurface({
                       className={[
                         'combat-turn-card',
                         isCurrentTurn ? 'active' : '',
+                        isNextTurn ? 'next-turn' : '',
                         tokenId && tokenId === selectedMapTokenId ? 'selected' : '',
                         participant.sessionCharacterId === myCharacter?.id ? 'mine' : '',
                         !participant.isAlive ? 'defeated' : '',
@@ -986,6 +1002,7 @@ export function CombatNodeSurface({
                             : `${participant.name} / 암습 조건 불충족`
                           : `${participant.name} / HP ${participant.currentHp ?? '-'}/${participant.maxHp ?? '-'}`
                       }
+                      aria-label={participant.name}
                       onClick={() => {
                         setSelectedMapTokenId(tokenId ?? null);
                         if (isSneakAttackTargeting && participant.isHostile && participant.isAlive) {
@@ -1010,12 +1027,7 @@ export function CombatNodeSurface({
                             <span>{participant.name.slice(0, 1)}</span>
                           )}
                         </span>
-                        <span className="combat-turn-name">{participant.name}</span>
-                        <span className="combat-turn-hp">
-                          HP {participant.currentHp ?? '-'}/{participant.maxHp ?? '-'}
-                        </span>
                       </span>
-                      {isCurrentTurn ? <span className="combat-turn-ribbon">턴</span> : null}
                     </button>
                   );
                 })}
