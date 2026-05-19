@@ -836,18 +836,49 @@ export function ExplorationNodeSurface({
                 id="exploration-inventory-list"
                 className={`exploration-inventory-list${isInventoryExpanded ? ' expanded' : ''}`}
               >
-                {inventory.map((item) => {
+                {inventory.flatMap((item) => {
+                  const isWeapon = isWeaponItem(item);
+                  const equippedCount = isWeapon
+                    ? Number(isEquippedItem(item, myCharacter?.equippedWeaponId)) +
+                      Number(isEquippedItem(item, myCharacter?.offhandWeaponId))
+                    : 0;
+                  const availableCount = Math.max(0, item.quantity - equippedCount);
+                  if (!equippedCount) {
+                    return [{ item, equipmentDisplayState: 'available' as const }];
+                  }
+
+                  const rows: Array<{
+                    item: InventoryItemDto;
+                    equipmentDisplayState: 'equipped' | 'available';
+                  }> = [
+                    {
+                      item: { ...item, quantity: equippedCount },
+                      equipmentDisplayState: 'equipped' as const,
+                    },
+                  ];
+                  if (availableCount > 0) {
+                    rows.push({
+                      item: { ...item, quantity: availableCount },
+                      equipmentDisplayState: 'available' as const,
+                    });
+                  }
+                  return rows;
+                }).map(({ item, equipmentDisplayState }) => {
                   const canUse = isQuickUsableItem(item);
                   const isSelected = selectedInventoryItemId === item.id;
                   const isWeapon = isWeaponItem(item);
                   const isArmor = isArmorItem(item);
                   const isEquipped = isWeapon
-                    ? isEquippedItem(item, myCharacter?.equippedWeaponId)
+                    ? equipmentDisplayState === 'equipped'
                     : isArmor;
+                  const equipmentActionItem = {
+                    ...item,
+                    __equipmentDisplayState: equipmentDisplayState,
+                  } as InventoryItemDto;
                   return (
                     <article
                       className={`exploration-inventory-item${isSelected ? ' selected' : ''}`}
-                      key={item.id}
+                      key={`${item.id}-${equipmentDisplayState}`}
                       role="button"
                       tabIndex={0}
                       aria-pressed={isSelected}
@@ -879,7 +910,7 @@ export function ExplorationNodeSurface({
                           }
                           onClick={(event) => {
                             event.stopPropagation();
-                            onEquipInventoryItem?.(item);
+                            onEquipInventoryItem?.(equipmentActionItem);
                           }}
                           onKeyDown={(event) => event.stopPropagation()}
                         >

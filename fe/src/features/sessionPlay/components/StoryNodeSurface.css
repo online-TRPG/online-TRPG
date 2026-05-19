@@ -842,6 +842,42 @@
   line-height: 1.55;
 }
 
+.story-character-feature-item {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  color: #203040;
+  font-weight: 800;
+  cursor: help;
+  outline: none;
+}
+
+.story-character-feature-tooltip {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 4;
+  width: min(320px, 70vw);
+  padding: 9px 10px;
+  border: 1px solid #9db7c8;
+  background: #f8fbfd;
+  box-shadow: 0 10px 24px rgba(29, 51, 71, 0.18);
+  color: #263849;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.story-character-feature-item:hover .story-character-feature-tooltip,
+.story-character-feature-item:focus-visible .story-character-feature-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .story-character-inventory-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

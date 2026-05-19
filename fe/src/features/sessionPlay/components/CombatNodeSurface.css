@@ -259,6 +259,19 @@
     0 0 20px rgba(121, 216, 255, 0.48);
 }
 
+.combat-turn-card.sneak-eligible {
+  border-color: #7ee0a8;
+  box-shadow:
+    0 0 0 3px rgba(126, 224, 168, 0.32),
+    0 10px 22px rgba(24, 52, 38, 0.28),
+    0 0 18px rgba(126, 224, 168, 0.48);
+}
+
+.combat-turn-card.sneak-ineligible {
+  opacity: 0.54;
+  filter: grayscale(0.65);
+}
+
 .combat-turn-card.active {
   z-index: 2;
   overflow: visible;
