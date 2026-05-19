@@ -408,8 +408,34 @@ def test_director_harness_returns_bounded_hint():
     assert response.providerRequestId == "req-director-1"
     assert fake_client.calls[0]["temperature"] == 0.3
     prompt = fake_client.calls[0]["prompt"]
+    system_instruction = fake_client.calls[0]["system_instruction"]
     assert '"noHiddenFacts": true' in prompt
+    assert "sourceScope: scene, recent_logs, rules, or mixed" in system_instruction
+    assert "spoilerLevel: low, medium, or high" in system_instruction
     assert "바닥 긁힌 자국" in prompt
+
+
+def test_director_normalizes_common_provider_enum_variants():
+    request = DirectorHarnessRequest(
+        hintLevel="NORMAL",
+        sceneSummary="public scene",
+    )
+
+    normalized = DirectorService._normalize_provider_output(
+        {
+            "hintLevel": "normal",
+            "content": "주변을 다시 살펴보세요.",
+            "sourceScope": "sceneSummary",
+            "spoilerLevel": "LOW",
+            "suggestions": [],
+            "safetyNotes": [],
+        },
+        request,
+    )
+
+    assert normalized["hintLevel"] == "NORMAL"
+    assert normalized["sourceScope"] == "scene"
+    assert normalized["spoilerLevel"] == "low"
 
 
 def test_summarizer_harness_returns_factual_summary():
