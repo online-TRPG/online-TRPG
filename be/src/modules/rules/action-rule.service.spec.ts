@@ -592,7 +592,7 @@ describe("ActionRuleService", () => {
     });
   });
 
-  it("applies sneak attack on an advantaged finesse weapon hit", () => {
+  it("does not apply sneak attack automatically on an advantaged finesse weapon hit", () => {
     const service = createService([
       createDiceResult([6, 18], 2, DiceAdvantageState.ADVANTAGE),
       {
@@ -600,13 +600,6 @@ describe("ActionRuleService", () => {
         rolls: [4],
         modifier: 0,
         total: 4,
-        advantageState: DiceAdvantageState.NORMAL,
-      },
-      {
-        expression: "2d6",
-        rolls: [3, 4],
-        modifier: 0,
-        total: 7,
         advantageState: DiceAdvantageState.NORMAL,
       },
     ]);
@@ -653,24 +646,15 @@ describe("ActionRuleService", () => {
     };
 
     expect(result.outcome).toBe(ActionOutcome.SUCCESS);
-    expect(result.runtimeEffects).toEqual([
-      { type: "SPEND_ACTION" },
-      { type: "SPEND_SNEAK_ATTACK" },
-    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
     expect(structuredAction.damageType).toBe("piercing");
-    expect(structuredAction.finalDamage).toBe(11);
+    expect(structuredAction.finalDamage).toBe(4);
     expect(result.stateChanges).toEqual([
-      { sessionCharacterId: "target", currentHp: 9, markDead: false },
+      { sessionCharacterId: "target", currentHp: 16, markDead: false },
     ]);
-    expect(structuredAction.ruleResults).toEqual(
+    expect(structuredAction.ruleResults).not.toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          hookId: RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
-          produced: expect.objectContaining({
-            sneakAttackDamage: 7,
-            sneakAttackExpendedThisTurn: true,
-          }),
-        }),
+        expect.objectContaining({ hookId: RULE_HOOK_IDS.APPLY_SNEAK_ATTACK }),
       ]),
     );
   });
@@ -683,13 +667,6 @@ describe("ActionRuleService", () => {
         rolls: [8],
         modifier: 0,
         total: 8,
-        advantageState: DiceAdvantageState.NORMAL,
-      },
-      {
-        expression: "2d6",
-        rolls: [3, 4],
-        modifier: 0,
-        total: 7,
         advantageState: DiceAdvantageState.NORMAL,
       },
     ]);
@@ -743,21 +720,18 @@ describe("ActionRuleService", () => {
     expect(result.outcome).toBe(ActionOutcome.SUCCESS);
     expect(structuredAction.damageType).toBe("piercing");
     expect(structuredAction.damageRoll.expression).toBe("1d8");
-    expect(structuredAction.finalDamage).toBe(15);
+    expect(structuredAction.finalDamage).toBe(8);
     expect(result.stateChanges).toEqual([
-      { sessionCharacterId: "target", currentHp: 5, markDead: false },
+      { sessionCharacterId: "target", currentHp: 12, markDead: false },
     ]);
-    expect(structuredAction.ruleResults).toEqual(
+    expect(structuredAction.ruleResults).not.toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          hookId: RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
-          accepted: true,
-        }),
+        expect.objectContaining({ hookId: RULE_HOOK_IDS.APPLY_SNEAK_ATTACK }),
       ]),
     );
   });
 
-  it("applies sneak attack when an actor ally is within 5 feet of the target", () => {
+  it("grants attack advantage when an actor ally is within 5 feet of the target", () => {
     const service = createService([
       createDiceResult([18], 2),
       {
@@ -765,13 +739,6 @@ describe("ActionRuleService", () => {
         rolls: [4],
         modifier: 0,
         total: 4,
-        advantageState: DiceAdvantageState.NORMAL,
-      },
-      {
-        expression: "2d6",
-        rolls: [2, 3],
-        modifier: 0,
-        total: 5,
         advantageState: DiceAdvantageState.NORMAL,
       },
     ]);
@@ -847,28 +814,20 @@ describe("ActionRuleService", () => {
     });
     const structuredAction = result.structuredAction as {
       finalDamage: number;
+      attackRoll: DiceRollResponseDto;
       ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
     };
 
     expect(result.outcome).toBe(ActionOutcome.SUCCESS);
-    expect(result.runtimeEffects).toEqual([
-      { type: "SPEND_ACTION" },
-      { type: "SPEND_SNEAK_ATTACK" },
-    ]);
-    expect(structuredAction.finalDamage).toBe(9);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+    expect(structuredAction.attackRoll.advantageState).toBe(DiceAdvantageState.ADVANTAGE);
+    expect(structuredAction.finalDamage).toBe(4);
     expect(result.stateChanges).toEqual([
-      { sessionCharacterId: "target", currentHp: 11, markDead: false },
+      { sessionCharacterId: "target", currentHp: 16, markDead: false },
     ]);
-    expect(structuredAction.ruleResults).toEqual(
+    expect(structuredAction.ruleResults).not.toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          hookId: RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
-          accepted: true,
-          produced: expect.objectContaining({
-            sneakAttackDamage: 5,
-            sneakAttackExpendedThisTurn: true,
-          }),
-        }),
+        expect.objectContaining({ hookId: RULE_HOOK_IDS.APPLY_SNEAK_ATTACK }),
       ]),
     );
   });

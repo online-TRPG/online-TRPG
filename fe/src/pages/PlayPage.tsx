@@ -76,6 +76,7 @@ import {
   moveCombatParticipant,
   resolveEquippedWeaponAttack,
   resolveOffhandWeaponAttack,
+  resolveSneakAttackCombatAction,
   startCombat,
   updateCharacterEquipment,
   updateVttMap,
@@ -2870,6 +2871,10 @@ export function PlayPage({
   async function handleEquipInventoryItem(item: InventoryItemDto) {
     if (busy || isInventoryUsePending || !selectedSessionCharacter) return;
 
+    const equipmentDisplayState = (
+      item as InventoryItemDto & { __equipmentDisplayState?: 'equipped' | 'available' }
+    ).__equipmentDisplayState;
+    const equipmentItemId = item.itemDefinitionId ?? item.id;
     const isEquipped =
       Boolean(selectedSessionCharacter.equippedWeaponId) &&
       (item.id === selectedSessionCharacter.equippedWeaponId ||
@@ -2880,8 +2885,15 @@ export function PlayPage({
       (item.id === selectedSessionCharacter.offhandWeaponId ||
         item.itemDefinitionId === selectedSessionCharacter.offhandWeaponId ||
         item.name === selectedSessionCharacter.offhandWeaponId);
-    const nextEquippedWeaponId = isEquipped ? null : isOffhandEquipped ? undefined : item.id;
-    const nextOffhandWeaponId = isOffhandEquipped ? null : undefined;
+    const shouldUnequip =
+      equipmentDisplayState === 'equipped' ||
+      (equipmentDisplayState === undefined && (isEquipped || isOffhandEquipped));
+    const nextEquippedWeaponId = shouldUnequip
+      ? isOffhandEquipped
+        ? undefined
+        : null
+      : equipmentItemId;
+    const nextOffhandWeaponId = shouldUnequip && isOffhandEquipped ? null : undefined;
 
     setInventoryUseFeedback(null);
     setInventoryUsePending(true);
@@ -2891,7 +2903,7 @@ export function PlayPage({
         offhandWeaponId: nextOffhandWeaponId,
       });
       setInventoryUseFeedback(
-        isEquipped || isOffhandEquipped
+        shouldUnequip
           ? `${item.name} 착용을 해제했습니다.`
           : `${item.name}을(를) 착용했습니다.`
       );
@@ -2913,6 +2925,13 @@ export function PlayPage({
     if (!session || isCombatBusy) return;
     await runCombatRequest(() =>
       resolveOffhandWeaponAttack(user, session.id, { targetParticipantId })
+    );
+  }
+
+  async function handleSneakAttack(targetParticipantId: string) {
+    if (!session || isCombatBusy) return;
+    await runCombatRequest(() =>
+      resolveSneakAttackCombatAction(user, session.id, { targetParticipantId })
     );
   }
 
@@ -3588,6 +3607,7 @@ export function PlayPage({
                   onEquipInventoryItem={handleEquipInventoryItem}
                   onAttackWithEquippedWeapon={handleEquippedWeaponAttack}
                   onAttackWithOffhandWeapon={handleOffhandWeaponAttack}
+                  onSneakAttack={handleSneakAttack}
                   onDash={handleDashCombatAction}
                   onDodge={handleDodgeCombatAction}
                   onHide={handleHideCombatAction}

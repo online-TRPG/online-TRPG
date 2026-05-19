@@ -394,15 +394,14 @@ describe("RuleEngineService", () => {
       });
     });
 
-    it("applies sneak attack when weapon and positioning conditions are satisfied", () => {
+    it("applies sneak attack when an eligible weapon attack has advantage", () => {
       expect(
         service.applySneakAttack({
           rogueLevel: 5,
           attackKind: "melee_weapon_attack",
           weaponProperties: ["finesse"],
-          hasAdvantage: false,
+          hasAdvantage: true,
           hasDisadvantage: false,
-          targetEnemyWithin5Ft: true,
           sneakAttackAvailableThisTurn: true,
           baseDamage: 6,
           sneakAttackDamageRollTotal: 11,

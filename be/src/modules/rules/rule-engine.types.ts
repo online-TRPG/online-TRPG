@@ -193,7 +193,6 @@ export type SneakAttackInput = {
   weaponProperties: string[];
   hasAdvantage: boolean;
   hasDisadvantage: boolean;
-  targetEnemyWithin5Ft: boolean;
   sneakAttackAvailableThisTurn: boolean;
   baseDamage: number;
   sneakAttackDamageRollTotal: number;

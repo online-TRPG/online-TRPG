@@ -396,6 +396,9 @@ export class CombatActionResourcesDto {
   twoWeaponAttackAvailable!: boolean;
 
   @ApiProperty()
+  sneakAttackAvailable!: boolean;
+
+  @ApiProperty()
   movementFtTotal!: number;
 
   @ApiProperty()

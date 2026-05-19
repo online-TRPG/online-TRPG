@@ -91,6 +91,7 @@ describe("CombatService lifecycle", () => {
     const actionEconomy = {
       getOrCreateTurnState: jest.fn(),
       spendAction: jest.fn(),
+      spendSneakAttack: jest.fn(),
     };
     const characterResources = {
       endRage: jest.fn(),
@@ -105,6 +106,9 @@ describe("CombatService lifecycle", () => {
     };
     const turnLogsService = {
       createTurnLog: jest.fn(),
+    };
+    const ruleEngine = {
+      applySneakAttack: jest.fn(),
     };
     const srdEngine = {
       chooseMvpMonsterAction: jest.fn(),
@@ -121,6 +125,7 @@ describe("CombatService lifecycle", () => {
         characterResources as never,
         realtimeEvents as never,
         turnLogsService as never,
+        ruleEngine as never,
         srdEngine as never,
       ),
       prisma,
@@ -130,6 +135,7 @@ describe("CombatService lifecycle", () => {
       characterResources,
       realtimeEvents,
       turnLogsService,
+      ruleEngine,
       srdEngine,
     };
   };

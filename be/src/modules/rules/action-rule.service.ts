@@ -355,7 +355,7 @@ export class ActionRuleService {
       actor.character.proficiencyBonus +
       this.resolveFightingStyleAttackBonus(actor, weaponProfile);
     const targetArmorClass = target?.character.armorClass ?? command.dc;
-    const proneRuleContext = this.resolveAttackProneContext(actor, target);
+    const proneRuleContext = this.resolveAttackProneContext(actor, target, runtimeContext);
     const attackAdvantageState = this.toDiceAdvantageState(proneRuleContext.advantageState);
     const attackRoll = this.diceService.roll(`1d20+${modifier}`, attackAdvantageState);
     const naturalD20 = this.selectNaturalD20(attackRoll);
@@ -382,23 +382,8 @@ export class ActionRuleService {
       damageRoll = this.diceService.roll(weaponProfile.damageDice);
       const baseWeaponDamage =
         damageRoll.total + this.resolveFightingStyleDamageBonus(actor, weaponProfile);
-      const sneakAttack = this.resolveSneakAttackDamage({
-        actor,
-        target,
-        attackAdvantageState,
-        baseDamage: baseWeaponDamage,
-        weaponProperties: weaponProfile.properties,
-        attackKind: weaponProfile.attackKind,
-        runtimeContext,
-      });
-      if (sneakAttack.ruleResult) {
-        ruleResults.push(sneakAttack.ruleResult);
-      }
-      if (sneakAttack.ruleResult?.accepted) {
-        runtimeEffects.push({ type: "SPEND_SNEAK_ATTACK" });
-      }
       const damageRuleResult = this.ruleEngine.applyDamageModifiers({
-        baseDamage: sneakAttack.totalDamage,
+        baseDamage: baseWeaponDamage,
         damageType: weaponProfile.damageType,
         ...this.resolveDamageProfile(target),
       });
@@ -1400,56 +1385,6 @@ export class ActionRuleService {
     );
   }
 
-  private resolveSneakAttackDamage(params: {
-    actor: SessionCharacterForRules;
-    target: SessionCharacterForRules;
-    attackAdvantageState: DiceAdvantageState;
-    baseDamage: number;
-    weaponProperties: string[];
-    attackKind: string;
-    runtimeContext: RuleRuntimeContext;
-  }): {
-    totalDamage: number;
-    ruleResult: RuleHookResult<unknown> | null;
-  } {
-    if (!this.isClass(params.actor, "rogue")) {
-      return { totalDamage: params.baseDamage, ruleResult: null };
-    }
-
-    const hasAdvantage = params.attackAdvantageState === DiceAdvantageState.ADVANTAGE;
-    const hasDisadvantage = params.attackAdvantageState === DiceAdvantageState.DISADVANTAGE;
-    const targetEnemyWithin5Ft = this.mapPositions.hasActorAllyWithinFeetOfTarget({
-      map: params.runtimeContext.map,
-      actorSessionCharacterId: params.actor.id,
-      targetSessionCharacterId: params.target.id,
-      feet: DEFAULT_MELEE_ATTACK_DISTANCE_FT,
-    });
-
-    if (hasDisadvantage || (!hasAdvantage && !targetEnemyWithin5Ft)) {
-      return { totalDamage: params.baseDamage, ruleResult: null };
-    }
-
-    const sneakAttackRoll = this.diceService.roll(
-      `${Math.max(Math.ceil(params.actor.character.level / 2), 1)}d6`,
-    );
-    const ruleResult = this.ruleEngine.applySneakAttack({
-      rogueLevel: this.isClass(params.actor, "rogue") ? params.actor.character.level : 0,
-      attackKind: params.attackKind,
-      weaponProperties: params.weaponProperties,
-      hasAdvantage,
-      hasDisadvantage,
-      targetEnemyWithin5Ft,
-      sneakAttackAvailableThisTurn: !params.runtimeContext.turnState?.sneakAttackUsed,
-      baseDamage: params.baseDamage,
-      sneakAttackDamageRollTotal: sneakAttackRoll.total,
-    });
-
-    return {
-      totalDamage: ruleResult.produced.damagePacket?.totalDamage ?? params.baseDamage,
-      ruleResult,
-    };
-  }
-
   private isClass(actor: SessionCharacterForRules, className: string): boolean {
     return this.normalizeRuleToken(actor.character.className).includes(className);
   }
@@ -1563,6 +1498,8 @@ export class ActionRuleService {
       case "rogue_level_required":
       case "rogue_level_too_low":
         return "Rogue 레벨 조건을 만족하지 못했습니다.";
+      case "sneak_attack_requires_advantage":
+        return "Sneak Attack은 공격에 이점이 있어야 사용할 수 있습니다.";
       case "expertise_requires_two_selections":
         return "Expertise는 숙련 2개를 선택해야 합니다.";
       case "expertise_requires_thieves_tools_proficiency":
@@ -1589,6 +1526,7 @@ export class ActionRuleService {
   private resolveAttackProneContext(
     actor: SessionCharacterForRules,
     target: SessionCharacterForRules | null,
+    runtimeContext: RuleRuntimeContext,
   ): {
     advantageState: RuleAdvantageState;
     ruleResults: RuleHookResult<unknown>[];
@@ -1620,6 +1558,18 @@ export class ActionRuleService {
       });
       ruleResults.push(targetProneResult);
       advantageStates.push(targetProneResult.produced.incomingAttackAdvantageState);
+    }
+
+    if (
+      target &&
+      this.mapPositions.hasActorAllyWithinFeetOfTarget({
+        map: runtimeContext.map,
+        actorSessionCharacterId: actor.id,
+        targetSessionCharacterId: target.id,
+        feet: DEFAULT_MELEE_ATTACK_DISTANCE_FT,
+      })
+    ) {
+      advantageStates.push("advantage");
     }
 
     return {
