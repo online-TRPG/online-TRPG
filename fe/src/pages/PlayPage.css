@@ -4499,7 +4499,136 @@ button.chat-submit-btn:disabled,
 }
 
 .recruiting-party-slot-paper {
+  position: absolute;
+  inset: 0;
   display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.recruiting-party-slot-pin {
+  position: absolute;
+  top: 4%;
+  left: 50%;
+  width: clamp(20px, 20%, 30px);
+  transform: translateX(-50%);
+  z-index: 4;
+  pointer-events: none;
+  filter: drop-shadow(0 3px 6px rgba(43, 22, 5, 0.28));
+}
+
+.recruiting-party-slot-portrait,
+.recruiting-party-slot-fallback {
+  position: absolute;
+  top: 25%;
+  left: 50%;
+  width: 45%;
+  aspect-ratio: 1 / 1;
+  transform: translateX(-50%);
+  border-radius: 16px;
+  z-index: 3;
+  box-shadow:
+    0 8px 18px rgba(49, 27, 11, 0.24),
+    inset 0 0 0 2px rgba(255, 244, 220, 0.42);
+}
+
+.recruiting-party-slot-portrait {
+  object-fit: cover;
+  object-position: center top;
+}
+
+.recruiting-party-slot-fallback {
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 246, 228, 0.95), rgba(173, 131, 84, 0.94));
+  color: var(--participant-text-color, #fff4dc);
+  font-size: clamp(24px, 2vw, 34px);
+  font-weight: 900;
+  text-shadow: 0 1px 2px rgba(39, 21, 8, 0.35);
+}
+
+.recruiting-party-slot-badge {
+  position: absolute;
+  top: 1%;
+  left: 11%;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(45, 31, 17, 0.9);
+  border: 1px solid rgba(224, 193, 128, 0.72);
+  color: #f8e8bb;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.recruiting-party-slot-name {
+  position: absolute;
+  left: 13%;
+  right: 13%;
+  bottom: 30%;
+  z-index: 4;
+  display: block;
+  color: #352113;
+  font-size: clamp(12px, 0.95vw, 14px);
+  font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(255, 247, 228, 0.6);
+}
+
+.recruiting-party-slot-character {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  bottom: 12%;
+  z-index: 4;
+  display: -webkit-box;
+  overflow: hidden;
+  color: #5d3d20;
+  font-size: clamp(10px, 0.78vw, 12px);
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.recruiting-party-slot-status {
+  position: absolute;
+  left: 86%;
+  top: 1%;
+  z-index: 5;
+  min-width: 68px;
+  min-height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(108, 74, 40, 0.32);
+  background: rgba(255, 246, 229, 0.92);
+  color: #6d4a24;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.recruiting-party-slot-status.ready {
+  border-color: rgba(111, 163, 92, 0.48);
+  background: rgba(204, 237, 190, 0.92);
+  color: #28591f;
 }
 
 .session-info-panel textarea {
