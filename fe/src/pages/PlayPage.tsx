@@ -3849,13 +3849,6 @@ export function PlayPage({
                         <strong className="recruiting-party-slot-name">
                           {participant.user.displayName}
                         </strong>
-                        <span className="recruiting-party-slot-character">
-                          {linkedCharacter
-                            ? `${linkedCharacter.name} / ${getCharacterClassLabel(linkedCharacter.className)}`
-                            : participant.userId === user.id
-                              ? '캐릭터를 선택해 주세요'
-                              : '캐릭터 선택 대기 중'}
-                        </span>
                         <div
                           className={`recruiting-party-slot-status${participant.isReady ? ' ready' : ''}`}
                         >
