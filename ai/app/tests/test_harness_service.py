@@ -624,6 +624,46 @@ def test_interpreter_fallback_routes_clear_general_gm_support_request():
     assert response.parsed.action.targetId is None
 
 
+def test_interpreter_fallback_routes_what_should_i_do_to_hint():
+    service, _fake_client = build_service(
+        TEST_LOG_DIR / "interpreter_general_gm_what_next_fallback",
+        AlwaysFailingGoogleAiStudioClient(),
+    )
+
+    response = service.run_interpreter(
+        InterpreterHarnessRequest(
+            rawText="뭐해야돼?",
+            actorCharacterId="player-1",
+            requestIntent="GENERAL_GM_REQUEST",
+        )
+    )
+
+    assert response.fallback is True
+    assert response.parsed.needsClarification is False
+    assert response.parsed.action.type == "ASK_HINT"
+
+
+def test_director_fallback_returns_scene_based_hint_without_ai_error_text():
+    service, _fake_client = build_service(
+        TEST_LOG_DIR / "director_scene_hint_fallback",
+        AlwaysFailingGoogleAiStudioClient(),
+    )
+
+    response = service.run_director(
+        DirectorHarnessRequest(
+            hintLevel="NORMAL",
+            question="뭐하면 돼?",
+            sceneSummary="마을 관리인 밀라가 우물 아래에서 이상한 소리가 난다고 말했다.",
+            publicClues=["봉쇄된 우물을 조사한다"],
+        )
+    )
+
+    assert response.fallback is True
+    assert "AI 힌트를 만들지 못했습니다" not in response.parsed.content
+    assert "우물" in response.parsed.content
+    assert response.parsed.suggestions == ["봉쇄된 우물을 조사한다"]
+
+
 def test_actor_fallback_selects_allowed_action_only():
     service, _fake_client = build_service(
         TEST_LOG_DIR / "actor_fallback",
