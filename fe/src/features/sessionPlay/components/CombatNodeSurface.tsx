@@ -623,6 +623,33 @@ export function CombatNodeSurface({
         .filter((entry): entry is [string, number] => Boolean(entry)) ?? [];
     return Object.fromEntries(entries);
   }, [combat, map?.tokens]);
+  const enemyTokenHealthByTokenId = useMemo(() => {
+    const entries =
+      combat?.participants
+        .map((participant) => {
+          if (!participant.isHostile) return null;
+          const tokenId = getParticipantTokenId(participant);
+          return tokenId
+            ? [
+                tokenId,
+                {
+                  currentHp: participant.currentHp,
+                  maxHp: participant.maxHp,
+                  isAlive: participant.isAlive,
+                },
+              ]
+            : null;
+        })
+        .filter(
+          (
+            entry
+          ): entry is [
+            string,
+            { currentHp: number | null; maxHp: number | null; isAlive: boolean },
+          ] => Boolean(entry)
+        ) ?? [];
+    return Object.fromEntries(entries);
+  }, [combat, map?.tokens]);
   const attackRangeOverlay = useMemo(() => {
     if ((!isAttackTargeting && !isSneakAttackTargeting && !targetingSpellId) || !myCombatParticipant) return null;
     const tokenId = getParticipantTokenId(myCombatParticipant);
@@ -962,6 +989,7 @@ export function CombatNodeSurface({
                 interactionMode="session"
                 isInteractionLocked={!isMyCombatTurn}
                 tokenMovementRangeFtByTokenId={tokenMovementRangeFtByTokenId}
+                tokenHealthByTokenId={enemyTokenHealthByTokenId}
                 attackRangeOverlay={attackRangeOverlay}
                 onChange={onMapChange}
                 onTokenMoveRequest={onTokenMoveRequest}
