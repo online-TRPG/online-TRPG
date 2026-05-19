@@ -87,6 +87,7 @@ import {
 import type {
   LogEntry,
   Character,
+  Participant,
   PersistentCharacter,
   PlayerScenarioView,
   SessionSnapshot,
@@ -3209,15 +3210,32 @@ export function PlayPage({
     return getPlayerTokenColor(characterIndex);
   }
 
-  function getParticipantProfileColor(participantUserId: string): SessionTokenColor {
-    const linkedCharacter =
-      sessionCharacters.find((character) => character.userId === participantUserId) ?? null;
+  function getParticipantLinkedCharacter(participant: Participant | null): Character | null {
+    if (!participant) return null;
+
+    return (
+      (participant.sessionCharacterId
+        ? sessionCharacters.find((character) => character.id === participant.sessionCharacterId)
+        : null) ??
+      (participant.characterId
+        ? sessionCharacters.find(
+          (character) => character.characterId === participant.characterId
+        )
+        : null) ??
+      sessionCharacters.find((character) => character.userId === participant.userId) ??
+      null
+    );
+  }
+
+  function getParticipantProfileColor(participant: Participant | null): SessionTokenColor {
+    if (!participant) return getPlayerTokenColor(-1);
+    const linkedCharacter = getParticipantLinkedCharacter(participant);
 
     if (linkedCharacter) {
       return getCharacterTokenColor(linkedCharacter);
     }
 
-    const playerIndex = playerParticipantIds.indexOf(participantUserId);
+    const playerIndex = playerParticipantIds.indexOf(participant.userId);
     return getPlayerTokenColor(playerIndex);
   }
 
@@ -3225,9 +3243,7 @@ export function PlayPage({
     return participants.find((participant) => {
       if (participant.user.displayName === title) return true;
 
-      const linkedCharacter = sessionCharacters.find(
-        (character) => character.userId === participant.userId
-      );
+      const linkedCharacter = getParticipantLinkedCharacter(participant);
       return linkedCharacter?.name === title;
     });
   }
@@ -3239,9 +3255,7 @@ export function PlayPage({
     const matchedParticipant = getLogParticipant(title);
 
     // 로그 작성자 이름만 넘어오는 경우가 있어 매칭 실패 시 첫 플레이어 색으로 안전하게 표시합니다.
-    return matchedParticipant
-      ? getParticipantProfileColor(matchedParticipant.userId)
-      : getPlayerTokenColor(0);
+    return matchedParticipant ? getParticipantProfileColor(matchedParticipant) : getPlayerTokenColor(0);
   }
 
   function findNpcTokenByName(speakerName?: string | null, targetId?: string | null) {
@@ -3789,15 +3803,13 @@ export function PlayPage({
                   );
                 }
 
-                const linkedCharacter =
-                  sessionCharacters.find((character) => character.userId === participant.userId) ??
-                  null;
+                const linkedCharacter = getParticipantLinkedCharacter(participant);
                 const badgeLabel = getParticipantBadge(participant.userId);
                 const stateLabel = participant.isReady ? 'READY' : participant.connectionStatus;
                 const participantImage = linkedCharacter
                   ? getCharacterImage(linkedCharacter)
                   : null;
-                const profileColor = getParticipantProfileColor(participant.userId);
+                const profileColor = getParticipantProfileColor(participant);
 
                 return (
                   <article
@@ -3826,10 +3838,29 @@ export function PlayPage({
                             alt={linkedCharacter?.name ?? participant.user.displayName}
                             className="recruiting-party-slot-portrait"
                           />
+                        ) : (
+                          <div className="recruiting-party-slot-fallback" aria-hidden="true">
+                            {(linkedCharacter?.name ?? participant.user.displayName).slice(0, 1)}
+                          </div>
+                        )}
+                        {badgeLabel ? (
+                          <div className="recruiting-party-slot-badge">{badgeLabel}</div>
                         ) : null}
                         <strong className="recruiting-party-slot-name">
                           {participant.user.displayName}
                         </strong>
+                        <span className="recruiting-party-slot-character">
+                          {linkedCharacter
+                            ? `${linkedCharacter.name} / ${getCharacterClassLabel(linkedCharacter.className)}`
+                            : participant.userId === user.id
+                              ? '캐릭터를 선택해 주세요'
+                              : '캐릭터 선택 대기 중'}
+                        </span>
+                        <div
+                          className={`recruiting-party-slot-status${participant.isReady ? ' ready' : ''}`}
+                        >
+                          {participant.isReady ? '준비완료' : '정비 중'}
+                        </div>
                       </>
                     ) : (
                       <>
