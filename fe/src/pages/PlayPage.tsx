@@ -99,6 +99,7 @@ import './PlayPage.css';
 
 // 플레이 화면 상단 탭 이름입니다. 각 탭은 로그/채팅/정보/설정을 구분합니다.
 const sessionTabs = ['Main', 'Chat', 'Info', 'Settings'] as const;
+type MessageTab = Extract<(typeof sessionTabs)[number], 'Main' | 'Chat'>;
 const sessionTabLabels: Record<(typeof sessionTabs)[number], string> = {
   Main: '메인',
   Chat: '채팅',
@@ -1080,6 +1081,15 @@ function isChatScoped(message: string) {
   return message.startsWith('[CHAT]');
 }
 
+function getMessageLogTab(log: LogEntry): MessageTab | null {
+  if (log.kind !== 'action') return null;
+  return isChatScoped(log.message) ? 'Chat' : 'Main';
+}
+
+function formatUnreadCount(count: number) {
+  return count > 99 ? '99+' : `${count}`;
+}
+
 function getAvatarLabel(title: string, userName: string) {
   const trimmed = title.trim();
   if (!trimmed) return '?';
@@ -1486,6 +1496,10 @@ export function PlayPage({
     useState<PendingMainCommandCheck | null>(null);
   const [mainCommandAutocompleteIndex, setMainCommandAutocompleteIndex] = useState(-1);
   const [hasUnreadInfo, setHasUnreadInfo] = useState(false);
+  const [unreadMessageCounts, setUnreadMessageCounts] = useState<Record<MessageTab, number>>({
+    Main: 0,
+    Chat: 0,
+  });
   const [revealedClueToast, setRevealedClueToast] = useState<PlayerScenarioClueDto | null>(null);
 
   function clearMainCommandSelectionFields() {
@@ -1548,6 +1562,8 @@ export function PlayPage({
   const autoCombatStartKeyRef = useRef<string | null>(null);
   const knownPublicClueIdsRef = useRef<Set<string>>(new Set());
   const knownPublicClueNodeIdRef = useRef<string | null>(null);
+  const knownMessageLogIdsRef = useRef<Set<string>>(new Set());
+  const knownMessageLogSessionIdRef = useRef<string | null>(null);
 
   // 서버 스냅샷에서 현재 세션/참가자/선택 캐릭터/권한 상태를 계산합니다.
   const session = snapshot?.session ?? null;
@@ -2189,6 +2205,55 @@ export function PlayPage({
     knownPublicClueIdsRef.current = nextIds;
     knownPublicClueNodeIdRef.current = currentNode.id;
   }, [activeTab, currentNode?.id, currentPublicClueIdSignature]);
+
+  useEffect(() => {
+    const currentSessionId = session?.id ?? null;
+
+    if (knownMessageLogSessionIdRef.current !== currentSessionId) {
+      knownMessageLogSessionIdRef.current = currentSessionId;
+      knownMessageLogIdsRef.current = new Set(logs.map((log) => log.id));
+      setUnreadMessageCounts({ Main: 0, Chat: 0 });
+      return;
+    }
+
+    const knownIds = knownMessageLogIdsRef.current;
+    // 이전 로그 보기는 배열 뒤쪽에 붙으므로, 앞쪽에 새로 추가된 로그만 읽지 않은 대상으로 셉니다.
+    const firstKnownLogIndex = logs.findIndex((log) => knownIds.has(log.id));
+    const newlyPrependedLogs =
+      firstKnownLogIndex === -1 ? logs : logs.slice(0, firstKnownLogIndex);
+    let mainIncrement = 0;
+    let chatIncrement = 0;
+
+    newlyPrependedLogs.forEach((log) => {
+      if (knownIds.has(log.id)) return;
+
+      const targetTab = getMessageLogTab(log);
+      if (!targetTab || targetTab === activeTab) return;
+
+      if (targetTab === 'Main') {
+        mainIncrement += 1;
+      } else {
+        chatIncrement += 1;
+      }
+    });
+
+    knownMessageLogIdsRef.current = new Set(logs.map((log) => log.id));
+
+    if (!mainIncrement && !chatIncrement) return;
+
+    setUnreadMessageCounts((current) => ({
+      Main: current.Main + mainIncrement,
+      Chat: current.Chat + chatIncrement,
+    }));
+  }, [activeTab, logs, session?.id]);
+
+  useEffect(() => {
+    if (activeTab !== 'Main' && activeTab !== 'Chat') return;
+
+    setUnreadMessageCounts((current) =>
+      current[activeTab] === 0 ? current : { ...current, [activeTab]: 0 }
+    );
+  }, [activeTab]);
 
   useEffect(() => {
     if (!revealedClueToast) return undefined;
@@ -3888,24 +3953,40 @@ export function PlayPage({
 
       <aside className="session-sidebar">
         <div className="session-sidebar-tabs">
-          {availableTabs.map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              className={[
-                activeTab === tab ? 'active' : '',
-                tab === 'Info' && hasUnreadInfo ? 'has-unread-info' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              onClick={() => setActiveTab(tab)}
-            >
-              {sessionTabLabels[tab]}
-              {tab === 'Info' && hasUnreadInfo ? (
-                <span className="session-sidebar-tab-badge" aria-hidden="true" />
-              ) : null}
-            </button>
-          ))}
+          {availableTabs.map((tab) => {
+            const unreadMessageCount =
+              tab === 'Main' || tab === 'Chat' ? unreadMessageCounts[tab] : 0;
+
+            return (
+              <button
+                key={tab}
+                type="button"
+                className={[
+                  activeTab === tab ? 'active' : '',
+                  tab === 'Info' && hasUnreadInfo ? 'has-unread-info' : '',
+                  unreadMessageCount > 0 ? 'has-unread-messages' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                aria-label={
+                  unreadMessageCount > 0
+                    ? `${sessionTabLabels[tab]} 새 메시지 ${unreadMessageCount}개`
+                    : sessionTabLabels[tab]
+                }
+                onClick={() => setActiveTab(tab)}
+              >
+                {sessionTabLabels[tab]}
+                {tab === 'Info' && hasUnreadInfo ? (
+                  <span className="session-sidebar-tab-badge" aria-hidden="true" />
+                ) : null}
+                {unreadMessageCount > 0 ? (
+                  <span className="session-sidebar-tab-count" aria-hidden="true">
+                    {formatUnreadCount(unreadMessageCount)}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
 
         <div className="session-sidebar-panel">
