@@ -194,7 +194,8 @@
   top: 14px;
   left: 50%;
   z-index: 12;
-  width: min(100% - 48px, 1040px);
+  width: max-content;
+  max-width: none;
   transform: translateX(-50%);
   display: grid;
   justify-items: center;
@@ -204,55 +205,35 @@
 
 .combat-turn-list {
   position: relative;
-  min-width: 0;
-  max-width: 100%;
+  isolation: isolate;
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
   min-height: 96px;
   padding: 12px 48px 16px;
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 0;
-  overflow-x: auto;
-  border: 1px solid rgba(172, 131, 55, 0.36);
-  background:
-    linear-gradient(90deg, rgba(6, 8, 11, 0), rgba(7, 9, 12, 0.82) 14%, rgba(7, 9, 12, 0.9) 86%, rgba(6, 8, 11, 0)),
-    linear-gradient(180deg, rgba(218, 169, 77, 0.12), rgba(16, 12, 8, 0.48));
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 232, 168, 0.08),
-    inset 0 -18px 26px rgba(0, 0, 0, 0.32),
-    0 12px 28px rgba(0, 0, 0, 0.58);
-  scrollbar-width: thin;
-  scrollbar-color: #7b6034 transparent;
+  overflow: visible;
   pointer-events: auto;
 }
 
-.combat-turn-list::before,
-.combat-turn-list::after {
-  content: '';
-  position: sticky;
+.combat-turn-divider {
+  position: absolute;
+  left: 50%;
   top: 50%;
-  z-index: 4;
-  width: 34px;
-  height: 18px;
-  flex: 0 0 34px;
-  transform: translateY(-50%);
-  background:
-    linear-gradient(currentColor, currentColor) center / 26px 1px no-repeat,
-    linear-gradient(45deg, transparent 47%, currentColor 48% 52%, transparent 53%) right center / 10px 10px no-repeat,
-    linear-gradient(-45deg, transparent 47%, currentColor 48% 52%, transparent 53%) right center / 10px 10px no-repeat;
-  color: rgba(201, 150, 61, 0.78);
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
+  z-index: 1;
+  width: 155%;
+  height: auto;
+  display: block;
+  transform: translate(-50%, -50%);
+  opacity: 0.95;
+  filter:
+    drop-shadow(0 2px 3px rgba(0, 0, 0, 0.74))
+    drop-shadow(0 0 8px rgba(218, 169, 77, 0.42));
   pointer-events: none;
-}
-
-.combat-turn-list::before {
-  left: 0;
-  margin-left: -36px;
-  transform: translateY(-50%) scaleX(-1);
-}
-
-.combat-turn-list::after {
-  right: 0;
-  margin-right: -36px;
+  user-select: none;
 }
 
 .combat-turn-overlay p {
@@ -273,11 +254,12 @@
   --combat-turn-bg: #f4ead5;
   --combat-turn-text: #2f2115;
   position: relative;
-  width: 124px;
+  z-index: 2;
+  width: 87px;
   height: 70px;
   flex: 0 0 auto;
-  margin: 0 -7px;
-  padding: 0 12px;
+  margin: 0 -11px;
+  padding: 0 8px;
   overflow: visible;
   display: grid;
   place-items: center;
@@ -319,8 +301,12 @@
     0 7px 16px rgba(0, 0, 0, 0.42);
 }
 
+.combat-turn-card.active + .combat-turn-card.next-turn {
+  margin-left: 12px;
+}
+
 .combat-turn-card.selected {
-  z-index: 1;
+  z-index: 3;
   border-color: #79d8ff;
   transform: translateY(-3px) scale(1.04) skewX(-11deg);
   box-shadow:
@@ -345,14 +331,14 @@
 }
 
 .combat-turn-card.active {
-  z-index: 2;
-  width: 146px;
+  z-index: 4;
+  width: 102px;
   height: 82px;
   border-color: color-mix(in srgb, var(--combat-turn-accent) 78%, #fff4b8);
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--combat-turn-accent) 58%, transparent), transparent 18% 82%, color-mix(in srgb, var(--combat-turn-accent) 44%, transparent)),
-    radial-gradient(circle at 50% 24%, color-mix(in srgb, var(--combat-turn-bg) 30%, transparent), transparent 44%),
-    linear-gradient(145deg, #1d1711 0%, #0c0d10 100%);
+    linear-gradient(90deg, color-mix(in srgb, var(--combat-turn-accent) 42%, transparent), transparent 16% 84%, color-mix(in srgb, var(--combat-turn-accent) 32%, transparent)),
+    radial-gradient(circle at 50% 28%, color-mix(in srgb, var(--combat-turn-bg) 18%, transparent), transparent 42%),
+    linear-gradient(145deg, #17110d 0%, #0c0d0f 100%);
   transform: translateY(-8px) scale(1.08) skewX(-11deg);
   box-shadow:
     inset 0 0 0 2px rgba(0, 0, 0, 0.44),
@@ -376,52 +362,6 @@
     0 0 24px rgba(121, 216, 255, 0.58);
 }
 
-.combat-turn-card.active .combat-turn-ribbon {
-  position: absolute;
-  left: 50%;
-  bottom: -17px;
-  z-index: 3;
-  min-width: 48px;
-  min-height: 24px;
-  padding: 0 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid #7c5a2d;
-  border-radius: 2px;
-  background:
-    linear-gradient(180deg, #e9c46e 0%, #b88a35 100%);
-  color: #21140a;
-  font-size: 14px;
-  font-weight: 950;
-  letter-spacing: 0;
-  transform: translateX(-50%) skewX(11deg);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 240, 184, 0.48),
-    0 4px 9px rgba(0, 0, 0, 0.48),
-    0 0 12px color-mix(in srgb, var(--combat-turn-accent) 38%, transparent);
-}
-
-.combat-turn-card.active .combat-turn-ribbon::before,
-.combat-turn-card.active .combat-turn-ribbon::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  width: 8px;
-  height: 100%;
-  background: inherit;
-}
-
-.combat-turn-card.active .combat-turn-ribbon::before {
-  left: -6px;
-  transform: skewX(-16deg);
-}
-
-.combat-turn-card.active .combat-turn-ribbon::after {
-  right: -6px;
-  transform: skewX(16deg);
-}
-
 .combat-turn-card.defeated {
   opacity: 0.46;
   filter: grayscale(0.8);
@@ -430,19 +370,34 @@
 .combat-turn-card-content {
   position: relative;
   z-index: 2;
-  min-width: 0;
   width: 100%;
   height: 100%;
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) auto;
-  column-gap: 10px;
-  align-items: center;
+  place-items: center;
   transform: skewX(11deg);
+  isolation: isolate;
+}
+
+.combat-turn-card.active .combat-turn-card-content::before {
+  content: '';
+  position: absolute;
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle,
+      color-mix(in srgb, var(--combat-turn-accent) 78%, transparent) 0%,
+      color-mix(in srgb, var(--combat-turn-accent) 42%, transparent) 42%,
+      transparent 72%);
+  filter: blur(2px);
+  opacity: 0.92;
+  z-index: 0;
+  pointer-events: none;
 }
 
 .combat-turn-portrait {
-  grid-row: 1 / 3;
+  position: relative;
+  z-index: 1;
   width: 48px;
   height: 48px;
   overflow: hidden;
@@ -461,38 +416,19 @@
 }
 
 .combat-turn-card.active .combat-turn-portrait {
-  width: 56px;
-  height: 56px;
+  width: 73px;
+  height: 73px;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.38),
+    0 0 0 2px rgba(0, 0, 0, 0.58),
+    0 0 18px color-mix(in srgb, var(--combat-turn-accent) 78%, transparent),
+    0 0 34px color-mix(in srgb, var(--combat-turn-accent) 58%, transparent);
 }
 
 .combat-turn-portrait img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.combat-turn-name,
-.combat-turn-hp {
-  min-width: 0;
-  display: block;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.86);
-}
-
-.combat-turn-name {
-  color: color-mix(in srgb, var(--combat-turn-accent) 72%, #fff4bd);
-  font-size: 12px;
-  font-weight: 950;
-}
-
-.combat-turn-hp {
-  align-self: start;
-  color: rgba(234, 217, 176, 0.78);
-  font-size: 10px;
-  font-weight: 800;
 }
 
 .combat-map-panel > .vtt-panel {
@@ -1427,7 +1363,8 @@
 
   .combat-turn-overlay {
     top: 8px;
-    width: calc(100% - 20px);
+    width: max-content;
+    max-width: none;
   }
 
   .combat-turn-list {
@@ -1436,20 +1373,19 @@
   }
 
   .combat-turn-card {
-    width: 104px;
+    width: 73px;
     height: 58px;
-    margin: 0 -5px;
-    padding: 0 10px;
+    margin: 0 -12px;
+    padding: 0 7px;
   }
 
   .combat-turn-card.active {
-    width: 120px;
+    width: 84px;
     height: 68px;
   }
 
-  .combat-turn-card-content {
-    grid-template-columns: 38px minmax(0, 1fr);
-    column-gap: 7px;
+  .combat-turn-card.active + .combat-turn-card.next-turn {
+    margin-left: 6px;
   }
 
   .combat-turn-portrait {
@@ -1458,15 +1394,7 @@
   }
 
   .combat-turn-card.active .combat-turn-portrait {
-    width: 44px;
-    height: 44px;
-  }
-
-  .combat-turn-name {
-    font-size: 11px;
-  }
-
-  .combat-turn-hp {
-    font-size: 9px;
+    width: 57px;
+    height: 57px;
   }
 }
