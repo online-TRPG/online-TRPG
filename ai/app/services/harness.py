@@ -379,12 +379,21 @@ class AiHarnessService:
             [
                 "힌트",
                 "도움",
+                "도와",
                 "막혔",
                 "뭐하면",
+                "뭐해야",
+                "뭐하지",
+                "뭐할",
                 "무엇을하면",
+                "무엇을해야",
                 "뭘해야",
+                "뭘하면",
+                "뭘하지",
                 "어떻게해야",
+                "어떡해야",
                 "다음에뭘",
+                "다음뭐",
                 "다음행동",
             ],
         ):
@@ -528,10 +537,10 @@ class AiHarnessService:
         )
 
     def _fallback_director(self, request: DirectorHarnessRequest, error: AiClientError) -> DirectorHarnessResponse:
-        suggestion = request.publicClues[0] if request.publicClues else "이미 드러난 단서를 한 번 더 살펴보세요."
+        suggestion = self._director_fallback_suggestion(request)
         parsed = DirectorOutput(
             hintLevel=request.hintLevel,
-            content="AI 힌트를 만들지 못했습니다. 공개된 단서 안에서 다음 시도 후보만 제안합니다.",
+            content=self._director_fallback_content(request, suggestion),
             sourceScope="scene",
             spoilerLevel="low",
             suggestions=[suggestion],
@@ -549,6 +558,25 @@ class AiHarnessService:
             fallback=True,
             fallbackReason=error.message,
         )
+
+    @staticmethod
+    def _director_fallback_suggestion(request: DirectorHarnessRequest) -> str:
+        if request.publicClues:
+            return request.publicClues[0]
+        if request.triedApproaches:
+            return f"이미 시도한 '{request.triedApproaches[-1]}' 말고 다른 공개 단서를 확인해 보세요."
+        if request.recentLogs:
+            return "최근 진행에서 언급된 장소나 인물을 다시 확인해 보세요."
+        return "현재 장면에 보이는 대상 중 아직 직접 확인하지 않은 것을 조사해 보세요."
+
+    @staticmethod
+    def _director_fallback_content(request: DirectorHarnessRequest, suggestion: str) -> str:
+        scene_summary = request.sceneSummary
+        if "우물" in scene_summary:
+            return "공개된 정보만 보면, 지금은 우물 주변이나 우물 아래에서 나는 이상한 소리를 직접 확인해 볼 차례입니다."
+        if "밀라" in scene_summary:
+            return "공개된 정보만 보면, 밀라에게 상황을 더 묻거나 의뢰의 핵심 단서를 직접 확인해 보세요."
+        return f"공개된 정보 안에서는 '{suggestion}'부터 확인해 보는 흐름이 자연스럽습니다."
 
     def _fallback_summarizer(
         self, request: SummarizerHarnessRequest, error: AiClientError

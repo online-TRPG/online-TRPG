@@ -33,7 +33,7 @@ class DirectorService:
                     system_instruction=system_prompt,
                     temperature=self._settings.ai_temperature_director,
                 )
-                parsed = DirectorOutput.model_validate(result.parsed_json)
+                parsed = DirectorOutput.model_validate(self._normalize_provider_output(result.parsed_json, request))
                 break
             except ValidationError as exc:
                 last_error = AiClientError(
@@ -72,6 +72,58 @@ class DirectorService:
             },
             parsed=parsed,
         )
+
+    @staticmethod
+    def _normalize_provider_output(payload: dict, request: DirectorHarnessRequest) -> dict:
+        normalized = dict(payload)
+        # provider에는 enum 제약을 느슨하게 보내므로, 의미가 명확한 흔한 변형은
+        # 우리 계약 literal로 되돌린 뒤 Pydantic이 최종 검증하게 한다.
+        normalized["hintLevel"] = DirectorService._normalize_hint_level(
+            normalized.get("hintLevel"),
+            request.hintLevel,
+        )
+        normalized["sourceScope"] = DirectorService._normalize_source_scope(
+            normalized.get("sourceScope"),
+        )
+        normalized["spoilerLevel"] = DirectorService._normalize_spoiler_level(
+            normalized.get("spoilerLevel"),
+        )
+        return normalized
+
+    @staticmethod
+    def _normalize_hint_level(value, fallback: str) -> str:
+        normalized = str(value or fallback).strip().upper()
+        if normalized in {"LIGHT", "NORMAL", "STRONG"}:
+            return normalized
+        return fallback
+
+    @staticmethod
+    def _normalize_source_scope(value) -> str:
+        normalized = DirectorService._normalize_token(value)
+        if normalized in {"scene", "scenesummary", "scenecontext", "publicclues", "publiccontext"}:
+            return "scene"
+        if normalized in {"recentlogs", "recentlog", "logs", "log"}:
+            return "recent_logs"
+        if normalized in {"rules", "rule", "rulecontext"}:
+            return "rules"
+        if normalized in {"mixed", "all", "combined"}:
+            return "mixed"
+        return "mixed"
+
+    @staticmethod
+    def _normalize_spoiler_level(value) -> str:
+        normalized = DirectorService._normalize_token(value)
+        if normalized in {"low", "light", "none", "safe"}:
+            return "low"
+        if normalized in {"medium", "normal", "moderate"}:
+            return "medium"
+        if normalized in {"high", "strong"}:
+            return "high"
+        return "low"
+
+    @staticmethod
+    def _normalize_token(value) -> str:
+        return "".join(ch for ch in str(value or "").casefold() if ch.isalnum())
 
     @staticmethod
     def _build_prompt(request: DirectorHarnessRequest) -> str:

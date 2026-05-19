@@ -408,8 +408,34 @@ def test_director_harness_returns_bounded_hint():
     assert response.providerRequestId == "req-director-1"
     assert fake_client.calls[0]["temperature"] == 0.3
     prompt = fake_client.calls[0]["prompt"]
+    system_instruction = fake_client.calls[0]["system_instruction"]
     assert '"noHiddenFacts": true' in prompt
+    assert "sourceScope: scene, recent_logs, rules, or mixed" in system_instruction
+    assert "spoilerLevel: low, medium, or high" in system_instruction
     assert "바닥 긁힌 자국" in prompt
+
+
+def test_director_normalizes_common_provider_enum_variants():
+    request = DirectorHarnessRequest(
+        hintLevel="NORMAL",
+        sceneSummary="public scene",
+    )
+
+    normalized = DirectorService._normalize_provider_output(
+        {
+            "hintLevel": "normal",
+            "content": "주변을 다시 살펴보세요.",
+            "sourceScope": "sceneSummary",
+            "spoilerLevel": "LOW",
+            "suggestions": [],
+            "safetyNotes": [],
+        },
+        request,
+    )
+
+    assert normalized["hintLevel"] == "NORMAL"
+    assert normalized["sourceScope"] == "scene"
+    assert normalized["spoilerLevel"] == "low"
 
 
 def test_summarizer_harness_returns_factual_summary():
@@ -596,6 +622,46 @@ def test_interpreter_fallback_routes_clear_general_gm_support_request():
     assert response.parsed.needsClarification is False
     assert response.parsed.action.type == "ASK_HINT"
     assert response.parsed.action.targetId is None
+
+
+def test_interpreter_fallback_routes_what_should_i_do_to_hint():
+    service, _fake_client = build_service(
+        TEST_LOG_DIR / "interpreter_general_gm_what_next_fallback",
+        AlwaysFailingGoogleAiStudioClient(),
+    )
+
+    response = service.run_interpreter(
+        InterpreterHarnessRequest(
+            rawText="뭐해야돼?",
+            actorCharacterId="player-1",
+            requestIntent="GENERAL_GM_REQUEST",
+        )
+    )
+
+    assert response.fallback is True
+    assert response.parsed.needsClarification is False
+    assert response.parsed.action.type == "ASK_HINT"
+
+
+def test_director_fallback_returns_scene_based_hint_without_ai_error_text():
+    service, _fake_client = build_service(
+        TEST_LOG_DIR / "director_scene_hint_fallback",
+        AlwaysFailingGoogleAiStudioClient(),
+    )
+
+    response = service.run_director(
+        DirectorHarnessRequest(
+            hintLevel="NORMAL",
+            question="뭐하면 돼?",
+            sceneSummary="마을 관리인 밀라가 우물 아래에서 이상한 소리가 난다고 말했다.",
+            publicClues=["봉쇄된 우물을 조사한다"],
+        )
+    )
+
+    assert response.fallback is True
+    assert "AI 힌트를 만들지 못했습니다" not in response.parsed.content
+    assert "우물" in response.parsed.content
+    assert response.parsed.suggestions == ["봉쇄된 우물을 조사한다"]
 
 
 def test_actor_fallback_selects_allowed_action_only():
