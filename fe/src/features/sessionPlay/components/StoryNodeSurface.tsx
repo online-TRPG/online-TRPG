@@ -8,6 +8,7 @@ import {
   getCharacterClassLabel,
   getCharacterImage,
 } from '../utils/characterVisuals';
+import quillImage from '../../../components/quill.webp';
 import storyNodeBadge from '../../../components/node_badge_story.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import './StoryNodeSurface.css';
@@ -304,7 +305,12 @@ export function StoryNodeSurface({
           </div>
 
           <section className="story-scene-text" aria-label="장면 설명">
-            <span className="story-node-eyebrow">GM 내레이션</span>
+            <img
+              src={quillImage}
+              alt=""
+              aria-hidden="true"
+              className="story-scene-quill"
+            />
             {sceneParagraphs.map((paragraph, index) => (
               <p key={`${paragraph}-${index}`}>{paragraph}</p>
             ))}

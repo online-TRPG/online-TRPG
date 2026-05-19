@@ -2522,6 +2522,16 @@ button.chat-submit-btn:disabled,
   border-top: 1px solid #bd9140;
 }
 
+/* 메인탭 명령 버튼 영역은 로그 말풍선 바로 아래에 선을 붙이고, 버튼은 선 아래에서 더 여유 있게 시작합니다. */
+.session-log-area:has(+ .session-sidebar-input .main-command-picker) .session-log-stack {
+  padding-bottom: 0;
+}
+
+.session-sidebar-input:has(.main-command-picker) {
+  margin-top: -10px;
+  padding-top: 18px;
+}
+
 .session-sidebar-input input,
 .main-command-field input,
 .main-command-field select,
