@@ -115,6 +115,10 @@ const mapText = {
   size: '\uD06C\uAE30',
   hidden: '\uC228\uAE40',
   hostile: '\uC801\uB300\uC801',
+  encounterScaling: '인원수 조정',
+  basePartySize: '기준 인원',
+  fixedEncounterToken: '고정 몬스터',
+  scalingPriority: '유지 우선순위',
   srdMonster: 'SRD \uBAAC\uC2A4\uD130',
   speed: '\uC18D\uB3C4',
   senses: '\uAC10\uC9C0',
@@ -1121,6 +1125,22 @@ export function BattleMap({
     });
   }
 
+  function updateEncounterScaling(patch: Partial<NonNullable<VttMapStateDto['encounterScaling']>>) {
+    const current = map.encounterScaling ?? {
+      enabled: false,
+      basePartySize: 4,
+      minMonsterCount: 1,
+      mode: 'by_party_ratio' as const,
+    };
+    updateMap({
+      encounterScaling: {
+        ...current,
+        ...patch,
+        mode: 'by_party_ratio',
+      },
+    });
+  }
+
   function updateToken(tokenId: string, patch: Partial<VttMapStateDto['tokens'][number]>) {
     updateMap({
       tokens: map.tokens.map((token) =>
@@ -1671,6 +1691,9 @@ export function BattleMap({
           size: map.gridSize,
           hidden: false,
           isHostile: true,
+          encounterRole: 'scalable',
+          encounterGroupId: selectedMonster.id,
+          encounterPriority: 0,
           monster: selectedMonster,
         },
       ],
@@ -2362,6 +2385,28 @@ export function BattleMap({
             <button type="button" onClick={addHostileToken}>
               {mapText.addMonster}
             </button>
+            <label className="vtt-inline-toggle">
+              <input
+                type="checkbox"
+                checked={map.encounterScaling?.enabled === true}
+                onChange={(event) => updateEncounterScaling({ enabled: event.target.checked })}
+              />
+              {mapText.encounterScaling}
+            </label>
+            <label className="vtt-compact-field">
+              {mapText.basePartySize}
+              <input
+                type="number"
+                min={1}
+                max={12}
+                value={map.encounterScaling?.basePartySize ?? 4}
+                onChange={(event) =>
+                  updateEncounterScaling({
+                    basePartySize: clamp(Number(event.target.value), 1, 12),
+                  })
+                }
+              />
+            </label>
             <button
               type="button"
               className={isPanMode ? 'active' : ''}
@@ -3316,7 +3361,39 @@ export function BattleMap({
                 />
                 {mapText.hostile}
               </label>
+              {selectedToken.monster || selectedToken.isHostile ? (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={selectedToken.encounterRole === 'fixed'}
+                    onChange={(event) =>
+                      updateToken(selectedToken.id, {
+                        encounterRole: event.target.checked ? 'fixed' : 'scalable',
+                      })
+                    }
+                  />
+                  {mapText.fixedEncounterToken}
+                </label>
+              ) : null}
             </div>
+            {selectedToken.monster || selectedToken.isHostile ? (
+              <div className="vtt-field-row">
+                <label>
+                  {mapText.scalingPriority}
+                  <input
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={selectedToken.encounterPriority ?? 0}
+                    onChange={(event) =>
+                      updateToken(selectedToken.id, {
+                        encounterPriority: clamp(Number(event.target.value), 0, 99),
+                      })
+                    }
+                  />
+                </label>
+              </div>
+            ) : null}
             {selectedToken.monster ? (
               <div className="vtt-monster-card">
                 <span className="eyebrow">{mapText.srdMonster}</span>

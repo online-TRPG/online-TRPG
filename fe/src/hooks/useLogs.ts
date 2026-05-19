@@ -12,6 +12,28 @@ function formatLogTime(value: string): string {
   return new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
+function stripMainScope(value: string): string {
+  return value.trim().replace(/^\[MAIN\]/, "").trimStart();
+}
+
+function looksLikeTurnLogDump(message: string): boolean {
+  const body = stripMainScope(message);
+  const hasTurnLogHeader = /^TurnLog\b/.test(body);
+  const internalFieldCount = [
+    "turnLogId:",
+    "turnNumber:",
+    "playerActionId:",
+    "actorUserId:",
+    "sessionCharacterId:",
+    "rawInput:",
+    "structuredAction",
+    "diceResult",
+    "stateDiff",
+  ].filter((field) => body.includes(field)).length;
+
+  return hasTurnLogHeader && internalFieldCount >= 3;
+}
+
 function createLogEntry(
   kind: LogEntry["kind"],
   title: string,
@@ -44,6 +66,10 @@ export function useLogs() {
   ]);
 
   const appendLog = useCallback((kind: LogEntry["kind"], title: string, message: string, id?: string, createdAt?: string, metadata?: LogEntry["metadata"]) => {
+    if (kind === "action" && looksLikeTurnLogDump(message)) {
+      return;
+    }
+
     const nextId = id ?? crypto.randomUUID();
     const nextLog = createLogEntry(kind, title, message, nextId, createdAt, metadata);
 
@@ -55,6 +81,10 @@ export function useLogs() {
   }, []);
 
   const appendOlderLog = useCallback((kind: LogEntry["kind"], title: string, message: string, id?: string, createdAt?: string, metadata?: LogEntry["metadata"]) => {
+    if (kind === "action" && looksLikeTurnLogDump(message)) {
+      return;
+    }
+
     const nextId = id ?? crypto.randomUUID();
     const nextLog = createLogEntry(kind, title, message, nextId, createdAt, metadata);
 

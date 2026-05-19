@@ -14,6 +14,7 @@ import {
   ResolveMainCommandCheckDto,
   ScenarioNodeType,
   SubmitMainCommandDto,
+  VttMapStateDto,
 } from "@trpg/shared-types";
 import {
   GamePhase as PrismaGamePhase,
@@ -123,6 +124,13 @@ type TransitionEvidence = {
   flags: Record<string, unknown>;
   currentNodeId: string;
   combatResolvedForCurrentNode: boolean;
+};
+
+type VttObjectEventHint = {
+  objectName: string;
+  eventName: string | null;
+  distanceFeet: number;
+  revealRadiusFeet: number;
 };
 
 type VttDoorCheckEffect = {
@@ -2905,6 +2913,7 @@ export class MainCommandsService {
     recentLogs: string[],
     publicClues: string[],
   ): Promise<MainCommandResponseDto> {
+    const eventHints = await this.loadUntriggeredVttEventHintSummaries(context);
     const result = await this.aiService.runHint(
       userId,
       context.sessionId,
@@ -2913,7 +2922,7 @@ export class MainCommandsService {
         question: dto.playerText,
         sceneSummary: `${context.currentNodeTitle}: ${context.currentNodeSceneText}`,
         recentLogs: recentLogs.slice(0, 5),
-        publicClues,
+        publicClues: [...publicClues, ...eventHints],
       },
       { emitSystemMessage: false },
     );
@@ -2923,6 +2932,75 @@ export class MainCommandsService {
       status: MainCommandStatus.MESSAGE,
       message: result.parsed.content,
     };
+  }
+
+  private async loadUntriggeredVttEventHintSummaries(context: LoadedContext): Promise<string[]> {
+    const map = await this.sessionsService
+      .getVttMapForSessionScenario(context.sessionId, context.sessionScenarioId)
+      .catch(() => null);
+    if (!map) {
+      return [];
+    }
+
+    const eventEntries = this.extractUntriggeredVttObjectEventHints(map);
+    if (!eventEntries.length) {
+      return [];
+    }
+
+    const onceEventIds = eventEntries.map((entry) => entry.eventId);
+    const revealedEventIds = new Set(
+      (
+        await this.prisma.sessionReveal.findMany({
+          where: {
+            sessionScenarioId: context.sessionScenarioId,
+            contentKind: "event",
+            contentId: { in: onceEventIds },
+          },
+          select: { contentId: true },
+        })
+      ).map((reveal) => reveal.contentId),
+    );
+
+    return eventEntries
+      .filter((entry) => !revealedEventIds.has(entry.eventId))
+      .slice(0, 5)
+      .map(({ hint }) => this.formatVttObjectEventHint(hint));
+  }
+
+  private extractUntriggeredVttObjectEventHints(
+    map: VttMapStateDto,
+  ): Array<{ eventId: string; hint: VttObjectEventHint }> {
+    return (map.objectCells ?? []).flatMap((objectCell) => {
+      if (objectCell.visibleToPlayers === false) {
+        return [];
+      }
+
+      const objectName =
+        objectCell.name?.trim() ||
+        objectCell.description?.trim().slice(0, 80) ||
+        "지도 오브젝트";
+
+      return (objectCell.events ?? [])
+        .filter((event) => event.type === "REVEAL_FOG_ON_PROXIMITY" && event.trigger?.once !== false)
+        .map((event) => ({
+          eventId: event.id,
+          hint: {
+            objectName,
+            eventName: event.name?.trim() || null,
+            distanceFeet: this.clampHintNumber(event.trigger?.distanceFeet, 0, 500, 15),
+            revealRadiusFeet: this.clampHintNumber(event.effect?.revealRadiusFeet, 5, 500, 30),
+          },
+        }));
+    });
+  }
+
+  private formatVttObjectEventHint(hint: VttObjectEventHint): string {
+    const eventLabel = hint.eventName ? ` (${hint.eventName})` : "";
+    return [
+      `아직 발동하지 않은 지도 이벤트: ${hint.objectName}${eventLabel}`,
+      `${hint.distanceFeet}ft 이내로 접근하면 숨겨진 공간이나 안개가 드러날 수 있습니다.`,
+      `드러나는 범위: ${hint.revealRadiusFeet}ft.`,
+    ].join(" ");
   }
 
   private async handleSummary(
@@ -4564,7 +4642,7 @@ export class MainCommandsService {
     const normalizedText = dto.playerText.trim().toLowerCase();
     return (
       candidates.find((candidate) =>
-        [candidate.title, candidate.label, candidate.condition]
+        [candidate.nodeId, candidate.transitionId, candidate.title, candidate.label, candidate.condition]
           .filter((value): value is string => Boolean(value))
           .some((value) => normalizedText.includes(value.trim().toLowerCase())),
       ) ??
@@ -5030,6 +5108,14 @@ export class MainCommandsService {
   private readDc(value: unknown): number | null {
     const dc = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
     return Number.isInteger(dc) && dc >= 5 && dc <= 30 ? dc : null;
+  }
+
+  private clampHintNumber(value: unknown, min: number, max: number, fallback: number): number {
+    const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+    return Math.min(Math.max(Math.floor(parsed), min), max);
   }
 
   private readPoint(value: unknown): { x: number; y: number } | null {
