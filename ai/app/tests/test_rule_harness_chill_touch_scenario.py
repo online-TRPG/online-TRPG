@@ -14,6 +14,7 @@ from app.core.response_logger import HarnessResponseLogger
 from app.schemas.harness import InterpreterHarnessRequest
 from app.services.harness import AiHarnessService
 from app.services.actor.service import ActorService
+from app.services.check_result.service import CheckResultService
 from app.services.director.service import DirectorService
 from app.services.interpreter.service import InterpreterService
 from app.services.narrator.service import NarratorService
@@ -131,6 +132,7 @@ def build_chill_touch_scenario_service(log_dir: Path):
         summarizer_service=SummarizerService(client, settings),
         actor_service=ActorService(client, settings),
         npc_dialogue_service=NpcDialogueService(client, settings),
+        check_result_service=CheckResultService(client, settings),
         response_logger=HarnessResponseLogger(settings),
     )
     return service, client
