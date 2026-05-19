@@ -8,6 +8,8 @@ import {
   getCharacterClassLabel,
   getCharacterImage,
 } from '../utils/characterVisuals';
+import quillImage from '../../../components/quill.webp';
+import storyNodeBadge from '../../../components/node_badge_story.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import './StoryNodeSurface.css';
 
@@ -242,7 +244,11 @@ export function StoryNodeSurface({
     <div className="story-node-surface">
       <header className="story-node-header">
         <div className="story-node-title-row">
-          <span className="story-node-eyebrow">스토리 노드</span>
+          <img
+            src={storyNodeBadge}
+            alt="스토리 노드"
+            className="session-node-type-badge"
+          />
           <h1>{node?.title ?? scenarioTitle ?? '진행 중인 장면'}</h1>
           <button
             type="button"
@@ -299,7 +305,12 @@ export function StoryNodeSurface({
           </div>
 
           <section className="story-scene-text" aria-label="장면 설명">
-            <span className="story-node-eyebrow">GM 내레이션</span>
+            <img
+              src={quillImage}
+              alt=""
+              aria-hidden="true"
+              className="story-scene-quill"
+            />
             {sceneParagraphs.map((paragraph, index) => (
               <p key={`${paragraph}-${index}`}>{paragraph}</p>
             ))}

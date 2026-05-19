@@ -1116,6 +1116,10 @@
 }
 
 .session-game-surface {
+  --session-node-badge-width: 195px;
+  --session-node-badge-height: 115px;
+  --session-node-badge-vertical-margin: -34.5px;
+  --session-node-badge-y: 5.5px;
   min-height: 0;
   height: 100%;
   padding: 0;
@@ -1323,6 +1327,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  min-height: 48px;
   padding: 8px 12px 14px;
   margin: 0 4px;
   color: #8b6426;
@@ -1343,8 +1348,18 @@
   margin: 0;
 }
 
+.session-sidebar-description.has-history-button {
+  padding: 8px 12px 14px;
+}
+
+.session-sidebar-description.has-history-button .session-log-history-bar {
+  width: 100%;
+  padding: 0;
+}
+
 .session-log-area {
   min-height: 0;
+  margin-top: -10px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1361,7 +1376,7 @@
   display: grid;
   gap: 8px;
   align-content: start;
-  padding: 6px 0 2px;
+  padding: 0 0 2px;
   padding-right: 4px;
   padding-bottom: 6px;
 }
@@ -1386,6 +1401,41 @@
 .session-log-history-button:disabled {
   cursor: wait;
   opacity: 0.68;
+}
+
+.session-prep-layout .session-sidebar-description.has-history-button .session-log-history-button {
+  min-height: 32px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #7c5b22 !important;
+  box-shadow: none !important;
+  font-size: 14px !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+}
+
+.session-prep-layout
+  .session-sidebar-description.has-history-button
+  .session-log-history-button:hover:not(:disabled) {
+  transform: none !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #4f3410 !important;
+  box-shadow: none !important;
+}
+
+.session-log-history-button-icon {
+  width: 30px;
+  height: 40px;
+  flex: 0 0 auto;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 1px rgba(75, 46, 14, 0.24));
 }
 
 .chat-thread-date-divider {
@@ -1670,6 +1720,7 @@ button.chat-submit-btn:disabled,
   gap: 8px;
   position: relative;
   z-index: 6;
+  container-type: inline-size;
 }
 
 .main-command-mode-row,
@@ -1678,6 +1729,11 @@ button.chat-submit-btn:disabled,
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+
+.main-command-mode-row {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
 }
 
 .main-command-mode-button,
@@ -1697,17 +1753,71 @@ button.chat-submit-btn:disabled,
   white-space: nowrap;
 }
 
-.main-command-mode-button svg {
-  width: 16px;
-  height: 16px;
+.main-command-mode-button {
   flex: 0 0 auto;
 }
 
-.main-command-mode-button.active,
-.main-command-helper-button.active {
-  border-color: #d8b671;
-  background: #f4e8d3;
-  color: #1f2f45;
+.main-command-command-mode-button {
+  max-width: max-content;
+  position: relative;
+}
+
+.main-command-mode-button svg {
+  width: 16px;
+  min-width: 16px;
+  max-width: 16px;
+  height: 16px;
+  min-height: 16px;
+  max-height: 16px;
+  flex: 0 0 16px;
+}
+
+@container (max-width: 396px) {
+  .main-command-mode-button.main-command-command-mode-button {
+    width: 46px !important;
+    min-width: 46px !important;
+    justify-content: center;
+    gap: 0 !important;
+    padding-inline: 0 !important;
+  }
+
+  .main-command-mode-button.main-command-command-mode-button svg {
+    width: 16px !important;
+    min-width: 16px !important;
+    max-width: 16px !important;
+    height: 16px !important;
+    min-height: 16px !important;
+    max-height: 16px !important;
+    flex: 0 0 16px !important;
+  }
+
+  .main-command-mode-button.main-command-command-mode-button span {
+    position: absolute;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden;
+    clip: rect(0 0 0 0) !important;
+    clip-path: inset(50%) !important;
+    padding: 0 !important;
+    border: 0 !important;
+    margin: 0 !important;
+    white-space: nowrap !important;
+  }
+}
+
+/* GM/RP는 실제 입력 모드라 버튼 전체를 채워 현재 모드를 빠르게 구분합니다. */
+.main-command-primary-mode-button.active {
+  border-color: #17375a;
+  background: #17375a;
+  color: #fff8dd;
+}
+
+/* 명령어와 대상 보조는 보조 선택이므로 화면 무게를 줄이기 위해 테두리만 강조합니다. */
+.main-command-outline-mode-button.active,
+.main-command-target-helper-button.active {
+  border-color: #17375a;
+  background: #fdfaf3;
+  color: #17375a;
 }
 
 .main-command-guide-panel,
@@ -1716,10 +1826,16 @@ button.chat-submit-btn:disabled,
   gap: 6px;
   overflow: auto;
   padding: 8px;
-  border: 1px solid rgba(122, 166, 216, 0.45);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 14px 30px rgba(22, 34, 48, 0.16);
+  border: 1.5px solid #b89040;
+  border-top-color: #17375a;
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 252, 242, 0.92), rgba(246, 230, 190, 0.9)),
+    #fff6df;
+  box-shadow:
+    inset 0 0 0 2px rgba(197, 158, 70, 0.24),
+    0 12px 24px rgba(43, 27, 10, 0.18);
+  scrollbar-color: #b89040 rgba(246, 230, 190, 0.72);
 }
 
 .main-command-guide-panel {
@@ -1732,11 +1848,14 @@ button.chat-submit-btn:disabled,
 
 .main-command-guide-notice {
   margin: 0;
-  padding: 8px 10px;
-  border: 1px solid rgba(122, 166, 216, 0.35);
-  border-radius: 8px;
-  background: #edf4fb;
-  color: #294058;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid rgba(184, 144, 64, 0.62);
+  border-left: 4px solid #17375a;
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, rgba(255, 250, 230, 0.96), rgba(241, 221, 170, 0.9)),
+    #fff1cf;
+  color: #4a3010;
   font-size: 12px;
   font-weight: 800;
   line-height: 1.4;
@@ -1750,40 +1869,51 @@ button.chat-submit-btn:disabled,
   gap: 3px;
   align-items: center;
   padding: 8px 10px;
-  border: 1px solid #d5deea;
-  border-radius: 8px;
-  background: #f9fbfd;
-  color: #24364a;
+  border: 1px solid rgba(184, 144, 64, 0.54);
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 244, 0.92), rgba(255, 244, 218, 0.86)),
+    #fffaf0;
+  color: #3e2712;
   text-align: left;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.64);
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+/* 목록 항목은 양피지 톤을 유지하고, hover/focus에서만 명령 선택 가능성을 보여줍니다. */
+.main-command-guide-option:hover,
+.main-command-guide-option:focus-visible,
+.main-command-autocomplete-option:hover,
+.main-command-autocomplete-option:focus-visible {
+  outline: none;
+  border-color: rgba(23, 55, 90, 0.72);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 230, 0.98), rgba(239, 218, 165, 0.94)),
+    #fff1cf;
+  box-shadow:
+    inset 0 0 0 2px rgba(23, 55, 90, 0.12),
+    0 4px 10px rgba(75, 46, 14, 0.1);
 }
 
 .main-command-autocomplete-option.active {
-  border-color: #17375a;
-  background: linear-gradient(180deg, #fff8df, #ead398);
-  color: #24170d;
+  border-color: #0f2f52;
+  background: linear-gradient(180deg, #315d87, #17375a);
+  color: #fff8dd;
   box-shadow:
-    inset 0 0 0 2px rgba(23, 55, 90, 0.28),
-    0 0 0 2px rgba(212, 184, 114, 0.45),
-    0 6px 14px rgba(43, 27, 10, 0.16);
-}
-
-.main-command-autocomplete-option.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 6px;
-  bottom: 6px;
-  width: 4px;
-  border-radius: 0 999px 999px 0;
-  background: #17375a;
+    inset 0 0 0 1px rgba(255, 248, 221, 0.18),
+    0 3px 0 #0f243d,
+    0 8px 14px rgba(15, 36, 61, 0.18);
 }
 
 .main-command-autocomplete-option.active strong {
-  color: #17375a;
+  color: #fff8dd;
 }
 
 .main-command-autocomplete-option.active small {
-  color: #4e3513;
+  color: rgba(255, 248, 221, 0.82);
 }
 
 .main-command-autocomplete-option {
@@ -1795,7 +1925,7 @@ button.chat-submit-btn:disabled,
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #6f7f91;
+  color: #6f5424;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0;
@@ -1806,18 +1936,18 @@ button.chat-submit-btn:disabled,
   content: "";
   height: 1px;
   flex: 1;
-  background: #d5deea;
+  background: rgba(184, 144, 64, 0.54);
 }
 
 .main-command-guide-option strong,
 .main-command-autocomplete-option strong {
   font-size: 12px;
-  color: #175f96;
+  color: #17375a;
 }
 
 .main-command-guide-option small,
 .main-command-autocomplete-option small {
-  color: #5e6f82;
+  color: #6c5637;
   font-size: 11px;
   line-height: 1.35;
 }
@@ -2390,6 +2520,16 @@ button.chat-submit-btn:disabled,
 .session-sidebar-input {
   padding: 12px 0 0;
   border-top: 1px solid #bd9140;
+}
+
+/* 메인탭 명령 버튼 영역은 로그 말풍선 바로 아래에 선을 붙이고, 버튼은 선 아래에서 더 여유 있게 시작합니다. */
+.session-log-area:has(+ .session-sidebar-input .main-command-picker) .session-log-stack {
+  padding-bottom: 0;
+}
+
+.session-sidebar-input:has(.main-command-picker) {
+  margin-top: -10px;
+  padding-top: 18px;
 }
 
 .session-sidebar-input input,
@@ -4385,7 +4525,12 @@ button.chat-submit-btn:disabled,
   box-shadow:
     inset 0 0 0 2.5px rgba(197, 158, 70, 0.45),
     0 2px 6px rgba(100, 65, 10, 0.1) !important;
-  transition: all 0.18s !important;
+  /* 버튼 축약 시 width/padding까지 애니메이션되면 아이콘이 순간적으로 작아 보이므로 색상 계열만 전환합니다. */
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease !important;
 }
 
 .main-command-mode-button:hover,
@@ -4397,14 +4542,44 @@ button.chat-submit-btn:disabled,
     0 3px 8px rgba(100, 65, 10, 0.15) !important;
 }
 
-.main-command-mode-button.active,
-.main-command-helper-button.active {
-  border-color: #a07020 !important;
-  background: rgba(238, 218, 168, 0.85) !important;
-  color: #2e1a06 !important;
+/* GM/RP는 실제 입력 모드라 버튼 전체를 채워 현재 모드를 빠르게 구분합니다. */
+.main-command-primary-mode-button.active {
+  border-color: #17375a !important;
+  background: #17375a !important;
+  color: #fff8dd !important;
   box-shadow:
-    inset 0 0 0 2.5px rgba(160, 112, 32, 0.5),
-    inset 0 2px 4px rgba(90, 55, 10, 0.1) !important;
+    inset 0 0 0 2.5px rgba(255, 248, 221, 0.18),
+    0 3px 8px rgba(15, 36, 61, 0.18) !important;
+}
+
+/* 명령어와 대상 보조는 보조 선택이므로 화면 무게를 줄이기 위해 테두리만 강조합니다. */
+.main-command-outline-mode-button.active,
+.main-command-target-helper-button.active {
+  border-color: #17375a !important;
+  background: rgba(252, 244, 220, 0.75) !important;
+  color: #17375a !important;
+  box-shadow:
+    inset 0 0 0 2.5px rgba(23, 55, 90, 0.28),
+    0 2px 6px rgba(15, 36, 61, 0.1) !important;
+}
+
+/* 자동완성 항목도 폼 안의 button이라 공통 버튼 배경이 덮어씁니다. 선택 줄은 여기서 다시 고정합니다. */
+.session-prep-layout .session-sidebar-input .main-command-autocomplete-option.active {
+  border-color: #0f2f52 !important;
+  background: linear-gradient(180deg, #315d87, #17375a) !important;
+  color: #fffdf0 !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 248, 221, 0.2),
+    0 3px 0 #0f243d,
+    0 8px 14px rgba(15, 36, 61, 0.18) !important;
+}
+
+.session-prep-layout .session-sidebar-input .main-command-autocomplete-option.active strong {
+  color: #fffdf0 !important;
+}
+
+.session-prep-layout .session-sidebar-input .main-command-autocomplete-option.active small {
+  color: rgba(255, 248, 221, 0.88) !important;
 }
 
 .main-command-mode-button svg + *,

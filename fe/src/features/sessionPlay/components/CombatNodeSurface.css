@@ -79,6 +79,7 @@
 }
 
 .combat-turn-bar {
+  z-index: 80;
   min-height: 70px;
   padding: 12px 16px;
   display: flex;
@@ -90,17 +91,36 @@
 
 .combat-node-title-row {
   min-width: 0;
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 8px;
+  overflow: visible;
+}
+
+.session-node-type-badge {
+  position: relative;
+  z-index: 120;
+  width: var(--session-node-badge-width, 156px);
+  height: var(--session-node-badge-height, 92px);
+  flex: 0 0 var(--session-node-badge-width, 156px);
+  margin: var(--session-node-badge-vertical-margin, -23px) 0;
+  display: block;
+  object-fit: contain;
+  object-position: center;
+  transform: translateY(var(--session-node-badge-y, -6px));
 }
 
 .combat-turn-bar h1 {
-  margin: 4px 0 0;
+  min-width: 0;
+  flex: 0 1 auto;
+  margin: 0;
   color: #2a1a06;
   font-size: 23px;
   line-height: 1.2;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
@@ -453,9 +473,10 @@
 }
 
 .combat-action-dock {
+  position: relative;
   min-height: 86px;
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr) minmax(220px, 0.34fr);
+  grid-template-columns: minmax(300px, 0.32fr) minmax(0, 1fr) minmax(260px, 0.36fr);
   gap: 16px;
   align-items: stretch;
   /* 우드 배경이 비치도록 투명하게 유지, 각각의 독립 카드로 렌더링됨 */
@@ -496,6 +517,10 @@
 .combat-resource-panel,
 .combat-action-panel,
 .combat-inventory-panel {
+  --combat-frame-corner-size: 22px;
+  --combat-frame-corner-image-size: 50px;
+  --combat-frame-corner-offset-x: -12px;
+  --combat-frame-corner-offset-y: -12px;
   min-width: 0;
   padding: 14px 16px;
   display: grid;
@@ -510,13 +535,476 @@
 }
 
 .combat-resource-panel strong {
-  color: #2a1a06;
+  color: #ead9b0;
   font-size: 12px;
+  font-weight: 900;
   line-height: 1.15;
   overflow-wrap: anywhere;
 }
 
+.combat-resource-panel > strong {
+  font-size: 14px;
+}
+
+.combat-resource-panel {
+  padding: 14px 16px 16px;
+  align-content: start;
+  gap: 10px;
+  border-color: #7c5a2d;
+  outline-color: rgba(217, 168, 79, 0.38);
+  background-color: #111419;
+  background-image:
+    radial-gradient(circle at 18% 16%, rgba(203, 163, 88, 0.12), transparent 26%),
+    linear-gradient(180deg, rgba(255, 237, 188, 0.05), transparent 38%),
+    linear-gradient(145deg, #18191c 0%, #0d1013 100%);
+  color: #ead9b0;
+  box-shadow:
+    inset 0 0 0 1px rgba(232, 201, 122, 0.18),
+    inset 0 0 22px rgba(0, 0, 0, 0.4),
+    0 4px 10px rgba(30, 18, 8, 0.5);
+}
+
+.combat-resource-panel::before,
+.combat-action-panel::before,
+.combat-inventory-panel::before {
+  background-image: none;
+}
+
+.combat-resource-panel > :not(.combat-frame-corner),
+.combat-action-panel > :not(.combat-frame-corner),
+.combat-inventory-panel > :not(.combat-frame-corner) {
+  position: relative;
+  z-index: 2;
+}
+
+.combat-frame-corner {
+  position: absolute;
+  z-index: 3;
+  width: var(--combat-frame-corner-size);
+  height: var(--combat-frame-corner-size);
+  pointer-events: none;
+  background-image: url('../../../components/gold_frame_corner_1.webp');
+  background-repeat: no-repeat;
+  background-size: var(--combat-frame-corner-image-size) var(--combat-frame-corner-image-size);
+  background-position: var(--combat-frame-corner-offset-x) var(--combat-frame-corner-offset-y);
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.72));
+}
+
+.combat-frame-corner.top-left {
+  top: -4px;
+  left: -4px;
+}
+
+.combat-frame-corner.top-right {
+  top: -4px;
+  right: -4px;
+  transform: scaleX(-1);
+}
+
+.combat-frame-corner.bottom-left {
+  bottom: -4px;
+  left: -4px;
+  transform: scaleY(-1);
+}
+
+.combat-frame-corner.bottom-right {
+  right: -4px;
+  bottom: -4px;
+  transform: scale(-1);
+}
+
+.combat-action-panel {
+  padding: 16px 18px 18px;
+  align-content: start;
+  gap: 14px;
+  border-color: #7c5a2d;
+  outline-color: rgba(217, 168, 79, 0.38);
+  background-color: #111419;
+  background-image:
+    radial-gradient(circle at 18% 16%, rgba(203, 163, 88, 0.12), transparent 26%),
+    linear-gradient(180deg, rgba(255, 237, 188, 0.05), transparent 38%),
+    linear-gradient(145deg, #18191c 0%, #0d1013 100%);
+  color: #ead9b0;
+  box-shadow:
+    inset 0 0 0 1px rgba(232, 201, 122, 0.18),
+    inset 0 0 22px rgba(0, 0, 0, 0.4),
+    0 4px 10px rgba(30, 18, 8, 0.5);
+}
+
 .combat-resource-head {
+  min-width: 0;
+  padding-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid rgba(198, 152, 72, 0.28);
+}
+
+.combat-resource-panel .combat-node-eyebrow {
+  color: #f0d48e;
+  font-size: 13px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.65);
+}
+
+.combat-resource-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.combat-end-turn-button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid #6f5631;
+  background:
+    linear-gradient(180deg, rgba(255, 240, 194, 0.07), rgba(255, 240, 194, 0) 45%),
+    linear-gradient(145deg, #1b1c1e, #0e1114);
+  color: #d9bd76;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 3px rgba(202, 154, 63, 0.22);
+}
+
+.combat-end-turn-button:hover:not(:disabled) {
+  border-color: #c9963d;
+  color: #ffe2a0;
+}
+
+.combat-end-turn-button.danger {
+  border-color: #7b4737;
+  color: #e6a27d;
+  background:
+    linear-gradient(180deg, rgba(255, 174, 121, 0.1), rgba(255, 174, 121, 0) 45%),
+    linear-gradient(145deg, #2a1714, #111316);
+}
+
+.combat-end-turn-button.danger:hover:not(:disabled) {
+  border-color: #c07045;
+  color: #ffc19a;
+}
+
+.combat-end-turn-button:disabled {
+  border-color: #4e4c47;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 42%),
+    linear-gradient(145deg, #18191a, #101113);
+  color: #7e7769;
+  cursor: not-allowed;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.3),
+    inset 0 0 0 3px rgba(140, 123, 88, 0.12);
+}
+
+.combat-resource-row {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+
+.combat-resource-token {
+  width: 42px;
+  height: 42px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #5f4a2b;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 36% 30%, rgba(255, 231, 157, 0.12), transparent 34%),
+    linear-gradient(145deg, #24221d, #101215);
+  color: #c4b89d;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.42),
+    inset 0 0 0 3px rgba(202, 154, 63, 0.24),
+    0 2px 8px rgba(0, 0, 0, 0.34);
+}
+
+.combat-resource-token.available {
+  border-color: #c9963d;
+  background:
+    radial-gradient(circle at 36% 28%, rgba(255, 228, 137, 0.24), transparent 36%),
+    linear-gradient(145deg, #2b2519, #111316);
+  color: #f1d488;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.38),
+    inset 0 0 0 3px rgba(238, 185, 77, 0.48),
+    0 0 0 1px rgba(236, 188, 83, 0.22),
+    0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.combat-resource-token.spent {
+  opacity: 0.56;
+  filter: grayscale(0.7);
+}
+
+.combat-resource-token svg {
+  width: 21px;
+  height: 21px;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55));
+}
+
+.combat-resource-meter-grid {
+  padding-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  border-top: 1px solid rgba(198, 152, 72, 0.24);
+}
+
+.combat-resource-meter {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.combat-resource-meter-label {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  color: #e0c884;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.combat-resource-meter-label strong {
+  color: #ead9b0;
+  font-size: 12px;
+}
+
+.combat-resource-meter-track {
+  position: relative;
+  height: 7px;
+  overflow: hidden;
+  display: block;
+  border: 1px solid rgba(81, 62, 32, 0.9);
+  background: #1a1b1a;
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.72),
+    0 1px 0 rgba(224, 190, 109, 0.14);
+}
+
+.combat-resource-meter-fill {
+  width: var(--combat-resource-fill, 0%);
+  height: 100%;
+  display: block;
+  background: linear-gradient(90deg, #5168c9, #8aa5ff);
+  box-shadow: 0 0 8px rgba(106, 132, 245, 0.45);
+}
+
+.combat-resource-meter.hp .combat-resource-meter-fill {
+  background: linear-gradient(90deg, #4f8a3a, #8bc95b);
+  box-shadow: 0 0 7px rgba(112, 183, 78, 0.42);
+}
+
+.combat-action-tabs {
+  position: relative;
+  min-height: 36px;
+  padding: 0 0 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 20px;
+  border-bottom: 1px solid rgba(198, 152, 72, 0.28);
+}
+
+.combat-action-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.combat-action-tabs button {
+  position: relative;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #a99b7b;
+  font-size: 13px;
+  font-weight: 900;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+}
+
+.combat-action-tabs button.active {
+  border-bottom-color: #c9963d;
+  background: transparent;
+  color: #f0d48e;
+}
+
+.combat-action-tabs button.active::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-right: 5px solid transparent;
+  border-left: 5px solid transparent;
+  border-top: 6px solid #c9963d;
+}
+
+.combat-action-list .combat-action-button {
+  position: relative;
+  width: 86px;
+  min-height: 92px;
+  padding: 10px 8px 9px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #6f5631;
+  background:
+    linear-gradient(180deg, rgba(255, 240, 194, 0.06), rgba(255, 240, 194, 0) 38%),
+    linear-gradient(145deg, #1b1c1e, #0e1114);
+  color: #e5d1a3;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 3px rgba(202, 154, 63, 0.25),
+    0 2px 8px rgba(0, 0, 0, 0.36);
+}
+
+.combat-action-list .combat-action-button::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(206, 164, 86, 0.34);
+  pointer-events: none;
+}
+
+.combat-action-list .combat-action-button:hover:not(:disabled) {
+  border-color: #c9963d;
+  color: #ffe2a0;
+  background:
+    linear-gradient(180deg, rgba(255, 218, 135, 0.12), rgba(255, 218, 135, 0.02) 42%),
+    linear-gradient(145deg, #24211b, #121417);
+}
+
+.combat-action-button-icon {
+  flex: 0 0 auto;
+  color: #c4b89d;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55));
+}
+
+.combat-action-button-label {
+  display: block;
+  line-height: 1.15;
+  text-align: center;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.combat-action-list .combat-action-button.targeting {
+  border-color: #e1a846;
+  background:
+    linear-gradient(180deg, rgba(255, 207, 91, 0.18), rgba(255, 207, 91, 0.04) 42%),
+    linear-gradient(145deg, #2b2217, #111316);
+  color: #ffe5a3;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.32),
+    inset 0 0 0 3px rgba(238, 185, 77, 0.48),
+    0 0 0 2px rgba(224, 155, 55, 0.22),
+    0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.combat-action-list .combat-action-button.targeting .combat-action-button-icon {
+  color: #ffd989;
+}
+
+.combat-action-list .combat-action-button:disabled {
+  border-color: #4e4c47;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 42%),
+    linear-gradient(145deg, #18191a, #101113);
+  color: #7e7769;
+  cursor: not-allowed;
+  opacity: 0.68;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.3),
+    inset 0 0 0 3px rgba(140, 123, 88, 0.12);
+}
+
+.combat-action-list .combat-action-button:disabled .combat-action-button-icon {
+  color: #777166;
+  filter: none;
+}
+
+.combat-action-list .combat-action-empty-button {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid #4e4c47;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 42%),
+    linear-gradient(145deg, #18191a, #101113);
+  color: #7e7769;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: not-allowed;
+}
+
+.combat-targeting-hint {
+  margin: 2px 0 0;
+  color: #e2bf75;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.combat-inventory-slot {
+  grid-column: 3;
+  position: relative;
+  min-width: 0;
+  min-height: 172px;
+  display: grid;
+}
+
+.combat-inventory-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14px 14px 16px;
+  align-content: start;
+  gap: 10px;
+  overflow: hidden;
+  border-color: #7c5a2d;
+  outline-color: rgba(217, 168, 79, 0.38);
+  background-color: #111419;
+  background-image:
+    radial-gradient(circle at 18% 16%, rgba(203, 163, 88, 0.12), transparent 26%),
+    linear-gradient(180deg, rgba(255, 237, 188, 0.05), transparent 38%),
+    linear-gradient(145deg, #18191c 0%, #0d1013 100%);
+  color: #ead9b0;
+  box-shadow:
+    inset 0 0 0 1px rgba(232, 201, 122, 0.18),
+    inset 0 0 22px rgba(0, 0, 0, 0.4),
+    0 4px 10px rgba(30, 18, 8, 0.5);
+}
+
+.combat-inventory-panel.expanded {
+  top: auto;
+  z-index: 32;
+  max-height: min(62vh, calc((var(--combat-inventory-item-count) * 62px) + 72px));
+}
+
+.combat-inventory-head {
   min-width: 0;
   display: flex;
   align-items: center;
@@ -524,155 +1012,111 @@
   gap: 8px;
 }
 
-.combat-end-turn-button {
-  flex: 0 0 auto;
-  min-height: 26px;
-  padding: 0 10px;
-  border: 1px solid #9a7d75;
-  border-radius: 6px;
-  background: #f8f1ee;
-  color: #5d3c38;
-  font-size: 12px;
-  font-weight: 900;
+.combat-inventory-panel .combat-node-eyebrow {
+  color: #f0d48e;
+  font-size: 14px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.65);
 }
 
-.combat-end-turn-button:disabled {
-  border-color: #d1d9df;
-  background: #eef2f4;
-  color: #8a98a4;
-  cursor: not-allowed;
-}
-
-.combat-resource-row {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-}
-
-.combat-resource-token {
-  width: 34px;
-  height: 34px;
+.combat-inventory-toggle {
+  width: 28px;
+  height: 28px;
+  padding: 0;
   display: inline-grid;
   place-items: center;
-  border: 2px solid #8f9ba8;
-  border-radius: 50%;
+  border: 1px solid #6f5631;
   background:
-    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.9), transparent 34%),
-    #e7ebef;
-  color: #445668;
-  box-shadow: inset 0 -3px 0 rgba(34, 47, 60, 0.12), 0 2px 5px rgba(24, 38, 52, 0.16);
+    linear-gradient(180deg, rgba(255, 240, 194, 0.07), rgba(255, 240, 194, 0) 45%),
+    linear-gradient(145deg, #1b1c1e, #0e1114);
+  color: #d9bd76;
+  cursor: pointer;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 3px rgba(202, 154, 63, 0.22);
 }
 
-.combat-resource-token.available {
-  border-color: #c19a50;
+.combat-inventory-toggle-arrow {
+  width: 0;
+  height: 0;
+  border-right: 6px solid transparent;
+  border-bottom: 8px solid currentColor;
+  border-left: 6px solid transparent;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.65));
+}
+
+.combat-inventory-toggle:hover {
+  border-color: #c9963d;
+  color: #ffe2a0;
+}
+
+.combat-inventory-toggle[aria-expanded='true'] {
+  border-color: #e1a846;
+  color: #ffd989;
   background:
-    radial-gradient(circle at 35% 28%, rgba(255, 247, 214, 0.95), transparent 35%),
-    linear-gradient(145deg, #f5d074, #9c6f28);
-  color: #3c2b13;
+    linear-gradient(180deg, rgba(255, 207, 91, 0.16), rgba(255, 207, 91, 0.04) 42%),
+    linear-gradient(145deg, #2b2217, #111316);
 }
 
-.combat-resource-token.spent {
-  opacity: 0.48;
-  filter: grayscale(0.8);
-}
-
-.combat-resource-token svg {
-  width: 19px;
-  height: 19px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.combat-resource-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.combat-resource-meta span {
-  min-height: 22px;
-  padding: 0 7px;
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid #d4dde6;
-  background: #ffffff;
-  color: #43566b;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.combat-action-tabs,
-.combat-action-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.combat-action-tabs button,
-.combat-action-list button {
-  min-height: 26px;
-  padding: 0 9px;
-  border: 1px solid #c2ceda;
-  background: #ffffff;
-  color: #294058;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.combat-action-tabs button.active {
-  border-color: #9a7d75;
-  background: #f8f1ee;
-  color: #5d3c38;
-}
-
-.combat-action-list button.targeting {
-  border-color: #d07843;
-  background: #fff1e7;
-  color: #7a3b17;
-  box-shadow: 0 0 0 2px rgba(255, 139, 76, 0.2);
-}
-
-.combat-targeting-hint {
-  margin: 2px 0 0;
-  color: #7a3b17;
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.35;
+.combat-inventory-toggle[aria-expanded='true'] .combat-inventory-toggle-arrow {
+  border-top: 8px solid currentColor;
+  border-bottom: 0;
 }
 
 .combat-inventory-panel p {
   margin: 0;
-  color: #4a2808;
+  color: #9f9279;
   font-size: 12px;
   line-height: 1.45;
 }
 
 .combat-inventory-list {
   min-height: 0;
-  max-height: 72px;
+  max-height: 104px;
+  padding-right: 4px;
+  display: grid;
+  gap: 8px;
   overflow-y: auto;
   scrollbar-width: thin;
+  scrollbar-color: #7b6034 transparent;
+  transition: max-height 0.16s ease;
+}
+
+.combat-inventory-list.expanded {
+  max-height: min(48vh, calc(var(--combat-inventory-item-count) * 62px));
 }
 
 .combat-inventory-item {
   min-width: 0;
-  min-height: 30px;
-  padding: 4px 5px;
+  min-height: 54px;
+  padding: 7px 8px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 5px;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  gap: 8px;
   align-items: center;
-  border: 1px solid #cbd7df;
-  background: #ffffff;
+  border: 1px solid #5e4b2c;
+  background:
+    linear-gradient(180deg, rgba(255, 240, 194, 0.06), rgba(255, 240, 194, 0) 42%),
+    linear-gradient(145deg, #202123, #121416);
+  color: #e5d1a3;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.32),
+    inset 0 0 0 3px rgba(202, 154, 63, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.24);
+}
+
+.combat-inventory-item-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  color: #c4b89d;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55));
 }
 
 .combat-inventory-item-body {
   min-width: 0;
   display: grid;
-  gap: 1px;
+  gap: 2px;
 }
 
 .combat-inventory-item-body strong,
@@ -684,36 +1128,47 @@
 }
 
 .combat-inventory-item-body strong {
-  color: #203040;
-  font-size: 11px;
+  color: #ead9b0;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .combat-inventory-item-body span,
 .combat-inventory-quantity {
-  color: #607184;
-  font-size: 10px;
-  font-weight: 700;
+  color: #a99b7b;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .combat-inventory-quantity {
-  min-width: 24px;
+  min-width: 28px;
   text-align: right;
 }
 
 .combat-inventory-item button {
-  min-height: 22px;
-  padding: 0 7px;
-  border: 1px solid #7da89c;
-  background: #eef8f4;
-  color: #234d45;
-  font-size: 10px;
-  font-weight: 800;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid #6f5631;
+  background:
+    linear-gradient(180deg, rgba(255, 240, 194, 0.07), rgba(255, 240, 194, 0) 45%),
+    linear-gradient(145deg, #1b1c1e, #0e1114);
+  color: #d9bd76;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.combat-inventory-item button:hover:not(:disabled) {
+  border-color: #c9963d;
+  color: #ffe2a0;
 }
 
 .combat-inventory-item button:disabled {
-  border-color: #d1d9df;
-  background: #eef2f4;
-  color: #8a98a4;
+  border-color: #4e4c47;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 42%),
+    linear-gradient(145deg, #18191a, #101113);
+  color: #7e7769;
   cursor: not-allowed;
 }
 
@@ -738,6 +1193,10 @@
 
   .combat-action-dock {
     grid-template-columns: 1fr;
+  }
+
+  .combat-inventory-slot {
+    grid-column: auto;
   }
 
   .combat-resolver {
