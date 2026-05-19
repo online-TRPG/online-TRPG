@@ -1,5 +1,11 @@
-import { Circle, Group, Image as KonvaImage, Text } from 'react-konva';
+import { Arc, Circle, Group, Image as KonvaImage, Text } from 'react-konva';
 import type { SessionTokenColor } from '../../utils/sessionTokenColors';
+
+export type TokenHealthFrame = {
+  currentHp: number | null;
+  maxHp: number | null;
+  isAlive?: boolean;
+};
 
 interface TokenFrameProps {
   image: HTMLImageElement | null;
@@ -8,9 +14,17 @@ interface TokenFrameProps {
   color: SessionTokenColor;
   isSelected: boolean;
   isHidden: boolean;
+  health?: TokenHealthFrame;
 }
 
-export function TokenFrame({ image, label, size, color, isSelected, isHidden }: TokenFrameProps) {
+function getHealthRatio(health: TokenHealthFrame | undefined) {
+  if (!health || health.currentHp === null || health.maxHp === null || health.maxHp <= 0) {
+    return null;
+  }
+  return Math.max(0, Math.min(1, health.currentHp / health.maxHp));
+}
+
+export function TokenFrame({ image, label, size, color, isSelected, isHidden, health }: TokenFrameProps) {
   const center = size / 2;
   const frameRadius = Math.max(8, center - 4);
   const frameColor = isHidden ? '#cbd6e2' : color.frame;
@@ -25,6 +39,12 @@ export function TokenFrame({ image, label, size, color, isSelected, isHidden }: 
   const coverHeight = imageHeight * coverScale;
   const coverX = center - coverWidth / 2;
   const coverY = center - coverHeight / 2;
+  const healthRatio = getHealthRatio(health);
+  const hasHealthFrame = healthRatio !== null;
+  const isDefeated = hasHealthFrame && (healthRatio <= 0 || health?.isAlive === false);
+  const depletedAngle = hasHealthFrame ? (1 - healthRatio) * 360 : 0;
+  const depletedFrameColor = isDefeated ? '#4b463f' : '#686159';
+  const portraitToneOverlay = isDefeated ? 'rgba(7, 7, 7, 0.48)' : null;
 
   return (
     <>
@@ -70,7 +90,17 @@ export function TokenFrame({ image, label, size, color, isSelected, isHidden }: 
             y={coverY}
             width={coverWidth}
             height={coverHeight}
+            opacity={isDefeated ? 0.58 : 1}
           />
+          {portraitToneOverlay ? (
+            <Circle
+              x={center}
+              y={center}
+              radius={portraitRadius}
+              fill={portraitToneOverlay}
+              listening={false}
+            />
+          ) : null}
         </Group>
       ) : (
         <Text
@@ -78,21 +108,47 @@ export function TokenFrame({ image, label, size, color, isSelected, isHidden }: 
           width={size}
           y={center - labelFontSize / 2}
           align="center"
-          fill={color.text}
+          fill={isDefeated ? '#8f887d' : color.text}
           fontSize={labelFontSize}
           fontStyle="bold"
         />
       )}
 
-      <Circle
-        x={center}
-        y={center}
-        radius={frameRadius}
-        fill="rgba(0, 0, 0, 0)"
-        stroke={frameColor}
-        strokeWidth={frameWidth}
-        listening={false}
-      />
+      {hasHealthFrame ? (
+        <>
+          <Circle
+            x={center}
+            y={center}
+            radius={frameRadius}
+            fill="rgba(0, 0, 0, 0)"
+            stroke={isDefeated ? depletedFrameColor : frameColor}
+            strokeWidth={frameWidth}
+            listening={false}
+          />
+          {depletedAngle > 0 && !isDefeated ? (
+            <Arc
+              x={center}
+              y={center}
+              innerRadius={Math.max(1, frameRadius - frameWidth / 2)}
+              outerRadius={frameRadius + frameWidth / 2}
+              angle={depletedAngle}
+              rotation={-90}
+              fill={depletedFrameColor}
+              listening={false}
+            />
+          ) : null}
+        </>
+      ) : (
+        <Circle
+          x={center}
+          y={center}
+          radius={frameRadius}
+          fill="rgba(0, 0, 0, 0)"
+          stroke={frameColor}
+          strokeWidth={frameWidth}
+          listening={false}
+        />
+      )}
     </>
   );
 }

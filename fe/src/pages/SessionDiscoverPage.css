@@ -322,6 +322,15 @@ body.session-discover-body {
   letter-spacing: -0.03em;
 }
 
+.session-discover-row h2 {
+  font-family: 'NEXON Warhaven', Pretendard, 'Segoe UI', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .session-discover-row p,
 .session-discover-empty p {
   margin: 4px 0 0;

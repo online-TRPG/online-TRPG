@@ -133,8 +133,9 @@
   margin: 0;
   flex: 0 1 auto;
   color: #2a1a06;
-  font-size: 22px;
-  font-weight: 900;
+  font-family: 'NEXON Warhaven', Pretendard, 'Segoe UI', sans-serif;
+  font-size: 24px;
+  font-weight: 700;
   line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
@@ -186,6 +187,7 @@
 /* ── 장면 설명 버튼 ───────────────────────────────────────── */
 .exploration-node-summary-button {
   flex: 0 0 auto;
+  margin-left: 18px;
   min-height: 28px;
   padding: 0 10px;
   border: 1px solid #d8b671;

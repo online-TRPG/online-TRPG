@@ -203,3 +203,16 @@ shared-types/
 doc/
 infra/
 ```
+
+## Font Credits
+
+This project uses fonts provided by NEXON Korea Corporation.
+
+- Font: NEXON Lv.1 Gothic
+- Font: NEXON Warhaven
+- Provider: NEXON Korea Corporation
+- Usage: Free for personal and commercial use, subject to the original font license.
+- Notice: Font files must not be modified, edited, or sold separately.
+
+본 프로젝트에는 넥슨코리아에서 제공한 `NEXON Lv.1 Gothic` 및 `NEXON Warhaven` 서체가 사용되었습니다.  
+© NEXON Korea Corporation. All Rights Reserved.
