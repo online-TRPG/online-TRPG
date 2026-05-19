@@ -1203,16 +1203,16 @@ export function CharacterPage({
     event.preventDefault();
 
     if (selectedClass?.key === 'wizard' && (selectedClass.startingCantripCount > 0 || selectedClass.startingSpellCount > 0)) {
+      const requiredCantripCount = Math.min(selectedClass.startingCantripCount, cantripOptions.length);
+      const requiredSpellCount = Math.min(selectedClass.startingSpellCount, level1SpellOptions.length);
       const cantrips = formState.startingSpells?.cantrips ?? [];
       const spells = formState.startingSpells?.spells ?? [];
-      const cantripFilled = cantrips.slice(0, selectedClass.startingCantripCount).every((value) => value.trim().length > 0);
-      const spellFilled = spells.slice(0, selectedClass.startingSpellCount).every((value) => value.trim().length > 0);
-      const cantripCountOk = cantrips.filter((value) => value.trim().length > 0).length >= selectedClass.startingCantripCount;
-      const spellCountOk = spells.filter((value) => value.trim().length > 0).length >= selectedClass.startingSpellCount;
-      if (!cantripFilled || !spellFilled || !cantripCountOk || !spellCountOk) {
+      const filledCantripCount = cantrips.slice(0, requiredCantripCount).filter((value) => value.trim().length > 0).length;
+      const filledSpellCount = spells.slice(0, requiredSpellCount).filter((value) => value.trim().length > 0).length;
+      if (filledCantripCount < requiredCantripCount || filledSpellCount < requiredSpellCount) {
         setFormValidationError(
           `위저드 클래스는 시작 주문을 모두 선택해야 캐릭터를 생성할 수 있습니다. ` +
-            `(캔트립 ${selectedClass.startingCantripCount}개, 1레벨 주문 ${selectedClass.startingSpellCount}개)`
+            `(캔트립 ${requiredCantripCount}개, 1레벨 주문 ${requiredSpellCount}개)`
         );
         return;
       }
@@ -1811,6 +1811,7 @@ export function CharacterPage({
                               startingEquipmentSelection: nextSelection,
                               startingEquipmentItemSelections: {},
                               startingSpells: nextSpells,
+                              proficientSkills: [],
                               features: [],
                             };
                           })
@@ -2438,19 +2439,29 @@ export function CharacterPage({
                 ) : null}
 
                 {selectedClass && (selectedClass.startingCantripCount > 0 || selectedClass.startingSpellCount > 0) ? (
+                  (() => {
+                    const renderedCantripCount = Math.min(
+                      selectedClass.startingCantripCount,
+                      cantripOptions.length
+                    );
+                    const renderedSpellCount = Math.min(
+                      selectedClass.startingSpellCount,
+                      level1SpellOptions.length
+                    );
+                    return (
                   <section className="character-form-section">
                     <div className="section-heading compact">
                       <div>
                         <span className="eyebrow">시작 주문</span>
                         <h2>
-                          캔트립 {selectedClass.startingCantripCount}개 + 주문 {selectedClass.startingSpellCount}개 (룰북 강제)
+                          캔트립 {renderedCantripCount}개 + 주문 {renderedSpellCount}개 (구현된 주문 풀 기준)
                         </h2>
                       </div>
                     </div>
-                    {selectedClass.startingCantripCount > 0 && (
+                    {renderedCantripCount > 0 && (
                       <div style={{ marginBottom: 12 }}>
                         <label style={{ display: 'block', marginBottom: 6 }}>캔트립</label>
-                        {Array.from({ length: selectedClass.startingCantripCount }).map((_, idx) => (
+                        {Array.from({ length: renderedCantripCount }).map((_, idx) => (
                           <select
                             key={`cantrip-${idx}`}
                             value={formState.startingSpells?.cantrips[idx] ?? ''}
@@ -2487,10 +2498,10 @@ export function CharacterPage({
                         ))}
                       </div>
                     )}
-                    {selectedClass.startingSpellCount > 0 && (
+                    {renderedSpellCount > 0 && (
                       <div>
                         <label style={{ display: 'block', marginBottom: 6 }}>1레벨 주문</label>
-                        {Array.from({ length: selectedClass.startingSpellCount }).map((_, idx) => (
+                        {Array.from({ length: renderedSpellCount }).map((_, idx) => (
                           <select
                             key={`spell-${idx}`}
                             value={formState.startingSpells?.spells[idx] ?? ''}
@@ -2528,6 +2539,8 @@ export function CharacterPage({
                       </div>
                     )}
                   </section>
+                    );
+                  })()
                 ) : null}
 
                 <section className="character-form-section">
@@ -2638,6 +2651,7 @@ export function CharacterPage({
                                     raceBonus,
                                   ),
                                   features: [],
+                                  proficientSkills: [],
                                   startingEquipmentSelection: nextSelection,
                                   startingEquipmentItemSelections: {},
                                 };
