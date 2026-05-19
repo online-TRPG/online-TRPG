@@ -40,6 +40,7 @@ import { ActionRuleService } from "../rules/action-rule.service";
 import { ActionEconomyService } from "../rules/action-economy.service";
 import { CharacterResourceService } from "../rules/character-resource.service";
 import { DiceService } from "../rules/dice.service";
+import { RuleEngineService } from "../rules/rule-engine.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import { SrdEngineLoaderService } from "./srd-engine-loader.service";
@@ -50,11 +51,14 @@ type CombatParticipantEntity = NonNullable<CombatWithParticipants>["participants
 
 type EquippedWeaponProfile = {
   weaponId?: string | null;
+  quantity?: number;
   name: string;
   attackBonus: number;
   damageDice?: string;
   damageBonus?: number;
   rangeFt: number;
+  properties?: string[];
+  attackKind?: "melee_weapon_attack" | "ranged_weapon_attack";
   isLightMeleeWeapon?: boolean;
   fixedDamageTotal?: number;
   isBasicAttack?: boolean;
@@ -114,6 +118,7 @@ const COMBAT_CONDITION_HIDDEN = "combat:hidden";
 const COMBAT_CONDITION_SLEEP = "combat:sleep";
 const COMBAT_CONDITION_UNCONSCIOUS = "condition:unconscious";
 const COMBAT_HIDE_DC = 12;
+const DEFAULT_MELEE_ATTACK_DISTANCE_FT = 5;
 const SECOND_WIND_EXPENDED_TAG = "resource:second_wind_expended";
 const PENDING_COMBAT_REACTION_FLAG = "pendingCombatReaction";
 
@@ -132,6 +137,7 @@ export class CombatService {
     private readonly characterResources: CharacterResourceService,
     private readonly realtimeEvents: RealtimeEventsService,
     private readonly turnLogsService: TurnLogsService,
+    private readonly ruleEngine: RuleEngineService,
     private readonly srdEngine: SrdEngineLoaderService,
   ) {}
 
@@ -1003,6 +1009,11 @@ export class CombatService {
       actionCost?: "action" | "bonus_action" | "reaction";
       attackAction?: { weaponId?: string | null; weaponIsLightMelee: boolean };
       reactionUserId?: string;
+      sneakAttack?: {
+        rogueLevel: number;
+        weaponProperties: string[];
+        attackKind: "melee_weapon_attack" | "ranged_weapon_attack";
+      };
     } = {},
   ): Promise<CombatActionResultDto> {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
@@ -1026,9 +1037,17 @@ export class CombatService {
 
     const attackerConditions = this.parseConditions(attacker.conditionsJson ?? "[]");
     const targetConditions = this.parseConditions(target.conditionsJson ?? "[]");
+    const vttMap = await this.sessionsService.getVttMapForUser(session.hostUserId ?? userId, session.id);
     const attackAdvantageState = this.resolveAttackAdvantageState({
       attackerConditions,
       targetConditions,
+      allyWithin5FtOfTarget: this.hasAllyWithinFeetOfTarget(
+        vttMap,
+        combat,
+        attacker,
+        target,
+        DEFAULT_MELEE_ATTACK_DISTANCE_FT,
+      ),
     });
     const attackBonus = Math.floor(dto.attackBonus ?? 0);
     const attackRoll = this.diceService.roll(`1d20+${attackBonus}`, attackAdvantageState);
@@ -1073,7 +1092,29 @@ export class CombatService {
     const damageRoll = hit && fixedDamageTotal === null
       ? this.diceService.roll(this.buildDamageExpression(dto.damageDice, dto.damageBonus, criticalHit))
       : null;
-    const damageTotal = fixedDamageTotal ?? damageRoll?.total ?? null;
+    const baseDamageTotal = fixedDamageTotal ?? damageRoll?.total ?? null;
+    let damageTotal = baseDamageTotal;
+    let sneakAttackDamage = 0;
+    if (hit && baseDamageTotal !== null && options.sneakAttack) {
+      const sneakAttackRoll = this.diceService.roll(
+        `${Math.max(Math.ceil(options.sneakAttack.rogueLevel / 2), 1)}d6`,
+      );
+      const sneakAttackResult = this.ruleEngine.applySneakAttack({
+        rogueLevel: options.sneakAttack.rogueLevel,
+        attackKind: options.sneakAttack.attackKind,
+        weaponProperties: options.sneakAttack.weaponProperties,
+        hasAdvantage: attackAdvantageState === DiceAdvantageState.ADVANTAGE,
+        hasDisadvantage: attackAdvantageState === DiceAdvantageState.DISADVANTAGE,
+        sneakAttackAvailableThisTurn: true,
+        baseDamage: baseDamageTotal,
+        sneakAttackDamageRollTotal: sneakAttackRoll.total,
+      });
+      if (sneakAttackResult.accepted && sneakAttackResult.produced.damagePacket) {
+        sneakAttackDamage = sneakAttackResult.produced.sneakAttackDamage;
+        damageTotal = sneakAttackResult.produced.damagePacket.totalDamage;
+        this.realtimeEvents.emitDiceRolled(session.id, sneakAttackRoll);
+      }
+    }
 
     if (options.actionCost === "reaction") {
       await this.actionEconomy.spendReaction({
@@ -1103,6 +1144,15 @@ export class CombatService {
     if (damageTotal !== null && damageTotal > 0) {
       await this.applyHitPointDelta(combat, target, -damageTotal);
     }
+    if (hit && options.sneakAttack) {
+      await this.actionEconomy.spendSneakAttack({
+        combatId: combat.id,
+        combatParticipantId: attacker.id,
+        roundNo: combat.roundNo,
+        turnNo: combat.turnNo,
+        sessionCharacterId: attacker.sessionCharacterId,
+      });
+    }
     if (attackerConditions.includes(COMBAT_CONDITION_HIDDEN)) {
       await this.removeCombatCondition(attacker, COMBAT_CONDITION_HIDDEN);
     }
@@ -1110,7 +1160,7 @@ export class CombatService {
     const updated = await this.getActiveCombatEntity(session.id);
     const response = await this.completeCombatIfResolved(session.id, updated);
     const baseMessage = hit
-      ? `${attacker.nameSnapshot} 공격 명중: ${target.nameSnapshot}에게 ${damageTotal ?? 0} 피해`
+      ? `${attacker.nameSnapshot} 공격 명중: ${target.nameSnapshot}에게 ${damageTotal ?? 0} 피해${sneakAttackDamage > 0 ? ` (암습 +${sneakAttackDamage})` : ""}`
       : `${attacker.nameSnapshot} 공격 빗나감: ${attackRoll.total} vs AC ${targetArmorClass}`;
     const message = options.messagePrefix ? `${options.messagePrefix}: ${baseMessage}` : baseMessage;
     const turnLog = await this.turnLogsService.createTurnLog({
@@ -1130,6 +1180,12 @@ export class CombatService {
         criticalMiss,
         advantageState: attackAdvantageState,
         damageTotal,
+        ...(options.sneakAttack
+          ? {
+              sneakAttackApplied: sneakAttackDamage > 0,
+              sneakAttackDamage,
+            }
+          : {}),
       },
       diceResult: { ...attackRoll },
       outcome: hit ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
@@ -1225,6 +1281,126 @@ export class CombatService {
     );
   }
 
+  async resolveSneakAttack(
+    userId: string,
+    sessionId: string,
+    dto: EquippedWeaponAttackDto,
+  ): Promise<CombatActionResultDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    await this.sessionsService.ensureMembership(userId, session.id);
+    const combat = await this.getActiveCombatEntity(session.id);
+    const attacker = combat.participants.find(
+      (participant) => participant.id === combat.currentParticipantId,
+    );
+    if (!attacker || attacker.isHostile || !attacker.sessionCharacterId) {
+      throw conflict("COMBAT_409", "현재 플레이어 캐릭터 턴이 아닙니다.", {
+        reason: "CURRENT_TURN_IS_NOT_PLAYER_CHARACTER",
+      });
+    }
+    await this.ensureActorCanAct(userId, session.id, combat, attacker);
+
+    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+      where: { id: attacker.sessionCharacterId },
+      include: { character: true },
+    });
+    if (!sessionCharacter || !sessionCharacter.character.className.toLowerCase().includes("rogue")) {
+      throw conflict("COMBAT_409", "암습은 로그만 사용할 수 있습니다.", {
+        reason: "SNEAK_ATTACK_REQUIRES_ROGUE",
+      });
+    }
+
+    const target = this.findCombatParticipantOrThrow(combat, dto.targetParticipantId);
+    if (!target.isHostile || !target.isAlive) {
+      throw conflict("COMBAT_409", "암습할 수 있는 대상이 아닙니다.", {
+        reason: "INVALID_SNEAK_ATTACK_TARGET",
+      });
+    }
+
+    const turnState = await this.actionEconomy.getOrCreateTurnState({
+      combatId: combat.id,
+      combatParticipantId: attacker.id,
+      roundNo: combat.roundNo,
+      turnNo: combat.turnNo,
+      sessionCharacterId: attacker.sessionCharacterId,
+    });
+    if (turnState.actionUsed && !turnState.additionalActionGranted) {
+      throw conflict("COMBAT_409", "암습 공격에 사용할 action이 없습니다.", {
+        reason: "ACTION_ALREADY_USED",
+      });
+    }
+    if (turnState.sneakAttackUsed) {
+      throw conflict("COMBAT_409", "암습은 한 턴에 한 번만 사용할 수 있습니다.", {
+        reason: "SNEAK_ATTACK_ALREADY_USED",
+      });
+    }
+
+    const weapon = await this.resolveEquippedWeaponProfile(attacker.sessionCharacterId);
+    if (!this.isSneakAttackWeaponProfile(weapon)) {
+      throw conflict("COMBAT_409", "암습은 finesse 또는 원거리 무기로만 사용할 수 있습니다.", {
+        reason: "SNEAK_ATTACK_REQUIRES_FINESSE_OR_RANGED_WEAPON",
+      });
+    }
+
+    const map = await this.sessionsService.getVttMapForUser(session.hostUserId ?? userId, session.id);
+    const attackerToken = this.findParticipantToken(map, attacker);
+    const targetToken = this.findParticipantToken(map, target);
+    if (!attackerToken || !targetToken) {
+      throw conflict("COMBAT_409", "암습 거리 판정에 필요한 토큰을 찾을 수 없습니다.", {
+        reason: "ATTACK_TOKEN_NOT_FOUND",
+      });
+    }
+
+    const distanceFt = this.getTokenGridDistanceFt(map, attackerToken, targetToken);
+    if (distanceFt > weapon.rangeFt) {
+      throw conflict("COMBAT_409", "대상이 무기 사거리 밖에 있습니다.", {
+        reason: "TARGET_OUT_OF_WEAPON_RANGE",
+        distanceFt,
+        rangeFt: weapon.rangeFt,
+      });
+    }
+
+    const attackAdvantageState = this.resolveAttackAdvantageState({
+      attackerConditions: this.parseConditions(attacker.conditionsJson ?? "[]"),
+      targetConditions: this.parseConditions(target.conditionsJson ?? "[]"),
+      allyWithin5FtOfTarget: this.hasAllyWithinFeetOfTarget(
+        map,
+        combat,
+        attacker,
+        target,
+        DEFAULT_MELEE_ATTACK_DISTANCE_FT,
+      ),
+    });
+    if (attackAdvantageState !== DiceAdvantageState.ADVANTAGE) {
+      throw conflict("COMBAT_409", "암습은 공격에 이점이 있어야 사용할 수 있습니다.", {
+        reason: "SNEAK_ATTACK_REQUIRES_ADVANTAGE",
+      });
+    }
+
+    return this.resolveAttack(
+      userId,
+      session.id,
+      {
+        attackerParticipantId: attacker.id,
+        targetParticipantId: target.id,
+        attackBonus: weapon.attackBonus,
+        damageDice: weapon.damageDice,
+        damageBonus: weapon.damageBonus,
+      },
+      {
+        messagePrefix: `${attacker.nameSnapshot} 암습(${weapon.name})`,
+        attackAction: {
+          weaponId: weapon.weaponId,
+          weaponIsLightMelee: Boolean(weapon.isLightMeleeWeapon),
+        },
+        sneakAttack: {
+          rogueLevel: sessionCharacter.character.level,
+          weaponProperties: weapon.properties ?? [],
+          attackKind: weapon.attackKind ?? "melee_weapon_attack",
+        },
+      },
+    );
+  }
+
   async resolveOffhandWeaponAttack(
     userId: string,
     sessionId: string,
@@ -1275,7 +1451,11 @@ export class CombatService {
         reason: "OFFHAND_WEAPON_MUST_BE_LIGHT_MELEE",
       });
     }
-    if (turnState.attackActionWeaponId && turnState.attackActionWeaponId === weapon.weaponId) {
+    if (
+      turnState.attackActionWeaponId &&
+      turnState.attackActionWeaponId === weapon.weaponId &&
+      (weapon.quantity ?? 1) < 2
+    ) {
       throw conflict("COMBAT_409", "쌍수 보조 공격은 다른 손에 든 다른 무기로 해야 합니다.", {
         reason: "OFFHAND_WEAPON_MUST_BE_DIFFERENT",
       });
@@ -1955,7 +2135,16 @@ export class CombatService {
         candidate.id === equippedWeaponId || candidate.itemDefinitionId === equippedWeaponId,
     );
     const snapshotInventory = !entry
-      ? this.parseJsonArray<{ id?: string; itemDefinitionId?: string; name?: string; itemType?: string; damageDice?: string; damageType?: string; properties?: string[] }>(
+      ? this.parseJsonArray<{
+          id?: string;
+          itemDefinitionId?: string;
+          name?: string;
+          quantity?: number;
+          itemType?: string;
+          damageDice?: string;
+          damageType?: string;
+          properties?: string[];
+        }>(
           sessionCharacter.inventorySnapshotJson ?? sessionCharacter.character.inventoryJson,
         )
       : [];
@@ -1967,6 +2156,7 @@ export class CombatService {
           id: entry.id,
           itemDefinitionId: entry.itemDefinitionId,
           name: entry.itemDefinition.name,
+          quantity: entry.quantity,
           itemType: entry.itemDefinition.itemType,
           damageDice: entry.itemDefinition.damageDice ?? undefined,
           properties: this.parseStringArray(entry.itemDefinition.propertiesJson),
@@ -2007,12 +2197,15 @@ export class CombatService {
 
     return {
       weaponId: equippedWeaponId,
+      quantity: item.quantity,
       name: item.name ?? fallback.name ?? "무기",
       attackBonus: sessionCharacter.character.proficiencyBonus + abilityMod,
       damageDice: item.damageDice ?? fallback.damageDice ?? "1d6",
       damageBonus:
         slot === "offhand" && !hasTwoWeaponFighting ? Math.min(0, abilityMod) : abilityMod,
       rangeFt: fallback.rangeFt ?? (isRanged ? 80 : 5),
+      properties: Array.from(properties),
+      attackKind: isRanged ? "ranged_weapon_attack" : "melee_weapon_attack",
       isLightMeleeWeapon,
     };
   }
@@ -3067,13 +3260,58 @@ export class CombatService {
   private resolveAttackAdvantageState(params: {
     attackerConditions: string[];
     targetConditions: string[];
+    allyWithin5FtOfTarget: boolean;
   }): DiceAdvantageState {
-    const hasAdvantage = params.attackerConditions.includes(COMBAT_CONDITION_HIDDEN);
+    const hasAdvantage =
+      params.attackerConditions.includes(COMBAT_CONDITION_HIDDEN) ||
+      params.allyWithin5FtOfTarget;
     const hasDisadvantage = params.targetConditions.includes(COMBAT_CONDITION_DODGE);
     if (hasAdvantage === hasDisadvantage) {
       return DiceAdvantageState.NORMAL;
     }
     return hasAdvantage ? DiceAdvantageState.ADVANTAGE : DiceAdvantageState.DISADVANTAGE;
+  }
+
+  private hasAllyWithinFeetOfTarget(
+    map: VttMapStateDto,
+    combat: CombatWithParticipants,
+    attacker: CombatParticipantEntity,
+    target: CombatParticipantEntity,
+    feet: number,
+  ): boolean {
+    const attackerToken = this.findParticipantToken(map, attacker);
+    const targetToken = this.findParticipantToken(map, target);
+    if (!attackerToken || !targetToken || attacker.isHostile === target.isHostile) {
+      return false;
+    }
+
+    return combat.participants.some((participant) => {
+      if (
+        participant.id === attacker.id ||
+        participant.id === target.id ||
+        !participant.isAlive ||
+        participant.isHostile !== attacker.isHostile
+      ) {
+        return false;
+      }
+
+      const allyToken = this.findParticipantToken(map, participant);
+      return Boolean(
+        allyToken &&
+          this.getTokenGridDistanceFt(map, allyToken, targetToken) <= feet,
+      );
+    });
+  }
+
+  private isSneakAttackWeaponProfile(weapon: EquippedWeaponProfile): boolean {
+    const properties = new Set(
+      (weapon.properties ?? []).map((property) => property.toLowerCase().replace(/[_\s]+/g, "-")),
+    );
+    return (
+      weapon.attackKind === "ranged_weapon_attack" ||
+      properties.has("ranged") ||
+      properties.has("finesse")
+    );
   }
 
   private selectNaturalD20(rolls: number[], advantageState: DiceAdvantageState): number {
@@ -3497,15 +3735,13 @@ export class CombatService {
           ),
           actionResources: {
             actionAvailable: !turnState?.actionUsed || Boolean(turnState?.additionalActionGranted),
-            bonusActionAvailable:
-              (this.hasBonusActionOption(participant, sessionCharacter?.character ?? null) ||
-                Boolean(turnState?.attackActionWeaponIsLightMelee)) &&
-              !Boolean(turnState?.bonusActionUsed),
+            bonusActionAvailable: !Boolean(turnState?.bonusActionUsed),
             reactionAvailable: !Boolean(turnState?.reactionUsed),
             additionalActionAvailable: Boolean(turnState?.additionalActionGranted),
             twoWeaponAttackAvailable: Boolean(
               turnState?.attackActionWeaponIsLightMelee && !turnState?.bonusActionUsed,
             ),
+            sneakAttackAvailable: !Boolean(turnState?.sneakAttackUsed),
             movementFtTotal,
             movementFtRemaining: Math.max(0, movementFtTotal - (turnState?.movementFtSpent ?? 0)),
           },

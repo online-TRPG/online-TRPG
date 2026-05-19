@@ -574,12 +574,12 @@ export class RuleEngineService {
       );
     }
 
-    if (!input.hasAdvantage && !input.targetEnemyWithin5Ft) {
+    if (!input.hasAdvantage) {
       return this.rejected(
         RULE_HOOK_IDS.APPLY_SNEAK_ATTACK,
         rejectedProduced,
         "class_feature_rejected",
-        "sneak_attack_position_not_satisfied",
+        "sneak_attack_requires_advantage",
       );
     }
 
