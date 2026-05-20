@@ -241,6 +241,11 @@ describe("SessionsService VTT map structures", () => {
   const service = Object.create(SessionsService.prototype) as {
     redactVttMapForPlayer: (map: Record<string, unknown>) => Record<string, unknown>;
     normalizeVttMap: (map: Record<string, unknown>, scenarioNodeId: string | null) => Record<string, unknown>;
+    ensurePlayerMapShellUnchanged: (
+      baseline: Record<string, unknown>,
+      requested: Record<string, unknown>,
+      allowFullMapShell?: boolean,
+    ) => void;
     ensureTokenPathIsPassable: (
       map: Record<string, unknown>,
       fromToken: Record<string, unknown>,
@@ -364,6 +369,52 @@ describe("SessionsService VTT map structures", () => {
         ],
       }),
     ]);
+  });
+
+  it("lets non-host players move tokens on maps with a detected hazard", () => {
+    // Regression: a detected trap made the player-redacted hazard carry
+    // detectionRadiusCells/detectionDc of 0. When the non-host client echoed
+    // that map back, normalizeVttMap's `Number(x) || default` revived those
+    // zeros as defaults, so ensurePlayerMapShellUnchanged saw a mismatched
+    // shell and rejected every move with ForbiddenException.
+    const baseline = service.normalizeVttMap(
+      {
+        id: "map-1",
+        scenarioNodeId: "node-2",
+        width: 640,
+        height: 480,
+        gridSize: 64,
+        tokens: [],
+        fogRects: [],
+        objectCells: [
+          {
+            id: "trap-1",
+            x: 128,
+            y: 64,
+            width: 64,
+            height: 64,
+            visibleToPlayers: false,
+            hazard: {
+              kind: "TRAP",
+              armed: true,
+              detectionRadiusCells: 3,
+              detectionDc: 14,
+              detectedBySessionCharacterIds: ["session-character-1"],
+            },
+          },
+        ],
+      },
+      "node-2",
+    );
+
+    // The non-host client receives the redacted player map and echoes it
+    // back through normalizeVttMap when it submits a token move.
+    const playerMap = service.redactVttMapForPlayer(baseline);
+    const echoedByClient = service.normalizeVttMap(playerMap, "node-2");
+
+    expect(() =>
+      service.ensurePlayerMapShellUnchanged(baseline, echoedByClient, false),
+    ).not.toThrow();
   });
 
   it("adds newly revealed hidden object items to the investigating character inventory", async () => {
