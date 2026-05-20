@@ -665,6 +665,8 @@ export class CombatReactionPromptDto {
 
 export class CombatReactionResponseDto {
   @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
   reactionId!: string;
 }
 

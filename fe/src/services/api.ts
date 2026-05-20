@@ -1135,7 +1135,8 @@ export function acceptCombatReaction(
   payload: CombatReactionResponseDto,
   accessToken?: string | null
 ): Promise<CombatMoveResultDto> {
-  return requestJson<CombatMoveResultDto>(`/sessions/${sessionId}/combat/reactions/accept`, {
+  const reactionQuery = new URLSearchParams({ reactionId: payload.reactionId }).toString();
+  return requestJson<CombatMoveResultDto>(`/sessions/${sessionId}/combat/reactions/accept?${reactionQuery}`, {
     method: 'POST',
     user,
     accessToken,
@@ -1149,7 +1150,8 @@ export function declineCombatReaction(
   payload: CombatReactionResponseDto,
   accessToken?: string | null
 ): Promise<CombatMoveResultDto> {
-  return requestJson<CombatMoveResultDto>(`/sessions/${sessionId}/combat/reactions/decline`, {
+  const reactionQuery = new URLSearchParams({ reactionId: payload.reactionId }).toString();
+  return requestJson<CombatMoveResultDto>(`/sessions/${sessionId}/combat/reactions/decline?${reactionQuery}`, {
     method: 'POST',
     user,
     accessToken,

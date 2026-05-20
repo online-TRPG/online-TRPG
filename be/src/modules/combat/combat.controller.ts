@@ -1,8 +1,10 @@
-import { Body, Controller, Get, HttpCode, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Post, Query } from "@nestjs/common";
+import { IsNotEmpty, IsString } from "class-validator";
 import {
   ApiCreatedResponse,
   ApiOkResponse,
   ApiParam,
+  ApiProperty,
   ApiSecurity,
   ApiTags,
 } from "@nestjs/swagger";
@@ -26,6 +28,13 @@ import {
 import { ApiResponse, apiResponse } from "../../common/api-response";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
 import { CombatService } from "./combat.service";
+
+class CombatReactionRequestDto implements CombatReactionResponseDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  reactionId!: string;
+}
 
 @ApiTags("combat")
 @ApiSecurity("x-user-id")
@@ -130,7 +139,22 @@ export class CombatController {
   async acceptReaction(
     @CurrentUserId() userId: string,
     @Param("sessionId") sessionId: string,
-    @Body() dto: CombatReactionResponseDto,
+    @Body() dto: CombatReactionRequestDto,
+  ): Promise<ApiResponse<CombatMoveResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.acceptReaction(userId, sessionId, dto),
+    );
+  }
+
+  @Get("reactions/accept")
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatMoveResultDto })
+  async acceptReactionLegacyGet(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Query() dto: CombatReactionRequestDto,
   ): Promise<ApiResponse<CombatMoveResultDto>> {
     return apiResponse(
       "COMBAT_200",
@@ -146,7 +170,22 @@ export class CombatController {
   async declineReaction(
     @CurrentUserId() userId: string,
     @Param("sessionId") sessionId: string,
-    @Body() dto: CombatReactionResponseDto,
+    @Body() dto: CombatReactionRequestDto,
+  ): Promise<ApiResponse<CombatMoveResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.declineReaction(userId, sessionId, dto),
+    );
+  }
+
+  @Get("reactions/decline")
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatMoveResultDto })
+  async declineReactionLegacyGet(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Query() dto: CombatReactionRequestDto,
   ): Promise<ApiResponse<CombatMoveResultDto>> {
     return apiResponse(
       "COMBAT_200",
