@@ -67,6 +67,17 @@ function getHpPercent(character: SessionCharacterResponseDto) {
   return Math.max(0, Math.min(100, Math.round((character.currentHp / character.maxHp) * 100)));
 }
 
+function StoryPartyFrameCorners() {
+  return (
+    <>
+      <span className="story-party-frame-corner top-left" aria-hidden="true" />
+      <span className="story-party-frame-corner top-right" aria-hidden="true" />
+      <span className="story-party-frame-corner bottom-left" aria-hidden="true" />
+      <span className="story-party-frame-corner bottom-right" aria-hidden="true" />
+    </>
+  );
+}
+
 function calcModifier(score: number) {
   return Math.floor((score - 10) / 2);
 }
@@ -327,6 +338,7 @@ export function StoryNodeSurface({
               return (
                 <div className="story-party-card-wrap empty" key={`empty-${index}`}>
                   <div className="story-party-card placeholder" aria-hidden="true">
+                    <StoryPartyFrameCorners />
                     <span className="story-party-empty-label">빈 슬롯</span>
                   </div>
                 </div>
@@ -362,6 +374,7 @@ export function StoryNodeSurface({
                   style={partyColorStyle}
                   onClick={() => setSelectedCharacterId(character.id)}
                 >
+                  <StoryPartyFrameCorners />
                   <span className="story-party-avatar">
                     <img src={characterImage} alt={character.name} />
                   </span>

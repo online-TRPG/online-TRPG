@@ -4858,3 +4858,36 @@ button.chat-submit-btn:disabled,
   background: transparent !important;
   box-shadow: none !important;
 }
+
+/* 좌우 큰 영역은 화면을 바로 채우도록 바깥 카드 프레임만 제거합니다. */
+.session-prep-layout .session-stage-canvas.started,
+.session-prep-layout .session-game-surface,
+.session-prep-layout
+  .session-game-surface
+  > :is(.story-node-surface, .exploration-node-surface, .combat-node-surface, .vtt-panel),
+.session-prep-layout .session-sidebar,
+.session-prep-layout .session-sidebar-panel {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.session-prep-layout .session-stage-canvas.started,
+.session-prep-layout
+  .session-game-surface
+  > :is(.story-node-surface, .exploration-node-surface, .combat-node-surface),
+.session-prep-layout .session-sidebar {
+  border: 0 !important;
+}
+.session-prep-layout:not(.recruiting-tavern) {
+  padding: 0 !important;
+  gap: 0 !important;
+}
+
+.session-prep-layout:not(.recruiting-tavern) .session-prep-stage {
+  gap: 0 !important;
+}
+
+.session-prep-layout .session-stage-canvas.started {
+  padding: 0 !important;
+  background: transparent !important;
+}

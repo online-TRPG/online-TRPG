@@ -480,7 +480,8 @@ export function CombatNodeSurface({
     Boolean(combat?.currentEntityId) &&
     Boolean(myCombatParticipant?.sessionEntityId) &&
     combat?.currentEntityId === myCombatParticipant?.sessionEntityId;
-  const canShowEndTurnButton = Boolean(combat && (isMyCombatTurn || isGmView));
+  const canShowEndTurnButton = Boolean(combat && isMyCombatTurn);
+  const isMyCombatTurnPending = Boolean(combat && myCombatParticipant && !isMyCombatTurn);
   const myActionResources = myCombatParticipant?.actionResources ?? null;
   const myCurrentHp = myCombatParticipant?.currentHp ?? myCharacter?.currentHp ?? null;
   const myMaxHp = myCombatParticipant?.maxHp ?? myCharacter?.maxHp ?? null;
@@ -1071,7 +1072,12 @@ export function CombatNodeSurface({
       </div>
 
       <section className="combat-action-dock" aria-label="전투 행동">
-        <div className={`combat-resource-panel${isMyCombatTurn ? ' my-turn' : ''}`}>
+        <div
+          className={`combat-resource-panel${isMyCombatTurn ? ' my-turn' : ''}${
+            isMyCombatTurnPending ? ' not-my-turn' : ''
+          }`}
+          aria-disabled={isMyCombatTurnPending}
+        >
           <span className="combat-frame-corner top-left" aria-hidden="true" />
           <span className="combat-frame-corner top-right" aria-hidden="true" />
           <span className="combat-frame-corner bottom-left" aria-hidden="true" />
