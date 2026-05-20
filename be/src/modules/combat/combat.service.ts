@@ -76,6 +76,7 @@ type PendingOpportunityAttackReaction = {
   reactorUserId: string;
   moverParticipantId: string;
   movementDistanceFt: number;
+  movementCostFt?: number;
   map: VttMapStateDto;
   createdAt: string;
 };
@@ -120,6 +121,8 @@ const COMBAT_CONDITION_SLEEP = "combat:sleep";
 const COMBAT_CONDITION_UNCONSCIOUS = "condition:unconscious";
 const COMBAT_HIDE_DC = 12;
 const DEFAULT_MELEE_ATTACK_DISTANCE_FT = 5;
+const COMBAT_JUMP_EXTRA_MOVEMENT_FT = 10;
+const DEFAULT_LEVEL_1_SPELL_SLOTS = 2;
 const SECOND_WIND_EXPENDED_TAG = "resource:second_wind_expended";
 const PENDING_COMBAT_REACTION_FLAG = "pendingCombatReaction";
 
@@ -584,7 +587,9 @@ export class CombatService {
       x: this.clampNumber(Math.floor(dto.to.x), 0, Math.max(0, map.width - moverToken.size)),
       y: this.clampNumber(Math.floor(dto.to.y), 0, Math.max(0, map.height - moverToken.size)),
     };
+    const movementMode = dto.movementMode === "jump" ? "jump" : "normal";
     const movementPath = this.normalizeCombatMovementPath(map, moverToken, dto.path, to);
+    this.assertCombatMovementPathOpen(map, moverToken, movementPath, movementMode);
     const movementDistanceFt = this.calculateMovementPathDistanceFt(map, moverToken, movementPath);
     if (movementDistanceFt <= 0) {
       return {
@@ -594,7 +599,9 @@ export class CombatService {
         pendingReaction: null,
       };
     }
-    await this.assertMovementAvailable(combat, mover, movementDistanceFt);
+    const movementCostFt =
+      movementMode === "jump" ? movementDistanceFt + COMBAT_JUMP_EXTRA_MOVEMENT_FT : movementDistanceFt;
+    await this.assertMovementAvailable(combat, mover, movementCostFt);
 
     const nextMap: VttMapStateDto = {
       ...map,
@@ -613,6 +620,7 @@ export class CombatService {
       map,
       nextMap,
       movementDistanceFt,
+      movementCostFt,
       moverUserId: userId,
     });
 
@@ -646,7 +654,7 @@ export class CombatService {
       latestCombat,
       latestMover,
       nextMap,
-      movementDistanceFt,
+      movementCostFt,
     );
     const response = await this.mapCombat(await this.getActiveCombatEntity(session.id));
     this.realtimeEvents.emitCombatUpdated(session.id, response);
@@ -655,7 +663,9 @@ export class CombatService {
       map: savedMap,
       message: opportunityAttack.automaticMessages.length
         ? opportunityAttack.automaticMessages.join(" / ")
-        : `${mover.nameSnapshot} 이동: ${movementDistanceFt}ft`,
+        : movementMode === "jump"
+          ? `${mover.nameSnapshot} 도약: ${movementDistanceFt}ft + 추가 ${COMBAT_JUMP_EXTRA_MOVEMENT_FT}ft`
+          : `${mover.nameSnapshot} 이동: ${movementDistanceFt}ft`,
       pendingReaction: null,
     };
   }
@@ -710,7 +720,7 @@ export class CombatService {
         latestCombat,
         latestMover,
         pending.map,
-        pending.movementDistanceFt,
+        pending.movementCostFt ?? pending.movementDistanceFt,
       );
       message = `${message} 이동 완료: ${pending.movementDistanceFt}ft`;
     } else {
@@ -749,7 +759,7 @@ export class CombatService {
       combat,
       mover,
       pending.map,
-      pending.movementDistanceFt,
+      pending.movementCostFt ?? pending.movementDistanceFt,
     );
     const response = await this.mapCombat(await this.getActiveCombatEntity(session.id));
     this.realtimeEvents.emitCombatUpdated(session.id, response);
@@ -2513,6 +2523,58 @@ export class CombatService {
     return distanceFt;
   }
 
+  private assertCombatMovementPathOpen(
+    map: VttMapStateDto,
+    token: VttMapStateDto["tokens"][number],
+    path: Array<{ x: number; y: number }>,
+    movementMode: "normal" | "jump",
+  ): void {
+    for (let index = 1; index < path.length; index += 1) {
+      const point = path[index];
+      const isDestination = index === path.length - 1;
+      const ignoreTokens = movementMode === "jump" && !isDestination;
+      if (this.isCombatTokenPlacementBlocked(map, token, point.x, point.y, { ignoreTokens })) {
+        throw conflict("COMBAT_409", "이동 경로가 막혀 있습니다.", {
+          reason: isDestination ? "DESTINATION_BLOCKED" : "MOVEMENT_PATH_BLOCKED",
+          movementMode,
+        });
+      }
+    }
+  }
+
+  private isCombatTokenPlacementBlocked(
+    map: VttMapStateDto,
+    token: VttMapStateDto["tokens"][number],
+    x: number,
+    y: number,
+    options: { ignoreTokens?: boolean } = {},
+  ): boolean {
+    const blockers = [
+      ...(map.terrainCells ?? []),
+      ...(map.wallCells ?? []),
+      ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
+      ...(options.ignoreTokens
+        ? []
+        : map.tokens
+            .filter((otherToken) => otherToken.id !== token.id && otherToken.hidden !== true)
+            .map((otherToken) => ({
+              x: otherToken.x,
+              y: otherToken.y,
+              width: otherToken.size,
+              height: otherToken.size,
+            }))),
+    ];
+    const tokenRect = { x, y, width: token.size, height: token.size };
+    return blockers.some((blocker) => this.rectsOverlap(tokenRect, blocker));
+  }
+
+  private rectsOverlap(
+    a: { x: number; y: number; width: number; height: number },
+    b: { x: number; y: number; width: number; height: number },
+  ): boolean {
+    return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  }
+
   private doesMovementLeaveThreatenedArea(
     map: VttMapStateDto,
     threatenerToken: VttMapStateDto["tokens"][number],
@@ -2568,6 +2630,7 @@ export class CombatService {
     map: VttMapStateDto;
     nextMap: VttMapStateDto;
     movementDistanceFt: number;
+    movementCostFt: number;
     moverUserId: string;
   }): Promise<OpportunityAttackCheckResult> {
     const reactors = await this.findOpportunityAttackReactors(params);
@@ -2619,6 +2682,7 @@ export class CombatService {
       reactorUserId,
       moverParticipantId: params.mover.id,
       movementDistanceFt: params.movementDistanceFt,
+      movementCostFt: params.movementCostFt,
       map: params.nextMap,
       createdAt: new Date().toISOString(),
     };
@@ -2770,8 +2834,8 @@ export class CombatService {
       {},
     );
     const key = String(slotLevel);
-    const characterSlots = spellSlots[sessionCharacterId] ?? { [key]: 2 };
-    const remaining = Math.max(0, Math.floor(characterSlots[key] ?? 2));
+    const characterSlots = spellSlots[sessionCharacterId] ?? { [key]: DEFAULT_LEVEL_1_SPELL_SLOTS };
+    const remaining = Math.max(0, Math.floor(characterSlots[key] ?? DEFAULT_LEVEL_1_SPELL_SLOTS));
     if (remaining <= 0) {
       throw conflict("COMBAT_409", "사용 가능한 1레벨 주문 슬롯이 없습니다.", { reason: "NO_SPELL_SLOT" });
     }
@@ -2864,7 +2928,10 @@ export class CombatService {
       JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
       {},
     );
-    return Math.max(0, Math.floor(spellSlots[sessionCharacterId]?.[String(slotLevel)] ?? 2));
+    return Math.max(
+      0,
+      Math.floor(spellSlots[sessionCharacterId]?.[String(slotLevel)] ?? DEFAULT_LEVEL_1_SPELL_SLOTS),
+    );
   }
 
   private async storePendingShieldReaction(params: {
@@ -3788,6 +3855,12 @@ export class CombatService {
     const turnStateByParticipantId = new Map(
       turnStates.map((turnState) => [turnState.combatParticipantId, turnState]),
     );
+    const { state } = await this.sessionsService.getGameStateEntityOrThrow(combat.sessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const spellSlotsBySessionCharacterId = this.parseJson<Record<string, Record<string, number>>>(
+      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
+      {},
+    );
     const aliveParticipants = combat.participants.filter((participant) => participant.isAlive);
     const currentParticipant =
       combat.participants.find((participant) => participant.id === combat.currentParticipantId) ?? null;
@@ -3816,6 +3889,20 @@ export class CombatService {
         const armorClass = sessionCharacter?.character.armorClass ?? participant.armorClass ?? null;
         const movementFtTotal = sessionCharacter?.character.speed ?? participant.speedFt ?? 30;
         const turnState = turnStateByParticipantId.get(participant.id) ?? null;
+        const spellSlotLevel1Total = this.resolveLevel1SpellSlotTotal(sessionCharacter?.character ?? null);
+        const rawLevel1SpellSlots = participant.sessionCharacterId
+          ? spellSlotsBySessionCharacterId[participant.sessionCharacterId]?.["1"]
+          : undefined;
+        const spellSlotLevel1Remaining =
+          spellSlotLevel1Total > 0
+            ? Math.min(
+                spellSlotLevel1Total,
+                Math.max(
+                  0,
+                  Math.floor(rawLevel1SpellSlots ?? spellSlotLevel1Total),
+                ),
+              )
+            : 0;
         return {
           sessionEntityId: participant.id,
           entityType: participant.entityType as CombatEntityType,
@@ -3847,10 +3934,19 @@ export class CombatService {
             sneakAttackAvailable: !Boolean(turnState?.sneakAttackUsed),
             movementFtTotal,
             movementFtRemaining: Math.max(0, movementFtTotal - (turnState?.movementFtSpent ?? 0)),
+            spellSlotLevel1Total,
+            spellSlotLevel1Remaining,
           },
         };
       }),
     };
+  }
+
+  private resolveLevel1SpellSlotTotal(character: { className: string; level: number } | null): number {
+    if (!character || character.level < 1) return 0;
+    const className = character.className.trim().toLowerCase();
+    if (className.includes("wizard")) return DEFAULT_LEVEL_1_SPELL_SLOTS;
+    return 0;
   }
 
   private hasBonusActionOption(
