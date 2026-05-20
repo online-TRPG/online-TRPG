@@ -65,8 +65,8 @@
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 16px;
-  padding: 16px;
+  gap: 6px;
+  padding: 10px;
   box-sizing: border-box;
   overflow: hidden;
   /* 우드 배경 */
@@ -173,6 +173,7 @@
 
 .combat-node-content {
   min-height: 0;
+  margin-inline: 12px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
@@ -564,6 +565,8 @@
 
 .combat-action-dock {
   position: relative;
+  margin-top: 6px;
+  margin-inline: 12px;
   min-height: 86px;
   display: grid;
   grid-template-columns: minmax(300px, 0.32fr) minmax(0, 1fr) minmax(260px, 0.36fr);
@@ -664,6 +667,37 @@
     0 0 22px rgba(244, 184, 72, 0.46),
     0 7px 18px rgba(30, 18, 8, 0.64);
   animation: combat-my-turn-pulse 1.55s ease-in-out infinite alternate;
+}
+
+.combat-resource-panel.not-my-turn {
+  border-color: #4f483d;
+  outline-color: rgba(120, 106, 80, 0.24);
+  background-image:
+    radial-gradient(circle at 18% 16%, rgba(151, 129, 88, 0.05), transparent 26%),
+    linear-gradient(180deg, rgba(255, 237, 188, 0.025), transparent 38%),
+    linear-gradient(145deg, #141517 0%, #0b0d10 100%);
+  color: #9f9279;
+  filter: saturate(0.68) brightness(0.82);
+  box-shadow:
+    inset 0 0 0 1px rgba(150, 132, 92, 0.08),
+    inset 0 0 22px rgba(0, 0, 0, 0.52),
+    0 3px 8px rgba(30, 18, 8, 0.38);
+}
+
+.combat-resource-panel.not-my-turn .combat-node-eyebrow,
+.combat-resource-panel.not-my-turn > strong,
+.combat-resource-panel.not-my-turn .combat-resource-meter-label,
+.combat-resource-panel.not-my-turn .combat-resource-meter-label strong {
+  color: #9f9279;
+}
+
+.combat-resource-panel.not-my-turn .combat-resource-token.available {
+  border-color: #6a5c43;
+  color: #9f9279;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.38),
+    inset 0 0 0 3px rgba(140, 123, 88, 0.16),
+    0 2px 8px rgba(0, 0, 0, 0.28);
 }
 
 .combat-resource-panel::before,

@@ -4863,3 +4863,165 @@ button.chat-submit-btn:disabled,
   background: transparent !important;
   box-shadow: none !important;
 }
+
+/* 좌우 큰 영역은 화면을 바로 채우도록 바깥 카드 프레임만 제거합니다. */
+.session-prep-layout .session-stage-canvas.started,
+.session-prep-layout .session-game-surface,
+.session-prep-layout
+  .session-game-surface
+  > :is(.story-node-surface, .exploration-node-surface, .combat-node-surface, .vtt-panel),
+.session-prep-layout .session-sidebar,
+.session-prep-layout .session-sidebar-panel {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.session-prep-layout .session-stage-canvas.started,
+.session-prep-layout
+  .session-game-surface
+  > :is(.story-node-surface, .exploration-node-surface, .combat-node-surface),
+.session-prep-layout .session-sidebar {
+  border: 0 !important;
+}
+.session-prep-layout:not(.recruiting-tavern) {
+  padding: 0 !important;
+  gap: 0 !important;
+}
+
+.session-prep-layout:not(.recruiting-tavern) .session-prep-stage {
+  gap: 0 !important;
+}
+
+.session-prep-layout .session-stage-canvas.started {
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.session-settings-actions {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+
+.session-settings-actions button {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid rgba(159, 118, 48, 0.64);
+  border-radius: 8px;
+  background: #fff6df;
+  color: #2f2115;
+  font-size: 15px;
+  font-weight: 900;
+  box-shadow: 0 1px 2px rgba(75, 46, 14, 0.1);
+}
+
+.session-settings-actions .danger-button {
+  border-color: rgba(143, 51, 32, 0.48);
+  background: #8f3320;
+  color: #fff8dd;
+  box-shadow: 0 2px 6px rgba(91, 31, 20, 0.16);
+}
+
+.session-settings-panel .session-settings-room {
+  margin: 0 0 22px;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.session-settings-list {
+  display: grid;
+  gap: 14px;
+}
+
+.session-settings-entry {
+  display: grid;
+  gap: 6px;
+}
+
+.session-settings-entry .eyebrow {
+  display: block !important;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  min-height: unset !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.06em !important;
+  color: #1a3562 !important;
+}
+
+.session-settings-bubble {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  margin: 0;
+  padding: 10px 14px;
+  box-sizing: border-box;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: #4a3c30;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  z-index: 1;
+}
+
+.session-settings-bubble::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 8px;
+  background: #f4e8d3;
+  box-shadow: inset 0 0 0 1.5px #d8b671;
+  filter: drop-shadow(1px 2px 3px rgba(100, 70, 40, 0.15)) url(#torn-paper-edge);
+}
+
+.session-settings-copy-bubble {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.session-settings-copy-bubble strong {
+  min-width: 0;
+  color: #1c2733;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.session-settings-copy-button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(159, 118, 48, 0.62);
+  border-radius: 6px;
+  background: #fff6df;
+  color: #2f2115;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 1px 2px rgba(75, 46, 14, 0.1);
+}
+
+.session-settings-copy-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.session-settings-bubble,
+.session-settings-copy-bubble strong,
+.session-settings-copy-button {
+  color: #111111 !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+}
+.session-info-panel .scenario-node-panel > .scenario-scene-description-text {
+  white-space: pre-line !important;
+}

@@ -11,6 +11,7 @@ import {
 import quillImage from '../../../components/quill.webp';
 import storyNodeBadge from '../../../components/node_badge_story.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
+import { NodeHeaderScroll } from './NodeHeaderScroll';
 import './StoryNodeSurface.css';
 
 interface StoryNodeSurfaceProps {
@@ -65,6 +66,17 @@ const skillLabelMap: Map<string, string> = new Map([
 function getHpPercent(character: SessionCharacterResponseDto) {
   if (character.maxHp <= 0) return 0;
   return Math.max(0, Math.min(100, Math.round((character.currentHp / character.maxHp) * 100)));
+}
+
+function StoryPartyFrameCorners() {
+  return (
+    <>
+      <span className="story-party-frame-corner top-left" aria-hidden="true" />
+      <span className="story-party-frame-corner top-right" aria-hidden="true" />
+      <span className="story-party-frame-corner bottom-left" aria-hidden="true" />
+      <span className="story-party-frame-corner bottom-right" aria-hidden="true" />
+    </>
+  );
 }
 
 function calcModifier(score: number) {
@@ -136,7 +148,6 @@ export function StoryNodeSurface({
   getCharacterColorStyle,
 }: StoryNodeSurfaceProps) {
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
-  const [isSummaryOpen, setSummaryOpen] = useState(false);
   const [speechBubbles, setSpeechBubbles] = useState<VisibleStoryRpUtterance[]>([]);
   const [highlightedCharacterIds, setHighlightedCharacterIds] = useState<Set<string>>(
     () => new Set()
@@ -242,50 +253,20 @@ export function StoryNodeSurface({
 
   return (
     <div className="story-node-surface">
-      <header className="story-node-header">
+      <NodeHeaderScroll variant="story" className="story-node-header">
         <div className="story-node-title-row">
           <img
             src={storyNodeBadge}
             alt="스토리 노드"
             className="session-node-type-badge"
           />
-          <h1>{node?.title ?? scenarioTitle ?? '진행 중인 장면'}</h1>
-          <button
-            type="button"
-            className={`story-node-summary-button${isSummaryOpen ? ' active' : ''}`}
-            onClick={() => setSummaryOpen((current) => !current)}
-            aria-expanded={isSummaryOpen}
-            aria-controls="story-node-summary-popover"
-          >
-            장면 설명
-          </button>
+          <h1 className="node-header-scroll-title">{node?.title ?? scenarioTitle ?? '진행 중인 장면'}</h1>
         </div>
         <div className="story-node-status-row" aria-label="장면 상태">
           <span>{getPhaseLabel(phase)}</span>
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
         </div>
-      </header>
-
-      {isSummaryOpen ? (
-        <div
-          id="story-node-summary-popover"
-          className="story-node-summary-popover"
-          role="dialog"
-          aria-label="장면 설명"
-        >
-          <div className="story-node-summary-popover-head">
-            <strong>장면 설명</strong>
-            <button type="button" onClick={() => setSummaryOpen(false)}>
-              닫기
-            </button>
-          </div>
-          <div className="story-node-summary-popover-body">
-            {sceneParagraphs.map((paragraph, index) => (
-              <p key={`${paragraph.slice(0, 20)}-${index}`}>{paragraph}</p>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      </NodeHeaderScroll>
 
       <div className="story-node-content">
         <section className="story-node-main" aria-label="스토리 장면">
@@ -327,6 +308,7 @@ export function StoryNodeSurface({
               return (
                 <div className="story-party-card-wrap empty" key={`empty-${index}`}>
                   <div className="story-party-card placeholder" aria-hidden="true">
+                    <StoryPartyFrameCorners />
                     <span className="story-party-empty-label">빈 슬롯</span>
                   </div>
                 </div>
@@ -362,6 +344,7 @@ export function StoryNodeSurface({
                   style={partyColorStyle}
                   onClick={() => setSelectedCharacterId(character.id)}
                 >
+                  <StoryPartyFrameCorners />
                   <span className="story-party-avatar">
                     <img src={characterImage} alt={character.name} />
                   </span>

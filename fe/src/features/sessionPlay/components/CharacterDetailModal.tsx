@@ -513,28 +513,6 @@ export function CharacterDetailModal({
               {character.bio?.trim() || '아직 등록된 캐릭터 소개가 없습니다.'}
             </p>
           </section>
-
-          <section className="story-character-modal-panel">
-            <h3>세션 메타</h3>
-            <dl className="story-character-meta-list">
-              <div>
-                <dt>캐릭터 ID</dt>
-                <dd>{character.characterId}</dd>
-              </div>
-              <div>
-                <dt>세션 캐릭터 ID</dt>
-                <dd>{character.id}</dd>
-              </div>
-              <div>
-                <dt>생성</dt>
-                <dd>{new Date(character.createdAt).toLocaleString()}</dd>
-              </div>
-              <div>
-                <dt>수정</dt>
-                <dd>{new Date(character.updatedAt).toLocaleString()}</dd>
-              </div>
-            </dl>
-          </section>
         </div>
       </section>
     </div>
