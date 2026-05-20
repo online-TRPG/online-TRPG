@@ -1214,6 +1214,7 @@ export function CombatNodeSurface({
                   내 턴
                 </span>
               ) : null}
+              {/* 발표 화면에서는 디버그용 전투 종료 버튼을 숨깁니다.
               {isGmView ? (
                 <button
                   type="button"
@@ -1224,14 +1225,17 @@ export function CombatNodeSurface({
                   전투 종료
                 </button>
               ) : null}
+              */}
               {canShowEndTurnButton ? (
                 <button
                   type="button"
-                  className="combat-end-turn-button"
+                  className="combat-end-turn-button combat-end-turn-button-primary"
                   disabled={!combat || isCombatBusy}
                   onClick={() => onEndTurn(isGmView)}
+                  aria-label="현재 턴 종료"
                 >
-                  턴 종료
+                  <GameIcon name="game-icons:hourglass" size={18} className="combat-end-turn-icon" />
+                  <span>턴 종료</span>
                 </button>
               ) : null}
             </div>
