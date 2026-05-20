@@ -535,7 +535,7 @@
   margin-inline: 12px;
   min-height: 126px;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) minmax(240px, 0.42fr);
+  grid-template-columns: minmax(260px, 0.36fr) minmax(320px, 0.72fr) minmax(360px, 0.56fr);
   gap: 16px;
   /* 배경과 테두리를 제거하여 뒤의 우드 배경이 보이도록 함 */
 }
@@ -949,6 +949,24 @@
   max-height: min(48vh, calc(var(--exploration-inventory-item-count) * 62px));
 }
 
+.exploration-inventory-panel {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  align-content: stretch;
+}
+
+.exploration-inventory-panel.expanded {
+  max-height: min(62vh, calc((var(--exploration-inventory-item-count) * 62px) + 174px));
+}
+
+.exploration-inventory-list {
+  height: 100%;
+  max-height: none;
+}
+
+.exploration-inventory-list.expanded {
+  max-height: min(42vh, calc(var(--exploration-inventory-item-count) * 62px));
+}
+
 .exploration-inventory-item {
   min-width: 0;
   min-height: 54px;
@@ -1195,7 +1213,7 @@
     height: auto;
     min-height: 126px;
     max-height: none;
-    grid-template-columns: 220px minmax(0, 1fr) minmax(240px, 0.42fr);
+    grid-template-columns: minmax(260px, 0.36fr) minmax(320px, 0.72fr) minmax(360px, 0.56fr);
   }
 
   .exploration-party-overlay {
