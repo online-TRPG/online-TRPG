@@ -197,6 +197,39 @@ def test_contract_accepts_main_command_route_action_type():
     assert response.parsed.action.type == "INVESTIGATE_OBJECT"
 
 
+def test_interpreter_schema_omits_scene_transition_without_candidates():
+    schema = InterpreterService._response_json_schema(
+        InterpreterHarnessRequest(
+            rawText="빈 그릇을 조사해본다",
+            actorCharacterId="fighter-1",
+            sceneSummary="전투 중.",
+        )
+    )
+
+    assert "sceneTransition" not in schema["properties"]
+    assert "SceneTransitionContract" not in schema.get("$defs", {})
+
+
+def test_interpreter_schema_keeps_scene_transition_with_candidates():
+    schema = InterpreterService._response_json_schema(
+        InterpreterHarnessRequest(
+            rawText="다음 장면으로 이동한다",
+            actorCharacterId="fighter-1",
+            sceneSummary="전투 중.",
+            transitionCandidates=[
+                {
+                    "targetNodeId": "node-2",
+                    "nodeType": "story",
+                    "isFallback": False,
+                }
+            ],
+        )
+    )
+
+    assert "sceneTransition" in schema["properties"]
+    assert "SceneTransitionContract" in schema.get("$defs", {})
+
+
 def test_contract_rejects_class_feature_id_that_was_not_retrieved():
     payload = {
         "action": {

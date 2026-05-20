@@ -22,9 +22,12 @@ type HarnessInterpreterResult = {
       type: string;
       targetId?: string | null;
       spellId?: string | null;
+      ability?: string | null;
+      skill?: string | null;
       approach: string;
       confidence: number;
       requiresRoll: boolean;
+      suggestedDifficulty?: string | null;
     };
   };
 };
@@ -594,11 +597,12 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
     expect(response.message).toContain("조사는 대상 확인이나 현장 판정이 필요합니다.");
     expect(response.actionCandidate?.actionSummary).toBe("check under the crate");
     expect(sessionsService.revealCurrentNodeCluesAfterAction).not.toHaveBeenCalled();
+    expect(aiService.runInterpreter).toHaveBeenCalledTimes(1);
     expect(aiService.runInterpreter).toHaveBeenLastCalledWith(
       "session-1",
       "user-1",
       expect.objectContaining({
-        requestIntent: MainCommandIntent.INVESTIGATE_OBJECT,
+        requestIntent: MainCommandIntent.GENERAL_GM_REQUEST,
       }),
     );
   });
@@ -629,14 +633,47 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
       route: "MAIN_COMMAND",
       intent: MainCommandIntent.INVESTIGATE_OBJECT,
     });
-    expect(aiService.runInterpreter).toHaveBeenCalledTimes(2);
+    expect(aiService.runInterpreter).toHaveBeenCalledTimes(1);
     expect(aiService.runInterpreter).toHaveBeenLastCalledWith(
       "session-1",
       "user-1",
       expect.objectContaining({
-        requestIntent: MainCommandIntent.INVESTIGATE_OBJECT,
+        requestIntent: MainCommandIntent.GENERAL_GM_REQUEST,
       }),
     );
+  });
+
+  it("reuses the routed interpreter result for natural-language investigation checks", async () => {
+    const { aiService, submit } = createMainCommandHarness({
+      interpreterResult: {
+        parsed: {
+          needsClarification: false,
+          action: {
+            type: "INVESTIGATE_OBJECT",
+            approach: "inspect the torn ration sack",
+            ability: "int",
+            skill: "investigation",
+            suggestedDifficulty: "easy",
+            confidence: 0.88,
+            requiresRoll: true,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      playerText: "찢어진 식량 자루를 조사한다",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.CHECK_REQUIRED);
+    expect(response.actionCandidate?.actionSummary).toBe("inspect the torn ration sack");
+    expect(response.checkOptions?.[0]).toEqual(
+      expect.objectContaining({
+        ability: "int",
+        skill: "investigation",
+      }),
+    );
+    expect(aiService.runInterpreter).toHaveBeenCalledTimes(1);
   });
 
   it("routes natural-language hint requests from the interpreter to the hint handler", async () => {
@@ -799,6 +836,36 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
     });
     expect(aiService.runInterpreter).toHaveBeenCalledTimes(1);
     expect(sessionsService.revealCurrentNodeCluesAfterAction).not.toHaveBeenCalled();
+  });
+
+  it("routes clear investigation text even when the interpreter falls back to OUT_OF_SCOPE", async () => {
+    const { aiService, submit } = createMainCommandHarness({
+      interpreterResult: {
+        parsed: {
+          needsClarification: true,
+          clarificationQuestion: "행동을 조금 더 구체적으로 선택해 주세요.",
+          action: {
+            type: "OUT_OF_SCOPE",
+            approach: "빈 그릇을 조사해본다",
+            confidence: 0,
+            requiresRoll: false,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      playerText: "빈 그릇을 조사해본다",
+    });
+
+    expect(response.status).toBe(MainCommandStatus.CHECK_REQUIRED);
+    expect(response.message).toContain("자세히 조사하려면 판정이 필요합니다.");
+    expect(response.data?.interpreterRoute).toEqual({
+      actionType: MainCommandIntent.INVESTIGATE_OBJECT,
+      route: "MAIN_COMMAND",
+      intent: MainCommandIntent.INVESTIGATE_OBJECT,
+    });
+    expect(aiService.runInterpreter).toHaveBeenCalledTimes(1);
   });
 
   it("rejects out-of-scope interpreter action types", async () => {

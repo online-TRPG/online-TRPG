@@ -219,6 +219,7 @@ def test_interpreter_harness_returns_valid_structured_action():
     assert fake_client.calls[0]["temperature"] == 0.1
     assert response.trace.attempts == 1
     assert response.providerRequestId == "req-interpreter-1"
+    assert "sceneTransition" not in fake_client.calls[0]["response_json_schema"]["properties"]
     assert response.logPaths is not None
     latest_path = Path(response.logPaths["latest"])
     assert latest_path.exists()
