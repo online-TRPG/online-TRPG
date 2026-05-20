@@ -87,7 +87,8 @@ export class CharactersService {
     const inventory = inventoryFromEquipment ?? dto.inventory ?? [];
     const equippedWeaponId =
       dto.equippedWeaponId ?? this.resolveDefaultEquippedWeaponId(inventory);
-    const offhandWeaponId = dto.offhandWeaponId ?? null;
+    const offhandWeaponId =
+      dto.offhandWeaponId ?? this.resolveDefaultOffhandEquipmentId(inventory, equippedWeaponId);
     await this.validateEquipmentLoadout(inventory, equippedWeaponId, offhandWeaponId);
     const spellsJsonValue = await this.resolveStartingSpells(className, dto.startingSpells);
     const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
@@ -97,7 +98,13 @@ export class CharactersService {
       dto.proficiencyBonus,
       dto.maxHp,
     );
-    const armorClass = this.resolveArmorClass(className, abilities, inventory, dto.armorClass);
+    const armorClass = this.resolveArmorClass(
+      className,
+      abilities,
+      inventory,
+      dto.armorClass,
+      offhandWeaponId,
+    );
 
     const character = await this.prisma.character.create({
       data: {
@@ -230,7 +237,15 @@ export class CharactersService {
           normalizedUpdateProficientSkills ?? JSON.parse(existing.proficientSkillsJson),
         ),
         maxHp: resolvedStats?.maxHp ?? dto.maxHp ?? existing.maxHp,
-        armorClass: dto.armorClass ?? existing.armorClass,
+        armorClass:
+          dto.armorClass ??
+          this.resolveArmorClass(
+            finalClassName,
+            finalAbilities,
+            finalInventory,
+            existing.armorClass,
+            finalOffhandWeaponId,
+          ),
         speed: dto.speed ?? existing.speed,
         inventoryJson: JSON.stringify(finalInventory),
         equippedWeaponId: finalEquippedWeaponId,
@@ -378,11 +393,25 @@ export class CharactersService {
       requestedOffhandWeaponId: dto.offhandWeaponId,
     });
 
+    const finalOffhandEquipment = await this.resolveEquippedWeaponCandidate(
+      inventory,
+      finalLoadout.offhandWeaponId,
+      { allowSessionInventoryForCharacterId: characterId },
+    );
+
     const updated = await this.prisma.character.update({
       where: { id: characterId },
       data: {
         equippedWeaponId: finalLoadout.equippedWeaponId,
         offhandWeaponId: finalLoadout.offhandWeaponId,
+        armorClass: this.resolveArmorClass(
+          character.className,
+          JSON.parse(character.abilitiesJson) as AbilityScoresDto,
+          inventory,
+          character.armorClass,
+          finalLoadout.offhandWeaponId,
+          finalOffhandEquipment ? this.isShieldInventoryItem(finalOffhandEquipment) : false,
+        ),
       },
       include: {
         sessionCharacters: {
@@ -666,8 +695,13 @@ export class CharactersService {
       }
     }
 
-    if (!equippedWeaponId) {
-      offhandWeaponId = null;
+    if (!equippedWeaponId && offhandWeaponId) {
+      const offhand = await this.resolveEquippedWeaponCandidate(params.inventory, offhandWeaponId, {
+        allowSessionInventoryForCharacterId: params.characterId,
+      });
+      if (!offhand || this.isWeaponInventoryItem(offhand)) {
+        offhandWeaponId = null;
+      }
     }
 
     if (equippedWeaponId) {
@@ -675,6 +709,11 @@ export class CharactersService {
         allowSessionInventoryForCharacterId: params.characterId,
       });
       if (main && !this.isOneHandWeaponCandidate(main)) {
+        if (requestedOffhandWeaponId !== undefined && offhandWeaponId) {
+          throw new BadRequestException(
+            "장비: 두손 무기를 장착한 상태에서는 왼손 장비를 함께 장착할 수 없습니다.",
+          );
+        }
         offhandWeaponId = null;
       }
     }
@@ -706,8 +745,8 @@ export class CharactersService {
     offhandWeaponId: string | null,
     options?: { allowSessionInventoryForCharacterId?: string },
   ): Promise<void> {
-    await this.validateInventoryAndEquippedWeapon(inventory, equippedWeaponId, options);
-    await this.validateInventoryAndEquippedWeapon(inventory, offhandWeaponId, options);
+    await this.validateInventoryAndEquippedWeapon(inventory, equippedWeaponId, "rightHand", options);
+    await this.validateInventoryAndEquippedWeapon(inventory, offhandWeaponId, "leftHand", options);
 
     if (!equippedWeaponId || !offhandWeaponId) {
       return;
@@ -722,7 +761,17 @@ export class CharactersService {
     if (!main || !offhand) {
       return;
     }
-    if (!this.isOneHandWeaponCandidate(main) || !this.isOneHandWeaponCandidate(offhand)) {
+    if (!this.isOneHandWeaponCandidate(main)) {
+      throw new BadRequestException(
+        "장비: 두손 무기를 장착한 상태에서는 왼손 장비를 함께 장착할 수 없습니다.",
+      );
+    }
+
+    if (this.isShieldInventoryItem(offhand)) {
+      return;
+    }
+
+    if (!this.isOneHandWeaponCandidate(offhand)) {
       throw new BadRequestException(
         "장비: 쌍수 장착은 한손 근접 무기 두 개일 때만 가능합니다.",
       );
@@ -736,6 +785,7 @@ export class CharactersService {
   private async validateInventoryAndEquippedWeapon(
     inventory: InventoryItemDto[],
     equippedWeaponId: string | null,
+    slot: "rightHand" | "leftHand",
     options?: { allowSessionInventoryForCharacterId?: string },
   ): Promise<void> {
     const definitionIds = inventory
@@ -761,9 +811,15 @@ export class CharactersService {
         options,
       );
       if (matched) {
-        if (!this.isWeaponInventoryItem(matched)) {
+        const isValidEquipment =
+          slot === "rightHand"
+            ? this.isWeaponInventoryItem(matched)
+            : this.isWeaponInventoryItem(matched) || this.isShieldInventoryItem(matched);
+        if (!isValidEquipment) {
           throw new BadRequestException(
-            `장비: 장착 대상(${equippedWeaponId})은 무기가 아닙니다.`,
+            slot === "rightHand"
+              ? `장비: 오른손 장착 대상(${equippedWeaponId})은 무기가 아닙니다.`
+              : `장비: 왼손 장착 대상(${equippedWeaponId})은 무기 또는 방패가 아닙니다.`,
           );
         }
         return;
@@ -771,7 +827,7 @@ export class CharactersService {
 
       if (!matched) {
         throw new BadRequestException(
-          `장비: 장착 무기 id(${equippedWeaponId})가 인벤토리에 없습니다.`,
+          `장비: 장착 장비 id(${equippedWeaponId})가 인벤토리에 없습니다.`,
         );
       }
     }
@@ -1102,17 +1158,41 @@ export class CharactersService {
     return weapon?.itemDefinitionId ?? weapon?.id ?? null;
   }
 
+  private resolveDefaultOffhandEquipmentId(
+    inventory: InventoryItemDto[],
+    equippedWeaponId: string | null,
+  ): string | null {
+    const mainWeapon = inventory.find(
+      (item) => item.id === equippedWeaponId || item.itemDefinitionId === equippedWeaponId,
+    );
+    if (mainWeapon && !this.isOneHandWeaponCandidate(mainWeapon)) {
+      return null;
+    }
+
+    const shield = inventory.find((item) => this.isShieldInventoryItem(item));
+    return shield?.itemDefinitionId ?? shield?.id ?? null;
+  }
+
   private resolveArmorClass(
     className: string,
     abilities: AbilityScoresDto,
     inventory: InventoryItemDto[],
     fallbackArmorClass: number | undefined,
+    offhandEquipmentId: string | null = null,
+    hasEquippedShield = false,
   ): number {
     const dexMod = this.getAbilityModifier(abilities.dex);
     const conMod = this.getAbilityModifier(abilities.con);
     const wisMod = this.getAbilityModifier(abilities.wis);
     const normalizedClass = className.trim().toLowerCase();
-    const shieldBonus = inventory.some((item) => this.isShieldInventoryItem(item)) ? 2 : 0;
+    const shieldBonus = hasEquippedShield || inventory.some(
+      (item) =>
+        this.isShieldInventoryItem(item) &&
+        Boolean(offhandEquipmentId) &&
+        (item.id === offhandEquipmentId || item.itemDefinitionId === offhandEquipmentId),
+    )
+      ? 2
+      : 0;
     const armorCandidates = inventory
       .filter((item) => this.isArmorInventoryItem(item))
       .map((item) => this.calculateArmorItemAc(item, dexMod))
