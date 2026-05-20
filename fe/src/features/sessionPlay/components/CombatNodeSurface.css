@@ -813,6 +813,10 @@
   flex: 0 0 auto;
   min-height: 30px;
   padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border: 1px solid #6f5631;
   background:
     linear-gradient(180deg, rgba(255, 240, 194, 0.07), rgba(255, 240, 194, 0) 45%),
@@ -826,9 +830,56 @@
     inset 0 0 0 3px rgba(202, 154, 63, 0.22);
 }
 
+.combat-end-turn-button-primary {
+  min-width: 116px;
+  min-height: 42px;
+  padding: 0 18px;
+  isolation: isolate;
+  border-color: #ffd76e;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 224, 0.34), transparent 48%),
+    linear-gradient(180deg, rgba(255, 226, 119, 0.28), rgba(213, 126, 35, 0.1) 52%),
+    linear-gradient(145deg, #3b250d, #15110b);
+  color: #fff2bc;
+  font-size: 14px;
+  letter-spacing: 0;
+  text-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.72),
+    0 0 8px rgba(255, 221, 114, 0.72);
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.36),
+    inset 0 0 0 3px rgba(255, 230, 142, 0.62),
+    inset 0 0 18px rgba(255, 210, 92, 0.22),
+    0 0 0 1px rgba(255, 230, 154, 0.68),
+    0 0 18px rgba(255, 206, 82, 0.74),
+    0 0 34px rgba(255, 177, 47, 0.42),
+    0 8px 18px rgba(0, 0, 0, 0.46);
+  animation: combat-end-turn-radiance 1.12s ease-in-out infinite alternate;
+}
+
+.combat-end-turn-icon {
+  flex: 0 0 auto;
+  filter:
+    drop-shadow(0 1px 0 rgba(0, 0, 0, 0.72))
+    drop-shadow(0 0 6px rgba(255, 232, 139, 0.8));
+}
+
 .combat-end-turn-button:hover:not(:disabled) {
   border-color: #c9963d;
   color: #ffe2a0;
+}
+
+.combat-end-turn-button-primary:hover:not(:disabled) {
+  border-color: #fff1a9;
+  color: #fff9d8;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.32),
+    inset 0 0 0 3px rgba(255, 242, 179, 0.78),
+    inset 0 0 22px rgba(255, 225, 116, 0.3),
+    0 0 0 1px rgba(255, 240, 183, 0.82),
+    0 0 24px rgba(255, 219, 99, 0.86),
+    0 0 42px rgba(255, 184, 50, 0.52),
+    0 9px 20px rgba(0, 0, 0, 0.5);
 }
 
 .combat-end-turn-button.danger {
@@ -876,8 +927,35 @@
   }
 }
 
+@keyframes combat-end-turn-radiance {
+  from {
+    transform: translateY(0) scale(1);
+    box-shadow:
+      inset 0 0 0 2px rgba(0, 0, 0, 0.36),
+      inset 0 0 0 3px rgba(255, 230, 142, 0.5),
+      inset 0 0 14px rgba(255, 210, 92, 0.16),
+      0 0 0 1px rgba(255, 230, 154, 0.52),
+      0 0 13px rgba(255, 206, 82, 0.56),
+      0 0 26px rgba(255, 177, 47, 0.32),
+      0 8px 18px rgba(0, 0, 0, 0.44);
+  }
+
+  to {
+    transform: translateY(-1px) scale(1.025);
+    box-shadow:
+      inset 0 0 0 2px rgba(0, 0, 0, 0.34),
+      inset 0 0 0 3px rgba(255, 242, 177, 0.76),
+      inset 0 0 24px rgba(255, 226, 112, 0.3),
+      0 0 0 1px rgba(255, 242, 186, 0.78),
+      0 0 24px rgba(255, 220, 93, 0.88),
+      0 0 46px rgba(255, 180, 45, 0.58),
+      0 10px 21px rgba(0, 0, 0, 0.5);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .combat-resource-panel.my-turn {
+  .combat-resource-panel.my-turn,
+  .combat-end-turn-button-primary {
     animation: none;
   }
 }
