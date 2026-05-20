@@ -3095,7 +3095,8 @@ export function PlayPage({
   async function handleCombatTokenMoveRequest(
     token: VttMapStateDto['tokens'][number],
     to: { x: number; y: number },
-    path: Array<{ x: number; y: number }>
+    path: Array<{ x: number; y: number }>,
+    movementMode: 'normal' | 'jump' = 'normal'
   ): Promise<VttMapStateDto | null> {
     if (!session || !combat || isCombatBusy) return null;
     const participant = combat.participants.find(
@@ -3116,6 +3117,7 @@ export function PlayPage({
         participantId: participant.sessionEntityId,
         to,
         path,
+        movementMode,
       });
 
       if (result.pendingReaction) {
