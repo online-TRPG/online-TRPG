@@ -64,8 +64,8 @@
 .node-header-scroll .session-node-type-badge {
   position: relative;
   z-index: 2;
-  width: 96px;
-  height: 104px;
+  width: 120px;
+  height: 130px;
   flex: 0 0 96px;
   margin: -18px 14px -16px 0;
   object-fit: contain;
@@ -80,7 +80,7 @@
   margin: 0;
   color: var(--node-header-scroll-text-color);
   font-family: 'NEXON Warhaven', Pretendard, 'Segoe UI', sans-serif;
-  font-size: 30px;
+  font-size: 35px;
   font-weight: 800;
   line-height: 1.15;
   letter-spacing: 0;
