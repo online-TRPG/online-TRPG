@@ -4532,34 +4532,68 @@ export function PlayPage({
             <div className="session-settings-panel">
 
               {!isRecruiting ? (
-                <div className="session-settings-room">
-                  <strong>{session?.title ?? '활성 세션이 없습니다'}</strong>
-                  <div className="session-settings-invite">
-                    <span>초대 코드</span>
-                    <strong>{session?.inviteCode ?? '------'}</strong>
+                <>
+                  <div className="session-settings-actions">
+                    <button type="button" className="ghost" onClick={onBackToLobby}>
+                      로비로 이동
+                    </button>
+                    <button type="button" className="danger-button" onClick={requestLeaveSession}>
+                      세션 영구 퇴장
+                    </button>
                   </div>
-                  <button type="button" className="ghost" onClick={onBackToLobby}>
-                    로비로 이동
-                  </button>
-                  <button type="button" className="danger-button" onClick={requestLeaveSession}>
-                    세션 영구 퇴장
-                  </button>
-                </div>
+                  <div className="section-heading session-settings-title-heading">
+                    <div>
+                      <span className="eyebrow">현재 세션</span>
+                      <h2>{session?.title ?? '활성 세션이 없습니다'}</h2>
+                    </div>
+                  </div>
+
+                  <div className="session-settings-list">
+                    <article className="session-settings-entry">
+                      <span className="eyebrow">초대 코드</span>
+                      <div className="session-settings-bubble session-settings-copy-bubble">
+                        <strong>{session?.inviteCode ?? '------'}</strong>
+                        <button
+                          type="button"
+                          className="session-settings-copy-button"
+                          onClick={() =>
+                            session?.inviteCode && navigator.clipboard.writeText(session.inviteCode)
+                          }
+                          disabled={!session?.inviteCode}
+                        >
+                          복사
+                        </button>
+                      </div>
+                    </article>
+
+                    <article className="session-settings-entry">
+                      <span className="eyebrow">세션 상태</span>
+                      <p className="session-settings-bubble">{session?.status ?? 'unknown'}</p>
+                    </article>
+
+                    <article className="session-settings-entry">
+                      <span className="eyebrow">공개 범위</span>
+                      <p className="session-settings-bubble">{session?.visibility ?? 'unknown'}</p>
+                    </article>
+                  </div>
+                </>
               ) : null}
-              <dl className="session-meta">
-                <div>
-                  <dt>Status</dt>
-                  <dd>{session?.status ?? 'unknown'}</dd>
-                </div>
-                <div>
-                  <dt>Phase</dt>
-                  <dd>{snapshot?.state.phase ?? 'unknown'}</dd>
-                </div>
-                <div>
-                  <dt>Visibility</dt>
-                  <dd>{session?.visibility ?? 'unknown'}</dd>
-                </div>
-              </dl>
+              {isRecruiting ? (
+                <dl className="session-meta">
+                  <div>
+                    <dt>Status</dt>
+                    <dd>{session?.status ?? 'unknown'}</dd>
+                  </div>
+                  <div>
+                    <dt>Phase</dt>
+                    <dd>{snapshot?.state.phase ?? 'unknown'}</dd>
+                  </div>
+                  <div>
+                    <dt>Visibility</dt>
+                    <dd>{session?.visibility ?? 'unknown'}</dd>
+                  </div>
+                </dl>
+              ) : null}
             </div>
           ) : null}
         </div>
