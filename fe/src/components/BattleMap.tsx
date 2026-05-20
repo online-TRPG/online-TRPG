@@ -41,10 +41,12 @@ interface BattleMapProps {
   tokenMovementRangeFtByTokenId?: Record<string, number>;
   tokenHealthByTokenId?: Record<string, TokenHealthFrame>;
   attackRangeOverlay?: { tokenId: string; rangeFt: number } | null;
+  combatMovementMode?: CombatMovementMode;
   onTokenMoveRequest?: (
     token: VttMapStateDto['tokens'][number],
     to: { x: number; y: number },
-    path: Array<{ x: number; y: number }>
+    path: Array<{ x: number; y: number }>,
+    movementMode?: CombatMovementMode
   ) => Promise<VttMapStateDto | null>;
 }
 
@@ -73,6 +75,7 @@ export type BattleMapSelection =
     };
 
 type MapStructureKind = 'terrain' | 'wall' | 'door' | 'object';
+type CombatMovementMode = 'normal' | 'jump';
 
 type MapStructureSelection = {
   kind: MapStructureKind;
@@ -81,6 +84,7 @@ type MapStructureSelection = {
 
 const zoomSteps = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const feetPerGrid = 5;
+const jumpExtraMovementFt = 10;
 const playerVisionRangeFt = 40;
 const mapText = {
   tokenCount: (count: number) => '\uD1A0\uD070 ' + count + '\uAC1C',
@@ -169,7 +173,12 @@ type FogRect = VttMapStateDto['fogRects'][number];
 type FogBox = Pick<FogRect, 'x' | 'y' | 'width' | 'height'>;
 type StructureBox = Pick<FogRect, 'x' | 'y' | 'width' | 'height'>;
 type TokenPathCell = { x: number; y: number; blocked: boolean };
-type TokenMovementPath = { cells: TokenPathCell[]; blocked: boolean };
+type TokenMovementPath = {
+  cells: TokenPathCell[];
+  blocked: boolean;
+  distanceFt: number;
+  extraCostFt: number;
+};
 type TokenDragMeasure = {
   tokenId: string;
   from: MeasurePoint;
@@ -604,6 +613,13 @@ function formatGridDistance(from: MeasurePoint, to: MeasurePoint, map: VttMapSta
   return `${getGridMovementDistanceFt(from, to, map)} ft`;
 }
 
+function formatTokenMovementPathCost(path: TokenMovementPath) {
+  if (path.extraCostFt > 0) {
+    return `${path.distanceFt} ft + ${path.extraCostFt} ft`;
+  }
+  return `${path.distanceFt} ft`;
+}
+
 function appendTokenRoutePoint(
   route: Array<{ x: number; y: number }>,
   point: { x: number; y: number }
@@ -827,6 +843,7 @@ export function BattleMap({
   tokenMovementRangeFtByTokenId,
   tokenHealthByTokenId,
   attackRangeOverlay = null,
+  combatMovementMode = 'normal',
   onTokenMoveRequest,
 }: BattleMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -935,9 +952,6 @@ export function BattleMap({
     filteredMonsterCatalog[0] ??
     monsterCatalog[0] ??
     null;
-  const selectedCharacter = selectedToken?.sessionCharacterId
-    ? (characters.find((character) => character.id === selectedToken.sessionCharacterId) ?? null)
-    : null;
   const controlledTokenIds = useMemo(
     () =>
       new Set(
@@ -971,10 +985,38 @@ export function BattleMap({
     [isVisionMaskEnabled, map, partyCharacterIds]
   );
   const activeMeasureEnd = measureEnd ?? measurePreview;
-  const selectedTokenMovementRangeFt =
-    selectedToken && tokenMovementRangeFtByTokenId?.[selectedToken.id] !== undefined
-      ? Math.max(0, tokenMovementRangeFtByTokenId[selectedToken.id])
-      : selectedCharacter?.speed;
+  const selectedJumpMovementToken =
+    selectedToken?.sessionCharacterId &&
+    controlledTokenIds.has(selectedToken.sessionCharacterId) &&
+    (tokenMovementRangeFtByTokenId?.[selectedToken.id] ?? 0) > 0
+      ? selectedToken
+      : null;
+  const activeJumpMovementToken =
+    combatMovementMode === 'jump'
+      ? (visibleTokens.find((token) => {
+          if (!token.sessionCharacterId || !controlledTokenIds.has(token.sessionCharacterId)) {
+            return false;
+          }
+          return (tokenMovementRangeFtByTokenId?.[token.id] ?? 0) > 0;
+        }) ?? null)
+      : null;
+  const movementRangeToken =
+    combatMovementMode === 'jump'
+      ? (selectedJumpMovementToken ?? activeJumpMovementToken)
+      : selectedToken;
+  const movementRangeCharacter = movementRangeToken?.sessionCharacterId
+    ? (characters.find((character) => character.id === movementRangeToken.sessionCharacterId) ?? null)
+    : null;
+  const tokenMovementRangeFt =
+    movementRangeToken && tokenMovementRangeFtByTokenId?.[movementRangeToken.id] !== undefined
+      ? Math.max(0, tokenMovementRangeFtByTokenId[movementRangeToken.id])
+      : movementRangeCharacter?.speed;
+  const displayedTokenMovementRangeFt =
+    tokenMovementRangeFt === undefined
+      ? undefined
+      : combatMovementMode === 'jump'
+        ? Math.max(0, tokenMovementRangeFt - jumpExtraMovementFt)
+        : tokenMovementRangeFt;
   const attackRangeOverlayToken =
     attackRangeOverlay && attackRangeOverlay.rangeFt > 0
       ? (map.tokens.find((token) => token.id === attackRangeOverlay.tokenId) ?? null)
@@ -1628,12 +1670,17 @@ export function BattleMap({
 
     const nextPosition = getTokenMovePosition(targetToken, x, y, snap);
 
-    const movementPath = getTokenMovementPath(targetToken, nextPosition.x, nextPosition.y);
+    const movementPath = getTokenMovementPath(
+      targetToken,
+      nextPosition.x,
+      nextPosition.y,
+      combatMovementMode
+    );
     if (movementPath.blocked) {
       return false;
     }
 
-    if (isTokenMovementOverRange(targetToken, nextPosition.x, nextPosition.y)) {
+    if (isTokenMovementOverRange(targetToken, nextPosition.x, nextPosition.y, combatMovementMode)) {
       return false;
     }
 
@@ -1648,7 +1695,12 @@ export function BattleMap({
               map
             )
           : movementPath.cells;
-      const requestedMap = await onTokenMoveRequest(targetToken, nextPosition, trackedRoute);
+      const requestedMap = await onTokenMoveRequest(
+        targetToken,
+        nextPosition,
+        trackedRoute,
+        combatMovementMode
+      );
       return Boolean(requestedMap);
     }
 
@@ -1886,16 +1938,25 @@ export function BattleMap({
   function isTokenMovementOverRange(
     token: VttMapStateDto['tokens'][number],
     x: number,
-    y: number
+    y: number,
+    movementMode: CombatMovementMode = 'normal'
   ) {
     const remainingMovementFt = getTokenRemainingMovementFt(token);
+    const movementCostFt =
+      getTokenMovementDistanceFt(token, x, y) +
+      (movementMode === 'jump' ? jumpExtraMovementFt : 0);
     return (
       remainingMovementFt !== null &&
-      getTokenMovementDistanceFt(token, x, y) > remainingMovementFt
+      movementCostFt > remainingMovementFt
     );
   }
 
-  function isTokenPositionBlocked(token: VttMapStateDto['tokens'][number], x: number, y: number) {
+  function isTokenPositionBlocked(
+    token: VttMapStateDto['tokens'][number],
+    x: number,
+    y: number,
+    options: { ignoreTokens?: boolean } = {}
+  ) {
     if (canEditMap) return false;
 
     const tokenRect = {
@@ -1905,15 +1966,18 @@ export function BattleMap({
       height: token.size,
     };
 
-    return [...getMovementBlockers(), ...getTokenOccupancyBlockers(token.id)].some((blocker) =>
-      rectsOverlap(tokenRect, blocker)
-    );
+    const blockers = [
+      ...getMovementBlockers(),
+      ...(options.ignoreTokens ? [] : getTokenOccupancyBlockers(token.id)),
+    ];
+    return blockers.some((blocker) => rectsOverlap(tokenRect, blocker));
   }
 
   function getTokenMovementPath(
     token: VttMapStateDto['tokens'][number],
     x: number,
-    y: number
+    y: number,
+    movementMode: CombatMovementMode = 'normal'
   ): TokenMovementPath {
     const cells = getGridLineCells({ x: token.x, y: token.y }, { x, y }, map).map((cell, index) => {
       const cellPosition = {
@@ -1922,17 +1986,25 @@ export function BattleMap({
       };
       return {
         ...cellPosition,
-        blocked: index > 0 && isTokenPositionBlocked(token, cellPosition.x, cellPosition.y),
+        blocked:
+          index > 0 &&
+          isTokenPositionBlocked(token, cellPosition.x, cellPosition.y, {
+            ignoreTokens: movementMode === 'jump',
+          }),
       };
     });
 
     const destinationBlocked =
       (token.x !== x || token.y !== y) && isTokenPositionBlocked(token, x, y);
-    const overRange = isTokenMovementOverRange(token, x, y);
+    const overRange = isTokenMovementOverRange(token, x, y, movementMode);
+    const distanceFt = getTokenMovementDistanceFt(token, x, y);
+    const extraCostFt = movementMode === 'jump' && distanceFt > 0 ? jumpExtraMovementFt : 0;
 
     return {
       cells,
       blocked: cells.some((cell) => cell.blocked) || destinationBlocked || overRange,
+      distanceFt,
+      extraCostFt,
     };
   }
 
@@ -2240,7 +2312,7 @@ export function BattleMap({
       tokenId: token.id,
       from: center,
       to: center,
-      path: getTokenMovementPath(token, token.x, token.y),
+      path: getTokenMovementPath(token, token.x, token.y, combatMovementMode),
       route: [{ x: token.x, y: token.y }],
     };
     tokenDragMeasureRef.current = nextMeasure;
@@ -2274,7 +2346,7 @@ export function BattleMap({
         tokenId: token.id,
         from: { x: token.x + token.size / 2, y: token.y + token.size / 2 },
         to: nextCenter,
-        path: getTokenMovementPath(token, token.x, token.y),
+        path: getTokenMovementPath(token, token.x, token.y, combatMovementMode),
         route: previousRoute,
       }),
       tokenId: token.id,
@@ -2296,7 +2368,7 @@ export function BattleMap({
       };
       setTokenDragMeasure({
         ...latest,
-        path: getTokenMovementPath(token, latestPosition.x, latestPosition.y),
+        path: getTokenMovementPath(token, latestPosition.x, latestPosition.y, combatMovementMode),
       });
     });
   }
@@ -2994,15 +3066,25 @@ export function BattleMap({
                     </Group>
                   ))
                 : null}
-              {selectedToken && selectedCharacter && selectedTokenMovementRangeFt !== undefined ? (
+              {movementRangeToken &&
+              movementRangeCharacter &&
+              displayedTokenMovementRangeFt !== undefined ? (
                 <Circle
-                  x={selectedToken.x + selectedToken.size / 2}
-                  y={selectedToken.y + selectedToken.size / 2}
-                  radius={(selectedTokenMovementRangeFt / feetPerGrid) * map.gridSize}
-                  fill="rgba(121, 216, 255, 0.08)"
-                  stroke="rgba(121, 216, 255, 0.55)"
-                  strokeWidth={2}
-                  dash={[10, 10]}
+                  x={movementRangeToken.x + movementRangeToken.size / 2}
+                  y={movementRangeToken.y + movementRangeToken.size / 2}
+                  radius={(displayedTokenMovementRangeFt / feetPerGrid) * map.gridSize}
+                  fill={
+                    combatMovementMode === 'jump'
+                      ? 'rgba(158, 230, 168, 0.1)'
+                      : 'rgba(121, 216, 255, 0.08)'
+                  }
+                  stroke={
+                    combatMovementMode === 'jump'
+                      ? 'rgba(158, 230, 168, 0.7)'
+                      : 'rgba(121, 216, 255, 0.55)'
+                  }
+                  strokeWidth={combatMovementMode === 'jump' ? 3 : 2}
+                  dash={combatMovementMode === 'jump' ? [14, 8] : [10, 10]}
                   listening={false}
                 />
               ) : null}
@@ -3161,7 +3243,7 @@ export function BattleMap({
                     fill={tokenDragMeasure.path.blocked ? '#ff7771' : '#9ee6a8'}
                   />
                   <Text
-                    text={formatGridDistance(tokenDragMeasure.from, tokenDragMeasure.to, map)}
+                    text={formatTokenMovementPathCost(tokenDragMeasure.path)}
                     x={(tokenDragMeasure.from.x + tokenDragMeasure.to.x) / 2 + 10}
                     y={(tokenDragMeasure.from.y + tokenDragMeasure.to.y) / 2 - 28}
                     fill={tokenDragMeasure.path.blocked ? '#fff7f5' : '#061017'}
