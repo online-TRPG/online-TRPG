@@ -1045,8 +1045,7 @@
   gap: 8px;
 }
 
-.story-character-stat-grid div,
-.story-character-meta-list div {
+.story-character-stat-grid div {
   min-width: 0;
   padding: 10px;
   display: grid;
@@ -1055,15 +1054,13 @@
   background: #f8fbfd;
 }
 
-.story-character-stat-grid dt,
-.story-character-meta-list dt {
+.story-character-stat-grid dt {
   color: #667787;
   font-size: 11px;
   font-weight: 900;
 }
 
-.story-character-stat-grid dd,
-.story-character-meta-list dd {
+.story-character-stat-grid dd {
   min-width: 0;
   margin: 0;
   color: #243140;
@@ -1228,12 +1225,6 @@
   font-weight: 900;
 }
 
-.story-character-meta-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
 @media (max-width: 900px) {
   .story-character-modal-backdrop {
     padding: 12px;
@@ -1253,8 +1244,7 @@
   }
 
   .story-character-modal-body,
-  .story-character-inventory-list,
-  .story-character-meta-list {
+  .story-character-inventory-list {
     grid-template-columns: 1fr;
   }
 
