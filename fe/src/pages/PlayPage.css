@@ -1,5 +1,4 @@
-/* PlayPage.cleaned.css
- * PlayPage.tsx 기�??�로 ?�는 규칙�??�기�? ExplorationNodeSurface.css?�?중복?�는 .exploration-* 규칙?�??�거?�습?�다.
+/* PlayPage.css
  */
 
 .session-prep-layout {
@@ -314,11 +313,14 @@
   position: relative;
   border-radius: 8px;
   padding: 40px 32px 36px;
-  border: 2px solid #D4B872;
-  background: #FEFAF1;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), inset 0 0 0 4px #FEFAF1, inset 0 0 0 5px rgba(212, 184, 114, 0.5);
+  border: 2px solid #d4b872;
+  background: #fefaf1;
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.4),
+    inset 0 0 0 4px #fefaf1,
+    inset 0 0 0 5px rgba(212, 184, 114, 0.5);
   text-align: center;
-  color: #2F1E11;
+  color: #2f1e11;
 }
 
 .session-ready-close-button {
@@ -334,15 +336,15 @@
   border-radius: 999px;
   border: 1px solid rgba(129, 94, 43, 0.28);
   background: rgba(255, 250, 241, 0.92);
-  color: #5C4A3D;
+  color: #5c4a3d;
   cursor: pointer;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .session-ready-close-button:hover,
 .session-ready-close-button:focus-visible {
-  background: #F0E3D2;
-  color: #2F1E11;
+  background: #f0e3d2;
+  color: #2f1e11;
   outline: none;
 }
 
@@ -372,7 +374,7 @@
 }
 
 .ready-eyebrow {
-  color: #B5935A;
+  color: #b5935a;
   font-weight: 700;
   letter-spacing: 1.5px;
   margin-bottom: 12px;
@@ -392,16 +394,16 @@
   margin: 0;
   font-size: 26px;
   font-weight: 900;
-  color: #2F1E11;
+  color: #2f1e11;
 }
 
 .ready-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: #E8F5E9;
-  border: 1px solid #A5D6A7;
-  color: #2E7D32;
+  background: #e8f5e9;
+  border: 1px solid #a5d6a7;
+  color: #2e7d32;
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -414,9 +416,9 @@
 }
 
 .leave-badge {
-  background: #FFF3E0;
-  border-color: #D9A66A;
-  color: #8A3F1D;
+  background: #fff3e0;
+  border-color: #d9a66a;
+  color: #8a3f1d;
 }
 
 .session-leave-confirm-layer {
@@ -445,7 +447,7 @@
 .session-ready-divider .diamond {
   width: 5px;
   height: 5px;
-  background: #D4B872;
+  background: #d4b872;
   transform: rotate(45deg);
   margin: 0 12px;
 }
@@ -454,19 +456,19 @@
   display: block;
   font-size: 16px;
   font-weight: 800;
-  color: #2F1E11;
+  color: #2f1e11;
   margin-bottom: 8px;
 }
 
 .session-ready-desc {
   font-size: 14px;
-  color: #5C4A3D;
+  color: #5c4a3d;
   margin-bottom: 24px;
 }
 
 .session-ready-warning {
   font-size: 12px;
-  color: #8C7B6D;
+  color: #8c7b6d;
   margin-bottom: 32px;
 }
 
@@ -490,21 +492,21 @@
 }
 
 .ready-btn-cancel {
-  background: #F8EFE4;
+  background: #f8efe4;
   border: 1px solid rgba(209, 196, 181, 0.8);
-  color: #5C4A3D;
+  color: #5c4a3d;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 .ready-btn-cancel:hover {
-  background: #EAE0D4;
-  color: #2F1E11;
+  background: #eae0d4;
+  color: #2f1e11;
 }
 
 .ready-btn-start {
-  background: linear-gradient(180deg, #324357, #1A2838);
-  border: 1px solid #141F2B;
-  color: #FFFFFF;
+  background: linear-gradient(180deg, #324357, #1a2838);
+  border: 1px solid #141f2b;
+  color: #ffffff;
   position: relative;
   overflow: hidden;
   box-shadow:
@@ -515,7 +517,7 @@
 }
 
 .ready-btn-start:hover:not(:disabled) {
-  background: linear-gradient(180deg, #3E5168, #233446);
+  background: linear-gradient(180deg, #3e5168, #233446);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.2),
     inset 0 0 0 1px rgba(212, 184, 114, 0.5),
@@ -523,8 +525,8 @@
 }
 
 .ready-btn-leave {
-  background: linear-gradient(180deg, #8F3B27, #5E2417);
-  border-color: #4E1D13;
+  background: linear-gradient(180deg, #8f3b27, #5e2417);
+  border-color: #4e1d13;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
     inset 0 0 0 1px rgba(212, 184, 114, 0.42),
@@ -532,7 +534,7 @@
 }
 
 .ready-btn-leave:hover:not(:disabled) {
-  background: linear-gradient(180deg, #A54A33, #71301F);
+  background: linear-gradient(180deg, #a54a33, #71301f);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.22),
     inset 0 0 0 1px rgba(212, 184, 114, 0.5),
@@ -547,9 +549,9 @@
 
 .ready-btn-start::before,
 .ready-btn-start::after {
-  content: "\2726";
+  content: '\2726';
   position: absolute;
-  color: #D4B872;
+  color: #d4b872;
   font-size: 12px;
   opacity: 0.8;
 }
@@ -928,7 +930,7 @@
 }
 
 .participant-strip-card.placeholder .participant-card-body strong::after {
-  content: "\BE48 \C2AC\B86F";
+  content: '\BE48 \C2AC\B86F';
   font-size: 15px;
   line-height: 1.2;
 }
@@ -965,7 +967,7 @@
   background: rgba(255, 255, 255, 0.28);
 }
 
-/* ?��?지 ?�레?�이 기본 ?�식????�� ?�문?? 참�????�상 링을 ?�에 ?�어 ?�유?��? 바로 구분?�게 ?�니?? */
+/* 프로필 프레임 기본 장식 때문에 참조용 색상 링을 안쪽에 넣어 캐릭터를 바로 구분합니다. */
 .participant-avatar-frame:not(.placeholder)::before {
   content: '';
   position: absolute;
@@ -1341,9 +1343,11 @@
     radial-gradient(circle at 50% 50%, rgba(255, 245, 225, 0.4) 0%, rgba(210, 180, 130, 0) 60%),
     radial-gradient(circle at 100% 0%, rgba(180, 140, 90, 0.15) 0%, transparent 40%),
     radial-gradient(circle at 0% 100%, rgba(160, 120, 70, 0.2) 0%, transparent 50%),
-    url("data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%20256%20256%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cfilter%20id%3D%22n%22%3E%3CfeTurbulence%20type%3D%22fractalNoise%22%20baseFrequency%3D%220.025%22%20numOctaves%3D%224%22%20stitchTiles%3D%22stitch%22%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20filter%3D%22url%28%23n%29%22%20opacity%3D%220.15%22%2F%3E%3C%2Fsvg%3E");
+    url('data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%20256%20256%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cfilter%20id%3D%22n%22%3E%3CfeTurbulence%20type%3D%22fractalNoise%22%20baseFrequency%3D%220.025%22%20numOctaves%3D%224%22%20stitchTiles%3D%22stitch%22%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20filter%3D%22url%28%23n%29%22%20opacity%3D%220.15%22%2F%3E%3C%2Fsvg%3E');
   border-radius: 0 0 8px 8px; /* Round bottom corners */
-  box-shadow: inset 0 0 40px rgba(120, 80, 40, 0.15), inset 0 0 8px rgba(100, 60, 20, 0.1);
+  box-shadow:
+    inset 0 0 40px rgba(120, 80, 40, 0.15),
+    inset 0 0 8px rgba(100, 60, 20, 0.1);
 }
 
 .session-sidebar-description {
@@ -1589,7 +1593,7 @@
   position: absolute;
   inset: 0;
   z-index: -1;
-  filter: drop-shadow(1px 2px 3px rgba(100,70,40,0.15)) url(#torn-paper-edge);
+  filter: drop-shadow(1px 2px 3px rgba(100, 70, 40, 0.15)) url(#torn-paper-edge);
 }
 
 .chat-thread-row:not(.notice) .chat-thread-bubble {
@@ -1709,7 +1713,7 @@ button.chat-submit-btn,
   color: #e5cd92 !important;
   cursor: pointer !important;
   transition: all 0.2s !important;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.2) !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2) !important;
   padding: 0 !important;
 }
 
@@ -1734,7 +1738,7 @@ button.chat-submit-btn:hover:not(:disabled),
   background: #25354a !important;
   border-color: #e5cd92 !important;
   transform: translateY(-2px) !important;
-  box-shadow: 0 6px 10px rgba(0,0,0,0.3) !important;
+  box-shadow: 0 6px 10px rgba(0, 0, 0, 0.3) !important;
 }
 
 button.chat-submit-btn:disabled,
@@ -1838,14 +1842,14 @@ button.chat-submit-btn:disabled,
   }
 }
 
-/* GM/RP???�제 ?�력 모드??버튼 ?�체�?채워 ?�재 모드�?빠르�?구분?�니?? */
+/* GM/RP 실제 입력 모드는 버튼 전체를 채워 현재 모드를 빠르게 구분합니다. */
 .main-command-primary-mode-button.active {
   border-color: #17375a;
   background: #17375a;
   color: #fff8dd;
 }
 
-/* 명령?��? ?�??보조??보조 ?�택?��?�??�면 무게�?줄이�??�해 ?�두리만 강조?�니?? */
+/* 보조 선택 버튼은 시각적 무게를 줄이기 위해 테두리만 강조합니다. */
 .main-command-outline-mode-button.active,
 .main-command-target-helper-button.active {
   border-color: #17375a;
@@ -1862,9 +1866,7 @@ button.chat-submit-btn:disabled,
   border: 1.5px solid #b89040;
   border-top-color: #17375a;
   border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(255, 252, 242, 0.92), rgba(246, 230, 190, 0.9)),
-    #fff6df;
+  background: linear-gradient(180deg, rgba(255, 252, 242, 0.92), rgba(246, 230, 190, 0.9)), #fff6df;
   box-shadow:
     inset 0 0 0 2px rgba(197, 158, 70, 0.24),
     0 12px 24px rgba(43, 27, 10, 0.18);
@@ -1885,9 +1887,7 @@ button.chat-submit-btn:disabled,
   border: 1px solid rgba(184, 144, 64, 0.62);
   border-left: 4px solid #17375a;
   border-radius: 6px;
-  background:
-    linear-gradient(180deg, rgba(255, 250, 230, 0.96), rgba(241, 221, 170, 0.9)),
-    #fff1cf;
+  background: linear-gradient(180deg, rgba(255, 250, 230, 0.96), rgba(241, 221, 170, 0.9)), #fff1cf;
   color: #4a3010;
   font-size: 12px;
   font-weight: 800;
@@ -1905,8 +1905,7 @@ button.chat-submit-btn:disabled,
   border: 1px solid rgba(184, 144, 64, 0.54);
   border-radius: 6px;
   background:
-    linear-gradient(180deg, rgba(255, 253, 244, 0.92), rgba(255, 244, 218, 0.86)),
-    #fffaf0;
+    linear-gradient(180deg, rgba(255, 253, 244, 0.92), rgba(255, 244, 218, 0.86)), #fffaf0;
   color: #3e2712;
   text-align: left;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.64);
@@ -1916,7 +1915,7 @@ button.chat-submit-btn:disabled,
     box-shadow 0.16s ease;
 }
 
-/* 목록 ??��?� ?�피지 ?�을 ?��??�고, hover/focus?�서�?명령 ?�택 가?�성??보여줍니?? */
+/* 목록 높이가 갑자기 튀지 않게 하고, hover/focus에서 명령 선택 가능성을 보여줍니다. */
 .main-command-guide-option:hover,
 .main-command-guide-option:focus-visible,
 .main-command-autocomplete-option:hover,
@@ -1924,8 +1923,7 @@ button.chat-submit-btn:disabled,
   outline: none;
   border-color: rgba(23, 55, 90, 0.72);
   background:
-    linear-gradient(180deg, rgba(255, 250, 230, 0.98), rgba(239, 218, 165, 0.94)),
-    #fff1cf;
+    linear-gradient(180deg, rgba(255, 250, 230, 0.98), rgba(239, 218, 165, 0.94)), #fff1cf;
   box-shadow:
     inset 0 0 0 2px rgba(23, 55, 90, 0.12),
     0 4px 10px rgba(75, 46, 14, 0.1);
@@ -1966,7 +1964,7 @@ button.chat-submit-btn:disabled,
 
 .main-command-autocomplete-separator::before,
 .main-command-autocomplete-separator::after {
-  content: "";
+  content: '';
   height: 1px;
   flex: 1;
   background: rgba(184, 144, 64, 0.54);
@@ -2432,8 +2430,6 @@ button.chat-submit-btn:disabled,
   color: var(--session-kit-ink);
 }
 
-
-
 .session-sidebar-heading .eyebrow,
 .session-room-overlay-title .eyebrow {
   color: #1677b4;
@@ -2489,8 +2485,6 @@ button.chat-submit-btn:disabled,
   color: var(--chat-message-text-color, #806845);
 }
 
-
-
 .chat-thread-row:not(.notice) .chat-thread-bubble {
   color: var(--chat-message-text-color, var(--session-kit-ink));
 }
@@ -2512,14 +2506,10 @@ button.chat-submit-btn:disabled,
   color: #7a5721;
 }
 
-
-
 .chat-thread-row.main-log-npc-dialogue .chat-thread-sender,
 .chat-thread-row.main-log-npc-dialogue .chat-thread-time {
   color: #2f6d52;
 }
-
-
 
 .chat-thread-row.main-log-system-result {
   justify-content: flex-start;
@@ -2530,28 +2520,22 @@ button.chat-submit-btn:disabled,
   color: #6a6172;
 }
 
-
-
 .chat-thread-row.main-log-player-command .chat-thread-sender,
 .chat-thread-row.main-log-player-command .chat-thread-time {
   color: #2f628c;
 }
-
-
 
 .chat-thread-row.main-log-player-rp .chat-thread-sender,
 .chat-thread-row.main-log-player-rp .chat-thread-time {
   color: #2d7075;
 }
 
-
-
 .session-sidebar-input {
   padding: 12px 0 0;
   border-top: 1px solid #bd9140;
 }
 
-/* 메인??명령 버튼 ?�역?� 로그 말풍??바로 ?�래???�을 붙이�? 버튼?� ???�래?�서 ???�유 ?�게 ?�작?�니?? */
+/* 메인 명령 버튼 영역이 로그 말풍선 바로 아래에 붙도록 여백을 조정합니다. */
 .session-log-area:has(+ .session-sidebar-input .main-command-picker) .session-log-stack {
   padding-bottom: 0;
 }
@@ -2818,7 +2802,7 @@ button.chat-submit-btn:disabled,
 }
 
 .story-scene-text::before {
-  content: "\2726";
+  content: '\2726';
   position: absolute;
   left: 16px;
   top: -4px;
@@ -3315,8 +3299,6 @@ button.chat-submit-btn:disabled,
   pointer-events: none;
 }
 
-
-
 .session-sidebar-input input,
 .main-command-field input,
 .main-command-field select,
@@ -3403,11 +3385,7 @@ button.chat-submit-btn:disabled,
   box-shadow: 0 2px 6px rgba(91, 31, 20, 0.16);
 }
 
-.session-prep-layout
-  :is(
-    .story-party-card,
-    .participant-strip-card
-  ) {
+.session-prep-layout :is(.story-party-card, .participant-strip-card) {
   border-width: 1px;
   border-color: rgba(184, 139, 65, 0.42);
   box-shadow: 0 3px 8px rgba(75, 46, 14, 0.08);
@@ -3505,14 +3483,11 @@ button.chat-submit-btn:disabled,
   color: var(--text-sub);
 }
 
-
-
 /* ------------------------------------------------------------------
  * FIX v2
- * 1180px ?�하?�서 ?�측 채팅 ?�이?�바가 ?�래�??�려가??문제 ?�정.
- * ?�제 PlayPage 구조??main stage / resizer / sidebar 3�??�제 ?�소?��?�?
- * ?�스?�톱·?�트�???��?�는 3??grid�??��??�야 ?�다.
- * 모바????��?�만 1?�로 ?�환?�다.
+ * 1180px 이하에서 우측 채팅 사이드바가 아래로 내려가던 문제를 수정합니다.
+ * 현재 PlayPage 구조는 main stage / resizer / sidebar 3개 그리드 열을 사용합니다.
+ * 데스크톱과 태블릿에서는 3열 grid를 유지하고, 모바일에서만 1열로 전환합니다.
  * ------------------------------------------------------------------ */
 
 @media (min-width: 861px) {
@@ -3563,12 +3538,10 @@ button.chat-submit-btn:disabled,
 }
 
 /* ------------------------------------------------------------------
- * FIX v9: 부�??�이 고정 + VTT ?�름 ?��?
- * 기�?:
- * - v6/v7/v8??absolute ?�적 ?�치 ?�용 ????
- * - PlayPage 부�?체인?�?100dvh/100%�?고정.
- * - VTT toolbar/subtoolbar??absolute overlay가 ?�니???�상 ?�름 ?��?.
- * - ?�???�이�?줄여??�??�역???�보.
+ * FIX v9: 부모 높이 고정 + VTT 정상 흐름
+ * 기존 absolute 누적 배치 대신 PlayPage 부모 체인을 100dvh/100%로 고정합니다.
+ * VTT toolbar/subtoolbar는 absolute overlay가 아니라 정상 흐름 안에서 배치합니다.
+ * 남는 영역을 줄이고 지도 영역을 확보합니다.
  * ------------------------------------------------------------------ */
 
 @media (min-width: 861px) {
@@ -3748,20 +3721,17 @@ button.chat-submit-btn:disabled,
 
 /* ------------------------------------------------------------------
  * FIX v13: Konva Stage surface fill
+ * 원인:
+ * - .vtt-stage-wrap이 화면 영역을 가지고 있어도 React-Konva가 생성하는
+ *   .konvajs-content는 Stage width/height props 기준 inline size로 만들어집니다.
+ * - CSS가 부모 영역만 키우면 Stage props가 작을 때 .konvajs-content가 부모를 채우지 못합니다.
  *
- * ?�인:
- * - .vtt-stage-wrap?�??�면 ?�역??가지�??��?�?
- *   React-Konva가 ?�성?�는 .konvajs-content??Stage width/height props 기�?
- *   inline size�?만들?�진??
- * - ?�라??CSS�?부�??�역???�워??Stage props가 ?�으�?
- *   .konvajs-content가 부모�? ?��? 채우지 못한??
+ * 임시/시각 보정:
+ * - .konvajs-content와 내부 canvas를 .vtt-stage-wrap 전체에 맞춰 확장합니다.
  *
- * ?�시/?�각 보정:
- * - .konvajs-content?�??��? canvas�?.vtt-stage-wrap ?�체??맞춰 ?�장?�다.
- *
- * ?�확??구조 개선:
- * - BattleMap.tsx?�서 ResizeObserver�?.vtt-stage-wrap ?�기�??�어
- *   <Stage width={stageSize.width} height={stageSize.height}>�??�겨???�다.
+ * 정확한 구조 개선:
+ * - BattleMap.tsx에서 ResizeObserver로 .vtt-stage-wrap 크기를 읽어
+ *   <Stage width={stageSize.width} height={stageSize.height}>에 넘깁니다.
  * ------------------------------------------------------------------ */
 
 @media (min-width: 861px) {
@@ -3802,16 +3772,16 @@ button.chat-submit-btn:disabled,
 }
 
 /* ------------------------------------------------------------------
- * FIX v14: Konva canvas ?�제 ?�시 ?�역 ?�장
+ * FIX v14: Konva canvas 실제 표시 영역 확장
  *
  * v13 문제:
- * - .konvajs-content�?direct child로만 ?�아???�제 DOM 구조가 ?�르�??�용?��? ?�음.
- * - Konva가 inline style�?width/height�??�기 ?�문??부모�? 커져??canvas가 ?�게 ?�음.
+ * - .konvajs-content를 direct child로만 찾아 실제 DOM 구조가 다르면 적용되지 않았습니다.
+ * - Konva가 inline style로 width/height를 쓰기 때문에 부모가 커져도 canvas가 작게 남았습니다.
  *
  * v14:
- * - .vtt-stage-wrap ?��? 모든 .konvajs-content / canvas�?descendant selector�?강제 ?�장.
- * - canvas가 비는 ?�역???�애�??�해 position:absolute + inset:0 ?�용.
- * - ?�확??최종 ?�결?�?BattleMap.tsx?�서 Stage width/height�?ResizeObserver�?갱신?�는 �?
+ * - .vtt-stage-wrap 내부 모든 .konvajs-content / canvas에 descendant selector로 강제 확장합니다.
+ * - canvas가 비는 영역을 없애기 위해 position:absolute + inset:0을 적용합니다.
+ * - 최종 해결은 BattleMap.tsx에서 Stage width/height를 ResizeObserver로 갱신하는 것입니다.
  * ------------------------------------------------------------------ */
 
 @media (min-width: 861px) {
@@ -3957,8 +3927,7 @@ button.chat-submit-btn:disabled,
   border-radius: 14px;
   border: 1px solid rgba(238, 206, 150, 0.42);
   background:
-    linear-gradient(180deg, rgba(73, 49, 28, 0.96), rgba(43, 28, 17, 0.96)),
-    rgba(44, 28, 16, 0.9);
+    linear-gradient(180deg, rgba(73, 49, 28, 0.96), rgba(43, 28, 17, 0.96)), rgba(44, 28, 16, 0.9);
   color: #f8ecd7;
   box-shadow:
     inset 0 1px 0 rgba(255, 239, 206, 0.18),
@@ -4274,8 +4243,7 @@ button.chat-submit-btn:disabled,
   padding: 0 12px;
   border-radius: 10px;
   border: 1px solid rgba(94, 60, 30, 0.38);
-  background:
-    linear-gradient(180deg, rgba(93, 61, 34, 0.94), rgba(53, 33, 19, 0.96));
+  background: linear-gradient(180deg, rgba(93, 61, 34, 0.94), rgba(53, 33, 19, 0.96));
   color: #f7e6c8;
   font-size: 14px;
   font-weight: 900;
@@ -4301,8 +4269,7 @@ button.chat-submit-btn:disabled,
   padding: 18px;
   border-radius: 18px;
   border: 1px solid rgba(138, 100, 62, 0.4);
-  background:
-    linear-gradient(180deg, rgba(255, 245, 220, 0.86), rgba(231, 206, 161, 0.88));
+  background: linear-gradient(180deg, rgba(255, 245, 220, 0.86), rgba(231, 206, 161, 0.88));
   box-shadow:
     inset 0 1px 0 rgba(255, 250, 240, 0.34),
     0 12px 24px rgba(0, 0, 0, 0.16);
@@ -4398,8 +4365,7 @@ button.chat-submit-btn:disabled,
   overflow: hidden;
   border-radius: 16px;
   border: 1px solid rgba(105, 72, 41, 0.22);
-  background:
-    linear-gradient(180deg, rgba(255, 248, 231, 0.98), rgba(233, 210, 169, 0.95));
+  background: linear-gradient(180deg, rgba(255, 248, 231, 0.98), rgba(233, 210, 169, 0.95));
   box-shadow: 0 12px 22px rgba(43, 25, 11, 0.14);
 }
 
@@ -4552,8 +4518,11 @@ button.chat-submit-btn:disabled,
 }
 
 .recruiting-party-slot-fallback {
-  background:
-    radial-gradient(circle at 30% 30%, rgba(255, 246, 228, 0.95), rgba(173, 131, 84, 0.94));
+  background: radial-gradient(
+    circle at 30% 30%,
+    rgba(255, 246, 228, 0.95),
+    rgba(173, 131, 84, 0.94)
+  );
 }
 
 .recruiting-party-slot-badge {
@@ -4636,14 +4605,16 @@ button.chat-submit-btn:disabled,
 
 .session-info-panel textarea:focus {
   outline: none !important;
-  box-shadow: inset 0 0 0 1.5px #b08040, 0 0 0 3px rgba(184, 144, 64, 0.2) !important;
+  box-shadow:
+    inset 0 0 0 1.5px #b08040,
+    0 0 0 3px rgba(184, 144, 64, 0.2) !important;
 }
 
 /* =====================================================================
  * Parchment theme overrides
  * ===================================================================== */
 
-/* �г� �����̳� ���?���� */
+/* 패널 컨테이너 장식 제거 */
 .session-info-panel,
 .session-settings-panel,
 .session-log-stack {
@@ -4660,7 +4631,7 @@ button.chat-submit-btn:disabled,
   padding: 0 4px 16px !important;
 }
 
-/* �ϴ� ��ư ��ƽ �ݻ� ���� �׵θ� */
+/* 하단 버튼 톤과 테두리 정리 */
 .main-command-mode-button,
 .main-command-helper-button {
   border: 1.5px solid #b89040 !important;
@@ -4671,7 +4642,7 @@ button.chat-submit-btn:disabled,
   box-shadow:
     inset 0 0 0 2.5px rgba(197, 158, 70, 0.45),
     0 2px 6px rgba(100, 65, 10, 0.1) !important;
-  /* 버튼 축약 ??width/padding까�? ?�니메이?�되�??�이콘이 ?�간?�으�??�아 보이므�??�상 계열�??�환?�니?? */
+  /* 버튼 축약 시 width/padding까지 전환되면 아이콘이 흔들려 보여서 색상 계열만 전환합니다. */
   transition:
     background-color 0.18s ease,
     border-color 0.18s ease,
@@ -4688,7 +4659,7 @@ button.chat-submit-btn:disabled,
     0 3px 8px rgba(100, 65, 10, 0.15) !important;
 }
 
-/* GM/RP???�제 ?�력 모드??버튼 ?�체�?채워 ?�재 모드�?빠르�?구분?�니?? */
+/* GM/RP 실제 입력 모드는 버튼 전체를 채워 현재 모드를 빠르게 구분합니다. */
 .main-command-primary-mode-button.active {
   border-color: #17375a !important;
   background: #17375a !important;
@@ -4698,7 +4669,7 @@ button.chat-submit-btn:disabled,
     0 3px 8px rgba(15, 36, 61, 0.18) !important;
 }
 
-/* 명령?��? ?�??보조??보조 ?�택?��?�??�면 무게�?줄이�??�해 ?�두리만 강조?�니?? */
+/* 보조 선택 버튼은 시각적 무게를 줄이기 위해 테두리만 강조합니다. */
 .main-command-outline-mode-button.active,
 .main-command-target-helper-button.active {
   border-color: #17375a !important;
@@ -4709,7 +4680,7 @@ button.chat-submit-btn:disabled,
     0 2px 6px rgba(15, 36, 61, 0.1) !important;
 }
 
-/* ?�동?�성 ??��?????�의 button?�라 공통 버튼 배경????��?�니?? ?�택 줄�? ?�기???�시 고정?�니?? */
+/* 자동완성 항목은 공통 버튼 배경을 덮어 선택 줄의 크기와 색을 고정합니다. */
 .session-prep-layout .session-sidebar-input .main-command-autocomplete-option.active {
   border-color: #0f2f52 !important;
   background: linear-gradient(180deg, #315d87, #17375a) !important;
@@ -4735,7 +4706,7 @@ button.chat-submit-btn:disabled,
   margin-left: 2px !important;
 }
 
-/* �Է�â ��ƽ �ݻ� ���� �׵θ� */
+/* 입력창 톤과 테두리 정리 */
 .session-sidebar-input input {
   height: 44px !important;
   border: 1.5px solid #b89040 !important;
@@ -4761,7 +4732,7 @@ button.chat-submit-btn:disabled,
   color: rgba(90, 64, 36, 0.48) !important;
 }
 
-/* Info ��: ���� ���� ���� */
+/* Info 탭: 상단 보조 제목 정리 */
 .session-info-panel .scenario-node-panel .eyebrow {
   display: block !important;
   border: none !important;
@@ -4776,7 +4747,7 @@ button.chat-submit-btn:disabled,
   margin-bottom: 6px !important;
 }
 
-/* Info ��: p,ul �������� notice ��ǳ�� ���� ���� ���� */
+/* Info 탭: 본문 목록이 notice 말풍선처럼 보이지 않게 정리 */
 .session-info-panel .scenario-node-panel > p,
 .session-info-panel .scenario-node-panel > ul {
   position: relative !important;
@@ -4806,7 +4777,7 @@ button.chat-submit-btn:disabled,
   filter: drop-shadow(1px 2px 3px rgba(100, 70, 40, 0.15)) url(#torn-paper-edge) !important;
 }
 
-/* textarea �� �θ� �г� ::before �� ���?ó�� */
+/* textarea 부모 패널의 장식 처리 */
 .session-info-panel .scenario-node-panel:has(textarea) {
   position: relative !important;
   z-index: 1 !important;
@@ -4854,7 +4825,7 @@ button.chat-submit-btn:disabled,
   outline: none !important;
 }
 
-/* ?�투 ?�드 ?�는 ?�험 ?�드가 ?�성?�되?�을 ?? 좌측 ?�체 ?�역???�운?�과 ?�딩???�전???�애???�드 배경??�?차게 만듭?�다. */
+/* 전투 노드 또는 탐험 노드가 활성화되면 좌측 전체 영역의 여백을 없애고 노드 배경이 꽉 차게 만듭니다. */
 .session-prep-stage.node-surface-active .session-stage-canvas.started,
 .session-prep-stage.node-surface-active .session-game-surface {
   border-radius: 0 !important;

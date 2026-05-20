@@ -403,6 +403,12 @@ export class CombatActionResourcesDto {
 
   @ApiProperty()
   movementFtRemaining!: number;
+
+  @ApiProperty()
+  spellSlotLevel1Total!: number;
+
+  @ApiProperty()
+  spellSlotLevel1Remaining!: number;
 }
 
 export class CombatParticipantResponseDto {
@@ -627,6 +633,11 @@ export class MoveCombatParticipantDto {
   @ValidateNested({ each: true })
   @Type(() => CombatMapPointDto)
   path?: CombatMapPointDto[];
+
+  @ApiPropertyOptional({ enum: ["normal", "jump"], default: "normal" })
+  @IsOptional()
+  @IsString()
+  movementMode?: "normal" | "jump";
 }
 
 export class CombatReactionPromptDto {
