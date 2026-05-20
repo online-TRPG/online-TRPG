@@ -15,6 +15,7 @@ import type { GameIconName } from '../../../components/GameIcon';
 import battleNodeBadge from '../../../components/node_badge_battle.webp';
 import turnDividerArrow from '../../../components/divider-arrow-gold-horizontal.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
+import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import { getCharacterImage } from '../utils/characterVisuals';
@@ -233,14 +234,14 @@ function isWeaponItem(item: InventoryItemDto) {
 }
 
 function isArmorItem(item: InventoryItemDto) {
+  if (isShieldItem(item)) return false;
   const key = getInventoryItemKey(item);
-  return (
-    item.itemType === 'armor' ||
-    item.itemType === 'shield' ||
-    key.includes('armor') ||
-    key.includes('갑옷') ||
-    key.includes('방패')
-  );
+  return item.itemType === 'armor' || key.includes('armor') || key.includes('갑옷');
+}
+
+function isShieldItem(item: InventoryItemDto) {
+  const key = getInventoryItemKey(item);
+  return item.itemType === 'shield' || key.includes('shield') || key.includes('방패');
 }
 
 function isEquippedItem(item: InventoryItemDto, equippedId: string | null | undefined) {
@@ -370,16 +371,6 @@ function getResourceFillPercent(current: number | null | undefined, max: number 
   return Math.min(100, Math.max(0, (current / max) * 100));
 }
 
-function getItemMetaLabel(item: InventoryItemDto) {
-  const labels = [
-    item.itemType,
-    item.damageDice ? `${item.damageDice}${item.damageType ? ` ${item.damageType}` : ''}` : null,
-    item.weightLb ? `${item.weightLb} lb` : null,
-  ].filter(Boolean);
-
-  return labels.length ? labels.join(' / ') : '상세 정보 없음';
-}
-
 function readParticipantColorVar(
   colorStyle: CSSProperties | undefined,
   name: '--participant-frame-color' | '--participant-bg-color' | '--participant-text-color',
@@ -478,7 +469,8 @@ export function CombatNodeSurface({
   const equippedWeapon =
     inventory.find((item) => isEquippedItem(item, myCharacter?.equippedWeaponId)) ?? null;
   const offhandWeapon =
-    inventory.find((item) => isEquippedItem(item, myCharacter?.offhandWeaponId)) ?? null;
+    inventory.find((item) => isEquippedItem(item, myCharacter?.offhandWeaponId) && isWeaponItem(item)) ??
+    null;
   const currentParticipant =
     combat?.participants.find((participant) => participant.sessionEntityId === combat.currentEntityId) ?? null;
   const selectedTargetParticipant =
@@ -1370,7 +1362,8 @@ export function CombatNodeSurface({
               >
                 {inventory.flatMap((item) => {
                   const isWeapon = isWeaponItem(item);
-                  const equippedCount = isWeapon
+                  const isShield = isShieldItem(item);
+                  const equippedCount = isWeapon || isShield
                     ? Number(isEquippedItem(item, myCharacter?.equippedWeaponId)) +
                       Number(isEquippedItem(item, myCharacter?.offhandWeaponId))
                     : 0;
@@ -1399,9 +1392,12 @@ export function CombatNodeSurface({
                   const canUse = isQuickUsableItem(item);
                   const isWeapon = isWeaponItem(item);
                   const isArmor = isArmorItem(item);
+                  const isShield = isShieldItem(item);
                   const isEquipped = isWeapon
                     ? equipmentDisplayState === 'equipped'
-                    : isArmor;
+                    : isShield
+                      ? equipmentDisplayState === 'equipped'
+                      : isArmor;
                   const equipmentActionItem = {
                     ...item,
                     __equipmentDisplayState: equipmentDisplayState,
@@ -1415,17 +1411,19 @@ export function CombatNodeSurface({
                         <GameIcon name={getInventoryItemIconName(item)} size={28} />
                       </span>
                       <div className="combat-inventory-item-body">
-                        <strong>{item.name}</strong>
-                        <span>{getItemMetaLabel(item)}</span>
+                        <strong className="inventory-item-info-host">
+                          <InventoryItemInfo item={item} />
+                        </strong>
+                        <span>{getInventoryMetaLabel(item)}</span>
                       </div>
                       <span className="combat-inventory-quantity">x{item.quantity}</span>
-                      {isWeapon || isArmor ? (
+                      {isWeapon || isArmor || isShield ? (
                         <button
                           type="button"
                           disabled={isArmor || isInventoryBusy}
                           title={
                             isArmor
-                              ? '방어구는 현재 캐릭터 AC에 이미 반영되어 있습니다.'
+                              ? '몸통 방어구는 현재 캐릭터 AC에 반영되어 있습니다.'
                               : isEquipped
                                 ? `${item.name} 착용 해제`
                                 : `${item.name} 착용`
@@ -1457,6 +1455,8 @@ export function CombatNodeSurface({
       {selectedTurnCharacter ? (
         <CharacterDetailModal
           character={selectedTurnCharacter}
+          onEquipInventoryItem={onEquipInventoryItem}
+          isEquipmentBusy={isInventoryBusy}
           onClose={() => setSelectedTurnCharacterId(null)}
         />
       ) : null}

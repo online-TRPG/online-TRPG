@@ -35,6 +35,7 @@ import { getPreferredScenario, splitScenariosBySource } from '../data/sessionVis
 import type { CharacterPayload } from '../hooks/useSession';
 import type { PersistentCharacter, Scenario, SessionSnapshot, StoredUser } from '../types/session';
 import type { ClassDefinitionResponseDto, ItemResponseDto, RaceResponseDto } from '@trpg/shared-types';
+import { InventoryItemInfo } from '../features/sessionPlay/components/InventoryItemInfo';
 import { listItems } from '../services/api';
 import './CharacterPage.css';
 
@@ -100,6 +101,7 @@ interface CharacterPageProps {
 
 type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
 type ScalingAbilityKey = 'str' | 'dex' | 'int';
+type CharacterCreateStepKey = 'profile' | 'stats' | 'features' | 'loadout';
 
 interface InventoryDraftItem {
   id: string;
@@ -120,6 +122,17 @@ interface ClassStatProfile {
     abilities: Record<ScalingAbilityKey, number>;
   };
 }
+
+const CHARACTER_CREATE_STEPS: ReadonlyArray<{
+  key: CharacterCreateStepKey;
+  label: string;
+  helper: string;
+}> = [
+  { key: 'profile', label: '기본 정보', helper: '이름, 시나리오, 초상화를 정합니다.' },
+  { key: 'stats', label: '코어 스탯', helper: '레벨과 능력치를 배분합니다.' },
+  { key: 'features', label: '기술과 특성', helper: '숙련 기술과 직업 기능을 고릅니다.' },
+  { key: 'loadout', label: '장비와 주문', helper: '시작 장비를 확정하고 생성합니다.' },
+] as const;
 
 type ClassName = ClassOptionValue;
 
@@ -851,16 +864,55 @@ export function CharacterPage({
   const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftItem[]>([]);
   const [formState, setFormState] = useState<CharacterPayload>(() => createDefaultCharacter());
   const [formValidationError, setFormValidationError] = useState<string | null>(null);
+  const [createToast, setCreateToast] = useState<{ id: number; message: string } | null>(null);
+  const [createStepIndex, setCreateStepIndex] = useState(0);
+  const [isStatsReferenceOpen, setStatsReferenceOpen] = useState(false);
   const [itemCatalog, setItemCatalog] = useState<ItemResponseDto[]>([]);
   // 인벤토리 편집 영역 DOM 참조입니다. 필요 시 스크롤/포커스 제어에 씁니다.
   const inventoryEditorRef = useRef<HTMLDivElement | null>(null);
   const didAutoOpenCreateRef = useRef(false);
+  const createToastTimeoutRef = useRef<number | null>(null);
+
+  function clearCreateToastTimer() {
+    if (createToastTimeoutRef.current) {
+      window.clearTimeout(createToastTimeoutRef.current);
+      createToastTimeoutRef.current = null;
+    }
+  }
+
+  function showCreateToast(message: string) {
+    const nextToast = { id: Date.now(), message };
+    setCreateToast(nextToast);
+    clearCreateToastTimer();
+    createToastTimeoutRef.current = window.setTimeout(() => {
+      setCreateToast((current) => (current?.id === nextToast.id ? null : current));
+      createToastTimeoutRef.current = null;
+    }, 3000);
+  }
 
   useEffect(() => {
     listItems()
       .then(setItemCatalog)
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!isCreateModalOpen) {
+      clearCreateToastTimer();
+      setCreateToast(null);
+      return;
+    }
+    if (formValidationError) {
+      showCreateToast(formValidationError);
+    }
+  }, [formValidationError, isCreateModalOpen]);
+
+  useEffect(() => {
+    if (!isCreateModalOpen || !error) return;
+    showCreateToast(error);
+  }, [error, isCreateModalOpen]);
+
+  useEffect(() => () => clearCreateToastTimer(), []);
 
   const itemKoNameByKey = useMemo(() => {
     const map = new Map<string, string>();
@@ -983,6 +1035,30 @@ export function CharacterPage({
       if (nextBase < POINT_BUY_MIN_BASE || nextBase > POINT_BUY_MAX_BASE) {
         return current;
       }
+      if (delta > 0) {
+        const currentAbilities = current.abilities ?? {
+          str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10,
+        };
+        const currentBases = {
+          str: currentAbilities.str - (selectedRace?.abilityIncreases.str ?? 0),
+          dex: currentAbilities.dex - (selectedRace?.abilityIncreases.dex ?? 0),
+          con: currentAbilities.con - (selectedRace?.abilityIncreases.con ?? 0),
+          int: currentAbilities.int - (selectedRace?.abilityIncreases.int ?? 0),
+          wis: currentAbilities.wis - (selectedRace?.abilityIncreases.wis ?? 0),
+          cha: currentAbilities.cha - (selectedRace?.abilityIncreases.cha ?? 0),
+        };
+        const currentTotalCost = (Object.values(currentBases) as number[]).reduce(
+          (sum, base) => sum + (POINT_BUY_COST[base] ?? 0),
+          0,
+        );
+        const nextCost = POINT_BUY_COST[nextBase] ?? 0;
+        const currentCost = POINT_BUY_COST[currentBase] ?? 0;
+        const stepCost = nextCost - currentCost;
+        const remaining = POINT_BUY_TOTAL - currentTotalCost;
+        if (stepCost > remaining) {
+          return current;
+        }
+      }
       const currentAbilities = current.abilities ?? {
         str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10,
       };
@@ -1080,6 +1156,12 @@ export function CharacterPage({
     () => getClassOptionByValue(classCatalog, formState.className),
     [classCatalog, formState.className]
   );
+  const currentCreateStep = CHARACTER_CREATE_STEPS[createStepIndex] ?? CHARACTER_CREATE_STEPS[0];
+  const isProfileStep = currentCreateStep.key === 'profile';
+  const isStatsStep = currentCreateStep.key === 'stats';
+  const isFeaturesStep = currentCreateStep.key === 'features';
+  const isLoadoutStep = currentCreateStep.key === 'loadout';
+  const currentStatSelectionLabel = `${selectedRaceInfo?.label ?? '종족 미선택'} (${selectedClassInfo?.label ?? '직업 미선택'})`;
 
   const usedCharacterIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1112,6 +1194,8 @@ export function CharacterPage({
   // 생성/수정 폼을 기본값으로 되돌립니다.
   function resetCreateForm() {
     setEditingCharacterId(null);
+    setCreateStepIndex(0);
+    setStatsReferenceOpen(false);
     const defaults = createDefaultCharacter();
     const defaultScenario = getPreferredScenario(scenarios);
     const defaultClass = classDefinitions.find(
@@ -1137,6 +1221,8 @@ export function CharacterPage({
     setInventoryDraft([]);
     setSkillInput('');
     setFormValidationError(null);
+    setCreateToast(null);
+    clearCreateToastTimer();
   }
 
   // 새 캐릭터 생성 모달을 여는 함수입니다.
@@ -1150,6 +1236,7 @@ export function CharacterPage({
     if (!selectedCharacter) return;
 
     setEditingCharacterId(selectedCharacter.id);
+    setCreateStepIndex(0);
     setFormState({
       name: selectedCharacter.name,
       ancestry: selectedCharacter.ancestry,
@@ -1174,6 +1261,10 @@ export function CharacterPage({
     });
     setInventoryDraft(selectedCharacter.inventory.map((item) => ({ ...item })));
     setSkillInput('');
+    setStatsReferenceOpen(false);
+    setFormValidationError(null);
+    setCreateToast(null);
+    clearCreateToastTimer();
     setCreateModalOpen(true);
   }
 
@@ -1199,8 +1290,50 @@ export function CharacterPage({
     openCreateModal();
   }, [autoOpenCreate]);
 
+  function goToPreviousCreateStep() {
+    setFormValidationError(null);
+    setCreateStepIndex((current) => Math.max(0, current - 1));
+  }
+
+  function goToNextCreateStep() {
+    if (isProfileStep) {
+      if (!formState.name.trim() || !formState.scenarioId || !formState.ancestry || !formState.className) {
+        setFormValidationError('이름, 시나리오, 종족, 직업을 먼저 입력해야 다음 장으로 넘어갈 수 있습니다.');
+        return;
+      }
+    }
+
+    if (isStatsStep && pointBuyState.enforced && !pointBuyState.isValid) {
+      setFormValidationError('능력치 Point Buy 27 포인트를 정확히 맞춰야 다음 장으로 넘어갈 수 있습니다.');
+      return;
+    }
+
+    if (isFeaturesStep && classDefinitions.length > 0 && !hasRequiredClassFeatureChoices(formState.className, formState.features)) {
+      setFormValidationError('선택한 직업의 1레벨 기능 선택을 완료해야 다음 장으로 넘어갈 수 있습니다.');
+      return;
+    }
+
+    setFormValidationError(null);
+    setCreateStepIndex((current) => Math.min(CHARACTER_CREATE_STEPS.length - 1, current + 1));
+  }
+
   async function submitCreateCharacter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (classDefinitions.length === 0) {
+      setFormValidationError('클래스 정의를 불러오는 중입니다. 잠시만 기다려 주세요.');
+      return;
+    }
+
+    if (!hasRequiredClassFeatureChoices(formState.className, formState.features)) {
+      setFormValidationError('선택한 직업의 1레벨 기능 선택을 완료해야 캐릭터를 생성할 수 있습니다.');
+      return;
+    }
+
+    if (!hasRequiredStartingEquipmentItemSelections(selectedClass, formState)) {
+      setFormValidationError('시작 장비의 자유 선택 항목에서 실제 아이템을 선택해야 캐릭터를 생성할 수 있습니다.');
+      return;
+    }
 
     if (selectedClass?.key === 'wizard' && (selectedClass.startingCantripCount > 0 || selectedClass.startingSpellCount > 0)) {
       const requiredCantripCount = Math.min(selectedClass.startingCantripCount, cantripOptions.length);
@@ -1551,7 +1684,7 @@ export function CharacterPage({
                         <ul className="fantasy-character-text-list">
                           {selectedCharacter.inventory.map((item) => (
                             <li key={item.id}>
-                              {item.name} x{item.quantity}
+                              <InventoryItemInfo item={item} /> x{item.quantity}
                             </li>
                           ))}
                         </ul>
@@ -1586,13 +1719,23 @@ export function CharacterPage({
 
       {/* 캐릭터 생성/수정 모달입니다. editingCharacterId가 있으면 수정 모드로 동작합니다. */}
       {isCreateModalOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={dismissCreateModal}>
+        <div className="modal-backdrop character-create-backdrop" role="presentation" onClick={dismissCreateModal}>
           <div
             className="modal-card modal-card-wide character-create-modal"
             role="dialog"
             aria-modal="true"
             onClick={(event) => event.stopPropagation()}
           >
+            {createToast ? (
+              <div
+                key={createToast.id}
+                className="character-create-toast"
+                role="status"
+                aria-live="assertive"
+              >
+                {createToast.message}
+              </div>
+            ) : null}
             <div className="modal-header">
               <div>
                 <span className="eyebrow">
@@ -1605,8 +1748,36 @@ export function CharacterPage({
               </button>
             </div>
 
-            <form className="modal-form character-create-form" onSubmit={submitCreateCharacter}>
+            <form
+              className={`modal-form character-create-form character-create-form--${currentCreateStep.key}`}
+              onSubmit={submitCreateCharacter}
+            >
+              <div className="character-create-stepper" aria-label="캐릭터 생성 단계">
+                {CHARACTER_CREATE_STEPS.map((step, index) => {
+                  const isActive = index === createStepIndex;
+                  const isCompleted = index < createStepIndex;
+
+                  return (
+                    <div
+                      key={step.key}
+                      className={`character-create-step${isActive ? ' active' : ''}${isCompleted ? ' completed' : ''}`}
+                    >
+                      <span className="character-create-step-index">{index + 1}</span>
+                      <div>
+                        <strong>{step.label}</strong>
+                        <span>{step.helper}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div
+                className={`character-create-form-body${
+                  isLoadoutStep ? ' character-create-form-body--scrollable' : ''
+                }`}
+              >
               <div className="character-create-form-left">
+                {isProfileStep ? (
                 <section className="character-form-section">
                   <div className="section-heading compact">
                     <div>
@@ -1827,201 +1998,84 @@ export function CharacterPage({
                     </div>
                   </div>
                 </section>
+                ) : null}
 
+                {isStatsStep ? (
                 <section className="character-form-section">
                   <div className="section-heading compact">
                     <div>
                       <span className="eyebrow">전투 수치</span>
                       <h2>코어 스탯</h2>
                     </div>
-                  </div>
-
-                  <div className="field-row field-row-4">
-                    <div>
-                      <label htmlFor="character-hp-create">
-                        HP {derivedLevelStats ? '(레벨/Con 자동)' : ''}
-                      </label>
-                      <input
-                        id="character-hp-create"
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={formState.maxHp ?? 12}
-                        readOnly={Boolean(derivedLevelStats)}
-                        disabled={Boolean(derivedLevelStats)}
-                        onChange={(event) =>
-                          setFormState((current) => ({
-                            ...current,
-                            maxHp: normalizeIntegerValue(Number(event.target.value), 1),
-                          }))
-                        }
-                      />
-                      {derivedLevelStats && selectedClass ? (
-                        (() => {
-                          const level = formState.level ?? 1;
-                          const con = formState.abilities?.con ?? 10;
-                          const conMod = Math.floor((con - 10) / 2);
-                          const hdMax = { d6: 6, d8: 8, d10: 10, d12: 12 }[selectedClass.hitDie] ?? 0;
-                          const hdAvg = { d6: 4, d8: 5, d10: 6, d12: 7 }[selectedClass.hitDie] ?? 0;
-                          const modText = conMod >= 0 ? `+${conMod}` : `${conMod}`;
-                          return (
-                            <div style={{ fontSize: '0.8rem', opacity: 0.7, marginTop: 4 }}>
-                              {level === 1
-                                ? `${selectedClass.hitDie}(max ${hdMax}) + Con(${modText}) = ${derivedLevelStats.maxHp}`
-                                : `${selectedClass.hitDie}(max ${hdMax}) + Con(${modText}) + ${level - 1}×(${hdAvg}+${modText}) = ${derivedLevelStats.maxHp}`}
+                    <div className="character-create-stats-trigger-row">
+                      <span className="character-create-inline-trigger">
+                        <span className="character-create-inline-trigger-text">{currentStatSelectionLabel}</span>
+                      </span>
+                      <div className="character-create-stats-help-anchor">
+                        <button
+                          type="button"
+                          className="character-create-help-trigger"
+                          aria-label="종족 및 직업 정보 보기"
+                          aria-expanded={isStatsReferenceOpen}
+                          onClick={() => setStatsReferenceOpen((current) => !current)}
+                        >
+                          ?
+                        </button>
+                        {isStatsReferenceOpen ? (
+                          <div className="character-create-stats-popover" role="dialog" aria-label="종족 및 직업 정보">
+                            <div className="character-create-stats-popover-head">
+                              <strong>{currentStatSelectionLabel}</strong>
+                              <button
+                                type="button"
+                                className="character-create-stats-popover-close"
+                                onClick={() => setStatsReferenceOpen(false)}
+                              >
+                                닫기
+                              </button>
                             </div>
-                          );
-                        })()
-                      ) : null}
-                    </div>
-                    <div>
-                      <label htmlFor="character-ac-create">방어도</label>
-                      <input
-                        id="character-ac-create"
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={formState.armorClass ?? 10}
-                        onChange={(event) =>
-                          setFormState((current) => ({
-                            ...current,
-                            armorClass: normalizeIntegerValue(Number(event.target.value), 1),
-                          }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="character-speed-create">이동속도</label>
-                      <input
-                        id="character-speed-create"
-                        type="number"
-                        min={0}
-                        value={formState.speed ?? 30}
-                        onChange={(event) =>
-                          setFormState((current) => ({
-                            ...current,
-                            speed: normalizeIntegerValue(Number(event.target.value), 0),
-                          }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="character-prof-create">
-                        숙련도 {derivedLevelStats ? '(레벨 자동)' : ''}
-                      </label>
-                      <input
-                        id="character-prof-create"
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={formState.proficiencyBonus ?? 2}
-                        readOnly={Boolean(derivedLevelStats)}
-                        disabled={Boolean(derivedLevelStats)}
-                        onChange={(event) =>
-                          setFormState((current) => ({
-                            ...current,
-                            proficiencyBonus: normalizeIntegerValue(Number(event.target.value), 0),
-                          }))
-                        }
-                      />
-                      {derivedLevelStats ? (
-                        <div style={{ fontSize: '0.8rem', opacity: 0.7, marginTop: 4 }}>
-                          ⌊(레벨 {formState.level ?? 1}-1)/4⌋ + 2 = {derivedLevelStats.proficiencyBonus}
-                        </div>
-                      ) : null}
+                            <div className="character-create-stats-popover-body">
+                              <section className="fantasy-insight-section">
+                                <strong className="fantasy-insight-title">
+                                  {selectedRaceInfo?.label ?? '종족 정보'}
+                                </strong>
+                                <p>
+                                  능력치 보너스:{' '}
+                                  {(selectedRaceInfo?.abilityBonuses ?? [])
+                                    .map((bonus) => formatAbilityBonus(bonus))
+                                    .join(', ') || '정보 없음'}
+                                </p>
+                                <p>이동속도: {selectedRaceInfo ? `${selectedRaceInfo.speed} ft.` : '정보 없음'}</p>
+                                <p>크기: {selectedRaceInfo?.size ?? '정보 없음'}</p>
+                              </section>
+                              <section className="fantasy-insight-section">
+                                <strong className="fantasy-insight-title">
+                                  {selectedClassInfo?.label ?? '직업 정보'}
+                                </strong>
+                                <p>{selectedClassInfo?.summary ?? '직업 설명이 없습니다.'}</p>
+                                <p>
+                                  주 능력치:{' '}
+                                  {selectedClassInfo
+                                    ? localizeAbilityText(selectedClassInfo.primaryAbilitiesRaw)
+                                    : '정보 없음'}
+                                </p>
+                                <p>히트다이: {selectedClassInfo?.hitDieRaw ?? '정보 없음'}</p>
+                                <p>
+                                  주문시전 능력치:{' '}
+                                  {selectedClassInfo?.spellcastingAbility
+                                    ? localizeSrdTermText(selectedClassInfo.spellcastingAbility)
+                                    : '없음'}
+                                </p>
+                              </section>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </section>
+                ) : null}
 
-                <section className="character-form-section">
-                  <div className="section-heading compact">
-                    <div>
-                      <span className="eyebrow">능력치</span>
-                      <h2>능력치 (Point Buy 27)</h2>
-                    </div>
-                    {pointBuyState.enforced ? (
-                      <div style={{ fontSize: '0.9rem' }}>
-                        남은 포인트: <strong style={{ color: pointBuyState.isValid ? 'inherit' : '#d04040' }}>
-                          {pointBuyState.remaining}
-                        </strong>{' '}
-                        / {POINT_BUY_TOTAL}
-                        {!pointBuyState.isValid && (
-                          <span style={{ marginLeft: 8, color: '#d04040' }}>
-                            ({pointBuyState.totalCost > POINT_BUY_TOTAL ? '초과' : '미달'})
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: '0.85rem', opacity: 0.7 }}>
-                        종족을 먼저 선택해 주세요!
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="field-row field-row-3">
-                    {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => {
-                      const base = pointBuyState.bases[ability];
-                      const bonus = selectedRace?.abilityIncreases[ability] ?? 0;
-                      const finalScore = formState.abilities?.[ability] ?? 10;
-                      const cost = pointBuyState.costs[ability];
-                      const canDec = pointBuyState.enforced && base > POINT_BUY_MIN_BASE;
-                      const canInc = pointBuyState.enforced && base < POINT_BUY_MAX_BASE;
-                      return (
-                        <div key={ability}>
-                          <label htmlFor={`character-${ability}`}>
-                            {abilityDisplayLabels[ability]}
-                            {bonus > 0 && (
-                              <span style={{ marginLeft: 6, color: '#3a7' }}>(+{bonus} 종족)</span>
-                            )}
-                          </label>
-                          {pointBuyState.enforced ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <button
-                                type="button"
-                                onClick={() => adjustAbilityBase(ability, -1)}
-                                disabled={!canDec}
-                                aria-label={`${abilityDisplayLabels[ability]} 감소`}
-                              >
-                                −
-                              </button>
-                              <div style={{ minWidth: 90, textAlign: 'center' }}>
-                                <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
-                                  base {base} → {finalScore}
-                                </div>
-                                <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>
-                                  비용 {cost ?? '?'}p
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => adjustAbilityBase(ability, 1)}
-                                disabled={!canInc}
-                                aria-label={`${abilityDisplayLabels[ability]} 증가`}
-                              >
-                                +
-                              </button>
-                            </div>
-                          ) : (
-                            <input
-                              id={`character-${ability}`}
-                              type="number"
-                              min={1}
-                              step={1}
-                              value={finalScore}
-                              onChange={(event) =>
-                                updateAbility(
-                                  ability,
-                                  normalizeIntegerValue(Number(event.target.value), 1)
-                                )
-                              }
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-
+                {isFeaturesStep ? (
                 <section className="character-form-section">
                   <div className="section-heading compact">
                     <div>
@@ -2052,22 +2106,6 @@ export function CharacterPage({
                             <strong>{selectedSkills.length}</strong>개 선택).
                           </p>
                         ) : null}
-
-                        <div className="character-skill-picker">
-                          <input
-                            value={skillInput}
-                            onChange={(event) => setSkillInput(event.target.value)}
-                            placeholder="기술 이름 입력 (예: 비전학 또는 Arcana)"
-                            disabled={limitReached}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => addSkill(skillInput)}
-                            disabled={limitReached || !skillInput.trim()}
-                          >
-                            추가
-                          </button>
-                        </div>
 
                         <div className="character-chip-row" style={{ marginTop: '14px' }}>
                           {choices.map((skill) => {
@@ -2137,8 +2175,9 @@ export function CharacterPage({
                     )}
                   </div>
                 </section>
+                ) : null}
 
-                {(() => {
+                {isFeaturesStep ? (() => {
                   const classKey = normalizeClassValue(formState.className).toLowerCase();
                   const features = formState.features ?? [];
                   const fightingStyle = getFeatureValue(features, 'fighting_style:');
@@ -2328,9 +2367,9 @@ export function CharacterPage({
                       ) : null}
                     </section>
                   );
-                })()}
+                })() : null}
 
-                {selectedClass ? (
+                {isLoadoutStep && selectedClass ? (
                   <section className="character-form-section">
                     <div className="section-heading compact">
                       <div>
@@ -2438,111 +2477,7 @@ export function CharacterPage({
                   </section>
                 ) : null}
 
-                {selectedClass && (selectedClass.startingCantripCount > 0 || selectedClass.startingSpellCount > 0) ? (
-                  (() => {
-                    const renderedCantripCount = Math.min(
-                      selectedClass.startingCantripCount,
-                      cantripOptions.length
-                    );
-                    const renderedSpellCount = Math.min(
-                      selectedClass.startingSpellCount,
-                      level1SpellOptions.length
-                    );
-                    return (
-                  <section className="character-form-section">
-                    <div className="section-heading compact">
-                      <div>
-                        <span className="eyebrow">시작 주문</span>
-                        <h2>
-                          캔트립 {renderedCantripCount}개 + 주문 {renderedSpellCount}개 (구현된 주문 풀 기준)
-                        </h2>
-                      </div>
-                    </div>
-                    {renderedCantripCount > 0 && (
-                      <div style={{ marginBottom: 12 }}>
-                        <label style={{ display: 'block', marginBottom: 6 }}>캔트립</label>
-                        {Array.from({ length: renderedCantripCount }).map((_, idx) => (
-                          <select
-                            key={`cantrip-${idx}`}
-                            value={formState.startingSpells?.cantrips[idx] ?? ''}
-                            onChange={(event) => {
-                              const v = event.target.value;
-                              setFormValidationError(null);
-                              setFormState((current) => {
-                                const base = current.startingSpells ?? {
-                                  cantrips: new Array(selectedClass.startingCantripCount).fill(''),
-                                  spells: new Array(selectedClass.startingSpellCount).fill(''),
-                                };
-                                const cantrips = [...base.cantrips];
-                                cantrips[idx] = v;
-                                return { ...current, startingSpells: { ...base, cantrips } };
-                              });
-                            }}
-                            style={{ marginRight: 6, marginBottom: 4 }}
-                          >
-                            <option value="">캔트립 {idx + 1} 선택</option>
-                            {cantripOptions.map((spell) => (
-                              <option
-                                key={spell.id}
-                                value={spell.id}
-                                disabled={isSpellAlreadySelected(
-                                  formState.startingSpells?.cantrips,
-                                  spell.id,
-                                  idx
-                                )}
-                              >
-                                {spell.label}
-                              </option>
-                            ))}
-                          </select>
-                        ))}
-                      </div>
-                    )}
-                    {renderedSpellCount > 0 && (
-                      <div>
-                        <label style={{ display: 'block', marginBottom: 6 }}>1레벨 주문</label>
-                        {Array.from({ length: renderedSpellCount }).map((_, idx) => (
-                          <select
-                            key={`spell-${idx}`}
-                            value={formState.startingSpells?.spells[idx] ?? ''}
-                            onChange={(event) => {
-                              const v = event.target.value;
-                              setFormValidationError(null);
-                              setFormState((current) => {
-                                const base = current.startingSpells ?? {
-                                  cantrips: new Array(selectedClass.startingCantripCount).fill(''),
-                                  spells: new Array(selectedClass.startingSpellCount).fill(''),
-                                };
-                                const spells = [...base.spells];
-                                spells[idx] = v;
-                                return { ...current, startingSpells: { ...base, spells } };
-                              });
-                            }}
-                            style={{ marginRight: 6, marginBottom: 4 }}
-                          >
-                            <option value="">1레벨 주문 {idx + 1} 선택</option>
-                            {level1SpellOptions.map((spell) => (
-                              <option
-                                key={spell.id}
-                                value={spell.id}
-                                disabled={isSpellAlreadySelected(
-                                  formState.startingSpells?.spells,
-                                  spell.id,
-                                  idx
-                                )}
-                              >
-                                {spell.label}
-                              </option>
-                            ))}
-                          </select>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                    );
-                  })()
-                ) : null}
-
+                {isLoadoutStep ? (
                 <section className="character-form-section">
                   <div className="section-heading compact">
                     <div>
@@ -2591,8 +2526,10 @@ export function CharacterPage({
                     )}
                   </div>
                 </section>
+                ) : null}
               </div>
               <div className="character-create-form-right">
+                {isProfileStep ? (
                 <section className="character-form-section">
                   <div className="character-avatar-picker">
                     <label>초상화</label>
@@ -2671,6 +2608,56 @@ export function CharacterPage({
                     </div>
                   </div>
                 </section>
+                ) : null}
+                {isStatsStep ? (
+                <section className="character-form-section character-create-stats-strip-section">
+                  <div className="character-create-stat-summary">
+                    <article className="character-create-stat-card">
+                      <span className="character-create-stat-card-label">HP</span>
+                      <strong className="character-create-stat-card-value">{formState.maxHp ?? 12}</strong>
+                      {derivedLevelStats && selectedClass ? (
+                        (() => {
+                          const level = formState.level ?? 1;
+                          const con = formState.abilities?.con ?? 10;
+                          const conMod = Math.floor((con - 10) / 2);
+                          const hdMax = { d6: 6, d8: 8, d10: 10, d12: 12 }[selectedClass.hitDie] ?? 0;
+                          const hdAvg = { d6: 4, d8: 5, d10: 6, d12: 7 }[selectedClass.hitDie] ?? 0;
+                          const modText = conMod >= 0 ? `+${conMod}` : `${conMod}`;
+                          return (
+                            <span className="character-create-stat-card-help">
+                              {level === 1
+                                ? `${selectedClass.hitDie}(max ${hdMax}) + Con(${modText})`
+                                : `${selectedClass.hitDie}(max ${hdMax}) + ${level - 1}x(${hdAvg}+${modText})`}
+                            </span>
+                          );
+                        })()
+                      ) : (
+                        <span className="character-create-stat-card-help">레벨과 건강 기반 자동 계산</span>
+                      )}
+                    </article>
+                    <article className="character-create-stat-card">
+                      <span className="character-create-stat-card-label">방어도</span>
+                      <strong className="character-create-stat-card-value">{formState.armorClass ?? 10}</strong>
+                      <span className="character-create-stat-card-help">장비와 민첩 보정 반영</span>
+                    </article>
+                    <article className="character-create-stat-card">
+                      <span className="character-create-stat-card-label">이동속도</span>
+                      <strong className="character-create-stat-card-value">{formState.speed ?? 30}</strong>
+                      <span className="character-create-stat-card-help">종족/직업 보정 포함</span>
+                    </article>
+                    <article className="character-create-stat-card">
+                      <span className="character-create-stat-card-label">숙련도</span>
+                      <strong className="character-create-stat-card-value">{formState.proficiencyBonus ?? 2}</strong>
+                      <span className="character-create-stat-card-help">
+                        {derivedLevelStats
+                          ? `레벨 ${formState.level ?? 1} 기준 자동`
+                          : '레벨에 따라 자동 상승'}
+                      </span>
+                    </article>
+                  </div>
+                </section>
+                ) : null}
+                {!isLoadoutStep && !isStatsStep ? (
                 <div className="character-insight-box">
                   <div className="fantasy-insight-content">
                     <div className="fantasy-insight-section">
@@ -2733,66 +2720,258 @@ export function CharacterPage({
                     </div>
                   </div>
                 </div>
+                ) : isLoadoutStep && selectedClass && (selectedClass.startingCantripCount > 0 || selectedClass.startingSpellCount > 0) ? (
+                  (() => {
+                    const renderedCantripCount = Math.min(
+                      selectedClass.startingCantripCount,
+                      cantripOptions.length
+                    );
+                    const renderedSpellCount = Math.min(
+                      selectedClass.startingSpellCount,
+                      level1SpellOptions.length
+                    );
+                    return (
+                <section className="character-form-section character-create-loadout-spells">
+                  <div className="section-heading compact">
+                    <div>
+                      <span className="eyebrow">시작 주문</span>
+                      <h2>
+                        캔트립 {renderedCantripCount}개 + 주문 {renderedSpellCount}개
+                      </h2>
+                    </div>
+                  </div>
+                  {renderedCantripCount > 0 && (
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ display: 'block', marginBottom: 6 }}>캔트립</label>
+                      {Array.from({ length: renderedCantripCount }).map((_, idx) => (
+                        <select
+                          key={`cantrip-${idx}`}
+                          value={formState.startingSpells?.cantrips[idx] ?? ''}
+                          onChange={(event) => {
+                            const v = event.target.value;
+                            setFormValidationError(null);
+                            setFormState((current) => {
+                              const base = current.startingSpells ?? {
+                                cantrips: new Array(selectedClass.startingCantripCount).fill(''),
+                                spells: new Array(selectedClass.startingSpellCount).fill(''),
+                              };
+                              const cantrips = [...base.cantrips];
+                              cantrips[idx] = v;
+                              return { ...current, startingSpells: { ...base, cantrips } };
+                            });
+                          }}
+                          style={{ marginRight: 6, marginBottom: 4 }}
+                        >
+                          <option value="">캔트립 {idx + 1} 선택</option>
+                          {cantripOptions.map((spell) => (
+                            <option
+                              key={spell.id}
+                              value={spell.id}
+                              disabled={isSpellAlreadySelected(
+                                formState.startingSpells?.cantrips,
+                                spell.id,
+                                idx
+                              )}
+                            >
+                              {spell.label}
+                            </option>
+                          ))}
+                        </select>
+                      ))}
+                    </div>
+                  )}
+                  {renderedSpellCount > 0 && (
+                    <div>
+                      <label style={{ display: 'block', marginBottom: 6 }}>1레벨 주문</label>
+                      {Array.from({ length: renderedSpellCount }).map((_, idx) => (
+                        <select
+                          key={`spell-${idx}`}
+                          value={formState.startingSpells?.spells[idx] ?? ''}
+                          onChange={(event) => {
+                            const v = event.target.value;
+                            setFormValidationError(null);
+                            setFormState((current) => {
+                              const base = current.startingSpells ?? {
+                                cantrips: new Array(selectedClass.startingCantripCount).fill(''),
+                                spells: new Array(selectedClass.startingSpellCount).fill(''),
+                              };
+                              const spells = [...base.spells];
+                              spells[idx] = v;
+                              return { ...current, startingSpells: { ...base, spells } };
+                            });
+                          }}
+                          style={{ marginRight: 6, marginBottom: 4 }}
+                        >
+                          <option value="">1레벨 주문 {idx + 1} 선택</option>
+                          {level1SpellOptions.map((spell) => (
+                            <option
+                              key={spell.id}
+                              value={spell.id}
+                              disabled={isSpellAlreadySelected(
+                                formState.startingSpells?.spells,
+                                spell.id,
+                                idx
+                              )}
+                            >
+                              {spell.label}
+                            </option>
+                          ))}
+                        </select>
+                      ))}
+                    </div>
+                  )}
+                </section>
+                    );
+                  })()
+                ) : null}
               </div>
-              {formValidationError ? (
-                <p
-                  className="panel-error"
-                  role="alert"
-                  style={{ margin: '12px 0 0 0' }}
-                >
-                  {formValidationError}
-                </p>
+              {isStatsStep ? (
+                <section className="character-form-section character-create-point-buy-section">
+                  <div className="section-heading compact">
+                    <div>
+                      <span className="eyebrow">능력치</span>
+                      <h2>능력치 (Point Buy 27)</h2>
+                    </div>
+                    {pointBuyState.enforced ? (
+                      <div className="character-create-point-buy-summary">
+                        남은 포인트:{' '}
+                        <strong style={{ color: pointBuyState.isValid ? 'inherit' : '#d04040' }}>
+                          {pointBuyState.remaining}
+                        </strong>{' '}
+                        / {POINT_BUY_TOTAL}
+                        {!pointBuyState.isValid && (
+                          <span style={{ marginLeft: 8, color: '#d04040' }}>
+                            ({pointBuyState.totalCost > POINT_BUY_TOTAL ? '초과' : '미달'})
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="character-create-point-buy-summary muted">
+                        종족을 먼저 선택해 주세요!
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="character-create-point-buy-grid">
+                    {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => {
+                      const base = pointBuyState.bases[ability];
+                      const bonus = selectedRace?.abilityIncreases[ability] ?? 0;
+                      const finalScore = formState.abilities?.[ability] ?? 10;
+                      const cost = pointBuyState.costs[ability];
+                      const canDec = pointBuyState.enforced && base > POINT_BUY_MIN_BASE;
+                      const nextBaseCost =
+                        pointBuyState.enforced && base < POINT_BUY_MAX_BASE
+                          ? (POINT_BUY_COST[base + 1] ?? cost ?? 0)
+                          : null;
+                      const previousBaseCost = canDec ? (POINT_BUY_COST[base - 1] ?? cost ?? 0) : null;
+                      const nextStepCost = cost !== null && nextBaseCost !== null
+                        ? nextBaseCost - cost
+                        : null;
+                      const refundStepCost = canDec && cost !== null && previousBaseCost !== null
+                        ? cost - previousBaseCost
+                        : null;
+                      const canInc = pointBuyState.enforced &&
+                        base < POINT_BUY_MAX_BASE &&
+                        nextStepCost !== null &&
+                        nextStepCost <= pointBuyState.remaining;
+                      return (
+                        <div key={ability} className="character-create-point-buy-card">
+                          <label htmlFor={`character-${ability}`}>
+                            {abilityDisplayLabels[ability]}
+                            {bonus > 0 && (
+                              <span style={{ marginLeft: 6, color: '#3a7' }}>(+{bonus} 종족)</span>
+                            )}
+                          </label>
+                          {pointBuyState.enforced ? (
+                            <div className="character-create-point-buy-control">
+                              <button
+                                type="button"
+                                onClick={() => adjustAbilityBase(ability, -1)}
+                                disabled={!canDec}
+                                aria-label={`${abilityDisplayLabels[ability]} 감소`}
+                                title={refundStepCost !== null ? `${refundStepCost}포인트 환급` : undefined}
+                              >
+                                −
+                              </button>
+                              <div className="character-create-point-buy-value">
+                                <div className="character-create-point-buy-main">
+                                  base {base} → {finalScore}
+                                </div>
+                                <div className="character-create-point-buy-cost">
+                                  {canInc && nextStepCost !== null
+                                    ? `비용 ${nextStepCost}p`
+                                    : canDec && refundStepCost !== null
+                                    ? `비용 ${refundStepCost}p`
+                                    : '비용 0p'}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => adjustAbilityBase(ability, 1)}
+                                disabled={!canInc}
+                                aria-label={`${abilityDisplayLabels[ability]} 증가`}
+                                title={nextStepCost !== null ? `${nextStepCost}포인트 소비` : undefined}
+                              >
+                                +
+                              </button>
+                            </div>
+                          ) : (
+                            <input
+                              id={`character-${ability}`}
+                              type="number"
+                              min={1}
+                              step={1}
+                              value={finalScore}
+                              onChange={(event) =>
+                                updateAbility(
+                                  ability,
+                                  normalizeIntegerValue(Number(event.target.value), 1)
+                                )
+                              }
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
               ) : null}
-              {error ? (
-                <p
-                  className="panel-error"
-                  role="alert"
-                  style={{ margin: '12px 0 0 0' }}
+              </div>
+              <div className="character-create-step-actions">
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={goToPreviousCreateStep}
+                  disabled={createStepIndex === 0}
                 >
-                  {error}
-                </p>
-              ) : null}
-              {classDefinitions.length === 0 ? (
-                <p
-                  className="panel-error"
-                  role="status"
-                  style={{ margin: '12px 0 0 0', fontSize: '0.85rem', opacity: 0.8 }}
-                >
-                  클래스 정의를 불러오는 중입니다. 잠시만 기다려 주세요.
-                </p>
-              ) : null}
-              {classDefinitions.length > 0 &&
-              !hasRequiredClassFeatureChoices(formState.className, formState.features) ? (
-                <p
-                  className="panel-error"
-                  role="status"
-                  style={{ margin: '12px 0 0 0', fontSize: '0.85rem', opacity: 0.8 }}
-                >
-                  선택한 직업의 1레벨 기능 선택을 완료해야 합니다.
-                </p>
-              ) : null}
-              {classDefinitions.length > 0 &&
-              !hasRequiredStartingEquipmentItemSelections(selectedClass, formState) ? (
-                <p
-                  className="panel-error"
-                  role="status"
-                  style={{ margin: '12px 0 0 0', fontSize: '0.85rem', opacity: 0.8 }}
-                >
-                  시작 장비의 자유 선택 항목에서 실제 아이템을 선택해야 합니다.
-                </p>
-              ) : null}
-              <button
-                type="submit"
-                className="primary"
-                disabled={
-                  busy ||
-                  classDefinitions.length === 0 ||
-                  !hasRequiredClassFeatureChoices(formState.className, formState.features) ||
-                  !hasRequiredStartingEquipmentItemSelections(selectedClass, formState)
-                }
-              >
-                {editingCharacterId ? '저장' : '생성'}
-              </button>
+                  이전 장
+                </button>
+                <div className="character-create-step-actions-center">
+                  <strong>{createStepIndex + 1} / {CHARACTER_CREATE_STEPS.length}</strong>
+                  <span>{currentCreateStep.label}</span>
+                </div>
+                {isLoadoutStep ? (
+                  <button
+                    type="submit"
+                    className="primary"
+                    disabled={
+                      busy ||
+                      classDefinitions.length === 0
+                    }
+                  >
+                    {editingCharacterId ? '저장' : '생성'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={goToNextCreateStep}
+                    disabled={busy}
+                  >
+                    다음 장
+                  </button>
+                )}
+              </div>
             </form>
           </div>
         </div>

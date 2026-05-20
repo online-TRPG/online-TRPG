@@ -391,13 +391,52 @@ export class InventoryRuntimeService {
       quantity: entry.quantity,
       itemDefinitionId: entry.itemDefinitionId,
       itemType: entry.itemDefinition.itemType,
+      description: entry.itemDefinition.description ?? undefined,
       weightLb: entry.itemDefinition.weightLb ?? undefined,
       volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
       damageDice: entry.itemDefinition.damageDice ?? undefined,
       damageType: entry.itemDefinition.damageType ?? undefined,
+      armorClassBase: entry.itemDefinition.armorClassBase ?? undefined,
+      armorClassBonus: entry.itemDefinition.armorClassBonus ?? undefined,
+      armorStrengthRequirement: entry.itemDefinition.armorStrengthRequirement ?? undefined,
+      armorStealthDisadvantage: entry.itemDefinition.armorStealthDisadvantage ?? undefined,
+      useEffect: entry.itemDefinition.useEffect ?? undefined,
+      packContents: this.parsePackContentsJson(entry.itemDefinition.packContentsJson),
       properties: this.parseStringArrayJson(entry.itemDefinition.propertiesJson),
       containerId: entry.containerEntryId ?? undefined,
     };
+  }
+
+  private parsePackContentsJson(value: string | null | undefined): InventoryItemDto["packContents"] {
+    if (!value) {
+      return undefined;
+    }
+
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (!Array.isArray(parsed)) {
+        return undefined;
+      }
+      return parsed
+        .map((item) => {
+          if (!item || typeof item !== "object") {
+            return null;
+          }
+          const record = item as Record<string, unknown>;
+          const itemId = typeof record.itemId === "string" ? record.itemId : "";
+          const name = typeof record.name === "string" ? record.name : "";
+          const quantity = typeof record.quantity === "number" ? record.quantity : 0;
+          if (!itemId || !name || !Number.isInteger(quantity) || quantity < 1) {
+            return null;
+          }
+          return { itemId, name, quantity };
+        })
+        .filter((item): item is NonNullable<InventoryItemDto["packContents"]>[number] =>
+          Boolean(item),
+        );
+    } catch {
+      return undefined;
+    }
   }
 
   private parseStringArrayJson(value: string | null | undefined): string[] | undefined {

@@ -2954,6 +2954,22 @@ export class MainCommandsService {
     publicClues: string[],
   ): Promise<MainCommandResponseDto> {
     const eventHints = await this.loadUntriggeredVttEventHintSummaries(context);
+
+    if (publicClues.length > 0 && eventHints.length === 0) {
+      const revealedClues = await this.loadRevealedClueSummaries(context.sessionScenarioId);
+      const revealedClueText = this.normalizeTransitionConditionText(revealedClues.join(" "));
+      const unrevealedClues = publicClues.filter(
+        (clue) => !this.textEvidenceMatches(clue, revealedClueText),
+      );
+      if (unrevealedClues.length === 0) {
+        return {
+          requestId,
+          status: MainCommandStatus.MESSAGE,
+          message: "이 장면의 단서를 모두 찾았습니다. 다음 장면으로 진행하세요.",
+        };
+      }
+    }
+
     const result = await this.aiService.runHint(
       userId,
       context.sessionId,

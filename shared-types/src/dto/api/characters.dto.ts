@@ -3,6 +3,7 @@ import { Type } from "class-transformer";
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -18,6 +19,23 @@ import {
   CharacterAvatarType,
   SessionCharacterStatus,
 } from "../../constants/enums";
+
+export class InventoryPackContentDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  itemId!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+
+  @ApiProperty({ example: 1 })
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+}
 
 export class AbilityScoresDto {
   @ApiProperty({ example: 10 })
@@ -92,6 +110,11 @@ export class InventoryItemDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsNumber()
   @Min(0)
   weightLb?: number;
@@ -111,6 +134,40 @@ export class InventoryItemDto {
   @IsOptional()
   @IsString()
   damageType?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  armorClassBase?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  armorClassBonus?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  armorStrengthRequirement?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  armorStealthDisadvantage?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  useEffect?: string;
+
+  @ApiPropertyOptional({ type: [InventoryPackContentDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InventoryPackContentDto)
+  packContents?: InventoryPackContentDto[];
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
