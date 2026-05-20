@@ -4139,8 +4139,11 @@ export class SessionsService {
                 kind: this.normalizeHazardKind(cell.hazard?.kind),
                 armed: cell.hazard?.armed !== false,
                 triggerOnce: cell.hazard?.triggerOnce !== false,
-                detectionRadiusCells: 0,
-                detectionDc: 0,
+                // GM 전용 수치는 숨기되, normalizeVttMap 의 `Number(x) || default`
+                // 보정으로 0 이 기본값으로 되살아나면 ensurePlayerMapShellUnchanged
+                // 비교가 깨지므로 클램프 최소값(1)을 내보낸다.
+                detectionRadiusCells: 1,
+                detectionDc: 1,
                 linkedClueIds: [],
                 attemptedBySessionCharacterIds: [],
                 detectedBySessionCharacterIds: ["party"],
