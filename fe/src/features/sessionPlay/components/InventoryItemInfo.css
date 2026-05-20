@@ -16,11 +16,9 @@
 }
 
 .inventory-item-info-tooltip {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 8px);
-  z-index: 12;
-  width: min(300px, 72vw);
+  position: fixed;
+  z-index: 10000;
+  width: min(300px, calc(100vw - 24px));
   padding: 10px 11px;
   border: 1px solid #9db7c8;
   border-radius: 6px;
@@ -30,10 +28,7 @@
   font-size: 12px;
   font-weight: 700;
   line-height: 1.45;
-  opacity: 0;
   pointer-events: none;
-  transform: translateY(4px);
-  transition: opacity 0.12s ease, transform 0.12s ease;
 }
 
 .inventory-item-info-host {
@@ -42,19 +37,10 @@
   white-space: normal !important;
 }
 
-.inventory-item-info-host .inventory-item-info,
-.inventory-item-info-host .inventory-item-info-tooltip,
-.inventory-item-info-host .inventory-item-info-tooltip * {
+.inventory-item-info-host .inventory-item-info {
   overflow: visible !important;
   text-overflow: clip !important;
   white-space: normal !important;
-}
-
-.inventory-item-info:hover .inventory-item-info-tooltip,
-.inventory-item-info:focus-visible .inventory-item-info-tooltip,
-.inventory-item-info:focus-within .inventory-item-info-tooltip {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 .inventory-item-info-tooltip b {

@@ -10,6 +10,8 @@ import './StoryNodeSurface.css';
 interface CharacterDetailModalProps {
   character: SessionCharacterResponseDto;
   onClose: () => void;
+  onEquipInventoryItem?: (item: SessionCharacterResponseDto['inventory'][number]) => void;
+  isEquipmentBusy?: boolean;
 }
 
 type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
@@ -237,7 +239,12 @@ function getConditionLabel(character: SessionCharacterResponseDto) {
   return character.conditions.length ? character.conditions.join(', ') : '정상';
 }
 
-export function CharacterDetailModal({ character, onClose }: CharacterDetailModalProps) {
+export function CharacterDetailModal({
+  character,
+  onClose,
+  onEquipInventoryItem,
+  isEquipmentBusy = false,
+}: CharacterDetailModalProps) {
   const characterImage = getCharacterImage(character);
   const equippedWeapon =
     character.inventory.find(
@@ -253,8 +260,6 @@ export function CharacterDetailModal({ character, onClose }: CharacterDetailModa
     ) ?? null;
   const equippedArmor =
     character.inventory.find((item) => isArmorItem(item)) ?? null;
-  const equippedShield =
-    character.inventory.find((item) => isShieldItem(item)) ?? null;
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -406,45 +411,96 @@ export function CharacterDetailModal({ character, onClose }: CharacterDetailModa
 
           <section className="story-character-modal-panel story-character-modal-wide">
             <h3>인벤토리</h3>
-            {equippedWeapon ? (
-              <p className="story-character-equipped">
-                장착 무기: <strong>{equippedWeapon.name}</strong>
-                {offhandWeapon ? <> + <strong>{offhandWeapon.name}</strong></> : null}
-              </p>
-            ) : (
-              <p className="story-character-equipped">장착 무기 없음</p>
-            )}
-            {equippedArmor || equippedShield ? (
-              <p className="story-character-equipped">
-                장착 방어구:{' '}
-                <strong>
-                  {[equippedArmor?.name, equippedShield?.name].filter(Boolean).join(' + ')}
-                </strong>
-              </p>
-            ) : (
-              <p className="story-character-equipped">장착 방어구 없음</p>
-            )}
+            <dl className="story-character-equipment-slots" aria-label="장착 부위">
+              <div>
+                <dt>오른손</dt>
+                <dd>{equippedWeapon ? <strong>{equippedWeapon.name}</strong> : '비어 있음'}</dd>
+              </div>
+              <div>
+                <dt>왼손</dt>
+                <dd>{offhandWeapon ? <strong>{offhandWeapon.name}</strong> : '비어 있음'}</dd>
+              </div>
+              <div>
+                <dt>몸통</dt>
+                <dd>{equippedArmor ? <strong>{equippedArmor.name}</strong> : '비어 있음'}</dd>
+              </div>
+            </dl>
             {character.inventory.length ? (
               <div className="story-character-inventory-list">
-                {character.inventory.map((item) => (
-                  <article
-                    key={item.id}
-                    className={`story-character-inventory-item${
-                      isEquippedItem(item, character.equippedWeaponId) ||
-                      isEquippedItem(item, character.offhandWeaponId)
-                        ? ' equipped'
-                        : ''
-                    }`}
-                  >
-                    <div>
-                      <strong className="inventory-item-info-host">
-                        <InventoryItemInfo item={item} />
-                      </strong>
-                      <small>{getInventoryMetaLabel(item)}</small>
-                    </div>
-                    <span>x{item.quantity}</span>
-                  </article>
-                ))}
+                {character.inventory.flatMap((item) => {
+                  const isHandEquipment = isWeaponItem(item) || isShieldItem(item);
+                  const equippedCount = isHandEquipment
+                    ? Number(isEquippedItem(item, character.equippedWeaponId)) +
+                      Number(isEquippedItem(item, character.offhandWeaponId))
+                    : 0;
+                  const availableCount = Math.max(0, item.quantity - equippedCount);
+                  if (!equippedCount) {
+                    return [{ item, equipmentDisplayState: 'available' as const }];
+                  }
+
+                  const rows: Array<{
+                    item: SessionCharacterResponseDto['inventory'][number];
+                    equipmentDisplayState: 'equipped' | 'available';
+                  }> = [
+                    {
+                      item: { ...item, quantity: equippedCount },
+                      equipmentDisplayState: 'equipped' as const,
+                    },
+                  ];
+                  if (availableCount > 0) {
+                    rows.push({
+                      item: { ...item, quantity: availableCount },
+                      equipmentDisplayState: 'available' as const,
+                    });
+                  }
+                  return rows;
+                }).map(({ item, equipmentDisplayState }) => {
+                  const isWeapon = isWeaponItem(item);
+                  const isShield = isShieldItem(item);
+                  const isArmor = isArmorItem(item);
+                  const isBodyArmor =
+                    equippedArmor &&
+                    (item.id === equippedArmor.id ||
+                      (Boolean(item.itemDefinitionId) &&
+                        item.itemDefinitionId === equippedArmor.itemDefinitionId));
+                  const isEquipped =
+                    equipmentDisplayState === 'equipped' ||
+                    Boolean(isBodyArmor);
+                  const equipmentActionItem = {
+                    ...item,
+                    __equipmentDisplayState: equipmentDisplayState,
+                  } as SessionCharacterResponseDto['inventory'][number];
+                  return (
+                    <article
+                      key={`${item.id}-${equipmentDisplayState}`}
+                      className={`story-character-inventory-item${isEquipped ? ' equipped' : ''}`}
+                    >
+                      <div>
+                        <strong className="inventory-item-info-host">
+                          <InventoryItemInfo item={item} />
+                        </strong>
+                        <small>{getInventoryMetaLabel(item)}</small>
+                      </div>
+                      <span>x{item.quantity}</span>
+                      {isWeapon || isShield || isArmor ? (
+                        <button
+                          type="button"
+                          disabled={isArmor || isEquipmentBusy || !onEquipInventoryItem}
+                          title={
+                            isArmor
+                              ? '몸통 방어구는 현재 캐릭터 AC에 반영되어 있습니다.'
+                              : isEquipped
+                                ? `${item.name} 착용 해제`
+                                : `${item.name} 착용`
+                          }
+                          onClick={() => onEquipInventoryItem?.(equipmentActionItem)}
+                        >
+                          {isEquipped ? '해제' : '착용'}
+                        </button>
+                      ) : null}
+                    </article>
+                  );
+                })}
               </div>
             ) : (
               <p className="story-character-empty">인벤토리가 비어 있습니다.</p>
@@ -491,13 +547,12 @@ function isEquippedItem(
 ) {
   return (
     item.id === equippedWeaponId ||
-    item.itemDefinitionId === equippedWeaponId ||
-    isArmorItem(item) ||
-    isShieldItem(item)
+    item.itemDefinitionId === equippedWeaponId
   );
 }
 
 function isArmorItem(item: SessionCharacterResponseDto['inventory'][number]) {
+  if (isShieldItem(item)) return false;
   const key = getItemSearchKey(item);
   return item.itemType === 'armor' || key.includes('armor-') || key.includes('갑옷');
 }
@@ -505,6 +560,11 @@ function isArmorItem(item: SessionCharacterResponseDto['inventory'][number]) {
 function isShieldItem(item: SessionCharacterResponseDto['inventory'][number]) {
   const key = getItemSearchKey(item);
   return item.itemType === 'shield' || key.includes('shield') || key.includes('방패');
+}
+
+function isWeaponItem(item: SessionCharacterResponseDto['inventory'][number]) {
+  const key = getItemSearchKey(item);
+  return item.itemType === 'weapon' || Boolean(item.damageDice) || key.includes('weapon');
 }
 
 function getItemSearchKey(item: SessionCharacterResponseDto['inventory'][number]) {
