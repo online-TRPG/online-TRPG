@@ -65,8 +65,8 @@
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 16px;
-  padding: 16px;
+  gap: 6px;
+  padding: 10px;
   box-sizing: border-box;
   overflow: hidden;
   /* 우드 배경 */
@@ -173,6 +173,7 @@
 
 .combat-node-content {
   min-height: 0;
+  margin-inline: 12px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
@@ -564,6 +565,8 @@
 
 .combat-action-dock {
   position: relative;
+  margin-top: 6px;
+  margin-inline: 12px;
   min-height: 86px;
   display: grid;
   grid-template-columns: minmax(300px, 0.32fr) minmax(0, 1fr) minmax(260px, 0.36fr);

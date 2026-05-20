@@ -11,6 +11,7 @@ import {
 import quillImage from '../../../components/quill.webp';
 import storyNodeBadge from '../../../components/node_badge_story.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
+import { NodeHeaderScroll } from './NodeHeaderScroll';
 import './StoryNodeSurface.css';
 
 interface StoryNodeSurfaceProps {
@@ -253,14 +254,14 @@ export function StoryNodeSurface({
 
   return (
     <div className="story-node-surface">
-      <header className="story-node-header">
+      <NodeHeaderScroll variant="story" className="story-node-header">
         <div className="story-node-title-row">
           <img
             src={storyNodeBadge}
             alt="스토리 노드"
             className="session-node-type-badge"
           />
-          <h1>{node?.title ?? scenarioTitle ?? '진행 중인 장면'}</h1>
+          <h1 className="node-header-scroll-title">{node?.title ?? scenarioTitle ?? '진행 중인 장면'}</h1>
           <button
             type="button"
             className={`story-node-summary-button${isSummaryOpen ? ' active' : ''}`}
@@ -275,7 +276,7 @@ export function StoryNodeSurface({
           <span>{getPhaseLabel(phase)}</span>
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
         </div>
-      </header>
+      </NodeHeaderScroll>
 
       {isSummaryOpen ? (
         <div

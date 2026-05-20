@@ -15,6 +15,7 @@ import explorationNodeBadge from '../../../components/node_badge_exploration.web
 import { getCharacterClassLabel } from '../utils/characterVisuals';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { MapPartyOverlay } from './MapPartyOverlay';
+import { NodeHeaderScroll } from './NodeHeaderScroll';
 import './ExplorationNodeSurface.css';
 
 export type ExplorationMainCommandRequest = {
@@ -641,14 +642,14 @@ export function ExplorationNodeSurface({
 
   return (
     <div className="exploration-node-surface">
-      <header className="exploration-node-header">
+      <NodeHeaderScroll variant="exploration" className="exploration-node-header">
         <div className="exploration-node-title-row">
           <img
             src={explorationNodeBadge}
             alt="탐험 노드"
             className="session-node-type-badge"
           />
-          <h1>{node?.title ?? scenarioTitle ?? '탐색 중인 지역'}</h1>
+          <h1 className="node-header-scroll-title">{node?.title ?? scenarioTitle ?? '탐색 중인 지역'}</h1>
           <button
             type="button"
             className={`exploration-node-summary-button${isSummaryOpen ? ' active' : ''}`}
@@ -664,7 +665,7 @@ export function ExplorationNodeSurface({
           <span>{getPhaseLabel(phase)}</span>
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
         </div>
-      </header>
+      </NodeHeaderScroll>
 
       {isSummaryOpen ? (
         <div
