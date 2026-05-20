@@ -871,7 +871,7 @@ export function CharacterPage({
   // 인벤토리 편집 영역 DOM 참조입니다. 필요 시 스크롤/포커스 제어에 씁니다.
   const inventoryEditorRef = useRef<HTMLDivElement | null>(null);
   const didAutoOpenCreateRef = useRef(false);
-  const createToastTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const createToastTimeoutRef = useRef<number | null>(null);
 
   function clearCreateToastTimer() {
     if (createToastTimeoutRef.current) {

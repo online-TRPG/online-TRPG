@@ -18,8 +18,8 @@
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 16px;
-  padding: 16px;
+  gap: 6px;
+  padding: 10px;
   box-sizing: border-box;
   overflow: hidden;
   /* 제공된 다크우드 텍스처 배경 (늘이거나 줄이지 않고 원본 크기 그대로 반복하여 채움) */
@@ -275,6 +275,7 @@
 /* ── 중앙 콘텐츠 (맵 영역) ───────────────────────────────── */
 .exploration-node-content {
   min-height: 0;
+  margin-inline: 12px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
@@ -530,6 +531,8 @@
 /* ── 액션 독 (하단) ───────────────────────────────────────── */
 .exploration-action-dock {
   position: relative;
+  margin-top: 6px;
+  margin-inline: 12px;
   min-height: 126px;
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr) minmax(240px, 0.42fr);

@@ -17,6 +17,7 @@ import turnDividerArrow from '../../../components/divider-arrow-gold-horizontal.
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
 import { MapPartyOverlay } from './MapPartyOverlay';
+import { NodeHeaderScroll } from './NodeHeaderScroll';
 import { getCharacterImage } from '../utils/characterVisuals';
 import { MONSTER_TOKEN_COLOR, NPC_TOKEN_COLOR } from '../../../utils/sessionTokenColors';
 import type { SessionTokenColor } from '../../../utils/sessionTokenColors';
@@ -370,15 +371,6 @@ function getResourceFillPercent(current: number | null | undefined, max: number 
   return Math.min(100, Math.max(0, (current / max) * 100));
 }
 
-function splitSceneParagraphs(sceneText: string | undefined) {
-  const paragraphs = (sceneText ?? '')
-    .split(/\n{2,}|\r?\n/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean);
-
-  return paragraphs.length ? paragraphs : ['현재 전투 장면 설명이 아직 준비되지 않았습니다.'];
-}
-
 function readParticipantColorVar(
   colorStyle: CSSProperties | undefined,
   name: '--participant-frame-color' | '--participant-bg-color' | '--participant-text-color',
@@ -442,7 +434,6 @@ export function CombatNodeSurface({
   onEndTurn,
 }: CombatNodeSurfaceProps) {
   const [activeTab, setActiveTab] = useState<CombatActionTab>('basic');
-  const [isSummaryOpen, setSummaryOpen] = useState(false);
   const [isInventoryExpanded, setInventoryExpanded] = useState(false);
   const [selectedTurnCharacterId, setSelectedTurnCharacterId] = useState<string | null>(null);
   const [selectedTargetParticipantId, setSelectedTargetParticipantId] = useState<string | null>(null);
@@ -451,7 +442,6 @@ export function CombatNodeSurface({
   const [isAttackTargeting, setAttackTargeting] = useState(false);
   const [isSneakAttackTargeting, setSneakAttackTargeting] = useState(false);
   const [targetingSpellId, setTargetingSpellId] = useState<string | null>(null);
-  const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
   const knownMvpSpellActions = useMemo(() => getKnownMvpSpellActions(myCharacter), [myCharacter]);
   const actionTabs = useMemo(() => {
@@ -471,7 +461,8 @@ export function CombatNodeSurface({
     Boolean(combat?.currentEntityId) &&
     Boolean(myCombatParticipant?.sessionEntityId) &&
     combat?.currentEntityId === myCombatParticipant?.sessionEntityId;
-  const canShowEndTurnButton = Boolean(combat && (isMyCombatTurn || isGmView));
+  const canShowEndTurnButton = Boolean(combat && isMyCombatTurn);
+  const isMyCombatTurnPending = Boolean(combat && myCombatParticipant && !isMyCombatTurn);
   const myActionResources = myCombatParticipant?.actionResources ?? null;
   const myCurrentHp = myCombatParticipant?.currentHp ?? myCharacter?.currentHp ?? null;
   const myMaxHp = myCombatParticipant?.maxHp ?? myCharacter?.maxHp ?? null;
@@ -898,23 +889,14 @@ export function CombatNodeSurface({
 
   return (
     <div className="combat-node-surface">
-      <header className="combat-turn-bar" aria-label="전투 턴 정보">
+      <NodeHeaderScroll variant="combat" className="combat-turn-bar" ariaLabel="전투 턴 정보">
         <div className="combat-node-title-row">
           <img
             src={battleNodeBadge}
             alt="전투 노드"
             className="session-node-type-badge"
           />
-          <h1>{node?.title ?? scenarioTitle ?? '전투 진행 중'}</h1>
-          <button
-            type="button"
-            className={`combat-node-summary-button${isSummaryOpen ? ' active' : ''}`}
-            onClick={() => setSummaryOpen((current) => !current)}
-            aria-expanded={isSummaryOpen}
-            aria-controls="combat-node-summary-popover"
-          >
-            장면 설명
-          </button>
+          <h1 className="node-header-scroll-title">{node?.title ?? scenarioTitle ?? '전투 진행 중'}</h1>
         </div>
         <div className="combat-round-status">
           <span>{getPhaseLabel(phase)}</span>
@@ -925,28 +907,7 @@ export function CombatNodeSurface({
           <span>현재 턴 {currentParticipant?.name ?? '-'}</span>
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
         </div>
-      </header>
-
-      {isSummaryOpen ? (
-        <div
-          id="combat-node-summary-popover"
-          className="combat-node-summary-popover"
-          role="dialog"
-          aria-label="장면 설명"
-        >
-          <div className="combat-node-summary-popover-head">
-            <strong>장면 설명</strong>
-            <button type="button" onClick={() => setSummaryOpen(false)}>
-              닫기
-            </button>
-          </div>
-          <div className="combat-node-summary-popover-body">
-            {sceneParagraphs.map((paragraph, index) => (
-              <p key={`${paragraph.slice(0, 20)}-${index}`}>{paragraph}</p>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      </NodeHeaderScroll>
 
       <div className="combat-node-content">
         <main className="combat-map-panel" aria-label="전투 지도">
@@ -1063,7 +1024,12 @@ export function CombatNodeSurface({
       </div>
 
       <section className="combat-action-dock" aria-label="전투 행동">
-        <div className={`combat-resource-panel${isMyCombatTurn ? ' my-turn' : ''}`}>
+        <div
+          className={`combat-resource-panel${isMyCombatTurn ? ' my-turn' : ''}${
+            isMyCombatTurnPending ? ' not-my-turn' : ''
+          }`}
+          aria-disabled={isMyCombatTurnPending}
+        >
           <span className="combat-frame-corner top-left" aria-hidden="true" />
           <span className="combat-frame-corner top-right" aria-hidden="true" />
           <span className="combat-frame-corner bottom-left" aria-hidden="true" />

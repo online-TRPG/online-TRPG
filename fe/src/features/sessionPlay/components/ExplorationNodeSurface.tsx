@@ -16,6 +16,7 @@ import { getCharacterClassLabel } from '../utils/characterVisuals';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
 import { MapPartyOverlay } from './MapPartyOverlay';
+import { NodeHeaderScroll } from './NodeHeaderScroll';
 import './ExplorationNodeSurface.css';
 
 export type ExplorationMainCommandRequest = {
@@ -93,15 +94,6 @@ function getPhaseLabel(phase: string | null | undefined) {
   if (phase === 'lobby') return '진행: 대기';
   if (phase === 'rest') return '진행: 휴식';
   return `진행: ${phase}`;
-}
-
-function splitSceneParagraphs(sceneText: string | undefined) {
-  const paragraphs = (sceneText ?? '')
-    .split(/\n{2,}|\r?\n/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean);
-
-  return paragraphs.length ? paragraphs : ['현재 탐색 지역 설명이 아직 준비되지 않았습니다.'];
 }
 
 function getInventoryItemKey(item: InventoryItemDto) {
@@ -536,12 +528,10 @@ export function ExplorationNodeSurface({
   onMapSelectionChange,
   onRequestMainCommand,
 }: ExplorationNodeSurfaceProps) {
-  const [isSummaryOpen, setSummaryOpen] = useState(false);
   const [isInventoryExpanded, setInventoryExpanded] = useState(false);
   const [mapSelection, setMapSelection] = useState<BattleMapSelection | null>(null);
   const [mapActionFeedback, setMapActionFeedback] = useState<string | null>(null);
   const [selectedMapCharacterId, setSelectedMapCharacterId] = useState<string | null>(null);
-  const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
   const selectedMapCharacter =
     characters.find((character) => character.id === selectedMapCharacterId) ?? null;
@@ -632,51 +622,21 @@ export function ExplorationNodeSurface({
 
   return (
     <div className="exploration-node-surface">
-      <header className="exploration-node-header">
+      <NodeHeaderScroll variant="exploration" className="exploration-node-header">
         <div className="exploration-node-title-row">
           <img
             src={explorationNodeBadge}
             alt="탐험 노드"
             className="session-node-type-badge"
           />
-          <h1>{node?.title ?? scenarioTitle ?? '탐색 중인 지역'}</h1>
-          <button
-            type="button"
-            className={`exploration-node-summary-button${isSummaryOpen ? ' active' : ''}`}
-            onClick={() => setSummaryOpen((current) => !current)}
-            aria-expanded={isSummaryOpen}
-            aria-controls="exploration-node-summary-popover"
-          >
-            장면 설명
-          </button>
+          <h1 className="node-header-scroll-title">{node?.title ?? scenarioTitle ?? '탐색 중인 지역'}</h1>
         </div>
 
         <div className="exploration-node-status-row" aria-label="탐색 상태">
           <span>{getPhaseLabel(phase)}</span>
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
         </div>
-      </header>
-
-      {isSummaryOpen ? (
-        <div
-          id="exploration-node-summary-popover"
-          className="exploration-node-summary-popover"
-          role="dialog"
-          aria-label="장면 설명"
-        >
-          <div className="exploration-node-summary-popover-head">
-            <strong>장면 설명</strong>
-            <button type="button" onClick={() => setSummaryOpen(false)}>
-              닫기
-            </button>
-          </div>
-          <div className="exploration-node-summary-popover-body">
-            {sceneParagraphs.map((paragraph, index) => (
-              <p key={`${paragraph.slice(0, 20)}-${index}`}>{paragraph}</p>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      </NodeHeaderScroll>
 
       <div className="exploration-node-content">
         <main className="exploration-map-column">
