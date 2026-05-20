@@ -868,6 +868,7 @@ export function BattleMap({
   const [monsterSearch, setMonsterSearch] = useState('');
   const canEditMap = isHost && interactionMode === 'editor';
   const showMapChrome = interactionMode === 'editor';
+  const showSessionViewControls = interactionMode === 'session';
   const [selectedMonsterId, setSelectedMonsterId] = useState('');
   const [mapStructureTool, setMapStructureTool] = useState<MapStructureKind | null>(null);
   const [selectedMapStructure, setSelectedMapStructure] = useState<MapStructureSelection | null>(
@@ -2081,6 +2082,7 @@ export function BattleMap({
     if (!stage || event.target !== stage) return;
 
     setStagePosition({ x: stage.x(), y: stage.y() });
+    suppressStageClickRef.current = true;
   }
 
   function hideFullMap() {
@@ -2593,7 +2595,21 @@ export function BattleMap({
             : ''
         }`}
       >
-        <div className="vtt-stage-wrap" ref={containerRef}>
+        <div className={`vtt-stage-wrap${isPanMode ? ' pan-active' : ''}`} ref={containerRef}>
+          {showSessionViewControls ? (
+            <div className="vtt-session-view-controls" aria-label="맵 화면 조작">
+              <button
+                type="button"
+                className={isPanMode ? 'active' : ''}
+                onClick={() => setExclusiveTool('pan')}
+                aria-pressed={isPanMode}
+                aria-label="맵 화면 이동"
+                title={isPanMode ? '화면 이동 끄기' : '화면 이동 켜기'}
+              >
+                <Icon name="move" />
+              </button>
+            </div>
+          ) : null}
           <Stage
             width={displayWidth}
             height={displayHeight}

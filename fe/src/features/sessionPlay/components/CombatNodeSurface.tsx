@@ -15,6 +15,7 @@ import type { GameIconName } from '../../../components/GameIcon';
 import battleNodeBadge from '../../../components/node_badge_battle.webp';
 import turnDividerArrow from '../../../components/divider-arrow-gold-horizontal.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
+import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { getCharacterImage } from '../utils/characterVisuals';
 import { MONSTER_TOKEN_COLOR, NPC_TOKEN_COLOR } from '../../../utils/sessionTokenColors';
@@ -367,16 +368,6 @@ function getGridDistanceFt(
 function getResourceFillPercent(current: number | null | undefined, max: number | null | undefined) {
   if (typeof current !== 'number' || typeof max !== 'number' || max <= 0) return 0;
   return Math.min(100, Math.max(0, (current / max) * 100));
-}
-
-function getItemMetaLabel(item: InventoryItemDto) {
-  const labels = [
-    item.itemType,
-    item.damageDice ? `${item.damageDice}${item.damageType ? ` ${item.damageType}` : ''}` : null,
-    item.weightLb ? `${item.weightLb} lb` : null,
-  ].filter(Boolean);
-
-  return labels.length ? labels.join(' / ') : '상세 정보 없음';
 }
 
 function splitSceneParagraphs(sceneText: string | undefined) {
@@ -1449,8 +1440,10 @@ export function CombatNodeSurface({
                         <GameIcon name={getInventoryItemIconName(item)} size={28} />
                       </span>
                       <div className="combat-inventory-item-body">
-                        <strong>{item.name}</strong>
-                        <span>{getItemMetaLabel(item)}</span>
+                        <strong className="inventory-item-info-host">
+                          <InventoryItemInfo item={item} />
+                        </strong>
+                        <span>{getInventoryMetaLabel(item)}</span>
                       </div>
                       <span className="combat-inventory-quantity">x{item.quantity}</span>
                       {isWeapon || isArmor ? (
