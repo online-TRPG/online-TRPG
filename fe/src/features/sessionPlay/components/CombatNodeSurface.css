@@ -1338,12 +1338,12 @@
 }
 
 .combat-inventory-panel {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   align-content: stretch;
 }
 
 .combat-inventory-panel.expanded {
-  max-height: min(62vh, calc((var(--combat-inventory-item-count) * 62px) + 150px));
+  max-height: min(62vh, calc((var(--combat-inventory-item-count) * 62px) + 174px));
 }
 
 .combat-inventory-list {

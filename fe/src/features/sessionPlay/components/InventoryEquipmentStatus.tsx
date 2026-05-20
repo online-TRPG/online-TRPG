@@ -82,7 +82,9 @@ export function InventoryEquipmentStatus({
 
   return (
     <section className="inventory-equipment-status" aria-label="장착 상태">
-      <span className="inventory-equipment-status-title">장착 상태</span>
+      <div className="inventory-section-heading inventory-equipment-status-title">
+        <span>장착 상태</span>
+      </div>
       <dl className="inventory-equipment-status-grid">
         <EquipmentSlot
           label="오른손"

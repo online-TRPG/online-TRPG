@@ -788,6 +788,9 @@ export function ExplorationNodeSurface({
               equippedWeaponId={myCharacter?.equippedWeaponId}
               offhandWeaponId={myCharacter?.offhandWeaponId}
             />
+            <div className="inventory-section-heading">
+              <span>보유 아이템</span>
+            </div>
             {inventory.length ? (
               <div
                 id="exploration-inventory-list"
