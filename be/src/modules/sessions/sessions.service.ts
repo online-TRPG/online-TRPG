@@ -4472,11 +4472,16 @@ export class SessionsService {
     const maxRow = Math.max(0, Math.ceil(map.height / map.gridSize) - 1);
     const queue: Array<{ column: number; row: number }> = [{ column: startColumn, row: startRow }];
     const visited = new Set([`${startColumn}:${startRow}`]);
+    // 상하좌우 + 대각 8방향. 대각 이동을 허용한다.
     const directions = [
       { column: 1, row: 0 },
       { column: -1, row: 0 },
       { column: 0, row: 1 },
       { column: 0, row: -1 },
+      { column: 1, row: 1 },
+      { column: 1, row: -1 },
+      { column: -1, row: 1 },
+      { column: -1, row: -1 },
     ];
 
     while (queue.length) {
@@ -4503,7 +4508,7 @@ export class SessionsService {
 
         const x = Math.min(Math.max(next.column * map.gridSize, 0), map.width - toToken.size);
         const y = Math.min(Math.max(next.row * map.gridSize, 0), map.height - toToken.size);
-        if (this.isTokenPlacementBlocked(map, toToken, x, y)) {
+        if (this.isTokenPlacementBlocked(map, toToken, x, y, { ignoreTokens: true })) {
           continue;
         }
 
@@ -4737,19 +4742,23 @@ export class SessionsService {
     token: VttMapStateDto["tokens"][number],
     x: number,
     y: number,
+    options: { ignoreTokens?: boolean } = {},
   ): boolean {
     const blockers = [
       ...(map.terrainCells ?? []),
       ...(map.wallCells ?? []),
       ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
-      ...map.tokens
-        .filter((otherToken) => otherToken.id !== token.id && otherToken.hidden !== true)
-        .map((otherToken) => ({
-          x: otherToken.x,
-          y: otherToken.y,
-          width: otherToken.size,
-          height: otherToken.size,
-        })),
+      // ignoreTokens: 경로 탐색 시 다른 토큰(아군 길막 등)은 통과 허용한다.
+      ...(options.ignoreTokens
+        ? []
+        : map.tokens
+            .filter((otherToken) => otherToken.id !== token.id && otherToken.hidden !== true)
+            .map((otherToken) => ({
+              x: otherToken.x,
+              y: otherToken.y,
+              width: otherToken.size,
+              height: otherToken.size,
+            }))),
     ];
     const tokenRect = { x, y, width: token.size, height: token.size };
     return blockers.some((blocker) => this.rectsOverlap(tokenRect, blocker));
