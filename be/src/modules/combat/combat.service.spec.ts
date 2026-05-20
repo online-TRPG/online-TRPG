@@ -237,6 +237,37 @@ describe("CombatService lifecycle", () => {
     });
   });
 
+  it("rejects startCombat with COMBAT_409 on a node whose combat already completed", async () => {
+    const { service, prisma, sessionsService } = createService();
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      status: PrismaSessionStatus.PLAYING,
+      gmMode: PrismaGmMode.AI,
+    });
+    prisma.combat.findFirst.mockResolvedValue(null);
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        version: 3,
+        currentNodeId: "node-04",
+        flagsJson: JSON.stringify({ completedCombatNodeIds: ["node-04"] }),
+      },
+    });
+
+    await expect(
+      service.startCombat("user-1", "session-1", { autoRollInitiative: false }),
+    ).rejects.toMatchObject({
+      response: {
+        code: "COMBAT_409",
+        data: { reason: "COMBAT_NODE_ALREADY_COMPLETED" },
+      },
+    });
+
+    // 가드는 트랜잭션 이전에 막아야 한다 — 종료된 전투 노드에서 새 전투가 생성되면 안 된다.
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it("creates the next turn state when a turn ends", async () => {
     const { service, prisma, sessionsService, actionEconomy } = createService();
     const current = createParticipant({
