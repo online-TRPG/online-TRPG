@@ -2,6 +2,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from "@nestjs/common";
@@ -135,6 +136,8 @@ function isSessionListItem(
 
 @Injectable()
 export class SessionsService {
+  private readonly logger = new Logger(SessionsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
@@ -495,6 +498,9 @@ export class SessionsService {
         where: { sessionId: resolvedSessionId, status: PrismaCombatStatus.ACTIVE },
         select: { id: true },
       }),
+    );
+    this.logger.debug(
+      `[VTT_MOVE_REQUEST] sessionId=${resolvedSessionId} userId=${userId} nodeId=${state.currentNodeId ?? "null"} host=${session.hostUserId === userId} activeCombat=${hasActiveCombat} requestedTokens=${requestedMap.tokens.length}`,
     );
     let map =
       session.hostUserId === userId && !hasActiveCombat
@@ -1612,6 +1618,10 @@ export class SessionsService {
       currentNodeId && !completedCombatNodeIds.includes(currentNodeId)
         ? [...completedCombatNodeIds, currentNodeId]
         : completedCombatNodeIds;
+
+    this.logger.debug(
+      `[COMBAT_COMPLETE_STATE] sessionId=${resolvedSessionId} combatId=${combatId ?? "active"} currentNodeId=${currentNodeId ?? "null"} previousPhase=${state?.phase ?? "null"} nextCompletedCombatNodeIds=${JSON.stringify(nextCompletedCombatNodeIds)}`,
+    );
 
     await this.prisma.$transaction(async (tx) => {
       await tx.session.update({
@@ -4180,6 +4190,9 @@ export class SessionsService {
     const currentCombatParticipant = activeCombat
       ? activeCombat.participants.find((participant) => participant.id === activeCombat.currentParticipantId) ?? null
       : null;
+    this.logger.debug(
+      `[VTT_PLAYER_UPDATE] sessionId=${sessionId} userId=${userId} nodeId=${state.currentNodeId ?? "null"} controlled=${JSON.stringify(Array.from(controlledTokenIds))} activeCombat=${activeCombat?.id ?? "none"} currentCombatParticipant=${currentCombatParticipant?.id ?? "none"} currentCombatSessionCharacter=${currentCombatParticipant?.sessionCharacterId ?? "none"}`,
+    );
     if (
       activeCombat &&
       (!currentCombatParticipant?.sessionCharacterId ||
@@ -4283,6 +4296,15 @@ export class SessionsService {
     const isSameStartingPositions =
       requested.startingPositions?.length === 0 ||
       JSON.stringify(comparableBaseline.startingPositions ?? []) === JSON.stringify(requested.startingPositions ?? []);
+    const sameFogRects = JSON.stringify(comparableBaseline.fogRects) === JSON.stringify(requested.fogRects);
+    const sameTerrainCells =
+      JSON.stringify(comparableBaseline.terrainCells ?? []) === JSON.stringify(requested.terrainCells ?? []);
+    const sameWallCells =
+      JSON.stringify(comparableBaseline.wallCells ?? []) === JSON.stringify(requested.wallCells ?? []);
+    const sameDoorCells =
+      JSON.stringify(comparableBaseline.doorCells ?? []) === JSON.stringify(requested.doorCells ?? []);
+    const sameObjectCells =
+      JSON.stringify(comparableBaseline.objectCells ?? []) === JSON.stringify(requested.objectCells ?? []);
     const sameShell =
       baseline.id === requested.id &&
       baseline.scenarioNodeId === requested.scenarioNodeId &&
@@ -4292,13 +4314,16 @@ export class SessionsService {
       baseline.width === requested.width &&
       baseline.height === requested.height &&
       isSameStartingPositions &&
-      JSON.stringify(comparableBaseline.fogRects) === JSON.stringify(requested.fogRects) &&
-      JSON.stringify(comparableBaseline.terrainCells ?? []) === JSON.stringify(requested.terrainCells ?? []) &&
-      JSON.stringify(comparableBaseline.wallCells ?? []) === JSON.stringify(requested.wallCells ?? []) &&
-      JSON.stringify(comparableBaseline.doorCells ?? []) === JSON.stringify(requested.doorCells ?? []) &&
-      JSON.stringify(comparableBaseline.objectCells ?? []) === JSON.stringify(requested.objectCells ?? []);
+      sameFogRects &&
+      sameTerrainCells &&
+      sameWallCells &&
+      sameDoorCells &&
+      sameObjectCells;
 
     if (!sameShell) {
+      this.logger.warn(
+        `[VTT_SHELL_MISMATCH] baselineId=${baseline.id} requestedId=${requested.id} baselineNode=${baseline.scenarioNodeId ?? "null"} requestedNode=${requested.scenarioNodeId ?? "null"} starting=${isSameStartingPositions} fog=${sameFogRects} terrain=${sameTerrainCells} wall=${sameWallCells} door=${sameDoorCells} object=${sameObjectCells} baselineObjects=${(comparableBaseline.objectCells ?? []).length} requestedObjects=${(requested.objectCells ?? []).length}`,
+      );
       throw new ForbiddenException("Players can only move their own tokens.");
     }
   }
