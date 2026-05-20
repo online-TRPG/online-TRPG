@@ -5017,3 +5017,6 @@ button.chat-submit-btn:disabled,
   font-size: 14px !important;
   font-weight: 800 !important;
 }
+.session-info-panel .scenario-node-panel > .scenario-scene-description-text {
+  white-space: pre-line !important;
+}
