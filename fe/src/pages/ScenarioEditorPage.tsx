@@ -55,6 +55,29 @@ type LinkForm = {
   condition: string;
   nextNodeId: string;
   note: string;
+  conditionRule: TransitionConditionRuleForm;
+};
+
+type TransitionConditionLogic = 'ALL' | 'ANY';
+type TransitionConditionType =
+  | 'ALWAYS'
+  | 'CLUE_REVEALED'
+  | 'COMBAT_RESOLVED'
+  | 'NODE_VISITED'
+  | 'FLAG_SET'
+  | 'GM_APPROVAL';
+
+type TransitionRequirementForm = {
+  id: string;
+  type: TransitionConditionType;
+  targetId: string;
+  flagKey: string;
+  flagValue: string;
+};
+
+type TransitionConditionRuleForm = {
+  logic: TransitionConditionLogic;
+  requirements: TransitionRequirementForm[];
 };
 
 type CheckGuideForm = {
@@ -110,6 +133,7 @@ type NodeForm = {
   links: LinkForm[];
   clues: ClueForm[];
   npcIds: string[];
+  isEndingNode: boolean;
 };
 
 // 시나리오 전체 폼 상태입니다. 제목/설명/라이선스와 노드 배열을 포함합니다.
@@ -149,6 +173,14 @@ const GRAPH_ROW_GAP = 82;
 const GRAPH_PADDING = 64;
 const AUTO_SAVE_INTERVAL_MS = 300_000;
 const UNSAVED_CHANGES_MESSAGE = '저장되지 않은 변경사항이 있습니다. 이 화면을 나가시겠습니까?';
+const transitionConditionTypeOptions: Array<{ value: TransitionConditionType; label: string }> = [
+  { value: 'ALWAYS', label: '항상 가능' },
+  { value: 'CLUE_REVEALED', label: '단서 공개됨' },
+  { value: 'COMBAT_RESOLVED', label: '전투 종료됨' },
+  { value: 'NODE_VISITED', label: '노드 방문함' },
+  { value: 'FLAG_SET', label: '상태 플래그' },
+  { value: 'GM_APPROVAL', label: 'GM 승인 필요' },
+];
 const scenarioGuideNotes: ScenarioGuideNote[] = [
   {
     title: '핵심 흐름부터 고정',
@@ -186,6 +218,7 @@ function createBlankNode(title = '새 장면'): NodeForm {
     links: [],
     clues: [],
     npcIds: [],
+    isEndingNode: false,
   };
 }
 
@@ -261,6 +294,24 @@ function createBlankLink(nodes: NodeForm[], currentNodeId: string): LinkForm {
     condition: 'default',
     nextNodeId: nodes.find((node) => node.id !== currentNodeId)?.id ?? '',
     note: '',
+    conditionRule: createDefaultTransitionRule(),
+  };
+}
+
+function createTransitionRequirement(type: TransitionConditionType = 'ALWAYS'): TransitionRequirementForm {
+  return {
+    id: makeLocalId('transition_req'),
+    type,
+    targetId: '',
+    flagKey: '',
+    flagValue: '',
+  };
+}
+
+function createDefaultTransitionRule(): TransitionConditionRuleForm {
+  return {
+    logic: 'ALL',
+    requirements: [createTransitionRequirement('ALWAYS')],
   };
 }
 
@@ -372,6 +423,54 @@ function valueAsNpcDisposition(value: unknown): NpcDisposition {
   return value === 'friendly' || value === 'hostile' ? value : 'neutral';
 }
 
+function valueAsTransitionConditionLogic(value: unknown): TransitionConditionLogic {
+  return value === 'ANY' ? 'ANY' : 'ALL';
+}
+
+function valueAsTransitionConditionType(value: unknown): TransitionConditionType {
+  if (
+    value === 'CLUE_REVEALED' ||
+    value === 'COMBAT_RESOLVED' ||
+    value === 'NODE_VISITED' ||
+    value === 'FLAG_SET' ||
+    value === 'GM_APPROVAL'
+  ) {
+    return value;
+  }
+  return 'ALWAYS';
+}
+
+function mapTransitionRequirement(requirement: Record<string, unknown>): TransitionRequirementForm {
+  return {
+    id: valueAsString(requirement.id, makeLocalId('transition_req')),
+    type: valueAsTransitionConditionType(requirement.type),
+    targetId: valueAsString(requirement.targetId),
+    flagKey: valueAsString(requirement.flagKey),
+    flagValue: valueAsString(requirement.flagValue),
+  };
+}
+
+function isAutoTransitionConditionText(value: string): boolean {
+  return ['', 'default', 'always', 'auto', '조건 없음', '항상'].includes(value.trim().toLowerCase());
+}
+
+function mapTransitionConditionRule(value: unknown, condition: string): TransitionConditionRuleForm {
+  if (!value || typeof value !== 'object') {
+    return isAutoTransitionConditionText(condition)
+      ? createDefaultTransitionRule()
+      : { logic: 'ALL', requirements: [createTransitionRequirement('GM_APPROVAL')] };
+  }
+  const rule = value as Record<string, unknown>;
+  const rawRequirements = Array.isArray(rule.requirements) ? rule.requirements : [];
+  const requirements = rawRequirements
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    .map(mapTransitionRequirement);
+  return {
+    logic: valueAsTransitionConditionLogic(rule.logic),
+    requirements: requirements.length ? requirements : [createTransitionRequirement('ALWAYS')],
+  };
+}
+
 function mapNpc(npc: Record<string, unknown>): NpcForm {
   return {
     id: valueAsString(npc.id, makeLocalId('npc')),
@@ -385,12 +484,14 @@ function mapNpc(npc: Record<string, unknown>): NpcForm {
 }
 
 function mapLink(transition: Record<string, unknown>): LinkForm {
+  const condition = valueAsString(transition.condition, 'default');
   return {
     id: valueAsString(transition.id, makeLocalId('link')),
     label: valueAsString(transition.label),
-    condition: valueAsString(transition.condition, 'default'),
+    condition,
     nextNodeId: valueAsString(transition.nextNodeId),
     note: valueAsString(transition.note),
+    conditionRule: mapTransitionConditionRule(transition.conditionRule, condition),
   };
 }
 
@@ -511,6 +612,14 @@ function mapNodeNpcIds(nodeMeta: Record<string, unknown> | null): string[] {
   );
 }
 
+function mapNodeIsEnding(nodeMeta: Record<string, unknown> | null): boolean {
+  if (!nodeMeta || typeof nodeMeta !== 'object') {
+    return false;
+  }
+
+  return nodeMeta.isEndingNode === true || nodeMeta.endBehavior === 'SESSION_COMPLETE';
+}
+
 // API에서 받은 시나리오 상세 데이터를 에디터 폼 상태로 변환합니다.
 function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
   const nodes = scenario.nodes.length
@@ -525,6 +634,7 @@ function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
           links: node.transitions.map(mapLink),
           clues: node.clues.map(mapClue),
           npcIds: mapNodeNpcIds(node.nodeMeta),
+          isEndingNode: mapNodeIsEnding(node.nodeMeta),
         }))
     : [createBlankNode('첫 장면')];
   const startNodeId = resolveScenarioStartNodeId(nodes, valueAsString(scenario.startNodeId));
@@ -570,6 +680,7 @@ function serializeNodes(nodes: NodeForm[], scenarioNpcs: NpcForm[]) {
         id: link.id,
         label: link.label.trim() || undefined,
         condition: link.condition.trim() || 'default',
+        conditionRule: serializeTransitionConditionRule(link.conditionRule),
         nextNodeId: link.nextNodeId,
         note: link.note.trim() || undefined,
       })),
@@ -588,6 +699,21 @@ function serializeNodes(nodes: NodeForm[], scenarioNpcs: NpcForm[]) {
         gmNotes: clue.gmNotes.trim(),
       })),
   }));
+}
+
+function serializeTransitionConditionRule(rule: TransitionConditionRuleForm) {
+  const requirements = rule.requirements.map((requirement) => ({
+    id: requirement.id,
+    type: requirement.type,
+    targetId: requirement.targetId.trim() || undefined,
+    flagKey: requirement.flagKey.trim() || undefined,
+    flagValue: requirement.flagValue.trim() || undefined,
+  }));
+
+  return {
+    logic: rule.logic,
+    requirements: requirements.length ? requirements : [{ id: makeLocalId('transition_req'), type: 'ALWAYS' }],
+  };
 }
 
 function buildNodeMetaFromFeaturedNpcs(
@@ -618,7 +744,16 @@ function buildNodeMetaFromFeaturedNpcs(
     };
   });
 
-  return featuredNpcs.length ? { npcs: featuredNpcs } : null;
+  const meta: Record<string, unknown> = {};
+  if (featuredNpcs.length) {
+    meta.npcs = featuredNpcs;
+  }
+  if (node.isEndingNode) {
+    meta.isEndingNode = true;
+    meta.endBehavior = 'SESSION_COMPLETE';
+  }
+
+  return Object.keys(meta).length ? meta : null;
 }
 
 // 현재 폼 전체를 create/update API payload로 변환합니다.
@@ -2192,6 +2327,19 @@ function NodeDetailEditor({
               <option value="exploration">탐색</option>
               <option value="combat">전투</option>
             </select>
+            <label className="scenario-node-ending-toggle">
+              <input
+                type="checkbox"
+                checked={node.isEndingNode}
+                onChange={(event) =>
+                  updateNode(node.id, (current) => ({
+                    ...current,
+                    isEndingNode: event.target.checked,
+                  }))
+                }
+              />
+              세션 종료 노드
+            </label>
           </div>
           <div className="scenario-node-edit-actions">
             <button
@@ -2763,6 +2911,286 @@ function ScenarioNodeCollections({
               }
               rows={2}
             />
+            <div className="scenario-editor-item">
+              <div className="field-row-3">
+                <div>
+                  <label>조건 조합</label>
+                  <select
+                    value={link.conditionRule.logic}
+                    onChange={(event) =>
+                      updateNode(node.id, (current) => ({
+                        ...current,
+                        links: current.links.map((item, itemIndex) =>
+                          itemIndex === index
+                            ? {
+                                ...item,
+                                conditionRule: {
+                                  ...item.conditionRule,
+                                  logic: event.target.value === 'ANY' ? 'ANY' : 'ALL',
+                                },
+                              }
+                            : item
+                        ),
+                      }))
+                    }
+                  >
+                    <option value="ALL">AND</option>
+                    <option value="ANY">OR</option>
+                  </select>
+                </div>
+                <div>
+                  <label>조건 추가</label>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    onClick={() =>
+                      updateNode(node.id, (current) => ({
+                        ...current,
+                        links: current.links.map((item, itemIndex) =>
+                          itemIndex === index
+                            ? {
+                                ...item,
+                                conditionRule: {
+                                  ...item.conditionRule,
+                                  requirements: [
+                                    ...item.conditionRule.requirements,
+                                    createTransitionRequirement('CLUE_REVEALED'),
+                                  ],
+                                },
+                              }
+                            : item
+                        ),
+                      }))
+                    }
+                  >
+                    조건 추가
+                  </button>
+                </div>
+              </div>
+              {link.conditionRule.requirements.map((requirement, requirementIndex) => (
+                <div className="field-row-3" key={requirement.id}>
+                  <div>
+                    <label>조건</label>
+                    <select
+                      value={requirement.type}
+                      onChange={(event) =>
+                        updateNode(node.id, (current) => ({
+                          ...current,
+                          links: current.links.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? {
+                                  ...item,
+                                  conditionRule: {
+                                    ...item.conditionRule,
+                                    requirements: item.conditionRule.requirements.map((entry, entryIndex) =>
+                                      entryIndex === requirementIndex
+                                        ? {
+                                            ...entry,
+                                            type: event.target.value as TransitionConditionType,
+                                            targetId: '',
+                                            flagKey: '',
+                                            flagValue: '',
+                                          }
+                                        : entry
+                                    ),
+                                  },
+                                }
+                              : item
+                          ),
+                        }))
+                      }
+                    >
+                      {transitionConditionTypeOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label>대상</label>
+                    {requirement.type === 'CLUE_REVEALED' ? (
+                      <select
+                        value={requirement.targetId}
+                        onChange={(event) =>
+                          updateNode(node.id, (current) => ({
+                            ...current,
+                            links: current.links.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? {
+                                    ...item,
+                                    conditionRule: {
+                                      ...item.conditionRule,
+                                      requirements: item.conditionRule.requirements.map((entry, entryIndex) =>
+                                        entryIndex === requirementIndex
+                                          ? { ...entry, targetId: event.target.value }
+                                          : entry
+                                      ),
+                                    },
+                                  }
+                                : item
+                            ),
+                          }))
+                        }
+                      >
+                        <option value="">단서 선택</option>
+                        {nodes.flatMap((candidateNode) =>
+                          candidateNode.clues.map((clue) => (
+                            <option key={`${candidateNode.id}:${clue.id}`} value={clue.id}>
+                              {candidateNode.title || candidateNode.id} / {clue.title || clue.id}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    ) : requirement.type === 'COMBAT_RESOLVED' || requirement.type === 'NODE_VISITED' ? (
+                      <select
+                        value={requirement.targetId}
+                        onChange={(event) =>
+                          updateNode(node.id, (current) => ({
+                            ...current,
+                            links: current.links.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? {
+                                    ...item,
+                                    conditionRule: {
+                                      ...item.conditionRule,
+                                      requirements: item.conditionRule.requirements.map((entry, entryIndex) =>
+                                        entryIndex === requirementIndex
+                                          ? { ...entry, targetId: event.target.value }
+                                          : entry
+                                      ),
+                                    },
+                                  }
+                                : item
+                            ),
+                          }))
+                        }
+                      >
+                        <option value="">현재 노드</option>
+                        {nodes.map((candidateNode) => (
+                          <option key={candidateNode.id} value={candidateNode.id}>
+                            {candidateNode.title || candidateNode.id}
+                          </option>
+                        ))}
+                      </select>
+                    ) : requirement.type === 'FLAG_SET' ? (
+                      <input
+                        value={requirement.flagKey}
+                        placeholder="flag key"
+                        onChange={(event) =>
+                          updateNode(node.id, (current) => ({
+                            ...current,
+                            links: current.links.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? {
+                                    ...item,
+                                    conditionRule: {
+                                      ...item.conditionRule,
+                                      requirements: item.conditionRule.requirements.map((entry, entryIndex) =>
+                                        entryIndex === requirementIndex
+                                          ? { ...entry, flagKey: event.target.value }
+                                          : entry
+                                      ),
+                                    },
+                                  }
+                                : item
+                            ),
+                          }))
+                        }
+                      />
+                    ) : (
+                      <input value="-" disabled />
+                    )}
+                  </div>
+                  <div>
+                    <label>값 / 삭제</label>
+                    {requirement.type === 'FLAG_SET' ? (
+                      <>
+                        <input
+                          value={requirement.flagValue}
+                          placeholder="비워두면 존재 여부"
+                          onChange={(event) =>
+                            updateNode(node.id, (current) => ({
+                              ...current,
+                              links: current.links.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? {
+                                      ...item,
+                                      conditionRule: {
+                                        ...item.conditionRule,
+                                        requirements: item.conditionRule.requirements.map((entry, entryIndex) =>
+                                          entryIndex === requirementIndex
+                                            ? { ...entry, flagValue: event.target.value }
+                                            : entry
+                                        ),
+                                      },
+                                    }
+                                  : item
+                              ),
+                            }))
+                          }
+                        />
+                        <button
+                          type="button"
+                          className="ghost small"
+                          onClick={() =>
+                            updateNode(node.id, (current) => ({
+                              ...current,
+                              links: current.links.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? {
+                                      ...item,
+                                      conditionRule: {
+                                        ...item.conditionRule,
+                                        requirements:
+                                          item.conditionRule.requirements.length > 1
+                                            ? item.conditionRule.requirements.filter(
+                                                (_, entryIndex) => entryIndex !== requirementIndex
+                                              )
+                                            : [createTransitionRequirement('ALWAYS')],
+                                      },
+                                    }
+                                  : item
+                              ),
+                            }))
+                          }
+                        >
+                          조건 삭제
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="ghost small"
+                        onClick={() =>
+                          updateNode(node.id, (current) => ({
+                            ...current,
+                            links: current.links.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? {
+                                    ...item,
+                                    conditionRule: {
+                                      ...item.conditionRule,
+                                      requirements:
+                                        item.conditionRule.requirements.length > 1
+                                          ? item.conditionRule.requirements.filter(
+                                              (_, entryIndex) => entryIndex !== requirementIndex
+                                            )
+                                          : [createTransitionRequirement('ALWAYS')],
+                                    },
+                                  }
+                                : item
+                            ),
+                          }))
+                        }
+                      >
+                        조건 삭제
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
             <button
               type="button"
               className="ghost small"
