@@ -246,7 +246,7 @@ describe("SessionsService VTT map structures", () => {
       requested: Record<string, unknown>,
       allowFullMapShell?: boolean,
     ) => void;
-    ensureTokenPathIsPassable: (
+    ensureTokenPathIsReachable: (
       map: Record<string, unknown>,
       fromToken: Record<string, unknown>,
       toToken: Record<string, unknown>,
@@ -587,7 +587,7 @@ describe("SessionsService VTT map structures", () => {
     const fromToken = { id: "token-1", x: 0, y: 0, size: 64 };
     const toToken = { ...fromToken, x: 192 };
 
-    expect(() => service.ensureTokenPathIsPassable(map, fromToken, toToken)).toThrow(
+    expect(() => service.ensureTokenPathIsReachable(map, fromToken, toToken)).toThrow(
       ForbiddenException,
     );
   });
@@ -607,6 +607,43 @@ describe("SessionsService VTT map structures", () => {
     const fromToken = { id: "token-1", x: 0, y: 0, size: 64 };
     const toToken = { ...fromToken, x: 192 };
 
-    expect(() => service.ensureTokenPathIsPassable(map, fromToken, toToken)).not.toThrow();
+    expect(() => service.ensureTokenPathIsReachable(map, fromToken, toToken)).not.toThrow();
+  });
+
+  it("lets a player token path past another token blocking the way", () => {
+    const fromToken = { id: "token-1", x: 0, y: 0, size: 64 };
+    const map = {
+      width: 192,
+      height: 64,
+      gridSize: 64,
+      terrainCells: [],
+      wallCells: [],
+      doorCells: [],
+      // An ally token parked in the only corridor must not block the path.
+      tokens: [fromToken, { id: "ally", x: 64, y: 0, size: 64, hidden: false }],
+    };
+    const toToken = { ...fromToken, x: 128 };
+
+    expect(() => service.ensureTokenPathIsReachable(map, fromToken, toToken)).not.toThrow();
+  });
+
+  it("lets a player token move diagonally between blocked orthogonal cells", () => {
+    const fromToken = { id: "token-1", x: 0, y: 0, size: 64 };
+    const map = {
+      width: 128,
+      height: 128,
+      gridSize: 64,
+      terrainCells: [],
+      // Both orthogonal neighbours are walled, leaving only the diagonal step.
+      wallCells: [
+        { id: "wall-right", x: 64, y: 0, width: 64, height: 64 },
+        { id: "wall-down", x: 0, y: 64, width: 64, height: 64 },
+      ],
+      doorCells: [],
+      tokens: [fromToken],
+    };
+    const toToken = { ...fromToken, x: 64, y: 64 };
+
+    expect(() => service.ensureTokenPathIsReachable(map, fromToken, toToken)).not.toThrow();
   });
 });
