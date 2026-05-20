@@ -1718,6 +1718,54 @@ export class SessionsService {
     return snapshot;
   }
 
+  async completeSessionFromEndingNode(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    nodeId: string;
+    reason: string;
+  }): Promise<SessionSnapshotDto> {
+    const session = await this.getSessionEntityOrThrow(params.sessionId);
+    const resolvedSessionId = session.id;
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
+    if (activeScenario.id !== params.sessionScenarioId) {
+      throw new ConflictException("The ending node does not belong to the active session scenario.");
+    }
+
+    const state = activeScenario.gameState;
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const completedAt = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.session.update({
+        where: { id: resolvedSessionId },
+        data: { status: PrismaSessionStatus.COMPLETED },
+      });
+      await tx.sessionScenario.update({
+        where: { id: activeScenario.id },
+        data: { status: PrismaSessionScenarioStatus.COMPLETED },
+      });
+      if (state) {
+        await tx.gameState.update({
+          where: { sessionScenarioId: activeScenario.id },
+          data: {
+            version: { increment: 1 },
+            flagsJson: JSON.stringify({
+              ...flags,
+              sessionCompletedAt: completedAt.toISOString(),
+              completedNodeId: params.nodeId,
+              completionReason: params.reason,
+            }),
+          },
+        });
+      }
+    });
+
+    const snapshot = await this.buildSnapshot(resolvedSessionId);
+    this.realtimeEvents.emitSessionStatusUpdated(resolvedSessionId, snapshot.session);
+    this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
+    return snapshot;
+  }
+
   async revealCurrentNodeCluesAfterAction(params: {
     sessionScenarioId: string;
     nodeId: string;
@@ -1727,6 +1775,19 @@ export class SessionsService {
     turnLogId?: string | null;
     revealedBy?: string;
   }): Promise<number> {
+    const revealedClues = await this.revealCurrentNodeCluesAfterActionWithDetails(params);
+    return revealedClues.length;
+  }
+
+  async revealCurrentNodeCluesAfterActionWithDetails(params: {
+    sessionScenarioId: string;
+    nodeId: string;
+    actionText: string;
+    outcome: ActionOutcome;
+    policyModes?: RevealPolicyMode[];
+    turnLogId?: string | null;
+    revealedBy?: string;
+  }): Promise<Array<{ id: string; title: string; text: string | null }>> {
     return this.prisma.$transaction((tx) =>
       this.recordCurrentNodeCluesByPolicy(tx, {
         sessionScenarioId: params.sessionScenarioId,
@@ -5490,7 +5551,7 @@ export class SessionsService {
       reason?: string | null;
       turnLogId?: string | null;
     },
-  ): Promise<number> {
+  ): Promise<Array<{ id: string; title: string; text: string | null }>> {
     const node = await tx.sessionScenarioNode.findUnique({
       where: {
         sessionScenarioId_nodeId: {
@@ -5501,11 +5562,11 @@ export class SessionsService {
       select: { cluesJson: true },
     });
     if (!node) {
-      return 0;
+      return [];
     }
 
     const clues = this.parseJson<Record<string, unknown>[]>(node.cluesJson, []);
-    const reveals = clues.flatMap((clue) => {
+    const revealInputs = clues.flatMap((clue) => {
       const policyMode = this.getRevealPolicyMode(clue);
       if (params.policyModes && !params.policyModes.includes(policyMode)) {
         return [];
@@ -5520,21 +5581,44 @@ export class SessionsService {
       }
 
       return [
-        this.recordSessionReveal(tx, {
-          sessionScenarioId: params.sessionScenarioId,
+        {
           contentId,
-          contentKind: "clue",
-          scope: "party",
-          revealedBy: params.revealedBy,
           reason: params.reason ?? this.getRevealReason(policyMode, params.outcome),
-          turnLogId: params.turnLogId,
           snapshot: clue,
-        }),
+        },
       ];
     });
 
-    await Promise.all(reveals);
-    return reveals.length;
+    const existingReveals = revealInputs.length
+      ? await tx.sessionReveal.findMany({
+          where: {
+            sessionScenarioId: params.sessionScenarioId,
+            contentKind: "clue",
+            scope: "party",
+            recipientKey: "party",
+            contentId: { in: revealInputs.map((input) => input.contentId) },
+          },
+          select: { contentId: true },
+        })
+      : [];
+    const existingIds = new Set(existingReveals.map((reveal) => reveal.contentId));
+    const newRevealInputs = revealInputs.filter((input) => !existingIds.has(input.contentId));
+
+    await Promise.all(
+      newRevealInputs.map((input) =>
+        this.recordSessionReveal(tx, {
+          sessionScenarioId: params.sessionScenarioId,
+          contentId: input.contentId,
+          contentKind: "clue",
+          scope: "party",
+          revealedBy: params.revealedBy,
+          reason: input.reason,
+          turnLogId: params.turnLogId,
+          snapshot: input.snapshot,
+        }),
+      ),
+    );
+    return newRevealInputs.map((input) => this.toRevealClueSummary(input.contentId, input.snapshot));
   }
 
   private shouldRevealClueForPolicy(
