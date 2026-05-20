@@ -13,10 +13,45 @@
 }
 
 .inventory-equipment-status-title {
+  margin-bottom: 1px;
+}
+
+.inventory-section-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
   color: #d9bd76;
   font-size: 11px;
   font-weight: 900;
   line-height: 1;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.inventory-section-heading::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  transform: rotate(45deg);
+  border: 1px solid rgba(225, 168, 70, 0.92);
+  background: rgba(225, 168, 70, 0.08);
+  box-shadow: 0 0 4px rgba(225, 168, 70, 0.25);
+}
+
+.inventory-section-heading::after {
+  content: '';
+  flex: 1 1 auto;
+  min-width: 16px;
+  height: 1px;
+  background:
+    linear-gradient(90deg, rgba(225, 168, 70, 0.74), rgba(225, 168, 70, 0.16) 70%, transparent);
+}
+
+.inventory-section-heading span {
+  flex: 0 0 auto;
 }
 
 .inventory-equipment-status-grid {
