@@ -4,6 +4,7 @@ import {
   getCharacterClassLabel,
   getCharacterImage,
 } from '../utils/characterVisuals';
+import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
 import './StoryNodeSurface.css';
 
 interface CharacterDetailModalProps {
@@ -236,20 +237,6 @@ function getConditionLabel(character: SessionCharacterResponseDto) {
   return character.conditions.length ? character.conditions.join(', ') : '정상';
 }
 
-function getInventoryMetaLabel(item: SessionCharacterResponseDto['inventory'][number]) {
-  const parts = [
-    item.itemType,
-    item.damageDice
-      ? `${item.damageDice}${item.damageType ? ` ${item.damageType}` : ''}`
-      : null,
-    item.weightLb !== undefined ? `${formatStat(item.weightLb)} lb` : null,
-    item.volumeCuFt !== undefined ? `${formatStat(item.volumeCuFt)} cu ft` : null,
-    item.properties?.length ? item.properties.join(', ') : null,
-  ].filter(Boolean);
-
-  return parts.length ? parts.join(' · ') : '추가 속성 없음';
-}
-
 export function CharacterDetailModal({ character, onClose }: CharacterDetailModalProps) {
   const characterImage = getCharacterImage(character);
   const equippedWeapon =
@@ -450,7 +437,9 @@ export function CharacterDetailModal({ character, onClose }: CharacterDetailModa
                     }`}
                   >
                     <div>
-                      <strong>{item.name}</strong>
+                      <strong className="inventory-item-info-host">
+                        <InventoryItemInfo item={item} />
+                      </strong>
                       <small>{getInventoryMetaLabel(item)}</small>
                     </div>
                     <span>x{item.quantity}</span>

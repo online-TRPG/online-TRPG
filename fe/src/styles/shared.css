@@ -365,10 +365,50 @@
 }
 
 .vtt-stage-wrap {
+  position: relative;
   width: 100%;
   min-height: 320px;
   overflow: hidden;
   background: #e7dcc5;
+}
+
+.vtt-session-view-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.vtt-session-view-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(45, 27, 13, 0.24);
+  border-radius: 6px;
+  background: rgba(255, 248, 231, 0.92);
+  color: #4a2c14;
+  padding: 0;
+  box-shadow: 0 4px 14px rgba(21, 15, 9, 0.2);
+  cursor: pointer;
+}
+
+.vtt-session-view-controls button:hover {
+  border-color: rgba(85, 209, 255, 0.7);
+  color: #11718d;
+}
+
+.vtt-session-view-controls button.active {
+  opacity: 0.46;
+}
+
+.vtt-stage-wrap.pan-active .konvajs-content {
+  cursor: grab;
 }
 
 .vtt-inspector {
