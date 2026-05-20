@@ -14,6 +14,7 @@ import type { GameIconName } from '../../../components/GameIcon';
 import explorationNodeBadge from '../../../components/node_badge_exploration.webp';
 import { getCharacterClassLabel } from '../utils/characterVisuals';
 import { CharacterDetailModal } from './CharacterDetailModal';
+import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import './ExplorationNodeSurface.css';
 
@@ -164,16 +165,6 @@ function getInventoryItemIconName(item: InventoryItemDto): GameIconName {
   if (key.includes('tool') || key.includes('kit') || key.includes('도구')) return 'game-icons:toolbox';
   if (key.includes('coin') || key.includes('gold') || key.includes('코인') || key.includes('금화')) return 'game-icons:coins';
   return 'game-icons:wooden-crate';
-}
-
-function getItemMetaLabel(item: InventoryItemDto) {
-  const labels = [
-    item.itemType,
-    item.damageDice ? `${item.damageDice}${item.damageType ? ` ${item.damageType}` : ''}` : null,
-    item.weightLb ? `${item.weightLb} lb` : null,
-  ].filter(Boolean);
-
-  return labels.length ? labels.join(' / ') : '상세 정보 없음';
 }
 
 function getCellKindLabel(
@@ -893,8 +884,10 @@ export function ExplorationNodeSurface({
                         <GameIcon name={getInventoryItemIconName(item)} size={28} />
                       </span>
                       <div className="exploration-inventory-item-body">
-                        <strong>{item.name}</strong>
-                        <span>{getItemMetaLabel(item)}</span>
+                        <strong className="inventory-item-info-host">
+                          <InventoryItemInfo item={item} tabIndex={-1} />
+                        </strong>
+                        <span>{getInventoryMetaLabel(item)}</span>
                       </div>
                       <span className="exploration-inventory-quantity">x{item.quantity}</span>
                       {isWeapon || isArmor ? (

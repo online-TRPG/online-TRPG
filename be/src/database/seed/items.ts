@@ -1,4 +1,6 @@
 import { PrismaClient } from "@prisma/client";
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 
 // 클래스 시작 장비에 등장하는 unique 아이템 카탈로그 + placeholder("단순 무기 하나" 등) 항목.
 // 룰북 ai/translated/classes/*.md 추출 결과 기준.
@@ -7,6 +9,53 @@ interface ItemSeed {
   koName: string;
   category: string;
 }
+
+type SrdEquipmentContent = {
+  itemId: string;
+  quantity: number;
+};
+
+type SrdEquipmentRecord = {
+  id: string;
+  name?: {
+    en?: string;
+    ko?: string;
+    aliases?: string[];
+  };
+  category?: {
+    kind?: string;
+    equipmentCategory?: string;
+  };
+  economy?: {
+    weight?: {
+      lb?: number;
+    } | null;
+  };
+  weapon?: {
+    rangeRaw?: string;
+    damage?: {
+      dice?: string;
+    };
+    damageType?: string;
+    properties?: Array<{ id?: string; raw?: string }>;
+  };
+  armor?: {
+    armorClass?: {
+      base?: number;
+      bonus?: number;
+      raw?: string;
+    };
+    strengthRequirement?: number | null;
+    stealthDisadvantage?: boolean;
+  };
+  use?: {
+    damage?: {
+      dice?: string;
+    };
+    damageType?: string;
+  };
+  contents?: SrdEquipmentContent[];
+};
 
 const itemSeeds: ItemSeed[] = [
   { key: "arrow", koName: "화살", category: "ammunition" },
@@ -56,7 +105,27 @@ const itemSeeds: ItemSeed[] = [
 ];
 
 export async function seedItems(prisma: PrismaClient): Promise<void> {
+  const srdEquipment = loadSrdEquipment();
   for (const item of itemSeeds) {
+    const srdRecord = findSrdEquipmentRecord(srdEquipment, item);
+    const itemDefinitionData = srdRecord
+      ? toSrdItemDefinitionData(srdRecord, srdEquipment)
+      : {
+          name: item.koName,
+          itemType: toRuntimeItemType(item.category),
+          weightLb: null,
+          volumeCuFt: null,
+          damageDice: null,
+          damageType: null,
+          description: null,
+          armorClassBase: null,
+          armorClassBonus: null,
+          armorStrengthRequirement: null,
+          armorStealthDisadvantage: null,
+          useEffect: null,
+          packContentsJson: null,
+          propertiesJson: JSON.stringify(toRuntimeProperties(item.category)),
+        };
     const catalogItem = await prisma.item.upsert({
       where: { key: item.key },
       update: { koName: item.koName, category: item.category },
@@ -65,19 +134,157 @@ export async function seedItems(prisma: PrismaClient): Promise<void> {
 
     await prisma.itemDefinition.upsert({
       where: { id: catalogItem.id },
-      update: {
-        name: item.koName,
-        itemType: toRuntimeItemType(item.category),
-        propertiesJson: JSON.stringify(toRuntimeProperties(item.category)),
-      },
+      update: itemDefinitionData,
       create: {
         id: catalogItem.id,
-        name: item.koName,
-        itemType: toRuntimeItemType(item.category),
-        propertiesJson: JSON.stringify(toRuntimeProperties(item.category)),
+        ...itemDefinitionData,
       },
     });
   }
+}
+
+function loadSrdEquipment(): SrdEquipmentRecord[] {
+  const candidates = [
+    join(process.cwd(), "srd-data", "generated", "srd-engine", "equipment.jsonl"),
+    join(process.cwd(), "..", "srd-data", "generated", "srd-engine", "equipment.jsonl"),
+    join(process.cwd(), "..", "..", "srd-data", "generated", "srd-engine", "equipment.jsonl"),
+  ];
+  const filePath = candidates.find((candidate) => existsSync(candidate));
+  if (!filePath) {
+    return [];
+  }
+  return readFileSync(filePath, "utf8")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line) as SrdEquipmentRecord;
+      } catch {
+        return null;
+      }
+    })
+    .filter((record): record is SrdEquipmentRecord => Boolean(record?.id));
+}
+
+function findSrdEquipmentRecord(records: SrdEquipmentRecord[], item: ItemSeed): SrdEquipmentRecord | null {
+  const candidates = [
+    item.key,
+    item.key.replace(/-/g, "_"),
+    item.koName,
+    item.koName.replace(/\(.+\)$/, ""),
+  ].map(normalizeEquipmentLookupKey);
+  return (
+    records.find((record) =>
+      [
+        record.id,
+        record.id.replace(/^equipment\./, ""),
+        record.name?.en,
+        record.name?.ko,
+        ...(record.name?.aliases ?? []),
+      ]
+        .map((value) => normalizeEquipmentLookupKey(value ?? ""))
+        .some((value) => candidates.includes(value)),
+    ) ?? null
+  );
+}
+
+function toSrdItemDefinitionData(record: SrdEquipmentRecord, records: SrdEquipmentRecord[]) {
+  const properties = [
+    "srd-engine",
+    record.category?.equipmentCategory,
+    ...(record.weapon?.properties ?? []).map((property) => property.id ?? property.raw),
+  ].filter((property): property is string => Boolean(property));
+
+  return {
+    name: getSrdEquipmentName(record, record.id),
+    itemType: record.category?.kind ?? "gear",
+    weightLb: typeof record.economy?.weight?.lb === "number" ? record.economy.weight.lb : null,
+    volumeCuFt: null,
+    damageDice: record.weapon?.damage?.dice ?? null,
+    damageType: record.weapon?.damageType ?? null,
+    description: buildSrdEquipmentDescription(record),
+    armorClassBase: record.armor?.armorClass?.base ?? null,
+    armorClassBonus: record.armor?.armorClass?.bonus ?? null,
+    armorStrengthRequirement: record.armor?.strengthRequirement ?? null,
+    armorStealthDisadvantage: record.armor?.stealthDisadvantage ?? null,
+    useEffect: buildSrdEquipmentUseEffect(record),
+    packContentsJson: buildSrdPackContentsJson(record, records),
+    propertiesJson: JSON.stringify([...new Set(properties)]),
+  };
+}
+
+function buildSrdEquipmentDescription(record: SrdEquipmentRecord): string {
+  const name = getSrdEquipmentName(record, record.id);
+  if (record.contents?.length) {
+    return `${name}입니다. 사용하면 꾸러미를 풀어 포함된 장비들을 인벤토리에 추가합니다.`;
+  }
+  if (record.weapon) {
+    const damage = record.weapon.damage?.dice
+      ? `${record.weapon.damage.dice}${record.weapon.damageType ? ` ${record.weapon.damageType}` : ""} 피해`
+      : "무기 피해";
+    const range = record.weapon.rangeRaw ? ` 사거리 ${record.weapon.rangeRaw}.` : "";
+    return `${name} 무기입니다. 명중 시 ${damage}를 줍니다.${range}`;
+  }
+  if (record.armor) {
+    const armorClass = record.armor.armorClass?.raw
+      ? `AC ${record.armor.armorClass.raw}`
+      : record.armor.armorClass?.base
+        ? `기본 AC ${record.armor.armorClass.base}`
+        : record.armor.armorClass?.bonus
+          ? `AC +${record.armor.armorClass.bonus}`
+          : "AC 보너스";
+    return `${name} 방어구입니다. 장착하면 ${armorClass}를 적용합니다.`;
+  }
+  const useEffect = buildSrdEquipmentUseEffect(record);
+  if (useEffect) {
+    return useEffect;
+  }
+  return `${name}입니다. 세션 중 보유하거나 상황에 따라 사용할 수 있는 SRD 장비입니다.`;
+}
+
+function buildSrdEquipmentUseEffect(record: SrdEquipmentRecord): string | null {
+  const key = normalizeEquipmentLookupKey(
+    [record.id, record.name?.en, record.name?.ko, record.category?.equipmentCategory]
+      .filter(Boolean)
+      .join(" "),
+  );
+  if (key.includes("potionofhealing") || key.includes("치유물약")) {
+    return "사용하면 HP를 평균 7점 회복합니다.";
+  }
+  if (record.use?.damage?.dice) {
+    return `사용하면 ${record.use.damage.dice}${record.use.damageType ? ` ${record.use.damageType}` : ""} 피해 효과를 적용합니다.`;
+  }
+  return null;
+}
+
+function buildSrdPackContentsJson(record: SrdEquipmentRecord, records: SrdEquipmentRecord[]): string | null {
+  if (!record.contents?.length) {
+    return null;
+  }
+  return JSON.stringify(
+    record.contents.map((content) => {
+      const contentRecord = records.find((candidate) => candidate.id === content.itemId);
+      return {
+        itemId: content.itemId,
+        name: getSrdEquipmentName(contentRecord, content.itemId),
+        quantity: content.quantity,
+      };
+    }),
+  );
+}
+
+function getSrdEquipmentName(record: SrdEquipmentRecord | null | undefined, fallback: string): string {
+  return record?.name?.ko?.trim() || record?.name?.en?.trim() || fallback;
+}
+
+function normalizeEquipmentLookupKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/^equipment[._-]/, "")
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9가-힣]+/g, "")
+    .replace(/s(?=pack$)/g, "");
 }
 
 function toRuntimeItemType(category: string): string {
