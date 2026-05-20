@@ -175,6 +175,21 @@ export class CombatService {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(
       session.id,
     );
+
+    // 이미 전투를 끝낸 노드에서는 전투 재시작을 막는다. 전투 종료 후 탐색 단계로
+    // 넘어간 노드를 FE 가 (스냅샷 전파 지연 등으로) 미완료로 오인해 startCombat 을
+    // 다시 호출하면, 새 ACTIVE 전투가 생겨 applyPlayerVttMapUpdate 의 "현재 전투
+    // 행동자만 맵 조작" 규칙에 걸려 비방장 플레이어 이동이 전부 403 으로 막힌다.
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const completedCombatNodeIds = Array.isArray(flags.completedCombatNodeIds)
+      ? flags.completedCombatNodeIds.filter((value): value is string => typeof value === "string")
+      : [];
+    if (state.currentNodeId && completedCombatNodeIds.includes(state.currentNodeId)) {
+      throw conflict("COMBAT_409", "이미 종료된 전투입니다.", {
+        reason: "COMBAT_NODE_ALREADY_COMPLETED",
+      });
+    }
+
     const candidates = await this.prisma.sessionCharacter.findMany({
       where: {
         sessionId: session.id,
@@ -355,12 +370,7 @@ export class CombatService {
       );
 
       // 전투 시작은 세션 전체 UI가 바뀌는 상태 전환이므로 GameState phase와 version을 함께 올린다.
-      const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
-      const completedCombatNodeIds = Array.isArray(flags.completedCombatNodeIds)
-        ? flags.completedCombatNodeIds.filter(
-            (value): value is string => typeof value === "string" && value !== state.currentNodeId,
-          )
-        : [];
+      // flags/completedCombatNodeIds 는 위 가드에서 파싱한 값을 그대로 재사용한다.
       const encounterScalingApplied =
         scalingResult.applied || scalingResult.excludedTokenIds.length
           ? {
