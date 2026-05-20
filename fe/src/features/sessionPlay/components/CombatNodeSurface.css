@@ -569,7 +569,7 @@
   margin-inline: 12px;
   min-height: 86px;
   display: grid;
-  grid-template-columns: minmax(300px, 0.32fr) minmax(0, 1fr) minmax(260px, 0.36fr);
+  grid-template-columns: minmax(340px, 0.42fr) minmax(320px, 0.7fr) minmax(360px, 0.55fr);
   gap: 16px;
   align-items: stretch;
   /* 우드 배경이 비치도록 투명하게 유지, 각각의 독립 카드로 렌더링됨 */
@@ -991,6 +991,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
+  justify-content: center;
   gap: 20px;
   border-bottom: 1px solid rgba(198, 152, 72, 0.28);
 }
@@ -999,6 +1000,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 14px;
 }
 
@@ -1333,6 +1335,24 @@
 
 .combat-inventory-list.expanded {
   max-height: min(48vh, calc(var(--combat-inventory-item-count) * 62px));
+}
+
+.combat-inventory-panel {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  align-content: stretch;
+}
+
+.combat-inventory-panel.expanded {
+  max-height: min(62vh, calc((var(--combat-inventory-item-count) * 62px) + 174px));
+}
+
+.combat-inventory-list {
+  height: 100%;
+  max-height: none;
+}
+
+.combat-inventory-list.expanded {
+  max-height: min(42vh, calc(var(--combat-inventory-item-count) * 62px));
 }
 
 .combat-inventory-item {

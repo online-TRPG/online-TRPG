@@ -15,7 +15,8 @@ import type { GameIconName } from '../../../components/GameIcon';
 import battleNodeBadge from '../../../components/node_badge_battle.webp';
 import turnDividerArrow from '../../../components/divider-arrow-gold-horizontal.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
-import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
+import { InventoryEquipmentStatus } from './InventoryEquipmentStatus';
+import { InventoryItemInfo } from './InventoryItemInfo';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import { getCharacterImage } from '../utils/characterVisuals';
@@ -1587,6 +1588,14 @@ export function CombatNodeSurface({
                 </button>
               ) : null}
             </div>
+            <InventoryEquipmentStatus
+              inventory={inventory}
+              equippedWeaponId={myCharacter?.equippedWeaponId}
+              offhandWeaponId={myCharacter?.offhandWeaponId}
+            />
+            <div className="inventory-section-heading">
+              <span>보유 아이템</span>
+            </div>
             {inventory.length ? (
               <div
                 id="combat-inventory-list"
@@ -1647,9 +1656,8 @@ export function CombatNodeSurface({
                         </span>
                         <div className="combat-inventory-item-body">
                           <strong className="inventory-item-info-host">
-                            <InventoryItemInfo item={item} />
+                            <InventoryItemInfo item={item} triggerMode="button" />
                           </strong>
-                          <span>{getInventoryMetaLabel(item)}</span>
                         </div>
                         <span className="combat-inventory-quantity">x{item.quantity}</span>
                         {isWeapon || isArmor || isShield ? (

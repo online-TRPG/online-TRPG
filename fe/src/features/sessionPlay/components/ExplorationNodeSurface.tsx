@@ -14,7 +14,8 @@ import type { GameIconName } from '../../../components/GameIcon';
 import explorationNodeBadge from '../../../components/node_badge_exploration.webp';
 import { getCharacterClassLabel } from '../utils/characterVisuals';
 import { CharacterDetailModal } from './CharacterDetailModal';
-import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
+import { InventoryEquipmentStatus } from './InventoryEquipmentStatus';
+import { InventoryItemInfo } from './InventoryItemInfo';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import './ExplorationNodeSurface.css';
@@ -782,6 +783,14 @@ export function ExplorationNodeSurface({
                 </button>
               ) : null}
             </div>
+            <InventoryEquipmentStatus
+              inventory={inventory}
+              equippedWeaponId={myCharacter?.equippedWeaponId}
+              offhandWeaponId={myCharacter?.offhandWeaponId}
+            />
+            <div className="inventory-section-heading">
+              <span>보유 아이템</span>
+            </div>
             {inventory.length ? (
               <div
                 id="exploration-inventory-list"
@@ -849,9 +858,8 @@ export function ExplorationNodeSurface({
                       </span>
                       <div className="exploration-inventory-item-body">
                         <strong className="inventory-item-info-host">
-                          <InventoryItemInfo item={item} tabIndex={-1} />
+                          <InventoryItemInfo item={item} triggerMode="button" />
                         </strong>
-                        <span>{getInventoryMetaLabel(item)}</span>
                       </div>
                       <span className="exploration-inventory-quantity">x{item.quantity}</span>
                       {isWeapon || isArmor || isShield ? (
