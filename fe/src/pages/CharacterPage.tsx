@@ -35,6 +35,7 @@ import { getPreferredScenario, splitScenariosBySource } from '../data/sessionVis
 import type { CharacterPayload } from '../hooks/useSession';
 import type { PersistentCharacter, Scenario, SessionSnapshot, StoredUser } from '../types/session';
 import type { ClassDefinitionResponseDto, ItemResponseDto, RaceResponseDto } from '@trpg/shared-types';
+import { InventoryItemInfo } from '../features/sessionPlay/components/InventoryItemInfo';
 import { listItems } from '../services/api';
 import './CharacterPage.css';
 
@@ -1551,7 +1552,7 @@ export function CharacterPage({
                         <ul className="fantasy-character-text-list">
                           {selectedCharacter.inventory.map((item) => (
                             <li key={item.id}>
-                              {item.name} x{item.quantity}
+                              <InventoryItemInfo item={item} /> x{item.quantity}
                             </li>
                           ))}
                         </ul>

@@ -363,6 +363,13 @@ model ItemDefinition {
   volumeCuFt       Float?
   damageDice       String?
   damageType       String?
+  description      String?
+  armorClassBase   Int?
+  armorClassBonus  Int?
+  armorStrengthRequirement Int?
+  armorStealthDisadvantage Boolean?
+  useEffect        String?
+  packContentsJson String?
   propertiesJson   String?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
