@@ -1815,7 +1815,7 @@ export class SessionsService {
 
     const name = objectCell.name?.trim() || "오브젝트";
     const description = objectCell.description?.trim() || "겉으로 드러난 추가 설명은 없습니다.";
-    if (await this.isVttObjectHiddenContentExhausted(params.sessionScenarioId, objectCell)) {
+    if (await this.isVttObjectHiddenContentExhausted(params.sessionId, params.sessionScenarioId, objectCell)) {
       return { message: "여기에는 더 숨겨진 것이 없습니다." };
     }
 
@@ -1936,10 +1936,32 @@ export class SessionsService {
       const newRevealInputs = filteredRevealInputs.filter(
         (item) => !existingRevealKeys.has(`${item.contentKind}:${item.contentId}`),
       );
-      const revealedItemDefinitions = newRevealInputs
+      const revealedItemCandidates = filteredRevealInputs
         .filter((item) => item.contentKind === "item")
-        .map((item) => itemDefinitionByLookup.get(item.contentId))
-        .filter((item): item is { id: string; name: string } => Boolean(item));
+        .map((item) => {
+          const itemDefinition = itemDefinitionByLookup.get(item.contentId);
+          return itemDefinition ? { contentId: item.contentId, itemDefinition } : null;
+        })
+        .filter(
+          (item): item is { contentId: string; itemDefinition: { id: string; name: string } } =>
+            Boolean(item),
+        );
+      const partyOwnedItemDefinitionIds =
+        params.sessionCharacterId && revealedItemCandidates.length
+          ? await this.getPartyInventoryItemDefinitionIds(
+              tx,
+              params.sessionId,
+              revealedItemCandidates.map((item) => item.itemDefinition.id),
+            )
+          : new Set<string>();
+      const newRevealKeys = new Set(
+        newRevealInputs.map((item) => `${item.contentKind}:${item.contentId}`),
+      );
+      const grantItemCandidates = revealedItemCandidates.filter(
+        (item) =>
+          newRevealKeys.has(`item:${item.contentId}`) ||
+          !partyOwnedItemDefinitionIds.has(item.itemDefinition.id),
+      );
 
       await Promise.all(
         newRevealInputs.map((item) =>
@@ -1955,22 +1977,25 @@ export class SessionsService {
           }),
         ),
       );
-      if (params.sessionCharacterId && revealedItemDefinitions.length) {
+      if (params.sessionCharacterId && grantItemCandidates.length) {
         await tx.inventoryEntry.createMany({
-          data: revealedItemDefinitions.map((itemDefinition) => ({
+          data: grantItemCandidates.map(({ itemDefinition }) => ({
             sessionCharacterId: params.sessionCharacterId!,
             itemDefinitionId: itemDefinition.id,
             quantity: 1,
           })),
         });
       }
+      const recoveredItemCount = grantItemCandidates.filter((item) =>
+        existingRevealKeys.has(`item:${item.contentId}`),
+      ).length;
 
       return {
-        count: newRevealInputs.length,
+        count: newRevealInputs.length + recoveredItemCount,
         revealedClues: newRevealInputs
           .filter((item) => item.contentKind === "clue")
           .map((item) => this.toRevealClueSummary(item.contentId, item.snapshot)),
-        revealedItems: revealedItemDefinitions.map((itemDefinition) => ({
+        revealedItems: grantItemCandidates.map(({ itemDefinition }) => ({
           id: itemDefinition.id,
           name: itemDefinition.name,
           quantity: 1,
@@ -3872,6 +3897,7 @@ export class SessionsService {
   }
 
   private async isVttObjectHiddenContentExhausted(
+    sessionId: string,
     sessionScenarioId: string,
     objectCell: NonNullable<VttMapStateDto["objectCells"]>[number],
   ): Promise<boolean> {
@@ -3898,10 +3924,47 @@ export class SessionsService {
     const existingRevealKeys = new Set(
       existingReveals.map((reveal) => `${reveal.contentKind}:${reveal.contentId}`),
     );
+    const itemContentIds = hiddenContentKeys
+      .filter((item) => item.contentKind === "item")
+      .map((item) => item.contentId);
+    if (itemContentIds.length) {
+      const itemDefinitions = await this.prisma.itemDefinition.findMany({
+        where: {
+          OR: [{ id: { in: itemContentIds } }, { name: { in: itemContentIds } }],
+        },
+        select: { id: true },
+      });
+      const partyOwnedItemDefinitionIds = await this.getPartyInventoryItemDefinitionIds(
+        this.prisma,
+        sessionId,
+        itemDefinitions.map((item) => item.id),
+      );
+      if (itemDefinitions.some((itemDefinition) => !partyOwnedItemDefinitionIds.has(itemDefinition.id))) {
+        return false;
+      }
+    }
 
     return hiddenContentKeys.every((item) =>
       existingRevealKeys.has(`${item.contentKind}:${item.contentId}`),
     );
+  }
+
+  private async getPartyInventoryItemDefinitionIds(
+    client: Pick<Prisma.TransactionClient, "inventoryEntry">,
+    sessionId: string,
+    itemDefinitionIds: string[],
+  ): Promise<Set<string>> {
+    if (!itemDefinitionIds.length) {
+      return new Set();
+    }
+    const entries = await client.inventoryEntry.findMany({
+      where: {
+        itemDefinitionId: { in: [...new Set(itemDefinitionIds)] },
+        sessionCharacter: { sessionId },
+      },
+      select: { itemDefinitionId: true },
+    });
+    return new Set(entries.map((entry) => entry.itemDefinitionId));
   }
 
   private getVttObjectHiddenContentKeys(
