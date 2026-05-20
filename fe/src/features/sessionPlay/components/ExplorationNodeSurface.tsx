@@ -362,11 +362,16 @@ function findReachableTokenMove(
 
   const queue: Array<{ column: number; row: number }> = [start];
   const visited = new Set([`${start.column}:${start.row}`]);
+  // 상하좌우 + 대각 8방향. 대각 이동을 허용한다.
   const directions = [
     { column: 1, row: 0 },
     { column: -1, row: 0 },
     { column: 0, row: 1 },
     { column: 0, row: -1 },
+    { column: 1, row: 1 },
+    { column: 1, row: -1 },
+    { column: -1, row: 1 },
+    { column: -1, row: -1 },
   ];
 
   while (queue.length) {
