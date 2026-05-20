@@ -65,7 +65,12 @@ type SrdEquipmentRecord = {
       bonus?: number;
       raw?: string;
     };
-    strengthRequirement?: number | null;
+    strengthRequirement?:
+      | number
+      | {
+          minimum?: number;
+        }
+      | null;
     stealthDisadvantage?: boolean;
   };
   use?: {
@@ -505,7 +510,7 @@ export class ActionsService {
       damageType: record.weapon?.damageType ?? null,
       armorClassBase: record.armor?.armorClass?.base ?? null,
       armorClassBonus: record.armor?.armorClass?.bonus ?? null,
-      armorStrengthRequirement: record.armor?.strengthRequirement ?? null,
+      armorStrengthRequirement: this.readArmorStrengthRequirement(record),
       armorStealthDisadvantage: record.armor?.stealthDisadvantage ?? null,
       useEffect: this.buildSrdEquipmentUseEffect(record),
       packContentsJson: this.buildSrdPackContentsJson(record),
@@ -540,6 +545,17 @@ export class ActionsService {
       return useEffect;
     }
     return `${name}입니다. 세션 중 보유하거나 상황에 따라 사용할 수 있는 SRD 장비입니다.`;
+  }
+
+  private readArmorStrengthRequirement(record: SrdEquipmentRecord): number | null {
+    const requirement = record.armor?.strengthRequirement;
+    if (typeof requirement === "number") {
+      return requirement;
+    }
+    if (requirement && typeof requirement.minimum === "number") {
+      return requirement.minimum;
+    }
+    return null;
   }
 
   private buildSrdEquipmentUseEffect(record: SrdEquipmentRecord): string | null {
