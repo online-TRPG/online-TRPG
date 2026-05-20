@@ -4,8 +4,8 @@
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 16px;
-  padding: 16px;
+  gap: 6px;
+  padding: 10px;
   box-sizing: border-box;
   overflow: hidden;
   background-color: #1e1208;
@@ -205,6 +205,7 @@
 
 .story-node-content {
   min-height: 0;
+  margin-inline: 12px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   background: transparent;
@@ -385,6 +386,8 @@
 }
 
 .story-party-strip {
+  margin-top: 6px;
+  margin-inline: 12px;
   padding: 0;
   position: relative;
   z-index: 5;

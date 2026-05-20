@@ -16,6 +16,7 @@ import battleNodeBadge from '../../../components/node_badge_battle.webp';
 import turnDividerArrow from '../../../components/divider-arrow-gold-horizontal.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { MapPartyOverlay } from './MapPartyOverlay';
+import { NodeHeaderScroll } from './NodeHeaderScroll';
 import { getCharacterImage } from '../utils/characterVisuals';
 import { MONSTER_TOKEN_COLOR, NPC_TOKEN_COLOR } from '../../../utils/sessionTokenColors';
 import type { SessionTokenColor } from '../../../utils/sessionTokenColors';
@@ -907,14 +908,14 @@ export function CombatNodeSurface({
 
   return (
     <div className="combat-node-surface">
-      <header className="combat-turn-bar" aria-label="전투 턴 정보">
+      <NodeHeaderScroll variant="combat" className="combat-turn-bar" ariaLabel="전투 턴 정보">
         <div className="combat-node-title-row">
           <img
             src={battleNodeBadge}
             alt="전투 노드"
             className="session-node-type-badge"
           />
-          <h1>{node?.title ?? scenarioTitle ?? '전투 진행 중'}</h1>
+          <h1 className="node-header-scroll-title">{node?.title ?? scenarioTitle ?? '전투 진행 중'}</h1>
           <button
             type="button"
             className={`combat-node-summary-button${isSummaryOpen ? ' active' : ''}`}
@@ -934,7 +935,7 @@ export function CombatNodeSurface({
           <span>현재 턴 {currentParticipant?.name ?? '-'}</span>
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
         </div>
-      </header>
+      </NodeHeaderScroll>
 
       {isSummaryOpen ? (
         <div
