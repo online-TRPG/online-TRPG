@@ -148,7 +148,6 @@ export function StoryNodeSurface({
   getCharacterColorStyle,
 }: StoryNodeSurfaceProps) {
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
-  const [isSummaryOpen, setSummaryOpen] = useState(false);
   const [speechBubbles, setSpeechBubbles] = useState<VisibleStoryRpUtterance[]>([]);
   const [highlightedCharacterIds, setHighlightedCharacterIds] = useState<Set<string>>(
     () => new Set()
@@ -262,42 +261,12 @@ export function StoryNodeSurface({
             className="session-node-type-badge"
           />
           <h1 className="node-header-scroll-title">{node?.title ?? scenarioTitle ?? '진행 중인 장면'}</h1>
-          <button
-            type="button"
-            className={`story-node-summary-button${isSummaryOpen ? ' active' : ''}`}
-            onClick={() => setSummaryOpen((current) => !current)}
-            aria-expanded={isSummaryOpen}
-            aria-controls="story-node-summary-popover"
-          >
-            장면 설명
-          </button>
         </div>
         <div className="story-node-status-row" aria-label="장면 상태">
           <span>{getPhaseLabel(phase)}</span>
           {isGmView ? <span>GM 화면</span> : <span>플레이어 화면</span>}
         </div>
       </NodeHeaderScroll>
-
-      {isSummaryOpen ? (
-        <div
-          id="story-node-summary-popover"
-          className="story-node-summary-popover"
-          role="dialog"
-          aria-label="장면 설명"
-        >
-          <div className="story-node-summary-popover-head">
-            <strong>장면 설명</strong>
-            <button type="button" onClick={() => setSummaryOpen(false)}>
-              닫기
-            </button>
-          </div>
-          <div className="story-node-summary-popover-body">
-            {sceneParagraphs.map((paragraph, index) => (
-              <p key={`${paragraph.slice(0, 20)}-${index}`}>{paragraph}</p>
-            ))}
-          </div>
-        </div>
-      ) : null}
 
       <div className="story-node-content">
         <section className="story-node-main" aria-label="스토리 장면">

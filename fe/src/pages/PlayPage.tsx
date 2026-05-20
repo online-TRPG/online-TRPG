@@ -1651,6 +1651,8 @@ export function PlayPage({
     QUICK_CREATE_CLASS_PRESET_BY_KEY.get(selectedQuickCreateClass?.key ?? formState.classKey) ??
     null;
   const currentNode = playerScenario?.currentNode ?? null;
+  const currentSceneDescriptionText =
+    currentNode?.sceneText?.trim() || '현재 장면 설명이 아직 준비되지 않았습니다.';
   const currentPublicClueIdSignature = useMemo(
     () => (currentNode?.publicClues ?? []).map((clue) => clue.id).sort().join('|'),
     [currentNode?.publicClues]
@@ -4482,6 +4484,11 @@ export function PlayPage({
                   <h2>{activeScenario?.scenario.title ?? '시나리오가 없습니다'}</h2>
                 </div>
               </div>
+
+              <article className="scenario-node-panel">
+                <span className="eyebrow">현재 장면 설명</span>
+                <p className="scenario-scene-description-text">{currentSceneDescriptionText}</p>
+              </article>
 
               <article className="scenario-node-panel">
                 <span className="eyebrow">밝혀진 단서</span>
