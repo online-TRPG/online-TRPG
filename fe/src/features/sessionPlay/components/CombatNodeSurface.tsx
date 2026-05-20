@@ -15,6 +15,7 @@ import type { GameIconName } from '../../../components/GameIcon';
 import battleNodeBadge from '../../../components/node_badge_battle.webp';
 import turnDividerArrow from '../../../components/divider-arrow-gold-horizontal.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
+import { InventoryEquipmentStatus } from './InventoryEquipmentStatus';
 import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
@@ -1355,6 +1356,11 @@ export function CombatNodeSurface({
                 </button>
               ) : null}
             </div>
+            <InventoryEquipmentStatus
+              inventory={inventory}
+              equippedWeaponId={myCharacter?.equippedWeaponId}
+              offhandWeaponId={myCharacter?.offhandWeaponId}
+            />
             {inventory.length ? (
               <div
                 id="combat-inventory-list"
