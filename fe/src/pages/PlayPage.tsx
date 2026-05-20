@@ -858,6 +858,18 @@ const DEFAULT_SIDEBAR_WIDTH = 360;
 const MIN_SIDEBAR_WIDTH = 360;
 const MAX_SIDEBAR_WIDTH = 620;
 
+function getInventoryItemSearchKey(item: InventoryItemDto) {
+  return [item.id, item.itemDefinitionId, item.name, item.itemType, ...(item.properties ?? [])]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function isShieldInventoryItem(item: InventoryItemDto) {
+  const key = getInventoryItemSearchKey(item);
+  return item.itemType === 'shield' || key.includes('shield') || key.includes('방패');
+}
+
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
 interface PlayPageProps {
   user: StoredUser;
@@ -2972,6 +2984,7 @@ export function PlayPage({
       item as InventoryItemDto & { __equipmentDisplayState?: 'equipped' | 'available' }
     ).__equipmentDisplayState;
     const equipmentItemId = item.itemDefinitionId ?? item.id;
+    const isShield = isShieldInventoryItem(item);
     const isEquipped =
       Boolean(selectedSessionCharacter.equippedWeaponId) &&
       (item.id === selectedSessionCharacter.equippedWeaponId ||
@@ -2985,12 +2998,20 @@ export function PlayPage({
     const shouldUnequip =
       equipmentDisplayState === 'equipped' ||
       (equipmentDisplayState === undefined && (isEquipped || isOffhandEquipped));
-    const nextEquippedWeaponId = shouldUnequip
-      ? isOffhandEquipped
-        ? undefined
-        : null
-      : equipmentItemId;
-    const nextOffhandWeaponId = shouldUnequip && isOffhandEquipped ? null : undefined;
+    const nextEquippedWeaponId = isShield
+      ? undefined
+      : shouldUnequip
+        ? isOffhandEquipped
+          ? undefined
+          : null
+        : equipmentItemId;
+    const nextOffhandWeaponId = isShield
+      ? shouldUnequip
+        ? null
+        : equipmentItemId
+      : shouldUnequip && isOffhandEquipped
+        ? null
+        : undefined;
 
     setInventoryUseFeedback(null);
     setInventoryUsePending(true);
