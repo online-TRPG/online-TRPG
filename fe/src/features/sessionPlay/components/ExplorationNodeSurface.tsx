@@ -15,7 +15,7 @@ import explorationNodeBadge from '../../../components/node_badge_exploration.web
 import { getCharacterClassLabel } from '../utils/characterVisuals';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { InventoryEquipmentStatus } from './InventoryEquipmentStatus';
-import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
+import { InventoryItemInfo } from './InventoryItemInfo';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import './ExplorationNodeSurface.css';
@@ -855,9 +855,8 @@ export function ExplorationNodeSurface({
                       </span>
                       <div className="exploration-inventory-item-body">
                         <strong className="inventory-item-info-host">
-                          <InventoryItemInfo item={item} tabIndex={-1} />
+                          <InventoryItemInfo item={item} triggerMode="button" />
                         </strong>
-                        <span>{getInventoryMetaLabel(item)}</span>
                       </div>
                       <span className="exploration-inventory-quantity">x{item.quantity}</span>
                       {isWeapon || isArmor || isShield ? (

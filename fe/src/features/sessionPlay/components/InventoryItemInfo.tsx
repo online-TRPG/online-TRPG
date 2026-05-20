@@ -7,6 +7,7 @@ import './InventoryItemInfo.css';
 type InventoryItemInfoProps = {
   item: InventoryItemDto;
   tabIndex?: number;
+  triggerMode?: 'hover' | 'button';
 };
 
 const tooltipWidth = 300;
@@ -176,7 +177,11 @@ function getInventoryInfoRows(item: InventoryItemDto) {
   ].filter((row): row is { label: string; value: string } => Boolean(row));
 }
 
-export function InventoryItemInfo({ item, tabIndex = 0 }: InventoryItemInfoProps) {
+export function InventoryItemInfo({
+  item,
+  tabIndex = 0,
+  triggerMode = 'hover',
+}: InventoryItemInfoProps) {
   const rows = getInventoryInfoRows(item);
   const triggerRef = useRef<HTMLSpanElement | null>(null);
   const tooltipRef = useRef<HTMLSpanElement | null>(null);
@@ -220,6 +225,15 @@ export function InventoryItemInfo({ item, tabIndex = 0 }: InventoryItemInfoProps
     setTooltipVisible(true);
   }, [updateTooltipPosition]);
 
+  const hideTooltip = useCallback(() => {
+    setTooltipVisible(false);
+  }, []);
+
+  const toggleTooltip = useCallback(() => {
+    updateTooltipPosition();
+    setTooltipVisible((current) => !current);
+  }, [updateTooltipPosition]);
+
   useEffect(() => {
     if (!isTooltipVisible) return undefined;
 
@@ -231,6 +245,30 @@ export function InventoryItemInfo({ item, tabIndex = 0 }: InventoryItemInfoProps
       window.removeEventListener('scroll', updateTooltipPosition, true);
     };
   }, [isTooltipVisible, updateTooltipPosition]);
+
+  useEffect(() => {
+    if (!isTooltipVisible || triggerMode !== 'button') return undefined;
+
+    function handleDocumentPointerDown(event: PointerEvent) {
+      const trigger = triggerRef.current;
+      const tooltip = tooltipRef.current;
+      const target = event.target instanceof Node ? event.target : null;
+      if (!target) return;
+      if (trigger?.contains(target) || tooltip?.contains(target)) return;
+      hideTooltip();
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') hideTooltip();
+    }
+
+    document.addEventListener('pointerdown', handleDocumentPointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handleDocumentPointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [hideTooltip, isTooltipVisible, triggerMode]);
 
   useLayoutEffect(() => {
     if (!isTooltipVisible) return;
@@ -245,14 +283,29 @@ export function InventoryItemInfo({ item, tabIndex = 0 }: InventoryItemInfoProps
   return (
     <span
       ref={triggerRef}
-      className="inventory-item-info"
-      tabIndex={tabIndex}
-      onMouseEnter={showTooltip}
-      onMouseLeave={() => setTooltipVisible(false)}
-      onFocus={showTooltip}
-      onBlur={() => setTooltipVisible(false)}
+      className={`inventory-item-info inventory-item-info--${triggerMode}`}
+      tabIndex={triggerMode === 'hover' ? tabIndex : undefined}
+      onMouseEnter={triggerMode === 'hover' ? showTooltip : undefined}
+      onMouseLeave={triggerMode === 'hover' ? hideTooltip : undefined}
+      onFocus={triggerMode === 'hover' ? showTooltip : undefined}
+      onBlur={triggerMode === 'hover' ? hideTooltip : undefined}
     >
       <span className="inventory-item-info-name">{item.name}</span>
+      {triggerMode === 'button' ? (
+        <button
+          type="button"
+          className="inventory-item-info-trigger"
+          aria-label={`${item.name} 상세 정보`}
+          aria-expanded={isTooltipVisible}
+          onClick={(event) => {
+            event.stopPropagation();
+            toggleTooltip();
+          }}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          ?
+        </button>
+      ) : null}
       {isTooltipVisible
         ? createPortal(
             <span

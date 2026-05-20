@@ -16,7 +16,7 @@ import battleNodeBadge from '../../../components/node_badge_battle.webp';
 import turnDividerArrow from '../../../components/divider-arrow-gold-horizontal.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { InventoryEquipmentStatus } from './InventoryEquipmentStatus';
-import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
+import { InventoryItemInfo } from './InventoryItemInfo';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import { getCharacterImage } from '../utils/characterVisuals';
@@ -1653,9 +1653,8 @@ export function CombatNodeSurface({
                         </span>
                         <div className="combat-inventory-item-body">
                           <strong className="inventory-item-info-host">
-                            <InventoryItemInfo item={item} />
+                            <InventoryItemInfo item={item} triggerMode="button" />
                           </strong>
-                          <span>{getInventoryMetaLabel(item)}</span>
                         </div>
                         <span className="combat-inventory-quantity">x{item.quantity}</span>
                         {isWeapon || isArmor || isShield ? (
