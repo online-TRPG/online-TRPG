@@ -12,6 +12,12 @@
   scrollbar-width: thin;
 }
 
+.exploration-map-panel > .map-party-overlay,
+.combat-map-panel > .map-party-overlay {
+  top: 56px;
+  max-height: calc(100% - 68px);
+}
+
 .map-party-list {
   max-width: 100%;
   display: grid;
@@ -257,6 +263,12 @@
     top: 8px;
     z-index: 3;
     max-height: calc(100% - 116px);
+  }
+
+  .exploration-map-panel > .map-party-overlay,
+  .combat-map-panel > .map-party-overlay {
+    top: 54px;
+    max-height: calc(100% - 124px);
   }
 
   .map-party-card {
