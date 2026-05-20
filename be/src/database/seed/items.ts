@@ -62,6 +62,28 @@ type SrdEquipmentRecord = {
   contents?: SrdEquipmentContent[];
 };
 
+type StaticItemCatalog = {
+  equipmentItems?: StaticItemRecord[];
+  magicItems?: StaticItemRecord[];
+};
+
+type StaticItemRecord = {
+  id: string;
+  nameKo?: string;
+  nameEn?: string;
+  kind?: string;
+  equipmentCategory?: string | null;
+  categoryRaw?: string;
+  rarityRaw?: string;
+  playReference?: string;
+  damageRaw?: string | null;
+  damageType?: string | null;
+  weightRaw?: string | null;
+  armorClassRaw?: string | null;
+  strengthRequirementRaw?: string | null;
+  stealthRaw?: string | null;
+};
+
 const itemSeeds: ItemSeed[] = [
   { key: "arrow", koName: "화살", category: "ammunition" },
   { key: "arcane-focus", koName: "비전 초점구", category: "focus" },
@@ -111,6 +133,7 @@ const itemSeeds: ItemSeed[] = [
 
 export async function seedItems(prisma: PrismaClient): Promise<void> {
   const srdEquipment = loadSrdEquipment();
+  const staticCatalogItems = loadStaticItemCatalogItems();
   for (const item of itemSeeds) {
     const srdRecord = findSrdEquipmentRecord(srdEquipment, item);
     const itemDefinitionData = srdRecord
@@ -146,6 +169,7 @@ export async function seedItems(prisma: PrismaClient): Promise<void> {
       },
     });
   }
+  await seedStaticCatalogItems(prisma, staticCatalogItems, srdEquipment);
 }
 
 function loadSrdEquipment(): SrdEquipmentRecord[] {
@@ -172,6 +196,61 @@ function loadSrdEquipment(): SrdEquipmentRecord[] {
     .filter((record): record is SrdEquipmentRecord => Boolean(record?.id));
 }
 
+function loadStaticItemCatalogItems(): StaticItemRecord[] {
+  const candidates = [
+    join(process.cwd(), "fe", "public", "srd", "items.json"),
+    join(process.cwd(), "..", "fe", "public", "srd", "items.json"),
+    join(process.cwd(), "..", "..", "fe", "public", "srd", "items.json"),
+  ];
+  const filePath = candidates.find((candidate) => existsSync(candidate));
+  if (!filePath) {
+    return [];
+  }
+  try {
+    const catalog = JSON.parse(readFileSync(filePath, "utf8")) as StaticItemCatalog;
+    return [
+      ...(Array.isArray(catalog.equipmentItems) ? catalog.equipmentItems : []),
+      ...(Array.isArray(catalog.magicItems) ? catalog.magicItems : []),
+    ].filter((item): item is StaticItemRecord => Boolean(item?.id));
+  } catch {
+    return [];
+  }
+}
+
+async function seedStaticCatalogItems(
+  prisma: PrismaClient,
+  staticCatalogItems: StaticItemRecord[],
+  srdEquipment: SrdEquipmentRecord[],
+): Promise<void> {
+  for (const item of staticCatalogItems) {
+    const srdRecord = findStaticSrdEquipmentRecord(srdEquipment, item);
+    const itemDefinitionData = srdRecord
+      ? toSrdItemDefinitionData(srdRecord, srdEquipment)
+      : toStaticItemDefinitionData(item);
+    const name = getStaticItemName(item);
+    await prisma.item.upsert({
+      where: { key: item.id },
+      update: {
+        koName: name,
+        category: getStaticItemCategory(item),
+      },
+      create: {
+        key: item.id,
+        koName: name,
+        category: getStaticItemCategory(item),
+      },
+    });
+    await prisma.itemDefinition.upsert({
+      where: { id: item.id },
+      update: itemDefinitionData,
+      create: {
+        id: item.id,
+        ...itemDefinitionData,
+      },
+    });
+  }
+}
+
 function findSrdEquipmentRecord(records: SrdEquipmentRecord[], item: ItemSeed): SrdEquipmentRecord | null {
   const candidates = [
     item.key,
@@ -179,6 +258,28 @@ function findSrdEquipmentRecord(records: SrdEquipmentRecord[], item: ItemSeed): 
     item.koName,
     item.koName.replace(/\(.+\)$/, ""),
   ].map(normalizeEquipmentLookupKey);
+  return (
+    records.find((record) =>
+      [
+        record.id,
+        record.id.replace(/^equipment\./, ""),
+        record.name?.en,
+        record.name?.ko,
+        ...(record.name?.aliases ?? []),
+      ]
+        .map((value) => normalizeEquipmentLookupKey(value ?? ""))
+        .some((value) => candidates.includes(value)),
+    ) ?? null
+  );
+}
+
+function findStaticSrdEquipmentRecord(
+  records: SrdEquipmentRecord[],
+  item: StaticItemRecord,
+): SrdEquipmentRecord | null {
+  const candidates = [item.id, item.nameEn, item.nameKo]
+    .filter((value): value is string => Boolean(value))
+    .map(normalizeEquipmentLookupKey);
   return (
     records.find((record) =>
       [
@@ -219,6 +320,32 @@ function toSrdItemDefinitionData(record: SrdEquipmentRecord, records: SrdEquipme
   };
 }
 
+function toStaticItemDefinitionData(item: StaticItemRecord) {
+  const properties = [
+    "static-srd",
+    item.id.startsWith("magic_item.") ? "magic-item" : null,
+    item.equipmentCategory,
+    item.rarityRaw,
+  ].filter((property): property is string => Boolean(property));
+
+  return {
+    name: getStaticItemName(item),
+    itemType: getStaticItemCategory(item),
+    weightLb: parseWeightLb(item.weightRaw),
+    volumeCuFt: null,
+    damageDice: item.damageRaw ?? null,
+    damageType: item.damageType ?? null,
+    description: buildStaticItemDescription(item),
+    armorClassBase: null,
+    armorClassBonus: null,
+    armorStrengthRequirement: null,
+    armorStealthDisadvantage: null,
+    useEffect: item.playReference ?? null,
+    packContentsJson: null,
+    propertiesJson: JSON.stringify([...new Set(properties)]),
+  };
+}
+
 function buildSrdEquipmentDescription(record: SrdEquipmentRecord): string {
   const name = getSrdEquipmentName(record, record.id);
   if (record.contents?.length) {
@@ -246,6 +373,18 @@ function buildSrdEquipmentDescription(record: SrdEquipmentRecord): string {
     return useEffect;
   }
   return `${name}입니다. 세션 중 보유하거나 상황에 따라 사용할 수 있는 SRD 장비입니다.`;
+}
+
+function buildStaticItemDescription(item: StaticItemRecord): string | null {
+  const parts = [
+    item.playReference,
+    item.categoryRaw ? `분류: ${item.categoryRaw}` : null,
+    item.rarityRaw ? `희귀도: ${item.rarityRaw}` : null,
+    item.armorClassRaw ? `AC: ${item.armorClassRaw}` : null,
+    item.strengthRequirementRaw ? `힘 요구: ${item.strengthRequirementRaw}` : null,
+    item.stealthRaw ? `은신: ${item.stealthRaw}` : null,
+  ].filter((part): part is string => Boolean(part));
+  return parts.length ? parts.join("\n") : null;
 }
 
 function readArmorStrengthRequirement(record: SrdEquipmentRecord): number | null {
@@ -292,6 +431,25 @@ function buildSrdPackContentsJson(record: SrdEquipmentRecord, records: SrdEquipm
 
 function getSrdEquipmentName(record: SrdEquipmentRecord | null | undefined, fallback: string): string {
   return record?.name?.ko?.trim() || record?.name?.en?.trim() || fallback;
+}
+
+function getStaticItemName(item: StaticItemRecord): string {
+  return item.nameKo?.trim() || item.nameEn?.trim() || item.id;
+}
+
+function getStaticItemCategory(item: StaticItemRecord): string {
+  if (item.id.startsWith("magic_item.")) {
+    return "magic";
+  }
+  return item.kind?.trim() || item.equipmentCategory?.trim() || "gear";
+}
+
+function parseWeightLb(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const match = value.match(/-?\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : null;
 }
 
 function normalizeEquipmentLookupKey(value: string): string {

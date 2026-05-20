@@ -430,6 +430,7 @@ describe("SessionsService VTT map structures", () => {
         upsert: jest.fn().mockResolvedValue({}),
       },
       inventoryEntry: {
+        findMany: jest.fn().mockResolvedValue([]),
         createMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
@@ -494,6 +495,85 @@ describe("SessionsService VTT map structures", () => {
     expect(result.revealedItems).toEqual([{ id: "item.rope", name: "Rope", quantity: 1 }]);
   });
 
+  it("grants hidden object items when a previous reveal exists without party inventory", async () => {
+    const tx = {
+      sessionScenarioNode: {
+        findUnique: jest.fn().mockResolvedValue({ cluesJson: "[]" }),
+      },
+      itemDefinition: {
+        findMany: jest.fn().mockResolvedValue([{ id: "item.rope", name: "Rope" }]),
+      },
+      sessionReveal: {
+        findMany: jest.fn().mockResolvedValue([{ contentId: "item.rope", contentKind: "item" }]),
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      inventoryEntry: {
+        findMany: jest.fn().mockResolvedValue([]),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (txClient: typeof tx) => Promise<unknown>) => callback(tx)),
+    };
+    const runtimeService = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      revealVttObjectContentsAtPoint: SessionsService["revealVttObjectContentsAtPoint"];
+      getVttMapForSessionScenario: jest.Mock;
+      refreshSessionInventorySnapshot: jest.Mock;
+    };
+    runtimeService.getVttMapForSessionScenario = jest.fn().mockResolvedValue({
+      id: "map-1",
+      scenarioNodeId: "node-1",
+      imageUrl: null,
+      gridType: "square",
+      gridSize: 64,
+      width: 640,
+      height: 480,
+      tokens: [],
+      fogRects: [],
+      objectCells: [
+        {
+          id: "object-1",
+          x: 0,
+          y: 0,
+          width: 64,
+          height: 64,
+          visibleToPlayers: true,
+          hiddenClueIds: [],
+          hiddenItemIds: ["item.rope"],
+          hiddenEventIds: [],
+        },
+      ],
+      updatedAt: "2026-05-19T00:00:00.000Z",
+    });
+    runtimeService.refreshSessionInventorySnapshot = jest.fn().mockResolvedValue(undefined);
+
+    const result = await runtimeService.revealVttObjectContentsAtPoint({
+      sessionId: "session-1",
+      sessionScenarioId: "session-scenario-1",
+      nodeId: "node-1",
+      mapPoint: { x: 12, y: 12 },
+      sessionCharacterId: "session-character-1",
+    });
+
+    expect(tx.sessionReveal.upsert).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          sessionCharacterId: "session-character-1",
+          itemDefinitionId: "item.rope",
+          quantity: 1,
+        },
+      ],
+    });
+    expect(result.count).toBe(1);
+    expect(result.revealedItems).toEqual([{ id: "item.rope", name: "Rope", quantity: 1 }]);
+  });
+
   it("does not require another investigation check after an object's hidden contents are exhausted", async () => {
     const prisma = {
       sessionReveal: {
@@ -501,6 +581,12 @@ describe("SessionsService VTT map structures", () => {
           { contentId: "clue-1", contentKind: "clue" },
           { contentId: "item.rope", contentKind: "item" },
         ]),
+      },
+      itemDefinition: {
+        findMany: jest.fn().mockResolvedValue([{ id: "item.rope" }]),
+      },
+      inventoryEntry: {
+        findMany: jest.fn().mockResolvedValue([{ itemDefinitionId: "item.rope" }]),
       },
     };
     const runtimeService = new SessionsService(
