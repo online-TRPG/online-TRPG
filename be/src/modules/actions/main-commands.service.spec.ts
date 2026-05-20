@@ -98,6 +98,8 @@ function createMainCommandHarness(options?: {
     }),
     revealObservableVttObjectsInPartyVision: jest.fn().mockResolvedValue({ count: 0, objectNames: [] }),
     revealCurrentNodeCluesAfterAction: jest.fn().mockResolvedValue(0),
+    revealCurrentNodeCluesAfterActionWithDetails: jest.fn().mockResolvedValue([]),
+    completeSessionFromEndingNode: jest.fn().mockResolvedValue({}),
     buildSnapshot: jest.fn().mockResolvedValue({}),
     describeVttObjectAtPoint: jest.fn().mockResolvedValue(null),
     getVttMapForSessionScenario: jest.fn().mockResolvedValue(
@@ -451,6 +453,65 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
       sessionCharacterId: "session-character-1",
       mapPoint: { x: 320, y: 192 },
     });
+  });
+
+  it("adds newly revealed action clues to successful check narration", async () => {
+    const { service, sessionsService, turnLogsService } = createMainCommandHarness();
+    sessionsService.revealCurrentNodeCluesAfterActionWithDetails.mockResolvedValueOnce([
+      {
+        id: "clue-hidden-trap",
+        title: "바닥의 가는 홈",
+        text: "먼지 아래로 칼날 장치와 이어지는 얇은 홈이 드러납니다.",
+      },
+    ]);
+
+    const response = await service.resolveMainCommandCheck("user-1", "session-1", {
+      requestId: "request-1",
+      actorId: "character-1",
+      outcome: ActionOutcome.SUCCESS,
+      effect: {
+        type: "mainCommandCheck",
+        requestId: "request-1",
+        nodeId: "node-1",
+        sessionCharacterId: "session-character-1",
+        intent: MainCommandIntent.DETECT_DANGER,
+        screenType: MainCommandScreenType.EXPLORATION,
+        playerText: "주변에 함정이 있는지 살핀다",
+        actionSummary: "주변의 위험을 살핀다",
+        targetId: null,
+        targetName: null,
+        targetSummary: null,
+        targetDisposition: null,
+        itemId: null,
+        itemName: null,
+        mapPoint: null,
+        checkOption: { skill: "perception", dc: 13, reason: "위험 감지" },
+        visibleEntityNames: [],
+        publicClues: [],
+        sceneText: "바닥에는 먼지가 얇게 내려앉아 있습니다.",
+        actionCandidate: {
+          actorId: "character-1",
+          targetId: null,
+          actionSummary: "주변의 위험을 살핀다",
+          declaredMethod: "주변에 함정이 있는지 살핀다",
+        },
+      },
+    });
+
+    expect(response.message).toContain("새 단서를 발견했습니다.");
+    expect(response.message).toContain("바닥의 가는 홈");
+    expect(response.message).toContain("먼지 아래로 칼날 장치");
+    expect(sessionsService.revealCurrentNodeCluesAfterActionWithDetails).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionText: "주변에 함정이 있는지 살핀다",
+        turnLogId: null,
+      }),
+    );
+    expect(turnLogsService.createTurnLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        narration: expect.stringContaining("바닥의 가는 홈"),
+      }),
+    );
   });
 
   it("persists the original slash input for main command logs", async () => {
@@ -1157,6 +1218,192 @@ describe("MainCommandsService transition condition evaluation", () => {
   });
 });
 
+describe("MainCommandsService scene transition branch resolution", () => {
+  const createService = () => {
+    const sessionsService = {
+      buildSnapshot: jest.fn().mockResolvedValue({ currentNodeId: "node-next" }),
+      completeSessionFromEndingNode: jest.fn().mockResolvedValue({ session: { status: "completed" } }),
+    };
+    const realtimeEvents = {
+      emitSessionSnapshot: jest.fn(),
+    };
+    const service = new MainCommandsService(
+      {} as never,
+      sessionsService as never,
+      { runInterpreter: jest.fn() } as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    return { service, sessionsService, realtimeEvents };
+  };
+
+  const context = {
+    sessionId: "session-1",
+    sessionScenarioId: "session-scenario-1",
+    sessionCharacterId: "session-character-1",
+    actorCharacterId: "character-1",
+    inventoryItems: [],
+    currentNodeId: "node-current",
+    currentNodeTitle: "갈림길",
+    currentNodeSceneText: "두 갈래 길이 있다.",
+    currentNodeTransitionsJson: "[]",
+    currentNodeCluesJson: "[]",
+    currentNodeNodeMetaJson: null,
+    currentNodeFallbackNodeId: null,
+    flagsJson: "{}",
+  };
+
+  const transitionDto: SubmitMainCommandDto = {
+    ...dto,
+    intent: MainCommandIntent.REQUEST_SCENE_TRANSITION,
+    playerText: "/장면진행",
+  };
+
+  const leftCandidate = {
+    transitionId: "transition-left",
+    label: "왼쪽 길",
+    condition: "왼쪽 문을 열었다",
+    note: null,
+    nodeId: "node-left",
+    title: "왼쪽 방",
+    nodeType: "exploration",
+    isFallback: false,
+  };
+
+  const rightCandidate = {
+    transitionId: "transition-right",
+    label: "오른쪽 길",
+    condition: "오른쪽 문을 열었다",
+    note: null,
+    nodeId: "node-right",
+    title: "오른쪽 방",
+    nodeType: "exploration",
+    isFallback: false,
+  };
+
+  const satisfiedCondition = {
+    satisfied: true,
+    needsReview: false,
+    reason: "장면 진행 조건을 만족했습니다.",
+    matchedTerms: ["오른쪽 문"],
+    missingTerms: [],
+  };
+
+  const blockedCondition = {
+    satisfied: false,
+    needsReview: false,
+    reason: "아직 장면 이동 조건을 만족하지 못했습니다.",
+    matchedTerms: [],
+    missingTerms: ["왼쪽 문"],
+  };
+
+  it("completes the session when scene progression is requested on an ending node", async () => {
+    const { service, sessionsService } = createService();
+    const internals = service as unknown as {
+      handleSceneTransition: (
+        requestId: string,
+        context: typeof context,
+        dto: SubmitMainCommandDto,
+        recentLogs: string[],
+      ) => Promise<{ status: MainCommandStatus; message: string; data?: Record<string, unknown> }>;
+      loadTransitionCandidates: jest.Mock;
+    };
+    internals.loadTransitionCandidates = jest.fn();
+
+    const response = await internals.handleSceneTransition(
+      "request-1",
+      {
+        ...context,
+        currentNodeTitle: "에필로그",
+        currentNodeNodeMetaJson: JSON.stringify({ isEndingNode: true }),
+      },
+      transitionDto,
+      [],
+    );
+
+    expect(response.status).toBe(MainCommandStatus.RESOLVED);
+    expect(response.message).toContain("세션이 완료되었습니다");
+    expect(response.data?.completedNodeId).toBe("node-current");
+    expect(sessionsService.completeSessionFromEndingNode).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      sessionScenarioId: "session-scenario-1",
+      nodeId: "node-current",
+      reason: "ending_node",
+    });
+    expect(internals.loadTransitionCandidates).not.toHaveBeenCalled();
+  });
+
+  it("auto-advances to the only branch whose condition is already satisfied", async () => {
+    const { service } = createService();
+    const internals = service as unknown as {
+      handleSceneTransition: (
+        requestId: string,
+        context: typeof context,
+        dto: SubmitMainCommandDto,
+        recentLogs: string[],
+      ) => Promise<{ status: MainCommandStatus; statePatch?: { currentNodeId?: string }; message: string }>;
+      loadTransitionCandidates: jest.Mock;
+      matchTransitionCandidate: jest.Mock;
+      evaluateTransitionCandidatesWithRevealedClues: jest.Mock;
+      applySceneTransition: jest.Mock;
+    };
+    internals.loadTransitionCandidates = jest.fn().mockResolvedValue([leftCandidate, rightCandidate]);
+    internals.matchTransitionCandidate = jest.fn().mockReturnValue(null);
+    internals.evaluateTransitionCandidatesWithRevealedClues = jest.fn().mockResolvedValue([
+      { target: leftCandidate, conditionResult: blockedCondition },
+      { target: rightCandidate, conditionResult: satisfiedCondition },
+    ]);
+    internals.applySceneTransition = jest.fn().mockResolvedValue(undefined);
+
+    const response = await internals.handleSceneTransition(
+      "request-1",
+      context,
+      transitionDto,
+      [],
+    );
+
+    expect(response.status).toBe(MainCommandStatus.RESOLVED);
+    expect(response.statePatch?.currentNodeId).toBe("node-right");
+    expect(response.message).toContain("오른쪽 방");
+    expect(internals.applySceneTransition).toHaveBeenCalledWith(context, "node-right");
+  });
+
+  it("asks for a destination when more than one branch is already satisfied", async () => {
+    const { service } = createService();
+    const internals = service as unknown as {
+      handleSceneTransition: (
+        requestId: string,
+        context: typeof context,
+        dto: SubmitMainCommandDto,
+        recentLogs: string[],
+      ) => Promise<{ status: MainCommandStatus; message: string }>;
+      loadTransitionCandidates: jest.Mock;
+      matchTransitionCandidate: jest.Mock;
+      evaluateTransitionCandidatesWithRevealedClues: jest.Mock;
+      applySceneTransition: jest.Mock;
+    };
+    internals.loadTransitionCandidates = jest.fn().mockResolvedValue([leftCandidate, rightCandidate]);
+    internals.matchTransitionCandidate = jest.fn().mockReturnValue(null);
+    internals.evaluateTransitionCandidatesWithRevealedClues = jest.fn().mockResolvedValue([
+      { target: leftCandidate, conditionResult: satisfiedCondition },
+      { target: rightCandidate, conditionResult: satisfiedCondition },
+    ]);
+    internals.applySceneTransition = jest.fn();
+
+    const response = await internals.handleSceneTransition(
+      "request-1",
+      context,
+      transitionDto,
+      [],
+    );
+
+    expect(response.status).toBe(MainCommandStatus.GM_APPROVAL_REQUIRED);
+    expect(response.message).toContain("왼쪽 방");
+    expect(response.message).toContain("오른쪽 방");
+    expect(internals.applySceneTransition).not.toHaveBeenCalled();
+  });
+});
+
 describe("MainCommandsService check result narration", () => {
   const createService = () =>
     new MainCommandsService(
@@ -1246,6 +1493,54 @@ describe("MainCommandsService check result narration", () => {
       expect(failure).toContain("판정에 실패했습니다.");
       expect(success).not.toContain("원하는 성과");
       expect(failure).not.toContain("원하는 성과");
+      expect(success).not.toContain("시도가 장면 안에서 설득력 있게 작동합니다");
+      expect(failure).not.toContain("시도는 장면 안에서 충분한 성과로 이어지지 않습니다");
     }
+  });
+
+  it("does not expose internal action type labels in fallback narration", () => {
+    const service = new MainCommandsService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      buildMainCommandCheckResultMessage: (
+        effect: Record<string, unknown>,
+        outcome: ActionOutcome,
+      ) => string;
+    };
+    const effect = {
+      type: "mainCommandCheck",
+      requestId: "request-1",
+      nodeId: "node-1",
+      sessionCharacterId: "session-character-1",
+      intent: MainCommandIntent.GENERAL_GM_REQUEST,
+      screenType: MainCommandScreenType.EXPLORATION,
+      playerText: "바닥과 그림자를 살펴 숨어 있는 위험을 찾는다",
+      actionSummary: "standard",
+      targetId: null,
+      targetName: null,
+      targetSummary: null,
+      targetDisposition: null,
+      itemId: null,
+      itemName: null,
+      mapPoint: null,
+      checkOption: null,
+      visibleEntityNames: [],
+      publicClues: [],
+      sceneText: "",
+      actionCandidate: null,
+    };
+
+    const success = service.buildMainCommandCheckResultMessage(effect, ActionOutcome.SUCCESS);
+    const failure = service.buildMainCommandCheckResultMessage(effect, ActionOutcome.FAILURE);
+
+    expect(success).not.toContain("standard");
+    expect(failure).not.toContain("standard");
+    expect(success).toContain("바닥과 그림자를 살펴");
+    expect(failure).toContain("바닥과 그림자를 살펴");
   });
 });

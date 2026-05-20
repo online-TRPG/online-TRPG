@@ -4,6 +4,9 @@ import {
   GmMode as PrismaGmMode,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
+import { plainToInstance } from "class-transformer";
+import { validate } from "class-validator";
+import { CombatReactionResponseDto } from "@trpg/shared-types";
 import { CombatService } from "./combat.service";
 
 const createParticipant = (
@@ -42,6 +45,21 @@ const createParticipant = (
   turnEndedAt: null,
   createdAt: new Date("2026-05-06T00:00:00.000Z"),
   updatedAt: new Date("2026-05-06T00:00:00.000Z"),
+});
+
+describe("CombatReactionResponseDto validation", () => {
+  it("allows reactionId through the global whitelist validation pipe", async () => {
+    const dto = plainToInstance(CombatReactionResponseDto, {
+      reactionId: "reaction:shield:1",
+    });
+
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
+
+    expect(errors).toHaveLength(0);
+  });
 });
 
 describe("CombatService lifecycle", () => {
