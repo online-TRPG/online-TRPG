@@ -1,3 +1,6 @@
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import type { InventoryItemDto } from '@trpg/shared-types';
 import './InventoryItemInfo.css';
 
@@ -5,6 +8,10 @@ type InventoryItemInfoProps = {
   item: InventoryItemDto;
   tabIndex?: number;
 };
+
+const tooltipWidth = 300;
+const tooltipMargin = 12;
+const internalPropertyIds = new Set(['srd-engine']);
 
 function formatNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '');
@@ -43,6 +50,12 @@ function getPropertyLabel(property: string) {
   return propertyLabels[normalized] ?? property;
 }
 
+function getDisplayProperties(item: InventoryItemDto) {
+  return (item.properties ?? []).filter(
+    (property) => !internalPropertyIds.has(property.trim().toLowerCase())
+  );
+}
+
 function getInventoryItemKey(item: InventoryItemDto) {
   return [item.itemType, item.name, ...(item.properties ?? [])]
     .filter(Boolean)
@@ -56,7 +69,7 @@ function getItemDescription(item: InventoryItemDto) {
   }
 
   const key = getInventoryItemKey(item);
-  const propertyLabels = item.properties?.map(getPropertyLabel) ?? [];
+  const propertyLabels = getDisplayProperties(item).map(getPropertyLabel);
 
   if (key.includes('potion') || key.includes('healing') || key.includes('포션')) {
     return '마시거나 사용해서 회복 또는 특수 효과를 얻는 소모품입니다.';
@@ -102,17 +115,19 @@ function getItemDescription(item: InventoryItemDto) {
 }
 
 export function getInventoryMetaLabel(item: InventoryItemDto) {
+  const displayProperties = getDisplayProperties(item);
   const labels = [
     getItemTypeLabel(item.itemType),
     item.damageDice ? `${item.damageDice}${item.damageType ? ` ${item.damageType}` : ''}` : null,
     item.weightLb !== undefined ? `${formatNumber(item.weightLb)} lb` : null,
-    item.properties?.length ? item.properties.map(getPropertyLabel).join(', ') : null,
+    displayProperties.length ? displayProperties.map(getPropertyLabel).join(', ') : null,
   ].filter(Boolean);
 
   return labels.length ? labels.join(' / ') : '상세 정보 없음';
 }
 
 function getInventoryInfoRows(item: InventoryItemDto) {
+  const displayProperties = getDisplayProperties(item);
   return [
     { label: '설명', value: getItemDescription(item) },
     { label: '분류', value: getItemTypeLabel(item.itemType) },
@@ -155,29 +170,110 @@ function getInventoryInfoRows(item: InventoryItemDto) {
     item.volumeCuFt !== undefined
       ? { label: '부피', value: `${formatNumber(item.volumeCuFt)} cu ft` }
       : null,
-    item.properties?.length
-      ? { label: '속성', value: item.properties.map(getPropertyLabel).join(', ') }
+    displayProperties.length
+      ? { label: '속성', value: displayProperties.map(getPropertyLabel).join(', ') }
       : null,
   ].filter((row): row is { label: string; value: string } => Boolean(row));
 }
 
 export function InventoryItemInfo({ item, tabIndex = 0 }: InventoryItemInfoProps) {
   const rows = getInventoryInfoRows(item);
+  const triggerRef = useRef<HTMLSpanElement | null>(null);
+  const tooltipRef = useRef<HTMLSpanElement | null>(null);
+  const [isTooltipVisible, setTooltipVisible] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState<{
+    left: number;
+    top: number;
+    placement: 'above' | 'below';
+  }>({ left: tooltipMargin, top: tooltipMargin, placement: 'above' });
+
+  const updateTooltipPosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const tooltipHeight = tooltipRef.current?.offsetHeight ?? 220;
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    const left = Math.max(
+      tooltipMargin,
+      Math.min(rect.left, viewportWidth - tooltipWidth - tooltipMargin)
+    );
+    const spaceAbove = rect.top - tooltipMargin;
+    const spaceBelow = viewportHeight - rect.bottom - tooltipMargin;
+    const placement = spaceAbove >= tooltipHeight + 8 || spaceAbove > spaceBelow ? 'above' : 'below';
+    setTooltipPosition({
+      left,
+      top:
+        placement === 'above'
+          ? Math.max(tooltipMargin, rect.top - tooltipHeight - 8)
+          : Math.max(
+              tooltipMargin,
+              Math.min(rect.bottom + 8, viewportHeight - tooltipHeight - tooltipMargin)
+            ),
+      placement,
+    });
+  }, []);
+
+  const showTooltip = useCallback(() => {
+    updateTooltipPosition();
+    setTooltipVisible(true);
+  }, [updateTooltipPosition]);
+
+  useEffect(() => {
+    if (!isTooltipVisible) return undefined;
+
+    updateTooltipPosition();
+    window.addEventListener('resize', updateTooltipPosition);
+    window.addEventListener('scroll', updateTooltipPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateTooltipPosition);
+      window.removeEventListener('scroll', updateTooltipPosition, true);
+    };
+  }, [isTooltipVisible, updateTooltipPosition]);
+
+  useLayoutEffect(() => {
+    if (!isTooltipVisible) return;
+    updateTooltipPosition();
+  }, [isTooltipVisible, rows.length, updateTooltipPosition]);
+
+  const tooltipStyle = {
+    left: tooltipPosition.left,
+    top: tooltipPosition.top,
+  } satisfies CSSProperties;
 
   return (
-    <span className="inventory-item-info" tabIndex={tabIndex}>
+    <span
+      ref={triggerRef}
+      className="inventory-item-info"
+      tabIndex={tabIndex}
+      onMouseEnter={showTooltip}
+      onMouseLeave={() => setTooltipVisible(false)}
+      onFocus={showTooltip}
+      onBlur={() => setTooltipVisible(false)}
+    >
       <span className="inventory-item-info-name">{item.name}</span>
-      <span className="inventory-item-info-tooltip" role="tooltip">
-        <b>{item.name}</b>
-        <dl>
-          {rows.map((row) => (
-            <div key={row.label}>
-              <dt>{row.label}</dt>
-              <dd>{row.value}</dd>
-            </div>
-          ))}
-        </dl>
-      </span>
+      {isTooltipVisible
+        ? createPortal(
+            <span
+              ref={tooltipRef}
+              className={`inventory-item-info-tooltip ${tooltipPosition.placement}`}
+              role="tooltip"
+              style={tooltipStyle}
+            >
+              <b>{item.name}</b>
+              <dl>
+                {rows.map((row) => (
+                  <div key={row.label}>
+                    <dt>{row.label}</dt>
+                    <dd>{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </span>,
+            document.body
+          )
+        : null}
     </span>
   );
 }

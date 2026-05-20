@@ -130,14 +130,14 @@ function isWeaponItem(item: InventoryItemDto) {
 }
 
 function isArmorItem(item: InventoryItemDto) {
+  if (isShieldItem(item)) return false;
   const key = getInventoryItemKey(item);
-  return (
-    item.itemType === 'armor' ||
-    item.itemType === 'shield' ||
-    key.includes('armor') ||
-    key.includes('갑옷') ||
-    key.includes('방패')
-  );
+  return item.itemType === 'armor' || key.includes('armor') || key.includes('갑옷');
+}
+
+function isShieldItem(item: InventoryItemDto) {
+  const key = getInventoryItemKey(item);
+  return item.itemType === 'shield' || key.includes('shield') || key.includes('방패');
 }
 
 function isEquippedItem(item: InventoryItemDto, equippedId: string | null | undefined) {
@@ -829,7 +829,8 @@ export function ExplorationNodeSurface({
               >
                 {inventory.flatMap((item) => {
                   const isWeapon = isWeaponItem(item);
-                  const equippedCount = isWeapon
+                  const isShield = isShieldItem(item);
+                  const equippedCount = isWeapon || isShield
                     ? Number(isEquippedItem(item, myCharacter?.equippedWeaponId)) +
                       Number(isEquippedItem(item, myCharacter?.offhandWeaponId))
                     : 0;
@@ -859,9 +860,12 @@ export function ExplorationNodeSurface({
                   const isSelected = selectedInventoryItemId === item.id;
                   const isWeapon = isWeaponItem(item);
                   const isArmor = isArmorItem(item);
+                  const isShield = isShieldItem(item);
                   const isEquipped = isWeapon
                     ? equipmentDisplayState === 'equipped'
-                    : isArmor;
+                    : isShield
+                      ? equipmentDisplayState === 'equipped'
+                      : isArmor;
                   const equipmentActionItem = {
                     ...item,
                     __equipmentDisplayState: equipmentDisplayState,
@@ -890,13 +894,13 @@ export function ExplorationNodeSurface({
                         <span>{getInventoryMetaLabel(item)}</span>
                       </div>
                       <span className="exploration-inventory-quantity">x{item.quantity}</span>
-                      {isWeapon || isArmor ? (
+                      {isWeapon || isArmor || isShield ? (
                         <button
                           type="button"
                           disabled={isArmor || isBusy || !onEquipInventoryItem}
                           title={
                             isArmor
-                              ? '방어구는 현재 캐릭터 AC에 이미 반영되어 있습니다.'
+                              ? '몸통 방어구는 현재 캐릭터 AC에 반영되어 있습니다.'
                               : isEquipped
                                 ? `${item.name} 착용 해제`
                                 : `${item.name} 착용`
@@ -936,6 +940,8 @@ export function ExplorationNodeSurface({
       {selectedMapCharacter ? (
         <CharacterDetailModal
           character={selectedMapCharacter}
+          onEquipInventoryItem={onEquipInventoryItem}
+          isEquipmentBusy={isBusy}
           onClose={() => setSelectedMapCharacterId(null)}
         />
       ) : null}
