@@ -1355,3 +1355,28 @@ export class UpdateVttMapDto {
   @Type(() => VttMapStateDto)
   map!: VttMapStateDto;
 }
+
+export class MoveVttTokenPointDto {
+  @ApiProperty()
+  @IsNumber()
+  x!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  y!: number;
+}
+
+export class MoveVttTokenDto {
+  @ApiProperty({ type: MoveVttTokenPointDto })
+  @ValidateNested()
+  @Type(() => MoveVttTokenPointDto)
+  to!: MoveVttTokenPointDto;
+
+  @ApiPropertyOptional({ type: [MoveVttTokenPointDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(120)
+  @ValidateNested({ each: true })
+  @Type(() => MoveVttTokenPointDto)
+  path?: MoveVttTokenPointDto[];
+}

@@ -51,6 +51,11 @@ interface ExplorationNodeSurfaceProps {
   selectedInventoryItemId?: string;
   getCharacterColorStyle?: (character: SessionCharacterResponseDto) => CSSProperties;
   onMapChange: (map: VttMapStateDto) => void;
+  onTokenMoveRequest?: (
+    token: VttMapStateDto['tokens'][number],
+    to: { x: number; y: number },
+    path?: Array<{ x: number; y: number }>
+  ) => Promise<VttMapStateDto | null>;
   onUseInventoryItem: (item: InventoryItemDto) => void;
   onEquipInventoryItem?: (item: InventoryItemDto) => void;
   onSelectInventoryItem?: (item: InventoryItemDto | null) => void;
@@ -528,6 +533,7 @@ export function ExplorationNodeSurface({
   selectedInventoryItemId = '',
   getCharacterColorStyle,
   onMapChange,
+  onTokenMoveRequest,
   onUseInventoryItem,
   onEquipInventoryItem,
   onSelectInventoryItem,
@@ -568,7 +574,7 @@ export function ExplorationNodeSurface({
     return map.tokens.find((token) => token.sessionCharacterId === myCharacter.id) ?? null;
   }
 
-  function handleLocalMapAction(action: NonNullable<ExplorationActionButton['localAction']>) {
+  async function handleLocalMapAction(action: NonNullable<ExplorationActionButton['localAction']>) {
     if (!mapSelection) {
       setMapActionFeedback('먼저 맵 타일이나 대상을 선택해 주세요.');
       return;
@@ -607,6 +613,16 @@ export function ExplorationNodeSurface({
     const nextPosition = findReachableTokenMove(map, controlledToken, mapSelection.tile);
     if (!nextPosition) {
       setMapActionFeedback('해당 타일까지 이동 가능한 경로가 없습니다.');
+      return;
+    }
+
+    if (onTokenMoveRequest) {
+      const savedMap = await onTokenMoveRequest(controlledToken, nextPosition);
+      if (!savedMap) {
+        setMapActionFeedback('토큰 이동을 저장하지 못했습니다.');
+        return;
+      }
+      setMapActionFeedback(`${controlledToken.name} 토큰을 선택한 타일로 이동했습니다.`);
       return;
     }
 
@@ -661,6 +677,7 @@ export function ExplorationNodeSurface({
                 currentUserId={currentUserId}
                 interactionMode="session"
                 onChange={onMapChange}
+                onTokenMoveRequest={onTokenMoveRequest}
                 onSelectionChange={(nextSelection) =>
                   setMapSelection((current) =>
                     isSameMapSelection(current, nextSelection) ? null : nextSelection
@@ -736,7 +753,7 @@ export function ExplorationNodeSurface({
                   }
                   onClick={() => {
                     if (action.localAction) {
-                      handleLocalMapAction(action.localAction);
+                      void handleLocalMapAction(action.localAction);
                       return;
                     }
                     if (!action.request) return;
