@@ -4298,7 +4298,7 @@ export class MainCommandsService {
       return 30;
     }
 
-    return 15;
+    return 8;
   }
 
   private resolveOwnedItemName(context: LoadedContext, itemId?: string | null): string {
