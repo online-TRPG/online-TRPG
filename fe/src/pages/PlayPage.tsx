@@ -75,6 +75,7 @@ import {
   getVttMap,
   hideCombatAction,
   moveCombatParticipant,
+  moveVttToken,
   resolveEquippedWeaponAttack,
   resolveOffhandWeaponAttack,
   resolveSneakAttackCombatAction,
@@ -3092,6 +3093,28 @@ export function PlayPage({
     });
   }
 
+  async function handleExplorationTokenMoveRequest(
+    token: VttMapStateDto['tokens'][number],
+    to: { x: number; y: number },
+    path?: Array<{ x: number; y: number }>
+  ): Promise<VttMapStateDto | null> {
+    if (!session) return null;
+    setMapLoadError(null);
+    try {
+      const savedMap = await moveVttToken(user, session.id, token.id, {
+        to,
+        ...(path?.length ? { path } : {}),
+      });
+      latestConfirmedMapRef.current = savedMap;
+      setVttMap(savedMap);
+      return savedMap;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '탐험 이동에 실패했습니다.';
+      setMapLoadError(message);
+      return null;
+    }
+  }
+
   async function handleCombatTokenMoveRequest(
     token: VttMapStateDto['tokens'][number],
     to: { x: number; y: number },
@@ -3709,6 +3732,7 @@ export function PlayPage({
                     buildMapPartyColorStyle(getCharacterTokenColor(character))
                   }
                   onMapChange={handleMapChange}
+                  onTokenMoveRequest={handleExplorationTokenMoveRequest}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onEquipInventoryItem={handleEquipInventoryItem}
                   onSelectInventoryItem={handleSelectExplorationInventoryItem}

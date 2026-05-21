@@ -39,6 +39,7 @@ import {
   UpdateSessionDto,
   UpdateSessionNodeDto,
   UpdateVttMapDto,
+  MoveVttTokenDto,
   VttMapStateDto,
 } from "@trpg/shared-types";
 import { ApiResponse, apiResponse } from "../../common/api-response";
@@ -265,6 +266,25 @@ export class SessionsController {
       "SESSION_200",
       "VTT map updated.",
       await this.sessionsService.updateVttMap(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/map/tokens/:tokenId/move")
+  @HttpCode(200)
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiParam({ name: "tokenId" })
+  @ApiOkResponse({ type: VttMapStateDto })
+  async moveVttToken(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Param("tokenId") tokenId: string,
+    @Body() dto: MoveVttTokenDto,
+  ): Promise<ApiResponse<VttMapStateDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "VTT token moved.",
+      await this.sessionsService.moveVttTokenForUser(userId, sessionId, tokenId, dto),
     );
   }
 

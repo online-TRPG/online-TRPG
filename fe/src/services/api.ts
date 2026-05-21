@@ -17,6 +17,7 @@ import type {
   LoginResponseDto,
   MainCommandResponseDto,
   MoveCombatParticipantDto,
+  MoveVttTokenDto,
   OAuthUrlResponseDto,
   ResolveCombatAttackDto,
   ResolveMainCommandCheckDto,
@@ -906,6 +907,21 @@ export function updateVttMap(
   const payload: UpdateVttMapDto = { map };
   return requestJson<VttMapStateDto>(`/sessions/${sessionId}/map`, {
     method: 'PATCH',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function moveVttToken(
+  user: StoredUser,
+  sessionId: string,
+  tokenId: string,
+  payload: MoveVttTokenDto,
+  accessToken?: string | null
+): Promise<VttMapStateDto> {
+  return requestJson<VttMapStateDto>(`/sessions/${sessionId}/map/tokens/${tokenId}/move`, {
+    method: 'POST',
     user,
     accessToken,
     body: payload,
