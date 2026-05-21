@@ -246,6 +246,26 @@ describe("SessionsService VTT map structures", () => {
       requested: Record<string, unknown>,
       allowFullMapShell?: boolean,
     ) => void;
+    applyPlayerVttMapUpdate: (
+      userId: string,
+      sessionId: string,
+      sessionScenarioId: string,
+      state: { currentNodeId: string | null; flagsJson: string | null },
+      requestedMap: Record<string, unknown>,
+      allowFullMapShell?: boolean,
+    ) => Promise<Record<string, unknown>>;
+    getVttMapBaseline: jest.Mock;
+    getControlledSessionCharacterIds: jest.Mock;
+    spendCombatMovement: jest.Mock;
+    prisma: {
+      combat: {
+        findFirst: jest.Mock;
+      };
+    };
+    logger: {
+      debug: jest.Mock;
+      warn: jest.Mock;
+    };
     ensureTokenPathIsReachable: (
       map: Record<string, unknown>,
       fromToken: Record<string, unknown>,
@@ -415,6 +435,84 @@ describe("SessionsService VTT map structures", () => {
     expect(() =>
       service.ensurePlayerMapShellUnchanged(baseline, echoedByClient, false),
     ).not.toThrow();
+  });
+
+  it("keeps stale uncontrolled token positions from blocking another player move", async () => {
+    const baseline = service.normalizeVttMap(
+      {
+        id: "map-1",
+        scenarioNodeId: "node-2",
+        width: 640,
+        height: 480,
+        gridSize: 64,
+        tokens: [
+          {
+            id: "token-a",
+            sessionCharacterId: "session-character-a",
+            name: "A",
+            x: 64,
+            y: 0,
+            size: 64,
+          },
+          {
+            id: "token-b",
+            sessionCharacterId: "session-character-b",
+            name: "B",
+            x: 0,
+            y: 64,
+            size: 64,
+          },
+        ],
+        fogRects: [],
+      },
+      "node-2",
+    );
+    const requested = service.normalizeVttMap(
+      {
+        ...baseline,
+        tokens: [
+          {
+            ...(baseline.tokens as Array<Record<string, unknown>>)[0],
+            x: 0,
+            y: 0,
+          },
+          {
+            ...(baseline.tokens as Array<Record<string, unknown>>)[1],
+            x: 64,
+            y: 64,
+          },
+        ],
+      },
+      "node-2",
+    );
+    service.getVttMapBaseline = jest.fn().mockResolvedValue(baseline);
+    service.getControlledSessionCharacterIds = jest
+      .fn()
+      .mockResolvedValue(new Set(["session-character-b"]));
+    service.spendCombatMovement = jest.fn().mockResolvedValue(undefined);
+    service.prisma = {
+      combat: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+    };
+    service.logger = {
+      debug: jest.fn(),
+      warn: jest.fn(),
+    };
+
+    const result = await service.applyPlayerVttMapUpdate(
+      "user-b",
+      "session-1",
+      "session-scenario-1",
+      { currentNodeId: "node-2", flagsJson: "{}" },
+      requested,
+      false,
+    );
+
+    expect(result.tokens).toEqual([
+      expect.objectContaining({ id: "token-a", x: 64, y: 0 }),
+      expect.objectContaining({ id: "token-b", x: 64, y: 64 }),
+    ]);
   });
 
   it("adds newly revealed hidden object items to the investigating character inventory", async () => {

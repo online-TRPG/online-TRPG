@@ -41,6 +41,7 @@ import { ActionEconomyService } from "../rules/action-economy.service";
 import { CharacterResourceService } from "../rules/character-resource.service";
 import { DiceService } from "../rules/dice.service";
 import { RuleEngineService } from "../rules/rule-engine.service";
+import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import { SrdEngineLoaderService } from "./srd-engine-loader.service";
@@ -135,6 +136,7 @@ export class CombatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessionsService: SessionsService,
+    private readonly mapRuntimeService: MapRuntimeService,
     private readonly diceService: DiceService,
     private readonly actionRules: ActionRuleService,
     private readonly actionEconomy: ActionEconomyService,
@@ -1020,7 +1022,7 @@ export class CombatService {
         label: "Light",
         createdBySessionCharacterId: caster.sessionCharacterId,
       };
-      responseMap = await this.sessionsService.saveSystemVttMap(session.id, {
+      responseMap = await this.mapRuntimeService.saveSystemVttMap(session.id, {
         ...map,
         lightSources: [...(map.lightSources ?? []), lightSource].slice(-40),
         updatedAt: new Date().toISOString(),
@@ -2627,7 +2629,7 @@ export class CombatService {
       },
       data: { movementFtSpent: { increment: movementDistanceFt } },
     });
-    return this.sessionsService.saveSystemVttMap(sessionId, map);
+    return this.mapRuntimeService.saveSystemVttMap(sessionId, map);
   }
 
   private async createOpportunityAttackPromptIfNeeded(params: {

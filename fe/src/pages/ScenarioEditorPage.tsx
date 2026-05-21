@@ -11,7 +11,7 @@
  */
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { BattleMap } from '../components/BattleMap';
+import { BattleMapEditor } from '../components/battleMap/BattleMapEditor';
 import {
   createScenario,
   deleteScenarioAsset as deleteScenarioAssetRequest,
@@ -2574,7 +2574,7 @@ function NodeDetailEditor({
           {itemCatalogError ? <p className="panel-error">{itemCatalogError}</p> : null}
           {node.vttMap ? (
             <>
-              <BattleMap
+              <BattleMapEditor
                 map={node.vttMap}
                 characters={[]}
                 isHost

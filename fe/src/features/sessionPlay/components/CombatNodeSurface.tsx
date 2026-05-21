@@ -8,8 +8,8 @@ import type {
   SessionCharacterResponseDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
-import { BattleMap } from '../../../components/BattleMap';
-import type { BattleMapSelection } from '../../../components/BattleMap';
+import { SessionBattleMap } from './SessionBattleMap';
+import type { BattleMapSelection } from './SessionBattleMap';
 import { GameIcon } from '../../../components/GameIcon';
 import type { GameIconName } from '../../../components/GameIcon';
 import battleNodeBadge from '../../../components/node_badge_battle.webp';
@@ -57,6 +57,7 @@ interface CombatNodeSurfaceProps {
   isInventoryBusy?: boolean;
   getCharacterColorStyle?: (character: SessionCharacterResponseDto) => CSSProperties;
   onMapChange: (map: VttMapStateDto) => void;
+  onPingRequest?: (point: { x: number; y: number }, label?: string) => Promise<VttMapStateDto | null>;
   onTokenMoveRequest?: (
     token: VttMapStateDto['tokens'][number],
     to: { x: number; y: number },
@@ -504,6 +505,7 @@ export function CombatNodeSurface({
   isInventoryBusy = false,
   getCharacterColorStyle,
   onMapChange,
+  onPingRequest,
   onTokenMoveRequest,
   onUseInventoryItem,
   onEquipInventoryItem,
@@ -1169,18 +1171,18 @@ export function CombatNodeSurface({
                 getCharacterColorStyle={getCharacterColorStyle}
                 onCharacterClick={(character) => setSelectedTurnCharacterId(character.id)}
               />
-              <BattleMap
+              <SessionBattleMap
                 map={map}
                 characters={characters}
                 isHost={isHost}
                 currentUserId={currentUserId}
-                interactionMode="session"
                 isInteractionLocked={!isMyCombatTurn}
                 tokenMovementRangeFtByTokenId={tokenMovementRangeFtByTokenId}
                 tokenHealthByTokenId={enemyTokenHealthByTokenId}
                 attackRangeOverlay={attackRangeOverlay}
                 combatMovementMode={combatMovementMode}
-                onChange={onMapChange}
+                onMapChange={onMapChange}
+                onPingRequest={onPingRequest}
                 onTokenMoveRequest={handleTokenMoveRequest}
                 onSelectionChange={handleCombatMapSelection}
                 title={node?.title ?? '전투 지도'}
