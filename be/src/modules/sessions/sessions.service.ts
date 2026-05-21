@@ -4342,17 +4342,13 @@ export class SessionsService {
     const nextTokens = baseline.tokens.map((token) => {
       const requestedToken = requestedById.get(token.id);
       if (!requestedToken) {
-        if (token.hidden === true) {
-          return token;
-        }
-        throw new ForbiddenException("Players cannot remove map tokens.");
+        return token;
       }
 
       const canMoveToken = Boolean(
         token.sessionCharacterId && controlledTokenIds.has(token.sessionCharacterId),
       );
       if (!canMoveToken) {
-        this.ensureTokenUnchanged(token, requestedToken);
         return token;
       }
 
@@ -4549,15 +4545,6 @@ export class SessionsService {
         },
         data: { movementFtSpent: { increment: spend.distanceFt } },
       });
-    }
-  }
-
-  private ensureTokenUnchanged(
-    baseline: VttMapStateDto["tokens"][number],
-    requested: VttMapStateDto["tokens"][number],
-  ): void {
-    if (JSON.stringify(baseline) !== JSON.stringify(requested)) {
-      throw new ForbiddenException("Players can only move their own tokens.");
     }
   }
 
