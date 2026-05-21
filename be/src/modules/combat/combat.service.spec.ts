@@ -92,6 +92,7 @@ describe("CombatService lifecycle", () => {
       ensureMembership: jest.fn(),
       getGameStateEntityOrThrow: jest.fn(),
       getVttMapForUser: jest.fn().mockResolvedValue({ tokens: [] }),
+      saveSystemVttMap: jest.fn(),
       buildSnapshot: jest.fn(),
     };
     const diceService = {
@@ -137,6 +138,7 @@ describe("CombatService lifecycle", () => {
       service: new CombatService(
         prisma as never,
         sessionsService as never,
+        { saveSystemVttMap: sessionsService.saveSystemVttMap } as never,
         diceService as never,
         actionRules as never,
         actionEconomy as never,

@@ -28,10 +28,11 @@ import type {
   RaceResponseDto,
   ResolveMainCommandCheckDto,
   SubmitMainCommandDto,
+  VttMapInteractionDto,
+  VttMapInteractionResponseDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
-import { BattleMap } from '../components/BattleMap';
-import type { BattleMapSelection } from '../components/BattleMap';
+import type { BattleMapSelection } from '../features/sessionPlay/components/SessionBattleMap';
 import { Icon } from '../components/Icon';
 import profileBorderCharacter from '../components/Profile_Border_Character.webp';
 import tavernImage from '../components/tavern.webp';
@@ -57,6 +58,7 @@ import {
   StoryNodeSurface,
   type StoryRpUtterance,
 } from '../features/sessionPlay/components/StoryNodeSurface';
+import { SessionBattleMap } from '../features/sessionPlay/components/SessionBattleMap';
 import {
   getCharacterClassLabel,
   getCharacterImage,
@@ -67,6 +69,7 @@ import {
   endCombatTurn,
   acceptCombatReaction,
   castCombatSpell,
+  createVttMapPing,
   dashCombatAction,
   declineCombatReaction,
   dodgeCombatAction,
@@ -75,11 +78,14 @@ import {
   getVttMap,
   hideCombatAction,
   moveCombatParticipant,
+  moveSessionToken,
   resolveEquippedWeaponAttack,
   resolveOffhandWeaponAttack,
   resolveSneakAttackCombatAction,
+  runVttMapInteraction,
   startCombat,
   updateCharacterEquipment,
+  updateGmVttMap,
   updateVttMap,
   useSecondWindCombatAction,
   useInventoryItem,
@@ -3226,7 +3232,9 @@ export function PlayPage({
     saveState.isSaving = true;
 
     try {
-      const savedMap = await updateVttMap(user, sessionId, mapToSave);
+      const savedMap = canManageStartedSession
+        ? await updateGmVttMap(user, sessionId, mapToSave)
+        : await updateVttMap(user, sessionId, mapToSave);
       if (mapSaveRef.current.activeSessionId === sessionId) {
         latestConfirmedMapRef.current = savedMap;
         setMapLoadError(null);
@@ -3257,6 +3265,83 @@ export function PlayPage({
     setVttMap(nextMap);
     setMapLoadError(null);
     void flushPendingMapSave(session.id);
+  }
+
+  async function handleSessionTokenMoveRequest(
+    token: VttMapStateDto['tokens'][number],
+    to: { x: number; y: number },
+    path: Array<{ x: number; y: number }>,
+    movementMode: 'normal' | 'jump' = 'normal'
+  ): Promise<VttMapStateDto | null> {
+    if (!session) return null;
+    try {
+      const savedMap = await moveSessionToken(user, session.id, {
+        tokenId: token.id,
+        sessionCharacterId: token.sessionCharacterId ?? null,
+        to,
+        path,
+        movementMode,
+        clientMapVersion: snapshot?.state.version,
+      });
+      latestConfirmedMapRef.current = savedMap;
+      setVttMap(savedMap);
+      setMapLoadError(null);
+      return savedMap;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '토큰 이동에 실패했습니다.';
+      setMapLoadError(message);
+      return null;
+    }
+  }
+
+  async function handleMapPingRequest(
+    point: { x: number; y: number },
+    label = '!'
+  ): Promise<VttMapStateDto | null> {
+    if (!session) return null;
+    try {
+      const savedMap = await createVttMapPing(user, session.id, {
+        x: point.x,
+        y: point.y,
+        label,
+        clientMapVersion: snapshot?.state.version,
+      });
+      latestConfirmedMapRef.current = savedMap;
+      setVttMap(savedMap);
+      setMapLoadError(null);
+      return savedMap;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '핑을 찍지 못했습니다.';
+      setMapLoadError(message);
+      return null;
+    }
+  }
+
+  async function handleMapInteractionRequest(
+    interaction: VttMapInteractionDto
+  ): Promise<VttMapInteractionResponseDto | null> {
+    if (!session) return null;
+    try {
+      const response = await runVttMapInteraction(user, session.id, {
+        ...interaction,
+        actorSessionCharacterId:
+          interaction.actorSessionCharacterId ??
+          myParticipant?.sessionCharacterId ??
+          myParticipant?.characterId ??
+          null,
+        clientMapVersion: snapshot?.state.version,
+      });
+      if (response.map) {
+        latestConfirmedMapRef.current = response.map;
+        setVttMap(response.map);
+      }
+      setMapLoadError(null);
+      return response;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '맵 상호작용에 실패했습니다.';
+      setMapLoadError(message);
+      return null;
+    }
   }
 
   async function runCombatRequest(request: () => Promise<CombatResponseDto | { combat: CombatResponseDto } | unknown>) {
@@ -3709,6 +3794,9 @@ export function PlayPage({
                     buildMapPartyColorStyle(getCharacterTokenColor(character))
                   }
                   onMapChange={handleMapChange}
+                  onTokenMoveRequest={handleSessionTokenMoveRequest}
+                  onPingRequest={handleMapPingRequest}
+                  onMapInteractionRequest={handleMapInteractionRequest}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onEquipInventoryItem={handleEquipInventoryItem}
                   onSelectInventoryItem={handleSelectExplorationInventoryItem}
@@ -3735,6 +3823,7 @@ export function PlayPage({
                     buildMapPartyColorStyle(getCharacterTokenColor(character))
                   }
                   onMapChange={handleMapChange}
+                  onPingRequest={handleMapPingRequest}
                   onTokenMoveRequest={handleCombatTokenMoveRequest}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onEquipInventoryItem={handleEquipInventoryItem}
@@ -3750,13 +3839,14 @@ export function PlayPage({
                   onEndTurn={handleEndCombatTurn}
                 />
               ) : vttMap ? (
-                <BattleMap
+                <SessionBattleMap
                   map={vttMap}
                   characters={sessionCharacters}
                   isHost={isHost}
                   currentUserId={user.id}
-                  interactionMode="session"
-                  onChange={handleMapChange}
+                  onMapChange={handleMapChange}
+                  onTokenMoveRequest={handleSessionTokenMoveRequest}
+                  onPingRequest={handleMapPingRequest}
                 />
               ) : (
                 <div className="session-game-surface__placeholder">
