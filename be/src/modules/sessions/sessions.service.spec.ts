@@ -1,4 +1,4 @@
-import { ScenarioNodeType } from "@trpg/shared-types";
+import { ScenarioNodeType, VttMapStateDto } from "@trpg/shared-types";
 import { ForbiddenException } from "@nestjs/common";
 import { SessionsService } from "./sessions.service";
 
@@ -415,6 +415,93 @@ describe("SessionsService VTT map structures", () => {
     expect(() =>
       service.ensurePlayerMapShellUnchanged(baseline, echoedByClient, false),
     ).not.toThrow();
+  });
+
+  it("keeps baseline positions for uncontrolled tokens during player map updates", async () => {
+    const baseline = {
+      id: "map-1",
+      scenarioNodeId: "node-1",
+      imageUrl: null,
+      gridType: "square",
+      gridSize: 64,
+      width: 640,
+      height: 480,
+      tokens: [
+        {
+          id: "token-1",
+          sessionCharacterId: "session-character-1",
+          name: "Mover",
+          x: 0,
+          y: 0,
+          size: 64,
+        },
+        {
+          id: "token-2",
+          sessionCharacterId: "session-character-2",
+          name: "Other player",
+          x: 64,
+          y: 0,
+          size: 64,
+        },
+      ],
+      fogRects: [],
+      terrainCells: [],
+      wallCells: [],
+      doorCells: [],
+      objectCells: [],
+      updatedAt: "2026-05-21T00:00:00.000Z",
+    } as VttMapStateDto;
+    const requested = {
+      ...baseline,
+      tokens: [
+        { ...baseline.tokens[0], x: 128, y: 0 },
+        { ...baseline.tokens[1], x: 320, y: 0 },
+      ],
+    } as VttMapStateDto;
+    const runtimeService = Object.create(SessionsService.prototype) as {
+      prisma: { combat: { findFirst: jest.Mock } };
+      logger: { debug: jest.Mock; warn: jest.Mock };
+      getVttMapBaseline: jest.Mock;
+      getControlledSessionCharacterIds: jest.Mock;
+      ensurePlayerMapShellUnchanged: jest.Mock;
+      ensureOnlyTokenPositionChanged: jest.Mock;
+      ensureTokenPathIsReachable: jest.Mock;
+      spendCombatMovement: jest.Mock;
+      applyPlayerVttMapUpdate: (
+        userId: string,
+        sessionId: string,
+        sessionScenarioId: string,
+        state: { currentNodeId: string | null; flagsJson: string | null },
+        requestedMap: VttMapStateDto,
+      ) => Promise<VttMapStateDto>;
+    };
+    runtimeService.prisma = {
+      combat: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+    runtimeService.logger = { debug: jest.fn(), warn: jest.fn() };
+    runtimeService.getVttMapBaseline = jest.fn().mockResolvedValue(baseline);
+    runtimeService.getControlledSessionCharacterIds = jest
+      .fn()
+      .mockResolvedValue(new Set(["session-character-1"]));
+    runtimeService.ensurePlayerMapShellUnchanged = jest.fn();
+    runtimeService.ensureOnlyTokenPositionChanged = jest.fn();
+    runtimeService.ensureTokenPathIsReachable = jest.fn();
+    runtimeService.spendCombatMovement = jest.fn().mockResolvedValue(undefined);
+
+    const result = await runtimeService.applyPlayerVttMapUpdate(
+      "user-1",
+      "session-1",
+      "session-scenario-1",
+      { currentNodeId: "node-1", flagsJson: "{}" },
+      requested,
+    );
+
+    expect(result.tokens).toEqual([
+      expect.objectContaining({ id: "token-1", x: 128, y: 0 }),
+      expect.objectContaining({ id: "token-2", x: 64, y: 0 }),
+    ]);
+    expect(runtimeService.ensureOnlyTokenPositionChanged).toHaveBeenCalledTimes(1);
+    expect(runtimeService.ensureTokenPathIsReachable).toHaveBeenCalledTimes(1);
   });
 
   it("adds newly revealed hidden object items to the investigating character inventory", async () => {

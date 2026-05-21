@@ -58,6 +58,7 @@ import {
   UpdateSessionDto,
   UpdateSessionNodeDto,
   UpdateVttMapDto,
+  MoveVttTokenDto,
   VttObjectHazardDto,
   VttMapStateDto,
 } from "@trpg/shared-types";
@@ -513,6 +514,98 @@ export class SessionsService {
             requestedMap,
             session.hostUserId === userId,
           );
+    map = await this.applyVttObjectProximityEvents({
+      sessionScenarioId: sessionScenario.id,
+      currentNodeId: state.currentNodeId,
+      map,
+    });
+    const hazardTriggerResult = await this.applyVttHazardTriggers({
+      sessionId: resolvedSessionId,
+      sessionScenarioId: sessionScenario.id,
+      map,
+      previousMap,
+    });
+    map = hazardTriggerResult.map;
+    const beforeHazardDetectionMap = map;
+    map = await this.applyVttHazardDetections({
+      sessionId: resolvedSessionId,
+      sessionScenarioId: sessionScenario.id,
+      currentNodeId: state.currentNodeId,
+      map,
+      previousMap,
+    });
+    const hazardDetectionChanged =
+      JSON.stringify(beforeHazardDetectionMap.objectCells ?? []) !== JSON.stringify(map.objectCells ?? []);
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: sessionScenario.id },
+      data: {
+        version: { increment: 1 },
+        flagsJson: JSON.stringify({
+          ...flags,
+          vttMap: map,
+        }),
+      },
+    });
+
+    const playerMap = this.redactVttMapForPlayer(map);
+    this.realtimeEvents.emitVttMapUpdated(resolvedSessionId, {
+      hostUserId: session.hostUserId,
+      hostMap: map,
+      playerMap,
+    });
+    if (hazardTriggerResult.triggered || hazardDetectionChanged) {
+      this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, await this.buildSnapshot(resolvedSessionId));
+    }
+    return session.hostUserId === userId ? map : playerMap;
+  }
+
+  async moveVttTokenForUser(
+    userId: string,
+    sessionId: string,
+    tokenId: string,
+    dto: MoveVttTokenDto,
+  ): Promise<VttMapStateDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const resolvedSessionId = session.id;
+    await this.ensureMembership(userId, resolvedSessionId);
+    const { state, sessionScenario } = await this.getGameStateEntityOrThrow(resolvedSessionId);
+    if (state.phase !== PrismaGamePhase.EXPLORATION) {
+      throw new ConflictException("Token movement through the exploration map is only available during exploration.");
+    }
+    const activeCombat = await this.prisma.combat.findFirst({
+      where: { sessionId: resolvedSessionId, status: PrismaCombatStatus.ACTIVE },
+      select: { id: true },
+    });
+    if (activeCombat) {
+      throw new ConflictException("Use the combat movement action while combat is active.");
+    }
+
+    const controlledTokenIds = await this.getControlledSessionCharacterIds(userId, resolvedSessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const previousMap = await this.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
+    const token = previousMap.tokens.find((candidate) => candidate.id === tokenId);
+    if (!token || token.hidden === true) {
+      throw new NotFoundException("Movable token was not found.");
+    }
+    if (!token.sessionCharacterId || !controlledTokenIds.has(token.sessionCharacterId)) {
+      throw new ForbiddenException("Players can only move their own tokens.");
+    }
+
+    const requestedToken = {
+      ...token,
+      x: this.clampNumber(Math.floor(dto.to.x), 0, Math.max(0, previousMap.width - token.size)),
+      y: this.clampNumber(Math.floor(dto.to.y), 0, Math.max(0, previousMap.height - token.size)),
+    };
+    this.ensureTokenPathIsReachable(previousMap, token, requestedToken);
+
+    let map: VttMapStateDto = {
+      ...previousMap,
+      tokens: previousMap.tokens.map((candidate) =>
+        candidate.id === token.id ? requestedToken : candidate,
+      ),
+      updatedAt: new Date().toISOString(),
+    };
     map = await this.applyVttObjectProximityEvents({
       sessionScenarioId: sessionScenario.id,
       currentNodeId: state.currentNodeId,
@@ -1633,7 +1726,7 @@ export class SessionsService {
               : PrismaSessionStatus.PLAYING,
         },
       });
-      await tx.combat.updateMany({
+      const combatUpdateResult = await tx.combat.updateMany({
         where: {
           sessionId: resolvedSessionId,
           status: PrismaCombatStatus.ACTIVE,
@@ -1645,6 +1738,9 @@ export class SessionsService {
           currentParticipantId: null,
         },
       });
+      this.logger.debug(
+        `[COMBAT_COMPLETE_STATE_RESULT] sessionId=${resolvedSessionId} combatId=${combatId ?? "active"} endedCount=${combatUpdateResult.count}`,
+      );
       if (state) {
         await tx.gameState.update({
           where: { sessionScenarioId: activeScenario.id },
@@ -4342,17 +4438,13 @@ export class SessionsService {
     const nextTokens = baseline.tokens.map((token) => {
       const requestedToken = requestedById.get(token.id);
       if (!requestedToken) {
-        if (token.hidden === true) {
-          return token;
-        }
-        throw new ForbiddenException("Players cannot remove map tokens.");
+        return token;
       }
 
       const canMoveToken = Boolean(
         token.sessionCharacterId && controlledTokenIds.has(token.sessionCharacterId),
       );
       if (!canMoveToken) {
-        this.ensureTokenUnchanged(token, requestedToken);
         return token;
       }
 
@@ -4549,15 +4641,6 @@ export class SessionsService {
         },
         data: { movementFtSpent: { increment: spend.distanceFt } },
       });
-    }
-  }
-
-  private ensureTokenUnchanged(
-    baseline: VttMapStateDto["tokens"][number],
-    requested: VttMapStateDto["tokens"][number],
-  ): void {
-    if (JSON.stringify(baseline) !== JSON.stringify(requested)) {
-      throw new ForbiddenException("Players can only move their own tokens.");
     }
   }
 
