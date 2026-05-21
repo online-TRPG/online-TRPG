@@ -226,17 +226,28 @@ type InterpreterActionForRouting = {
   type: string;
   targetId?: string | null;
   spellId?: string | null;
-  approach?: string | null;
+  approach: string;
+  ability?: string | null;
+  skill?: string | null;
+  suggestedDifficulty?: string | null;
+  confidence: number;
+  requiresRoll: boolean;
 };
 
 type InterpreterParsedForRouting = {
   action: InterpreterActionForRouting;
+  needsClarification: boolean;
+  clarificationQuestion?: string | null;
   mentionedItemId?: string | null;
   mentionedSpellId?: string | null;
   sceneTransition?: {
     selectedTargetNodeId?: string | null;
     candidates?: TransitionConditionCandidateContract[];
   } | null;
+};
+
+type MainCommandDispatchOptions = {
+  interpreted?: InterpreterParsedForRouting;
 };
 
 type EffectiveMainCommandData = {
@@ -1240,6 +1251,25 @@ export class MainCommandsService {
       };
     }
 
+    const fallbackMainCommandIntent = this.resolveTextFallbackMainCommandIntent(dto, interpreter.parsed.action.type);
+    if (fallbackMainCommandIntent) {
+      const fallbackRoute: ResolvedInterpreterActionRoute = {
+        actionType: fallbackMainCommandIntent,
+        config: { route: "MAIN_COMMAND", intent: fallbackMainCommandIntent },
+      };
+      return await this.handleInterpreterActionTypeRoute(
+        requestId,
+        userId,
+        context,
+        dto,
+        visibleEntities,
+        recentLogs,
+        publicClues,
+        fallbackRoute,
+        this.buildTextFallbackInterpretedCommand(dto, interpreter.parsed, fallbackMainCommandIntent),
+      );
+    }
+
     const actionTypeRoute = this.resolveInterpreterActionTypeRoute(interpreter.parsed.action.type);
     if (actionTypeRoute) {
       return await this.handleInterpreterActionTypeRoute(
@@ -1294,9 +1324,48 @@ export class MainCommandsService {
     };
   }
 
-  private resolveInterpreterActionTypeRoute(
-    actionType?: string | null
-  ): ResolvedInterpreterActionRoute | null {
+  private resolveTextFallbackMainCommandIntent(
+    dto: SubmitMainCommandDto,
+    actionType?: string | null,
+  ): MainCommandIntent | null {
+    if (actionType?.trim().toUpperCase() !== "OUT_OF_SCOPE") {
+      return null;
+    }
+
+    const text = dto.playerText.trim();
+    if (!text) {
+      return null;
+    }
+
+    if (/(조사|살피|살펴|찾|뒤지|확인)/.test(text)) {
+      return MainCommandIntent.INVESTIGATE_OBJECT;
+    }
+
+    return null;
+  }
+
+  private buildTextFallbackInterpretedCommand(
+    dto: SubmitMainCommandDto,
+    parsed: InterpreterParsedForRouting,
+    intent: MainCommandIntent,
+  ): InterpreterParsedForRouting {
+    const actionSummary = dto.playerText.trim() || parsed.action.approach || intent;
+    return {
+      ...parsed,
+      needsClarification: false,
+      clarificationQuestion: null,
+      action: {
+        ...parsed.action,
+        type: intent,
+        approach: actionSummary,
+        confidence: Math.max(parsed.action.confidence ?? 0, 0.55),
+        requiresRoll: true,
+        suggestedDifficulty: parsed.action.suggestedDifficulty ?? "medium",
+      },
+    };
+  }
+
+  private resolveInterpreterActionTypeRoute(actionType?: string | null): ResolvedInterpreterActionRoute | null {
     const normalizedActionType = actionType?.trim().toUpperCase();
     if (!normalizedActionType) {
       return null;
@@ -1401,7 +1470,8 @@ export class MainCommandsService {
       routedDto,
       visibleEntities,
       recentLogs,
-      publicClues
+      publicClues,
+      { interpreted: parsed },
     );
 
     return {
@@ -1531,7 +1601,8 @@ export class MainCommandsService {
     dto: SubmitMainCommandDto,
     visibleEntities: VisibleSceneEntity[],
     recentLogs: string[],
-    publicClues: string[]
+    publicClues: string[],
+    options: MainCommandDispatchOptions = {},
   ): Promise<MainCommandResponseDto> {
     switch (dto.intent) {
       case MainCommandIntent.TALK_TO_NPC:
@@ -1579,7 +1650,7 @@ export class MainCommandsService {
       case MainCommandIntent.OBSERVE_AREA:
         return this.handleObserveArea(requestId, context, dto);
       case MainCommandIntent.INVESTIGATE_OBJECT:
-        return await this.handleInvestigateObject(requestId, userId, context, dto, visibleEntities);
+        return await this.handleInvestigateObject(requestId, userId, context, dto, visibleEntities, options.interpreted);
       case MainCommandIntent.LISTEN:
         return await this.handleListen(
           requestId,
@@ -2196,7 +2267,8 @@ export class MainCommandsService {
     userId: string,
     context: LoadedContext,
     dto: SubmitMainCommandDto,
-    visibleEntities: VisibleSceneEntity[]
+    visibleEntities: VisibleSceneEntity[],
+    interpreted?: InterpreterParsedForRouting,
   ): Promise<MainCommandResponseDto> {
     if (dto.mapPoint) {
       const objectResult = await this.sessionsService.describeVttObjectAtPoint({
@@ -2233,11 +2305,13 @@ export class MainCommandsService {
       ? this.resolveEntity(dto, investigationTargets, dto.targetType)
       : null;
 
-    const interpreter = await this.aiService.runInterpreter(
-      context.sessionId,
-      userId,
-      this.buildInterpreterPayload(context, dto, visibleEntities)
-    );
+    const interpreter = interpreted
+      ? { parsed: interpreted }
+      : await this.aiService.runInterpreter(
+          context.sessionId,
+          userId,
+          this.buildInterpreterPayload(context, dto, visibleEntities),
+        );
 
     const bypassClarification = this.canUseExplicitPlayerText(dto, {
       acceptsMapPoint: true,

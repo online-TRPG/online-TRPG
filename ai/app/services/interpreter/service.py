@@ -35,7 +35,7 @@ class InterpreterService:
                 result = self._client.generate_json(
                     model=model,
                     prompt=user_prompt,
-                    response_json_schema=InterpreterOutput.model_json_schema(),
+                    response_json_schema=self._response_json_schema(request),
                     system_instruction=system_prompt,
                     temperature=self._settings.ai_temperature_interpreter,
                 )
@@ -80,6 +80,23 @@ class InterpreterService:
             },
             parsed=parsed,
         )
+
+    @staticmethod
+    def _response_json_schema(request: InterpreterHarnessRequest) -> dict[str, object]:
+        schema = InterpreterOutput.model_json_schema()
+        if request.transitionCandidates:
+            return schema
+
+        schema["properties"].pop("sceneTransition", None)
+        defs = schema.get("$defs")
+        if isinstance(defs, dict):
+            for key in (
+                "SceneTransitionContract",
+                "SceneTransitionCandidateContract",
+                "SceneTransitionRequirement",
+            ):
+                defs.pop(key, None)
+        return schema
 
     def _build_prompt_context(self, request: InterpreterHarnessRequest) -> dict[str, object]:
         matched_spells = self._srd_retriever.find_spells(request.rawText, limit=3)
