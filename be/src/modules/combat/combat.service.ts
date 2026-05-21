@@ -464,6 +464,9 @@ export class CombatService {
     await this.ensureHost(userId, session.id);
 
     const combat = await this.getActiveCombatEntity(session.id);
+    this.logger.debug(
+      `[COMBAT_END_REQUEST] sessionId=${session.id} userId=${userId} combatId=${combat.id} currentParticipantId=${combat.currentParticipantId ?? "null"} participantCount=${combat.participants.length}`,
+    );
     const response = await this.completeCombat(session.id, combat.id);
     this.realtimeEvents.emitCombatUpdated(session.id, response);
     this.realtimeEvents.emitSessionSnapshot(
@@ -3104,7 +3107,11 @@ export class CombatService {
     sessionId: string,
     combat: NonNullable<CombatWithParticipants>,
   ): Promise<CombatResponseDto> {
-    if (!this.isCombatResolved(combat)) {
+    const resolved = this.isCombatResolved(combat);
+    this.logger.debug(
+      `[COMBAT_RESOLUTION_CHECK] sessionId=${sessionId} combatId=${combat.id} resolved=${resolved} aliveHostiles=${combat.participants.filter((participant) => participant.isHostile && participant.isAlive).length} alivePlayers=${combat.participants.filter((participant) => !participant.isHostile && participant.isAlive).length}`,
+    );
+    if (!resolved) {
       return this.mapCombat(combat);
     }
 
@@ -3113,7 +3120,13 @@ export class CombatService {
 
   private async completeCombat(sessionId: string, combatId: string): Promise<CombatResponseDto> {
     const combat = await this.getCombatEntityById(combatId);
+    this.logger.debug(
+      `[COMBAT_COMPLETE_ENTER] sessionId=${sessionId} combatId=${combatId} status=${combat.status} currentParticipantId=${combat.currentParticipantId ?? "null"} aliveHostiles=${combat.participants.filter((participant) => participant.isHostile && participant.isAlive).length} alivePlayers=${combat.participants.filter((participant) => !participant.isHostile && participant.isAlive).length}`,
+    );
     if (this.isPartyDefeated(combat)) {
+      this.logger.debug(
+        `[COMBAT_COMPLETE_PARTY_DEFEATED] sessionId=${sessionId} combatId=${combatId}`,
+      );
       await this.sessionsService.completeSessionAfterPartyDefeat(sessionId, combatId);
       return this.mapCombat(await this.getCombatEntityById(combatId));
     }

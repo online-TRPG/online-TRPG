@@ -1726,7 +1726,7 @@ export class SessionsService {
               : PrismaSessionStatus.PLAYING,
         },
       });
-      await tx.combat.updateMany({
+      const combatUpdateResult = await tx.combat.updateMany({
         where: {
           sessionId: resolvedSessionId,
           status: PrismaCombatStatus.ACTIVE,
@@ -1738,6 +1738,9 @@ export class SessionsService {
           currentParticipantId: null,
         },
       });
+      this.logger.debug(
+        `[COMBAT_COMPLETE_STATE_RESULT] sessionId=${resolvedSessionId} combatId=${combatId ?? "active"} endedCount=${combatUpdateResult.count}`,
+      );
       if (state) {
         await tx.gameState.update({
           where: { sessionScenarioId: activeScenario.id },
