@@ -289,6 +289,7 @@ export class CombatService {
     }
 
     const combat = await this.prisma.$transaction(async (tx) => {
+      await this.lockSessionRuntime(tx, session.id);
       const created = await tx.combat.create({
         data: {
           sessionId: session.id,
@@ -402,6 +403,18 @@ export class CombatService {
         where: { id: created.id },
         include: { participants: { orderBy: { turnOrder: "asc" } } },
       });
+    }).catch((error: unknown) => {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "P2002"
+      ) {
+        throw conflict("COMBAT_409", "이미 전투가 진행 중입니다.", {
+          reason: "ACTIVE_COMBAT_EXISTS",
+        });
+      }
+      throw error;
     });
 
     const response = await this.mapCombat(combat);
@@ -3154,6 +3167,14 @@ export class CombatService {
         reason: "GM_OR_HOST_REQUIRED",
       });
     }
+  }
+
+  private async lockSessionRuntime(tx: unknown, sessionId: string): Promise<void> {
+    const client = tx as { $executeRaw?: (query: TemplateStringsArray, ...values: unknown[]) => Promise<unknown> };
+    if (!client.$executeRaw) {
+      return;
+    }
+    await client.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sessionId}))`;
   }
 
   private async ensureActorCanAct(

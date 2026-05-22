@@ -132,6 +132,7 @@ describe("InventoryRuntimeService", () => {
       itemDefinition?: Record<string, jest.Mock>;
       inventoryEntry?: Record<string, jest.Mock>;
       containerState?: Record<string, jest.Mock>;
+      sessionCharacter?: Record<string, jest.Mock>;
     } = {};
 
     Object.assign(prisma, {
@@ -139,6 +140,21 @@ describe("InventoryRuntimeService", () => {
         callback(prisma),
       ),
       itemDefinition: {
+        findFirst: jest.fn(({ where }: { where: { OR: Array<Record<string, unknown>> } }) => {
+          const id = where.OR
+            .map((condition) => (condition as { id?: string }).id)
+            .find(Boolean);
+          const name = where.OR
+            .map((condition) => (condition as { name?: { equals?: string } }).name?.equals)
+            .find(Boolean);
+          const found =
+            (id ? itemDefinitions.get(id) : null) ??
+            Array.from(itemDefinitions.values()).find(
+              (definition) => name && definition.name.toLowerCase() === name.toLowerCase(),
+            ) ??
+            null;
+          return Promise.resolve(found);
+        }),
         findUnique: jest.fn(({ where }: { where: { id: string } }) =>
           Promise.resolve(itemDefinitions.get(where.id) ?? null),
         ),
@@ -153,12 +169,16 @@ describe("InventoryRuntimeService", () => {
             where,
             include,
           }: {
-            where: { containerEntryId: string };
+            where: { containerEntryId?: string; sessionCharacterId?: string };
             include?: Record<string, unknown>;
           }) =>
             Promise.resolve(
               Array.from(entries.values())
-                .filter((entry) => entry.containerEntryId === where.containerEntryId)
+                .filter((entry) =>
+                  where.containerEntryId !== undefined
+                    ? entry.containerEntryId === where.containerEntryId
+                    : entry.sessionCharacterId === where.sessionCharacterId,
+                )
                 .map((entry) => attachIncludes(entry, include)),
             ),
         ),
@@ -218,6 +238,9 @@ describe("InventoryRuntimeService", () => {
             return Promise.resolve(next);
           },
         ),
+      },
+      sessionCharacter: {
+        update: jest.fn().mockResolvedValue({}),
       },
     });
 

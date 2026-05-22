@@ -9,7 +9,6 @@ import type {
 import { BattleMapBackgroundLayer } from './BattleMapBackgroundLayer';
 import type { BattleMapGridLine } from './BattleMapBackgroundLayer';
 import { BattleMapCanvas } from './BattleMapCanvas';
-import type { BattleMapCanvasProps } from './BattleMapCanvas';
 import {
   BattleMapEditorToolbarControls,
   buildBattleMapEditorSubtoolbarControls,
@@ -35,6 +34,7 @@ import type { BattleMapTokenDragMeasure } from './BattleMapTokenMovePreview';
 import { BattleMapVisionMaskLayer } from './BattleMapVisionMaskLayer';
 import { BattleMapWorkspace } from './BattleMapWorkspace';
 import type { TokenHealthFrame } from './TokenFrame';
+import { useBattleMapPointerInput } from './useBattleMapPointerInput';
 import { useCanvasImage } from './useCanvasImage';
 import type { Character } from '../../types/session';
 import {
@@ -765,7 +765,6 @@ export function BattleMap({
   const tokenDragFrameRef = useRef<number | null>(null);
   const [pings, setPings] = useState<PingMarker[]>([]);
   const [pingClock, setPingClock] = useState(Date.now());
-  const suppressStageClickRef = useRef(false);
   const [monsterSearch, setMonsterSearch] = useState('');
   const canEditMap = isHost && interactionMode === 'editor';
   const showMapChrome = interactionMode === 'editor';
@@ -1861,13 +1860,6 @@ export function BattleMap({
     };
   }
 
-  function getWorldPointer(pointer: { x: number; y: number }) {
-    return {
-      x: (pointer.x - stagePosition.x) / scale,
-      y: (pointer.y - stagePosition.y) / scale,
-    };
-  }
-
   function getTileFromPoint(point: { x: number; y: number }) {
     return {
       column: Math.floor(clamp(point.x, 0, map.width - 1) / map.gridSize) + 1,
@@ -1977,10 +1969,15 @@ export function BattleMap({
 
   const activeMapPings = useMemo(
     () =>
-      (map.pings ?? []).filter((ping) => {
-        const expiresAt = Date.parse(ping.expiresAt);
-        return Number.isFinite(expiresAt) && expiresAt > pingClock;
-      }),
+      (map.pings ?? [])
+        .filter((ping) => {
+          const expiresAt = Date.parse(ping.expiresAt);
+          return Number.isFinite(expiresAt) && expiresAt > pingClock;
+        })
+        .map((ping) => ({
+          ...ping,
+          label: ping.label ?? '!',
+        })),
     [map.pings, pingClock]
   );
 
@@ -1998,16 +1995,6 @@ export function BattleMap({
     setZoom(1);
     setStagePosition({ x: 0, y: 0 });
     setPanMode(false);
-  }
-
-  function handleStageDragEnd(
-    event: Parameters<NonNullable<BattleMapCanvasProps['onDragEnd']>>[0]
-  ) {
-    const stage = event.target.getStage();
-    if (!stage || event.target !== stage) return;
-
-    setStagePosition({ x: stage.x(), y: stage.y() });
-    suppressStageClickRef.current = true;
   }
 
   function hideFullMap() {
@@ -2045,31 +2032,48 @@ export function BattleMap({
     setSelectedFogId(null);
   }
 
-  function handleStagePointerDown(
-    event: Parameters<NonNullable<BattleMapCanvasProps['onMouseDown']>>[0]
-  ) {
-    if (!canEditMap || isPanMode || event.evt.button !== 0) return;
-    const stage = event.target.getStage();
-    const pointer = stage?.getPointerPosition();
-    if (!pointer) return;
-    const isBackgroundTarget = event.target === stage || event.target.name() === 'map-background';
-
-    const world = getWorldPointer(pointer);
-    setSelectedTokenId(null);
-    setSelectedFogId(null);
-    setSelectedMapStructure(null);
-
-    if (mapStructureTool) {
-      if (!isBackgroundTarget) return;
-      setStructureDragStart({ kind: mapStructureTool, point: world });
-      setStructureDraft({ kind: mapStructureTool, box: getSnappedStructureBox(world, world) });
-      return;
-    }
-
-    if (!isFogMode) return;
-    setFogDragStart(world);
-    setFogDraft(null);
-  }
+  const {
+    getWorldPointer,
+    handleStageClick,
+    handleStageDragEnd,
+    handleStageMouseMove,
+    handleStagePointerDown,
+    handleStagePointerUp,
+  } = useBattleMapPointerInput({
+    map,
+    scale,
+    stagePosition,
+    setStagePosition,
+    canEditMap,
+    isPanMode,
+    isFogMode,
+    isFogSnapEnabled,
+    isPingMode,
+    isMeasureMode,
+    measureStart,
+    measureEnd,
+    mapStructureTool,
+    structureDragStart,
+    structureDraft,
+    fogDragStart,
+    fogDraft,
+    setSelectedTokenId,
+    setSelectedFogId,
+    setSelectedMapStructure,
+    setStructureDragStart,
+    setStructureDraft,
+    setFogDragStart,
+    setFogDraft,
+    setMeasurePreview,
+    getSnappedStructureBox,
+    normalizeFogBox,
+    addStructureBox,
+    extendObjectCell,
+    applyFogBox,
+    addPingAt,
+    handleMeasureClick,
+    emitTileSelection,
+  });
 
   function beginObjectExtensionDrag(
     cell: ObjectCell,
@@ -2101,59 +2105,6 @@ export function BattleMap({
       targetObjectId: cell.id,
     });
     setStructureDraft({ kind: 'object', box: getSnappedStructureBox(world, world) });
-  }
-
-  function handleStagePointerMove(
-    event: Parameters<NonNullable<BattleMapCanvasProps['onMouseMove']>>[0]
-  ) {
-    const stage = event.target.getStage();
-    const pointer = stage?.getPointerPosition();
-    if (!pointer) return;
-    const world = getWorldPointer(pointer);
-
-    if (structureDragStart) {
-      setStructureDraft({
-        kind: structureDragStart.kind,
-        box: getSnappedStructureBox(structureDragStart.point, world),
-      });
-      return;
-    }
-
-    if (fogDragStart) {
-      setFogDraft(normalizeFogBox(fogDragStart, world, map, isFogSnapEnabled));
-    }
-  }
-
-  function handleStageMouseMove(
-    event: Parameters<NonNullable<BattleMapCanvasProps['onMouseMove']>>[0]
-  ) {
-    handleStagePointerMove(event);
-
-    if (!isMeasureMode || !measureStart || measureEnd) return;
-    const stage = event.target.getStage();
-    const pointer = stage?.getPointerPosition();
-    if (!pointer) return;
-    setMeasurePreview(getWorldPointer(pointer));
-  }
-
-  function handleStagePointerUp() {
-    if (structureDragStart && structureDraft) {
-      if (structureDragStart.mode === 'extend' && structureDragStart.targetObjectId) {
-        extendObjectCell(structureDragStart.targetObjectId, structureDraft.box);
-      } else {
-        addStructureBox(structureDraft.kind, structureDraft.box);
-      }
-      suppressStageClickRef.current = true;
-    }
-    setStructureDragStart(null);
-    setStructureDraft(null);
-
-    if (fogDraft) {
-      applyFogBox(fogDraft);
-      suppressStageClickRef.current = true;
-    }
-    setFogDragStart(null);
-    setFogDraft(null);
   }
 
   function beginTokenDragMeasure(token: VttMapStateDto['tokens'][number]) {
@@ -2392,35 +2343,7 @@ export function BattleMap({
               event.evt.preventDefault();
               setZoom((value) => clamp(value + (event.evt.deltaY > 0 ? -0.25 : 0.25), 0.5, 2));
             }}
-            onClick={(event) => {
-              if (suppressStageClickRef.current) {
-                suppressStageClickRef.current = false;
-                return;
-              }
-              const stage = event.target.getStage();
-              const pointer = stage?.getPointerPosition();
-              if (!pointer) return;
-              if (event.target === stage || event.target.name() === 'map-background') {
-                setSelectedTokenId(null);
-                setSelectedFogId(null);
-                setSelectedMapStructure(null);
-              }
-              const world = getWorldPointer(pointer);
-              if (isPingMode) {
-                void addPingAt(world);
-                return;
-              }
-              if (isMeasureMode) {
-                handleMeasureClick(world);
-                return;
-              }
-              if (event.target === stage || event.target.name() === 'map-background') {
-                if (canEditMap && mapStructureTool) {
-                  return;
-                }
-                emitTileSelection(world);
-              }
-            }}
+            onClick={handleStageClick}
           >
             <BattleMapBackgroundLayer map={map} mapImage={mapImage} gridLines={gridLines} />
 

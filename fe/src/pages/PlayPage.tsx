@@ -3260,6 +3260,12 @@ export function PlayPage({
 
   function handleMapChange(nextMap: VttMapStateDto) {
     if (!session) return;
+    if (!canManageStartedSession) {
+      setVttMap(nextMap);
+      setMapLoadError(null);
+      return;
+    }
+
     mapSaveRef.current.activeSessionId = session.id;
     mapSaveRef.current.pending = nextMap;
     setVttMap(nextMap);

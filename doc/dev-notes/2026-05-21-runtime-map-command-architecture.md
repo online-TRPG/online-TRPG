@@ -527,6 +527,25 @@ PUT /sessions/:id/gm/map
 - `SessionsService` 안에 남은 door/object/hazard 세부 구현도 더 작게 나눌 수 있다.
 - 프론트 `BattleMapCore`는 주요 UI/layer 분리가 끝났고, 추가 분리는 포인터 입력 hook 추출 정도가 남았다.
 
+## 2026-05-22 26차 구현 반영
+
+26차 구현에서는 남은 구조 작업 2개를 진행했다.
+
+- `VttMapDoorRuntimeService`, `VttMapObjectRuntimeService`, `VttMapHazardRuntimeService`를 추가해 맵 상호작용 command의 문/오브젝트/함정별 runtime helper 경계를 만들었다.
+- `VttMapInteractionRuntimeService`는 상호작용 요청의 세션/대상 해석과 domain helper 조립에 집중하고, 각 상호작용 세부 처리는 전용 helper로 위임한다.
+- `useBattleMapPointerInput` hook을 추가해 `BattleMapCore`에 남아 있던 stage drag/click/fog/structure/measure/ping 포인터 입력 처리를 분리했다.
+- `BattleMapCore`는 포인터 입력 handler를 hook에서 받아 canvas에 연결하고, object extension처럼 선택 상태와 강하게 묶인 일부 편집 동작만 유지한다.
+
+남은 작업은 런타임 helper 내부에서 아직 `SessionsService`의 저장/정규화/공개 처리 유틸을 재사용하는 부분을 더 독립적인 map runtime support 계층으로 옮길지 여부를 판단하는 정도다.
+
+## 2026-05-22 27차 안정화 반영
+
+전투 종료 후 탐색 화면 전환 시 플레이어 클라이언트에서 레거시 전체 맵 저장 경로가 호출되면 `PATCH /sessions/:id/map`이 403을 반환해 화면 오류가 나는 문제가 남아 있었다.
+
+- 프론트 `PlayPage.handleMapChange`는 비호스트 플레이어 상태에서는 전체 맵 저장 큐를 타지 않고 로컬 상태만 갱신한다.
+- 백엔드 레거시 `PATCH /sessions/:id/map`은 비호스트 플레이어 요청을 오류로 터뜨리지 않고, 쓰기를 무시한 뒤 현재 canonical player map을 반환한다.
+- 이 경로는 플레이어 command API가 누락된 UI fallback이 남아 있어도 맵 상태를 덮어쓰지 않으며, 전환 직후 사용자에게 403을 노출하지 않는 방어선이다.
+
 ## 2026-05-21 12차 구현 반영
 
 12차 구현에서는 `BattleMapCore`의 나머지 레이아웃 shell을 더 분리했다.

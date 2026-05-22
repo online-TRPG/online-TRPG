@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, Logger } from "@nestjs/common";
-import { CombatStatus as PrismaCombatStatus } from "@prisma/client";
+import { CombatStatus as PrismaCombatStatus, GamePhase as PrismaGamePhase } from "@prisma/client";
 import { randomUUID } from "crypto";
 import {
   CreateVttMapPingDto,
@@ -111,13 +111,25 @@ export class MapRuntimeService {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     const resolvedSessionId = session.id;
     await this.sessionsService.ensureMembership(userId, resolvedSessionId);
-    const { state, sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(resolvedSessionId);
+    let { state, sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(resolvedSessionId);
     const activeCombat = await this.prisma.combat.findFirst({
       where: { sessionId: resolvedSessionId, status: PrismaCombatStatus.ACTIVE },
       select: { id: true },
     });
     if (activeCombat) {
-      throw new ForbiddenException("Combat movement must use the combat move command.");
+      if (state.phase === PrismaGamePhase.COMBAT) {
+        throw new ForbiddenException("Combat movement must use the combat move command.");
+      }
+
+      this.logger.warn(
+        `[VTT_STALE_ACTIVE_COMBAT_SELF_HEAL] sessionId=${resolvedSessionId} activeCombatId=${activeCombat.id} phase=${state.phase}`,
+      );
+      await this.sessionsService.completeActiveCombatState(resolvedSessionId);
+      this.realtimeEvents.emitSessionSnapshot(
+        resolvedSessionId,
+        await this.sessionsService.buildSnapshot(resolvedSessionId),
+      );
+      ({ state, sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(resolvedSessionId));
     }
 
     const flags = this.sessionsService.parseJson<Record<string, unknown>>(state.flagsJson, {});

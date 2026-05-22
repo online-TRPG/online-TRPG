@@ -45,6 +45,7 @@ type ExplorationActionButton = {
   // 기본 탐험 행동은 전투/채팅 버튼과 바로 구분되도록 RPG풍 아이콘을 함께 표시합니다.
   iconName?: GameIconName;
 };
+type ExplorationLocalAction = NonNullable<ExplorationActionButton['localAction']>;
 
 interface ExplorationNodeSurfaceProps {
   node: PlayerScenarioNodeDto | null;
@@ -459,8 +460,8 @@ function isDetectedArmedHazardSelection(selection: BattleMapSelection | null): b
 
 function getBasePositionActions(): ExplorationActionButton[] {
   return [
-    { label: '이동', localAction: 'move', iconName: getExplorationActionIconName('이동') },
-    { label: '핑 찍기', localAction: 'ping', iconName: getExplorationActionIconName('핑 찍기') },
+    { label: '이동', localAction: 'move' satisfies ExplorationLocalAction, iconName: getExplorationActionIconName('이동') },
+    { label: '핑 찍기', localAction: 'ping' satisfies ExplorationLocalAction, iconName: getExplorationActionIconName('핑 찍기') },
   ];
 }
 
@@ -505,20 +506,20 @@ function getContextActions(selection: BattleMapSelection | null): ExplorationAct
   if (selection.kind === 'door') {
     return [
       ...positionActions,
-      { label: '열기', localAction: 'open_door', iconName: getExplorationActionIconName('열기') },
-      { label: '닫기', localAction: 'close_door', iconName: getExplorationActionIconName('열기') },
+      { label: '열기', localAction: 'open_door' satisfies ExplorationLocalAction, iconName: getExplorationActionIconName('열기') },
+      { label: '닫기', localAction: 'close_door' satisfies ExplorationLocalAction, iconName: getExplorationActionIconName('열기') },
       command('조사', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}을 조사합니다.`),
       command('잠금 해제', ExplorationMainCommandIntent.INTERACT_OBJECT, selection, `${targetLabel}의 잠금을 해제합니다.`),
-      { label: '부수기', localAction: 'break_door', iconName: getExplorationActionIconName('부수기') },
+      { label: '부수기', localAction: 'break_door' satisfies ExplorationLocalAction, iconName: getExplorationActionIconName('부수기') },
     ];
   }
 
   if (selection.kind === 'object') {
-    const hazardActions = isDetectedArmedHazardSelection(selection)
+    const hazardActions: ExplorationActionButton[] = isDetectedArmedHazardSelection(selection)
       ? [
           {
             label: '함정 해제',
-            localAction: 'disarm_hazard',
+            localAction: 'disarm_hazard' satisfies ExplorationLocalAction,
             iconName: getExplorationActionIconName('함정 해제'),
           },
         ]
@@ -527,11 +528,7 @@ function getContextActions(selection: BattleMapSelection | null): ExplorationAct
     return [
       ...positionActions,
       ...hazardActions,
-      {
-        label: '조사',
-        localAction: 'investigate_object',
-        iconName: getExplorationActionIconName('조사'),
-      },
+      command('조사', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}을 조사합니다.`),
     ];
   }
 

@@ -104,7 +104,7 @@ export const AUTH_TOKEN_REISSUED_EVENT = 'trpg:auth-token-reissued';
 export const DEFAULT_SCENARIO_ID = 'scenario_77758fa0-3b35-4f95-bb2d-0ffe11c989ac';
 const DEFAULT_RULE_SET_ID = 'dnd5e';
 
-type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
 interface CharacterMutationPayload {
   name: string;
