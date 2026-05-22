@@ -22,6 +22,7 @@ import {
   GamePhase,
   GmMode,
   MainCommandTargetType,
+  MainCommandStatus,
   ParticipantRole,
   ScenarioNodeType,
   SessionParticipantStatus,
@@ -1354,4 +1355,124 @@ export class UpdateVttMapDto {
   @ValidateNested()
   @Type(() => VttMapStateDto)
   map!: VttMapStateDto;
+}
+
+export class VttMapPointDto {
+  @ApiProperty()
+  @IsNumber()
+  x!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  y!: number;
+}
+
+export class MoveSessionTokenDto {
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  tokenId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  sessionCharacterId?: string | null;
+
+  @ApiProperty({ type: VttMapPointDto })
+  @ValidateNested()
+  @Type(() => VttMapPointDto)
+  to!: VttMapPointDto;
+
+  @ApiPropertyOptional({ type: [VttMapPointDto] })
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => VttMapPointDto)
+  path?: VttMapPointDto[];
+
+  @ApiPropertyOptional({ enum: ["normal", "jump"], default: "normal" })
+  @IsOptional()
+  @IsString()
+  movementMode?: "normal" | "jump";
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  clientMapVersion?: number;
+}
+
+export class CreateVttMapPingDto {
+  @ApiProperty()
+  @IsNumber()
+  x!: number;
+
+  @ApiProperty()
+  @IsNumber()
+  y!: number;
+
+  @ApiPropertyOptional({ default: "!" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(8)
+  label?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  clientMapVersion?: number;
+}
+
+export class VttMapInteractionDto {
+  @ApiProperty({ enum: ["open_door", "close_door", "break_door", "investigate_object", "disarm_hazard", "detect_hazard", "trigger_object"] })
+  @IsIn(["open_door", "close_door", "break_door", "investigate_object", "disarm_hazard", "detect_hazard", "trigger_object"])
+  kind!:
+    | "open_door"
+    | "close_door"
+    | "break_door"
+    | "investigate_object"
+    | "disarm_hazard"
+    | "detect_hazard"
+    | "trigger_object";
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  targetId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  actorSessionCharacterId?: string | null;
+
+  @ApiPropertyOptional({ type: VttMapPointDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => VttMapPointDto)
+  mapPoint?: VttMapPointDto | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  itemId?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  clientMapVersion?: number;
+}
+
+export class VttMapInteractionResponseDto {
+  @ApiProperty({ enum: MainCommandStatus })
+  status!: MainCommandStatus;
+
+  @ApiProperty()
+  message!: string;
+
+  @ApiPropertyOptional({ type: VttMapStateDto, nullable: true })
+  map?: VttMapStateDto | null;
+
+  @ApiPropertyOptional({ type: [Object] })
+  checkOptions?: Record<string, unknown>[];
+
+  @ApiPropertyOptional({ type: Object, nullable: true })
+  data?: Record<string, unknown> | null;
 }

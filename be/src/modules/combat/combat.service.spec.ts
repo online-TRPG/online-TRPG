@@ -90,8 +90,12 @@ describe("CombatService lifecycle", () => {
     const sessionsService = {
       getSessionEntityOrThrow: jest.fn(),
       ensureMembership: jest.fn(),
-      getGameStateEntityOrThrow: jest.fn(),
+      getGameStateEntityOrThrow: jest.fn().mockResolvedValue({
+        sessionScenario: { id: "session-scenario-1" },
+        state: { flagsJson: "{}", currentNodeId: null },
+      }),
       getVttMapForUser: jest.fn().mockResolvedValue({ tokens: [] }),
+      saveSystemVttMap: jest.fn(),
       buildSnapshot: jest.fn(),
     };
     const diceService = {
@@ -110,6 +114,7 @@ describe("CombatService lifecycle", () => {
       getOrCreateTurnState: jest.fn(),
       spendAction: jest.fn(),
       spendSneakAttack: jest.fn(),
+      recordAttackAction: jest.fn(),
     };
     const characterResources = {
       endRage: jest.fn(),
@@ -137,6 +142,7 @@ describe("CombatService lifecycle", () => {
       service: new CombatService(
         prisma as never,
         sessionsService as never,
+        { saveSystemVttMap: sessionsService.saveSystemVttMap } as never,
         diceService as never,
         actionRules as never,
         actionEconomy as never,
@@ -421,6 +427,7 @@ describe("CombatService lifecycle", () => {
     });
     sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
       sessionScenario: { id: "session-scenario-1" },
+      state: { flagsJson: "{}", currentNodeId: null },
     });
     sessionsService.getVttMapForUser.mockResolvedValue({
       width: 200,
