@@ -11,12 +11,14 @@ import type {
   CombatReactionResponseDto,
   CombatResponseDto,
   CreateScenarioDto,
+  CreateVttMapPingDto,
   EquippedWeaponAttackDto,
   EndTurnDto,
   GmMode,
   LoginResponseDto,
   MainCommandResponseDto,
   MoveCombatParticipantDto,
+  MoveSessionTokenDto,
   OAuthUrlResponseDto,
   ResolveCombatAttackDto,
   ResolveMainCommandCheckDto,
@@ -42,6 +44,8 @@ import type {
   UploadScenarioAssetDto,
   UploadScenarioNodeImageDto,
   UserResponseDto,
+  VttMapInteractionDto,
+  VttMapInteractionResponseDto,
   VttMapStateDto,
   SessionListItemResponseDto,
   SessionParticipantResponseDto,
@@ -100,7 +104,7 @@ export const AUTH_TOKEN_REISSUED_EVENT = 'trpg:auth-token-reissued';
 export const DEFAULT_SCENARIO_ID = 'scenario_77758fa0-3b35-4f95-bb2d-0ffe11c989ac';
 const DEFAULT_RULE_SET_ID = 'dnd5e';
 
-type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
 interface CharacterMutationPayload {
   name: string;
@@ -906,6 +910,63 @@ export function updateVttMap(
   const payload: UpdateVttMapDto = { map };
   return requestJson<VttMapStateDto>(`/sessions/${sessionId}/map`, {
     method: 'PATCH',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function updateGmVttMap(
+  user: StoredUser,
+  sessionId: string,
+  map: VttMapStateDto,
+  accessToken?: string | null
+): Promise<VttMapStateDto> {
+  const payload: UpdateVttMapDto = { map };
+  return requestJson<VttMapStateDto>(`/sessions/${sessionId}/gm/map`, {
+    method: 'PUT',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function moveSessionToken(
+  user: StoredUser,
+  sessionId: string,
+  payload: MoveSessionTokenDto,
+  accessToken?: string | null
+): Promise<VttMapStateDto> {
+  return requestJson<VttMapStateDto>(`/sessions/${sessionId}/map/tokens/move`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function createVttMapPing(
+  user: StoredUser,
+  sessionId: string,
+  payload: CreateVttMapPingDto,
+  accessToken?: string | null
+): Promise<VttMapStateDto> {
+  return requestJson<VttMapStateDto>(`/sessions/${sessionId}/map/pings`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function runVttMapInteraction(
+  user: StoredUser,
+  sessionId: string,
+  payload: VttMapInteractionDto,
+  accessToken?: string | null
+): Promise<VttMapInteractionResponseDto> {
+  return requestJson<VttMapInteractionResponseDto>(`/sessions/${sessionId}/map/interactions`, {
+    method: 'POST',
     user,
     accessToken,
     body: payload,
