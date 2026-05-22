@@ -10,6 +10,7 @@ import {
   MainCommandIntent,
   MainCommandStatus,
   MainCommandScreenType,
+  MainCommandTargetType,
   SubmitMainCommandDto,
 } from "@trpg/shared-types";
 import { MainCommandsService } from "./main-commands.service";
@@ -63,6 +64,9 @@ function createMainCommandHarness(options?: {
 }) {
   const screenType = options?.screenType ?? MainCommandScreenType.EXPLORATION;
   const prisma = {
+    gameState: {
+      update: jest.fn().mockResolvedValue({}),
+    },
     sessionReveal: {
       findMany: jest.fn().mockResolvedValue(
         (options?.revealedEventIds ?? []).map((contentId) => ({ contentId })),
@@ -676,6 +680,36 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
     expect(aiService.runInterpreter).toHaveBeenCalledTimes(1);
   });
 
+  it("defers coordinate object reveals until the required investigation check is resolved", async () => {
+    const { sessionsService, submit } = createMainCommandHarness({
+      interpreterResult: {
+        parsed: {
+          needsClarification: false,
+          action: {
+            type: "INVESTIGATE_OBJECT",
+            approach: "inspect the marked ration sack",
+            ability: "int",
+            skill: "investigation",
+            suggestedDifficulty: "easy",
+            confidence: 0.88,
+            requiresRoll: true,
+          },
+        },
+      },
+    });
+
+    const response = await submit({
+      commandId: MainCommandIntent.INVESTIGATE_OBJECT,
+      intent: MainCommandIntent.INVESTIGATE_OBJECT,
+      category: MainCommandCategory.OBSERVATION,
+      playerText: "표식이 새겨진 식량 자루를 조사한다",
+      mapPoint: { x: 896, y: 640 },
+    });
+
+    expect(response.status).toBe(MainCommandStatus.CHECK_REQUIRED);
+    expect(sessionsService.revealVttObjectContentsAtPoint).not.toHaveBeenCalled();
+  });
+
   it("routes natural-language hint requests from the interpreter to the hint handler", async () => {
     const { aiService, submit } = createMainCommandHarness({
       interpreterResult: {
@@ -918,6 +952,8 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
       commandId: MainCommandIntent.SOCIAL_INTIMIDATE,
       intent: MainCommandIntent.SOCIAL_INTIMIDATE,
       category: MainCommandCategory.SOCIAL,
+      targetId: "npc-guard",
+      targetType: MainCommandTargetType.NPC,
       playerText: "뭔가 숨기고 있는게 있는거 같은데? 사실대로 말하지 않으면 그냥 가겠어.",
     });
 
@@ -948,6 +984,8 @@ describe("MainCommandsService.submitMainCommand input routing", () => {
       commandId: MainCommandIntent.SOCIAL_PERSUADE,
       intent: MainCommandIntent.SOCIAL_PERSUADE,
       category: MainCommandCategory.SOCIAL,
+      targetId: "npc-mila",
+      targetType: MainCommandTargetType.NPC,
       playerText: "우린 너흴 도와주러 온거야. 숨기는게 있다면 말을 해줘야 더 잘 도울 수 있어.",
     });
 
@@ -1304,7 +1342,21 @@ describe("MainCommandsService scene transition branch resolution", () => {
     return { service, sessionsService, realtimeEvents };
   };
 
-  const context = {
+  const context: {
+    sessionId: string;
+    sessionScenarioId: string;
+    sessionCharacterId: string;
+    actorCharacterId: string;
+    inventoryItems: unknown[];
+    currentNodeId: string;
+    currentNodeTitle: string;
+    currentNodeSceneText: string;
+    currentNodeTransitionsJson: string;
+    currentNodeCluesJson: string;
+    currentNodeNodeMetaJson: string | null;
+    currentNodeFallbackNodeId: string | null;
+    flagsJson: string | null;
+  } = {
     sessionId: "session-1",
     sessionScenarioId: "session-scenario-1",
     sessionCharacterId: "session-character-1",
@@ -1369,7 +1421,7 @@ describe("MainCommandsService scene transition branch resolution", () => {
     const internals = service as unknown as {
       handleSceneTransition: (
         requestId: string,
-        context: typeof context,
+        loadedContext: typeof context,
         dto: SubmitMainCommandDto,
         recentLogs: string[],
       ) => Promise<{ status: MainCommandStatus; message: string; data?: Record<string, unknown> }>;
@@ -1405,7 +1457,7 @@ describe("MainCommandsService scene transition branch resolution", () => {
     const internals = service as unknown as {
       handleSceneTransition: (
         requestId: string,
-        context: typeof context,
+        loadedContext: typeof context,
         dto: SubmitMainCommandDto,
         recentLogs: string[],
       ) => Promise<{ status: MainCommandStatus; statePatch?: { currentNodeId?: string }; message: string }>;
@@ -1440,7 +1492,7 @@ describe("MainCommandsService scene transition branch resolution", () => {
     const internals = service as unknown as {
       handleSceneTransition: (
         requestId: string,
-        context: typeof context,
+        loadedContext: typeof context,
         dto: SubmitMainCommandDto,
         recentLogs: string[],
       ) => Promise<{ status: MainCommandStatus; message: string }>;
@@ -1572,7 +1624,6 @@ describe("MainCommandsService check result narration", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
     ) as unknown as {
       buildMainCommandCheckResultMessage: (
         effect: Record<string, unknown>,
@@ -1607,7 +1658,7 @@ describe("MainCommandsService check result narration", () => {
 
     expect(success).not.toContain("standard");
     expect(failure).not.toContain("standard");
-    expect(success).toContain("바닥과 그림자를 살펴");
-    expect(failure).toContain("바닥과 그림자를 살펴");
+    expect(success).toContain("판정에 성공했습니다.");
+    expect(failure).toContain("판정에 실패했습니다.");
   });
 });
