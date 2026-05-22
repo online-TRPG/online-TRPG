@@ -41,6 +41,7 @@ import { ActionEconomyService } from "../rules/action-economy.service";
 import { CharacterResourceService } from "../rules/character-resource.service";
 import { DiceService } from "../rules/dice.service";
 import { RuleEngineService } from "../rules/rule-engine.service";
+import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import { SrdEngineLoaderService } from "./srd-engine-loader.service";
@@ -135,6 +136,7 @@ export class CombatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessionsService: SessionsService,
+    private readonly mapRuntimeService: MapRuntimeService,
     private readonly diceService: DiceService,
     private readonly actionRules: ActionRuleService,
     private readonly actionEconomy: ActionEconomyService,
@@ -287,6 +289,7 @@ export class CombatService {
     }
 
     const combat = await this.prisma.$transaction(async (tx) => {
+      await this.lockSessionRuntime(tx, session.id);
       const created = await tx.combat.create({
         data: {
           sessionId: session.id,
@@ -400,6 +403,18 @@ export class CombatService {
         where: { id: created.id },
         include: { participants: { orderBy: { turnOrder: "asc" } } },
       });
+    }).catch((error: unknown) => {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "P2002"
+      ) {
+        throw conflict("COMBAT_409", "이미 전투가 진행 중입니다.", {
+          reason: "ACTIVE_COMBAT_EXISTS",
+        });
+      }
+      throw error;
     });
 
     const response = await this.mapCombat(combat);
@@ -1020,7 +1035,7 @@ export class CombatService {
         label: "Light",
         createdBySessionCharacterId: caster.sessionCharacterId,
       };
-      responseMap = await this.sessionsService.saveSystemVttMap(session.id, {
+      responseMap = await this.mapRuntimeService.saveSystemVttMap(session.id, {
         ...map,
         lightSources: [...(map.lightSources ?? []), lightSource].slice(-40),
         updatedAt: new Date().toISOString(),
@@ -2627,7 +2642,7 @@ export class CombatService {
       },
       data: { movementFtSpent: { increment: movementDistanceFt } },
     });
-    return this.sessionsService.saveSystemVttMap(sessionId, map);
+    return this.mapRuntimeService.saveSystemVttMap(sessionId, map);
   }
 
   private async createOpportunityAttackPromptIfNeeded(params: {
@@ -3152,6 +3167,14 @@ export class CombatService {
         reason: "GM_OR_HOST_REQUIRED",
       });
     }
+  }
+
+  private async lockSessionRuntime(tx: unknown, sessionId: string): Promise<void> {
+    const client = tx as { $executeRaw?: (query: TemplateStringsArray, ...values: unknown[]) => Promise<unknown> };
+    if (!client.$executeRaw) {
+      return;
+    }
+    await client.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sessionId}))`;
   }
 
   private async ensureActorCanAct(

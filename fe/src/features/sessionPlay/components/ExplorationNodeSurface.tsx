@@ -4,11 +4,13 @@ import type {
   PlayerScenarioNodeDto,
   SessionCharacterResponseDto,
   SubmitMainCommandDto,
+  VttMapInteractionDto,
+  VttMapInteractionResponseDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
 import type { CSSProperties } from 'react';
-import { BattleMap } from '../../../components/BattleMap';
-import type { BattleMapSelection } from '../../../components/BattleMap';
+import { SessionBattleMap } from './SessionBattleMap';
+import type { BattleMapSelection } from './SessionBattleMap';
 import { GameIcon } from '../../../components/GameIcon';
 import type { GameIconName } from '../../../components/GameIcon';
 import explorationNodeBadge from '../../../components/node_badge_exploration.webp';
@@ -31,11 +33,19 @@ export type ExplorationMainCommandRequest = {
 type ExplorationActionButton = {
   label: string;
   request?: ExplorationMainCommandRequest;
-  localAction?: 'move' | 'ping';
+  localAction?:
+    | 'move'
+    | 'ping'
+    | 'open_door'
+    | 'close_door'
+    | 'break_door'
+    | 'investigate_object'
+    | 'disarm_hazard';
   disabled?: boolean;
   // 기본 탐험 행동은 전투/채팅 버튼과 바로 구분되도록 RPG풍 아이콘을 함께 표시합니다.
   iconName?: GameIconName;
 };
+type ExplorationLocalAction = NonNullable<ExplorationActionButton['localAction']>;
 
 interface ExplorationNodeSurfaceProps {
   node: PlayerScenarioNodeDto | null;
@@ -51,6 +61,16 @@ interface ExplorationNodeSurfaceProps {
   selectedInventoryItemId?: string;
   getCharacterColorStyle?: (character: SessionCharacterResponseDto) => CSSProperties;
   onMapChange: (map: VttMapStateDto) => void;
+  onTokenMoveRequest?: (
+    token: VttMapStateDto['tokens'][number],
+    to: { x: number; y: number },
+    path: Array<{ x: number; y: number }>,
+    movementMode?: 'normal' | 'jump'
+  ) => Promise<VttMapStateDto | null>;
+  onPingRequest?: (point: { x: number; y: number }, label?: string) => Promise<VttMapStateDto | null>;
+  onMapInteractionRequest?: (
+    interaction: VttMapInteractionDto
+  ) => Promise<VttMapInteractionResponseDto | null>;
   onUseInventoryItem: (item: InventoryItemDto) => void;
   onEquipInventoryItem?: (item: InventoryItemDto) => void;
   onSelectInventoryItem?: (item: InventoryItemDto | null) => void;
@@ -77,6 +97,7 @@ const explorationActionIconNames: Partial<Record<string, GameIconName>> = {
   대화: 'game-icons:conversation',
   조사: 'game-icons:magnifying-glass',
   열기: 'game-icons:open-gate',
+  닫기: 'game-icons:closed-doors',
   '잠금 해제': 'game-icons:padlock-open',
   부수기: 'game-icons:hammer-break',
   '함정 해제': 'game-icons:wolf-trap',
@@ -439,8 +460,8 @@ function isDetectedArmedHazardSelection(selection: BattleMapSelection | null): b
 
 function getBasePositionActions(): ExplorationActionButton[] {
   return [
-    { label: '이동', localAction: 'move', iconName: getExplorationActionIconName('이동') },
-    { label: '핑 찍기', localAction: 'ping', iconName: getExplorationActionIconName('핑 찍기') },
+    { label: '이동', localAction: 'move' satisfies ExplorationLocalAction, iconName: getExplorationActionIconName('이동') },
+    { label: '핑 찍기', localAction: 'ping' satisfies ExplorationLocalAction, iconName: getExplorationActionIconName('핑 찍기') },
   ];
 }
 
@@ -485,22 +506,22 @@ function getContextActions(selection: BattleMapSelection | null): ExplorationAct
   if (selection.kind === 'door') {
     return [
       ...positionActions,
-      command('열기', ExplorationMainCommandIntent.INTERACT_OBJECT, selection, `${targetLabel}을 엽니다.`),
+      { label: '열기', localAction: 'open_door' satisfies ExplorationLocalAction, iconName: getExplorationActionIconName('열기') },
+      { label: '닫기', localAction: 'close_door' satisfies ExplorationLocalAction, iconName: getExplorationActionIconName('열기') },
       command('조사', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}을 조사합니다.`),
       command('잠금 해제', ExplorationMainCommandIntent.INTERACT_OBJECT, selection, `${targetLabel}의 잠금을 해제합니다.`),
-      command('부수기', ExplorationMainCommandIntent.INTERACT_OBJECT, selection, `${targetLabel}을 힘으로 부수려 합니다.`),
+      { label: '부수기', localAction: 'break_door' satisfies ExplorationLocalAction, iconName: getExplorationActionIconName('부수기') },
     ];
   }
 
   if (selection.kind === 'object') {
-    const hazardActions = isDetectedArmedHazardSelection(selection)
+    const hazardActions: ExplorationActionButton[] = isDetectedArmedHazardSelection(selection)
       ? [
-          command(
-            '함정 해제',
-            ExplorationMainCommandIntent.INTERACT_OBJECT,
-            selection,
-            `${targetLabel}의 함정을 해제합니다.`
-          ),
+          {
+            label: '함정 해제',
+            localAction: 'disarm_hazard' satisfies ExplorationLocalAction,
+            iconName: getExplorationActionIconName('함정 해제'),
+          },
         ]
       : [];
 
@@ -528,6 +549,9 @@ export function ExplorationNodeSurface({
   selectedInventoryItemId = '',
   getCharacterColorStyle,
   onMapChange,
+  onTokenMoveRequest,
+  onPingRequest,
+  onMapInteractionRequest,
   onUseInventoryItem,
   onEquipInventoryItem,
   onSelectInventoryItem,
@@ -568,7 +592,7 @@ export function ExplorationNodeSurface({
     return map.tokens.find((token) => token.sessionCharacterId === myCharacter.id) ?? null;
   }
 
-  function handleLocalMapAction(action: NonNullable<ExplorationActionButton['localAction']>) {
+  async function handleLocalMapAction(action: NonNullable<ExplorationActionButton['localAction']>) {
     if (!mapSelection) {
       setMapActionFeedback('먼저 맵 타일이나 대상을 선택해 주세요.');
       return;
@@ -579,6 +603,13 @@ export function ExplorationNodeSurface({
     }
 
     if (action === 'ping') {
+      if (onPingRequest) {
+        const savedMap = await onPingRequest(mapSelection.point, '!');
+        setMapActionFeedback(
+          savedMap ? '선택한 위치에 핑을 찍었습니다.' : '핑을 찍지 못했습니다.'
+        );
+        return;
+      }
       const expiresAt = new Date(Date.now() + 2200).toISOString();
       onMapChange({
         ...map,
@@ -598,6 +629,33 @@ export function ExplorationNodeSurface({
       return;
     }
 
+    if (
+      action === 'open_door' ||
+      action === 'close_door' ||
+      action === 'break_door' ||
+      action === 'investigate_object' ||
+      action === 'disarm_hazard'
+    ) {
+      if (!onMapInteractionRequest) {
+        setMapActionFeedback('맵 상호작용을 처리할 수 없습니다.');
+        return;
+      }
+      const response = await onMapInteractionRequest({
+        kind: action,
+        targetId:
+          mapSelection.kind !== 'token' && mapSelection.kind !== 'tile'
+            ? mapSelection.cell.id
+            : undefined,
+        mapPoint: {
+          x: Math.round(mapSelection.point.x),
+          y: Math.round(mapSelection.point.y),
+        },
+        actorSessionCharacterId: myCharacter?.id ?? null,
+      });
+      setMapActionFeedback(response?.message ?? '맵 상호작용을 처리하지 못했습니다.');
+      return;
+    }
+
     const controlledToken = getControlledToken();
     if (!controlledToken) {
       setMapActionFeedback('이동할 내 캐릭터 토큰이 맵에 없습니다.');
@@ -607,6 +665,19 @@ export function ExplorationNodeSurface({
     const nextPosition = findReachableTokenMove(map, controlledToken, mapSelection.tile);
     if (!nextPosition) {
       setMapActionFeedback('해당 타일까지 이동 가능한 경로가 없습니다.');
+      return;
+    }
+
+    if (onTokenMoveRequest) {
+      const savedMap = await onTokenMoveRequest(controlledToken, nextPosition, [
+        { x: controlledToken.x, y: controlledToken.y },
+        nextPosition,
+      ]);
+      setMapActionFeedback(
+        savedMap
+          ? `${controlledToken.name} 토큰을 선택한 타일로 이동했습니다.`
+          : `${controlledToken.name} 토큰을 이동하지 못했습니다.`
+      );
       return;
     }
 
@@ -654,13 +725,14 @@ export function ExplorationNodeSurface({
               onCharacterClick={(character) => setSelectedMapCharacterId(character.id)}
             />
             {map ? (
-              <BattleMap
+              <SessionBattleMap
                 map={map}
                 characters={characters}
                 isHost={isHost}
                 currentUserId={currentUserId}
-                interactionMode="session"
-                onChange={onMapChange}
+                onMapChange={onMapChange}
+                onTokenMoveRequest={onTokenMoveRequest}
+                onPingRequest={onPingRequest}
                 onSelectionChange={(nextSelection) =>
                   setMapSelection((current) =>
                     isSameMapSelection(current, nextSelection) ? null : nextSelection
@@ -736,7 +808,7 @@ export function ExplorationNodeSurface({
                   }
                   onClick={() => {
                     if (action.localAction) {
-                      handleLocalMapAction(action.localAction);
+                      void handleLocalMapAction(action.localAction);
                       return;
                     }
                     if (!action.request) return;
