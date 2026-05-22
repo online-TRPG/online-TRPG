@@ -8,21 +8,25 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from "@nestjs/common";
 import {
   ApiCreatedResponse,
   ApiNoContentResponse,
   ApiOkResponse,
+  ApiOperation,
   ApiParam,
   ApiSecurity,
   ApiTags,
 } from "@nestjs/swagger";
 import {
   CreateSessionDto,
+  CreateVttMapPingDto,
   GameStateResponseDto,
   HumanGmMessageDto,
   JoinSessionDto,
+  MoveSessionTokenDto,
   ParticipantStatusResponseDto,
   PlayerScenarioViewDto,
   RevealSessionContentDto,
@@ -39,16 +43,22 @@ import {
   UpdateSessionDto,
   UpdateSessionNodeDto,
   UpdateVttMapDto,
+  VttMapInteractionDto,
+  VttMapInteractionResponseDto,
   VttMapStateDto,
 } from "@trpg/shared-types";
 import { ApiResponse, apiResponse } from "../../common/api-response";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
+import { MapRuntimeService } from "./map-runtime.service";
 import { SessionsService } from "./sessions.service";
 
 @ApiTags("sessions")
 @Controller("sessions")
 export class SessionsController {
-  constructor(private readonly sessionsService: SessionsService) {}
+  constructor(
+    private readonly sessionsService: SessionsService,
+    private readonly mapRuntimeService: MapRuntimeService,
+  ) {}
 
   @Get()
   @ApiSecurity("x-user-id")
@@ -255,6 +265,10 @@ export class SessionsController {
   @Patch(":id/map")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
+  @ApiOperation({
+    summary: "Legacy whole-map update endpoint.",
+    deprecated: true,
+  })
   @ApiOkResponse({ type: VttMapStateDto })
   async updateVttMap(
     @CurrentUserId() userId: string,
@@ -265,6 +279,73 @@ export class SessionsController {
       "SESSION_200",
       "VTT map updated.",
       await this.sessionsService.updateVttMap(userId, sessionId, dto),
+    );
+  }
+
+  @Put(":id/gm/map")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: VttMapStateDto })
+  async updateGmVttMap(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: UpdateVttMapDto,
+  ): Promise<ApiResponse<VttMapStateDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM VTT map updated.",
+      await this.mapRuntimeService.updateGmVttMap(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/map/tokens/move")
+  @HttpCode(200)
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: VttMapStateDto })
+  async moveSessionToken(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: MoveSessionTokenDto,
+  ): Promise<ApiResponse<VttMapStateDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "VTT token moved.",
+      await this.mapRuntimeService.moveSessionToken(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/map/pings")
+  @HttpCode(200)
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: VttMapStateDto })
+  async createVttMapPing(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: CreateVttMapPingDto,
+  ): Promise<ApiResponse<VttMapStateDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "VTT map ping created.",
+      await this.mapRuntimeService.createVttMapPing(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/map/interactions")
+  @HttpCode(200)
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: VttMapInteractionResponseDto })
+  async runVttMapInteraction(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: VttMapInteractionDto,
+  ): Promise<ApiResponse<VttMapInteractionResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "VTT map interaction handled.",
+      await this.mapRuntimeService.runVttMapInteraction(userId, sessionId, dto),
     );
   }
 

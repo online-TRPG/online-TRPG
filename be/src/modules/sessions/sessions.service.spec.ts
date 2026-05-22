@@ -246,6 +246,26 @@ describe("SessionsService VTT map structures", () => {
       requested: Record<string, unknown>,
       allowFullMapShell?: boolean,
     ) => void;
+    applyPlayerVttMapUpdate: (
+      userId: string,
+      sessionId: string,
+      sessionScenarioId: string,
+      state: { currentNodeId: string | null; flagsJson: string | null },
+      requestedMap: Record<string, unknown>,
+      allowFullMapShell?: boolean,
+    ) => Promise<Record<string, unknown>>;
+    getVttMapBaseline: jest.Mock;
+    getControlledSessionCharacterIds: jest.Mock;
+    spendCombatMovement: jest.Mock;
+    prisma: {
+      combat: {
+        findFirst: jest.Mock;
+      };
+    };
+    logger: {
+      debug: jest.Mock;
+      warn: jest.Mock;
+    };
     ensureTokenPathIsReachable: (
       map: Record<string, unknown>,
       fromToken: Record<string, unknown>,
@@ -417,13 +437,91 @@ describe("SessionsService VTT map structures", () => {
     ).not.toThrow();
   });
 
+  it("keeps stale uncontrolled token positions from blocking another player move", async () => {
+    const baseline = service.normalizeVttMap(
+      {
+        id: "map-1",
+        scenarioNodeId: "node-2",
+        width: 640,
+        height: 480,
+        gridSize: 64,
+        tokens: [
+          {
+            id: "token-a",
+            sessionCharacterId: "session-character-a",
+            name: "A",
+            x: 64,
+            y: 0,
+            size: 64,
+          },
+          {
+            id: "token-b",
+            sessionCharacterId: "session-character-b",
+            name: "B",
+            x: 0,
+            y: 64,
+            size: 64,
+          },
+        ],
+        fogRects: [],
+      },
+      "node-2",
+    );
+    const requested = service.normalizeVttMap(
+      {
+        ...baseline,
+        tokens: [
+          {
+            ...(baseline.tokens as Array<Record<string, unknown>>)[0],
+            x: 0,
+            y: 0,
+          },
+          {
+            ...(baseline.tokens as Array<Record<string, unknown>>)[1],
+            x: 64,
+            y: 64,
+          },
+        ],
+      },
+      "node-2",
+    );
+    service.getVttMapBaseline = jest.fn().mockResolvedValue(baseline);
+    service.getControlledSessionCharacterIds = jest
+      .fn()
+      .mockResolvedValue(new Set(["session-character-b"]));
+    service.spendCombatMovement = jest.fn().mockResolvedValue(undefined);
+    service.prisma = {
+      combat: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+    };
+    service.logger = {
+      debug: jest.fn(),
+      warn: jest.fn(),
+    };
+
+    const result = await service.applyPlayerVttMapUpdate(
+      "user-b",
+      "session-1",
+      "session-scenario-1",
+      { currentNodeId: "node-2", flagsJson: "{}" },
+      requested,
+      false,
+    );
+
+    expect(result.tokens).toEqual([
+      expect.objectContaining({ id: "token-a", x: 64, y: 0 }),
+      expect.objectContaining({ id: "token-b", x: 64, y: 64 }),
+    ]);
+  });
+
   it("adds newly revealed hidden object items to the investigating character inventory", async () => {
     const tx = {
       sessionScenarioNode: {
         findUnique: jest.fn().mockResolvedValue({ cluesJson: "[]" }),
       },
       itemDefinition: {
-        findMany: jest.fn().mockResolvedValue([{ id: "item.rope", name: "Rope" }]),
+        findMany: jest.fn().mockResolvedValue([{ id: "item.rope", name: "Rope", description: "50 feet of hempen rope." }]),
       },
       sessionReveal: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -492,7 +590,9 @@ describe("SessionsService VTT map structures", () => {
       ],
     });
     expect(runtimeService.refreshSessionInventorySnapshot).toHaveBeenCalledWith("session-character-1");
-    expect(result.revealedItems).toEqual([{ id: "item.rope", name: "Rope", quantity: 1 }]);
+    expect(result.revealedItems).toEqual([
+      { id: "item.rope", name: "Rope", quantity: 1, description: "50 feet of hempen rope." },
+    ]);
   });
 
   it("grants hidden object items when a previous reveal exists without party inventory", async () => {
@@ -501,7 +601,7 @@ describe("SessionsService VTT map structures", () => {
         findUnique: jest.fn().mockResolvedValue({ cluesJson: "[]" }),
       },
       itemDefinition: {
-        findMany: jest.fn().mockResolvedValue([{ id: "item.rope", name: "Rope" }]),
+        findMany: jest.fn().mockResolvedValue([{ id: "item.rope", name: "Rope", description: "50 feet of hempen rope." }]),
       },
       sessionReveal: {
         findMany: jest.fn().mockResolvedValue([{ contentId: "item.rope", contentKind: "item" }]),
@@ -571,7 +671,9 @@ describe("SessionsService VTT map structures", () => {
       ],
     });
     expect(result.count).toBe(1);
-    expect(result.revealedItems).toEqual([{ id: "item.rope", name: "Rope", quantity: 1 }]);
+    expect(result.revealedItems).toEqual([
+      { id: "item.rope", name: "Rope", quantity: 1, description: "50 feet of hempen rope." },
+    ]);
   });
 
   it("does not require another investigation check after an object's hidden contents are exhausted", async () => {
@@ -731,5 +833,53 @@ describe("SessionsService VTT map structures", () => {
     const toToken = { ...fromToken, x: 64, y: 64 };
 
     expect(() => service.ensureTokenPathIsReachable(map, fromToken, toToken)).not.toThrow();
+  });
+});
+
+describe("SessionsService legacy VTT map updates", () => {
+  it("ignores non-host whole-map writes and returns the canonical player map", async () => {
+    const service = new SessionsService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const canonicalPlayerMap = {
+      id: "canonical-map",
+      scenarioNodeId: "node-exploration",
+      imageUrl: null,
+      gridType: "square",
+      gridSize: 64,
+      width: 640,
+      height: 640,
+      tokens: [],
+      fogRects: [],
+      objectCells: [],
+      updatedAt: "2026-05-22T00:00:00.000Z",
+    };
+
+    jest.spyOn(service, "getSessionEntityOrThrow").mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+    } as never);
+    jest.spyOn(service, "ensureMembership").mockResolvedValue(undefined);
+    jest.spyOn(service, "getGameStateEntityOrThrow").mockResolvedValue({
+      state: {
+        currentNodeId: "node-exploration",
+        flagsJson: "{}",
+      },
+      sessionScenario: { id: "session-scenario-1" },
+    } as never);
+    jest.spyOn(service, "getVttMapForUser").mockResolvedValue(canonicalPlayerMap as never);
+
+    await expect(
+      service.updateVttMap("player-user", "session-1", {
+        map: {
+          ...canonicalPlayerMap,
+          id: "stale-client-map",
+          tokens: [{ id: "someone-else", x: 0, y: 0, size: 64 }],
+        } as never,
+      }),
+    ).resolves.toBe(canonicalPlayerMap);
   });
 });
