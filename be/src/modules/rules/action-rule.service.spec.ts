@@ -814,13 +814,13 @@ describe("ActionRuleService", () => {
     });
     const structuredAction = result.structuredAction as {
       finalDamage: number;
-      attackRoll: DiceRollResponseDto;
+      advantageState: DiceAdvantageState;
       ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
     };
 
     expect(result.outcome).toBe(ActionOutcome.SUCCESS);
     expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
-    expect(structuredAction.attackRoll.advantageState).toBe(DiceAdvantageState.ADVANTAGE);
+    expect(structuredAction.advantageState).toBe(DiceAdvantageState.ADVANTAGE);
     expect(structuredAction.finalDamage).toBe(4);
     expect(result.stateChanges).toEqual([
       { sessionCharacterId: "target", currentHp: 16, markDead: false },

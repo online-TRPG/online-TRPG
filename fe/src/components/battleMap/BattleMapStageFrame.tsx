@@ -1,8 +1,8 @@
-import type { ReactNode, RefObject } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { Icon } from '../Icon';
 
 interface BattleMapStageFrameProps {
-  containerRef: RefObject<HTMLDivElement | null>;
+  containerRef: Ref<HTMLDivElement>;
   isPanMode: boolean;
   showSessionViewControls: boolean;
   onTogglePan: () => void;

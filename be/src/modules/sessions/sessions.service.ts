@@ -493,6 +493,13 @@ export class SessionsService {
     const resolvedSessionId = session.id;
     await this.ensureMembership(userId, resolvedSessionId);
     const { state, sessionScenario } = await this.getGameStateEntityOrThrow(resolvedSessionId);
+    if (session.hostUserId !== userId) {
+      this.logger.debug(
+        `[VTT_LEGACY_PLAYER_MAP_UPDATE_IGNORED] sessionId=${resolvedSessionId} userId=${userId} nodeId=${state.currentNodeId ?? "null"}`,
+      );
+      return this.getVttMapForUser(userId, resolvedSessionId);
+    }
+
     const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
     const previousMap = await this.getVttMapBaseline(resolvedSessionId, sessionScenario.id, state);
     const requestedMap = this.normalizeVttMap(dto.map, state.currentNodeId ?? null);
@@ -505,9 +512,6 @@ export class SessionsService {
     this.logger.debug(
       `[VTT_MOVE_REQUEST] sessionId=${resolvedSessionId} userId=${userId} nodeId=${state.currentNodeId ?? "null"} host=${session.hostUserId === userId} activeCombat=${hasActiveCombat} requestedTokens=${requestedMap.tokens.length}`,
     );
-    if (session.hostUserId !== userId) {
-      throw new ForbiddenException("Player map changes must use map command endpoints.");
-    }
     if (hasActiveCombat) {
       throw new ForbiddenException("Combat map changes must use combat command endpoints.");
     }
@@ -1633,6 +1637,7 @@ export class SessionsService {
       : null;
 
     await this.prisma.$transaction(async (tx) => {
+      await this.lockSessionRuntime(tx, resolvedSessionId);
       await tx.session.update({
         where: { id: resolvedSessionId },
         data: {
@@ -1714,7 +1719,6 @@ export class SessionsService {
         where: {
           sessionId: resolvedSessionId,
           status: PrismaCombatStatus.ACTIVE,
-          ...(combatId ? { id: combatId } : {}),
         },
         data: {
           status: PrismaCombatStatus.ENDED,
@@ -1756,6 +1760,7 @@ export class SessionsService {
     const defeatedAt = new Date();
 
     await this.prisma.$transaction(async (tx) => {
+      await this.lockSessionRuntime(tx, resolvedSessionId);
       await tx.session.update({
         where: { id: resolvedSessionId },
         data: { status: PrismaSessionStatus.COMPLETED },
@@ -1764,7 +1769,6 @@ export class SessionsService {
         where: {
           sessionId: resolvedSessionId,
           status: PrismaCombatStatus.ACTIVE,
-          ...(combatId ? { id: combatId } : {}),
         },
         data: {
           status: PrismaCombatStatus.ENDED,
@@ -1793,6 +1797,14 @@ export class SessionsService {
     this.realtimeEvents.emitSessionStatusUpdated(resolvedSessionId, snapshot.session);
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
     return snapshot;
+  }
+
+  private async lockSessionRuntime(tx: unknown, sessionId: string): Promise<void> {
+    const client = tx as { $executeRaw?: Prisma.TransactionClient["$executeRaw"] };
+    if (!client.$executeRaw) {
+      return;
+    }
+    await client.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sessionId}))`;
   }
 
   async completeSessionFromEndingNode(params: {
@@ -1925,7 +1937,7 @@ export class SessionsService {
   }): Promise<{
     count: number;
     revealedClues: Array<{ id: string; title: string; text: string | null }>;
-    revealedItems: Array<{ id: string; name: string; quantity: number }>;
+    revealedItems: Array<{ id: string; name: string; quantity: number; description: string | null }>;
   }> {
     const map = await this.getVttMapForSessionScenario(params.sessionId, params.sessionScenarioId);
     const objectCell = this.findVttObjectAtPoint(map, params.mapPoint);
@@ -1949,10 +1961,10 @@ export class SessionsService {
                 { name: { in: hiddenItemIds } },
               ],
             },
-            select: { id: true, name: true },
+            select: { id: true, name: true, description: true },
           })
         : [];
-      const itemDefinitionByLookup = new Map<string, { id: string; name: string }>();
+      const itemDefinitionByLookup = new Map<string, { id: string; name: string; description: string | null }>();
       itemDefinitions.forEach((itemDefinition) => {
         itemDefinitionByLookup.set(itemDefinition.id, itemDefinition);
         itemDefinitionByLookup.set(itemDefinition.name, itemDefinition);
@@ -2020,7 +2032,10 @@ export class SessionsService {
           return itemDefinition ? { contentId: item.contentId, itemDefinition } : null;
         })
         .filter(
-          (item): item is { contentId: string; itemDefinition: { id: string; name: string } } =>
+          (item): item is {
+            contentId: string;
+            itemDefinition: { id: string; name: string; description: string | null };
+          } =>
             Boolean(item),
         );
       const partyOwnedItemDefinitionIds =
@@ -2076,6 +2091,7 @@ export class SessionsService {
           id: itemDefinition.id,
           name: itemDefinition.name,
           quantity: 1,
+          description: itemDefinition.description,
         })),
       };
     });

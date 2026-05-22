@@ -797,6 +797,7 @@ export function CombatNodeSurface({
                 {
                   currentHp: participant.currentHp,
                   maxHp: participant.maxHp,
+                  armorClass: participant.armorClass,
                   isAlive: participant.isAlive,
                 },
               ]
@@ -807,7 +808,12 @@ export function CombatNodeSurface({
             entry
           ): entry is [
             string,
-            { currentHp: number | null; maxHp: number | null; isAlive: boolean },
+            {
+              currentHp: number | null;
+              maxHp: number | null;
+              armorClass: number | null;
+              isAlive: boolean;
+            },
           ] => Boolean(entry)
         ) ?? [];
     return Object.fromEntries(entries);
