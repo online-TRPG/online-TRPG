@@ -573,7 +573,9 @@ export class MainCommandsService {
     );
 
     const objectRevealResult =
-      dto.intent === MainCommandIntent.INVESTIGATE_OBJECT && dto.mapPoint
+      dto.intent === MainCommandIntent.INVESTIGATE_OBJECT &&
+      dto.mapPoint &&
+      response.status !== MainCommandStatus.CHECK_REQUIRED
         ? await this.sessionsService.revealVttObjectContentsAtPoint({
             sessionId: context.sessionId,
             sessionScenarioId: context.sessionScenarioId,
@@ -583,6 +585,7 @@ export class MainCommandsService {
             revealedBy: 'system',
           })
         : { count: 0, revealedClues: [], revealedItems: [] };
+    const handledObjectInvestigation = dto.intent === MainCommandIntent.INVESTIGATE_OBJECT && Boolean(dto.mapPoint);
     if (objectRevealResult.count > 0) {
       response = this.withRevealedObjectContents(
         response,
@@ -598,6 +601,7 @@ export class MainCommandsService {
       response.status === MainCommandStatus.IMPOSSIBLE ||
       response.status === MainCommandStatus.GM_APPROVAL_REQUIRED ||
       response.status === MainCommandStatus.CHECK_REQUIRED ||
+      handledObjectInvestigation ||
       !response.actionCandidate
         ? 0
         : await this.sessionsService.revealCurrentNodeCluesAfterAction({
@@ -764,7 +768,7 @@ export class MainCommandsService {
     let objectRevealResult: {
       count: number;
       revealedClues: Array<{ id: string; title: string; text: string | null }>;
-      revealedItems: Array<{ id: string; name: string; quantity: number }>;
+      revealedItems: Array<{ id: string; name: string; quantity: number; description: string | null }>;
     } = { count: 0, revealedClues: [], revealedItems: [] };
     let observedObjectResult: { count: number; objectNames: string[] } = {
       count: 0,
@@ -843,7 +847,11 @@ export class MainCommandsService {
       const revealedActionClues =
         mainCommandEffect.actionCandidate &&
         result.status !== MainCommandStatus.IMPOSSIBLE &&
-        mainCommandEffect.intent !== MainCommandIntent.OBSERVE_AREA
+        mainCommandEffect.intent !== MainCommandIntent.OBSERVE_AREA &&
+        !(
+          mainCommandEffect.intent === MainCommandIntent.INVESTIGATE_OBJECT &&
+          mainCommandEffect.mapPoint
+        )
           ? await this.sessionsService.revealCurrentNodeCluesAfterActionWithDetails({
               sessionScenarioId: sessionScenario.id,
               nodeId: mainCommandEffect.nodeId,
@@ -4833,7 +4841,7 @@ export class MainCommandsService {
   private withRevealedObjectContents(
     response: MainCommandResponseDto,
     revealedClues: Array<{ id: string; title: string; text: string | null }>,
-    revealedItems: Array<{ id: string; name: string; quantity: number }> = []
+    revealedItems: Array<{ id: string; name: string; quantity: number; description?: string | null }> = []
   ): MainCommandResponseDto {
     if (!revealedClues.length && !revealedItems.length) {
       return response;
@@ -4842,12 +4850,15 @@ export class MainCommandsService {
     const clueLines = revealedClues.map((clue) =>
       clue.text?.trim() ? `- ${clue.title}: ${clue.text.trim()}` : `- ${clue.title}`
     );
-    const itemLines = revealedItems.map((item) =>
-      item.quantity > 1 ? `- ${item.name} x${item.quantity}` : `- ${item.name}`
-    );
+    const itemLines = revealedItems.map((item) => {
+      const itemLabel = item.quantity > 1 ? `${item.name} x${item.quantity}` : item.name;
+      return item.description?.trim()
+        ? `- ${itemLabel}: ${item.description.trim()}`
+        : `- ${itemLabel}`;
+    });
     const sections = [
       clueLines.length ? `새 단서를 발견했습니다.\n${clueLines.join('\n')}` : null,
-      itemLines.length ? `아이템을 획득했습니다.\n${itemLines.join('\n')}` : null,
+      itemLines.length ? `아이템을 획득했습니다. 인벤토리에 추가되었습니다.\n${itemLines.join('\n')}` : null,
     ].filter((section): section is string => Boolean(section));
 
     return {
