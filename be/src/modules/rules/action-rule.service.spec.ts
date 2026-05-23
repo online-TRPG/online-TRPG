@@ -282,6 +282,38 @@ describe("ActionRuleService", () => {
     });
   });
 
+  it("projects structured condition tags into damage modifiers", () => {
+    const service = createService([]);
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 10,
+      conditionsJson: JSON.stringify([
+        {
+          conditionId: "elemental-ward",
+          sourceId: "spell-1",
+          duration: { type: "rounds", remaining: 2 },
+          tags: ["resistance:fire"],
+        },
+      ]),
+      character: { id: "target-character", name: "Target" },
+    });
+
+    const result = service.resolveAction("/damage target 9 fire", target, [target]);
+    const structuredAction = result.structuredAction as {
+      finalDamage: number;
+      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
+    };
+
+    expect(structuredAction.finalDamage).toBe(4);
+    expect(structuredAction.ruleResults[0]).toMatchObject({
+      hookId: RULE_HOOK_IDS.APPLY_DAMAGE_MODIFIERS,
+      produced: {
+        appliedDamageModifiers: ["resistance:fire"],
+      },
+    });
+  });
+
   it("resolves damage targets by profile nickname", () => {
     const service = createService([]);
     const target = createCharacter({
@@ -921,6 +953,33 @@ describe("ActionRuleService", () => {
     });
   });
 
+  it("recovers short rest action surge from catalog feature ids", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "warrior",
+        level: 2,
+        featuresJson: JSON.stringify(["class.fighter.feature.action_surge"]),
+      },
+    });
+
+    const result = service.resolveAction("/rest short", actor, [actor]);
+
+    expect(result.runtimeEffects).toEqual([
+      {
+        type: "RECOVER_SHORT_REST",
+        actionSurgeUses: 1,
+      },
+    ]);
+    expect(result.structuredAction).toMatchObject({
+      recoveredResources: {
+        actionSurgeUses: 1,
+      },
+    });
+  });
+
   it("recovers long rest HP, class resources, and clears Rage tags", () => {
     const service = createService([]);
     const actor = createCharacter({
@@ -954,6 +1013,32 @@ describe("ActionRuleService", () => {
         type: "RECOVER_LONG_REST",
         actionSurgeUses: 0,
         rageUses: 4,
+        reduceExhaustionBy: 1,
+      },
+    ]);
+  });
+
+  it("recovers long rest rage uses from catalog feature ids", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      currentHp: 1,
+      character: {
+        className: "berserker",
+        level: 3,
+        maxHp: 30,
+        featuresJson: JSON.stringify(["class.barbarian.feature.rage"]),
+      },
+    });
+
+    const result = service.resolveAction("/rest long", actor, [actor]);
+
+    expect(result.runtimeEffects).toEqual([
+      {
+        type: "RECOVER_LONG_REST",
+        actionSurgeUses: 0,
+        rageUses: 3,
         reduceExhaustionBy: 1,
       },
     ]);
