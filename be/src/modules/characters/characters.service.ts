@@ -35,6 +35,7 @@ import { PrismaService } from "../../database/prisma.service";
 import { CatalogService } from "../catalog/catalog.service";
 import { RacesService } from "../races/races.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
+import { RuleCatalogService } from "../rules/rule-catalog.service";
 import { SessionsService } from "../sessions/sessions.service";
 
 const defaultAbilityScores = {
@@ -64,6 +65,7 @@ export class CharactersService {
     private readonly realtimeEvents: RealtimeEventsService,
     private readonly racesService: RacesService,
     private readonly catalogService: CatalogService,
+    private readonly ruleCatalogService: RuleCatalogService,
   ) {}
 
   async createCharacter(userId: string, dto: CreateCharacterDto): Promise<CharacterResponseDto> {
@@ -106,6 +108,8 @@ export class CharactersService {
       offhandWeaponId,
     );
 
+    const features = this.resolveCharacterFeatureSnapshot(className, level, dto.features ?? []);
+
     const character = await this.prisma.character.create({
       data: {
         ownerUserId: userId,
@@ -118,7 +122,7 @@ export class CharactersService {
         bio: dto.bio?.trim() ?? null,
         abilitiesJson: JSON.stringify(abilities),
         proficiencyBonus,
-        featuresJson: JSON.stringify(dto.features ?? []),
+        featuresJson: JSON.stringify(features),
         proficientSkillsJson: JSON.stringify(normalizedProficientSkills),
         maxHp,
         armorClass,
@@ -219,6 +223,12 @@ export class CharactersService {
         )
       : null;
 
+    const finalFeatures = this.resolveCharacterFeatureSnapshot(
+      finalClassName,
+      finalLevel,
+      dto.features ?? this.parseStringArrayJson(existing.featuresJson),
+    );
+
     const updated = await this.prisma.character.update({
       where: { id: characterId },
       data: {
@@ -232,7 +242,7 @@ export class CharactersService {
         abilitiesJson: JSON.stringify(finalAbilities),
         proficiencyBonus:
           resolvedStats?.proficiencyBonus ?? dto.proficiencyBonus ?? existing.proficiencyBonus,
-        featuresJson: JSON.stringify(dto.features ?? JSON.parse(existing.featuresJson ?? "[]")),
+        featuresJson: JSON.stringify(finalFeatures),
         proficientSkillsJson: JSON.stringify(
           normalizedUpdateProficientSkills ?? JSON.parse(existing.proficientSkillsJson),
         ),
@@ -1312,6 +1322,26 @@ export class CharactersService {
     } catch {
       return [];
     }
+  }
+
+  private resolveCharacterFeatureSnapshot(
+    className: string,
+    level: number,
+    requestedFeatures: string[],
+  ): string[] {
+    const catalogFeatureIds = this.ruleCatalogService
+      .getClassFeatureSnapshot(className, level)
+      .featureIds;
+    const customFeatures = requestedFeatures
+      .map((feature) => feature.trim())
+      .filter((feature) => feature.length > 0)
+      .filter((feature) => !this.isRuleCatalogClassFeatureId(feature));
+
+    return Array.from(new Set([...catalogFeatureIds, ...customFeatures]));
+  }
+
+  private isRuleCatalogClassFeatureId(feature: string): boolean {
+    return /^class\.[a-z0-9-]+\.feature\.[a-z0-9_]+$/i.test(feature.trim());
   }
 
   private getAbilityModifier(score: number): number {

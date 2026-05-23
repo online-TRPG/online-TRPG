@@ -42,8 +42,12 @@ type RuntimeActor = {
   character: {
     className: string;
     level: number;
+    featuresJson?: string | null;
   };
 };
+
+const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
+const RAGE_FEATURE_ID = "class.barbarian.feature.rage";
 
 @Injectable()
 export class ActionProcessorService {
@@ -461,19 +465,29 @@ export class ActionProcessorService {
     rageUses: number;
   } {
     const className = actor.character.className.toLowerCase();
+    const featureIds = this.parseFeatureIds(actor.character.featuresJson);
+    const hasActionSurge =
+      featureIds.has(ACTION_SURGE_FEATURE_ID) ||
+      (className.includes("fighter") && actor.character.level >= 2);
+    const hasRage =
+      featureIds.has(RAGE_FEATURE_ID) ||
+      className.includes("barbarian");
 
     return {
       secondWindAvailable: true,
-      actionSurgeUses:
-        className.includes("fighter") && actor.character.level >= 17
-          ? 2
-          : className.includes("fighter") && actor.character.level >= 2
-            ? 1
-            : 0,
-      rageUses: className.includes("barbarian")
-        ? this.resolveRageUses(actor.character.level)
-        : 0,
+      actionSurgeUses: hasActionSurge ? this.resolveActionSurgeUses(actor.character.level) : 0,
+      rageUses: hasRage ? this.resolveRageUses(actor.character.level) : 0,
     };
+  }
+
+  private resolveActionSurgeUses(level: number): number {
+    if (level >= 17) {
+      return 2;
+    }
+    if (level >= 2) {
+      return 1;
+    }
+    return 0;
   }
 
   private resolveRageUses(level: number): number {
@@ -496,6 +510,26 @@ export class ActionProcessorService {
       return 2;
     }
     return 0;
+  }
+
+  private parseFeatureIds(featuresJson: string | null | undefined): Set<string> {
+    if (!featuresJson) {
+      return new Set();
+    }
+    try {
+      const parsed = JSON.parse(featuresJson) as unknown;
+      if (!Array.isArray(parsed)) {
+        return new Set();
+      }
+      return new Set(
+        parsed
+          .filter((feature): feature is string => typeof feature === "string")
+          .map((feature) => feature.trim().toLowerCase())
+          .filter(Boolean),
+      );
+    } catch {
+      return new Set();
+    }
   }
 
   private toRuntimeResource(resource: {

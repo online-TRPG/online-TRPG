@@ -80,6 +80,16 @@ type PendingOpportunityAttackReaction = {
   movementCostFt?: number;
   map: VttMapStateDto;
   createdAt: string;
+  continuation?: PendingOpportunityAttackContinuation | null;
+};
+
+type PendingOpportunityAttackContinuation = {
+  type: "auto_monster_attack";
+  userId: string;
+  targetParticipantId: string;
+  targetTokenId: string | null;
+  autoEndTurn: boolean;
+  action: SrdEngineExecutableMonsterAction;
 };
 
 type PendingShieldReaction = {
@@ -105,6 +115,11 @@ type PendingCombatReaction = PendingOpportunityAttackReaction | PendingShieldRea
 type OpportunityAttackCheckResult = {
   prompt: CombatReactionPromptDto | null;
   automaticMessages: string[];
+};
+
+type CombatMovementResolution = CombatMoveResultDto & {
+  movementDistanceFt: number;
+  movementCostFt: number;
 };
 
 const RAGE_CONDITION_TAGS = [
@@ -608,90 +623,124 @@ export class CombatService {
       });
     }
 
+    return this.resolveCombatMovement({
+      session,
+      userId,
+      combat,
+      mover,
+      map,
+      moverToken,
+      to: dto.to,
+      path: dto.path,
+      movementMode: dto.movementMode === "jump" ? "jump" : "normal",
+    });
+  }
+
+  private async resolveCombatMovement(params: {
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
+    userId: string;
+    combat: NonNullable<CombatWithParticipants>;
+    mover: CombatParticipantEntity;
+    map: VttMapStateDto;
+    moverToken: VttMapToken;
+    to: { x: number; y: number };
+    path?: Array<{ x: number; y: number }> | null;
+    movementMode?: "normal" | "jump";
+    continuation?: PendingOpportunityAttackContinuation | null;
+  }): Promise<CombatMovementResolution> {
     const to = {
-      x: this.clampNumber(Math.floor(dto.to.x), 0, Math.max(0, map.width - moverToken.size)),
-      y: this.clampNumber(Math.floor(dto.to.y), 0, Math.max(0, map.height - moverToken.size)),
+      x: this.clampNumber(Math.floor(params.to.x), 0, Math.max(0, params.map.width - params.moverToken.size)),
+      y: this.clampNumber(Math.floor(params.to.y), 0, Math.max(0, params.map.height - params.moverToken.size)),
     };
-    const movementMode = dto.movementMode === "jump" ? "jump" : "normal";
-    const movementPath = this.normalizeCombatMovementPath(map, moverToken, dto.path, to);
-    this.assertCombatMovementPathOpen(map, moverToken, movementPath, movementMode);
-    const movementDistanceFt = this.calculateMovementPathDistanceFt(map, moverToken, movementPath);
+    const movementMode = params.movementMode === "jump" ? "jump" : "normal";
+    const movementPath = this.normalizeCombatMovementPath(params.map, params.moverToken, params.path, to);
+    this.assertCombatMovementPathOpen(params.map, params.moverToken, movementPath, movementMode);
+    const movementDistanceFt = this.calculateMovementPathDistanceFt(params.map, params.moverToken, movementPath);
     if (movementDistanceFt <= 0) {
       return {
-        combat: await this.mapCombat(combat),
-        map,
+        combat: await this.mapCombat(params.combat),
+        map: params.map,
         message: "이동하지 않았습니다.",
         pendingReaction: null,
+        movementDistanceFt: 0,
+        movementCostFt: 0,
       };
     }
     const movementCostFt =
       movementMode === "jump" ? movementDistanceFt + COMBAT_JUMP_EXTRA_MOVEMENT_FT : movementDistanceFt;
-    await this.assertMovementAvailable(combat, mover, movementCostFt);
+    await this.assertMovementAvailable(params.combat, params.mover, movementCostFt);
 
     const nextMap: VttMapStateDto = {
-      ...map,
-      tokens: map.tokens.map((token) =>
-        token.id === moverToken.id ? { ...token, x: to.x, y: to.y } : token,
+      ...params.map,
+      tokens: params.map.tokens.map((token) =>
+        token.id === params.moverToken.id ? { ...token, x: to.x, y: to.y } : token,
       ),
       updatedAt: new Date().toISOString(),
     };
     const opportunityAttack = await this.createOpportunityAttackPromptIfNeeded({
-      sessionId: session.id,
-      combat,
-      mover,
-      moverToken,
-      nextMoverToken: { ...moverToken, x: to.x, y: to.y },
+      sessionId: params.session.id,
+      combat: params.combat,
+      mover: params.mover,
+      moverToken: params.moverToken,
+      nextMoverToken: { ...params.moverToken, x: to.x, y: to.y },
       movementPath,
-      map,
+      map: params.map,
       nextMap,
       movementDistanceFt,
       movementCostFt,
-      moverUserId: userId,
+      moverUserId: params.userId,
+      continuation: params.continuation ?? null,
     });
 
     if (opportunityAttack.prompt) {
       return {
-        combat: await this.mapCombat(combat),
-        map,
+        combat: await this.mapCombat(params.combat),
+        map: params.map,
         message: opportunityAttack.prompt.message,
         pendingReaction: opportunityAttack.prompt,
+        movementDistanceFt,
+        movementCostFt,
       };
     }
 
-    const latestCombat = await this.getActiveCombatEntity(session.id);
-    const latestMover = this.findCombatParticipantOrThrow(latestCombat, mover.id);
+    const latestCombat = await this.getActiveCombatEntity(params.session.id);
+    const latestMover = this.findCombatParticipantOrThrow(latestCombat, params.mover.id);
     if (!latestMover.isAlive) {
-      const response = await this.completeCombatIfResolved(session.id, latestCombat);
-      this.realtimeEvents.emitCombatUpdated(session.id, response);
-      const currentMap = await this.sessionsService.getVttMapForUser(session.hostUserId, session.id);
+      const response = await this.completeCombatIfResolved(params.session.id, latestCombat);
+      this.realtimeEvents.emitCombatUpdated(params.session.id, response);
+      const currentMap = await this.sessionsService.getVttMapForUser(params.session.hostUserId, params.session.id);
       return {
         combat: response,
         map: currentMap,
         message:
           opportunityAttack.automaticMessages[opportunityAttack.automaticMessages.length - 1] ??
-          `${mover.nameSnapshot}은(는) 기회공격으로 쓰러져 이동하지 못했습니다.`,
+          `${params.mover.nameSnapshot}은(는) 기회공격으로 쓰러져 이동하지 못했습니다.`,
         pendingReaction: null,
+        movementDistanceFt,
+        movementCostFt,
       };
     }
 
     const savedMap = await this.commitCombatMove(
-      session.id,
+      params.session.id,
       latestCombat,
       latestMover,
       nextMap,
       movementCostFt,
     );
-    const response = await this.mapCombat(await this.getActiveCombatEntity(session.id));
-    this.realtimeEvents.emitCombatUpdated(session.id, response);
+    const response = await this.mapCombat(await this.getActiveCombatEntity(params.session.id));
+    this.realtimeEvents.emitCombatUpdated(params.session.id, response);
     return {
       combat: response,
       map: savedMap,
       message: opportunityAttack.automaticMessages.length
         ? opportunityAttack.automaticMessages.join(" / ")
         : movementMode === "jump"
-          ? `${mover.nameSnapshot} 도약: ${movementDistanceFt}ft + 추가 ${COMBAT_JUMP_EXTRA_MOVEMENT_FT}ft`
-          : `${mover.nameSnapshot} 이동: ${movementDistanceFt}ft`,
+          ? `${params.mover.nameSnapshot} 도약: ${movementDistanceFt}ft + 추가 ${COMBAT_JUMP_EXTRA_MOVEMENT_FT}ft`
+          : `${params.mover.nameSnapshot} 이동: ${movementDistanceFt}ft`,
       pendingReaction: null,
+      movementDistanceFt,
+      movementCostFt,
     };
   }
 
@@ -753,6 +802,15 @@ export class CombatService {
       message = `${message} 이동 중단`;
     }
 
+    if (latestMover.isAlive && pending.continuation) {
+      return this.resolvePendingOpportunityContinuation({
+        session,
+        pending,
+        map: savedMap,
+        prefixMessage: message,
+      });
+    }
+
     const response = await this.completeCombatIfResolved(
       session.id,
       await this.getActiveCombatEntity(session.id),
@@ -786,12 +844,107 @@ export class CombatService {
       pending.map,
       pending.movementCostFt ?? pending.movementDistanceFt,
     );
+    if (pending.continuation) {
+      return this.resolvePendingOpportunityContinuation({
+        session,
+        pending,
+        map: savedMap,
+        prefixMessage: "기회공격을 하지 않고 이동을 완료했습니다.",
+      });
+    }
     const response = await this.mapCombat(await this.getActiveCombatEntity(session.id));
     this.realtimeEvents.emitCombatUpdated(session.id, response);
     return {
       combat: response,
       map: savedMap,
       message: "기회공격을 하지 않고 이동을 완료했습니다.",
+      pendingReaction: null,
+    };
+  }
+
+  private async resolvePendingOpportunityContinuation(params: {
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
+    pending: PendingOpportunityAttackReaction;
+    map: VttMapStateDto;
+    prefixMessage: string;
+  }): Promise<CombatMoveResultDto> {
+    const continuation = params.pending.continuation;
+    if (!continuation) {
+      const response = await this.mapCombat(await this.getActiveCombatEntity(params.session.id));
+      return {
+        combat: response,
+        map: params.map,
+        message: params.prefixMessage,
+        pendingReaction: null,
+      };
+    }
+
+    const combat = await this.getActiveCombatEntity(params.session.id);
+    const mover = this.findCombatParticipantOrThrow(combat, params.pending.moverParticipantId);
+    const target = this.findCombatParticipantOrThrow(combat, continuation.targetParticipantId);
+    if (!mover.isAlive || !target.isAlive) {
+      const response = await this.completeCombatIfResolved(params.session.id, combat);
+      this.realtimeEvents.emitCombatUpdated(params.session.id, response);
+      return {
+        combat: response,
+        map: params.map,
+        message: `${params.prefixMessage} / 후속 공격 대상이 없어 턴을 멈췄습니다.`,
+        pendingReaction: null,
+      };
+    }
+
+    const rangeCheck = this.getMonsterActionRangeCheck(params.map, {
+      action: continuation.action,
+      sourceTokenId: mover.tokenId,
+      targetTokenId: continuation.targetTokenId ?? target.tokenId,
+    });
+    if (!rangeCheck.inRange) {
+      if (continuation.autoEndTurn !== false && combat.currentParticipantId === mover.id) {
+        await this.advanceCurrentTurn(params.session.id, combat);
+      }
+      const response = await this.mapCombat(await this.getCombatEntityById(combat.id));
+      this.realtimeEvents.emitCombatUpdated(params.session.id, response);
+      return {
+        combat: response,
+        map: params.map,
+        message: `${params.prefixMessage} / ${mover.nameSnapshot}의 ${continuation.action.label}: 대상이 사거리 밖입니다.`,
+        pendingReaction: null,
+      };
+    }
+
+    const attackResult = await this.resolveAttack(continuation.userId, params.session.id, {
+      attackerParticipantId: mover.id,
+      targetParticipantId: target.id,
+      attackBonus: continuation.action.attackBonus,
+      damageDice: continuation.action.damageDice,
+      damageBonus: 0,
+    });
+
+    let response = attackResult.combat;
+    const pendingReactionAfterAttack = await this.hasPendingCombatReaction(params.session.id);
+    if (
+      !pendingReactionAfterAttack &&
+      continuation.autoEndTurn !== false &&
+      attackResult.combat.status === CombatStatus.ACTIVE
+    ) {
+      const latestCombat = await this.getActiveCombatEntity(params.session.id);
+      if (latestCombat.currentParticipantId === mover.id) {
+        await this.advanceCurrentTurn(params.session.id, latestCombat);
+        response = await this.mapCombat(await this.getCombatEntityById(latestCombat.id));
+      }
+    }
+
+    const map = await this.sessionsService.getVttMapForUser(params.session.hostUserId, params.session.id);
+    this.realtimeEvents.emitCombatUpdated(params.session.id, response);
+    this.realtimeEvents.emitSessionSnapshot(params.session.id, await this.sessionsService.buildSnapshot(params.session.id));
+    return {
+      combat: response,
+      map,
+      message: `${params.prefixMessage} / ${mover.nameSnapshot} ${continuation.action.label}: ${attackResult.message}${
+        pendingReactionAfterAttack || continuation.autoEndTurn === false || response.status !== CombatStatus.ACTIVE
+          ? ""
+          : " / 턴 종료"
+      }`,
       pendingReaction: null,
     };
   }
@@ -1900,14 +2053,35 @@ export class CombatService {
     const targetToken = target.tokenId
       ? (map.tokens ?? []).find((candidate) => candidate.id === target.tokenId)
       : (map.tokens ?? []).find((candidate) => candidate.sessionCharacterId === target.sessionCharacterId);
-    const movementResult =
+    const movementTarget =
       attacker.tokenId && targetToken
-        ? await this.sessionsService.moveVttTokenTowardToken({
-            sessionId: session.id,
+        ? this.calculateCombatTokenStepTowardTarget(map, {
             sourceTokenId: attacker.tokenId,
             targetTokenId: targetToken.id,
             maxDistanceFt: attacker.speedFt ?? 30,
             stopWithinFt: action.reachFt ?? 5,
+          })
+        : null;
+    const movementResult =
+      movementTarget && token
+        ? await this.resolveCombatMovement({
+            session,
+            userId,
+            combat,
+            mover: attacker,
+            map,
+            moverToken: token,
+            to: movementTarget,
+            path: movementTarget.path,
+            movementMode: "normal",
+            continuation: {
+              type: "auto_monster_attack",
+              userId,
+              targetParticipantId: target.id,
+              targetTokenId: targetToken?.id ?? null,
+              autoEndTurn: dto.autoEndTurn !== false,
+              action,
+            },
           })
         : null;
     this.logAutoMonsterTurn("monster movement resolved", {
@@ -1917,11 +2091,42 @@ export class CombatService {
       sourceTokenId: attacker.tokenId,
       targetTokenId: targetToken?.id ?? null,
       targetTokenFound: Boolean(targetToken),
-      moved: movementResult?.moved ?? false,
-      distanceMovedFt: movementResult?.distanceMovedFt ?? 0,
+      moved: (movementResult?.movementDistanceFt ?? 0) > 0,
+      distanceMovedFt: movementResult?.movementDistanceFt ?? 0,
     });
 
     const mapAfterMovement = movementResult?.map ?? map;
+    if (movementResult?.pendingReaction) {
+      return {
+        combat: movementResult.combat,
+        message: movementResult.message,
+        attackTotal: null,
+        damageTotal: null,
+        map: movementResult.map,
+      };
+    }
+    if (movementResult && movementResult.combat.status !== CombatStatus.ACTIVE) {
+      return {
+        combat: movementResult.combat,
+        message: movementResult.message,
+        attackTotal: null,
+        damageTotal: null,
+        map: movementResult.map,
+      };
+    }
+    const latestAfterMovement = await this.getActiveCombatEntity(session.id);
+    const attackerAfterMovement = this.findCombatParticipantOrThrow(latestAfterMovement, attacker.id);
+    if (!attackerAfterMovement.isAlive) {
+      const response = await this.completeCombatIfResolved(session.id, latestAfterMovement);
+      this.realtimeEvents.emitCombatUpdated(session.id, response);
+      return {
+        combat: response,
+        message: movementResult?.message ?? `${attacker.nameSnapshot}은(는) 이동 중 쓰러졌습니다.`,
+        attackTotal: null,
+        damageTotal: null,
+        map: mapAfterMovement,
+      };
+    }
     const rangeCheck = this.getMonsterActionRangeCheck(mapAfterMovement, {
       action,
       sourceTokenId: attacker.tokenId,
@@ -1980,8 +2185,14 @@ export class CombatService {
     });
 
     const movementMessage =
-      movementResult?.moved === true ? ` ${movementResult.distanceMovedFt}ft 이동 후` : "";
+      (movementResult?.movementDistanceFt ?? 0) > 0 ? ` ${movementResult?.movementDistanceFt ?? 0}ft 이동 후` : "";
     const actionMessage = `${attacker.nameSnapshot}${movementMessage} ${action.label}`;
+    if (await this.hasPendingCombatReaction(session.id)) {
+      return {
+        ...result,
+        message: `${actionMessage}: ${result.message}`,
+      };
+    }
     if (dto.autoEndTurn === false || result.combat.status !== CombatStatus.ACTIVE) {
       return {
         ...result,
@@ -2412,6 +2623,13 @@ export class CombatService {
 
         try {
           await this.executeAutoMonsterTurn(session.hostUserId, session, {});
+          if (await this.hasPendingCombatReaction(session.id)) {
+            this.logAutoMonsterTurn("run stopped: pending combat reaction", {
+              sessionId: session.id,
+              step,
+            });
+            return;
+          }
         } catch (error) {
           const message = this.extractErrorMessage(error);
           this.logger.warn(
@@ -2466,6 +2684,12 @@ export class CombatService {
       }
     }
     return "알 수 없는 오류";
+  }
+
+  private async hasPendingCombatReaction(sessionId: string): Promise<boolean> {
+    const { state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    return Boolean(flags[PENDING_COMBAT_REACTION_FLAG]);
   }
 
   private async getActiveCombatEntity(sessionId: string) {
@@ -2567,6 +2791,182 @@ export class CombatService {
     }
   }
 
+  private calculateCombatTokenStepTowardTarget(
+    map: VttMapStateDto,
+    params: {
+      sourceTokenId: string;
+      targetTokenId: string;
+      maxDistanceFt: number;
+      stopWithinFt: number;
+    },
+  ): { x: number; y: number; distanceMovedFt: number; path: Array<{ x: number; y: number }> } | null {
+    const sourceToken = map.tokens.find((token) => token.id === params.sourceTokenId);
+    const targetToken = map.tokens.find((token) => token.id === params.targetTokenId);
+    if (!sourceToken || !targetToken) {
+      return null;
+    }
+
+    const startColumn = this.getGridIndex(sourceToken.x, map.gridSize, map.width);
+    const startRow = this.getGridIndex(sourceToken.y, map.gridSize, map.height);
+    const targetColumn = this.getGridIndex(targetToken.x, map.gridSize, map.width);
+    const targetRow = this.getGridIndex(targetToken.y, map.gridSize, map.height);
+    const stopWithinCells = Math.max(1, Math.ceil(params.stopWithinFt / 5));
+    const maxSteps = Math.max(0, Math.floor(params.maxDistanceFt / 5));
+    if (!maxSteps || this.getChebyshevDistance(startColumn, startRow, targetColumn, targetRow) <= stopWithinCells) {
+      return null;
+    }
+
+    const maxColumn = Math.max(0, Math.ceil(map.width / map.gridSize) - 1);
+    const maxRow = Math.max(0, Math.ceil(map.height / map.gridSize) - 1);
+    type MovementNode = {
+      column: number;
+      row: number;
+      steps: number;
+      previousKey: string | null;
+    };
+    const startKey = `${startColumn}:${startRow}`;
+    const queue: MovementNode[] = [{ column: startColumn, row: startRow, steps: 0, previousKey: null }];
+    const visited = new Set([startKey]);
+    const nodeByKey = new Map<string, MovementNode>([[startKey, queue[0]]]);
+    const reachable: Array<MovementNode & { targetDistance: number }> = [];
+    const directions = [
+      { column: 1, row: 0 },
+      { column: -1, row: 0 },
+      { column: 0, row: 1 },
+      { column: 0, row: -1 },
+      { column: 1, row: 1 },
+      { column: 1, row: -1 },
+      { column: -1, row: 1 },
+      { column: -1, row: -1 },
+    ];
+
+    while (queue.length) {
+      const current = queue.shift()!;
+      const targetDistance = this.getChebyshevDistance(
+        current.column,
+        current.row,
+        targetColumn,
+        targetRow,
+      );
+      if (current.steps > 0 && targetDistance >= stopWithinCells) {
+        reachable.push({ ...current, targetDistance });
+      }
+      if (current.steps >= maxSteps) {
+        continue;
+      }
+
+      for (const direction of directions) {
+        const next = {
+          column: current.column + direction.column,
+          row: current.row + direction.row,
+          steps: current.steps + 1,
+          previousKey: `${current.column}:${current.row}`,
+        };
+        const key = `${next.column}:${next.row}`;
+        if (
+          next.column < 0 ||
+          next.row < 0 ||
+          next.column > maxColumn ||
+          next.row > maxRow ||
+          visited.has(key)
+        ) {
+          continue;
+        }
+
+        const x = Math.min(Math.max(next.column * map.gridSize, 0), map.width - sourceToken.size);
+        const y = Math.min(Math.max(next.row * map.gridSize, 0), map.height - sourceToken.size);
+        if (
+          this.isCombatTokenPlacementBlocked(map, sourceToken, x, y) ||
+          !this.canCombatTokenMoveBetweenGridCells(map, sourceToken, current, next)
+        ) {
+          continue;
+        }
+
+        visited.add(key);
+        nodeByKey.set(key, next);
+        queue.push(next);
+      }
+    }
+
+    const best = reachable.sort((left, right) => {
+      if (left.targetDistance !== right.targetDistance) {
+        return left.targetDistance - right.targetDistance;
+      }
+      return right.steps - left.steps;
+    })[0];
+    if (!best || (best.column === startColumn && best.row === startRow)) {
+      return null;
+    }
+
+    const path = this.buildCombatTokenMovementPath(map, sourceToken, best, nodeByKey);
+    if (!path.length) {
+      return null;
+    }
+
+    const destination = path[path.length - 1];
+    return {
+      x: destination.x,
+      y: destination.y,
+      distanceMovedFt: best.steps * 5,
+      path,
+    };
+  }
+
+  private buildCombatTokenMovementPath(
+    map: VttMapStateDto,
+    token: VttMapStateDto["tokens"][number],
+    destination: { column: number; row: number; previousKey: string | null },
+    nodeByKey: Map<string, { column: number; row: number; previousKey: string | null }>,
+  ): Array<{ x: number; y: number }> {
+    const cells: Array<{ column: number; row: number }> = [];
+    let current: { column: number; row: number; previousKey: string | null } | undefined = destination;
+
+    while (current) {
+      cells.push({ column: current.column, row: current.row });
+      current = current.previousKey ? nodeByKey.get(current.previousKey) : undefined;
+    }
+
+    return cells
+      .reverse()
+      .slice(1)
+      .map((cell) => ({
+        x: Math.min(Math.max(cell.column * map.gridSize, 0), map.width - token.size),
+        y: Math.min(Math.max(cell.row * map.gridSize, 0), map.height - token.size),
+      }));
+  }
+
+  private canCombatTokenMoveBetweenGridCells(
+    map: VttMapStateDto,
+    token: VttMapStateDto["tokens"][number],
+    from: { column: number; row: number },
+    to: { column: number; row: number },
+  ): boolean {
+    const deltaColumn = to.column - from.column;
+    const deltaRow = to.row - from.row;
+    if (Math.abs(deltaColumn) !== 1 || Math.abs(deltaRow) !== 1) {
+      return true;
+    }
+
+    const horizontalX = Math.min(Math.max((from.column + deltaColumn) * map.gridSize, 0), map.width - token.size);
+    const horizontalY = Math.min(Math.max(from.row * map.gridSize, 0), map.height - token.size);
+    const verticalX = Math.min(Math.max(from.column * map.gridSize, 0), map.width - token.size);
+    const verticalY = Math.min(Math.max((from.row + deltaRow) * map.gridSize, 0), map.height - token.size);
+
+    return (
+      !this.isCombatTokenPlacementBlocked(map, token, horizontalX, horizontalY) &&
+      !this.isCombatTokenPlacementBlocked(map, token, verticalX, verticalY)
+    );
+  }
+
+  private getChebyshevDistance(
+    sourceColumn: number,
+    sourceRow: number,
+    targetColumn: number,
+    targetRow: number,
+  ): number {
+    return Math.max(Math.abs(sourceColumn - targetColumn), Math.abs(sourceRow - targetRow));
+  }
+
   private isCombatTokenPlacementBlocked(
     map: VttMapStateDto,
     token: VttMapStateDto["tokens"][number],
@@ -2603,11 +3003,12 @@ export class CombatService {
   private doesMovementLeaveThreatenedArea(
     map: VttMapStateDto,
     threatenerToken: VttMapStateDto["tokens"][number],
+    moverToken: VttMapStateDto["tokens"][number],
     moverPath: Array<{ x: number; y: number }>,
   ): boolean {
     for (let index = 1; index < moverPath.length; index += 1) {
-      const previousMoverToken = { ...threatenerToken, ...moverPath[index - 1] };
-      const nextMoverToken = { ...threatenerToken, ...moverPath[index] };
+      const previousMoverToken = { ...moverToken, ...moverPath[index - 1] };
+      const nextMoverToken = { ...moverToken, ...moverPath[index] };
       const wasAdjacent = this.getTokenGridDistanceFt(map, threatenerToken, previousMoverToken) <= 5;
       const isAdjacentAfter = this.getTokenGridDistanceFt(map, threatenerToken, nextMoverToken) <= 5;
       if (wasAdjacent && !isAdjacentAfter) {
@@ -2657,6 +3058,7 @@ export class CombatService {
     movementDistanceFt: number;
     movementCostFt: number;
     moverUserId: string;
+    continuation?: PendingOpportunityAttackContinuation | null;
   }): Promise<OpportunityAttackCheckResult> {
     const reactors = await this.findOpportunityAttackReactors(params);
     const automaticMessages: string[] = [];
@@ -2710,6 +3112,7 @@ export class CombatService {
       movementCostFt: params.movementCostFt,
       map: params.nextMap,
       createdAt: new Date().toISOString(),
+      continuation: params.continuation ?? null,
     };
     await this.storePendingOpportunityReaction(params.sessionId, pending);
 
@@ -2749,7 +3152,7 @@ export class CombatService {
       if (!token) {
         continue;
       }
-      if (!this.doesMovementLeaveThreatenedArea(params.map, token, params.movementPath)) {
+      if (!this.doesMovementLeaveThreatenedArea(params.map, token, params.moverToken, params.movementPath)) {
         continue;
       }
       const turnState = await this.actionEconomy.getOrCreateTurnState({

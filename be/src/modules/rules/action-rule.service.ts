@@ -8,6 +8,7 @@ import {
 } from "@trpg/shared-types";
 import { forbidden } from "../../common/exceptions/domain-error";
 import { CommandParserService, ParsedCommand } from "./command-parser.service";
+import { ConditionRuntimeService } from "./condition-runtime.service";
 import { DiceService } from "./dice.service";
 import { RuleEngineService } from "./rule-engine.service";
 import {
@@ -126,7 +127,7 @@ export type CharacterStatePatch = {
   sessionCharacterId: string;
   currentHp?: number;
   tempHp?: number;
-  conditions?: string[];
+  conditions?: unknown[];
   markDead?: boolean;
 };
 
@@ -191,6 +192,7 @@ export class ActionRuleService {
     private readonly diceService: DiceService,
     private readonly ruleEngine: RuleEngineService,
     private readonly mapPositions: MapPositionService,
+    private readonly conditionRuntime: ConditionRuntimeService = new ConditionRuntimeService(),
   ) {}
 
   getAvailableActions(params: {
@@ -1103,11 +1105,11 @@ export class ActionRuleService {
     sessionCharacters: SessionCharacterForRules[],
   ): ActionResolution {
     const target = this.requireTarget(command.target, sessionCharacters);
-    const currentConditions = this.parseJson<string[]>(target.conditionsJson, []);
+    const currentConditionEntries = this.parseJson<unknown[]>(target.conditionsJson, []);
     const nextConditions =
       command.operation === "add"
-        ? Array.from(new Set([...currentConditions, command.condition]))
-        : currentConditions.filter((condition) => condition !== command.condition);
+        ? this.addConditionEntry(currentConditionEntries, command.condition)
+        : this.removeConditionEntry(currentConditionEntries, command.condition);
 
     return {
       structuredAction: {
@@ -1409,7 +1411,7 @@ export class ActionRuleService {
   }
 
   private resolveActionSurgeUses(actor: SessionCharacterForRules): number {
-    if (!this.isClass(actor, "fighter")) {
+    if (!this.hasFighterActionSurge(actor)) {
       return 0;
     }
 
@@ -1417,7 +1419,7 @@ export class ActionRuleService {
   }
 
   private resolveRageUses(actor: SessionCharacterForRules): number {
-    if (!this.isClass(actor, "barbarian")) {
+    if (!this.hasBarbarianRage(actor)) {
       return 0;
     }
 
@@ -1441,6 +1443,14 @@ export class ActionRuleService {
       return 2;
     }
     return 0;
+  }
+
+  private hasFighterActionSurge(actor: SessionCharacterForRules): boolean {
+    return this.hasFeatureTag(actor, ACTION_SURGE_FEATURE_ID) || this.isClass(actor, "fighter");
+  }
+
+  private hasBarbarianRage(actor: SessionCharacterForRules): boolean {
+    return this.hasFeatureTag(actor, RAGE_FEATURE_ID) || this.isClass(actor, "barbarian");
   }
 
   private selectSingleDie(diceResult: DiceRollResponseDto): number {
@@ -1615,7 +1625,49 @@ export class ActionRuleService {
   }
 
   private getConditions(character: SessionCharacterForRules): string[] {
-    return this.parseJson<string[]>(character.conditionsJson, []);
+    const entries = this.parseJson<unknown[]>(character.conditionsJson, []);
+    const tags = entries.flatMap((entry) => {
+      if (typeof entry === "string") {
+        return [entry];
+      }
+      const [condition] = this.conditionRuntime.parseConditionsJson(JSON.stringify([entry]));
+      return condition ? [condition.conditionId, ...condition.tags] : [];
+    });
+    return Array.from(new Set(tags));
+  }
+
+  private addConditionEntry(currentEntries: unknown[], condition: string): unknown[] {
+    const normalized = this.normalizeRuleToken(condition);
+    if (
+      currentEntries.some((entry) =>
+        typeof entry === "string" && this.normalizeRuleToken(entry) === normalized,
+      )
+    ) {
+      return currentEntries;
+    }
+    return [...currentEntries, condition];
+  }
+
+  private removeConditionEntry(currentEntries: unknown[], condition: string): unknown[] {
+    const normalized = this.normalizeRuleToken(condition);
+    return currentEntries.filter((entry) => {
+      if (typeof entry === "string") {
+        return this.normalizeRuleToken(entry) !== normalized;
+      }
+      if (entry && typeof entry === "object" && !Array.isArray(entry) && "conditionId" in entry) {
+        const conditionId = (entry as { conditionId?: unknown }).conditionId;
+        return typeof conditionId !== "string" || !this.conditionNameMatches(conditionId, normalized);
+      }
+      return true;
+    });
+  }
+
+  private conditionNameMatches(conditionId: string, normalizedConditionName: string): boolean {
+    const normalizedConditionId = this.normalizeRuleToken(conditionId);
+    return (
+      normalizedConditionId === normalizedConditionName ||
+      normalizedConditionId === `condition.${normalizedConditionName}`
+    );
   }
 
   private selectNaturalD20(diceResult: DiceRollResponseDto): number {
