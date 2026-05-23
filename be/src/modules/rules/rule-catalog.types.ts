@@ -110,3 +110,15 @@ export type RuleCatalogClassFeatureSnapshot = {
   resourceIds: string[];
   passiveTags: string[];
 };
+
+export type RuleCatalogCharacterFeatureSnapshot = {
+  raceKey: string | null;
+  classKey: string;
+  subclassKey: string | null;
+  classLevel: number;
+  featureIds: string[];
+  raceTraitIds: string[];
+  classFeatureIds: string[];
+  subclassFeatureIds: string[];
+  customFeatureIds: string[];
+};

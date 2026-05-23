@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import {
   RuleCatalogClassFeatureSnapshot,
+  RuleCatalogCharacterFeatureSnapshot,
   RuleCatalogEntry,
   RuleCost,
   RuleRuntimeEffect,
@@ -548,6 +549,17 @@ const SPELL_DEFINITIONS: RuleCatalogEntry[] = [
     hookId: "hook.spell.cast_sleep",
     scaling: { mode: "slot_level", table: { mode: "damage_dice", dice: "2d8", perSlotAbove: 1 } },
   }),
+  spell("spell.fireball", {
+    level: 3,
+    cost: { type: "action" },
+    targeting: { type: "area", shape: "sphere", sizeFt: 20 },
+    save: { ability: "dex", dcSource: "spell_save_dc" },
+    damage: { dice: "8d6", type: "fire", scaling: "slot_level" },
+    duration: { unit: "instant", amount: null },
+    tags: ["area:sphere", "range:150", "save:dex", "damage:fire", "half_damage_on_success"],
+    hookId: "hook.spell.cast_fireball",
+    scaling: { mode: "slot_level", table: { mode: "damage_dice", dice: "1d6", perSlotAbove: 1 } },
+  }),
 ];
 
 const MONSTER_ABILITY_DEFINITIONS: RuleCatalogEntry[] = [
@@ -611,6 +623,53 @@ export class RuleCatalogService {
 
   getEntry(id: string): RuleCatalogEntry | null {
     return this.entries.get(id) ?? null;
+  }
+
+  getCharacterFeatureSnapshot(params: {
+    raceKey?: string | null;
+    classKey: string;
+    subclassKey?: string | null;
+    classLevel: number;
+    requestedFeatureIds?: string[];
+  }): RuleCatalogCharacterFeatureSnapshot {
+    const normalizedRaceKey = params.raceKey ? this.normalizeRaceKey(params.raceKey) : null;
+    const normalizedClassKey = this.normalizeClassKey(params.classKey);
+    const normalizedSubclassKey = params.subclassKey
+      ? this.normalizeSubclassKey(params.subclassKey)
+      : null;
+    const normalizedLevel = Math.max(Math.floor(params.classLevel), 0);
+    const raceTraitIds = normalizedRaceKey
+      ? this.listRaceTraits(normalizedRaceKey).map((trait) => trait.id)
+      : [];
+    const classFeatureIds = this.listClassFeaturesForLevel(normalizedClassKey, normalizedLevel)
+      .map((feature) => feature.id);
+    const subclassFeatureIds = normalizedSubclassKey
+      ? this.listSubclassFeatures(normalizedClassKey, normalizedSubclassKey, normalizedLevel)
+          .map((feature) => feature.id)
+      : [];
+    const customFeatureIds = (params.requestedFeatureIds ?? [])
+      .map((feature) => feature.trim())
+      .filter((feature) => feature.length > 0)
+      .filter((feature) => !this.isCatalogFeatureId(feature));
+
+    return {
+      raceKey: normalizedRaceKey,
+      classKey: normalizedClassKey,
+      subclassKey: normalizedSubclassKey,
+      classLevel: normalizedLevel,
+      featureIds: Array.from(
+        new Set([
+          ...raceTraitIds,
+          ...classFeatureIds,
+          ...subclassFeatureIds,
+          ...customFeatureIds,
+        ]),
+      ),
+      raceTraitIds,
+      classFeatureIds,
+      subclassFeatureIds,
+      customFeatureIds,
+    };
   }
 
   listRaceTraits(raceKey: string): RuleCatalogEntry[] {
@@ -740,6 +799,15 @@ export class RuleCatalogService {
 
   private isActionCost(cost: RuleCost): boolean {
     return cost.type === "action" || cost.type === "bonus_action" || cost.type === "reaction";
+  }
+
+  private isCatalogFeatureId(feature: string): boolean {
+    const normalized = feature.trim();
+    return (
+      /^race\.[a-z0-9-]+\.trait\.[a-z0-9_]+$/i.test(normalized) ||
+      /^class\.[a-z0-9-]+\.feature\.[a-z0-9_]+$/i.test(normalized) ||
+      /^subclass\.[a-z0-9-]+\.[a-z0-9_]+\.feature\.[a-z0-9_]+$/i.test(normalized)
+    );
   }
 }
 

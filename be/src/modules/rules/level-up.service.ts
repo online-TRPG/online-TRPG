@@ -47,6 +47,14 @@ export type LevelUpResolution = {
   asiOrFeatChoiceRequiredAtLevels: number[];
 };
 
+export type CharacterLevelStatsResolution = {
+  level: number;
+  proficiencyBonus: number;
+  maxHp: number;
+  hitDie: HitDie;
+  constitutionModifier: number;
+};
+
 const HIT_DIE_STATS: Record<HitDie, { max: number; average: number }> = {
   d6: { max: 6, average: 4 },
   d8: { max: 8, average: 5 },
@@ -73,6 +81,29 @@ const ASI_OR_FEAT_LEVELS = new Set([4, 8, 12, 16, 19]);
 
 @Injectable()
 export class LevelUpService {
+  resolveCharacterLevelStats(input: {
+    level: number;
+    hitDie: string;
+    constitutionScore: number;
+  }): CharacterLevelStatsResolution {
+    const level = this.assertLevel(input.level, "level");
+    const hitDie = this.assertHitDie(input.hitDie);
+    const constitutionModifier = this.resolveAbilityModifier(input.constitutionScore);
+    const stats = HIT_DIE_STATS[hitDie];
+
+    return {
+      level,
+      proficiencyBonus: this.resolveProficiencyBonus(level),
+      maxHp: this.calculateMaxHpAtLevel({
+        level,
+        stats,
+        constitutionModifier,
+      }),
+      hitDie,
+      constitutionModifier,
+    };
+  }
+
   resolveLevelUp(input: LevelUpInput): LevelUpResolution {
     const classKey = this.normalizeClassKey(input.classKey);
     const currentLevel = this.assertLevel(input.currentLevel, "currentLevel");

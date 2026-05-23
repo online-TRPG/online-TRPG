@@ -5,6 +5,22 @@ describe("LevelUpService", () => {
   const service = new LevelUpService();
   const catalog = new RuleCatalogService();
 
+  it("resolves canonical character level stats from hit die and constitution", () => {
+    expect(
+      service.resolveCharacterLevelStats({
+        level: 5,
+        hitDie: "d8",
+        constitutionScore: 14,
+      }),
+    ).toEqual({
+      level: 5,
+      proficiencyBonus: 3,
+      maxHp: 38,
+      hitDie: "d8",
+      constitutionModifier: 2,
+    });
+  });
+
   it("resolves proficiency, average HP, and new fighter features", () => {
     const result = service.resolveLevelUp({
       classKey: "fighter",

@@ -98,10 +98,7 @@ export class GmOverrideService {
       return { accepted: false, rejectedReason: "missing_state_patch" };
     }
 
-    const metadata = {
-      ...(input.metadata ?? {}),
-      privateNote: input.privateNote?.trim() || undefined,
-    };
+    const metadata = { ...(input.metadata ?? {}) };
 
     return {
       accepted: true,

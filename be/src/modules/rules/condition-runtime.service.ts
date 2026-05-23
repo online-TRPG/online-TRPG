@@ -26,6 +26,12 @@ export type ConditionInstance = {
   tags: string[];
 };
 
+export type ConditionLifecycleResolution = {
+  conditions: ConditionInstance[];
+  expiredConditions: ConditionInstance[];
+  updatedConditions: ConditionInstance[];
+};
+
 @Injectable()
 export class ConditionRuntimeService {
   parseConditionsJson(value: string | null | undefined): ConditionInstance[] {
@@ -82,6 +88,75 @@ export class ConditionRuntimeService {
     return current.filter((condition) => condition.conditionId !== normalized);
   }
 
+  resolveTurnEnd(
+    current: ConditionInstance[],
+    turn: { round: number; turn: number },
+  ): ConditionLifecycleResolution {
+    this.assertNonNegativeInteger(turn.round, "turn.round");
+    this.assertNonNegativeInteger(turn.turn, "turn.turn");
+
+    const conditions: ConditionInstance[] = [];
+    const expiredConditions: ConditionInstance[] = [];
+    const updatedConditions: ConditionInstance[] = [];
+
+    for (const condition of current) {
+      const next = this.tickConditionAtTurnEnd(condition, turn);
+      if (!next) {
+        expiredConditions.push(condition);
+        continue;
+      }
+      conditions.push(next);
+      if (next !== condition) {
+        updatedConditions.push(next);
+      }
+    }
+
+    return { conditions, expiredConditions, updatedConditions };
+  }
+
+  resolveSaveEnd(
+    current: ConditionInstance[],
+    params: {
+      conditionId: string;
+      saveSucceeded: boolean;
+    },
+  ): ConditionLifecycleResolution {
+    const normalized = this.normalizeConditionId(params.conditionId);
+    const expiredConditions: ConditionInstance[] = [];
+    const conditions = current.filter((condition) => {
+      if (
+        condition.conditionId === normalized &&
+        condition.saveEnds &&
+        params.saveSucceeded
+      ) {
+        expiredConditions.push(condition);
+        return false;
+      }
+      return true;
+    });
+
+    return { conditions, expiredConditions, updatedConditions: [] };
+  }
+
+  resolveRestEnd(
+    current: ConditionInstance[],
+    restType: "short" | "long",
+  ): ConditionLifecycleResolution {
+    const expiredConditions: ConditionInstance[] = [];
+    const conditions = current.filter((condition) => {
+      if (condition.duration.type !== "until_rest") {
+        return true;
+      }
+      if (condition.duration.restType === "short" || restType === "long") {
+        expiredConditions.push(condition);
+        return false;
+      }
+      return true;
+    });
+
+    return { conditions, expiredConditions, updatedConditions: [] };
+  }
+
   createCondition(params: {
     conditionId: string;
     sourceId?: string | null;
@@ -126,6 +201,51 @@ export class ConditionRuntimeService {
         ? value.tags.filter((tag): tag is string => typeof tag === "string")
         : [],
     });
+  }
+
+  private tickConditionAtTurnEnd(
+    condition: ConditionInstance,
+    turn: { round: number; turn: number },
+  ): ConditionInstance | null {
+    if (condition.duration.type === "instant") {
+      return null;
+    }
+
+    if (
+      condition.duration.type === "until_turn" &&
+      this.isAtOrAfterTurn(turn, {
+        round: condition.duration.round,
+        turn: condition.duration.turn,
+      })
+    ) {
+      return null;
+    }
+
+    if (condition.expiresAtTurn && this.isAtOrAfterTurn(turn, condition.expiresAtTurn)) {
+      return null;
+    }
+
+    if (condition.duration.type !== "rounds") {
+      return condition;
+    }
+
+    const remaining = condition.duration.remaining - 1;
+    if (remaining <= 0) {
+      return null;
+    }
+
+    return {
+      ...condition,
+      duration: { type: "rounds", remaining },
+    };
+  }
+
+  private isAtOrAfterTurn(
+    current: { round: number; turn: number },
+    target: { round: number; turn: number },
+  ): boolean {
+    return current.round > target.round ||
+      (current.round === target.round && current.turn >= target.turn);
   }
 
   private toDuration(value: unknown): ConditionDuration {
@@ -197,6 +317,12 @@ export class ConditionRuntimeService {
   private toNullableInteger(value: unknown): number | null {
     const numberValue = Number(value);
     return Number.isInteger(numberValue) ? numberValue : null;
+  }
+
+  private assertNonNegativeInteger(value: number, field: string): void {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error(`${field} must be a non-negative integer.`);
+    }
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

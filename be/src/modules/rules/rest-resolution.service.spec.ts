@@ -30,8 +30,67 @@ describe("RestResolutionService", () => {
         actionSurgeUses: 1,
       },
       spellSlots: { "1": 0 },
-      recoveredTags: ["resource:second_wind_expended", "resource:action_surge_expended"],
+      recoveredTags: [
+        "resource:second_wind_expended",
+        "resource:action_surge_expended",
+        "action_surge:additional_action_granted",
+      ],
     });
+  });
+
+  it("removes structured until-rest conditions at the matching rest boundary", () => {
+    expect(
+      service.resolveRest({
+        restType: "short",
+        currentHp: 4,
+        maxHp: 12,
+        conditions: [
+          {
+            conditionId: "condition.burning",
+            sourceId: "terrain.burning",
+            duration: { type: "until_rest", restType: "short" },
+            tags: ["damage_over_time:fire"],
+          },
+          {
+            conditionId: "condition.poisoned",
+            sourceId: "terrain.poison_cloud",
+            duration: { type: "until_rest", restType: "long" },
+            tags: ["disadvantage:attack_roll"],
+          },
+        ],
+      }),
+    ).toMatchObject({
+      accepted: true,
+      restType: "short",
+      conditions: [
+        {
+          conditionId: "condition.poisoned",
+          sourceId: "terrain.poison_cloud",
+          duration: { type: "until_rest", restType: "long" },
+          tags: ["disadvantage:attack_roll"],
+        },
+      ],
+    });
+
+    expect(
+      service.resolveRest({
+        restType: "long",
+        currentHp: 4,
+        maxHp: 12,
+        conditions: [
+          {
+            conditionId: "condition.burning",
+            sourceId: "terrain.burning",
+            duration: { type: "until_rest", restType: "short" },
+          },
+          {
+            conditionId: "condition.poisoned",
+            sourceId: "terrain.poison_cloud",
+            duration: { type: "until_rest", restType: "long" },
+          },
+        ],
+      }).conditions,
+    ).toEqual([]);
   });
 
   it("recovers long-rest HP, rage state, exhaustion, and spell slots", () => {

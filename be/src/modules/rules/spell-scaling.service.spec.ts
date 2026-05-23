@@ -17,8 +17,8 @@ describe("SpellScalingService", () => {
       baseSpellLevel: 1,
       slotLevel: 3,
       slotLevelsAboveBase: 2,
-      damageDice: "3d6+2d6",
-      appliedScaling: [{ mode: "damage_dice", steps: 2, value: "3d6+2d6" }],
+      damageDice: "5d6",
+      appliedScaling: [{ mode: "damage_dice", steps: 2, value: "5d6" }],
     });
   });
 
@@ -54,11 +54,11 @@ describe("SpellScalingService", () => {
       }),
     ).toMatchObject({
       spellId: "spell.conjure_ally",
-      healingDice: "2d8+2d8",
+      healingDice: "4d8",
       duration: { unit: "minute", amount: 20 },
       summonCount: 3,
       appliedScaling: [
-        { mode: "healing_dice", steps: 2, value: "2d8+2d8" },
+        { mode: "healing_dice", steps: 2, value: "4d8" },
         { mode: "duration", steps: 2, value: { unit: "minute", amount: 20 } },
         { mode: "summon_count", steps: 2, value: 3 },
       ],

@@ -186,8 +186,17 @@ export class SpellScalingService {
 
   private addDice(baseDice: string | null, dice: string, steps: number): string {
     const parsed = this.parseDice(dice);
-    const additionalDice = `${parsed.count * steps}d${parsed.sides}`;
-    return baseDice ? `${baseDice}+${additionalDice}` : additionalDice;
+    const additionalCount = parsed.count * steps;
+    if (!baseDice) {
+      return `${additionalCount}d${parsed.sides}`;
+    }
+
+    const parsedBase = this.tryParseDice(baseDice);
+    if (parsedBase && parsedBase.sides === parsed.sides) {
+      return `${parsedBase.count + additionalCount}d${parsed.sides}`;
+    }
+
+    return `${baseDice}+${additionalCount}d${parsed.sides}`;
   }
 
   private parseDice(dice: string): { count: number; sides: number } {
@@ -201,6 +210,14 @@ export class SpellScalingService {
       throw new Error(`Unsupported dice expression: ${dice}`);
     }
     return { count, sides };
+  }
+
+  private tryParseDice(dice: string): { count: number; sides: number } | null {
+    try {
+      return this.parseDice(dice);
+    } catch {
+      return null;
+    }
   }
 
   private addDuration(

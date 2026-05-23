@@ -37,8 +37,8 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { mapScenario, mapScenarioSummary } from '../../common/mappers/domain.mapper';
 import {
-  DEFAULT_PROVIDED_SCENARIO_ID,
-  isDefaultProvidedScenarioId,
+  PROVIDED_SCENARIO_IDS,
+  isProvidedScenarioId,
 } from './provided-scenario.constants';
 
 @Injectable()
@@ -48,7 +48,7 @@ export class ScenariosService {
   async listScenarios(query?: ScenarioQueryDto): Promise<ScenarioSummaryResponseDto[]> {
     const scenarios = await this.prisma.scenario.findMany({
       where: {
-        id: DEFAULT_PROVIDED_SCENARIO_ID,
+        id: { in: PROVIDED_SCENARIO_IDS },
         title: query?.search
           ? {
               contains: query.search,
@@ -414,7 +414,7 @@ export class ScenariosService {
     scenario: Awaited<ReturnType<ScenariosService['getScenarioEntityById']>>,
     viewerUserId?: string | null
   ): void {
-    const isDefaultProvidedScenario = isDefaultProvidedScenarioId(scenario.id);
+    const isDefaultProvidedScenario = isProvidedScenarioId(scenario.id);
     const isOwnScenario = Boolean(viewerUserId && scenario.createdByUserId === viewerUserId);
 
     if (isDefaultProvidedScenario || isOwnScenario) {

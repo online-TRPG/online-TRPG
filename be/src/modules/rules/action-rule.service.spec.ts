@@ -2,6 +2,7 @@ import {
   ActionOutcome,
   DiceAdvantageState,
   DiceRollResponseDto,
+  GamePhase,
 } from "@trpg/shared-types";
 import { ActionRuleService } from "./action-rule.service";
 import { CommandParserService } from "./command-parser.service";
@@ -103,6 +104,19 @@ describe("ActionRuleService", () => {
     );
   };
 
+  it("exposes ready action in combat action availability", () => {
+    const service = createService([]);
+
+    expect(
+      service.getAvailableActions({
+        phase: GamePhase.COMBAT,
+        isCurrentTurn: true,
+        hasActiveCombat: true,
+        isAlive: true,
+      }).map((action) => action.code),
+    ).toEqual(["MOVE", "ATTACK", "CHECK", "READY", "END_TURN"]);
+  });
+
   it("uses the P0 attack hook so natural 20 hits even against high AC", () => {
     const service = createService([
       createDiceResult([20], 2),
@@ -186,6 +200,63 @@ describe("ActionRuleService", () => {
     expect(result.stateChanges).toEqual([
       { sessionCharacterId: "target", currentHp: 7, markDead: false },
     ]);
+  });
+
+  it("creates a pending ready action from command actions", () => {
+    const service = createService([]);
+    const actor = createCharacter({ id: "actor", userId: "user-1" });
+
+    const result = service.resolveAction("/ready enter attack monster-1 30", actor, [actor], {
+      hasActiveCombat: true,
+      combat: {
+        combatId: "combat-1",
+        roundNo: 2,
+        turnNo: 3,
+        actorParticipantId: "participant-1",
+      },
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+
+    expect(result).toMatchObject({
+      diceResult: null,
+      outcome: ActionOutcome.NO_ROLL,
+      narration: "준비행동을 설정했습니다.",
+      stateChanges: [],
+    });
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      {
+        type: "STORE_READY_ACTION",
+        pending: expect.objectContaining({
+          id: "reaction:ready:participant-1:2:3",
+          actorParticipantId: "participant-1",
+        }),
+      },
+    ]);
+    expect(result.structuredAction).toMatchObject({
+      type: "ready_action",
+      pendingReadyAction: {
+        id: "reaction:ready:participant-1:2:3",
+        actorParticipantId: "participant-1",
+        actorUserId: "user-1",
+        combatId: "combat-1",
+        trigger: {
+          type: "creature_enters_range",
+          targetParticipantId: "monster-1",
+          rangeFt: 30,
+        },
+        heldAction: {
+          type: "attack",
+          targetParticipantId: "monster-1",
+        },
+      },
+    });
   });
 
   it("uses the P0 attack hook so natural 1 misses even with a high total", () => {
@@ -343,6 +414,163 @@ describe("ActionRuleService", () => {
     ]);
   });
 
+  it("resolves item drop commands into inventory removal and map object metadata", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        inventoryJson: JSON.stringify([
+          {
+            id: "entry-dagger",
+            itemDefinitionId: "equipment.dagger",
+            name: "Dagger",
+            quantity: 2,
+            damageDice: "1d4",
+            damageType: "piercing",
+            properties: ["finesse", "light", "thrown"],
+          },
+        ]),
+      },
+    });
+
+    const result = service.resolveAction("/item drop entry-dagger 1 1 0", actor, [actor], {
+      map: {
+        gridType: "square",
+        gridSize: 50,
+        tokens: [
+          { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+        ],
+      },
+    });
+    const structuredAction = result.structuredAction as {
+      result: {
+        createObject: {
+          itemDefinitionId: string;
+          name: string;
+          quantity: number;
+          point: { x: number; y: number };
+        };
+        distanceFt: number;
+      };
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(structuredAction.result.createObject).toEqual({
+      itemDefinitionId: "equipment.dagger",
+      name: "Dagger",
+      quantity: 1,
+      point: { x: 1, y: 0 },
+    });
+    expect(structuredAction.result.distanceFt).toBe(5);
+    expect(result.runtimeEffects).toEqual([
+      { type: "REMOVE_ITEM", itemId: "entry-dagger", quantity: 1 },
+    ]);
+  });
+
+  it("resolves item pickup commands into inventory addition and map object removal metadata", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+    });
+
+    const result = service.resolveAction(
+      "/item pickup object-rope equipment.rope 1 1 0",
+      actor,
+      [actor],
+      {
+        map: {
+          gridType: "square",
+          gridSize: 50,
+          tokens: [
+            { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+          ],
+        },
+      },
+    );
+    const structuredAction = result.structuredAction as {
+      result: {
+        objectId: string;
+        itemDefinitionId: string;
+        quantity: number;
+        removeObject: boolean;
+        distanceFt: number;
+      };
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(structuredAction.result).toMatchObject({
+      objectId: "object-rope",
+      itemDefinitionId: "equipment.rope",
+      quantity: 1,
+      removeObject: true,
+      distanceFt: 5,
+    });
+    expect(result.runtimeEffects).toEqual([
+      { type: "ADD_ITEM", itemDefinitionId: "equipment.rope", quantity: 1 },
+    ]);
+  });
+
+  it("resolves item throw commands into thrown attack metadata", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        abilitiesJson: JSON.stringify({ str: 12, dex: 16 }),
+        proficiencyBonus: 2,
+        inventoryJson: JSON.stringify([
+          {
+            id: "entry-dagger",
+            itemDefinitionId: "equipment.dagger",
+            name: "Dagger",
+            quantity: 1,
+            damageDice: "1d4",
+            damageType: "piercing",
+            properties: ["finesse", "light", "thrown", "proficient"],
+          },
+        ]),
+      },
+    });
+
+    const result = service.resolveAction("/item throw entry-dagger 1 4 0", actor, [actor], {
+      map: {
+        gridType: "square",
+        gridSize: 50,
+        tokens: [
+          { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+        ],
+      },
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+    const structuredAction = result.structuredAction as {
+      result: {
+        attack: { kind: string; ability: string; attackBonus: number; damageDice: string };
+        distanceFt: number;
+      };
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(structuredAction.result.attack).toMatchObject({
+      kind: "thrown_weapon",
+      ability: "dex",
+      attackBonus: 5,
+      damageDice: "1d4",
+    });
+    expect(structuredAction.result.distanceFt).toBe(20);
+    expect(result.runtimeEffects).toEqual([
+      { type: "REMOVE_ITEM", itemId: "entry-dagger", quantity: 1 },
+      { type: "SPEND_ACTION" },
+    ]);
+  });
+
   it("connects chill touch spell casting to attack, spell, and damage hooks", () => {
     const service = createService([
       createDiceResult([18], 2),
@@ -370,13 +598,25 @@ describe("ActionRuleService", () => {
     const structuredAction = result.structuredAction as {
       spellId: string;
       damageType: string;
+      damageDice: string;
+      spellDefinition: {
+        id: string;
+        level: number;
+        damage: { dice: string; type: string };
+      };
       finalDamage: number;
       ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
     };
 
     expect(result.outcome).toBe(ActionOutcome.SUCCESS);
     expect(structuredAction.spellId).toBe("spell.chill_touch");
+    expect(structuredAction.spellDefinition).toMatchObject({
+      id: "spell.chill_touch",
+      level: 0,
+      damage: { dice: "1d8", type: "necrotic" },
+    });
     expect(structuredAction.damageType).toBe("necrotic");
+    expect(structuredAction.damageDice).toBe("1d8");
     expect(structuredAction.finalDamage).toBe(5);
     expect(result.stateChanges).toEqual([
       { sessionCharacterId: "target", currentHp: 5, markDead: false },
@@ -386,6 +626,312 @@ describe("ActionRuleService", () => {
       RULE_HOOK_IDS.CAST_CHILL_TOUCH,
       RULE_HOOK_IDS.APPLY_DAMAGE_MODIFIERS,
     ]);
+  });
+
+  it("uses catalog character-level spell scaling for chill touch damage dice", () => {
+    const service = createService([
+      createDiceResult([18], 2),
+      {
+        expression: "2d8",
+        rolls: [5, 6],
+        modifier: 0,
+        total: 11,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: { className: "wizard", level: 5 },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 20,
+      character: { id: "target-character", name: "Target", armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/cast chill_touch target 90", actor, [actor, target]);
+    const structuredAction = result.structuredAction as {
+      damageDice: string;
+      finalDamage: number;
+    };
+
+    expect(structuredAction.damageDice).toBe("2d8");
+    expect(structuredAction.finalDamage).toBe(11);
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 9, markDead: false },
+    ]);
+  });
+
+  it("executes fire bolt through catalog attack spell data", () => {
+    const service = createService([
+      createDiceResult([18], 3),
+      {
+        expression: "2d10",
+        rolls: [7, 6],
+        modifier: 0,
+        total: 13,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: { className: "wizard", level: 5, proficiencyBonus: 3 },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 20,
+      conditionsJson: JSON.stringify(["vulnerability:fire"]),
+      character: { id: "target-character", name: "Target", armorClass: 12 },
+    });
+
+    const result = service.resolveAction("/cast fire_bolt target 120", actor, [actor, target]);
+    const structuredAction = result.structuredAction as {
+      spellId: string;
+      damageType: string;
+      damageDice: string;
+      finalDamage: number;
+      spellDefinition: {
+        id: string;
+        level: number;
+        targeting: { type: string; rangeFt: number };
+      };
+      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(structuredAction.spellId).toBe("spell.fire_bolt");
+    expect(structuredAction.spellDefinition).toMatchObject({
+      id: "spell.fire_bolt",
+      level: 0,
+      targeting: { type: "creature", rangeFt: 120 },
+    });
+    expect(structuredAction.damageType).toBe("fire");
+    expect(structuredAction.damageDice).toBe("2d10");
+    expect(structuredAction.finalDamage).toBe(26);
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 0, markDead: true },
+    ]);
+    expect(structuredAction.ruleResults.map((ruleResult) => ruleResult.hookId)).toEqual([
+      RULE_HOOK_IDS.RESOLVE_ATTACK_ROLL,
+      RULE_HOOK_IDS.APPLY_DAMAGE_MODIFIERS,
+    ]);
+  });
+
+  it("rejects catalog attack spells when the target is out of range", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: { className: "wizard", level: 5 },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      character: { id: "target-character", name: "Target", armorClass: 12 },
+    });
+
+    const result = service.resolveAction("/cast fire_bolt target 125", actor, [actor, target]);
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.narration).toBe("대상이 주문 사거리 밖에 있습니다.");
+    expect(result.structuredAction).toMatchObject({
+      type: "cast_spell",
+      spellId: "spell.fire_bolt",
+      target: "target",
+      targetDistanceFt: 125,
+      rejectedReason: "target_out_of_range",
+    });
+  });
+
+  it("executes fireball as an area spell with individual saves and damage", () => {
+    const service = createService([
+      {
+        expression: "9d6",
+        rolls: [6, 5, 4, 4, 3, 3, 2, 2, 1],
+        modifier: 0,
+        total: 30,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      {
+        expression: "1d20",
+        rolls: [16],
+        modifier: 0,
+        total: 16,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      {
+        expression: "1d20",
+        rolls: [8],
+        modifier: 0,
+        total: 8,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: { className: "wizard", level: 5 },
+    });
+    const rogue = createCharacter({
+      id: "rogue",
+      characterId: "rogue-character",
+      currentHp: 30,
+      conditionsJson: JSON.stringify(["resistance:fire", "save_proficiency:dex"]),
+      character: {
+        id: "rogue-character",
+        name: "Rogue",
+        abilitiesJson: JSON.stringify({ dex: 14 }),
+        proficiencyBonus: 2,
+      },
+    });
+    const zombie = createCharacter({
+      id: "zombie",
+      characterId: "zombie-character",
+      currentHp: 20,
+      conditionsJson: JSON.stringify(["vulnerability:fire"]),
+      character: {
+        id: "zombie-character",
+        name: "Zombie",
+        abilitiesJson: JSON.stringify({ dex: 8 }),
+      },
+    });
+
+    const result = service.resolveAction(
+      "/cast_area fireball 15 rogue,zombie 4",
+      actor,
+      [actor, rogue, zombie],
+    );
+    const structuredAction = result.structuredAction as {
+      spellId: string;
+      slotLevel: number;
+      spellScaling: { damageDice: string };
+      aoe: {
+        damageDice: string;
+        damageType: string;
+        targetResults: Array<{
+          targetId: string;
+          baseDamage: number;
+          finalDamage: number;
+          nextHp: number;
+          savingThrow: { success: boolean; savingThrowTotal: number };
+        }>;
+      };
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(structuredAction.spellId).toBe("spell.fireball");
+    expect(structuredAction.slotLevel).toBe(4);
+    expect(structuredAction.spellScaling.damageDice).toBe("9d6");
+    expect(structuredAction.aoe).toMatchObject({
+      damageDice: "9d6",
+      damageType: "fire",
+      targetResults: [
+        {
+          targetId: "rogue",
+          baseDamage: 15,
+          finalDamage: 7,
+          nextHp: 23,
+          savingThrow: { success: true, savingThrowTotal: 20 },
+        },
+        {
+          targetId: "zombie",
+          baseDamage: 30,
+          finalDamage: 60,
+          nextHp: 0,
+          savingThrow: { success: false, savingThrowTotal: 7 },
+        },
+      ],
+    });
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "rogue", currentHp: 23, markDead: false },
+      { sessionCharacterId: "zombie", currentHp: 0, markDead: true },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+  });
+
+  it("executes magic missile as catalog-driven auto-hit force damage", () => {
+    const service = createService([
+      {
+        expression: "5d4+5",
+        rolls: [1, 2, 3, 4, 1],
+        modifier: 5,
+        total: 16,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: { className: "wizard", level: 5 },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 30,
+      character: { id: "target-character", name: "Target", armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/cast magic_missile target 120 3", actor, [actor, target]);
+    const structuredAction = result.structuredAction as {
+      slotLevel: number;
+      spellScaling: {
+        baseSpellLevel: number;
+        slotLevel: number;
+        targetCount: number;
+        appliedScaling: Array<{ mode: string; steps: number; value: number }>;
+      };
+      missileCount: number;
+      damageType: string;
+      damageDice: string;
+      finalDamage: number;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(structuredAction.slotLevel).toBe(3);
+    expect(structuredAction.spellScaling).toMatchObject({
+      baseSpellLevel: 1,
+      slotLevel: 3,
+      targetCount: 5,
+      appliedScaling: [{ mode: "target_count", steps: 2, value: 5 }],
+    });
+    expect(structuredAction.missileCount).toBe(5);
+    expect(structuredAction.damageType).toBe("force");
+    expect(structuredAction.damageDice).toBe("5d4+5");
+    expect(structuredAction.finalDamage).toBe(16);
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 14, markDead: false },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+  });
+
+  it("rejects invalid spell slot levels without throwing", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: { className: "wizard", level: 5 },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      character: { id: "target-character", name: "Target", armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/cast magic_missile target 120 0", actor, [actor, target]);
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.narration).toBe("주문 슬롯 레벨이 유효하지 않습니다.");
+    expect(result.structuredAction).toMatchObject({
+      type: "cast_spell",
+      spellId: "spell.magic_missile",
+      slotLevel: 0,
+      rejectedReason: "invalid_spell_slot_level",
+      spellScaling: null,
+    });
   });
 
   it("rejects chill touch before rolling when the target is out of range", () => {
@@ -950,6 +1496,11 @@ describe("ActionRuleService", () => {
         secondWindAvailable: true,
         actionSurgeUses: 1,
       },
+      recoveredTags: [
+        "resource:second_wind_expended",
+        "resource:action_surge_expended",
+        "action_surge:additional_action_granted",
+      ],
     });
   });
 
@@ -1016,6 +1567,16 @@ describe("ActionRuleService", () => {
         reduceExhaustionBy: 1,
       },
     ]);
+    expect(result.structuredAction).toMatchObject({
+      type: "rest",
+      restType: "long",
+      recoveredTags: expect.arrayContaining([
+        "resource:rage_expended",
+        "rage",
+        "resistance:slashing",
+        "spell_slots:all",
+      ]),
+    });
   });
 
   it("recovers long rest rage uses from catalog feature ids", () => {
