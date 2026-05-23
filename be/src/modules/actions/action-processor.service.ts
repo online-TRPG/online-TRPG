@@ -25,6 +25,7 @@ import { ActionEconomyService } from "../rules/action-economy.service";
 import { CharacterResourceService } from "../rules/character-resource.service";
 import { InventoryRuntimeService } from "../rules/inventory-runtime.service";
 import { MapPositionService } from "../rules/map-position.service";
+import { PENDING_READY_ACTIONS_FLAG } from "../rules/ready-action.service";
 import { StateDiffService } from "../rules/state-diff.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
@@ -273,6 +274,7 @@ export class ActionProcessorService {
     });
 
     const runtimeStateChanged = await this.applyRuntimeEffects(resolution, {
+      sessionScenarioId: sessionScenario.id,
       sessionCharacterId: actor.id,
       turnStateKey: runtime.turnStateKey,
     });
@@ -320,6 +322,9 @@ export class ActionProcessorService {
     const currentParticipant = combat?.participants.find(
       (participant) => participant.id === combat.currentParticipantId,
     );
+    const actorParticipant = combat?.participants.find(
+      (participant) => participant.sessionCharacterId === actor.id,
+    );
 
     if (!combat || currentParticipant?.sessionCharacterId !== actor.id) {
       return {
@@ -328,6 +333,14 @@ export class ActionProcessorService {
           hasActiveCombat: Boolean(combat),
           resource: this.toRuntimeResource(resource),
           turnState: null,
+          combat: combat
+            ? {
+                combatId: combat.id,
+                roundNo: combat.roundNo,
+                turnNo: combat.turnNo,
+                actorParticipantId: actorParticipant?.id ?? null,
+              }
+            : null,
         },
         turnStateKey: null,
       };
@@ -354,6 +367,12 @@ export class ActionProcessorService {
           additionalActionGranted: turnState.additionalActionGranted,
           sneakAttackUsed: turnState.sneakAttackUsed,
         },
+        combat: {
+          combatId: combat.id,
+          roundNo: combat.roundNo,
+          turnNo: combat.turnNo,
+          actorParticipantId: currentParticipant.id,
+        },
       },
       turnStateKey,
     };
@@ -362,6 +381,7 @@ export class ActionProcessorService {
   private async applyRuntimeEffects(
     resolution: ActionResolution,
     params: {
+      sessionScenarioId: string;
       sessionCharacterId: string;
       turnStateKey: RuntimeTurnStateKey | null;
     },
@@ -377,6 +397,7 @@ export class ActionProcessorService {
   private async applyRuntimeEffect(
     effect: ActionRuntimeEffect,
     params: {
+      sessionScenarioId: string;
       sessionCharacterId: string;
       turnStateKey: RuntimeTurnStateKey | null;
     },
@@ -412,6 +433,9 @@ export class ActionProcessorService {
         return;
       case "SPEND_ACTION_SURGE_USE":
         await this.characterResources.spendActionSurgeUse(params.sessionCharacterId);
+        return;
+      case "STORE_READY_ACTION":
+        await this.storePendingReadyAction(params.sessionScenarioId, effect.pending);
         return;
       case "START_RAGE":
         await this.characterResources.startRage({
@@ -529,6 +553,47 @@ export class ActionProcessorService {
       );
     } catch {
       return new Set();
+    }
+  }
+
+  private async storePendingReadyAction(
+    sessionScenarioId: string,
+    pending: Extract<ActionRuntimeEffect, { type: "STORE_READY_ACTION" }>["pending"],
+  ): Promise<void> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const current = Array.isArray(flags[PENDING_READY_ACTIONS_FLAG])
+      ? flags[PENDING_READY_ACTIONS_FLAG]
+      : [];
+    const readyActions = current.filter(
+      (candidate): candidate is Record<string, unknown> =>
+        typeof candidate === "object" &&
+        candidate !== null &&
+        candidate["id"] !== pending.id,
+    );
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          [PENDING_READY_ACTIONS_FLAG]: [...readyActions, pending],
+        }),
+      },
+    });
+  }
+
+  private parseJson<T>(value: string | null | undefined, fallback: T): T {
+    if (!value) {
+      return fallback;
+    }
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
     }
   }
 

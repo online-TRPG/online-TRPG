@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { ConditionRuntimeService } from "./condition-runtime.service";
 
 export type RestType = "short" | "long";
 
@@ -52,6 +53,7 @@ export type RestResolution = {
 const SHORT_REST_RECOVERED_TAGS = [
   "resource:second_wind_expended",
   "resource:action_surge_expended",
+  "action_surge:additional_action_granted",
 ];
 
 const LONG_REST_RECOVERED_TAGS = [
@@ -65,6 +67,10 @@ const LONG_REST_RECOVERED_TAGS = [
 
 @Injectable()
 export class RestResolutionService {
+  constructor(
+    private readonly conditionRuntime: ConditionRuntimeService = new ConditionRuntimeService(),
+  ) {}
+
   resolveRest(input: RestResolutionInput): RestResolution {
     this.assertHp(input.currentHp, "currentHp");
     this.assertHp(input.maxHp, "maxHp");
@@ -159,6 +165,7 @@ export class RestResolutionService {
   }
 
   private removeRecoveredConditions(conditions: unknown[], recoveredTags: string[]): unknown[] {
+    const restType = recoveredTags.includes("spell_slots:all") ? "long" : "short";
     const recovered = new Set(recoveredTags);
     return conditions.filter((condition) => {
       if (typeof condition === "string") {
@@ -168,6 +175,13 @@ export class RestResolutionService {
         return true;
       }
       const record = condition as Record<string, unknown>;
+      const parsed = this.conditionRuntime.parseConditionsJson(JSON.stringify([record]))[0];
+      if (
+        parsed &&
+        this.conditionRuntime.resolveRestEnd([parsed], restType).expiredConditions.length > 0
+      ) {
+        return false;
+      }
       const tags = Array.isArray(record.tags) ? record.tags : [];
       return tags.some((tag) => typeof tag === "string" && recovered.has(tag))
         ? false

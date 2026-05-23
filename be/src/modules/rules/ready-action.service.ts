@@ -1,5 +1,7 @@
 import { Injectable } from "@nestjs/common";
 
+export const PENDING_READY_ACTIONS_FLAG = "pendingReadyActions";
+
 export type ReadyActionCost = "action" | "bonus_action";
 
 export type ReadyActionTriggerType =
@@ -85,6 +87,18 @@ export type ReadyTriggerResolution = {
   shouldPromptActor: boolean;
 };
 
+export type ReadyActionListResolution = {
+  triggered: Array<{
+    pending: PendingReadyAction;
+    resolution: ReadyTriggerResolution;
+  }>;
+  expired: Array<{
+    pending: PendingReadyAction;
+    resolution: ReadyTriggerResolution;
+  }>;
+  remaining: PendingReadyAction[];
+};
+
 @Injectable()
 export class ReadyActionService {
   createPendingReadyAction(input: ReadyActionInput): ReadyActionResolution {
@@ -145,13 +159,37 @@ export class ReadyActionService {
     };
   }
 
+  resolvePendingActions(
+    pendingActions: PendingReadyAction[],
+    event: ReadyTriggerEvent,
+  ): ReadyActionListResolution {
+    const triggered: ReadyActionListResolution["triggered"] = [];
+    const expired: ReadyActionListResolution["expired"] = [];
+    const remaining: PendingReadyAction[] = [];
+
+    for (const pending of pendingActions) {
+      const resolution = this.resolveTrigger(pending, event);
+      if (resolution.expired) {
+        expired.push({ pending, resolution });
+        continue;
+      }
+      if (resolution.triggered) {
+        triggered.push({ pending, resolution });
+        continue;
+      }
+      remaining.push(pending);
+    }
+
+    return { triggered, expired, remaining };
+  }
+
   private isExpired(pending: PendingReadyAction, event: ReadyTriggerEvent): boolean {
     return event.roundNo > pending.expiresAtRound ||
       (event.roundNo === pending.expiresAtRound && event.turnNo > pending.expiresAtTurn);
   }
 
   private matchesTrigger(trigger: ReadyActionTrigger, event: ReadyTriggerEvent): boolean {
-    if (trigger.type !== event.type && trigger.type !== "manual") {
+    if (trigger.type !== event.type) {
       return false;
     }
     if (trigger.sourceParticipantId && trigger.sourceParticipantId !== event.sourceParticipantId) {

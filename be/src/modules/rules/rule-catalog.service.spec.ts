@@ -144,6 +144,52 @@ describe("RuleCatalogService", () => {
     ]);
   });
 
+  it("builds a full character feature snapshot with race, class, subclass, and custom features", () => {
+    expect(
+      service.getCharacterFeatureSnapshot({
+        raceKey: "high_elf",
+        classKey: "fighter",
+        subclassKey: "champion",
+        classLevel: 3,
+        requestedFeatureIds: [
+          "race.elf.trait.base_traits",
+          "class.fighter.feature.second_wind",
+          "subclass.fighter.champion.feature.improved_critical",
+          "homebrew.feature.duelist",
+        ],
+      }),
+    ).toEqual({
+      raceKey: "high-elf",
+      classKey: "fighter",
+      subclassKey: "champion",
+      classLevel: 3,
+      featureIds: [
+        "race.elf.trait.base_traits",
+        "race.high-elf.trait.subrace_traits",
+        "class.fighter.feature.fighting_style",
+        "class.fighter.feature.second_wind",
+        "class.fighter.feature.action_surge",
+        "class.fighter.feature.martial_archetype",
+        "subclass.fighter.champion.feature.improved_critical",
+        "homebrew.feature.duelist",
+      ],
+      raceTraitIds: [
+        "race.elf.trait.base_traits",
+        "race.high-elf.trait.subrace_traits",
+      ],
+      classFeatureIds: [
+        "class.fighter.feature.fighting_style",
+        "class.fighter.feature.second_wind",
+        "class.fighter.feature.action_surge",
+        "class.fighter.feature.martial_archetype",
+      ],
+      subclassFeatureIds: [
+        "subclass.fighter.champion.feature.improved_critical",
+      ],
+      customFeatureIds: ["homebrew.feature.duelist"],
+    });
+  });
+
   it("builds an executable feature snapshot through class level 3", () => {
     const snapshot = service.getClassFeatureSnapshot("Paladin", 3);
 
@@ -202,6 +248,135 @@ describe("RuleCatalogService", () => {
     });
   });
 
+  it.each([
+    {
+      classKey: "bard",
+      featureIds: [
+        "class.bard.feature.bardic_inspiration",
+        "class.bard.feature.spellcasting",
+      ],
+      actionFeatureIds: ["class.bard.feature.bardic_inspiration"],
+      resourceIds: ["resource.bard.bardic_inspiration"],
+      passiveTags: ["spellcasting:full", "spellcasting:known", "spellcasting:arcane"],
+    },
+    {
+      classKey: "cleric",
+      featureIds: [
+        "class.cleric.feature.divine_domain",
+        "class.cleric.feature.spellcasting",
+      ],
+      actionFeatureIds: [],
+      resourceIds: [],
+      passiveTags: [
+        "subclass:choice_required",
+        "spellcasting:full",
+        "spellcasting:prepared",
+        "spellcasting:divine",
+      ],
+    },
+    {
+      classKey: "druid",
+      featureIds: [
+        "class.druid.feature.druidic",
+        "class.druid.feature.spellcasting",
+      ],
+      actionFeatureIds: [],
+      resourceIds: [],
+      passiveTags: [
+        "language:druidic",
+        "spellcasting:full",
+        "spellcasting:prepared",
+        "spellcasting:primal",
+      ],
+    },
+    {
+      classKey: "monk",
+      featureIds: [
+        "class.monk.feature.martial_arts",
+        "class.monk.feature.unarmored_defense",
+      ],
+      actionFeatureIds: [],
+      resourceIds: [],
+      passiveTags: [
+        "unarmed:martial_arts_die",
+        "action:bonus_unarmed_after_attack",
+        "armor_class:unarmored_dex_wis",
+      ],
+    },
+    {
+      classKey: "paladin",
+      featureIds: [
+        "class.paladin.feature.divine_sense",
+        "class.paladin.feature.lay_on_hands",
+      ],
+      actionFeatureIds: [
+        "class.paladin.feature.divine_sense",
+        "class.paladin.feature.lay_on_hands",
+      ],
+      resourceIds: [
+        "resource.paladin.divine_sense",
+        "resource.paladin.lay_on_hands",
+      ],
+      passiveTags: [],
+    },
+    {
+      classKey: "sorcerer",
+      featureIds: [
+        "class.sorcerer.feature.sorcerous_origin",
+        "class.sorcerer.feature.spellcasting",
+      ],
+      actionFeatureIds: [],
+      resourceIds: [],
+      passiveTags: [
+        "subclass:choice_required",
+        "spellcasting:full",
+        "spellcasting:known",
+        "spellcasting:arcane",
+      ],
+    },
+    {
+      classKey: "warlock",
+      featureIds: [
+        "class.warlock.feature.otherworldly_patron",
+        "class.warlock.feature.pact_magic",
+      ],
+      actionFeatureIds: [],
+      resourceIds: [],
+      passiveTags: [
+        "subclass:choice_required",
+        "spellcasting:pact",
+        "spellcasting:known",
+        "spellcasting:arcane",
+      ],
+    },
+    {
+      classKey: "wizard",
+      featureIds: [
+        "class.wizard.feature.arcane_recovery",
+        "class.wizard.feature.spellcasting",
+      ],
+      actionFeatureIds: [],
+      resourceIds: ["resource.wizard.arcane_recovery"],
+      passiveTags: [
+        "rest:short",
+        "resource:arcane_recovery",
+        "spellcasting:full",
+        "spellcasting:prepared",
+        "spellcasting:arcane",
+        "spellbook",
+      ],
+    },
+  ])("builds the level 1 $classKey SRD class feature snapshot", (expected) => {
+    expect(service.getClassFeatureSnapshot(expected.classKey, 1)).toEqual({
+      classKey: expected.classKey,
+      classLevel: 1,
+      featureIds: expected.featureIds,
+      actionFeatureIds: expected.actionFeatureIds,
+      resourceIds: expected.resourceIds,
+      passiveTags: expected.passiveTags,
+    });
+  });
+
   it("keeps condition definitions in the same catalog id surface", () => {
     const conditions = service.listEntries("condition_definitions").map((entry) => entry.id);
 
@@ -237,6 +412,7 @@ describe("RuleCatalogService", () => {
       "spell.magic_missile",
       "spell.shield",
       "spell.sleep",
+      "spell.fireball",
     ]);
 
     expect(service.getEntry("spell.sleep")).toMatchObject({
@@ -251,6 +427,29 @@ describe("RuleCatalogService", () => {
         type: "spell",
         tags: ["spell_level:1", "hit_point_pool:5d8", "condition:unconscious", "area:sphere"],
         hookId: "hook.spell.cast_sleep",
+      },
+    });
+
+    expect(service.getEntry("spell.fireball")).toMatchObject({
+      id: "spell.fireball",
+      kind: "spell_definitions",
+      trigger: "action",
+      cost: { type: "action" },
+      targeting: { type: "area", shape: "sphere", sizeFt: 20 },
+      save: { ability: "dex", dcSource: "spell_save_dc" },
+      damage: { dice: "8d6", type: "fire", scaling: "slot_level" },
+      scaling: { mode: "slot_level", table: { mode: "damage_dice", dice: "1d6", perSlotAbove: 1 } },
+      runtimeEffect: {
+        type: "spell",
+        tags: [
+          "spell_level:3",
+          "area:sphere",
+          "range:150",
+          "save:dex",
+          "damage:fire",
+          "half_damage_on_success",
+        ],
+        hookId: "hook.spell.cast_fireball",
       },
     });
   });

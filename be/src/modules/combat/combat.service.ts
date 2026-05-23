@@ -40,6 +40,12 @@ import { ActionRuleService } from "../rules/action-rule.service";
 import { ActionEconomyService } from "../rules/action-economy.service";
 import { CharacterResourceService } from "../rules/character-resource.service";
 import { DiceService } from "../rules/dice.service";
+import { MonsterAbilityService } from "../rules/monster-ability.service";
+import {
+  PENDING_READY_ACTIONS_FLAG,
+  ReadyActionService,
+} from "../rules/ready-action.service";
+import type { PendingReadyAction } from "../rules/ready-action.service";
 import { RuleEngineService } from "../rules/rule-engine.service";
 import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
@@ -160,6 +166,8 @@ export class CombatService {
     private readonly turnLogsService: TurnLogsService,
     private readonly ruleEngine: RuleEngineService,
     private readonly srdEngine: SrdEngineLoaderService,
+    private readonly monsterAbilities: MonsterAbilityService,
+    private readonly readyActions: ReadyActionService = new ReadyActionService(),
   ) {}
 
   async startCombat(
@@ -1022,6 +1030,7 @@ export class CombatService {
     );
 
     const expiredRageCount = await this.endExpiredRagesForCombat(updated);
+    const expiredReadyActionCount = await this.expireReadyActionsForTurn(sessionId, updated);
 
     const response: TurnAdvanceResponseDto = {
       combatId: updated.id,
@@ -1033,7 +1042,7 @@ export class CombatService {
 
     this.realtimeEvents.emitTurnChanged(sessionId, response);
     this.realtimeEvents.emitCombatUpdated(sessionId, await this.mapCombat(updated));
-    if (expiredRageCount > 0) {
+    if (expiredRageCount > 0 || expiredReadyActionCount > 0) {
       this.realtimeEvents.emitSessionSnapshot(
         sessionId,
         await this.sessionsService.buildSnapshot(sessionId),
@@ -2011,6 +2020,7 @@ export class CombatService {
     const token = (map.tokens ?? []).find((candidate) => candidate.id === attacker.tokenId);
     const monsterId = token?.monster?.id ?? this.inferMvpMonsterId(attacker.nameSnapshot);
     const action =
+      this.monsterAbilities.chooseAction(monsterId, dto.actionId) ??
       this.srdEngine.chooseMvpMonsterAction(monsterId, dto.actionId) ??
       this.buildFallbackMonsterAction(monsterId, attacker.nameSnapshot);
     this.logAutoMonsterTurn("monster action selected", {
@@ -4195,6 +4205,66 @@ export class CombatService {
     }
 
     return expiredResources.length;
+  }
+
+  private async expireReadyActionsForTurn(
+    sessionId: string,
+    combat: NonNullable<CombatWithParticipants>,
+  ): Promise<number> {
+    const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const pendingActions = this.parsePendingReadyActions(flags[PENDING_READY_ACTIONS_FLAG]);
+    if (pendingActions.length === 0) {
+      return 0;
+    }
+
+    const resolution = this.readyActions.resolvePendingActions(pendingActions, {
+      type: "manual",
+      roundNo: combat.roundNo,
+      turnNo: combat.turnNo,
+    });
+    if (resolution.expired.length === 0) {
+      return 0;
+    }
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: sessionScenario.id },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          [PENDING_READY_ACTIONS_FLAG]: [
+            ...resolution.triggered.map((entry) => entry.pending),
+            ...resolution.remaining,
+          ],
+        }),
+      },
+    });
+    return resolution.expired.length;
+  }
+
+  private parsePendingReadyActions(value: unknown): PendingReadyAction[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter((candidate): candidate is PendingReadyAction => {
+      if (!candidate || typeof candidate !== "object") {
+        return false;
+      }
+      const pending = candidate as Partial<PendingReadyAction>;
+      return (
+        typeof pending.id === "string" &&
+        pending.type === "ready_action" &&
+        typeof pending.actorParticipantId === "string" &&
+        typeof pending.actorUserId === "string" &&
+        typeof pending.combatId === "string" &&
+        typeof pending.roundNo === "number" &&
+        typeof pending.turnNo === "number" &&
+        typeof pending.expiresAtRound === "number" &&
+        typeof pending.expiresAtTurn === "number" &&
+        Boolean(pending.trigger) &&
+        Boolean(pending.heldAction)
+      );
+    });
   }
 
   private isRageExpired(

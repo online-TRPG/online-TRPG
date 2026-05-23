@@ -80,24 +80,56 @@ describe("ForcedMovementService", () => {
   });
 
   it("records hazardous terrain entered by forced movement", () => {
-    expect(
-      service.resolveForcedMovement({
-        mode: "push",
-        origin: { x: 1, y: 1 },
-        target: { x: 2, y: 1 },
-        distanceFt: 15,
-        grid: { width: 6, height: 6 },
-        hazards: [
-          { point: { x: 3, y: 1 }, terrainEffectId: "terrain.burning" },
-          { point: { x: 5, y: 1 }, terrainEffectId: "terrain.poison_cloud" },
-        ],
-      }),
-    ).toMatchObject({
+    const result = service.resolveForcedMovement({
+      mode: "push",
+      origin: { x: 1, y: 1 },
+      target: { x: 2, y: 1 },
+      distanceFt: 15,
+      grid: { width: 6, height: 6 },
+      hazards: [
+        { point: { x: 3, y: 1 }, terrainEffectId: "terrain.burning" },
+        { point: { x: 5, y: 1 }, terrainEffectId: "terrain.poison_cloud" },
+      ],
+    });
+
+    expect(result).toMatchObject({
       destination: { x: 5, y: 1 },
       enteredHazards: [
         { point: { x: 3, y: 1 }, terrainEffectId: "terrain.burning" },
         { point: { x: 5, y: 1 }, terrainEffectId: "terrain.poison_cloud" },
       ],
+    });
+    expect(result.enteredTerrainEffects).toMatchObject([
+      {
+        point: { x: 3, y: 1 },
+        terrainEffectId: "terrain.burning",
+        effect: {
+          saveDc: 12,
+          damage: { dice: "1d6", type: "fire" },
+          conditionTags: ["condition.burning"],
+        },
+      },
+      {
+        point: { x: 5, y: 1 },
+        terrainEffectId: "terrain.poison_cloud",
+        effect: {
+          saveDc: 13,
+          damage: { dice: "1d6", type: "poison" },
+          conditionTags: ["condition.poisoned"],
+        },
+      },
+    ]);
+    expect(result.combinedEnteredTerrainEffect).toMatchObject({
+      terrainEffectId: "terrain.combined",
+      saveDc: 13,
+      conditionTags: ["condition.burning", "condition.poisoned"],
+      runtimeTags: expect.arrayContaining([
+        "damage:fire",
+        "condition:burning",
+        "save:con",
+        "damage:poison",
+        "condition:poisoned",
+      ]),
     });
   });
 

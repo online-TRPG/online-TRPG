@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { TerrainEffectResolution, TerrainEffectService } from "./terrain-effect.service";
 
 const FEET_PER_GRID = 5;
 
@@ -12,6 +13,10 @@ export type ForcedMovementPoint = {
 export type ForcedMovementHazard = {
   point: ForcedMovementPoint;
   terrainEffectId: string;
+};
+
+export type ForcedMovementEnteredTerrainEffect = ForcedMovementHazard & {
+  effect: TerrainEffectResolution;
 };
 
 export type ForcedMovementToken = {
@@ -49,6 +54,8 @@ export type ForcedMovementResolution = {
     tokenId?: string;
   } | null;
   enteredHazards: ForcedMovementHazard[];
+  enteredTerrainEffects: ForcedMovementEnteredTerrainEffect[];
+  combinedEnteredTerrainEffect: TerrainEffectResolution | null;
   fall: {
     point: ForcedMovementPoint;
     distanceFt: number;
@@ -57,6 +64,10 @@ export type ForcedMovementResolution = {
 
 @Injectable()
 export class ForcedMovementService {
+  constructor(
+    private readonly terrainEffects: TerrainEffectService = new TerrainEffectService(),
+  ) {}
+
   resolveForcedMovement(input: ForcedMovementInput): ForcedMovementResolution {
     this.assertPositiveInteger(input.grid.width, "grid.width");
     this.assertPositiveInteger(input.grid.height, "grid.height");
@@ -106,6 +117,9 @@ export class ForcedMovementService {
       .slice(1)
       .map((point) => hazardByPoint.get(this.pointKey(point)))
       .filter((hazard): hazard is ForcedMovementHazard => Boolean(hazard));
+    const enteredTerrainEffects = enteredHazards
+      .map((hazard) => this.resolveEnteredTerrainEffect(hazard))
+      .filter((effect): effect is ForcedMovementEnteredTerrainEffect => effect !== null);
 
     return {
       mode: input.mode,
@@ -118,6 +132,12 @@ export class ForcedMovementService {
       stoppedReason,
       collision,
       enteredHazards,
+      enteredTerrainEffects,
+      combinedEnteredTerrainEffect: enteredTerrainEffects.length
+        ? this.terrainEffects.resolveCombinedEffects(
+            enteredTerrainEffects.map((entered) => entered.terrainEffectId),
+          )
+        : null,
       fall: stoppedReason === "edge_of_map"
         ? {
             point: destination,
@@ -125,6 +145,13 @@ export class ForcedMovementService {
           }
         : null,
     };
+  }
+
+  private resolveEnteredTerrainEffect(
+    hazard: ForcedMovementHazard,
+  ): ForcedMovementEnteredTerrainEffect | null {
+    const effect = this.terrainEffects.resolveEffect(hazard.terrainEffectId);
+    return effect ? { ...hazard, effect } : null;
   }
 
   private resolveDirection(

@@ -8,6 +8,7 @@ import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { CombatReactionResponseDto } from "@trpg/shared-types";
 import { CombatService } from "./combat.service";
+import { PENDING_READY_ACTIONS_FLAG } from "../rules/ready-action.service";
 
 const createParticipant = (
   overrides: Partial<{
@@ -75,6 +76,9 @@ describe("CombatService lifecycle", () => {
       combatTurnState: {
         findMany: jest.fn().mockResolvedValue([]),
       },
+      gameState: {
+        update: jest.fn(),
+      },
       sessionCharacter: {
         findMany: jest.fn().mockResolvedValue([]),
         findUnique: jest.fn(),
@@ -137,6 +141,9 @@ describe("CombatService lifecycle", () => {
       chooseMvpMonsterAction: jest.fn(),
       getMonsterCombatStats: jest.fn(),
     };
+    const monsterAbilities = {
+      chooseAction: jest.fn(),
+    };
 
     return {
       service: new CombatService(
@@ -151,6 +158,7 @@ describe("CombatService lifecycle", () => {
         turnLogsService as never,
         ruleEngine as never,
         srdEngine as never,
+        monsterAbilities as never,
       ),
       prisma,
       sessionsService,
@@ -161,6 +169,7 @@ describe("CombatService lifecycle", () => {
       turnLogsService,
       ruleEngine,
       srdEngine,
+      monsterAbilities,
     };
   };
 
@@ -336,6 +345,98 @@ describe("CombatService lifecycle", () => {
       roundNo: 1,
       turnNo: 2,
       sessionCharacterId: "session-character-2",
+    });
+  });
+
+  it("removes expired pending ready actions when a turn ends", async () => {
+    const { service, prisma, sessionsService, realtimeEvents } = createService();
+    const current = createParticipant({
+      id: "participant-1",
+      sessionCharacterId: "session-character-1",
+      turnOrder: 1,
+    });
+    const next = createParticipant({
+      id: "participant-2",
+      sessionCharacterId: "session-character-2",
+      turnOrder: 2,
+    });
+    const expiredReadyAction = {
+      id: "reaction:ready:participant-1:1:1",
+      type: "ready_action",
+      actorParticipantId: "participant-1",
+      actorUserId: "user-1",
+      combatId: "combat-1",
+      roundNo: 1,
+      turnNo: 1,
+      trigger: { type: "creature_enters_range" },
+      heldAction: { type: "attack" },
+      originalCost: "action",
+      consumesReaction: true,
+      expiresAtRound: 1,
+      expiresAtTurn: 1,
+      createdAt: "1970-01-01T00:00:00.000Z",
+    };
+    const remainingReadyAction = {
+      ...expiredReadyAction,
+      id: "reaction:ready:participant-2:1:1",
+      actorParticipantId: "participant-2",
+      actorUserId: "user-2",
+      expiresAtRound: 2,
+      expiresAtTurn: 1,
+    };
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 1,
+      currentParticipantId: current.id,
+      participants: [current, next],
+    };
+    const tx = {
+      combatParticipant: { update: jest.fn() },
+      combat: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          ...combat,
+          currentParticipantId: next.id,
+          roundNo: 1,
+          turnNo: 2,
+        }),
+      },
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({ id: "session-1" });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        flagsJson: JSON.stringify({
+          [PENDING_READY_ACTIONS_FLAG]: [expiredReadyAction, remainingReadyAction],
+        }),
+        currentNodeId: null,
+      },
+    });
+    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.sessionCharacter.findUnique.mockResolvedValue({
+      id: "session-character-1",
+      character: { ownerUserId: "user-1" },
+    });
+    prisma.sessionCharacterResource.findMany.mockResolvedValue([]);
+    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+
+    await service.endTurn("user-1", "session-1", {});
+
+    expect(prisma.gameState.update).toHaveBeenCalledWith({
+      where: { sessionScenarioId: "session-scenario-1" },
+      data: {
+        flagsJson: JSON.stringify({
+          [PENDING_READY_ACTIONS_FLAG]: [remainingReadyAction],
+        }),
+      },
+    });
+    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalledWith("session-1", {
+      sessionId: "session-1",
     });
   });
 

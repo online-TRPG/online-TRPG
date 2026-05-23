@@ -4,16 +4,16 @@ describe("GmOverrideService", () => {
   const service = new GmOverrideService();
 
   it("normalizes a public GM scene message into a turn log payload", () => {
-    expect(
-      service.resolveOverride({
-        kind: "scene_text",
-        sessionId: "session-1",
-        sessionScenarioId: "scenario-1",
-        gmUserId: "gm-1",
-        publicNarration: "The door opens.",
-        privateNote: "The guard heard this.",
-      }),
-    ).toMatchObject({
+    const resolution = service.resolveOverride({
+      kind: "scene_text",
+      sessionId: "session-1",
+      sessionScenarioId: "scenario-1",
+      gmUserId: "gm-1",
+      publicNarration: "The door opens.",
+      privateNote: "The guard heard this.",
+    });
+
+    expect(resolution).toMatchObject({
       accepted: true,
       turnLog: {
         sessionId: "session-1",
@@ -26,9 +26,7 @@ describe("GmOverrideService", () => {
           targetId: null,
           public: true,
           hasPrivateNote: true,
-          metadata: {
-            privateNote: "The guard heard this.",
-          },
+          metadata: {},
         },
         outcome: "SUCCESS",
         narration: "The door opens.",
@@ -42,6 +40,10 @@ describe("GmOverrideService", () => {
         privateNote: "The guard heard this.",
       },
     });
+
+    expect(resolution.accepted && resolution.turnLog.structuredAction.metadata).not.toHaveProperty(
+      "privateNote",
+    );
   });
 
   it("requires target and state patch for state-changing overrides", () => {
@@ -106,6 +108,113 @@ describe("GmOverrideService", () => {
           currentHp: 14,
         },
       },
+    });
+  });
+
+  it("requires state patch but no target for combat start overrides", () => {
+    expect(
+      service.resolveOverride({
+        kind: "combat_start",
+        sessionId: "session-1",
+        sessionScenarioId: "scenario-1",
+        gmUserId: "gm-1",
+        publicNarration: "Combat begins.",
+      }),
+    ).toEqual({ accepted: false, rejectedReason: "missing_state_patch" });
+
+    expect(
+      service.resolveOverride({
+        kind: "combat_start",
+        sessionId: "session-1",
+        sessionScenarioId: "scenario-1",
+        gmUserId: "gm-1",
+        publicNarration: "Combat begins.",
+        statePatch: { phase: "COMBAT" },
+      }),
+    ).toMatchObject({
+      accepted: true,
+      turnLog: {
+        rawInput: "gm:combat_start",
+        structuredAction: {
+          kind: "combat_start",
+          targetId: null,
+        },
+      },
+      stateDiff: {
+        reason: "gm_override:combat_start",
+        diff: { phase: "COMBAT" },
+      },
+    });
+  });
+
+  it("requires target and state patch for reveal handouts", () => {
+    expect(
+      service.resolveOverride({
+        kind: "reveal_handout",
+        sessionId: "session-1",
+        sessionScenarioId: "scenario-1",
+        gmUserId: "gm-1",
+        publicNarration: "A handout is revealed.",
+        statePatch: { contentId: "clue-1" },
+      }),
+    ).toEqual({ accepted: false, rejectedReason: "missing_target" });
+
+    expect(
+      service.resolveOverride({
+        kind: "reveal_handout",
+        sessionId: "session-1",
+        sessionScenarioId: "scenario-1",
+        gmUserId: "gm-1",
+        publicNarration: "A handout is revealed.",
+        targetId: "clue-1",
+        statePatch: { contentId: "clue-1", scope: "party" },
+      }),
+    ).toMatchObject({
+      accepted: true,
+      turnLog: {
+        rawInput: "gm:reveal_handout",
+        structuredAction: {
+          kind: "reveal_handout",
+          targetId: "clue-1",
+        },
+      },
+      stateDiff: {
+        reason: "gm_override:reveal_handout",
+        diff: {
+          contentId: "clue-1",
+          scope: "party",
+        },
+      },
+    });
+  });
+
+  it("records accepted AI assist as GM-approved metadata without forcing a state patch", () => {
+    expect(
+      service.resolveOverride({
+        kind: "ai_assist_accept",
+        sessionId: "session-1",
+        sessionScenarioId: "scenario-1",
+        gmUserId: "gm-1",
+        publicNarration: "The suggested line is used.",
+        metadata: {
+          assistType: "npc_dialogue",
+          suggestionId: "suggestion-1",
+        },
+      }),
+    ).toMatchObject({
+      accepted: true,
+      turnLog: {
+        rawInput: "gm:ai_assist_accept",
+        structuredAction: {
+          kind: "ai_assist_accept",
+          targetId: null,
+          metadata: {
+            assistType: "npc_dialogue",
+            suggestionId: "suggestion-1",
+          },
+        },
+      },
+      stateDiff: null,
     });
   });
 

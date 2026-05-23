@@ -41,6 +41,43 @@ describe("CommandParserService", () => {
       spellId: "spell.chill_touch",
       target: "target-1",
       targetDistanceFt: 90,
+      slotLevel: null,
+    });
+  });
+
+  it("parses spell commands with an explicit slot level", () => {
+    expect(service.parse("/cast magic_missile target-1 120 3")).toEqual({
+      type: "cast_spell",
+      spellId: "spell.magic_missile",
+      target: "target-1",
+      targetDistanceFt: 120,
+      slotLevel: 3,
+    });
+  });
+
+  it("parses area spell commands with save DC, targets, and slot level", () => {
+    expect(service.parse("/cast_area fireball 15 target-1,target-2 4")).toEqual({
+      type: "cast_area_spell",
+      spellId: "spell.fireball",
+      saveDc: 15,
+      targetIds: ["target-1", "target-2"],
+      slotLevel: 4,
+    });
+  });
+
+  it("parses ready action commands", () => {
+    expect(service.parse("/ready enter attack monster-1 30")).toEqual({
+      type: "ready",
+      trigger: {
+        type: "creature_enters_range",
+        targetParticipantId: "monster-1",
+        rangeFt: 30,
+        tags: ["targeted"],
+      },
+      heldAction: {
+        type: "attack",
+        targetParticipantId: "monster-1",
+      },
     });
   });
 
@@ -93,6 +130,33 @@ describe("CommandParserService", () => {
       itemId: "entry-1",
       quantity: 1,
       containerEntryId: null,
+    });
+  });
+
+  it("parses item drop, pickup, and throw commands with grid points", () => {
+    expect(service.parse("/item drop entry-dagger 1 2 3")).toEqual({
+      type: "item_interaction",
+      operation: "drop",
+      itemId: "entry-dagger",
+      quantity: 1,
+      point: { x: 2, y: 3 },
+    });
+
+    expect(service.parse("/item pickup object-rope equipment.rope 1 2 3")).toEqual({
+      type: "item_interaction",
+      operation: "pickup",
+      objectId: "object-rope",
+      itemDefinitionId: "equipment.rope",
+      quantity: 1,
+      point: { x: 2, y: 3 },
+    });
+
+    expect(service.parse("/item throw entry-dagger 1 4 0")).toEqual({
+      type: "item_interaction",
+      operation: "throw",
+      itemId: "entry-dagger",
+      quantity: 1,
+      point: { x: 4, y: 0 },
     });
   });
 });
