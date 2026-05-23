@@ -10,8 +10,12 @@ import { ConditionRuntimeService } from "./condition-runtime.service";
 import { DiceController } from "./dice.controller";
 import { DiceService } from "./dice.service";
 import { ForcedMovementService } from "./forced-movement.service";
+import { ItemInteractionService } from "./item-interaction.service";
 import { InventoryRuntimeService } from "./inventory-runtime.service";
+import { LevelUpService } from "./level-up.service";
 import { MapPositionService } from "./map-position.service";
+import { ReadyActionService } from "./ready-action.service";
+import { RestResolutionService } from "./rest-resolution.service";
 import { RuleCatalogService } from "./rule-catalog.service";
 import { RuleEngineService } from "./rule-engine.service";
 import { SpellScalingService } from "./spell-scaling.service";
@@ -30,8 +34,12 @@ import { TerrainEffectService } from "./terrain-effect.service";
     ConditionRuntimeService,
     DiceService,
     ForcedMovementService,
+    ItemInteractionService,
     InventoryRuntimeService,
+    LevelUpService,
     MapPositionService,
+    ReadyActionService,
+    RestResolutionService,
     RuleCatalogService,
     RuleEngineService,
     SpellScalingService,
@@ -47,8 +55,12 @@ import { TerrainEffectService } from "./terrain-effect.service";
     ConditionRuntimeService,
     DiceService,
     ForcedMovementService,
+    ItemInteractionService,
     InventoryRuntimeService,
+    LevelUpService,
     MapPositionService,
+    ReadyActionService,
+    RestResolutionService,
     RuleCatalogService,
     RuleEngineService,
     SpellScalingService,

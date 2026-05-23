@@ -21,6 +21,249 @@ const NO_COST: RuleCost = { type: "none" };
 const NO_TARGETING: RuleTargeting = { type: "none" };
 const SELF_TARGETING: RuleTargeting = { type: "self" };
 
+const RACE_PARENT_KEYS: Record<string, string> = {
+  "high-elf": "elf",
+  "hill-dwarf": "dwarf",
+  "lightfoot-halfling": "halfling",
+  "rock-gnome": "gnome",
+};
+
+const RACE_TRAIT_DEFINITIONS: RuleCatalogEntry[] = [
+  raceTrait("human", "ability_score_increase", [
+    "fixed:ability:str:+1",
+    "fixed:ability:dex:+1",
+    "fixed:ability:con:+1",
+    "fixed:ability:int:+1",
+    "fixed:ability:wis:+1",
+    "fixed:ability:cha:+1",
+    "fixed:size:medium",
+    "fixed:speed:30",
+    "language:common",
+  ]),
+
+  raceTrait("elf", "base_traits", [
+    "fixed:ability:dex:+2",
+    "fixed:size:medium",
+    "fixed:speed:30",
+    "language:common",
+    "language:elvish",
+    "vision:darkvision:60",
+    "proficiency:perception",
+    "advantage:save:charmed",
+    "immunity:sleep_magic",
+    "rest:trance",
+  ]),
+  raceTrait("high-elf", "subrace_traits", [
+    "fixed:ability:int:+1",
+    "proficiency:weapon:longsword",
+    "proficiency:weapon:shortsword",
+    "proficiency:weapon:shortbow",
+    "proficiency:weapon:longbow",
+    "spellcasting:cantrip:wizard",
+    "language:choice:one",
+  ]),
+
+  raceTrait("dwarf", "base_traits", [
+    "fixed:ability:con:+2",
+    "fixed:size:medium",
+    "fixed:speed:25",
+    "language:common",
+    "language:dwarvish",
+    "vision:darkvision:60",
+    "resistance:poison",
+    "advantage:save:poison",
+    "proficiency:tool:dwarven",
+    "proficiency:weapon:battleaxe",
+    "proficiency:weapon:handaxe",
+    "proficiency:weapon:light_hammer",
+    "proficiency:weapon:warhammer",
+    "skill:stonecunning",
+  ]),
+  raceTrait("hill-dwarf", "subrace_traits", [
+    "fixed:ability:wis:+1",
+    "hp_bonus:per_level:+1",
+  ]),
+
+  raceTrait("gnome", "base_traits", [
+    "fixed:ability:int:+2",
+    "fixed:size:small",
+    "fixed:speed:25",
+    "language:common",
+    "language:gnomish",
+    "vision:darkvision:60",
+    "advantage:save:int_magic",
+    "advantage:save:wis_magic",
+    "advantage:save:cha_magic",
+  ]),
+  raceTrait("rock-gnome", "subrace_traits", [
+    "fixed:ability:con:+1",
+    "proficiency:artisans_tools:tinker",
+    "skill:artificers_lore",
+    "action:tinker_device",
+  ]),
+
+  raceTrait("half-elf", "base_traits", [
+    "fixed:ability:cha:+2",
+    "fixed:ability:choice_two:+1",
+    "fixed:size:medium",
+    "fixed:speed:30",
+    "language:common",
+    "language:elvish",
+    "language:choice:one",
+    "vision:darkvision:60",
+    "advantage:save:charmed",
+    "immunity:sleep_magic",
+    "proficiency:skill:choice_two",
+  ]),
+
+  raceTrait("half-orc", "base_traits", [
+    "fixed:ability:str:+2",
+    "fixed:ability:con:+1",
+    "fixed:size:medium",
+    "fixed:speed:30",
+    "language:common",
+    "language:orc",
+    "vision:darkvision:60",
+    "proficiency:intimidation",
+    "feature:relentless_endurance",
+    "feature:savage_attacks",
+  ]),
+
+  raceTrait("halfling", "base_traits", [
+    "fixed:ability:dex:+2",
+    "fixed:size:small",
+    "fixed:speed:25",
+    "language:common",
+    "language:halfling",
+    "reroll:d20:natural_1",
+    "advantage:save:frightened",
+    "movement:through_larger_creature_space",
+  ]),
+  raceTrait("lightfoot-halfling", "subrace_traits", [
+    "fixed:ability:cha:+1",
+    "hide:behind_larger_creature",
+  ]),
+
+  raceTrait("dragonborn", "base_traits", [
+    "fixed:ability:str:+2",
+    "fixed:ability:cha:+1",
+    "fixed:size:medium",
+    "fixed:speed:30",
+    "language:common",
+    "language:draconic",
+    "selection:draconic_ancestry",
+    "action:breath_weapon",
+    "resistance:ancestry_damage_type",
+  ]),
+
+  raceTrait("tiefling", "base_traits", [
+    "fixed:ability:int:+1",
+    "fixed:ability:cha:+2",
+    "fixed:size:medium",
+    "fixed:speed:30",
+    "language:common",
+    "language:infernal",
+    "vision:darkvision:60",
+    "resistance:fire",
+    "spellcasting:infernal_legacy",
+  ]),
+];
+
+const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
+  subclassFeature("barbarian", "berserker", 3, "frenzy", {
+    type: "subclass_feature",
+    tags: [
+      "legacy_feature_id:class.barbarian.subclass_feature.frenzy",
+      "rage:enhancement",
+      "action:bonus_attack",
+      "cost:exhaustion_after_rage",
+    ],
+  }, { type: "bonus_action" }, SELF_TARGETING),
+  subclassFeature("bard", "lore", 3, "bonus_proficiencies", {
+    type: "subclass_feature",
+    tags: ["proficiency:skill:choice_three"],
+  }),
+  subclassFeature("bard", "lore", 3, "cutting_words", {
+    type: "subclass_feature",
+    tags: ["action:reaction", "resource:bardic_inspiration", "debuff:attack_check_damage_roll"],
+    resourceId: "resource.bard.bardic_inspiration",
+  }, { type: "reaction" }, { type: "creature", rangeFt: 60 }),
+  subclassFeature("cleric", "life", 1, "bonus_proficiency", {
+    type: "subclass_feature",
+    tags: ["proficiency:armor:heavy"],
+  }),
+  subclassFeature("cleric", "life", 1, "disciple_of_life", {
+    type: "subclass_feature",
+    tags: ["healing_bonus:spell_level_plus_two"],
+  }),
+  subclassFeature("druid", "land", 2, "bonus_cantrip", {
+    type: "subclass_feature",
+    tags: ["spellcasting:cantrip:druid:choice_one"],
+  }),
+  subclassFeature("druid", "land", 2, "natural_recovery", {
+    type: "subclass_feature",
+    tags: ["rest:short", "recover:spell_slots:half_druid_level"],
+  }),
+  subclassFeature("fighter", "champion", 3, "improved_critical", {
+    type: "subclass_feature",
+    tags: [
+      "legacy_feature_id:class.fighter.subclass_feature.improved_critical",
+      "critical_range:19_20",
+      "attack:weapon",
+    ],
+  }),
+  subclassFeature("monk", "open_hand", 3, "open_hand_technique", {
+    type: "subclass_feature",
+    tags: ["flurry_of_blows:rider", "save:dex_prone", "save:str_push_15", "reaction:block"],
+  }),
+  subclassFeature("paladin", "devotion", 3, "sacred_weapon", {
+    type: "subclass_feature",
+    tags: ["channel_divinity", "action:standard", "attack_bonus:cha_mod", "weapon:magical"],
+    resourceId: "resource.paladin.channel_divinity",
+  }, { type: "action" }, SELF_TARGETING),
+  subclassFeature("paladin", "devotion", 3, "turn_the_unholy", {
+    type: "subclass_feature",
+    tags: ["channel_divinity", "action:standard", "save:wis", "condition:turned", "target:fiend_undead"],
+    resourceId: "resource.paladin.channel_divinity",
+  }, { type: "action" }, { type: "area", shape: "sphere", sizeFt: 30 }),
+  subclassFeature("ranger", "hunter", 3, "hunters_prey", {
+    type: "subclass_feature",
+    tags: ["selection:hunters_prey", "option:colossus_slayer", "option:giant_killer", "option:horde_breaker"],
+  }),
+  subclassFeature("rogue", "thief", 3, "fast_hands", {
+    type: "subclass_feature",
+    tags: ["cunning_action:bonus_use_object", "cunning_action:bonus_sleight_of_hand", "cunning_action:bonus_thieves_tools"],
+  }, { type: "bonus_action" }, SELF_TARGETING),
+  subclassFeature("rogue", "thief", 3, "second_story_work", {
+    type: "subclass_feature",
+    tags: ["climb_speed:normal", "jump_bonus:dex_mod"],
+  }),
+  subclassFeature("sorcerer", "draconic_bloodline", 1, "dragon_ancestor", {
+    type: "subclass_feature",
+    tags: ["selection:dragon_ancestor", "language:draconic"],
+  }),
+  subclassFeature("sorcerer", "draconic_bloodline", 1, "draconic_resilience", {
+    type: "subclass_feature",
+    tags: ["hp_bonus:per_sorcerer_level:+1", "armor_class:13_plus_dex_unarmored"],
+  }),
+  subclassFeature("warlock", "fiend", 1, "expanded_spell_list", {
+    type: "subclass_feature",
+    tags: ["spell_list:fiend_expanded"],
+  }),
+  subclassFeature("warlock", "fiend", 1, "dark_ones_blessing", {
+    type: "subclass_feature",
+    tags: ["trigger:reduce_hostile_to_zero_hp", "temporary_hp:cha_mod_plus_warlock_level"],
+  }),
+  subclassFeature("wizard", "evocation", 2, "evocation_savant", {
+    type: "subclass_feature",
+    tags: ["spellbook:copy_cost_half", "school:evocation"],
+  }),
+  subclassFeature("wizard", "evocation", 2, "sculpt_spells", {
+    type: "subclass_feature",
+    tags: ["evocation:protect_allies", "save:auto_success", "damage:none_on_success"],
+  }),
+];
+
 const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
   classFeature("barbarian", 1, "rage", {
     type: "grant_resource",
@@ -307,16 +550,53 @@ const SPELL_DEFINITIONS: RuleCatalogEntry[] = [
   }),
 ];
 
+const MONSTER_ABILITY_DEFINITIONS: RuleCatalogEntry[] = [
+  monsterAbility("monster.goblin.ability.scimitar", {
+    monsterId: "monster.goblin",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d6+2", type: "slashing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+4", "srd_action_id:action.scimitar"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.goblin.ability.shortbow", {
+    monsterId: "monster.goblin",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 80 },
+    damage: { dice: "1d6+2", type: "piercing" },
+    tags: ["attack:ranged_weapon", "attack_bonus:+4", "range_long:320", "srd_action_id:action.shortbow"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.goblin.ability.nimble_escape", {
+    monsterId: "monster.goblin",
+    cost: { type: "bonus_action" },
+    targeting: SELF_TARGETING,
+    tags: ["option:disengage", "option:hide", "mobility:defensive"],
+    hookId: "hook.monster.utility",
+  }),
+  monsterAbility("monster.giant_rat.ability.bite", {
+    monsterId: "monster.giant_rat",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d4+2", type: "piercing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+4", "srd_action_id:action.bite"],
+    hookId: "hook.monster.attack",
+  }),
+];
+
 @Injectable()
 export class RuleCatalogService {
   private readonly entries = new Map<string, RuleCatalogEntry>();
 
   constructor() {
     for (const entry of [
+      ...RACE_TRAIT_DEFINITIONS,
+      ...SUBCLASS_FEATURE_DEFINITIONS,
       ...PENDING_CLASS_FEATURES.map(toClassFeatureEntry),
       ...CONDITION_DEFINITIONS,
       ...TERRAIN_EFFECT_DEFINITIONS,
       ...SPELL_DEFINITIONS,
+      ...MONSTER_ABILITY_DEFINITIONS,
     ]) {
       if (this.entries.has(entry.id)) {
         throw new Error(`Duplicate rule catalog id: ${entry.id}`);
@@ -331,6 +611,18 @@ export class RuleCatalogService {
 
   getEntry(id: string): RuleCatalogEntry | null {
     return this.entries.get(id) ?? null;
+  }
+
+  listRaceTraits(raceKey: string): RuleCatalogEntry[] {
+    const normalizedRaceKey = this.normalizeRaceKey(raceKey);
+    const lineage = this.resolveRaceLineage(normalizedRaceKey);
+    return this.listEntries("race_traits")
+      .filter((entry) => entry.levelRequirement.raceKey && lineage.includes(entry.levelRequirement.raceKey))
+      .sort((left, right) => {
+        const leftIndex = lineage.indexOf(left.levelRequirement.raceKey ?? "");
+        const rightIndex = lineage.indexOf(right.levelRequirement.raceKey ?? "");
+        return leftIndex - rightIndex || left.id.localeCompare(right.id);
+      });
   }
 
   getClassFeatureSnapshot(classKey: string, classLevel: number): RuleCatalogClassFeatureSnapshot {
@@ -378,12 +670,68 @@ export class RuleCatalogService {
       });
   }
 
+  listSubclassFeatures(classKey: string, subclassKey: string, classLevel: number): RuleCatalogEntry[] {
+    const normalizedClassKey = this.normalizeClassKey(classKey);
+    const normalizedSubclassKey = this.normalizeSubclassKey(subclassKey);
+    const normalizedLevel = Math.max(Math.floor(classLevel), 0);
+
+    return this.listEntries("subclass_features")
+      .filter((entry) => entry.levelRequirement.classKey === normalizedClassKey)
+      .filter((entry) => entry.levelRequirement.subclassKey === normalizedSubclassKey)
+      .filter((entry) => (entry.levelRequirement.minClassLevel ?? 1) <= normalizedLevel)
+      .sort((left, right) => {
+        const levelDelta = (left.levelRequirement.minClassLevel ?? 1) - (right.levelRequirement.minClassLevel ?? 1);
+        return levelDelta || left.id.localeCompare(right.id);
+      });
+  }
+
+  listMonsterAbilities(monsterId: string): RuleCatalogEntry[] {
+    const normalizedMonsterId = this.normalizeMonsterId(monsterId);
+    return this.listEntries("monster_abilities")
+      .filter((entry) => entry.levelRequirement.monsterId === normalizedMonsterId)
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
   private normalizeClassKey(classKey: string): string {
     const normalized = classKey.trim().toLowerCase().replace(/_/g, "-");
     if (!normalized) {
       throw new Error("classKey must not be empty.");
     }
     return normalized;
+  }
+
+  private normalizeRaceKey(raceKey: string): string {
+    const normalized = raceKey.trim().toLowerCase().replace(/_/g, "-");
+    if (!normalized) {
+      throw new Error("raceKey must not be empty.");
+    }
+    return normalized;
+  }
+
+  private normalizeSubclassKey(subclassKey: string): string {
+    const normalized = subclassKey.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (!normalized) {
+      throw new Error("subclassKey must not be empty.");
+    }
+    return normalized;
+  }
+
+  private resolveRaceLineage(raceKey: string): string[] {
+    const lineage: string[] = [];
+    const parentKey = RACE_PARENT_KEYS[raceKey];
+    if (parentKey) {
+      lineage.push(parentKey);
+    }
+    lineage.push(raceKey);
+    return lineage;
+  }
+
+  private normalizeMonsterId(monsterId: string): string {
+    const normalized = monsterId.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (!normalized) {
+      throw new Error("monsterId must not be empty.");
+    }
+    return normalized.startsWith("monster.") ? normalized : `monster.${normalized}`;
   }
 
   private isActionTrigger(trigger: RuleCatalogEntry["trigger"]): boolean {
@@ -433,6 +781,59 @@ function toClassFeatureEntry(seed: ClassFeatureSeed): RuleCatalogEntry {
     concentration: false,
     scaling: null,
     runtimeEffect: seed.runtimeEffect,
+  };
+}
+
+function raceTrait(raceKey: string, traitKey: string, tags: string[]): RuleCatalogEntry {
+  return {
+    id: `race.${raceKey}.trait.${traitKey}`,
+    kind: "race_traits",
+    source: "SRD5E",
+    levelRequirement: {
+      raceKey,
+    },
+    trigger: "character_creation",
+    cost: NO_COST,
+    targeting: SELF_TARGETING,
+    save: null,
+    damage: null,
+    duration: null,
+    concentration: false,
+    scaling: null,
+    runtimeEffect: {
+      type: "race_trait",
+      tags,
+    },
+  };
+}
+
+function subclassFeature(
+  classKey: string,
+  subclassKey: string,
+  level: number,
+  featureKey: string,
+  runtimeEffect: RuleRuntimeEffect,
+  cost: RuleCost = NO_COST,
+  targeting: RuleTargeting = NO_TARGETING,
+): RuleCatalogEntry {
+  return {
+    id: `subclass.${classKey}.${subclassKey}.feature.${featureKey}`,
+    kind: "subclass_features",
+    source: "SRD5E",
+    levelRequirement: {
+      classKey,
+      subclassKey,
+      minClassLevel: level,
+    },
+    trigger: triggerFromCost(cost),
+    cost,
+    targeting,
+    save: null,
+    damage: null,
+    duration: null,
+    concentration: false,
+    scaling: null,
+    runtimeEffect,
   };
 }
 
@@ -509,6 +910,43 @@ function spell(
     runtimeEffect: {
       type: "spell",
       tags: [`spell_level:${options.level}`, ...options.tags],
+      hookId: options.hookId,
+    },
+  };
+}
+
+function monsterAbility(
+  id: string,
+  options: {
+    monsterId: string;
+    cost: RuleCost;
+    targeting: RuleTargeting;
+    damage?: RuleCatalogEntry["damage"];
+    save?: RuleCatalogEntry["save"];
+    duration?: RuleCatalogEntry["duration"];
+    tags: string[];
+    hookId: string;
+    scaling?: RuleCatalogEntry["scaling"];
+  },
+): RuleCatalogEntry {
+  return {
+    id,
+    kind: "monster_abilities",
+    source: "SRD5E",
+    levelRequirement: {
+      monsterId: options.monsterId,
+    },
+    trigger: triggerFromCost(options.cost),
+    cost: options.cost,
+    targeting: options.targeting,
+    save: options.save ?? null,
+    damage: options.damage ?? null,
+    duration: options.duration ?? null,
+    concentration: false,
+    scaling: options.scaling ?? null,
+    runtimeEffect: {
+      type: "monster_ability",
+      tags: options.tags,
       hookId: options.hookId,
     },
   };
