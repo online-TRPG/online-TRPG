@@ -61,6 +61,7 @@ export type RuleLevelRequirement = {
   classKey?: string;
   raceKey?: string;
   subclassKey?: string;
+  monsterId?: string;
   minCharacterLevel?: number;
   minClassLevel?: number;
 };
@@ -71,8 +72,11 @@ export type RuleRuntimeEffect = {
     | "grant_passive"
     | "grant_resource"
     | "modify_stat"
+    | "monster_ability"
+    | "race_trait"
     | "spell"
     | "spellcasting"
+    | "subclass_feature"
     | "condition"
     | "terrain_effect"
     | "resolver_pending";

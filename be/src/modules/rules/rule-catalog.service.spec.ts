@@ -29,6 +29,121 @@ describe("RuleCatalogService", () => {
     });
   });
 
+  it("catalogs race traits with fixed and runtime trait tags", () => {
+    expect(service.listEntries("race_traits").map((entry) => entry.id)).toEqual([
+      "race.human.trait.ability_score_increase",
+      "race.elf.trait.base_traits",
+      "race.high-elf.trait.subrace_traits",
+      "race.dwarf.trait.base_traits",
+      "race.hill-dwarf.trait.subrace_traits",
+      "race.gnome.trait.base_traits",
+      "race.rock-gnome.trait.subrace_traits",
+      "race.half-elf.trait.base_traits",
+      "race.half-orc.trait.base_traits",
+      "race.halfling.trait.base_traits",
+      "race.lightfoot-halfling.trait.subrace_traits",
+      "race.dragonborn.trait.base_traits",
+      "race.tiefling.trait.base_traits",
+    ]);
+
+    expect(service.getEntry("race.tiefling.trait.base_traits")).toMatchObject({
+      id: "race.tiefling.trait.base_traits",
+      kind: "race_traits",
+      levelRequirement: { raceKey: "tiefling" },
+      trigger: "character_creation",
+      cost: { type: "none" },
+      targeting: { type: "self" },
+      runtimeEffect: {
+        type: "race_trait",
+        tags: [
+          "fixed:ability:int:+1",
+          "fixed:ability:cha:+2",
+          "fixed:size:medium",
+          "fixed:speed:30",
+          "language:common",
+          "language:infernal",
+          "vision:darkvision:60",
+          "resistance:fire",
+          "spellcasting:infernal_legacy",
+        ],
+      },
+    });
+  });
+
+  it("resolves inherited parent race traits for subraces", () => {
+    expect(service.listRaceTraits("high_elf").map((entry) => entry.id)).toEqual([
+      "race.elf.trait.base_traits",
+      "race.high-elf.trait.subrace_traits",
+    ]);
+
+    expect(service.listRaceTraits("lightfoot-halfling").flatMap((entry) => entry.runtimeEffect.tags)).toEqual(
+      expect.arrayContaining([
+        "fixed:ability:dex:+2",
+        "reroll:d20:natural_1",
+        "fixed:ability:cha:+1",
+        "hide:behind_larger_creature",
+      ]),
+    );
+  });
+
+  it("catalogs representative SRD subclass features", () => {
+    expect(service.listEntries("subclass_features").map((entry) => entry.id)).toEqual([
+      "subclass.barbarian.berserker.feature.frenzy",
+      "subclass.bard.lore.feature.bonus_proficiencies",
+      "subclass.bard.lore.feature.cutting_words",
+      "subclass.cleric.life.feature.bonus_proficiency",
+      "subclass.cleric.life.feature.disciple_of_life",
+      "subclass.druid.land.feature.bonus_cantrip",
+      "subclass.druid.land.feature.natural_recovery",
+      "subclass.fighter.champion.feature.improved_critical",
+      "subclass.monk.open_hand.feature.open_hand_technique",
+      "subclass.paladin.devotion.feature.sacred_weapon",
+      "subclass.paladin.devotion.feature.turn_the_unholy",
+      "subclass.ranger.hunter.feature.hunters_prey",
+      "subclass.rogue.thief.feature.fast_hands",
+      "subclass.rogue.thief.feature.second_story_work",
+      "subclass.sorcerer.draconic_bloodline.feature.dragon_ancestor",
+      "subclass.sorcerer.draconic_bloodline.feature.draconic_resilience",
+      "subclass.warlock.fiend.feature.expanded_spell_list",
+      "subclass.warlock.fiend.feature.dark_ones_blessing",
+      "subclass.wizard.evocation.feature.evocation_savant",
+      "subclass.wizard.evocation.feature.sculpt_spells",
+    ]);
+
+    expect(service.getEntry("subclass.fighter.champion.feature.improved_critical")).toMatchObject({
+      id: "subclass.fighter.champion.feature.improved_critical",
+      kind: "subclass_features",
+      levelRequirement: {
+        classKey: "fighter",
+        subclassKey: "champion",
+        minClassLevel: 3,
+      },
+      trigger: "always",
+      runtimeEffect: {
+        type: "subclass_feature",
+        tags: [
+          "legacy_feature_id:class.fighter.subclass_feature.improved_critical",
+          "critical_range:19_20",
+          "attack:weapon",
+        ],
+      },
+    });
+  });
+
+  it("resolves subclass features by class, subclass, and class level", () => {
+    expect(service.listSubclassFeatures("wizard", "evocation", 1)).toEqual([]);
+
+    expect(service.listSubclassFeatures("wizard", "evocation", 2).map((entry) => entry.id)).toEqual([
+      "subclass.wizard.evocation.feature.evocation_savant",
+      "subclass.wizard.evocation.feature.sculpt_spells",
+    ]);
+
+    expect(service.listSubclassFeatures("sorcerer", "draconic bloodline", 1).map((entry) => entry.id)).toEqual([
+      "subclass.sorcerer.draconic_bloodline.feature.dragon_ancestor",
+      "subclass.sorcerer.draconic_bloodline.feature.draconic_resilience",
+    ]);
+  });
+
   it("builds an executable feature snapshot through class level 3", () => {
     const snapshot = service.getClassFeatureSnapshot("Paladin", 3);
 
@@ -136,6 +251,36 @@ describe("RuleCatalogService", () => {
         type: "spell",
         tags: ["spell_level:1", "hit_point_pool:5d8", "condition:unconscious", "area:sphere"],
         hookId: "hook.spell.cast_sleep",
+      },
+    });
+  });
+
+  it("promotes MVP monster actions into catalog ability entries", () => {
+    expect(service.listEntries("monster_abilities").map((entry) => entry.id)).toEqual([
+      "monster.goblin.ability.scimitar",
+      "monster.goblin.ability.shortbow",
+      "monster.goblin.ability.nimble_escape",
+      "monster.giant_rat.ability.bite",
+    ]);
+
+    expect(service.listMonsterAbilities("goblin").map((entry) => entry.id)).toEqual([
+      "monster.goblin.ability.nimble_escape",
+      "monster.goblin.ability.scimitar",
+      "monster.goblin.ability.shortbow",
+    ]);
+
+    expect(service.getEntry("monster.goblin.ability.scimitar")).toMatchObject({
+      id: "monster.goblin.ability.scimitar",
+      kind: "monster_abilities",
+      levelRequirement: { monsterId: "monster.goblin" },
+      trigger: "action",
+      cost: { type: "action" },
+      targeting: { type: "creature", rangeFt: 5 },
+      damage: { dice: "1d6+2", type: "slashing" },
+      runtimeEffect: {
+        type: "monster_ability",
+        tags: ["attack:melee_weapon", "attack_bonus:+4", "srd_action_id:action.scimitar"],
+        hookId: "hook.monster.attack",
       },
     });
   });
