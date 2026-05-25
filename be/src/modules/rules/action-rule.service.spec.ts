@@ -415,6 +415,168 @@ describe("ActionRuleService", () => {
     ]);
   });
 
+  it("rolls concentration checks on direct damage and removes linked effects on failure", () => {
+    const service = createService([createDiceResult([7], 2)]);
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 20,
+      conditionsJson: JSON.stringify([
+        {
+          conditionId: "condition.concentration",
+          sourceId: "spell.hold_person",
+          tags: [
+            "concentration",
+            "concentration:spell:spell.hold_person",
+            "concentration:target:enemy-1",
+            "concentration:effect:effect-hold-1",
+          ],
+        },
+        {
+          conditionId: "condition.paralyzed",
+          sourceId: "effect-hold-1",
+        },
+        {
+          conditionId: "condition.poisoned",
+          sourceId: "trap-1",
+        },
+      ]),
+      character: {
+        id: "target-character",
+        name: "Target",
+        abilitiesJson: JSON.stringify({ con: 14 }),
+      },
+    });
+
+    const result = service.resolveAction("/damage target 30 force", target, [target]);
+    const structuredAction = result.structuredAction as {
+      concentrationCheck: {
+        concentrationMaintained: boolean;
+        removedConditions: Array<{ conditionId: string }>;
+      };
+      ruleResults: Array<{ hookId: string; produced: Record<string, unknown> }>;
+    };
+
+    expect(result.diceResult).toMatchObject({ total: 9 });
+    expect(structuredAction.ruleResults[1]).toMatchObject({
+      hookId: RULE_HOOK_IDS.RESOLVE_CONCENTRATION_CHECK,
+      produced: {
+        difficultyClass: 15,
+        concentrationMaintained: false,
+      },
+    });
+    expect(structuredAction.concentrationCheck).toMatchObject({
+      concentrationMaintained: false,
+      removedConditions: [
+        { conditionId: "condition.concentration" },
+        { conditionId: "condition.paralyzed" },
+      ],
+    });
+    expect(result.stateChanges).toEqual([
+      expect.objectContaining({
+        sessionCharacterId: "target",
+        currentHp: 0,
+        tempHp: 0,
+        markDead: true,
+        conditions: [
+          expect.objectContaining({
+            conditionId: "condition.poisoned",
+            sourceId: "trap-1",
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("resolves saving throws and removes matching save-end structured conditions on success", () => {
+    const service = createService([createDiceResult([12], 2)]);
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      conditionsJson: JSON.stringify([
+        "combat:hidden",
+        {
+          conditionId: "condition.poisoned",
+          sourceId: "trap-1",
+          duration: { type: "permanent" },
+          saveEnds: { ability: "con", dc: 13 },
+        },
+        {
+          conditionId: "condition.frightened",
+          sourceId: "dragon-1",
+          duration: { type: "permanent" },
+          saveEnds: { ability: "wis", dc: 15 },
+        },
+      ]),
+      character: {
+        id: "target-character",
+        name: "Target",
+        abilitiesJson: JSON.stringify({ con: 14, wis: 8 }),
+      },
+    });
+
+    const result = service.resolveAction("/save target con 13 poisoned", target, [target]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.diceResult).toMatchObject({ total: 14 });
+    expect(result.structuredAction).toMatchObject({
+      type: "saving_throw",
+      target: "target",
+      ability: "con",
+      dc: 13,
+      condition: "poisoned",
+      expiredConditions: [
+        expect.objectContaining({
+          conditionId: "condition.poisoned",
+          sourceId: "trap-1",
+        }),
+      ],
+    });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "target",
+        conditions: [
+          "combat:hidden",
+          expect.objectContaining({
+            conditionId: "condition.frightened",
+            sourceId: "dragon-1",
+            saveEnds: { ability: "wis", dc: 15 },
+          }),
+        ],
+      },
+    ]);
+  });
+
+  it("keeps save-end conditions when the saving throw fails", () => {
+    const service = createService([createDiceResult([4], 2)]);
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      conditionsJson: JSON.stringify([
+        {
+          conditionId: "condition.poisoned",
+          sourceId: "trap-1",
+          duration: { type: "permanent" },
+          saveEnds: { ability: "con", dc: 13 },
+        },
+      ]),
+      character: {
+        id: "target-character",
+        name: "Target",
+        abilitiesJson: JSON.stringify({ con: 14 }),
+      },
+    });
+
+    const result = service.resolveAction("/save target con 13 poisoned", target, [target]);
+
+    expect(result.outcome).toBe(ActionOutcome.FAILURE);
+    expect(result.stateChanges).toEqual([]);
+    expect(result.structuredAction).toMatchObject({
+      type: "saving_throw",
+      expiredConditions: [],
+    });
+  });
+
   it("resolves item drop commands into inventory removal and map object metadata", () => {
     const service = createService([]);
     const actor = createCharacter({
@@ -998,7 +1160,10 @@ describe("ActionRuleService", () => {
       { sessionCharacterId: "rogue", currentHp: 23, markDead: false },
       { sessionCharacterId: "zombie", currentHp: 0, markDead: true },
     ]);
-    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SPELL_SLOT", slotLevel: 4 },
+    ]);
   });
 
   it("executes magic missile as catalog-driven auto-hit force damage", () => {
@@ -1053,7 +1218,10 @@ describe("ActionRuleService", () => {
     expect(result.stateChanges).toEqual([
       { sessionCharacterId: "target", currentHp: 14, markDead: false },
     ]);
-    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SPELL_SLOT", slotLevel: 3 },
+    ]);
   });
 
   it("rejects invalid spell slot levels without throwing", () => {

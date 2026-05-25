@@ -24,6 +24,7 @@ import { RestResolutionService } from "./rest-resolution.service";
 import { RuleCatalogService } from "./rule-catalog.service";
 import { RuleEngineService } from "./rule-engine.service";
 import { SpellScalingService } from "./spell-scaling.service";
+import { SpellSlotService } from "./spell-slot.service";
 import { StateDiffService } from "./state-diff.service";
 import { TerrainEffectService } from "./terrain-effect.service";
 
@@ -53,6 +54,7 @@ import { TerrainEffectService } from "./terrain-effect.service";
     RuleCatalogService,
     RuleEngineService,
     SpellScalingService,
+    SpellSlotService,
     StateDiffService,
     TerrainEffectService,
   ],
@@ -79,6 +81,7 @@ import { TerrainEffectService } from "./terrain-effect.service";
     RuleCatalogService,
     RuleEngineService,
     SpellScalingService,
+    SpellSlotService,
     StateDiffService,
     TerrainEffectService,
   ],

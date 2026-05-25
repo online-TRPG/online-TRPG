@@ -121,3 +121,104 @@ describe("ActionProcessorService map object runtime effects", () => {
     );
   });
 });
+
+describe("ActionProcessorService rest runtime effects", () => {
+  const createService = (flagsJson: string | null) => {
+    const prisma = {
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({ flagsJson }),
+        update: jest.fn(),
+      },
+      sessionCharacter: {
+        findUnique: jest.fn().mockResolvedValue({
+          character: { className: "wizard", level: 3 },
+        }),
+      },
+    };
+    const service = new ActionProcessorService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    return { service: service as unknown as Record<string, (...args: unknown[]) => Promise<void>>, prisma };
+  };
+
+  it("recovers long-rest spell slots by clearing the spent slot override", async () => {
+    const { service, prisma } = createService(
+      JSON.stringify({
+        spellSlotsBySessionCharacterId: {
+          "session-character-1": { "1": 0 },
+          "session-character-2": { "1": 1 },
+        },
+        unrelatedFlag: true,
+      }),
+    );
+
+    await service.recoverLongRestSpellSlots("session-scenario-1", "session-character-1");
+
+    expect(prisma.gameState.update).toHaveBeenCalledWith({
+      where: { sessionScenarioId: "session-scenario-1" },
+      data: {
+        flagsJson: JSON.stringify({
+          spellSlotsBySessionCharacterId: {
+            "session-character-2": { "1": 1 },
+          },
+          unrelatedFlag: true,
+        }),
+      },
+    });
+  });
+
+  it("spends spell slots in game state flags", async () => {
+    const { service, prisma } = createService(
+      JSON.stringify({
+        spellSlotsBySessionCharacterId: {
+          "session-character-1": { "3": 2 },
+        },
+        unrelatedFlag: true,
+      }),
+    );
+
+    await service.spendSpellSlot("session-scenario-1", "session-character-1", 3);
+
+    expect(prisma.gameState.update).toHaveBeenCalledWith({
+      where: { sessionScenarioId: "session-scenario-1" },
+      data: {
+        flagsJson: JSON.stringify({
+          spellSlotsBySessionCharacterId: {
+            "session-character-1": { "3": 1 },
+          },
+          unrelatedFlag: true,
+        }),
+      },
+    });
+  });
+
+  it("uses class and level spell slot maximums when no spent override exists yet", async () => {
+    const { service, prisma } = createService(JSON.stringify({ unrelatedFlag: true }));
+
+    await service.spendSpellSlot("session-scenario-1", "session-character-1", 2);
+
+    expect(prisma.gameState.update).toHaveBeenCalledWith({
+      where: { sessionScenarioId: "session-scenario-1" },
+      data: {
+        flagsJson: JSON.stringify({
+          spellSlotsBySessionCharacterId: {
+            "session-character-1": { "2": 1 },
+          },
+          unrelatedFlag: true,
+        }),
+      },
+    });
+  });
+});

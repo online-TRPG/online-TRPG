@@ -27,6 +27,7 @@ import { CharacterResourceService } from "../rules/character-resource.service";
 import { InventoryRuntimeService } from "../rules/inventory-runtime.service";
 import { MapPositionService } from "../rules/map-position.service";
 import { PENDING_READY_ACTIONS_FLAG } from "../rules/ready-action.service";
+import { SpellSlotService } from "../rules/spell-slot.service";
 import { StateDiffService } from "../rules/state-diff.service";
 import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
@@ -69,6 +70,7 @@ export class ActionProcessorService {
     private readonly inventoryRuntime: InventoryRuntimeService,
     private readonly mapPositions: MapPositionService,
     private readonly mapRuntime: MapRuntimeService,
+    private readonly spellSlots: SpellSlotService = new SpellSlotService(),
   ) {}
 
   async processNext(sessionId: string): Promise<void> {
@@ -442,6 +444,13 @@ export class ActionProcessorService {
       case "SPEND_ACTION_SURGE_USE":
         await this.characterResources.spendActionSurgeUse(params.sessionCharacterId);
         return;
+      case "SPEND_SPELL_SLOT":
+        await this.spendSpellSlot(
+          params.sessionScenarioId,
+          params.sessionCharacterId,
+          effect.slotLevel,
+        );
+        return;
       case "STORE_READY_ACTION":
         await this.storePendingReadyAction(params.sessionScenarioId, effect.pending);
         return;
@@ -472,6 +481,7 @@ export class ActionProcessorService {
           rageUses: effect.rageUses,
           reduceExhaustionBy: effect.reduceExhaustionBy,
         });
+        await this.recoverLongRestSpellSlots(params.sessionScenarioId, params.sessionCharacterId);
         return;
       case "ADD_ITEM":
         await this.inventoryRuntime.addItem({
@@ -684,6 +694,112 @@ export class ActionProcessorService {
         }),
       },
     });
+  }
+
+  private async recoverLongRestSpellSlots(
+    sessionScenarioId: string,
+    sessionCharacterId: string,
+  ): Promise<void> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const spellSlotsBySessionCharacterId = this.parseJson<Record<string, Record<string, number>>>(
+      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
+      {},
+    );
+
+    if (!Object.prototype.hasOwnProperty.call(spellSlotsBySessionCharacterId, sessionCharacterId)) {
+      return;
+    }
+
+    const {
+      [sessionCharacterId]: _recovered,
+      ...remainingSpellSlotsBySessionCharacterId
+    } = spellSlotsBySessionCharacterId;
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          spellSlotsBySessionCharacterId: remainingSpellSlotsBySessionCharacterId,
+        }),
+      },
+    });
+  }
+
+  private async spendSpellSlot(
+    sessionScenarioId: string,
+    sessionCharacterId: string,
+    slotLevel: number,
+  ): Promise<void> {
+    if (slotLevel < 1) {
+      return;
+    }
+
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const spellSlotsBySessionCharacterId = this.parseJson<Record<string, Record<string, number>>>(
+      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
+      {},
+    );
+    const slotKey = String(slotLevel);
+    const maximumSlots = await this.resolveSpellSlotMaximum(
+      sessionCharacterId,
+      slotLevel,
+    );
+    const currentSlots = spellSlotsBySessionCharacterId[sessionCharacterId] ?? {
+      [slotKey]: maximumSlots,
+    };
+    const remaining = Math.max(
+      0,
+      Math.floor(currentSlots[slotKey] ?? maximumSlots),
+    );
+    if (remaining < 1) {
+      throw new Error("No spell slot remaining.");
+    }
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          spellSlotsBySessionCharacterId: {
+            ...spellSlotsBySessionCharacterId,
+            [sessionCharacterId]: {
+              ...currentSlots,
+              [slotKey]: remaining - 1,
+            },
+          },
+        }),
+      },
+    });
+  }
+
+  private async resolveSpellSlotMaximum(
+    sessionCharacterId: string,
+    slotLevel: number,
+  ): Promise<number> {
+    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+      where: { id: sessionCharacterId },
+      include: {
+        character: {
+          select: {
+            className: true,
+            level: true,
+          },
+        },
+      },
+    });
+    return this.spellSlots.resolveMaximumForCharacter(
+      sessionCharacter?.character ?? null,
+      slotLevel,
+    );
   }
 
   private parseJson<T>(value: string | null | undefined, fallback: T): T {

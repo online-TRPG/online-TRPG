@@ -71,6 +71,39 @@ describe("ReadyActionService", () => {
     ).toEqual({ accepted: false, rejectedReason: "invalid_held_action" });
   });
 
+  it("requires a destination for held move actions", () => {
+    expect(
+      service.createPendingReadyAction({
+        actorParticipantId: "participant-1",
+        actorUserId: "user-1",
+        combatId: "combat-1",
+        roundNo: 1,
+        turnNo: 1,
+        reactionAvailable: true,
+        trigger: { type: "creature_enters_range", rangeFt: 30 },
+        heldAction: { type: "move" },
+      }),
+    ).toEqual({ accepted: false, rejectedReason: "invalid_held_action" });
+
+    expect(
+      service.createPendingReadyAction({
+        actorParticipantId: "participant-1",
+        actorUserId: "user-1",
+        combatId: "combat-1",
+        roundNo: 1,
+        turnNo: 1,
+        reactionAvailable: true,
+        trigger: { type: "creature_enters_range", rangeFt: 30 },
+        heldAction: { type: "move", targetPoint: { x: 100, y: 0 } },
+      }),
+    ).toMatchObject({
+      accepted: true,
+      pending: {
+        heldAction: { type: "move", targetPoint: { x: 100, y: 0 } },
+      },
+    });
+  });
+
   it("matches a trigger and asks the actor to execute or cancel", () => {
     const created = service.createPendingReadyAction({
       actorParticipantId: "participant-1",

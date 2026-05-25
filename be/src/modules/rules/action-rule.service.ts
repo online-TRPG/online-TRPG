@@ -9,6 +9,7 @@ import {
 import { forbidden } from "../../common/exceptions/domain-error";
 import { AoeDamageService, AoeDamageTarget } from "./aoe-damage.service";
 import { CommandParserService, ParsedCommand } from "./command-parser.service";
+import { ConcentrationRuntimeService } from "./concentration-runtime.service";
 import { ConditionRuntimeService } from "./condition-runtime.service";
 import { DiceService } from "./dice.service";
 import {
@@ -177,6 +178,7 @@ export type ActionRuntimeEffect =
   | { type: "SPEND_SNEAK_ATTACK" }
   | { type: "SPEND_SECOND_WIND" }
   | { type: "SPEND_ACTION_SURGE_USE" }
+  | { type: "SPEND_SPELL_SLOT"; slotLevel: number }
   | { type: "STORE_READY_ACTION"; pending: PendingReadyAction }
   | { type: "START_RAGE" }
   | { type: "START_FRENZY" }
@@ -233,6 +235,7 @@ export class ActionRuleService {
     private readonly ruleCatalog: RuleCatalogService = new RuleCatalogService(),
     private readonly spellScaling: SpellScalingService = new SpellScalingService(),
     private readonly readyActions: ReadyActionService = new ReadyActionService(),
+    private readonly concentrationRuntime: ConcentrationRuntimeService = new ConcentrationRuntimeService(),
   ) {}
 
   getAvailableActions(params: {
@@ -316,6 +319,8 @@ export class ActionRuleService {
         return this.resolveRoll(command);
       case "check":
         return this.resolveCheck(command, actor, runtimeContext);
+      case "save":
+        return this.resolveSave(command, sessionCharacters);
       case "attack":
         return this.resolveAttack(command, actor, sessionCharacters, runtimeContext);
       case "ready":
@@ -385,6 +390,67 @@ export class ActionRuleService {
       narration: success ? "판정에 성공했습니다." : "판정에 실패했습니다.",
       stateChanges: [],
       runtimeEffects: [{ type: "SPEND_ACTION" }],
+    };
+  }
+
+  private resolveSave(
+    command: Extract<ParsedCommand, { type: "save" }>,
+    sessionCharacters: SessionCharacterForRules[],
+  ): ActionResolution {
+    const target = this.requireTarget(command.target, sessionCharacters);
+    const saveProficient = this.resolveSaveProficiencies(target).includes(command.ability);
+    const abilityModifier = this.resolveAbilityModifier(target, command.ability);
+    const saveModifier = abilityModifier + (saveProficient ? target.character.proficiencyBonus : 0);
+    const diceResult = this.diceService.roll(
+      `1d20${saveModifier >= 0 ? "+" : ""}${saveModifier}`,
+      DiceAdvantageState.NORMAL,
+    );
+    const ruleResult = this.ruleEngine.resolveSavingThrow({
+      ability: command.ability,
+      naturalD20: this.selectNaturalD20(diceResult),
+      difficultyClass: command.dc,
+      abilityModifier,
+      proficiencyBonus: target.character.proficiencyBonus,
+      proficient: saveProficient,
+    });
+    const stateChanges: CharacterStatePatch[] = [];
+    let expiredConditions: unknown[] = [];
+
+    if (command.condition) {
+      const currentConditionEntries = this.parseJson<unknown[]>(target.conditionsJson, []);
+      const parsedConditions = this.conditionRuntime.parseConditionsJson(target.conditionsJson);
+      const saveEndResolution = this.conditionRuntime.resolveSaveEnd(parsedConditions, {
+        conditionId: command.condition,
+        saveSucceeded: ruleResult.produced.success,
+      });
+      expiredConditions = saveEndResolution.expiredConditions;
+
+      if (expiredConditions.length > 0) {
+        stateChanges.push({
+          sessionCharacterId: target.id,
+          conditions: this.mergeConditionResolutionEntries(
+            currentConditionEntries,
+            parsedConditions,
+            saveEndResolution.conditions,
+          ),
+        });
+      }
+    }
+
+    return {
+      structuredAction: {
+        type: "saving_throw",
+        target: target.id,
+        ability: command.ability,
+        dc: command.dc,
+        condition: command.condition,
+        expiredConditions,
+        ruleResults: [ruleResult],
+      },
+      diceResult,
+      outcome: ruleResult.produced.success ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
+      narration: ruleResult.produced.success ? "내성 굴림에 성공했습니다." : "내성 굴림에 실패했습니다.",
+      stateChanges,
     };
   }
 
@@ -729,7 +795,7 @@ export class ActionRuleService {
       outcome: this.resolveSpellOutcome(spellRuleResult.accepted, attackRuleResult.produced.hit),
       narration: this.createChillTouchNarration(spellRuleResult.accepted, attackRuleResult.produced.hit),
       stateChanges,
-      runtimeEffects: spellRuleResult.accepted ? [{ type: "SPEND_ACTION" }] : [],
+      runtimeEffects: spellRuleResult.accepted ? this.spellRuntimeEffects(slotLevel) : [],
     };
   }
 
@@ -823,7 +889,7 @@ export class ActionRuleService {
       outcome: ActionOutcome.SUCCESS,
       narration: `${command.spellId} 광역 주문을 처리했습니다.`,
       stateChanges: aoeResolution.stateChanges,
-      runtimeEffects: [{ type: "SPEND_ACTION" }],
+      runtimeEffects: this.spellRuntimeEffects(slotLevel),
     };
   }
 
@@ -910,7 +976,7 @@ export class ActionRuleService {
       outcome: attackRuleResult.produced.hit ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
       narration: this.createSpellAttackNarration(params.command.spellId, attackRuleResult.produced.hit),
       stateChanges,
-      runtimeEffects: [{ type: "SPEND_ACTION" }],
+      runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
     };
   }
 
@@ -968,8 +1034,15 @@ export class ActionRuleService {
           markDead: nextHp <= 0,
         },
       ],
-      runtimeEffects: [{ type: "SPEND_ACTION" }],
+      runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
     };
+  }
+
+  private spellRuntimeEffects(slotLevel: number): ActionRuntimeEffect[] {
+    return [
+      { type: "SPEND_ACTION" },
+      ...(slotLevel > 0 ? [{ type: "SPEND_SPELL_SLOT", slotLevel } as const] : []),
+    ];
   }
 
   private resolveClassFeature(
@@ -1689,6 +1762,21 @@ export class ActionRuleService {
     const remainingTempHp = Math.max(target.tempHp - finalDamage, 0);
     const overflowDamage = Math.max(finalDamage - target.tempHp, 0);
     const nextHp = Math.max(target.currentHp - overflowDamage, 0);
+    const concentrationCheck =
+      finalDamage > 0 ? this.resolveConcentrationDamageCheck(target, finalDamage) : null;
+    const ruleResults: RuleHookResult<unknown>[] = [damageRuleResult];
+    if (concentrationCheck?.ruleResult) {
+      ruleResults.push(concentrationCheck.ruleResult);
+    }
+    const stateChange: CharacterStatePatch = {
+      sessionCharacterId: target.id,
+      currentHp: nextHp,
+      tempHp: remainingTempHp,
+      markDead: nextHp <= 0,
+    };
+    if (concentrationCheck && !concentrationCheck.concentrationMaintained) {
+      stateChange.conditions = concentrationCheck.conditions;
+    }
 
     return {
       structuredAction: {
@@ -1697,19 +1785,64 @@ export class ActionRuleService {
         amount: command.amount,
         damageType,
         finalDamage,
-        ruleResults: [damageRuleResult],
+        concentrationCheck: concentrationCheck
+          ? {
+              concentrationMaintained: concentrationCheck.concentrationMaintained,
+              removedConditions: concentrationCheck.removedConditions,
+              concentrationState: concentrationCheck.concentrationState,
+            }
+          : null,
+        ruleResults,
       },
-      diceResult: null,
+      diceResult: concentrationCheck?.diceResult ?? null,
       outcome: ActionOutcome.SUCCESS,
       narration: `${target.character.name}에게 ${finalDamage} 피해를 적용했습니다.`,
-      stateChanges: [
-        {
-          sessionCharacterId: target.id,
-          currentHp: nextHp,
-          tempHp: remainingTempHp,
-          markDead: nextHp <= 0,
-        },
-      ],
+      stateChanges: [stateChange],
+    };
+  }
+
+  private resolveConcentrationDamageCheck(
+    target: SessionCharacterForRules,
+    finalDamage: number,
+  ): {
+    diceResult: DiceRollResponseDto;
+    ruleResult: RuleHookResult<unknown> | null;
+    conditions: unknown[];
+    removedConditions: unknown[];
+    concentrationState: unknown;
+    concentrationMaintained: boolean;
+  } | null {
+    const conditions = this.conditionRuntime.parseConditionsJson(target.conditionsJson);
+    const hasConcentration = conditions.some(
+      (condition) =>
+        condition.conditionId === "condition.concentration" ||
+        condition.tags.includes("concentration"),
+    );
+    if (!hasConcentration) {
+      return null;
+    }
+
+    const saveProficient = this.resolveSaveProficiencies(target).includes("con");
+    const saveModifier =
+      this.resolveAbilityModifier(target, "con") +
+      (saveProficient ? target.character.proficiencyBonus : 0);
+    const diceResult = this.diceService.roll(`1d20${saveModifier >= 0 ? "+" : ""}${saveModifier}`);
+    const result = this.concentrationRuntime.resolveDamageCheck({
+      conditions,
+      damageTaken: finalDamage,
+      naturalD20: this.selectNaturalD20(diceResult),
+      constitutionModifier: this.resolveAbilityModifier(target, "con"),
+      proficiencyBonus: target.character.proficiencyBonus,
+      proficient: saveProficient,
+    });
+
+    return {
+      diceResult,
+      ruleResult: result.ruleResult,
+      conditions: result.conditions,
+      removedConditions: result.removedConditions,
+      concentrationState: result.concentrationState,
+      concentrationMaintained: result.concentrationMaintained,
     };
   }
 
@@ -2511,6 +2644,38 @@ export class ActionRuleService {
       }
       return true;
     });
+  }
+
+  private mergeConditionResolutionEntries(
+    currentEntries: unknown[],
+    parsedConditions: Array<{ conditionId: string; sourceId: string | null; appliedAtRound: number | null }>,
+    remainingConditions: unknown[],
+  ): unknown[] {
+    const remainingByKey = new Map(
+      this.conditionRuntime
+        .parseConditionsJson(JSON.stringify(remainingConditions))
+        .map((condition) => [this.conditionEntryKey(condition), condition]),
+    );
+
+    return currentEntries.flatMap((entry, index) => {
+      const parsedCondition = parsedConditions[index];
+      if (!parsedCondition) {
+        return [];
+      }
+      const remaining = remainingByKey.get(this.conditionEntryKey(parsedCondition));
+      if (!remaining) {
+        return [];
+      }
+      return [typeof entry === "string" ? entry : remaining];
+    });
+  }
+
+  private conditionEntryKey(condition: {
+    conditionId: string;
+    sourceId: string | null;
+    appliedAtRound: number | null;
+  }): string {
+    return `${condition.conditionId}:${condition.sourceId ?? ""}:${condition.appliedAtRound ?? ""}`;
   }
 
   private conditionNameMatches(conditionId: string, normalizedConditionName: string): boolean {

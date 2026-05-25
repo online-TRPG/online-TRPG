@@ -25,6 +25,8 @@ export type ReadyHeldAction = {
   actionId?: string | null;
   spellId?: string | null;
   targetParticipantId?: string | null;
+  targetPoint?: { x: number; y: number } | null;
+  path?: Array<{ x: number; y: number }> | null;
   description?: string | null;
 };
 
@@ -250,6 +252,9 @@ export class ReadyActionService {
     }
     if (action.type === "custom") {
       return Boolean(action.description?.trim());
+    }
+    if (action.type === "move") {
+      return Boolean(action.targetPoint);
     }
     return true;
   }
