@@ -867,6 +867,31 @@ export class ActionRuleService {
       targets: targets.map((target) => this.toAoeDamageTarget(target, saveAbility)),
     });
     const aoeResolution = this.aoeDamage.resolveDamage(aoeInput);
+    const concentrationChecks = aoeResolution.targetResults.flatMap((targetResult) => {
+      if (targetResult.finalDamage <= 0) {
+        return [];
+      }
+      const target = targets.find((candidate) => candidate.id === targetResult.targetId);
+      if (!target) {
+        return [];
+      }
+      const concentrationCheck = this.resolveConcentrationDamageCheck(target, targetResult.finalDamage);
+      return concentrationCheck
+        ? [
+            {
+              targetId: target.id,
+              diceResult: concentrationCheck.diceResult,
+              concentrationMaintained: concentrationCheck.concentrationMaintained,
+              removedConditions: concentrationCheck.removedConditions,
+              concentrationState: concentrationCheck.concentrationState,
+              conditions: concentrationCheck.conditions,
+            },
+          ]
+        : [];
+    });
+    const concentrationByTargetId = new Map(
+      concentrationChecks.map((check) => [check.targetId, check]),
+    );
 
     return {
       structuredAction: {
@@ -883,12 +908,24 @@ export class ActionRuleService {
           damageDice: aoeResolution.damageDice,
           damageType: aoeResolution.damageType,
           targetResults: aoeResolution.targetResults,
+          concentrationChecks: concentrationChecks.map((check) => ({
+            targetId: check.targetId,
+            diceResult: check.diceResult,
+            concentrationMaintained: check.concentrationMaintained,
+            removedConditions: check.removedConditions,
+            concentrationState: check.concentrationState,
+          })),
         },
       },
       diceResult: aoeResolution.damageRoll,
       outcome: ActionOutcome.SUCCESS,
       narration: `${command.spellId} 광역 주문을 처리했습니다.`,
-      stateChanges: aoeResolution.stateChanges,
+      stateChanges: aoeResolution.stateChanges.map((stateChange) => {
+        const concentrationCheck = concentrationByTargetId.get(stateChange.sessionCharacterId);
+        return concentrationCheck && !concentrationCheck.concentrationMaintained
+          ? { ...stateChange, conditions: concentrationCheck.conditions }
+          : stateChange;
+      }),
       runtimeEffects: this.spellRuntimeEffects(slotLevel),
     };
   }
@@ -999,6 +1036,8 @@ export class ActionRuleService {
     });
     const finalDamage = damageRuleResult.produced.finalDamage;
     const nextHp = Math.max(params.target.currentHp - finalDamage, 0);
+    const concentrationCheck =
+      finalDamage > 0 ? this.resolveConcentrationDamageCheck(params.target, finalDamage) : null;
 
     return {
       structuredAction: {
@@ -1022,6 +1061,14 @@ export class ActionRuleService {
         damageDice,
         damageRoll: { ...damageRoll },
         finalDamage,
+        concentrationCheck: concentrationCheck
+          ? {
+              diceResult: concentrationCheck.diceResult,
+              concentrationMaintained: concentrationCheck.concentrationMaintained,
+              removedConditions: concentrationCheck.removedConditions,
+              concentrationState: concentrationCheck.concentrationState,
+            }
+          : null,
         ruleResults: [damageRuleResult],
       },
       diceResult: damageRoll,
@@ -1032,6 +1079,9 @@ export class ActionRuleService {
           sessionCharacterId: params.target.id,
           currentHp: nextHp,
           markDead: nextHp <= 0,
+          ...(concentrationCheck && !concentrationCheck.concentrationMaintained
+            ? { conditions: concentrationCheck.conditions }
+            : {}),
         },
       ],
       runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
