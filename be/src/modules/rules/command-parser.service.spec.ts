@@ -18,6 +18,23 @@ describe("CommandParserService", () => {
     });
   });
 
+  it("parses saving throw commands with an optional save-end condition", () => {
+    expect(service.parse("/save target-1 con 13 poisoned")).toEqual({
+      type: "save",
+      target: "target-1",
+      ability: "con",
+      dc: 13,
+      condition: "poisoned",
+    });
+    expect(service.parse("/save target-1 dex dc=15")).toEqual({
+      type: "save",
+      target: "target-1",
+      ability: "dex",
+      dc: 15,
+      condition: null,
+    });
+  });
+
   it("parses damage commands", () => {
     expect(service.parse("/damage target-1 7")).toEqual({
       type: "damage",
@@ -77,6 +94,20 @@ describe("CommandParserService", () => {
       heldAction: {
         type: "attack",
         targetParticipantId: "monster-1",
+      },
+    });
+
+    expect(service.parse("/ready enter move x=100 y=0 30")).toEqual({
+      type: "ready",
+      trigger: {
+        type: "creature_enters_range",
+        targetParticipantId: null,
+        rangeFt: 30,
+        tags: [],
+      },
+      heldAction: {
+        type: "move",
+        targetPoint: { x: 100, y: 0 },
       },
     });
   });

@@ -34,8 +34,8 @@ describe("ConcentrationRuntimeService", () => {
         tags: [
           "concentration",
           "concentration:spell:spell.hold_person",
-          "concentration:target:target_1",
-          "concentration:effect:effect_hold_1",
+          "concentration:target:target-1",
+          "concentration:effect:effect-hold-1",
         ],
       }),
     ]);
@@ -99,8 +99,8 @@ describe("ConcentrationRuntimeService", () => {
     expect(result.removedConditions).toEqual([concentration, linked]);
     expect(result.concentrationState).toMatchObject({
       spellId: "spell.hold_person",
-      targetIds: ["target_1"],
-      effectIds: ["effect_hold_1"],
+      targetIds: ["target-1"],
+      effectIds: ["effect-hold-1"],
     });
   });
 

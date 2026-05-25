@@ -311,7 +311,7 @@ export class ConditionRuntimeService {
   }
 
   private normalizeTag(value: string): string {
-    return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return value.trim().toLowerCase().replace(/\s+/g, "_");
   }
 
   private toNullableInteger(value: unknown): number | null {

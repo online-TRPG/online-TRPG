@@ -28,6 +28,7 @@ const createParticipant = (
     maxHp: number;
     armorClass: number;
     speedFt: number;
+    conditionsJson: string;
   }> = {},
 ) => ({
   id: overrides.id ?? "participant-1",
@@ -41,7 +42,7 @@ const createParticipant = (
   maxHp: overrides.maxHp ?? 10,
   armorClass: overrides.armorClass ?? 14,
   speedFt: overrides.speedFt ?? 30,
-  conditionsJson: "[]",
+  conditionsJson: overrides.conditionsJson ?? "[]",
   initiative: 10,
   turnOrder: overrides.turnOrder ?? 1,
   isAlive: overrides.isAlive ?? true,
@@ -78,6 +79,7 @@ describe("CombatService lifecycle", () => {
       },
       combatTurnState: {
         findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn(),
       },
       gameState: {
         update: jest.fn(),
@@ -350,6 +352,116 @@ describe("CombatService lifecycle", () => {
       roundNo: 1,
       turnNo: 2,
       sessionCharacterId: "session-character-2",
+    });
+  });
+
+  it("applies structured condition turn-end lifecycle without rewriting legacy string conditions", async () => {
+    const { service, prisma, sessionsService, realtimeEvents } = createService();
+    const currentConditions = JSON.stringify([
+      "combat:hidden",
+      {
+        conditionId: "condition.burning",
+        sourceId: "terrain.fire",
+        duration: { type: "rounds", remaining: 2 },
+        tags: ["damage_over_time:fire"],
+      },
+      {
+        conditionId: "condition.stunned",
+        sourceId: "spell.stunning_strike",
+        duration: { type: "rounds", remaining: 1 },
+      },
+    ]);
+    const current = createParticipant({
+      id: "participant-1",
+      sessionCharacterId: "session-character-1",
+      turnOrder: 1,
+      conditionsJson: currentConditions,
+    });
+    const next = createParticipant({
+      id: "participant-2",
+      sessionCharacterId: null,
+      entityType: PrismaCombatEntityType.MONSTER,
+      nameSnapshot: "Goblin",
+      turnOrder: 2,
+      conditionsJson: JSON.stringify([
+        "combat:dodge",
+        {
+          conditionId: "condition.poisoned",
+          sourceId: "trap-1",
+          duration: { type: "permanent" },
+        },
+      ]),
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 1,
+      currentParticipantId: current.id,
+      participants: [current, next],
+    };
+    const tx = {
+      combatParticipant: { update: jest.fn() },
+      combat: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          ...combat,
+          currentParticipantId: next.id,
+          roundNo: 1,
+          turnNo: 2,
+        }),
+      },
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({ id: "session-1" });
+    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.sessionCharacter.findUnique
+      .mockResolvedValueOnce({
+        id: "session-character-1",
+        character: { ownerUserId: "user-1" },
+      })
+      .mockResolvedValueOnce({ conditionsJson: currentConditions });
+    prisma.sessionCharacterResource.findMany.mockResolvedValue([]);
+    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+
+    await service.endTurn("user-1", "session-1", {});
+
+    const updateCall = prisma.combatParticipant.update.mock.calls.find(
+      ([call]) => call.where.id === "participant-1" && call.data.conditionsJson,
+    )?.[0];
+    if (!updateCall) {
+      throw new Error("Expected participant condition update.");
+    }
+    expect(prisma.sessionCharacter.update).toHaveBeenCalledWith({
+      where: { id: "session-character-1" },
+      data: { conditionsJson: updateCall.data.conditionsJson },
+    });
+    expect(JSON.parse(updateCall.data.conditionsJson)).toEqual([
+      "combat:hidden",
+      expect.objectContaining({
+        conditionId: "condition.burning",
+        sourceId: "terrain.fire",
+        duration: { type: "rounds", remaining: 1 },
+        tags: ["damage_over_time:fire"],
+      }),
+    ]);
+    const nextUpdateCall = prisma.combatParticipant.update.mock.calls.find(
+      ([call]) => call.where.id === "participant-2" && call.data.conditionsJson,
+    )?.[0];
+    if (!nextUpdateCall) {
+      throw new Error("Expected next participant dodge removal update.");
+    }
+    expect(JSON.parse(nextUpdateCall.data.conditionsJson)).toEqual([
+      expect.objectContaining({
+        conditionId: "condition.poisoned",
+        sourceId: "trap-1",
+        duration: { type: "permanent" },
+      }),
+    ]);
+    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalledWith("session-1", {
+      sessionId: "session-1",
     });
   });
 
@@ -713,6 +825,136 @@ describe("CombatService lifecycle", () => {
       }),
     );
     expect(result.message).toBe("Pull the lever.");
+    expect(realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith("session-1", {
+      turnLogId: "turn-log-1",
+    });
+  });
+
+  it("accepts triggered move ready actions through the combat movement path", async () => {
+    const { service, prisma, sessionsService, actionEconomy, turnLogsService, realtimeEvents } = createService();
+    const reactor = createParticipant({
+      id: "participant-1",
+      tokenId: "token-1",
+      sessionCharacterId: "session-character-1",
+      nameSnapshot: "Scout",
+    });
+    const mover = createParticipant({
+      id: "monster-1",
+      tokenId: "token-2",
+      sessionCharacterId: null,
+      entityType: PrismaCombatEntityType.MONSTER,
+      isHostile: true,
+    });
+    const triggeredReadyAction = {
+      id: "triggered:reaction:ready:participant-1:1:1:1:2",
+      type: "triggered_ready_action",
+      pending: {
+        id: "reaction:ready:participant-1:1:1",
+        type: "ready_action",
+        actorParticipantId: "participant-1",
+        actorUserId: "user-1",
+        combatId: "combat-1",
+        roundNo: 1,
+        turnNo: 1,
+        trigger: { type: "creature_enters_range", targetParticipantId: "monster-1", rangeFt: 30 },
+        heldAction: { type: "move", targetPoint: { x: 100, y: 0 } },
+        originalCost: "action",
+        consumesReaction: true,
+        expiresAtRound: 2,
+        expiresAtTurn: 1,
+        createdAt: "1970-01-01T00:00:00.000Z",
+      },
+      triggeredAtRound: 1,
+      triggeredAtTurn: 2,
+      triggerEvent: {
+        type: "creature_enters_range",
+        targetParticipantId: "monster-1",
+        roundNo: 1,
+        turnNo: 2,
+      },
+      status: "pending_response",
+      createdAt: "1970-01-01T00:00:00.000Z",
+    };
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 2,
+      currentParticipantId: "monster-1",
+      participants: [reactor, mover],
+    };
+    const map = {
+      id: "map-1",
+      gridType: "square",
+      gridSize: 50,
+      width: 500,
+      height: 500,
+      tokens: [
+        { id: "token-1", sessionCharacterId: "session-character-1", x: 0, y: 0, size: 50, hidden: false },
+        { id: "token-2", x: 150, y: 0, size: 50, hidden: false },
+      ],
+      fogRects: [],
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-1",
+      status: PrismaSessionStatus.PLAYING,
+      gmMode: PrismaGmMode.AI,
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        flagsJson: JSON.stringify({
+          [TRIGGERED_READY_ACTIONS_FLAG]: [triggeredReadyAction],
+        }),
+        currentNodeId: null,
+      },
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue(map);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.sessionCharacter.findMany.mockResolvedValue([]);
+    actionEconomy.getOrCreateTurnState.mockResolvedValue({ movementFtSpent: 0 });
+    turnLogsService.createTurnLog.mockResolvedValue({ turnLogId: "turn-log-1" });
+
+    const result = await service.acceptReaction("user-1", "session-1", {
+      reactionId: triggeredReadyAction.id,
+    });
+
+    expect(actionEconomy.spendReaction).toHaveBeenCalledWith({
+      combatId: "combat-1",
+      combatParticipantId: "participant-1",
+      roundNo: 1,
+      turnNo: 2,
+      sessionCharacterId: "session-character-1",
+    });
+    expect(sessionsService.saveSystemVttMap).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        tokens: expect.arrayContaining([
+          expect.objectContaining({ id: "token-1", x: 100, y: 0 }),
+        ]),
+      }),
+    );
+    expect(prisma.combatTurnState.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { movementFtSpent: { increment: 10 } },
+      }),
+    );
+    expect(turnLogsService.createTurnLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        structuredAction: expect.objectContaining({
+          type: "ready_action_execute",
+          movementDistanceFt: 10,
+          movementCostFt: 10,
+        }),
+      }),
+    );
+    expect(result.message).toBe("Scout 이동: 10ft");
     expect(realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith("session-1", {
       turnLogId: "turn-log-1",
     });

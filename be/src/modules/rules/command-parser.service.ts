@@ -4,6 +4,13 @@ import { badRequest } from "../../common/exceptions/domain-error";
 export type ParsedCommand =
   | { type: "roll"; expression: string }
   | { type: "check"; checkName: string; dc: number }
+  | {
+      type: "save";
+      target: string;
+      ability: "str" | "dex" | "con" | "int" | "wis" | "cha";
+      dc: number;
+      condition: string | null;
+    }
   | { type: "attack"; target: string | null; dc: number }
   | {
       type: "ready";
@@ -17,6 +24,8 @@ export type ParsedCommand =
         type: "attack" | "cast_spell" | "move" | "interact" | "custom";
         spellId?: string | null;
         targetParticipantId?: string | null;
+        targetPoint?: { x: number; y: number } | null;
+        path?: Array<{ x: number; y: number }> | null;
         description?: string | null;
       };
     }
@@ -79,6 +88,8 @@ export class CommandParserService {
         return this.parseRoll(args);
       case "check":
         return this.parseCheck(args);
+      case "save":
+        return this.parseSave(args);
       case "attack":
         return this.parseAttack(args);
       case "ready":
@@ -140,6 +151,25 @@ export class CommandParserService {
     };
   }
 
+  private parseSave(args: string[]): ParsedCommand {
+    const target = args[0];
+    const ability = args[1]?.toLowerCase();
+    const dc = this.parseDc(args[2], 0);
+    if (!target || !this.isSavingThrowAbility(ability) || dc < 1) {
+      throw badRequest("ACTION_400", "잘못된 명령어입니다.", {
+        reason: "SAVE_TARGET_ABILITY_AND_DC_REQUIRED",
+      });
+    }
+
+    return {
+      type: "save",
+      target,
+      ability,
+      dc,
+      condition: args[3] ?? null,
+    };
+  }
+
   private parseReady(args: string[]): ParsedCommand {
     const triggerToken = args[0];
     const heldActionToken = args[1];
@@ -149,9 +179,12 @@ export class CommandParserService {
       });
     }
 
-    const rangeFt = this.parseTrailingRange(args);
-    const targetToken = args[2] && Number.isNaN(Number(args[2])) ? args[2] : null;
     const heldActionType = this.normalizeReadyHeldActionType(heldActionToken);
+    const rangeFt = this.parseTrailingRange(args);
+    const targetToken =
+      heldActionType !== "move" && args[2] && Number.isNaN(Number(args[2]))
+        ? args[2]
+        : null;
 
     return {
       type: "ready",
@@ -402,6 +435,15 @@ export class CommandParserService {
     return parsed;
   }
 
+  private isSavingThrowAbility(value: string | undefined): value is "str" | "dex" | "con" | "int" | "wis" | "cha" {
+    return value === "str" ||
+      value === "dex" ||
+      value === "con" ||
+      value === "int" ||
+      value === "wis" ||
+      value === "cha";
+  }
+
   private parseTrailingRange(args: string[]): number | null {
     const last = args[args.length - 1];
     if (!last || Number.isNaN(Number(last))) {
@@ -479,10 +521,35 @@ export class CommandParserService {
       const description = args.join(" ").trim();
       return { type: "custom", description: description || null };
     }
+    if (actionType === "move") {
+      return {
+        type: "move",
+        targetPoint: this.parseReadyMovePoint(args),
+      };
+    }
     return {
       type: actionType,
       targetParticipantId: args[0] && Number.isNaN(Number(args[0])) ? args[0] : null,
     };
+  }
+
+  private parseReadyMovePoint(args: string[]): { x: number; y: number } {
+    const xToken = args.find((arg) => arg.toLowerCase().startsWith("x="));
+    const yToken = args.find((arg) => arg.toLowerCase().startsWith("y="));
+    const x = this.parseReadyCoordinate(xToken?.slice(2), "READY_MOVE_X_REQUIRED");
+    const y = this.parseReadyCoordinate(yToken?.slice(2), "READY_MOVE_Y_REQUIRED");
+    return { x, y };
+  }
+
+  private parseReadyCoordinate(value: string | undefined, reason: string): number {
+    if (!value) {
+      throw badRequest("ACTION_400", "잘못된 명령어입니다.", { reason });
+    }
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      throw badRequest("ACTION_400", "잘못된 명령어입니다.", { reason });
+    }
+    return parsed;
   }
 
   private normalizeSpellId(value: string): string {

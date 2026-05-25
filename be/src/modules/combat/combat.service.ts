@@ -39,6 +39,7 @@ import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { ActionRuleService } from "../rules/action-rule.service";
 import { ActionEconomyService } from "../rules/action-economy.service";
 import { CharacterResourceService } from "../rules/character-resource.service";
+import { ConditionRuntimeService } from "../rules/condition-runtime.service";
 import { DiceService } from "../rules/dice.service";
 import { MonsterAbilityService } from "../rules/monster-ability.service";
 import {
@@ -49,6 +50,7 @@ import {
 import type { PendingReadyAction } from "../rules/ready-action.service";
 import type { TriggeredReadyAction } from "../rules/ready-action.service";
 import { RuleEngineService } from "../rules/rule-engine.service";
+import { SpellSlotService } from "../rules/spell-slot.service";
 import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
@@ -146,7 +148,6 @@ const COMBAT_CONDITION_UNCONSCIOUS = "condition:unconscious";
 const COMBAT_HIDE_DC = 12;
 const DEFAULT_MELEE_ATTACK_DISTANCE_FT = 5;
 const COMBAT_JUMP_EXTRA_MOVEMENT_FT = 10;
-const DEFAULT_LEVEL_1_SPELL_SLOTS = 2;
 const SECOND_WIND_EXPENDED_TAG = "resource:second_wind_expended";
 const PENDING_COMBAT_REACTION_FLAG = "pendingCombatReaction";
 
@@ -170,6 +171,8 @@ export class CombatService {
     private readonly srdEngine: SrdEngineLoaderService,
     private readonly monsterAbilities: MonsterAbilityService,
     private readonly readyActions: ReadyActionService = new ReadyActionService(),
+    private readonly spellSlots: SpellSlotService = new SpellSlotService(),
+    private readonly conditionRuntime: ConditionRuntimeService = new ConditionRuntimeService(),
   ) {}
 
   async startCombat(
@@ -657,6 +660,9 @@ export class CombatService {
     path?: Array<{ x: number; y: number }> | null;
     movementMode?: "normal" | "jump";
     continuation?: PendingOpportunityAttackContinuation | null;
+    reactionCost?: {
+      sessionCharacterId: string;
+    } | null;
   }): Promise<CombatMovementResolution> {
     const to = {
       x: this.clampNumber(Math.floor(params.to.x), 0, Math.max(0, params.map.width - params.moverToken.size)),
@@ -679,6 +685,15 @@ export class CombatService {
     const movementCostFt =
       movementMode === "jump" ? movementDistanceFt + COMBAT_JUMP_EXTRA_MOVEMENT_FT : movementDistanceFt;
     await this.assertMovementAvailable(params.combat, params.mover, movementCostFt);
+    if (params.reactionCost) {
+      await this.actionEconomy.spendReaction({
+        combatId: params.combat.id,
+        combatParticipantId: params.mover.id,
+        roundNo: params.combat.roundNo,
+        turnNo: params.combat.turnNo,
+        sessionCharacterId: params.reactionCost.sessionCharacterId,
+      });
+    }
 
     const nextMap: VttMapStateDto = {
       ...params.map,
@@ -1057,6 +1072,11 @@ export class CombatService {
 
     const expiredRageCount = await this.endExpiredRagesForCombat(updated);
     const expiredReadyActionCount = await this.expireReadyActionsForTurn(sessionId, updated);
+    const expiredConditionCount = await this.resolveTurnEndConditions(
+      current,
+      updated.roundNo,
+      updated.turnNo,
+    );
 
     const response: TurnAdvanceResponseDto = {
       combatId: updated.id,
@@ -1068,7 +1088,7 @@ export class CombatService {
 
     this.realtimeEvents.emitTurnChanged(sessionId, response);
     this.realtimeEvents.emitCombatUpdated(sessionId, await this.mapCombat(updated));
-    if (expiredRageCount > 0 || expiredReadyActionCount > 0) {
+    if (expiredRageCount > 0 || expiredReadyActionCount > 0 || expiredConditionCount > 0) {
       this.realtimeEvents.emitSessionSnapshot(
         sessionId,
         await this.sessionsService.buildSnapshot(sessionId),
@@ -3298,8 +3318,9 @@ export class CombatService {
       {},
     );
     const key = String(slotLevel);
-    const characterSlots = spellSlots[sessionCharacterId] ?? { [key]: DEFAULT_LEVEL_1_SPELL_SLOTS };
-    const remaining = Math.max(0, Math.floor(characterSlots[key] ?? DEFAULT_LEVEL_1_SPELL_SLOTS));
+    const maximumSlots = await this.resolveSpellSlotMaximum(sessionCharacterId, slotLevel);
+    const characterSlots = spellSlots[sessionCharacterId] ?? { [key]: maximumSlots };
+    const remaining = Math.max(0, Math.floor(characterSlots[key] ?? maximumSlots));
     if (remaining <= 0) {
       throw conflict("COMBAT_409", "사용 가능한 1레벨 주문 슬롯이 없습니다.", { reason: "NO_SPELL_SLOT" });
     }
@@ -3392,9 +3413,31 @@ export class CombatService {
       JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
       {},
     );
+    const maximumSlots = await this.resolveSpellSlotMaximum(sessionCharacterId, slotLevel);
     return Math.max(
       0,
-      Math.floor(spellSlots[sessionCharacterId]?.[String(slotLevel)] ?? DEFAULT_LEVEL_1_SPELL_SLOTS),
+      Math.min(
+        maximumSlots,
+        Math.floor(spellSlots[sessionCharacterId]?.[String(slotLevel)] ?? maximumSlots),
+      ),
+    );
+  }
+
+  private async resolveSpellSlotMaximum(sessionCharacterId: string, slotLevel: number): Promise<number> {
+    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+      where: { id: sessionCharacterId },
+      include: {
+        character: {
+          select: {
+            className: true,
+            level: true,
+          },
+        },
+      },
+    });
+    return this.spellSlots.resolveMaximumForCharacter(
+      sessionCharacter?.character ?? null,
+      slotLevel,
     );
   }
 
@@ -3562,6 +3605,15 @@ export class CombatService {
       });
     }
 
+    if (triggered.pending.heldAction.type === "move") {
+      return this.resolveTriggeredReadyMoveAction({
+        session,
+        combat,
+        actor,
+        triggered,
+      });
+    }
+
     if (actor.sessionCharacterId) {
       await this.actionEconomy.spendReaction({
         combatId: combat.id,
@@ -3596,6 +3648,75 @@ export class CombatService {
     this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
     const map = await this.sessionsService.getVttMapForUser(session.hostUserId, sessionId);
     return { combat: response, map, message, pendingReaction: null };
+  }
+
+  private async resolveTriggeredReadyMoveAction(params: {
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
+    combat: NonNullable<CombatWithParticipants>;
+    actor: CombatParticipantEntity;
+    triggered: TriggeredReadyAction;
+  }): Promise<CombatMoveResultDto> {
+    if (!params.actor.sessionCharacterId) {
+      throw conflict("COMBAT_409", "몬스터 준비 이동은 아직 지원하지 않습니다.", {
+        reason: "READY_MONSTER_MOVE_UNSUPPORTED",
+      });
+    }
+    const targetPoint = params.triggered.pending.heldAction.targetPoint;
+    if (!targetPoint) {
+      throw conflict("COMBAT_409", "준비 이동 목적지가 없습니다.", {
+        reason: "READY_MOVE_TARGET_POINT_REQUIRED",
+      });
+    }
+
+    const map = await this.sessionsService.getVttMapForUser(
+      params.session.hostUserId,
+      params.session.id,
+    );
+    const actorToken = this.findParticipantToken(map, params.actor);
+    if (!actorToken) {
+      throw conflict("COMBAT_409", "준비 이동 토큰을 찾을 수 없습니다.", {
+        reason: "READY_MOVE_TOKEN_NOT_FOUND",
+      });
+    }
+
+    const movementResult = await this.resolveCombatMovement({
+      session: params.session,
+      userId: params.triggered.pending.actorUserId,
+      combat: params.combat,
+      mover: params.actor,
+      map,
+      moverToken: actorToken,
+      to: targetPoint,
+      path: params.triggered.pending.heldAction.path ?? null,
+      movementMode: "normal",
+      reactionCost: {
+        sessionCharacterId: params.actor.sessionCharacterId,
+      },
+    });
+
+    if (!movementResult.pendingReaction) {
+      const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(params.session.id);
+      const turnLog = await this.turnLogsService.createTurnLog({
+        sessionId: params.session.id,
+        sessionScenarioId: sessionScenario.id,
+        actorUserId: params.triggered.pending.actorUserId,
+        sessionCharacterId: params.actor.sessionCharacterId,
+        rawInput: null,
+        structuredAction: {
+          type: "ready_action_execute",
+          readyActionId: params.triggered.pending.id,
+          heldAction: params.triggered.pending.heldAction,
+          movementDistanceFt: movementResult.movementDistanceFt,
+          movementCostFt: movementResult.movementCostFt,
+        },
+        diceResult: null,
+        outcome: ActionOutcome.SUCCESS,
+        narration: movementResult.message,
+      });
+      this.realtimeEvents.emitTurnLogCreated(params.session.id, turnLog);
+    }
+
+    return movementResult;
   }
 
   private async resolveTriggeredReadySpellAction(params: {
@@ -4000,23 +4121,58 @@ export class CombatService {
     participant: CombatParticipantEntity,
     condition: string,
   ): Promise<void> {
-    const current = await this.readCombatConditions(participant);
-    if (!current.includes(condition)) {
+    const current = await this.readCombatConditionEntries(participant);
+    if (!this.combatConditionTags(current).includes(condition)) {
       current.push(condition);
     }
-    await this.writeCombatConditions(participant, current);
+    await this.writeCombatConditionEntries(participant, current);
   }
 
   private async removeCombatCondition(
     participant: CombatParticipantEntity,
     condition: string,
   ): Promise<void> {
-    const current = await this.readCombatConditions(participant);
-    const next = current.filter((entry) => entry !== condition);
+    const current = await this.readCombatConditionEntries(participant);
+    const next = current.filter((entry) => !this.conditionEntryTags(entry).includes(condition));
     if (next.length === current.length) {
       return;
     }
-    await this.writeCombatConditions(participant, next);
+    await this.writeCombatConditionEntries(participant, next);
+  }
+
+  private async resolveTurnEndConditions(
+    participant: CombatParticipantEntity,
+    roundNo: number,
+    turnNo: number,
+  ): Promise<number> {
+    const current = await this.readCombatConditionEntries(participant);
+    if (current.length === 0) {
+      return 0;
+    }
+
+    const parsed = this.conditionRuntime.parseConditionsJson(JSON.stringify(current));
+    const resolution = this.conditionRuntime.resolveTurnEnd(parsed, { round: roundNo, turn: turnNo });
+    if (resolution.expiredConditions.length === 0 && resolution.updatedConditions.length === 0) {
+      return 0;
+    }
+
+    const remainingByKey = new Map(
+      resolution.conditions.map((condition) => [this.conditionEntryKey(condition), condition]),
+    );
+    const nextConditions = current.flatMap((entry, index) => {
+      const parsedCondition = parsed[index];
+      if (!parsedCondition) {
+        return [];
+      }
+      const remaining = remainingByKey.get(this.conditionEntryKey(parsedCondition));
+      if (!remaining) {
+        return [];
+      }
+      return [typeof entry === "string" ? entry : remaining];
+    });
+
+    await this.writeCombatConditionEntries(participant, nextConditions);
+    return resolution.expiredConditions.length + resolution.updatedConditions.length;
   }
 
   private async readCombatConditions(participant: CombatParticipantEntity): Promise<string[]> {
@@ -4028,6 +4184,14 @@ export class CombatService {
       select: { conditionsJson: true },
     });
     return this.parseConditions(sessionCharacter?.conditionsJson ?? participant.conditionsJson ?? "[]");
+  }
+
+  private combatConditionTags(entries: unknown[]): string[] {
+    return Array.from(new Set(entries.flatMap((entry) => this.conditionEntryTags(entry))));
+  }
+
+  private conditionEntryTags(entry: unknown): string[] {
+    return this.conditionRuntime.toConditionTags(JSON.stringify([entry]));
   }
 
   private async writeCombatConditions(
@@ -4046,6 +4210,42 @@ export class CombatService {
       });
     }
     participant.conditionsJson = conditionsJson;
+  }
+
+  private async readCombatConditionEntries(participant: CombatParticipantEntity): Promise<unknown[]> {
+    const raw = participant.sessionCharacterId
+      ? (await this.prisma.sessionCharacter.findUnique({
+          where: { id: participant.sessionCharacterId },
+          select: { conditionsJson: true },
+        }))?.conditionsJson ?? participant.conditionsJson ?? "[]"
+      : participant.conditionsJson ?? "[]";
+    return this.parseConditionEntries(raw);
+  }
+
+  private async writeCombatConditionEntries(
+    participant: CombatParticipantEntity,
+    conditions: unknown[],
+  ): Promise<void> {
+    const conditionsJson = JSON.stringify(conditions);
+    await this.prisma.combatParticipant.update({
+      where: { id: participant.id },
+      data: { conditionsJson },
+    });
+    if (participant.sessionCharacterId) {
+      await this.prisma.sessionCharacter.update({
+        where: { id: participant.sessionCharacterId },
+        data: { conditionsJson },
+      });
+    }
+    participant.conditionsJson = conditionsJson;
+  }
+
+  private conditionEntryKey(condition: {
+    conditionId: string;
+    sourceId: string | null;
+    appliedAtRound: number | null;
+  }): string {
+    return `${condition.conditionId}:${condition.sourceId ?? ""}:${condition.appliedAtRound ?? ""}`;
   }
 
   private resolveAttackAdvantageState(params: {
@@ -4674,9 +4874,16 @@ export class CombatService {
   private parseConditions(value: string): string[] {
     try {
       const parsed = JSON.parse(value) as unknown;
-      return Array.isArray(parsed)
-        ? parsed.filter((condition): condition is string => typeof condition === "string")
-        : [];
+      return Array.isArray(parsed) ? this.combatConditionTags(parsed) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private parseConditionEntries(value: string): unknown[] {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
@@ -4751,7 +4958,10 @@ export class CombatService {
         const armorClass = sessionCharacter?.character.armorClass ?? participant.armorClass ?? null;
         const movementFtTotal = sessionCharacter?.character.speed ?? participant.speedFt ?? 30;
         const turnState = turnStateByParticipantId.get(participant.id) ?? null;
-        const spellSlotLevel1Total = this.resolveLevel1SpellSlotTotal(sessionCharacter?.character ?? null);
+        const spellSlotLevel1Total = this.spellSlots.resolveMaximumForCharacter(
+          sessionCharacter?.character ?? null,
+          1,
+        );
         const rawLevel1SpellSlots = participant.sessionCharacterId
           ? spellSlotsBySessionCharacterId[participant.sessionCharacterId]?.["1"]
           : undefined;
@@ -4802,13 +5012,6 @@ export class CombatService {
         };
       }),
     };
-  }
-
-  private resolveLevel1SpellSlotTotal(character: { className: string; level: number } | null): number {
-    if (!character || character.level < 1) return 0;
-    const className = character.className.trim().toLowerCase();
-    if (className.includes("wizard")) return DEFAULT_LEVEL_1_SPELL_SLOTS;
-    return 0;
   }
 
   private hasBonusActionOption(
