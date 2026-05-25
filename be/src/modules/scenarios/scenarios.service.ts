@@ -37,6 +37,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { mapScenario, mapScenarioSummary } from '../../common/mappers/domain.mapper';
 import {
+  DEFAULT_PROVIDED_SCENARIO_ID,
   PROVIDED_SCENARIO_IDS,
   isProvidedScenarioId,
 } from './provided-scenario.constants';

@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 
 const FEET_PER_GRID = 5;
+const FLOATING_POINT_EPSILON = 0.000001;
 
 export type AoeShape = "sphere" | "cone" | "line" | "cube";
 
@@ -120,7 +121,7 @@ export class AoeTargetingService {
         return false;
       }
       const cosAngle = dot / (distance * Math.hypot(direction.x, direction.y));
-      return cosAngle >= Math.SQRT1_2;
+      return cosAngle + FLOATING_POINT_EPSILON >= Math.SQRT1_2;
     });
   }
 

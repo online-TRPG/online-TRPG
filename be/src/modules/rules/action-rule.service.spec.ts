@@ -75,6 +75,7 @@ const createCharacter = (
         overrides.character?.abilitiesJson ??
         JSON.stringify({ str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }),
       proficiencyBonus: overrides.character?.proficiencyBonus ?? 2,
+      featuresJson: overrides.character?.featuresJson ?? null,
       proficientSkillsJson: overrides.character?.proficientSkillsJson ?? "[]",
       armorClass: overrides.character?.armorClass ?? 10,
       speed: overrides.character?.speed ?? 30,
@@ -465,6 +466,14 @@ describe("ActionRuleService", () => {
     expect(structuredAction.result.distanceFt).toBe(5);
     expect(result.runtimeEffects).toEqual([
       { type: "REMOVE_ITEM", itemId: "entry-dagger", quantity: 1 },
+      {
+        type: "CREATE_MAP_OBJECT",
+        objectId: "object:item:entry-dagger:1:0",
+        itemDefinitionId: "equipment.dagger",
+        name: "Dagger",
+        quantity: 1,
+        point: { x: 1, y: 0 },
+      },
     ]);
   });
 
@@ -485,6 +494,17 @@ describe("ActionRuleService", () => {
           gridSize: 50,
           tokens: [
             { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+          ],
+          objectCells: [
+            {
+              id: "object-rope",
+              x: 50,
+              y: 0,
+              width: 50,
+              height: 50,
+              description: "equipment.rope x1",
+              hiddenItemIds: ["equipment.rope"],
+            },
           ],
         },
       },
@@ -509,7 +529,127 @@ describe("ActionRuleService", () => {
     });
     expect(result.runtimeEffects).toEqual([
       { type: "ADD_ITEM", itemDefinitionId: "equipment.rope", quantity: 1 },
+      { type: "REMOVE_MAP_OBJECT", objectId: "object-rope" },
     ]);
+  });
+
+  it("rejects item pickup when the VTT map object is missing", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+    });
+
+    const result = service.resolveAction(
+      "/item pickup object-rope equipment.rope 1 1 0",
+      actor,
+      [actor],
+      {
+        map: {
+          gridType: "square",
+          gridSize: 50,
+          tokens: [
+            { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+          ],
+          objectCells: [],
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.structuredAction).toMatchObject({
+      type: "item_interaction",
+      operation: "pickup",
+      rejectedReason: "map_object_not_found",
+    });
+    expect(result.runtimeEffects).toEqual([]);
+  });
+
+  it("reduces the VTT map object quantity when pickup takes part of a stack", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+    });
+
+    const result = service.resolveAction(
+      "/item pickup object-rope equipment.rope 2 1 0",
+      actor,
+      [actor],
+      {
+        map: {
+          gridType: "square",
+          gridSize: 50,
+          tokens: [
+            { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+          ],
+          objectCells: [
+            {
+              id: "object-rope",
+              x: 50,
+              y: 0,
+              width: 50,
+              height: 50,
+              description: "equipment.rope x5",
+              hiddenItemIds: ["equipment.rope"],
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.runtimeEffects).toEqual([
+      { type: "ADD_ITEM", itemDefinitionId: "equipment.rope", quantity: 2 },
+      {
+        type: "UPDATE_MAP_OBJECT_QUANTITY",
+        objectId: "object-rope",
+        itemDefinitionId: "equipment.rope",
+        quantity: 3,
+      },
+    ]);
+  });
+
+  it("rejects item pickup when requested quantity exceeds the VTT map object stack", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+    });
+
+    const result = service.resolveAction(
+      "/item pickup object-rope equipment.rope 6 1 0",
+      actor,
+      [actor],
+      {
+        map: {
+          gridType: "square",
+          gridSize: 50,
+          tokens: [
+            { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+          ],
+          objectCells: [
+            {
+              id: "object-rope",
+              x: 50,
+              y: 0,
+              width: 50,
+              height: 50,
+              description: "equipment.rope x5",
+              hiddenItemIds: ["equipment.rope"],
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.structuredAction).toMatchObject({
+      type: "item_interaction",
+      operation: "pickup",
+      rejectedReason: "insufficient_map_object_quantity",
+    });
+    expect(result.runtimeEffects).toEqual([]);
   });
 
   it("resolves item throw commands into thrown attack metadata", () => {
@@ -567,6 +707,14 @@ describe("ActionRuleService", () => {
     expect(structuredAction.result.distanceFt).toBe(20);
     expect(result.runtimeEffects).toEqual([
       { type: "REMOVE_ITEM", itemId: "entry-dagger", quantity: 1 },
+      {
+        type: "CREATE_MAP_OBJECT",
+        objectId: "object:thrown:entry-dagger:4:0",
+        itemDefinitionId: "equipment.dagger",
+        name: "Dagger",
+        quantity: 1,
+        point: { x: 4, y: 0 },
+      },
       { type: "SPEND_ACTION" },
     ]);
   });

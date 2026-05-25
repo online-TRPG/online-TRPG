@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 
 export const PENDING_READY_ACTIONS_FLAG = "pendingReadyActions";
+export const TRIGGERED_READY_ACTIONS_FLAG = "triggeredReadyActions";
 
 export type ReadyActionCost = "action" | "bonus_action";
 
@@ -99,6 +100,17 @@ export type ReadyActionListResolution = {
   remaining: PendingReadyAction[];
 };
 
+export type TriggeredReadyAction = {
+  id: string;
+  type: "triggered_ready_action";
+  pending: PendingReadyAction;
+  triggeredAtRound: number;
+  triggeredAtTurn: number;
+  triggerEvent: ReadyTriggerEvent;
+  status: "pending_response";
+  createdAt: string;
+};
+
 @Injectable()
 export class ReadyActionService {
   createPendingReadyAction(input: ReadyActionInput): ReadyActionResolution {
@@ -181,6 +193,25 @@ export class ReadyActionService {
     }
 
     return { triggered, expired, remaining };
+  }
+
+  createTriggeredReadyAction(
+    pending: PendingReadyAction,
+    event: ReadyTriggerEvent,
+  ): TriggeredReadyAction {
+    return {
+      id: `triggered:${pending.id}:${event.roundNo}:${event.turnNo}`,
+      type: "triggered_ready_action",
+      pending,
+      triggeredAtRound: event.roundNo,
+      triggeredAtTurn: event.turnNo,
+      triggerEvent: {
+        ...event,
+        tags: [...(event.tags ?? [])],
+      },
+      status: "pending_response",
+      createdAt: new Date(0).toISOString(),
+    };
   }
 
   private isExpired(pending: PendingReadyAction, event: ReadyTriggerEvent): boolean {

@@ -11,6 +11,7 @@ import {
   ActionOutcome,
   DiceAdvantageState,
   TurnLogResponseDto,
+  VttMapStateDto,
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
 import { AiService } from "../ai/ai.service";
@@ -27,6 +28,7 @@ import { InventoryRuntimeService } from "../rules/inventory-runtime.service";
 import { MapPositionService } from "../rules/map-position.service";
 import { PENDING_READY_ACTIONS_FLAG } from "../rules/ready-action.service";
 import { StateDiffService } from "../rules/state-diff.service";
+import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
 
@@ -66,6 +68,7 @@ export class ActionProcessorService {
     private readonly characterResources: CharacterResourceService,
     private readonly inventoryRuntime: InventoryRuntimeService,
     private readonly mapPositions: MapPositionService,
+    private readonly mapRuntime: MapRuntimeService,
   ) {}
 
   async processNext(sessionId: string): Promise<void> {
@@ -196,7 +199,7 @@ export class ActionProcessorService {
       throw new Error("ACTION_ACTOR_NOT_FOUND");
     }
 
-    const runtime = await this.buildRuntime(action.sessionId, actor, state.flagsJson);
+    const runtime = await this.buildRuntime(session.id, sessionScenario.id, actor, state);
 
     // BE → AI Interpreter (AI-SERVER-001). 자연어 → 구조화 action 후보를 AiTrace 로 영속.
     // Phase 1: 결과를 룰 판정에 사용하지 않음 (actionRules 시그니처 변경 동반이라 별 PR).
@@ -274,6 +277,7 @@ export class ActionProcessorService {
     });
 
     const runtimeStateChanged = await this.applyRuntimeEffects(resolution, {
+      sessionId: session.id,
       sessionScenarioId: sessionScenario.id,
       sessionCharacterId: actor.id,
       turnStateKey: runtime.turnStateKey,
@@ -300,13 +304,15 @@ export class ActionProcessorService {
 
   private async buildRuntime(
     sessionId: string,
+    sessionScenarioId: string,
     actor: RuntimeActor,
-    flagsJson: string | null,
+    state: { currentNodeId: string | null; flagsJson: string | null },
   ): Promise<{
     context: RuleRuntimeContext;
     turnStateKey: RuntimeTurnStateKey | null;
   }> {
-    const map = this.mapPositions.createRuntimeMapFromFlagsJson(flagsJson);
+    const vttMap = await this.sessionsService.getVttMapBaseline(sessionId, sessionScenarioId, state);
+    const map = this.mapPositions.createRuntimeMap(vttMap);
     const resource = await this.characterResources.getOrCreateResource(
       actor.id,
       this.resolveInitialResourceDefaults(actor),
@@ -381,6 +387,7 @@ export class ActionProcessorService {
   private async applyRuntimeEffects(
     resolution: ActionResolution,
     params: {
+      sessionId: string;
       sessionScenarioId: string;
       sessionCharacterId: string;
       turnStateKey: RuntimeTurnStateKey | null;
@@ -397,6 +404,7 @@ export class ActionProcessorService {
   private async applyRuntimeEffect(
     effect: ActionRuntimeEffect,
     params: {
+      sessionId: string;
       sessionScenarioId: string;
       sessionCharacterId: string;
       turnStateKey: RuntimeTurnStateKey | null;
@@ -480,6 +488,15 @@ export class ActionProcessorService {
           quantity: effect.quantity,
         });
         return;
+      case "CREATE_MAP_OBJECT":
+        await this.createMapObjectFromRuntimeEffect(params.sessionId, effect);
+        return;
+      case "UPDATE_MAP_OBJECT_QUANTITY":
+        await this.updateMapObjectQuantityFromRuntimeEffect(params.sessionId, effect);
+        return;
+      case "REMOVE_MAP_OBJECT":
+        await this.removeMapObjectFromRuntimeEffect(params.sessionId, effect.objectId);
+        return;
     }
   }
 
@@ -554,6 +571,89 @@ export class ActionProcessorService {
     } catch {
       return new Set();
     }
+  }
+
+  private async createMapObjectFromRuntimeEffect(
+    sessionId: string,
+    effect: Extract<ActionRuntimeEffect, { type: "CREATE_MAP_OBJECT" }>,
+  ): Promise<void> {
+    const map = await this.getCurrentVttMap(sessionId);
+    if (!map) {
+      return;
+    }
+
+    const gridSize = map.gridSize || 50;
+    const objectCells = (map.objectCells ?? []).filter((cell) => cell.id !== effect.objectId);
+    await this.mapRuntime.saveSystemVttMap(sessionId, {
+      ...map,
+      objectCells: [
+        ...objectCells,
+        {
+          id: effect.objectId,
+          x: effect.point.x * gridSize,
+          y: effect.point.y * gridSize,
+          width: gridSize,
+          height: gridSize,
+          name: effect.name,
+          description: `${effect.itemDefinitionId} x${effect.quantity}`,
+          visibleToPlayers: true,
+          hiddenItemIds: [effect.itemDefinitionId],
+        },
+      ],
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  private async removeMapObjectFromRuntimeEffect(
+    sessionId: string,
+    objectId: string,
+  ): Promise<void> {
+    const map = await this.getCurrentVttMap(sessionId);
+    if (!map) {
+      return;
+    }
+
+    const objectCells = (map.objectCells ?? []).filter((cell) => cell.id !== objectId);
+    if (objectCells.length === (map.objectCells ?? []).length) {
+      return;
+    }
+
+    await this.mapRuntime.saveSystemVttMap(sessionId, {
+      ...map,
+      objectCells,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  private async updateMapObjectQuantityFromRuntimeEffect(
+    sessionId: string,
+    effect: Extract<ActionRuntimeEffect, { type: "UPDATE_MAP_OBJECT_QUANTITY" }>,
+  ): Promise<void> {
+    const map = await this.getCurrentVttMap(sessionId);
+    const objectCells = map.objectCells ?? [];
+    const objectIndex = objectCells.findIndex((cell) => cell.id === effect.objectId);
+    if (objectIndex < 0) {
+      return;
+    }
+
+    await this.mapRuntime.saveSystemVttMap(sessionId, {
+      ...map,
+      objectCells: objectCells.map((cell, index) =>
+        index === objectIndex
+          ? {
+              ...cell,
+              description: `${effect.itemDefinitionId} x${effect.quantity}`,
+            }
+          : cell,
+      ),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  private async getCurrentVttMap(sessionId: string): Promise<VttMapStateDto> {
+    const { sessionScenario, state } =
+      await this.sessionsService.getGameStateEntityOrThrow(sessionId);
+    return this.sessionsService.getVttMapBaseline(sessionId, sessionScenario.id, state);
   }
 
   private async storePendingReadyAction(

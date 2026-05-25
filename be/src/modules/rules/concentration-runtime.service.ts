@@ -138,7 +138,13 @@ export class ConcentrationRuntimeService {
       return true;
     }
     const effectIds = this.readTaggedValues(activeConcentration, "concentration:effect:");
-    return Boolean(condition.sourceId && effectIds.includes(condition.sourceId));
+    return Boolean(
+      condition.sourceId &&
+        effectIds.some(
+          (effectId) =>
+            this.normalizedTagValue(effectId) === this.normalizedTagValue(condition.sourceId ?? ""),
+        ),
+    );
   }
 
   private toConcentrationState(condition: ConditionInstance): ConcentrationState | null {
@@ -166,5 +172,9 @@ export class ConcentrationRuntimeService {
 
   private conditionKey(condition: ConditionInstance): string {
     return `${condition.conditionId}:${condition.sourceId ?? ""}:${condition.appliedAtRound ?? ""}`;
+  }
+
+  private normalizedTagValue(value: string): string {
+    return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
   }
 }

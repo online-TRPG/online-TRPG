@@ -44,8 +44,10 @@ import { MonsterAbilityService } from "../rules/monster-ability.service";
 import {
   PENDING_READY_ACTIONS_FLAG,
   ReadyActionService,
+  TRIGGERED_READY_ACTIONS_FLAG,
 } from "../rules/ready-action.service";
 import type { PendingReadyAction } from "../rules/ready-action.service";
+import type { TriggeredReadyAction } from "../rules/ready-action.service";
 import { RuleEngineService } from "../rules/rule-engine.service";
 import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
@@ -736,13 +738,31 @@ export class CombatService {
       nextMap,
       movementCostFt,
     );
+    const triggeredReadyActionCount = await this.resolveReadyActionsForMovement({
+      sessionId: params.session.id,
+      combat: latestCombat,
+      mover: latestMover,
+      map: savedMap,
+      nextMoverToken: { ...params.moverToken, x: to.x, y: to.y },
+    });
     const response = await this.mapCombat(await this.getActiveCombatEntity(params.session.id));
     this.realtimeEvents.emitCombatUpdated(params.session.id, response);
+    if (triggeredReadyActionCount > 0) {
+      this.realtimeEvents.emitSessionSnapshot(
+        params.session.id,
+        await this.sessionsService.buildSnapshot(params.session.id),
+      );
+    }
     return {
       combat: response,
       map: savedMap,
       message: opportunityAttack.automaticMessages.length
-        ? opportunityAttack.automaticMessages.join(" / ")
+        ? [
+            opportunityAttack.automaticMessages.join(" / "),
+            triggeredReadyActionCount > 0 ? `준비행동 ${triggeredReadyActionCount}개가 발동 대기 중입니다.` : null,
+          ].filter((message): message is string => Boolean(message)).join(" / ")
+        : triggeredReadyActionCount > 0
+          ? `${params.mover.nameSnapshot} 이동: ${movementDistanceFt}ft / 준비행동 ${triggeredReadyActionCount}개가 발동 대기 중입니다.`
         : movementMode === "jump"
           ? `${params.mover.nameSnapshot} 도약: ${movementDistanceFt}ft + 추가 ${COMBAT_JUMP_EXTRA_MOVEMENT_FT}ft`
           : `${params.mover.nameSnapshot} 이동: ${movementDistanceFt}ft`,
@@ -759,6 +779,9 @@ export class CombatService {
   ): Promise<CombatMoveResultDto> {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     await this.sessionsService.ensureMembership(userId, session.id);
+    if (dto.reactionId.startsWith("triggered:")) {
+      return this.resolveTriggeredReadyAction(userId, session.id, dto.reactionId, true);
+    }
     const pending = await this.consumePendingOpportunityReaction(session.id, dto.reactionId);
     if (pending.type === "shield") {
       return this.resolvePendingShieldReaction(userId, session.id, pending, true);
@@ -835,6 +858,9 @@ export class CombatService {
   ): Promise<CombatMoveResultDto> {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     await this.sessionsService.ensureMembership(userId, session.id);
+    if (dto.reactionId.startsWith("triggered:")) {
+      return this.resolveTriggeredReadyAction(userId, session.id, dto.reactionId, false);
+    }
     const pending = await this.consumePendingOpportunityReaction(session.id, dto.reactionId);
     if (pending.type === "shield") {
       return this.resolvePendingShieldReaction(userId, session.id, pending, false);
@@ -3461,6 +3487,196 @@ export class CombatService {
     return { combat: response, map, message, pendingReaction: null };
   }
 
+  private async resolveTriggeredReadyAction(
+    userId: string,
+    sessionId: string,
+    triggeredId: string,
+    accepted: boolean,
+  ): Promise<CombatMoveResultDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    const triggered = await this.consumeTriggeredReadyAction(sessionId, triggeredId);
+    if (triggered.pending.actorUserId !== userId) {
+      await this.ensureHost(userId, sessionId);
+    }
+
+    const combat = await this.getActiveCombatEntity(sessionId);
+    const actor = this.findCombatParticipantOrThrow(combat, triggered.pending.actorParticipantId);
+    if (!accepted) {
+      const response = await this.mapCombat(combat);
+      const map = await this.sessionsService.getVttMapForUser(session.hostUserId, sessionId);
+      this.realtimeEvents.emitCombatUpdated(sessionId, response);
+      this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
+      return {
+        combat: response,
+        map,
+        message: `${actor.nameSnapshot}이(가) 준비행동을 취소했습니다.`,
+        pendingReaction: null,
+      };
+    }
+
+    if (triggered.pending.heldAction.type === "attack") {
+      const targetParticipantId =
+        triggered.pending.heldAction.targetParticipantId ??
+        triggered.triggerEvent.targetParticipantId;
+      if (!targetParticipantId) {
+        throw conflict("COMBAT_409", "준비행동 공격 대상이 없습니다.", {
+          reason: "READY_ACTION_TARGET_NOT_FOUND",
+        });
+      }
+      const weapon = actor.sessionCharacterId
+        ? await this.resolveEquippedWeaponProfile(actor.sessionCharacterId)
+        : this.resolveMonsterOpportunityWeapon(actor);
+      const attackResult = await this.resolveAttack(
+        userId,
+        sessionId,
+        {
+          attackerParticipantId: actor.id,
+          targetParticipantId,
+          attackBonus: weapon.attackBonus,
+          damageDice: weapon.damageDice,
+          damageBonus: weapon.damageBonus,
+        },
+        {
+          messagePrefix: `${actor.nameSnapshot} 준비행동`,
+          fixedDamageTotal: weapon.fixedDamageTotal,
+          actionCost: "reaction",
+          reactionUserId: userId,
+        },
+      );
+      const map = await this.sessionsService.getVttMapForUser(session.hostUserId, sessionId);
+      return {
+        combat: attackResult.combat,
+        map,
+        message: attackResult.message,
+        pendingReaction: null,
+      };
+    }
+
+    if (triggered.pending.heldAction.type === "cast_spell") {
+      return this.resolveTriggeredReadySpellAction({
+        userId,
+        session,
+        combat,
+        actor,
+        triggered,
+      });
+    }
+
+    if (actor.sessionCharacterId) {
+      await this.actionEconomy.spendReaction({
+        combatId: combat.id,
+        combatParticipantId: actor.id,
+        roundNo: combat.roundNo,
+        turnNo: combat.turnNo,
+        sessionCharacterId: actor.sessionCharacterId,
+      });
+    }
+    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
+    const message =
+      triggered.pending.heldAction.description?.trim() ||
+      `${actor.nameSnapshot}이(가) 준비행동을 실행했습니다.`;
+    const turnLog = await this.turnLogsService.createTurnLog({
+      sessionId,
+      sessionScenarioId: sessionScenario.id,
+      actorUserId: triggered.pending.actorUserId,
+      sessionCharacterId: actor.sessionCharacterId ?? null,
+      rawInput: null,
+      structuredAction: {
+        type: "ready_action_execute",
+        readyActionId: triggered.pending.id,
+        heldAction: triggered.pending.heldAction,
+      },
+      diceResult: null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: message,
+    });
+    const response = await this.mapCombat(await this.getActiveCombatEntity(sessionId));
+    this.realtimeEvents.emitTurnLogCreated(sessionId, turnLog);
+    this.realtimeEvents.emitCombatUpdated(sessionId, response);
+    this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
+    const map = await this.sessionsService.getVttMapForUser(session.hostUserId, sessionId);
+    return { combat: response, map, message, pendingReaction: null };
+  }
+
+  private async resolveTriggeredReadySpellAction(params: {
+    userId: string;
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
+    combat: NonNullable<CombatWithParticipants>;
+    actor: CombatParticipantEntity;
+    triggered: TriggeredReadyAction;
+  }): Promise<CombatMoveResultDto> {
+    if (!params.actor.sessionCharacterId) {
+      throw conflict("COMBAT_409", "몬스터 준비 주문은 아직 지원하지 않습니다.", {
+        reason: "READY_MONSTER_SPELL_UNSUPPORTED",
+      });
+    }
+
+    const spellId = this.normalizeSpellId(params.triggered.pending.heldAction.spellId ?? "");
+    this.assertMvpSpellKnown(
+      await this.getSessionCharacterForSpell(params.actor.sessionCharacterId),
+      spellId,
+    );
+
+    if (spellId !== "spell.fire_bolt") {
+      throw conflict("COMBAT_409", "준비행동 주문은 현재 Fire Bolt만 지원합니다.", {
+        reason: "READY_SPELL_UNSUPPORTED",
+        spellId,
+      });
+    }
+
+    const targetParticipantId =
+      params.triggered.pending.heldAction.targetParticipantId ??
+      params.triggered.triggerEvent.targetParticipantId;
+    if (!targetParticipantId) {
+      throw conflict("COMBAT_409", "준비 주문 대상이 없습니다.", {
+        reason: "READY_SPELL_TARGET_NOT_FOUND",
+      });
+    }
+
+    const map = await this.sessionsService.getVttMapForUser(
+      params.session.hostUserId,
+      params.session.id,
+    );
+    const casterToken = this.findParticipantToken(map, params.actor);
+    if (!casterToken) {
+      throw conflict("COMBAT_409", "준비 주문 시전자 토큰을 찾을 수 없습니다.", {
+        reason: "READY_SPELL_CASTER_TOKEN_NOT_FOUND",
+      });
+    }
+    const target = this.findCombatParticipantOrThrow(params.combat, targetParticipantId);
+    this.assertSpellTargetInRange(map, casterToken, target, 120);
+
+    const attackResult = await this.resolveAttack(
+      params.userId,
+      params.session.id,
+      {
+        attackerParticipantId: params.actor.id,
+        targetParticipantId: target.id,
+        attackBonus: await this.resolveSpellAttackBonus(params.actor.sessionCharacterId),
+        damageDice: this.resolveCantripDamageDice(
+          "1d10",
+          await this.resolveCharacterLevel(params.actor.sessionCharacterId),
+        ),
+        damageBonus: 0,
+      },
+      {
+        messagePrefix: `${params.actor.nameSnapshot} 준비 주문 Fire Bolt`,
+        actionCost: "reaction",
+        reactionUserId: params.userId,
+      },
+    );
+    const latestMap = await this.sessionsService.getVttMapForUser(
+      params.session.hostUserId,
+      params.session.id,
+    );
+    return {
+      combat: attackResult.combat,
+      map: latestMap,
+      message: attackResult.message,
+      pendingReaction: null,
+    };
+  }
+
   private resolveMonsterOpportunityWeapon(participant: CombatParticipantEntity): EquippedWeaponProfile {
     return {
       name: "기회공격",
@@ -3519,6 +3735,34 @@ export class CombatService {
       data: { flagsJson: JSON.stringify(nextFlags) },
     });
     return pending;
+  }
+
+  private async consumeTriggeredReadyAction(
+    sessionId: string,
+    reactionId: string,
+  ): Promise<TriggeredReadyAction> {
+    const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const triggeredActions = this.parseTriggeredReadyActions(flags[TRIGGERED_READY_ACTIONS_FLAG]);
+    const triggered = triggeredActions.find((candidate) => candidate.id === reactionId) ?? null;
+    if (!triggered) {
+      throw notFound("COMBAT_404", "처리할 준비행동 요청을 찾을 수 없습니다.", {
+        reason: "TRIGGERED_READY_ACTION_NOT_FOUND",
+      });
+    }
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: sessionScenario.id },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          [TRIGGERED_READY_ACTIONS_FLAG]: triggeredActions.filter(
+            (candidate) => candidate.id !== reactionId,
+          ),
+        }),
+      },
+    });
+    return triggered;
   }
 
   private async getCombatEntityById(combatId: string) {
@@ -4242,6 +4486,97 @@ export class CombatService {
     return resolution.expired.length;
   }
 
+  private async resolveReadyActionsForMovement(params: {
+    sessionId: string;
+    combat: NonNullable<CombatWithParticipants>;
+    mover: CombatParticipantEntity;
+    map: VttMapStateDto;
+    nextMoverToken: VttMapToken;
+  }): Promise<number> {
+    const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(params.sessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const pendingActions = this.parsePendingReadyActions(flags[PENDING_READY_ACTIONS_FLAG]);
+    if (pendingActions.length === 0) {
+      return 0;
+    }
+
+    const triggered = [];
+    const remaining: PendingReadyAction[] = [];
+    for (const pending of pendingActions) {
+      if (pending.actorParticipantId === params.mover.id) {
+        remaining.push(pending);
+        continue;
+      }
+
+      const actor = params.combat.participants.find(
+        (participant) => participant.id === pending.actorParticipantId,
+      );
+      const actorToken = actor ? this.findParticipantToken(params.map, actor) : null;
+      if (!actor || !actorToken) {
+        remaining.push(pending);
+        continue;
+      }
+
+      const event = {
+        type: "creature_enters_range" as const,
+        targetParticipantId: params.mover.id,
+        distanceFt: this.getTokenGridDistanceFt(params.map, actorToken, params.nextMoverToken),
+        roundNo: params.combat.roundNo,
+        turnNo: params.combat.turnNo,
+        tags: [params.mover.isHostile === actor.isHostile ? "ally" : "enemy"],
+      };
+      const resolution = this.readyActions.resolveTrigger(pending, event);
+      if (resolution.expired) {
+        remaining.push(pending);
+        continue;
+      }
+      if (resolution.triggered) {
+        const triggeredReadyAction = this.readyActions.createTriggeredReadyAction(pending, event);
+        triggered.push(triggeredReadyAction);
+        const actorName = actor.nameSnapshot || "준비행동 사용자";
+        this.realtimeEvents.emitCombatReactionPrompt(params.sessionId, pending.actorUserId, {
+          id: triggeredReadyAction.id,
+          type: "ready_action",
+          reactorParticipantId: pending.actorParticipantId,
+          reactorName: actorName,
+          moverParticipantId: params.mover.id,
+          moverName: params.mover.nameSnapshot,
+          message: `${actorName}의 준비행동 조건이 충족되었습니다. 실행할까요?`,
+        });
+        continue;
+      }
+      remaining.push(pending);
+    }
+
+    if (triggered.length === 0) {
+      return 0;
+    }
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: sessionScenario.id },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          [PENDING_READY_ACTIONS_FLAG]: remaining,
+          [TRIGGERED_READY_ACTIONS_FLAG]: [
+            ...(Array.isArray(flags[TRIGGERED_READY_ACTIONS_FLAG])
+              ? flags[TRIGGERED_READY_ACTIONS_FLAG]
+              : []),
+            ...triggered,
+          ],
+        }),
+      },
+    });
+    if (triggered.length > 0) {
+      this.realtimeEvents.emitSystemMessage(
+        params.sessionId,
+        "READY_ACTION_TRIGGERED",
+        `준비행동 ${triggered.length}개가 발동 대기 중입니다.`,
+      );
+    }
+    return triggered.length;
+  }
+
   private parsePendingReadyActions(value: unknown): PendingReadyAction[] {
     if (!Array.isArray(value)) {
       return [];
@@ -4263,6 +4598,27 @@ export class CombatService {
         typeof pending.expiresAtTurn === "number" &&
         Boolean(pending.trigger) &&
         Boolean(pending.heldAction)
+      );
+    });
+  }
+
+  private parseTriggeredReadyActions(value: unknown): TriggeredReadyAction[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter((candidate): candidate is TriggeredReadyAction => {
+      if (!candidate || typeof candidate !== "object") {
+        return false;
+      }
+      const triggered = candidate as Partial<TriggeredReadyAction>;
+      return (
+        typeof triggered.id === "string" &&
+        triggered.type === "triggered_ready_action" &&
+        triggered.status === "pending_response" &&
+        typeof triggered.triggeredAtRound === "number" &&
+        typeof triggered.triggeredAtTurn === "number" &&
+        Boolean(triggered.pending) &&
+        Boolean(triggered.triggerEvent)
       );
     });
   }
