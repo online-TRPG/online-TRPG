@@ -26,6 +26,7 @@ import {
   DiceRollResponseDto,
   EquippedWeaponAttackDto,
   EndTurnDto,
+  ForceMoveCombatParticipantDto,
   GamePhase,
   MoveCombatParticipantDto,
   ResolveCombatAttackDto,
@@ -38,10 +39,23 @@ import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { ActionRuleService } from "../rules/action-rule.service";
 import { ActionEconomyService } from "../rules/action-economy.service";
+import { AoeDamageService } from "../rules/aoe-damage.service";
+import type { AoeDamageTarget } from "../rules/aoe-damage.service";
+import { AoeTargetingService } from "../rules/aoe-targeting.service";
 import { CharacterResourceService } from "../rules/character-resource.service";
+import { ConcentrationRuntimeService } from "../rules/concentration-runtime.service";
 import { ConditionRuntimeService } from "../rules/condition-runtime.service";
+import type { ConditionInstance } from "../rules/condition-runtime.service";
+import { CoverPositionService } from "../rules/cover-position.service";
+import type { CoverBlocker } from "../rules/cover-position.service";
 import { DiceService } from "../rules/dice.service";
+import { ForcedMovementService } from "../rules/forced-movement.service";
+import type { ForcedMovementMode } from "../rules/forced-movement.service";
 import { MonsterAbilityService } from "../rules/monster-ability.service";
+import { RuleCatalogService } from "../rules/rule-catalog.service";
+import type { RuleCatalogEntry } from "../rules/rule-catalog.types";
+import { TerrainEffectService } from "../rules/terrain-effect.service";
+import type { TerrainEffectResolution } from "../rules/terrain-effect.service";
 import {
   PENDING_READY_ACTIONS_FLAG,
   ReadyActionService,
@@ -50,7 +64,10 @@ import {
 import type { PendingReadyAction } from "../rules/ready-action.service";
 import type { TriggeredReadyAction } from "../rules/ready-action.service";
 import { RuleEngineService } from "../rules/rule-engine.service";
+import type { SavingThrowAbility } from "../rules/rule-engine.types";
 import { SpellSlotService } from "../rules/spell-slot.service";
+import { SpellScalingService } from "../rules/spell-scaling.service";
+import type { SpellScalingResult, SpellScalingRule } from "../rules/spell-scaling.service";
 import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
@@ -60,6 +77,21 @@ import type { SrdEngineExecutableMonsterAction } from "./srd-engine.types";
 type CombatWithParticipants = Awaited<ReturnType<CombatService["getActiveCombatEntity"]>>;
 type CombatParticipantEntity = NonNullable<CombatWithParticipants>["participants"][number];
 type VttMapToken = VttMapStateDto["tokens"][number];
+type CombatConcentrationCheckResult = {
+  diceResult: DiceRollResponseDto;
+  concentrationState: unknown;
+  concentrationMaintained: boolean;
+  removedConditions: unknown[];
+};
+type CombatTerrainEffectApplication = {
+  damageRoll: DiceRollResponseDto | null;
+  appliedConditionTags: string[];
+  concentrationCheck: CombatConcentrationCheckResult | null;
+};
+type EnteredTerrainEffect = {
+  terrainEffectId: string;
+  effect: TerrainEffectResolution;
+};
 
 type EquippedWeaponProfile = {
   weaponId?: string | null;
@@ -156,6 +188,7 @@ export class CombatService {
   private readonly logger = new Logger(CombatService.name);
   private readonly serverAutoMonsterTurnSessions = new Set<string>();
   private readonly serverAutoMonsterTurnScheduledSessions = new Set<string>();
+  private readonly terrainEffects = new TerrainEffectService();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -172,7 +205,14 @@ export class CombatService {
     private readonly monsterAbilities: MonsterAbilityService,
     private readonly readyActions: ReadyActionService = new ReadyActionService(),
     private readonly spellSlots: SpellSlotService = new SpellSlotService(),
+    private readonly concentrationRuntime: ConcentrationRuntimeService = new ConcentrationRuntimeService(),
     private readonly conditionRuntime: ConditionRuntimeService = new ConditionRuntimeService(),
+    private readonly coverPositions: CoverPositionService = new CoverPositionService(),
+    private readonly forcedMovement: ForcedMovementService = new ForcedMovementService(),
+    private readonly spellScaling: SpellScalingService = new SpellScalingService(),
+    private readonly aoeTargeting: AoeTargetingService = new AoeTargetingService(),
+    private readonly aoeDamage: AoeDamageService = new AoeDamageService(diceService, ruleEngine),
+    private readonly ruleCatalog: RuleCatalogService = new RuleCatalogService(),
   ) {}
 
   async startCombat(
@@ -649,6 +689,115 @@ export class CombatService {
     });
   }
 
+  async forceMoveParticipant(
+    userId: string,
+    sessionId: string,
+    dto: ForceMoveCombatParticipantDto,
+  ): Promise<CombatMoveResultDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    await this.sessionsService.ensureMembership(userId, session.id);
+    await this.ensureHost(userId, session.id);
+    const combat = await this.getActiveCombatEntity(session.id);
+    const target = this.findCombatParticipantOrThrow(combat, dto.participantId);
+    const map = await this.sessionsService.getVttMapForUser(session.hostUserId, session.id);
+    const targetToken = this.findParticipantToken(map, target);
+    if (!targetToken) {
+      throw conflict("COMBAT_409", "강제이동 대상 토큰을 찾을 수 없습니다.", {
+        reason: "FORCED_MOVE_TOKEN_NOT_FOUND",
+      });
+    }
+
+    const resolution = this.forcedMovement.resolveForcedMovement({
+      mode: this.normalizeForcedMovementMode(dto.mode),
+      origin: this.mapPointToGridPoint(map, dto.origin),
+      target: this.toCoverGridPoint(map, targetToken),
+      distanceFt: Math.max(0, Math.floor(dto.distanceFt)),
+      grid: {
+        width: Math.ceil(map.width / map.gridSize),
+        height: Math.ceil(map.height / map.gridSize),
+      },
+      obstacles: this.mapForcedMovementObstacles(map),
+      tokens: map.tokens
+        .filter((token) => token.id !== targetToken.id && token.hidden !== true)
+        .map((token) => ({
+          id: token.id,
+          point: this.toCoverGridPoint(map, token),
+          blocksMovement: true,
+        })),
+      hazards: this.mapForcedMovementHazards(map),
+    });
+
+    const destination = {
+      x: this.clampNumber(resolution.destination.x * map.gridSize, 0, Math.max(0, map.width - targetToken.size)),
+      y: this.clampNumber(resolution.destination.y * map.gridSize, 0, Math.max(0, map.height - targetToken.size)),
+    };
+    const nextMap: VttMapStateDto = {
+      ...map,
+      tokens: map.tokens.map((token) =>
+        token.id === targetToken.id ? { ...token, ...destination } : token,
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+    const savedMap = await this.mapRuntimeService.saveSystemVttMap(session.id, nextMap);
+    const terrainEffectApplication = await this.applyEnteredTerrainEffects(
+      combat,
+      target,
+      resolution.combinedEnteredTerrainEffect,
+      resolution.enteredTerrainEffects,
+    );
+    const responseMap = terrainEffectApplication.damageRoll && !target.isAlive
+      ? await this.sessionsService.getVttMapForUser(session.hostUserId, session.id)
+      : savedMap;
+    const response = await this.mapCombat(await this.getActiveCombatEntity(session.id));
+    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
+    const message = `${target.nameSnapshot} 강제이동: ${resolution.distanceMovedFt}ft (${resolution.stoppedReason})`;
+    const turnLog = await this.turnLogsService.createTurnLog({
+      sessionId: session.id,
+      sessionScenarioId: sessionScenario.id,
+      actorUserId: userId,
+      sessionCharacterId: target.sessionCharacterId ?? null,
+      rawInput: null,
+      structuredAction: {
+        type: "forced_movement",
+        targetParticipantId: target.id,
+        mode: resolution.mode,
+        origin: dto.origin,
+        start: resolution.start,
+        destination: resolution.destination,
+        path: resolution.path,
+        distanceMovedFt: resolution.distanceMovedFt,
+        movementCostFt: resolution.movementCostFt,
+        provokesOpportunityAttack: resolution.provokesOpportunityAttack,
+        stoppedReason: resolution.stoppedReason,
+        collision: resolution.collision,
+        enteredHazards: resolution.enteredHazards,
+        enteredTerrainEffects: resolution.enteredTerrainEffects,
+        combinedEnteredTerrainEffect: resolution.combinedEnteredTerrainEffect,
+        terrainEffectApplication,
+        fall: resolution.fall,
+      },
+      diceResult: terrainEffectApplication.damageRoll ? { ...terrainEffectApplication.damageRoll } : null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: message,
+    });
+
+    if (terrainEffectApplication.damageRoll) {
+      this.realtimeEvents.emitDiceRolled(session.id, terrainEffectApplication.damageRoll);
+    }
+    if (terrainEffectApplication.concentrationCheck) {
+      this.realtimeEvents.emitDiceRolled(session.id, terrainEffectApplication.concentrationCheck.diceResult);
+    }
+    this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
+    this.realtimeEvents.emitCombatUpdated(session.id, response);
+    this.realtimeEvents.emitSessionSnapshot(session.id, await this.sessionsService.buildSnapshot(session.id));
+    return {
+      combat: response,
+      map: responseMap,
+      message,
+      pendingReaction: null,
+    };
+  }
+
   private async resolveCombatMovement(params: {
     session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
     userId: string;
@@ -683,7 +832,9 @@ export class CombatService {
       };
     }
     const movementCostFt =
-      movementMode === "jump" ? movementDistanceFt + COMBAT_JUMP_EXTRA_MOVEMENT_FT : movementDistanceFt;
+      movementMode === "jump"
+        ? movementDistanceFt + COMBAT_JUMP_EXTRA_MOVEMENT_FT
+        : this.calculateTerrainAdjustedMovementCostFt(params.map, params.moverToken, movementPath);
     await this.assertMovementAvailable(params.combat, params.mover, movementCostFt);
     if (params.reactionCost) {
       await this.actionEconomy.spendReaction({
@@ -753,6 +904,44 @@ export class CombatService {
       nextMap,
       movementCostFt,
     );
+    const enteredTerrainEffects =
+      movementMode === "normal"
+        ? this.resolveEnteredTerrainEffectsForMovement(params.map, movementPath)
+        : [];
+    const terrainEffectApplication = await this.applyEnteredTerrainEffects(
+      latestCombat,
+      latestMover,
+      enteredTerrainEffects.length
+        ? this.terrainEffects.resolveCombinedEffects(enteredTerrainEffects.map((entered) => entered.terrainEffectId))
+        : null,
+      enteredTerrainEffects,
+    );
+    if (terrainEffectApplication.damageRoll) {
+      this.realtimeEvents.emitDiceRolled(params.session.id, terrainEffectApplication.damageRoll);
+    }
+    if (terrainEffectApplication.concentrationCheck) {
+      this.realtimeEvents.emitDiceRolled(
+        params.session.id,
+        terrainEffectApplication.concentrationCheck.diceResult,
+      );
+    }
+    if (!latestMover.isAlive) {
+      const response = await this.completeCombatIfResolved(
+        params.session.id,
+        await this.getActiveCombatEntity(params.session.id),
+      );
+      this.realtimeEvents.emitCombatUpdated(params.session.id, response);
+      this.realtimeEvents.emitSessionSnapshot(params.session.id, await this.sessionsService.buildSnapshot(params.session.id));
+      const currentMap = await this.sessionsService.getVttMapForUser(params.session.hostUserId, params.session.id);
+      return {
+        combat: response,
+        map: currentMap,
+        message: `${params.mover.nameSnapshot} 이동: ${movementDistanceFt}ft / 지형 피해 ${terrainEffectApplication.damageRoll?.total ?? 0}`,
+        pendingReaction: null,
+        movementDistanceFt,
+        movementCostFt,
+      };
+    }
     const triggeredReadyActionCount = await this.resolveReadyActionsForMovement({
       sessionId: params.session.id,
       combat: latestCombat,
@@ -762,7 +951,11 @@ export class CombatService {
     });
     const response = await this.mapCombat(await this.getActiveCombatEntity(params.session.id));
     this.realtimeEvents.emitCombatUpdated(params.session.id, response);
-    if (triggeredReadyActionCount > 0) {
+    if (
+      triggeredReadyActionCount > 0 ||
+      terrainEffectApplication.damageRoll ||
+      terrainEffectApplication.appliedConditionTags.length > 0
+    ) {
       this.realtimeEvents.emitSessionSnapshot(
         params.session.id,
         await this.sessionsService.buildSnapshot(params.session.id),
@@ -771,7 +964,9 @@ export class CombatService {
     return {
       combat: response,
       map: savedMap,
-      message: opportunityAttack.automaticMessages.length
+      message: terrainEffectApplication.damageRoll
+        ? `${params.mover.nameSnapshot} 이동: ${movementDistanceFt}ft / 지형 피해 ${terrainEffectApplication.damageRoll.total}`
+        : opportunityAttack.automaticMessages.length
         ? [
             opportunityAttack.automaticMessages.join(" / "),
             triggeredReadyActionCount > 0 ? `준비행동 ${triggeredReadyActionCount}개가 발동 대기 중입니다.` : null,
@@ -1077,6 +1272,9 @@ export class CombatService {
       updated.roundNo,
       updated.turnNo,
     );
+    const turnStartTerrainApplication = next
+      ? await this.applyTurnStartTerrainEffects(sessionId, updated, next)
+      : { damageRoll: null, appliedConditionTags: [], concentrationCheck: null };
 
     const response: TurnAdvanceResponseDto = {
       combatId: updated.id,
@@ -1087,8 +1285,20 @@ export class CombatService {
     };
 
     this.realtimeEvents.emitTurnChanged(sessionId, response);
-    this.realtimeEvents.emitCombatUpdated(sessionId, await this.mapCombat(updated));
-    if (expiredRageCount > 0 || expiredReadyActionCount > 0 || expiredConditionCount > 0) {
+    if (turnStartTerrainApplication.damageRoll) {
+      this.realtimeEvents.emitDiceRolled(sessionId, turnStartTerrainApplication.damageRoll);
+    }
+    if (turnStartTerrainApplication.concentrationCheck) {
+      this.realtimeEvents.emitDiceRolled(sessionId, turnStartTerrainApplication.concentrationCheck.diceResult);
+    }
+    this.realtimeEvents.emitCombatUpdated(sessionId, await this.mapCombat(await this.getActiveCombatEntity(sessionId)));
+    if (
+      expiredRageCount > 0 ||
+      expiredReadyActionCount > 0 ||
+      expiredConditionCount > 0 ||
+      turnStartTerrainApplication.damageRoll ||
+      turnStartTerrainApplication.appliedConditionTags.length > 0
+    ) {
       this.realtimeEvents.emitSessionSnapshot(
         sessionId,
         await this.sessionsService.buildSnapshot(sessionId),
@@ -1120,8 +1330,15 @@ export class CombatService {
     const healing = dto.healing === true;
 
     await this.applyHitPointDelta(combat, target, healing ? amount : -amount);
+    const concentrationCheck =
+      !healing && amount > 0
+        ? await this.resolveCombatConcentrationDamageCheck(target, amount)
+        : null;
     const updated = await this.getActiveCombatEntity(session.id);
     const response = await this.completeCombatIfResolved(session.id, updated);
+    if (concentrationCheck) {
+      this.realtimeEvents.emitDiceRolled(session.id, concentrationCheck.diceResult);
+    }
     this.realtimeEvents.emitCombatUpdated(session.id, response);
     this.realtimeEvents.emitSessionSnapshot(session.id, await this.sessionsService.buildSnapshot(session.id));
 
@@ -1151,6 +1368,7 @@ export class CombatService {
       throw conflict("COMBAT_409", "몬스터 주문 시전은 아직 지원하지 않습니다.", { reason: "MONSTER_SPELL_UNSUPPORTED" });
     }
     const spellId = this.normalizeSpellId(dto.spellId);
+    const spellDefinition = this.resolveCombatSpellDefinition(spellId);
     this.assertMvpSpellKnown(await this.getSessionCharacterForSpell(caster.sessionCharacterId), spellId);
 
     const map = await this.sessionsService.getVttMapForUser(session.hostUserId, session.id);
@@ -1160,8 +1378,14 @@ export class CombatService {
     }
 
     if (spellId === "spell.fire_bolt") {
+      this.resolveCombatSpellSlotLevel(spellId, dto.slotLevel);
       const target = this.findCombatParticipantOrThrow(combat, dto.targetParticipantIds?.[0] ?? "");
-      this.assertSpellTargetInRange(map, casterToken, target, 120);
+      this.assertSpellTargetInRange(
+        map,
+        casterToken,
+        target,
+        this.resolveCombatSpellRangeFt(spellDefinition, 120),
+      );
       const spellAttackBonus = await this.resolveSpellAttackBonus(caster.sessionCharacterId);
       return this.resolveAttack(
         userId,
@@ -1177,38 +1401,55 @@ export class CombatService {
       );
     }
 
+    const slotLevel = this.resolveCombatSpellSlotLevel(spellId, dto.slotLevel);
     await this.spendCurrentActionIfNeeded(combat, caster);
     let message = "";
     let attackTotal: number | null = null;
     let damageTotal: number | null = null;
     let responseMap: VttMapStateDto | null = null;
+    let spellScaling: SpellScalingResult | null = null;
     const diceResults: DiceRollResponseDto[] = [];
+    const concentrationChecks: Array<CombatConcentrationCheckResult & { targetParticipantId: string }> = [];
 
     if (spellId === "spell.magic_missile") {
-      await this.spendSpellSlot(session.id, caster.sessionCharacterId, 1);
+      spellScaling = this.resolveCombatSpellScalingFromCatalog(spellDefinition, slotLevel);
       const targets = (dto.targetParticipantIds?.length ? dto.targetParticipantIds : [dto.targetParticipantIds?.[0]])
         .filter((id): id is string => typeof id === "string" && id.length > 0)
-        .slice(0, 3)
+        .slice(0, spellScaling.targetCount ?? 3)
         .map((id) => this.findCombatParticipantOrThrow(combat, id));
       if (!targets.length) {
         throw conflict("COMBAT_409", "Magic Missile 대상이 필요합니다.", { reason: "SPELL_TARGET_REQUIRED" });
       }
-      targets.forEach((target) => this.assertSpellTargetInRange(map, casterToken, target, 120));
+      targets.forEach((target) =>
+        this.assertSpellTargetInRange(
+          map,
+          casterToken,
+          target,
+          this.resolveCombatSpellRangeFt(spellDefinition, 120),
+        ),
+      );
+      await this.spendSpellSlot(session.id, caster.sessionCharacterId, slotLevel);
+      const missileDamageDice = this.resolveMagicMissileDamageDice(spellDefinition, spellScaling.targetCount ?? 3);
       const applied: string[] = [];
-      for (let index = 0; index < 3; index += 1) {
+      for (let index = 0; index < (spellScaling.targetCount ?? 3); index += 1) {
         const target = targets[Math.min(index, targets.length - 1)];
-        const roll = this.diceService.roll("1d4+1");
+        const roll = this.diceService.roll(missileDamageDice);
         diceResults.push(roll);
         await this.applyHitPointDelta(combat, target, -roll.total);
+        const concentrationCheck = await this.resolveCombatConcentrationDamageCheck(target, roll.total);
+        if (concentrationCheck) {
+          concentrationChecks.push({ targetParticipantId: target.id, ...concentrationCheck });
+        }
         applied.push(`${target.nameSnapshot} ${roll.total}`);
         damageTotal = (damageTotal ?? 0) + roll.total;
       }
       message = `Magic Missile: ${applied.join(", ")} 역장 피해`;
     } else if (spellId === "spell.sleep") {
-      await this.spendSpellSlot(session.id, caster.sessionCharacterId, 1);
+      spellScaling = this.resolveCombatSpellScalingFromCatalog(spellDefinition, slotLevel);
       const point = dto.point ?? this.requireTargetPoint(map, casterToken);
-      this.assertPointInRange(map, casterToken, point, 90);
-      const poolRoll = this.diceService.roll("5d8");
+      this.assertPointInRange(map, casterToken, point, this.resolveCombatSpellRangeFt(spellDefinition, 90));
+      await this.spendSpellSlot(session.id, caster.sessionCharacterId, slotLevel);
+      const poolRoll = this.diceService.roll(spellScaling.damageDice ?? "5d8");
       diceResults.push(poolRoll);
       let remaining = poolRoll.total;
       const targets = combat.participants
@@ -1231,15 +1472,74 @@ export class CombatService {
       message = slept.length
         ? `Sleep: ${poolRoll.total} HP 분량으로 ${slept.join(", ")} 수면`
         : `Sleep: ${poolRoll.total} HP 분량, 잠든 대상 없음`;
+    } else if (spellId === "spell.fireball") {
+      spellScaling = this.resolveCombatSpellScalingFromCatalog(spellDefinition, slotLevel);
+      const areaTargeting = this.resolveCombatAreaTargeting(spellDefinition, spellId);
+      const saveAbility = this.resolveCombatSpellSaveAbility(spellDefinition, "dex");
+      const damageType = this.resolveCombatSpellDamageType(spellDefinition, "fire");
+      const point = dto.point ?? this.requireTargetPoint(map, casterToken);
+      this.assertPointInRange(map, casterToken, point, this.resolveCombatSpellRangeFt(spellDefinition, 150));
+      const targetTokenIds = this.aoeTargeting.resolveTargets({
+        shape: areaTargeting.shape,
+        origin: this.toAoeGridCell(this.mapPointToGridPoint(map, point)),
+        sizeFt: areaTargeting.sizeFt,
+        grid: {
+          columns: Math.ceil(map.width / map.gridSize),
+          rows: Math.ceil(map.height / map.gridSize),
+        },
+        tokens: map.tokens.map((token) => ({
+          id: token.id,
+          ...this.toAoeGridCell(this.toCoverGridPoint(map, token)),
+          hidden: token.hidden,
+        })),
+      }).tokenIds;
+      const targets = combat.participants.filter(
+        (participant) => participant.tokenId && targetTokenIds.includes(participant.tokenId),
+      );
+      if (!targets.length) {
+        throw conflict("COMBAT_409", "Fireball 범위 안에 대상이 없습니다.", { reason: "SPELL_TARGET_REQUIRED" });
+      }
+      await this.spendSpellSlot(session.id, caster.sessionCharacterId, slotLevel);
+      const aoeResolution = this.aoeDamage.resolveDamage({
+        sourceId: spellId,
+        damageDice: spellScaling.damageDice ?? this.resolveCombatSpellBaseDamageDice(spellDefinition ?? null) ?? "8d6",
+        damageType,
+        save: {
+          ability: saveAbility,
+          dc: await this.resolveCombatSpellSaveDc(caster.sessionCharacterId),
+          halfDamageOnSuccess: this.resolveCombatSpellHalfDamageOnSuccess(spellDefinition),
+        },
+        targets: await Promise.all(
+          targets.map((target) => this.toCombatAoeDamageTarget(target, map, saveAbility)),
+        ),
+      });
+      diceResults.push(aoeResolution.damageRoll, ...aoeResolution.targetResults.map((target) => target.saveRoll));
+      const applied: string[] = [];
+      for (const targetResult of aoeResolution.targetResults) {
+        const target = targets.find((candidate) => candidate.id === targetResult.targetId);
+        if (!target) {
+          continue;
+        }
+        if (targetResult.finalDamage > 0) {
+          await this.applyHitPointDelta(combat, target, -targetResult.finalDamage);
+          const concentrationCheck = await this.resolveCombatConcentrationDamageCheck(target, targetResult.finalDamage);
+          if (concentrationCheck) {
+            concentrationChecks.push({ targetParticipantId: target.id, ...concentrationCheck });
+          }
+        }
+        applied.push(`${target.nameSnapshot} ${targetResult.finalDamage}`);
+        damageTotal = (damageTotal ?? 0) + targetResult.finalDamage;
+      }
+      message = `Fireball: ${applied.join(", ")} 화염 피해`;
     } else if (spellId === "spell.light") {
       const point = dto.point ?? this.requireTargetPoint(map, casterToken);
-      this.assertPointInRange(map, casterToken, point, 120);
+      this.assertPointInRange(map, casterToken, point, this.resolveCombatSpellRangeFt(spellDefinition, 5));
       this.assertLightPointAllowed(map, point);
       const lightSource = {
         id: `light:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
         x: this.clampNumber(Math.floor(point.x), 0, Math.max(0, map.width - map.gridSize)),
         y: this.clampNumber(Math.floor(point.y), 0, Math.max(0, map.height - map.gridSize)),
-        rangeFt: 40,
+        rangeFt: this.resolveCombatLightRadiusFt(spellDefinition),
         label: "Light",
         createdBySessionCharacterId: caster.sessionCharacterId,
       };
@@ -1248,28 +1548,52 @@ export class CombatService {
         lightSources: [...(map.lightSources ?? []), lightSource].slice(-40),
         updatedAt: new Date().toISOString(),
       });
-      message = "Light: 선택한 타일 기준 40ft 파티 시야를 제공합니다.";
+      message = `Light: 선택한 타일 기준 ${lightSource.rangeFt}ft 파티 시야를 제공합니다.`;
     } else {
       throw conflict("COMBAT_409", "지원하지 않는 주문입니다.", { reason: "UNSUPPORTED_SPELL", spellId });
     }
 
     const updated = await this.getActiveCombatEntity(session.id);
     const response = await this.completeCombatIfResolved(session.id, updated);
-    const turnLogDiceResult = spellId === "spell.sleep" && diceResults[0] ? { ...diceResults[0] } : null;
+    const turnLogDiceResult =
+      (spellId === "spell.sleep" || spellId === "spell.fireball") && diceResults[0]
+        ? { ...diceResults[0] }
+        : null;
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId: session.id,
       sessionScenarioId: sessionScenario.id,
       actorUserId: userId,
       sessionCharacterId: caster.sessionCharacterId,
       rawInput: null,
-      structuredAction: { type: "spell_cast", spellId, targetParticipantIds: dto.targetParticipantIds ?? [], point: dto.point ?? null },
+      structuredAction: {
+        type: "spell_cast",
+        spellId,
+        baseSpellLevel: this.resolveCombatBaseSpellLevel(spellId),
+        slotLevel,
+        spellScaling,
+        targetParticipantIds: dto.targetParticipantIds ?? [],
+        point: dto.point ?? null,
+        aoe: spellId === "spell.fireball"
+          ? {
+              shape: this.resolveCombatAreaTargeting(spellDefinition, spellId).shape,
+              sizeFt: this.resolveCombatAreaTargeting(spellDefinition, spellId).sizeFt,
+              saveAbility: this.resolveCombatSpellSaveAbility(spellDefinition, "dex"),
+              damageType: this.resolveCombatSpellDamageType(spellDefinition, "fire"),
+            }
+          : null,
+        concentrationChecks: concentrationChecks.map((check) => ({
+          targetParticipantId: check.targetParticipantId,
+          concentrationMaintained: check.concentrationMaintained,
+          removedConditions: check.removedConditions,
+          concentrationState: check.concentrationState,
+        })),
+      },
       diceResult: turnLogDiceResult,
       outcome: ActionOutcome.SUCCESS,
       narration: message,
     });
-    if (spellId === "spell.sleep") {
-      diceResults.forEach((roll) => this.realtimeEvents.emitDiceRolled(session.id, roll));
-    }
+    diceResults.forEach((roll) => this.realtimeEvents.emitDiceRolled(session.id, roll));
+    concentrationChecks.forEach((check) => this.realtimeEvents.emitDiceRolled(session.id, check.diceResult));
     this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
     this.realtimeEvents.emitCombatUpdated(session.id, response);
     this.realtimeEvents.emitSessionSnapshot(session.id, await this.sessionsService.buildSnapshot(session.id));
@@ -1315,9 +1639,11 @@ export class CombatService {
     const attackerConditions = this.parseConditions(attacker.conditionsJson ?? "[]");
     const targetConditions = this.parseConditions(target.conditionsJson ?? "[]");
     const vttMap = await this.sessionsService.getVttMapForUser(session.hostUserId ?? userId, session.id);
+    const targetHeavilyObscured = this.isParticipantInHeavilyObscuredTerrain(vttMap, target);
     const attackAdvantageState = this.resolveAttackAdvantageState({
       attackerConditions,
       targetConditions,
+      targetHeavilyObscured,
       allyWithin5FtOfTarget: this.hasAllyWithinFeetOfTarget(
         vttMap,
         combat,
@@ -1327,8 +1653,21 @@ export class CombatService {
       ),
     });
     const attackBonus = Math.floor(dto.attackBonus ?? 0);
+    const baseTargetArmorClass = this.resolveParticipantArmorClass(target);
+    const coverResolution = this.resolveAttackCover(vttMap, attacker, target);
+    const coverRuleResult = this.ruleEngine.resolveCoverModifiers({
+      coverLevel: coverResolution.coverLevel,
+      appliesToAttackRoll: true,
+      appliesToDexteritySave: false,
+    });
+    if (!coverRuleResult.produced.targetable) {
+      throw conflict("COMBAT_409", "완전 엄폐 대상은 공격할 수 없습니다.", {
+        reason: "TARGET_HAS_FULL_COVER",
+        coverLevel: coverRuleResult.produced.coverLevel,
+      });
+    }
+    const targetArmorClass = baseTargetArmorClass + coverRuleResult.produced.armorClassBonus;
     const attackRoll = this.diceService.roll(`1d20+${attackBonus}`, attackAdvantageState);
-    const targetArmorClass = this.resolveParticipantArmorClass(target);
     const naturalD20 = this.selectNaturalD20(attackRoll.rolls, attackAdvantageState);
     const criticalHit = naturalD20 === 20;
     const criticalMiss = naturalD20 === 1;
@@ -1342,6 +1681,7 @@ export class CombatService {
         target,
         attackTotal: attackRoll.total,
         targetArmorClass,
+        cover: coverRuleResult.produced,
         damageDice: dto.damageDice,
         damageBonus: dto.damageBonus,
       });
@@ -1421,6 +1761,10 @@ export class CombatService {
     if (damageTotal !== null && damageTotal > 0) {
       await this.applyHitPointDelta(combat, target, -damageTotal);
     }
+    const concentrationCheck =
+      damageTotal !== null && damageTotal > 0
+        ? await this.resolveCombatConcentrationDamageCheck(target, damageTotal)
+        : null;
     if (hit && options.sneakAttack) {
       await this.actionEconomy.spendSneakAttack({
         combatId: combat.id,
@@ -1450,13 +1794,22 @@ export class CombatService {
         type: "attack",
         attackerParticipantId: attacker.id,
         targetParticipantId: target.id,
+        baseTargetArmorClass,
         targetArmorClass,
+        cover: coverRuleResult.produced,
         attackTotal: attackRoll.total,
         hit,
         criticalHit,
         criticalMiss,
         advantageState: attackAdvantageState,
         damageTotal,
+        concentrationCheck: concentrationCheck
+          ? {
+              concentrationMaintained: concentrationCheck.concentrationMaintained,
+              removedConditions: concentrationCheck.removedConditions,
+              concentrationState: concentrationCheck.concentrationState,
+            }
+          : null,
         ...(options.sneakAttack
           ? {
               sneakAttackApplied: sneakAttackDamage > 0,
@@ -1469,6 +1822,9 @@ export class CombatService {
       narration: message,
     });
     this.realtimeEvents.emitDiceRolled(session.id, attackRoll);
+    if (concentrationCheck) {
+      this.realtimeEvents.emitDiceRolled(session.id, concentrationCheck.diceResult);
+    }
     this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
     this.realtimeEvents.emitCombatUpdated(session.id, response);
     this.realtimeEvents.emitSessionSnapshot(session.id, await this.sessionsService.buildSnapshot(session.id));
@@ -2406,6 +2762,348 @@ export class CombatService {
     return 5;
   }
 
+  private resolveAttackCover(
+    map: VttMapStateDto,
+    attacker: CombatParticipantEntity,
+    target: CombatParticipantEntity,
+  ): ReturnType<CoverPositionService["resolveCover"]> {
+    const attackerToken = this.findParticipantToken(map, attacker);
+    const targetToken = this.findParticipantToken(map, target);
+    if (!attackerToken || !targetToken) {
+      return this.coverPositions.resolveCover({
+        attacker: { x: 0, y: 0 },
+        target: { x: 0, y: 0 },
+        blockers: [],
+      });
+    }
+    if (this.getTokenGridDistanceFt(map, attackerToken, targetToken) <= DEFAULT_MELEE_ATTACK_DISTANCE_FT) {
+      return this.coverPositions.resolveCover({
+        attacker: this.toCoverGridPoint(map, attackerToken),
+        target: this.toCoverGridPoint(map, targetToken),
+        blockers: [],
+      });
+    }
+
+    return this.coverPositions.resolveCover({
+      attacker: this.toCoverGridPoint(map, attackerToken),
+      target: this.toCoverGridPoint(map, targetToken),
+      blockers: this.mapCoverBlockers(map),
+    });
+  }
+
+  private mapCoverBlockers(map: VttMapStateDto): CoverBlocker[] {
+    return [
+      ...(map.wallCells ?? []).flatMap((cell) => this.cellCoverBlockers(map, cell, "full", true)),
+      ...(map.doorCells ?? [])
+        .filter((door) => door.state !== "open" && door.state !== "broken")
+        .flatMap((cell) => this.cellCoverBlockers(map, cell, "full", true)),
+      ...(map.objectCells ?? []).flatMap((cell) => this.cellCoverBlockers(map, cell, "half", false)),
+    ];
+  }
+
+  private cellCoverBlockers(
+    map: VttMapStateDto,
+    cell: { x: number; y: number; width: number; height: number },
+    coverLevel: CoverBlocker["coverLevel"],
+    blocksLineOfEffect: boolean,
+  ): CoverBlocker[] {
+    const minColumn = this.getGridIndex(cell.x, map.gridSize, map.width);
+    const minRow = this.getGridIndex(cell.y, map.gridSize, map.height);
+    const maxColumn = this.getGridIndex(cell.x + Math.max(cell.width, 1) - 1, map.gridSize, map.width);
+    const maxRow = this.getGridIndex(cell.y + Math.max(cell.height, 1) - 1, map.gridSize, map.height);
+    const blockers: CoverBlocker[] = [];
+    for (let column = minColumn; column <= maxColumn; column += 1) {
+      for (let row = minRow; row <= maxRow; row += 1) {
+        blockers.push({
+          point: { x: column, y: row },
+          coverLevel,
+          blocksLineOfEffect,
+        });
+      }
+    }
+    return blockers;
+  }
+
+  private toCoverGridPoint(
+    map: VttMapStateDto,
+    token: VttMapStateDto["tokens"][number],
+  ): { x: number; y: number } {
+    return {
+      x: this.getGridIndex(token.x, map.gridSize, map.width),
+      y: this.getGridIndex(token.y, map.gridSize, map.height),
+    };
+  }
+
+  private mapPointToGridPoint(
+    map: VttMapStateDto,
+    point: { x: number; y: number },
+  ): { x: number; y: number } {
+    return {
+      x: this.getGridIndex(point.x, map.gridSize, map.width),
+      y: this.getGridIndex(point.y, map.gridSize, map.height),
+    };
+  }
+
+  private toAoeGridCell(point: { x: number; y: number }): { column: number; row: number } {
+    return { column: point.x, row: point.y };
+  }
+
+  private mapForcedMovementObstacles(map: VttMapStateDto): Array<{ x: number; y: number }> {
+    return [
+      ...(map.wallCells ?? []).flatMap((cell) => this.cellGridPoints(map, cell)),
+      ...(map.doorCells ?? [])
+        .filter((door) => door.state !== "open" && door.state !== "broken")
+        .flatMap((cell) => this.cellGridPoints(map, cell)),
+    ];
+  }
+
+  private mapForcedMovementHazards(map: VttMapStateDto): Array<{ point: { x: number; y: number }; terrainEffectId: string }> {
+    return (map.terrainCells ?? []).flatMap((cell) => {
+      const terrainEffectId = this.extractTerrainEffectId(cell);
+      if (!terrainEffectId) {
+        return [];
+      }
+      return this.cellGridPoints(map, cell).map((point) => ({ point, terrainEffectId }));
+    });
+  }
+
+  private cellGridPoints(
+    map: VttMapStateDto,
+    cell: { x: number; y: number; width: number; height: number },
+  ): Array<{ x: number; y: number }> {
+    const minColumn = this.getGridIndex(cell.x, map.gridSize, map.width);
+    const minRow = this.getGridIndex(cell.y, map.gridSize, map.height);
+    const maxColumn = this.getGridIndex(cell.x + Math.max(cell.width, 1) - 1, map.gridSize, map.width);
+    const maxRow = this.getGridIndex(cell.y + Math.max(cell.height, 1) - 1, map.gridSize, map.height);
+    const points: Array<{ x: number; y: number }> = [];
+    for (let column = minColumn; column <= maxColumn; column += 1) {
+      for (let row = minRow; row <= maxRow; row += 1) {
+        points.push({ x: column, y: row });
+      }
+    }
+    return points;
+  }
+
+  private extractTerrainEffectId(cell: { id?: string; name?: string | null; description?: string | null }): string | null {
+    const candidates = [cell.id, cell.name, cell.description].filter(
+      (value): value is string => typeof value === "string",
+    );
+    return candidates
+      .flatMap((value) => value.match(/terrain\.[a-z0-9_.-]+/gi) ?? [])
+      .map((value) => value.toLowerCase().replace(/-/g, "_"))[0] ?? null;
+  }
+
+  private normalizeForcedMovementMode(value: string): ForcedMovementMode {
+    if (value === "push" || value === "pull" || value === "slide") {
+      return value;
+    }
+    throw conflict("COMBAT_409", "지원하지 않는 강제이동 방식입니다.", {
+      reason: "INVALID_FORCED_MOVEMENT_MODE",
+      mode: value,
+    });
+  }
+
+  private async applyEnteredTerrainEffects(
+    combat: NonNullable<CombatWithParticipants>,
+    target: CombatParticipantEntity,
+    combinedEffect: TerrainEffectResolution | null,
+    enteredEffects: EnteredTerrainEffect[],
+  ): Promise<CombatTerrainEffectApplication> {
+    if (!combinedEffect) {
+      return { damageRoll: null, appliedConditionTags: [], concentrationCheck: null };
+    }
+
+    const damageRoll = combinedEffect.damage ? this.diceService.roll(combinedEffect.damage.dice) : null;
+    let concentrationCheck: CombatConcentrationCheckResult | null = null;
+    if (damageRoll && damageRoll.total > 0) {
+      await this.applyHitPointDelta(combat, target, -damageRoll.total);
+      concentrationCheck = await this.resolveCombatConcentrationDamageCheck(target, damageRoll.total);
+    }
+
+    const appliedConditionTags: string[] = [];
+    for (const entered of enteredEffects) {
+      for (const condition of entered.effect.conditionTags) {
+        appliedConditionTags.push(condition);
+        await this.addCombatConditionInstance(
+          target,
+          this.conditionRuntime.createCondition({
+            conditionId: condition,
+            sourceId: entered.terrainEffectId,
+            saveEnds: this.resolveTerrainEffectSaveEnds(entered.effect),
+            appliedAtRound: combat.roundNo,
+            tags: entered.effect.runtimeTags,
+          }),
+        );
+      }
+    }
+
+    return {
+      damageRoll,
+      appliedConditionTags: Array.from(new Set(appliedConditionTags)),
+      concentrationCheck,
+    };
+  }
+
+  private async applyTurnStartTerrainEffects(
+    sessionId: string,
+    combat: NonNullable<CombatWithParticipants>,
+    participant: CombatParticipantEntity,
+  ): Promise<CombatTerrainEffectApplication> {
+    if (!participant.isAlive || !participant.tokenId) {
+      return { damageRoll: null, appliedConditionTags: [], concentrationCheck: null };
+    }
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    const map = await this.sessionsService.getVttMapForUser(session.hostUserId, sessionId);
+    const token = this.findParticipantToken(map, participant);
+    if (!token) {
+      return { damageRoll: null, appliedConditionTags: [], concentrationCheck: null };
+    }
+
+    const enteredEffects = this.resolveTerrainEffectsAtPoint(map, {
+      x: token.x,
+      y: token.y,
+    });
+    return this.applyEnteredTerrainEffects(
+      combat,
+      participant,
+      enteredEffects.length
+        ? this.terrainEffects.resolveCombinedEffects(enteredEffects.map((entered) => entered.terrainEffectId))
+        : null,
+      enteredEffects,
+    );
+  }
+
+  private resolveTerrainEffectSaveEnds(
+    effect: TerrainEffectResolution,
+  ): ConditionInstance["saveEnds"] {
+    if (effect.saveDc === null) {
+      return null;
+    }
+    const saveTag = effect.runtimeTags.find((tag) => tag.startsWith("save:"));
+    const ability = saveTag?.slice("save:".length);
+    if (
+      ability !== "str" &&
+      ability !== "dex" &&
+      ability !== "con" &&
+      ability !== "int" &&
+      ability !== "wis" &&
+      ability !== "cha"
+    ) {
+      return null;
+    }
+    return { ability, dc: effect.saveDc };
+  }
+
+  private async resolveCombatConcentrationDamageCheck(
+    target: CombatParticipantEntity,
+    damageTaken: number,
+  ): Promise<CombatConcentrationCheckResult | null> {
+    const current = await this.readCombatConditionEntries(target);
+    const conditions = this.conditionRuntime.parseConditionsJson(JSON.stringify(current));
+    if (
+      !conditions.some(
+        (condition) =>
+          condition.conditionId === "condition.concentration" ||
+          condition.tags.includes("concentration"),
+      )
+    ) {
+      return null;
+    }
+
+    const profile = await this.resolveParticipantConstitutionSaveProfile(target);
+    const diceResult = this.diceService.roll(
+      `1d20${profile.saveModifier >= 0 ? "+" : ""}${profile.saveModifier}`,
+    );
+    const result = this.concentrationRuntime.resolveDamageCheck({
+      conditions,
+      damageTaken,
+      naturalD20: this.selectNaturalD20(diceResult.rolls, DiceAdvantageState.NORMAL),
+      constitutionModifier: profile.constitutionModifier,
+      proficiencyBonus: profile.proficiencyBonus,
+      proficient: profile.proficient,
+    });
+
+    if (!result.concentrationMaintained) {
+      await this.writeCombatConditionEntries(
+        target,
+        this.removeExpiredConditionEntries(current, result.removedConditions),
+      );
+    }
+
+    return {
+      diceResult,
+      concentrationState: result.concentrationState,
+      concentrationMaintained: result.concentrationMaintained,
+      removedConditions: result.removedConditions,
+    };
+  }
+
+  private async resolveParticipantConstitutionSaveProfile(
+    participant: CombatParticipantEntity,
+  ): Promise<{
+    constitutionModifier: number;
+    proficiencyBonus: number;
+    proficient: boolean;
+    saveModifier: number;
+  }> {
+    if (!participant.sessionCharacterId) {
+      return {
+        constitutionModifier: 0,
+        proficiencyBonus: 0,
+        proficient: false,
+        saveModifier: 0,
+      };
+    }
+
+    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+      where: { id: participant.sessionCharacterId },
+      include: {
+        character: {
+          select: {
+            abilitiesJson: true,
+            proficiencyBonus: true,
+          },
+        },
+      },
+    });
+    const abilities = this.parseJson<Record<string, number>>(
+      sessionCharacter?.character.abilitiesJson ?? "{}",
+      {},
+    );
+    const constitutionModifier = this.getAbilityModifier(abilities.con ?? abilities.constitution ?? 10);
+    const proficiencyBonus = sessionCharacter?.character.proficiencyBonus ?? 0;
+    const proficient = this.combatConditionTags(await this.readCombatConditionEntries(participant)).some(
+      (tag) => tag === "save_proficiency:con" || tag === "save:con:proficient",
+    );
+
+    return {
+      constitutionModifier,
+      proficiencyBonus,
+      proficient,
+      saveModifier: constitutionModifier + (proficient ? proficiencyBonus : 0),
+    };
+  }
+
+  private removeExpiredConditionEntries(
+    current: unknown[],
+    removedConditions: unknown[],
+  ): unknown[] {
+    const removedKeys = new Set(
+      removedConditions
+        .map((condition) => this.toConditionEntryKey(condition))
+        .filter((key): key is string => key !== null),
+    );
+    return current.filter((entry) => {
+      const key = this.toConditionEntryKey(entry);
+      return key === null || !removedKeys.has(key);
+    });
+  }
+
+  private toConditionEntryKey(entry: unknown): string | null {
+    const parsed = this.conditionRuntime.parseConditionsJson(JSON.stringify([entry]))[0];
+    return parsed ? this.conditionEntryKey(parsed) : null;
+  }
+
   private getTokenGridDistanceFt(
     map: VttMapStateDto,
     sourceToken: VttMapStateDto["tokens"][number],
@@ -2826,6 +3524,80 @@ export class CombatService {
       );
     }
     return distanceFt;
+  }
+
+  private calculateTerrainAdjustedMovementCostFt(
+    map: VttMapStateDto,
+    token: VttMapStateDto["tokens"][number],
+    path: Array<{ x: number; y: number }>,
+  ): number {
+    let costFt = 0;
+    for (let index = 1; index < path.length; index += 1) {
+      const segmentDistanceFt = this.getTokenGridDistanceFt(
+        map,
+        { ...token, ...path[index - 1] },
+        { ...token, ...path[index] },
+      );
+      const multiplier = this.resolveMovementCostMultiplierAtPoint(map, path[index]);
+      costFt += segmentDistanceFt * multiplier;
+    }
+    return costFt;
+  }
+
+  private resolveMovementCostMultiplierAtPoint(
+    map: VttMapStateDto,
+    point: { x: number; y: number },
+  ): number {
+    const terrainEffectIds = this.resolveTerrainEffectIdsAtPoint(map, point);
+    if (!terrainEffectIds.length) {
+      return 1;
+    }
+    return this.terrainEffects.resolveCombinedEffects(terrainEffectIds).movementCostMultiplier;
+  }
+
+  private resolveEnteredTerrainEffectsForMovement(
+    map: VttMapStateDto,
+    path: Array<{ x: number; y: number }>,
+  ): EnteredTerrainEffect[] {
+    const seen = new Set<string>();
+    const entered: EnteredTerrainEffect[] = [];
+    for (let index = 1; index < path.length; index += 1) {
+      const point = path[index];
+      const gridPoint = this.mapPointToGridPoint(map, point);
+      for (const enteredEffect of this.resolveTerrainEffectsAtPoint(map, point)) {
+        const terrainEffectId = enteredEffect.terrainEffectId;
+        const key = `${gridPoint.x}:${gridPoint.y}:${terrainEffectId}`;
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        entered.push(enteredEffect);
+      }
+    }
+    return entered;
+  }
+
+  private resolveTerrainEffectsAtPoint(
+    map: VttMapStateDto,
+    point: { x: number; y: number },
+  ): EnteredTerrainEffect[] {
+    return this.resolveTerrainEffectIdsAtPoint(map, point).flatMap((terrainEffectId) => {
+      const effect = this.terrainEffects.resolveEffect(terrainEffectId);
+      return effect ? [{ terrainEffectId, effect }] : [];
+    });
+  }
+
+  private resolveTerrainEffectIdsAtPoint(
+    map: VttMapStateDto,
+    point: { x: number; y: number },
+  ): string[] {
+    const gridPoint = this.mapPointToGridPoint(map, point);
+    return (map.terrainCells ?? [])
+      .filter((cell) => this.cellGridPoints(map, cell).some((cellPoint) =>
+        cellPoint.x === gridPoint.x && cellPoint.y === gridPoint.y,
+      ))
+      .map((cell) => this.extractTerrainEffectId(cell))
+      .filter((terrainEffectId): terrainEffectId is string => terrainEffectId !== null);
   }
 
   private assertCombatMovementPathOpen(
@@ -3277,7 +4049,14 @@ export class CombatService {
     },
     spellId: string,
   ): void {
-    const allowed = new Set(["spell.fire_bolt", "spell.light", "spell.magic_missile", "spell.shield", "spell.sleep"]);
+    const allowed = new Set([
+      "spell.fire_bolt",
+      "spell.fireball",
+      "spell.light",
+      "spell.magic_missile",
+      "spell.shield",
+      "spell.sleep",
+    ]);
     if (!allowed.has(spellId)) {
       throw conflict("COMBAT_409", "MVP 범위 밖의 주문입니다.", { reason: "SPELL_NOT_MVP", spellId });
     }
@@ -3292,10 +4071,308 @@ export class CombatService {
     throw conflict("COMBAT_409", "해당 캐릭터가 익힌 주문이 아닙니다.", { reason: "SPELL_NOT_KNOWN", spellId });
   }
 
+  private resolveCombatSpellSlotLevel(spellId: string, requestedSlotLevel: number | null | undefined): number {
+    const baseSpellLevel = this.resolveCombatBaseSpellLevel(spellId);
+    const slotLevel = requestedSlotLevel ?? baseSpellLevel;
+    if (!Number.isInteger(slotLevel) || slotLevel < 0 || slotLevel > 9) {
+      throw conflict("COMBAT_409", "주문 슬롯 레벨이 유효하지 않습니다.", {
+        reason: "INVALID_SPELL_SLOT_LEVEL",
+        spellId,
+        slotLevel,
+      });
+    }
+    if (baseSpellLevel === 0 && slotLevel !== 0) {
+      throw conflict("COMBAT_409", "Cantrip은 주문 슬롯을 사용하지 않습니다.", {
+        reason: "CANTRIP_SLOT_LEVEL_NOT_ALLOWED",
+        spellId,
+        slotLevel,
+      });
+    }
+    if (slotLevel < baseSpellLevel) {
+      throw conflict("COMBAT_409", "주문 슬롯 레벨이 주문 레벨보다 낮습니다.", {
+        reason: "SPELL_SLOT_BELOW_SPELL_LEVEL",
+        spellId,
+        baseSpellLevel,
+        slotLevel,
+      });
+    }
+    return slotLevel;
+  }
+
+  private resolveCombatBaseSpellLevel(spellId: string): number {
+    const catalogSpellLevel = this.resolveCombatSpellLevel(this.resolveCombatSpellDefinition(spellId));
+    if (catalogSpellLevel !== null) {
+      return catalogSpellLevel;
+    }
+    switch (spellId) {
+      case "spell.fire_bolt":
+      case "spell.light":
+        return 0;
+      case "spell.magic_missile":
+      case "spell.shield":
+      case "spell.sleep":
+        return 1;
+      case "spell.fireball":
+        return 3;
+      default:
+        return 0;
+    }
+  }
+
+  private resolveCombatSpellDefinition(spellId: string): RuleCatalogEntry | null {
+    const entry = this.ruleCatalog.getEntry(spellId);
+    return entry?.kind === "spell_definitions" ? entry : null;
+  }
+
+  private resolveCombatSpellLevel(spellDefinition: RuleCatalogEntry | null): number | null {
+    const spellLevelTag = spellDefinition?.runtimeEffect.tags.find((tag) => tag.startsWith("spell_level:"));
+    const spellLevel = Number(spellLevelTag?.slice("spell_level:".length));
+    return Number.isInteger(spellLevel) && spellLevel >= 0 ? spellLevel : null;
+  }
+
+  private resolveCombatSpellScalingFromCatalog(
+    spellDefinition: RuleCatalogEntry | null,
+    slotLevel: number,
+  ): SpellScalingResult {
+    if (!spellDefinition) {
+      throw conflict("COMBAT_409", "주문 정의를 찾을 수 없습니다.", {
+        reason: "SPELL_DEFINITION_NOT_FOUND",
+      });
+    }
+    return this.resolveCombatSpellScaling({
+      spellId: spellDefinition.id,
+      baseSpellLevel: this.resolveCombatSpellLevel(spellDefinition) ?? 0,
+      slotLevel,
+      baseDamageDice: this.resolveCombatSpellBaseDamageDice(spellDefinition),
+      baseTargetCount: this.resolveCombatSpellBaseTargetCount(spellDefinition),
+      scalingRules: this.toCombatSpellScalingRules(spellDefinition),
+    });
+  }
+
+  private resolveCombatAreaTargeting(
+    spellDefinition: RuleCatalogEntry | null,
+    spellId: string,
+  ): Extract<RuleCatalogEntry["targeting"], { type: "area" }> {
+    if (spellDefinition?.targeting.type !== "area") {
+      throw conflict("COMBAT_409", "범위 주문 정의가 유효하지 않습니다.", {
+        reason: "SPELL_AREA_TARGETING_REQUIRED",
+        spellId,
+      });
+    }
+    return spellDefinition.targeting;
+  }
+
+  private resolveCombatSpellRangeFt(spellDefinition: RuleCatalogEntry | null, fallback: number): number {
+    if (spellDefinition?.targeting.type === "creature" && spellDefinition.targeting.rangeFt !== null) {
+      return spellDefinition.targeting.rangeFt;
+    }
+    const rangeTag = spellDefinition?.runtimeEffect.tags.find((tag) => tag.startsWith("range:"));
+    const rangeFt = Number(rangeTag?.slice("range:".length));
+    return Number.isInteger(rangeFt) && rangeFt > 0 ? rangeFt : fallback;
+  }
+
+  private resolveCombatSpellSaveAbility(
+    spellDefinition: RuleCatalogEntry | null,
+    fallback: SavingThrowAbility,
+  ): SavingThrowAbility {
+    return spellDefinition?.save?.ability ?? fallback;
+  }
+
+  private resolveCombatSpellDamageType(spellDefinition: RuleCatalogEntry | null, fallback: string): string {
+    return spellDefinition?.damage?.type ?? fallback;
+  }
+
+  private resolveCombatSpellHalfDamageOnSuccess(spellDefinition: RuleCatalogEntry | null): boolean {
+    return spellDefinition?.runtimeEffect.tags.includes("half_damage_on_success") ?? true;
+  }
+
+  private resolveCombatLightRadiusFt(spellDefinition: RuleCatalogEntry | null): number {
+    const radiusTag = spellDefinition?.runtimeEffect.tags.find((tag) => tag.startsWith("light_radius:"));
+    const radiusFt = Number(radiusTag?.slice("light_radius:".length));
+    return Number.isInteger(radiusFt) && radiusFt > 0 ? radiusFt : 40;
+  }
+
+  private resolveCombatSpellBaseDamageDice(spellDefinition: RuleCatalogEntry | null): string | null {
+    const poolTag = spellDefinition?.runtimeEffect.tags.find((tag) => tag.startsWith("hit_point_pool:"));
+    return poolTag?.slice("hit_point_pool:".length) ?? spellDefinition?.damage?.dice ?? null;
+  }
+
+  private resolveCombatSpellBaseTargetCount(spellDefinition: RuleCatalogEntry): number | null {
+    const missileTag = spellDefinition.runtimeEffect.tags.find((tag) => tag.startsWith("missile_count:"));
+    const missileCount = Number(missileTag?.slice("missile_count:".length));
+    if (Number.isInteger(missileCount) && missileCount > 0) {
+      return missileCount;
+    }
+    return spellDefinition.targeting.type === "creature" ? 1 : null;
+  }
+
+  private resolveMagicMissileDamageDice(
+    spellDefinition: RuleCatalogEntry | null,
+    missileCount: number,
+  ): string {
+    const damageDice = spellDefinition?.damage?.dice ?? "3d4+3";
+    const normalizedMissileCount = Number.isInteger(missileCount) && missileCount > 0 ? missileCount : 3;
+    const match = damageDice.trim().toLowerCase().match(/^(\d+)d(\d+)([+-]\d+)?$/);
+    if (!match) {
+      return "1d4+1";
+    }
+
+    const diceCount = Number(match[1]);
+    const diceSides = Number(match[2]);
+    const modifier = match[3] ? Number(match[3]) : 0;
+    if (
+      diceCount <= 0 ||
+      diceSides <= 0 ||
+      diceCount % normalizedMissileCount !== 0 ||
+      modifier % normalizedMissileCount !== 0
+    ) {
+      return "1d4+1";
+    }
+
+    const perMissileDiceCount = diceCount / normalizedMissileCount;
+    const perMissileModifier = modifier / normalizedMissileCount;
+    const modifierText =
+      perMissileModifier === 0
+        ? ""
+        : perMissileModifier > 0
+          ? `+${perMissileModifier}`
+          : String(perMissileModifier);
+    return `${perMissileDiceCount}d${diceSides}${modifierText}`;
+  }
+
+  private toCombatSpellScalingRules(spellDefinition: RuleCatalogEntry): SpellScalingRule[] {
+    const table = spellDefinition.scaling?.table;
+    if (!table || typeof table !== "object" || Array.isArray(table)) {
+      return [];
+    }
+
+    const mode = table.mode;
+    switch (mode) {
+      case "damage_dice":
+        return typeof table.dice === "string"
+          ? [{ mode, dice: table.dice, perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove) }]
+          : [];
+      case "target_count":
+      case "summon_count":
+        return typeof table.count === "number"
+          ? [{ mode, count: table.count, perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove) }]
+          : [];
+      case "duration":
+        return typeof table.unit === "string" && typeof table.amountPerSlotAbove === "number"
+          ? [{
+              mode,
+              unit: table.unit as "round" | "minute" | "hour" | "day",
+              amountPerSlotAbove: table.amountPerSlotAbove,
+              perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove),
+            }]
+          : [];
+      default:
+        return [];
+    }
+  }
+
+  private toOptionalPositiveInteger(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+  }
+
+  private resolveCombatSpellScaling(input: {
+    spellId: string;
+    baseSpellLevel: number;
+    slotLevel: number;
+    baseDamageDice?: string | null;
+    baseTargetCount?: number | null;
+    scalingRules: SpellScalingRule[];
+  }): SpellScalingResult {
+    try {
+      return this.spellScaling.resolveUpcast(input);
+    } catch (error) {
+      throw conflict("COMBAT_409", "주문 슬롯 스케일링을 적용할 수 없습니다.", {
+        reason: "INVALID_SPELL_SCALING",
+        spellId: input.spellId,
+        slotLevel: input.slotLevel,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async resolveSpellAttackBonus(sessionCharacterId: string): Promise<number> {
     const sessionCharacter = await this.getSessionCharacterForSpell(sessionCharacterId);
     const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
     return sessionCharacter.character.proficiencyBonus + this.getAbilityModifier(abilities.int);
+  }
+
+  private async resolveCombatSpellSaveDc(sessionCharacterId: string): Promise<number> {
+    const sessionCharacter = await this.getSessionCharacterForSpell(sessionCharacterId);
+    const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
+    return 8 + sessionCharacter.character.proficiencyBonus + this.getAbilityModifier(abilities.int);
+  }
+
+  private async toCombatAoeDamageTarget(
+    participant: CombatParticipantEntity,
+    map: VttMapStateDto,
+    saveAbility: SavingThrowAbility,
+  ): Promise<AoeDamageTarget> {
+    const damageTags = this.combatConditionTags(await this.readCombatConditionEntries(participant));
+    if (!participant.sessionCharacterId) {
+      const token = this.findParticipantToken(map, participant);
+      return {
+        id: participant.id,
+        currentHp: participant.currentHp ?? participant.maxHp ?? DEFAULT_MONSTER_HP,
+        abilityModifiers: {
+          [saveAbility]: saveAbility === "dex" && token ? this.resolveMonsterDexterityModifier(token) : 0,
+        },
+        immunities: this.getDamageTypesByPrefix(damageTags, "immunity"),
+        resistances: this.getDamageTypesByPrefix(damageTags, "resistance"),
+        vulnerabilities: this.getDamageTypesByPrefix(damageTags, "vulnerability"),
+      };
+    }
+
+    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+      where: { id: participant.sessionCharacterId },
+      include: {
+        character: {
+          select: {
+            abilitiesJson: true,
+            proficiencyBonus: true,
+          },
+        },
+      },
+    });
+    const abilities = this.parseJson<Record<string, number>>(
+      sessionCharacter?.character.abilitiesJson ?? "{}",
+      {},
+    );
+    const proficientSaves = damageTags.flatMap((tag) => {
+      const ability = tag.startsWith("save_proficiency:")
+        ? tag.slice("save_proficiency:".length)
+        : null;
+      return this.isSavingThrowAbility(ability) ? [ability] : [];
+    });
+
+    return {
+      id: participant.id,
+      currentHp: participant.currentHp ?? 0,
+      abilityModifiers: {
+        [saveAbility]: this.getAbilityModifier(abilities[saveAbility] ?? 10),
+      },
+      proficiencyBonus: sessionCharacter?.character.proficiencyBonus ?? 0,
+      proficientSaves,
+      immunities: this.getDamageTypesByPrefix(damageTags, "immunity"),
+      resistances: this.getDamageTypesByPrefix(damageTags, "resistance"),
+      vulnerabilities: this.getDamageTypesByPrefix(damageTags, "vulnerability"),
+    };
+  }
+
+  private getDamageTypesByPrefix(tags: string[], prefix: "immunity" | "resistance" | "vulnerability"): string[] {
+    const tokenPrefix = `${prefix}:`;
+    return tags
+      .map((tag) => tag.trim().toLowerCase().replace(/[\s_]+/g, "_"))
+      .filter((tag) => tag.startsWith(tokenPrefix))
+      .map((tag) => tag.slice(tokenPrefix.length));
+  }
+
+  private isSavingThrowAbility(value: unknown): value is SavingThrowAbility {
+    return value === "str" || value === "dex" || value === "con" || value === "int" || value === "wis" || value === "cha";
   }
 
   private async resolveCharacterLevel(sessionCharacterId: string): Promise<number> {
@@ -3506,6 +4583,10 @@ export class CombatService {
     if (damageRoll && damageRoll.total > 0) {
       await this.applyHitPointDelta(combat, target, -damageRoll.total);
     }
+    const concentrationCheck =
+      damageRoll && damageRoll.total > 0
+        ? await this.resolveCombatConcentrationDamageCheck(target, damageRoll.total)
+        : null;
     const updated = await this.getActiveCombatEntity(sessionId);
     const response = await this.completeCombatIfResolved(sessionId, updated);
     const message = hit
@@ -3518,11 +4599,26 @@ export class CombatService {
       actorUserId: session.hostUserId,
       sessionCharacterId: attacker.sessionCharacterId ?? null,
       rawInput: null,
-      structuredAction: { type: "attack", shieldAccepted: accepted, attackerParticipantId: attacker.id, targetParticipantId: target.id },
+      structuredAction: {
+        type: "attack",
+        shieldAccepted: accepted,
+        attackerParticipantId: attacker.id,
+        targetParticipantId: target.id,
+        concentrationCheck: concentrationCheck
+          ? {
+              concentrationMaintained: concentrationCheck.concentrationMaintained,
+              removedConditions: concentrationCheck.removedConditions,
+              concentrationState: concentrationCheck.concentrationState,
+            }
+          : null,
+      },
       diceResult: damageRoll ? { ...damageRoll } : null,
       outcome: hit ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
       narration: message,
     });
+    if (concentrationCheck) {
+      this.realtimeEvents.emitDiceRolled(sessionId, concentrationCheck.diceResult);
+    }
     this.realtimeEvents.emitTurnLogCreated(sessionId, turnLog);
     this.realtimeEvents.emitCombatUpdated(sessionId, response);
     this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
@@ -3738,8 +4834,18 @@ export class CombatService {
       spellId,
     );
 
+    if (spellId === "spell.magic_missile") {
+      return this.resolveTriggeredReadyMagicMissileAction({
+        userId: params.userId,
+        session: params.session,
+        combat: params.combat,
+        actor: params.actor,
+        triggered: params.triggered,
+      });
+    }
+
     if (spellId !== "spell.fire_bolt") {
-      throw conflict("COMBAT_409", "준비행동 주문은 현재 Fire Bolt만 지원합니다.", {
+      throw conflict("COMBAT_409", "지원하지 않는 준비행동 주문입니다.", {
         reason: "READY_SPELL_UNSUPPORTED",
         spellId,
       });
@@ -3765,7 +4871,12 @@ export class CombatService {
       });
     }
     const target = this.findCombatParticipantOrThrow(params.combat, targetParticipantId);
-    this.assertSpellTargetInRange(map, casterToken, target, 120);
+    this.assertSpellTargetInRange(
+      map,
+      casterToken,
+      target,
+      this.resolveCombatSpellRangeFt(this.resolveCombatSpellDefinition(spellId), 120),
+    );
 
     const attackResult = await this.resolveAttack(
       params.userId,
@@ -3794,6 +4905,109 @@ export class CombatService {
       combat: attackResult.combat,
       map: latestMap,
       message: attackResult.message,
+      pendingReaction: null,
+    };
+  }
+
+  private async resolveTriggeredReadyMagicMissileAction(params: {
+    userId: string;
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
+    combat: NonNullable<CombatWithParticipants>;
+    actor: CombatParticipantEntity;
+    triggered: TriggeredReadyAction;
+  }): Promise<CombatMoveResultDto> {
+    if (!params.actor.sessionCharacterId) {
+      throw conflict("COMBAT_409", "몬스터 준비 주문은 아직 지원하지 않습니다.", {
+        reason: "READY_MONSTER_SPELL_UNSUPPORTED",
+      });
+    }
+
+    const targetParticipantId =
+      params.triggered.pending.heldAction.targetParticipantId ??
+      params.triggered.triggerEvent.targetParticipantId;
+    if (!targetParticipantId) {
+      throw conflict("COMBAT_409", "준비 주문 대상이 없습니다.", {
+        reason: "READY_SPELL_TARGET_NOT_FOUND",
+      });
+    }
+
+    const map = await this.sessionsService.getVttMapForUser(
+      params.session.hostUserId,
+      params.session.id,
+    );
+    const casterToken = this.findParticipantToken(map, params.actor);
+    if (!casterToken) {
+      throw conflict("COMBAT_409", "준비 주문 시전자 토큰을 찾을 수 없습니다.", {
+        reason: "READY_SPELL_CASTER_TOKEN_NOT_FOUND",
+      });
+    }
+    const target = this.findCombatParticipantOrThrow(params.combat, targetParticipantId);
+    this.assertSpellTargetInRange(
+      map,
+      casterToken,
+      target,
+      this.resolveCombatSpellRangeFt(this.resolveCombatSpellDefinition("spell.magic_missile"), 120),
+    );
+
+    await this.actionEconomy.spendReaction({
+      combatId: params.combat.id,
+      combatParticipantId: params.actor.id,
+      roundNo: params.combat.roundNo,
+      turnNo: params.combat.turnNo,
+      sessionCharacterId: params.actor.sessionCharacterId,
+    });
+    await this.spendSpellSlot(params.session.id, params.actor.sessionCharacterId, 1);
+
+    const damageRoll = this.diceService.roll(
+      this.resolveCombatSpellBaseDamageDice(this.resolveCombatSpellDefinition("spell.magic_missile")) ?? "3d4+3",
+    );
+    await this.applyHitPointDelta(params.combat, target, -damageRoll.total);
+    const concentrationCheck = await this.resolveCombatConcentrationDamageCheck(target, damageRoll.total);
+    const updated = await this.getActiveCombatEntity(params.session.id);
+    const response = await this.completeCombatIfResolved(params.session.id, updated);
+    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(params.session.id);
+    const message = `${params.actor.nameSnapshot} 준비 주문 Magic Missile: ${target.nameSnapshot} ${damageRoll.total} 역장 피해`;
+    const turnLog = await this.turnLogsService.createTurnLog({
+      sessionId: params.session.id,
+      sessionScenarioId: sessionScenario.id,
+      actorUserId: params.triggered.pending.actorUserId,
+      sessionCharacterId: params.actor.sessionCharacterId,
+      rawInput: null,
+      structuredAction: {
+        type: "ready_action_execute",
+        readyActionId: params.triggered.pending.id,
+        heldAction: params.triggered.pending.heldAction,
+        spellId: "spell.magic_missile",
+        targetParticipantId: target.id,
+        damageTotal: damageRoll.total,
+        concentrationCheck: concentrationCheck
+          ? {
+              concentrationMaintained: concentrationCheck.concentrationMaintained,
+              removedConditions: concentrationCheck.removedConditions,
+              concentrationState: concentrationCheck.concentrationState,
+            }
+          : null,
+      },
+      diceResult: { ...damageRoll },
+      outcome: ActionOutcome.SUCCESS,
+      narration: message,
+    });
+
+    this.realtimeEvents.emitDiceRolled(params.session.id, damageRoll);
+    if (concentrationCheck) {
+      this.realtimeEvents.emitDiceRolled(params.session.id, concentrationCheck.diceResult);
+    }
+    this.realtimeEvents.emitTurnLogCreated(params.session.id, turnLog);
+    this.realtimeEvents.emitCombatUpdated(params.session.id, response);
+    this.realtimeEvents.emitSessionSnapshot(
+      params.session.id,
+      await this.sessionsService.buildSnapshot(params.session.id),
+    );
+
+    return {
+      combat: response,
+      map,
+      message,
       pendingReaction: null,
     };
   }
@@ -4128,6 +5342,30 @@ export class CombatService {
     await this.writeCombatConditionEntries(participant, current);
   }
 
+  private async addCombatConditionInstance(
+    participant: CombatParticipantEntity,
+    condition: ConditionInstance,
+  ): Promise<void> {
+    const current = await this.readCombatConditionEntries(participant);
+    if (condition.stackPolicy === "replace") {
+      await this.writeCombatConditionEntries(
+        participant,
+        [
+          ...current.filter((entry) => !this.conditionEntryTags(entry).includes(condition.conditionId)),
+          condition,
+        ],
+      );
+      return;
+    }
+    if (
+      condition.stackPolicy === "ignore_duplicate" &&
+      this.combatConditionTags(current).includes(condition.conditionId)
+    ) {
+      return;
+    }
+    await this.writeCombatConditionEntries(participant, [...current, condition]);
+  }
+
   private async removeCombatCondition(
     participant: CombatParticipantEntity,
     condition: string,
@@ -4251,12 +5489,15 @@ export class CombatService {
   private resolveAttackAdvantageState(params: {
     attackerConditions: string[];
     targetConditions: string[];
+    targetHeavilyObscured?: boolean;
     allyWithin5FtOfTarget: boolean;
   }): DiceAdvantageState {
     const hasAdvantage =
       params.attackerConditions.includes(COMBAT_CONDITION_HIDDEN) ||
       params.allyWithin5FtOfTarget;
-    const hasDisadvantage = params.targetConditions.includes(COMBAT_CONDITION_DODGE);
+    const hasDisadvantage =
+      params.targetConditions.includes(COMBAT_CONDITION_DODGE) ||
+      params.targetHeavilyObscured === true;
     if (hasAdvantage === hasDisadvantage) {
       return DiceAdvantageState.NORMAL;
     }
@@ -4379,6 +5620,19 @@ export class CombatService {
 
   private resolveParticipantArmorClass(participant: CombatParticipantEntity): number {
     return participant.armorClass ?? DEFAULT_MONSTER_AC;
+  }
+
+  private isParticipantInHeavilyObscuredTerrain(
+    map: VttMapStateDto,
+    participant: CombatParticipantEntity,
+  ): boolean {
+    const token = this.findParticipantToken(map, participant);
+    if (!token) {
+      return false;
+    }
+    return this.resolveTerrainEffectsAtPoint(map, { x: token.x, y: token.y }).some(
+      (entered) => entered.effect.heavilyObscured,
+    );
   }
 
   private resolveMonsterTokenCombatStats(token: VttMapStateDto["tokens"][number]): {

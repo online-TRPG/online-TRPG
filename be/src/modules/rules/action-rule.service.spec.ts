@@ -1166,6 +1166,128 @@ describe("ActionRuleService", () => {
     ]);
   });
 
+  it("resolves concentration checks for area spell damage", () => {
+    const service = createService([
+      {
+        expression: "8d6",
+        rolls: [6, 6, 5, 4, 3, 3, 2, 1],
+        modifier: 0,
+        total: 30,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      {
+        expression: "1d20",
+        rolls: [5],
+        modifier: 0,
+        total: 5,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      {
+        expression: "1d20+0",
+        rolls: [5],
+        modifier: 0,
+        total: 5,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const concentration = {
+      conditionId: "condition.concentration",
+      sourceId: "spell.hold_person",
+      duration: { type: "permanent" },
+      saveEnds: null,
+      stackPolicy: "replace",
+      appliedAtRound: null,
+      expiresAtTurn: null,
+      tags: [
+        "concentration",
+        "concentration:spell:spell.hold_person",
+        "concentration:target:target-1",
+        "concentration:effect:effect-hold-1",
+      ],
+    };
+    const linked = {
+      conditionId: "condition.paralyzed",
+      sourceId: "effect-hold-1",
+      duration: { type: "permanent" },
+      saveEnds: null,
+      stackPolicy: "ignore_duplicate",
+      appliedAtRound: null,
+      expiresAtTurn: null,
+      tags: [],
+    };
+    const unrelated = {
+      conditionId: "condition.poisoned",
+      sourceId: "terrain.poison_cloud",
+      duration: { type: "permanent" },
+      saveEnds: null,
+      stackPolicy: "ignore_duplicate",
+      appliedAtRound: null,
+      expiresAtTurn: null,
+      tags: [],
+    };
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: { className: "wizard", level: 5 },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 40,
+      conditionsJson: JSON.stringify([concentration, linked, unrelated]),
+      character: {
+        id: "target-character",
+        name: "Target",
+        abilitiesJson: JSON.stringify({ dex: 8, con: 10 }),
+      },
+    });
+
+    const result = service.resolveAction("/cast_area fireball 15 target", actor, [actor, target]);
+    const structuredAction = result.structuredAction as {
+      aoe: {
+        concentrationChecks: Array<{
+          targetId: string;
+          diceResult: DiceRollResponseDto;
+          concentrationMaintained: boolean;
+          removedConditions: unknown[];
+          concentrationState: {
+            spellId: string | null;
+            targetIds: string[];
+            effectIds: string[];
+          };
+        }>;
+      };
+    };
+
+    expect(structuredAction.aoe.concentrationChecks).toEqual([
+      {
+        targetId: "target",
+        diceResult: {
+          expression: "1d20+0",
+          rolls: [5],
+          modifier: 0,
+          total: 5,
+          advantageState: DiceAdvantageState.NORMAL,
+        },
+        concentrationMaintained: false,
+        removedConditions: [concentration, linked],
+        concentrationState: {
+          spellId: "spell.hold_person",
+          targetIds: ["target-1"],
+          effectIds: ["effect-hold-1"],
+        },
+      },
+    ]);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "target",
+        currentHp: 10,
+        markDead: false,
+        conditions: [unrelated],
+      },
+    ]);
+  });
+
   it("executes magic missile as catalog-driven auto-hit force damage", () => {
     const service = createService([
       {
@@ -1215,6 +1337,7 @@ describe("ActionRuleService", () => {
     expect(structuredAction.damageType).toBe("force");
     expect(structuredAction.damageDice).toBe("5d4+5");
     expect(structuredAction.finalDamage).toBe(16);
+    expect(result.diceResult).toMatchObject({ expression: "5d4+5", total: 16 });
     expect(result.stateChanges).toEqual([
       { sessionCharacterId: "target", currentHp: 14, markDead: false },
     ]);

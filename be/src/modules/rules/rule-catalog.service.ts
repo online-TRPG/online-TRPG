@@ -519,7 +519,7 @@ const SPELL_DEFINITIONS: RuleCatalogEntry[] = [
     cost: { type: "action" },
     targeting: { type: "creature", rangeFt: 5 },
     duration: { unit: "hour", amount: 1 },
-    tags: ["effect:bright_light", "utility:illumination"],
+    tags: ["effect:bright_light", "utility:illumination", "light_radius:40"],
     hookId: "hook.spell.cast_light",
   }),
   spell("spell.magic_missile", {
@@ -545,7 +545,7 @@ const SPELL_DEFINITIONS: RuleCatalogEntry[] = [
     cost: { type: "action" },
     targeting: { type: "area", shape: "sphere", sizeFt: 20 },
     duration: { unit: "minute", amount: 1 },
-    tags: ["hit_point_pool:5d8", "condition:unconscious", "area:sphere"],
+    tags: ["hit_point_pool:5d8", "condition:unconscious", "area:sphere", "range:90"],
     hookId: "hook.spell.cast_sleep",
     scaling: { mode: "slot_level", table: { mode: "damage_dice", dice: "2d8", perSlotAbove: 1 } },
   }),

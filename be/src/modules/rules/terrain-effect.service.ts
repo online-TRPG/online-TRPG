@@ -121,7 +121,10 @@ export class TerrainEffectService {
   }
 
   resolveEffect(terrainEffectId: string): TerrainEffectResolution | null {
-    const normalized = this.normalizeTerrainEffectId(terrainEffectId);
+    const normalized = this.tryNormalizeTerrainEffectId(terrainEffectId);
+    if (!normalized) {
+      return null;
+    }
     const effect = TERRAIN_EFFECTS[normalized];
     return effect ? { ...effect } : null;
   }
@@ -152,6 +155,14 @@ export class TerrainEffectService {
       throw new Error(`Unsupported terrainEffectId: ${value}`);
     }
     return withPrefix as TerrainEffectDefinitionId;
+  }
+
+  private tryNormalizeTerrainEffectId(value: string): TerrainEffectDefinitionId | null {
+    try {
+      return this.normalizeTerrainEffectId(value);
+    } catch {
+      return null;
+    }
   }
 
   private maxNullable(values: Array<number | null>): number | null {

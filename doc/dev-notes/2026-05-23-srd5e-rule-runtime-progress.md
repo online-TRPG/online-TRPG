@@ -1,7 +1,7 @@
 # SRD 5e 룰 런타임 확장 작업 정리
 
 작성일: 2026-05-23
-최근 갱신: 2026-05-25
+최근 갱신: 2026-05-26
 
 ## 요약
 
@@ -13,7 +13,7 @@
 - 룰 계산은 전용 resolver/service로 분리한다.
 - 기존 전투/행동/세션 런타임은 카탈로그 id와 resolver 결과를 받아 상태 변경만 담당하도록 점진 이관한다.
 
-현재 작업은 아직 전체 통합 완료가 아니다. 다만 최초의 "룰 엔진 부품을 세운 상태"에서 더 나아가, 일부 resolver를 실제 action/combat/session 경로에 연결하는 단계까지 진행했다. 2026-05-25 기준으로 item drop/pickup의 VTT map object 생성/삭제 runtime effect도 `ActionProcessorService`까지 연결했다. 프로젝트 규칙에 따라 테스트는 직접 실행하지 않았고, 실행해야 할 검증 명령은 아래에 별도로 적었다.
+현재 작업은 아직 전체 통합 완료가 아니다. 다만 최초의 "룰 엔진 부품을 세운 상태"에서 더 나아가, 일부 resolver를 실제 action/combat/session 경로에 연결하는 단계까지 진행했다. 2026-05-26 기준으로 item drop/pickup의 VTT map object 생성/삭제 runtime effect, 전투 주문의 slot scaling, Fireball AoE 실행, Light/Sleep/Fireball 계열 카탈로그 메타데이터 소비까지 `CombatService`와 `ActionProcessorService` 경로에 연결했다. 프로젝트 규칙에 따라 백엔드 테스트/빌드는 직접 실행하지 않았고, 실행해야 할 검증 명령은 아래에 별도로 적었다.
 
 ## 현재까지 진행한 작업 목록
 
@@ -30,8 +30,9 @@
 - condition/rest/turn/save lifecycle resolver.
 - `/save` command 기반 save-end condition 제거 경로.
 - concentration, cover, forced movement, AoE damage, terrain effect resolver.
-- Fire Bolt, Magic Missile, Fireball의 실행 경로.
+- Fire Bolt, Magic Missile, Sleep, Light, Fireball의 전투 실행 경로 일부.
 - 준비행동 command, pending 저장, movement trigger 감지, triggered state 저장, accept/decline 일부 처리, 만료 정리.
+- 준비행동 Fire Bolt/Magic Missile held spell accept 실행.
 - 준비행동 move held action accept 실행.
 - item drop/pickup/throw command와 inventory runtime effect.
 - item drop/pickup의 VTT map object 생성/삭제 runtime effect.
@@ -45,9 +46,11 @@
 
 아직 남은 부분:
 
-- Fire Bolt 외 준비행동 cast_spell 실행까지 연결.
-- cover/concentration/condition lifecycle을 모든 combat attack/spell/damage 경로에 일관되게 반영. 현재 direct damage의 concentration failure 처리는 연결되었다.
-- spell slot 실제 소모와 long rest 회복 플래그 경로 및 클래스별 슬롯 최대치. 남은 부분은 주문 준비/습득 모델이다.
+- Fire Bolt/Magic Missile 외 준비행동 cast_spell 실행까지 연결.
+- cover/concentration/condition lifecycle을 모든 combat attack/spell/damage 경로에 일관되게 반영. 현재 command/direct combat damage, combat attack/Shield reaction damage, Magic Missile 계열 spell damage, Fireball AoE damage의 concentration failure, 원거리/주문 공격의 object/wall/door cover AC 보정은 연결되었다.
+- forced movement는 host용 전투 endpoint와 진입 지형 피해/상태 적용까지 연결되었지만, 주문/몬스터 ability rider 연결은 더 필요하다.
+- normal combat movement는 VTT terrain cell의 `terrain.difficult` movementCostMultiplier와 hazardous terrain 진입/턴 시작 피해/condition을 반영한다. 공격 판정은 target이 heavily obscured terrain 위에 있으면 disadvantage를 반영하지만, 다른 지형 효과의 종료 turn hook은 더 필요하다.
+- spell slot 실제 소모와 long rest 회복 플래그 경로 및 클래스별 슬롯 최대치. Magic Missile/Sleep/Fireball의 전투 upcast는 연결되었고, 남은 부분은 주문 준비/습득 모델이다.
 - inventory/map 저장 원자성 보강.
 - 100개 우선 주문 승격.
 - 몬스터 multiattack/recharge/save-based attack/condition rider/limited-use ability.
@@ -137,7 +140,7 @@ npm run build
 
 - 상태이상이 runtime tag로 판정에 반영되는가.
 - 집중 주문 피해 후 concentration save가 요청/처리되는가.
-- 강제이동이 이동력을 소모하지 않고 위험 지형/충돌을 처리하는가.
+- 강제이동이 이동력을 소모하지 않고 위험 지형 피해/상태/충돌을 처리하는가.
 - 준비행동 trigger가 reaction 소모와 함께 처리되는가.
 
 ### 7. 주문 실행 경로를 spell catalog 기반으로 통일
@@ -181,7 +184,7 @@ npm run build
 작업 순서:
 
 - terrain effect id를 VTT cell/object에 붙인다.
-- 이동, 시야, 엄폐, 상태 적용에서 terrain resolver 결과를 참조한다.
+- 이동, 시야, 엄폐, 상태 적용에서 terrain resolver 결과를 참조한다. 현재 host 강제이동 endpoint는 진입 terrain effect의 피해/condition을 적용한다.
 
 검증 포인트:
 
@@ -234,6 +237,9 @@ npm run build
 cd C:\WORK\S14P31A201\be
 npm run build
 npm test -- rule-catalog.service.spec.ts
+npm test -- spell-scaling.service.spec.ts
+npm test -- aoe-damage.service.spec.ts
+npm test -- combat.service.spec.ts
 npm test -- terrain-effect.service.spec.ts
 npm test -- rest-resolution.service.spec.ts
 npm test -- level-up.service.spec.ts
@@ -242,14 +248,11 @@ npm test -- action-processor.service.spec.ts
 npm test -- ready-action.service.spec.ts
 npm test -- command-parser.service.spec.ts
 npm test -- action-rule.service.spec.ts
-npm test -- combat.service.spec.ts
 npm test -- gm-override.service.spec.ts
 npm test -- condition-runtime.service.spec.ts
 npm test -- concentration-runtime.service.spec.ts
 npm test -- cover-position.service.spec.ts
 npm test -- forced-movement.service.spec.ts
-npm test -- aoe-damage.service.spec.ts
-npm test -- spell-scaling.service.spec.ts
 npm test -- monster-ability.service.spec.ts
 npm test -- provided-scenario.constants.spec.ts
 ```
@@ -484,7 +487,7 @@ npm test -- provided-scenario.constants.spec.ts
 
 아직 남은 부분:
 
-- Fire Bolt 외 cast_spell held action의 실제 실행 경로.
+- Fire Bolt/Magic Missile 외 cast_spell held action의 실제 실행 경로.
 
 ### 7. 아이템 상호작용 명령 확장
 
@@ -567,6 +570,31 @@ npm test -- provided-scenario.constants.spec.ts
 - condition 인자가 있고 내성에 성공하면 `ConditionRuntimeService.resolveSaveEnd()`로 해당 save-end condition을 제거한다.
 - save-end condition 제거도 legacy string condition을 보존하고 구조화 condition만 정규화된 runtime instance로 갱신한다.
 - direct `/damage` command 경로에 연결해, 집중 중인 대상이 피해를 받으면 concentration save를 굴리고 실패 시 연결 condition을 state change에서 제거한다.
+- host용 `CombatService.applyDamage()` 직접 피해 경로에도 같은 concentration damage check helper를 연결했다.
+- `CombatService.resolveAttack()`의 실제 피해 적용 뒤에도 concentration save를 굴리고, 실패 시 집중 condition과 연결 effect condition을 combat participant condition에서 제거하도록 연결했다.
+- Shield 반응 해결 뒤에도 공격이 실제 피해를 주면 concentration save를 굴리고 실패 결과를 attack turn log에 기록하도록 연결했다.
+- 전투 주문 Magic Missile과 ready Magic Missile 피해 뒤에도 같은 concentration damage check helper를 호출해, 실패 시 집중/연결 effect condition을 제거하고 turn log/realtime dice event에 남기도록 연결했다.
+- `ActionRuleService`의 Magic Missile command와 Fireball AoE command도 피해 대상별 concentration damage check를 실행하고, 실패 시 state change에 제거된 condition 목록을 반영하도록 연결했다.
+- command 기반 spell damage는 기존 피해 주사위를 `diceResult`에 유지하고, concentration save 주사위는 structured action의 concentration check payload에 별도로 기록하도록 정리했다.
+- 전투 `castSpell` DTO에 `slotLevel`을 추가하고, Magic Missile은 slot level에 따라 missile 수를, Sleep은 HP pool dice를 `SpellScalingService`로 upcast하도록 연결했다. Fireball도 전투 주문 경로에서 AoE targeting, Dexterity save, half damage, slot level damage dice scaling, slot 소모, damage 적용을 처리한다. 주문 로그에는 base spell level, 사용 slot level, scaling 결과를 남긴다.
+- Magic Missile/Sleep/Fireball의 base spell level, missile count, hit point pool, damage dice, slot scaling rule은 `RuleCatalogService`의 `spell_definitions` entry에서 읽어 전투 주문 실행에 사용한다.
+- Magic Missile의 전투 시전은 catalog의 aggregate damage dice와 missile count에서 발당 피해식 `1d4+1`을 유도하고, ready Magic Missile은 catalog damage dice를 사용한다.
+- Fire Bolt/Magic Missile/Sleep의 전투 range 검증도 catalog targeting 또는 `range:*` tag에서 읽도록 연결했고, `spell.sleep` catalog entry에 `range:90` tag를 추가했다.
+- Fireball의 range, AoE shape/size, save ability, damage type, half-damage-on-success flag도 `spell.fireball` catalog entry에서 읽어 전투 주문 실행에 사용한다.
+- Fireball 전투 시전은 사거리와 AoE target 검증을 통과한 뒤에만 spell slot을 소모하도록 순서를 정리했다.
+- `CombatService.resolveAttack()`에서 5ft 초과 공격에 `CoverPositionService`와 `RuleEngineService.resolveCoverModifiers()`를 연결해, 벽/닫힌 문은 full cover, object cell은 half cover로 처리한다.
+- cover 결과는 공격 판정 AC와 turn log structured action에 남긴다.
+- host용 `POST /combat/force-move` 경로를 추가해 `ForcedMovementService` 결과로 토큰을 강제 이동시키고, 이동력 소모/기회공격 없이 VTT map과 turn log를 갱신한다.
+- 강제이동 로그에는 mode, origin, path, destination, movementCostFt 0, opportunity attack false, collision/hazard/terrain effect 결과를 남긴다.
+- 강제이동으로 hazardous terrain에 진입하면 합성 terrain effect의 피해 주사위를 굴려 HP를 차감하고, condition tag를 전투 참여자 condition에 구조화 condition으로 추가하도록 연결했다.
+- 지형 condition은 source terrain id, 적용 라운드, runtime tag, save tag가 있는 경우 saveEnds 정보를 포함해 이후 `/save`/condition lifecycle 경로와 이어질 수 있게 했다.
+- 강제이동 지형 피해/상태 적용 결과는 turn log의 `terrainEffectApplication`과 `diceResult`, realtime dice event에 남긴다.
+- 일반 전투 이동의 이동력 소모 계산도 destination step이 들어가는 terrain cell의 movementCostMultiplier를 반영하도록 연결했다. 예: `terrain.difficult` 칸으로 5ft 이동하면 이동력 10ft를 소모한다.
+- 일반 전투 이동으로 hazardous terrain에 진입해도 강제이동과 같은 지형 피해/condition 적용 helper를 사용하도록 연결했다.
+- turn advance 후 새 current participant가 hazardous terrain 위에서 턴을 시작하면 같은 지형 피해/condition 적용 helper를 실행하도록 연결했다.
+- 일반 이동/강제이동/턴 시작 terrain damage가 집중 중인 대상에게 피해를 주면 concentration save를 굴리고, 실패 시 집중 condition과 연결 effect condition을 제거하며 concentration save 주사위도 realtime dice event로 emit하도록 연결했다.
+- 공격 대상이 `terrain.obscurement`처럼 heavily obscured terrain 위에 있으면 공격 판정의 advantage state에 disadvantage를 반영하도록 연결했다.
+- VTT terrain cell에서 알 수 없는 `terrain.*` id가 들어와도 이동/강제이동 처리가 throw로 깨지지 않도록, unsupported terrain id는 resolver에서 `null`로 무시하게 보강했다.
 
 ### 3. 준비행동 trigger/accept 보강
 
@@ -579,6 +607,7 @@ npm test -- provided-scenario.constants.spec.ts
 - shared `CombatReactionPromptDto.type`에 `ready_action`을 추가하고, triggered ready action 발생 시 기존 `combat.reaction.prompt` 이벤트로 actor에게 실행/취소 confirm을 보내도록 연결했다.
 - 프론트 `PlayPage`의 reaction prompt handler가 `ready_action`도 기존 accept/decline API로 처리하도록 보강했다.
 - ready held action이 `cast_spell`이고 주문이 Fire Bolt이면, accept 시 기존 `resolveAttack(... actionCost: "reaction")` 경로로 주문 공격을 실행하도록 연결했다.
+- ready held action이 `cast_spell`이고 주문이 Magic Missile이면, accept 시 reaction과 1레벨 spell slot을 소모하고 자동 명중 force damage, HP 변경, dice/turn log를 남기도록 연결했다.
 - ready held action이 `move`이면 `targetPoint`를 가진 준비 이동으로 파싱하고, accept 시 기존 combat movement resolver를 reaction 비용으로 실행하도록 연결했다. 따라서 이동력 검증, VTT map 저장, 기회공격 판정, 이동 turn log가 같은 경로를 탄다.
 
 ### 4. 아이템/VTT object runtime 보강
@@ -591,3 +620,29 @@ npm test -- provided-scenario.constants.spec.ts
 - drop으로 생성한 object의 `description`에 담긴 `<itemDefinitionId> x<quantity>` 형식을 runtime map context에서 읽어, 부분 pickup은 `UPDATE_MAP_OBJECT_QUANTITY`로 남은 수량을 저장하고 전량 pickup은 object를 삭제하도록 보강했다.
 - throw 명령은 인벤토리에서 아이템을 제거한 뒤 target grid에 `object:thrown:*` map object를 생성하도록 `CREATE_MAP_OBJECT` effect를 연결했다.
 - `ActionProcessorService`의 map object 생성/수량 갱신/삭제 helper를 고정하는 회귀 spec을 추가했다.
+
+## 2026-05-26 한 작업
+
+### 1. 전투 주문 catalog 기반 실행 보강
+
+- 전투 `castSpell` DTO에 `slotLevel`을 받아 slot spell의 upcast 요청을 표현할 수 있게 했다.
+- Magic Missile은 `RuleCatalogService`의 `spell.magic_missile` entry에서 base spell level, missile count, aggregate damage dice, slot scaling rule을 읽고, `SpellScalingService` 결과로 missile 수를 계산한다.
+- Magic Missile 전투 시전은 catalog의 aggregate damage dice와 missile count에서 발당 피해식 `1d4+1`을 유도한다.
+- Sleep은 `spell.sleep` entry의 base HP pool과 scaling rule을 읽어 slot level에 따른 HP pool dice를 계산한다.
+- `spell.sleep` catalog entry에 `range:90` tag를 추가하고, 전투 range 검증이 catalog targeting 또는 `range:*` tag를 읽도록 연결했다.
+- Fireball은 `spell.fireball` entry에서 range, AoE shape/size, save ability, damage type, half-damage-on-success flag, slot scaling rule을 읽어 전투 주문 실행에 사용한다.
+- Fireball 전투 시전은 range와 AoE target 검증을 먼저 통과한 뒤 slot을 소모하도록 순서를 정리했다.
+- Fireball 실행 경로에서 `AoeTargetingService`, `AoeDamageService`, `SpellScalingService`를 함께 사용해 대상별 Dex save, 성공 시 절반 피해, slot level damage dice scaling, 피해 적용, 주문 로그 기록을 처리한다.
+
+### 2. Light 주문 메타데이터 정리
+
+- `spell.light` catalog entry에 `light_radius:40` tag를 추가했다.
+- Light 전투 시전은 하드코딩된 120ft range 대신 catalog targeting range를 사용해 대상 지점 검증을 수행한다.
+- 생성되는 light source의 밝은 빛 반경도 `light_radius:*` tag에서 읽고, tag가 없거나 잘못되면 기존 40ft fallback을 사용하도록 했다.
+- Light turn log 메시지는 실제 생성된 light source 반경을 사용해 기록한다.
+
+### 3. 남은 확인 포인트
+
+- 이번 문서 갱신 시점에는 프로젝트 지침에 따라 백엔드 build/test를 직접 실행하지 않았다.
+- 다음 검증에서는 `rule-catalog.service.spec.ts`, `spell-scaling.service.spec.ts`, `aoe-damage.service.spec.ts`, `combat.service.spec.ts`를 먼저 확인하는 것이 좋다.
+- 주문 준비/습득 모델, Fire Bolt/Magic Missile 외 ready cast_spell 실행, 몬스터 ability rider, 프론트 action/UI 표면은 계속 후속 작업으로 남아 있다.

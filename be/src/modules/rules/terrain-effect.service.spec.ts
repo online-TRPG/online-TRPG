@@ -22,6 +22,16 @@ describe("TerrainEffectService", () => {
     });
   });
 
+  it("ignores unsupported terrain ids instead of throwing", () => {
+    expect(service.resolveEffect("terrain.custom_unknown")).toBeNull();
+    expect(service.resolveCombinedEffects(["terrain.custom_unknown", "terrain.difficult"])).toMatchObject({
+      terrainEffectId: "terrain.combined",
+      movementCostMultiplier: 2,
+      damage: null,
+      conditionTags: [],
+    });
+  });
+
   it("combines movement, obscurity, damage, and conditions", () => {
     expect(
       service.resolveCombinedEffects([

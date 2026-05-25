@@ -425,7 +425,7 @@ describe("RuleCatalogService", () => {
       scaling: { mode: "slot_level", table: { mode: "damage_dice", dice: "2d8", perSlotAbove: 1 } },
       runtimeEffect: {
         type: "spell",
-        tags: ["spell_level:1", "hit_point_pool:5d8", "condition:unconscious", "area:sphere"],
+        tags: ["spell_level:1", "hit_point_pool:5d8", "condition:unconscious", "area:sphere", "range:90"],
         hookId: "hook.spell.cast_sleep",
       },
     });
