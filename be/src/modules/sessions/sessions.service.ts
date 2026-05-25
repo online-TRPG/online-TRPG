@@ -1045,10 +1045,11 @@ export class SessionsService {
     });
 
     const snapshot = await this.buildSnapshot(resolvedSessionId);
-    if (gmTurnLog) {
-      this.realtimeEvents.emitTurnLogCreated(resolvedSessionId, gmTurnLog.turnLog);
-      if (gmTurnLog.stateDiff) {
-        this.realtimeEvents.emitStateDiffApplied(resolvedSessionId, gmTurnLog.stateDiff);
+    const emittedGmTurnLog = gmTurnLog as HumanGmOverrideLogResult | null;
+    if (emittedGmTurnLog) {
+      this.realtimeEvents.emitTurnLogCreated(resolvedSessionId, emittedGmTurnLog.turnLog);
+      if (emittedGmTurnLog.stateDiff) {
+        this.realtimeEvents.emitStateDiffApplied(resolvedSessionId, emittedGmTurnLog.stateDiff);
       }
     }
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
@@ -1668,10 +1669,11 @@ export class SessionsService {
     });
 
     const snapshot = await this.buildSnapshot(resolvedSessionId);
-    if (gmTurnLog) {
-      this.realtimeEvents.emitTurnLogCreated(resolvedSessionId, gmTurnLog.turnLog);
-      if (gmTurnLog.stateDiff) {
-        this.realtimeEvents.emitStateDiffApplied(resolvedSessionId, gmTurnLog.stateDiff);
+    const emittedGmTurnLog = gmTurnLog as HumanGmOverrideLogResult | null;
+    if (emittedGmTurnLog) {
+      this.realtimeEvents.emitTurnLogCreated(resolvedSessionId, emittedGmTurnLog.turnLog);
+      if (emittedGmTurnLog.stateDiff) {
+        this.realtimeEvents.emitStateDiffApplied(resolvedSessionId, emittedGmTurnLog.stateDiff);
       }
     }
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
@@ -1747,10 +1749,11 @@ export class SessionsService {
     });
 
     const snapshot = await this.buildSnapshot(resolvedSessionId);
-    if (gmTurnLog) {
-      this.realtimeEvents.emitTurnLogCreated(resolvedSessionId, gmTurnLog.turnLog);
-      if (gmTurnLog.stateDiff) {
-        this.realtimeEvents.emitStateDiffApplied(resolvedSessionId, gmTurnLog.stateDiff);
+    const emittedGmTurnLog = gmTurnLog as HumanGmOverrideLogResult | null;
+    if (emittedGmTurnLog) {
+      this.realtimeEvents.emitTurnLogCreated(resolvedSessionId, emittedGmTurnLog.turnLog);
+      if (emittedGmTurnLog.stateDiff) {
+        this.realtimeEvents.emitStateDiffApplied(resolvedSessionId, emittedGmTurnLog.stateDiff);
       }
     }
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);

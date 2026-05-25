@@ -8,7 +8,10 @@ import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { CombatReactionResponseDto } from "@trpg/shared-types";
 import { CombatService } from "./combat.service";
-import { PENDING_READY_ACTIONS_FLAG } from "../rules/ready-action.service";
+import {
+  PENDING_READY_ACTIONS_FLAG,
+  TRIGGERED_READY_ACTIONS_FLAG,
+} from "../rules/ready-action.service";
 
 const createParticipant = (
   overrides: Partial<{
@@ -117,6 +120,7 @@ describe("CombatService lifecycle", () => {
     const actionEconomy = {
       getOrCreateTurnState: jest.fn(),
       spendAction: jest.fn(),
+      spendReaction: jest.fn(),
       spendSneakAttack: jest.fn(),
       recordAttackAction: jest.fn(),
     };
@@ -128,6 +132,7 @@ describe("CombatService lifecycle", () => {
       emitSessionSnapshot: jest.fn(),
       emitTurnChanged: jest.fn(),
       emitSystemMessage: jest.fn(),
+      emitCombatReactionPrompt: jest.fn(),
       emitDiceRolled: jest.fn(),
       emitTurnLogCreated: jest.fn(),
     };
@@ -438,6 +443,404 @@ describe("CombatService lifecycle", () => {
     expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalledWith("session-1", {
       sessionId: "session-1",
     });
+  });
+
+  it("moves triggered ready actions from pending state into triggered state on movement", async () => {
+    const { service, prisma, sessionsService, realtimeEvents } = createService();
+    const reactor = createParticipant({
+      id: "participant-1",
+      tokenId: "token-1",
+      sessionCharacterId: "session-character-1",
+      isHostile: false,
+    });
+    const mover = createParticipant({
+      id: "monster-1",
+      tokenId: "token-2",
+      sessionCharacterId: null,
+      entityType: PrismaCombatEntityType.MONSTER,
+      isHostile: true,
+    });
+    const pendingReadyAction = {
+      id: "reaction:ready:participant-1:1:1",
+      type: "ready_action",
+      actorParticipantId: "participant-1",
+      actorUserId: "user-1",
+      combatId: "combat-1",
+      roundNo: 1,
+      turnNo: 1,
+      trigger: { type: "creature_enters_range", targetParticipantId: "monster-1", rangeFt: 30 },
+      heldAction: { type: "attack", targetParticipantId: "monster-1" },
+      originalCost: "action",
+      consumesReaction: true,
+      expiresAtRound: 2,
+      expiresAtTurn: 1,
+      createdAt: "1970-01-01T00:00:00.000Z",
+    };
+
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        flagsJson: JSON.stringify({
+          [PENDING_READY_ACTIONS_FLAG]: [pendingReadyAction],
+        }),
+        currentNodeId: null,
+      },
+    });
+
+    const triggeredCount = await (service as unknown as {
+      resolveReadyActionsForMovement(params: unknown): Promise<number>;
+    }).resolveReadyActionsForMovement({
+      sessionId: "session-1",
+      combat: {
+        id: "combat-1",
+        sessionId: "session-1",
+        status: PrismaCombatStatus.ACTIVE,
+        roundNo: 1,
+        turnNo: 2,
+        currentParticipantId: mover.id,
+        participants: [reactor, mover],
+      },
+      mover,
+      map: {
+        id: "map-1",
+        gridType: "square",
+        gridSize: 50,
+        width: 500,
+        height: 500,
+        tokens: [
+          { id: "token-1", sessionCharacterId: "session-character-1", x: 0, y: 0, size: 50, hidden: false },
+          { id: "token-2", x: 100, y: 0, size: 50, hidden: false },
+        ],
+        fogRects: [],
+        updatedAt: "2026-05-25T00:00:00.000Z",
+      },
+      nextMoverToken: { id: "token-2", x: 100, y: 0, size: 50, hidden: false },
+    });
+
+    expect(triggeredCount).toBe(1);
+    const updateCall = prisma.gameState.update.mock.calls[0]?.[0];
+    expect(updateCall.where).toEqual({ sessionScenarioId: "session-scenario-1" });
+    const updatedFlags = JSON.parse(updateCall.data.flagsJson);
+    expect(updatedFlags[PENDING_READY_ACTIONS_FLAG]).toEqual([]);
+    expect(updatedFlags[TRIGGERED_READY_ACTIONS_FLAG]).toEqual([
+      expect.objectContaining({
+        type: "triggered_ready_action",
+        pending: pendingReadyAction,
+        status: "pending_response",
+      }),
+    ]);
+    expect(realtimeEvents.emitSystemMessage).toHaveBeenCalledWith(
+      "session-1",
+      "READY_ACTION_TRIGGERED",
+      "준비행동 1개가 발동 대기 중입니다.",
+    );
+    expect(realtimeEvents.emitCombatReactionPrompt).toHaveBeenCalledWith(
+      "session-1",
+      "user-1",
+      expect.objectContaining({
+        type: "ready_action",
+        reactorParticipantId: "participant-1",
+        moverParticipantId: "monster-1",
+        message: "Hero의 준비행동 조건이 충족되었습니다. 실행할까요?",
+      }),
+    );
+  });
+
+  it("declines triggered ready actions and removes them from triggered state", async () => {
+    const { service, prisma, sessionsService, realtimeEvents } = createService();
+    const reactor = createParticipant({
+      id: "participant-1",
+      sessionCharacterId: "session-character-1",
+      nameSnapshot: "Hero",
+    });
+    const triggeredReadyAction = {
+      id: "triggered:reaction:ready:participant-1:1:1:1:2",
+      type: "triggered_ready_action",
+      pending: {
+        id: "reaction:ready:participant-1:1:1",
+        type: "ready_action",
+        actorParticipantId: "participant-1",
+        actorUserId: "user-1",
+        combatId: "combat-1",
+        roundNo: 1,
+        turnNo: 1,
+        trigger: { type: "creature_enters_range" },
+        heldAction: { type: "attack" },
+        originalCost: "action",
+        consumesReaction: true,
+        expiresAtRound: 2,
+        expiresAtTurn: 1,
+        createdAt: "1970-01-01T00:00:00.000Z",
+      },
+      triggeredAtRound: 1,
+      triggeredAtTurn: 2,
+      triggerEvent: { type: "creature_enters_range", roundNo: 1, turnNo: 2 },
+      status: "pending_response",
+      createdAt: "1970-01-01T00:00:00.000Z",
+    };
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 2,
+      currentParticipantId: "monster-1",
+      participants: [reactor],
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        flagsJson: JSON.stringify({
+          [TRIGGERED_READY_ACTIONS_FLAG]: [triggeredReadyAction],
+        }),
+        currentNodeId: null,
+      },
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue({
+      id: "map-1",
+      gridType: "square",
+      gridSize: 50,
+      width: 500,
+      height: 500,
+      tokens: [],
+      fogRects: [],
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    });
+    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+
+    const result = await service.declineReaction("user-1", "session-1", {
+      reactionId: triggeredReadyAction.id,
+    });
+
+    const updateCall = prisma.gameState.update.mock.calls[0]?.[0];
+    expect(JSON.parse(updateCall.data.flagsJson)[TRIGGERED_READY_ACTIONS_FLAG]).toEqual([]);
+    expect(result.message).toBe("Hero이(가) 준비행동을 취소했습니다.");
+    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalledWith("session-1", {
+      sessionId: "session-1",
+    });
+  });
+
+  it("accepts triggered custom ready actions and spends the actor reaction", async () => {
+    const { service, prisma, sessionsService, actionEconomy, realtimeEvents, turnLogsService } = createService();
+    const reactor = createParticipant({
+      id: "participant-1",
+      sessionCharacterId: "session-character-1",
+      nameSnapshot: "Hero",
+    });
+    const triggeredReadyAction = {
+      id: "triggered:reaction:ready:participant-1:1:1:1:2",
+      type: "triggered_ready_action",
+      pending: {
+        id: "reaction:ready:participant-1:1:1",
+        type: "ready_action",
+        actorParticipantId: "participant-1",
+        actorUserId: "user-1",
+        combatId: "combat-1",
+        roundNo: 1,
+        turnNo: 1,
+        trigger: { type: "manual" },
+        heldAction: { type: "custom", description: "Pull the lever." },
+        originalCost: "action",
+        consumesReaction: true,
+        expiresAtRound: 2,
+        expiresAtTurn: 1,
+        createdAt: "1970-01-01T00:00:00.000Z",
+      },
+      triggeredAtRound: 1,
+      triggeredAtTurn: 2,
+      triggerEvent: { type: "manual", roundNo: 1, turnNo: 2 },
+      status: "pending_response",
+      createdAt: "1970-01-01T00:00:00.000Z",
+    };
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 2,
+      currentParticipantId: "monster-1",
+      participants: [reactor],
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        flagsJson: JSON.stringify({
+          [TRIGGERED_READY_ACTIONS_FLAG]: [triggeredReadyAction],
+        }),
+        currentNodeId: null,
+      },
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue({
+      id: "map-1",
+      gridType: "square",
+      gridSize: 50,
+      width: 500,
+      height: 500,
+      tokens: [],
+      fogRects: [],
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    });
+    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    turnLogsService.createTurnLog.mockResolvedValue({ turnLogId: "turn-log-1" });
+
+    const result = await service.acceptReaction("user-1", "session-1", {
+      reactionId: triggeredReadyAction.id,
+    });
+
+    expect(actionEconomy.spendReaction).toHaveBeenCalledWith({
+      combatId: "combat-1",
+      combatParticipantId: "participant-1",
+      roundNo: 1,
+      turnNo: 2,
+      sessionCharacterId: "session-character-1",
+    });
+    expect(turnLogsService.createTurnLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        structuredAction: expect.objectContaining({ type: "ready_action_execute" }),
+        narration: "Pull the lever.",
+      }),
+    );
+    expect(result.message).toBe("Pull the lever.");
+    expect(realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith("session-1", {
+      turnLogId: "turn-log-1",
+    });
+  });
+
+  it("accepts triggered Fire Bolt ready actions through the reaction attack path", async () => {
+    const { service, prisma, sessionsService } = createService();
+    const reactor = createParticipant({
+      id: "participant-1",
+      tokenId: "token-1",
+      sessionCharacterId: "session-character-1",
+      nameSnapshot: "Wizard",
+    });
+    const target = createParticipant({
+      id: "monster-1",
+      tokenId: "token-2",
+      sessionCharacterId: null,
+      entityType: PrismaCombatEntityType.MONSTER,
+      isHostile: true,
+    });
+    const triggeredReadyAction = {
+      id: "triggered:reaction:ready:participant-1:1:1:1:2",
+      type: "triggered_ready_action",
+      pending: {
+        id: "reaction:ready:participant-1:1:1",
+        type: "ready_action",
+        actorParticipantId: "participant-1",
+        actorUserId: "user-1",
+        combatId: "combat-1",
+        roundNo: 1,
+        turnNo: 1,
+        trigger: { type: "creature_enters_range", targetParticipantId: "monster-1", rangeFt: 120 },
+        heldAction: {
+          type: "cast_spell",
+          spellId: "spell.fire_bolt",
+          targetParticipantId: "monster-1",
+        },
+        originalCost: "action",
+        consumesReaction: true,
+        expiresAtRound: 2,
+        expiresAtTurn: 1,
+        createdAt: "1970-01-01T00:00:00.000Z",
+      },
+      triggeredAtRound: 1,
+      triggeredAtTurn: 2,
+      triggerEvent: {
+        type: "creature_enters_range",
+        targetParticipantId: "monster-1",
+        roundNo: 1,
+        turnNo: 2,
+      },
+      status: "pending_response",
+      createdAt: "1970-01-01T00:00:00.000Z",
+    };
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 2,
+      currentParticipantId: "monster-1",
+      participants: [reactor, target],
+    };
+    const map = {
+      id: "map-1",
+      gridType: "square" as const,
+      gridSize: 50,
+      width: 500,
+      height: 500,
+      tokens: [
+        { id: "token-1", sessionCharacterId: "session-character-1", x: 0, y: 0, size: 50, hidden: false },
+        { id: "token-2", x: 100, y: 0, size: 50, hidden: false },
+      ],
+      fogRects: [],
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        flagsJson: JSON.stringify({
+          [TRIGGERED_READY_ACTIONS_FLAG]: [triggeredReadyAction],
+        }),
+        currentNodeId: null,
+      },
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue(map);
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.sessionCharacter.findUnique.mockResolvedValue({
+      id: "session-character-1",
+      character: {
+        className: "Wizard",
+        spellsJson: JSON.stringify({ cantrips: ["spell.fire_bolt"] }),
+        abilitiesJson: JSON.stringify({ int: 16 }),
+        proficiencyBonus: 2,
+        level: 5,
+      },
+    });
+    const resolveAttack = jest.spyOn(service, "resolveAttack").mockResolvedValue({
+      combat: { id: "combat-1" },
+      message: "Wizard 준비 주문 Fire Bolt 명중",
+      attackTotal: 17,
+      damageTotal: 8,
+    } as never);
+
+    const result = await service.acceptReaction("user-1", "session-1", {
+      reactionId: triggeredReadyAction.id,
+    });
+
+    expect(resolveAttack).toHaveBeenCalledWith(
+      "user-1",
+      "session-1",
+      expect.objectContaining({
+        attackerParticipantId: "participant-1",
+        targetParticipantId: "monster-1",
+        attackBonus: 5,
+        damageDice: "2d10",
+      }),
+      expect.objectContaining({
+        actionCost: "reaction",
+        reactionUserId: "user-1",
+      }),
+    );
+    expect(result.message).toBe("Wizard 준비 주문 Fire Bolt 명중");
   });
 
   it("rejects endTurn with TURN_409 when another caller already advanced the turn", async () => {

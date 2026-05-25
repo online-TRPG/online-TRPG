@@ -218,4 +218,42 @@ describe("ReadyActionService", () => {
       remaining: [{ actorParticipantId: "remaining" }],
     });
   });
+
+  it("materializes triggered ready actions for later accept or decline handling", () => {
+    const created = service.createPendingReadyAction({
+      actorParticipantId: "participant-1",
+      actorUserId: "user-1",
+      combatId: "combat-1",
+      roundNo: 2,
+      turnNo: 3,
+      reactionAvailable: true,
+      trigger: { type: "creature_enters_range", targetParticipantId: "monster-1", rangeFt: 30 },
+      heldAction: { type: "attack", targetParticipantId: "monster-1" },
+    });
+    if (!created.accepted) {
+      throw new Error("expected accepted ready action");
+    }
+
+    expect(
+      service.createTriggeredReadyAction(created.pending, {
+        type: "creature_enters_range",
+        targetParticipantId: "monster-1",
+        distanceFt: 25,
+        roundNo: 2,
+        turnNo: 4,
+      }),
+    ).toMatchObject({
+      id: "triggered:reaction:ready:participant-1:2:3:2:4",
+      type: "triggered_ready_action",
+      status: "pending_response",
+      pending: { id: "reaction:ready:participant-1:2:3" },
+      triggeredAtRound: 2,
+      triggeredAtTurn: 4,
+      triggerEvent: {
+        type: "creature_enters_range",
+        targetParticipantId: "monster-1",
+        distanceFt: 25,
+      },
+    });
+  });
 });

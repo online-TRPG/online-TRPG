@@ -114,7 +114,7 @@ export class RestResolutionService {
         maxHp: input.maxHp,
         tempHp: input.tempHp ?? 0,
       },
-      conditions: this.removeRecoveredConditions(input.conditions ?? [], SHORT_REST_RECOVERED_TAGS),
+      conditions: this.removeRecoveredConditions(input.conditions ?? [], "short", SHORT_REST_RECOVERED_TAGS),
       resource: {
         ...resource,
         secondWindAvailable: true,
@@ -138,7 +138,7 @@ export class RestResolutionService {
         maxHp: input.maxHp,
         tempHp: 0,
       },
-      conditions: this.removeRecoveredConditions(input.conditions ?? [], LONG_REST_RECOVERED_TAGS),
+      conditions: this.removeRecoveredConditions(input.conditions ?? [], "long", LONG_REST_RECOVERED_TAGS),
       resource: {
         ...resource,
         secondWindAvailable: true,
@@ -164,8 +164,11 @@ export class RestResolutionService {
     };
   }
 
-  private removeRecoveredConditions(conditions: unknown[], recoveredTags: string[]): unknown[] {
-    const restType = recoveredTags.includes("spell_slots:all") ? "long" : "short";
+  private removeRecoveredConditions(
+    conditions: unknown[],
+    restType: RestType,
+    recoveredTags: string[],
+  ): unknown[] {
     const recovered = new Set(recoveredTags);
     return conditions.filter((condition) => {
       if (typeof condition === "string") {

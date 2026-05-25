@@ -645,7 +645,7 @@ export class CombatReactionPromptDto {
   id!: string;
 
   @ApiProperty()
-  type!: "opportunity_attack" | "shield";
+  type!: "opportunity_attack" | "shield" | "ready_action";
 
   @ApiProperty()
   reactorParticipantId!: string;

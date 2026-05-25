@@ -1,7 +1,7 @@
 # SRD 5e 룰 런타임 확장 작업 정리
 
 작성일: 2026-05-23
-최근 갱신: 2026-05-24
+최근 갱신: 2026-05-25
 
 ## 요약
 
@@ -13,7 +13,7 @@
 - 룰 계산은 전용 resolver/service로 분리한다.
 - 기존 전투/행동/세션 런타임은 카탈로그 id와 resolver 결과를 받아 상태 변경만 담당하도록 점진 이관한다.
 
-현재 작업은 아직 전체 통합 완료가 아니다. 다만 최초의 "룰 엔진 부품을 세운 상태"에서 더 나아가, 일부 resolver를 실제 action/combat/session 경로에 연결하는 단계까지 진행했다. 프로젝트 규칙에 따라 테스트는 직접 실행하지 않았고, 실행해야 할 검증 명령은 아래에 별도로 적었다.
+현재 작업은 아직 전체 통합 완료가 아니다. 다만 최초의 "룰 엔진 부품을 세운 상태"에서 더 나아가, 일부 resolver를 실제 action/combat/session 경로에 연결하는 단계까지 진행했다. 2026-05-25 기준으로 item drop/pickup의 VTT map object 생성/삭제 runtime effect도 `ActionProcessorService`까지 연결했다. 프로젝트 규칙에 따라 테스트는 직접 실행하지 않았고, 실행해야 할 검증 명령은 아래에 별도로 적었다.
 
 ## 오늘 한 작업
 
@@ -131,6 +131,12 @@
 
 이 분리는 지형 효과를 "정의 데이터"와 "런타임 계산 결과"로 나누는 의미가 있어, 앞으로 지형 효과가 늘어나도 타입이 더 명확해진다.
 
+## 2026-05-25 빌드 오류 대응
+
+- `ActionRuleService.resolveItemInteraction()`에서 `ItemInteractionService` 반환 union이 operation별로 좁혀지지 않아 발생한 `TS2339` 오류를 `result.type` guard로 수정했다.
+- `ScenariosService.getDefaultScenarioEntity()`에서 누락된 `DEFAULT_PROVIDED_SCENARIO_ID` import를 복구했다.
+- `SessionsService`의 HUMAN GM override turn log emit 구간에서 트랜잭션 콜백 내부 대입을 TypeScript가 추적하지 못해 `never`로 좁히던 문제를 명시적 `HumanGmOverrideLogResult | null` alias로 정리했다.
+
 ## 2026-05-24 추가 진행
 
 ### 1. 레벨업 TypeScript 오류 수정
@@ -224,10 +230,21 @@
 - `CombatService.advanceCurrentTurn()` 이후 만료된 pending ready action을 정리한다.
 - 전투 가능 액션 목록에 `READY`를 노출했다.
 
+2026-05-25 보강:
+
+- `TRIGGERED_READY_ACTIONS_FLAG`를 추가해 발동 조건을 만족한 준비행동을 pending 목록에서 분리해 보존한다.
+- 전투 이동 후 `creature_enters_range` trigger를 평가해, 조건을 만족하면 `triggeredReadyActions`에 `pending_response` 상태로 저장하고 시스템 메시지를 emit한다.
+- movement trigger 감지와 triggered state 저장을 `combat.service.spec.ts`로 고정했다.
+- 기존 combat reaction accept/decline endpoint가 `triggered:*` reaction id를 받으면 ready action 응답으로 처리하도록 연결했다.
+- ready attack accept는 기존 `resolveAttack(... actionCost: "reaction")` 경로를 사용하고, custom/interact 계열 accept는 reaction 소모와 TurnLog를 남기도록 했다.
+- ready decline은 `triggeredReadyActions`에서 해당 항목을 제거하고 combat/session snapshot을 갱신한다.
+- shared `CombatReactionPromptDto.type`에 `ready_action`을 추가하고, triggered ready action 발생 시 기존 `combat.reaction.prompt` 이벤트로 actor에게 실행/취소 confirm을 보내도록 연결했다.
+- 프론트 `PlayPage`의 reaction prompt handler가 `ready_action`도 기존 accept/decline API로 처리하도록 보강했다.
+- ready held action이 `cast_spell`이고 주문이 Fire Bolt이면, accept 시 기존 `resolveAttack(... actionCost: "reaction")` 경로로 주문 공격을 실행하도록 연결했다.
+
 아직 남은 부분:
 
-- 실제 trigger 발생 시 player/GM에게 실행/취소 prompt를 보내는 흐름.
-- 준비된 held action을 reaction으로 실행하고 `SPEND_REACTION`을 확정하는 흐름.
+- Fire Bolt 외 cast_spell held action과 move held action의 실제 실행 경로.
 
 ### 7. 아이템 상호작용 명령 확장
 
@@ -248,11 +265,20 @@
   - finesse/proficiency 기반 attack bonus 계산.
   - `REMOVE_ITEM` + `SPEND_ACTION` runtime effect 반환.
 
+2026-05-25 보강:
+
+- drop 결과의 `CREATE_MAP_OBJECT` runtime effect를 `ActionProcessorService`에서 실제 VTT `objectCells` 생성으로 저장하도록 연결했다.
+- pickup 결과의 `REMOVE_MAP_OBJECT` runtime effect를 `ActionProcessorService`에서 실제 VTT `objectCells` 삭제로 저장하도록 연결했다.
+- map object 저장 시 `flags.vttMap`만 직접 읽지 않고, `SessionsService.getVttMapBaseline()`을 사용해 저장된 map, 시나리오 노드 기본 map, 기본 map fallback을 같은 경로로 처리하도록 보강했다.
+- action runtime context도 `getVttMapBaseline()` 기반 VTT map에서 만들도록 바꿔, 시나리오 노드 기본 map의 object cell을 룰 판정에서 볼 수 있게 했다.
+- pickup 명령은 VTT map object id, hidden item id, grid 위치가 명령과 맞는지 검증한 뒤 inventory 추가와 map object 삭제 effect를 반환하도록 보강했다.
+- drop으로 생성한 object의 `description`에 담긴 `<itemDefinitionId> x<quantity>` 형식을 runtime map context에서 읽어, 부분 pickup은 `UPDATE_MAP_OBJECT_QUANTITY`로 남은 수량을 저장하고 전량 pickup은 object를 삭제하도록 보강했다.
+- throw 명령은 인벤토리에서 아이템을 제거한 뒤 target grid에 `object:thrown:*` map object를 생성하도록 `CREATE_MAP_OBJECT` effect를 연결했다.
+- `ActionProcessorService`의 map object 생성/수량 갱신/삭제 helper를 고정하는 회귀 spec을 추가했다.
+
 아직 남은 부분:
 
-- drop 결과를 실제 VTT map object 생성으로 저장하는 effect.
-- pickup 결과의 `removeObject`를 실제 map object 삭제와 연결하는 effect.
-- thrown miss object를 실제 map object 착지 처리와 연결하는 effect.
+- inventory 변경과 map 저장을 하나의 트랜잭션성 흐름으로 묶는 보강.
 
 ### 8. 몬스터 ability 실행 후보 승격
 
@@ -308,8 +334,12 @@
 - condition/rest/turn/save lifecycle resolver.
 - concentration, cover, forced movement, AoE damage, terrain effect resolver.
 - Fire Bolt, Magic Missile, Fireball의 실행 경로.
-- 준비행동 command, pending 저장, 만료 정리.
+- 준비행동 command, pending 저장, movement trigger 감지, triggered state 저장, accept/decline 일부 처리, 만료 정리.
 - item drop/pickup/throw command와 inventory runtime effect.
+- item drop/pickup의 VTT map object 생성/삭제 runtime effect.
+- pickup의 VTT map object 존재/id/item/위치 검증.
+- pickup의 VTT map object stack 수량 검증과 부분 pickup 수량 감소 effect.
+- throw의 target grid map object 착지 effect.
 - monster ability catalog -> auto monster action 후보 연결.
 - HUMAN GM override 일부 세션 흐름 연결.
 - rule runtime smoke scenario seed.
@@ -317,10 +347,10 @@
 
 아직 남은 부분:
 
-- 준비행동 trigger 발생 시 prompt/accept/decline/held action 실행까지 연결.
+- Fire Bolt 외 준비행동 cast_spell과 move held action 실행까지 연결.
 - cover/concentration/condition lifecycle을 모든 combat attack/spell/damage 경로에 일관되게 반영.
 - spell slot 실제 소모/회복 저장 모델과 주문 준비/습득 모델.
-- item drop/pickup/throw 결과를 실제 VTT map object 생성/삭제/착지 처리와 연결.
+- inventory/map 저장 원자성 보강.
 - 100개 우선 주문 승격.
 - 몬스터 multiattack/recharge/save-based attack/condition rider/limited-use ability.
 - HUMAN GM override 전체 API/UI 표면과 권한/로그 검증.
@@ -352,15 +382,13 @@ npm run build
 - decline/expire 시 pending state를 제거한다.
 - reaction 소모와 turn log를 남긴다.
 
-### 3. 아이템/VTT object runtime 연결
+### 3. 아이템/VTT object runtime 보강
 
-현재 item interaction은 inventory runtime effect와 map object metadata까지만 만든다.
+현재 item interaction은 inventory runtime effect와 VTT map object 생성/삭제 effect까지 연결되어 있다. pickup은 map object id, item id, 위치, stack 수량까지 검증하고 부분 pickup이면 map object 수량을 줄인다. throw는 target grid에 map object를 남긴다. 다만 inventory/map 저장 원자성은 남아 있다.
 
 남은 작업:
 
-- `DROP_MAP_OBJECT`, `REMOVE_MAP_OBJECT`, `CREATE_THROWN_MISS_OBJECT` 같은 map runtime effect를 정의한다.
-- `ActionProcessorService` 또는 `MapRuntimeService`에서 해당 effect를 실제 VTT map에 반영한다.
-- pickup 시 map object 수량과 inventory 수량 보존을 검증한다.
+- inventory 변경과 map 저장 실패가 엇갈리지 않도록 처리 경계를 정한다.
 
 ### 4. 룰 카탈로그를 캐릭터 snapshot에 더 깊게 연결
 
@@ -512,6 +540,7 @@ npm test -- terrain-effect.service.spec.ts
 npm test -- rest-resolution.service.spec.ts
 npm test -- level-up.service.spec.ts
 npm test -- item-interaction.service.spec.ts
+npm test -- action-processor.service.spec.ts
 npm test -- ready-action.service.spec.ts
 npm test -- action-rule.service.spec.ts
 npm test -- combat.service.spec.ts

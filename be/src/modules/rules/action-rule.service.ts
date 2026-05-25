@@ -31,7 +31,11 @@ import {
   RuleHookResult,
   SavingThrowAbility,
 } from "./rule-engine.types";
-import { MapPositionService, RuleMapRuntimeContext } from "./map-position.service";
+import {
+  MapPositionService,
+  RuleMapRuntimeContext,
+  RuleMapRuntimeObjectCell,
+} from "./map-position.service";
 import { ReadyActionService } from "./ready-action.service";
 import type { PendingReadyAction } from "./ready-action.service";
 
@@ -189,7 +193,22 @@ export type ActionRuntimeEffect =
       quantity: number;
       containerEntryId?: string | null;
     }
-  | { type: "REMOVE_ITEM"; itemId: string; quantity: number };
+  | { type: "REMOVE_ITEM"; itemId: string; quantity: number }
+  | {
+      type: "CREATE_MAP_OBJECT";
+      objectId: string;
+      itemDefinitionId: string;
+      name: string;
+      quantity: number;
+      point: ItemInteractionPoint;
+    }
+  | {
+      type: "UPDATE_MAP_OBJECT_QUANTITY";
+      objectId: string;
+      itemDefinitionId: string;
+      quantity: number;
+    }
+  | { type: "REMOVE_MAP_OBJECT"; objectId: string };
 
 export type ActionResolution = {
   structuredAction: Record<string, unknown>;
@@ -1034,6 +1053,11 @@ export class ActionRuleService {
     }
 
     if (command.operation === "pickup") {
+      const pickupObject = this.resolvePickupMapObject(command, runtimeContext.map);
+      if (pickupObject.rejectedReason) {
+        return this.createItemInteractionRejectedResolution(command, pickupObject.rejectedReason);
+      }
+
       const result = this.itemInteractions.resolvePickup({
         objectId: command.objectId,
         itemDefinitionId: command.itemDefinitionId,
@@ -1044,6 +1068,11 @@ export class ActionRuleService {
       if (!result.accepted) {
         return this.createItemInteractionRejectedResolution(command, result.rejectedReason, result.distanceFt);
       }
+      if (result.type !== "pickup") {
+        throw new Error("Unexpected pickup item interaction resolution.");
+      }
+      const remainingQuantity =
+        pickupObject.quantity !== null ? pickupObject.quantity - result.quantity : 0;
 
       return {
         structuredAction: {
@@ -1065,6 +1094,17 @@ export class ActionRuleService {
             itemDefinitionId: result.itemDefinitionId,
             quantity: result.quantity,
           },
+          remainingQuantity > 0
+            ? {
+                type: "UPDATE_MAP_OBJECT_QUANTITY",
+                objectId: result.objectId,
+                itemDefinitionId: result.itemDefinitionId,
+                quantity: remainingQuantity,
+              }
+            : {
+                type: "REMOVE_MAP_OBJECT",
+                objectId: result.objectId,
+              },
         ],
       };
     }
@@ -1079,6 +1119,9 @@ export class ActionRuleService {
       });
       if (!result.accepted) {
         return this.createItemInteractionRejectedResolution(command, result.rejectedReason, result.distanceFt);
+      }
+      if (result.type !== "drop") {
+        throw new Error("Unexpected drop item interaction resolution.");
       }
 
       return {
@@ -1100,6 +1143,14 @@ export class ActionRuleService {
             itemId: result.entryId,
             quantity: result.removeQuantity,
           },
+          {
+            type: "CREATE_MAP_OBJECT",
+            objectId: this.createDroppedItemObjectId(result.entryId, result.createObject.point),
+            itemDefinitionId: result.createObject.itemDefinitionId,
+            name: result.createObject.name,
+            quantity: result.createObject.quantity,
+            point: result.createObject.point,
+          },
         ],
       };
     }
@@ -1117,6 +1168,9 @@ export class ActionRuleService {
     });
     if (!result.accepted) {
       return this.createItemInteractionRejectedResolution(command, result.rejectedReason, result.distanceFt);
+    }
+    if (result.type !== "throw") {
+      throw new Error("Unexpected throw item interaction resolution.");
     }
 
     return {
@@ -1137,6 +1191,14 @@ export class ActionRuleService {
           type: "REMOVE_ITEM",
           itemId: result.entryId,
           quantity: result.removeQuantity,
+        },
+        {
+          type: "CREATE_MAP_OBJECT",
+          objectId: this.createThrownItemObjectId(result.entryId, result.missObject.point),
+          itemDefinitionId: result.missObject.itemDefinitionId,
+          name: result.missObject.name,
+          quantity: result.missObject.quantity,
+          point: result.missObject.point,
         },
         { type: "SPEND_ACTION" },
       ],
@@ -1999,6 +2061,73 @@ export class ActionRuleService {
       x: Math.floor(token.x / map.gridSize),
       y: Math.floor(token.y / map.gridSize),
     };
+  }
+
+  private createDroppedItemObjectId(entryId: string, point: ItemInteractionPoint): string {
+    return `object:item:${entryId}:${point.x}:${point.y}`;
+  }
+
+  private createThrownItemObjectId(entryId: string, point: ItemInteractionPoint): string {
+    return `object:thrown:${entryId}:${point.x}:${point.y}`;
+  }
+
+  private resolvePickupMapObject(
+    command: Extract<ParsedCommand, { type: "item_interaction"; operation: "pickup" }>,
+    map: RuleMapRuntimeContext | null | undefined,
+  ): {
+    objectCell: RuleMapRuntimeObjectCell | null;
+    quantity: number | null;
+    rejectedReason: string | null;
+  } {
+    if (!map || !Array.isArray(map.objectCells)) {
+      return { objectCell: null, quantity: null, rejectedReason: null };
+    }
+
+    const objectCell = map.objectCells.find((cell) => cell.id === command.objectId) ?? null;
+    if (!objectCell) {
+      return { objectCell: null, quantity: null, rejectedReason: "map_object_not_found" };
+    }
+
+    if (
+      objectCell.hiddenItemIds.length > 0 &&
+      !objectCell.hiddenItemIds.includes(command.itemDefinitionId)
+    ) {
+      return { objectCell, quantity: null, rejectedReason: "map_object_item_mismatch" };
+    }
+
+    const objectPoint = {
+      x: Math.floor(objectCell.x / map.gridSize),
+      y: Math.floor(objectCell.y / map.gridSize),
+    };
+    if (objectPoint.x !== command.point.x || objectPoint.y !== command.point.y) {
+      return { objectCell, quantity: null, rejectedReason: "map_object_position_mismatch" };
+    }
+
+    const quantity = this.resolveMapObjectQuantity(objectCell, command.itemDefinitionId);
+    if (quantity !== null && command.quantity > quantity) {
+      return { objectCell, quantity, rejectedReason: "insufficient_map_object_quantity" };
+    }
+
+    return { objectCell, quantity, rejectedReason: null };
+  }
+
+  private resolveMapObjectQuantity(
+    objectCell: RuleMapRuntimeObjectCell,
+    itemDefinitionId: string,
+  ): number | null {
+    const description = objectCell.description?.trim();
+    if (!description) {
+      return null;
+    }
+
+    const escapedItemDefinitionId = itemDefinitionId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = description.match(new RegExp(`(?:^|\\s)${escapedItemDefinitionId}\\s+x(\\d+)(?:\\s|$)`));
+    if (!match) {
+      return null;
+    }
+
+    const quantity = Number(match[1]);
+    return Number.isInteger(quantity) && quantity > 0 ? quantity : null;
   }
 
   private createItemInteractionRejectedResolution(

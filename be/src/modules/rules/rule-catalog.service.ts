@@ -740,7 +740,7 @@ export class RuleCatalogService {
       .filter((entry) => (entry.levelRequirement.minClassLevel ?? 1) <= normalizedLevel)
       .sort((left, right) => {
         const levelDelta = (left.levelRequirement.minClassLevel ?? 1) - (right.levelRequirement.minClassLevel ?? 1);
-        return levelDelta || left.id.localeCompare(right.id);
+        return levelDelta;
       });
   }
 
