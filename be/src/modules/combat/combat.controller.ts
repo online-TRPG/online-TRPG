@@ -20,6 +20,7 @@ import {
   CombatResponseDto,
   EquippedWeaponAttackDto,
   EndTurnDto,
+  ForceMoveCombatParticipantDto,
   MoveCombatParticipantDto,
   ResolveCombatAttackDto,
   StartCombatDto,
@@ -129,6 +130,22 @@ export class CombatController {
       "COMBAT_200",
       "요청이 성공했습니다.",
       await this.combatService.moveParticipant(userId, sessionId, dto),
+    );
+  }
+
+  @Post("force-move")
+  @HttpCode(200)
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatMoveResultDto })
+  async forceMoveParticipant(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: ForceMoveCombatParticipantDto,
+  ): Promise<ApiResponse<CombatMoveResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.forceMoveParticipant(userId, sessionId, dto),
     );
   }
 

@@ -4,10 +4,17 @@ export const DEFAULT_SCENARIO_ID = "scenario_goblin_cave";
 export const DEFAULT_START_NODE_ID = "node_cave_entrance";
 export const NODE_SCREEN_TEST_SCENARIO_ID = "scenario_node_screen_test";
 export const NODE_SCREEN_TEST_START_NODE_ID = "node_screen_test_combat";
+export const RULE_RUNTIME_SMOKE_SCENARIO_ID = "scenario_rule_runtime_smoke";
+export const RULE_RUNTIME_SMOKE_START_NODE_ID = "node_rule_smoke_rest";
 
 const TEAM_SCENARIO_TITLE = "ㅁㄴㅇㅇㄹ";
 const NODE_SCREEN_TEST_STORY_NODE_ID = "node_screen_test_story";
 const NODE_SCREEN_TEST_EXPLORATION_NODE_ID = "node_screen_test_exploration";
+const RULE_RUNTIME_TRAP_NODE_ID = "node_rule_smoke_trap_save";
+const RULE_RUNTIME_COVER_NODE_ID = "node_rule_smoke_cover_combat";
+const RULE_RUNTIME_AOE_NODE_ID = "node_rule_smoke_aoe";
+const RULE_RUNTIME_CONDITION_NODE_ID = "node_rule_smoke_condition";
+const RULE_RUNTIME_HUMAN_GM_NODE_ID = "node_rule_smoke_human_gm";
 
 // 서버를 처음 실행했을 때 바로 세션을 만들고 흐름을 검증할 수 있도록
 // 가장 작은 형태의 기본 시나리오를 코드로 함께 넣어둔다.
@@ -34,6 +41,19 @@ const nodeScreenTestScenario = {
   license: ScenarioLicense.ORIGINAL,
   attribution: "Original scenario seed for session node UI verification.",
   startNodeId: NODE_SCREEN_TEST_START_NODE_ID,
+};
+
+const ruleRuntimeSmokeScenario = {
+  id: RULE_RUNTIME_SMOKE_SCENARIO_ID,
+  title: "SRD 5e 룰 런타임 스모크 테스트",
+  description:
+    "휴식, 내성, 엄폐, 광역기, 상태이상, 사람 GM 개입 흐름을 한 번씩 검증하기 위한 개발용 시나리오입니다.",
+  thumbnailUrl: null,
+  ruleSetId: "dnd5e",
+  difficulty: "test",
+  license: ScenarioLicense.ORIGINAL,
+  attribution: "Original scenario seed for SRD 5e executable rule smoke testing.",
+  startNodeId: RULE_RUNTIME_SMOKE_START_NODE_ID,
 };
 
 // 화면 레이아웃 확인이 목적이라 DB 마이그레이션 없이 시드만으로 기본 맵을 주입한다.
@@ -69,6 +89,69 @@ function createNodeScreenTestMap(
       { id: `start_${nodeId}_4`, label: "4", x: 256, y: 704 },
     ],
     updatedAt: "2026-05-12T00:00:00.000Z",
+  };
+}
+
+function createRuleRuntimeSmokeMap(nodeId: string) {
+  return {
+    id: `map_${nodeId}`,
+    scenarioNodeId: nodeId,
+    imageUrl: null,
+    gridType: "square",
+    gridSize: 64,
+    width: 768,
+    height: 512,
+    tokens: [
+      {
+        id: `token_${nodeId}_goblin`,
+        name: "Smoke Goblin",
+        x: 448,
+        y: 192,
+        size: 64,
+        hidden: false,
+        isHostile: true,
+        monster: {
+          id: "monster.goblin",
+          nameEn: "Goblin",
+          nameKo: "고블린",
+        },
+      },
+      {
+        id: `token_${nodeId}_rat`,
+        name: "Smoke Giant Rat",
+        x: 576,
+        y: 256,
+        size: 64,
+        hidden: false,
+        isHostile: true,
+        monster: {
+          id: "monster.giant_rat",
+          nameEn: "Giant Rat",
+          nameKo: "거대 쥐",
+        },
+      },
+      {
+        id: `token_${nodeId}_cover`,
+        name: "Half Cover Crate",
+        x: 320,
+        y: 192,
+        size: 64,
+        hidden: false,
+        isHostile: false,
+        coverLevel: "half",
+      },
+    ],
+    terrain: [
+      { id: `terrain_${nodeId}_burning`, x: 384, y: 256, terrainEffectId: "terrain.burning" },
+      { id: `terrain_${nodeId}_poison`, x: 448, y: 256, terrainEffectId: "terrain.poison_cloud" },
+    ],
+    startingPositions: [
+      { id: `start_${nodeId}_1`, label: "1", x: 128, y: 256 },
+      { id: `start_${nodeId}_2`, label: "2", x: 192, y: 256 },
+      { id: `start_${nodeId}_3`, label: "3", x: 128, y: 320 },
+      { id: `start_${nodeId}_4`, label: "4", x: 192, y: 320 },
+    ],
+    updatedAt: "2026-05-24T00:00:00.000Z",
   };
 }
 
@@ -129,6 +212,187 @@ const scenarioNodes = [
     ]),
     fallbackNodeId: null,
     nodeMetaJson: null,
+  },
+  {
+    id: RULE_RUNTIME_SMOKE_START_NODE_ID,
+    scenarioId: RULE_RUNTIME_SMOKE_SCENARIO_ID,
+    nodeType: "story",
+    title: "휴식 런타임 확인",
+    sceneText:
+      "원정대는 폐허 입구에서 짧은 휴식을 취할 수 있습니다. short/long rest 자원 회복과 until_rest 상태 제거를 확인하세요.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [],
+      vttMap: null,
+    }),
+    transitionsJson: JSON.stringify([
+      { condition: "default", nextNodeId: RULE_RUNTIME_TRAP_NODE_ID },
+    ]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: RULE_RUNTIME_TRAP_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      smokeTest: {
+        commands: ["/rest short", "/rest long"],
+        verifies: ["rest-resolution", "condition-until-rest-expiry"],
+      },
+    }),
+  },
+  {
+    id: RULE_RUNTIME_TRAP_NODE_ID,
+    scenarioId: RULE_RUNTIME_SMOKE_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "함정과 내성 확인",
+    sceneText:
+      "금 간 바닥판 아래에서 독침 장치가 튀어나옵니다. Dex/Con 내성, 피해 반감, 상태 적용을 확인하세요.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        {
+          id: "rule_smoke_detect_trap",
+          type: "skill_check",
+          label: "함정 구조 파악",
+          skill: "investigation",
+          dc: 13,
+        },
+      ],
+      vttMap: createRuleRuntimeSmokeMap(RULE_RUNTIME_TRAP_NODE_ID),
+    }),
+    transitionsJson: JSON.stringify([
+      { condition: "default", nextNodeId: RULE_RUNTIME_COVER_NODE_ID },
+    ]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_rule_smoke_trap",
+        title: "독침 장치",
+        text: "독침 장치는 Con 내성 실패 시 poisoned 상태를 부여합니다.",
+        handoutText: "독침 장치: Con save, poison damage, poisoned condition.",
+        revealPolicy: { mode: "AUTO_REVEAL" },
+      },
+    ]),
+    fallbackNodeId: RULE_RUNTIME_COVER_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      smokeTest: {
+        verifies: ["saving-throw", "condition-runtime", "terrain-poison-cloud"],
+        suggestedCommands: ["/check investigation 13", "/condition add target poisoned"],
+      },
+    }),
+  },
+  {
+    id: RULE_RUNTIME_COVER_NODE_ID,
+    scenarioId: RULE_RUNTIME_SMOKE_SCENARIO_ID,
+    nodeType: "combat",
+    title: "엄폐 전투 확인",
+    sceneText:
+      "고블린이 상자 뒤에 몸을 낮춥니다. 원거리 공격 엄폐, 자동 몬스터 행동, 지형 효과를 확인하세요.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        {
+          id: "rule_smoke_break_cover",
+          type: "skill_check",
+          label: "상자 밀어내기",
+          skill: "athletics",
+          dc: 12,
+        },
+      ],
+      vttMap: createRuleRuntimeSmokeMap(RULE_RUNTIME_COVER_NODE_ID),
+    }),
+    transitionsJson: JSON.stringify([
+      { condition: "default", nextNodeId: RULE_RUNTIME_AOE_NODE_ID },
+    ]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: RULE_RUNTIME_AOE_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      smokeTest: {
+        verifies: ["cover-position", "monster-ability", "terrain-effect"],
+        suggestedCommands: ["/attack token_rule_smoke_cover_combat_goblin"],
+      },
+    }),
+  },
+  {
+    id: RULE_RUNTIME_AOE_NODE_ID,
+    scenarioId: RULE_RUNTIME_SMOKE_SCENARIO_ID,
+    nodeType: "combat",
+    title: "광역 주문 확인",
+    sceneText:
+      "적들이 좁은 통로에 몰려 있습니다. Fireball의 대상별 Dex save, 피해 반감, 업캐스팅을 확인하세요.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [],
+      vttMap: createRuleRuntimeSmokeMap(RULE_RUNTIME_AOE_NODE_ID),
+    }),
+    transitionsJson: JSON.stringify([
+      { condition: "default", nextNodeId: RULE_RUNTIME_CONDITION_NODE_ID },
+    ]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: RULE_RUNTIME_CONDITION_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      smokeTest: {
+        verifies: ["aoe-targeting", "aoe-damage", "spell-scaling"],
+        suggestedCommands: ["/cast_area fireball 15 target-1,target-2 4"],
+      },
+    }),
+  },
+  {
+    id: RULE_RUNTIME_CONDITION_NODE_ID,
+    scenarioId: RULE_RUNTIME_SMOKE_SCENARIO_ID,
+    nodeType: "combat",
+    title: "상태와 집중 확인",
+    sceneText:
+      "마법진이 흔들리며 집중이 끊길 위험이 생깁니다. condition duration, save ends, concentration damage check를 확인하세요.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        {
+          id: "rule_smoke_hold_focus",
+          type: "skill_check",
+          label: "정신 집중 유지",
+          skill: "constitution",
+          dc: 10,
+        },
+      ],
+      vttMap: createRuleRuntimeSmokeMap(RULE_RUNTIME_CONDITION_NODE_ID),
+    }),
+    transitionsJson: JSON.stringify([
+      { condition: "default", nextNodeId: RULE_RUNTIME_HUMAN_GM_NODE_ID },
+    ]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: RULE_RUNTIME_HUMAN_GM_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      smokeTest: {
+        verifies: ["condition-lifecycle", "concentration-runtime", "forced-movement"],
+        suggestedCommands: ["/condition add target stunned"],
+      },
+    }),
+  },
+  {
+    id: RULE_RUNTIME_HUMAN_GM_NODE_ID,
+    scenarioId: RULE_RUNTIME_SMOKE_SCENARIO_ID,
+    nodeType: "story",
+    title: "사람 GM 개입 확인",
+    sceneText:
+      "마지막 방에서는 사람이 GM override로 장면 설명, handout 공개, HP/상태 조정을 기록합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [],
+      vttMap: null,
+    }),
+    transitionsJson: JSON.stringify([]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_rule_smoke_gm_override",
+        title: "GM 개입 기록",
+        text: "이 handout은 사람 GM 공개와 TurnLog/StateDiff 기록을 확인하기 위한 항목입니다.",
+        handoutText: "HUMAN GM override smoke handout.",
+        revealPolicy: { mode: "PLAYER_ACTION" },
+      },
+    ]),
+    fallbackNodeId: null,
+    nodeMetaJson: JSON.stringify({
+      smokeTest: {
+        verifies: ["human-gm-override", "turn-log", "state-diff", "ai-assist-accept"],
+      },
+    }),
   },
   {
     id: NODE_SCREEN_TEST_START_NODE_ID,
@@ -358,7 +622,7 @@ const scenarioNodes = [
   },
 ];
 
-const scenarios = [defaultScenario, nodeScreenTestScenario];
+const scenarios = [defaultScenario, nodeScreenTestScenario, ruleRuntimeSmokeScenario];
 
 type SourceScenarioNode = {
   id: string;

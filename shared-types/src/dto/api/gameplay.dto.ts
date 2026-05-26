@@ -4,8 +4,11 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
+  Max,
   IsNotEmpty,
+  Min,
   IsNumber,
   IsObject,
   IsOptional,
@@ -606,6 +609,14 @@ export class CastCombatSpellDto {
   @IsString()
   spellId!: string;
 
+  @ApiPropertyOptional({ minimum: 0, maximum: 9 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(9)
+  slotLevel?: number;
+
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsString({ each: true })
@@ -640,12 +651,33 @@ export class MoveCombatParticipantDto {
   movementMode?: "normal" | "jump";
 }
 
+export class ForceMoveCombatParticipantDto {
+  @ApiProperty()
+  @IsString()
+  participantId!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsIn(["push", "pull", "slide"])
+  mode!: "push" | "pull" | "slide";
+
+  @ApiProperty({ type: CombatMapPointDto })
+  @ValidateNested()
+  @Type(() => CombatMapPointDto)
+  origin!: CombatMapPointDto;
+
+  @ApiProperty()
+  @Type(() => Number)
+  @IsInt()
+  distanceFt!: number;
+}
+
 export class CombatReactionPromptDto {
   @ApiProperty()
   id!: string;
 
   @ApiProperty()
-  type!: "opportunity_attack" | "shield";
+  type!: "opportunity_attack" | "shield" | "ready_action";
 
   @ApiProperty()
   reactorParticipantId!: string;

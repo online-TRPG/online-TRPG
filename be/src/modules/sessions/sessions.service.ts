@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -55,6 +56,7 @@ import {
   SessionSnapshotDto,
   SessionStatus,
   SessionVisibility,
+  StateDiffResponseDto,
   TurnLogResponseDto,
   UpdateParticipantReadyDto,
   UpdateSessionDto,
@@ -76,6 +78,10 @@ import {
 import { generateEightDigitPublicId } from "../../common/utils/public-id";
 import { PrismaService } from "../../database/prisma.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
+import {
+  GmOverrideKind,
+  GmOverrideService,
+} from "../rules/gm-override.service";
 import { ScenariosService } from "../scenarios/scenarios.service";
 import { UsersService } from "../users/users.service";
 
@@ -131,6 +137,11 @@ type ActiveCombatForPlayerMapUpdate = Prisma.CombatGetPayload<{
   include: { participants: true };
 }>;
 
+type HumanGmOverrideLogResult = {
+  turnLog: TurnLogResponseDto;
+  stateDiff: StateDiffResponseDto | null;
+};
+
 function isSessionListItem(
   item: SessionListItemResponseDto | null,
 ): item is SessionListItemResponseDto {
@@ -140,6 +151,7 @@ function isSessionListItem(
 @Injectable()
 export class SessionsService {
   private readonly logger = new Logger(SessionsService.name);
+  private readonly gmOverrideService = new GmOverrideService();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -997,9 +1009,10 @@ export class SessionsService {
     const scope = dto.scope ?? "party";
     const recipientId = dto.recipientId?.trim() || null;
     const content = await this.findSessionScenarioRevealable(activeScenario.id, dto.contentId);
+    let gmTurnLog: HumanGmOverrideLogResult | null = null;
 
-    const reveal = await this.prisma.$transaction((tx) =>
-      this.recordSessionReveal(tx, {
+    const reveal = await this.prisma.$transaction(async (tx) => {
+      const createdReveal = await this.recordSessionReveal(tx, {
         sessionScenarioId: activeScenario.id,
         contentId: dto.contentId,
         contentKind,
@@ -1008,10 +1021,37 @@ export class SessionsService {
         revealedBy: "human_gm",
         reason: dto.reason?.trim() || "manual_gm_reveal",
         snapshot: content,
-      }),
-    );
+      });
+      gmTurnLog = await this.createHumanGmOverrideTurnLog({
+        tx,
+        kind: "reveal_handout",
+        sessionId: resolvedSessionId,
+        sessionScenarioId: activeScenario.id,
+        gmUserId: userId,
+        publicNarration: dto.reason?.trim() || "GM revealed session content.",
+        targetId: dto.contentId,
+        statePatch: {
+          revealId: createdReveal.id,
+          contentId: dto.contentId,
+          contentKind,
+          scope,
+          recipientId,
+        },
+        metadata: {
+          reason: dto.reason?.trim() || "manual_gm_reveal",
+        },
+      });
+      return createdReveal;
+    });
 
     const snapshot = await this.buildSnapshot(resolvedSessionId);
+    const emittedGmTurnLog = gmTurnLog as HumanGmOverrideLogResult | null;
+    if (emittedGmTurnLog) {
+      this.realtimeEvents.emitTurnLogCreated(resolvedSessionId, emittedGmTurnLog.turnLog);
+      if (emittedGmTurnLog.stateDiff) {
+        this.realtimeEvents.emitStateDiffApplied(resolvedSessionId, emittedGmTurnLog.stateDiff);
+      }
+    }
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
     return this.mapSessionReveal(reveal);
   }
@@ -1564,6 +1604,7 @@ export class SessionsService {
     const { state, sessionScenario } = await this.getGameStateEntityOrThrow(resolvedSessionId);
     const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
     const gmMessages = Array.isArray(flags.gmMessages) ? [...(flags.gmMessages as unknown[])] : [];
+    let gmTurnLog: HumanGmOverrideLogResult | null = null;
 
     gmMessages.push({
       id: randomUUID(),
@@ -1607,9 +1648,34 @@ export class SessionsService {
               : session.status,
         },
       });
+      gmTurnLog = await this.createHumanGmOverrideTurnLog({
+        tx,
+        kind: dto.asNpc ? "npc_dialogue" : "scene_text",
+        sessionId: resolvedSessionId,
+        sessionScenarioId: sessionScenario.id,
+        gmUserId: userId,
+        publicNarration: dto.content,
+        targetId: dto.speakerName?.trim() || null,
+        statePatch: {
+          gmMessageCreated: true,
+          messageType: dto.asNpc ? "npc" : "gm",
+          speakerName: dto.speakerName?.trim() || null,
+        },
+        metadata: {
+          speakerName: dto.speakerName?.trim() || null,
+          messageType: dto.asNpc ? "npc" : "gm",
+        },
+      });
     });
 
     const snapshot = await this.buildSnapshot(resolvedSessionId);
+    const emittedGmTurnLog = gmTurnLog as HumanGmOverrideLogResult | null;
+    if (emittedGmTurnLog) {
+      this.realtimeEvents.emitTurnLogCreated(resolvedSessionId, emittedGmTurnLog.turnLog);
+      if (emittedGmTurnLog.stateDiff) {
+        this.realtimeEvents.emitStateDiffApplied(resolvedSessionId, emittedGmTurnLog.stateDiff);
+      }
+    }
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
     return snapshot;
   }
@@ -1635,6 +1701,7 @@ export class SessionsService {
           this.normalizeVttMap(targetDefaultMap, targetNode.nodeId),
         )
       : null;
+    let gmTurnLog: HumanGmOverrideLogResult | null = null;
 
     await this.prisma.$transaction(async (tx) => {
       await this.lockSessionRuntime(tx, resolvedSessionId);
@@ -1662,9 +1729,33 @@ export class SessionsService {
         sessionScenarioId: activeScenario.id,
         nodeId: targetNode.nodeId,
       });
+      gmTurnLog = await this.createHumanGmOverrideTurnLog({
+        tx,
+        kind: "node_move",
+        sessionId: resolvedSessionId,
+        sessionScenarioId: activeScenario.id,
+        gmUserId: userId,
+        publicNarration: `GM moved the scene to ${targetNode.title}.`,
+        targetId: targetNode.nodeId,
+        statePatch: {
+          currentNodeId: targetNode.nodeId,
+          phase: PrismaGamePhase.DIALOGUE,
+          vttMapChanged: Boolean(targetRuntimeMap),
+        },
+        metadata: {
+          nodeTitle: targetNode.title,
+        },
+      });
     });
 
     const snapshot = await this.buildSnapshot(resolvedSessionId);
+    const emittedGmTurnLog = gmTurnLog as HumanGmOverrideLogResult | null;
+    if (emittedGmTurnLog) {
+      this.realtimeEvents.emitTurnLogCreated(resolvedSessionId, emittedGmTurnLog.turnLog);
+      if (emittedGmTurnLog.stateDiff) {
+        this.realtimeEvents.emitStateDiffApplied(resolvedSessionId, emittedGmTurnLog.stateDiff);
+      }
+    }
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
     return snapshot;
   }
@@ -1672,7 +1763,22 @@ export class SessionsService {
   async startCombat(userId: string, sessionId: string): Promise<SessionSnapshotDto> {
     await this.transitionHumanGmCombat(userId, sessionId, PrismaGamePhase.COMBAT);
     const resolvedSessionId = (await this.getSessionEntityOrThrow(sessionId)).id;
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
+    const gmTurnLog = await this.createHumanGmOverrideTurnLog({
+      kind: "combat_start",
+      sessionId: resolvedSessionId,
+      sessionScenarioId: activeScenario.id,
+      gmUserId: userId,
+      publicNarration: "GM started combat.",
+      statePatch: {
+        phase: PrismaGamePhase.COMBAT,
+      },
+    });
     const snapshot = await this.buildSnapshot(resolvedSessionId);
+    this.realtimeEvents.emitTurnLogCreated(resolvedSessionId, gmTurnLog.turnLog);
+    if (gmTurnLog.stateDiff) {
+      this.realtimeEvents.emitStateDiffApplied(resolvedSessionId, gmTurnLog.stateDiff);
+    }
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
     return snapshot;
   }
@@ -1680,8 +1786,23 @@ export class SessionsService {
   async endCombat(userId: string, sessionId: string): Promise<SessionSnapshotDto> {
     const session = await this.getHumanGmSessionForOperator(userId, sessionId);
     const resolvedSessionId = session.id;
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
     await this.completeActiveCombatState(resolvedSessionId);
+    const gmTurnLog = await this.createHumanGmOverrideTurnLog({
+      kind: "combat_end",
+      sessionId: resolvedSessionId,
+      sessionScenarioId: activeScenario.id,
+      gmUserId: userId,
+      publicNarration: "GM ended combat.",
+      statePatch: {
+        phase: PrismaGamePhase.EXPLORATION,
+      },
+    });
     const snapshot = await this.buildSnapshot(resolvedSessionId);
+    this.realtimeEvents.emitTurnLogCreated(resolvedSessionId, gmTurnLog.turnLog);
+    if (gmTurnLog.stateDiff) {
+      this.realtimeEvents.emitStateDiffApplied(resolvedSessionId, gmTurnLog.stateDiff);
+    }
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
     return snapshot;
   }
@@ -2940,6 +3061,111 @@ export class SessionsService {
 
     this.ensureHost(userId, session.hostUserId);
     return session;
+  }
+
+  private async createHumanGmOverrideTurnLog(params: {
+    tx?: Prisma.TransactionClient;
+    kind: GmOverrideKind;
+    sessionId: string;
+    sessionScenarioId: string;
+    gmUserId: string;
+    publicNarration: string;
+    privateNote?: string | null;
+    targetId?: string | null;
+    statePatch?: Record<string, unknown> | null;
+    metadata?: Record<string, unknown> | null;
+  }): Promise<HumanGmOverrideLogResult> {
+    const resolution = this.gmOverrideService.resolveOverride({
+      kind: params.kind,
+      sessionId: params.sessionId,
+      sessionScenarioId: params.sessionScenarioId,
+      gmUserId: params.gmUserId,
+      publicNarration: params.publicNarration,
+      privateNote: params.privateNote,
+      targetId: params.targetId,
+      statePatch: params.statePatch,
+      metadata: params.metadata,
+    });
+
+    if (!resolution.accepted) {
+      throw new BadRequestException(`GM override rejected: ${resolution.rejectedReason}.`);
+    }
+
+    const client = params.tx ?? this.prisma;
+    const latest = await client.turnLog.findFirst({
+      where: { sessionId: params.sessionId },
+      orderBy: { turnNumber: "desc" },
+      select: { turnNumber: true },
+    });
+    const state = resolution.stateDiff
+      ? await client.gameState.findUnique({
+          where: { sessionScenarioId: params.sessionScenarioId },
+          select: { version: true },
+        })
+      : null;
+    const baseVersion = state?.version ?? 1;
+    const nextVersion = resolution.stateDiff ? baseVersion + 1 : baseVersion;
+    const stateDiff: StateDiffResponseDto | null = resolution.stateDiff
+      ? {
+          baseVersion,
+          nextVersion,
+          reason: resolution.stateDiff.reason,
+          diff: resolution.stateDiff.diff,
+        }
+      : null;
+
+    const created = await client.turnLog.create({
+      data: {
+        sessionId: resolution.turnLog.sessionId,
+        sessionScenarioId: resolution.turnLog.sessionScenarioId,
+        actorUserId: resolution.turnLog.actorUserId,
+        turnNumber: (latest?.turnNumber ?? 0) + 1,
+        rawInput: resolution.turnLog.rawInput,
+        structuredActionJson: JSON.stringify(resolution.turnLog.structuredAction),
+        stateDiffJson: stateDiff ? JSON.stringify(stateDiff) : null,
+        outcome: PrismaActionOutcome.SUCCESS,
+        narration: resolution.turnLog.narration,
+      },
+    });
+
+    if (stateDiff) {
+      await client.gameState.update({
+        where: { sessionScenarioId: params.sessionScenarioId },
+        data: { version: nextVersion },
+      });
+      await client.stateDiff.create({
+        data: {
+          sessionScenarioId: params.sessionScenarioId,
+          turnLogId: created.id,
+          baseVersion,
+          nextVersion,
+          reason: stateDiff.reason,
+          diffJson: JSON.stringify(stateDiff.diff),
+        },
+      });
+    }
+
+    const turnLog: TurnLogResponseDto = {
+      turnLogId: created.id,
+      turnNumber: created.turnNumber,
+      playerActionId: created.playerActionId,
+      actorUserId: created.actorUserId,
+      sessionCharacterId: created.sessionCharacterId,
+      actionClientCreatedAt: null,
+      actionCreatedAt: null,
+      rawInput: created.rawInput,
+      structuredAction: this.parseJson<Record<string, unknown> | null>(
+        created.structuredActionJson,
+        null,
+      ),
+      diceResult: null,
+      stateDiff: this.parseJson<Record<string, unknown> | null>(created.stateDiffJson, null),
+      outcome: created.outcome as ActionOutcome,
+      narration: created.narration,
+      createdAt: created.createdAt.toISOString(),
+    };
+
+    return { turnLog, stateDiff };
   }
 
   private async transitionHumanGmCombat(
