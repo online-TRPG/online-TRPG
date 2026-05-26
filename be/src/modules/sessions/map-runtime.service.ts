@@ -43,11 +43,14 @@ export class MapRuntimeService {
         select: { id: true },
       }),
     );
+    const isGmOperator = session.gmMode === "HUMAN"
+      ? (session.gmUserId ?? session.hostUserId) === userId
+      : session.hostUserId === userId;
     this.logger.debug(
-      `[VTT_GM_MAP_UPDATE] sessionId=${resolvedSessionId} userId=${userId} nodeId=${state.currentNodeId ?? "null"} host=${session.hostUserId === userId} activeCombat=${hasActiveCombat} requestedTokens=${requestedMap.tokens.length}`,
+      `[VTT_GM_MAP_UPDATE] sessionId=${resolvedSessionId} userId=${userId} nodeId=${state.currentNodeId ?? "null"} gmOperator=${isGmOperator} activeCombat=${hasActiveCombat} requestedTokens=${requestedMap.tokens.length}`,
     );
-    if (session.hostUserId !== userId) {
-      throw new ForbiddenException("GM map changes require the session host.");
+    if (!isGmOperator) {
+      throw new ForbiddenException("GM map changes require GM permission.");
     }
     if (hasActiveCombat) {
       throw new ForbiddenException("Combat map changes must use combat command endpoints.");

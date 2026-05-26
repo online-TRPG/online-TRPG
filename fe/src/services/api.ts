@@ -1380,6 +1380,22 @@ export async function updateReadyState(
   );
 }
 
+export async function updateHumanGm(
+  user: StoredUser,
+  sessionId: string,
+  gmUserId: string,
+  accessToken?: string | null
+): Promise<SessionSnapshot> {
+  const snapshot = await requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/gm`, {
+    method: 'PATCH',
+    user,
+    accessToken,
+    body: { gmUserId },
+  });
+
+  return normalizeSessionSnapshot(snapshot);
+}
+
 export async function startSession(
   user: StoredUser,
   sessionId: string,
