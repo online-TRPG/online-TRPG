@@ -892,6 +892,7 @@ interface PlayPageProps {
   onCreateCharacter: (payload: CharacterPayload) => Promise<boolean>;
   onSelectCharacter: (characterId: string | null) => void;
   onSetReady: (isReady: boolean) => void;
+  onSetHumanGm: (gmUserId: string) => void;
   onStartSession: () => void;
   onLeaveSession: () => void;
   onBackToLobby: () => void;
@@ -1471,6 +1472,7 @@ export function PlayPage({
   onCreateCharacter,
   onSelectCharacter,
   onSetReady,
+  onSetHumanGm,
   onStartSession,
   onLeaveSession,
   onBackToLobby,
@@ -1598,19 +1600,30 @@ export function PlayPage({
       (character) =>
         character.id === selectedCharacterId || character.characterId === selectedCharacterId
     ) ?? null;
+  const isHumanGmSession = session?.gmMode === 'HUMAN';
+  const gmUserId = isHumanGmSession ? (session?.gmUserId ?? session?.hostUserId ?? null) : null;
+  const isGmUser = Boolean(gmUserId && gmUserId === user.id);
+  const playerParticipants = participants.filter((participant) => participant.role !== 'GM');
   const readyLocked = Boolean(myParticipant?.isReady);
   // 준비 배지는 빈 슬롯이 아니라 실제로 세션에 들어온 참가자 수를 기준으로 표시합니다.
-  const readyParticipantCount = participants.filter((participant) => participant.isReady).length;
-  const participantCount = participants.length;
+  const readyParticipantCount = playerParticipants.filter(
+    (participant) => participant.isReady
+  ).length;
+  const participantCount = playerParticipants.length;
   const allPlayersReady =
     participantCount > 0 && readyParticipantCount === participantCount;
   const isHost = session?.hostUserId === user.id;
   const isRecruiting = session?.status === 'recruiting';
   const isSessionCompleted = session?.status === 'completed';
-  const canManageStartedSession = Boolean(!isRecruiting && isHost);
-  const canShowCharacterSelection = Boolean(session && isRecruiting);
+  const canManageStartedSession = Boolean(
+    !isRecruiting && (isHumanGmSession ? isGmUser : isHost)
+  );
+  const canShowCharacterSelection = Boolean(session && isRecruiting && !isGmUser);
   const canStartSession = Boolean(
-    isHost && isRecruiting && allPlayersReady && participants.length > 0
+    (isHumanGmSession ? isGmUser : isHost) &&
+      isRecruiting &&
+      allPlayersReady &&
+      playerParticipants.length > 0
   );
   const activeScenario =
     snapshot?.sessionScenarios.find((item) => item.status === 'ACTIVE') ??
@@ -1980,7 +1993,7 @@ export function PlayPage({
           missingCombat &&
           currentNode?.id &&
           !isCombatBusy &&
-          (session.gmMode !== 'HUMAN' || isHost)
+          (session.gmMode !== 'HUMAN' || isGmUser)
         ) {
           const autoStartKey = `${session.id}:${currentNode.id}`;
           if (autoCombatStartKeyRef.current !== autoStartKey) {
@@ -2000,12 +2013,12 @@ export function PlayPage({
     return () => {
       cancelled = true;
     };
-  }, [combat?.status, completedCombatNodeIds, currentNode?.id, currentNode?.nodeType, isCombatNode, isHost, session?.gmMode, session?.id, user]);
+  }, [combat?.status, completedCombatNodeIds, currentNode?.id, currentNode?.nodeType, isCombatNode, isGmUser, session?.gmMode, session?.id, user]);
 
   useEffect(() => {
     if (!user || !session?.id || !currentNode?.id || !isCombatNode) return;
     if (!isCombatChecked || combat || isCombatBusy || combatError) return;
-    if (session.gmMode === 'HUMAN' && !isHost) return;
+    if (session.gmMode === 'HUMAN' && !isGmUser) return;
 
     const autoStartKey = `${session.id}:${currentNode.id}`;
     if (autoCombatStartKeyRef.current === autoStartKey) return;
@@ -2018,7 +2031,7 @@ export function PlayPage({
     isCombatBusy,
     isCombatChecked,
     isCombatNode,
-    isHost,
+    isGmUser,
     session?.gmMode,
     session?.id,
     user,
@@ -2507,9 +2520,9 @@ export function PlayPage({
   const playerParticipantIds = useMemo(
     () =>
       participants
-        .filter((participant) => participant.userId !== session?.hostUserId)
+        .filter((participant) => participant.role !== 'GM')
         .map((participant) => participant.userId),
-    [participants, session?.hostUserId]
+    [participants]
   );
 
   useEffect(() => {
@@ -3408,9 +3421,8 @@ export function PlayPage({
 
   function getParticipantBadge(participantUserId: string): string | null {
     if (!session) return null;
-    if (participantUserId === session.hostUserId) {
-      return session.gmMode === 'HUMAN' ? 'GM' : 'HOST';
-    }
+    if (isHumanGmSession && participantUserId === gmUserId) return 'GM';
+    if (participantUserId === session.hostUserId) return 'HOST';
     return null;
   }
 
@@ -3613,6 +3625,18 @@ export function PlayPage({
             </section>
           ) : null}
 
+          {session && isRecruiting && isGmUser ? (
+            <section className="character-selection-board player-ready-board session-character-board recruiting-lobby-board">
+              <div className="recruiting-lobby-board-layout">
+                <section className="recruiting-gm-board">
+                  <span>HUMAN GM</span>
+                  <strong>{user.displayName}</strong>
+                  <p>플레이어가 캐릭터를 선택하고 준비를 마치면 세션을 시작할 수 있습니다.</p>
+                </section>
+              </div>
+            </section>
+          ) : null}
+
           {canShowCharacterSelection ? (
             <section className="character-selection-board player-ready-board session-character-board recruiting-lobby-board">
               <div className="recruiting-lobby-board-layout">
@@ -3744,7 +3768,7 @@ export function PlayPage({
                     </button>
                   </div>
                   {/* 호스트가 오버레이를 닫아도 시작 확인창으로 다시 돌아올 수 있는 진입점입니다. */}
-                  {isHost && allPlayersReady && isStatusMinimized ? (
+                  {(isHumanGmSession ? isGmUser : isHost) && allPlayersReady && isStatusMinimized ? (
                     <button
                       type="button"
                       className="recruiting-wanted-start-button"
@@ -3893,16 +3917,20 @@ export function PlayPage({
               </div>
 
               <strong className="session-ready-subtitle">
-                모든 참가자가 준비를 완료했습니다.
+                모든 플레이어가 준비를 완료했습니다.
               </strong>
               <p className="session-ready-desc">
-                {isHost
+                {isHumanGmSession
+                  ? isGmUser
+                    ? '지금 게임을 시작하시겠습니까?'
+                    : '인간 GM이 세션을 시작할 때까지 기다려주세요.'
+                  : isHost
                   ? '지금 게임을 시작하시겠습니까?'
                   : '호스트가 세션을 시작할 때까지 기다려주세요.'}
               </p>
 
 
-              {isHost ? (
+              {(isHumanGmSession ? isGmUser : isHost) ? (
                 <div className="ready-actions">
                   <button
                     type="button"
@@ -4019,7 +4047,18 @@ export function PlayPage({
 
                 const linkedCharacter = getParticipantLinkedCharacter(participant);
                 const badgeLabel = getParticipantBadge(participant.userId);
-                const stateLabel = participant.isReady ? 'READY' : participant.connectionStatus;
+                const isParticipantGm = isHumanGmSession && participant.userId === gmUserId;
+                const canAssignHumanGm =
+                  isHumanGmSession &&
+                  isRecruiting &&
+                  isHost &&
+                  !isParticipantGm &&
+                  participant.status === 'JOINED';
+                const stateLabel = isParticipantGm
+                  ? 'GM'
+                  : participant.isReady
+                    ? 'READY'
+                    : participant.connectionStatus;
                 const participantImage = linkedCharacter
                   ? getCharacterImage(linkedCharacter)
                   : null;
@@ -4062,10 +4101,20 @@ export function PlayPage({
                           {participant.user.displayName}
                         </strong>
                         <div
-                          className={`recruiting-party-slot-status${participant.isReady ? ' ready' : ''}`}
+                          className={`recruiting-party-slot-status${participant.isReady || isParticipantGm ? ' ready' : ''}`}
                         >
-                          {participant.isReady ? '준비완료' : '정비 중'}
+                          {isParticipantGm ? 'GM 진행자' : participant.isReady ? '준비완료' : '정비 중'}
                         </div>
+                        {canAssignHumanGm ? (
+                          <button
+                            type="button"
+                            className="recruiting-party-slot-gm-button"
+                            disabled={busy}
+                            onClick={() => onSetHumanGm(participant.userId)}
+                          >
+                            GM 지정
+                          </button>
+                        ) : null}
                       </>
                     ) : (
                       <>
