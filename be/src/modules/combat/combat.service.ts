@@ -178,6 +178,14 @@ const COMBAT_CONDITION_DODGE = "combat:dodge";
 const COMBAT_CONDITION_HIDDEN = "combat:hidden";
 const COMBAT_CONDITION_SLEEP = "combat:sleep";
 const COMBAT_CONDITION_UNCONSCIOUS = "condition:unconscious";
+const COMBAT_INCAPACITATING_CONDITION_TAGS = new Set([
+  COMBAT_CONDITION_SLEEP,
+  COMBAT_CONDITION_UNCONSCIOUS,
+  "condition:incapacitated",
+  "condition:paralyzed",
+  "condition:petrified",
+  "condition:stunned",
+]);
 const COMBAT_HIDE_DC = 12;
 const DEFAULT_MELEE_ATTACK_DISTANCE_FT = 5;
 const COMBAT_JUMP_EXTRA_MOVEMENT_FT = 10;
@@ -1209,10 +1217,14 @@ export class CombatService {
     }
 
     const aliveParticipants = combat.participants.filter((participant) => participant.isAlive);
-    const currentIndex = aliveParticipants.findIndex((participant) => participant.id === current.id);
-    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % aliveParticipants.length : 0;
-    const next = aliveParticipants[nextIndex] ?? null;
-    const wrappedRound = aliveParticipants.length > 0 && nextIndex === 0;
+    const actionableParticipants = aliveParticipants.filter(
+      (participant) => !this.isCombatParticipantIncapacitated(participant),
+    );
+    const turnParticipants = actionableParticipants.length > 0 ? actionableParticipants : aliveParticipants;
+    const currentIndex = turnParticipants.findIndex((participant) => participant.id === current.id);
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % turnParticipants.length : 0;
+    const next = turnParticipants[nextIndex] ?? null;
+    const wrappedRound = turnParticipants.length > 0 && nextIndex === 0;
     const nextRoundNo = wrappedRound ? combat.roundNo + 1 : combat.roundNo;
     const nextTurnNo = combat.turnNo + 1;
 
@@ -1403,7 +1415,6 @@ export class CombatService {
     }
 
     const slotLevel = this.resolveCombatSpellSlotLevel(spellId, dto.slotLevel);
-    await this.spendCurrentActionIfNeeded(combat, caster);
     let message = "";
     let attackTotal: number | null = null;
     let damageTotal: number | null = null;
@@ -1429,6 +1440,8 @@ export class CombatService {
           this.resolveCombatSpellRangeFt(spellDefinition, 120),
         ),
       );
+      await this.assertSpellSlotAvailable(session.id, caster.sessionCharacterId, slotLevel);
+      await this.spendCurrentActionIfNeeded(combat, caster);
       await this.spendSpellSlot(session.id, caster.sessionCharacterId, slotLevel);
       const missileDamageDice = this.resolveMagicMissileDamageDice(spellDefinition, spellScaling.targetCount ?? 3);
       const applied: string[] = [];
@@ -1449,6 +1462,8 @@ export class CombatService {
       spellScaling = this.resolveCombatSpellScalingFromCatalog(spellDefinition, slotLevel);
       const point = dto.point ?? this.requireTargetPoint(map, casterToken);
       this.assertPointInRange(map, casterToken, point, this.resolveCombatSpellRangeFt(spellDefinition, 90));
+      await this.assertSpellSlotAvailable(session.id, caster.sessionCharacterId, slotLevel);
+      await this.spendCurrentActionIfNeeded(combat, caster);
       await this.spendSpellSlot(session.id, caster.sessionCharacterId, slotLevel);
       const poolRoll = this.diceService.roll(spellScaling.damageDice ?? "5d8");
       diceResults.push(poolRoll);
@@ -1465,8 +1480,17 @@ export class CombatService {
         const hp = target.currentHp ?? 0;
         if (hp <= 0 || hp > remaining) continue;
         remaining -= hp;
-        await this.addCombatCondition(target, COMBAT_CONDITION_SLEEP);
-        await this.addCombatCondition(target, COMBAT_CONDITION_UNCONSCIOUS);
+        await this.addCombatConditionInstance(
+          target,
+          this.conditionRuntime.createCondition({
+            conditionId: COMBAT_CONDITION_SLEEP,
+            sourceId: spellId,
+            duration: { type: "rounds", remaining: 10 },
+            stackPolicy: "replace",
+            appliedAtRound: combat.roundNo,
+            tags: [COMBAT_CONDITION_UNCONSCIOUS, "condition:incapacitated"],
+          }),
+        );
         slept.push(target.nameSnapshot);
       }
       damageTotal = poolRoll.total;
@@ -1500,6 +1524,12 @@ export class CombatService {
       if (!targets.length) {
         throw conflict("COMBAT_409", "Fireball 범위 안에 대상이 없습니다.", { reason: "SPELL_TARGET_REQUIRED" });
       }
+      const saveDc = await this.resolveCombatSpellSaveDc(caster.sessionCharacterId);
+      const aoeTargets = await Promise.all(
+        targets.map((target) => this.toCombatAoeDamageTarget(target, map, saveAbility)),
+      );
+      await this.assertSpellSlotAvailable(session.id, caster.sessionCharacterId, slotLevel);
+      await this.spendCurrentActionIfNeeded(combat, caster);
       await this.spendSpellSlot(session.id, caster.sessionCharacterId, slotLevel);
       const aoeResolution = this.aoeDamage.resolveDamage({
         sourceId: spellId,
@@ -1507,12 +1537,10 @@ export class CombatService {
         damageType,
         save: {
           ability: saveAbility,
-          dc: await this.resolveCombatSpellSaveDc(caster.sessionCharacterId),
+          dc: saveDc,
           halfDamageOnSuccess: this.resolveCombatSpellHalfDamageOnSuccess(spellDefinition),
         },
-        targets: await Promise.all(
-          targets.map((target) => this.toCombatAoeDamageTarget(target, map, saveAbility)),
-        ),
+        targets: aoeTargets,
       });
       diceResults.push(aoeResolution.damageRoll, ...aoeResolution.targetResults.map((target) => target.saveRoll));
       const applied: string[] = [];
@@ -1536,6 +1564,7 @@ export class CombatService {
       const point = dto.point ?? this.requireTargetPoint(map, casterToken);
       this.assertPointInRange(map, casterToken, point, this.resolveCombatSpellRangeFt(spellDefinition, 5));
       this.assertLightPointAllowed(map, point);
+      await this.spendCurrentActionIfNeeded(combat, caster);
       const lightSource = {
         id: `light:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
         x: this.clampNumber(Math.floor(point.x), 0, Math.max(0, map.width - map.gridSize)),
@@ -2399,7 +2428,13 @@ export class CombatService {
     const attacker = combat.participants.find(
       (participant) => participant.id === combat.currentParticipantId,
     );
-    if (!attacker || attacker.entityType !== PrismaCombatEntityType.MONSTER || !attacker.isHostile) {
+    if (
+      !attacker ||
+      attacker.entityType !== PrismaCombatEntityType.MONSTER ||
+      !attacker.isHostile ||
+      !attacker.isAlive ||
+      this.isCombatParticipantIncapacitated(attacker)
+    ) {
       this.logAutoMonsterTurn("executeAutoMonsterTurn rejected: current turn is not hostile monster", {
         sessionId: session.id,
         combatId: combat.id,
@@ -2660,7 +2695,8 @@ export class CombatService {
       current &&
         current.entityType === PrismaCombatEntityType.MONSTER &&
         current.isHostile &&
-        current.isAlive,
+        current.isAlive &&
+        !this.isCombatParticipantIncapacitated(current),
     );
   }
 
@@ -3363,10 +3399,26 @@ export class CombatService {
           return;
         }
         if (
+          current &&
+          current.entityType === PrismaCombatEntityType.MONSTER &&
+          current.isHostile &&
+          current.isAlive &&
+          this.isCombatParticipantIncapacitated(current)
+        ) {
+          this.logAutoMonsterTurn("run skipping incapacitated monster", {
+            sessionId: session.id,
+            step,
+            currentParticipantId: current.id,
+          });
+          await this.advanceCurrentTurn(session.id, combat);
+          continue;
+        }
+        if (
           !current ||
           current.entityType !== PrismaCombatEntityType.MONSTER ||
           !current.isHostile ||
-          !current.isAlive
+          !current.isAlive ||
+          this.isCombatParticipantIncapacitated(current)
         ) {
           this.logAutoMonsterTurn("run stopped: current participant is not actionable monster", {
             sessionId: session.id,
@@ -4400,13 +4452,26 @@ export class CombatService {
     const characterSlots = spellSlots[sessionCharacterId] ?? { [key]: maximumSlots };
     const remaining = Math.max(0, Math.floor(characterSlots[key] ?? maximumSlots));
     if (remaining <= 0) {
-      throw conflict("COMBAT_409", "사용 가능한 1레벨 주문 슬롯이 없습니다.", { reason: "NO_SPELL_SLOT" });
+      throw conflict("COMBAT_409", `사용 가능한 ${slotLevel}레벨 주문 슬롯이 없습니다.`, { reason: "NO_SPELL_SLOT" });
     }
     spellSlots[sessionCharacterId] = { ...characterSlots, [key]: remaining - 1 };
     await this.prisma.gameState.update({
       where: { sessionScenarioId: sessionScenario.id },
       data: { flagsJson: JSON.stringify({ ...flags, spellSlotsBySessionCharacterId: spellSlots }) },
     });
+  }
+
+  private async assertSpellSlotAvailable(
+    sessionId: string,
+    sessionCharacterId: string,
+    slotLevel: number,
+  ): Promise<void> {
+    if (slotLevel < 1) return;
+    if ((await this.getRemainingSpellSlots(sessionId, sessionCharacterId, slotLevel)) <= 0) {
+      throw conflict("COMBAT_409", `사용 가능한 ${slotLevel}레벨 주문 슬롯이 없습니다.`, {
+        reason: "NO_SPELL_SLOT",
+      });
+    }
   }
 
   private assertSpellTargetInRange(
@@ -5184,6 +5249,13 @@ export class CombatService {
       return;
     }
 
+    if (this.isCombatParticipantIncapacitated(attacker)) {
+      throw conflict("COMBAT_409", "행동할 수 없는 상태입니다.", {
+        reason: "COMBATANT_INCAPACITATED",
+        conditions: this.parseConditions(attacker.conditionsJson ?? "[]"),
+      });
+    }
+
     if (!attacker.sessionCharacterId) {
       await this.ensureHost(userId, sessionId);
       return;
@@ -5269,6 +5341,9 @@ export class CombatService {
       }
       participant.currentHp = nextHp;
       participant.isAlive = nextHp > 0;
+      if (delta < 0 && nextHp > 0) {
+        await this.wakeSleepingCombatParticipant(participant);
+      }
       return;
     }
 
@@ -5281,9 +5356,26 @@ export class CombatService {
     });
     participant.currentHp = nextHp;
     participant.isAlive = nextHp > 0;
+    if (delta < 0 && nextHp > 0) {
+      await this.wakeSleepingCombatParticipant(participant);
+    }
     if (nextHp <= 0 && participant.tokenId) {
       await this.sessionsService.hideVttToken(combat.sessionId, participant.tokenId);
     }
+  }
+
+  private async wakeSleepingCombatParticipant(participant: CombatParticipantEntity): Promise<void> {
+    const current = await this.readCombatConditionEntries(participant);
+    const tags = this.combatConditionTags(current);
+    if (!tags.includes(COMBAT_CONDITION_SLEEP)) {
+      return;
+    }
+    const remaining = current.filter((entry) => {
+      const entryTags = this.conditionEntryTags(entry);
+      return !entryTags.includes(COMBAT_CONDITION_SLEEP) &&
+        !entryTags.includes(COMBAT_CONDITION_UNCONSCIOUS);
+    });
+    await this.writeCombatConditionEntries(participant, remaining);
   }
 
   private getCurrentPlayerParticipantOrThrow(
@@ -5431,6 +5523,11 @@ export class CombatService {
     return Array.from(new Set(entries.flatMap((entry) => this.conditionEntryTags(entry))));
   }
 
+  private isCombatParticipantIncapacitated(participant: CombatParticipantEntity): boolean {
+    const tags = this.parseConditions(participant.conditionsJson ?? "[]");
+    return tags.some((tag) => COMBAT_INCAPACITATING_CONDITION_TAGS.has(tag));
+  }
+
   private conditionEntryTags(entry: unknown): string[] {
     return this.conditionRuntime.toConditionTags(JSON.stringify([entry]));
   }
@@ -5497,6 +5594,7 @@ export class CombatService {
   }): DiceAdvantageState {
     const hasAdvantage =
       params.attackerConditions.includes(COMBAT_CONDITION_HIDDEN) ||
+      params.targetConditions.some((condition) => COMBAT_INCAPACITATING_CONDITION_TAGS.has(condition)) ||
       params.allyWithin5FtOfTarget;
     const hasDisadvantage =
       params.targetConditions.includes(COMBAT_CONDITION_DODGE) ||

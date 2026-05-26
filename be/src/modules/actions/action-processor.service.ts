@@ -5,6 +5,7 @@ import {
   ActionScope as PrismaActionScope,
   CombatStatus as PrismaCombatStatus,
   DiceAdvantageState as PrismaDiceAdvantageState,
+  Prisma,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
 } from "@prisma/client";
 import {
@@ -32,6 +33,7 @@ import { StateDiffService } from "../rules/state-diff.service";
 import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
+import { badRequest, notFound } from "../../common/exceptions/domain-error";
 
 type RuntimeTurnStateKey = {
   combatId: string;
@@ -49,6 +51,22 @@ type RuntimeActor = {
     featuresJson?: string | null;
   };
 };
+
+type RuntimeEffectParams = {
+  sessionId: string;
+  sessionScenarioId: string;
+  sessionCharacterId: string;
+  turnStateKey: RuntimeTurnStateKey | null;
+};
+
+type InventoryMapRuntimeEffect = Extract<
+  ActionRuntimeEffect,
+  | { type: "ADD_ITEM" }
+  | { type: "REMOVE_ITEM" }
+  | { type: "CREATE_MAP_OBJECT" }
+  | { type: "UPDATE_MAP_OBJECT_QUANTITY" }
+  | { type: "REMOVE_MAP_OBJECT" }
+>;
 
 const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
 const RAGE_FEATURE_ID = "class.barbarian.feature.rage";
@@ -226,6 +244,17 @@ export class ActionProcessorService {
       sessionCharacters,
       runtime.context,
     );
+    const runtimeEffectParams = {
+      sessionId: session.id,
+      sessionScenarioId: sessionScenario.id,
+      sessionCharacterId: actor.id,
+      turnStateKey: runtime.turnStateKey,
+    };
+    await this.assertRuntimeEffectPreconditions(resolution, runtimeEffectParams);
+    const earlyRuntimeStateChanged = await this.applyEarlyRuntimeEffects(
+      resolution,
+      runtimeEffectParams,
+    );
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId: session.id,
       sessionScenarioId: sessionScenario.id,
@@ -278,12 +307,8 @@ export class ActionProcessorService {
       changes: resolution.stateChanges,
     });
 
-    const runtimeStateChanged = await this.applyRuntimeEffects(resolution, {
-      sessionId: session.id,
-      sessionScenarioId: sessionScenario.id,
-      sessionCharacterId: actor.id,
-      turnStateKey: runtime.turnStateKey,
-    });
+    const laterRuntimeStateChanged = await this.applyRuntimeEffects(resolution, runtimeEffectParams);
+    const runtimeStateChanged = earlyRuntimeStateChanged || laterRuntimeStateChanged;
 
     if (stateDiff) {
       await this.turnLogsService.attachStateDiff(turnLog.turnLogId, { ...stateDiff });
@@ -388,15 +413,37 @@ export class ActionProcessorService {
 
   private async applyRuntimeEffects(
     resolution: ActionResolution,
-    params: {
-      sessionId: string;
-      sessionScenarioId: string;
-      sessionCharacterId: string;
-      turnStateKey: RuntimeTurnStateKey | null;
-    },
+    params: RuntimeEffectParams,
+  ): Promise<boolean> {
+    let changed = false;
+    let effects = (resolution.runtimeEffects ?? []).filter((effect) => !this.isEarlyRuntimeEffect(effect));
+    if (this.hasInventoryMapRuntimeEffects(effects)) {
+      await this.applyInventoryMapRuntimeEffectsAtomically(
+        params,
+        effects.filter((effect): effect is InventoryMapRuntimeEffect =>
+          this.isInventoryMapRuntimeEffect(effect),
+        ),
+      );
+      effects = effects.filter((effect) => !this.isInventoryMapRuntimeEffect(effect));
+      changed = true;
+    }
+
+    for (const effect of effects) {
+      await this.applyRuntimeEffect(effect, params);
+      changed = true;
+    }
+    return changed;
+  }
+
+  private async applyEarlyRuntimeEffects(
+    resolution: ActionResolution,
+    params: RuntimeEffectParams,
   ): Promise<boolean> {
     let changed = false;
     for (const effect of resolution.runtimeEffects ?? []) {
+      if (!this.isEarlyRuntimeEffect(effect)) {
+        continue;
+      }
       await this.applyRuntimeEffect(effect, params);
       changed = true;
     }
@@ -508,6 +555,267 @@ export class ActionProcessorService {
         await this.removeMapObjectFromRuntimeEffect(params.sessionId, effect.objectId);
         return;
     }
+  }
+
+  private async assertRuntimeEffectPreconditions(
+    resolution: ActionResolution,
+    params: RuntimeEffectParams,
+  ): Promise<void> {
+    for (const effect of resolution.runtimeEffects ?? []) {
+      if (effect.type === "SPEND_SPELL_SLOT") {
+        await this.assertSpellSlotAvailable(
+          params.sessionScenarioId,
+          params.sessionCharacterId,
+          effect.slotLevel,
+        );
+      }
+    }
+  }
+
+  private hasInventoryMapRuntimeEffects(effects: ActionRuntimeEffect[]): boolean {
+    return effects.some((effect) => this.isInventoryRuntimeEffect(effect)) &&
+      effects.some((effect) => this.isMapRuntimeEffect(effect));
+  }
+
+  private isInventoryMapRuntimeEffect(effect: ActionRuntimeEffect): effect is InventoryMapRuntimeEffect {
+    return this.isInventoryRuntimeEffect(effect) || this.isMapRuntimeEffect(effect);
+  }
+
+  private isInventoryRuntimeEffect(effect: ActionRuntimeEffect): boolean {
+    return effect.type === "ADD_ITEM" || effect.type === "REMOVE_ITEM";
+  }
+
+  private isMapRuntimeEffect(effect: ActionRuntimeEffect): boolean {
+    return effect.type === "CREATE_MAP_OBJECT" ||
+      effect.type === "UPDATE_MAP_OBJECT_QUANTITY" ||
+      effect.type === "REMOVE_MAP_OBJECT";
+  }
+
+  private isEarlyRuntimeEffect(effect: ActionRuntimeEffect): boolean {
+    return effect.type === "SPEND_ACTION" ||
+      effect.type === "SPEND_BONUS_ACTION" ||
+      effect.type === "SPEND_REACTION" ||
+      effect.type === "SPEND_SPELL_SLOT";
+  }
+
+  private async applyInventoryMapRuntimeEffectsAtomically(
+    params: RuntimeEffectParams,
+    effects: InventoryMapRuntimeEffect[],
+  ): Promise<void> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(params.sessionId);
+    const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(params.sessionId);
+    const baselineMap = await this.sessionsService.getVttMapBaseline(
+      params.sessionId,
+      sessionScenario.id,
+      state,
+    );
+    const nextMap = this.applyMapRuntimeEffectsToMap(baselineMap, effects);
+
+    const savedMap = await this.prisma.$transaction(async (tx) => {
+      for (const effect of effects) {
+        if (effect.type === "ADD_ITEM") {
+          await this.addInventoryItemWithClient(tx, params.sessionCharacterId, effect);
+        } else if (effect.type === "REMOVE_ITEM") {
+          await this.removeInventoryItemWithClient(tx, params.sessionCharacterId, effect);
+        }
+      }
+
+      await this.syncSessionInventorySnapshotWithClient(tx, params.sessionCharacterId);
+
+      const currentState = await tx.gameState.findUnique({
+        where: { sessionScenarioId: params.sessionScenarioId },
+        select: { currentNodeId: true, flagsJson: true },
+      });
+      const flags = this.parseJson<Record<string, unknown>>(currentState?.flagsJson, {});
+      const normalizedMap = this.sessionsService.normalizeVttMap(
+        nextMap,
+        currentState?.currentNodeId ?? state.currentNodeId ?? null,
+      );
+      await tx.gameState.update({
+        where: { sessionScenarioId: params.sessionScenarioId },
+        data: {
+          version: { increment: 1 },
+          flagsJson: JSON.stringify({
+            ...flags,
+            vttMap: normalizedMap,
+          }),
+        },
+      });
+      return normalizedMap;
+    });
+
+    this.realtimeEvents.emitVttMapUpdated(params.sessionId, {
+      hostUserId: session.hostUserId,
+      hostMap: savedMap,
+      playerMap: this.sessionsService.redactVttMapForPlayer(savedMap),
+    });
+  }
+
+  private applyMapRuntimeEffectsToMap(
+    map: VttMapStateDto,
+    effects: InventoryMapRuntimeEffect[],
+  ): VttMapStateDto {
+    const gridSize = map.gridSize || 50;
+    let objectCells = [...(map.objectCells ?? [])];
+    for (const effect of effects) {
+      if (effect.type === "CREATE_MAP_OBJECT") {
+        objectCells = [
+          ...objectCells.filter((cell) => cell.id !== effect.objectId),
+          {
+            id: effect.objectId,
+            x: effect.point.x * gridSize,
+            y: effect.point.y * gridSize,
+            width: gridSize,
+            height: gridSize,
+            name: effect.name,
+            description: `${effect.itemDefinitionId} x${effect.quantity}`,
+            visibleToPlayers: true,
+            hiddenItemIds: [effect.itemDefinitionId],
+          },
+        ];
+      } else if (effect.type === "UPDATE_MAP_OBJECT_QUANTITY") {
+        objectCells = objectCells.map((cell) =>
+          cell.id === effect.objectId
+            ? { ...cell, description: `${effect.itemDefinitionId} x${effect.quantity}` }
+            : cell,
+        );
+      } else if (effect.type === "REMOVE_MAP_OBJECT") {
+        objectCells = objectCells.filter((cell) => cell.id !== effect.objectId);
+      }
+    }
+
+    return {
+      ...map,
+      objectCells,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  private async addInventoryItemWithClient(
+    tx: Prisma.TransactionClient,
+    sessionCharacterId: string,
+    effect: Extract<ActionRuntimeEffect, { type: "ADD_ITEM" }>,
+  ): Promise<void> {
+    const quantity = this.normalizeInventoryQuantity(effect.quantity);
+    const itemDefinition = await tx.itemDefinition.findFirst({
+      where: {
+        OR: [
+          { id: effect.itemDefinitionId },
+          { name: { equals: effect.itemDefinitionId, mode: "insensitive" } },
+        ],
+      },
+    });
+    if (!itemDefinition) {
+      throw notFound("INVENTORY_404", "아이템 정의를 찾을 수 없습니다.", {
+        reason: "ITEM_DEFINITION_NOT_FOUND",
+      });
+    }
+
+    await tx.inventoryEntry.create({
+      data: {
+        sessionCharacterId,
+        itemDefinitionId: itemDefinition.id,
+        quantity,
+        containerEntryId: effect.containerEntryId ?? null,
+      },
+    });
+  }
+
+  private async removeInventoryItemWithClient(
+    tx: Prisma.TransactionClient,
+    sessionCharacterId: string,
+    effect: Extract<ActionRuntimeEffect, { type: "REMOVE_ITEM" }>,
+  ): Promise<void> {
+    const quantity = this.normalizeInventoryQuantity(effect.quantity);
+    const entry = await tx.inventoryEntry.findFirst({
+      where: {
+        sessionCharacterId,
+        OR: [
+          { id: effect.itemId },
+          { itemDefinitionId: effect.itemId },
+          {
+            itemDefinition: {
+              is: {
+                OR: [
+                  { id: effect.itemId },
+                  { name: { equals: effect.itemId, mode: "insensitive" } },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!entry) {
+      throw notFound("INVENTORY_404", "인벤토리 아이템을 찾을 수 없습니다.", {
+        reason: "INVENTORY_ENTRY_NOT_FOUND",
+        itemId: effect.itemId,
+      });
+    }
+    if (quantity >= entry.quantity) {
+      const containedCount = await tx.inventoryEntry.count({
+        where: { containerEntryId: entry.id },
+      });
+      if (containedCount > 0) {
+        throw badRequest("INVENTORY_400", "내용물이 있는 컨테이너는 삭제할 수 없습니다.", {
+          reason: "CONTAINER_NOT_EMPTY",
+        });
+      }
+      await tx.inventoryEntry.delete({ where: { id: entry.id } });
+      return;
+    }
+
+    await tx.inventoryEntry.update({
+      where: { id: entry.id },
+      data: { quantity: { decrement: quantity } },
+    });
+  }
+
+  private async syncSessionInventorySnapshotWithClient(
+    tx: Prisma.TransactionClient,
+    sessionCharacterId: string,
+  ): Promise<void> {
+    const entries = await tx.inventoryEntry.findMany({
+      where: { sessionCharacterId },
+      include: { itemDefinition: true },
+      orderBy: { createdAt: "asc" },
+    });
+    await tx.sessionCharacter.update({
+      where: { id: sessionCharacterId },
+      data: {
+        inventorySnapshotJson: JSON.stringify(
+          entries.map((entry) => ({
+            id: entry.id,
+            name: entry.itemDefinition.name,
+            quantity: entry.quantity,
+            itemDefinitionId: entry.itemDefinitionId,
+            itemType: entry.itemDefinition.itemType,
+            description: entry.itemDefinition.description ?? undefined,
+            weightLb: entry.itemDefinition.weightLb ?? undefined,
+            volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
+            damageDice: entry.itemDefinition.damageDice ?? undefined,
+            damageType: entry.itemDefinition.damageType ?? undefined,
+            armorClassBase: entry.itemDefinition.armorClassBase ?? undefined,
+            armorClassBonus: entry.itemDefinition.armorClassBonus ?? undefined,
+            armorStrengthRequirement: entry.itemDefinition.armorStrengthRequirement ?? undefined,
+            armorStealthDisadvantage: entry.itemDefinition.armorStealthDisadvantage ?? undefined,
+            useEffect: entry.itemDefinition.useEffect ?? undefined,
+            containerId: entry.containerEntryId ?? undefined,
+          })),
+        ),
+      },
+    });
+  }
+
+  private normalizeInventoryQuantity(quantity: number | undefined): number {
+    const normalized = quantity ?? 1;
+    if (!Number.isInteger(normalized) || normalized < 1) {
+      throw badRequest("INVENTORY_400", "아이템 수량이 올바르지 않습니다.", {
+        reason: "INVALID_ITEM_QUANTITY",
+      });
+    }
+    return normalized;
   }
 
   private resolveInitialResourceDefaults(actor: RuntimeActor): {
@@ -779,6 +1087,43 @@ export class ActionProcessorService {
         }),
       },
     });
+  }
+
+  private async assertSpellSlotAvailable(
+    sessionScenarioId: string,
+    sessionCharacterId: string,
+    slotLevel: number,
+  ): Promise<void> {
+    if (slotLevel < 1) {
+      return;
+    }
+
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const spellSlotsBySessionCharacterId = this.parseJson<Record<string, Record<string, number>>>(
+      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
+      {},
+    );
+    const slotKey = String(slotLevel);
+    const maximumSlots = await this.resolveSpellSlotMaximum(
+      sessionCharacterId,
+      slotLevel,
+    );
+    const currentSlots = spellSlotsBySessionCharacterId[sessionCharacterId] ?? {
+      [slotKey]: maximumSlots,
+    };
+    const remaining = Math.max(
+      0,
+      Math.floor(currentSlots[slotKey] ?? maximumSlots),
+    );
+    if (remaining < 1) {
+      throw badRequest("ACTION_400", `사용 가능한 ${slotLevel}레벨 주문 슬롯이 없습니다.`, {
+        reason: "NO_SPELL_SLOT",
+      });
+    }
   }
 
   private async resolveSpellSlotMaximum(
