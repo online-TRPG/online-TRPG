@@ -39,6 +39,7 @@ import {
   SessionResponseDto,
   SessionSnapshotDto,
   SessionStatus,
+  UpdateHumanGmDto,
   UpdateParticipantReadyDto,
   UpdateSessionDto,
   UpdateSessionNodeDto,
@@ -161,6 +162,22 @@ export class SessionsController {
       "SESSION_200",
       "Session updated.",
       await this.sessionsService.updateSession(userId, sessionId, dto),
+    );
+  }
+
+  @Patch(":id/gm")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: SessionSnapshotDto })
+  async updateHumanGm(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: UpdateHumanGmDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Human GM updated.",
+      await this.sessionsService.updateHumanGm(userId, sessionId, dto),
     );
   }
 

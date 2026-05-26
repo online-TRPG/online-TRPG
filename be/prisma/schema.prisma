@@ -29,6 +29,7 @@ enum SessionScenarioStatus {
 
 enum ParticipantRole {
   HOST
+  GM
   PLAYER
   SPECTATOR
 }
@@ -170,6 +171,7 @@ model User {
   updatedAt            DateTime             @default(now()) @updatedAt
   profile              UserProfile?
   hostedSessions       Session[]            @relation("SessionHost")
+  gmSessions           Session[]            @relation("SessionGm")
   participants         SessionParticipant[]
   characters           Character[]
   refreshTokens        RefreshToken[]
@@ -199,6 +201,7 @@ model Session {
   title             String
   description       String               @default("")
   hostUserId        String
+  gmUserId          String?
   inviteCode        String               @unique
   status            SessionStatus        @default(RECRUITING)
   visibility        SessionVisibility    @default(PUBLIC)
@@ -210,6 +213,7 @@ model Session {
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
   host              User                 @relation("SessionHost", fields: [hostUserId], references: [id])
+  gm                User?                @relation("SessionGm", fields: [gmUserId], references: [id], onDelete: SetNull)
   participants      SessionParticipant[]
   sessionScenarios  SessionScenario[]
   sessionCharacters SessionCharacter[]

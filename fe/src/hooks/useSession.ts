@@ -33,6 +33,7 @@ import {
   submitMainCommand as apiSubmitMainCommand,
   submitAction as apiSubmitAction,
   updateCharacter as apiUpdateCharacter,
+  updateHumanGm as apiUpdateHumanGm,
   updateReadyState as apiUpdateReadyState,
 } from '../services/api';
 import { connectSessionSocket, sendRealtimeChatMessage } from '../services/realtime';
@@ -111,6 +112,7 @@ export interface UseSessionReturn {
   deleteCharacter: (characterId: string) => Promise<void>;
   selectCharacter: (characterId: string | null) => Promise<void>;
   setReadyState: (isReady: boolean) => Promise<void>;
+  setHumanGm: (gmUserId: string) => Promise<void>;
   startSession: () => Promise<void>;
   leaveSession: () => Promise<boolean>;
   sendMainCommand: (payload: SubmitMainCommandDto) => Promise<MainCommandResponseDto | null>;
@@ -1402,6 +1404,22 @@ export function useSession(
     }
   }
 
+  async function setHumanGm(gmUserId: string) {
+    if (!user || !snapshot) return;
+    setError(null);
+    setBusy(true);
+
+    try {
+      const next = await apiUpdateHumanGm(user, snapshot.session.id, gmUserId, accessToken);
+      updateSnapshot(next);
+      appendLog('rest', 'GM 지정', '인간 GM을 변경했습니다.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'GM 지정에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function startSession() {
     if (!user || !snapshot) return;
     setError(null);
@@ -1678,6 +1696,7 @@ export function useSession(
     deleteCharacter,
     selectCharacter,
     setReadyState,
+    setHumanGm,
     startSession,
     leaveSession,
     sendMainCommand,
