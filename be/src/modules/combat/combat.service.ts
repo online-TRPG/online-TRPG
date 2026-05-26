@@ -64,7 +64,7 @@ import {
 import type { PendingReadyAction } from "../rules/ready-action.service";
 import type { TriggeredReadyAction } from "../rules/ready-action.service";
 import { RuleEngineService } from "../rules/rule-engine.service";
-import type { SavingThrowAbility } from "../rules/rule-engine.types";
+import type { CoverModifierProduced, SavingThrowAbility } from "../rules/rule-engine.types";
 import { SpellSlotService } from "../rules/spell-slot.service";
 import { SpellScalingService } from "../rules/spell-scaling.service";
 import type { SpellScalingResult, SpellScalingRule } from "../rules/spell-scaling.service";
@@ -147,6 +147,7 @@ type PendingShieldReaction = {
   targetParticipantId: string;
   attackTotal: number;
   targetArmorClass: number;
+  cover?: CoverModifierProduced;
   damageDice?: string;
   damageBonus?: number;
   createdAt: string;
@@ -4525,6 +4526,7 @@ export class CombatService {
     target: CombatParticipantEntity;
     attackTotal: number;
     targetArmorClass: number;
+    cover: CoverModifierProduced;
     damageDice?: string;
     damageBonus?: number;
   }): Promise<PendingShieldReaction> {
@@ -4545,6 +4547,7 @@ export class CombatService {
       targetParticipantId: params.target.id,
       attackTotal: params.attackTotal,
       targetArmorClass: params.targetArmorClass,
+      cover: params.cover,
       damageDice: params.damageDice,
       damageBonus: params.damageBonus,
       createdAt: new Date().toISOString(),
