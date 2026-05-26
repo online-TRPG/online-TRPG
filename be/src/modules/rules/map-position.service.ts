@@ -11,10 +11,21 @@ export type RuleMapRuntimeToken = {
   isHostile: boolean;
 };
 
+export type RuleMapRuntimeObjectCell = {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  description: string | null;
+  hiddenItemIds: string[];
+};
+
 export type RuleMapRuntimeContext = {
   gridType: "square" | "hex";
   gridSize: number;
   tokens: RuleMapRuntimeToken[];
+  objectCells?: RuleMapRuntimeObjectCell[];
 };
 
 @Injectable()
@@ -46,8 +57,13 @@ export class MapPositionService {
           .map((token) => this.toRuntimeToken(token, gridSize))
           .filter((token): token is RuleMapRuntimeToken => token !== null)
       : [];
+    const objectCells = Array.isArray(value.objectCells)
+      ? value.objectCells
+          .map((cell) => this.toRuntimeObjectCell(cell, gridSize))
+          .filter((cell): cell is RuleMapRuntimeObjectCell => cell !== null)
+      : [];
 
-    return { gridType, gridSize, tokens };
+    return { gridType, gridSize, tokens, objectCells };
   }
 
   hasActorAllyWithinFeetOfTarget(params: {
@@ -206,6 +222,34 @@ export class MapPositionService {
       size: this.toPositiveNumber(value.size) ?? fallbackSize,
       hidden: value.hidden === true,
       isHostile: value.isHostile === true,
+    };
+  }
+
+  private toRuntimeObjectCell(
+    value: unknown,
+    fallbackSize: number,
+  ): RuleMapRuntimeObjectCell | null {
+    if (!this.isRecord(value)) {
+      return null;
+    }
+
+    const id = typeof value.id === "string" ? value.id.trim() : "";
+    const x = this.toFiniteNumber(value.x);
+    const y = this.toFiniteNumber(value.y);
+    if (!id || x === null || y === null) {
+      return null;
+    }
+
+    return {
+      id,
+      x,
+      y,
+      width: this.toPositiveNumber(value.width) ?? fallbackSize,
+      height: this.toPositiveNumber(value.height) ?? fallbackSize,
+      description: typeof value.description === "string" ? value.description : null,
+      hiddenItemIds: Array.isArray(value.hiddenItemIds)
+        ? value.hiddenItemIds.filter((itemId): itemId is string => typeof itemId === "string")
+        : [],
     };
   }
 
