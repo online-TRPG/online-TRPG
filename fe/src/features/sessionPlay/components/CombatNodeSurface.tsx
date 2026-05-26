@@ -20,6 +20,7 @@ import { InventoryItemInfo } from './InventoryItemInfo';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import { getCharacterImage } from '../utils/characterVisuals';
+import { describeCombatParticipantObservation } from '../utils/combatParticipantObservation';
 import { MONSTER_TOKEN_COLOR, NPC_TOKEN_COLOR } from '../../../utils/sessionTokenColors';
 import type { SessionTokenColor } from '../../../utils/sessionTokenColors';
 import './CombatNodeSurface.css';
@@ -527,7 +528,7 @@ export function CombatNodeSurface({
     null
   );
   const [selectedMapTokenId, setSelectedMapTokenId] = useState<string | null>(null);
-  const [selectedMapSelection, setSelectedMapSelection] = useState<BattleMapSelection | null>(null);
+  const [, setSelectedMapSelection] = useState<BattleMapSelection | null>(null);
   const [isAttackTargeting, setAttackTargeting] = useState(false);
   const [isSneakAttackTargeting, setSneakAttackTargeting] = useState(false);
   const [targetingSpellId, setTargetingSpellId] = useState<string | null>(null);
@@ -593,6 +594,14 @@ export function CombatNodeSurface({
     combat?.participants.find(
       (participant) => participant.sessionEntityId === selectedTargetParticipantId
     ) ?? null;
+  const selectedMapParticipant =
+    combat?.participants.find((participant) => {
+      const tokenId = getParticipantTokenId(participant);
+      return Boolean(tokenId && tokenId === selectedMapTokenId);
+    }) ?? null;
+  const selectedHostileObservation = selectedMapParticipant?.isHostile
+    ? describeCombatParticipantObservation(selectedMapParticipant)
+    : null;
   const attackName = equippedWeapon?.name ?? '기본 공격';
   const attackRangeFt = equippedWeapon ? getWeaponFallbackRangeFt(equippedWeapon) : 5;
   const offhandAttackName = offhandWeapon ? `보조 공격(${offhandWeapon.name})` : '보조 공격';
@@ -1103,6 +1112,21 @@ export function CombatNodeSurface({
                     : null;
                   const isCurrentTurn = participant.sessionEntityId === combat?.currentEntityId;
                   const isNextTurn = participant.sessionEntityId === nextTurnEntityId;
+                  const participantObservation = participant.isHostile
+                    ? describeCombatParticipantObservation(participant)
+                    : null;
+                  const participantTitle =
+                    isSneakAttackTargeting && participant.isHostile
+                      ? isParticipantSneakAttackEligible(participant)
+                        ? `${participant.name} / 암습 가능`
+                        : `${participant.name} / 암습 조건 불충족`
+                      : participantObservation
+                        ? [
+                            participant.name,
+                            participantObservation.healthText,
+                            participantObservation.conditionText,
+                          ].join(' / ')
+                        : `${participant.name} / HP ${participant.currentHp ?? '-'}/${participant.maxHp ?? '-'}`;
                   return (
                     <button
                       type="button"
@@ -1123,13 +1147,7 @@ export function CombatNodeSurface({
                       ]
                         .filter(Boolean)
                         .join(' ')}
-                      title={
-                        isSneakAttackTargeting && participant.isHostile
-                          ? isParticipantSneakAttackEligible(participant)
-                            ? `${participant.name} / 암습 가능`
-                            : `${participant.name} / 암습 조건 불충족`
-                          : `${participant.name} / HP ${participant.currentHp ?? '-'}/${participant.maxHp ?? '-'}`
-                      }
+                      title={participantTitle}
                       aria-label={participant.name}
                       onClick={() => {
                         setSelectedMapTokenId(tokenId ?? null);
@@ -1193,6 +1211,28 @@ export function CombatNodeSurface({
                 onSelectionChange={handleCombatMapSelection}
                 title={node?.title ?? '전투 지도'}
               />
+              {selectedMapParticipant?.isHostile && selectedHostileObservation ? (
+                <aside className="combat-monster-observation-popover" aria-live="polite">
+                  <div className="combat-monster-observation-head">
+                    <span>관찰</span>
+                    <strong>{selectedMapParticipant.name}</strong>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedMapSelection(null);
+                        setSelectedMapTokenId(null);
+                        setSelectedTargetParticipantId(null);
+                      }}
+                    >
+                      닫기
+                    </button>
+                  </div>
+                  <div className="combat-monster-observation-body">
+                    <p>{selectedHostileObservation.healthText}</p>
+                    <p>{selectedHostileObservation.conditionText}</p>
+                  </div>
+                </aside>
+              ) : null}
             </>
           ) : (
             <div className="combat-map-placeholder">
