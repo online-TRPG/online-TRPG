@@ -8,6 +8,11 @@ import {
   BagOfHoldingCapacityProduced,
   ChillTouchInput,
   ChillTouchProduced,
+  ConcentrationCheckInput,
+  ConcentrationCheckProduced,
+  CoverLevel,
+  CoverModifierInput,
+  CoverModifierProduced,
   CriticalThresholdModifierInput,
   CriticalThresholdModifierProduced,
   CunningActionInput,
@@ -32,6 +37,9 @@ import {
   RuleTurnLogEvent,
   SecondWindInput,
   SecondWindProduced,
+  SavingThrowInput,
+  SavingThrowModifier,
+  SavingThrowProduced,
   SneakAttackInput,
   SneakAttackProduced,
 } from "./rule-engine.types";
@@ -59,6 +67,119 @@ export class RuleEngineService {
       criticalHit,
       criticalMiss,
     }, "attack_roll_resolved");
+  }
+
+  resolveSavingThrow(
+    input: SavingThrowInput,
+  ): RuleHookResult<SavingThrowProduced> {
+    this.assertIntegerInRange(input.naturalD20, 1, 20, "naturalD20");
+    this.assertInteger(input.difficultyClass, "difficultyClass");
+    this.assertInteger(input.abilityModifier, "abilityModifier");
+    const proficiencyBonus = input.proficiencyBonus ?? 0;
+    this.assertInteger(proficiencyBonus, "proficiencyBonus");
+    this.assertSavingThrowAbility(input.ability);
+
+    const appliedModifiers: SavingThrowModifier[] = [
+      { source: `ability:${input.ability}`, value: input.abilityModifier },
+    ];
+    if (input.proficient) {
+      appliedModifiers.push({ source: "proficiency", value: proficiencyBonus });
+    }
+
+    for (const modifier of input.bonusModifiers ?? []) {
+      const source = this.normalizeOptionalToken(modifier.source, "bonusModifier.source");
+      this.assertInteger(modifier.value, "bonusModifier.value");
+      appliedModifiers.push({ source, value: modifier.value });
+    }
+
+    const savingThrowTotal =
+      input.naturalD20 +
+      appliedModifiers.reduce((sum, modifier) => sum + modifier.value, 0);
+
+    return this.accepted(
+      RULE_HOOK_IDS.RESOLVE_SAVING_THROW,
+      {
+        ability: input.ability,
+        naturalD20: input.naturalD20,
+        savingThrowTotal,
+        difficultyClass: input.difficultyClass,
+        success: savingThrowTotal >= input.difficultyClass,
+        advantageState: input.advantageState ?? "normal",
+        appliedModifiers,
+      },
+      "saving_throw_resolved",
+    );
+  }
+
+  resolveConcentrationCheck(
+    input: ConcentrationCheckInput,
+  ): RuleHookResult<ConcentrationCheckProduced> {
+    this.assertInteger(input.damageTaken, "damageTaken");
+    if (input.damageTaken < 0) {
+      throw new Error("damageTaken must be greater than or equal to 0.");
+    }
+
+    const difficultyClass = Math.max(10, Math.floor(input.damageTaken / 2));
+    const savingThrow = this.resolveSavingThrow({
+      ability: "con",
+      naturalD20: input.naturalD20,
+      difficultyClass,
+      abilityModifier: input.constitutionModifier,
+      proficiencyBonus: input.proficiencyBonus,
+      proficient: input.proficient,
+      advantageState: input.advantageState,
+      bonusModifiers: input.bonusModifiers,
+    }).produced;
+
+    return this.accepted(
+      RULE_HOOK_IDS.RESOLVE_CONCENTRATION_CHECK,
+      {
+        damageTaken: input.damageTaken,
+        difficultyClass,
+        savingThrowTotal: savingThrow.savingThrowTotal,
+        concentrationMaintained: savingThrow.success,
+        concentrationEnds: !savingThrow.success,
+        savingThrow,
+      },
+      "concentration_check_resolved",
+    );
+  }
+
+  resolveCoverModifiers(
+    input: CoverModifierInput,
+  ): RuleHookResult<CoverModifierProduced> {
+    this.assertCoverLevel(input.coverLevel);
+    const coverBonus = this.resolveCoverBonus(input.coverLevel);
+    const appliesToAttackRoll = input.appliesToAttackRoll ?? true;
+    const appliesToDexteritySave = input.appliesToDexteritySave ?? true;
+    const armorClassBonus = appliesToAttackRoll ? coverBonus : 0;
+    const dexteritySaveBonus = appliesToDexteritySave ? coverBonus : 0;
+    const appliedModifiers: SavingThrowModifier[] = [];
+
+    if (armorClassBonus) {
+      appliedModifiers.push({ source: `cover:${input.coverLevel}:ac`, value: armorClassBonus });
+    }
+    if (dexteritySaveBonus) {
+      appliedModifiers.push({
+        source: `cover:${input.coverLevel}:dex_save`,
+        value: dexteritySaveBonus,
+      });
+    }
+    if (input.coverLevel === "full") {
+      appliedModifiers.push({ source: "cover:full:target_blocked", value: 0 });
+    }
+
+    return this.accepted(
+      RULE_HOOK_IDS.RESOLVE_COVER_MODIFIERS,
+      {
+        coverLevel: input.coverLevel,
+        armorClassBonus,
+        dexteritySaveBonus,
+        targetable: input.coverLevel !== "full",
+        appliedModifiers,
+      },
+      "cover_modifiers_resolved",
+    );
   }
 
   applyDamageModifiers(
@@ -991,8 +1112,41 @@ export class RuleEngineService {
     return normalized;
   }
 
+  private normalizeOptionalToken(value: string, field: string): string {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+      throw new Error(`${field} must not be empty.`);
+    }
+    return normalized;
+  }
+
   private normalizeFeatureToken(value: string): string {
     return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  }
+
+  private assertSavingThrowAbility(value: SavingThrowInput["ability"]): void {
+    if (!["str", "dex", "con", "int", "wis", "cha"].includes(value)) {
+      throw new Error("ability must be one of str, dex, con, int, wis, cha.");
+    }
+  }
+
+  private assertCoverLevel(value: CoverLevel): void {
+    if (!["none", "half", "three_quarters", "full"].includes(value)) {
+      throw new Error("coverLevel must be one of none, half, three_quarters, full.");
+    }
+  }
+
+  private resolveCoverBonus(coverLevel: CoverLevel): number {
+    switch (coverLevel) {
+      case "half":
+        return 2;
+      case "three_quarters":
+        return 5;
+      case "none":
+      case "full":
+      default:
+        return 0;
+    }
   }
 
   private toFeatureTokenSet(values: string[] | undefined): Set<string> {

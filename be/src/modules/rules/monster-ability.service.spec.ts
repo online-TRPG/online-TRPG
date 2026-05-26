@@ -1,0 +1,61 @@
+import { MonsterAbilityService } from "./monster-ability.service";
+
+describe("MonsterAbilityService", () => {
+  const service = new MonsterAbilityService();
+
+  it("projects catalog monster attacks into executable actions", () => {
+    expect(service.listExecutableActions("goblin")).toEqual([
+      {
+        monsterId: "monster.goblin",
+        actionId: "action.scimitar",
+        label: "Scimitar",
+        attackKind: "melee_weapon",
+        attackBonus: 4,
+        damageDice: "1d6+2",
+        damageType: "slashing",
+        reachFt: 5,
+        rangeFt: null,
+        confidence: "high",
+        catalogEntryId: "monster.goblin.ability.scimitar",
+        costType: "action",
+      },
+      {
+        monsterId: "monster.goblin",
+        actionId: "action.shortbow",
+        label: "Shortbow",
+        attackKind: "ranged_weapon",
+        attackBonus: 4,
+        damageDice: "1d6+2",
+        damageType: "piercing",
+        reachFt: null,
+        rangeFt: { normal: 80, long: 320 },
+        confidence: "high",
+        catalogEntryId: "monster.goblin.ability.shortbow",
+        costType: "action",
+      },
+    ]);
+  });
+
+  it("chooses preferred action ids and falls back to the monster preference order", () => {
+    expect(service.chooseAction("monster.goblin", "action.shortbow")).toMatchObject({
+      actionId: "action.shortbow",
+      rangeFt: { normal: 80, long: 320 },
+    });
+
+    expect(service.chooseAction("monster.goblin")).toMatchObject({
+      actionId: "action.scimitar",
+      reachFt: 5,
+    });
+
+    expect(service.chooseAction("monster.giant_rat")).toMatchObject({
+      actionId: "action.bite",
+      damageDice: "1d4+2",
+      damageType: "piercing",
+    });
+  });
+
+  it("returns no executable actions for monsters without catalog attacks", () => {
+    expect(service.listExecutableActions("monster.unknown")).toEqual([]);
+    expect(service.chooseAction("monster.unknown")).toBeNull();
+  });
+});

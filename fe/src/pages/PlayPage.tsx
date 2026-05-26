@@ -3162,7 +3162,10 @@ export function PlayPage({
     function handleReactionPrompt(event: Event) {
       if (!session) return;
       const reaction = (event as CustomEvent<CombatReactionPromptDto>).detail;
-      if (!reaction || (reaction.type !== 'opportunity_attack' && reaction.type !== 'shield')) return;
+      if (
+        !reaction ||
+        !['opportunity_attack', 'shield', 'ready_action'].includes(reaction.type)
+      ) return;
       const accepted = window.confirm(reaction.message);
       const request = accepted ? acceptCombatReaction : declineCombatReaction;
       void request(user, session.id, { reactionId: reaction.id })
