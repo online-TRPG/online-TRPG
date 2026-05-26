@@ -50,6 +50,17 @@ describe("MapPositionService", () => {
               isHostile: false,
             },
           ],
+          objectCells: [
+            {
+              id: "object-rope",
+              x: 64,
+              y: 0,
+              width: 64,
+              height: 64,
+              description: "equipment.rope x5",
+              hiddenItemIds: ["equipment.rope"],
+            },
+          ],
         },
       }),
     );
@@ -65,6 +76,17 @@ describe("MapPositionService", () => {
           size: 64,
           hidden: false,
           isHostile: false,
+        },
+      ],
+      objectCells: [
+        {
+          id: "object-rope",
+          x: 64,
+          y: 0,
+          width: 64,
+          height: 64,
+          description: "equipment.rope x5",
+          hiddenItemIds: ["equipment.rope"],
         },
       ],
     });
