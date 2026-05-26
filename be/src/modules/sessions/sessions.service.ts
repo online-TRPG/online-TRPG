@@ -59,6 +59,7 @@ import {
   StateDiffResponseDto,
   TurnLogResponseDto,
   UpdateParticipantReadyDto,
+  UpdateHumanGmDto,
   UpdateSessionDto,
   UpdateSessionNodeDto,
   UpdateVttMapDto,
@@ -108,12 +109,14 @@ type RevealPolicyMode =
 
 const participantRoleToApi: Record<PrismaParticipantRole, ParticipantRole> = {
   [PrismaParticipantRole.HOST]: ParticipantRole.HOST,
+  [PrismaParticipantRole.GM]: ParticipantRole.GM,
   [PrismaParticipantRole.PLAYER]: ParticipantRole.PLAYER,
   [PrismaParticipantRole.SPECTATOR]: ParticipantRole.SPECTATOR,
 };
 
 const participantRoleToPrisma: Record<ParticipantRole, PrismaParticipantRole> = {
   [ParticipantRole.HOST]: PrismaParticipantRole.HOST,
+  [ParticipantRole.GM]: PrismaParticipantRole.GM,
   [ParticipantRole.PLAYER]: PrismaParticipantRole.PLAYER,
   [ParticipantRole.SPECTATOR]: PrismaParticipantRole.SPECTATOR,
 };
@@ -174,6 +177,8 @@ export class SessionsService {
 
     const inviteCode = await this.generateInviteCode();
     const visibility = this.resolveVisibility(dto.visibility, dto.isPrivate, dto.isPublic);
+    const gmMode = gmModeToPrisma[dto.gmMode];
+    const isHumanGmSession = gmMode === PrismaGmMode.HUMAN;
 
     const session = await this.prisma.$transaction(async (tx) => {
       const createdSession = await tx.session.create({
@@ -186,7 +191,8 @@ export class SessionsService {
           maxParticipants: dto.maxParticipants ?? dto.maxPlayers ?? 4,
           visibility,
           ruleSetId: dto.ruleSetId ?? scenario.ruleSetId ?? null,
-          gmMode: gmModeToPrisma[dto.gmMode],
+          gmMode,
+          gmUserId: isHumanGmSession ? userId : null,
           nextSessionAt: dto.nextSessionAt ? new Date(dto.nextSessionAt) : null,
         },
       });
@@ -204,9 +210,11 @@ export class SessionsService {
         data: {
           sessionId: createdSession.id,
           userId,
-          role: PrismaParticipantRole.HOST,
+          role: isHumanGmSession ? PrismaParticipantRole.GM : PrismaParticipantRole.HOST,
           status: PrismaParticipantStatus.JOINED,
           connectionStatus: PrismaConnectionStatus.ONLINE,
+          isReady: isHumanGmSession,
+          readyAt: isHumanGmSession ? new Date() : null,
         },
       });
 
@@ -364,6 +372,13 @@ export class SessionsService {
         return;
       }
 
+      if (session.gmUserId === userId) {
+        await tx.session.update({
+          where: { id: resolvedSessionId },
+          data: { gmUserId: null },
+        });
+      }
+
       if (session.hostUserId === userId) {
         const nextHost = remainingParticipants[0];
 
@@ -379,7 +394,12 @@ export class SessionsService {
               userId: nextHost.userId,
             },
           },
-          data: { role: PrismaParticipantRole.HOST },
+          data: {
+            role:
+              session.gmUserId === nextHost.userId
+                ? PrismaParticipantRole.GM
+                : PrismaParticipantRole.HOST,
+          },
         });
       }
     });
@@ -465,6 +485,7 @@ export class SessionsService {
     const { sessionScenario, state } = await this.getGameStateEntityOrThrow(resolvedSessionId);
     const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
     const existingMap = this.toVttMapOrNull(flags.vttMap);
+    const canSeeGmMap = this.canUseGmRuntimeControls(userId, session);
 
     if (existingMap) {
       const map = await this.applyScenarioStartingPositions(resolvedSessionId, existingMap);
@@ -479,7 +500,7 @@ export class SessionsService {
           },
         });
       }
-      return session.hostUserId === userId ? map : this.redactVttMapForPlayer(map);
+      return canSeeGmMap ? map : this.redactVttMapForPlayer(map);
     }
 
     const scenarioMap = await this.getScenarioDefaultVttMapForNode(
@@ -489,11 +510,11 @@ export class SessionsService {
     if (scenarioMap) {
       const normalizedMap = this.normalizeVttMap(scenarioMap, state.currentNodeId ?? null);
       const map = await this.applyScenarioStartingPositions(resolvedSessionId, normalizedMap);
-      return session.hostUserId === userId ? map : this.redactVttMapForPlayer(map);
+      return canSeeGmMap ? map : this.redactVttMapForPlayer(map);
     }
 
     const map = await this.buildDefaultVttMap(resolvedSessionId, state.currentNodeId ?? null);
-    return session.hostUserId === userId ? map : this.redactVttMapForPlayer(map);
+    return canSeeGmMap ? map : this.redactVttMapForPlayer(map);
   }
 
   async updateVttMap(
@@ -1130,6 +1151,80 @@ export class SessionsService {
     return mapped;
   }
 
+  async updateHumanGm(
+    userId: string,
+    sessionId: string,
+    dto: UpdateHumanGmDto,
+  ): Promise<SessionSnapshotDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    const resolvedSessionId = session.id;
+    this.ensureHost(userId, session.hostUserId);
+
+    if (session.gmMode !== PrismaGmMode.HUMAN) {
+      throw new ConflictException("GM can only be assigned in HUMAN GM sessions.");
+    }
+    if (session.status !== PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("GM can only be assigned while the session is recruiting.");
+    }
+
+    const targetParticipant = await this.prisma.sessionParticipant.findUnique({
+      where: {
+        sessionId_userId: {
+          sessionId: resolvedSessionId,
+          userId: dto.gmUserId,
+        },
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+    if (!targetParticipant || targetParticipant.status !== PrismaParticipantStatus.JOINED) {
+      throw new ConflictException("gmUserId must be a JOINED participant of the session.");
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.sessionCharacter.deleteMany({
+        where: {
+          sessionId: resolvedSessionId,
+          userId: dto.gmUserId,
+        },
+      });
+      await tx.sessionParticipant.updateMany({
+        where: {
+          sessionId: resolvedSessionId,
+          role: PrismaParticipantRole.GM,
+        },
+        data: {
+          role: PrismaParticipantRole.PLAYER,
+          isReady: false,
+          readyAt: null,
+        },
+      });
+      await tx.sessionParticipant.update({
+        where: {
+          sessionId_userId: {
+            sessionId: resolvedSessionId,
+            userId: dto.gmUserId,
+          },
+        },
+        data: {
+          role: PrismaParticipantRole.GM,
+          isReady: true,
+          readyAt: new Date(),
+        },
+      });
+      await tx.session.update({
+        where: { id: resolvedSessionId },
+        data: { gmUserId: dto.gmUserId },
+      });
+    });
+
+    const snapshot = await this.buildSnapshot(resolvedSessionId);
+    this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
+    return snapshot;
+  }
+
   async deleteSession(userId: string, sessionId: string): Promise<void> {
     const session = await this.getSessionEntityOrThrow(sessionId);
     const resolvedSessionId = session.id;
@@ -1263,6 +1358,10 @@ export class SessionsService {
 
     if (!participant || participant.status !== PrismaParticipantStatus.JOINED) {
       throw new ForbiddenException("You must join the session before selecting a character.");
+    }
+
+    if (participant.role === PrismaParticipantRole.GM) {
+      throw new ConflictException("The HUMAN GM does not select a player character.");
     }
 
     if (session.status !== PrismaSessionStatus.RECRUITING) {
@@ -1428,6 +1527,30 @@ export class SessionsService {
       throw new ConflictException("Ready state can only be changed while the session is recruiting.");
     }
 
+    if (participant.role === PrismaParticipantRole.GM) {
+      const updatedParticipant = await this.prisma.sessionParticipant.update({
+        where: { id: participant.id },
+        data: {
+          isReady: true,
+          readyAt: participant.readyAt ?? new Date(),
+        },
+        include: {
+          user: true,
+          sessionCharacter: {
+            include: { character: true },
+          },
+        },
+      });
+
+      const mappedParticipant = mapParticipant(updatedParticipant);
+      this.realtimeEvents.emitParticipantUpdated(resolvedSessionId, mappedParticipant);
+      this.realtimeEvents.emitSessionSnapshot(
+        resolvedSessionId,
+        await this.buildSnapshot(resolvedSessionId),
+      );
+      return mappedParticipant;
+    }
+
     if (dto.isReady && !participant.sessionCharacter) {
       throw new ConflictException("Select a character before marking yourself ready.");
     }
@@ -1507,7 +1630,7 @@ export class SessionsService {
   async startSession(userId: string, sessionId: string): Promise<SessionSnapshotDto> {
     const session = await this.getSessionEntityOrThrow(sessionId);
     const resolvedSessionId = session.id;
-    this.ensureHost(userId, session.hostUserId);
+    this.ensureGmRuntimeOperator(userId, session);
 
     if (session.status !== PrismaSessionStatus.RECRUITING) {
       throw new ConflictException("Only recruiting sessions can be started.");
@@ -1528,14 +1651,33 @@ export class SessionsService {
       throw new ConflictException("At least one participant is required to start the session.");
     }
 
-    const participantWithoutCharacter = participants.find((participant) => !participant.sessionCharacter);
-    if (participantWithoutCharacter) {
-      throw new ConflictException("All participants must select a character before the session starts.");
+    const playerParticipants = participants.filter(
+      (participant) => participant.role !== PrismaParticipantRole.GM,
+    );
+    if (session.gmMode === PrismaGmMode.HUMAN) {
+      const gmUserId = session.gmUserId ?? session.hostUserId;
+      const gmParticipant = participants.find(
+        (participant) =>
+          participant.userId === gmUserId &&
+          participant.role === PrismaParticipantRole.GM,
+      );
+      if (!gmParticipant) {
+        throw new ConflictException("A HUMAN GM session requires a joined GM participant.");
+      }
     }
 
-    const participantNotReady = participants.find((participant) => !participant.isReady);
+    if (!playerParticipants.length) {
+      throw new ConflictException("At least one player is required to start the session.");
+    }
+
+    const participantWithoutCharacter = playerParticipants.find((participant) => !participant.sessionCharacter);
+    if (participantWithoutCharacter) {
+      throw new ConflictException("All players must select a character before the session starts.");
+    }
+
+    const participantNotReady = playerParticipants.find((participant) => !participant.isReady);
     if (participantNotReady) {
-      throw new ConflictException("All participants must be ready before the session starts.");
+      throw new ConflictException("All players must be ready before the session starts.");
     }
 
     const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
@@ -3016,6 +3158,25 @@ export class SessionsService {
     }
   }
 
+  private ensureGmRuntimeOperator(
+    userId: string,
+    session: { hostUserId: string; gmMode: PrismaGmMode; gmUserId?: string | null },
+  ): void {
+    if (!this.canUseGmRuntimeControls(userId, session)) {
+      throw new ForbiddenException("GM 권한이 필요합니다.");
+    }
+  }
+
+  private canUseGmRuntimeControls(
+    userId: string,
+    session: { hostUserId: string; gmMode: PrismaGmMode; gmUserId?: string | null },
+  ): boolean {
+    if (session.gmMode === PrismaGmMode.HUMAN) {
+      return (session.gmUserId ?? session.hostUserId) === userId;
+    }
+    return session.hostUserId === userId;
+  }
+
   private resolveScenarioStartNodeId(
     nodes: Array<{ id: string; transitionsJson: string }>,
     requestedStartNodeId: string | null | undefined,
@@ -3059,7 +3220,7 @@ export class SessionsService {
       throw new ConflictException("This endpoint is only available for HUMAN GM sessions.");
     }
 
-    this.ensureHost(userId, session.hostUserId);
+    this.ensureGmRuntimeOperator(userId, session);
     return session;
   }
 

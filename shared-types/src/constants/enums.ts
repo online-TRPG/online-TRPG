@@ -25,6 +25,7 @@ export enum SessionScenarioStatus {
 
 export enum ParticipantRole {
   HOST = "HOST",
+  GM = "GM",
   PLAYER = "PLAYER",
   SPECTATOR = "SPECTATOR",
 }

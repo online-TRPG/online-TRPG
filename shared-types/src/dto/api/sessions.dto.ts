@@ -223,6 +223,13 @@ export class UpdateParticipantReadyDto {
   isReady!: boolean;
 }
 
+export class UpdateHumanGmDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  gmUserId!: string;
+}
+
 export class SessionScenarioResponseDto {
   @ApiProperty()
   id!: string;

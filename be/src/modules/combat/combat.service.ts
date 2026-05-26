@@ -292,7 +292,7 @@ export class CombatService {
       }
     }
 
-    const map = await this.sessionsService.getVttMapForUser(session.hostUserId ?? userId, session.id);
+    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
     const playerTokenIdBySessionCharacterId = new Map(
       (map.tokens ?? [])
         .filter((token) => token.sessionCharacterId)
@@ -677,7 +677,7 @@ export class CombatService {
     }
     await this.ensureActorCanAct(userId, session.id, combat, mover);
 
-    const map = await this.sessionsService.getVttMapForUser(session.hostUserId, session.id);
+    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
     const moverToken = this.findParticipantToken(map, mover);
     if (!moverToken) {
       throw conflict("COMBAT_409", "이동할 토큰을 찾을 수 없습니다.", {
@@ -708,7 +708,7 @@ export class CombatService {
     await this.ensureHost(userId, session.id);
     const combat = await this.getActiveCombatEntity(session.id);
     const target = this.findCombatParticipantOrThrow(combat, dto.participantId);
-    const map = await this.sessionsService.getVttMapForUser(session.hostUserId, session.id);
+    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
     const targetToken = this.findParticipantToken(map, target);
     if (!targetToken) {
       throw conflict("COMBAT_409", "강제이동 대상 토큰을 찾을 수 없습니다.", {
@@ -755,7 +755,7 @@ export class CombatService {
       resolution.enteredTerrainEffects,
     );
     const responseMap = terrainEffectApplication.damageRoll && !target.isAlive
-      ? await this.sessionsService.getVttMapForUser(session.hostUserId, session.id)
+      ? await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id)
       : savedMap;
     const response = await this.mapCombat(await this.getActiveCombatEntity(session.id));
     const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
@@ -893,7 +893,7 @@ export class CombatService {
     if (!latestMover.isAlive) {
       const response = await this.completeCombatIfResolved(params.session.id, latestCombat);
       this.realtimeEvents.emitCombatUpdated(params.session.id, response);
-      const currentMap = await this.sessionsService.getVttMapForUser(params.session.hostUserId, params.session.id);
+      const currentMap = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(params.session), params.session.id);
       return {
         combat: response,
         map: currentMap,
@@ -941,7 +941,7 @@ export class CombatService {
       );
       this.realtimeEvents.emitCombatUpdated(params.session.id, response);
       this.realtimeEvents.emitSessionSnapshot(params.session.id, await this.sessionsService.buildSnapshot(params.session.id));
-      const currentMap = await this.sessionsService.getVttMapForUser(params.session.hostUserId, params.session.id);
+      const currentMap = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(params.session), params.session.id);
       return {
         combat: response,
         map: currentMap,
@@ -1048,7 +1048,7 @@ export class CombatService {
       );
       message = `${message} 이동 완료: ${pending.movementDistanceFt}ft`;
     } else {
-      savedMap = await this.sessionsService.getVttMapForUser(session.hostUserId, session.id);
+      savedMap = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
       message = `${message} 이동 중단`;
     }
 
@@ -1187,7 +1187,7 @@ export class CombatService {
       }
     }
 
-    const map = await this.sessionsService.getVttMapForUser(params.session.hostUserId, params.session.id);
+    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(params.session), params.session.id);
     this.realtimeEvents.emitCombatUpdated(params.session.id, response);
     this.realtimeEvents.emitSessionSnapshot(params.session.id, await this.sessionsService.buildSnapshot(params.session.id));
     return {
@@ -1384,7 +1384,7 @@ export class CombatService {
     const spellDefinition = this.resolveCombatSpellDefinition(spellId);
     this.assertMvpSpellKnown(await this.getSessionCharacterForSpell(caster.sessionCharacterId), spellId);
 
-    const map = await this.sessionsService.getVttMapForUser(session.hostUserId, session.id);
+    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
     const casterToken = this.findParticipantToken(map, caster);
     if (!casterToken) {
       throw conflict("COMBAT_409", "시전자 토큰을 찾을 수 없습니다.", { reason: "CASTER_TOKEN_NOT_FOUND" });
@@ -1668,7 +1668,7 @@ export class CombatService {
 
     const attackerConditions = this.parseConditions(attacker.conditionsJson ?? "[]");
     const targetConditions = this.parseConditions(target.conditionsJson ?? "[]");
-    const vttMap = await this.sessionsService.getVttMapForUser(session.hostUserId ?? userId, session.id);
+    const vttMap = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
     const targetHeavilyObscured = this.isParticipantInHeavilyObscuredTerrain(vttMap, target);
     const attackAdvantageState = this.resolveAttackAdvantageState({
       attackerConditions,
@@ -1894,7 +1894,7 @@ export class CombatService {
     }
 
     const weapon = await this.resolveEquippedWeaponProfile(attacker.sessionCharacterId);
-    const map = await this.sessionsService.getVttMapForUser(session.hostUserId ?? userId, session.id);
+    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
     const attackerToken = attacker.tokenId
       ? map.tokens.find((token) => token.id === attacker.tokenId && token.hidden !== true)
       : map.tokens.find(
@@ -2004,7 +2004,7 @@ export class CombatService {
       });
     }
 
-    const map = await this.sessionsService.getVttMapForUser(session.hostUserId ?? userId, session.id);
+    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
     const attackerToken = this.findParticipantToken(map, attacker);
     const targetToken = this.findParticipantToken(map, target);
     if (!attackerToken || !targetToken) {
@@ -2123,7 +2123,7 @@ export class CombatService {
         reason: "OFFHAND_WEAPON_MUST_BE_DIFFERENT",
       });
     }
-    const map = await this.sessionsService.getVttMapForUser(session.hostUserId ?? userId, session.id);
+    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
     const attackerToken = attacker.tokenId
       ? map.tokens.find((token) => token.id === attacker.tokenId && token.hidden !== true)
       : map.tokens.find(
@@ -2454,7 +2454,7 @@ export class CombatService {
       });
     }
 
-    const map = await this.sessionsService.getVttMapForUser(session.hostUserId ?? userId, session.id);
+    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
     const token = (map.tokens ?? []).find((candidate) => candidate.id === attacker.tokenId);
     const monsterId = token?.monster?.id ?? this.inferMvpMonsterId(attacker.nameSnapshot);
     const action =
@@ -2990,7 +2990,7 @@ export class CombatService {
       return { damageRoll: null, appliedConditionTags: [], concentrationCheck: null };
     }
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
-    const map = await this.sessionsService.getVttMapForUser(session.hostUserId, sessionId);
+    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
     const token = this.findParticipantToken(map, participant);
     if (!token) {
       return { damageRoll: null, appliedConditionTags: [], concentrationCheck: null };
@@ -3429,7 +3429,7 @@ export class CombatService {
         }
 
         try {
-          await this.executeAutoMonsterTurn(session.hostUserId, session, {});
+          await this.executeAutoMonsterTurn(this.getGmRuntimeUserId(session), session, {});
           if (await this.hasPendingCombatReaction(session.id)) {
             this.logAutoMonsterTurn("run stopped: pending combat reaction", {
               sessionId: session.id,
@@ -4072,7 +4072,7 @@ export class CombatService {
         messagePrefix: `${params.reactor.nameSnapshot} 기회공격`,
         fixedDamageTotal: weapon.fixedDamageTotal,
         actionCost: "reaction",
-        reactionUserId: session.hostUserId,
+        reactionUserId: this.getGmRuntimeUserId(session),
       },
     );
   }
@@ -4664,7 +4664,7 @@ export class CombatService {
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId,
       sessionScenarioId: sessionScenario.id,
-      actorUserId: session.hostUserId,
+      actorUserId: this.getGmRuntimeUserId(session),
       sessionCharacterId: attacker.sessionCharacterId ?? null,
       rawInput: null,
       structuredAction: {
@@ -4690,7 +4690,7 @@ export class CombatService {
     this.realtimeEvents.emitTurnLogCreated(sessionId, turnLog);
     this.realtimeEvents.emitCombatUpdated(sessionId, response);
     this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
-    const map = await this.sessionsService.getVttMapForUser(session.hostUserId, sessionId);
+    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
     return { combat: response, map, message, pendingReaction: null };
   }
 
@@ -4710,7 +4710,7 @@ export class CombatService {
     const actor = this.findCombatParticipantOrThrow(combat, triggered.pending.actorParticipantId);
     if (!accepted) {
       const response = await this.mapCombat(combat);
-      const map = await this.sessionsService.getVttMapForUser(session.hostUserId, sessionId);
+      const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
       this.realtimeEvents.emitCombatUpdated(sessionId, response);
       this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
       return {
@@ -4750,7 +4750,7 @@ export class CombatService {
           reactionUserId: userId,
         },
       );
-      const map = await this.sessionsService.getVttMapForUser(session.hostUserId, sessionId);
+      const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
       return {
         combat: attackResult.combat,
         map,
@@ -4810,7 +4810,7 @@ export class CombatService {
     this.realtimeEvents.emitTurnLogCreated(sessionId, turnLog);
     this.realtimeEvents.emitCombatUpdated(sessionId, response);
     this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
-    const map = await this.sessionsService.getVttMapForUser(session.hostUserId, sessionId);
+    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
     return { combat: response, map, message, pendingReaction: null };
   }
 
@@ -5222,11 +5222,24 @@ export class CombatService {
       },
     });
 
-    if (participant?.role !== PrismaParticipantRole.HOST) {
+    if (
+      participant?.role !== PrismaParticipantRole.HOST &&
+      participant?.role !== PrismaParticipantRole.GM
+    ) {
       throw forbidden("GM_403", "GM 권한이 필요합니다.", {
         reason: "GM_OR_HOST_REQUIRED",
       });
     }
+  }
+
+  private getGmRuntimeUserId(session: {
+    hostUserId: string;
+    gmMode?: PrismaGmMode;
+    gmUserId?: string | null;
+  }): string {
+    return session.gmMode === PrismaGmMode.HUMAN
+      ? (session.gmUserId ?? session.hostUserId)
+      : session.hostUserId;
   }
 
   private async lockSessionRuntime(tx: unknown, sessionId: string): Promise<void> {
