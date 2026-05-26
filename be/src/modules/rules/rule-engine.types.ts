@@ -1,5 +1,8 @@
 export const RULE_HOOK_IDS = {
   RESOLVE_ATTACK_ROLL: "hook.combat.resolve_attack_roll",
+  RESOLVE_SAVING_THROW: "hook.combat.resolve_saving_throw",
+  RESOLVE_CONCENTRATION_CHECK: "hook.combat.resolve_concentration_check",
+  RESOLVE_COVER_MODIFIERS: "hook.combat.resolve_cover_modifiers",
   APPLY_DAMAGE_MODIFIERS: "hook.damage.apply_resistance_vulnerability",
   APPLY_PRONE_MODIFIERS: "hook.condition.apply_prone_modifiers",
   CAST_CHILL_TOUCH: "hook.spell.cast_chill_touch",
@@ -47,6 +50,69 @@ export type AttackRollProduced = {
   hit: boolean;
   criticalHit: boolean;
   criticalMiss: boolean;
+};
+
+export type SavingThrowAbility = "str" | "dex" | "con" | "int" | "wis" | "cha";
+
+export type SavingThrowModifier = {
+  source: string;
+  value: number;
+};
+
+export type SavingThrowInput = {
+  ability: SavingThrowAbility;
+  naturalD20: number;
+  difficultyClass: number;
+  abilityModifier: number;
+  proficiencyBonus?: number;
+  proficient?: boolean;
+  advantageState?: RuleAdvantageState;
+  bonusModifiers?: SavingThrowModifier[];
+};
+
+export type SavingThrowProduced = {
+  ability: SavingThrowAbility;
+  naturalD20: number;
+  savingThrowTotal: number;
+  difficultyClass: number;
+  success: boolean;
+  advantageState: RuleAdvantageState;
+  appliedModifiers: SavingThrowModifier[];
+};
+
+export type ConcentrationCheckInput = {
+  damageTaken: number;
+  naturalD20: number;
+  constitutionModifier: number;
+  proficiencyBonus?: number;
+  proficient?: boolean;
+  advantageState?: RuleAdvantageState;
+  bonusModifiers?: SavingThrowModifier[];
+};
+
+export type ConcentrationCheckProduced = {
+  damageTaken: number;
+  difficultyClass: number;
+  savingThrowTotal: number;
+  concentrationMaintained: boolean;
+  concentrationEnds: boolean;
+  savingThrow: SavingThrowProduced;
+};
+
+export type CoverLevel = "none" | "half" | "three_quarters" | "full";
+
+export type CoverModifierInput = {
+  coverLevel: CoverLevel;
+  appliesToAttackRoll?: boolean;
+  appliesToDexteritySave?: boolean;
+};
+
+export type CoverModifierProduced = {
+  coverLevel: CoverLevel;
+  armorClassBonus: number;
+  dexteritySaveBonus: number;
+  targetable: boolean;
+  appliedModifiers: SavingThrowModifier[];
 };
 
 export type DamageModifierInput = {

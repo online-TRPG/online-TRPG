@@ -35,6 +35,8 @@ import { PrismaService } from "../../database/prisma.service";
 import { CatalogService } from "../catalog/catalog.service";
 import { RacesService } from "../races/races.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
+import { LevelUpService } from "../rules/level-up.service";
+import { RuleCatalogService } from "../rules/rule-catalog.service";
 import { SessionsService } from "../sessions/sessions.service";
 
 const defaultAbilityScores = {
@@ -64,6 +66,8 @@ export class CharactersService {
     private readonly realtimeEvents: RealtimeEventsService,
     private readonly racesService: RacesService,
     private readonly catalogService: CatalogService,
+    private readonly ruleCatalogService: RuleCatalogService,
+    private readonly levelUpService: LevelUpService,
   ) {}
 
   async createCharacter(userId: string, dto: CreateCharacterDto): Promise<CharacterResponseDto> {
@@ -106,6 +110,14 @@ export class CharactersService {
       offhandWeaponId,
     );
 
+    const features = await this.resolveCharacterFeatureSnapshot({
+      ancestry,
+      className,
+      subclassName: dto.subclassName?.trim() ?? null,
+      level,
+      requestedFeatures: dto.features ?? [],
+    });
+
     const character = await this.prisma.character.create({
       data: {
         ownerUserId: userId,
@@ -118,7 +130,7 @@ export class CharactersService {
         bio: dto.bio?.trim() ?? null,
         abilitiesJson: JSON.stringify(abilities),
         proficiencyBonus,
-        featuresJson: JSON.stringify(dto.features ?? []),
+        featuresJson: JSON.stringify(features),
         proficientSkillsJson: JSON.stringify(normalizedProficientSkills),
         maxHp,
         armorClass,
@@ -219,20 +231,29 @@ export class CharactersService {
         )
       : null;
 
+    const finalSubclassName =
+      dto.subclassName === undefined ? existing.subclassName : dto.subclassName?.trim() ?? null;
+    const finalFeatures = await this.resolveCharacterFeatureSnapshot({
+      ancestry: finalAncestry,
+      className: finalClassName,
+      subclassName: finalSubclassName,
+      level: finalLevel,
+      requestedFeatures: dto.features ?? this.parseStringArrayJson(existing.featuresJson),
+    });
+
     const updated = await this.prisma.character.update({
       where: { id: characterId },
       data: {
         name: dto.name?.trim() ?? existing.name,
         ancestry: finalAncestry,
         className: finalClassName,
-        subclassName:
-          dto.subclassName === undefined ? existing.subclassName : dto.subclassName?.trim() ?? null,
+        subclassName: finalSubclassName,
         level: finalLevel,
         bio: dto.bio === undefined ? existing.bio : dto.bio.trim(),
         abilitiesJson: JSON.stringify(finalAbilities),
         proficiencyBonus:
           resolvedStats?.proficiencyBonus ?? dto.proficiencyBonus ?? existing.proficiencyBonus,
-        featuresJson: JSON.stringify(dto.features ?? JSON.parse(existing.featuresJson ?? "[]")),
+        featuresJson: JSON.stringify(finalFeatures),
         proficientSkillsJson: JSON.stringify(
           normalizedUpdateProficientSkills ?? JSON.parse(existing.proficientSkillsJson),
         ),
@@ -334,7 +355,15 @@ export class CharactersService {
         level: source.level,
         abilitiesJson: source.abilitiesJson,
         proficiencyBonus: source.proficiencyBonus,
-        featuresJson: source.featuresJson,
+        featuresJson: JSON.stringify(
+          await this.resolveCharacterFeatureSnapshot({
+            ancestry: source.ancestry,
+            className: source.className,
+            subclassName: source.subclassName,
+            level: source.level,
+            requestedFeatures: this.parseStringArrayJson(source.featuresJson),
+          }),
+        ),
         proficientSkillsJson: source.proficientSkillsJson,
         maxHp: source.maxHp,
         armorClass: source.armorClass,
@@ -953,21 +982,24 @@ export class CharactersService {
       };
     }
 
-    const hitDieMaxAvg: Record<string, { max: number; avg: number }> = {
-      d6: { max: 6, avg: 4 },
-      d8: { max: 8, avg: 5 },
-      d10: { max: 10, avg: 6 },
-      d12: { max: 12, avg: 7 },
-    };
-    const hd = hitDieMaxAvg[klass.hitDie];
-    if (!hd) {
+    let stats: { proficiencyBonus: number; maxHp: number; constitutionModifier: number };
+    try {
+      stats = this.levelUpService.resolveCharacterLevelStats({
+        level,
+        hitDie: klass.hitDie,
+        constitutionScore: abilities.con,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (!message.includes("hitDie")) {
+        throw new BadRequestException(message || "레벨 보정 입력값이 유효하지 않습니다.");
+      }
       throw new BadRequestException(
         `레벨 보정: ${klass.koName} 의 hitDie ${klass.hitDie} 가 지원되지 않습니다.`,
       );
     }
-    const conMod = Math.floor((abilities.con - 10) / 2);
-    const expectedProf = Math.floor((level - 1) / 4) + 2;
-    const expectedMaxHp = hd.max + conMod + (level - 1) * (hd.avg + conMod);
+    const expectedProf = stats.proficiencyBonus;
+    const expectedMaxHp = stats.maxHp;
 
     if (dtoProf !== undefined && dtoProf !== expectedProf) {
       throw new BadRequestException(
@@ -976,7 +1008,7 @@ export class CharactersService {
     }
     if (dtoMaxHp !== undefined && dtoMaxHp !== expectedMaxHp) {
       throw new BadRequestException(
-        `maxHp: ${klass.koName}/레벨 ${level}/Con ${abilities.con}(mod ${conMod}) 의 공식값은 ${expectedMaxHp} 인데 ${dtoMaxHp} 가 들어왔습니다.`,
+        `maxHp: ${klass.koName}/레벨 ${level}/Con ${abilities.con}(mod ${stats.constitutionModifier}) 의 공식값은 ${expectedMaxHp} 인데 ${dtoMaxHp} 가 들어왔습니다.`,
       );
     }
 
@@ -1312,6 +1344,29 @@ export class CharactersService {
     } catch {
       return [];
     }
+  }
+
+  private async resolveCharacterFeatureSnapshot(params: {
+    ancestry: string;
+    className: string;
+    subclassName?: string | null;
+    level: number;
+    requestedFeatures: string[];
+  }): Promise<string[]> {
+    const raceKey = await this.resolveRaceTraitFeatureKey(params.ancestry);
+    return this.ruleCatalogService.getCharacterFeatureSnapshot({
+      raceKey,
+      classKey: params.className,
+      subclassKey: params.subclassName,
+      classLevel: params.level,
+      requestedFeatureIds: params.requestedFeatures,
+    }).featureIds;
+  }
+
+  private async resolveRaceTraitFeatureKey(ancestry: string): Promise<string | null> {
+    const race = await this.findRaceForAncestry(ancestry);
+    const raceKey = race?.key ?? ancestry.trim();
+    return raceKey || null;
   }
 
   private getAbilityModifier(score: number): number {
