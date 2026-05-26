@@ -98,6 +98,7 @@ const sessionScenarioStatusMap: Record<PrismaSessionScenarioStatus, SessionScena
 
 const participantRoleMap: Record<PrismaParticipantRole, ParticipantRole> = {
   HOST: ParticipantRole.HOST,
+  GM: ParticipantRole.GM,
   PLAYER: ParticipantRole.PLAYER,
   SPECTATOR: ParticipantRole.SPECTATOR,
 };
@@ -251,7 +252,7 @@ export function mapSession(session: SessionWithRelations): SessionResponseDto {
     ownerUserId: session.hostUserId,
     captainUserId: session.captainUserId,
     gmMode: gmModeMap[session.gmMode],
-    gmUserId: session.gmMode === "HUMAN" ? session.hostUserId : null,
+    gmUserId: session.gmMode === "HUMAN" ? (session.gmUserId ?? session.hostUserId) : null,
     inviteCode: session.inviteCode,
     status: sessionStatusMap[session.status],
     visibility,

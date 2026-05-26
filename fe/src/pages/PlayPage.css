@@ -3976,6 +3976,49 @@ button.chat-submit-btn:disabled,
   pointer-events: none;
 }
 
+.recruiting-gm-board {
+  width: min(720px, 100%);
+  min-height: 280px;
+  margin: auto;
+  padding: 34px 42px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  border: 1px solid rgba(92, 55, 24, 0.28);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 246, 226, 0.96), rgba(222, 188, 132, 0.94)),
+    #f4e1bb;
+  color: #3c250f;
+  text-align: center;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 250, 236, 0.5),
+    0 16px 32px rgba(34, 18, 7, 0.2);
+}
+
+.recruiting-gm-board span {
+  color: #7d541c;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.recruiting-gm-board strong {
+  color: #2b1808;
+  font-size: 28px;
+  font-weight: 900;
+}
+
+.recruiting-gm-board p {
+  max-width: 430px;
+  margin: 0;
+  color: #5b3d1e;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
 .recruiting-wanted-nav {
   position: absolute;
   top: 50%;
@@ -4587,6 +4630,29 @@ button.chat-submit-btn:disabled,
   border-color: rgba(111, 163, 92, 0.48);
   background: rgba(204, 237, 190, 0.92);
   color: #28591f;
+}
+
+.recruiting-party-slot-gm-button {
+  position: absolute;
+  left: 50%;
+  bottom: 15%;
+  z-index: 6;
+  min-height: 24px;
+  padding: 0 10px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(70, 44, 19, 0.4);
+  border-radius: 999px;
+  background: rgba(52, 32, 14, 0.88);
+  color: #f9e8bd;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+  box-shadow: 0 5px 12px rgba(43, 22, 5, 0.24);
+}
+
+.recruiting-party-slot-gm-button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
 }
 
 .session-info-panel textarea {

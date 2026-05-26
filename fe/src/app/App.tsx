@@ -761,6 +761,7 @@ export function App() {
             onCreateCharacter={(payload) => session.createCharacter(payload)}
             onSelectCharacter={(characterId) => void session.selectCharacter(characterId)}
             onSetReady={(isReady) => void session.setReadyState(isReady)}
+            onSetHumanGm={(gmUserId) => void session.setHumanGm(gmUserId)}
             onStartSession={() => void session.startSession()}
             onLeaveSession={() => {
               void exitSessionToDiscover();
