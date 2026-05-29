@@ -22,6 +22,7 @@ import type {
   CombatActionResultDto,
   CombatReactionPromptDto,
   CombatResponseDto,
+  ItemResponseDto,
   InventoryItemDto,
   MainCommandResponseDto,
   PlayerScenarioClueDto,
@@ -53,6 +54,7 @@ import type { DiceRollOverlayData } from '../features/sessionPlay/components/Dic
 import {
   ExplorationNodeSurface,
   type ExplorationMainCommandRequest,
+  type ExplorationNodeMoveOption,
 } from '../features/sessionPlay/components/ExplorationNodeSurface';
 import {
   StoryNodeSurface,
@@ -74,9 +76,12 @@ import {
   declineCombatReaction,
   dodgeCombatAction,
   getCombat,
+  getHumanGmNodeMoveOptions,
   getPlayerScenario,
   getVttMap,
+  grantHumanGmInventoryItem,
   hideCombatAction,
+  listItems,
   moveCombatParticipant,
   moveSessionToken,
   resolveEquippedWeaponAttack,
@@ -86,6 +91,7 @@ import {
   startCombat,
   updateCharacterEquipment,
   updateGmVttMap,
+  updateHumanGmSessionNode,
   updateVttMap,
   useSecondWindCombatAction,
   useInventoryItem,
@@ -1561,6 +1567,12 @@ export function PlayPage({
   const [combat, setCombat] = useState<CombatResponseDto | null>(null);
   const [combatError, setCombatError] = useState<string | null>(null);
   const [isCombatBusy, setCombatBusy] = useState(false);
+  const [isGmNodeMovePending, setGmNodeMovePending] = useState(false);
+  const [gmNodeMoveOptions, setGmNodeMoveOptions] = useState<ExplorationNodeMoveOption[]>([]);
+  const [gmItemCatalog, setGmItemCatalog] = useState<ItemResponseDto[]>([]);
+  const [isGmItemCatalogLoading, setGmItemCatalogLoading] = useState(false);
+  const [gmItemCatalogError, setGmItemCatalogError] = useState<string | null>(null);
+  const [isGmInventoryGrantPending, setGmInventoryGrantPending] = useState(false);
   const [isCombatChecked, setCombatChecked] = useState(false);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
@@ -1682,6 +1694,60 @@ export function PlayPage({
     QUICK_CREATE_CLASS_PRESET_BY_KEY.get(selectedQuickCreateClass?.key ?? formState.classKey) ??
     null;
   const currentNode = playerScenario?.currentNode ?? null;
+  useEffect(() => {
+    if (!session?.id || !canManageStartedSession || !currentNode?.id) {
+      setGmNodeMoveOptions([]);
+      return;
+    }
+
+    let ignore = false;
+    getHumanGmNodeMoveOptions(user, session.id)
+      .then((options) => {
+        if (!ignore) {
+          setGmNodeMoveOptions(options);
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setGmNodeMoveOptions([]);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [canManageStartedSession, currentNode?.id, session?.id, snapshot?.state.version, user]);
+  useEffect(() => {
+    if (!canManageStartedSession || gmItemCatalog.length) {
+      return;
+    }
+
+    let ignore = false;
+    setGmItemCatalogLoading(true);
+    setGmItemCatalogError(null);
+    listItems()
+      .then((items) => {
+        if (!ignore) {
+          setGmItemCatalog(items);
+        }
+      })
+      .catch((caught) => {
+        if (!ignore) {
+          setGmItemCatalogError(
+            caught instanceof Error ? caught.message : '아이템 목록을 불러오지 못했습니다.'
+          );
+        }
+      })
+      .finally(() => {
+        if (!ignore) {
+          setGmItemCatalogLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [canManageStartedSession, gmItemCatalog.length]);
   const currentSceneDescriptionText =
     currentNode?.sceneText?.trim() || '현재 장면 설명이 아직 준비되지 않았습니다.';
   const currentPublicClueIdSignature = useMemo(
@@ -3053,6 +3119,32 @@ export function PlayPage({
     }
   }
 
+  async function handleGmGrantInventoryItem(
+    sessionCharacterId: string,
+    item: ItemResponseDto,
+    quantity: number
+  ) {
+    if (!session || !canManageStartedSession || isGmInventoryGrantPending) return;
+
+    setInventoryUseFeedback(null);
+    setGmInventoryGrantPending(true);
+    try {
+      await grantHumanGmInventoryItem(user, session.id, {
+        sessionCharacterId,
+        itemDefinitionId: item.id,
+        quantity,
+      });
+      setInventoryUseFeedback(`${item.koName} x${quantity}을(를) 지급했습니다.`);
+      onAction('GM 아이템 지급');
+    } catch (caught) {
+      setInventoryUseFeedback(
+        caught instanceof Error ? caught.message : '아이템 지급에 실패했습니다.'
+      );
+    } finally {
+      setGmInventoryGrantPending(false);
+    }
+  }
+
   async function handleEquippedWeaponAttack(targetParticipantId: string) {
     if (!session || isCombatBusy) return;
     await runCombatRequest(() =>
@@ -3363,6 +3455,38 @@ export function PlayPage({
       const message = caught instanceof Error ? caught.message : '맵 상호작용에 실패했습니다.';
       setMapLoadError(message);
       return null;
+    }
+  }
+
+  async function handleGmNodeMove(nodeId: string) {
+    if (!session || !canManageStartedSession || isGmNodeMovePending) return;
+    setGmNodeMovePending(true);
+    setMapLoadError(null);
+    setScenarioLoadError(null);
+    try {
+      const nextSnapshot = await updateHumanGmSessionNode(user, session.id, nodeId);
+      const nextMap = nextSnapshot.state.flags?.vttMap as VttMapStateDto | undefined;
+      if (nextMap && typeof nextMap === 'object') {
+        latestConfirmedMapRef.current = nextMap;
+        setVttMap(nextMap);
+      } else {
+        const savedMap = await getVttMap(user, session.id);
+        latestConfirmedMapRef.current = savedMap;
+        setVttMap(savedMap);
+      }
+      const nextPlayerScenario = await getPlayerScenario(user, session.id);
+      setPlayerScenario(nextPlayerScenario);
+      setCombat(null);
+      setCombatChecked(false);
+      setCombatError(null);
+      setSelectedExplorationMapSelection(null);
+      onAction('GM 노드 이동');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '노드 이동에 실패했습니다.';
+      setScenarioLoadError(message);
+      onCombatActionLog(message);
+    } finally {
+      setGmNodeMovePending(false);
     }
   }
 
@@ -3821,7 +3945,7 @@ export function PlayPage({
                   isGmView={canManageStartedSession}
                   map={vttMap}
                   inventory={selectedCharacterInventory}
-                  isBusy={busy || isInventoryUsePending}
+                  isBusy={busy || isInventoryUsePending || isGmNodeMovePending}
                   selectedInventoryItemId={selectedMainItemId}
                   getCharacterColorStyle={(character) =>
                     buildMapPartyColorStyle(getCharacterTokenColor(character))
@@ -3835,6 +3959,13 @@ export function PlayPage({
                   onSelectInventoryItem={handleSelectExplorationInventoryItem}
                   onMapSelectionChange={handleExplorationMapSelection}
                   onRequestMainCommand={handleExplorationMainCommandRequest}
+                  gmNodeMoveOptions={gmNodeMoveOptions}
+                  onGmNodeMove={handleGmNodeMove}
+                  gmItemCatalog={gmItemCatalog}
+                  isGmItemCatalogLoading={isGmItemCatalogLoading}
+                  gmItemCatalogError={gmItemCatalogError}
+                  isGmInventoryGrantPending={isGmInventoryGrantPending}
+                  onGmGrantInventoryItem={handleGmGrantInventoryItem}
                 />
               ) : isCombatNode ? (
                 <CombatNodeSurface

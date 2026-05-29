@@ -30,6 +30,8 @@ import {
   DiceAdvantageState,
   GameStateResponseDto,
   GmMode,
+  GrantHumanGmInventoryItemDto,
+  HumanGmNodeMoveOptionDto,
   HumanGmMessageDto,
   InventoryItemDto,
   JoinSessionDto,
@@ -1822,6 +1824,122 @@ export class SessionsService {
     return snapshot;
   }
 
+  async grantHumanGmInventoryItem(
+    userId: string,
+    sessionId: string,
+    dto: GrantHumanGmInventoryItemDto,
+  ): Promise<SessionSnapshotDto> {
+    const session = await this.getHumanGmSessionForOperator(userId, sessionId);
+    const resolvedSessionId = session.id;
+    if (session.status === PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("Started sessions are required for GM inventory grants.");
+    }
+
+    const quantity = dto.quantity ?? 1;
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+      throw new BadRequestException("지급할 아이템 수량이 올바르지 않습니다.");
+    }
+
+    const [activeScenario, targetCharacter, catalogItem] = await Promise.all([
+      this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId),
+      this.prisma.sessionCharacter.findUnique({
+        where: { id: dto.sessionCharacterId },
+        include: {
+          character: true,
+          participant: {
+            select: { role: true },
+          },
+        },
+      }),
+      this.prisma.item.findFirst({
+        where: {
+          OR: [{ id: dto.itemDefinitionId }, { key: dto.itemDefinitionId }],
+        },
+        select: { id: true, key: true },
+      }),
+    ]);
+    const itemDefinitionLookupIds = [
+      dto.itemDefinitionId,
+      catalogItem?.id,
+      catalogItem?.key,
+    ].filter((value): value is string => Boolean(value));
+    const itemDefinition = await this.prisma.itemDefinition.findFirst({
+      where: {
+        OR: [
+          { id: { in: itemDefinitionLookupIds } },
+          { name: { equals: dto.itemDefinitionId, mode: "insensitive" } },
+        ],
+      },
+      select: { id: true, name: true, itemType: true },
+    });
+
+    if (
+      !targetCharacter ||
+      targetCharacter.sessionId !== resolvedSessionId ||
+      targetCharacter.status !== PrismaSessionCharacterStatus.ACTIVE
+    ) {
+      throw new NotFoundException("대상 세션 캐릭터를 찾을 수 없습니다.");
+    }
+    if (targetCharacter.participant.role === PrismaParticipantRole.GM) {
+      throw new ForbiddenException("GM 참가자에게는 인벤토리 아이템을 지급할 수 없습니다.");
+    }
+    if (!itemDefinition) {
+      throw new NotFoundException("지급할 아이템을 찾을 수 없습니다.");
+    }
+
+    const gmTurnLog = await this.prisma.$transaction(async (tx) => {
+      await this.grantSessionInventoryItem(tx, {
+        sessionCharacterId: targetCharacter.id,
+        itemDefinitionId: itemDefinition.id,
+        quantity,
+      });
+      await this.refreshSessionInventorySnapshot(targetCharacter.id, tx);
+      return this.createHumanGmOverrideTurnLog({
+        tx,
+        kind: "adjust_item",
+        sessionId: resolvedSessionId,
+        sessionScenarioId: activeScenario.id,
+        gmUserId: userId,
+        targetId: targetCharacter.id,
+        publicNarration: `GM이 ${targetCharacter.character.name}에게 ${itemDefinition.name} x${quantity}을(를) 지급했습니다.`,
+        statePatch: {
+          inventory: {
+            sessionCharacterId: targetCharacter.id,
+            itemDefinitionId: itemDefinition.id,
+            quantityDelta: quantity,
+          },
+        },
+        metadata: {
+          itemName: itemDefinition.name,
+          itemType: itemDefinition.itemType,
+          quantity,
+        },
+      });
+    });
+
+    const updatedCharacter = await this.prisma.sessionCharacter.findUniqueOrThrow({
+      where: { id: targetCharacter.id },
+      include: {
+        character: true,
+        inventoryEntries: {
+          include: { itemDefinition: true },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+    const snapshot = await this.buildSnapshot(resolvedSessionId);
+    this.realtimeEvents.emitTurnLogCreated(resolvedSessionId, gmTurnLog.turnLog);
+    if (gmTurnLog.stateDiff) {
+      this.realtimeEvents.emitStateDiffApplied(resolvedSessionId, gmTurnLog.stateDiff);
+    }
+    this.realtimeEvents.emitCharacterUpdated(
+      resolvedSessionId,
+      mapSessionCharacter(updatedCharacter),
+    );
+    this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
+    return snapshot;
+  }
+
   async updateSessionNode(
     userId: string,
     sessionId: string,
@@ -1835,6 +1953,14 @@ export class SessionsService {
     const currentState = await this.prisma.gameState.findUnique({
       where: { sessionScenarioId: activeScenario.id },
     });
+    if (!currentState?.currentNodeId) {
+      throw new BadRequestException("The session does not have a current node.");
+    }
+    const currentNode = await this.getSessionScenarioNodeEntityOrThrow(
+      activeScenario.id,
+      currentState.currentNodeId,
+    );
+    this.ensureReachableSessionNodeTarget(currentNode, targetNode.nodeId);
     const flags = this.parseJson<Record<string, unknown>>(currentState?.flagsJson, {});
     const targetDefaultMap = this.extractVttMapFromCheckOptions(targetNode.checkOptionsJson);
     const targetRuntimeMap = targetDefaultMap
@@ -1860,7 +1986,7 @@ export class SessionsService {
         where: { sessionScenarioId: activeScenario.id },
         data: {
           currentNodeId: targetNode.nodeId,
-          phase: PrismaGamePhase.DIALOGUE,
+          phase: this.getPhaseForScenarioNodeType(targetNode.nodeType),
           flagsJson: JSON.stringify({
             ...flags,
             ...(targetRuntimeMap ? { vttMap: targetRuntimeMap } : {}),
@@ -1881,7 +2007,7 @@ export class SessionsService {
         targetId: targetNode.nodeId,
         statePatch: {
           currentNodeId: targetNode.nodeId,
-          phase: PrismaGamePhase.DIALOGUE,
+          phase: this.getPhaseForScenarioNodeType(targetNode.nodeType),
           vttMapChanged: Boolean(targetRuntimeMap),
         },
         metadata: {
@@ -1900,6 +2026,86 @@ export class SessionsService {
     }
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
     return snapshot;
+  }
+
+  async listHumanGmNodeMoveOptions(
+    userId: string,
+    sessionId: string,
+  ): Promise<HumanGmNodeMoveOptionDto[]> {
+    const session = await this.getHumanGmSessionForOperator(userId, sessionId);
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(session.id);
+    await this.ensureSessionScenarioNodeSnapshotForScenario(
+      activeScenario.id,
+      activeScenario.scenarioId,
+    );
+    const currentNodeId = activeScenario.gameState?.currentNodeId ?? null;
+    if (!currentNodeId) return [];
+
+    const currentNode = await this.getSessionScenarioNodeEntityOrThrow(
+      activeScenario.id,
+      currentNodeId,
+    );
+    const transitions = this.parseJson<Record<string, unknown>[]>(
+      currentNode.transitionsJson,
+      [],
+    );
+    const transitionStubs = transitions
+      .map((transition) => {
+        const nodeId = this.getStringProperty(transition, "nextNodeId");
+        return nodeId
+          ? {
+              nodeId,
+              label: this.getStringProperty(transition, "label"),
+              condition: this.getStringProperty(transition, "condition"),
+              note: this.getStringProperty(transition, "note"),
+              isFallback: false,
+            }
+          : null;
+      })
+      .filter((stub): stub is {
+        nodeId: string;
+        label: string | null;
+        condition: string | null;
+        note: string | null;
+        isFallback: boolean;
+      } => Boolean(stub));
+
+    if (currentNode.fallbackNodeId) {
+      transitionStubs.push({
+        nodeId: currentNode.fallbackNodeId,
+        label: "기본 이동",
+        condition: "default",
+        note: null,
+        isFallback: true,
+      });
+    }
+
+    if (!transitionStubs.length) return [];
+
+    const targetNodes = await this.prisma.sessionScenarioNode.findMany({
+      where: {
+        sessionScenarioId: activeScenario.id,
+        nodeId: { in: Array.from(new Set(transitionStubs.map((stub) => stub.nodeId))) },
+      },
+      select: { nodeId: true, title: true, nodeType: true },
+    });
+    const nodeById = new Map(targetNodes.map((node) => [node.nodeId, node]));
+
+    return transitionStubs.flatMap((stub) => {
+      const targetNode = nodeById.get(stub.nodeId);
+      if (!targetNode) return [];
+      return [
+        {
+          nodeId: targetNode.nodeId,
+          title: targetNode.title,
+          nodeType: targetNode.nodeType,
+          label: stub.label,
+          condition: stub.condition,
+          note: stub.note,
+          isFallback: stub.isFallback,
+        },
+      ];
+    });
   }
 
   async startCombat(userId: string, sessionId: string): Promise<SessionSnapshotDto> {
@@ -2545,6 +2751,7 @@ export class SessionsService {
     sessionScenarioId: string;
     nodeId: string;
     mapPoint: { x: number; y: number };
+    includeHiddenObject?: boolean;
   }): Promise<{
     status: MainCommandStatus;
     message: string;
@@ -2566,7 +2773,7 @@ export class SessionsService {
     const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
     const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
     const objectCell = this.findVttObjectAtPoint(map, params.mapPoint);
-    if (!objectCell || objectCell.visibleToPlayers === false) {
+    if (!objectCell || (!params.includeHiddenObject && objectCell.visibleToPlayers === false)) {
       return {
         status: MainCommandStatus.IMPOSSIBLE,
         message: "실행할 오브젝트 이벤트를 현재 맵에서 찾을 수 없습니다.",
@@ -3167,7 +3374,7 @@ export class SessionsService {
     }
   }
 
-  private canUseGmRuntimeControls(
+  canUseGmRuntimeControls(
     userId: string,
     session: { hostUserId: string; gmMode: PrismaGmMode; gmUserId?: string | null },
   ): boolean {
@@ -3378,6 +3585,33 @@ export class SessionsService {
     });
   }
 
+  private ensureReachableSessionNodeTarget(
+    currentNode: { transitionsJson: string; fallbackNodeId: string | null },
+    targetNodeId: string,
+  ): void {
+    const transitions = this.parseJson<Record<string, unknown>[]>(
+      currentNode.transitionsJson,
+      [],
+    );
+    const explicitTargetIds = transitions
+      .map((transition) => this.getStringProperty(transition, "nextNodeId"))
+      .filter((nodeId): nodeId is string => Boolean(nodeId));
+    const allowedTargetIds = [
+      ...explicitTargetIds,
+      ...(currentNode.fallbackNodeId ? [currentNode.fallbackNodeId] : []),
+    ];
+
+    if (!allowedTargetIds.includes(targetNodeId)) {
+      throw new ForbiddenException("GM can only move to a node reachable from the current node.");
+    }
+  }
+
+  private getPhaseForScenarioNodeType(nodeType: string): PrismaGamePhase {
+    if (nodeType === ScenarioNodeType.COMBAT) return PrismaGamePhase.COMBAT;
+    if (nodeType === ScenarioNodeType.EXPLORATION) return PrismaGamePhase.EXPLORATION;
+    return PrismaGamePhase.DIALOGUE;
+  }
+
   parseJson<T>(value: string | null | undefined, fallback: T): T {
     if (!value) {
       return fallback;
@@ -3420,8 +3654,45 @@ export class SessionsService {
     await this.refreshSessionInventorySnapshot(sessionCharacterId);
   }
 
-  private async refreshSessionInventorySnapshot(sessionCharacterId: string): Promise<void> {
-    const entries = await this.prisma.inventoryEntry.findMany({
+  private async grantSessionInventoryItem(
+    tx: Prisma.TransactionClient,
+    params: {
+      sessionCharacterId: string;
+      itemDefinitionId: string;
+      quantity: number;
+    },
+  ): Promise<void> {
+    const existingEntry = await tx.inventoryEntry.findFirst({
+      where: {
+        sessionCharacterId: params.sessionCharacterId,
+        itemDefinitionId: params.itemDefinitionId,
+        containerEntryId: null,
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    if (existingEntry) {
+      await tx.inventoryEntry.update({
+        where: { id: existingEntry.id },
+        data: { quantity: { increment: params.quantity } },
+      });
+      return;
+    }
+
+    await tx.inventoryEntry.create({
+      data: {
+        sessionCharacterId: params.sessionCharacterId,
+        itemDefinitionId: params.itemDefinitionId,
+        quantity: params.quantity,
+      },
+    });
+  }
+
+  private async refreshSessionInventorySnapshot(
+    sessionCharacterId: string,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<void> {
+    const entries = await client.inventoryEntry.findMany({
       where: { sessionCharacterId },
       include: { itemDefinition: true },
       orderBy: { createdAt: "asc" },
@@ -3430,7 +3701,7 @@ export class SessionsService {
       return;
     }
 
-    await this.prisma.sessionCharacter.update({
+    await client.sessionCharacter.update({
       where: { id: sessionCharacterId },
       data: {
         inventorySnapshotJson: JSON.stringify(
