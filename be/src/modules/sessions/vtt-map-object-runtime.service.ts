@@ -86,6 +86,7 @@ export class VttMapObjectRuntimeService {
     sessionScenarioId: string;
     nodeId: string;
     mapPoint: MapPoint;
+    includeHiddenObject?: boolean;
   }): Promise<{
     status: MainCommandStatus;
     message: string;

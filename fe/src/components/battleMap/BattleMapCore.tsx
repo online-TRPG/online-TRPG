@@ -69,6 +69,7 @@ export interface BattleMapProps {
   tokenHealthByTokenId?: Record<string, TokenHealthFrame>;
   attackRangeOverlay?: { tokenId: string; rangeFt: number } | null;
   combatMovementMode?: CombatMovementMode;
+  showHiddenContent?: boolean;
   onTokenMoveRequest?: (
     token: VttMapStateDto['tokens'][number],
     to: { x: number; y: number },
@@ -727,6 +728,7 @@ export function BattleMap({
   tokenHealthByTokenId,
   attackRangeOverlay = null,
   combatMovementMode = 'normal',
+  showHiddenContent = false,
   onTokenMoveRequest,
   onPingRequest,
 }: BattleMapProps) {
@@ -767,6 +769,7 @@ export function BattleMap({
   const [pingClock, setPingClock] = useState(Date.now());
   const [monsterSearch, setMonsterSearch] = useState('');
   const canEditMap = isHost && interactionMode === 'editor';
+  const canSeeHiddenContent = canEditMap || showHiddenContent;
   const showMapChrome = interactionMode === 'editor';
   const showSessionViewControls = interactionMode === 'session';
   const [selectedMonsterId, setSelectedMonsterId] = useState('');
@@ -782,8 +785,8 @@ export function BattleMap({
   });
   const mapImage = useCanvasImage(map.imageUrl);
   const visibleTokens = useMemo(
-    () => map.tokens.filter((token) => canEditMap || !token.hidden),
-    [canEditMap, map.tokens]
+    () => map.tokens.filter((token) => canSeeHiddenContent || !token.hidden),
+    [canSeeHiddenContent, map.tokens]
   );
   const displayWidth = Math.max(280, containerWidth);
   const widthScale = displayWidth / map.width;
@@ -798,16 +801,22 @@ export function BattleMap({
   const wallCells = map.wallCells ?? [];
   const doorCells = map.doorCells ?? [];
   const objectCells = map.objectCells ?? [];
-  const visibleObjectCells = canEditMap
+  const visibleObjectCells = canSeeHiddenContent
     ? objectCells
     : objectCells.filter((cell) => cell.visibleToPlayers !== false);
   const detectedHazardCells = useMemo(
-    () => visibleObjectCells.filter((cell) => isDetectedHazardCell(cell)),
-    [visibleObjectCells]
+    () =>
+      visibleObjectCells.filter((cell) =>
+        canSeeHiddenContent ? isArmedHazardCell(cell) : isDetectedHazardCell(cell)
+      ),
+    [canSeeHiddenContent, visibleObjectCells]
   );
   const observedObjectCells = useMemo(
-    () => visibleObjectCells.filter((cell) => isObservedObjectCell(cell)),
-    [visibleObjectCells]
+    () =>
+      visibleObjectCells.filter((cell) =>
+        canSeeHiddenContent ? !isArmedHazardCell(cell) : isObservedObjectCell(cell)
+      ),
+    [canSeeHiddenContent, visibleObjectCells]
   );
   const selectedMapStructureCell =
     selectedMapStructure?.kind === 'terrain'
@@ -844,7 +853,7 @@ export function BattleMap({
       ),
     [characters, currentUserId]
   );
-  const isVisionMaskEnabled = interactionMode === 'session';
+  const isVisionMaskEnabled = interactionMode === 'session' && !showHiddenContent;
   const partyCharacterIds = useMemo(
     () => new Set(characters.map((character) => character.id)),
     [characters]
@@ -1223,6 +1232,10 @@ export function BattleMap({
 
   function isDetectedHazardCell(cell: ObjectCell): boolean {
     return Boolean(cell.hazard?.armed !== false && cell.hazard?.detectedBySessionCharacterIds?.length);
+  }
+
+  function isArmedHazardCell(cell: ObjectCell): boolean {
+    return Boolean(cell.hazard && cell.hazard.armed !== false);
   }
 
   function isObservedObjectCell(cell: ObjectCell): boolean {
@@ -1738,6 +1751,7 @@ export function BattleMap({
     if (isInteractionLocked) return false;
     return (
       canEditMap ||
+      showHiddenContent ||
       Boolean(token.sessionCharacterId && controlledTokenIds.has(token.sessionCharacterId))
     );
   }
@@ -2462,6 +2476,7 @@ export function BattleMap({
               fogDraft={fogDraft}
               fogAction={fogAction}
               isInteractive={canEditMap && isFogMode}
+              isGmPreview={showHiddenContent}
               onSelectFog={(fogId) => {
                 setSelectedFogId(fogId);
                 setSelectedTokenId(null);
