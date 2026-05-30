@@ -119,6 +119,74 @@ const sessionTabLabels: Record<(typeof sessionTabs)[number], string> = {
   Info: '정보',
   Settings: '설정',
 };
+
+type PendingOptimisticTokenMove = {
+  tokenId: string;
+  optimisticUpdatedAt: string;
+  previousMap: VttMapStateDto;
+};
+
+function shouldLogMapMovePerf() {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return false;
+  return window.localStorage.getItem('trpg:debug:battle-map-perf') === '1';
+}
+
+function logMapMovePerf(label: string, startedAt: number, detail = '') {
+  if (!shouldLogMapMovePerf() || typeof performance === 'undefined') return;
+  const suffix = detail ? ` ${detail}` : '';
+  console.debug(`[battle-map] ${label}: ${(performance.now() - startedAt).toFixed(2)}ms${suffix}`);
+}
+
+function getVttMapRenderSignature(map: VttMapStateDto | null) {
+  if (!map) return 'null';
+  const tokenSignature = map.tokens
+    .map((token) =>
+      [
+        token.id,
+        token.x,
+        token.y,
+        token.size,
+        token.hidden === true ? 'h' : 'v',
+        token.sessionCharacterId ?? '',
+      ].join(',')
+    )
+    .join('|');
+  return [
+    map.id,
+    map.updatedAt,
+    map.width,
+    map.height,
+    map.gridSize,
+    tokenSignature,
+    map.terrainCells?.length ?? 0,
+    map.wallCells?.length ?? 0,
+    map.doorCells?.length ?? 0,
+    map.objectCells?.length ?? 0,
+    map.lightSources?.length ?? 0,
+  ].join(';');
+}
+
+function applyOptimisticTokenMove(
+  map: VttMapStateDto | null,
+  tokenId: string,
+  to: { x: number; y: number },
+  optimisticUpdatedAt: string
+) {
+  if (!map || !map.tokens.some((candidate) => candidate.id === tokenId)) return null;
+  return {
+    ...map,
+    tokens: map.tokens.map((candidate) =>
+      candidate.id === tokenId
+        ? {
+            ...candidate,
+            x: to.x,
+            y: to.y,
+          }
+        : candidate
+    ),
+    updatedAt: optimisticUpdatedAt,
+  };
+}
 const sessionTabDescriptions: Record<
   (typeof sessionTabs)[number],
   {
@@ -1583,6 +1651,7 @@ export function PlayPage({
   const mainCommandAutocompleteRef = useRef<HTMLDivElement | null>(null);
   const scenarioDescriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
+  const pendingOptimisticTokenMoveRef = useRef<PendingOptimisticTokenMove | null>(null);
   const mapSaveRef = useRef<{
     isSaving: boolean;
     pending: VttMapStateDto | null;
@@ -2007,6 +2076,19 @@ export function PlayPage({
     });
   }, [mainCommandAutocompleteCommandEntries.length, mainSlashToken]);
 
+  function setVttMapIfChanged(nextMap: VttMapStateDto, source: string) {
+    latestConfirmedMapRef.current = nextMap;
+    setVttMap((current) => {
+      if (getVttMapRenderSignature(current) === getVttMapRenderSignature(nextMap)) {
+        if (shouldLogMapMovePerf()) {
+          console.debug(`[battle-map] skip duplicate map from ${source}`);
+        }
+        return current;
+      }
+      return nextMap;
+    });
+  }
+
   useEffect(() => {
     const activeOption = mainCommandAutocompleteRef.current?.querySelector<HTMLElement>(
       '[data-autocomplete-active="true"]'
@@ -2366,8 +2448,7 @@ export function PlayPage({
   useEffect(() => {
     if (snapshotVttMap && typeof snapshotVttMap === 'object') {
       const nextMap = snapshotVttMap as VttMapStateDto;
-      latestConfirmedMapRef.current = nextMap;
-      setVttMap(nextMap);
+      setVttMapIfChanged(nextMap, 'snapshot');
       setIsMapLoaded(true);
     }
   }, [snapshotVttMap]);
@@ -2383,8 +2464,7 @@ export function PlayPage({
     getVttMap(user, session.id)
       .then((map) => {
         if (!ignore) {
-          latestConfirmedMapRef.current = map;
-          setVttMap(map);
+          setVttMapIfChanged(map, 'load');
         }
       })
       .catch((caught) => {
@@ -3210,6 +3290,7 @@ export function PlayPage({
     movementMode: 'normal' | 'jump' = 'normal'
   ): Promise<VttMapStateDto | null> {
     if (!session || !combat || isCombatBusy) return null;
+    const requestStartedAt = typeof performance !== 'undefined' ? performance.now() : 0;
     const participant = combat.participants.find(
       (candidate) =>
         candidate.tokenId === token.id ||
@@ -3223,6 +3304,17 @@ export function PlayPage({
     setCombatBusy(true);
     setCombatError(null);
     setMapLoadError(null);
+    const previousMap = vttMap ?? latestConfirmedMapRef.current;
+    const optimisticUpdatedAt = new Date().toISOString();
+    const optimisticMap = applyOptimisticTokenMove(previousMap, token.id, to, optimisticUpdatedAt);
+    if (optimisticMap) {
+      pendingOptimisticTokenMoveRef.current = {
+        tokenId: token.id,
+        optimisticUpdatedAt,
+        previousMap: previousMap as VttMapStateDto,
+      };
+      setVttMap(optimisticMap);
+    }
     try {
       let result = await moveCombatParticipant(user, session.id, {
         participantId: participant.sessionEntityId,
@@ -3241,6 +3333,13 @@ export function PlayPage({
             )
         );
         if (!isMine) {
+          const pendingMove = pendingOptimisticTokenMoveRef.current;
+          if (pendingMove?.tokenId === token.id && pendingMove.optimisticUpdatedAt === optimisticUpdatedAt) {
+            setVttMap((current) =>
+              current?.updatedAt === optimisticUpdatedAt ? pendingMove.previousMap : current
+            );
+            pendingOptimisticTokenMoveRef.current = null;
+          }
           return null;
         }
         const accepted = window.confirm(result.pendingReaction.message);
@@ -3250,13 +3349,21 @@ export function PlayPage({
       }
 
       setCombat(result.combat);
-      setVttMap(result.map);
-      latestConfirmedMapRef.current = result.map;
+      setVttMapIfChanged(result.map, 'combat-move');
+      pendingOptimisticTokenMoveRef.current = null;
+      logMapMovePerf('combat move request', requestStartedAt, `token=${token.id}`);
       return result.map;
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '전투 이동에 실패했습니다.';
       setCombatError(message);
       setMapLoadError(message);
+      const pendingMove = pendingOptimisticTokenMoveRef.current;
+      if (pendingMove?.tokenId === token.id && pendingMove.optimisticUpdatedAt === optimisticUpdatedAt) {
+        setVttMap((current) =>
+          current?.updatedAt === optimisticUpdatedAt ? pendingMove.previousMap : current
+        );
+        pendingOptimisticTokenMoveRef.current = null;
+      }
       return null;
     } finally {
       setCombatBusy(false);
@@ -3388,6 +3495,18 @@ export function PlayPage({
     movementMode: 'normal' | 'jump' = 'normal'
   ): Promise<VttMapStateDto | null> {
     if (!session) return null;
+    const requestStartedAt = typeof performance !== 'undefined' ? performance.now() : 0;
+    const previousMap = vttMap ?? latestConfirmedMapRef.current;
+    const optimisticUpdatedAt = new Date().toISOString();
+    const optimisticMap = applyOptimisticTokenMove(previousMap, token.id, to, optimisticUpdatedAt);
+    if (optimisticMap) {
+      pendingOptimisticTokenMoveRef.current = {
+        tokenId: token.id,
+        optimisticUpdatedAt,
+        previousMap: previousMap as VttMapStateDto,
+      };
+      setVttMap(optimisticMap);
+    }
     try {
       const savedMap = await moveSessionToken(user, session.id, {
         tokenId: token.id,
@@ -3397,13 +3516,21 @@ export function PlayPage({
         movementMode,
         clientMapVersion: snapshot?.state.version,
       });
-      latestConfirmedMapRef.current = savedMap;
-      setVttMap(savedMap);
+      setVttMapIfChanged(savedMap, 'session-move');
+      pendingOptimisticTokenMoveRef.current = null;
+      logMapMovePerf('session move request', requestStartedAt, `token=${token.id}`);
       setMapLoadError(null);
       return savedMap;
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '토큰 이동에 실패했습니다.';
       setMapLoadError(message);
+      const pendingMove = pendingOptimisticTokenMoveRef.current;
+      if (pendingMove?.tokenId === token.id && pendingMove.optimisticUpdatedAt === optimisticUpdatedAt) {
+        setVttMap((current) =>
+          current?.updatedAt === optimisticUpdatedAt ? pendingMove.previousMap : current
+        );
+        pendingOptimisticTokenMoveRef.current = null;
+      }
       return null;
     }
   }
