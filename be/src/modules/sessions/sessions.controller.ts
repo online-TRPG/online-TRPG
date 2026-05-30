@@ -24,7 +24,9 @@ import {
   CreateSessionDto,
   CreateVttMapPingDto,
   GameStateResponseDto,
+  GrantHumanGmInventoryItemDto,
   HumanGmMessageDto,
+  HumanGmNodeMoveOptionDto,
   JoinSessionDto,
   MoveSessionTokenDto,
   ParticipantStatusResponseDto,
@@ -491,6 +493,22 @@ export class SessionsController {
     );
   }
 
+  @Post(":id/gm/inventory/grant")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async grantHumanGmInventoryItem(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: GrantHumanGmInventoryItemDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM inventory item granted.",
+      await this.sessionsService.grantHumanGmInventoryItem(userId, sessionId, dto),
+    );
+  }
+
   @Patch(":id/gm/node")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
@@ -504,6 +522,21 @@ export class SessionsController {
       "SESSION_200",
       "Session node updated.",
       await this.sessionsService.updateSessionNode(userId, sessionId, dto),
+    );
+  }
+
+  @Get(":id/gm/node-options")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: [HumanGmNodeMoveOptionDto] })
+  async listHumanGmNodeMoveOptions(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<ApiResponse<HumanGmNodeMoveOptionDto[]>> {
+    return apiResponse(
+      "SESSION_200",
+      "Human GM node move options fetched.",
+      await this.sessionsService.listHumanGmNodeMoveOptions(userId, sessionId),
     );
   }
 
