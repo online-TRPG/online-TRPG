@@ -773,6 +773,7 @@ export function ExplorationNodeSurface({
   const [mapSelection, setMapSelection] = useState<BattleMapSelection | null>(null);
   const [mapActionFeedback, setMapActionFeedback] = useState<string | null>(null);
   const [selectedMapCharacterId, setSelectedMapCharacterId] = useState<string | null>(null);
+  const [isGmPanelCollapsed, setGmPanelCollapsed] = useState(false);
   const [isGmItemPickerOpen, setGmItemPickerOpen] = useState(false);
   const [gmItemQuery, setGmItemQuery] = useState('');
   const [gmItemQuantity, setGmItemQuantity] = useState(1);
@@ -1154,7 +1155,11 @@ export function ExplorationNodeSurface({
         </div>
       </NodeHeaderScroll>
 
-      <div className={`exploration-node-content${isGmView ? ' gm-view' : ''}`}>
+      <div
+        className={`exploration-node-content${isGmView ? ' gm-view' : ''}${
+          isGmView && isGmPanelCollapsed ? ' gm-panel-collapsed' : ''
+        }`}
+      >
         <main className="exploration-map-column">
           <section className="exploration-map-panel" aria-label="탐색 지도">
             <MapPartyOverlay
@@ -1214,8 +1219,22 @@ export function ExplorationNodeSurface({
         </main>
 
         {isGmView ? (
-          <aside className="exploration-gm-panel" aria-label="GM 탐색 제어">
-            <div className="exploration-gm-card">
+          <aside
+            className={`exploration-gm-panel${isGmPanelCollapsed ? ' collapsed' : ''}`}
+            aria-label="GM 탐색 제어"
+          >
+            <button
+              type="button"
+              className="exploration-gm-panel-toggle"
+              aria-label={isGmPanelCollapsed ? 'GM 패널 열기' : 'GM 패널 접기'}
+              aria-expanded={!isGmPanelCollapsed}
+              title={isGmPanelCollapsed ? 'GM 패널 열기' : 'GM 패널 접기'}
+              onClick={() => setGmPanelCollapsed((current) => !current)}
+            >
+              <span className="exploration-gm-panel-toggle-arrow" aria-hidden="true" />
+            </button>
+            <div className="exploration-gm-panel-body" aria-hidden={isGmPanelCollapsed}>
+              <div className="exploration-gm-card">
               <span className="exploration-node-eyebrow">GM 지도 상태</span>
               <div className="exploration-gm-metrics">
                 <span>
@@ -1234,9 +1253,9 @@ export function ExplorationNodeSurface({
                   안개 영역 <strong>{gmMapSummary.fogRects}</strong>
                 </span>
               </div>
-            </div>
+              </div>
 
-            <div className="exploration-gm-card">
+              <div className="exploration-gm-card">
               <span className="exploration-node-eyebrow">선택 대상 인스펙터</span>
               <strong className="exploration-gm-selection-title">{gmSelectionDetails.title}</strong>
               <div className="exploration-gm-tag-list">
@@ -1249,9 +1268,9 @@ export function ExplorationNodeSurface({
                   <p key={line}>{line}</p>
                 ))}
               </div>
-            </div>
+              </div>
 
-            <div className="exploration-gm-card exploration-gm-controls">
+              <div className="exploration-gm-card exploration-gm-controls">
               <span className="exploration-node-eyebrow">GM 조작</span>
               <div className="exploration-gm-button-grid">
                 <button
@@ -1290,9 +1309,9 @@ export function ExplorationNodeSurface({
                   전체 공개
                 </button>
               </div>
-            </div>
+              </div>
 
-            <div className="exploration-gm-card exploration-gm-node-move">
+              <div className="exploration-gm-card exploration-gm-node-move">
               <span className="exploration-node-eyebrow">장면 이동</span>
               {gmNodeMoveOptions.length ? (
                 <div className="exploration-gm-node-list">
@@ -1316,6 +1335,7 @@ export function ExplorationNodeSurface({
               ) : (
                 <p className="exploration-gm-empty-text">현재 노드에서 바로 이동 가능한 노드가 없습니다.</p>
               )}
+              </div>
             </div>
           </aside>
         ) : null}
