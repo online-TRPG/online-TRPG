@@ -5906,8 +5906,8 @@ export class SessionsService {
       sessionCharacterId: token.sessionCharacterId ?? null,
       name: token.name.slice(0, 80),
       imageUrl: token.imageUrl ?? null,
-      x: this.clampNumber(token.x, 0, width),
-      y: this.clampNumber(token.y, 0, height),
+      x: Number(token.x) || 0,
+      y: Number(token.y) || 0,
       size: this.clampNumber(token.size, 24, 160),
       hidden: token.hidden === true,
       isHostile: token.isHostile === true,
@@ -5948,6 +5948,10 @@ export class SessionsService {
               : null,
           }
         : null,
+    })).map((token) => ({
+      ...token,
+      x: this.clampNumber(token.x, 0, Math.max(0, width - token.size)),
+      y: this.clampNumber(token.y, 0, Math.max(0, height - token.size)),
     }));
     const fogRects = map.fogRects.slice(0, 200).map((rect) => ({
       id: rect.id,
