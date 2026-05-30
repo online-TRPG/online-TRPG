@@ -572,8 +572,7 @@ export class SessionsService {
       map,
       previousMap,
     });
-    const hazardDetectionChanged =
-      JSON.stringify(beforeHazardDetectionMap.objectCells ?? []) !== JSON.stringify(map.objectCells ?? []);
+    const hazardDetectionChanged = beforeHazardDetectionMap !== map;
 
     await this.prisma.gameState.update({
       where: { sessionScenarioId: sessionScenario.id },
@@ -4023,8 +4022,23 @@ export class SessionsService {
       return params.map;
     }
 
+    const movedTokenIds = new Set(
+      params.map.tokens
+        .filter((token) => {
+          if (!token.sessionCharacterId || token.hidden === true || token.isHostile === true) {
+            return false;
+          }
+          const previousToken = params.previousMap.tokens.find((candidate) => candidate.id === token.id);
+          return Boolean(previousToken && (previousToken.x !== token.x || previousToken.y !== token.y));
+        })
+        .map((token) => token.id),
+    );
+    if (!movedTokenIds.size) {
+      return params.map;
+    }
+
     const partyTokens = params.map.tokens.filter(
-      (token) => token.sessionCharacterId && token.hidden !== true && token.isHostile !== true,
+      (token) => movedTokenIds.has(token.id),
     );
     if (!partyTokens.length) {
       return params.map;
@@ -5215,8 +5229,7 @@ export class SessionsService {
       map,
       previousMap: params.previousMap,
     });
-    const hazardDetectionChanged =
-      JSON.stringify(beforeHazardDetectionMap.objectCells ?? []) !== JSON.stringify(map.objectCells ?? []);
+    const hazardDetectionChanged = beforeHazardDetectionMap !== map;
 
     await this.prisma.gameState.update({
       where: { sessionScenarioId: params.sessionScenarioId },
