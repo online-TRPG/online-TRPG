@@ -4,11 +4,13 @@ import type { VttMapStateDto } from '@trpg/shared-types';
 interface BattleMapVisionMaskLayerProps {
   map: Pick<VttMapStateDto, 'width' | 'height' | 'gridSize'>;
   visibleVisionCells: Set<string> | null;
+  exploredVisionCells?: Set<string> | null;
 }
 
 export function BattleMapVisionMaskLayer({
   map,
   visibleVisionCells,
+  exploredVisionCells = null,
 }: BattleMapVisionMaskLayerProps) {
   if (!visibleVisionCells) {
     return null;
@@ -22,6 +24,7 @@ export function BattleMapVisionMaskLayer({
           if (visibleVisionCells.has(key)) {
             return null;
           }
+          const isExplored = exploredVisionCells?.has(key) ?? false;
           const x = column * map.gridSize;
           const y = row * map.gridSize;
           return (
@@ -31,7 +34,7 @@ export function BattleMapVisionMaskLayer({
               y={y}
               width={Math.min(map.gridSize, map.width - x)}
               height={Math.min(map.gridSize, map.height - y)}
-              fill="rgba(3, 6, 10, 0.88)"
+              fill={isExplored ? 'rgba(3, 6, 10, 0.48)' : 'rgba(3, 6, 10, 0.9)'}
             />
           );
         })
