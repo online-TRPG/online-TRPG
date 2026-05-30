@@ -77,8 +77,7 @@ export class MapRuntimeService {
       map,
       previousMap,
     });
-    const hazardDetectionChanged =
-      JSON.stringify(beforeHazardDetectionMap.objectCells ?? []) !== JSON.stringify(map.objectCells ?? []);
+    const hazardDetectionChanged = beforeHazardDetectionMap !== map;
 
     await this.prisma.gameState.update({
       where: { sessionScenarioId: sessionScenario.id },
@@ -285,8 +284,7 @@ export class MapRuntimeService {
       map,
       previousMap: params.previousMap,
     });
-    const hazardDetectionChanged =
-      JSON.stringify(beforeHazardDetectionMap.objectCells ?? []) !== JSON.stringify(map.objectCells ?? []);
+    const hazardDetectionChanged = beforeHazardDetectionMap !== map;
 
     await this.prisma.gameState.update({
       where: { sessionScenarioId: params.sessionScenarioId },

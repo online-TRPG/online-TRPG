@@ -54,6 +54,26 @@ import type {
   DiceRollOverlayData,
 } from '../features/sessionPlay/components/DiceRollOverlay';
 
+function getVttMapSocketSignature(map: VttMapStateDto | null | undefined) {
+  if (!map) return 'null';
+  const tokenSignature = map.tokens
+    .map((token) => [token.id, token.x, token.y, token.hidden === true ? 'h' : 'v'].join(','))
+    .join('|');
+  return [
+    map.id,
+    map.updatedAt,
+    map.width,
+    map.height,
+    map.gridSize,
+    tokenSignature,
+    map.terrainCells?.length ?? 0,
+    map.wallCells?.length ?? 0,
+    map.doorCells?.length ?? 0,
+    map.objectCells?.length ?? 0,
+    map.lightSources?.length ?? 0,
+  ].join(';');
+}
+
 export interface CharacterPayload {
   name: string;
   ancestry: string;
@@ -1056,6 +1076,10 @@ export function useSession(
       onVttMapUpdated: (map: VttMapStateDto) => {
         setSnapshot((current) => {
           if (!current) return current;
+          const currentMap = current.state.flags?.vttMap as VttMapStateDto | null | undefined;
+          if (getVttMapSocketSignature(currentMap) === getVttMapSocketSignature(map)) {
+            return current;
+          }
 
           const next = {
             ...current,

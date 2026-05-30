@@ -11,6 +11,7 @@ interface BattleMapFogLayerProps {
   fogDraft: FogBox | null;
   fogAction: FogAction;
   isInteractive: boolean;
+  isGmPreview?: boolean;
   onSelectFog: (fogId: string) => void;
 }
 
@@ -20,6 +21,7 @@ export function BattleMapFogLayer({
   fogDraft,
   fogAction,
   isInteractive,
+  isGmPreview = false,
   onSelectFog,
 }: BattleMapFogLayerProps) {
   return (
@@ -32,7 +34,7 @@ export function BattleMapFogLayer({
           width={rect.width}
           height={rect.height}
           fill={rect.id === selectedFogId ? '#18283a' : '#03060a'}
-          opacity={rect.id === selectedFogId ? 0.9 : 0.82}
+          opacity={isGmPreview ? (rect.id === selectedFogId ? 0.34 : 0.22) : rect.id === selectedFogId ? 0.9 : 0.82}
           stroke={rect.id === selectedFogId ? '#79d8ff' : undefined}
           strokeWidth={rect.id === selectedFogId ? 2 : 0}
           onClick={(event) => {

@@ -230,6 +230,26 @@ export class UpdateHumanGmDto {
   gmUserId!: string;
 }
 
+export class GrantHumanGmInventoryItemDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  sessionCharacterId!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  itemDefinitionId!: string;
+
+  @ApiPropertyOptional({ default: 1, minimum: 1, maximum: 99 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  quantity?: number;
+}
+
 export class SessionScenarioResponseDto {
   @ApiProperty()
   id!: string;
@@ -660,6 +680,43 @@ export class UpdateSessionNodeDto {
   @IsString()
   @IsNotEmpty()
   nodeId!: string;
+}
+
+export class HumanGmNodeMoveOptionDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  nodeId!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  title!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  nodeType!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  label?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  condition?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  note?: string | null;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  isFallback?: boolean;
 }
 
 export class SrdMonsterReferenceSourceDto {

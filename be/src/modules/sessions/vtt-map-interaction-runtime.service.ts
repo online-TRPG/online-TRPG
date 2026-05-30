@@ -110,6 +110,7 @@ export class VttMapInteractionRuntimeService {
         sessionScenarioId: sessionScenario.id,
         nodeId: state.currentNodeId,
         mapPoint,
+        includeHiddenObject: this.sessionsService.canUseGmRuntimeControls(userId, session),
       });
     }
 
