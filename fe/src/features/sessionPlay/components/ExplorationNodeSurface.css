@@ -745,6 +745,10 @@
   /* 배경과 테두리를 제거하여 뒤의 우드 배경이 보이도록 함 */
 }
 
+.exploration-action-dock.action-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* 액션 독 내부 패널 3종 공통 */
 .exploration-actor-status,
 .exploration-action-panel,
@@ -873,6 +877,98 @@
   color: #4a2808; /* 어두워진 배경에 맞춰 텍스트 가독성 확보 */
   font-size: 12px;
   line-height: 1.45;
+}
+
+.exploration-actor-stat-grid {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.exploration-actor-stat-grid span {
+  min-width: 0;
+  padding: 6px 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  border: 1px solid rgba(201, 146, 42, 0.32);
+  background: rgba(255, 248, 220, 0.05);
+  color: #b9aa86;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.exploration-actor-stat-grid strong {
+  min-width: 0;
+  color: #ffe2a0;
+  font-size: 11px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exploration-resource-meter-grid {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.exploration-resource-meter {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.exploration-resource-meter-label {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #b9aa86;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.exploration-resource-meter-label strong {
+  color: #ead9b0;
+  font-size: 12px;
+}
+
+.exploration-resource-meter-track {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid #5a4a2e;
+  background: #0d0f12;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.38);
+}
+
+.exploration-resource-meter-fill {
+  display: block;
+  width: var(--exploration-resource-fill, 0%);
+  height: 100%;
+  background:
+    linear-gradient(90deg, rgba(255, 232, 156, 0.92), rgba(199, 148, 52, 0.82)),
+    #c9963d;
+}
+
+.exploration-resource-meter.hp .exploration-resource-meter-fill {
+  background:
+    linear-gradient(90deg, rgba(217, 88, 75, 0.95), rgba(151, 33, 34, 0.86)),
+    #b6403a;
+}
+
+.exploration-actor-token-note {
+  color: #9f9279 !important;
+  font-size: 11px !important;
+  font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 /* ── 액션 버튼 리스트 ──────────────────────────────────────── */
@@ -1609,6 +1705,10 @@
     min-height: 126px;
     max-height: none;
     grid-template-columns: minmax(260px, 0.36fr) minmax(320px, 0.72fr) minmax(360px, 0.56fr);
+  }
+
+  .exploration-action-dock.action-only {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .exploration-party-overlay {

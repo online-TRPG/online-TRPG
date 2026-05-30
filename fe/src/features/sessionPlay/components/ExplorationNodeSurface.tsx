@@ -370,6 +370,14 @@ function getArrayCount(value: unknown) {
   return Array.isArray(value) ? value.length : 0;
 }
 
+function getResourceFillPercent(
+  current: number | null | undefined,
+  max: number | null | undefined
+) {
+  if (typeof current !== 'number' || typeof max !== 'number' || max <= 0) return 0;
+  return Math.min(100, Math.max(0, (current / max) * 100));
+}
+
 function getGmMapSummary(map: VttMapStateDto | null) {
   if (!map) {
     return {
@@ -499,7 +507,6 @@ function getMovementBlockers(map: VttMapStateDto) {
     ...(map.terrainCells ?? []),
     ...(map.wallCells ?? []),
     ...(map.doorCells ?? []).filter((door) => door.state !== 'open' && door.state !== 'broken'),
-    ...(map.fogRects ?? []),
   ];
 }
 
@@ -782,6 +789,34 @@ export function ExplorationNodeSurface({
   const canUseDisplayedInventory = !isGmView || displayedCharacter?.id === myCharacter?.id;
   const gmSelectedNonCharacterToken =
     isGmView && mapSelection?.kind === 'token' && !selectedTokenCharacter ? mapSelection.token : null;
+  const selectedMapToken = mapSelection?.kind === 'token' ? mapSelection.token : null;
+  const shouldShowActorAndInventory = !isGmView || mapSelection?.kind === 'token';
+  const actorHpMeterStyle = {
+    '--exploration-resource-fill': `${getResourceFillPercent(
+      displayedCharacter?.currentHp,
+      displayedCharacter?.maxHp
+    )}%`,
+  } as CSSProperties;
+  const actorMovementMeterStyle = {
+    '--exploration-resource-fill': `${getResourceFillPercent(
+      displayedCharacter?.speed,
+      displayedCharacter?.speed
+    )}%`,
+  } as CSSProperties;
+  const selectedTokenGridLabel =
+    map && selectedMapToken
+      ? `${Math.floor(selectedMapToken.x / map.gridSize)}, ${Math.floor(selectedMapToken.y / map.gridSize)}`
+      : null;
+  const selectedTokenTypeLabel = displayedCharacter
+    ? '플레이어'
+    : selectedMapToken?.monster
+      ? '몬스터'
+      : selectedMapToken?.npcId
+        ? 'NPC'
+        : '토큰';
+  const displayedConditionLabel = displayedCharacter?.conditions.length
+    ? displayedCharacter.conditions.join(', ')
+    : '없음';
   const selectionDisplay = useMemo(
     () => getSelectionDisplay(mapSelection, node),
     [mapSelection, node]
@@ -816,10 +851,10 @@ export function ExplorationNodeSurface({
   }, [mapSelection, onMapSelectionChange]);
 
   useEffect(() => {
-    if (!displayedInventory.length && isInventoryExpanded) {
+    if ((!displayedInventory.length || !shouldShowActorAndInventory) && isInventoryExpanded) {
       setInventoryExpanded(false);
     }
-  }, [displayedInventory.length, isInventoryExpanded]);
+  }, [displayedInventory.length, isInventoryExpanded, shouldShowActorAndInventory]);
 
   useEffect(() => {
     if (!displayedCharacter || !isGmView) {
@@ -1286,27 +1321,91 @@ export function ExplorationNodeSurface({
         ) : null}
       </div>
 
-      <section className="exploration-action-dock" aria-label="탐색 행동">
-        <div className="exploration-actor-status">
-          <span className="exploration-frame-corner top-left" aria-hidden="true" />
-          <span className="exploration-frame-corner top-right" aria-hidden="true" />
-          <span className="exploration-frame-corner bottom-left" aria-hidden="true" />
-          <span className="exploration-frame-corner bottom-right" aria-hidden="true" />
-          <span className="exploration-node-eyebrow">{isGmView ? '선택한 캐릭터' : '현재 조작 캐릭터'}</span>
-          <strong>
-            {displayedCharacter?.name ??
-              (gmSelectedNonCharacterToken ? gmSelectedNonCharacterToken.name : '캐릭터 미선택')}
-          </strong>
-          <p>
-            {isGmView
-              ? displayedCharacter
-                ? '선택한 플레이어 캐릭터 토큰의 상태와 인벤토리입니다.'
-                : gmSelectedNonCharacterToken
-                  ? 'NPC와 몬스터 토큰 인벤토리는 아직 구현되어 있지 않습니다.'
-                  : '플레이어 캐릭터 토큰을 선택하면 상태와 인벤토리가 표시됩니다.'
-              : '지도에서 위치를 확인하고 메인 명령으로 행동을 선언하세요.'}
-          </p>
-        </div>
+      <section
+        className={`exploration-action-dock${shouldShowActorAndInventory ? '' : ' action-only'}`}
+        aria-label="탐색 행동"
+      >
+        {shouldShowActorAndInventory ? (
+          <div className="exploration-actor-status">
+            <span className="exploration-frame-corner top-left" aria-hidden="true" />
+            <span className="exploration-frame-corner top-right" aria-hidden="true" />
+            <span className="exploration-frame-corner bottom-left" aria-hidden="true" />
+            <span className="exploration-frame-corner bottom-right" aria-hidden="true" />
+            <span className="exploration-node-eyebrow">{isGmView ? '선택한 캐릭터' : '현재 조작 캐릭터'}</span>
+            <strong>
+              {displayedCharacter?.name ??
+                (gmSelectedNonCharacterToken ? gmSelectedNonCharacterToken.name : '캐릭터 미선택')}
+            </strong>
+            {displayedCharacter ? (
+              <>
+                <div className="exploration-actor-stat-grid" aria-label="선택 캐릭터 주요 능력치">
+                  <span>
+                    직업 <strong>{getCharacterClassLabel(displayedCharacter.className)}</strong>
+                  </span>
+                  <span>
+                    레벨 <strong>{displayedCharacter.level}</strong>
+                  </span>
+                  <span>
+                    AC <strong>{displayedCharacter.armorClass}</strong>
+                  </span>
+                  <span>
+                    상태 <strong>{displayedConditionLabel}</strong>
+                  </span>
+                </div>
+                <div className="exploration-resource-meter-grid">
+                  <div className="exploration-resource-meter hp" style={actorHpMeterStyle}>
+                    <div className="exploration-resource-meter-label">
+                      <span>HP</span>
+                      <strong>
+                        {displayedCharacter.currentHp}/{displayedCharacter.maxHp}
+                      </strong>
+                    </div>
+                    <span className="exploration-resource-meter-track" aria-hidden="true">
+                      <span className="exploration-resource-meter-fill" />
+                    </span>
+                  </div>
+                  <div className="exploration-resource-meter" style={actorMovementMeterStyle}>
+                    <div className="exploration-resource-meter-label">
+                      <span>이동</span>
+                      <strong>{displayedCharacter.speed}ft</strong>
+                    </div>
+                    <span className="exploration-resource-meter-track" aria-hidden="true">
+                      <span className="exploration-resource-meter-fill" />
+                    </span>
+                  </div>
+                </div>
+                {selectedTokenGridLabel ? (
+                  <p className="exploration-actor-token-note">
+                    토큰 좌표 {selectedTokenGridLabel}
+                    {selectedMapToken?.hidden ? ' · 플레이어 비공개' : ' · 플레이어 공개'}
+                  </p>
+                ) : null}
+              </>
+            ) : gmSelectedNonCharacterToken ? (
+              <>
+                <div className="exploration-actor-stat-grid" aria-label="선택 토큰 정보">
+                  <span>
+                    유형 <strong>{selectedTokenTypeLabel}</strong>
+                  </span>
+                  <span>
+                    크기 <strong>{gmSelectedNonCharacterToken.size}</strong>
+                  </span>
+                  <span>
+                    좌표 <strong>{selectedTokenGridLabel ?? '-'}</strong>
+                  </span>
+                  <span>
+                    공개 <strong>{gmSelectedNonCharacterToken.hidden ? '숨김' : '공개'}</strong>
+                  </span>
+                </div>
+                <p className="exploration-actor-token-note">
+                  NPC와 몬스터 토큰은 현재 인벤토리 대신 지도 상태만 표시합니다.
+                </p>
+              </>
+            ) : (
+              <p>지도에서 위치를 확인하고 메인 명령으로 행동을 선언하세요.</p>
+            )}
+          </div>
+        ) : null}
 
         <div className="exploration-action-panel">
           <span className="exploration-frame-corner top-left" aria-hidden="true" />
@@ -1358,11 +1457,12 @@ export function ExplorationNodeSurface({
           ) : null}
         </div>
 
-        <div className="exploration-inventory-slot">
-          <div
-            className={`exploration-inventory-panel${isInventoryExpanded ? ' expanded' : ''}`}
-            style={inventoryPanelStyle}
-          >
+        {shouldShowActorAndInventory ? (
+          <div className="exploration-inventory-slot">
+            <div
+              className={`exploration-inventory-panel${isInventoryExpanded ? ' expanded' : ''}`}
+              style={inventoryPanelStyle}
+            >
             <span className="exploration-frame-corner top-left" aria-hidden="true" />
             <span className="exploration-frame-corner top-right" aria-hidden="true" />
             <span className="exploration-frame-corner bottom-left" aria-hidden="true" />
@@ -1522,8 +1622,9 @@ export function ExplorationNodeSurface({
             ) : (
               <p>보유 중인 아이템이 없습니다.</p>
             )}
+            </div>
           </div>
-        </div>
+        ) : null}
       </section>
       {isGmItemPickerOpen && displayedCharacter ? (
         <div

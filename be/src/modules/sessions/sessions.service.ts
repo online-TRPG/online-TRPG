@@ -4997,6 +4997,7 @@ export class SessionsService {
     to: { x: number; y: number },
   ): boolean {
     const blockers = [
+      ...(map.terrainCells ?? []),
       ...(map.wallCells ?? []),
       ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
     ];
