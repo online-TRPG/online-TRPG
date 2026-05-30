@@ -278,7 +278,12 @@
   margin-inline: 12px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
   overflow: hidden;
+}
+
+.exploration-node-content.gm-view {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
 }
 
 .exploration-map-column {
@@ -528,6 +533,206 @@
   white-space: nowrap;
 }
 
+/* ── 인간 GM 탐색 패널 ───────────────────────────────────── */
+.exploration-gm-panel {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.exploration-gm-card {
+  position: relative;
+  min-width: 0;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid #7c5a2d;
+  outline: 1px solid rgba(217, 168, 79, 0.38);
+  outline-offset: 2px;
+  background:
+    linear-gradient(180deg, rgba(255, 237, 188, 0.05), transparent 38%),
+    linear-gradient(145deg, #18191c 0%, #0d1013 100%);
+  color: #ead9b0;
+  box-shadow:
+    inset 0 0 0 1px rgba(232, 201, 122, 0.18),
+    inset 0 0 22px rgba(0, 0, 0, 0.4),
+    0 4px 10px rgba(30, 18, 8, 0.5);
+}
+
+.exploration-gm-card .exploration-node-eyebrow {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #f0d48e;
+  font-size: 13px;
+  letter-spacing: 0;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.65);
+}
+
+.exploration-gm-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.exploration-gm-metrics span,
+.exploration-gm-tag-list span {
+  min-width: 0;
+  padding: 6px 7px;
+  border: 1px solid rgba(201, 146, 42, 0.34);
+  background: rgba(255, 248, 220, 0.06);
+  color: #b9aa86;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.exploration-gm-metrics strong {
+  float: right;
+  color: #ffe2a0;
+  font-size: 12px;
+}
+
+.exploration-gm-selection-title {
+  min-width: 0;
+  color: #ead9b0;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.exploration-gm-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.exploration-gm-detail-list {
+  min-height: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.exploration-gm-detail-list p {
+  margin: 0;
+  color: #cbbd9b;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.exploration-gm-button-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.exploration-gm-button-grid button {
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid #6f5631;
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 240, 194, 0.07), rgba(255, 240, 194, 0) 45%),
+    linear-gradient(145deg, #1b1c1e, #0e1114);
+  color: #d9bd76;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+
+.exploration-gm-button-grid button:hover:not(:disabled) {
+  border-color: #c9963d;
+  color: #ffe2a0;
+  background:
+    linear-gradient(180deg, rgba(255, 218, 135, 0.12), rgba(255, 218, 135, 0.02) 42%),
+    linear-gradient(145deg, #24211b, #121417);
+}
+
+.exploration-gm-button-grid button:disabled {
+  border-color: #4e4c47;
+  color: #7e7769;
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.exploration-gm-node-list {
+  display: grid;
+  gap: 7px;
+}
+
+.exploration-gm-node-list button {
+  min-width: 0;
+  padding: 9px 10px;
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  border: 1px solid #6f5631;
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 240, 194, 0.07), rgba(255, 240, 194, 0) 45%),
+    linear-gradient(145deg, #1b1c1e, #0e1114);
+  color: #d9bd76;
+  text-align: left;
+  cursor: pointer;
+}
+
+.exploration-gm-node-list button:hover:not(:disabled) {
+  border-color: #c9963d;
+  color: #ffe2a0;
+}
+
+.exploration-gm-node-list button:disabled {
+  border-color: #4e4c47;
+  color: #7e7769;
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.exploration-gm-node-list strong,
+.exploration-gm-node-list span,
+.exploration-gm-node-list small {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.exploration-gm-node-list strong {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.exploration-gm-node-list span {
+  color: #b9aa86;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.exploration-gm-node-list small {
+  color: #d1bd86;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.exploration-gm-empty-text {
+  margin: 0;
+  color: #9f9279;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 /* ── 액션 독 (하단) ───────────────────────────────────────── */
 .exploration-action-dock {
   position: relative;
@@ -538,6 +743,10 @@
   grid-template-columns: minmax(260px, 0.36fr) minmax(320px, 0.72fr) minmax(360px, 0.56fr);
   gap: 16px;
   /* 배경과 테두리를 제거하여 뒤의 우드 배경이 보이도록 함 */
+}
+
+.exploration-action-dock.action-only {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /* 액션 독 내부 패널 3종 공통 */
@@ -668,6 +877,98 @@
   color: #4a2808; /* 어두워진 배경에 맞춰 텍스트 가독성 확보 */
   font-size: 12px;
   line-height: 1.45;
+}
+
+.exploration-actor-stat-grid {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.exploration-actor-stat-grid span {
+  min-width: 0;
+  padding: 6px 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  border: 1px solid rgba(201, 146, 42, 0.32);
+  background: rgba(255, 248, 220, 0.05);
+  color: #b9aa86;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.exploration-actor-stat-grid strong {
+  min-width: 0;
+  color: #ffe2a0;
+  font-size: 11px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exploration-resource-meter-grid {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.exploration-resource-meter {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.exploration-resource-meter-label {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #b9aa86;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.exploration-resource-meter-label strong {
+  color: #ead9b0;
+  font-size: 12px;
+}
+
+.exploration-resource-meter-track {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid #5a4a2e;
+  background: #0d0f12;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.38);
+}
+
+.exploration-resource-meter-fill {
+  display: block;
+  width: var(--exploration-resource-fill, 0%);
+  height: 100%;
+  background:
+    linear-gradient(90deg, rgba(255, 232, 156, 0.92), rgba(199, 148, 52, 0.82)),
+    #c9963d;
+}
+
+.exploration-resource-meter.hp .exploration-resource-meter-fill {
+  background:
+    linear-gradient(90deg, rgba(217, 88, 75, 0.95), rgba(151, 33, 34, 0.86)),
+    #b6403a;
+}
+
+.exploration-actor-token-note {
+  color: #9f9279 !important;
+  font-size: 11px !important;
+  font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 /* ── 액션 버튼 리스트 ──────────────────────────────────────── */
@@ -869,6 +1170,37 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.exploration-inventory-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.exploration-gm-inventory-grant-button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid #6f5631;
+  background:
+    linear-gradient(180deg, rgba(255, 218, 135, 0.1), rgba(255, 218, 135, 0.02) 42%),
+    linear-gradient(145deg, #241f17, #111316);
+  color: #d9c89d;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.exploration-gm-inventory-grant-button:hover:not(:disabled) {
+  border-color: #c9963d;
+  color: #ffe2a0;
+}
+
+.exploration-gm-inventory-grant-button:disabled {
+  border-color: #4e4c47;
+  color: #7e7769;
+  cursor: not-allowed;
+  opacity: 0.68;
 }
 
 .exploration-inventory-panel .exploration-node-eyebrow {
@@ -1095,6 +1427,153 @@
   font-weight: 800;
 }
 
+.exploration-gm-item-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  padding: 24px;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.58);
+}
+
+.exploration-gm-item-picker {
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(680px, calc(100vh - 32px));
+  padding: 16px;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 12px;
+  border: 1px solid #7c5a2d;
+  outline: 1px solid rgba(217, 168, 79, 0.38);
+  outline-offset: -5px;
+  background:
+    linear-gradient(180deg, rgba(255, 218, 135, 0.08), rgba(255, 218, 135, 0.02) 38%),
+    linear-gradient(145deg, #191714, #0f1114);
+  color: #e7d6ad;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.5);
+}
+
+.exploration-gm-item-picker-head,
+.exploration-gm-item-picker-footer {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.exploration-gm-item-picker-head h3 {
+  margin: 3px 0 0;
+  color: #f1ddb1;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.exploration-gm-item-picker-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #6f5631;
+  background: #141518;
+  color: #dccb9f;
+  font-size: 20px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.exploration-gm-item-picker-search,
+.exploration-gm-item-picker-footer label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: #b9aa86;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.exploration-gm-item-picker-search input,
+.exploration-gm-item-picker-footer input {
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #6f5631;
+  background: #0f1114;
+  color: #ead9b0;
+  font: inherit;
+}
+
+.exploration-gm-item-picker-list {
+  min-height: 160px;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  overflow-y: auto;
+}
+
+.exploration-gm-item-picker-list button {
+  min-width: 0;
+  padding: 9px 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #4b3b24;
+  background: linear-gradient(145deg, #181918, #111316);
+  color: #d7c69b;
+  text-align: left;
+  cursor: pointer;
+}
+
+.exploration-gm-item-picker-list button.selected {
+  border-color: #e1a846;
+  color: #ffe2a0;
+  background:
+    linear-gradient(180deg, rgba(255, 207, 91, 0.18), rgba(255, 207, 91, 0.04) 42%),
+    linear-gradient(145deg, #2b2217, #111316);
+}
+
+.exploration-gm-item-picker-list strong,
+.exploration-gm-item-picker-list span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.exploration-gm-item-picker-list span {
+  color: #9f9279;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.exploration-gm-item-picker-list p {
+  margin: 0;
+  color: #9f9279;
+  font-size: 12px;
+}
+
+.exploration-gm-item-picker-footer input {
+  width: 82px;
+}
+
+.exploration-gm-item-picker-footer button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #8a6020;
+  background:
+    linear-gradient(180deg, rgba(255, 218, 135, 0.18), rgba(255, 218, 135, 0.04) 42%),
+    linear-gradient(145deg, #2c2418, #141518);
+  color: #ffe2a0;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.exploration-gm-item-picker-footer button:disabled {
+  border-color: #4e4c47;
+  color: #7e7769;
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
 /* 빈 텍스트 */
 .exploration-empty-text {
   margin: 0;
@@ -1116,6 +1595,10 @@
     overflow-y: auto;
   }
 
+  .exploration-node-content.gm-view {
+    grid-template-columns: 1fr;
+  }
+
   .exploration-action-dock {
     grid-template-columns: 1fr;
   }
@@ -1133,6 +1616,10 @@
   .exploration-node-content {
     grid-template-columns: 1fr;
     overflow-y: auto;
+  }
+
+  .exploration-node-content.gm-view {
+    grid-template-columns: 1fr;
   }
 
   .exploration-action-dock {
@@ -1179,6 +1666,10 @@
     overflow: hidden;
   }
 
+  .exploration-node-content.gm-view {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  }
+
   .exploration-map-column {
     height: 100%;
     min-height: 0;
@@ -1214,6 +1705,10 @@
     min-height: 126px;
     max-height: none;
     grid-template-columns: minmax(260px, 0.36fr) minmax(320px, 0.72fr) minmax(360px, 0.56fr);
+  }
+
+  .exploration-action-dock.action-only {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .exploration-party-overlay {

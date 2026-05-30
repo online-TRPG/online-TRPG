@@ -31,6 +31,94 @@
 
 하지만 최종적으로는 그쪽이 핵심 원인이 아니었다. 프론트엔드가 `/map/tokens/move`를 호출했다는 사실 자체는 탐색 이동 command를 고른 것이므로 오히려 프론트 routing이 전투 이동으로 잘못 빠진 상황은 아니었다. 403은 "잘못된 endpoint를 프론트가 골랐다"가 아니라, 백엔드가 DB의 `ACTIVE` combat을 보고 "이 세션은 아직 전투 중"이라고 판단했기 때문에 발생했다.
 
+## 이전 세션에서 먼저 의심하고 고쳤던 것들
+
+이 문서의 최종 원인은 stale `ACTIVE` combat row였지만, 그 결론에 바로 도달한 것은 아니었다. 앞선 작업 세션에서는 사용자가 처음 보고한 현상 자체가 조금 달랐다.
+
+초기 증상은 다음과 같았다.
+
+- 전투 노드가 끝나면 화면은 탐색 노드로 전환된다.
+- 플레이어가 여러 명일 때, 첫 번째 플레이어가 자기 토큰을 이동시키는 것은 성공한다.
+- 두 번째 플레이어가 자기 토큰을 이동하려고 하는 순간부터 처음 이동했던 플레이어를 포함해 전원이 자기 토큰을 이동할 수 없어진다.
+
+이 증상은 단순히 "전투가 끝났는데 전투 guard가 남아 있다"보다, "멀티플레이어가 같은 맵을 동시에 갱신할 때 서로의 토큰 상태를 덮어쓰거나 검증에서 막히는 것"처럼 보였다. 그래서 처음에는 전체 맵 저장 방식과 플레이어 토큰 이동 검증을 먼저 의심했다.
+
+### 1. 전체 맵 PATCH와 stale client map 의심
+
+당시 구조에서는 플레이어의 토큰 이동도 큰 틀에서는 `PATCH /sessions/:id/map` 계열의 전체 맵 갱신 흐름과 강하게 엮여 있었다. 플레이어 클라이언트는 자기 토큰 하나만 움직였더라도, 요청에는 토큰 하나의 delta가 아니라 현재 클라이언트가 들고 있는 전체 VTT map snapshot이 들어갈 수 있었다.
+
+멀티플레이에서는 이 방식이 특히 위험했다.
+
+1. 플레이어 A가 자기 토큰을 이동한다.
+2. 서버의 authoritative map에는 A 토큰 위치가 바뀐다.
+3. 플레이어 B의 브라우저는 아직 A 이동 전 snapshot을 들고 있을 수 있다.
+4. B가 자기 토큰을 이동하면서 전체 map을 보내면, 요청 안에는 B의 새 위치와 A의 예전 위치가 함께 들어간다.
+5. 백엔드는 "플레이어는 자기 토큰만 움직일 수 있다"는 검증에서 A 토큰 위치가 되돌아간 것처럼 보고 요청을 거부할 수 있다.
+
+이때 B는 A 토큰을 건드릴 의도가 없지만, 전체 map snapshot 방식 때문에 결과적으로 다른 플레이어 토큰 좌표를 함께 제출하게 된다. 이것이 "첫 번째 사람은 이동되는데 두 번째 사람부터 모두 막힌다"는 초기 증상을 설명할 수 있는 가장 유력한 가설이었다.
+
+그래서 먼저 `applyPlayerVttMapUpdate()` 계열 로직을 확인했고, 플레이어가 제어하지 않는 토큰의 좌표를 요청 map에서 그대로 믿거나, 반대로 바뀌었다고 보고 거부하는 것이 근본적으로 취약하다고 판단했다. 초기 완화는 non-controlled token은 요청값으로 갱신하지 않고 baseline authoritative map의 값을 유지하도록 바꾸는 방향이었다. 즉 플레이어 요청에서 신뢰할 수 있는 것은 "내가 제어하는 토큰에 대한 의도"이지, 요청에 실려 온 전체 map이 아니라고 본 것이다.
+
+### 2. "전체 맵을 보내는 구조 자체가 맞는가"라는 재검토
+
+그 다음에는 단순 패치가 아니라 구조를 다시 봤다. 전투 종료 후 탐색 이동 버그는 한 증상이었지만, 플레이어 런타임 액션에 전체 맵을 보내는 구조 자체가 계속 같은 종류의 문제를 만들 수 있었다.
+
+전체 맵 update는 GM/editor 성격에는 맞지만, 플레이어 런타임 액션에는 맞지 않았다.
+
+- 플레이어 이동은 `tokenId + destination + path` 같은 command여야 한다.
+- ping은 `point + label` command면 충분하다.
+- 문 열기, 문 닫기, 문 부수기, 오브젝트 조사, 함정 탐지는 map 전체 저장이 아니라 interaction command여야 한다.
+- 플레이어가 보내는 요청에는 다른 플레이어 토큰, GM-only object, hidden hazard, fog 전체 상태 같은 권한 밖 데이터가 섞이면 안 된다.
+
+이 판단 때문에 "GM의 전체 맵 저장"과 "플레이어의 런타임 맵 액션"을 분리하는 방향으로 구조를 바꿨다. 핵심은 전체 map snapshot을 신뢰하는 API 대신, 플레이어가 실제로 수행하려는 command만 서버가 받아 authoritative map 위에 적용하는 것이었다.
+
+### 3. 런타임 command API 분리
+
+이후 공유 DTO, 백엔드 endpoint, 프론트 API 호출을 새 command 구조로 맞췄다.
+
+추가한 런타임 API의 의도는 다음과 같았다.
+
+- `POST /sessions/:id/map/tokens/move`: 플레이어 탐색 토큰 이동
+- `POST /sessions/:id/map/pings`: map ping 생성
+- `POST /sessions/:id/map/interactions`: door/object/hazard 상호작용
+- `PUT /sessions/:id/gm/map`: GM 전용 전체 맵 저장
+- legacy `PATCH /sessions/:id/map`: 기존 호환용 endpoint로 유지하되 더 이상 플레이어 런타임 액션의 중심으로 보지 않음
+
+백엔드에서는 `MapRuntimeService`를 추가해 GM map update, 플레이어 token move, ping, interaction, system map save를 세션 런타임 command 표면으로 모았다. 전투 쪽에서도 전투 이동이나 `Light` 주문처럼 시스템이 맵을 바꾸는 경우에는 `saveSystemVttMap()`을 통해 같은 runtime finalize 흐름을 타도록 연결했다.
+
+프론트에서는 `api.moveSessionToken`, `api.createVttMapPing`, `api.runVttMapInteraction`, `api.updateGmVttMap`을 추가하고, `PlayPage`, `ExplorationNodeSurface`, `CombatNodeSurface`에서 BattleMap의 이벤트를 command handler로 전달하도록 바꿨다. 이후 `SessionBattleMap` wrapper를 만들어 세션 플레이용 BattleMap 사용 경로를 editor 성격의 BattleMap과 분리했다.
+
+이 작업의 목적은 단순히 endpoint 이름을 바꾸는 것이 아니었다. 플레이어 브라우저가 들고 있는 map snapshot이 낡아도, 서버는 "이 플레이어가 이 토큰을 여기로 이동시키려 한다"는 command만 검증하면 된다. 다른 토큰이나 hidden object 상태는 요청값이 아니라 서버 baseline에서 유지된다.
+
+### 4. BattleMap 분해 작업이 같이 진행된 이유
+
+이 버그를 추적하는 동안 `BattleMap` 컴포넌트도 같이 분해했다. 이유는 이동 버그의 직접 원인이 UI 파일 크기 때문은 아니었지만, 당시 `BattleMap` 하나가 너무 많은 책임을 들고 있어서 어느 계층이 이동을 결정하고 어느 계층이 저장을 호출하는지 추적하기 어려웠기 때문이다.
+
+분해 방향은 다음과 같았다.
+
+- `fe/src/components/BattleMap.tsx`는 기존 import 호환을 위한 facade로 축소
+- 실제 구현은 `battleMap/BattleMapCore.tsx`로 이동
+- 배경, fog, measure, ping, token move preview, vision mask, range overlay, token layer, structure layer, object marker layer를 별도 컴포넌트로 분리
+- token/fog/structure inspector도 별도 컴포넌트로 분리
+- editor toolbar/subtoolbar controls와 starting position layer도 분리
+- 세션 플레이 쪽에는 `SessionBattleMap` wrapper를 추가
+
+이 분해 덕분에 나중에는 "프론트가 전투 endpoint를 잘못 골랐는가", "탐색 이동 command를 골랐는가", "BattleMap 자체가 전체 map save를 부르는가"를 더 분명하게 확인할 수 있었다. 최종 원인은 DB 상태였지만, UI와 API command 경계가 정리되어 있었기 때문에 stale `ACTIVE` combat이라는 서버 authoritative state 문제를 더 좁혀 볼 수 있었다.
+
+### 5. 이 과정이 최종 원인과 어떻게 이어졌는가
+
+처음 의심했던 전체 map PATCH 문제는 실제로 위험한 구조였고, 별도로 고칠 가치가 있었다. 다만 5월 22일에 최종 확인한 `/map/tokens/move` 403은 그 문제만으로 설명되지 않았다.
+
+오히려 앞선 구조 개선 후에도 `/map/tokens/move`가 403을 냈다는 점이 중요한 단서가 됐다.
+
+- 프론트는 더 이상 legacy 전체 map update가 아니라 탐색 이동 command를 호출하고 있었다.
+- 플레이어가 자기 토큰을 움직이는 command 표면도 분리되어 있었다.
+- 그런데도 백엔드는 "ACTIVE combat이 있으니 combat move command를 써야 한다"고 판단했다.
+
+따라서 남은 의심 대상은 프론트 routing이나 전체 map snapshot이 아니라, 백엔드가 보고 있는 DB의 authoritative combat 상태였다. 이 흐름을 거쳐 DB를 직접 확인했고, `GameState.phase = EXPLORATION`과 stale `Combat.status = ACTIVE`가 동시에 존재한다는 최종 원인으로 이어졌다.
+
+즉 앞선 작업은 최종 원인 자체는 아니었지만, 문제 공간을 줄이는 데 필요했다. 전체 map mutation 문제를 제거하고 플레이어 runtime command 구조를 만든 뒤에야, 403이 "잘못된 프론트 command"가 아니라 "서버 상태 invariant 붕괴"라는 점이 선명해졌다.
+
 ## 헷갈렸던 지점과 배제된 이유
 
 ### 1. 프론트 command routing 문제

@@ -17,6 +17,12 @@ interface BattleMapTokenLayerProps {
   tokenHealthByTokenId?: Record<string, TokenHealthFrame>;
   getTokenColor: (token: VttToken, characters: Character[]) => SessionTokenColor;
   canControlToken: (token: VttToken) => boolean;
+  constrainTokenDragPosition?: (
+    token: VttToken,
+    x: number,
+    y: number,
+    shiftKey: boolean
+  ) => { x: number; y: number };
   onSelectToken: (token: VttToken) => void;
   onTokenDragStart: (token: VttToken) => void;
   onTokenDragMove: (token: VttToken, x: number, y: number, shiftKey: boolean) => void;
@@ -34,6 +40,7 @@ export function BattleMapTokenLayer({
   tokenHealthByTokenId,
   getTokenColor,
   canControlToken,
+  constrainTokenDragPosition,
   onSelectToken,
   onTokenDragStart,
   onTokenDragMove,
@@ -54,6 +61,11 @@ export function BattleMapTokenLayer({
           isMeasureMode={isMeasureMode}
           isPingMode={isPingMode}
           health={tokenHealthByTokenId?.[token.id]}
+          constrainDragPosition={
+            constrainTokenDragPosition
+              ? (x, y, shiftKey) => constrainTokenDragPosition(token, x, y, shiftKey)
+              : undefined
+          }
           onSelect={() => onSelectToken(token)}
           onDragStart={() => onTokenDragStart(token)}
           onDragMove={(x, y, shiftKey) => onTokenDragMove(token, x, y, shiftKey)}

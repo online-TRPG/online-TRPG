@@ -14,7 +14,9 @@ import type {
   CreateVttMapPingDto,
   EquippedWeaponAttackDto,
   EndTurnDto,
+  GrantHumanGmInventoryItemDto,
   GmMode,
+  HumanGmNodeMoveOptionDto,
   LoginResponseDto,
   MainCommandResponseDto,
   MoveCombatParticipantDto,
@@ -37,6 +39,7 @@ import type {
   TurnAdvanceResponseDto,
   TurnLogListResponseDto,
   UpdateCharacterEquipmentDto,
+  UpdateSessionNodeDto,
   UpdateScenarioDto,
   UpdateVttMapDto,
   UseInventoryItemDto,
@@ -1392,6 +1395,54 @@ export async function updateHumanGm(
     accessToken,
     body: { gmUserId },
   });
+
+  return normalizeSessionSnapshot(snapshot);
+}
+
+export async function updateHumanGmSessionNode(
+  user: StoredUser,
+  sessionId: string,
+  nodeId: string,
+  accessToken?: string | null
+): Promise<SessionSnapshot> {
+  const payload: UpdateSessionNodeDto = { nodeId };
+  const snapshot = await requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/gm/node`, {
+    method: 'PATCH',
+    user,
+    accessToken,
+    body: payload,
+  });
+
+  return normalizeSessionSnapshot(snapshot);
+}
+
+export function getHumanGmNodeMoveOptions(
+  user: StoredUser,
+  sessionId: string,
+  accessToken?: string | null
+): Promise<HumanGmNodeMoveOptionDto[]> {
+  return requestJson<HumanGmNodeMoveOptionDto[]>(`/sessions/${sessionId}/gm/node-options`, {
+    method: 'GET',
+    user,
+    accessToken,
+  });
+}
+
+export async function grantHumanGmInventoryItem(
+  user: StoredUser,
+  sessionId: string,
+  payload: GrantHumanGmInventoryItemDto,
+  accessToken?: string | null
+): Promise<SessionSnapshot> {
+  const snapshot = await requestJson<SessionSnapshotDto>(
+    `/sessions/${sessionId}/gm/inventory/grant`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+      body: payload,
+    }
+  );
 
   return normalizeSessionSnapshot(snapshot);
 }
