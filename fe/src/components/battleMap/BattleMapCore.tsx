@@ -1759,6 +1759,13 @@ export function BattleMap({
     };
   }
 
+  function getTokenDragPosition(token: VttMapStateDto['tokens'][number], x: number, y: number) {
+    return {
+      x: clamp(x, 0, Math.max(0, map.width - token.size)),
+      y: clamp(y, 0, Math.max(0, map.height - token.size)),
+    };
+  }
+
   function getTokenRemainingMovementFt(token: VttMapStateDto['tokens'][number]) {
     const range = tokenMovementRangeFtByTokenId?.[token.id];
     return range === undefined ? null : Math.max(0, range);
@@ -2425,6 +2432,7 @@ export function BattleMap({
                 tokenHealthByTokenId={tokenHealthByTokenId}
                 getTokenColor={getBattleTokenColor}
                 canControlToken={canControlToken}
+                constrainTokenDragPosition={(token, x, y) => getTokenDragPosition(token, x, y)}
                 onSelectToken={(token) => {
                   if (selectedTokenId === token.id) {
                     setSelectedTokenId(null);
