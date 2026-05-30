@@ -33,6 +33,10 @@ import { BattleMapTokenMovePreview } from './BattleMapTokenMovePreview';
 import type { BattleMapTokenDragMeasure } from './BattleMapTokenMovePreview';
 import { BattleMapVisionMaskLayer } from './BattleMapVisionMaskLayer';
 import { BattleMapWorkspace } from './BattleMapWorkspace';
+import {
+  computeVisibleVisionCells,
+  getVisionGridIndex,
+} from './battleMapVision';
 import type { TokenHealthFrame } from './TokenFrame';
 import { useBattleMapPointerInput } from './useBattleMapPointerInput';
 import { useCanvasImage } from './useCanvasImage';
@@ -69,6 +73,7 @@ export interface BattleMapProps {
   tokenHealthByTokenId?: Record<string, TokenHealthFrame>;
   attackRangeOverlay?: { tokenId: string; rangeFt: number } | null;
   combatMovementMode?: CombatMovementMode;
+  showHiddenContent?: boolean;
   onTokenMoveRequest?: (
     token: VttMapStateDto['tokens'][number],
     to: { x: number; y: number },
@@ -211,11 +216,81 @@ type TokenDragMeasure = BattleMapTokenDragMeasure;
 type StartingPosition = NonNullable<VttMapStateDto['startingPositions']>[number];
 type MapSizeField = 'width' | 'height' | 'gridSize';
 type ScenarioAsset = ScenarioAssetResponseDto;
+type RectBlocker = { x: number; y: number; width: number; height: number; tokenId?: string };
+type BlockerIndex = Map<string, RectBlocker[]>;
 type ObjectCell = NonNullable<VttMapStateDto['objectCells']>[number];
 type ObjectShapeCell = NonNullable<ObjectCell['shapeCells']>[number];
 type ObjectEvent = NonNullable<ObjectCell['events']>[number];
 type ObjectHazard = NonNullable<ObjectCell['hazard']>;
 type ObjectRevealCheck = NonNullable<ObjectCell['revealChecks']>[number];
+type StoredExploredVisionCells = {
+  width: number;
+  height: number;
+  gridSize: number;
+  cells: string[];
+};
+
+function shouldLogBattleMapPerf() {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return false;
+  return window.localStorage.getItem('trpg:debug:battle-map-perf') === '1';
+}
+
+function measureBattleMapPerf<T>(label: string, callback: () => T, detail?: () => string): T {
+  if (!shouldLogBattleMapPerf() || typeof performance === 'undefined') {
+    return callback();
+  }
+
+  const start = performance.now();
+  const result = callback();
+  const duration = performance.now() - start;
+  if (duration >= 1) {
+    const suffix = detail ? ` ${detail()}` : '';
+    console.debug(`[battle-map] ${label}: ${duration.toFixed(2)}ms${suffix}`);
+  }
+  return result;
+}
+
+function getExploredVisionStorageKey(map: VttMapStateDto, currentUserId: string | null | undefined) {
+  return ['trpg', 'battle-map', 'explored-vision', currentUserId || 'anonymous', map.id].join(':');
+}
+
+function loadExploredVisionCells(storageKey: string, map: VttMapStateDto) {
+  if (typeof window === 'undefined') return new Set<string>();
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return new Set<string>();
+    const parsed = JSON.parse(raw) as Partial<StoredExploredVisionCells>;
+    if (
+      parsed.width !== map.width ||
+      parsed.height !== map.height ||
+      parsed.gridSize !== map.gridSize ||
+      !Array.isArray(parsed.cells)
+    ) {
+      return new Set<string>();
+    }
+    return new Set(parsed.cells.filter((cell): cell is string => typeof cell === 'string'));
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function saveExploredVisionCells(storageKey: string, map: VttMapStateDto, cells: Set<string>) {
+  if (typeof window === 'undefined') return;
+
+  const payload: StoredExploredVisionCells = {
+    width: map.width,
+    height: map.height,
+    gridSize: map.gridSize,
+    cells: Array.from(cells),
+  };
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+  } catch {
+    // localStorage may be full or unavailable; the current in-memory exploration state still works.
+  }
+}
 
 function rectsOverlap(
   a: { x: number; y: number; width: number; height: number },
@@ -224,218 +299,56 @@ function rectsOverlap(
   return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 }
 
-function getCellKey(column: number, row: number) {
-  return `${column}:${row}`;
-}
-
-function getRectCellKeys(
-  rect: { x: number; y: number; width: number; height: number },
-  map: VttMapStateDto,
-  maxColumn: number,
-  maxRow: number
-) {
-  const keys: string[] = [];
+function getRectCellKeys(rect: RectBlocker, map: Pick<VttMapStateDto, 'width' | 'height' | 'gridSize'>) {
+  const maxColumn = Math.max(0, Math.ceil(map.width / map.gridSize) - 1);
+  const maxRow = Math.max(0, Math.ceil(map.height / map.gridSize) - 1);
   const minColumn = Math.max(0, Math.floor(rect.x / map.gridSize));
   const maxRectColumn = Math.min(maxColumn, Math.ceil((rect.x + rect.width) / map.gridSize) - 1);
   const minRow = Math.max(0, Math.floor(rect.y / map.gridSize));
   const maxRectRow = Math.min(maxRow, Math.ceil((rect.y + rect.height) / map.gridSize) - 1);
+  const keys: string[] = [];
 
   for (let row = minRow; row <= maxRectRow; row += 1) {
     for (let column = minColumn; column <= maxRectColumn; column += 1) {
-      keys.push(getCellKey(column, row));
+      keys.push(`${column}:${row}`);
     }
   }
-
   return keys;
 }
 
-function getVisionRayCells(
-  from: MeasurePoint,
-  to: MeasurePoint,
-  map: VttMapStateDto,
-  maxColumn: number,
-  maxRow: number
+function buildBlockerIndex(
+  blockers: RectBlocker[],
+  map: Pick<VttMapStateDto, 'width' | 'height' | 'gridSize'>
 ) {
-  const cells: Array<{ column: number; row: number; key: string }> = [];
-  const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / (map.gridSize / 4)));
-
-  for (let index = 0; index <= steps; index += 1) {
-    const ratio = index / steps;
-    const point = {
-      x: from.x + (to.x - from.x) * ratio,
-      y: from.y + (to.y - from.y) * ratio,
-    };
-    const column = Math.min(maxColumn, Math.max(0, getGridIndex(point.x, map.gridSize, map.width)));
-    const row = Math.min(maxRow, Math.max(0, getGridIndex(point.y, map.gridSize, map.height)));
-    const key = getCellKey(column, row);
-
-    if (cells[cells.length - 1]?.key !== key) {
-      cells.push({ column, row, key });
-    }
-  }
-
-  return cells;
-}
-
-function getCellCenter(column: number, row: number, map: VttMapStateDto): MeasurePoint {
-  return {
-    x: column * map.gridSize + map.gridSize / 2,
-    y: row * map.gridSize + map.gridSize / 2,
-  };
-}
-
-function addVisionCell(visible: Set<string>, column: number, row: number, maxColumn: number, maxRow: number) {
-  if (column < 0 || row < 0 || column > maxColumn || row > maxRow) return;
-  visible.add(`${column}:${row}`);
-}
-
-function addAdjacentVisionCells(
-  visible: Set<string>,
-  source: MeasurePoint,
-  map: VttMapStateDto,
-  maxColumn: number,
-  maxRow: number
-) {
-  const sourceColumn = getGridIndex(source.x, map.gridSize, map.width);
-  const sourceRow = getGridIndex(source.y, map.gridSize, map.height);
-
-  for (let row = sourceRow - 1; row <= sourceRow + 1; row += 1) {
-    for (let column = sourceColumn - 1; column <= sourceColumn + 1; column += 1) {
-      addVisionCell(visible, column, row, maxColumn, maxRow);
-    }
-  }
-}
-
-function addRectVisionCells(
-  visible: Set<string>,
-  rect: { x: number; y: number; width: number; height: number },
-  source: MeasurePoint,
-  map: VttMapStateDto,
-  maxColumn: number,
-  maxRow: number,
-  rangeFt: number
-) {
-  const minColumn = Math.max(0, Math.floor(rect.x / map.gridSize));
-  const maxRectColumn = Math.min(maxColumn, Math.ceil((rect.x + rect.width) / map.gridSize) - 1);
-  const minRow = Math.max(0, Math.floor(rect.y / map.gridSize));
-  const maxRectRow = Math.min(maxRow, Math.ceil((rect.y + rect.height) / map.gridSize) - 1);
-
-  for (let row = minRow; row <= maxRectRow; row += 1) {
-    for (let column = minColumn; column <= maxRectColumn; column += 1) {
-      const center = getCellCenter(column, row, map);
-      if (isGridRangeWithin(source, center, map, rangeFt + feetPerGrid)) {
-        addVisionCell(visible, column, row, maxColumn, maxRow);
-      }
-    }
-  }
-}
-
-function getVisibleVisionCells(params: {
-  map: VttMapStateDto;
-  sourceTokens: VttMapStateDto['tokens'];
-  lightSources?: NonNullable<VttMapStateDto['lightSources']>;
-  rangeFt: number;
-}) {
-  const { map, sourceTokens, rangeFt } = params;
-  const lightSources = params.lightSources ?? [];
-  const visible = new Set<string>();
-  if (!sourceTokens.length && !lightSources.length) return visible;
-
-  const maxColumn = Math.max(0, Math.ceil(map.width / map.gridSize) - 1);
-  const maxRow = Math.max(0, Math.ceil(map.height / map.gridSize) - 1);
-  const blockers = [
-    ...(map.terrainCells ?? []),
-    ...(map.wallCells ?? []),
-    ...(map.doorCells ?? []).filter((door) => door.state !== 'open' && door.state !== 'broken'),
-  ];
-  const blockerCellMap = new Map<string, (typeof blockers)[number]>();
+  const index: BlockerIndex = new Map();
   blockers.forEach((blocker) => {
-    getRectCellKeys(blocker, map, maxColumn, maxRow).forEach((cellKey) => {
-      blockerCellMap.set(cellKey, blocker);
+    getRectCellKeys(blocker, map).forEach((key) => {
+      const bucket = index.get(key);
+      if (bucket) {
+        bucket.push(blocker);
+      } else {
+        index.set(key, [blocker]);
+      }
     });
   });
-  const blockerCellKeys = new Set(blockerCellMap.keys());
+  return index;
+}
 
-  const revealBlockerCell = (cellKey: string, source: MeasurePoint) => {
-    visible.add(cellKey);
-    const blocker = blockerCellMap.get(cellKey);
-    if (blocker) {
-      addRectVisionCells(visible, blocker, source, map, maxColumn, maxRow, rangeFt);
-    }
-  };
-
-  const revealFromSource = (source: MeasurePoint, sourceRangeFt: number) => {
-    addAdjacentVisionCells(visible, source, map, maxColumn, maxRow);
-
-    const sourceRangePx = (sourceRangeFt / feetPerGrid) * map.gridSize;
-    const minColumn = Math.max(0, Math.floor((source.x - sourceRangePx) / map.gridSize));
-    const maxSourceColumn = Math.min(maxColumn, Math.ceil((source.x + sourceRangePx) / map.gridSize));
-    const minRow = Math.max(0, Math.floor((source.y - sourceRangePx) / map.gridSize));
-    const maxSourceRow = Math.min(maxRow, Math.ceil((source.y + sourceRangePx) / map.gridSize));
-
-    for (let row = minRow; row <= maxSourceRow; row += 1) {
-      for (let column = minColumn; column <= maxSourceColumn; column += 1) {
-        const target = {
-          x: column * map.gridSize + map.gridSize / 2,
-          y: row * map.gridSize + map.gridSize / 2,
-        };
-        if (!isGridRangeWithin(source, target, map, sourceRangeFt)) {
-          continue;
-        }
-        const rayCells = getVisionRayCells(source, target, map, maxColumn, maxRow);
-        let blocked = false;
-
-        for (let index = 1; index < rayCells.length; index += 1) {
-          const previous = rayCells[index - 1];
-          const current = rayCells[index];
-
-          if (current.column !== previous.column && current.row !== previous.row) {
-            const sideAKey = getCellKey(current.column, previous.row);
-            const sideBKey = getCellKey(previous.column, current.row);
-            if (blockerCellKeys.has(sideAKey) && blockerCellKeys.has(sideBKey)) {
-              revealBlockerCell(sideAKey, source);
-              revealBlockerCell(sideBKey, source);
-              blocked = true;
-              break;
-            }
-          }
-
-          if (blockerCellKeys.has(current.key)) {
-            revealBlockerCell(current.key, source);
-            blocked = true;
-            break;
-          }
-        }
-
-        if (blocked) {
-          continue;
-        }
-
-        visible.add(getCellKey(column, row));
-      }
-    }
-  };
-
-  sourceTokens.forEach((token) => {
-    revealFromSource(
-      {
-        x: token.x + token.size / 2,
-        y: token.y + token.size / 2,
-      },
-      rangeFt
-    );
+function indexedBlockersOverlap(
+  rect: RectBlocker,
+  index: BlockerIndex,
+  map: VttMapStateDto,
+  options: { ignoreTokenId?: string } = {}
+) {
+  const candidates = new Set<RectBlocker>();
+  getRectCellKeys(rect, map).forEach((key) => {
+    index.get(key)?.forEach((blocker) => candidates.add(blocker));
   });
-  lightSources.forEach((light) => {
-    revealFromSource(
-      {
-        x: light.x + map.gridSize / 2,
-        y: light.y + map.gridSize / 2,
-      },
-      light.rangeFt || rangeFt
-    );
-  });
-
-  return visible;
+  for (const blocker of candidates) {
+    if (blocker.tokenId && blocker.tokenId === options.ignoreTokenId) continue;
+    if (rectsOverlap(rect, blocker)) return true;
+  }
+  return false;
 }
 
 function isVisionPointVisible(
@@ -444,8 +357,8 @@ function isVisionPointVisible(
   visibleVisionCells: Set<string> | null
 ) {
   if (!visibleVisionCells) return true;
-  const column = Math.floor(Math.min(Math.max(point.x, 0), Math.max(0, map.width - 1)) / map.gridSize);
-  const row = Math.floor(Math.min(Math.max(point.y, 0), Math.max(0, map.height - 1)) / map.gridSize);
+  const column = getVisionGridIndex(point.x, map.gridSize, map.width);
+  const row = getVisionGridIndex(point.y, map.gridSize, map.height);
   return visibleVisionCells.has(`${column}:${row}`);
 }
 
@@ -727,6 +640,7 @@ export function BattleMap({
   tokenHealthByTokenId,
   attackRangeOverlay = null,
   combatMovementMode = 'normal',
+  showHiddenContent = false,
   onTokenMoveRequest,
   onPingRequest,
 }: BattleMapProps) {
@@ -763,10 +677,19 @@ export function BattleMap({
   const [tokenDragMeasure, setTokenDragMeasure] = useState<TokenDragMeasure | null>(null);
   const tokenDragMeasureRef = useRef<TokenDragMeasure | null>(null);
   const tokenDragFrameRef = useRef<number | null>(null);
+  const tokenPathCacheRef = useRef<Map<string, TokenMovementPath>>(new Map());
   const [pings, setPings] = useState<PingMarker[]>([]);
   const [pingClock, setPingClock] = useState(Date.now());
+  const exploredVisionStorageKey = useMemo(
+    () => getExploredVisionStorageKey(map, currentUserId),
+    [currentUserId, map.id]
+  );
+  const [exploredVisionCells, setExploredVisionCells] = useState<Set<string>>(() =>
+    loadExploredVisionCells(exploredVisionStorageKey, map)
+  );
   const [monsterSearch, setMonsterSearch] = useState('');
   const canEditMap = isHost && interactionMode === 'editor';
+  const canSeeHiddenContent = canEditMap || showHiddenContent;
   const showMapChrome = interactionMode === 'editor';
   const showSessionViewControls = interactionMode === 'session';
   const [selectedMonsterId, setSelectedMonsterId] = useState('');
@@ -782,8 +705,8 @@ export function BattleMap({
   });
   const mapImage = useCanvasImage(map.imageUrl);
   const visibleTokens = useMemo(
-    () => map.tokens.filter((token) => canEditMap || !token.hidden),
-    [canEditMap, map.tokens]
+    () => map.tokens.filter((token) => canSeeHiddenContent || !token.hidden),
+    [canSeeHiddenContent, map.tokens]
   );
   const displayWidth = Math.max(280, containerWidth);
   const widthScale = displayWidth / map.width;
@@ -798,16 +721,22 @@ export function BattleMap({
   const wallCells = map.wallCells ?? [];
   const doorCells = map.doorCells ?? [];
   const objectCells = map.objectCells ?? [];
-  const visibleObjectCells = canEditMap
+  const visibleObjectCells = canSeeHiddenContent
     ? objectCells
     : objectCells.filter((cell) => cell.visibleToPlayers !== false);
   const detectedHazardCells = useMemo(
-    () => visibleObjectCells.filter((cell) => isDetectedHazardCell(cell)),
-    [visibleObjectCells]
+    () =>
+      visibleObjectCells.filter((cell) =>
+        canSeeHiddenContent ? isArmedHazardCell(cell) : isDetectedHazardCell(cell)
+      ),
+    [canSeeHiddenContent, visibleObjectCells]
   );
   const observedObjectCells = useMemo(
-    () => visibleObjectCells.filter((cell) => isObservedObjectCell(cell)),
-    [visibleObjectCells]
+    () =>
+      visibleObjectCells.filter((cell) =>
+        canSeeHiddenContent ? !isArmedHazardCell(cell) : isObservedObjectCell(cell)
+      ),
+    [canSeeHiddenContent, visibleObjectCells]
   );
   const selectedMapStructureCell =
     selectedMapStructure?.kind === 'terrain'
@@ -844,27 +773,73 @@ export function BattleMap({
       ),
     [characters, currentUserId]
   );
-  const isVisionMaskEnabled = interactionMode === 'session';
+  const isVisionMaskEnabled = interactionMode === 'session' && !showHiddenContent;
+  const movementBlockerIndex = useMemo(
+    () =>
+      buildBlockerIndex(
+        [
+          ...terrainCells,
+          ...wallCells,
+          ...doorCells.filter((door) => door.state !== 'open' && door.state !== 'broken'),
+        ],
+        map
+      ),
+    [doorCells, map.gridSize, map.height, map.width, terrainCells, wallCells]
+  );
+  const tokenOccupancyBlockerIndex = useMemo(
+    () =>
+      buildBlockerIndex(
+        map.tokens
+          .filter((token) => token.hidden !== true)
+          .map((token) => ({
+            x: token.x,
+            y: token.y,
+            width: token.size,
+            height: token.size,
+            tokenId: token.id,
+          })),
+        map
+      ),
+    [map]
+  );
   const partyCharacterIds = useMemo(
     () => new Set(characters.map((character) => character.id)),
     [characters]
   );
   const visibleVisionCells = useMemo(
-    () =>
-      isVisionMaskEnabled
-        ? getVisibleVisionCells({
+    () => {
+      if (!isVisionMaskEnabled) return null;
+
+      const tokenSources = map.tokens
+        .filter(
+          (token) =>
+            token.hidden !== true &&
+            token.sessionCharacterId &&
+            partyCharacterIds.has(token.sessionCharacterId) &&
+            token.isHostile !== true
+        )
+        .map((token) => ({
+          x: token.x + token.size / 2,
+          y: token.y + token.size / 2,
+        }));
+      const lightSources = (map.lightSources ?? []).map((light) => ({
+        x: light.x + map.gridSize / 2,
+        y: light.y + map.gridSize / 2,
+        rangeFt: light.rangeFt,
+      }));
+
+      const sources = [...tokenSources, ...lightSources];
+      return measureBattleMapPerf(
+        'vision cells',
+        () =>
+          computeVisibleVisionCells({
             map,
-            sourceTokens: map.tokens.filter(
-              (token) =>
-                token.hidden !== true &&
-                token.sessionCharacterId &&
-                partyCharacterIds.has(token.sessionCharacterId) &&
-                token.isHostile !== true
-            ),
-            lightSources: map.lightSources ?? [],
+            sources,
             rangeFt: playerVisionRangeFt,
-          })
-        : null,
+          }),
+        () => `sources=${sources.length}`
+      );
+    },
     [isVisionMaskEnabled, map, partyCharacterIds]
   );
   const activeMeasureEnd = measureEnd ?? measurePreview;
@@ -936,6 +911,31 @@ export function BattleMap({
     }
     return lines;
   }, [map.gridSize, map.height, map.width]);
+
+  useEffect(() => {
+    setExploredVisionCells(loadExploredVisionCells(exploredVisionStorageKey, map));
+  }, [exploredVisionStorageKey, map.gridSize, map.height, map.width]);
+
+  useEffect(() => {
+    tokenPathCacheRef.current.clear();
+  }, [map]);
+
+  useEffect(() => {
+    if (!visibleVisionCells) return;
+    setExploredVisionCells((current) => {
+      let changed = false;
+      const next = new Set(current);
+      visibleVisionCells.forEach((cellKey) => {
+        if (!next.has(cellKey)) {
+          next.add(cellKey);
+          changed = true;
+        }
+      });
+      if (!changed) return current;
+      saveExploredVisionCells(exploredVisionStorageKey, map, next);
+      return next;
+    });
+  }, [exploredVisionStorageKey, map, visibleVisionCells]);
 
   useEffect(() => {
     if (selectedTokenId && !map.tokens.some((token) => token.id === selectedTokenId)) {
@@ -1223,6 +1223,10 @@ export function BattleMap({
 
   function isDetectedHazardCell(cell: ObjectCell): boolean {
     return Boolean(cell.hazard?.armed !== false && cell.hazard?.detectedBySessionCharacterIds?.length);
+  }
+
+  function isArmedHazardCell(cell: ObjectCell): boolean {
+    return Boolean(cell.hazard && cell.hazard.armed !== false);
   }
 
   function isObservedObjectCell(cell: ObjectCell): boolean {
@@ -1518,7 +1522,7 @@ export function BattleMap({
 
     const nextPosition = getTokenMovePosition(targetToken, x, y, snap);
 
-    const movementPath = getTokenMovementPath(
+    const movementPath = getCachedTokenMovementPath(
       targetToken,
       nextPosition.x,
       nextPosition.y,
@@ -1738,28 +1742,9 @@ export function BattleMap({
     if (isInteractionLocked) return false;
     return (
       canEditMap ||
+      showHiddenContent ||
       Boolean(token.sessionCharacterId && controlledTokenIds.has(token.sessionCharacterId))
     );
-  }
-
-  function getMovementBlockers() {
-    return [
-      ...terrainCells,
-      ...wallCells,
-      ...doorCells.filter((door) => door.state !== 'open' && door.state !== 'broken'),
-      ...map.fogRects,
-    ];
-  }
-
-  function getTokenOccupancyBlockers(tokenId: string) {
-    return map.tokens
-      .filter((token) => token.id !== tokenId && token.hidden !== true)
-      .map((token) => ({
-        x: token.x,
-        y: token.y,
-        width: token.size,
-        height: token.size,
-      }));
   }
 
   function getTokenMovePosition(
@@ -1771,6 +1756,13 @@ export function BattleMap({
     return {
       x: clamp(snap ? snapToGrid(x, map.gridSize) : x, 0, map.width - token.size),
       y: clamp(snap ? snapToGrid(y, map.gridSize) : y, 0, map.height - token.size),
+    };
+  }
+
+  function getTokenDragPosition(token: VttMapStateDto['tokens'][number], x: number, y: number) {
+    return {
+      x: clamp(x, 0, Math.max(0, map.width - token.size)),
+      y: clamp(y, 0, Math.max(0, map.height - token.size)),
     };
   }
 
@@ -1818,11 +1810,14 @@ export function BattleMap({
       height: token.size,
     };
 
-    const blockers = [
-      ...getMovementBlockers(),
-      ...(options.ignoreTokens ? [] : getTokenOccupancyBlockers(token.id)),
-    ];
-    return blockers.some((blocker) => rectsOverlap(tokenRect, blocker));
+    if (indexedBlockersOverlap(tokenRect, movementBlockerIndex, map)) {
+      return true;
+    }
+    return options.ignoreTokens
+      ? false
+      : indexedBlockersOverlap(tokenRect, tokenOccupancyBlockerIndex, map, {
+          ignoreTokenId: token.id,
+        });
   }
 
   function getTokenMovementPath(
@@ -1831,33 +1826,62 @@ export function BattleMap({
     y: number,
     movementMode: CombatMovementMode = 'normal'
   ): TokenMovementPath {
-    const cells = getGridLineCells({ x: token.x, y: token.y }, { x, y }, map).map((cell, index) => {
-      const cellPosition = {
-        x: clamp(cell.column * map.gridSize, 0, map.width - token.size),
-        y: clamp(cell.row * map.gridSize, 0, map.height - token.size),
-      };
-      return {
-        ...cellPosition,
-        blocked:
-          index > 0 &&
-          isTokenPositionBlocked(token, cellPosition.x, cellPosition.y, {
-            ignoreTokens: movementMode === 'jump',
-          }),
-      };
-    });
+    return measureBattleMapPerf(
+      'token path',
+      () => {
+        const cells = getGridLineCells({ x: token.x, y: token.y }, { x, y }, map).map((cell, index) => {
+          const cellPosition = {
+            x: clamp(cell.column * map.gridSize, 0, map.width - token.size),
+            y: clamp(cell.row * map.gridSize, 0, map.height - token.size),
+          };
+          return {
+            ...cellPosition,
+            blocked:
+              index > 0 &&
+              isTokenPositionBlocked(token, cellPosition.x, cellPosition.y, {
+                ignoreTokens: movementMode === 'jump',
+              }),
+          };
+        });
 
-    const destinationBlocked =
-      (token.x !== x || token.y !== y) && isTokenPositionBlocked(token, x, y);
-    const overRange = isTokenMovementOverRange(token, x, y, movementMode);
-    const distanceFt = getTokenMovementDistanceFt(token, x, y);
-    const extraCostFt = movementMode === 'jump' && distanceFt > 0 ? jumpExtraMovementFt : 0;
+        const destinationBlocked =
+          (token.x !== x || token.y !== y) && isTokenPositionBlocked(token, x, y);
+        const overRange = isTokenMovementOverRange(token, x, y, movementMode);
+        const distanceFt = getTokenMovementDistanceFt(token, x, y);
+        const extraCostFt = movementMode === 'jump' && distanceFt > 0 ? jumpExtraMovementFt : 0;
 
-    return {
-      cells,
-      blocked: cells.some((cell) => cell.blocked) || destinationBlocked || overRange,
-      distanceFt,
-      extraCostFt,
-    };
+        return {
+          cells,
+          blocked: cells.some((cell) => cell.blocked) || destinationBlocked || overRange,
+          distanceFt,
+          extraCostFt,
+        };
+      },
+      () => `token=${token.id}`
+    );
+  }
+
+  function getCachedTokenMovementPath(
+    token: VttMapStateDto['tokens'][number],
+    x: number,
+    y: number,
+    movementMode: CombatMovementMode = 'normal'
+  ) {
+    const cacheKey = [
+      map.updatedAt,
+      token.id,
+      token.x,
+      token.y,
+      x,
+      y,
+      movementMode,
+      isTokenSnapEnabled ? 'snap' : 'free',
+    ].join(':');
+    const cached = tokenPathCacheRef.current.get(cacheKey);
+    if (cached) return cached;
+    const path = getTokenMovementPath(token, x, y, movementMode);
+    tokenPathCacheRef.current.set(cacheKey, path);
+    return path;
   }
 
   function getTileFromPoint(point: { x: number; y: number }) {
@@ -2116,7 +2140,7 @@ export function BattleMap({
       tokenId: token.id,
       from: center,
       to: center,
-      path: getTokenMovementPath(token, token.x, token.y, combatMovementMode),
+      path: getCachedTokenMovementPath(token, token.x, token.y, combatMovementMode),
       route: [{ x: token.x, y: token.y }],
     };
     tokenDragMeasureRef.current = nextMeasure;
@@ -2150,7 +2174,7 @@ export function BattleMap({
         tokenId: token.id,
         from: { x: token.x + token.size / 2, y: token.y + token.size / 2 },
         to: nextCenter,
-        path: getTokenMovementPath(token, token.x, token.y, combatMovementMode),
+        path: getCachedTokenMovementPath(token, token.x, token.y, combatMovementMode),
         route: previousRoute,
       }),
       tokenId: token.id,
@@ -2172,7 +2196,7 @@ export function BattleMap({
       };
       setTokenDragMeasure({
         ...latest,
-        path: getTokenMovementPath(token, latestPosition.x, latestPosition.y, combatMovementMode),
+        path: getCachedTokenMovementPath(token, latestPosition.x, latestPosition.y, combatMovementMode),
       });
     });
   }
@@ -2408,6 +2432,7 @@ export function BattleMap({
                 tokenHealthByTokenId={tokenHealthByTokenId}
                 getTokenColor={getBattleTokenColor}
                 canControlToken={canControlToken}
+                constrainTokenDragPosition={(token, x, y) => getTokenDragPosition(token, x, y)}
                 onSelectToken={(token) => {
                   if (selectedTokenId === token.id) {
                     setSelectedTokenId(null);
@@ -2436,7 +2461,11 @@ export function BattleMap({
               />
             </Layer>
 
-            <BattleMapVisionMaskLayer map={map} visibleVisionCells={visibleVisionCells} />
+            <BattleMapVisionMaskLayer
+              map={map}
+              visibleVisionCells={visibleVisionCells}
+              exploredVisionCells={isVisionMaskEnabled ? exploredVisionCells : null}
+            />
 
             <Layer listening={false}>
               <BattleMapMeasureOverlay
@@ -2462,6 +2491,7 @@ export function BattleMap({
               fogDraft={fogDraft}
               fogAction={fogAction}
               isInteractive={canEditMap && isFogMode}
+              isGmPreview={showHiddenContent}
               onSelectFog={(fogId) => {
                 setSelectedFogId(fogId);
                 setSelectedTokenId(null);

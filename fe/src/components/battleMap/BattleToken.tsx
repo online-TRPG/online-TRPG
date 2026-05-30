@@ -20,6 +20,7 @@ interface BattleTokenProps {
   isMeasureMode: boolean;
   isPingMode: boolean;
   health?: TokenHealthFrame;
+  constrainDragPosition?: (x: number, y: number, shiftKey: boolean) => { x: number; y: number };
   onSelect: () => void;
   onDragStart: () => void;
   onDragMove: (x: number, y: number, shiftKey: boolean) => void;
@@ -37,6 +38,7 @@ export function BattleToken({
   isMeasureMode,
   isPingMode,
   health,
+  constrainDragPosition,
   onSelect,
   onDragStart,
   onDragMove,
@@ -55,10 +57,21 @@ export function BattleToken({
         onSelect();
       }}
       onDragStart={onDragStart}
-      onDragMove={(event) => onDragMove(event.target.x(), event.target.y(), event.evt.shiftKey)}
+      onDragMove={(event) => {
+        const node = event.target;
+        const constrained = constrainDragPosition?.(node.x(), node.y(), event.evt.shiftKey);
+        if (constrained && (constrained.x !== node.x() || constrained.y !== node.y())) {
+          node.position(constrained);
+        }
+        onDragMove(node.x(), node.y(), event.evt.shiftKey);
+      }}
       onDragEnd={(event) => {
         event.cancelBubble = true;
         const node = event.target;
+        const constrained = constrainDragPosition?.(node.x(), node.y(), event.evt.shiftKey);
+        if (constrained && (constrained.x !== node.x() || constrained.y !== node.y())) {
+          node.position(constrained);
+        }
         void Promise.resolve(onDragEnd(node.x(), node.y(), event.evt.shiftKey)).then((wasMoved) => {
           if (!wasMoved) {
             node.position({ x: token.x, y: token.y });
