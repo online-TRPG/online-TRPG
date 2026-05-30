@@ -1084,6 +1084,7 @@
   height: 100%;
   min-height: 0;
   min-width: 0;
+  position: relative;
   border-radius: 0;
   padding: 0;
   overflow: hidden;
@@ -1115,6 +1116,69 @@
 .session-sidebar-resizer:hover,
 .session-sidebar-resizer:focus-visible {
   background: #aebed0;
+}
+
+.session-sidebar-collapse-toggle {
+  appearance: none;
+  position: absolute;
+  left: -16px;
+  top: 50%;
+  z-index: 20;
+  width: 28px;
+  height: 52px;
+  transform: translateY(-50%);
+  border: 1px solid rgba(88, 100, 118, 0.38);
+  border-radius: 6px;
+  background: rgba(245, 248, 252, 0.95);
+  color: #344054;
+  box-shadow: 0 8px 18px rgba(17, 25, 34, 0.16);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    box-shadow 80ms ease,
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.session-sidebar-collapse-toggle:hover,
+.session-sidebar-collapse-toggle:focus-visible {
+  background: #ffffff;
+  border-color: rgba(59, 130, 246, 0.48);
+  color: #1d4ed8;
+  outline: none;
+}
+
+.session-sidebar-collapse-toggle:active {
+  transform: translateY(-50%) !important;
+}
+
+.session-sidebar-collapse-toggle-arrow {
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-left: 8px solid currentColor;
+}
+
+.session-sidebar.collapsed {
+  min-width: 42px;
+  overflow: visible;
+}
+
+.session-sidebar.collapsed > :not(.session-sidebar-collapse-toggle) {
+  display: none;
+}
+
+.session-sidebar.collapsed .session-sidebar-collapse-toggle {
+  left: 7px;
+}
+
+.session-sidebar.collapsed .session-sidebar-collapse-toggle-arrow {
+  border-left: 0;
+  border-right: 8px solid currentColor;
 }
 
 .session-game-surface {
@@ -4932,6 +4996,26 @@ button.chat-submit-btn:disabled,
 .session-prep-layout .session-stage-canvas.started {
   padding: 0 !important;
   background: transparent !important;
+}
+
+.session-prep-layout .session-sidebar {
+  overflow: visible !important;
+}
+
+@media (min-width: 861px) {
+  .session-prep-layout.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr) 0 42px !important;
+  }
+
+  .session-prep-layout.sidebar-collapsed .session-sidebar-resizer {
+    display: none !important;
+  }
+
+  .session-prep-layout.sidebar-collapsed .session-sidebar {
+    min-width: 42px !important;
+    width: 42px !important;
+    overflow: visible !important;
+  }
 }
 
 .session-settings-actions {

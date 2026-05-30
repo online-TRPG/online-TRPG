@@ -1629,6 +1629,7 @@ export function PlayPage({
   const [isStartTransitionPending, setIsStartTransitionPending] = useState(false);
   const [characterCarouselIndex, setCharacterCarouselIndex] = useState(0);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+  const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   // 현재 세션의 플레이어용 시나리오 노드와 VTT 맵 로딩 상태입니다.
   const [playerScenario, setPlayerScenario] = useState<PlayerScenarioView | null>(null);
   const [vttMap, setVttMap] = useState<VttMapStateDto | null>(null);
@@ -3820,8 +3821,9 @@ export function PlayPage({
 
   return (
     <main
-      className={`session-prep-layout session-prep-layout-tight${isRecruiting ? ' recruiting-tavern' : ''
-        }`}
+      className={`session-prep-layout session-prep-layout-tight${
+        isRecruiting ? ' recruiting-tavern' : ''
+      }${isSidebarCollapsed ? ' sidebar-collapsed' : ''}`}
       style={layoutStyle}
     >
       <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none' }}>
@@ -4429,7 +4431,16 @@ export function PlayPage({
         onPointerDown={handleSidebarResizePointerDown}
       />
 
-      <aside className="session-sidebar">
+      <aside className={`session-sidebar${isSidebarCollapsed ? ' collapsed' : ''}`}>
+        <button
+          type="button"
+          className="session-sidebar-collapse-toggle"
+          aria-label={isSidebarCollapsed ? '채팅창 열기' : '채팅창 접기'}
+          title={isSidebarCollapsed ? '채팅창 열기' : '채팅창 접기'}
+          onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+        >
+          <span className="session-sidebar-collapse-toggle-arrow" aria-hidden="true" />
+        </button>
         <div className="session-sidebar-tabs">
           {availableTabs.map((tab) => {
             const unreadMessageCount =
