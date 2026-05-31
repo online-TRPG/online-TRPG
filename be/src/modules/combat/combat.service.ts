@@ -14,8 +14,10 @@ import {
   ApplyCombatDamageDto,
   AutoMonsterTurnDto,
   CastCombatSpellDto,
+  CombatActorActionDto,
   CombatBasicActionDto,
   CombatActionResultDto,
+  CombatMonsterActionOptionDto,
   CombatEntityType,
   CombatMoveResultDto,
   CombatReactionPromptDto,
@@ -167,6 +169,7 @@ type CombatMovementResolution = CombatMoveResultDto & {
 
 const RAGE_CONDITION_TAGS = [
   "rage",
+  "condition.rage",
   "resistance:bludgeoning",
   "resistance:piercing",
   "resistance:slashing",
@@ -1171,6 +1174,8 @@ export class CombatService {
       attackBonus: continuation.action.attackBonus,
       damageDice: continuation.action.damageDice,
       damageBonus: 0,
+    }, {
+      forceDisadvantage: rangeCheck.longRangeDisadvantage,
     });
 
     let response = attackResult.combat;
@@ -1640,6 +1645,7 @@ export class CombatService {
       actionCost?: "action" | "bonus_action" | "reaction";
       attackAction?: { weaponId?: string | null; weaponIsLightMelee: boolean };
       reactionUserId?: string;
+      forceDisadvantage?: boolean;
       sneakAttack?: {
         rogueLevel: number;
         weaponProperties: string[];
@@ -1658,6 +1664,13 @@ export class CombatService {
       await this.ensureReactionActorCanAct(options.reactionUserId, session.id, attacker);
     } else if (session.gmMode === PrismaGmMode.HUMAN) {
       await this.ensureActorCanAct(userId, session.id, combat, attacker);
+    }
+    if (!options.reactionUserId && options.actionCost !== "reaction" && combat.currentParticipantId !== attacker.id) {
+      throw conflict("COMBAT_409", "현재 턴의 전투 참여자만 공격할 수 있습니다.", {
+        reason: "NOT_CURRENT_COMBATANT",
+        currentParticipantId: combat.currentParticipantId,
+        attackerParticipantId: attacker.id,
+      });
     }
 
     if (!attacker.isAlive || !target.isAlive) {
@@ -1681,6 +1694,7 @@ export class CombatService {
         target,
         DEFAULT_MELEE_ATTACK_DISTANCE_FT,
       ),
+      forceDisadvantage: options.forceDisadvantage === true,
     });
     const attackBonus = Math.floor(dto.attackBonus ?? 0);
     const baseTargetArmorClass = this.resolveParticipantArmorClass(target);
@@ -1697,13 +1711,38 @@ export class CombatService {
       });
     }
     const targetArmorClass = baseTargetArmorClass + coverRuleResult.produced.armorClassBonus;
+
+    if (options.actionCost === "reaction") {
+      await this.actionEconomy.spendReaction({
+        combatId: combat.id,
+        combatParticipantId: attacker.id,
+        roundNo: combat.roundNo,
+        turnNo: combat.turnNo,
+        sessionCharacterId: attacker.sessionCharacterId,
+      });
+    } else if (options.actionCost === "bonus_action") {
+      await this.spendCurrentBonusActionIfNeeded(combat, attacker);
+    } else {
+      await this.spendCurrentActionIfNeeded(combat, attacker);
+      if (options.attackAction && combat.currentParticipantId === attacker.id) {
+        await this.actionEconomy.recordAttackAction({
+          combatId: combat.id,
+          combatParticipantId: attacker.id,
+          roundNo: combat.roundNo,
+          turnNo: combat.turnNo,
+          sessionCharacterId: attacker.sessionCharacterId,
+          weaponId: options.attackAction.weaponId,
+          weaponIsLightMelee: options.attackAction.weaponIsLightMelee,
+        });
+      }
+    }
+
     const attackRoll = this.diceService.roll(`1d20+${attackBonus}`, attackAdvantageState);
     const naturalD20 = this.selectNaturalD20(attackRoll.rolls, attackAdvantageState);
     const criticalHit = naturalD20 === 20;
     const criticalMiss = naturalD20 === 1;
     const hit = criticalHit || (!criticalMiss && attackRoll.total >= targetArmorClass);
     if (hit && !criticalHit && !options.reactionUserId && await this.canPromptShieldReaction(session.id, combat, target)) {
-      await this.spendCurrentActionIfNeeded(combat, attacker);
       const pending = await this.storePendingShieldReaction({
         sessionId: session.id,
         combat,
@@ -1760,31 +1799,6 @@ export class CombatService {
         sneakAttackDamage = sneakAttackResult.produced.sneakAttackDamage;
         damageTotal = sneakAttackResult.produced.damagePacket.totalDamage;
         this.realtimeEvents.emitDiceRolled(session.id, sneakAttackRoll);
-      }
-    }
-
-    if (options.actionCost === "reaction") {
-      await this.actionEconomy.spendReaction({
-        combatId: combat.id,
-        combatParticipantId: attacker.id,
-        roundNo: combat.roundNo,
-        turnNo: combat.turnNo,
-        sessionCharacterId: attacker.sessionCharacterId,
-      });
-    } else if (options.actionCost === "bonus_action") {
-      await this.spendCurrentBonusActionIfNeeded(combat, attacker);
-    } else {
-      await this.spendCurrentActionIfNeeded(combat, attacker);
-      if (options.attackAction && combat.currentParticipantId === attacker.id) {
-        await this.actionEconomy.recordAttackAction({
-          combatId: combat.id,
-          combatParticipantId: attacker.id,
-          roundNo: combat.roundNo,
-          turnNo: combat.turnNo,
-          sessionCharacterId: attacker.sessionCharacterId,
-          weaponId: options.attackAction.weaponId,
-          weaponIsLightMelee: options.attackAction.weaponIsLightMelee,
-        });
       }
     }
 
@@ -2271,9 +2285,41 @@ export class CombatService {
   ): Promise<CombatActionResultDto> {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     await this.sessionsService.ensureMembership(userId, session.id);
-    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     const combat = await this.getActiveCombatEntity(session.id);
     const actor = this.getCurrentPlayerParticipantOrThrow(combat);
+    return this.resolveActorDashAction(userId, session, combat, actor);
+  }
+
+  async dodge(
+    userId: string,
+    sessionId: string,
+    _dto: CombatBasicActionDto = {},
+  ): Promise<CombatActionResultDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    await this.sessionsService.ensureMembership(userId, session.id);
+    const combat = await this.getActiveCombatEntity(session.id);
+    const actor = this.getCurrentPlayerParticipantOrThrow(combat);
+    return this.resolveActorDodgeAction(userId, session, combat, actor);
+  }
+
+  async hide(
+    userId: string,
+    sessionId: string,
+    _dto: CombatBasicActionDto = {},
+  ): Promise<CombatActionResultDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    await this.sessionsService.ensureMembership(userId, session.id);
+    const combat = await this.getActiveCombatEntity(session.id);
+    const actor = this.getCurrentPlayerParticipantOrThrow(combat);
+    return this.resolveActorHideAction(userId, session, combat, actor);
+  }
+
+  private async resolveActorDashAction(
+    userId: string,
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>,
+    combat: NonNullable<CombatWithParticipants>,
+    actor: CombatParticipantEntity,
+  ): Promise<CombatActionResultDto> {
     await this.ensureActorCanAct(userId, session.id, combat, actor);
     await this.spendCurrentActionIfNeeded(combat, actor);
     const speedFt = await this.resolveParticipantSpeedFt(actor);
@@ -2286,6 +2332,7 @@ export class CombatService {
       amountFt: speedFt,
     });
 
+    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     const updated = await this.getActiveCombatEntity(session.id);
     const response = await this.mapCombat(updated);
     const message = `${actor.nameSnapshot}은(는) 전력으로 움직일 준비를 마쳤습니다. 이번 턴 이동 가능 거리가 ${speedFt}ft 증가합니다.`;
@@ -2307,20 +2354,17 @@ export class CombatService {
     return { combat: response, message, attackTotal: null, damageTotal: null, turnLogId: turnLog.turnLogId };
   }
 
-  async dodge(
+  private async resolveActorDodgeAction(
     userId: string,
-    sessionId: string,
-    _dto: CombatBasicActionDto = {},
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>,
+    combat: NonNullable<CombatWithParticipants>,
+    actor: CombatParticipantEntity,
   ): Promise<CombatActionResultDto> {
-    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
-    await this.sessionsService.ensureMembership(userId, session.id);
-    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
-    const combat = await this.getActiveCombatEntity(session.id);
-    const actor = this.getCurrentPlayerParticipantOrThrow(combat);
     await this.ensureActorCanAct(userId, session.id, combat, actor);
     await this.spendCurrentActionIfNeeded(combat, actor);
     await this.addCombatCondition(actor, COMBAT_CONDITION_DODGE);
 
+    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     const updated = await this.getActiveCombatEntity(session.id);
     const response = await this.mapCombat(updated);
     const message = `${actor.nameSnapshot}은(는) 방어 자세를 취했습니다. 다음 자기 턴 시작 전까지 자신을 향한 공격 굴림에 불리점이 적용됩니다.`;
@@ -2342,16 +2386,12 @@ export class CombatService {
     return { combat: response, message, attackTotal: null, damageTotal: null, turnLogId: turnLog.turnLogId };
   }
 
-  async hide(
+  private async resolveActorHideAction(
     userId: string,
-    sessionId: string,
-    _dto: CombatBasicActionDto = {},
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>,
+    combat: NonNullable<CombatWithParticipants>,
+    actor: CombatParticipantEntity,
   ): Promise<CombatActionResultDto> {
-    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
-    await this.sessionsService.ensureMembership(userId, session.id);
-    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
-    const combat = await this.getActiveCombatEntity(session.id);
-    const actor = this.getCurrentPlayerParticipantOrThrow(combat);
     await this.ensureActorCanAct(userId, session.id, combat, actor);
     await this.spendCurrentActionIfNeeded(combat, actor);
     const stealthModifier = await this.resolveStealthModifier(actor);
@@ -2362,6 +2402,7 @@ export class CombatService {
       await this.addCombatCondition(actor, COMBAT_CONDITION_HIDDEN);
     }
 
+    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     const updated = await this.getActiveCombatEntity(session.id);
     const response = await this.mapCombat(updated);
     const message = success
@@ -2396,6 +2437,77 @@ export class CombatService {
       damageTotal: null,
       turnLogId: turnLog.turnLogId,
     };
+  }
+
+  async resolveActorAction(
+    userId: string,
+    sessionId: string,
+    dto: CombatActorActionDto = {},
+  ): Promise<CombatActionResultDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    await this.sessionsService.ensureMembership(userId, session.id);
+    const combat = await this.getActiveCombatEntity(session.id);
+    const actor = combat.participants.find(
+      (participant) => participant.id === combat.currentParticipantId,
+    );
+    if (!actor) {
+      throw conflict("COMBAT_409", "현재 턴 전투 참여자를 찾을 수 없습니다.", {
+        reason: "CURRENT_COMBATANT_NOT_FOUND",
+      });
+    }
+    const actionType = dto.actionType ?? "attack";
+
+    if (actionType === "dash") {
+      return this.resolveActorDashAction(userId, session, combat, actor);
+    }
+    if (actionType === "dodge") {
+      return this.resolveActorDodgeAction(userId, session, combat, actor);
+    }
+    if (actionType === "hide") {
+      return this.resolveActorHideAction(userId, session, combat, actor);
+    }
+
+    if (
+      actionType === "attack" &&
+      actor.entityType === PrismaCombatEntityType.MONSTER &&
+      actor.isHostile &&
+      actor.isAlive &&
+      !this.isCombatParticipantIncapacitated(actor)
+    ) {
+      await this.ensureActorCanAct(userId, session.id, combat, actor);
+      const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
+      const actorToken = this.findParticipantToken(map, actor);
+      const monsterAction = this.resolveMonsterActionForParticipant(actor, actorToken, dto.actionId);
+      const target = dto.targetParticipantId
+        ? this.findCombatParticipantOrThrow(combat, dto.targetParticipantId)
+        : combat.participants.find((participant) => !participant.isHostile && participant.isAlive);
+      if (!target || target.isHostile || !target.isAlive) {
+        throw unprocessable("COMBAT_422", "몬스터가 공격할 수 있는 대상이 없습니다.", {
+          reason: "MONSTER_TARGET_NOT_FOUND",
+        });
+      }
+      const targetToken = this.findParticipantToken(map, target);
+      return this.resolveMonsterAttackAction({
+        userId,
+        session,
+        combat,
+        attacker: actor,
+        target,
+        action: monsterAction,
+        map,
+        sourceTokenId: actorToken?.id ?? actor.tokenId ?? null,
+        targetTokenId: targetToken?.id ?? target.tokenId ?? null,
+        movementDistanceFt: 0,
+        autoEndTurn: dto.autoEndTurn === true,
+        autoEndTurnWhenOutOfRange: false,
+      });
+    }
+
+    throw conflict("COMBAT_409", "현재 액터의 공통 행동은 아직 지원하지 않습니다.", {
+      reason: "ACTOR_ACTION_UNSUPPORTED",
+      actorParticipantId: actor.id,
+      entityType: actor.entityType,
+    });
   }
 
   async autoMonsterTurn(
@@ -2455,30 +2567,20 @@ export class CombatService {
     }
 
     const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
-    const token = (map.tokens ?? []).find((candidate) => candidate.id === attacker.tokenId);
-    const monsterId = token?.monster?.id ?? this.inferMvpMonsterId(attacker.nameSnapshot);
-    const action =
-      this.monsterAbilities.chooseAction(monsterId, dto.actionId) ??
-      this.srdEngine.chooseMvpMonsterAction(monsterId, dto.actionId) ??
-      this.buildFallbackMonsterAction(monsterId, attacker.nameSnapshot);
+    const token = this.findParticipantToken(map, attacker);
+    const action = this.resolveMonsterActionForParticipant(attacker, token, dto.actionId);
     this.logAutoMonsterTurn("monster action selected", {
       sessionId: session.id,
       combatId: combat.id,
       attackerId: attacker.id,
       attackerName: attacker.nameSnapshot,
-      tokenId: attacker.tokenId,
+      tokenId: token?.id ?? attacker.tokenId,
       tokenFound: Boolean(token),
       tokenMonsterId: token?.monster?.id ?? null,
-      inferredMonsterId: monsterId,
+      inferredMonsterId: action.monsterId,
       actionId: action?.actionId ?? null,
       actionLabel: action?.label ?? null,
     });
-    if (!action) {
-      throw unprocessable("COMBAT_422", "자동 실행 가능한 몬스터 행동이 없습니다.", {
-        reason: "EXECUTABLE_MONSTER_ACTION_NOT_FOUND",
-        monsterId,
-      });
-    }
 
     const target = dto.targetParticipantId
       ? this.findCombatParticipantOrThrow(combat, dto.targetParticipantId)
@@ -2502,9 +2604,9 @@ export class CombatService {
       ? (map.tokens ?? []).find((candidate) => candidate.id === target.tokenId)
       : (map.tokens ?? []).find((candidate) => candidate.sessionCharacterId === target.sessionCharacterId);
     const movementTarget =
-      attacker.tokenId && targetToken
+      token && targetToken
         ? this.calculateCombatTokenStepTowardTarget(map, {
-            sourceTokenId: attacker.tokenId,
+            sourceTokenId: token.id,
             targetTokenId: targetToken.id,
             maxDistanceFt: attacker.speedFt ?? 30,
             stopWithinFt: action.reachFt ?? 5,
@@ -2536,7 +2638,7 @@ export class CombatService {
       sessionId: session.id,
       combatId: combat.id,
       attackerId: attacker.id,
-      sourceTokenId: attacker.tokenId,
+      sourceTokenId: token?.id ?? attacker.tokenId,
       targetTokenId: targetToken?.id ?? null,
       targetTokenFound: Boolean(targetToken),
       moved: (movementResult?.movementDistanceFt ?? 0) > 0,
@@ -2575,94 +2677,20 @@ export class CombatService {
         map: mapAfterMovement,
       };
     }
-    const rangeCheck = this.getMonsterActionRangeCheck(mapAfterMovement, {
+    return this.resolveMonsterAttackAction({
+      userId,
+      session,
+      combat: latestAfterMovement,
+      attacker: attackerAfterMovement,
+      target,
       action,
-      sourceTokenId: attacker.tokenId,
+      map: mapAfterMovement,
+      sourceTokenId: token?.id ?? attacker.tokenId ?? null,
       targetTokenId: targetToken?.id ?? null,
+      movementDistanceFt: movementResult?.movementDistanceFt ?? 0,
+      autoEndTurn: dto.autoEndTurn !== false,
+      autoEndTurnWhenOutOfRange: true,
     });
-    if (!rangeCheck.inRange) {
-      this.logAutoMonsterTurn("monster attack skipped: target out of range", {
-        sessionId: session.id,
-        combatId: combat.id,
-        attackerId: attacker.id,
-        sourceTokenId: attacker.tokenId,
-        targetTokenId: targetToken?.id ?? null,
-        actionId: action.actionId,
-        actionLabel: action.label,
-        distanceFt: rangeCheck.distanceFt,
-        rangeFt: rangeCheck.rangeFt,
-      });
-
-      if (dto.autoEndTurn !== false) {
-        const latestCombat = await this.getActiveCombatEntity(session.id);
-        if (latestCombat.currentParticipantId === attacker.id) {
-          await this.advanceCurrentTurn(session.id, latestCombat);
-        }
-      }
-      return {
-        combat: await this.mapCombat(await this.getActiveCombatEntity(session.id)),
-        message: "",
-        attackTotal: null,
-        damageTotal: null,
-      };
-    }
-
-    this.logAutoMonsterTurn("monster attack resolving", {
-      sessionId: session.id,
-      combatId: combat.id,
-      attackerId: attacker.id,
-      targetId: target.id,
-      attackBonus: action.attackBonus,
-      damageDice: action.damageDice,
-    });
-    const result = await this.resolveAttack(userId, session.id, {
-      attackerParticipantId: attacker.id,
-      targetParticipantId: target.id,
-      attackBonus: action.attackBonus,
-      damageDice: action.damageDice,
-      damageBonus: 0,
-    });
-    this.logAutoMonsterTurn("monster attack resolved", {
-      sessionId: session.id,
-      combatId: result.combat.combatId,
-      attackerId: attacker.id,
-      targetId: target.id,
-      attackTotal: result.attackTotal,
-      damageTotal: result.damageTotal,
-      combatStatus: result.combat.status,
-    });
-
-    const movementMessage =
-      (movementResult?.movementDistanceFt ?? 0) > 0 ? ` ${movementResult?.movementDistanceFt ?? 0}ft 이동 후` : "";
-    const actionMessage = `${attacker.nameSnapshot}${movementMessage} ${action.label}`;
-    if (await this.hasPendingCombatReaction(session.id)) {
-      return {
-        ...result,
-        message: `${actionMessage}: ${result.message}`,
-      };
-    }
-    if (dto.autoEndTurn === false || result.combat.status !== CombatStatus.ACTIVE) {
-      return {
-        ...result,
-        message: `${actionMessage}: ${result.message}`,
-      };
-    }
-
-    const updated = await this.getActiveCombatEntity(session.id);
-    if (updated.currentParticipantId === attacker.id) {
-      this.logAutoMonsterTurn("monster auto ending turn", {
-        sessionId: session.id,
-        combatId: updated.id,
-        attackerId: attacker.id,
-      });
-      await this.advanceCurrentTurn(session.id, updated);
-    }
-
-    return {
-      ...result,
-      combat: await this.mapCombat(await this.getCombatEntityById(result.combat.combatId)),
-      message: `${actionMessage}: ${result.message} / 턴 종료`,
-    };
   }
 
   private scheduleServerAutoMonsterTurns(sessionId: string): void {
@@ -2716,6 +2744,178 @@ export class CombatService {
       return "monster.giant_rat";
     }
     return null;
+  }
+
+  private resolveMonsterActionForParticipant(
+    participant: CombatParticipantEntity,
+    token: VttMapStateDto["tokens"][number] | null,
+    preferredActionId?: string | null,
+  ): SrdEngineExecutableMonsterAction {
+    const monsterId = token?.monster?.id ?? this.inferMvpMonsterId(participant.nameSnapshot);
+    const action =
+      this.monsterAbilities.chooseAction(monsterId, preferredActionId) ??
+      this.srdEngine.chooseMvpMonsterAction(monsterId, preferredActionId) ??
+      this.buildFallbackMonsterAction(monsterId, participant.nameSnapshot);
+    if (!action) {
+      throw unprocessable("COMBAT_422", "실행 가능한 몬스터 행동이 없습니다.", {
+        reason: "EXECUTABLE_MONSTER_ACTION_NOT_FOUND",
+        monsterId,
+      });
+    }
+    return action;
+  }
+
+  private listMonsterActionOptionsForParticipant(
+    participant: CombatParticipantEntity,
+    token: VttMapStateDto["tokens"][number] | null,
+  ): CombatMonsterActionOptionDto[] {
+    if (participant.entityType !== PrismaCombatEntityType.MONSTER) {
+      return [];
+    }
+
+    const monsterId = token?.monster?.id ?? this.inferMvpMonsterId(participant.nameSnapshot);
+    const seenActionIds = new Set<string>();
+    const actions = [
+      ...this.monsterAbilities.listExecutableActions(monsterId),
+      ...this.srdEngine.getExecutableMonsterActions(monsterId),
+      this.buildFallbackMonsterAction(monsterId, participant.nameSnapshot),
+    ];
+
+    return actions
+      .filter((action) => {
+        if (!action.actionId || seenActionIds.has(action.actionId)) {
+          return false;
+        }
+        seenActionIds.add(action.actionId);
+        return true;
+      })
+      .map((action) => ({
+        actionId: action.actionId,
+        label: action.label,
+        attackKind: action.attackKind,
+        attackBonus: action.attackBonus,
+        damageDice: action.damageDice,
+        damageType: action.damageType,
+        rangeFt: this.getMonsterActionRangeFt(action),
+        longRangeFt: action.rangeFt?.long ?? null,
+        confidence: action.confidence,
+        costType:
+          "costType" in action && typeof action.costType === "string"
+            ? action.costType
+            : "action",
+      }));
+  }
+
+  private async resolveMonsterAttackAction(params: {
+    userId: string;
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
+    combat: NonNullable<CombatWithParticipants>;
+    attacker: CombatParticipantEntity;
+    target: CombatParticipantEntity;
+    action: SrdEngineExecutableMonsterAction;
+    map: VttMapStateDto;
+    sourceTokenId: string | null;
+    targetTokenId: string | null;
+    movementDistanceFt?: number;
+    autoEndTurn: boolean;
+    autoEndTurnWhenOutOfRange: boolean;
+  }): Promise<CombatActionResultDto> {
+    const rangeCheck = this.getMonsterActionRangeCheck(params.map, {
+      action: params.action,
+      sourceTokenId: params.sourceTokenId,
+      targetTokenId: params.targetTokenId,
+    });
+    if (!rangeCheck.inRange) {
+      this.logAutoMonsterTurn("monster attack skipped: target out of range", {
+        sessionId: params.session.id,
+        combatId: params.combat.id,
+        attackerId: params.attacker.id,
+        sourceTokenId: params.sourceTokenId,
+        targetTokenId: params.targetTokenId,
+        actionId: params.action.actionId,
+        actionLabel: params.action.label,
+        distanceFt: rangeCheck.distanceFt,
+        rangeFt: rangeCheck.rangeFt,
+      });
+
+      if (params.autoEndTurn && params.autoEndTurnWhenOutOfRange) {
+        const latestCombat = await this.getActiveCombatEntity(params.session.id);
+        if (latestCombat.currentParticipantId === params.attacker.id) {
+          await this.advanceCurrentTurn(params.session.id, latestCombat);
+        }
+        return {
+          combat: await this.mapCombat(await this.getActiveCombatEntity(params.session.id)),
+          message: "",
+          attackTotal: null,
+          damageTotal: null,
+        };
+      }
+
+      throw conflict("COMBAT_409", "대상이 몬스터 행동 사거리 밖에 있습니다.", {
+        reason: "TARGET_OUT_OF_MONSTER_ACTION_RANGE",
+        distanceFt: rangeCheck.distanceFt,
+        rangeFt: rangeCheck.rangeFt,
+      });
+    }
+
+    this.logAutoMonsterTurn("monster attack resolving", {
+      sessionId: params.session.id,
+      combatId: params.combat.id,
+      attackerId: params.attacker.id,
+      targetId: params.target.id,
+      attackBonus: params.action.attackBonus,
+      damageDice: params.action.damageDice,
+    });
+    const result = await this.resolveAttack(params.userId, params.session.id, {
+      attackerParticipantId: params.attacker.id,
+      targetParticipantId: params.target.id,
+      attackBonus: params.action.attackBonus,
+      damageDice: params.action.damageDice,
+      damageBonus: 0,
+    }, {
+      forceDisadvantage: rangeCheck.longRangeDisadvantage,
+    });
+    this.logAutoMonsterTurn("monster attack resolved", {
+      sessionId: params.session.id,
+      combatId: result.combat.combatId,
+      attackerId: params.attacker.id,
+      targetId: params.target.id,
+      attackTotal: result.attackTotal,
+      damageTotal: result.damageTotal,
+      combatStatus: result.combat.status,
+    });
+
+    const movementMessage =
+      (params.movementDistanceFt ?? 0) > 0 ? ` ${params.movementDistanceFt ?? 0}ft 이동 후` : "";
+    const actionMessage = `${params.attacker.nameSnapshot}${movementMessage} ${params.action.label}`;
+    if (await this.hasPendingCombatReaction(params.session.id)) {
+      return {
+        ...result,
+        message: `${actionMessage}: ${result.message}`,
+      };
+    }
+    if (!params.autoEndTurn || result.combat.status !== CombatStatus.ACTIVE) {
+      return {
+        ...result,
+        message: `${actionMessage}: ${result.message}`,
+      };
+    }
+
+    const updated = await this.getActiveCombatEntity(params.session.id);
+    if (updated.currentParticipantId === params.attacker.id) {
+      this.logAutoMonsterTurn("monster auto ending turn", {
+        sessionId: params.session.id,
+        combatId: updated.id,
+        attackerId: params.attacker.id,
+      });
+      await this.advanceCurrentTurn(params.session.id, updated);
+    }
+
+    return {
+      ...result,
+      combat: await this.mapCombat(await this.getCombatEntityById(result.combat.combatId)),
+      message: `${actionMessage}: ${result.message} / 턴 종료`,
+    };
   }
 
   private buildFallbackMonsterAction(
@@ -2773,20 +2973,29 @@ export class CombatService {
       sourceTokenId: string | null;
       targetTokenId: string | null;
     },
-  ): { inRange: boolean; distanceFt: number | null; rangeFt: number } {
-    const rangeFt = this.getMonsterActionRangeFt(params.action);
+  ): { inRange: boolean; distanceFt: number | null; rangeFt: number; longRangeDisadvantage: boolean } {
+    const normalRangeFt = this.getMonsterActionRangeFt(params.action);
+    const longRangeFt =
+      typeof params.action.rangeFt?.long === "number" && params.action.rangeFt.long > normalRangeFt
+        ? params.action.rangeFt.long
+        : normalRangeFt;
     if (!params.sourceTokenId || !params.targetTokenId) {
-      return { inRange: false, distanceFt: null, rangeFt };
+      return { inRange: false, distanceFt: null, rangeFt: longRangeFt, longRangeDisadvantage: false };
     }
 
     const sourceToken = map.tokens.find((token) => token.id === params.sourceTokenId);
     const targetToken = map.tokens.find((token) => token.id === params.targetTokenId);
     if (!sourceToken || !targetToken) {
-      return { inRange: false, distanceFt: null, rangeFt };
+      return { inRange: false, distanceFt: null, rangeFt: longRangeFt, longRangeDisadvantage: false };
     }
 
     const distanceFt = this.getTokenGridDistanceFt(map, sourceToken, targetToken);
-    return { inRange: distanceFt <= rangeFt, distanceFt, rangeFt };
+    return {
+      inRange: distanceFt <= longRangeFt,
+      distanceFt,
+      rangeFt: longRangeFt,
+      longRangeDisadvantage: distanceFt > normalRangeFt && distanceFt <= longRangeFt,
+    };
   }
 
   private getMonsterActionRangeFt(action: SrdEngineExecutableMonsterAction): number {
@@ -3856,7 +4065,6 @@ export class CombatService {
     options: { ignoreTokens?: boolean } = {},
   ): boolean {
     const blockers = [
-      ...(map.terrainCells ?? []),
       ...(map.wallCells ?? []),
       ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
       ...(options.ignoreTokens
@@ -5095,12 +5303,24 @@ export class CombatService {
     map: VttMapStateDto,
     participant: CombatParticipantEntity,
   ): VttMapStateDto["tokens"][number] | null {
-    return participant.tokenId
-      ? map.tokens.find((token) => token.id === participant.tokenId && token.hidden !== true) ?? null
-      : map.tokens.find(
-          (token) =>
-            token.sessionCharacterId === participant.sessionCharacterId && token.hidden !== true,
-        ) ?? null;
+    if (participant.tokenId) {
+      return map.tokens.find((token) => token.id === participant.tokenId && token.hidden !== true) ?? null;
+    }
+    if (!participant.sessionCharacterId) {
+      const matchingHostileTokens = map.tokens.filter(
+        (token) =>
+          token.hidden !== true &&
+          token.isHostile === true &&
+          this.resolveTokenName(token).trim() === participant.nameSnapshot.trim(),
+      );
+      return matchingHostileTokens.length === 1 ? matchingHostileTokens[0] : null;
+    }
+    return (
+      map.tokens.find(
+        (token) =>
+          token.sessionCharacterId === participant.sessionCharacterId && token.hidden !== true,
+      ) ?? null
+    );
   }
 
   private async storePendingOpportunityReaction(
@@ -5604,6 +5824,7 @@ export class CombatService {
     targetConditions: string[];
     targetHeavilyObscured?: boolean;
     allyWithin5FtOfTarget: boolean;
+    forceDisadvantage?: boolean;
   }): DiceAdvantageState {
     const hasAdvantage =
       params.attackerConditions.includes(COMBAT_CONDITION_HIDDEN) ||
@@ -5611,7 +5832,8 @@ export class CombatService {
       params.allyWithin5FtOfTarget;
     const hasDisadvantage =
       params.targetConditions.includes(COMBAT_CONDITION_DODGE) ||
-      params.targetHeavilyObscured === true;
+      params.targetHeavilyObscured === true ||
+      params.forceDisadvantage === true;
     if (hasAdvantage === hasDisadvantage) {
       return DiceAdvantageState.NORMAL;
     }
@@ -6308,6 +6530,10 @@ export class CombatService {
         )
       : 0;
     const currentTurnOrder = currentParticipant?.turnOrder ?? Number.MAX_SAFE_INTEGER;
+    const map = await this.sessionsService.getVttMapForUser(
+      this.getGmRuntimeUserId(await this.sessionsService.getSessionEntityOrThrow(combat.sessionId)),
+      combat.sessionId,
+    );
 
     return {
       combatId: combat.id,
@@ -6377,6 +6603,10 @@ export class CombatService {
             spellSlotLevel1Total,
             spellSlotLevel1Remaining,
           },
+          monsterActions: this.listMonsterActionOptionsForParticipant(
+            participant,
+            this.findParticipantToken(map, participant),
+          ),
         };
       }),
     };

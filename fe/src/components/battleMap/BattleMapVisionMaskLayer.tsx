@@ -6,15 +6,20 @@ interface BattleMapVisionMaskLayerProps {
   map: Pick<VttMapStateDto, 'width' | 'height' | 'gridSize'>;
   visibleVisionCells: Set<string> | null;
   exploredVisionCells?: Set<string> | null;
+  variant?: 'player' | 'gm-preview';
 }
 
 export function BattleMapVisionMaskLayer({
   map,
   visibleVisionCells,
   exploredVisionCells = null,
+  variant = 'player',
 }: BattleMapVisionMaskLayerProps) {
   const maskRuns = useMemo(() => {
     if (!visibleVisionCells) return [];
+    const unseenFill = variant === 'gm-preview' ? 'rgba(3, 6, 10, 0.18)' : 'rgba(3, 6, 10, 0.9)';
+    const exploredFill =
+      variant === 'gm-preview' ? unseenFill : 'rgba(3, 6, 10, 0.48)';
 
     const runs: Array<{
       key: string;
@@ -36,8 +41,8 @@ export function BattleMapVisionMaskLayer({
         const nextFill =
           column < columnCount && !visibleVisionCells.has(key)
             ? exploredVisionCells?.has(key)
-              ? 'rgba(3, 6, 10, 0.48)'
-              : 'rgba(3, 6, 10, 0.9)'
+              ? exploredFill
+              : unseenFill
             : null;
 
         if (nextFill === runFill) {
@@ -65,7 +70,7 @@ export function BattleMapVisionMaskLayer({
     }
 
     return runs;
-  }, [exploredVisionCells, map.gridSize, map.height, map.width, visibleVisionCells]);
+  }, [exploredVisionCells, map.gridSize, map.height, map.width, variant, visibleVisionCells]);
 
   if (!visibleVisionCells) return null;
 
