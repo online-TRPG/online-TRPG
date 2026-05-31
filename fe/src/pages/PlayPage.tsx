@@ -70,6 +70,7 @@ import {
   endCombat,
   endCombatTurn,
   acceptCombatReaction,
+  resolveCombatActorAction,
   castCombatSpell,
   createVttMapPing,
   dashCombatAction,
@@ -3247,6 +3248,27 @@ export function PlayPage({
     );
   }
 
+  async function handleMonsterCombatAction(
+    targetParticipantId?: string | null,
+    actionType: 'attack' | 'dash' | 'dodge' | 'hide' = 'attack',
+    actionId?: string | null
+  ) {
+    if (!session || isCombatBusy) return;
+    await runCombatRequest(async () => {
+      const result = await resolveCombatActorAction(user, session.id, {
+        actionType,
+        actionId: actionId ?? null,
+        targetParticipantId: targetParticipantId ?? null,
+        autoEndTurn: false,
+      });
+      if (result.map) {
+        setVttMap(result.map);
+        latestConfirmedMapRef.current = result.map;
+      }
+      return result;
+    });
+  }
+
   async function handleDashCombatAction() {
     if (!session || isCombatBusy) return;
     await runCombatRequest(() => dashCombatAction(user, session.id));
@@ -4121,6 +4143,7 @@ export function PlayPage({
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onEquipInventoryItem={handleEquipInventoryItem}
                   onAttackWithEquippedWeapon={handleEquippedWeaponAttack}
+                  onMonsterAction={handleMonsterCombatAction}
                   onAttackWithOffhandWeapon={handleOffhandWeaponAttack}
                   onSneakAttack={handleSneakAttack}
                   onDash={handleDashCombatAction}

@@ -13,6 +13,7 @@ import {
   AutoMonsterTurnDto,
   AvailableActionsResponseDto,
   CastCombatSpellDto,
+  CombatActorActionDto,
   CombatBasicActionDto,
   CombatActionResultDto,
   CombatMoveResultDto,
@@ -384,6 +385,22 @@ export class CombatController {
       "COMBAT_200",
       "요청이 성공했습니다.",
       await this.combatService.autoMonsterTurn(userId, sessionId, dto),
+    );
+  }
+
+  @Post("actor/action")
+  @HttpCode(200)
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: CombatActionResultDto })
+  async resolveActorAction(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: CombatActorActionDto,
+  ): Promise<ApiResponse<CombatActionResultDto>> {
+    return apiResponse(
+      "COMBAT_200",
+      "요청이 성공했습니다.",
+      await this.combatService.resolveActorAction(userId, sessionId, dto),
     );
   }
 }

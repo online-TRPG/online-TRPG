@@ -33,10 +33,12 @@ interface SessionBattleMapProps {
   enableObjectEventEditing?: boolean;
   isInteractionLocked?: boolean;
   tokenMovementRangeFtByTokenId?: Record<string, number>;
+  controllableTokenIds?: string[];
   tokenHealthByTokenId?: Record<string, TokenHealthFrame>;
   attackRangeOverlay?: { tokenId: string; rangeFt: number } | null;
   combatMovementMode?: CombatMovementMode;
   showHiddenContent?: boolean;
+  showPlayerVisionPreview?: boolean;
   onMapChange: (map: VttMapStateDto) => void;
   onSelectionChange?: (selection: BattleMapSelection | null) => void;
   onTokenMoveRequest?: (
@@ -68,10 +70,12 @@ export function SessionBattleMap({
   enableObjectEventEditing,
   isInteractionLocked,
   tokenMovementRangeFtByTokenId,
+  controllableTokenIds,
   tokenHealthByTokenId,
   attackRangeOverlay,
   combatMovementMode,
   showHiddenContent,
+  showPlayerVisionPreview,
   onMapChange,
   onSelectionChange,
   onTokenMoveRequest,
@@ -97,10 +101,12 @@ export function SessionBattleMap({
       enableObjectEventEditing={enableObjectEventEditing}
       isInteractionLocked={isInteractionLocked}
       tokenMovementRangeFtByTokenId={tokenMovementRangeFtByTokenId}
+      controllableTokenIds={controllableTokenIds}
       tokenHealthByTokenId={tokenHealthByTokenId}
       attackRangeOverlay={attackRangeOverlay}
       combatMovementMode={combatMovementMode}
       showHiddenContent={showHiddenContent}
+      showPlayerVisionPreview={showPlayerVisionPreview}
       onChange={onMapChange}
       onSelectionChange={onSelectionChange}
       onTokenMoveRequest={onTokenMoveRequest}

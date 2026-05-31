@@ -414,6 +414,38 @@ export class CombatActionResourcesDto {
   spellSlotLevel1Remaining!: number;
 }
 
+export class CombatMonsterActionOptionDto {
+  @ApiProperty()
+  actionId!: string;
+
+  @ApiProperty()
+  label!: string;
+
+  @ApiProperty()
+  attackKind!: string;
+
+  @ApiProperty()
+  attackBonus!: number;
+
+  @ApiProperty()
+  damageDice!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  damageType!: string | null;
+
+  @ApiProperty()
+  rangeFt!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  longRangeFt?: number | null;
+
+  @ApiPropertyOptional({ enum: ["high", "medium", "low", "none"], nullable: true })
+  confidence?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  costType?: string | null;
+}
+
 export class CombatParticipantResponseDto {
   @ApiProperty()
   sessionEntityId!: string;
@@ -459,6 +491,9 @@ export class CombatParticipantResponseDto {
 
   @ApiProperty({ type: CombatActionResourcesDto })
   actionResources!: CombatActionResourcesDto;
+
+  @ApiProperty({ type: [CombatMonsterActionOptionDto] })
+  monsterActions!: CombatMonsterActionOptionDto[];
 }
 
 export class CombatResponseDto {
@@ -714,6 +749,12 @@ export class CombatMoveResultDto {
 
   @ApiPropertyOptional({ type: CombatReactionPromptDto, nullable: true })
   pendingReaction!: CombatReactionPromptDto | null;
+
+  @ApiPropertyOptional()
+  movementDistanceFt?: number;
+
+  @ApiPropertyOptional()
+  movementCostFt?: number;
 }
 
 export class AutoMonsterTurnDto {
@@ -728,6 +769,29 @@ export class AutoMonsterTurnDto {
   actionId?: string | null;
 
   @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  autoEndTurn?: boolean;
+}
+
+export class CombatActorActionDto {
+  @ApiPropertyOptional({ enum: ["attack", "dash", "dodge", "hide"], default: "attack" })
+  @IsOptional()
+  @IsIn(["attack", "dash", "dodge", "hide"])
+  actionType?: "attack" | "dash" | "dodge" | "hide";
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  actionId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  targetParticipantId?: string | null;
+
+  @ApiPropertyOptional({ default: false })
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
