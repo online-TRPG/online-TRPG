@@ -170,10 +170,12 @@ NestJS가 게임 상태를 확정하고, `ai/`는 자연어 해석과 서술 생
 
 ## 서버 PostgreSQL 연결 테스트
 
+`SERVER_DATABASE_URL`은 로컬에서 운영/서버 DB를 SSH 터널로 검증할 때만 사용한다. 로컬 백엔드 실행 시 이 값이 설정되어 있으면 `DATABASE_URL`을 덮어쓰므로, 일반 개발 중에는 주석 처리한다.
+
 ### 1. `.env.backend`에 추가할 코드 예시
 
 ```env
-SERVER_DATABASE_URL=postgresql://DB_USER:URL_ENCODED_DB_PASSWORD@127.0.0.1:LOCAL_TUNNEL_PORT/DB_NAME?schema=public
+# SERVER_DATABASE_URL=postgresql://DB_USER:URL_ENCODED_DB_PASSWORD@127.0.0.1:LOCAL_TUNNEL_PORT/DB_NAME?schema=public
 ```
 
 ### 2. SSH 열 때 커맨드창에 칠 예시 코드
@@ -187,6 +189,20 @@ ssh -i "C:\path\to\key.pem" -L LOCAL_TUNNEL_PORT:SERVER_INTERNAL_DB_HOST:SERVER_
 ```powershell
 npm run test:server-db -w @trpg/be
 ```
+
+## 로컬 Cloudflare Tunnel 공유
+
+팀원이 로컬 PC에서 실행 중인 서비스를 외부에 임시 공유할 때는 프론트 터널 하나만 연다.
+
+```powershell
+npm run start -w @trpg/be
+npm run dev -w @trpg/fe
+cloudflared tunnel --url http://localhost:5173
+```
+
+현재 프론트 Vite 서버는 `/api`와 `/socket.io`를 `http://localhost:8080` 백엔드로 프록시한다. 따라서 백엔드용 Cloudflare 터널을 따로 열지 않는다.
+
+자세한 절차와 OAuth redirect URI 갱신 규칙은 `doc/LOCAL_CLOUDFLARE_TUNNEL.md`를 따른다.
 
 ## 루트 폴더 운영 원칙
 
