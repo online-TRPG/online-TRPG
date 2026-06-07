@@ -12,13 +12,15 @@ EC2 호스트 자체엔 compose plugin 없음 (`docker compose ls` 정도만 동
 
 ---
 
-## DB 복구 (`--accept-data-loss` 사고 대응)
+## DB 복구 / Prisma schema push 사고 대응
 
 ### 배경
 
 `Jenkinsfile` 의 `Deploy (develop only)` 스테이지는 매 develop 머지 시
-`prisma db push --accept-data-loss` 를 실행한다. 이 옵션은 destructive 변경
-(칼럼 drop, 타입 변경, NOT NULL 화 등) 을 확인 없이 강행해 **prod 데이터를 날릴 수 있다**.
+`prisma db push --schema prisma/schema.prisma --skip-generate` 를 실행한다.
+현재 파이프라인에서는 `--accept-data-loss` 를 사용하지 않는다. destructive 변경
+(칼럼 drop, 타입 변경, NOT NULL 화 등) 이 필요하면 push 단계가 실패하므로,
+스키마 변경 의도를 확인한 뒤 수동 마이그레이션 또는 별도 승인된 절차로 진행한다.
 
 가드레일로 push **직전**에 `pg_dump -Fc` 를 named volume `db_backups` 에 떨군다.
 파일명: `pre-deploy-${BRANCH}-${BUILD_NUMBER}-${SHORT_SHA}.dump` (last 20 유지).
@@ -118,7 +120,7 @@ docker compose exec ai-server printenv | grep GOOGLE_API_KEY
 - **Kakao**: https://developers.kakao.com → 내 애플리케이션 → 앱 키 → Client Secret 재발급
 - **Discord**: https://discord.com/developers/applications → 해당 앱 → OAuth2 → Reset Secret
 
-회전 후 콜백 URL (`https://k14a201.p.ssafy.io/auth/kakao/callback` 등) 변경
+회전 후 콜백 URL (`https://k14a201.p.ssafy.io/oauth/callback`) 변경
 사항 없으면 추가 작업 없음. 카카오/디스코드 로그인 한 번씩 시도해 prod 검증.
 
 ### Google AI Studio API key 회전
