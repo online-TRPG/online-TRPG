@@ -1,0 +1,10 @@
+.env
+.pytest_cache/
+__pycache__/
+*.egg-info/
+pytest-cache-files-*/
+runtime_logs/
+runtime_logs_test/
+
+generated/**/debug/
+generated/**/*raw*.jsonl

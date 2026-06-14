@@ -1,0 +1,328 @@
+.session-create-page {
+  min-height: calc(100vh - 72px);
+  height: calc(100vh - 72px);
+  overflow: hidden;
+  padding: 16px 16px 8px;
+  display: grid;
+  place-items: start center;
+}
+
+.session-create-bulletin {
+  position: relative;
+  width: min(1380px, 100%);
+  min-height: 782px;
+  margin-top: -64px !important;
+  padding: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 104% 100%;
+}
+
+.session-create-stage {
+  position: absolute;
+  top: 148px !important;
+  right: 118px !important;
+  bottom: 134px !important;
+  left: 118px !important;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 36px;
+  align-items: stretch;
+}
+
+.session-create-panel {
+  min-height: 500px;
+  border-radius: 28px;
+  border: 1px solid rgba(148, 110, 55, 0.22);
+  background: rgba(255, 248, 236, 0.96);
+  box-shadow: 0 24px 36px rgba(50, 31, 9, 0.16);
+}
+
+.session-create-panel-form {
+  display: grid;
+  grid-template-rows: auto auto auto auto auto;
+  gap: 16px;
+  padding: 42px 34px 28px;
+}
+
+.session-create-field {
+  display: grid;
+  gap: 8px;
+}
+
+.session-create-field label,
+.session-create-mini-label,
+.session-create-ai-card strong {
+  display: inline-block;
+  margin: 0;
+  color: #1d150e;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.session-create-field input,
+.session-create-field select {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(196, 165, 118, 0.6);
+  background: rgba(255, 253, 248, 0.98);
+  color: #17110a;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.session-create-field select {
+  cursor: pointer;
+}
+
+.session-create-inline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+
+.session-create-mini-card {
+  min-height: 44px;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(196, 165, 118, 0.52);
+  background: rgba(255, 252, 246, 0.94);
+  box-sizing: border-box;
+}
+
+.session-create-ai-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.session-create-icon {
+  width: 40px;
+  height: 40px;
+  fill: none;
+  stroke: #18120c;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.session-create-icon-fill {
+  fill: #18120c;
+  stroke: none;
+}
+
+.session-create-ai-card > div {
+  min-width: 0;
+}
+
+.session-create-ai-card input {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  accent-color: #1f4d7b;
+}
+
+.session-create-range-field {
+  gap: 8px;
+  align-self: stretch;
+}
+
+.session-create-ai-inline {
+  align-self: end;
+  min-height: 44px;
+  height: 44px;
+}
+
+.session-create-ai-inline-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.session-create-ai-inline .session-create-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.session-create-ai-inline .session-create-mini-label,
+.session-create-ai-inline p {
+  display: none;
+}
+
+.session-create-range-field input[type="number"] {
+  width: 100%;
+  min-height: 44px;
+  height: 44px;
+  box-sizing: border-box;
+}
+
+.session-create-submit {
+  min-height: 58px;
+  margin-top: 32px;
+  position: relative;
+  border-radius: 18px;
+  border: 0;
+  background: transparent;
+  color: #120d09;
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  overflow: hidden;
+  transition: transform 0.16s ease !important;
+  box-shadow: none !important;
+  outline: none !important;
+  appearance: none;
+  -webkit-appearance: none;
+  transform-origin: center center;
+}
+
+.session-create-submit:hover:not(:disabled) {
+  transform: scale(1.03) !important;
+  filter: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.session-create-submit:active:not(:disabled),
+.session-create-submit:focus:not(:disabled),
+.session-create-submit:focus-visible:not(:disabled) {
+  transform: none !important;
+  filter: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.session-create-submit-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+.session-create-submit span {
+  position: relative;
+  z-index: 1;
+}
+
+.session-create-error {
+  margin: 0;
+  color: #912f2f;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.session-create-panel-preview {
+  padding: 18px 18px 22px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 16px;
+}
+
+.session-create-preview-image {
+  width: 100%;
+  height: 238px;
+  object-fit: cover;
+  border-radius: 22px;
+}
+
+.session-create-preview-body {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 14px;
+}
+
+.session-create-preview-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.session-create-preview-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 14px;
+  border-radius: 8px;
+  background: #235a91;
+  color: #fff8ef;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.session-create-panel-preview h2,
+.session-create-empty h2 {
+  min-width: 0;
+  margin: 0;
+  color: #17110a;
+  font-family: 'NEXON Warhaven', Pretendard, 'Segoe UI', sans-serif;
+  font-size: clamp(26px, 2.4vw, 38px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-create-panel-preview p,
+.session-create-empty p {
+  margin: 0;
+  color: rgba(40, 28, 16, 0.84);
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+.session-create-preview-description {
+  max-height: 92px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.session-create-preview-foot {
+  display: flex;
+  align-items: end;
+}
+
+.session-create-preview-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #17110a;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.session-create-meta-icon {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.session-create-empty {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 24px;
+}

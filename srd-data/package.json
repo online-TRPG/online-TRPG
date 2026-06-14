@@ -1,0 +1,9 @@
+{
+  "name": "@trpg/srd-data",
+  "version": "0.1.0",
+  "private": true,
+  "files": ["generated"],
+  "scripts": {
+    "build": "node scripts/verify-generated.mjs"
+  }
+}

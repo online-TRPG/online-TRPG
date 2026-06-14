@@ -1,0 +1,114 @@
+.inventory-item-info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-width: 0;
+  color: inherit;
+  cursor: help;
+  outline: none;
+}
+
+.inventory-item-info--button {
+  cursor: default;
+}
+
+.inventory-item-info-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inventory-item-info .inventory-item-info-trigger {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #6f5631;
+  border-radius: 50%;
+  background:
+    linear-gradient(180deg, rgba(255, 240, 194, 0.1), rgba(255, 240, 194, 0) 45%),
+    linear-gradient(145deg, #1b1c1e, #0e1114);
+  color: #d9bd76;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 2px rgba(202, 154, 63, 0.18);
+}
+
+.inventory-item-info .inventory-item-info-trigger:hover,
+.inventory-item-info .inventory-item-info-trigger:focus-visible,
+.inventory-item-info .inventory-item-info-trigger[aria-expanded='true'] {
+  border-color: #c9963d;
+  color: #ffe2a0;
+  outline: none;
+}
+
+.inventory-item-info-tooltip {
+  position: fixed;
+  z-index: 10000;
+  width: min(300px, calc(100vw - 24px));
+  padding: 10px 11px;
+  border: 1px solid #9db7c8;
+  border-radius: 6px;
+  background: #f8fbfd;
+  box-shadow: 0 12px 26px rgba(29, 51, 71, 0.22);
+  color: #263849;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.inventory-item-info-host {
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+}
+
+.inventory-item-info-host .inventory-item-info {
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+}
+
+.inventory-item-info-tooltip b {
+  display: block;
+  margin-bottom: 6px;
+  color: #173b67;
+  font-size: 13px;
+}
+
+.inventory-item-info-tooltip dl {
+  margin: 0;
+}
+
+.inventory-item-info-tooltip dl div {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.inventory-item-info-tooltip dl div:first-child {
+  margin-top: 0;
+}
+
+.inventory-item-info-tooltip dt {
+  color: #607386;
+}
+
+.inventory-item-info-tooltip dd {
+  min-width: 0;
+  margin: 0;
+  color: #263849;
+  overflow-wrap: anywhere;
+}

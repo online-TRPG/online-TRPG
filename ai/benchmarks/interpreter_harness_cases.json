@@ -1,0 +1,512 @@
+[
+  {
+    "caseId": "npc-talk-001",
+    "description": "NPC에게 단서 질문",
+    "expectedActionType": "TALK_TO_NPC",
+    "expectedTargetId": "npc-mila",
+    "request": {
+      "rawText": "밀라에게 우물에서 본 초록 눈에 대해 물어본다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "마을 광장. 밀라는 우물 사건을 목격한 아이들을 돌보고 있다.",
+      "availableTargets": ["npc-mila", "old-well", "notice-board"],
+      "availableTargetDetails": [
+        {"id": "npc-mila", "name": "밀라", "kind": "NPC", "summary": "우물 근처에서 이상한 소리를 들은 마을 주민"},
+        {"id": "old-well", "name": "오래된 우물", "kind": "OBJECT", "summary": "밤마다 소리가 난다는 우물"},
+        {"id": "notice-board", "name": "게시판", "kind": "OBJECT", "summary": "마을 공지가 붙어 있다"}
+      ],
+      "requestIntent": "GENERAL_GM_REQUEST",
+      "screenType": "STORY",
+      "targetId": "npc-mila",
+      "targetType": "NPC"
+    }
+  },
+  {
+    "caseId": "npc-talk-002",
+    "description": "NPC와 대화 시작",
+    "expectedActionType": "TALK_TO_NPC",
+    "expectedTargetId": "npc-guard",
+    "request": {
+      "rawText": "경비병한테 다가가서 여기서 무슨 일이 있었는지 묻는다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "북문 앞. 경비병 하나가 부서진 마차를 살피고 있다.",
+      "availableTargets": ["npc-guard", "broken-cart", "north-gate"],
+      "availableTargetDetails": [
+        {"id": "npc-guard", "name": "경비병", "kind": "NPC", "summary": "북문을 지키는 경비병"},
+        {"id": "broken-cart", "name": "부서진 마차", "kind": "OBJECT", "summary": "바퀴가 부서진 마차"},
+        {"id": "north-gate", "name": "북문", "kind": "OBJECT", "summary": "마을 북쪽 출입구"}
+      ],
+      "requestIntent": "GENERAL_GM_REQUEST",
+      "screenType": "STORY",
+      "targetId": "npc-guard",
+      "targetType": "NPC"
+    }
+  },
+  {
+    "caseId": "ask-hint-001",
+    "description": "힌트 요청",
+    "expectedActionType": "ASK_HINT",
+    "request": {
+      "rawText": "지금 뭘 해야 할지 힌트를 줘.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "지하 저장고. 잠긴 철문과 물에 젖은 발자국이 보인다.",
+      "availableTargets": ["iron-door", "wet-footprints"],
+      "availableTargetDetails": [
+        {"id": "iron-door", "name": "잠긴 철문", "kind": "OBJECT"},
+        {"id": "wet-footprints", "name": "물에 젖은 발자국", "kind": "CLUE"}
+      ],
+      "requestIntent": "GENERAL_GM_REQUEST",
+      "screenType": "EXPLORATION"
+    }
+  },
+  {
+    "caseId": "ask-hint-002",
+    "description": "다음 행동 질문",
+    "expectedActionType": "ASK_HINT",
+    "request": {
+      "rawText": "다음에 뭘 하면 좋을까?",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "제단 방. 제단 위에는 꺼진 촛불 셋과 낡은 문장이 있다.",
+      "availableTargets": ["altar", "candles", "old-inscription"],
+      "availableTargetDetails": [
+        {"id": "altar", "name": "제단", "kind": "OBJECT"},
+        {"id": "candles", "name": "꺼진 촛불", "kind": "OBJECT"},
+        {"id": "old-inscription", "name": "낡은 문장", "kind": "CLUE"}
+      ],
+      "requestIntent": "GENERAL_GM_REQUEST",
+      "screenType": "EXPLORATION"
+    }
+  },
+  {
+    "caseId": "scene-info-001",
+    "description": "현재 장면 정보 요청",
+    "expectedActionType": "ASK_SCENE_INFO",
+    "request": {
+      "rawText": "주변에 뭐가 보이는지 다시 설명해줘.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "어두운 통로. 벽에는 긁힌 자국이 있고 바닥에는 작은 뼛조각이 흩어져 있다.",
+      "availableTargets": ["scratch-wall", "bone-fragments"],
+      "availableTargetDetails": [
+        {"id": "scratch-wall", "name": "긁힌 벽", "kind": "OBJECT"},
+        {"id": "bone-fragments", "name": "뼛조각", "kind": "OBJECT"}
+      ],
+      "requestIntent": "GENERAL_GM_REQUEST",
+      "screenType": "EXPLORATION"
+    }
+  },
+  {
+    "caseId": "scene-info-002",
+    "description": "현재 위치 질문",
+    "expectedActionType": "ASK_SCENE_INFO",
+    "request": {
+      "rawText": "여기가 어디였지? 현재 상황을 알려줘.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "폐광 입구. 무너진 레일과 오래된 표지판이 있다.",
+      "availableTargets": ["collapsed-rail", "old-sign"],
+      "availableTargetDetails": [
+        {"id": "collapsed-rail", "name": "무너진 레일", "kind": "OBJECT"},
+        {"id": "old-sign", "name": "오래된 표지판", "kind": "OBJECT"}
+      ],
+      "requestIntent": "GENERAL_GM_REQUEST",
+      "screenType": "EXPLORATION"
+    }
+  },
+  {
+    "caseId": "ask-summary-001",
+    "description": "진행 요약 요청",
+    "expectedActionType": "ASK_SUMMARY",
+    "request": {
+      "rawText": "지금까지 진행한 내용을 요약해줘.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "마을 회관. 파티는 방금 첫 단서를 공유했다.",
+      "recentLogs": ["밀라는 밤마다 우물에서 소리가 난다고 말했다.", "파티는 북문 근처의 발자국을 발견했다."],
+      "availableTargets": ["npc-mila", "old-well"],
+      "requestIntent": "GENERAL_GM_REQUEST",
+      "screenType": "STORY"
+    }
+  },
+  {
+    "caseId": "inspect-object-001",
+    "description": "스토리 오브젝트 확인",
+    "expectedActionType": "INSPECT_STORY_OBJECT",
+    "expectedTargetId": "sealed-letter",
+    "request": {
+      "rawText": "봉인된 편지를 자세히 살펴본다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "시장 집무실. 책상 위에 붉은 밀랍으로 봉인된 편지가 놓여 있다.",
+      "availableTargets": ["sealed-letter", "desk", "bookshelf"],
+      "availableTargetDetails": [
+        {"id": "sealed-letter", "name": "봉인된 편지", "kind": "OBJECT"},
+        {"id": "desk", "name": "책상", "kind": "OBJECT"},
+        {"id": "bookshelf", "name": "책장", "kind": "OBJECT"}
+      ],
+      "requestIntent": "INSPECT_STORY_OBJECT",
+      "screenType": "STORY",
+      "targetId": "sealed-letter",
+      "targetType": "OBJECT"
+    }
+  },
+  {
+    "caseId": "investigate-object-001",
+    "description": "탐색 오브젝트 조사",
+    "expectedActionType": "INVESTIGATE_OBJECT",
+    "expectedTargetId": "loose-stone",
+    "request": {
+      "rawText": "헐거운 돌 뒤에 숨겨진 게 있는지 조사한다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "지하 감옥. 벽 한쪽에 헐거운 돌이 튀어나와 있다.",
+      "availableTargets": ["loose-stone", "rusty-bars"],
+      "availableTargetDetails": [
+        {"id": "loose-stone", "name": "헐거운 돌", "kind": "OBJECT"},
+        {"id": "rusty-bars", "name": "녹슨 창살", "kind": "OBJECT"}
+      ],
+      "requestIntent": "INVESTIGATE_OBJECT",
+      "screenType": "EXPLORATION",
+      "targetId": "loose-stone",
+      "targetType": "OBJECT"
+    }
+  },
+  {
+    "caseId": "observe-area-001",
+    "description": "주변 관찰",
+    "expectedActionType": "OBSERVE_AREA",
+    "request": {
+      "rawText": "방 전체를 둘러보면서 눈에 띄는 흔적이 있는지 확인한다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "낡은 연구실. 깨진 유리병과 오래된 실험대가 있다.",
+      "availableTargets": ["lab-table", "broken-bottles"],
+      "requestIntent": "OBSERVE_AREA",
+      "screenType": "EXPLORATION"
+    }
+  },
+  {
+    "caseId": "detect-danger-001",
+    "description": "위험 감지",
+    "expectedActionType": "DETECT_DANGER",
+    "request": {
+      "rawText": "앞으로 가기 전에 함정이나 위험한 게 있는지 살핀다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "좁은 돌다리. 아래로 검은 물이 흐르고 다리 중간이 금이 가 있다.",
+      "availableTargets": ["stone-bridge", "black-water"],
+      "requestIntent": "DETECT_DANGER",
+      "screenType": "EXPLORATION"
+    }
+  },
+  {
+    "caseId": "listen-001",
+    "description": "소리 듣기",
+    "expectedActionType": "LISTEN",
+    "request": {
+      "rawText": "문 너머에서 무슨 소리가 나는지 귀를 기울인다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "잠긴 나무문 앞. 문 아래 틈으로 희미한 빛이 새어 나온다.",
+      "availableTargets": ["wooden-door"],
+      "availableTargetDetails": [{"id": "wooden-door", "name": "나무문", "kind": "OBJECT"}],
+      "requestIntent": "LISTEN",
+      "screenType": "EXPLORATION",
+      "targetId": "wooden-door",
+      "targetType": "OBJECT"
+    }
+  },
+  {
+    "caseId": "special-move-001",
+    "description": "특수 이동",
+    "expectedActionType": "SPECIAL_MOVE",
+    "request": {
+      "rawText": "무너진 기둥을 밟고 반대편 난간으로 뛰어넘는다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "무너진 홀. 바닥 일부가 꺼져 있고 반대편 난간까지 거리가 있다.",
+      "availableTargets": ["broken-pillar", "far-ledge"],
+      "requestIntent": "SPECIAL_MOVE",
+      "screenType": "EXPLORATION",
+      "mapPoint": {"x": 12, "y": 7}
+    }
+  },
+  {
+    "caseId": "interact-object-001",
+    "description": "오브젝트 상호작용",
+    "expectedActionType": "INTERACT_OBJECT",
+    "expectedTargetId": "lever",
+    "request": {
+      "rawText": "벽에 달린 레버를 아래로 당긴다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "기계실. 벽에는 녹슨 레버가 하나 있다.",
+      "availableTargets": ["lever", "gear-box"],
+      "availableTargetDetails": [
+        {"id": "lever", "name": "레버", "kind": "OBJECT"},
+        {"id": "gear-box", "name": "기어 장치", "kind": "OBJECT"}
+      ],
+      "requestIntent": "INTERACT_OBJECT",
+      "screenType": "EXPLORATION",
+      "targetId": "lever",
+      "targetType": "OBJECT"
+    }
+  },
+  {
+    "caseId": "use-tool-001",
+    "description": "도구 사용",
+    "expectedActionType": "USE_TOOL",
+    "expectedTargetId": "locked-chest",
+    "request": {
+      "rawText": "도둑 도구로 잠긴 상자를 열어본다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "창고 구석. 작은 철제 상자가 자물쇠로 잠겨 있다.",
+      "availableTargets": ["locked-chest"],
+      "availableTargetDetails": [{"id": "locked-chest", "name": "잠긴 상자", "kind": "OBJECT"}],
+      "requestIntent": "USE_TOOL",
+      "screenType": "EXPLORATION",
+      "targetId": "locked-chest",
+      "targetType": "OBJECT",
+      "itemId": "tool.thieves"
+    }
+  },
+  {
+    "caseId": "use-item-explore-001",
+    "description": "탐색 중 아이템 사용",
+    "expectedActionType": "USE_ITEM_EXPLORE",
+    "expectedTargetId": "dark-corner",
+    "request": {
+      "rawText": "횃불을 들어 어두운 구석을 비춘다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "축축한 동굴. 오른쪽 구석은 빛이 닿지 않는다.",
+      "availableTargets": ["dark-corner"],
+      "availableTargetDetails": [{"id": "dark-corner", "name": "어두운 구석", "kind": "OBJECT"}],
+      "requestIntent": "USE_ITEM_EXPLORE",
+      "screenType": "EXPLORATION",
+      "targetId": "dark-corner",
+      "targetType": "OBJECT",
+      "itemId": "item.torch"
+    }
+  },
+  {
+    "caseId": "split-party-001",
+    "description": "파티 분리 행동",
+    "expectedActionType": "SPLIT_PARTY_TASK",
+    "request": {
+      "rawText": "나는 문을 조사하고, 다른 동료는 복도 끝을 살펴보게 한다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "긴 복도. 한쪽에는 문이 있고 끝에는 갈림길이 있다.",
+      "availableTargets": ["side-door", "corridor-end"],
+      "requestIntent": "SPLIT_PARTY_TASK",
+      "screenType": "EXPLORATION"
+    }
+  },
+  {
+    "caseId": "environment-use-001",
+    "description": "환경 활용",
+    "expectedActionType": "ENVIRONMENT_USE",
+    "expectedTargetId": "chandelier",
+    "request": {
+      "rawText": "샹들리에 줄을 끊어서 아래 적들을 흩어지게 만든다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "연회장. 천장에는 낡은 샹들리에가 흔들리고 있다.",
+      "availableTargets": ["chandelier", "goblin-1"],
+      "availableTargetDetails": [
+        {"id": "chandelier", "name": "샹들리에", "kind": "OBJECT"},
+        {"id": "goblin-1", "name": "고블린", "kind": "MONSTER"}
+      ],
+      "requestIntent": "ENVIRONMENT_USE",
+      "screenType": "COMBAT",
+      "targetId": "chandelier",
+      "targetType": "OBJECT"
+    }
+  },
+  {
+    "caseId": "improvised-attack-001",
+    "description": "즉흥 공격",
+    "expectedActionType": "IMPROVISED_ATTACK",
+    "expectedTargetId": "goblin-1",
+    "request": {
+      "rawText": "근처 의자를 집어 고블린에게 던진다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "술집 안 전투. 바닥에는 의자와 병이 흩어져 있다.",
+      "availableTargets": ["goblin-1", "chair"],
+      "availableTargetDetails": [
+        {"id": "goblin-1", "name": "고블린", "kind": "MONSTER"},
+        {"id": "chair", "name": "의자", "kind": "OBJECT"}
+      ],
+      "requestIntent": "IMPROVISED_ATTACK",
+      "screenType": "COMBAT",
+      "targetId": "goblin-1",
+      "targetType": "MONSTER"
+    }
+  },
+  {
+    "caseId": "called-shot-001",
+    "description": "부위 노림",
+    "expectedActionType": "CALLED_SHOT",
+    "expectedTargetId": "bandit-1",
+    "request": {
+      "rawText": "도망치지 못하게 산적의 다리를 노려 쏜다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "숲길 전투. 산적 하나가 뒤로 물러나려 한다.",
+      "availableTargets": ["bandit-1"],
+      "availableTargetDetails": [{"id": "bandit-1", "name": "산적", "kind": "MONSTER"}],
+      "requestIntent": "CALLED_SHOT",
+      "screenType": "COMBAT",
+      "targetId": "bandit-1",
+      "targetType": "MONSTER"
+    }
+  },
+  {
+    "caseId": "ready-action-001",
+    "description": "준비 행동",
+    "expectedActionType": "READY_ACTION",
+    "request": {
+      "rawText": "문이 열리면 바로 활을 쏘도록 준비한다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "문 뒤에서 발소리가 들린다.",
+      "availableTargets": ["wooden-door"],
+      "requestIntent": "READY_ACTION",
+      "screenType": "COMBAT"
+    }
+  },
+  {
+    "caseId": "reaction-request-001",
+    "description": "반응 행동 요청",
+    "expectedActionType": "REACTION_REQUEST",
+    "request": {
+      "rawText": "적이 내 옆을 지나가면 기회공격을 하겠다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "좁은 복도 전투. 적 하나가 플레이어 옆을 지나가려 한다.",
+      "availableTargets": ["orc-1"],
+      "availableTargetDetails": [{"id": "orc-1", "name": "오크", "kind": "MONSTER"}],
+      "requestIntent": "REACTION_REQUEST",
+      "screenType": "COMBAT",
+      "targetId": "orc-1",
+      "targetType": "MONSTER"
+    }
+  },
+  {
+    "caseId": "combat-talk-001",
+    "description": "전투 중 대화",
+    "expectedActionType": "COMBAT_TALK",
+    "expectedTargetId": "bandit-boss",
+    "request": {
+      "rawText": "두목에게 지금 항복하면 살려주겠다고 외친다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "전투 중 산적 두목이 부하들에게 명령하고 있다.",
+      "availableTargets": ["bandit-boss"],
+      "availableTargetDetails": [{"id": "bandit-boss", "name": "산적 두목", "kind": "NPC"}],
+      "requestIntent": "COMBAT_TALK",
+      "screenType": "COMBAT",
+      "targetId": "bandit-boss",
+      "targetType": "NPC"
+    }
+  },
+  {
+    "caseId": "use-item-combat-001",
+    "description": "전투 중 아이템 사용",
+    "expectedActionType": "USE_ITEM_COMBAT",
+    "request": {
+      "rawText": "치유 물약을 마신다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "전투 중 플레이어는 크게 다친 상태다.",
+      "availableTargets": ["player-1"],
+      "requestIntent": "USE_ITEM_COMBAT",
+      "screenType": "COMBAT",
+      "itemId": "item.healing_potion"
+    }
+  },
+  {
+    "caseId": "spell-creative-001",
+    "description": "창의적 주문 사용",
+    "expectedActionType": "USE_SPELL_CREATIVELY",
+    "request": {
+      "rawText": "마법사의 손으로 멀리 있는 열쇠를 끌어온다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "철창 너머 탁자 위에 작은 열쇠가 놓여 있다.",
+      "availableTargets": ["small-key", "iron-bars"],
+      "availableTargetDetails": [
+        {"id": "small-key", "name": "작은 열쇠", "kind": "OBJECT"},
+        {"id": "iron-bars", "name": "철창", "kind": "OBJECT"}
+      ],
+      "requestIntent": "USE_SPELL_CREATIVELY",
+      "screenType": "EXPLORATION",
+      "targetId": "small-key",
+      "targetType": "OBJECT"
+    }
+  },
+  {
+    "caseId": "tactic-query-001",
+    "description": "전술 질문",
+    "expectedActionType": "TACTIC_QUERY",
+    "request": {
+      "rawText": "지금 전투에서 누구를 먼저 공격하는 게 좋을까?",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "고블린 둘과 늑대 하나가 파티를 둘러싸고 있다.",
+      "availableTargets": ["goblin-1", "goblin-2", "wolf-1"],
+      "requestIntent": "TACTIC_QUERY",
+      "screenType": "COMBAT"
+    }
+  },
+  {
+    "caseId": "ask-rule-001",
+    "description": "룰 질문",
+    "expectedActionType": "ASK_RULE",
+    "request": {
+      "rawText": "기회공격은 언제 할 수 있어?",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "전투 튜토리얼 중이다.",
+      "availableTargets": ["orc-1"],
+      "requestIntent": "ASK_RULE",
+      "screenType": "COMBAT"
+    }
+  },
+  {
+    "caseId": "map-move-001",
+    "description": "맵 이동",
+    "expectedActionType": "MAP_MOVE",
+    "request": {
+      "rawText": "내 토큰을 오른쪽 문 앞까지 이동한다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "격자 맵 위에서 오른쪽에는 닫힌 문이 있다.",
+      "availableTargets": ["right-door"],
+      "requestIntent": "MAP_MOVE",
+      "screenType": "COMBAT",
+      "mapPoint": {"x": 9, "y": 4}
+    }
+  },
+  {
+    "caseId": "map-end-turn-001",
+    "description": "턴 종료",
+    "expectedActionType": "MAP_END_TURN",
+    "request": {
+      "rawText": "이번 턴은 여기서 끝낸다.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "플레이어의 전투 턴이다.",
+      "availableTargets": ["goblin-1"],
+      "requestIntent": "MAP_END_TURN",
+      "screenType": "COMBAT"
+    }
+  },
+  {
+    "caseId": "gm-damage-001",
+    "description": "GM 피해 적용",
+    "expectedActionType": "GM_ONLY_DAMAGE",
+    "expectedTargetId": "goblin-1",
+    "request": {
+      "rawText": "GM으로 고블린에게 피해 5를 적용한다.",
+      "actorCharacterId": "gm-1",
+      "sceneSummary": "GM 전투 조정 화면이다.",
+      "availableTargets": ["goblin-1"],
+      "availableTargetDetails": [{"id": "goblin-1", "name": "고블린", "kind": "MONSTER"}],
+      "requestIntent": "GM_ONLY_DAMAGE",
+      "screenType": "COMBAT",
+      "targetId": "goblin-1",
+      "targetType": "MONSTER"
+    }
+  },
+  {
+    "caseId": "out-of-scope-001",
+    "description": "게임 밖 요청",
+    "expectedActionType": "OUT_OF_SCOPE",
+    "request": {
+      "rawText": "오늘 저녁 메뉴를 추천해줘.",
+      "actorCharacterId": "player-1",
+      "sceneSummary": "던전 안에서 세션이 진행 중이다.",
+      "availableTargets": ["old-door"],
+      "requestIntent": "GENERAL_GM_REQUEST",
+      "screenType": "EXPLORATION"
+    }
+  }
+]

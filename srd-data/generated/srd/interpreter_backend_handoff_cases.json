@@ -1,0 +1,347 @@
+{
+  "cases": [
+    {
+      "caseId": "handoff.chill_touch_spell_attack",
+      "rawText": "싸늘한 손길을 적 고블린에게 시전한다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "MAP_CAST_SPELL",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "spellId": "spell.chill_touch",
+          "attackKind": "ranged_spell_attack",
+          "approach": "싸늘한 손길을 적 고블린에게 시전한다.",
+          "confidence": 0.96,
+          "requiresRoll": true
+        },
+        "needsClarification": false,
+        "mentionedSpellId": "spell.chill_touch",
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.spellcasting.casting_time.action",
+          "rule.spellcasting.range",
+          "rule.spellcasting.spell_attack",
+          "rule.combat.attack_roll"
+        ],
+        "safetyNotes": [
+          "명중, 피해, 치유 차단은 백엔드 엔진이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-spell-handoff",
+        "actorCharacterId": "wizard-1",
+        "targetId": "goblin-1",
+        "actor": {
+          "knownCantrips": [
+            "spell.chill_touch"
+          ],
+          "actionAvailable": true,
+          "componentAvailability": {
+            "verbal": true,
+            "somatic": true,
+            "material": null
+          }
+        },
+        "target": {
+          "distanceFt": 90,
+          "armorClass": 13,
+          "typeTags": [
+            "humanoid"
+          ]
+        },
+        "rollPlan": {
+          "naturalD20": 15,
+          "attackBonus": 5,
+          "advantageState": "normal"
+        }
+      },
+      "expectedHookIds": [
+        "hook.combat.resolve_attack_roll",
+        "hook.spell.cast_chill_touch",
+        "hook.damage.apply_resistance_vulnerability"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.combat.resolve_attack_roll",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-spell-handoff",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "input": {
+            "naturalD20": 15,
+            "attackBonus": 5,
+            "targetArmorClass": 13,
+            "advantageState": "normal"
+          },
+          "sourceAction": {
+            "type": "MAP_CAST_SPELL",
+            "actorCharacterId": "wizard-1",
+            "targetId": "goblin-1",
+            "spellId": "spell.chill_touch",
+            "attackKind": "ranged_spell_attack",
+            "requiresRoll": true
+          },
+          "sourceTraceId": "trace-demo-interpreter-chill-touch"
+        },
+        {
+          "hookId": "hook.spell.cast_chill_touch",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-spell-handoff",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "input": {
+            "spell.chill_touch": true,
+            "casterKnownCantrips": [
+              "spell.chill_touch"
+            ],
+            "actionAvailable": true,
+            "targetDistanceFt": 90,
+            "componentAvailability": {
+              "verbal": true,
+              "somatic": true,
+              "material": null
+            },
+            "spellAttackRollResult": {
+              "attackRollTotal": 20,
+              "hit": true,
+              "criticalHit": false,
+              "criticalMiss": false
+            }
+          },
+          "sourceAction": {
+            "type": "MAP_CAST_SPELL",
+            "actorCharacterId": "wizard-1",
+            "targetId": "goblin-1",
+            "spellId": "spell.chill_touch",
+            "attackKind": "ranged_spell_attack",
+            "requiresRoll": true
+          },
+          "sourceTraceId": "trace-demo-interpreter-chill-touch"
+        },
+        {
+          "hookId": "hook.damage.apply_resistance_vulnerability",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-spell-handoff",
+          "actorCharacterId": "wizard-1",
+          "targetId": "goblin-1",
+          "input": {
+            "baseDamage": 4,
+            "damageType": "necrotic",
+            "targetImmunities": [],
+            "targetResistances": [],
+            "targetVulnerabilities": []
+          },
+          "sourceAction": {
+            "type": "MAP_CAST_SPELL",
+            "actorCharacterId": "wizard-1",
+            "targetId": "goblin-1",
+            "spellId": "spell.chill_touch",
+            "attackKind": "ranged_spell_attack"
+          },
+          "sourceTraceId": "trace-demo-interpreter-chill-touch"
+        }
+      ],
+      "notes": [
+        "Interpreter identifies intent and stable IDs only.",
+        "Backend computes attack roll, spell validity, and damage in deterministic hooks."
+      ]
+    },
+    {
+      "caseId": "handoff.weapon_attack_with_damage",
+      "rawText": "파이터가 롱소드로 고블린을 공격한다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "MAP_ATTACK",
+          "actorCharacterId": "fighter-1",
+          "targetId": "goblin-1",
+          "attackKind": "weapon_attack",
+          "approach": "롱소드로 고블린을 공격한다.",
+          "confidence": 0.92,
+          "requiresRoll": true
+        },
+        "needsClarification": false,
+        "mentionedSpellId": null,
+        "mentionedItemId": null,
+        "mentionedConditionIds": [],
+        "requiredRuleCheckIds": [
+          "rule.combat.attack_roll"
+        ],
+        "safetyNotes": [
+          "명중과 피해는 백엔드 엔진이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-attack-handoff",
+        "actorCharacterId": "fighter-1",
+        "targetId": "goblin-1",
+        "actor": {
+          "equippedWeaponId": "equipment.longsword",
+          "attackBonus": 5
+        },
+        "target": {
+          "armorClass": 15,
+          "damageResistances": [],
+          "damageVulnerabilities": []
+        },
+        "rollPlan": {
+          "naturalD20": 17,
+          "advantageState": "normal"
+        }
+      },
+      "expectedHookIds": [
+        "hook.combat.resolve_attack_roll",
+        "hook.damage.apply_resistance_vulnerability"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.combat.resolve_attack_roll",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-attack-handoff",
+          "actorCharacterId": "fighter-1",
+          "targetId": "goblin-1",
+          "input": {
+            "naturalD20": 17,
+            "attackBonus": 5,
+            "targetArmorClass": 15,
+            "advantageState": "normal"
+          },
+          "sourceAction": {
+            "type": "MAP_ATTACK",
+            "actorCharacterId": "fighter-1",
+            "targetId": "goblin-1",
+            "attackKind": "weapon_attack",
+            "requiresRoll": true
+          },
+          "sourceTraceId": "trace-demo-interpreter-weapon-attack"
+        },
+        {
+          "hookId": "hook.damage.apply_resistance_vulnerability",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-attack-handoff",
+          "actorCharacterId": "fighter-1",
+          "targetId": "goblin-1",
+          "input": {
+            "baseDamage": 9,
+            "damageType": "slashing",
+            "targetImmunities": [],
+            "targetResistances": [],
+            "targetVulnerabilities": []
+          },
+          "sourceAction": {
+            "type": "MAP_ATTACK",
+            "actorCharacterId": "fighter-1",
+            "targetId": "goblin-1",
+            "attackKind": "weapon_attack"
+          },
+          "sourceTraceId": "trace-demo-interpreter-weapon-attack"
+        }
+      ],
+      "notes": [
+        "Damage hook runs only after backend confirms a hit and rolls weapon damage."
+      ]
+    },
+    {
+      "caseId": "handoff.prone_stand_then_attack",
+      "rawText": "넘어짐 상태에서 일어나서 적을 공격하려고 한다.",
+      "interpreterOutput": {
+        "action": {
+          "type": "MAP_ATTACK",
+          "actorCharacterId": "fighter-1",
+          "targetId": "goblin-1",
+          "attackKind": "weapon_attack",
+          "approach": "넘어짐 상태에서 일어나 적을 공격하려고 한다.",
+          "confidence": 0.88,
+          "requiresRoll": true
+        },
+        "needsClarification": false,
+        "mentionedSpellId": null,
+        "mentionedItemId": null,
+        "mentionedConditionIds": [
+          "condition.prone"
+        ],
+        "requiredRuleCheckIds": [
+          "rule.combat.attack_roll"
+        ],
+        "safetyNotes": [
+          "넘어짐 보정과 명중 여부는 백엔드 엔진이 확정한다."
+        ]
+      },
+      "backendState": {
+        "sessionId": "session-demo-1",
+        "turnId": "turn-prone-handoff",
+        "actorCharacterId": "fighter-1",
+        "targetId": "goblin-1",
+        "actor": {
+          "conditions": [
+            "condition.prone"
+          ],
+          "remainingMovementFt": 30,
+          "baseSpeedFt": 30
+        },
+        "target": {
+          "distanceFt": 5,
+          "armorClass": 15
+        },
+        "rollPlan": {
+          "naturalD20": 12,
+          "attackBonus": 5,
+          "advantageState": "normal"
+        }
+      },
+      "expectedHookIds": [
+        "hook.condition.apply_prone_modifiers",
+        "hook.combat.resolve_attack_roll"
+      ],
+      "hookRequests": [
+        {
+          "hookId": "hook.condition.apply_prone_modifiers",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-prone-handoff",
+          "actorCharacterId": "fighter-1",
+          "targetId": "goblin-1",
+          "input": {
+            "condition.prone": true,
+            "attackerDistanceFt": 5,
+            "remainingMovementFt": 30,
+            "baseSpeedFt": 30
+          },
+          "sourceAction": {
+            "type": "MAP_ATTACK",
+            "actorCharacterId": "fighter-1",
+            "targetId": "goblin-1",
+            "attackKind": "weapon_attack",
+            "requiresRoll": true
+          },
+          "sourceTraceId": "trace-demo-interpreter-prone"
+        },
+        {
+          "hookId": "hook.combat.resolve_attack_roll",
+          "sessionId": "session-demo-1",
+          "turnId": "turn-prone-handoff",
+          "actorCharacterId": "fighter-1",
+          "targetId": "goblin-1",
+          "input": {
+            "naturalD20": 12,
+            "attackBonus": 5,
+            "targetArmorClass": 15,
+            "advantageState": "disadvantage"
+          },
+          "sourceAction": {
+            "type": "MAP_ATTACK",
+            "actorCharacterId": "fighter-1",
+            "targetId": "goblin-1",
+            "attackKind": "weapon_attack",
+            "requiresRoll": true
+          },
+          "sourceTraceId": "trace-demo-interpreter-prone"
+        }
+      ],
+      "notes": [
+        "Prone hook output can alter the attack roll advantageState before attack resolution."
+      ]
+    }
+  ]
+}
