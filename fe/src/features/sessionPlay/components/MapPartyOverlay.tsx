@@ -1,0 +1,79 @@
+import type { CSSProperties } from 'react';
+import type { SessionCharacterResponseDto } from '@trpg/shared-types';
+import { getCharacterClassLabel, getCharacterImage } from '../utils/characterVisuals';
+import './MapPartyOverlay.css';
+
+interface MapPartyOverlayProps {
+  characters: SessionCharacterResponseDto[];
+  currentUserId: string;
+  getCharacterColorStyle?: (character: SessionCharacterResponseDto) => CSSProperties;
+  onCharacterClick?: (character: SessionCharacterResponseDto) => void;
+}
+
+function getHpPercent(character: SessionCharacterResponseDto) {
+  if (character.maxHp <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((character.currentHp / character.maxHp) * 100)));
+}
+
+export function MapPartyOverlay({
+  characters,
+  currentUserId,
+  getCharacterColorStyle,
+  onCharacterClick,
+}: MapPartyOverlayProps) {
+  return (
+    <aside className="map-party-overlay" aria-label="파티 상태">
+      <div className="map-party-list">
+        {characters.length ? (
+          characters.map((character) => {
+            const hpPercent = getHpPercent(character);
+            const isMine = character.userId === currentUserId;
+            const characterImage = getCharacterImage(character);
+            // 메인챗/파티 카드와 같은 참가자 색상값을 받아 맵 오버레이도 한 기준으로 맞춥니다.
+            const characterColorStyle = {
+              ...getCharacterColorStyle?.(character),
+              ['--map-party-hp-percent' as string]: `${hpPercent}%`,
+            } as CSSProperties;
+
+            return (
+              <button
+                type="button"
+                key={character.id}
+                className={`map-party-card${isMine ? ' mine' : ''}`}
+                style={characterColorStyle}
+                title={`${character.name} / ${getCharacterClassLabel(character.className)} Lv ${character.level} / HP ${character.currentHp}/${character.maxHp}`}
+                onClick={() => onCharacterClick?.(character)}
+              >
+                <span className="map-party-corner top-left" aria-hidden="true" />
+                <span className="map-party-corner top-right" aria-hidden="true" />
+                <span className="map-party-corner bottom-left" aria-hidden="true" />
+                <span className="map-party-corner bottom-right" aria-hidden="true" />
+                <div className="map-party-avatar">
+                  <img src={characterImage} alt={character.name} />
+                </div>
+                <div className="map-party-body">
+                  <div className="map-party-line">
+                    <strong>{character.name}</strong>
+                    <span>Lv {character.level}</span>
+                  </div>
+                  <div className="map-party-hp-row">
+                    <span>HP</span>
+                    <strong>{character.currentHp}/{character.maxHp}</strong>
+                  </div>
+                  <span
+                    className="map-party-hp-track"
+                    aria-label={`HP ${character.currentHp}/${character.maxHp}`}
+                  >
+                    <span className="map-party-hp-fill" />
+                  </span>
+                </div>
+              </button>
+            );
+          })
+        ) : (
+          <p className="map-party-empty-text">파티 캐릭터 정보가 아직 없습니다.</p>
+        )}
+      </div>
+    </aside>
+  );
+}

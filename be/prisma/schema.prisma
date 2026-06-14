@@ -1,0 +1,760 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SessionStatus {
+  RECRUITING
+  PLAYING
+  PAUSED
+  COMPLETED
+  DISBANDED
+}
+
+enum SessionVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum SessionScenarioStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
+enum ParticipantRole {
+  HOST
+  GM
+  PLAYER
+  SPECTATOR
+}
+
+enum ParticipantStatus {
+  JOINED
+  LEFT
+  KICKED
+}
+
+enum ConnectionStatus {
+  ONLINE
+  OFFLINE
+}
+
+enum GamePhase {
+  LOBBY
+  EXPLORATION
+  COMBAT
+  DIALOGUE
+  REST
+}
+
+enum AuthProvider {
+  LOCAL
+  KAKAO
+  DISCORD
+  GUEST
+}
+
+enum ProfileVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum GmMode {
+  AI
+  HUMAN
+}
+
+enum ScenarioLicense {
+  ORIGINAL
+  CC_BY_4_0
+  OTHER_FREE
+}
+
+enum AiTraceKind {
+  NARRATION
+  HINT
+  SUMMARY
+  NPC_DIALOGUE
+  INTERPRETER
+  ACTOR
+}
+
+enum AiTraceStatus {
+  SUCCESS
+  TIMEOUT
+  ERROR
+}
+
+enum ScenarioSourceType {
+  SYSTEM
+  USER
+  CLONED
+}
+
+enum ScenarioAssetKind {
+  MAP
+  SCENE
+  TOKEN
+}
+
+enum SessionCharacterStatus {
+  ACTIVE
+  RETIRED
+  DEAD
+  LEFT
+}
+
+enum CharacterAvatarType {
+  DEFAULT
+  PRESET
+  UPLOAD
+}
+
+enum ActionQueueStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REJECTED
+}
+
+enum ActionInputType {
+  TEXT
+  SELECT
+  COMMAND
+}
+
+enum ActionScope {
+  PARTY_SHARED
+  INDIVIDUAL_TURN
+}
+
+enum ActionOutcome {
+  SUCCESS
+  FAILURE
+  IMPOSSIBLE
+  NO_ROLL
+}
+
+enum DiceAdvantageState {
+  NORMAL
+  ADVANTAGE
+  DISADVANTAGE
+}
+
+enum CombatStatus {
+  ACTIVE
+  ENDED
+}
+
+enum CombatEntityType {
+  PLAYER_CHARACTER
+  NPC
+  MONSTER
+}
+
+model User {
+  id                   String               @id @default(cuid())
+  publicId             String?              @unique
+  displayName          String
+  email                String?              @unique
+  passwordHash         String?
+  authProvider         AuthProvider         @default(GUEST)
+  deletedAt            DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @default(now()) @updatedAt
+  profile              UserProfile?
+  hostedSessions       Session[]            @relation("SessionHost")
+  gmSessions           Session[]            @relation("SessionGm")
+  participants         SessionParticipant[]
+  characters           Character[]
+  refreshTokens        RefreshToken[]
+  socialAccounts       SocialAccount[]
+  createdScenarios     Scenario[]           @relation("ScenarioCreator")
+  uploadedScenarioAssets ScenarioAsset[]    @relation("ScenarioAssetUploader")
+  controlledCharacters SessionCharacter[]
+  aiTraces             AiTrace[]
+}
+
+model UserProfile {
+  userId                    String            @id
+  nickname                  String            @unique
+  bio                       String?
+  profileImageUrl           String?
+  representativeCharacterId String?
+  visibility                ProfileVisibility @default(PUBLIC)
+  createdAt                 DateTime          @default(now())
+  updatedAt                 DateTime          @updatedAt
+  user                      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  representativeCharacter   Character?        @relation("RepresentativeCharacter", fields: [representativeCharacterId], references: [id], onDelete: SetNull)
+}
+
+model Session {
+  id                String               @id @default(cuid())
+  publicId          String?              @unique
+  title             String
+  description       String               @default("")
+  hostUserId        String
+  gmUserId          String?
+  inviteCode        String               @unique
+  status            SessionStatus        @default(RECRUITING)
+  visibility        SessionVisibility    @default(PUBLIC)
+  maxParticipants   Int                  @default(4)
+  ruleSetId         String?
+  gmMode            GmMode               @default(AI)
+  captainUserId     String?
+  nextSessionAt     DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  host              User                 @relation("SessionHost", fields: [hostUserId], references: [id])
+  gm                User?                @relation("SessionGm", fields: [gmUserId], references: [id], onDelete: SetNull)
+  participants      SessionParticipant[]
+  sessionScenarios  SessionScenario[]
+  sessionCharacters SessionCharacter[]
+  aiTraces          AiTrace[]
+  playerActions     PlayerAction[]
+  turnLogs          TurnLog[]
+  diceRollLogs      DiceRollLog[]
+  combats           Combat[]
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SocialAccount {
+  id             String       @id @default(cuid())
+  userId         String
+  provider       AuthProvider
+  providerUserId String
+  email          String?
+  createdAt      DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+}
+
+model SessionParticipant {
+  id               String            @id @default(cuid())
+  sessionId        String
+  userId           String
+  role             ParticipantRole   @default(PLAYER)
+  status           ParticipantStatus @default(JOINED)
+  connectionStatus ConnectionStatus  @default(ONLINE)
+  isReady          Boolean           @default(false)
+  readyAt          DateTime?
+  joinedAt         DateTime          @default(now())
+  leftAt           DateTime?
+  session          Session           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionCharacter SessionCharacter? @relation("ParticipantSessionCharacter")
+
+  @@unique([sessionId, userId])
+}
+
+model Race {
+  id                   String   @id @default(cuid())
+  key                  String   @unique
+  koName               String
+  size                 String
+  baseSpeed            Int
+  abilityIncreasesJson String
+  languagesJson        String
+  parentRaceId         String?
+  parentRace           Race?    @relation("RaceSubrace", fields: [parentRaceId], references: [id], onDelete: SetNull)
+  subraces             Race[]   @relation("RaceSubrace")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model Item {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  koName    String
+  category  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ClassDefinition {
+  id                    String   @id @default(cuid())
+  key                   String   @unique
+  koName                String
+  hitDie                String
+  startingEquipmentJson String
+  startingCantripCount  Int      @default(0)
+  startingSpellCount    Int      @default(0)
+  skillChoicesJson      String   @default("[]")
+  skillChoiceCount      Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model Character {
+  id                     String              @id @default(cuid())
+  ownerUserId            String
+  scenarioId             String?
+  name                   String
+  ancestry               String
+  className              String
+  subclassName           String?
+  level                  Int
+  bio                    String?
+  abilitiesJson          String
+  proficiencyBonus       Int
+  featuresJson           String?
+  proficientSkillsJson   String
+  maxHp                  Int
+  armorClass             Int
+  speed                  Int
+  inventoryJson          String
+  spellsJson             String?
+  equippedWeaponId       String?
+  offhandWeaponId        String?
+  avatarType             CharacterAvatarType @default(DEFAULT)
+  avatarPresetId         String?
+  avatarUrl              String?
+  avatarUpdatedAt        DateTime?
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  owner                  User                @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  scenario               Scenario?           @relation("ScenarioCharacters", fields: [scenarioId], references: [id], onDelete: SetNull)
+  sessionCharacters      SessionCharacter[]
+  representativeProfiles UserProfile[]       @relation("RepresentativeCharacter")
+}
+
+model SessionCharacter {
+  id                    String                 @id @default(cuid())
+  sessionId             String
+  userId                String
+  characterId           String
+  status                SessionCharacterStatus @default(ACTIVE)
+  currentHp             Int
+  tempHp                Int
+  conditionsJson        String
+  inventorySnapshotJson String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  session               Session                @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  participant           SessionParticipant     @relation("ParticipantSessionCharacter", fields: [sessionId, userId], references: [sessionId, userId], onDelete: Cascade)
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character             Character              @relation(fields: [characterId], references: [id])
+  inventoryEntries      InventoryEntry[]
+  combatTurnStates      CombatTurnState[]
+  resource              SessionCharacterResource?
+
+  @@unique([sessionId, userId])
+  @@unique([sessionId, characterId])
+}
+
+model ItemDefinition {
+  id               String           @id
+  name             String
+  itemType         String
+  weightLb         Float?
+  volumeCuFt       Float?
+  damageDice       String?
+  damageType       String?
+  description      String?
+  armorClassBase   Int?
+  armorClassBonus  Int?
+  armorStrengthRequirement Int?
+  armorStealthDisadvantage Boolean?
+  useEffect        String?
+  packContentsJson String?
+  propertiesJson   String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  inventoryEntries InventoryEntry[]
+}
+
+model InventoryEntry {
+  id                 String           @id @default(cuid())
+  sessionCharacterId String
+  itemDefinitionId   String
+  quantity           Int              @default(1)
+  containerEntryId   String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  sessionCharacter   SessionCharacter @relation(fields: [sessionCharacterId], references: [id], onDelete: Cascade)
+  itemDefinition     ItemDefinition   @relation(fields: [itemDefinitionId], references: [id])
+  containerEntry     InventoryEntry?  @relation("InventoryContainer", fields: [containerEntryId], references: [id], onDelete: SetNull)
+  containedEntries   InventoryEntry[] @relation("InventoryContainer")
+  containerState     ContainerState?
+
+  @@index([sessionCharacterId])
+  @@index([itemDefinitionId])
+  @@index([containerEntryId])
+}
+
+model ContainerState {
+  inventoryEntryId  String         @id
+  currentWeightLb   Float          @default(0)
+  currentVolumeCuFt Float          @default(0)
+  maxWeightLb       Float
+  maxVolumeCuFt     Float
+  integrity         String         @default("INTACT")
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  inventoryEntry    InventoryEntry @relation(fields: [inventoryEntryId], references: [id], onDelete: Cascade)
+}
+
+model Scenario {
+  id               String             @id
+  title            String
+  description      String?
+  createdByUserId  String?
+  sourceType       ScenarioSourceType @default(SYSTEM)
+  baseScenarioId   String?
+  thumbnailUrl     String?
+  ruleSetId        String?
+  difficulty       String?
+  startLevel          Int              @default(1)
+  recommendedEndLevel Int?
+  license          ScenarioLicense
+  attribution      String?
+  startNodeId      String?
+  npcsJson         String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  creator          User?              @relation("ScenarioCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  baseScenario     Scenario?          @relation("ScenarioBase", fields: [baseScenarioId], references: [id], onDelete: SetNull)
+  derivedScenarios Scenario[]         @relation("ScenarioBase")
+  nodes            ScenarioNode[]
+  assets           ScenarioAsset[]
+  sessions         SessionScenario[]
+  characters       Character[]        @relation("ScenarioCharacters")
+}
+
+model ScenarioAsset {
+  id               String            @id @default(cuid())
+  scenarioId       String
+  kind             ScenarioAssetKind
+  fileName         String
+  contentType      String
+  storageKey       String            @unique
+  publicUrl        String
+  width            Int?
+  height           Int?
+  fileSizeBytes    Int
+  uploadedByUserId String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  scenario         Scenario          @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  uploadedBy       User              @relation("ScenarioAssetUploader", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([scenarioId, kind, createdAt])
+}
+
+model ScenarioNode {
+  id               String   @id
+  scenarioId       String
+  nodeType         String   @default("story")
+  title            String
+  sceneText        String
+  imageUrl         String?
+  checkOptionsJson String
+  transitionsJson  String
+  cluesJson        String
+  nodeMetaJson     String?
+  fallbackNodeId   String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  scenario         Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+}
+
+model SessionScenario {
+  id         String                @id @default(cuid())
+  sessionId  String
+  scenarioId String
+  sequence   Int
+  status     SessionScenarioStatus @default(PLANNED)
+  startedAt  DateTime?
+  endedAt    DateTime?
+  createdAt  DateTime              @default(now())
+  session    Session               @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  scenario   Scenario              @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  gameState  GameState?
+  nodes      SessionScenarioNode[]
+  nodeVisits SessionNodeVisit[]
+  reveals    SessionReveal[]
+  turnLogs   TurnLog[]
+  stateDiffs StateDiff[]
+  combats    Combat[]
+
+  @@unique([sessionId, sequence])
+}
+
+model SessionScenarioNode {
+  id                String          @id @default(cuid())
+  sessionScenarioId String
+  originalNodeId    String?
+  nodeId            String
+  nodeType          String          @default("story")
+  title             String
+  sceneText         String
+  imageUrl          String?
+  checkOptionsJson  String
+  transitionsJson   String
+  cluesJson         String
+  nodeMetaJson      String?
+  fallbackNodeId    String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  sessionScenario   SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+  nodeVisits        SessionNodeVisit[]
+
+  @@unique([sessionScenarioId, nodeId])
+  @@index([sessionScenarioId])
+  @@index([originalNodeId])
+}
+
+model SessionNodeVisit {
+  id                 String          @id @default(cuid())
+  sessionScenarioId  String
+  sessionScenarioNodeId String
+  nodeId             String
+  firstVisitedAt     DateTime        @default(now())
+  lastVisitedAt      DateTime        @updatedAt
+  visitCount         Int             @default(1)
+  enteredByTurnLogId String?
+  sessionScenario    SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+  scenarioNode       SessionScenarioNode @relation(fields: [sessionScenarioNodeId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionScenarioId, nodeId])
+  @@index([sessionScenarioId, firstVisitedAt])
+  @@index([sessionScenarioNodeId])
+}
+
+model SessionReveal {
+  id                String          @id @default(cuid())
+  sessionScenarioId String
+  contentId         String
+  contentKind       String          @default("clue")
+  scope             String          @default("party")
+  recipientId       String?
+  recipientKey      String          @default("party")
+  revealedAt        DateTime        @default(now())
+  revealedBy        String          @default("system")
+  reason            String?
+  turnLogId         String?
+  snapshotJson      String?
+  sessionScenario   SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionScenarioId, contentId, contentKind, scope, recipientKey])
+  @@index([sessionScenarioId, revealedAt])
+}
+
+model GameState {
+  sessionScenarioId   String          @id
+  version             Int             @default(1)
+  currentNodeId       String?
+  phase               GamePhase       @default(LOBBY)
+  flagsJson           String?
+  updatedAt           DateTime        @updatedAt
+  sessionScenario     SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+}
+
+model PlayerAction {
+  id                 String            @id @default(cuid())
+  sessionId          String
+  userId             String
+  sessionCharacterId String?
+  rawText            String
+  inputType          ActionInputType
+  actionScope        ActionScope
+  queueStatus        ActionQueueStatus @default(PENDING)
+  baseStateVersion   Int
+  failureReason      String?
+  clientCreatedAt    DateTime
+  processedAt        DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  session            Session           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  turnLogs           TurnLog[]
+
+  @@index([sessionId, queueStatus, createdAt])
+  @@index([userId, createdAt])
+}
+
+model TurnLog {
+  id                   String        @id @default(cuid())
+  sessionId            String
+  sessionScenarioId    String
+  playerActionId       String?
+  actorUserId          String?
+  sessionCharacterId   String?
+  turnNumber           Int
+  rawInput             String?
+  structuredActionJson String?
+  diceResultJson       String?
+  stateDiffJson        String?
+  outcome              ActionOutcome
+  narration            String?
+  createdAt            DateTime      @default(now())
+  session              Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionScenario      SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+  playerAction         PlayerAction? @relation(fields: [playerActionId], references: [id], onDelete: SetNull)
+  diceRollLogs         DiceRollLog[]
+  stateDiffs           StateDiff[]
+
+  @@index([sessionId, createdAt])
+  @@unique([sessionId, turnNumber])
+}
+
+model DiceRollLog {
+  id             String             @id @default(cuid())
+  sessionId      String
+  userId         String
+  expression     String
+  rollsJson      String
+  modifier       Int
+  total          Int
+  advantageState DiceAdvantageState @default(NORMAL)
+  reason         String?
+  turnLogId      String?
+  createdAt      DateTime           @default(now())
+  session        Session            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  turnLog        TurnLog?           @relation(fields: [turnLogId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, createdAt])
+}
+
+model StateDiff {
+  id                String          @id @default(cuid())
+  sessionScenarioId String
+  turnLogId         String?
+  baseVersion       Int
+  nextVersion       Int
+  diffJson          String
+  reason            String
+  createdAt         DateTime        @default(now())
+  sessionScenario   SessionScenario @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+  turnLog           TurnLog?        @relation(fields: [turnLogId], references: [id], onDelete: SetNull)
+
+  @@index([sessionScenarioId, createdAt])
+}
+
+model Combat {
+  id                String              @id @default(cuid())
+  sessionId         String
+  sessionScenarioId String
+  status            CombatStatus        @default(ACTIVE)
+  roundNo           Int                 @default(1)
+  turnNo            Int                 @default(1)
+  currentParticipantId String?
+  startedAt         DateTime            @default(now())
+  endedAt           DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  session           Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionScenario   SessionScenario     @relation(fields: [sessionScenarioId], references: [id], onDelete: Cascade)
+  participants      CombatParticipant[]
+  turnStates        CombatTurnState[]
+
+  @@index([sessionId, status])
+}
+
+model CombatParticipant {
+  id                 String           @id @default(cuid())
+  combatId           String
+  entityType         CombatEntityType
+  sessionCharacterId String?
+  tokenId            String?
+  nameSnapshot       String
+  currentHp          Int?
+  maxHp              Int?
+  armorClass         Int?
+  speedFt            Int?
+  conditionsJson     String?
+  initiative         Int
+  turnOrder          Int
+  isAlive            Boolean          @default(true)
+  isHostile          Boolean          @default(false)
+  turnEndedAt        DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  combat             Combat           @relation(fields: [combatId], references: [id], onDelete: Cascade)
+  turnStates         CombatTurnState[]
+
+  @@index([combatId, turnOrder])
+}
+
+model CombatTurnState {
+  id                       String           @id @default(cuid())
+  combatId                 String
+  combatParticipantId      String?
+  roundNo                  Int
+  turnNo                   Int
+  sessionCharacterId       String?
+  actionUsed               Boolean          @default(false)
+  bonusActionUsed          Boolean          @default(false)
+  reactionUsed             Boolean          @default(false)
+  additionalActionGranted  Boolean          @default(false)
+  attackActionWeaponId     String?
+  attackActionWeaponIsLightMelee Boolean    @default(false)
+  sneakAttackUsed          Boolean          @default(false)
+  movementFtSpent          Int              @default(0)
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+  combat                   Combat           @relation(fields: [combatId], references: [id], onDelete: Cascade)
+  combatParticipant        CombatParticipant? @relation(fields: [combatParticipantId], references: [id], onDelete: Cascade)
+  sessionCharacter         SessionCharacter? @relation(fields: [sessionCharacterId], references: [id], onDelete: Cascade)
+
+  @@unique([combatId, roundNo, turnNo, combatParticipantId])
+  @@index([combatParticipantId])
+  @@index([sessionCharacterId])
+}
+
+model SessionCharacterResource {
+  sessionCharacterId  String           @id
+  secondWindAvailable Boolean          @default(true)
+  actionSurgeUses     Int              @default(0)
+  rageUses            Int              @default(0)
+  rageActive          Boolean          @default(false)
+  rageEndsAtRound     Int?
+  rageEndsAtTurn      Int?
+  frenzyActive        Boolean          @default(false)
+  exhaustionLevel     Int              @default(0)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  sessionCharacter    SessionCharacter @relation(fields: [sessionCharacterId], references: [id], onDelete: Cascade)
+}
+
+model AiTrace {
+  id                String         @id @default(cuid())
+  sessionId         String
+  userId            String
+  kind              AiTraceKind
+  status            AiTraceStatus
+  latencyMs         Int
+  provider          String?
+  model             String?
+  promptVersion     String?
+  attempts          Int?
+  finishReason      String?
+  providerRequestId String?
+  failureType       String?
+  errorMessage      String?
+  requestJson       String
+  responseJson      String?
+  createdAt         DateTime       @default(now())
+  session           Session        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
