@@ -70,6 +70,7 @@ import {
   endCombat,
   endCombatTurn,
   acceptCombatReaction,
+  resolveCombatActorAction,
   castCombatSpell,
   createVttMapPing,
   dashCombatAction,
@@ -1629,6 +1630,7 @@ export function PlayPage({
   const [isStartTransitionPending, setIsStartTransitionPending] = useState(false);
   const [characterCarouselIndex, setCharacterCarouselIndex] = useState(0);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+  const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   // 현재 세션의 플레이어용 시나리오 노드와 VTT 맵 로딩 상태입니다.
   const [playerScenario, setPlayerScenario] = useState<PlayerScenarioView | null>(null);
   const [vttMap, setVttMap] = useState<VttMapStateDto | null>(null);
@@ -1699,6 +1701,7 @@ export function PlayPage({
   const canManageStartedSession = Boolean(
     !isRecruiting && (isHumanGmSession ? isGmUser : isHost)
   );
+  const canUseHumanGmView = Boolean(!isRecruiting && isHumanGmSession && isGmUser);
   const canShowCharacterSelection = Boolean(session && isRecruiting && !isGmUser);
   const canStartSession = Boolean(
     (isHumanGmSession ? isGmUser : isHost) &&
@@ -1764,7 +1767,7 @@ export function PlayPage({
     null;
   const currentNode = playerScenario?.currentNode ?? null;
   useEffect(() => {
-    if (!session?.id || !canManageStartedSession || !currentNode?.id) {
+    if (!session?.id || !canUseHumanGmView || !currentNode?.id) {
       setGmNodeMoveOptions([]);
       return;
     }
@@ -1785,9 +1788,9 @@ export function PlayPage({
     return () => {
       ignore = true;
     };
-  }, [canManageStartedSession, currentNode?.id, session?.id, snapshot?.state.version, user]);
+  }, [canUseHumanGmView, currentNode?.id, session?.id, snapshot?.state.version, user]);
   useEffect(() => {
-    if (!canManageStartedSession || gmItemCatalog.length) {
+    if (!canUseHumanGmView || gmItemCatalog.length) {
       return;
     }
 
@@ -1816,7 +1819,7 @@ export function PlayPage({
     return () => {
       ignore = true;
     };
-  }, [canManageStartedSession, gmItemCatalog.length]);
+  }, [canUseHumanGmView, gmItemCatalog.length]);
   const currentSceneDescriptionText =
     currentNode?.sceneText?.trim() || '현재 장면 설명이 아직 준비되지 않았습니다.';
   const currentPublicClueIdSignature = useMemo(
@@ -3204,7 +3207,7 @@ export function PlayPage({
     item: ItemResponseDto,
     quantity: number
   ) {
-    if (!session || !canManageStartedSession || isGmInventoryGrantPending) return;
+    if (!session || !canUseHumanGmView || isGmInventoryGrantPending) return;
 
     setInventoryUseFeedback(null);
     setGmInventoryGrantPending(true);
@@ -3244,6 +3247,27 @@ export function PlayPage({
     await runCombatRequest(() =>
       resolveSneakAttackCombatAction(user, session.id, { targetParticipantId })
     );
+  }
+
+  async function handleMonsterCombatAction(
+    targetParticipantId?: string | null,
+    actionType: 'attack' | 'dash' | 'dodge' | 'hide' = 'attack',
+    actionId?: string | null
+  ) {
+    if (!session || isCombatBusy) return;
+    await runCombatRequest(async () => {
+      const result = await resolveCombatActorAction(user, session.id, {
+        actionType,
+        actionId: actionId ?? null,
+        targetParticipantId: targetParticipantId ?? null,
+        autoEndTurn: false,
+      });
+      if (result.map) {
+        setVttMap(result.map);
+        latestConfirmedMapRef.current = result.map;
+      }
+      return result;
+    });
   }
 
   async function handleDashCombatAction() {
@@ -3447,7 +3471,7 @@ export function PlayPage({
     saveState.isSaving = true;
 
     try {
-      const savedMap = canManageStartedSession
+      const savedMap = canUseHumanGmView
         ? await updateGmVttMap(user, sessionId, mapToSave)
         : await updateVttMap(user, sessionId, mapToSave);
       if (mapSaveRef.current.activeSessionId === sessionId) {
@@ -3475,7 +3499,7 @@ export function PlayPage({
 
   function handleMapChange(nextMap: VttMapStateDto) {
     if (!session) return;
-    if (!canManageStartedSession) {
+    if (!canUseHumanGmView) {
       setVttMap(nextMap);
       setMapLoadError(null);
       return;
@@ -3586,7 +3610,7 @@ export function PlayPage({
   }
 
   async function handleGmNodeMove(nodeId: string) {
-    if (!session || !canManageStartedSession || isGmNodeMovePending) return;
+    if (!session || !canUseHumanGmView || isGmNodeMovePending) return;
     setGmNodeMovePending(true);
     setMapLoadError(null);
     setScenarioLoadError(null);
@@ -3820,8 +3844,9 @@ export function PlayPage({
 
   return (
     <main
-      className={`session-prep-layout session-prep-layout-tight${isRecruiting ? ' recruiting-tavern' : ''
-        }`}
+      className={`session-prep-layout session-prep-layout-tight${
+        isRecruiting ? ' recruiting-tavern' : ''
+      }${isSidebarCollapsed ? ' sidebar-collapsed' : ''}`}
       style={layoutStyle}
     >
       <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none' }}>
@@ -4054,7 +4079,7 @@ export function PlayPage({
                   phase={snapshot?.state.phase}
                   characters={sessionCharacters}
                   currentUserId={user.id}
-                  isGmView={canManageStartedSession}
+                  isGmView={canUseHumanGmView}
                   rpUtterances={storyRpUtterances}
                   onRpUtteranceClick={() => setActiveTab('Main')}
                   getCharacterColorStyle={(character) =>
@@ -4069,7 +4094,7 @@ export function PlayPage({
                   characters={sessionCharacters}
                   currentUserId={user.id}
                   isHost={isHost}
-                  isGmView={canManageStartedSession}
+                  isGmView={canUseHumanGmView}
                   map={vttMap}
                   inventory={selectedCharacterInventory}
                   isBusy={busy || isInventoryUsePending || isGmNodeMovePending}
@@ -4103,7 +4128,7 @@ export function PlayPage({
                   classDefinitions={classDefinitions}
                   currentUserId={user.id}
                   isHost={isHost}
-                  isGmView={canManageStartedSession}
+                  isGmView={canUseHumanGmView}
                   map={vttMap}
                   combat={combat}
                   combatError={combatError}
@@ -4119,6 +4144,7 @@ export function PlayPage({
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onEquipInventoryItem={handleEquipInventoryItem}
                   onAttackWithEquippedWeapon={handleEquippedWeaponAttack}
+                  onMonsterAction={handleMonsterCombatAction}
                   onAttackWithOffhandWeapon={handleOffhandWeaponAttack}
                   onSneakAttack={handleSneakAttack}
                   onDash={handleDashCombatAction}
@@ -4429,7 +4455,16 @@ export function PlayPage({
         onPointerDown={handleSidebarResizePointerDown}
       />
 
-      <aside className="session-sidebar">
+      <aside className={`session-sidebar${isSidebarCollapsed ? ' collapsed' : ''}`}>
+        <button
+          type="button"
+          className="session-sidebar-collapse-toggle"
+          aria-label={isSidebarCollapsed ? '채팅창 열기' : '채팅창 접기'}
+          title={isSidebarCollapsed ? '채팅창 열기' : '채팅창 접기'}
+          onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+        >
+          <span className="session-sidebar-collapse-toggle-arrow" aria-hidden="true" />
+        </button>
         <div className="session-sidebar-tabs">
           {availableTabs.map((tab) => {
             const unreadMessageCount =

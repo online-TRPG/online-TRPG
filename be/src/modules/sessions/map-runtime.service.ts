@@ -43,9 +43,7 @@ export class MapRuntimeService {
         select: { id: true },
       }),
     );
-    const isGmOperator = session.gmMode === "HUMAN"
-      ? (session.gmUserId ?? session.hostUserId) === userId
-      : session.hostUserId === userId;
+    const isGmOperator = session.gmMode === "HUMAN" && (session.gmUserId ?? session.hostUserId) === userId;
     this.logger.debug(
       `[VTT_GM_MAP_UPDATE] sessionId=${resolvedSessionId} userId=${userId} nodeId=${state.currentNodeId ?? "null"} gmOperator=${isGmOperator} activeCombat=${hasActiveCombat} requestedTokens=${requestedMap.tokens.length}`,
     );

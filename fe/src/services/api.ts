@@ -3,6 +3,7 @@ import type {
   ApplyCombatDamageDto,
   AutoMonsterTurnDto,
   AuthTokenResponseDto,
+  CombatActorActionDto,
   CombatBasicActionDto,
   CharacterResponseDto,
   CombatActionResultDto,
@@ -1149,6 +1150,20 @@ export function hideCombatAction(
   accessToken?: string | null
 ): Promise<CombatActionResultDto> {
   return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/hide`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function resolveCombatActorAction(
+  user: StoredUser,
+  sessionId: string,
+  payload: CombatActorActionDto = {},
+  accessToken?: string | null
+): Promise<CombatActionResultDto> {
+  return requestJson<CombatActionResultDto>(`/sessions/${sessionId}/combat/actor/action`, {
     method: 'POST',
     user,
     accessToken,

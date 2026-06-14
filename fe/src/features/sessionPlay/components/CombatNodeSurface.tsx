@@ -27,6 +27,7 @@ import './CombatNodeSurface.css';
 
 type CombatActionTab = 'basic' | 'ability' | 'spell';
 type CombatMovementMode = 'normal' | 'jump';
+type CombatActorActionType = 'attack' | 'dash' | 'dodge' | 'hide';
 type SpellFilter = 'all' | 'cantrip' | 'level1';
 type CombatResourceIconKind = 'action' | 'bonus' | 'reaction';
 type CombatParticipant = CombatResponseDto['participants'][number];
@@ -68,6 +69,11 @@ interface CombatNodeSurfaceProps {
   onUseInventoryItem: (item: InventoryItemDto) => void;
   onEquipInventoryItem: (item: InventoryItemDto) => void;
   onAttackWithEquippedWeapon: (targetParticipantId: string) => void | Promise<void>;
+  onMonsterAction?: (
+    targetParticipantId?: string | null,
+    actionType?: CombatActorActionType,
+    actionId?: string | null
+  ) => void | Promise<void>;
   onAttackWithOffhandWeapon: (targetParticipantId: string) => void | Promise<void>;
   onSneakAttack: (targetParticipantId: string) => void | Promise<void>;
   onDash: () => void | Promise<void>;
@@ -157,6 +163,14 @@ function CombatActionButtonContent({ label }: { label: string }) {
       <span className="combat-action-button-label">{label}</span>
     </>
   );
+}
+
+function getMonsterActionRangeLabel(action: CombatParticipant['monsterActions'][number]) {
+  if (!action.rangeFt) return null;
+  if (action.longRangeFt && action.longRangeFt > action.rangeFt) {
+    return `${action.rangeFt}/${action.longRangeFt}ft`;
+  }
+  return `${action.rangeFt}ft`;
 }
 
 function normalizeClassKey(value: string | null | undefined) {
@@ -511,6 +525,7 @@ export function CombatNodeSurface({
   onUseInventoryItem,
   onEquipInventoryItem,
   onAttackWithEquippedWeapon,
+  onMonsterAction,
   onAttackWithOffhandWeapon,
   onSneakAttack,
   onDash,
@@ -532,6 +547,7 @@ export function CombatNodeSurface({
   const [isAttackTargeting, setAttackTargeting] = useState(false);
   const [isSneakAttackTargeting, setSneakAttackTargeting] = useState(false);
   const [targetingSpellId, setTargetingSpellId] = useState<string | null>(null);
+  const [targetingMonsterActionId, setTargetingMonsterActionId] = useState<string | null>(null);
   const [combatMovementMode, setCombatMovementMode] = useState<CombatMovementMode>('normal');
   const [spellFilter, setSpellFilter] = useState<SpellFilter>('all');
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
@@ -562,12 +578,6 @@ export function CombatNodeSurface({
     combat?.participants.find(
       (participant) => participant.sessionCharacterId === myCharacter?.id
     ) ?? null;
-  const isMyCombatTurn =
-    Boolean(combat?.currentEntityId) &&
-    Boolean(myCombatParticipant?.sessionEntityId) &&
-    combat?.currentEntityId === myCombatParticipant?.sessionEntityId;
-  const canShowEndTurnButton = Boolean(combat && isMyCombatTurn);
-  const isMyCombatTurnPending = Boolean(combat && myCombatParticipant && !isMyCombatTurn);
   const myActionResources = myCombatParticipant?.actionResources ?? null;
   const level1SpellSlotsTotal = myActionResources?.spellSlotLevel1Total ?? 0;
   const level1SpellSlotsRemaining = Math.min(
@@ -578,8 +588,6 @@ export function CombatNodeSurface({
     level1SpellSlotsRemaining,
     level1SpellSlotsTotal
   );
-  const myCurrentHp = myCombatParticipant?.currentHp ?? myCharacter?.currentHp ?? null;
-  const myMaxHp = myCombatParticipant?.maxHp ?? myCharacter?.maxHp ?? null;
   const equippedWeapon =
     inventory.find((item) => isEquippedItem(item, myCharacter?.equippedWeaponId)) ?? null;
   const offhandWeapon =
@@ -590,6 +598,36 @@ export function CombatNodeSurface({
     combat?.participants.find(
       (participant) => participant.sessionEntityId === combat.currentEntityId
     ) ?? null;
+  const activeCombatActor = isGmView ? currentParticipant : myCombatParticipant;
+  const activeActorCharacter = activeCombatActor?.sessionCharacterId
+    ? (characters.find((character) => character.id === activeCombatActor.sessionCharacterId) ?? null)
+    : null;
+  const activeActionResources = activeCombatActor?.actionResources ?? null;
+  const canControlActiveActor = Boolean(
+    combat &&
+      activeCombatActor &&
+      activeCombatActor.sessionEntityId === combat.currentEntityId &&
+      activeCombatActor.isAlive &&
+      (isGmView
+        ? activeCombatActor.isHostile
+        : activeCombatActor.sessionCharacterId === myCharacter?.id)
+  );
+  const isActiveActorPending = Boolean(
+    combat &&
+      activeCombatActor &&
+      !canControlActiveActor
+  );
+  const canUsePlayerCharacterActions = Boolean(
+    canControlActiveActor &&
+      !isGmView &&
+      activeCombatActor?.sessionCharacterId &&
+      activeCombatActor.sessionCharacterId === myCharacter?.id
+  );
+  const canShowEndTurnButton = Boolean(combat && canControlActiveActor);
+  const activeActorName =
+    activeActorCharacter?.name ?? activeCombatActor?.name ?? myCharacter?.name ?? '캐릭터 미선택';
+  const activeCurrentHp = activeCombatActor?.currentHp ?? activeActorCharacter?.currentHp ?? null;
+  const activeMaxHp = activeCombatActor?.maxHp ?? activeActorCharacter?.maxHp ?? null;
   const selectedTargetParticipant =
     combat?.participants.find(
       (participant) => participant.sessionEntityId === selectedTargetParticipantId
@@ -645,7 +683,7 @@ export function CombatNodeSurface({
     return getGridDistanceFt(map, sourceToken, targetToken) <= offhandAttackRangeFt;
   }, [offhandAttackRangeFt, map, myCombatParticipant, selectedTargetParticipant]);
   const canAttackWithEquippedWeapon = Boolean(
-    isMyCombatTurn &&
+    canUsePlayerCharacterActions &&
     myActionResources?.actionAvailable &&
     selectedTargetParticipant?.isHostile &&
     selectedTargetParticipant.isAlive &&
@@ -653,13 +691,13 @@ export function CombatNodeSurface({
     !isCombatBusy
   );
   const canStartAttackTargeting = Boolean(
-    isMyCombatTurn && myActionResources?.actionAvailable && myCombatParticipant && !isCombatBusy
+    canUsePlayerCharacterActions && myActionResources?.actionAvailable && myCombatParticipant && !isCombatBusy
   );
   const canUseAction = Boolean(
-    isMyCombatTurn && myActionResources?.actionAvailable && !isCombatBusy
+    canControlActiveActor && activeActionResources?.actionAvailable && !isCombatBusy
   );
   const canUseSneakAttack = Boolean(
-    isMyCombatTurn &&
+    canUsePlayerCharacterActions &&
     myActionResources?.actionAvailable &&
     myActionResources?.sneakAttackAvailable &&
     selectedTargetParticipant &&
@@ -667,7 +705,7 @@ export function CombatNodeSurface({
     !isCombatBusy
   );
   const canStartSneakAttackTargeting = Boolean(
-    isMyCombatTurn &&
+    canUsePlayerCharacterActions &&
     myActionResources?.actionAvailable &&
     myActionResources?.sneakAttackAvailable &&
     isSneakAttackWeaponEquipped &&
@@ -675,7 +713,7 @@ export function CombatNodeSurface({
     !isCombatBusy
   );
   const canUseOffhandAttack = Boolean(
-    isMyCombatTurn &&
+    canUsePlayerCharacterActions &&
     myActionResources?.twoWeaponAttackAvailable &&
     myActionResources?.bonusActionAvailable &&
     offhandWeapon &&
@@ -685,6 +723,39 @@ export function CombatNodeSurface({
     isSelectedTargetInOffhandRange &&
     !isCombatBusy
   );
+  const canUseMonsterAction = Boolean(
+    isGmView &&
+      canControlActiveActor &&
+      activeCombatActor?.isHostile &&
+      activeActionResources?.actionAvailable &&
+      selectedTargetParticipant &&
+      selectedTargetParticipant.isAlive &&
+      selectedTargetParticipant.isHostile !== activeCombatActor.isHostile &&
+      !isCombatBusy
+  );
+  const canStartMonsterAttackTargeting = Boolean(
+    isGmView &&
+      canControlActiveActor &&
+      activeCombatActor?.isHostile &&
+      activeActionResources?.actionAvailable &&
+      !isCombatBusy
+  );
+  const activeMonsterActions = activeCombatActor?.monsterActions?.length
+    ? activeCombatActor.monsterActions
+    : [
+        {
+          actionId: 'attack',
+          label: '공격',
+          attackKind: 'melee',
+          attackBonus: 0,
+          damageDice: '',
+          damageType: null,
+          rangeFt: 5,
+          longRangeFt: null,
+          confidence: null,
+          costType: 'action',
+        },
+      ];
   const classAbilityButtons = useMemo(
     () => getClassAbilityButtons(myCharacter, myCombatParticipant?.conditions),
     [myCharacter, myCombatParticipant?.conditions]
@@ -703,26 +774,26 @@ export function CombatNodeSurface({
     {
       kind: 'action' as const,
       label: '행동',
-      available: myActionResources?.actionAvailable ?? false,
+      available: activeActionResources?.actionAvailable ?? false,
     },
     {
       kind: 'bonus' as const,
       label: '추가 행동',
-      available: myActionResources?.bonusActionAvailable ?? false,
+      available: activeActionResources?.bonusActionAvailable ?? false,
     },
     {
       kind: 'reaction' as const,
       label: '반응',
-      available: myActionResources?.reactionAvailable ?? false,
+      available: activeActionResources?.reactionAvailable ?? false,
     },
   ];
-  const movementCurrent = myActionResources?.movementFtRemaining ?? myCharacter?.speed ?? null;
-  const movementTotal = myActionResources?.movementFtTotal ?? myCharacter?.speed ?? null;
+  const movementCurrent = activeActionResources?.movementFtRemaining ?? activeActorCharacter?.speed ?? null;
+  const movementTotal = activeActionResources?.movementFtTotal ?? activeActorCharacter?.speed ?? null;
   const canUseJumpMovement = Boolean(
-    isMyCombatTurn && !isCombatBusy && movementCurrent !== null && movementCurrent > 10
+    canControlActiveActor && !isCombatBusy && movementCurrent !== null && movementCurrent > 10
   );
   const hpMeterStyle = {
-    '--combat-resource-fill': `${getResourceFillPercent(myCurrentHp, myMaxHp)}%`,
+    '--combat-resource-fill': `${getResourceFillPercent(activeCurrentHp, activeMaxHp)}%`,
   } as CSSProperties;
   const movementMeterStyle = {
     '--combat-resource-fill': `${getResourceFillPercent(movementCurrent, movementTotal)}%`,
@@ -755,7 +826,16 @@ export function CombatNodeSurface({
 
   function getParticipantTokenId(participant: CombatResponseDto['participants'][number]) {
     if (participant.tokenId) return participant.tokenId;
-    if (!participant.sessionCharacterId) return null;
+    if (!participant.sessionCharacterId) {
+      const matchingHostileTokens =
+        map?.tokens.filter(
+          (token) =>
+            token.hidden !== true &&
+            token.isHostile === true &&
+            token.name.trim() === participant.name.trim()
+        ) ?? [];
+      return matchingHostileTokens.length === 1 ? matchingHostileTokens[0].id : null;
+    }
     return (
       map?.tokens.find((token) => token.sessionCharacterId === participant.sessionCharacterId)
         ?.id ?? null
@@ -779,6 +859,16 @@ export function CombatNodeSurface({
         .filter((entry): entry is [string, number] => Boolean(entry)) ?? [];
     return Object.fromEntries(entries);
   }, [combat, map?.tokens]);
+  const controllableCombatTokenIds = useMemo(() => {
+    if (!combat || !canControlActiveActor || !activeCombatActor) return [];
+
+    if (isGmView || activeCombatActor.sessionCharacterId === myCharacter?.id) {
+      const tokenId = getParticipantTokenId(activeCombatActor);
+      return tokenId ? [tokenId] : [];
+    }
+
+    return [];
+  }, [activeCombatActor, canControlActiveActor, combat, isGmView, map?.tokens, myCharacter?.id]);
 
   async function handleTokenMoveRequest(
     token: VttMapStateDto['tokens'][number],
@@ -787,6 +877,10 @@ export function CombatNodeSurface({
     movementMode: CombatMovementMode = combatMovementMode
   ): Promise<VttMapStateDto | null> {
     if (!onTokenMoveRequest) return null;
+    if (isGmView) {
+      const currentTokenId = activeCombatActor ? getParticipantTokenId(activeCombatActor) : null;
+      if (!activeCombatActor?.isHostile || currentTokenId !== token.id) return null;
+    }
     const result = await onTokenMoveRequest(token, to, path, movementMode);
     if (result && movementMode === 'jump') {
       setCombatMovementMode('normal');
@@ -937,10 +1031,23 @@ export function CombatNodeSurface({
     );
   }
 
+  function isOpposingParticipant(
+    participant: CombatResponseDto['participants'][number] | null
+  ) {
+    return Boolean(
+      activeCombatActor &&
+        participant &&
+        participant.isAlive &&
+        participant.sessionEntityId !== activeCombatActor.sessionEntityId &&
+        participant.isHostile !== activeCombatActor.isHostile
+    );
+  }
+
   function runEquippedWeaponAttack(targetParticipantId: string) {
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
     setTargetingSpellId(null);
+    setTargetingMonsterActionId(null);
     void onAttackWithEquippedWeapon(targetParticipantId);
   }
 
@@ -948,6 +1055,7 @@ export function CombatNodeSurface({
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
     setTargetingSpellId(null);
+    setTargetingMonsterActionId(null);
     void onAttackWithOffhandWeapon(targetParticipantId);
   }
 
@@ -955,13 +1063,27 @@ export function CombatNodeSurface({
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
     setTargetingSpellId(null);
+    setTargetingMonsterActionId(null);
     void onSneakAttack(targetParticipantId);
+  }
+
+  function runMonsterAction(
+    targetParticipantId?: string | null,
+    actionType: CombatActorActionType = 'attack',
+    actionId?: string | null
+  ) {
+    setAttackTargeting(false);
+    setSneakAttackTargeting(false);
+    setTargetingSpellId(null);
+    setTargetingMonsterActionId(null);
+    void onMonsterAction?.(targetParticipantId ?? null, actionType, actionId ?? null);
   }
 
   function startSpellTargeting(spellId: string) {
     if (!spellId || spellId === 'spell.shield') return;
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
+    setTargetingMonsterActionId(null);
     setTargetingSpellId((current) => (current === spellId ? null : spellId));
   }
 
@@ -1020,10 +1142,19 @@ export function CombatNodeSurface({
     setSelectedMapTokenId(selection.token.id);
     const participant = getParticipantByTokenId(selection.token.id);
     setSelectedTargetParticipantId(
-      participant?.isHostile && participant.isAlive ? participant.sessionEntityId : null
+      isOpposingParticipant(participant) ? participant?.sessionEntityId ?? null : null
     );
 
     if (!isAttackTargeting && !isSneakAttackTargeting) return;
+    if (
+      isAttackTargeting &&
+      isGmView &&
+      activeCombatActor?.isHostile &&
+      isOpposingParticipant(participant)
+    ) {
+      runMonsterAction(participant?.sessionEntityId ?? null, 'attack', targetingMonsterActionId);
+      return;
+    }
     if (!participant?.isHostile || !participant.isAlive) return;
     if (!isParticipantAttackTargetInRange(participant)) return;
     if (isSneakAttackTargeting) {
@@ -1046,11 +1177,12 @@ export function CombatNodeSurface({
   }, [map?.tokens, selectedTargetParticipant]);
 
   useEffect(() => {
-    if (!canStartAttackTargeting) {
+    if (!canStartAttackTargeting && !canStartMonsterAttackTargeting) {
       setAttackTargeting(false);
       setTargetingSpellId(null);
+      setTargetingMonsterActionId(null);
     }
-  }, [canStartAttackTargeting]);
+  }, [canStartAttackTargeting, canStartMonsterAttackTargeting]);
 
   useEffect(() => {
     if (!canStartSneakAttackTargeting) {
@@ -1200,11 +1332,14 @@ export function CombatNodeSurface({
                 characters={characters}
                 isHost={isHost}
                 currentUserId={currentUserId}
-                isInteractionLocked={!isMyCombatTurn}
+                isInteractionLocked={!canControlActiveActor}
                 tokenMovementRangeFtByTokenId={tokenMovementRangeFtByTokenId}
+                controllableTokenIds={controllableCombatTokenIds}
                 tokenHealthByTokenId={enemyTokenHealthByTokenId}
                 attackRangeOverlay={attackRangeOverlay}
                 combatMovementMode={combatMovementMode}
+                showHiddenContent={isGmView}
+                showPlayerVisionPreview={isGmView}
                 onMapChange={onMapChange}
                 onPingRequest={onPingRequest}
                 onTokenMoveRequest={handleTokenMoveRequest}
@@ -1245,10 +1380,10 @@ export function CombatNodeSurface({
 
       <section className="combat-action-dock" aria-label="전투 행동">
         <div
-          className={`combat-resource-panel${isMyCombatTurn ? ' my-turn' : ''}${
-            isMyCombatTurnPending ? ' not-my-turn' : ''
+          className={`combat-resource-panel${canControlActiveActor ? ' my-turn' : ''}${
+            isActiveActorPending ? ' not-my-turn' : ''
           }`}
-          aria-disabled={isMyCombatTurnPending}
+          aria-disabled={isActiveActorPending}
         >
           <span className="combat-frame-corner top-left" aria-hidden="true" />
           <span className="combat-frame-corner top-right" aria-hidden="true" />
@@ -1257,9 +1392,9 @@ export function CombatNodeSurface({
           <div className="combat-resource-head">
             <span className="combat-node-eyebrow">행동 자원</span>
             <div className="combat-resource-actions">
-              {isMyCombatTurn ? (
+              {canControlActiveActor ? (
                 <span className="combat-turn-alert" aria-label="현재 내 턴">
-                  내 턴
+                  {isGmView ? '조작 턴' : '내 턴'}
                 </span>
               ) : null}
               {/* 발표 화면에서는 디버그용 전투 종료 버튼을 숨깁니다.
@@ -1288,7 +1423,7 @@ export function CombatNodeSurface({
               ) : null}
             </div>
           </div>
-          <strong>{myCharacter?.name ?? '캐릭터 미선택'}</strong>
+          <strong>{activeActorName}</strong>
           <div className="combat-resource-row" aria-label="행동 자원">
             {combatResources.map((resource) => (
               <span
@@ -1306,7 +1441,7 @@ export function CombatNodeSurface({
               <div className="combat-resource-meter-label">
                 <span>HP</span>
                 <strong>
-                  {myCurrentHp ?? '-'}/{myMaxHp ?? '-'}
+                  {activeCurrentHp ?? '-'}/{activeMaxHp ?? '-'}
                 </strong>
               </div>
               <span className="combat-resource-meter-track" aria-hidden="true">
@@ -1370,7 +1505,7 @@ export function CombatNodeSurface({
                       const spellLevel = spellId ? mvpSpellLevelById[spellId] : undefined;
                       const isLevel1Spell = spellLevel === 1;
                       const disabled =
-                        !isMyCombatTurn ||
+                        !canUsePlayerCharacterActions ||
                         !canUseAction ||
                         isCombatBusy ||
                         spellId === 'spell.shield' ||
@@ -1407,7 +1542,7 @@ export function CombatNodeSurface({
               classAbilityButtons.length ? (
                 classAbilityButtons.map((ability) => {
                   const canUseFeature = Boolean(
-                    isMyCombatTurn &&
+                    canUsePlayerCharacterActions &&
                     !isCombatBusy &&
                     !ability.disabled &&
                     (!ability.requiresAction || myActionResources?.actionAvailable) &&
@@ -1471,6 +1606,57 @@ export function CombatNodeSurface({
             ) : (
               currentTab.actions.map((action) => {
                 if (action === '공격') {
+                  if (isGmView && activeCombatActor?.isHostile) {
+                    return (
+                      <Fragment key={action}>
+                        {activeMonsterActions.map((monsterAction) => {
+                          const monsterActionId = monsterAction.actionId;
+                          const rangeLabel = getMonsterActionRangeLabel(monsterAction);
+                          const isTargetingThisAction =
+                            isAttackTargeting && targetingMonsterActionId === monsterActionId;
+                          return (
+                            <button
+                              type="button"
+                              key={monsterActionId}
+                              className={`combat-action-button has-action-icon${isTargetingThisAction ? ' targeting' : ''}`}
+                              disabled={!canControlActiveActor || !activeActionResources?.actionAvailable}
+                              title={
+                                isTargetingThisAction
+                                  ? `${monsterAction.label} 대상 플레이어 캐릭터 토큰을 선택하세요.`
+                                  : !selectedTargetParticipant
+                                    ? `${monsterAction.label} 버튼을 눌러 대상을 선택하세요.`
+                                    : canUseMonsterAction
+                                      ? `${activeCombatActor.name} ${monsterAction.label}${
+                                          rangeLabel ? ` (${rangeLabel})` : ''
+                                        }`
+                                      : '현재 몬스터가 행동할 수 없습니다.'
+                              }
+                              onClick={() => {
+                                if (canUseMonsterAction && selectedTargetParticipant) {
+                                  runMonsterAction(
+                                    selectedTargetParticipant.sessionEntityId,
+                                    'attack',
+                                    monsterActionId
+                                  );
+                                  return;
+                                }
+                                if (canControlActiveActor) {
+                                  setSneakAttackTargeting(false);
+                                  setTargetingSpellId(null);
+                                  setTargetingMonsterActionId(monsterActionId);
+                                  setAttackTargeting((current) =>
+                                    targetingMonsterActionId === monsterActionId ? !current : true
+                                  );
+                                }
+                              }}
+                            >
+                              <CombatActionButtonContent label={monsterAction.label} />
+                            </button>
+                          );
+                        })}
+                      </Fragment>
+                    );
+                  }
                   return (
                     <Fragment key={action}>
                       <button
@@ -1493,6 +1679,7 @@ export function CombatNodeSurface({
                           }
                           if (canStartAttackTargeting) {
                             setTargetingSpellId(null);
+                            setTargetingMonsterActionId(null);
                             setAttackTargeting((current) => !current);
                           }
                         }}
@@ -1535,7 +1722,13 @@ export function CombatNodeSurface({
                       className="combat-action-button has-action-icon"
                       disabled={!canUseAction}
                       title="행동을 소모해 이번 턴 이동 가능 거리를 기본 이동속도만큼 늘립니다."
-                      onClick={() => void onDash()}
+                      onClick={() => {
+                        if (isGmView && activeCombatActor?.isHostile) {
+                          runMonsterAction(null, 'dash');
+                          return;
+                        }
+                        void onDash();
+                      }}
                     >
                       <CombatActionButtonContent label="대시" />
                     </button>
@@ -1574,7 +1767,13 @@ export function CombatNodeSurface({
                       className="combat-action-button has-action-icon"
                       disabled={!canUseAction}
                       title="행동을 소모해 다음 자기 턴 시작 전까지 자신을 향한 공격 굴림에 불리점을 줍니다."
-                      onClick={() => void onDodge()}
+                      onClick={() => {
+                        if (isGmView && activeCombatActor?.isHostile) {
+                          runMonsterAction(null, 'dodge');
+                          return;
+                        }
+                        void onDodge();
+                      }}
                     >
                       <CombatActionButtonContent label="회피" />
                     </button>
@@ -1588,7 +1787,13 @@ export function CombatNodeSurface({
                       className="combat-action-button has-action-icon"
                       disabled={!canUseAction}
                       title="행동을 소모하고 민첩(은신) 판정에 성공하면 다음 공격 굴림에 이점을 얻습니다."
-                      onClick={() => void onHide()}
+                      onClick={() => {
+                        if (isGmView && activeCombatActor?.isHostile) {
+                          runMonsterAction(null, 'hide');
+                          return;
+                        }
+                        void onHide();
+                      }}
                     >
                       <CombatActionButtonContent label="숨기" />
                     </button>

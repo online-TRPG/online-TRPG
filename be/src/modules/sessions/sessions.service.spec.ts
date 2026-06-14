@@ -837,6 +837,91 @@ describe("SessionsService VTT map structures", () => {
 });
 
 describe("SessionsService legacy VTT map updates", () => {
+  it("redacts GM-only map data for the host in AI GM sessions", async () => {
+    const prisma = {
+      gameState: {
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const gmMap = {
+      id: "map-1",
+      scenarioNodeId: "node-exploration",
+      imageUrl: null,
+      gridType: "square",
+      gridSize: 64,
+      width: 640,
+      height: 640,
+      tokens: [
+        { id: "visible-token", name: "Visible", x: 0, y: 0, size: 64, hidden: false },
+        { id: "hidden-token", name: "Hidden", x: 64, y: 0, size: 64, hidden: true },
+      ],
+      fogRects: [],
+      objectCells: [
+        {
+          id: "visible-object",
+          x: 0,
+          y: 0,
+          width: 64,
+          height: 64,
+          visibleToPlayers: true,
+          hiddenClueIds: ["clue-1"],
+          hiddenItemIds: ["item-1"],
+          hiddenEventIds: ["event-1"],
+        },
+        {
+          id: "hidden-object",
+          x: 128,
+          y: 0,
+          width: 64,
+          height: 64,
+          visibleToPlayers: false,
+          hiddenClueIds: ["clue-2"],
+        },
+      ],
+      updatedAt: "2026-05-22T00:00:00.000Z",
+    };
+
+    jest.spyOn(service, "getSessionEntityOrThrow").mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: "AI",
+      gmUserId: null,
+    } as never);
+    jest.spyOn(service, "ensureMembership").mockResolvedValue(undefined);
+    jest.spyOn(service, "getGameStateEntityOrThrow").mockResolvedValue({
+      state: {
+        currentNodeId: "node-exploration",
+        flagsJson: JSON.stringify({ vttMap: gmMap }),
+      },
+      sessionScenario: { id: "session-scenario-1" },
+    } as never);
+    (
+      service as unknown as {
+        applyScenarioStartingPositions: jest.Mock;
+      }
+    ).applyScenarioStartingPositions = jest.fn().mockResolvedValue(gmMap);
+
+    const result = await service.getVttMapForUser("host-user", "session-1");
+
+    expect(result.tokens).toEqual([
+      expect.objectContaining({ id: "visible-token", hidden: false }),
+    ]);
+    expect(result.objectCells).toEqual([
+      expect.objectContaining({
+        id: "visible-object",
+        hiddenClueIds: [],
+        hiddenItemIds: [],
+        hiddenEventIds: [],
+      }),
+    ]);
+  });
+
   it("ignores non-host whole-map writes and returns the canonical player map", async () => {
     const service = new SessionsService(
       {} as never,

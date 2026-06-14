@@ -70,10 +70,12 @@ export interface BattleMapProps {
   onSelectionChange?: (selection: BattleMapSelection | null) => void;
   isInteractionLocked?: boolean;
   tokenMovementRangeFtByTokenId?: Record<string, number>;
+  controllableTokenIds?: string[];
   tokenHealthByTokenId?: Record<string, TokenHealthFrame>;
   attackRangeOverlay?: { tokenId: string; rangeFt: number } | null;
   combatMovementMode?: CombatMovementMode;
   showHiddenContent?: boolean;
+  showPlayerVisionPreview?: boolean;
   onTokenMoveRequest?: (
     token: VttMapStateDto['tokens'][number],
     to: { x: number; y: number },
@@ -637,10 +639,12 @@ export function BattleMap({
   onSelectionChange,
   isInteractionLocked = false,
   tokenMovementRangeFtByTokenId,
+  controllableTokenIds,
   tokenHealthByTokenId,
   attackRangeOverlay = null,
   combatMovementMode = 'normal',
   showHiddenContent = false,
+  showPlayerVisionPreview = false,
   onTokenMoveRequest,
   onPingRequest,
 }: BattleMapProps) {
@@ -773,7 +777,14 @@ export function BattleMap({
       ),
     [characters, currentUserId]
   );
+  const explicitControllableTokenIds = useMemo(
+    () => new Set(controllableTokenIds ?? []),
+    [controllableTokenIds]
+  );
+  const hasExplicitControllableTokens = controllableTokenIds !== undefined;
   const isVisionMaskEnabled = interactionMode === 'session' && !showHiddenContent;
+  const shouldComputePlayerVisionCells =
+    interactionMode === 'session' && (isVisionMaskEnabled || showPlayerVisionPreview);
   const movementBlockerIndex = useMemo(
     () =>
       buildBlockerIndex(
@@ -806,9 +817,9 @@ export function BattleMap({
     () => new Set(characters.map((character) => character.id)),
     [characters]
   );
-  const visibleVisionCells = useMemo(
+  const playerVisionCells = useMemo(
     () => {
-      if (!isVisionMaskEnabled) return null;
+      if (!shouldComputePlayerVisionCells) return null;
 
       const tokenSources = map.tokens
         .filter(
@@ -840,22 +851,20 @@ export function BattleMap({
         () => `sources=${sources.length}`
       );
     },
-    [isVisionMaskEnabled, map, partyCharacterIds]
+    [shouldComputePlayerVisionCells, map, partyCharacterIds]
   );
+  const visibleVisionCells = isVisionMaskEnabled ? playerVisionCells : null;
   const activeMeasureEnd = measureEnd ?? measurePreview;
   const selectedJumpMovementToken =
-    selectedToken?.sessionCharacterId &&
-    controlledTokenIds.has(selectedToken.sessionCharacterId) &&
+    selectedToken &&
+    canControlToken(selectedToken) &&
     (tokenMovementRangeFtByTokenId?.[selectedToken.id] ?? 0) > 0
       ? selectedToken
       : null;
   const activeJumpMovementToken =
     combatMovementMode === 'jump'
       ? (visibleTokens.find((token) => {
-          if (!token.sessionCharacterId || !controlledTokenIds.has(token.sessionCharacterId)) {
-            return false;
-          }
-          return (tokenMovementRangeFtByTokenId?.[token.id] ?? 0) > 0;
+          return canControlToken(token) && (tokenMovementRangeFtByTokenId?.[token.id] ?? 0) > 0;
         }) ?? null)
       : null;
   const movementRangeToken =
@@ -1740,6 +1749,9 @@ export function BattleMap({
 
   function canControlToken(token: VttMapStateDto['tokens'][number]) {
     if (isInteractionLocked) return false;
+    if (hasExplicitControllableTokens) {
+      return explicitControllableTokenIds.has(token.id);
+    }
     return (
       canEditMap ||
       showHiddenContent ||
@@ -2415,7 +2427,7 @@ export function BattleMap({
               />
               <BattleMapRangeOverlayLayer
                 map={map}
-                movementRangeToken={movementRangeCharacter ? movementRangeToken : null}
+                movementRangeToken={movementRangeToken}
                 movementRangeFt={displayedTokenMovementRangeFt}
                 combatMovementMode={combatMovementMode}
                 attackRangeOverlay={attackRangeOverlay}
@@ -2463,8 +2475,11 @@ export function BattleMap({
 
             <BattleMapVisionMaskLayer
               map={map}
-              visibleVisionCells={visibleVisionCells}
+              visibleVisionCells={
+                showPlayerVisionPreview && showHiddenContent ? playerVisionCells : visibleVisionCells
+              }
               exploredVisionCells={isVisionMaskEnabled ? exploredVisionCells : null}
+              variant={showPlayerVisionPreview && showHiddenContent ? 'gm-preview' : 'player'}
             />
 
             <Layer listening={false}>
