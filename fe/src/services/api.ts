@@ -71,12 +71,12 @@ import { saveStoredToken } from './storage';
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
 const configuredWsBaseUrl = import.meta.env.VITE_WS_BASE_URL as string | undefined;
-const defaultBase = import.meta.env.PROD ? '' : 'http://localhost:8080';
 const localDevBaseUrls = ['http://localhost:8080', 'http://127.0.0.1:8080'];
 const isLocalFrontend =
   import.meta.env.DEV &&
   typeof globalThis.location !== 'undefined' &&
   ['localhost', '127.0.0.1', '::1'].includes(globalThis.location.hostname);
+const defaultBase = import.meta.env.PROD || !isLocalFrontend ? '' : localDevBaseUrls[0];
 const preferredBaseUrl = configuredBaseUrl?.replace(/\/$/, '');
 const rawBaseUrl = (
   preferredBaseUrl || (isLocalFrontend ? localDevBaseUrls[0] : defaultBase)
@@ -86,7 +86,10 @@ const fallbackApiBaseUrls = import.meta.env.PROD
   ? [API_BASE_URL]
   : Array.from(
       new Set(
-        [API_BASE_URL, ...(preferredBaseUrl ? [] : localDevBaseUrls.map((url) => `${url}/api/v1`))]
+        [
+          API_BASE_URL,
+          ...(isLocalFrontend && !preferredBaseUrl ? localDevBaseUrls.map((url) => `${url}/api/v1`) : []),
+        ]
           .filter((url): url is string => Boolean(url))
           .map((url) => url.replace(/\/$/, ''))
       )
