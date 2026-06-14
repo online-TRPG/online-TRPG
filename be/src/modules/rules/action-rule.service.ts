@@ -352,7 +352,7 @@ export class ActionRuleService {
       case "inventory":
         return this.resolveInventory(command);
       case "item_interaction":
-        return this.resolveItemInteraction(command, actor, runtimeContext);
+        return this.resolveItemInteraction(command, actor, sessionCharacters, runtimeContext);
       case "damage":
         return this.resolveDamage(command, sessionCharacters);
       case "heal":
@@ -1184,6 +1184,7 @@ export class ActionRuleService {
   private resolveItemInteraction(
     command: Extract<ParsedCommand, { type: "item_interaction" }>,
     actor: SessionCharacterForRules,
+    sessionCharacters: SessionCharacterForRules[],
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
     const actorPoint = this.resolveActorGridPoint(actor, runtimeContext);
@@ -1310,6 +1311,92 @@ export class ActionRuleService {
     }
     if (result.type !== "throw") {
       throw new Error("Unexpected throw item interaction resolution.");
+    }
+    const thrownTarget = this.findTargetAtGridPoint(command.point, actor.id, sessionCharacters, runtimeContext.map);
+    if (thrownTarget) {
+      if (!this.hasActionAvailable(runtimeContext)) {
+        return this.createActionUnavailableResolution("item_interaction", {
+          operation: "throw",
+          itemId: command.itemId,
+          quantity: command.quantity,
+        });
+      }
+
+      const attackAdvantageState = result.attack.inNormalRange
+        ? DiceAdvantageState.NORMAL
+        : DiceAdvantageState.DISADVANTAGE;
+      const attackRoll = this.diceService.roll(
+        `1d20${result.attack.attackBonus >= 0 ? "+" : ""}${result.attack.attackBonus}`,
+        attackAdvantageState,
+      );
+      const attackRuleResult = this.ruleEngine.resolveAttackRoll({
+        naturalD20: this.selectNaturalD20(attackRoll),
+        attackBonus: result.attack.attackBonus,
+        targetArmorClass: thrownTarget.character.armorClass,
+        advantageState: result.attack.inNormalRange ? "normal" : "disadvantage",
+      });
+      const runtimeEffects: ActionRuntimeEffect[] = [
+        {
+          type: "REMOVE_ITEM",
+          itemId: result.entryId,
+          quantity: result.removeQuantity,
+        },
+      ];
+      const stateChanges: CharacterStatePatch[] = [];
+      let damageRoll: DiceRollResponseDto | null = null;
+      let finalDamage = 0;
+      const ruleResults: RuleHookResult<unknown>[] = [attackRuleResult];
+
+      if (attackRuleResult.produced.hit) {
+        damageRoll = this.diceService.roll(result.attack.damageDice);
+        const damageRuleResult = this.ruleEngine.applyDamageModifiers({
+          baseDamage: damageRoll.total,
+          damageType: result.attack.damageType,
+          ...this.resolveDamageProfile(thrownTarget),
+        });
+        ruleResults.push(damageRuleResult);
+        finalDamage = damageRuleResult.produced.finalDamage;
+        const nextHp = Math.max(thrownTarget.currentHp - finalDamage, 0);
+        stateChanges.push({
+          sessionCharacterId: thrownTarget.id,
+          currentHp: nextHp,
+          markDead: nextHp <= 0,
+        });
+      } else {
+        runtimeEffects.push({
+          type: "CREATE_MAP_OBJECT",
+          objectId: this.createThrownItemObjectId(result.entryId, result.missObject.point),
+          itemDefinitionId: result.missObject.itemDefinitionId,
+          name: result.missObject.name,
+          quantity: result.missObject.quantity,
+          point: result.missObject.point,
+        });
+      }
+      runtimeEffects.push({ type: "SPEND_ACTION" });
+
+      return {
+        structuredAction: {
+          type: "item_interaction",
+          operation: "throw",
+          itemId: command.itemId,
+          quantity: command.quantity,
+          actorPoint,
+          target: thrownTarget.id,
+          targetArmorClass: thrownTarget.character.armorClass,
+          damageType: result.attack.damageType,
+          damageRoll: damageRoll ? { ...damageRoll } : null,
+          finalDamage,
+          result,
+          ruleResults,
+        },
+        diceResult: attackRoll,
+        outcome: attackRuleResult.produced.hit ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
+        narration: attackRuleResult.produced.hit
+          ? `${item.name}이(가) 명중했습니다.`
+          : `${item.name}이(가) 빗나갔습니다.`,
+        stateChanges,
+        runtimeEffects,
+      };
     }
 
     return {
@@ -2281,6 +2368,38 @@ export class ActionRuleService {
     };
   }
 
+  private findTargetAtGridPoint(
+    point: ItemInteractionPoint,
+    actorSessionCharacterId: string,
+    sessionCharacters: SessionCharacterForRules[],
+    map: RuleMapRuntimeContext | null | undefined,
+  ): SessionCharacterForRules | null {
+    if (!map) {
+      return null;
+    }
+
+    const token = map.tokens.find((candidate) => {
+      if (
+        !candidate.sessionCharacterId ||
+        candidate.sessionCharacterId === actorSessionCharacterId ||
+        candidate.hidden
+      ) {
+        return false;
+      }
+      return (
+        Math.floor(candidate.x / map.gridSize) === point.x &&
+        Math.floor(candidate.y / map.gridSize) === point.y
+      );
+    });
+    if (!token?.sessionCharacterId) {
+      return null;
+    }
+
+    return (
+      sessionCharacters.find((candidate) => candidate.id === token.sessionCharacterId) ?? null
+    );
+  }
+
   private createDroppedItemObjectId(entryId: string, point: ItemInteractionPoint): string {
     return `object:item:${entryId}:${point.x}:${point.y}`;
   }
@@ -2737,8 +2856,17 @@ export class ActionRuleService {
     remainingConditions: unknown[],
   ): unknown[] {
     const remainingByKey = new Map(
-      this.conditionRuntime
-        .parseConditionsJson(JSON.stringify(remainingConditions))
+      remainingConditions
+        .filter((condition): condition is {
+          conditionId: string;
+          sourceId: string | null;
+          appliedAtRound: number | null;
+        } =>
+          Boolean(condition) &&
+          typeof condition === "object" &&
+          !Array.isArray(condition) &&
+          typeof (condition as { conditionId?: unknown }).conditionId === "string",
+        )
         .map((condition) => [this.conditionEntryKey(condition), condition]),
     );
 

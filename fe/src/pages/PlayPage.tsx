@@ -3347,6 +3347,36 @@ export function PlayPage({
     await onSendAction(`/ready enter attack ${targetParticipantId} 30`);
   }
 
+  async function handleDropInventoryItem(
+    item: InventoryItemDto,
+    point: { x: number; y: number }
+  ) {
+    if (!session || busy || isInventoryUsePending) return;
+    const itemId = item.id || item.itemDefinitionId;
+    if (!itemId) return;
+    await onSendAction(`/item drop ${itemId} 1 ${point.x} ${point.y}`);
+  }
+
+  async function handlePickupMapObject(
+    objectId: string,
+    itemDefinitionId: string,
+    quantity: number,
+    point: { x: number; y: number }
+  ) {
+    if (!session || busy || isInventoryUsePending) return;
+    await onSendAction(`/item pickup ${objectId} ${itemDefinitionId} ${quantity} ${point.x} ${point.y}`);
+  }
+
+  async function handleThrowInventoryItem(
+    item: InventoryItemDto,
+    point: { x: number; y: number }
+  ) {
+    if (!session || isCombatBusy) return;
+    const itemId = item.id || item.itemDefinitionId;
+    if (!itemId) return;
+    await onSendAction(`/item throw ${itemId} 1 ${point.x} ${point.y}`);
+  }
+
   async function handleCombatClassFeature(action: 'second_wind') {
     if (!session || isCombatBusy) return;
     if (action === 'second_wind') {
@@ -4170,6 +4200,8 @@ export function PlayPage({
                   onMapInteractionRequest={handleMapInteractionRequest}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onEquipInventoryItem={handleEquipInventoryItem}
+                  onDropInventoryItem={handleDropInventoryItem}
+                  onPickupMapObject={handlePickupMapObject}
                   onSelectInventoryItem={handleSelectExplorationInventoryItem}
                   onMapSelectionChange={handleExplorationMapSelection}
                   onRequestMainCommand={handleExplorationMainCommandRequest}
@@ -4208,6 +4240,7 @@ export function PlayPage({
                   onTokenMoveRequest={handleCombatTokenMoveRequest}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onEquipInventoryItem={handleEquipInventoryItem}
+                  onThrowInventoryItem={handleThrowInventoryItem}
                   onAttackWithEquippedWeapon={handleEquippedWeaponAttack}
                   onMonsterAction={handleMonsterCombatAction}
                   onAttackWithOffhandWeapon={handleOffhandWeaponAttack}

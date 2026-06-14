@@ -31,6 +31,7 @@ type CombatActorActionType = 'attack' | 'dash' | 'dodge' | 'hide';
 type SpellFilter = 'all' | 'cantrip' | 'level1';
 type CombatResourceIconKind = 'action' | 'bonus' | 'reaction';
 type CombatParticipant = CombatResponseDto['participants'][number];
+type CombatMonsterAction = NonNullable<CombatParticipant['monsterActions']>[number];
 
 type CombatAbilityButton = {
   key: string;
@@ -68,6 +69,10 @@ interface CombatNodeSurfaceProps {
   ) => Promise<VttMapStateDto | null>;
   onUseInventoryItem: (item: InventoryItemDto) => void;
   onEquipInventoryItem: (item: InventoryItemDto) => void;
+  onThrowInventoryItem: (
+    item: InventoryItemDto,
+    point: { x: number; y: number }
+  ) => void | Promise<void>;
   onAttackWithEquippedWeapon: (targetParticipantId: string) => void | Promise<void>;
   onMonsterAction?: (
     targetParticipantId?: string | null,
@@ -102,9 +107,10 @@ const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: strin
   },
 ];
 
-const mvpSpellLabels = ['Fire Bolt', 'Light', 'Magic Missile', 'Shield', 'Sleep', 'Fireball'];
+const mvpSpellLabels = ['Chill Touch', 'Fire Bolt', 'Light', 'Magic Missile', 'Shield', 'Sleep', 'Fireball'];
 
 const mvpSpellIdsByLabel: Record<string, string> = {
+  'Chill Touch': 'spell.chill_touch',
   'Fire Bolt': 'spell.fire_bolt',
   Light: 'spell.light',
   'Magic Missile': 'spell.magic_missile',
@@ -114,14 +120,16 @@ const mvpSpellIdsByLabel: Record<string, string> = {
 };
 
 const mvpSpellRangeFtById: Record<string, number> = {
+  'spell.chill_touch': 120,
   'spell.fire_bolt': 120,
-  'spell.light': 120,
+  'spell.light': 5,
   'spell.magic_missile': 120,
   'spell.sleep': 90,
   'spell.fireball': 150,
 };
 
 const mvpSpellLevelById: Record<string, 0 | 1 | 3> = {
+  'spell.chill_touch': 0,
   'spell.fire_bolt': 0,
   'spell.light': 0,
   'spell.magic_missile': 1,
@@ -145,6 +153,7 @@ const combatActionIconNames: Partial<Record<string, GameIconName>> = {
   숨기: 'game-icons:ninja-mask',
   준비: 'game-icons:time-trap',
   'Second Wind': 'game-icons:health-increase',
+  'Chill Touch': 'game-icons:ice-bolt',
   'Fire Bolt': 'game-icons:fireball',
   Light: 'game-icons:sun',
   'Magic Missile': 'game-icons:magic-swirl',
@@ -351,6 +360,24 @@ function getWeaponFallbackRangeFt(item: InventoryItemDto) {
   return 5;
 }
 
+function getThrowableLongRangeFt(item: InventoryItemDto) {
+  const key = getInventoryItemKey(item).replace(/_/g, '-');
+  const properties = getWeaponPropertySet(item);
+  if (key.includes('javelin') || key.includes('재블린')) return 120;
+  if (
+    properties.has('thrown') ||
+    key.includes('dagger') ||
+    key.includes('dart') ||
+    key.includes('handaxe') ||
+    key.includes('단검') ||
+    key.includes('다트') ||
+    key.includes('핸드액스')
+  ) {
+    return 60;
+  }
+  return 60;
+}
+
 function getWeaponPropertySet(item: InventoryItemDto) {
   const key = getInventoryItemKey(item).replace(/_/g, '-');
   const properties = new Set(
@@ -530,6 +557,7 @@ export function CombatNodeSurface({
   onTokenMoveRequest,
   onUseInventoryItem,
   onEquipInventoryItem,
+  onThrowInventoryItem,
   onAttackWithEquippedWeapon,
   onMonsterAction,
   onAttackWithOffhandWeapon,
@@ -743,14 +771,66 @@ export function CombatNodeSurface({
     isSelectedTargetInOffhandRange &&
     !isCombatBusy
   );
-  const canUseMonsterAction = Boolean(
+  const canControlHostileMonster = Boolean(
     isGmView &&
       canControlActiveActor &&
       activeCombatActor?.isHostile &&
-      activeActionResources?.actionAvailable &&
+      activeActionResources &&
+      !isCombatBusy
+  );
+  const selectedThrowTargetPoint = useMemo(() => {
+    if (!map || !selectedTargetParticipant) return null;
+    const tokenId = getParticipantTokenId(selectedTargetParticipant);
+    const token = getMapToken(tokenId);
+    if (!token) return null;
+    return {
+      x: Math.floor(token.x / map.gridSize),
+      y: Math.floor(token.y / map.gridSize),
+    };
+  }, [map, selectedTargetParticipant]);
+  const canThrowInventoryItem = (
+    item: InventoryItemDto,
+    equipmentDisplayState: 'equipped' | 'available'
+  ) => {
+    if (
+      !canUsePlayerCharacterActions ||
+      !myActionResources?.actionAvailable ||
+      !selectedTargetParticipant?.isHostile ||
+      !selectedTargetParticipant.isAlive ||
+      !selectedThrowTargetPoint ||
+      equipmentDisplayState === 'equipped' ||
+      item.quantity < 1 ||
+      isInventoryBusy ||
+      isCombatBusy
+    ) {
+      return false;
+    }
+    if (!map || !myCombatParticipant) return false;
+    const sourceToken = getMapToken(getParticipantTokenId(myCombatParticipant));
+    const targetToken = getMapToken(getParticipantTokenId(selectedTargetParticipant));
+    if (!sourceToken || !targetToken) return false;
+    return getGridDistanceFt(map, sourceToken, targetToken) <= getThrowableLongRangeFt(item);
+  };
+  const canUseMonsterActionCost = (monsterAction: CombatMonsterAction) => {
+    if (!canControlHostileMonster || !activeActionResources) return false;
+    if (monsterAction.costType === 'bonus_action') {
+      return activeActionResources.bonusActionAvailable;
+    }
+    if (monsterAction.costType === 'reaction') {
+      return activeActionResources.reactionAvailable;
+    }
+    return activeActionResources.actionAvailable;
+  };
+  const canUseMonsterTargetedAction = (monsterAction: CombatMonsterAction) => Boolean(
+    canUseMonsterActionCost(monsterAction) &&
       selectedTargetParticipant &&
       selectedTargetParticipant.isAlive &&
-      selectedTargetParticipant.isHostile !== activeCombatActor.isHostile &&
+      selectedTargetParticipant.isHostile !== activeCombatActor?.isHostile &&
+      !isCombatBusy
+  );
+  const canUseMonsterSelfAction = (monsterAction: CombatMonsterAction) => Boolean(
+    canUseMonsterActionCost(monsterAction) &&
+      monsterAction.attackKind === 'special' &&
       !isCombatBusy
   );
   const canUseReadyAction = Boolean(
@@ -1117,7 +1197,11 @@ export function CombatNodeSurface({
   }
 
   function castTargetingSpell(spellId: string, selection: BattleMapSelection | null) {
-    if (spellId === 'spell.fire_bolt' || spellId === 'spell.magic_missile') {
+    if (
+      spellId === 'spell.chill_touch' ||
+      spellId === 'spell.fire_bolt' ||
+      spellId === 'spell.magic_missile'
+    ) {
       if (selection?.kind !== 'token') return;
       const participant = getParticipantByTokenId(selection.token.id);
       if (!participant?.isHostile || !participant.isAlive) return;
@@ -1226,7 +1310,9 @@ export function CombatNodeSurface({
       : combatMovementMode === 'jump'
         ? '도약: 경로상의 토큰은 무시하지만 벽과 이동불가 타일은 막습니다.'
         : targetingSpellId
-          ? targetingSpellId === 'spell.fire_bolt' || targetingSpellId === 'spell.magic_missile'
+          ? targetingSpellId === 'spell.chill_touch' ||
+            targetingSpellId === 'spell.fire_bolt' ||
+            targetingSpellId === 'spell.magic_missile'
             ? '사거리 안의 적 토큰을 선택하세요.'
             : '사거리 안의 타일을 선택하세요.'
           : '';
@@ -1646,25 +1732,43 @@ export function CombatNodeSurface({
                           const rangeLabel = getMonsterActionRangeLabel(monsterAction);
                           const isTargetingThisAction =
                             isAttackTargeting && targetingMonsterActionId === monsterActionId;
+                          const canUseThisMonsterAction = canUseMonsterTargetedAction(monsterAction);
+                          const canUseThisMonsterSelfAction = canUseMonsterSelfAction(monsterAction);
+                          const canStartThisMonsterTargeting =
+                            canControlHostileMonster &&
+                            canUseMonsterActionCost(monsterAction) &&
+                            monsterAction.attackKind !== 'special';
                           return (
                             <button
                               type="button"
                               key={monsterActionId}
                               className={`combat-action-button has-action-icon${isTargetingThisAction ? ' targeting' : ''}`}
-                              disabled={!canControlActiveActor || !activeActionResources?.actionAvailable}
+                              disabled={
+                                !canControlHostileMonster ||
+                                (!canUseMonsterActionCost(monsterAction) &&
+                                  !canUseThisMonsterSelfAction)
+                              }
                               title={
-                                isTargetingThisAction
+                                canUseThisMonsterSelfAction
+                                  ? `${activeCombatActor.name} ${monsterAction.label}${
+                                      rangeLabel ? ` (${rangeLabel})` : ''
+                                    }`
+                                  : isTargetingThisAction
                                   ? `${monsterAction.label} 대상 플레이어 캐릭터 토큰을 선택하세요.`
                                   : !selectedTargetParticipant
                                     ? `${monsterAction.label} 버튼을 눌러 대상을 선택하세요.`
-                                    : canUseMonsterAction
+                                    : canUseThisMonsterAction
                                       ? `${activeCombatActor.name} ${monsterAction.label}${
                                           rangeLabel ? ` (${rangeLabel})` : ''
                                         }`
                                       : '현재 몬스터가 행동할 수 없습니다.'
                               }
                               onClick={() => {
-                                if (canUseMonsterAction && selectedTargetParticipant) {
+                                if (canUseThisMonsterSelfAction) {
+                                  runMonsterAction(null, 'attack', monsterActionId);
+                                  return;
+                                }
+                                if (canUseThisMonsterAction && selectedTargetParticipant) {
                                   runMonsterAction(
                                     selectedTargetParticipant.sessionEntityId,
                                     'attack',
@@ -1672,7 +1776,7 @@ export function CombatNodeSurface({
                                   );
                                   return;
                                 }
-                                if (canControlActiveActor) {
+                                if (canStartThisMonsterTargeting) {
                                   setSneakAttackTargeting(false);
                                   setTargetingSpellId(null);
                                   setTargetingMonsterActionId(monsterActionId);
@@ -1974,33 +2078,81 @@ export function CombatNodeSurface({
                         </div>
                         <span className="combat-inventory-quantity">x{item.quantity}</span>
                         {isWeapon || isArmor || isShield ? (
-                          <button
-                            type="button"
-                            disabled={isArmor || isInventoryBusy}
-                            title={
-                              isArmor
-                                ? '몸통 방어구는 현재 캐릭터 AC에 반영되어 있습니다.'
-                                : isEquipped
-                                  ? `${item.name} 착용 해제`
-                                  : `${item.name} 착용`
-                            }
-                            onClick={() => onEquipInventoryItem(equipmentActionItem)}
-                          >
-                            {isEquipped ? '해제' : '착용'}
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              disabled={isArmor || isInventoryBusy}
+                              title={
+                                isArmor
+                                  ? '몸통 방어구는 현재 캐릭터 AC에 반영되어 있습니다.'
+                                  : isEquipped
+                                    ? `${item.name} 착용 해제`
+                                    : `${item.name} 착용`
+                              }
+                              onClick={() => onEquipInventoryItem(equipmentActionItem)}
+                            >
+                              {isEquipped ? '해제' : '착용'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!canThrowInventoryItem(item, equipmentDisplayState)}
+                              title={
+                                equipmentDisplayState === 'equipped'
+                                  ? '착용 중인 아이템은 해제 후 던질 수 있습니다.'
+                                  : !selectedTargetParticipant
+                                    ? '던질 적 토큰을 먼저 선택하세요.'
+                                    : !myActionResources?.actionAvailable
+                                      ? '사용 가능한 action이 없습니다.'
+                                      : `${item.name} 던지기`
+                              }
+                              onClick={() => {
+                                if (
+                                  selectedThrowTargetPoint &&
+                                  canThrowInventoryItem(item, equipmentDisplayState)
+                                ) {
+                                  void onThrowInventoryItem(item, selectedThrowTargetPoint);
+                                }
+                              }}
+                            >
+                              던지기
+                            </button>
+                          </>
                         ) : (
-                          <button
-                            type="button"
-                            disabled={!canUse || isInventoryBusy}
-                            title={
-                              canUse
-                                ? `${item.name} 사용`
-                                : '현재 바로 사용할 수 없는 아이템입니다.'
-                            }
-                            onClick={() => onUseInventoryItem(item)}
-                          >
-                            사용
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              disabled={!canUse || isInventoryBusy}
+                              title={
+                                canUse
+                                  ? `${item.name} 사용`
+                                  : '현재 바로 사용할 수 없는 아이템입니다.'
+                              }
+                              onClick={() => onUseInventoryItem(item)}
+                            >
+                              사용
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!canThrowInventoryItem(item, equipmentDisplayState)}
+                              title={
+                                !selectedTargetParticipant
+                                  ? '던질 적 토큰을 먼저 선택하세요.'
+                                  : !myActionResources?.actionAvailable
+                                    ? '사용 가능한 action이 없습니다.'
+                                    : `${item.name} 던지기`
+                              }
+                              onClick={() => {
+                                if (
+                                  selectedThrowTargetPoint &&
+                                  canThrowInventoryItem(item, equipmentDisplayState)
+                                ) {
+                                  void onThrowInventoryItem(item, selectedThrowTargetPoint);
+                                }
+                              }}
+                            >
+                              던지기
+                            </button>
+                          </>
                         )}
                       </article>
                     );

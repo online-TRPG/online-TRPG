@@ -92,6 +92,13 @@ interface ExplorationNodeSurfaceProps {
   ) => Promise<VttMapInteractionResponseDto | null>;
   onUseInventoryItem: (item: InventoryItemDto) => void;
   onEquipInventoryItem?: (item: InventoryItemDto) => void;
+  onDropInventoryItem?: (item: InventoryItemDto, point: { x: number; y: number }) => void | Promise<void>;
+  onPickupMapObject?: (
+    objectId: string,
+    itemDefinitionId: string,
+    quantity: number,
+    point: { x: number; y: number }
+  ) => void | Promise<void>;
   onSelectInventoryItem?: (item: InventoryItemDto | null) => void;
   onMapSelectionChange?: (selection: BattleMapSelection | null) => void;
   onRequestMainCommand?: (request: ExplorationMainCommandRequest) => void;
@@ -376,6 +383,40 @@ function getSelectionMapPoint(selection: BattleMapSelection | null) {
   return {
     x: Math.round(selection.point.x),
     y: Math.round(selection.point.y),
+  };
+}
+
+function getSelectionGridPoint(
+  selection: BattleMapSelection | null,
+  map: VttMapStateDto | null
+) {
+  if (!selection || !map) return null;
+  return {
+    x: Math.floor(Math.min(Math.max(selection.point.x, 0), Math.max(0, map.width - 1)) / map.gridSize),
+    y: Math.floor(Math.min(Math.max(selection.point.y, 0), Math.max(0, map.height - 1)) / map.gridSize),
+  };
+}
+
+function getMapObjectItemPayload(
+  selection: BattleMapSelection | null,
+  map: VttMapStateDto | null
+) {
+  if (!selection || selection.kind !== 'object') return null;
+  const objectCell = selection.cell as NonNullable<VttMapStateDto['objectCells']>[number];
+  const itemDefinitionId = objectCell.hiddenItemIds?.[0]?.trim();
+  if (!itemDefinitionId) return null;
+  const gridPoint = getSelectionGridPoint(selection, map);
+  if (!gridPoint) return null;
+  const escapedItemDefinitionId = itemDefinitionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = objectCell.description?.match(
+    new RegExp(`(?:^|\\s)${escapedItemDefinitionId}\\s+x(\\d+)(?:\\s|$)`)
+  );
+  const quantity = Number(match?.[1]);
+  return {
+    objectId: objectCell.id,
+    itemDefinitionId,
+    quantity: Number.isInteger(quantity) && quantity > 0 ? quantity : 1,
+    point: gridPoint,
   };
 }
 
@@ -771,6 +812,8 @@ export function ExplorationNodeSurface({
   onMapInteractionRequest,
   onUseInventoryItem,
   onEquipInventoryItem,
+  onDropInventoryItem,
+  onPickupMapObject,
   onSelectInventoryItem,
   onMapSelectionChange,
   onRequestMainCommand,
@@ -861,6 +904,8 @@ export function ExplorationNodeSurface({
     () => getContextActions(mapSelection, isGmView),
     [mapSelection, isGmView]
   );
+  const selectedMapGridPoint = getSelectionGridPoint(mapSelection, map);
+  const selectedObjectItemPayload = getMapObjectItemPayload(mapSelection, map);
   const inventoryPanelStyle = {
     '--exploration-inventory-item-count': Math.max(displayedInventory.length, 1),
   } as CSSProperties;
@@ -1621,6 +1666,33 @@ export function ExplorationNodeSurface({
                 </button>
               );
             })}
+            {selectedObjectItemPayload ? (
+              <button
+                type="button"
+                className="exploration-action-button has-action-icon"
+                disabled={isBusy || isGmView || !onPickupMapObject || !canUseDisplayedInventory}
+                title={
+                  isGmView
+                    ? 'GM 화면에서는 맵 오브젝트를 조회만 합니다.'
+                    : `${selectionDisplay.target} 줍기`
+                }
+                onClick={() =>
+                  void onPickupMapObject?.(
+                    selectedObjectItemPayload.objectId,
+                    selectedObjectItemPayload.itemDefinitionId,
+                    1,
+                    selectedObjectItemPayload.point
+                  )
+                }
+              >
+                <GameIcon
+                  name="game-icons:hand"
+                  size={36}
+                  className="exploration-action-button-icon"
+                />
+                <span className="exploration-action-button-label">줍기</span>
+              </button>
+            ) : null}
           </div>
           {mapActionFeedback ? (
             <p className="exploration-map-action-feedback">{mapActionFeedback}</p>
@@ -1745,45 +1817,98 @@ export function ExplorationNodeSurface({
                       </div>
                       <span className="exploration-inventory-quantity">x{item.quantity}</span>
                       {isWeapon || isArmor || isShield ? (
-                        <button
-                          type="button"
-                          disabled={isArmor || isBusy || !onEquipInventoryItem || !canUseDisplayedInventory}
-                          title={
-                            !canUseDisplayedInventory
-                              ? 'GM 화면에서는 선택 캐릭터의 인벤토리를 조회만 합니다.'
-                              : isArmor
-                                ? '몸통 방어구는 현재 캐릭터 AC에 반영되어 있습니다.'
-                                : isEquipped
-                                  ? `${item.name} 착용 해제`
-                                  : `${item.name} 착용`
-                          }
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onEquipInventoryItem?.(equipmentActionItem);
-                          }}
-                          onKeyDown={(event) => event.stopPropagation()}
-                        >
-                          {isEquipped ? '해제' : '착용'}
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            disabled={isArmor || isBusy || !onEquipInventoryItem || !canUseDisplayedInventory}
+                            title={
+                              !canUseDisplayedInventory
+                                ? 'GM 화면에서는 선택 캐릭터의 인벤토리를 조회만 합니다.'
+                                : isArmor
+                                  ? '몸통 방어구는 현재 캐릭터 AC에 반영되어 있습니다.'
+                                  : isEquipped
+                                    ? `${item.name} 착용 해제`
+                                    : `${item.name} 착용`
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onEquipInventoryItem?.(equipmentActionItem);
+                            }}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
+                            {isEquipped ? '해제' : '착용'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={
+                              isBusy ||
+                              !canUseDisplayedInventory ||
+                              !onDropInventoryItem ||
+                              !selectedMapGridPoint ||
+                              equipmentDisplayState === 'equipped'
+                            }
+                            title={
+                              equipmentDisplayState === 'equipped'
+                                ? '착용 중인 아이템은 해제 후 내려놓을 수 있습니다.'
+                                : !selectedMapGridPoint
+                                  ? '내려놓을 맵 타일을 먼저 선택하세요.'
+                                  : `${item.name} 내려놓기`
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (selectedMapGridPoint) {
+                                void onDropInventoryItem?.(item, selectedMapGridPoint);
+                              }
+                            }}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
+                            내려놓기
+                          </button>
+                        </>
                       ) : (
-                        <button
-                          type="button"
-                          disabled={!canUse || isBusy || !canUseDisplayedInventory}
-                          title={
-                            !canUseDisplayedInventory
-                              ? 'GM 화면에서는 선택 캐릭터의 인벤토리를 조회만 합니다.'
-                              : canUse
-                                ? `${item.name} 사용`
-                                : '현재 바로 사용할 수 없는 아이템입니다.'
-                          }
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onUseInventoryItem(item);
-                          }}
-                          onKeyDown={(event) => event.stopPropagation()}
-                        >
-                          사용
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            disabled={!canUse || isBusy || !canUseDisplayedInventory}
+                            title={
+                              !canUseDisplayedInventory
+                                ? 'GM 화면에서는 선택 캐릭터의 인벤토리를 조회만 합니다.'
+                                : canUse
+                                  ? `${item.name} 사용`
+                                  : '현재 바로 사용할 수 없는 아이템입니다.'
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onUseInventoryItem(item);
+                            }}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
+                            사용
+                          </button>
+                          <button
+                            type="button"
+                            disabled={
+                              isBusy ||
+                              !canUseDisplayedInventory ||
+                              !onDropInventoryItem ||
+                              !selectedMapGridPoint
+                            }
+                            title={
+                              !selectedMapGridPoint
+                                ? '내려놓을 맵 타일을 먼저 선택하세요.'
+                                : `${item.name} 내려놓기`
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (selectedMapGridPoint) {
+                                void onDropInventoryItem?.(item, selectedMapGridPoint);
+                              }
+                            }}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
+                            내려놓기
+                          </button>
+                        </>
                       )}
                     </article>
                   );
