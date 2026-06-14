@@ -687,6 +687,71 @@ describe("CombatService lifecycle", () => {
     );
   });
 
+  it("charges extra movement when terrain effect is stored in the terrainEffectId field", async () => {
+    const { service, prisma, sessionsService, actionEconomy } = createService();
+    const mover = createParticipant({
+      id: "participant-mover",
+      sessionCharacterId: "session-character-1",
+      tokenId: "token-mover",
+      nameSnapshot: "Scout",
+      speedFt: 30,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 1,
+      currentParticipantId: mover.id,
+      participants: [mover],
+    };
+    const map = {
+      id: "map-1",
+      gridType: "square" as const,
+      gridSize: 50,
+      width: 300,
+      height: 300,
+      tokens: [
+        { id: "token-mover", sessionCharacterId: "session-character-1", x: 0, y: 0, size: 50, hidden: false },
+      ],
+      terrainCells: [
+        {
+          id: "terrain-cell-1",
+          terrainEffectId: "terrain.difficult",
+          x: 50,
+          y: 0,
+          width: 50,
+          height: 50,
+        },
+      ],
+      fogRects: [],
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: PrismaGmMode.AI,
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue(map);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.sessionCharacter.findUnique.mockResolvedValue({
+      id: "session-character-1",
+      userId: "user-1",
+      character: { ownerUserId: "user-1", speed: 30 },
+    });
+    actionEconomy.getOrCreateTurnState.mockResolvedValue({ movementFtSpent: 0 });
+
+    const result = await service.moveParticipant("user-1", "session-1", {
+      participantId: mover.id,
+      to: { x: 50, y: 0 },
+    });
+
+    expect(result.movementDistanceFt).toBe(5);
+    expect(result.movementCostFt).toBe(10);
+  });
+
   it("applies terrain effects when normal movement enters hazardous terrain", async () => {
     const { service, prisma, sessionsService, actionEconomy, diceService, realtimeEvents } = createService();
     const mover = createParticipant({
@@ -2092,6 +2157,69 @@ describe("CombatService lifecycle", () => {
     expect(result.damageTotal).toBe(16);
   });
 
+  it("exposes combat spell slot resources by spell level for the active caster", async () => {
+    const { service, prisma, sessionsService } = createService();
+    const caster = createParticipant({
+      id: "participant-1",
+      tokenId: "token-1",
+      sessionCharacterId: "session-character-1",
+      nameSnapshot: "Wizard",
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 1,
+      currentParticipantId: caster.id,
+      participants: [caster],
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      status: PrismaSessionStatus.PLAYING,
+      gmMode: PrismaGmMode.AI,
+      hostUserId: "host-user",
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        flagsJson: JSON.stringify({
+          spellSlotsBySessionCharacterId: {
+            "session-character-1": { "1": 3, "3": 1 },
+          },
+        }),
+        currentNodeId: null,
+      },
+    });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.sessionCharacter.findMany.mockResolvedValue([
+      {
+        id: "session-character-1",
+        currentHp: 24,
+        conditionsJson: "[]",
+        character: {
+          className: "Wizard",
+          level: 5,
+          maxHp: 24,
+          armorClass: 12,
+          speed: 30,
+        },
+      },
+    ]);
+
+    const result = await service.getCombat("user-1", "session-1");
+
+    const resources = result.participants[0]?.actionResources as {
+      spellSlots?: Record<string, { total: number; remaining: number }>;
+    };
+    expect(resources.spellSlots).toMatchObject({
+      "1": { total: 4, remaining: 3 },
+      "2": { total: 3, remaining: 3 },
+      "3": { total: 2, remaining: 1 },
+    });
+  });
+
   it("casts combat Fireball through AoE targeting, saves, scaling, and slot cost", async () => {
     const { service, prisma, sessionsService, diceService, actionEconomy, realtimeEvents, turnLogsService, ruleEngine } =
       createService();
@@ -2254,6 +2382,73 @@ describe("CombatService lifecycle", () => {
     expect(realtimeEvents.emitDiceRolled).toHaveBeenCalledTimes(3);
     expect(result.message).toBe("Fireball: Ogre 28, Goblin 14 화염 피해");
     expect(result.damageTotal).toBe(42);
+  });
+
+  it("rejects a prepared caster spell when it is known but not prepared", async () => {
+    const { service, prisma, sessionsService, diceService, actionEconomy, turnLogsService } =
+      createService();
+    const caster = createParticipant({
+      id: "participant-1",
+      tokenId: "token-1",
+      sessionCharacterId: "session-character-1",
+      nameSnapshot: "Wizard",
+    });
+    const target = createParticipant({
+      id: "monster-1",
+      tokenId: "token-2",
+      sessionCharacterId: null,
+      entityType: PrismaCombatEntityType.MONSTER,
+      nameSnapshot: "Ogre",
+      currentHp: 40,
+      maxHp: 40,
+      isHostile: true,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 1,
+      currentParticipantId: caster.id,
+      participants: [caster, target],
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+    });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.sessionCharacter.findUnique.mockResolvedValue({
+      id: "session-character-1",
+      userId: "user-1",
+      character: {
+        ownerUserId: "user-1",
+        className: "Wizard",
+        spellsJson: JSON.stringify({
+          cantrips: ["spell.fire_bolt"],
+          spells: ["spell.magic_missile", "spell.fireball"],
+          preparedSpells: ["spell.magic_missile"],
+        }),
+        abilitiesJson: JSON.stringify({ int: 16 }),
+        proficiencyBonus: 3,
+        level: 7,
+      },
+    });
+
+    await expect(
+      service.castSpell("user-1", "session-1", {
+        spellId: "spell.fireball",
+        point: { x: 250, y: 0 },
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        code: "COMBAT_409",
+        data: { reason: "SPELL_NOT_PREPARED", spellId: "spell.fireball" },
+      },
+    });
+    expect(actionEconomy.spendAction).not.toHaveBeenCalled();
+    expect(diceService.roll).not.toHaveBeenCalled();
+    expect(turnLogsService.createTurnLog).not.toHaveBeenCalled();
   });
 
   it("does not spend a Fireball spell slot when the AoE has no targets", async () => {
@@ -3268,6 +3463,25 @@ describe("CombatService lifecycle", () => {
     (monsterAbilities.listExecutableActions as jest.Mock).mockReturnValueOnce([
       {
         monsterId: "monster.goblin",
+        actionId: "monster.goblin.ability.nimble_escape",
+        label: "Nimble Escape",
+        attackKind: "special",
+        attackBonus: 0,
+        damageDice: "",
+        damageType: null,
+        reachFt: null,
+        rangeFt: null,
+        confidence: "medium",
+        costType: "bonus_action",
+        specialType: "mobility",
+        usage: null,
+        recharge: null,
+        save: null,
+        conditionRiders: [],
+        effectTags: ["disengage", "hide"],
+      },
+      {
+        monsterId: "monster.goblin",
         actionId: "catalog.scimitar",
         label: "Scimitar",
         attackKind: "melee",
@@ -3312,6 +3526,24 @@ describe("CombatService lifecycle", () => {
     expect(result.participants.find((participant) => participant.sessionEntityId === hero.id)?.monsterActions).toEqual([]);
     expect(result.participants.find((participant) => participant.sessionEntityId === monster.id)?.monsterActions).toEqual([
       {
+        actionId: "monster.goblin.ability.nimble_escape",
+        label: "Nimble Escape",
+        attackKind: "special",
+        attackBonus: 0,
+        damageDice: "",
+        damageType: null,
+        rangeFt: 0,
+        longRangeFt: null,
+        confidence: "medium",
+        costType: "bonus_action",
+        specialType: "mobility",
+        usage: null,
+        recharge: null,
+        save: null,
+        conditionRiders: [],
+        effectTags: ["disengage", "hide"],
+      },
+      {
         actionId: "catalog.scimitar",
         label: "Scimitar",
         attackKind: "melee",
@@ -3322,6 +3554,12 @@ describe("CombatService lifecycle", () => {
         longRangeFt: null,
         confidence: "high",
         costType: "action",
+        specialType: null,
+        usage: null,
+        recharge: null,
+        save: null,
+        conditionRiders: [],
+        effectTags: [],
       },
       {
         actionId: "catalog.shortbow",
@@ -3334,6 +3572,12 @@ describe("CombatService lifecycle", () => {
         longRangeFt: 320,
         confidence: "high",
         costType: "action",
+        specialType: null,
+        usage: null,
+        recharge: null,
+        save: null,
+        conditionRiders: [],
+        effectTags: [],
       },
       expect.objectContaining({
         actionId: "fallback.scimitar",

@@ -518,6 +518,7 @@ export class ActionProcessorService {
         await this.characterResources.recoverShortRest({
           sessionCharacterId: params.sessionCharacterId,
           actionSurgeUses: effect.actionSurgeUses,
+          hitDiceSpent: effect.hitDiceSpent,
         });
         return;
       case "RECOVER_LONG_REST":
@@ -527,6 +528,7 @@ export class ActionProcessorService {
           actionSurgeUses: effect.actionSurgeUses,
           rageUses: effect.rageUses,
           reduceExhaustionBy: effect.reduceExhaustionBy,
+          hitDiceSpent: effect.hitDiceSpent,
         });
         await this.recoverLongRestSpellSlots(params.sessionScenarioId, params.sessionCharacterId);
         return;

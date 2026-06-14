@@ -11,6 +11,8 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsIn,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -79,6 +81,15 @@ export class StartingSpellsDto {
   @IsArray()
   @IsString({ each: true })
   spells!: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "하루 동안 준비된 슬롯 주문. 없으면 legacy 호환을 위해 spells 전체를 준비된 것으로 취급합니다.",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  preparedSpells?: string[];
 }
 
 export class InventoryItemDto {
@@ -444,6 +455,39 @@ export class UpdateCharacterDto {
   avatarUrl?: string | null;
 }
 
+export class LevelUpCharacterDto {
+  @ApiProperty({ minimum: 2, maximum: 20 })
+  @IsInt()
+  @Min(2)
+  @Max(20)
+  targetLevel!: number;
+
+  @ApiPropertyOptional({ enum: ["average", "rolled"], default: "average" })
+  @IsOptional()
+  @IsString()
+  @IsIn(["average", "rolled"])
+  hpMode?: "average" | "rolled";
+
+  @ApiPropertyOptional({ type: Object })
+  @IsOptional()
+  @IsObject()
+  rolledHpByLevel?: Record<number, number>;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  applyToActiveSessions?: boolean;
+
+  @ApiPropertyOptional({
+    description: "레벨업 중 서브클래스 선택이 필요한 경우 선택한 SRD subclass key입니다.",
+    example: "champion",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  subclassName?: string | null;
+}
+
 export class UpdateCharacterEquipmentDto {
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
@@ -454,6 +498,13 @@ export class UpdateCharacterEquipmentDto {
   @IsOptional()
   @IsString()
   offhandWeaponId?: string | null;
+}
+
+export class UpdatePreparedSpellsDto {
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @IsString({ each: true })
+  preparedSpells!: string[];
 }
 
 export class CharacterInventoryResponseDto {
@@ -594,6 +645,15 @@ export class SessionCharacterResponseDto {
 
   @ApiProperty()
   level!: number;
+
+  @ApiProperty()
+  hitDiceTotal!: number;
+
+  @ApiProperty()
+  hitDiceSpent!: number;
+
+  @ApiProperty()
+  hitDiceRemaining!: number;
 
   @ApiProperty({ type: AbilityScoresDto })
   abilities!: AbilityScoresDto;

@@ -7,6 +7,7 @@ import type {
   MainCommandResponseDto,
   ResolveMainCommandCheckDto,
   StateDiffResponseDto,
+  RestActionDto,
   SubmitMainCommandDto,
   SystemMessageEventDto,
   SubmitActionDto,
@@ -15,6 +16,7 @@ import type {
 } from '@trpg/shared-types';
 import type { Socket } from 'socket.io-client';
 import {
+  approveRestAction as apiApproveRestAction,
   cloneCharacter as apiCloneCharacter,
   createCharacter as apiCreateCharacter,
   createSession as apiCreateSession,
@@ -31,6 +33,7 @@ import {
   startSession as apiStartSession,
   resolveMainCommandCheck as apiResolveMainCommandCheck,
   submitMainCommand as apiSubmitMainCommand,
+  submitRestAction as apiSubmitRestAction,
   submitAction as apiSubmitAction,
   updateCharacter as apiUpdateCharacter,
   updateHumanGm as apiUpdateHumanGm,
@@ -84,7 +87,7 @@ export interface CharacterPayload {
   scenarioId?: string | null;
   startingEquipmentSelection?: number[];
   startingEquipmentItemSelections?: Record<string, string>;
-  startingSpells?: { cantrips: string[]; spells: string[] };
+  startingSpells?: { cantrips: string[]; spells: string[]; preparedSpells?: string[] };
   level?: number;
   abilities?: {
     str: number;
@@ -139,6 +142,12 @@ export interface UseSessionReturn {
   resolveMainCommandCheck: (
     payload: ResolveMainCommandCheckDto
   ) => Promise<MainCommandResponseDto | null>;
+  requestRest: (
+    restType: RestActionDto['restType'],
+    characterId?: string,
+    hitDiceToSpend?: number,
+  ) => Promise<void>;
+  approveRestRequest: (actionId: string) => Promise<void>;
   sendAction: (rawText: string) => Promise<void>;
   sendChatMessage: (content: string, scope?: 'CHAT' | 'MAIN') => Promise<void>;
   loadOlderTurnLogs: () => Promise<void>;
@@ -312,6 +321,41 @@ function getTurnLogMainCommandMetadata(turnLog: TurnLogResponseDto): LogEntry['m
         : {}),
     },
   };
+}
+
+function getTurnLogRestApprovalMetadata(turnLog: TurnLogResponseDto): LogEntry['metadata'] | undefined {
+  const structuredAction = turnLog.structuredAction;
+
+  if (
+    !structuredAction ||
+    typeof structuredAction !== 'object' ||
+    (structuredAction as { type?: unknown }).type !== 'rest' ||
+    (structuredAction as { approvalStatus?: unknown }).approvalStatus !== 'gm_required' ||
+    !turnLog.playerActionId
+  ) {
+    return undefined;
+  }
+
+  const restAction = structuredAction as { restType?: unknown; approvalStatus?: unknown };
+  return {
+    restApproval: {
+      actionId: turnLog.playerActionId,
+      restType:
+        restAction.restType === 'short' || restAction.restType === 'long'
+          ? restAction.restType
+          : null,
+      status: typeof restAction.approvalStatus === 'string' ? restAction.approvalStatus : null,
+    },
+  };
+}
+
+function getTurnLogMetadata(turnLog: TurnLogResponseDto): LogEntry['metadata'] | undefined {
+  const metadata = {
+    ...getTurnLogMainCommandMetadata(turnLog),
+    ...getTurnLogRestApprovalMetadata(turnLog),
+  };
+
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
 function isMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
@@ -849,7 +893,7 @@ export function useSession(
         formatTurnLogMessage(turnLog),
         `turn-log:${turnLog.turnLogId}`,
         turnLog.createdAt,
-        getTurnLogMainCommandMetadata(turnLog)
+        getTurnLogMetadata(turnLog)
       );
     },
     [appendLog, appendPlayerRawInputLog, removeLog, removePendingMainCommandLog]
@@ -889,7 +933,7 @@ export function useSession(
         formatTurnLogMessage(turnLog),
         `turn-log:${turnLog.turnLogId}`,
         turnLog.createdAt,
-        getTurnLogMainCommandMetadata(turnLog)
+        getTurnLogMetadata(turnLog)
       );
       appendPlayerRawInputLog(turnLog, appendOlderLog);
     },
@@ -1545,6 +1589,69 @@ export function useSession(
     }
   }
 
+  async function requestRest(
+    restType: RestActionDto['restType'],
+    characterId?: string,
+    hitDiceToSpend?: number,
+  ) {
+    if (!user || !snapshot) return;
+
+    const myParticipant = snapshot.participants.find(
+      (participant) => participant.userId === user.id
+    );
+    const selectedCharacterId =
+      characterId ?? myParticipant?.sessionCharacterId ?? myParticipant?.characterId ?? null;
+
+    if (!selectedCharacterId) {
+      const message = '휴식하려면 먼저 캐릭터를 선택해야 합니다.';
+      setError(message);
+      appendLog('socket', '휴식 요청 실패', message);
+      return;
+    }
+
+    setError(null);
+    setBusy(true);
+
+    try {
+      await apiSubmitRestAction(
+        user,
+        snapshot.session.id,
+        {
+          characterId: selectedCharacterId,
+          restType,
+          ...(restType === 'short' && hitDiceToSpend && hitDiceToSpend > 0
+            ? { hitDiceToSpend }
+            : {}),
+        },
+        accessToken,
+      );
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '휴식 요청에 실패했습니다.';
+      setError(message);
+      appendLog('socket', '휴식 요청 실패', message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function approveRestRequest(actionId: string) {
+    if (!user || !snapshot) return;
+
+    setError(null);
+    setBusy(true);
+
+    try {
+      await apiApproveRestAction(user, snapshot.session.id, actionId, accessToken);
+      appendLog('rest', '휴식 승인', 'GM이 휴식 요청을 승인했습니다.');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '휴식 요청 승인에 실패했습니다.';
+      setError(message);
+      appendLog('socket', '휴식 승인 실패', message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function sendMainCommand(
     payload: SubmitMainCommandDto
   ): Promise<MainCommandResponseDto | null> {
@@ -1725,6 +1832,8 @@ export function useSession(
     leaveSession,
     sendMainCommand,
     resolveMainCommandCheck,
+    requestRest,
+    approveRestRequest,
     sendAction,
     sendChatMessage,
     loadOlderTurnLogs,

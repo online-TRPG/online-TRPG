@@ -79,6 +79,7 @@ interface CombatNodeSurfaceProps {
   onDash: () => void | Promise<void>;
   onDodge: () => void | Promise<void>;
   onHide: () => void | Promise<void>;
+  onReadyAction: (targetParticipantId: string) => void | Promise<void>;
   onUseClassFeature: (action: 'second_wind') => void | Promise<void>;
   onCastSpell: (
     spellId: string,
@@ -92,7 +93,7 @@ const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: strin
   {
     id: 'basic',
     label: '일반',
-    actions: ['공격', '도약', '대시', '회피', '숨기'],
+    actions: ['공격', '도약', '대시', '회피', '숨기', '준비'],
   },
   {
     id: 'ability',
@@ -101,7 +102,7 @@ const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: strin
   },
 ];
 
-const mvpSpellLabels = ['Fire Bolt', 'Light', 'Magic Missile', 'Shield', 'Sleep'];
+const mvpSpellLabels = ['Fire Bolt', 'Light', 'Magic Missile', 'Shield', 'Sleep', 'Fireball'];
 
 const mvpSpellIdsByLabel: Record<string, string> = {
   'Fire Bolt': 'spell.fire_bolt',
@@ -109,6 +110,7 @@ const mvpSpellIdsByLabel: Record<string, string> = {
   'Magic Missile': 'spell.magic_missile',
   Shield: 'spell.shield',
   Sleep: 'spell.sleep',
+  Fireball: 'spell.fireball',
 };
 
 const mvpSpellRangeFtById: Record<string, number> = {
@@ -116,14 +118,16 @@ const mvpSpellRangeFtById: Record<string, number> = {
   'spell.light': 120,
   'spell.magic_missile': 120,
   'spell.sleep': 90,
+  'spell.fireball': 150,
 };
 
-const mvpSpellLevelById: Record<string, 0 | 1> = {
+const mvpSpellLevelById: Record<string, 0 | 1 | 3> = {
   'spell.fire_bolt': 0,
   'spell.light': 0,
   'spell.magic_missile': 1,
   'spell.shield': 1,
   'spell.sleep': 1,
+  'spell.fireball': 3,
 };
 
 const spellFilterOptions: Array<{ id: SpellFilter; label: string }> = [
@@ -139,12 +143,14 @@ const combatActionIconNames: Partial<Record<string, GameIconName>> = {
   대시: 'game-icons:running-shoe',
   회피: 'game-icons:dodge',
   숨기: 'game-icons:ninja-mask',
+  준비: 'game-icons:time-trap',
   'Second Wind': 'game-icons:health-increase',
   'Fire Bolt': 'game-icons:fireball',
   Light: 'game-icons:sun',
   'Magic Missile': 'game-icons:magic-swirl',
   Shield: 'game-icons:magic-shield',
   Sleep: 'game-icons:night-sleep',
+  Fireball: 'game-icons:fireball',
 };
 
 function getCombatActionIconName(label: string): GameIconName | undefined {
@@ -531,6 +537,7 @@ export function CombatNodeSurface({
   onDash,
   onDodge,
   onHide,
+  onReadyAction,
   onUseClassFeature,
   onCastSpell,
   onEndCombat,
@@ -588,6 +595,19 @@ export function CombatNodeSurface({
     level1SpellSlotsRemaining,
     level1SpellSlotsTotal
   );
+  const spellSlotResources = myActionResources?.spellSlots ?? {};
+  const getSpellSlotTotal = (spellLevel: number) => {
+    if (spellLevel === 1) return spellSlotResources['1']?.total ?? level1SpellSlotsTotal;
+    return spellSlotResources[String(spellLevel)]?.total ?? 0;
+  };
+  const getSpellSlotRemaining = (spellLevel: number) => {
+    const total = getSpellSlotTotal(spellLevel);
+    const remaining =
+      spellLevel === 1
+        ? (spellSlotResources['1']?.remaining ?? level1SpellSlotsRemaining)
+        : (spellSlotResources[String(spellLevel)]?.remaining ?? 0);
+    return Math.min(total, Math.max(0, remaining));
+  };
   const equippedWeapon =
     inventory.find((item) => isEquippedItem(item, myCharacter?.equippedWeaponId)) ?? null;
   const offhandWeapon =
@@ -731,6 +751,15 @@ export function CombatNodeSurface({
       selectedTargetParticipant &&
       selectedTargetParticipant.isAlive &&
       selectedTargetParticipant.isHostile !== activeCombatActor.isHostile &&
+      !isCombatBusy
+  );
+  const canUseReadyAction = Boolean(
+    !isGmView &&
+      canControlActiveActor &&
+      activeActionResources?.actionAvailable &&
+      activeActionResources.reactionAvailable &&
+      selectedTargetParticipant?.isHostile &&
+      selectedTargetParticipant.isAlive &&
       !isCombatBusy
   );
   const canStartMonsterAttackTargeting = Boolean(
@@ -1097,7 +1126,7 @@ export function CombatNodeSurface({
       void onCastSpell(spellId, { targetParticipantIds: [participant.sessionEntityId] });
       return;
     }
-    if (spellId === 'spell.sleep') {
+    if (spellId === 'spell.sleep' || spellId === 'spell.fireball') {
       const point = selection?.point ?? null;
       if (!point || !isPointSpellTargetInRange(point, spellId)) return;
       setTargetingSpellId(null);
@@ -1503,13 +1532,16 @@ export function CombatNodeSurface({
                     visibleSpellActions.map((action) => {
                       const spellId = mvpSpellIdsByLabel[action];
                       const spellLevel = spellId ? mvpSpellLevelById[spellId] : undefined;
-                      const isLevel1Spell = spellLevel === 1;
+                      const isSlottedSpell = typeof spellLevel === 'number' && spellLevel > 0;
+                      const spellSlotRemaining = isSlottedSpell
+                        ? getSpellSlotRemaining(spellLevel)
+                        : Number.POSITIVE_INFINITY;
                       const disabled =
                         !canUsePlayerCharacterActions ||
                         !canUseAction ||
                         isCombatBusy ||
                         spellId === 'spell.shield' ||
-                        (isLevel1Spell && level1SpellSlotsRemaining <= 0);
+                        (isSlottedSpell && spellSlotRemaining <= 0);
                       return (
                         <button
                           type="button"
@@ -1519,8 +1551,8 @@ export function CombatNodeSurface({
                           title={
                             spellId === 'spell.shield'
                               ? 'Shield는 공격받을 때 반응 팝업으로 사용합니다.'
-                              : isLevel1Spell && level1SpellSlotsRemaining <= 0
-                                ? '사용 가능한 1레벨 주문 슬롯이 없습니다.'
+                              : isSlottedSpell && spellSlotRemaining <= 0
+                                ? `사용 가능한 ${spellLevel}레벨 주문 슬롯이 없습니다.`
                                 : targetingSpellId === spellId
                                   ? `${action} 사거리 안의 유효한 대상 또는 지점을 선택하세요.`
                                   : `${action} 타겟팅`
@@ -1796,6 +1828,30 @@ export function CombatNodeSurface({
                       }}
                     >
                       <CombatActionButtonContent label="숨기" />
+                    </button>
+                  );
+                }
+                if (action === '준비') {
+                  return (
+                    <button
+                      type="button"
+                      key={action}
+                      className="combat-action-button has-action-icon"
+                      disabled={!canUseReadyAction}
+                      title={
+                        !activeActionResources?.reactionAvailable
+                          ? '사용 가능한 반응이 없어 준비행동을 설정할 수 없습니다.'
+                          : !selectedTargetParticipant
+                            ? '준비행동 대상 적을 먼저 선택하세요.'
+                            : '행동을 소모해 대상이 30ft 안으로 들어오면 반응으로 공격을 준비합니다.'
+                      }
+                      onClick={() => {
+                        if (canUseReadyAction && selectedTargetParticipant) {
+                          void onReadyAction(selectedTargetParticipant.sessionEntityId);
+                        }
+                      }}
+                    >
+                      <CombatActionButtonContent label="준비" />
                     </button>
                   );
                 }

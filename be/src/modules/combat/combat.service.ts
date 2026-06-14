@@ -2803,6 +2803,30 @@ export class CombatService {
           "costType" in action && typeof action.costType === "string"
             ? action.costType
             : "action",
+        specialType:
+          "specialType" in action && typeof action.specialType === "string"
+            ? action.specialType
+            : null,
+        usage:
+          "usage" in action && typeof action.usage === "string"
+            ? action.usage
+            : null,
+        recharge:
+          "recharge" in action && typeof action.recharge === "string"
+            ? action.recharge
+            : null,
+        save:
+          "save" in action && action.save
+            ? action.save
+            : null,
+        conditionRiders:
+          "conditionRiders" in action && Array.isArray(action.conditionRiders)
+            ? action.conditionRiders
+            : [],
+        effectTags:
+          "effectTags" in action && Array.isArray(action.effectTags)
+            ? action.effectTags
+            : [],
       }));
   }
 
@@ -2999,6 +3023,9 @@ export class CombatService {
   }
 
   private getMonsterActionRangeFt(action: SrdEngineExecutableMonsterAction): number {
+    if (action.attackKind === "special") {
+      return 0;
+    }
     if (typeof action.reachFt === "number" && action.reachFt > 0) {
       return action.reachFt;
     }
@@ -3130,7 +3157,20 @@ export class CombatService {
     return points;
   }
 
-  private extractTerrainEffectId(cell: { id?: string; name?: string | null; description?: string | null }): string | null {
+  private extractTerrainEffectId(cell: {
+    id?: string;
+    name?: string | null;
+    description?: string | null;
+    terrainEffectId?: string | null;
+  }): string | null {
+    const explicitEffectId =
+      typeof cell.terrainEffectId === "string" && cell.terrainEffectId.trim()
+        ? cell.terrainEffectId.trim().toLowerCase().replace(/[\s-]+/g, "_")
+        : null;
+    if (explicitEffectId) {
+      return explicitEffectId;
+    }
+
     const candidates = [cell.id, cell.name, cell.description].filter(
       (value): value is string => typeof value === "string",
     );
@@ -4322,13 +4362,27 @@ export class CombatService {
       throw conflict("COMBAT_409", "MVP 범위 밖의 주문입니다.", { reason: "SPELL_NOT_MVP", spellId });
     }
     const classKey = sessionCharacter.character.className.trim().toLowerCase();
-    const spells = this.parseJson<{ cantrips?: string[]; spells?: string[] } | null>(
+    const spells = this.parseJson<{ cantrips?: string[]; spells?: string[]; preparedSpells?: string[] } | null>(
       sessionCharacter.character.spellsJson,
       null,
     );
-    const learned = [...(spells?.cantrips ?? []), ...(spells?.spells ?? [])].map((value) => this.normalizeSpellId(value));
-    if (learned.includes(spellId)) return;
-    if (classKey.includes("wizard")) return;
+    const knownCantrips = (spells?.cantrips ?? []).map((value) => this.normalizeSpellId(value));
+    const knownSpells = (spells?.spells ?? []).map((value) => this.normalizeSpellId(value));
+    if (knownCantrips.includes(spellId)) return;
+
+    const baseSpellLevel = this.resolveCombatBaseSpellLevel(spellId);
+    const preparedSpells = Array.isArray(spells?.preparedSpells)
+      ? spells.preparedSpells.map((value) => this.normalizeSpellId(value))
+      : null;
+    if (preparedSpells && baseSpellLevel > 0) {
+      if (knownSpells.includes(spellId) && preparedSpells.includes(spellId)) return;
+      if (knownSpells.includes(spellId)) {
+        throw conflict("COMBAT_409", "준비되지 않은 주문입니다.", { reason: "SPELL_NOT_PREPARED", spellId });
+      }
+    }
+
+    if (knownSpells.includes(spellId)) return;
+    if (classKey.includes("wizard") && !preparedSpells) return;
     throw conflict("COMBAT_409", "해당 캐릭터가 익힌 주문이 아닙니다.", { reason: "SPELL_NOT_KNOWN", spellId });
   }
 
@@ -6479,6 +6533,26 @@ export class CombatService {
     }
   }
 
+  private resolveCombatSpellSlotResources(
+    character: { className: string; level: number } | null,
+    rawSlots: Record<string, number> | undefined,
+  ): Record<string, { total: number; remaining: number }> {
+    const resources: Record<string, { total: number; remaining: number }> = {};
+
+    for (let slotLevel = 1; slotLevel <= 9; slotLevel += 1) {
+      const total = this.spellSlots.resolveMaximumForCharacter(character, slotLevel);
+      if (total <= 0) continue;
+
+      const rawRemaining = rawSlots?.[String(slotLevel)];
+      resources[String(slotLevel)] = {
+        total,
+        remaining: Math.min(total, Math.max(0, Math.floor(rawRemaining ?? total))),
+      };
+    }
+
+    return resources;
+  }
+
   private async mapCombat(combat: NonNullable<CombatWithParticipants>): Promise<CombatResponseDto> {
     const sessionCharacterIds = combat.participants
       .map((participant) => participant.sessionCharacterId)
@@ -6552,23 +6626,14 @@ export class CombatService {
         const armorClass = sessionCharacter?.character.armorClass ?? participant.armorClass ?? null;
         const movementFtTotal = sessionCharacter?.character.speed ?? participant.speedFt ?? 30;
         const turnState = turnStateByParticipantId.get(participant.id) ?? null;
-        const spellSlotLevel1Total = this.spellSlots.resolveMaximumForCharacter(
+        const spellSlots = this.resolveCombatSpellSlotResources(
           sessionCharacter?.character ?? null,
-          1,
+          participant.sessionCharacterId
+            ? spellSlotsBySessionCharacterId[participant.sessionCharacterId]
+            : undefined,
         );
-        const rawLevel1SpellSlots = participant.sessionCharacterId
-          ? spellSlotsBySessionCharacterId[participant.sessionCharacterId]?.["1"]
-          : undefined;
-        const spellSlotLevel1Remaining =
-          spellSlotLevel1Total > 0
-            ? Math.min(
-                spellSlotLevel1Total,
-                Math.max(
-                  0,
-                  Math.floor(rawLevel1SpellSlots ?? spellSlotLevel1Total),
-                ),
-              )
-            : 0;
+        const spellSlotLevel1Total = spellSlots["1"]?.total ?? 0;
+        const spellSlotLevel1Remaining = spellSlots["1"]?.remaining ?? 0;
         return {
           sessionEntityId: participant.id,
           entityType: participant.entityType as CombatEntityType,
@@ -6602,6 +6667,7 @@ export class CombatService {
             movementFtRemaining: Math.max(0, movementFtTotal - (turnState?.movementFtSpent ?? 0)),
             spellSlotLevel1Total,
             spellSlotLevel1Remaining,
+            spellSlots,
           },
           monsterActions: this.listMonsterActionOptionsForParticipant(
             participant,

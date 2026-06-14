@@ -1798,6 +1798,7 @@ export class SessionsService {
         sessionScenarioId: sessionScenario.id,
         gmUserId: userId,
         publicNarration: dto.content,
+        privateNote: dto.privateNote,
         targetId: dto.speakerName?.trim() || null,
         statePatch: {
           gmMessageCreated: true,
@@ -3049,6 +3050,7 @@ export class SessionsService {
             sessionCharacter: {
               include: {
                 character: true,
+                resource: true,
                 inventoryEntries: {
                   include: { itemDefinition: true },
                   orderBy: { createdAt: "asc" },
@@ -3064,6 +3066,7 @@ export class SessionsService {
           },
           include: {
             character: true,
+            resource: true,
             inventoryEntries: {
               include: { itemDefinition: true },
               orderBy: { createdAt: "asc" },
@@ -3113,6 +3116,7 @@ export class SessionsService {
             sessionCharacter: {
               include: {
                 character: true,
+                resource: true,
                 inventoryEntries: {
                   include: { itemDefinition: true },
                   orderBy: { createdAt: "asc" },
@@ -3128,6 +3132,7 @@ export class SessionsService {
           },
           include: {
             character: true,
+            resource: true,
             inventoryEntries: {
               include: { itemDefinition: true },
               orderBy: { createdAt: "asc" },
@@ -5018,7 +5023,7 @@ export class SessionsService {
     to: { x: number; y: number },
   ): boolean {
     const blockers = [
-      ...(map.terrainCells ?? []),
+      ...(map.terrainCells ?? []).filter((cell) => !cell.terrainEffectId),
       ...(map.wallCells ?? []),
       ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
     ];
@@ -5859,7 +5864,7 @@ export class SessionsService {
     options: { ignoreTokens?: boolean } = {},
   ): boolean {
     const blockers = [
-      ...(map.terrainCells ?? []),
+      ...(map.terrainCells ?? []).filter((cell) => !cell.terrainEffectId),
       ...(map.wallCells ?? []),
       ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
       // ignoreTokens: 경로 탐색 시 다른 토큰(아군 길막 등)은 통과 허용한다.
@@ -6012,6 +6017,7 @@ export class SessionsService {
         id?: string;
         name?: string | null;
         description?: string | null;
+        terrainEffectId?: string | null;
         x?: number;
         y?: number;
         width?: number;
@@ -6031,6 +6037,10 @@ export class SessionsService {
       description:
         typeof cell.description === "string" && cell.description.trim()
           ? cell.description.trim().slice(0, 500)
+          : null,
+      terrainEffectId:
+        typeof cell.terrainEffectId === "string" && cell.terrainEffectId.trim()
+          ? cell.terrainEffectId.trim().toLowerCase().replace(/[\s-]+/g, "_").slice(0, 80)
           : null,
       x: this.clampNumber(Number(cell.x), 0, width - gridSize),
       y: this.clampNumber(Number(cell.y), 0, height - gridSize),

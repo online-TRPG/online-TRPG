@@ -132,7 +132,7 @@ const mapText = {
   measure: '\uAC70\uB9AC \uCE21\uC815',
   ping: '\uD551',
   fog: '\uC548\uAC1C',
-  terrain: '이동불가',
+  terrain: '지형',
   wall: '벽',
   door: '문',
   object: '오브젝트',
@@ -174,6 +174,7 @@ const mapText = {
   mapFeature: '맵 구조',
   deleteFeature: '구조 삭제',
   description: '설명',
+  terrainEffect: '지형 효과',
   doorState: '문 상태',
   keyItem: '열쇠 아이템 ID',
   canBreak: '파괴 가능',
@@ -789,7 +790,7 @@ export function BattleMap({
     () =>
       buildBlockerIndex(
         [
-          ...terrainCells,
+          ...terrainCells.filter((cell) => !cell.terrainEffectId),
           ...wallCells,
           ...doorCells.filter((door) => door.state !== 'open' && door.state !== 'broken'),
         ],
@@ -2590,6 +2591,7 @@ export function BattleMap({
               close: mapText.close,
               name: mapText.name,
               description: mapText.description,
+              terrainEffect: mapText.terrainEffect,
               width: mapText.width,
               height: mapText.height,
               doorState: mapText.doorState,

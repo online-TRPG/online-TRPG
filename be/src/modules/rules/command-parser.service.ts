@@ -44,7 +44,7 @@ export type ParsedCommand =
       slotLevel: number | null;
     }
   | { type: "use_class_feature"; featureId: string; option: string | null }
-  | { type: "rest"; restType: "short" | "long" }
+  | { type: "rest"; restType: "short" | "long"; hitDiceToSpend?: number }
   | {
       type: "inventory";
       operation: "add" | "remove";
@@ -280,7 +280,14 @@ export class CommandParserService {
   private parseRest(args: string[]): ParsedCommand {
     const restType = args[0]?.toLowerCase().replace(/-/g, "_");
     if (restType === "short" || restType === "short_rest") {
-      return { type: "rest", restType: "short" };
+      const hitDiceToSpend = this.parseOptionalPositiveInteger(
+        args[1],
+        0,
+        "INVALID_HIT_DICE_TO_SPEND",
+      );
+      return hitDiceToSpend > 0
+        ? { type: "rest", restType: "short", hitDiceToSpend }
+        : { type: "rest", restType: "short" };
     }
 
     if (restType === "long" || restType === "long_rest") {

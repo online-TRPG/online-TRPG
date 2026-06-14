@@ -12,6 +12,7 @@ const createResource = (overrides: Record<string, unknown> = {}) => ({
   rageEndsAtTurn: null,
   frenzyActive: false,
   exhaustionLevel: 0,
+  hitDiceSpent: 0,
   createdAt: new Date("2026-05-06T00:00:00.000Z"),
   updatedAt: new Date("2026-05-06T00:00:00.000Z"),
   ...overrides,
@@ -168,5 +169,49 @@ describe("CharacterResourceService", () => {
       rageUses: 3,
       exhaustionLevel: 1,
     });
+  });
+
+  it("stores spent hit dice on short rest", async () => {
+    const { service, prisma } = createService();
+    prisma.sessionCharacterResource.upsert.mockResolvedValue(createResource({ hitDiceSpent: 1 }));
+    prisma.sessionCharacterResource.update.mockResolvedValue(createResource({ hitDiceSpent: 3 }));
+
+    await expect(
+      service.recoverShortRest({
+        sessionCharacterId,
+        hitDiceSpent: 3,
+      }),
+    ).resolves.toMatchObject({
+      hitDiceSpent: 3,
+    });
+    expect(prisma.sessionCharacterResource.update).toHaveBeenCalledWith({
+      where: { sessionCharacterId },
+      data: {
+        secondWindAvailable: true,
+        hitDiceSpent: 3,
+      },
+    });
+  });
+
+  it("stores recovered hit dice on long rest", async () => {
+    const { service, prisma } = createService();
+    prisma.sessionCharacterResource.upsert.mockResolvedValue(createResource({ hitDiceSpent: 4 }));
+    prisma.sessionCharacterResource.update.mockResolvedValue(createResource({ hitDiceSpent: 2 }));
+
+    await expect(
+      service.recoverLongRest({
+        sessionCharacterId,
+        hitDiceSpent: 2,
+      }),
+    ).resolves.toMatchObject({
+      hitDiceSpent: 2,
+    });
+    expect(prisma.sessionCharacterResource.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          hitDiceSpent: 2,
+        }),
+      }),
+    );
   });
 });

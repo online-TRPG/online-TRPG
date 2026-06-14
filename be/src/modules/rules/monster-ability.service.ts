@@ -18,6 +18,12 @@ export type ExecutableMonsterAction = {
   confidence: "high" | "medium" | "low" | "none";
   catalogEntryId: string;
   costType: RuleCatalogEntry["cost"]["type"];
+  specialType: string | null;
+  usage: string | null;
+  recharge: string | null;
+  save: { ability: string; dcSource: string | null } | null;
+  conditionRiders: string[];
+  effectTags: string[];
 };
 
 const MONSTER_ACTION_PREFERENCES: Record<string, string[]> = {
@@ -82,8 +88,9 @@ export class MonsterAbilityService {
     const actionId = this.readStringTag(entry.runtimeEffect.tags, "srd_action_id:") ?? entry.id;
     const attackKind = this.resolveAttackKind(entry);
     const monsterId = entry.levelRequirement.monsterId ?? null;
+    const isSpecial = !attackKind && entry.cost.type !== "none";
 
-    if (!monsterId || !attackKind || attackBonus === null) {
+    if (!monsterId || (!attackKind && !isSpecial) || (attackKind && attackBonus === null)) {
       return null;
     }
 
@@ -91,8 +98,8 @@ export class MonsterAbilityService {
       monsterId,
       actionId,
       label: this.createLabel(entry.id),
-      attackKind,
-      attackBonus,
+      attackKind: attackKind ?? "special",
+      attackBonus: attackBonus ?? 0,
       damageDice: entry.damage?.dice ?? "",
       damageType: entry.damage?.type ?? null,
       reachFt: this.resolveReachFt(entry),
@@ -100,6 +107,14 @@ export class MonsterAbilityService {
       confidence: entry.damage ? "high" : "medium",
       catalogEntryId: entry.id,
       costType: entry.cost.type,
+      specialType: this.resolveSpecialType(entry),
+      usage: this.readStringTag(entry.runtimeEffect.tags, "usage:"),
+      recharge: this.readStringTag(entry.runtimeEffect.tags, "recharge:"),
+      save: entry.save
+        ? { ability: entry.save.ability, dcSource: entry.save.dcSource ?? null }
+        : null,
+      conditionRiders: this.readPrefixedTags(entry.runtimeEffect.tags, "condition:"),
+      effectTags: this.resolveEffectTags(entry),
     };
   }
 
@@ -128,6 +143,33 @@ export class MonsterAbilityService {
       normal: entry.targeting.rangeFt,
       long: this.readPositiveIntegerTag(entry.runtimeEffect.tags, "range_long:"),
     };
+  }
+
+  private resolveSpecialType(entry: RuleCatalogEntry): string | null {
+    if (entry.runtimeEffect.tags.some((tag) => tag.startsWith("mobility:"))) {
+      return "mobility";
+    }
+    if (entry.runtimeEffect.tags.some((tag) => tag.startsWith("aura:"))) {
+      return "aura";
+    }
+    if (entry.runtimeEffect.tags.some((tag) => tag.startsWith("multiattack:"))) {
+      return "multiattack";
+    }
+    return null;
+  }
+
+  private resolveEffectTags(entry: RuleCatalogEntry): string[] {
+    return [
+      ...this.readPrefixedTags(entry.runtimeEffect.tags, "option:"),
+      ...this.readPrefixedTags(entry.runtimeEffect.tags, "effect:"),
+    ];
+  }
+
+  private readPrefixedTags(tags: string[], prefix: string): string[] {
+    return tags
+      .filter((tag) => tag.startsWith(prefix))
+      .map((tag) => tag.slice(prefix.length))
+      .filter(Boolean);
   }
 
   private readStringTag(tags: string[], prefix: string): string | null {
