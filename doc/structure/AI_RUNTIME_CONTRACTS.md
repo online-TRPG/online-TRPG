@@ -1,11 +1,28 @@
 # AI Contracts - Google AI Studio 기반 AI GM 입출력 계약
 
-## 1. 목적
+## 문서 목적
 
 이 문서는 Google AI Studio / Gemini API로 호출하는 호스팅 Gemma 4 모델이 담당하는 역할과 JSON 입출력 계약을 정의한다.
 
 MVP에서는 Interpreter와 Narrator를 필수로 구현한다.
 Actor는 NPC 행동 후보 선택 전용으로 제한적으로 구현하고, NpcDialogue는 NPC 대사 생성 전용 역할로 Actor와 분리한다. Director와 Summarizer는 보조 역할로 둔다.
+
+## 적용 범위
+
+- AI GM 세션의 AI 호출
+- 사람 GM 세션에서 선택적으로 사용하는 AI 보조 호출
+- 역할별 JSON 입력/출력 계약
+- 검증, 재시도, fallback, 로깅 기준
+
+## 핵심 요약
+
+- AI는 상태를 확정하지 않는다.
+- 모든 AI 출력은 JSON으로 받고 서버 하네스가 검증한다.
+- 역할별 재시도는 최대 1회다.
+- timeout, rate limit, quota 오류는 fallback으로 처리한다.
+- 모든 AI 호출은 `AiTrace`로 저장한다.
+
+## 상세 내용
 
 범위 메모:
 
@@ -13,7 +30,7 @@ Actor는 NPC 행동 후보 선택 전용으로 제한적으로 구현하고, Npc
 - 사람 GM의 직접 메시지 입력, NPC 대사 입력, 노드 변경, 자료 공개는 이 문서의 계약 대상이 아니다.
 - AI는 상태를 확정하지 않고, 사람 GM 세션에서도 보조 기능으로만 사용된다.
 
-## 2. 공통 운영 조건
+### 공통 운영 조건
 
 - 제공자: Google AI Studio / Gemini API
 - 기본 모델: `gemma-4-31b-it`
@@ -23,7 +40,7 @@ Actor는 NPC 행동 후보 선택 전용으로 제한적으로 구현하고, Npc
 - timeout: 역할별 제한 시간 초과, API 오류, rate limit, quota 오류 시 fallback
 - 로깅: 모든 AI 호출은 `AiTrace`로 저장
 
-## 2.1 Provider 계약
+### Provider 계약
 
 LLM 제공자는 백엔드 내부 인터페이스 뒤에 둔다.
 
@@ -63,7 +80,7 @@ type AiCallResult = {
 
 API 키는 서버에서만 사용하고 클라이언트 번들, 세션 로그, `AiTrace.rawOutput` 외 메타데이터에 기록하지 않는다.
 
-## 3. 역할 구분
+### 역할 구분
 
 | 역할        | MVP 필수 | 상태 변경 가능 | 설명                               |
 | ----------- | -------- | -------------- | ---------------------------------- |
@@ -76,9 +93,9 @@ API 키는 서버에서만 사용하고 클라이언트 번들, 세션 로그, `
 
 NpcDialogue는 Actor와 별도 역할이다. Actor는 `allowedActions` 중 하나를 고르고, NpcDialogue는 이미 허용된 상황 안에서 표시 가능한 NPC 대사만 생성한다.
 
-## 4. Interpreter
+### Interpreter
 
-### 입력
+#### 입력
 
 ```ts
 type InterpreterInput = {
@@ -105,7 +122,7 @@ type InterpreterInput = {
 };
 ```
 
-### 출력
+#### 출력
 
 ```ts
 type InterpreterOutput = {
@@ -116,7 +133,7 @@ type InterpreterOutput = {
 };
 ```
 
-### 규칙
+#### 규칙
 
 - 존재하지 않는 대상을 만들지 않는다.
 - 피해량, HP 변경, 단서 획득을 확정하지 않는다.
@@ -124,7 +141,7 @@ type InterpreterOutput = {
 - 모호하면 `needsClarification`을 true로 둔다.
 - confidence는 0부터 1 사이 숫자다.
 
-### 실패 처리
+#### 실패 처리
 
 | 실패                                  | 처리                                               |
 | ------------------------------------- | -------------------------------------------------- |
@@ -135,9 +152,9 @@ type InterpreterOutput = {
 | Gemini API rate limit 또는 quota 오류 | 재시도하지 않고 선택지 fallback, `FailureLog` 기록 |
 | 네트워크 오류                         | 짧은 연결 오류 메시지와 선택지 fallback            |
 
-## 5. Narrator
+### Narrator
 
-### 입력
+#### 입력
 
 ```ts
 type NarratorInput = {
@@ -159,7 +176,7 @@ type NarratorInput = {
 };
 ```
 
-### 출력
+#### 출력
 
 `stateDiffSummary`는 백엔드 `StateDiff.operations`가 아니라, 백엔드가 확정한 상태 변경을 공개 내레이션용으로 요약한 DTO다. AI Narrator 입력에서는 `StateDiff`라는 이름을 쓰지 않는다.
 
@@ -181,7 +198,7 @@ type NarratorOutput = {
 };
 ```
 
-### 규칙
+#### 규칙
 
 - 확정되지 않은 단서, 피해, 보상, NPC 사망을 추가하지 않는다.
 - 주사위 결과를 바꾸지 않는다.
@@ -189,7 +206,7 @@ type NarratorOutput = {
 - 한국어로 출력한다.
 - MVP 기본 출력은 2~5문장으로 제한한다.
 
-### 실패 처리
+#### 실패 처리
 
 | 실패                                  | 처리                                    |
 | ------------------------------------- | --------------------------------------- |
@@ -199,11 +216,11 @@ type NarratorOutput = {
 | Gemini API rate limit 또는 quota 오류 | 템플릿 서술 사용, `FailureLog` 기록     |
 | 네트워크 오류                         | 템플릿 서술 사용                        |
 
-## 6. Actor
+### Actor
 
 MVP에서는 전투 또는 간단한 NPC 반응에서만 사용한다.
 
-### 입력
+#### 입력
 
 ```ts
 type ActorInput = {
@@ -223,7 +240,7 @@ type ActorInput = {
 };
 ```
 
-### 출력
+#### 출력
 
 ```ts
 type ActorOutput = {
@@ -232,18 +249,18 @@ type ActorOutput = {
 };
 ```
 
-### 규칙
+#### 규칙
 
 - `allowedActions`에 없는 행동을 선택할 수 없다.
 - Actor의 선택은 엔진이 다시 검증한다.
 
 Actor는 NPC 대사를 생성하지 않는다. NPC 대사는 `NpcDialogue` 역할이 처리한다.
 
-## 6.1 NpcDialogue
+### NpcDialogue
 
 NpcDialogue는 AI-002 NPC 대사 생성 전용 역할이다. Actor가 이미 고른 행동 후보나 현재 장면 맥락을 참고할 수 있지만, 행동을 선택하거나 상태를 변경하지 않는다.
 
-### 입력
+#### 입력
 
 ```ts
 type NpcDialogueInput = {
@@ -260,7 +277,7 @@ type NpcDialogueInput = {
 };
 ```
 
-### 출력
+#### 출력
 
 ```ts
 type NpcDialogueOutput = {
@@ -270,13 +287,13 @@ type NpcDialogueOutput = {
 };
 ```
 
-### 규칙
+#### 규칙
 
 - 행동 선택은 Actor 책임이다.
 - 대사는 요청에 포함된 NPC, 장면, 최근 맥락, 선택된 행동, 대사 목적 안에서만 생성한다.
 - 피해량, DC, 주사위 결과, HP 변경, 상태 변경을 만들 수 없다.
 
-## 7. Director
+### Director
 
 Director는 MVP 필수 기능이 아니다.
 
@@ -288,7 +305,7 @@ Director는 MVP 필수 기능이 아니다.
 
 Director는 상태를 바꾸지 않고, 힌트 후보나 다음 전개 후보만 제안한다.
 
-## 8. Prompt 관리
+### Prompt 관리
 
 프롬프트는 역할별로 버전을 둔다.
 
@@ -306,7 +323,7 @@ prompts/
 
 `AiTrace.promptVersion`에는 파일명 또는 semantic version을 저장한다.
 
-## 9. 평가 지표
+### 평가 지표
 
 MVP에서 추적할 지표:
 
@@ -324,10 +341,27 @@ MVP에서 추적할 지표:
 
 기본 목표는 `QUALITY_MVP_ACCEPTANCE.md`를 따른다.
 
-## 10. Google AI Studio 적용 메모
+### Google AI Studio 적용 메모
 
 - Google AI Studio에서 API 키를 발급하고 Gemini API로 Gemma 4 모델을 호출한다.
 - 공식 문서 기준 Gemma 4 호출 모델명은 `gemma-4-31b-it`이다.
 - free tier는 개발과 시연에는 사용할 수 있지만, 실제 rate limit은 프로젝트별로 Google AI Studio에서 확인한다.
 - Gemma 4 경로는 모델 출력이 JSON 텍스트라는 전제로 받고, 서버 하네스가 형식과 의미를 검증한다.
 - Gemini API의 structured output 보장이 반드시 필요한 실험은 동일 Provider 인터페이스에서 structured output 지원 Gemini 모델로 교체해 A/B 테스트한다.
+
+## 관련 원칙
+
+- [../rules/AI_RUNTIME_RULES.md](../rules/AI_RUNTIME_RULES.md): AI 역할, 검증, fallback, 보안 원칙
+- [../rules/ARCHITECTURE_RULES.md](../rules/ARCHITECTURE_RULES.md): AI 실패 시 세션 진행 원칙
+- [../rules/PERMISSION_RULES.md](../rules/PERMISSION_RULES.md): 사람 GM 직접 조작과 AI 보조 호출 분리 원칙
+
+## 관련 문서
+
+- [RUNTIME_SESSION_TURN_FLOW.md](RUNTIME_SESSION_TURN_FLOW.md): AI 호출이 포함되는 턴 처리 흐름
+- [trpg_main_command_mvp_flow_with_categories.md](trpg_main_command_mvp_flow_with_categories.md): 메인 커맨드별 AI 호출 여부
+- [QUALITY_MVP_ACCEPTANCE.md](QUALITY_MVP_ACCEPTANCE.md): AI 품질 기준
+
+## 변경 시 주의사항
+
+- 역할별 출력 형식을 바꾸면 백엔드 schema, DTO, validator, 테스트를 함께 갱신한다.
+- timeout이나 fallback 기준을 바꾸면 `RUNTIME_SESSION_TURN_FLOW.md`와 수용 기준을 함께 확인한다.
