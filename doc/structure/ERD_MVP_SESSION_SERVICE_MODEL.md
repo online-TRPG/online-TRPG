@@ -1,11 +1,30 @@
-# MVP ERD 초안 - 세션 외부 서비스 모델
+# MVP ERD - 세션 / 시나리오 런타임 서비스 모델
 
 수정일: 2026년 5월 5일
 
 
-## 1. 목적
+## 문서 목적
 
-이 문서는 MVP 단계에서 사용할 핵심 ERD 초안을 정리한다.
+이 문서는 MVP 단계에서 사용할 세션, 시나리오, 런타임 데이터 모델을 정리한다.
+
+## 적용 범위
+
+- 계정, 공개 프로필, 소셜 계정
+- 세션 생성, 참가, 권한, GM 모드
+- 시나리오 원본과 세션 런타임 시나리오
+- 게임 상태, 공개 이력, 방문 이력, 턴 로그, 전투 상태
+- 현재 Prisma 구현 기준의 런타임 DB 역할
+
+## 핵심 요약
+
+- 현재 구현 기준은 [현재 구현 기준 - 세션/시나리오 런타임 DB 역할](#8-현재-구현-기준---세션시나리오-런타임-db-역할)을 우선한다.
+- `Session`은 사람들의 모임이고 `Scenario`는 플레이 콘텐츠다.
+- 세션은 `SessionScenario`를 통해 시나리오를 플레이한다.
+- 원본 장면은 `ScenarioNode`, 세션 진행 중 장면은 `SessionScenarioNode`가 맡는다.
+- 세션 권한은 `hostUserId`, `gmUserId`, `captainUserId`를 분리한다.
+- `GameState`는 현재 위치와 phase 같은 짧은 포인터를 맡고, 공개/방문/로그 이력은 별도 테이블이 맡는다.
+
+## 상세 내용
 
 특히 아래 범위를 대상으로 한다.
 
@@ -17,7 +36,7 @@
 
 > 현재 Prisma 구현 기준의 세션 / 시나리오 / 플레이 런타임 DB 역할과 컬럼 책임은
 > [8. 현재 구현 기준 - 세션/시나리오 런타임 DB 역할](#8-현재-구현-기준---세션시나리오-런타임-db-역할)을 우선 기준으로 본다.
-> 앞쪽 섹션은 MVP ERD 합의 초안의 맥락을 보존한다.
+> 앞쪽 초안 섹션은 결정 배경을 보존하기 위한 참고 자료이며, 구현 기준과 충돌하면 8장을 우선한다.
 
 ## 2. 이번 합의의 핵심
 
@@ -31,9 +50,10 @@
 
 ### 2.2 Host / Owner / GM
 
-- MVP에서는 `owner`, `captain`, `host`를 따로 나누지 않는다.
-- 세션을 만든 사람이 곧 `host`다.
-- `gmMode = HUMAN`이면 host가 GM 역할도 수행한다.
+- `hostUserId`는 세션을 만든 방장 / 주최자다.
+- `gmUserId`는 사람 GM 세션에서 GM 권한을 가진 사용자다.
+- `captainUserId`는 파티 대표 또는 진행 보조 역할을 맡는 사용자다.
+- `gmMode = HUMAN`이면 사람 GM 전용 기능은 `gmUserId` 기준으로 노출한다.
 - `gmMode = AI`이면 GM 역할은 AI가 수행하고, host는 방 관리자이자 주최자 역할을 맡는다.
 
 ### 2.3 Account 와 Profile
@@ -122,13 +142,18 @@
 | maxParticipants | int | 최대 참가 인원 |
 | ruleSetId | string nullable | 룰셋 식별자 |
 | gmMode | enum | `HUMAN`, `AI` |
+| gmUserId | string nullable FK -> User.id | Human GM 세션의 사람 GM |
+| captainUserId | string nullable FK -> User.id | 파티 대표 / 진행 보조 사용자 |
 | nextSessionAt | datetime nullable | 다음 예정 일정 |
 | createdAt | datetime | 생성 시각 |
 | updatedAt | datetime | 수정 시각 |
 
 메모:
 
-- MVP에서는 `ownerUserId`, `captainUserId`, `gmUserId`를 두지 않고 `hostUserId`로 단순화한다.
+- 현재 구현은 `hostUserId`, `gmUserId`, `captainUserId`를 분리한다.
+- API projection에서 `ownerUserId`는 세션 생성자인 `hostUserId`를 의미한다.
+- Human GM 세션에서는 `gmUserId`가 없으면 호환을 위해 `hostUserId`를 GM으로 간주할 수 있다.
+- AI GM 세션에서는 사람 GM 전용 권한을 `hostUserId`에 자동 부여하지 않는다.
 - 현재 활성 시나리오는 `SessionScenario.status = ACTIVE`로 판별한다.
 
 ### 3.5 Scenario
@@ -284,12 +309,14 @@ erDiagram
         string title
         text description
         string hostUserId FK
+        string gmUserId FK
         string inviteCode
         string status
         string visibility
         int maxParticipants
         string ruleSetId
         string gmMode
+        string captainUserId FK
         datetime nextSessionAt
         datetime createdAt
         datetime updatedAt
@@ -405,13 +432,13 @@ erDiagram
 - 그래서 `Session`은 파티 / 방, `Scenario`는 콘텐츠로 분리했다.
 - 한 세션에서 여러 시나리오를 순서대로 플레이할 수 있도록 `SessionScenario`를 도입했다.
 
-### 5.2 왜 Host 하나로 단순화했는가
+### 5.2 왜 Host / GM / Captain 을 분리했는가
 
-- MVP에서는 `owner`, `captain`, `host`, `human gm`이 대부분 같은 사람이다.
-- 역할을 세분화하면 API / 권한 / 화면 문구가 모두 복잡해진다.
-- 따라서 MVP는 `Session.hostUserId` 하나로 단순화한다.
-- `gmMode = HUMAN`이면 host가 GM 역할 수행
-- `gmMode = AI`이면 AI가 GM 역할 수행, host는 방 관리 담당
+- AI GM 세션의 방장은 방 관리자이지 사람 GM이 아니다.
+- Human GM 세션의 GM 전용 패널과 운영 API는 방장 권한과 별도로 보호되어야 한다.
+- 따라서 `hostUserId`는 세션 주최자, `gmUserId`는 사람 GM, `captainUserId`는 파티 대표로 분리한다.
+- `gmMode = HUMAN`이면 사람 GM 권한은 `gmUserId` 기준으로 판단한다.
+- `gmMode = AI`이면 AI가 GM 역할을 수행하고, host는 방 관리 담당으로 남는다.
 
 ### 5.3 왜 User 와 UserProfile 을 분리했는가
 
@@ -444,20 +471,17 @@ erDiagram
 - Human GM이 기존 시나리오를 바꿀 때 원본을 직접 수정하면 다른 세션까지 영향받을 수 있다.
 - 따라서 “기존 시나리오 불러와 수정” 흐름은 원본 수정이 아니라 복제본 생성 후 수정 방식으로 본다.
 
-## 6. 현재 구현과의 주요 차이
+## 6. 현재 구현 기준으로 정렬된 주요 결정
 
-현재 Prisma / API 구현과 비교하면 아래는 새 구조 반영을 위해 실제로 정렬되어야 하는 핵심 변경 사항이다.
+현재 Prisma / API 구현은 아래 방향으로 정렬되어 있다.
 
-1. `Session.scenarioId` 직접 참조 제거
-2. `Session.currentNodeId` 제거
-3. `SessionScenario` 신규 도입
-4. `GameState.sessionId`를 `GameState.sessionScenarioId` 구조로 변경
-5. `ownerUserId`, `captainUserId`, `gmUserId`를 `hostUserId` 중심 구조로 단순화
-6. `UserProfile` 분리 반영
-7. `Character` 이미지 컬럼 추가
-8. `Scenario.createdByUserId`, `sourceType`, `baseScenarioId` 등 작성/복제 흐름용 메타데이터 추가 검토
-
-즉, 이 문서는 “현재 코드와 완전히 일치하는 상태 문서”가 아니라, 팀이 합의한 MVP 방향을 ERD 관점으로 정리한 기준안이다.
+1. `Session`은 `Scenario`를 직접 참조하지 않고 `SessionScenario`를 통해 플레이 중인 시나리오를 연결한다.
+2. 현재 노드와 phase는 `GameState`가 들고, 공개/방문/로그 이력은 `SessionReveal`, `SessionNodeVisit`, `TurnLog`가 맡는다.
+3. 원본 시나리오 노드는 `ScenarioNode`, 세션 진행 중 복제된 노드는 `SessionScenarioNode`가 맡는다.
+4. 세션 권한은 `hostUserId`, `gmUserId`, `captainUserId`를 분리한다.
+5. `UserProfile`은 공개 프로필 정보를 맡고, `User`는 인증/계정 정보를 맡는다.
+6. 캐릭터 이미지는 `Character` 컬럼으로 관리한다.
+7. 시나리오 이미지 자산은 `ScenarioAsset`이 관리한다.
 
 ## 7. 후속 작업 추천 순서
 
@@ -488,17 +512,21 @@ erDiagram
 | publicId | URL/공개 표시에 쓰는 세션 공개 ID |
 | title | 세션 제목 |
 | description | 세션 설명 |
-| hostUserId | 세션 생성자이자 host. Human GM 세션에서는 GM 권한 기준 |
+| hostUserId | 세션 생성자이자 host |
+| gmUserId | Human GM 세션의 사람 GM |
 | inviteCode | 초대 입장 코드 |
 | status | 모집/진행/중단/완료 상태 |
 | visibility | 공개/비공개 탐색 가능 여부 |
 | maxParticipants | 최대 참가자 수 |
 | ruleSetId | 세션에 적용할 룰셋 식별자 |
 | gmMode | AI GM 또는 Human GM 모드 |
+| captainUserId | 파티 대표 / 진행 보조 사용자 |
 | nextSessionAt | 다음 예정 일정 |
 | createdAt / updatedAt | 생성/수정 시각 |
 
 필요 이유: 세션은 시나리오 자체가 아니라 플레이 모임의 컨테이너다. 같은 세션이 여러 `SessionScenario`를 순서대로 플레이할 수 있다.
+
+권한 메모: Human GM 권한은 `gmMode`와 `gmUserId`를 기준으로 판단한다. AI GM 세션의 `hostUserId`에는 사람 GM 전용 권한을 자동 부여하지 않는다.
 
 ### 8.2 SessionParticipant
 
@@ -809,3 +837,21 @@ erDiagram
 | createdAt / updatedAt | 생성/수정 시각 |
 
 필요 이유: 전투 중 액션 경제는 현재 phase만으로 표현할 수 없고, 라운드/턴 단위 이력이 필요하다.
+
+## 관련 원칙
+
+- [../rules/ARCHITECTURE_RULES.md](../rules/ARCHITECTURE_RULES.md): 세션/시나리오 분리, 상태 포인터와 이력 분리 원칙
+- [../rules/PERMISSION_RULES.md](../rules/PERMISSION_RULES.md): 방장, 사람 GM, AI GM 권한 분리 원칙
+- [../rules/CONTENT_LICENSE_RULES.md](../rules/CONTENT_LICENSE_RULES.md): 시나리오 원본과 콘텐츠 라이선스 원칙
+
+## 관련 문서
+
+- [RUNTIME_SESSION_TURN_FLOW.md](RUNTIME_SESSION_TURN_FLOW.md): 런타임 상태 변경 흐름
+- [PRODUCT_SCOPE.md](PRODUCT_SCOPE.md): MVP 범위와 세션/시나리오 전제
+- [SCREEN.md](SCREEN.md): 화면별 권한과 상태 표시 구조
+
+## 변경 시 주의사항
+
+- Prisma schema, domain mapper, DTO projection과 충돌하지 않는지 확인한다.
+- 권한 관련 필드를 바꾸면 `PERMISSION_RULES.md`와 사람 GM API 권한 검사를 함께 확인한다.
+- 현재 구현 기준과 과거 초안이 충돌하면 현재 구현 기준을 우선하고, 과거 내용은 참고로만 남긴다.

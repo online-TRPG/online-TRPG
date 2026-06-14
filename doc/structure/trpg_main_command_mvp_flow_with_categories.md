@@ -1,6 +1,27 @@
-# TRPG 메인 채팅 MVP 명령어 처리 구조
+﻿# TRPG 메인 채팅 MVP 명령어 처리 구조
 
-## 0. 기준
+## 문서 목적
+
+이 문서는 메인 채팅창에서 실행할 MVP 명령어 버튼, 프론트 payload, 백엔드 처리 방식, AI 역할별 응답, 프론트 반환 형식을 정의한다.
+
+## 적용 범위
+
+- 스토리, 탐색, 전투 화면의 메인 커맨드 버튼
+- 프론트 payload
+- 백엔드 검증과 AI 호출 판단
+- AI 역할별 응답과 프론트 반환 형식
+
+## 핵심 요약
+
+- 메인 채팅 명령어는 `playerText`가 필요한 자유 요청이다.
+- 프론트 버튼과 intent는 1:1로 대응한다.
+- 백엔드는 AI 호출 전에 권한, 상태, 대상, 자원, 공개 여부를 먼저 검증한다.
+- AI는 성공/실패/피해/상태 변경을 확정하지 않는다.
+- 확정 결과의 서술만 Narrator가 담당한다.
+
+## 상세 내용
+
+### 기준
 
 이 문서는 **메인 채팅창에서 실행할 MVP 명령어 버튼**만 정리한다.
 
@@ -25,21 +46,21 @@ AI 서버 역할은 아래 6개로 고정한다.
 
 ---
 
-## 1. MVP 프론트 명령어 버튼 목록
+### MVP 프론트 명령어 버튼 목록
 
 프론트에서는 세부 명령어를 한 번에 전부 보여주지 않고, **큰 카테고리로 1차 분류**한 뒤 세부 버튼을 보여준다.
 
 ---
 
-## 1.1 스토리 화면
+#### 스토리 화면
 
-### 1차 카테고리
+##### 1차 카테고리
 
 ```text
 [대화] [사회 행동] [질문] [조사] [RP 행동] [진행 보조]
 ```
 
-### 카테고리별 세부 명령어
+##### 카테고리별 세부 명령어
 
 | 카테고리 | 버튼 | intent | 용도 |
 |---|---|---|---|
@@ -57,15 +78,15 @@ AI 서버 역할은 아래 6개로 고정한다.
 
 ---
 
-## 1.2 탐색 화면
+#### 탐색 화면
 
-### 1차 카테고리
+##### 1차 카테고리
 
 ```text
 [관찰] [조사] [감각] [이동] [상호작용] [도구/아이템] [대화] [진행 보조]
 ```
 
-### 카테고리별 세부 명령어
+##### 카테고리별 세부 명령어
 
 | 카테고리 | 버튼 | intent | 용도 |
 |---|---|---|---|
@@ -85,15 +106,15 @@ AI 서버 역할은 아래 6개로 고정한다.
 
 ---
 
-## 1.3 전투 화면
+#### 전투 화면
 
-### 1차 카테고리
+##### 1차 카테고리
 
 ```text
 [창의 행동] [환경] [특수 공격] [전술] [반응/준비] [대화] [아이템/주문] [질문] [진행 보조]
 ```
 
-### 카테고리별 세부 명령어
+##### 카테고리별 세부 명령어
 
 | 카테고리 | 버튼 | intent | 용도 |
 |---|---|---|---|
@@ -113,9 +134,9 @@ AI 서버 역할은 아래 6개로 고정한다.
 
 ---
 
-## 2. 프론트에서 각 버튼마다 보내는 데이터
+### 프론트에서 각 버튼마다 보내는 데이터
 
-### 2.1 공통 Payload
+#### 공통 Payload
 
 모든 MVP 메인 채팅 명령어는 `playerText`를 필수로 보낸다.
 
@@ -149,7 +170,7 @@ type MainCommandRequest = {
 };
 ```
 
-### 2.2 카테고리 타입
+#### 카테고리 타입
 
 ```ts
 type MainCommandCategory =
@@ -179,7 +200,7 @@ type MainCommandCategory =
 
 ---
 
-## 2.3 스토리 버튼별 데이터
+#### 스토리 버튼별 데이터
 
 | 카테고리 | intent | 필수 데이터 | 선택 데이터 |
 |---|---|---|---|
@@ -197,7 +218,7 @@ type MainCommandCategory =
 
 ---
 
-## 2.4 탐색 버튼별 데이터
+#### 탐색 버튼별 데이터
 
 | 카테고리 | intent | 필수 데이터 | 선택 데이터 |
 |---|---|---|---|
@@ -217,7 +238,7 @@ type MainCommandCategory =
 
 ---
 
-## 2.5 전투 버튼별 데이터
+#### 전투 버튼별 데이터
 
 | 카테고리 | intent | 필수 데이터 | 선택 데이터 |
 |---|---|---|---|
@@ -237,9 +258,9 @@ type MainCommandCategory =
 
 ---
 
-## 3. 요청을 받은 백엔드 처리 방식
+### 요청을 받은 백엔드 처리 방식
 
-### 3.1 공통 선처리
+#### 공통 선처리
 
 ```text
 1. 세션/노드 확인
@@ -254,7 +275,7 @@ type MainCommandCategory =
 
 ---
 
-## 3.2 스토리 요청 처리
+#### 스토리 요청 처리
 
 | intent | 백엔드 처리 | AI 호출 | AI에 덧붙일 데이터 | 프론트 반환 |
 |---|---|---|---|---|
@@ -272,7 +293,7 @@ type MainCommandCategory =
 
 ---
 
-## 3.3 탐색 요청 처리
+#### 탐색 요청 처리
 
 | intent | 백엔드 처리 | AI 호출 | AI에 덧붙일 데이터 | 프론트 반환 |
 |---|---|---|---|---|
@@ -292,7 +313,7 @@ type MainCommandCategory =
 
 ---
 
-## 3.4 전투 요청 처리
+#### 전투 요청 처리
 
 | intent | 백엔드 처리 | AI 호출 | AI에 덧붙일 데이터 | 프론트 반환 |
 |---|---|---|---|---|
@@ -312,9 +333,9 @@ type MainCommandCategory =
 
 ---
 
-## 4. AI 서버가 백엔드로 반환해야 하는 값
+### AI 서버가 백엔드로 반환해야 하는 값
 
-### 4.1 Interpreter 응답
+#### Interpreter 응답
 
 ```ts
 type InterpreterResponse = {
@@ -354,7 +375,7 @@ type InterpreterResponse = {
 };
 ```
 
-### 4.2 Narrator 응답
+#### Narrator 응답
 
 ```ts
 type NarratorResponse = {
@@ -363,7 +384,7 @@ type NarratorResponse = {
 };
 ```
 
-### 4.3 Director 응답
+#### Director 응답
 
 ```ts
 type DirectorResponse = {
@@ -373,7 +394,7 @@ type DirectorResponse = {
 };
 ```
 
-### 4.4 Summarizer 응답
+#### Summarizer 응답
 
 ```ts
 type SummarizerResponse = {
@@ -383,7 +404,7 @@ type SummarizerResponse = {
 };
 ```
 
-### 4.5 Actor 응답
+#### Actor 응답
 
 ```ts
 type ActorResponse = {
@@ -393,7 +414,7 @@ type ActorResponse = {
 };
 ```
 
-### 4.6 NpcDialogue 응답
+#### NpcDialogue 응답
 
 ```ts
 type NpcDialogueResponse = {
@@ -406,9 +427,9 @@ type NpcDialogueResponse = {
 
 ---
 
-## 5. AI 서버로부터 반환받은 뒤 백엔드 처리
+### AI 서버로부터 반환받은 뒤 백엔드 처리
 
-### 5.1 Interpreter 반환 후
+#### Interpreter 반환 후
 
 | resolution | 백엔드 처리 | 프론트 반환 |
 |---|---|---|
@@ -418,7 +439,7 @@ type NpcDialogueResponse = {
 | `SERVER_VALIDATION_REQUIRED` | 거리/아이템/권한/자원 검증 | 가능/불가/판정 필요 |
 | `IMPOSSIBLE` | 실패 사유 저장 | 불가 메시지 |
 
-### 5.2 Narrator 반환 후
+#### Narrator 반환 후
 
 ```text
 백엔드에서 결과 확정
@@ -427,7 +448,7 @@ type NpcDialogueResponse = {
 → 프론트에 statePatch + narration 반환
 ```
 
-### 5.3 Director 반환 후
+#### Director 반환 후
 
 ```text
 공개 정보만 사용했는지 검증
@@ -435,14 +456,14 @@ type NpcDialogueResponse = {
 → 프론트에 힌트 반환
 ```
 
-### 5.4 Summarizer 반환 후
+#### Summarizer 반환 후
 
 ```text
 playerSummary는 프론트에 반환
 aiContextSummary는 서버에 저장
 ```
 
-### 5.5 Actor 반환 후
+#### Actor 반환 후
 
 ```text
 백엔드가 허용된 NPC 행동 후보 생성
@@ -452,7 +473,7 @@ aiContextSummary는 서버에 저장
 → 프론트에 상태 변경 반환
 ```
 
-### 5.6 NpcDialogue 반환 후
+#### NpcDialogue 반환 후
 
 ```text
 대사 내용 검증
@@ -462,7 +483,7 @@ aiContextSummary는 서버에 저장
 
 ---
 
-## 6. 프론트 반환 형식
+### 프론트 반환 형식
 
 ```ts
 type CommandFrontendResponse = {
@@ -497,7 +518,7 @@ type CommandFrontendResponse = {
 
 ---
 
-## 7. 최종 기준
+### 최종 기준
 
 ```text
 1. MVP 메인 채팅 명령어만 남긴다.
@@ -511,3 +532,22 @@ type CommandFrontendResponse = {
 9. 상태 변경은 백엔드 또는 GM 승인 후 확정한다.
 10. 확정 결과의 서술만 Narrator가 담당한다.
 ```
+
+## 관련 원칙
+
+- [../rules/AI_RUNTIME_RULES.md](../rules/AI_RUNTIME_RULES.md): AI 역할과 상태 변경 금지 원칙
+- [../rules/ARCHITECTURE_RULES.md](../rules/ARCHITECTURE_RULES.md): 서버 검증과 상태 확정 원칙
+- [../rules/PERMISSION_RULES.md](../rules/PERMISSION_RULES.md): 권한/공개 여부 projection 원칙
+
+## 관련 문서
+
+- [AI_RUNTIME_CONTRACTS.md](AI_RUNTIME_CONTRACTS.md): AI 역할별 입출력 계약
+- [RUNTIME_SESSION_TURN_FLOW.md](RUNTIME_SESSION_TURN_FLOW.md): 플레이어 행동 처리 흐름
+- [../examples/trpg_main_command_usage_examples.md](../examples/trpg_main_command_usage_examples.md): 메인 커맨드 사용 예시
+
+## 변경 시 주의사항
+
+- intent를 추가하거나 제거하면 프론트 버튼, 백엔드 검증, AI 호출 여부, 예시 문서를 함께 갱신한다.
+- AI 응답 형식을 바꾸면 `AI_RUNTIME_CONTRACTS.md`와 백엔드 schema를 함께 확인한다.
+
+
