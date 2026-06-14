@@ -87,6 +87,7 @@ type CombatConcentrationCheckResult = {
 };
 type CombatTerrainEffectApplication = {
   damageRoll: DiceRollResponseDto | null;
+  saveRolls: DiceRollResponseDto[];
   appliedConditionTags: string[];
   concentrationCheck: CombatConcentrationCheckResult | null;
 };
@@ -178,6 +179,7 @@ const RAGE_CONDITION_TAGS = [
 const DEFAULT_MONSTER_AC = 10;
 const DEFAULT_MONSTER_HP = 1;
 const COMBAT_CONDITION_DODGE = "combat:dodge";
+const COMBAT_CONDITION_DISENGAGE = "combat:disengage";
 const COMBAT_CONDITION_HIDDEN = "combat:hidden";
 const COMBAT_CONDITION_SLEEP = "combat:sleep";
 const COMBAT_CONDITION_UNCONSCIOUS = "condition:unconscious";
@@ -793,6 +795,9 @@ export class CombatService {
       narration: message,
     });
 
+    for (const saveRoll of terrainEffectApplication.saveRolls) {
+      this.realtimeEvents.emitDiceRolled(session.id, saveRoll);
+    }
     if (terrainEffectApplication.damageRoll) {
       this.realtimeEvents.emitDiceRolled(session.id, terrainEffectApplication.damageRoll);
     }
@@ -928,6 +933,9 @@ export class CombatService {
         : null,
       enteredTerrainEffects,
     );
+    for (const saveRoll of terrainEffectApplication.saveRolls) {
+      this.realtimeEvents.emitDiceRolled(params.session.id, saveRoll);
+    }
     if (terrainEffectApplication.damageRoll) {
       this.realtimeEvents.emitDiceRolled(params.session.id, terrainEffectApplication.damageRoll);
     }
@@ -1269,6 +1277,7 @@ export class CombatService {
     if (next) {
       await this.removeCombatCondition(next, COMBAT_CONDITION_DODGE);
     }
+    await this.removeCombatCondition(current, COMBAT_CONDITION_DISENGAGE);
     await Promise.all(
       updated.participants
         .filter((participant) => participant.isAlive)
@@ -1292,7 +1301,7 @@ export class CombatService {
     );
     const turnStartTerrainApplication = next
       ? await this.applyTurnStartTerrainEffects(sessionId, updated, next)
-      : { damageRoll: null, appliedConditionTags: [], concentrationCheck: null };
+      : { damageRoll: null, saveRolls: [], appliedConditionTags: [], concentrationCheck: null };
 
     const response: TurnAdvanceResponseDto = {
       combatId: updated.id,
@@ -1303,6 +1312,9 @@ export class CombatService {
     };
 
     this.realtimeEvents.emitTurnChanged(sessionId, response);
+    for (const saveRoll of turnStartTerrainApplication.saveRolls) {
+      this.realtimeEvents.emitDiceRolled(sessionId, saveRoll);
+    }
     if (turnStartTerrainApplication.damageRoll) {
       this.realtimeEvents.emitDiceRolled(sessionId, turnStartTerrainApplication.damageRoll);
     }
@@ -1395,7 +1407,7 @@ export class CombatService {
       throw conflict("COMBAT_409", "시전자 토큰을 찾을 수 없습니다.", { reason: "CASTER_TOKEN_NOT_FOUND" });
     }
 
-    if (spellId === "spell.fire_bolt") {
+    if (spellId === "spell.fire_bolt" || spellId === "spell.chill_touch") {
       this.resolveCombatSpellSlotLevel(spellId, dto.slotLevel);
       const target = this.findCombatParticipantOrThrow(combat, dto.targetParticipantIds?.[0] ?? "");
       this.assertSpellTargetInRange(
@@ -1412,10 +1424,13 @@ export class CombatService {
           attackerParticipantId: caster.id,
           targetParticipantId: target.id,
           attackBonus: spellAttackBonus,
-          damageDice: this.resolveCantripDamageDice("1d10", await this.resolveCharacterLevel(caster.sessionCharacterId)),
+          damageDice: this.resolveCantripDamageDice(
+            this.resolveCombatSpellBaseDamageDice(spellDefinition) ?? "1d10",
+            await this.resolveCharacterLevel(caster.sessionCharacterId),
+          ),
           damageBonus: 0,
         },
-        { messagePrefix: "Fire Bolt" },
+        { messagePrefix: spellId === "spell.chill_touch" ? "Chill Touch" : "Fire Bolt" },
       );
     }
 
@@ -2478,6 +2493,16 @@ export class CombatService {
       const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
       const actorToken = this.findParticipantToken(map, actor);
       const monsterAction = this.resolveMonsterActionForParticipant(actor, actorToken, dto.actionId);
+      if (monsterAction.attackKind === "special") {
+        return this.resolveMonsterSpecialAction({
+          userId,
+          session,
+          combat,
+          actor,
+          action: monsterAction,
+          autoEndTurn: dto.autoEndTurn === true,
+        });
+      }
       const target = dto.targetParticipantId
         ? this.findCombatParticipantOrThrow(combat, dto.targetParticipantId)
         : combat.participants.find((participant) => !participant.isHostile && participant.isAlive);
@@ -2569,6 +2594,16 @@ export class CombatService {
     const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
     const token = this.findParticipantToken(map, attacker);
     const action = this.resolveMonsterActionForParticipant(attacker, token, dto.actionId);
+    if (action.attackKind === "special") {
+      return this.resolveMonsterSpecialAction({
+        userId,
+        session,
+        combat,
+        actor: attacker,
+        action,
+        autoEndTurn: dto.autoEndTurn !== false,
+      });
+    }
     this.logAutoMonsterTurn("monster action selected", {
       sessionId: session.id,
       combatId: combat.id,
@@ -2942,6 +2977,91 @@ export class CombatService {
     };
   }
 
+  private async resolveMonsterSpecialAction(params: {
+    userId: string;
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
+    combat: NonNullable<CombatWithParticipants>;
+    actor: CombatParticipantEntity;
+    action: SrdEngineExecutableMonsterAction;
+    autoEndTurn: boolean;
+  }): Promise<CombatActionResultDto> {
+    await this.ensureActorCanAct(params.userId, params.session.id, params.combat, params.actor);
+    const costType =
+      "costType" in params.action && typeof params.action.costType === "string"
+        ? params.action.costType
+        : "action";
+    if (costType === "bonus_action") {
+      await this.spendCurrentBonusActionIfNeeded(params.combat, params.actor);
+    } else {
+      await this.spendCurrentActionIfNeeded(params.combat, params.actor);
+    }
+
+    const effectTags =
+      "effectTags" in params.action && Array.isArray(params.action.effectTags)
+        ? params.action.effectTags
+        : [];
+    const specialType =
+      "specialType" in params.action && typeof params.action.specialType === "string"
+        ? params.action.specialType
+        : null;
+    const condition =
+      specialType === "mobility" && effectTags.includes("disengage")
+        ? COMBAT_CONDITION_DISENGAGE
+        : null;
+    if (!condition) {
+      throw unprocessable("COMBAT_422", "지원하지 않는 몬스터 특수 행동입니다.", {
+        reason: "MONSTER_SPECIAL_ACTION_UNSUPPORTED",
+        actionId: params.action.actionId,
+        specialType,
+        effectTags,
+      });
+    }
+
+    await this.addCombatCondition(params.actor, condition);
+    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(params.session.id);
+    if (params.autoEndTurn) {
+      const latestCombat = await this.getActiveCombatEntity(params.session.id);
+      if (latestCombat.currentParticipantId === params.actor.id) {
+        await this.advanceCurrentTurn(params.session.id, latestCombat);
+      }
+    }
+
+    const updated = await this.getActiveCombatEntity(params.session.id);
+    const response = await this.mapCombat(updated);
+    const message = `${params.actor.nameSnapshot}은(는) ${params.action.label}로 교전에서 빠져나갈 틈을 만들었습니다.`;
+    const turnLog = await this.turnLogsService.createTurnLog({
+      sessionId: params.session.id,
+      sessionScenarioId: sessionScenario.id,
+      actorUserId: params.userId,
+      sessionCharacterId: params.actor.sessionCharacterId ?? null,
+      rawInput: null,
+      structuredAction: {
+        type: "monster_special",
+        actionId: params.action.actionId,
+        specialType,
+        condition,
+        effectTags,
+      },
+      diceResult: null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: message,
+    });
+    this.realtimeEvents.emitTurnLogCreated(params.session.id, turnLog);
+    this.realtimeEvents.emitCombatUpdated(params.session.id, response);
+    this.realtimeEvents.emitSessionSnapshot(
+      params.session.id,
+      await this.sessionsService.buildSnapshot(params.session.id),
+    );
+
+    return {
+      combat: response,
+      message: params.autoEndTurn ? `${message} / 턴 종료` : message,
+      attackTotal: null,
+      damageTotal: null,
+      turnLogId: turnLog.turnLogId,
+    };
+  }
+
   private buildFallbackMonsterAction(
     monsterId: string | null,
     name: string,
@@ -3196,10 +3316,44 @@ export class CombatService {
     enteredEffects: EnteredTerrainEffect[],
   ): Promise<CombatTerrainEffectApplication> {
     if (!combinedEffect) {
-      return { damageRoll: null, appliedConditionTags: [], concentrationCheck: null };
+      return { damageRoll: null, saveRolls: [], appliedConditionTags: [], concentrationCheck: null };
     }
 
-    const damageRoll = combinedEffect.damage ? this.diceService.roll(combinedEffect.damage.dice) : null;
+    const saveRolls: DiceRollResponseDto[] = [];
+    const failedOrUnavoidableEffects: EnteredTerrainEffect[] = [];
+    for (const entered of enteredEffects) {
+      const saveEnds = this.resolveTerrainEffectSaveEnds(entered.effect);
+      if (!saveEnds) {
+        failedOrUnavoidableEffects.push(entered);
+        continue;
+      }
+      const profile = await this.resolveParticipantSavingThrowProfile(target, saveEnds.ability);
+      const diceResult = this.diceService.roll(
+        `1d20${profile.saveModifier >= 0 ? "+" : ""}${profile.saveModifier}`,
+      );
+      saveRolls.push(diceResult);
+      const result = this.ruleEngine.resolveSavingThrow({
+        ability: saveEnds.ability,
+        naturalD20: this.selectNaturalD20(diceResult.rolls, DiceAdvantageState.NORMAL),
+        difficultyClass: saveEnds.dc,
+        abilityModifier: profile.abilityModifier,
+        proficiencyBonus: profile.proficiencyBonus,
+        proficient: profile.proficient,
+        advantageState: "normal",
+      });
+      if (!result.produced.success) {
+        failedOrUnavoidableEffects.push(entered);
+      }
+    }
+
+    const effectiveCombinedEffect = failedOrUnavoidableEffects.length
+      ? this.terrainEffects.resolveCombinedEffects(
+          failedOrUnavoidableEffects.map((entered) => entered.terrainEffectId),
+        )
+      : null;
+    const damageRoll = effectiveCombinedEffect?.damage
+      ? this.diceService.roll(effectiveCombinedEffect.damage.dice)
+      : null;
     let concentrationCheck: CombatConcentrationCheckResult | null = null;
     if (damageRoll && damageRoll.total > 0) {
       await this.applyHitPointDelta(combat, target, -damageRoll.total);
@@ -3207,7 +3361,7 @@ export class CombatService {
     }
 
     const appliedConditionTags: string[] = [];
-    for (const entered of enteredEffects) {
+    for (const entered of failedOrUnavoidableEffects) {
       for (const condition of entered.effect.conditionTags) {
         appliedConditionTags.push(condition);
         await this.addCombatConditionInstance(
@@ -3225,6 +3379,7 @@ export class CombatService {
 
     return {
       damageRoll,
+      saveRolls,
       appliedConditionTags: Array.from(new Set(appliedConditionTags)),
       concentrationCheck,
     };
@@ -3236,13 +3391,13 @@ export class CombatService {
     participant: CombatParticipantEntity,
   ): Promise<CombatTerrainEffectApplication> {
     if (!participant.isAlive || !participant.tokenId) {
-      return { damageRoll: null, appliedConditionTags: [], concentrationCheck: null };
+      return { damageRoll: null, saveRolls: [], appliedConditionTags: [], concentrationCheck: null };
     }
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
     const token = this.findParticipantToken(map, participant);
     if (!token) {
-      return { damageRoll: null, appliedConditionTags: [], concentrationCheck: null };
+      return { damageRoll: null, saveRolls: [], appliedConditionTags: [], concentrationCheck: null };
     }
 
     const enteredEffects = this.resolveTerrainEffectsAtPoint(map, {
@@ -3367,6 +3522,55 @@ export class CombatService {
       proficiencyBonus,
       proficient,
       saveModifier: constitutionModifier + (proficient ? proficiencyBonus : 0),
+    };
+  }
+
+  private async resolveParticipantSavingThrowProfile(
+    participant: CombatParticipantEntity,
+    ability: SavingThrowAbility,
+  ): Promise<{
+    abilityModifier: number;
+    proficiencyBonus: number;
+    proficient: boolean;
+    saveModifier: number;
+  }> {
+    if (!participant.sessionCharacterId) {
+      return {
+        abilityModifier: 0,
+        proficiencyBonus: 0,
+        proficient: false,
+        saveModifier: 0,
+      };
+    }
+
+    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+      where: { id: participant.sessionCharacterId },
+      include: {
+        character: {
+          select: {
+            abilitiesJson: true,
+            proficiencyBonus: true,
+          },
+        },
+      },
+    });
+    const abilities = this.parseJson<Record<string, number>>(
+      sessionCharacter?.character.abilitiesJson ?? "{}",
+      {},
+    );
+    const abilityModifier = this.getAbilityModifier(abilities[ability] ?? 10);
+    const proficiencyBonus = sessionCharacter?.character.proficiencyBonus ?? 0;
+    const proficient = this.combatConditionTags(await this.readCombatConditionEntries(participant)).some(
+      (tag) =>
+        tag === `save_proficiency:${ability}` ||
+        tag === `save:${ability}:proficient`,
+    );
+
+    return {
+      abilityModifier,
+      proficiencyBonus,
+      proficient,
+      saveModifier: abilityModifier + (proficient ? proficiencyBonus : 0),
     };
   }
 
@@ -4268,6 +4472,10 @@ export class CombatService {
     movementPath: Array<{ x: number; y: number }>;
     map: VttMapStateDto;
   }): Promise<CombatParticipantEntity[]> {
+    const moverConditions = this.combatConditionTags(await this.readCombatConditionEntries(params.mover));
+    if (moverConditions.includes(COMBAT_CONDITION_DISENGAGE)) {
+      return [];
+    }
     const reactors: CombatParticipantEntity[] = [];
     for (const candidate of params.combat.participants) {
       if (
@@ -4351,6 +4559,7 @@ export class CombatService {
     spellId: string,
   ): void {
     const allowed = new Set([
+      "spell.chill_touch",
       "spell.fire_bolt",
       "spell.fireball",
       "spell.light",
@@ -4421,6 +4630,7 @@ export class CombatService {
     }
     switch (spellId) {
       case "spell.fire_bolt":
+      case "spell.chill_touch":
       case "spell.light":
         return 0;
       case "spell.magic_missile":

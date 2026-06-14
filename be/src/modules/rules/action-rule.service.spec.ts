@@ -881,6 +881,146 @@ describe("ActionRuleService", () => {
     ]);
   });
 
+  it("resolves thrown item hits into attack damage without creating a miss object", () => {
+    const service = createService([
+      createDiceResult([14], 5),
+      {
+        expression: "1d4",
+        rolls: [3],
+        modifier: 0,
+        total: 3,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        abilitiesJson: JSON.stringify({ str: 12, dex: 16 }),
+        proficiencyBonus: 2,
+        inventoryJson: JSON.stringify([
+          {
+            id: "entry-dagger",
+            itemDefinitionId: "equipment.dagger",
+            name: "Dagger",
+            quantity: 1,
+            damageDice: "1d4",
+            damageType: "piercing",
+            properties: ["finesse", "light", "thrown", "proficient"],
+          },
+        ]),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 10,
+      character: { id: "target-character", name: "Target", armorClass: 12 },
+    });
+
+    const result = service.resolveAction("/item throw entry-dagger 1 4 0", actor, [actor, target], {
+      map: {
+        gridType: "square",
+        gridSize: 50,
+        tokens: [
+          { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+          { sessionCharacterId: "target", x: 200, y: 0, size: 50, hidden: false, isHostile: true },
+        ],
+      },
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+    const structuredAction = result.structuredAction as {
+      target: string;
+      targetArmorClass: number;
+      finalDamage: number;
+      damageRoll: DiceRollResponseDto | null;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.diceResult).toMatchObject({ total: 19 });
+    expect(structuredAction).toMatchObject({
+      target: "target",
+      targetArmorClass: 12,
+      finalDamage: 3,
+      damageRoll: expect.objectContaining({ expression: "1d4", total: 3 }),
+    });
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 7, markDead: false },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "REMOVE_ITEM", itemId: "entry-dagger", quantity: 1 },
+      { type: "SPEND_ACTION" },
+    ]);
+  });
+
+  it("creates a thrown item miss object when the attack misses a token at the target point", () => {
+    const service = createService([createDiceResult([3], 5)]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        abilitiesJson: JSON.stringify({ str: 12, dex: 16 }),
+        proficiencyBonus: 2,
+        inventoryJson: JSON.stringify([
+          {
+            id: "entry-dagger",
+            itemDefinitionId: "equipment.dagger",
+            name: "Dagger",
+            quantity: 1,
+            damageDice: "1d4",
+            damageType: "piercing",
+            properties: ["finesse", "light", "thrown", "proficient"],
+          },
+        ]),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 10,
+      character: { id: "target-character", name: "Target", armorClass: 16 },
+    });
+
+    const result = service.resolveAction("/item throw entry-dagger 1 4 0", actor, [actor, target], {
+      map: {
+        gridType: "square",
+        gridSize: 50,
+        tokens: [
+          { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+          { sessionCharacterId: "target", x: 200, y: 0, size: 50, hidden: false, isHostile: true },
+        ],
+      },
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.FAILURE);
+    expect(result.stateChanges).toEqual([]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "REMOVE_ITEM", itemId: "entry-dagger", quantity: 1 },
+      {
+        type: "CREATE_MAP_OBJECT",
+        objectId: "object:thrown:entry-dagger:4:0",
+        itemDefinitionId: "equipment.dagger",
+        name: "Dagger",
+        quantity: 1,
+        point: { x: 4, y: 0 },
+      },
+      { type: "SPEND_ACTION" },
+    ]);
+  });
+
   it("connects chill touch spell casting to attack, spell, and damage hooks", () => {
     const service = createService([
       createDiceResult([18], 2),
