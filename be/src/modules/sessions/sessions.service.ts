@@ -487,7 +487,7 @@ export class SessionsService {
     const { sessionScenario, state } = await this.getGameStateEntityOrThrow(resolvedSessionId);
     const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
     const existingMap = this.toVttMapOrNull(flags.vttMap);
-    const canSeeGmMap = this.canUseGmRuntimeControls(userId, session);
+    const canSeeGmMap = this.canSeeGmOnlyRuntimeData(userId, session);
 
     if (existingMap) {
       const map = await this.applyScenarioStartingPositions(resolvedSessionId, existingMap);
@@ -3381,6 +3381,13 @@ export class SessionsService {
       return (session.gmUserId ?? session.hostUserId) === userId;
     }
     return session.hostUserId === userId;
+  }
+
+  private canSeeGmOnlyRuntimeData(
+    userId: string,
+    session: { hostUserId: string; gmMode: PrismaGmMode; gmUserId?: string | null },
+  ): boolean {
+    return session.gmMode === PrismaGmMode.HUMAN && (session.gmUserId ?? session.hostUserId) === userId;
   }
 
   private resolveScenarioStartNodeId(

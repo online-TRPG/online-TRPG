@@ -1701,6 +1701,7 @@ export function PlayPage({
   const canManageStartedSession = Boolean(
     !isRecruiting && (isHumanGmSession ? isGmUser : isHost)
   );
+  const canUseHumanGmView = Boolean(!isRecruiting && isHumanGmSession && isGmUser);
   const canShowCharacterSelection = Boolean(session && isRecruiting && !isGmUser);
   const canStartSession = Boolean(
     (isHumanGmSession ? isGmUser : isHost) &&
@@ -1766,7 +1767,7 @@ export function PlayPage({
     null;
   const currentNode = playerScenario?.currentNode ?? null;
   useEffect(() => {
-    if (!session?.id || !canManageStartedSession || !currentNode?.id) {
+    if (!session?.id || !canUseHumanGmView || !currentNode?.id) {
       setGmNodeMoveOptions([]);
       return;
     }
@@ -1787,9 +1788,9 @@ export function PlayPage({
     return () => {
       ignore = true;
     };
-  }, [canManageStartedSession, currentNode?.id, session?.id, snapshot?.state.version, user]);
+  }, [canUseHumanGmView, currentNode?.id, session?.id, snapshot?.state.version, user]);
   useEffect(() => {
-    if (!canManageStartedSession || gmItemCatalog.length) {
+    if (!canUseHumanGmView || gmItemCatalog.length) {
       return;
     }
 
@@ -1818,7 +1819,7 @@ export function PlayPage({
     return () => {
       ignore = true;
     };
-  }, [canManageStartedSession, gmItemCatalog.length]);
+  }, [canUseHumanGmView, gmItemCatalog.length]);
   const currentSceneDescriptionText =
     currentNode?.sceneText?.trim() || '현재 장면 설명이 아직 준비되지 않았습니다.';
   const currentPublicClueIdSignature = useMemo(
@@ -3206,7 +3207,7 @@ export function PlayPage({
     item: ItemResponseDto,
     quantity: number
   ) {
-    if (!session || !canManageStartedSession || isGmInventoryGrantPending) return;
+    if (!session || !canUseHumanGmView || isGmInventoryGrantPending) return;
 
     setInventoryUseFeedback(null);
     setGmInventoryGrantPending(true);
@@ -3470,7 +3471,7 @@ export function PlayPage({
     saveState.isSaving = true;
 
     try {
-      const savedMap = canManageStartedSession
+      const savedMap = canUseHumanGmView
         ? await updateGmVttMap(user, sessionId, mapToSave)
         : await updateVttMap(user, sessionId, mapToSave);
       if (mapSaveRef.current.activeSessionId === sessionId) {
@@ -3498,7 +3499,7 @@ export function PlayPage({
 
   function handleMapChange(nextMap: VttMapStateDto) {
     if (!session) return;
-    if (!canManageStartedSession) {
+    if (!canUseHumanGmView) {
       setVttMap(nextMap);
       setMapLoadError(null);
       return;
@@ -3609,7 +3610,7 @@ export function PlayPage({
   }
 
   async function handleGmNodeMove(nodeId: string) {
-    if (!session || !canManageStartedSession || isGmNodeMovePending) return;
+    if (!session || !canUseHumanGmView || isGmNodeMovePending) return;
     setGmNodeMovePending(true);
     setMapLoadError(null);
     setScenarioLoadError(null);
@@ -4078,7 +4079,7 @@ export function PlayPage({
                   phase={snapshot?.state.phase}
                   characters={sessionCharacters}
                   currentUserId={user.id}
-                  isGmView={canManageStartedSession}
+                  isGmView={canUseHumanGmView}
                   rpUtterances={storyRpUtterances}
                   onRpUtteranceClick={() => setActiveTab('Main')}
                   getCharacterColorStyle={(character) =>
@@ -4093,7 +4094,7 @@ export function PlayPage({
                   characters={sessionCharacters}
                   currentUserId={user.id}
                   isHost={isHost}
-                  isGmView={canManageStartedSession}
+                  isGmView={canUseHumanGmView}
                   map={vttMap}
                   inventory={selectedCharacterInventory}
                   isBusy={busy || isInventoryUsePending || isGmNodeMovePending}
@@ -4127,7 +4128,7 @@ export function PlayPage({
                   classDefinitions={classDefinitions}
                   currentUserId={user.id}
                   isHost={isHost}
-                  isGmView={canManageStartedSession}
+                  isGmView={canUseHumanGmView}
                   map={vttMap}
                   combat={combat}
                   combatError={combatError}
