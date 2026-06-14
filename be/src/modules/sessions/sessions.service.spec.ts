@@ -1,6 +1,25 @@
-import { ScenarioNodeType } from "@trpg/shared-types";
+import { plainToInstance } from "class-transformer";
+import { validate } from "class-validator";
+import { HumanGmMessageDto, ScenarioNodeType } from "@trpg/shared-types";
 import { ForbiddenException } from "@nestjs/common";
 import { SessionsService } from "./sessions.service";
+
+describe("HumanGmMessageDto validation", () => {
+  it("keeps private GM notes through whitelist validation", async () => {
+    const dto = plainToInstance(HumanGmMessageDto, {
+      content: "The innkeeper lowers their voice.",
+      privateNote: "The guard heard this.",
+    });
+
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: false,
+    });
+
+    expect(errors).toEqual([]);
+    expect(dto.privateNote).toBe("The guard heard this.");
+  });
+});
 
 describe("SessionsService session listing", () => {
   const now = new Date("2026-05-08T00:00:00.000Z");
@@ -387,6 +406,37 @@ describe("SessionsService VTT map structures", () => {
             requiresCheck: false,
           }),
         ],
+      }),
+    ]);
+  });
+
+  it("preserves terrain effect ids while normalizing terrain cells", () => {
+    const normalized = service.normalizeVttMap(
+      {
+        id: "map-1",
+        width: 640,
+        height: 480,
+        gridSize: 64,
+        tokens: [],
+        fogRects: [],
+        terrainCells: [
+          {
+            id: "terrain-cell-1",
+            terrainEffectId: "terrain.poison_cloud",
+            x: 64,
+            y: 0,
+            width: 64,
+            height: 64,
+          },
+        ],
+      },
+      "node-1",
+    );
+
+    expect(normalized.terrainCells).toEqual([
+      expect.objectContaining({
+        id: "terrain-cell-1",
+        terrainEffectId: "terrain.poison_cloud",
       }),
     ]);
   });
@@ -778,6 +828,30 @@ describe("SessionsService VTT map structures", () => {
     expect(() => service.ensureTokenPathIsReachable(map, fromToken, toToken)).toThrow(
       ForbiddenException,
     );
+  });
+
+  it("allows player token paths through terrain effect cells", () => {
+    const map = {
+      width: 192,
+      height: 64,
+      gridSize: 64,
+      terrainCells: [
+        {
+          id: "terrain-cell-1",
+          terrainEffectId: "terrain.difficult",
+          x: 64,
+          y: 0,
+          width: 64,
+          height: 64,
+        },
+      ],
+      wallCells: [],
+      doorCells: [],
+    };
+    const fromToken = { id: "token-1", x: 0, y: 0, size: 64 };
+    const toToken = { ...fromToken, x: 128 };
+
+    expect(() => service.ensureTokenPathIsReachable(map, fromToken, toToken)).not.toThrow();
   });
 
   it("allows player token paths through open and broken doors", () => {

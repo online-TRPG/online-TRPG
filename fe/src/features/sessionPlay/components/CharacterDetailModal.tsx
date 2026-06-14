@@ -260,6 +260,7 @@ export function CharacterDetailModal({
     ) ?? null;
   const equippedArmor =
     character.inventory.find((item) => isArmorItem(item)) ?? null;
+  const preparedSpellSet = new Set(character.spells?.preparedSpells ?? []);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -408,6 +409,37 @@ export function CharacterDetailModal({
               <p className="story-character-empty">등록된 특성이 없습니다.</p>
             )}
           </section>
+
+          {character.spells ? (
+            <section className="story-character-modal-panel">
+              <h3>주문</h3>
+              {character.spells.cantrips.length ? (
+                <>
+                  <small>캔트립</small>
+                  <div className="story-character-chip-list">
+                    {character.spells.cantrips.map((spell) => (
+                      <span key={spell}>{spell}</span>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              {character.spells.spells.length ? (
+                <>
+                  <small>슬롯 주문</small>
+                  <ul className="story-character-text-list">
+                    {character.spells.spells.map((spell) => (
+                      <li key={spell}>
+                        {spell}
+                        {preparedSpellSet.has(spell) ? ' · 준비됨' : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="story-character-empty">등록된 슬롯 주문이 없습니다.</p>
+              )}
+            </section>
+          ) : null}
 
           <section className="story-character-modal-panel story-character-modal-wide">
             <h3>인벤토리</h3>

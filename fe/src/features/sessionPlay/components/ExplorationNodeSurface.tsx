@@ -3,6 +3,7 @@ import type {
   InventoryItemDto,
   ItemResponseDto,
   PlayerScenarioNodeDto,
+  RestActionDto,
   SessionCharacterResponseDto,
   SubmitMainCommandDto,
   VttMapInteractionDto,
@@ -94,8 +95,20 @@ interface ExplorationNodeSurfaceProps {
   onSelectInventoryItem?: (item: InventoryItemDto | null) => void;
   onMapSelectionChange?: (selection: BattleMapSelection | null) => void;
   onRequestMainCommand?: (request: ExplorationMainCommandRequest) => void;
+  onRequestRest?: (
+    restType: RestActionDto['restType'],
+    characterId?: string,
+    hitDiceToSpend?: number,
+  ) => Promise<void> | void;
   gmNodeMoveOptions?: ExplorationNodeMoveOption[];
   onGmNodeMove?: (nodeId: string) => Promise<void> | void;
+  onGmMessage?: (payload: {
+    content: string;
+    speakerName?: string | null;
+    asNpc?: boolean;
+    privateNote?: string | null;
+  }) => Promise<void> | void;
+  isGmMessagePending?: boolean;
   gmItemCatalog?: ItemResponseDto[];
   isGmItemCatalogLoading?: boolean;
   gmItemCatalogError?: string | null;
@@ -761,8 +774,11 @@ export function ExplorationNodeSurface({
   onSelectInventoryItem,
   onMapSelectionChange,
   onRequestMainCommand,
+  onRequestRest,
   gmNodeMoveOptions = [],
   onGmNodeMove,
+  onGmMessage,
+  isGmMessagePending = false,
   gmItemCatalog = [],
   isGmItemCatalogLoading = false,
   gmItemCatalogError = null,
@@ -778,6 +794,11 @@ export function ExplorationNodeSurface({
   const [gmItemQuery, setGmItemQuery] = useState('');
   const [gmItemQuantity, setGmItemQuantity] = useState(1);
   const [selectedGmCatalogItemId, setSelectedGmCatalogItemId] = useState('');
+  const [gmMessageContent, setGmMessageContent] = useState('');
+  const [gmMessageSpeaker, setGmMessageSpeaker] = useState('');
+  const [gmMessagePrivateNote, setGmMessagePrivateNote] = useState('');
+  const [isGmNpcMessage, setGmNpcMessage] = useState(false);
+  const [shortRestHitDiceToSpend, setShortRestHitDiceToSpend] = useState(0);
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
   const selectedMapCharacter =
     characters.find((character) => character.id === selectedMapCharacterId) ?? null;
@@ -786,6 +807,15 @@ export function ExplorationNodeSurface({
       ? (characters.find((character) => character.id === mapSelection.token.sessionCharacterId) ?? null)
       : null;
   const displayedCharacter = isGmView ? selectedTokenCharacter : myCharacter;
+  const restTargetCharacterId = displayedCharacter?.id;
+  const restHitDiceMaximum = Math.max(
+    displayedCharacter?.hitDiceRemaining ?? displayedCharacter?.level ?? 0,
+    0,
+  );
+  const clampedShortRestHitDiceToSpend = Math.min(
+    Math.max(shortRestHitDiceToSpend, 0),
+    restHitDiceMaximum,
+  );
   const displayedInventory = isGmView ? (displayedCharacter?.inventory ?? []) : inventory;
   const canUseDisplayedInventory = !isGmView || displayedCharacter?.id === myCharacter?.id;
   const gmSelectedNonCharacterToken =
@@ -858,6 +888,12 @@ export function ExplorationNodeSurface({
   }, [displayedInventory.length, isInventoryExpanded, shouldShowActorAndInventory]);
 
   useEffect(() => {
+    if (shortRestHitDiceToSpend > restHitDiceMaximum) {
+      setShortRestHitDiceToSpend(restHitDiceMaximum);
+    }
+  }, [restHitDiceMaximum, shortRestHitDiceToSpend]);
+
+  useEffect(() => {
     if (!displayedCharacter || !isGmView) {
       setGmItemPickerOpen(false);
       setSelectedGmCatalogItemId('');
@@ -881,6 +917,22 @@ export function ExplorationNodeSurface({
     setGmItemQuery('');
     setGmItemQuantity(1);
     setSelectedGmCatalogItemId('');
+  }
+
+  async function handleGmMessageSubmit() {
+    const content = gmMessageContent.trim();
+    if (!content || !onGmMessage || isGmMessagePending) {
+      return;
+    }
+
+    await onGmMessage({
+      content,
+      speakerName: gmMessageSpeaker.trim() || null,
+      asNpc: isGmNpcMessage,
+      privateNote: gmMessagePrivateNote.trim() || null,
+    });
+    setGmMessageContent('');
+    setGmMessagePrivateNote('');
   }
 
   function getControlledToken() {
@@ -1270,6 +1322,48 @@ export function ExplorationNodeSurface({
               </div>
               </div>
 
+              <div className="exploration-gm-card exploration-gm-message">
+              <span className="exploration-node-eyebrow">장면/NPC 전송</span>
+              <label className="exploration-gm-message-mode">
+                <input
+                  type="checkbox"
+                  checked={isGmNpcMessage}
+                  onChange={(event) => setGmNpcMessage(event.target.checked)}
+                />
+                NPC 대사로 전송
+              </label>
+              {isGmNpcMessage ? (
+                <input
+                  className="exploration-gm-input"
+                  value={gmMessageSpeaker}
+                  placeholder="화자 이름"
+                  onChange={(event) => setGmMessageSpeaker(event.target.value)}
+                />
+              ) : null}
+              <textarea
+                className="exploration-gm-textarea"
+                value={gmMessageContent}
+                placeholder={isGmNpcMessage ? 'NPC 대사를 입력하세요.' : '플레이어에게 공개할 장면 묘사를 입력하세요.'}
+                rows={3}
+                maxLength={2000}
+                onChange={(event) => setGmMessageContent(event.target.value)}
+              />
+              <input
+                className="exploration-gm-input"
+                value={gmMessagePrivateNote}
+                placeholder="비공개 GM 메모"
+                maxLength={1000}
+                onChange={(event) => setGmMessagePrivateNote(event.target.value)}
+              />
+              <button
+                type="button"
+                disabled={isBusy || isGmMessagePending || !onGmMessage || !gmMessageContent.trim()}
+                onClick={() => void handleGmMessageSubmit()}
+              >
+                {isGmMessagePending ? '전송 중' : '전송'}
+              </button>
+              </div>
+
               <div className="exploration-gm-card exploration-gm-controls">
               <span className="exploration-node-eyebrow">GM 조작</span>
               <div className="exploration-gm-button-grid">
@@ -1434,6 +1528,62 @@ export function ExplorationNodeSurface({
           <span className="exploration-frame-corner bottom-right" aria-hidden="true" />
           <span className="exploration-node-eyebrow">선택 대상 행동</span>
           <div className="exploration-action-list">
+            {onRequestRest ? (
+              <>
+                <button
+                  type="button"
+                  className="exploration-action-button has-action-icon"
+                  disabled={isBusy || !restTargetCharacterId}
+                  onClick={() =>
+                    void onRequestRest(
+                      'short',
+                      restTargetCharacterId,
+                      clampedShortRestHitDiceToSpend,
+                    )
+                  }
+                >
+                  <GameIcon
+                    name="game-icons:campfire"
+                    size={36}
+                    className="exploration-action-button-icon"
+                  />
+                  <span className="exploration-action-button-label">짧은 휴식</span>
+                </button>
+                <label className="exploration-hit-dice-control">
+                  <span>HD {restHitDiceMaximum}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={restHitDiceMaximum}
+                    step={1}
+                    value={clampedShortRestHitDiceToSpend}
+                    disabled={isBusy || !restTargetCharacterId}
+                    aria-label="짧은 휴식 히트 다이스 사용 수"
+                    onChange={(event) => {
+                      const nextValue = Number(event.target.value);
+                      setShortRestHitDiceToSpend(
+                        Number.isInteger(nextValue)
+                          ? Math.min(Math.max(nextValue, 0), restHitDiceMaximum)
+                          : 0,
+                      );
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="exploration-action-button has-action-icon"
+                  disabled={isBusy || !restTargetCharacterId}
+                  onClick={() => void onRequestRest('long', restTargetCharacterId)}
+                >
+                  <GameIcon
+                    name="game-icons:bed"
+                    size={36}
+                    className="exploration-action-button-icon"
+                  />
+                  <span className="exploration-action-button-label">긴 휴식</span>
+                </button>
+              </>
+            ) : null}
             {contextActions.map((action) => {
               const hasIcon = Boolean(action.iconName);
 

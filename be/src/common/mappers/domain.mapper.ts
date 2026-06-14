@@ -69,6 +69,7 @@ type CharacterWithAssignments = Character & {
 
 type SessionCharacterWithBase = SessionCharacter & {
   character: Character;
+  resource?: { hitDiceSpent?: number | null } | null;
   inventoryEntries?: Array<InventoryEntry & { itemDefinition: ItemDefinition }>;
 };
 
@@ -324,7 +325,7 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
     speed: character.speed,
     inventory: parseJson<InventoryItemDto[]>(character.inventoryJson, []),
     spells: character.spellsJson
-      ? parseJson<{ cantrips: string[]; spells: string[] } | null>(character.spellsJson, null)
+      ? parseJson<StartingSpellsDto | null>(character.spellsJson, null)
       : null,
     equippedWeaponId: character.equippedWeaponId ?? null,
     offhandWeaponId: character.offhandWeaponId ?? null,
@@ -342,6 +343,11 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
 export function mapSessionCharacter(
   sessionCharacter: SessionCharacterWithBase,
 ): SessionCharacterResponseDto {
+  const hitDiceTotal = Math.max(sessionCharacter.character.level, 0);
+  const hitDiceSpent = Math.min(
+    Math.max(sessionCharacter.resource?.hitDiceSpent ?? 0, 0),
+    hitDiceTotal,
+  );
   return {
     id: sessionCharacter.id,
     sessionId: sessionCharacter.sessionId,
@@ -354,6 +360,9 @@ export function mapSessionCharacter(
     className: sessionCharacter.character.className,
     subclassName: sessionCharacter.character.subclassName ?? null,
     level: sessionCharacter.character.level,
+    hitDiceTotal,
+    hitDiceSpent,
+    hitDiceRemaining: Math.max(hitDiceTotal - hitDiceSpent, 0),
     bio: sessionCharacter.character.bio ?? null,
     abilities: parseJson<AbilityScoresDto>(sessionCharacter.character.abilitiesJson, {
       str: 10,

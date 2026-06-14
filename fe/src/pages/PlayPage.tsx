@@ -27,6 +27,7 @@ import type {
   MainCommandResponseDto,
   PlayerScenarioClueDto,
   RaceResponseDto,
+  RestActionDto,
   ResolveMainCommandCheckDto,
   SubmitMainCommandDto,
   VttMapInteractionDto,
@@ -72,6 +73,7 @@ import {
   acceptCombatReaction,
   resolveCombatActorAction,
   castCombatSpell,
+  createHumanGmMessage,
   createVttMapPing,
   dashCombatAction,
   declineCombatReaction,
@@ -976,6 +978,13 @@ interface PlayPageProps {
   onResolveMainCommandCheck: (
     payload: ResolveMainCommandCheckDto,
   ) => Promise<MainCommandResponseDto | null>;
+  onRequestRest: (
+    restType: RestActionDto['restType'],
+    characterId?: string,
+    hitDiceToSpend?: number,
+  ) => Promise<void> | void;
+  onApproveRestRequest: (actionId: string) => Promise<void> | void;
+  onSendAction: (rawText: string) => Promise<void> | void;
   onAction: (label: string) => void;
   onLoadOlderTurnLogs: () => void;
   onCombatActionLog: (message: string, turnLogId?: string | null) => void;
@@ -1554,6 +1563,9 @@ export function PlayPage({
   onNavigateToCharacters,
   onMainCommand,
   onResolveMainCommandCheck,
+  onRequestRest,
+  onApproveRestRequest,
+  onSendAction,
   onAction,
   onLoadOlderTurnLogs,
   onCombatActionLog,
@@ -1597,6 +1609,9 @@ export function PlayPage({
     Chat: 0,
   });
   const [revealedClueToast, setRevealedClueToast] = useState<PlayerScenarioClueDto | null>(null);
+  const [approvedRestRequestIds, setApprovedRestRequestIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   function clearMainCommandSelectionFields() {
     setSelectedMainTargetId('');
@@ -1643,6 +1658,7 @@ export function PlayPage({
   const [isGmItemCatalogLoading, setGmItemCatalogLoading] = useState(false);
   const [gmItemCatalogError, setGmItemCatalogError] = useState<string | null>(null);
   const [isGmInventoryGrantPending, setGmInventoryGrantPending] = useState(false);
+  const [isGmMessagePending, setGmMessagePending] = useState(false);
   const [isCombatChecked, setCombatChecked] = useState(false);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
@@ -1709,6 +1725,15 @@ export function PlayPage({
       allPlayersReady &&
       playerParticipants.length > 0
   );
+
+  async function handleApproveRestRequest(actionId: string) {
+    await onApproveRestRequest(actionId);
+    setApprovedRestRequestIds((current) => {
+      const next = new Set(current);
+      next.add(actionId);
+      return next;
+    });
+  }
   const activeScenario =
     snapshot?.sessionScenarios.find((item) => item.status === 'ACTIVE') ??
     snapshot?.sessionScenarios[0];
@@ -3285,6 +3310,43 @@ export function PlayPage({
     await runCombatRequest(() => hideCombatAction(user, session.id));
   }
 
+  async function handleGmMessage(payload: {
+    content: string;
+    speakerName?: string | null;
+    asNpc?: boolean;
+    privateNote?: string | null;
+  }) {
+    if (!session || !canUseHumanGmView || isGmMessagePending) return;
+
+    setGmMessagePending(true);
+    setScenarioLoadError(null);
+    try {
+      const nextSnapshot = await createHumanGmMessage(user, session.id, {
+        content: payload.content,
+        speakerName: payload.speakerName?.trim() || undefined,
+        asNpc: payload.asNpc,
+        privateNote: payload.privateNote?.trim() || null,
+      });
+      const nextMap = nextSnapshot.state.flags?.vttMap as VttMapStateDto | undefined;
+      if (nextMap && typeof nextMap === 'object') {
+        latestConfirmedMapRef.current = nextMap;
+        setVttMap(nextMap);
+      }
+      onAction(payload.asNpc ? 'GM NPC 대사' : 'GM 장면 묘사');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'GM 메시지 전송에 실패했습니다.';
+      setScenarioLoadError(message);
+      onCombatActionLog(message);
+    } finally {
+      setGmMessagePending(false);
+    }
+  }
+
+  async function handleReadyCombatAction(targetParticipantId: string) {
+    if (!session || isCombatBusy) return;
+    await onSendAction(`/ready enter attack ${targetParticipantId} 30`);
+  }
+
   async function handleCombatClassFeature(action: 'second_wind') {
     if (!session || isCombatBusy) return;
     if (action === 'second_wind') {
@@ -4111,8 +4173,11 @@ export function PlayPage({
                   onSelectInventoryItem={handleSelectExplorationInventoryItem}
                   onMapSelectionChange={handleExplorationMapSelection}
                   onRequestMainCommand={handleExplorationMainCommandRequest}
+                  onRequestRest={onRequestRest}
                   gmNodeMoveOptions={gmNodeMoveOptions}
                   onGmNodeMove={handleGmNodeMove}
+                  onGmMessage={handleGmMessage}
+                  isGmMessagePending={isGmMessagePending}
                   gmItemCatalog={gmItemCatalog}
                   isGmItemCatalogLoading={isGmItemCatalogLoading}
                   gmItemCatalogError={gmItemCatalogError}
@@ -4150,6 +4215,7 @@ export function PlayPage({
                   onDash={handleDashCombatAction}
                   onDodge={handleDodgeCombatAction}
                   onHide={handleHideCombatAction}
+                  onReadyAction={handleReadyCombatAction}
                   onUseClassFeature={handleCombatClassFeature}
                   onCastSpell={handleCastCombatSpell}
                   onEndCombat={handleEndCombat}
@@ -4551,6 +4617,13 @@ export function PlayPage({
                             );
                       const isDragonProfile = chatProfileImage === dragonPeekImage;
                       const chatAvatarLabel = getAvatarLabel(log.senderLabel, user.displayName);
+                      const restApproval = log.metadata?.restApproval;
+                      const canApproveRestRequest = Boolean(
+                        isGmUser &&
+                          restApproval?.actionId &&
+                          restApproval.status === 'gm_required' &&
+                          !approvedRestRequestIds.has(restApproval.actionId)
+                      );
 
                       return (
                         <Fragment key={log.id}>
@@ -4595,6 +4668,15 @@ export function PlayPage({
                                   <span className="chat-thread-spinner" aria-hidden="true" />
                                 ) : null}
                                 <span>{log.message}</span>
+                                {canApproveRestRequest && restApproval ? (
+                                  <button
+                                    type="button"
+                                    className="chat-thread-inline-action"
+                                    onClick={() => void handleApproveRestRequest(restApproval.actionId)}
+                                  >
+                                    휴식 승인
+                                  </button>
+                                ) : null}
                               </div>
                               {log.rowClass !== 'notice' ? (
                                 <span className="chat-thread-time">{log.time}</span>

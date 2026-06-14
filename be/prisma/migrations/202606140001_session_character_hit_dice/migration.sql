@@ -1,0 +1,2 @@
+ALTER TABLE "SessionCharacterResource"
+  ADD COLUMN IF NOT EXISTS "hitDiceSpent" INTEGER NOT NULL DEFAULT 0;

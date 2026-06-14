@@ -785,6 +785,11 @@ export function App() {
             }}
             onMainCommand={(payload) => session.sendMainCommand(payload)}
             onResolveMainCommandCheck={(payload) => session.resolveMainCommandCheck(payload)}
+            onRequestRest={(restType, characterId, hitDiceToSpend) =>
+              void session.requestRest(restType, characterId, hitDiceToSpend)
+            }
+            onApproveRestRequest={(actionId) => void session.approveRestRequest(actionId)}
+            onSendAction={(rawText) => void session.sendAction(rawText)}
             onAction={handleSessionMessage}
             onLoadOlderTurnLogs={() => void session.loadOlderTurnLogs()}
             onCombatActionLog={(message, turnLogId) =>

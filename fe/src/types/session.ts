@@ -131,5 +131,10 @@ export interface LogEntry {
         speakerName?: string | null;
       };
     };
+    restApproval?: {
+      actionId: string;
+      restType?: "short" | "long" | null;
+      status?: string | null;
+    };
   };
 }

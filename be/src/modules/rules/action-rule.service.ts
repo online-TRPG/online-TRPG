@@ -73,6 +73,20 @@ const RAGE_RESISTANCE_TAGS = [
   "resistance:piercing",
   "resistance:slashing",
 ];
+const HIT_DIE_AVERAGE_BY_CLASS: Readonly<Record<string, number>> = {
+  barbarian: 7,
+  bard: 5,
+  cleric: 5,
+  druid: 5,
+  fighter: 6,
+  monk: 5,
+  paladin: 6,
+  ranger: 6,
+  rogue: 5,
+  sorcerer: 4,
+  warlock: 5,
+  wizard: 4,
+};
 type SessionCharacterForRules = {
   id: string;
   userId: string;
@@ -154,6 +168,7 @@ export type RuleRuntimeContext = {
     rageActive: boolean;
     frenzyActive: boolean;
     exhaustionLevel: number;
+    hitDiceSpent?: number;
   } | null;
   turnState?: {
     actionUsed: boolean;
@@ -182,12 +197,13 @@ export type ActionRuntimeEffect =
   | { type: "STORE_READY_ACTION"; pending: PendingReadyAction }
   | { type: "START_RAGE" }
   | { type: "START_FRENZY" }
-  | { type: "RECOVER_SHORT_REST"; actionSurgeUses: number }
+  | { type: "RECOVER_SHORT_REST"; actionSurgeUses: number; hitDiceSpent?: number }
   | {
       type: "RECOVER_LONG_REST";
       actionSurgeUses: number;
       rageUses: number;
       reduceExhaustionBy: number;
+      hitDiceSpent?: number;
     }
   | {
       type: "ADD_ITEM";
@@ -1715,6 +1731,11 @@ export class ActionRuleService {
         actionSurgeUses: this.resolveActionSurgeUses(actor),
         rageUses: this.resolveRageUses(actor),
       },
+      hitDiceToSpend: command.hitDiceToSpend,
+      totalHitDice: actor.character.level,
+      hitDiceSpent: runtimeContext.resource?.hitDiceSpent,
+      hitDieAverage: this.resolveHitDieAverage(actor),
+      constitutionModifier: this.resolveAbilityModifier(actor, "con"),
     });
 
     if (command.restType === "short") {
@@ -1735,6 +1756,7 @@ export class ActionRuleService {
         recoveredResources: {
           secondWindAvailable: rest.resource.secondWindAvailable,
           actionSurgeUses: rest.resource.actionSurgeUses,
+          hitDiceSpent: rest.resource.hitDiceSpent,
         },
         recoveredTags: rest.recoveredTags,
       },
@@ -1744,6 +1766,7 @@ export class ActionRuleService {
       stateChanges: [
         {
           sessionCharacterId: actor.id,
+          ...(rest.hp.currentHp === actor.currentHp ? {} : { currentHp: rest.hp.currentHp }),
           conditions: rest.conditions,
         },
       ],
@@ -1751,6 +1774,9 @@ export class ActionRuleService {
         {
           type: "RECOVER_SHORT_REST",
           actionSurgeUses: rest.resource.actionSurgeUses,
+          ...(rest.recoveredTags.some((tag) => tag.startsWith("hit_dice:spent:"))
+            ? { hitDiceSpent: rest.resource.hitDiceSpent }
+            : {}),
         },
       ],
     };
@@ -1771,6 +1797,7 @@ export class ActionRuleService {
           actionSurgeUses: rest.resource.actionSurgeUses,
           rageUses: rest.resource.rageUses,
           reduceExhaustionBy: Math.max(currentExhaustionLevel - rest.resource.exhaustionLevel, 0),
+          hitDiceSpent: rest.resource.hitDiceSpent,
         },
         recoveredTags: rest.recoveredTags,
       },
@@ -1792,9 +1819,17 @@ export class ActionRuleService {
           actionSurgeUses: rest.resource.actionSurgeUses,
           rageUses: rest.resource.rageUses,
           reduceExhaustionBy: Math.max(currentExhaustionLevel - rest.resource.exhaustionLevel, 0),
+          ...(rest.recoveredTags.some((tag) => tag.startsWith("hit_dice:recovered:"))
+            ? { hitDiceSpent: rest.resource.hitDiceSpent }
+            : {}),
         },
       ],
     };
+  }
+
+  private resolveHitDieAverage(actor: SessionCharacterForRules): number {
+    const normalizedClassName = actor.character.className.trim().toLowerCase();
+    return HIT_DIE_AVERAGE_BY_CLASS[normalizedClassName] ?? 4;
   }
 
   private resolveDamage(

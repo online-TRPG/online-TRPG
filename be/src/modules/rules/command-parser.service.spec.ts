@@ -141,6 +141,11 @@ describe("CommandParserService", () => {
       type: "rest",
       restType: "short",
     });
+    expect(service.parse("/rest short 2")).toEqual({
+      type: "rest",
+      restType: "short",
+      hitDiceToSpend: 2,
+    });
     expect(service.parse("/rest long_rest")).toEqual({
       type: "rest",
       restType: "long",

@@ -109,6 +109,39 @@ export class UseInventoryItemResponseDto {
   character!: SessionCharacterResponseDto;
 }
 
+export class RestActionDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  characterId!: string;
+
+  @ApiProperty({ enum: ["short", "long"] })
+  @IsString()
+  @IsIn(["short", "long"])
+  restType!: "short" | "long";
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  hitDiceToSpend?: number;
+}
+
+export class RestTargetDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  characterId!: string;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  hitDiceToSpend?: number;
+}
+
 export class MainCommandPointDto {
   @ApiProperty()
   @Type(() => Number)
@@ -382,6 +415,14 @@ export class StartCombatDto {
   autoRollInitiative?: boolean;
 }
 
+export class CombatSpellSlotResourceDto {
+  @ApiProperty()
+  total!: number;
+
+  @ApiProperty()
+  remaining!: number;
+}
+
 export class CombatActionResourcesDto {
   @ApiProperty()
   actionAvailable!: boolean;
@@ -412,6 +453,9 @@ export class CombatActionResourcesDto {
 
   @ApiProperty()
   spellSlotLevel1Remaining!: number;
+
+  @ApiPropertyOptional({ type: Object })
+  spellSlots?: Record<string, CombatSpellSlotResourceDto>;
 }
 
 export class CombatMonsterActionOptionDto {
@@ -444,6 +488,24 @@ export class CombatMonsterActionOptionDto {
 
   @ApiPropertyOptional({ nullable: true })
   costType?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  specialType?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  usage?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  recharge?: string | null;
+
+  @ApiPropertyOptional({ type: Object, nullable: true })
+  save?: { ability: string; dcSource: string | null } | null;
+
+  @ApiPropertyOptional({ type: [String] })
+  conditionRiders?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  effectTags?: string[];
 }
 
 export class CombatParticipantResponseDto {

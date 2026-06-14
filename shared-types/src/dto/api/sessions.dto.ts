@@ -673,6 +673,12 @@ export class HumanGmMessageDto {
   @Type(() => Boolean)
   @IsBoolean()
   asNpc?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  privateNote?: string | null;
 }
 
 export class UpdateSessionNodeDto {
@@ -1080,6 +1086,12 @@ export class VttTerrainCellDto {
   @IsString()
   @MaxLength(500)
   description?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  terrainEffectId?: string | null;
 }
 
 export class VttWallCellDto extends VttTerrainCellDto {}

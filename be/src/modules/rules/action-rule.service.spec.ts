@@ -1251,9 +1251,13 @@ describe("ActionRuleService", () => {
           concentrationMaintained: boolean;
           removedConditions: unknown[];
           concentrationState: {
+            casterId: string;
             spellId: string | null;
             targetIds: string[];
             effectIds: string[];
+            startedAtRound: number;
+            endsAtRound: number | null;
+            endsAtTurn: number | null;
           };
         }>;
       };
@@ -1270,11 +1274,18 @@ describe("ActionRuleService", () => {
           advantageState: DiceAdvantageState.NORMAL,
         },
         concentrationMaintained: false,
-        removedConditions: [concentration, linked],
+        removedConditions: [
+          { ...concentration, appliedAtRound: 0 },
+          { ...linked, appliedAtRound: 0 },
+        ],
         concentrationState: {
+          casterId: "",
           spellId: "spell.hold_person",
           targetIds: ["target-1"],
           effectIds: ["effect-hold-1"],
+          startedAtRound: 0,
+          endsAtRound: null,
+          endsAtTurn: null,
         },
       },
     ]);
@@ -1283,7 +1294,7 @@ describe("ActionRuleService", () => {
         sessionCharacterId: "target",
         currentHp: 10,
         markDead: false,
-        conditions: [unrelated],
+        conditions: [{ ...unrelated, appliedAtRound: 0 }],
       },
     ]);
   });
@@ -1940,6 +1951,57 @@ describe("ActionRuleService", () => {
         "resource:action_surge_expended",
         "action_surge:additional_action_granted",
       ],
+    });
+  });
+
+  it("spends hit dice to heal during short rest", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      currentHp: 5,
+      character: {
+        className: "fighter",
+        level: 4,
+        maxHp: 24,
+        abilitiesJson: JSON.stringify({ con: 14 }),
+      },
+    });
+
+    const result = service.resolveAction("/rest short 2", actor, [actor], {
+      resource: {
+        secondWindAvailable: false,
+        actionSurgeUses: 0,
+        rageUses: 0,
+        rageActive: false,
+        frenzyActive: false,
+        exhaustionLevel: 0,
+        hitDiceSpent: 1,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "actor",
+        currentHp: 21,
+        conditions: [],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      {
+        type: "RECOVER_SHORT_REST",
+        actionSurgeUses: 1,
+        hitDiceSpent: 3,
+      },
+    ]);
+    expect(result.structuredAction).toMatchObject({
+      type: "rest",
+      restType: "short",
+      recoveredResources: {
+        hitDiceSpent: 3,
+      },
+      recoveredTags: expect.arrayContaining(["hit_dice:spent:2"]),
     });
   });
 

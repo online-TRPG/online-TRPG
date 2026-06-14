@@ -6,6 +6,7 @@ import {
   ActionQueueStatus as PrismaActionQueueStatus,
   ActionScope as PrismaActionScope,
   GamePhase as PrismaGamePhase,
+  GmMode as PrismaGmMode,
   ParticipantRole as PrismaParticipantRole,
   ParticipantStatus as PrismaParticipantStatus,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
@@ -13,9 +14,11 @@ import {
 } from "@prisma/client";
 import {
   ActionAcceptedResponseDto,
+  ActionOutcome,
   ActionInputType,
   ActionQueueStatus,
   ActionScope,
+  RestActionDto,
   SubmitActionDto,
   UseInventoryItemDto,
   UseInventoryItemResponseDto,
@@ -27,6 +30,7 @@ import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { CommandParserService } from "../rules/command-parser.service";
 import { InventoryRuntimeService } from "../rules/inventory-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
+import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import { ActionProcessorService } from "./action-processor.service";
 
 type SrdEquipmentContent = {
@@ -94,6 +98,7 @@ export class ActionsService {
     private readonly realtimeEvents: RealtimeEventsService,
     private readonly commandParser: CommandParserService,
     private readonly inventoryRuntime: InventoryRuntimeService,
+    private readonly turnLogsService: TurnLogsService,
   ) {}
 
   async submitAction(
@@ -194,6 +199,271 @@ export class ActionsService {
       sessionId: session.id,
       queueStatus: ActionQueueStatus.PENDING,
       baseStateVersion: state.version,
+    };
+  }
+
+  async submitRestAction(
+    userId: string,
+    sessionId: string,
+    dto: RestActionDto,
+  ): Promise<ActionAcceptedResponseDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    await this.sessionsService.ensureMembership(userId, session.id);
+    this.ensurePlaying(session.status);
+
+    const requester = await this.prisma.sessionParticipant.findUnique({
+      where: {
+        sessionId_userId: {
+          sessionId: session.id,
+          userId,
+        },
+      },
+    });
+
+    if (!requester || requester.status !== PrismaParticipantStatus.JOINED) {
+      throw forbidden("SESSION_403", "해당 세션에 접근할 수 없습니다.", {
+        reason: "NOT_A_SESSION_PARTICIPANT",
+      });
+    }
+
+    const isGmOperator =
+      requester.role === PrismaParticipantRole.HOST ||
+      requester.role === PrismaParticipantRole.GM;
+
+    const sessionCharacter = isGmOperator
+      ? await this.prisma.sessionCharacter.findFirst({
+          where: {
+            sessionId: session.id,
+            status: PrismaSessionCharacterStatus.ACTIVE,
+            OR: [
+              { id: dto.characterId },
+              { characterId: dto.characterId },
+            ],
+          },
+          include: { character: true },
+        })
+      : await this.prisma.sessionCharacter.findUnique({
+          where: {
+            sessionId_userId: {
+              sessionId: session.id,
+              userId,
+            },
+          },
+          include: { character: true },
+        });
+
+    if (!sessionCharacter || sessionCharacter.status !== PrismaSessionCharacterStatus.ACTIVE) {
+      throw forbidden("ACTION_403", "휴식할 캐릭터가 선택되지 않았습니다.", {
+        reason: "CHARACTER_NOT_SELECTED",
+      });
+    }
+
+    if (!isGmOperator) {
+      if (![sessionCharacter.id, sessionCharacter.characterId].includes(dto.characterId)) {
+        throw forbidden("ACTION_403", "휴식할 캐릭터를 확인할 수 없습니다.", {
+          reason: "CHARACTER_MISMATCH",
+        });
+      }
+      if (sessionCharacter.character.ownerUserId !== userId) {
+        throw forbidden("ACTION_403", "휴식할 캐릭터를 확인할 수 없습니다.", {
+          reason: "CHARACTER_OWNERSHIP_MISMATCH",
+        });
+      }
+    }
+
+    const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(
+      session.id,
+    );
+    if (state.phase === PrismaGamePhase.COMBAT) {
+      throw forbidden("ACTION_403", "전투 중에는 휴식을 진행할 수 없습니다.", {
+        reason: "REST_BLOCKED_IN_COMBAT",
+      });
+    }
+
+    const rawText =
+      dto.restType === "short" && dto.hitDiceToSpend
+        ? `/rest short ${dto.hitDiceToSpend}`
+        : `/rest ${dto.restType}`;
+    if (session.gmMode === PrismaGmMode.HUMAN && !isGmOperator) {
+      return this.recordHumanGmRestApprovalRequest({
+        sessionId: session.id,
+        sessionScenarioId: sessionScenario.id,
+        stateVersion: state.version,
+        sessionCharacterId: sessionCharacter.id,
+        userId: sessionCharacter.userId,
+        restType: dto.restType,
+        hitDiceToSpend: dto.hitDiceToSpend,
+        rawText,
+      });
+    }
+
+    const action = await this.prisma.playerAction.create({
+      data: {
+        sessionId: session.id,
+        userId: sessionCharacter.userId,
+        sessionCharacterId: sessionCharacter.id,
+        rawText,
+        inputType: PrismaActionInputType.COMMAND,
+        actionScope: PrismaActionScope.PARTY_SHARED,
+        queueStatus: PrismaActionQueueStatus.PENDING,
+        baseStateVersion: state.version,
+        clientCreatedAt: new Date(),
+      },
+    });
+
+    this.realtimeEvents.emitActionAccepted(session.id, {
+      playerActionId: action.id,
+      actorUserId: action.userId,
+      rawText: action.rawText,
+      clientCreatedAt: action.clientCreatedAt.toISOString(),
+    });
+
+    await this.actionProcessor.processNext(session.id);
+
+    return {
+      playerActionId: action.id,
+      sessionId: session.id,
+      queueStatus: ActionQueueStatus.PENDING,
+      baseStateVersion: state.version,
+    };
+  }
+
+  private async recordHumanGmRestApprovalRequest(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    stateVersion: number;
+    sessionCharacterId: string;
+    userId: string;
+    restType: "short" | "long";
+    hitDiceToSpend?: number;
+    rawText: string;
+  }): Promise<ActionAcceptedResponseDto> {
+    const action = await this.prisma.playerAction.create({
+      data: {
+        sessionId: params.sessionId,
+        userId: params.userId,
+        sessionCharacterId: params.sessionCharacterId,
+        rawText: params.rawText,
+        inputType: PrismaActionInputType.COMMAND,
+        actionScope: PrismaActionScope.PARTY_SHARED,
+        queueStatus: PrismaActionQueueStatus.REJECTED,
+        failureReason: "REST_REQUIRES_GM_APPROVAL",
+        baseStateVersion: params.stateVersion,
+        clientCreatedAt: new Date(),
+      },
+    });
+
+    this.realtimeEvents.emitActionAccepted(params.sessionId, {
+      playerActionId: action.id,
+      actorUserId: action.userId,
+      rawText: action.rawText,
+      clientCreatedAt: action.clientCreatedAt.toISOString(),
+    });
+
+    const turnLog = await this.turnLogsService.createTurnLog({
+      sessionId: params.sessionId,
+      sessionScenarioId: params.sessionScenarioId,
+      playerActionId: action.id,
+      actorUserId: params.userId,
+      sessionCharacterId: params.sessionCharacterId,
+      rawInput: params.rawText,
+      structuredAction: {
+        type: "rest",
+        restType: params.restType,
+        approvalStatus: "gm_required",
+        ...(params.restType === "short" && params.hitDiceToSpend
+          ? { hitDiceToSpend: params.hitDiceToSpend }
+          : {}),
+      },
+      diceResult: null,
+      stateDiff: null,
+      outcome: ActionOutcome.NO_ROLL,
+      narration: "휴식 요청이 GM 승인 대기 상태로 기록되었습니다.",
+    });
+    this.realtimeEvents.emitTurnLogCreated(params.sessionId, turnLog);
+
+    return {
+      playerActionId: action.id,
+      sessionId: params.sessionId,
+      queueStatus: ActionQueueStatus.REJECTED,
+      baseStateVersion: params.stateVersion,
+    };
+  }
+
+  async approveRestAction(
+    userId: string,
+    sessionId: string,
+    actionId: string,
+  ): Promise<ActionAcceptedResponseDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    await this.sessionsService.ensureMembership(userId, session.id);
+    this.ensurePlaying(session.status);
+
+    if (session.gmMode !== PrismaGmMode.HUMAN) {
+      throw badRequest("ACTION_400", "HUMAN GM 세션의 휴식 요청만 승인할 수 있습니다.", {
+        reason: "HUMAN_GM_ONLY",
+      });
+    }
+
+    const requester = await this.prisma.sessionParticipant.findUnique({
+      where: {
+        sessionId_userId: {
+          sessionId: session.id,
+          userId,
+        },
+      },
+    });
+    const isGmOperator =
+      requester?.status === PrismaParticipantStatus.JOINED &&
+      (requester.role === PrismaParticipantRole.HOST ||
+        requester.role === PrismaParticipantRole.GM);
+    if (!isGmOperator) {
+      throw forbidden("ACTION_403", "휴식 요청 승인에는 GM 권한이 필요합니다.", {
+        reason: "GM_PERMISSION_REQUIRED",
+      });
+    }
+
+    const action = await this.prisma.playerAction.findUnique({
+      where: { id: actionId },
+    });
+    if (!action || action.sessionId !== session.id) {
+      throw badRequest("ACTION_400", "승인할 휴식 요청을 찾을 수 없습니다.", {
+        reason: "REST_APPROVAL_REQUEST_NOT_FOUND",
+      });
+    }
+    if (
+      action.queueStatus !== PrismaActionQueueStatus.REJECTED ||
+      action.failureReason !== "REST_REQUIRES_GM_APPROVAL" ||
+      !action.rawText.startsWith("/rest ")
+    ) {
+      throw badRequest("ACTION_400", "승인 가능한 휴식 요청이 아닙니다.", {
+        reason: "INVALID_REST_APPROVAL_REQUEST",
+      });
+    }
+
+    const approvedAction = await this.prisma.playerAction.update({
+      where: { id: action.id },
+      data: {
+        queueStatus: PrismaActionQueueStatus.PENDING,
+        failureReason: null,
+        processedAt: null,
+      },
+    });
+
+    this.realtimeEvents.emitActionAccepted(session.id, {
+      playerActionId: approvedAction.id,
+      actorUserId: approvedAction.userId,
+      rawText: approvedAction.rawText,
+      clientCreatedAt: approvedAction.clientCreatedAt.toISOString(),
+    });
+
+    await this.actionProcessor.processNext(session.id);
+
+    return {
+      playerActionId: approvedAction.id,
+      sessionId: session.id,
+      queueStatus: ActionQueueStatus.PENDING,
+      baseStateVersion: action.baseStateVersion,
     };
   }
 

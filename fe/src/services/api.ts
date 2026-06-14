@@ -17,6 +17,7 @@ import type {
   EndTurnDto,
   GrantHumanGmInventoryItemDto,
   GmMode,
+  HumanGmMessageDto,
   HumanGmNodeMoveOptionDto,
   LoginResponseDto,
   MainCommandResponseDto,
@@ -25,6 +26,7 @@ import type {
   OAuthUrlResponseDto,
   ResolveCombatAttackDto,
   ResolveMainCommandCheckDto,
+  RestActionDto,
   ScenarioAssetKind,
   ScenarioAssetResponseDto,
   ClassDefinitionResponseDto,
@@ -40,6 +42,8 @@ import type {
   TurnAdvanceResponseDto,
   TurnLogListResponseDto,
   UpdateCharacterEquipmentDto,
+  UpdatePreparedSpellsDto,
+  LevelUpCharacterDto,
   UpdateSessionNodeDto,
   UpdateScenarioDto,
   UpdateVttMapDto,
@@ -123,7 +127,7 @@ interface CharacterMutationPayload {
   scenarioId?: string | null;
   startingEquipmentSelection?: number[];
   startingEquipmentItemSelections?: Record<string, string>;
-  startingSpells?: { cantrips: string[]; spells: string[] };
+  startingSpells?: { cantrips: string[]; spells: string[]; preparedSpells?: string[] };
   level?: number;
   abilities?: {
     str: number;
@@ -824,6 +828,39 @@ export function submitAction(
   });
 }
 
+export function submitRestAction(
+  user: StoredUser,
+  sessionId: string,
+  payload: RestActionDto,
+  accessToken?: string | null
+): Promise<ActionAcceptedResponseDto> {
+  return requestJson<ActionAcceptedResponseDto>(`/sessions/${sessionId}/actions/rest/${payload.restType}`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: {
+      characterId: payload.characterId,
+      ...(payload.hitDiceToSpend === undefined ? {} : { hitDiceToSpend: payload.hitDiceToSpend }),
+    },
+  });
+}
+
+export function approveRestAction(
+  user: StoredUser,
+  sessionId: string,
+  actionId: string,
+  accessToken?: string | null
+): Promise<ActionAcceptedResponseDto> {
+  return requestJson<ActionAcceptedResponseDto>(
+    `/sessions/${sessionId}/actions/rest/requests/${actionId}/approve`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+    }
+  );
+}
+
 export function submitMainCommand(
   user: StoredUser,
   sessionId: string,
@@ -1344,6 +1381,20 @@ export function updateCharacter(
   });
 }
 
+export function levelUpCharacter(
+  user: StoredUser,
+  characterId: string,
+  payload: LevelUpCharacterDto,
+  accessToken?: string | null
+): Promise<CharacterResponseDto> {
+  return requestJson<CharacterResponseDto>(`/characters/${characterId}/level-up`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
 export function updateCharacterEquipment(
   user: StoredUser,
   characterId: string,
@@ -1351,6 +1402,20 @@ export function updateCharacterEquipment(
   accessToken?: string | null
 ): Promise<CharacterResponseDto> {
   return requestJson<CharacterResponseDto>(`/characters/${characterId}/equipment`, {
+    method: 'PATCH',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function updatePreparedSpells(
+  user: StoredUser,
+  characterId: string,
+  payload: UpdatePreparedSpellsDto,
+  accessToken?: string | null
+): Promise<CharacterResponseDto> {
+  return requestJson<CharacterResponseDto>(`/characters/${characterId}/prepared-spells`, {
     method: 'PATCH',
     user,
     accessToken,
@@ -1426,6 +1491,22 @@ export async function updateHumanGmSessionNode(
   const payload: UpdateSessionNodeDto = { nodeId };
   const snapshot = await requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/gm/node`, {
     method: 'PATCH',
+    user,
+    accessToken,
+    body: payload,
+  });
+
+  return normalizeSessionSnapshot(snapshot);
+}
+
+export async function createHumanGmMessage(
+  user: StoredUser,
+  sessionId: string,
+  payload: HumanGmMessageDto,
+  accessToken?: string | null
+): Promise<SessionSnapshot> {
+  const snapshot = await requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/gm/messages`, {
+    method: 'POST',
     user,
     accessToken,
     body: payload,

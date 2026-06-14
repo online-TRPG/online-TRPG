@@ -17,6 +17,7 @@ import {
   CharacterResponseDto,
   CreateCharacterDto,
   InventoryItemDto,
+  LevelUpCharacterDto,
   normalizeSkillToKo,
   POINT_BUY_COST,
   POINT_BUY_MAX_BASE,
@@ -28,6 +29,7 @@ import {
   StartingSpellsDto,
   UpdateCharacterDto,
   UpdateCharacterEquipmentDto,
+  UpdatePreparedSpellsDto,
 } from "@trpg/shared-types";
 import { mapCharacter, mapSessionCharacter } from "../../common/mappers/domain.mapper";
 import { isDefaultProvidedScenarioId } from "../scenarios/provided-scenario.constants";
@@ -36,6 +38,7 @@ import { CatalogService } from "../catalog/catalog.service";
 import { RacesService } from "../races/races.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { LevelUpService } from "../rules/level-up.service";
+import type { HitDie } from "../rules/level-up.service";
 import { RuleCatalogService } from "../rules/rule-catalog.service";
 import { SessionsService } from "../sessions/sessions.service";
 
@@ -314,6 +317,171 @@ export class CharactersService {
         },
       });
 
+      this.realtimeEvents.emitSessionSnapshot(
+        assignment.sessionId,
+        await this.sessionsService.buildSnapshot(assignment.sessionId),
+      );
+    }
+
+    return mapCharacter(updated);
+  }
+
+  async levelUpCharacter(
+    userId: string,
+    characterId: string,
+    dto: LevelUpCharacterDto,
+  ): Promise<CharacterResponseDto> {
+    const existing = await this.getOwnedCharacterOrThrow(userId, characterId);
+    const activeAssignments = existing.sessionCharacters.filter((assignment) =>
+      LOCKED_SESSION_STATUSES.has(assignment.session.status),
+    );
+    if (activeAssignments.length && !dto.applyToActiveSessions) {
+      throw new ConflictException({
+        code: "LEVEL_UP_REQUIRES_SESSION_APPLY_CONFIRMATION",
+        message: "진행 중인 세션에 참여 중인 캐릭터는 세션 snapshot 반영 여부를 명시해야 합니다.",
+        sessionIds: activeAssignments.map((assignment) => assignment.sessionId),
+      });
+    }
+
+    const abilities = JSON.parse(existing.abilitiesJson) as AbilityScoresDto;
+    const klass = await this.catalogService.findClassByKey(existing.className.toLowerCase());
+    if (!klass) {
+      throw new BadRequestException("시드된 클래스가 아닌 캐릭터는 레벨업 계산을 적용할 수 없습니다.");
+    }
+
+    let resolution;
+    try {
+      resolution = this.levelUpService.resolveLevelUp({
+        classKey: existing.className,
+        currentLevel: existing.level,
+        targetLevel: dto.targetLevel,
+        hitDie: klass.hitDie as HitDie,
+        constitutionScore: abilities.con,
+        currentMaxHp: existing.maxHp,
+        hpMode: dto.hpMode ?? "average",
+        rolledHpByLevel: dto.rolledHpByLevel ?? {},
+      });
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : "레벨업 입력값이 유효하지 않습니다.",
+      );
+    }
+
+    const selectedSubclassName = dto.subclassName?.trim() || existing.subclassName;
+    if (selectedSubclassName) {
+      const subclassFeatures = this.ruleCatalogService.listSubclassFeatures(
+        existing.className,
+        selectedSubclassName,
+        resolution.toLevel,
+      );
+      if (!subclassFeatures.length) {
+        throw new BadRequestException({
+          code: "LEVEL_UP_INVALID_SUBCLASS",
+          message: `${existing.className} ${resolution.toLevel}레벨에서 사용할 수 없는 서브클래스입니다.`,
+          subclassName: selectedSubclassName,
+        });
+      }
+    }
+    if (resolution.subclassChoiceRequiredAtLevels.length && !selectedSubclassName) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_SUBCLASS_REQUIRED",
+        message: "이번 레벨업에는 서브클래스 선택이 필요합니다.",
+        levels: resolution.subclassChoiceRequiredAtLevels,
+      });
+    }
+
+    const finalFeatures = await this.resolveCharacterFeatureSnapshot({
+      ancestry: existing.ancestry,
+      className: existing.className,
+      subclassName: selectedSubclassName,
+      level: resolution.toLevel,
+      requestedFeatures: this.parseStringArrayJson(existing.featuresJson),
+    });
+    const hpDelta = Math.max(0, resolution.maxHpAfter - existing.maxHp);
+
+    const updated = await this.prisma.character.update({
+      where: { id: characterId },
+      data: {
+        level: resolution.toLevel,
+        subclassName: selectedSubclassName ?? null,
+        proficiencyBonus: resolution.proficiencyBonusAfter,
+        maxHp: resolution.maxHpAfter,
+        featuresJson: JSON.stringify(finalFeatures),
+      },
+      include: {
+        sessionCharacters: {
+          include: { session: true },
+        },
+      },
+    });
+
+    if (dto.applyToActiveSessions) {
+      for (const assignment of activeAssignments) {
+        const currentHp =
+          typeof assignment.currentHp === "number" ? assignment.currentHp : existing.maxHp;
+        await this.prisma.sessionCharacter.update({
+          where: { id: assignment.id },
+          data: { currentHp: Math.min(resolution.maxHpAfter, currentHp + hpDelta) },
+        });
+        this.realtimeEvents.emitSessionSnapshot(
+          assignment.sessionId,
+          await this.sessionsService.buildSnapshot(assignment.sessionId),
+        );
+      }
+    }
+
+    return mapCharacter(updated);
+  }
+
+  async updatePreparedSpells(
+    userId: string,
+    characterId: string,
+    dto: UpdatePreparedSpellsDto,
+  ): Promise<CharacterResponseDto> {
+    const existing = await this.getOwnedCharacterOrThrow(userId, characterId);
+    const spells = this.parseSpellsJson(existing.spellsJson);
+    if (!spells) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELLS_NOT_AVAILABLE",
+        message: "주문을 가진 캐릭터만 준비 주문을 갱신할 수 있습니다.",
+      });
+    }
+
+    const knownSpellIds = new Set(spells.spells.map((spell) => this.normalizeSpellId(spell)));
+    const preparedSpells = Array.from(
+      new Set(dto.preparedSpells.map((spell) => this.normalizeSpellId(spell)).filter(Boolean)),
+    );
+    const unknownPreparedSpell = preparedSpells.find((spell) => !knownSpellIds.has(spell));
+    if (unknownPreparedSpell) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELL_NOT_KNOWN",
+        message: "알고 있거나 주문책에 있는 슬롯 주문만 준비할 수 있습니다.",
+        spellId: unknownPreparedSpell,
+      });
+    }
+
+    const updated = await this.prisma.character.update({
+      where: { id: characterId },
+      data: {
+        spellsJson: JSON.stringify({
+          ...spells,
+          preparedSpells,
+        }),
+      },
+      include: {
+        sessionCharacters: {
+          include: { session: true },
+        },
+      },
+    });
+
+    for (const assignment of updated.sessionCharacters) {
+      if (
+        assignment.session.status === PrismaSessionStatus.COMPLETED ||
+        assignment.session.status === PrismaSessionStatus.DISBANDED
+      ) {
+        continue;
+      }
       this.realtimeEvents.emitSessionSnapshot(
         assignment.sessionId,
         await this.sessionsService.buildSnapshot(assignment.sessionId),
@@ -1050,9 +1218,31 @@ export class CharactersService {
       );
     }
 
+    const cantrips = startingSpells.cantrips.map((s) => s.trim()).filter((s) => s.length > 0);
+    const spells = startingSpells.spells.map((s) => s.trim()).filter((s) => s.length > 0);
+    const knownSpellIds = new Set(spells.map((spell) => this.normalizeSpellId(spell)));
+    const preparedSpells = startingSpells.preparedSpells
+      ? Array.from(
+          new Set(
+            startingSpells.preparedSpells
+              .map((spell) => this.normalizeSpellId(spell))
+              .filter(Boolean),
+          ),
+        )
+      : undefined;
+    const unknownPreparedSpell = preparedSpells?.find((spell) => !knownSpellIds.has(spell));
+    if (unknownPreparedSpell) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELL_NOT_KNOWN",
+        message: "알고 있거나 주문책에 있는 슬롯 주문만 준비할 수 있습니다.",
+        spellId: unknownPreparedSpell,
+      });
+    }
+
     return JSON.stringify({
-      cantrips: startingSpells.cantrips.map((s) => s.trim()).filter((s) => s.length > 0),
-      spells: startingSpells.spells.map((s) => s.trim()).filter((s) => s.length > 0),
+      cantrips,
+      spells,
+      ...(preparedSpells ? { preparedSpells } : {}),
     });
   }
 
@@ -1344,6 +1534,29 @@ export class CharactersService {
     } catch {
       return [];
     }
+  }
+
+  private parseSpellsJson(value: string | null | undefined): StartingSpellsDto | null {
+    if (!value) return null;
+    try {
+      const parsed = JSON.parse(value) as Partial<StartingSpellsDto> | null;
+      if (!parsed || !Array.isArray(parsed.cantrips) || !Array.isArray(parsed.spells)) {
+        return null;
+      }
+      return {
+        cantrips: parsed.cantrips.filter((spell): spell is string => typeof spell === "string"),
+        spells: parsed.spells.filter((spell): spell is string => typeof spell === "string"),
+        preparedSpells: Array.isArray(parsed.preparedSpells)
+          ? parsed.preparedSpells.filter((spell): spell is string => typeof spell === "string")
+          : undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private normalizeSpellId(spellId: string): string {
+    return spellId.trim().toLowerCase().replace(/[\s-]+/g, "_");
   }
 
   private async resolveCharacterFeatureSnapshot(params: {

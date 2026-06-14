@@ -1670,6 +1670,27 @@
   gap: 8px;
 }
 
+.chat-thread-inline-action {
+  display: block;
+  width: fit-content;
+  margin-top: 8px;
+  border: 1px solid rgba(118, 83, 42, 0.42);
+  border-radius: 6px;
+  padding: 5px 10px;
+  background: rgba(255, 247, 221, 0.88);
+  color: #5f3b18;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.chat-thread-inline-action:hover,
+.chat-thread-inline-action:focus-visible {
+  background: rgba(255, 236, 174, 0.95);
+  border-color: rgba(118, 83, 42, 0.72);
+}
+
 .chat-thread-spinner {
   width: 12px;
   height: 12px;
