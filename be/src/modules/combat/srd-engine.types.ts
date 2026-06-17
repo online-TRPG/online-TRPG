@@ -87,7 +87,7 @@ export interface SrdEngineExecutableMonsterAction {
   specialType?: string | null;
   usage?: string | null;
   recharge?: string | null;
-  save?: { ability: string; dcSource: string | null } | null;
+  save?: { ability: string; dcSource: string | null; fixedDc?: number | null } | null;
   conditionRiders?: string[];
   effectTags?: string[];
 }

@@ -21,7 +21,7 @@ export type ExecutableMonsterAction = {
   specialType: string | null;
   usage: string | null;
   recharge: string | null;
-  save: { ability: string; dcSource: string | null } | null;
+  save: { ability: string; dcSource: string | null; fixedDc?: number | null } | null;
   conditionRiders: string[];
   effectTags: string[];
 };
@@ -111,7 +111,7 @@ export class MonsterAbilityService {
       usage: this.readStringTag(entry.runtimeEffect.tags, "usage:"),
       recharge: this.readStringTag(entry.runtimeEffect.tags, "recharge:"),
       save: entry.save
-        ? { ability: entry.save.ability, dcSource: entry.save.dcSource ?? null }
+        ? { ability: entry.save.ability, dcSource: entry.save.dcSource ?? null, fixedDc: entry.save.fixedDc ?? null }
         : null,
       conditionRiders: this.readPrefixedTags(entry.runtimeEffect.tags, "condition:"),
       effectTags: this.resolveEffectTags(entry),

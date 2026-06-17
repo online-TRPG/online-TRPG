@@ -367,6 +367,9 @@ export class TurnLogResponseDto {
   @ApiPropertyOptional({ nullable: true })
   actionCreatedAt!: string | null;
 
+  @ApiPropertyOptional({ enum: ActionQueueStatus, nullable: true })
+  actionQueueStatus!: ActionQueueStatus | null;
+
   @ApiPropertyOptional({ nullable: true })
   rawInput!: string | null;
 
@@ -499,7 +502,7 @@ export class CombatMonsterActionOptionDto {
   recharge?: string | null;
 
   @ApiPropertyOptional({ type: Object, nullable: true })
-  save?: { ability: string; dcSource: string | null } | null;
+  save?: { ability: string; dcSource: string | null; fixedDc?: number | null } | null;
 
   @ApiPropertyOptional({ type: [String] })
   conditionRiders?: string[];

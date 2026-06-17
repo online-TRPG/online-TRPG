@@ -82,6 +82,15 @@ describe("CommandParserService", () => {
     });
   });
 
+  it("parses condition commands with VTT token targets", () => {
+    expect(service.parse("/condition add token_node_rule_smoke_condition_goblin stunned")).toEqual({
+      type: "condition",
+      operation: "add",
+      target: "token_node_rule_smoke_condition_goblin",
+      condition: "stunned",
+    });
+  });
+
   it("parses ready action commands", () => {
     expect(service.parse("/ready enter attack monster-1 30")).toEqual({
       type: "ready",

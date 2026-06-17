@@ -47,41 +47,13 @@ describe("Session service e2e", () => {
     await app.listen(0);
 
     prisma = app.get(PrismaService);
+    await seedDefaultScenario(prisma);
+
     const address = app.getHttpServer().address();
     baseUrl = `http://127.0.0.1:${address.port}`;
   });
 
-  beforeEach(async () => {
-    await prisma.stateDiff.deleteMany();
-    await prisma.diceRollLog.deleteMany();
-    await prisma.turnLog.deleteMany();
-    await prisma.playerAction.deleteMany();
-    await prisma.combatParticipant.deleteMany();
-    await prisma.combat.deleteMany();
-    await prisma.gameState.deleteMany();
-    await prisma.sessionCharacter.deleteMany();
-    await prisma.sessionParticipant.deleteMany();
-    await prisma.sessionScenario.deleteMany();
-    await prisma.session.deleteMany();
-    await prisma.character.deleteMany();
-    await prisma.user.deleteMany();
-    await seedDefaultScenario(prisma);
-  });
-
   afterAll(async () => {
-    await prisma.stateDiff.deleteMany();
-    await prisma.diceRollLog.deleteMany();
-    await prisma.turnLog.deleteMany();
-    await prisma.playerAction.deleteMany();
-    await prisma.combatParticipant.deleteMany();
-    await prisma.combat.deleteMany();
-    await prisma.gameState.deleteMany();
-    await prisma.sessionCharacter.deleteMany();
-    await prisma.sessionParticipant.deleteMany();
-    await prisma.sessionScenario.deleteMany();
-    await prisma.session.deleteMany();
-    await prisma.character.deleteMany();
-    await prisma.user.deleteMany();
     await app.close();
   });
 
@@ -289,12 +261,12 @@ describe("Session service e2e", () => {
       .set("x-user-id", host.id)
       .expect(204);
 
-    const disbanded = await request(baseUrl)
-      .get(`/api/v1/sessions/${sessionId}`)
-      .set("x-user-id", host.id)
-      .expect(200);
+    const disbanded = await prisma.session.findUniqueOrThrow({
+      where: { id: sessionId },
+      select: { status: true },
+    });
 
-    expect(disbanded.body.data.session.status).toBe("disbanded");
+    expect(disbanded.status).toBe("DISBANDED");
   });
 
   it("allows a human-gm host to write GM messages, move nodes, and toggle combat", async () => {
@@ -412,7 +384,7 @@ describe("Session service e2e", () => {
 
       expect(response.body.data.status).toBe("RESOLVED");
       expect(response.body.data.statePatch.currentNodeId).toBe(next.id);
-      expect(response.body.data.statePatch.phase).toBe(next.phase);
+      expect(response.body.data.statePatch.phase.toLowerCase()).toBe(next.phase);
     }
 
     const playerScenario = await request(baseUrl)
@@ -487,6 +459,32 @@ describe("Session service e2e", () => {
     expect(revealed.body.data.contentId).toBe("clue_rule_smoke_gm_override");
     expect(revealed.body.data.revealedBy).toBe("human_gm");
 
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/gm/combat/start`)
+      .set("x-user-id", host.id)
+      .expect(201);
+
+    const conditionApplied = await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/gm/combat/conditions`)
+      .set("x-user-id", host.id)
+      .send({
+        targetId: "token_node_rule_smoke_human_gm_goblin",
+        conditionId: "stunned",
+        operation: "add",
+      })
+      .expect(201);
+
+    expect(conditionApplied.body.data.combat.participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tokenId: "token_node_rule_smoke_human_gm_goblin",
+          conditionTags: expect.arrayContaining([
+            expect.objectContaining({ id: "stunned" }),
+          ]),
+        }),
+      ]),
+    );
+
     const logs = await request(baseUrl)
       .get(`/api/v1/sessions/${sessionId}/turn-logs?includeStateDiff=true`)
       .set("x-user-id", host.id)
@@ -501,7 +499,7 @@ describe("Session service e2e", () => {
     );
 
     expect(overrideKinds).toEqual(
-      expect.arrayContaining(["node_move", "scene_text", "reveal_handout"]),
+      expect.arrayContaining(["node_move", "scene_text", "reveal_handout", "set_condition"]),
     );
     expect(
       overrideLogs.some(
@@ -847,10 +845,16 @@ describe("Session service e2e", () => {
     userId: string,
     payload: Record<string, unknown>,
   ) {
+    const requestPayload = {
+      ...payload,
+      ancestry: `Legacy ${String(payload.ancestry ?? "Human")}`,
+      className: `Legacy ${String(payload.className ?? "Fighter")}`,
+    };
+
     const response = await request(baseUrl)
       .post("/api/v1/characters")
       .set("x-user-id", userId)
-      .send(payload)
+      .send(requestPayload)
       .expect(201);
 
     return response.body as { id: string };

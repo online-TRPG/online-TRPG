@@ -37,7 +37,9 @@ import type { PersistentCharacter, Scenario, SessionSnapshot, StoredUser } from 
 import type {
   ClassDefinitionResponseDto,
   ItemResponseDto,
+  LevelUpCharacterDto,
   RaceResponseDto,
+  UpdatePreparedSpellsDto,
 } from '@trpg/shared-types';
 import { InventoryItemInfo } from '../features/sessionPlay/components/InventoryItemInfo';
 import { listItems } from '../services/api';
@@ -104,6 +106,11 @@ interface CharacterPageProps {
   onCreateCharacter: (payload: CharacterPayload) => Promise<boolean>;
   onCloneCharacter: (characterId: string) => void | Promise<void>;
   onUpdateCharacter: (characterId: string, payload: CharacterPayload) => Promise<boolean>;
+  onLevelUpCharacter: (characterId: string, payload: LevelUpCharacterDto) => Promise<boolean>;
+  onUpdatePreparedSpells: (
+    characterId: string,
+    payload: UpdatePreparedSpellsDto
+  ) => Promise<boolean>;
   onDeleteCharacter: (characterId: string) => void | Promise<void>;
   autoOpenCreate?: boolean;
   sessionReturnTitle?: string | null;
@@ -149,24 +156,65 @@ type ClassName = ClassOptionValue;
 
 const defaultAncestry = 'Human';
 
-const implementedWizardCantrips = [
+const implementedCantrips = [
+  { id: 'spell.chill_touch', label: 'Chill Touch / 냉기의 손길' },
   { id: 'spell.fire_bolt', label: 'Fire Bolt / 화염 화살' },
   { id: 'spell.light', label: 'Light / 빛' },
 ];
 
-const implementedWizardLevel1Spells = [
+const implementedLevel1Spells = [
   { id: 'spell.magic_missile', label: 'Magic Missile / 마법 화살' },
   { id: 'spell.shield', label: 'Shield / 방패' },
   { id: 'spell.sleep', label: 'Sleep / 수면' },
 ];
 
+const implementedLevel3Spells = [
+  { id: 'spell.fireball', label: 'Fireball / 화염구' },
+];
+
+const implementedSpellClasses = new Set([
+  'bard',
+  'cleric',
+  'druid',
+  'sorcerer',
+  'warlock',
+  'wizard',
+]);
+
+const implementedSubclassOptions: Record<string, Array<{ value: string; label: string }>> = {
+  barbarian: [{ value: 'berserker', label: 'Berserker / 광전사' }],
+  bard: [{ value: 'lore', label: 'College of Lore / 지식 학파' }],
+  cleric: [{ value: 'life', label: 'Life Domain / 생명 권역' }],
+  druid: [{ value: 'land', label: 'Circle of the Land / 대지의 회합' }],
+  fighter: [{ value: 'champion', label: 'Champion / 챔피언' }],
+  monk: [{ value: 'open_hand', label: 'Way of the Open Hand / 열린 손의 길' }],
+  paladin: [{ value: 'devotion', label: 'Oath of Devotion / 헌신의 맹세' }],
+  ranger: [{ value: 'hunter', label: 'Hunter / 사냥꾼' }],
+  rogue: [{ value: 'thief', label: 'Thief / 도둑' }],
+  sorcerer: [{ value: 'draconic_bloodline', label: 'Draconic Bloodline / 용 혈통' }],
+  warlock: [{ value: 'fiend', label: 'Fiend / 악마 후원자' }],
+  wizard: [{ value: 'evocation', label: 'Evocation / 방출학파' }],
+};
+
 function getImplementedSpellOptions(
   className: string | null | undefined,
-  kind: 'cantrip' | 'level1'
+  kind: 'cantrip' | 'slot',
+  level = 1
 ) {
   const classKey = normalizeClassValue(className ?? '').toLowerCase();
-  if (classKey !== 'wizard') return [];
-  return kind === 'cantrip' ? implementedWizardCantrips : implementedWizardLevel1Spells;
+  if (!implementedSpellClasses.has(classKey)) return [];
+  if (kind === 'cantrip') return implementedCantrips;
+  return level >= 5
+    ? [...implementedLevel1Spells, ...implementedLevel3Spells]
+    : implementedLevel1Spells;
+}
+
+function getImplementedSpellLabel(spellId: string) {
+  return (
+    [...implementedCantrips, ...implementedLevel1Spells, ...implementedLevel3Spells].find(
+      (spell) => spell.id === spellId
+    )?.label ?? spellId
+  );
 }
 
 function isSpellAlreadySelected(
@@ -189,6 +237,90 @@ const avatarPresets = [
 
 // 직업별 추천 HP/AC/공격 보너스/능력치 성장 기준입니다.
 const classStatProfiles: Record<ClassName, ClassStatProfile> = {
+  Barbarian: {
+    base: {
+      maxHp: 14,
+      armorClass: 14,
+      speed: 30,
+      abilities: {
+        str: 15,
+        dex: 12,
+        int: 8,
+      },
+    },
+    growth: {
+      maxHp: 7,
+      armorClass: 0,
+      abilities: {
+        str: 0.3,
+        dex: 0,
+        int: 0,
+      },
+    },
+  },
+  Bard: {
+    base: {
+      maxHp: 10,
+      armorClass: 13,
+      speed: 30,
+      abilities: {
+        str: 8,
+        dex: 14,
+        int: 10,
+      },
+    },
+    growth: {
+      maxHp: 5,
+      armorClass: 0,
+      abilities: {
+        str: 0,
+        dex: 0.2,
+        int: 0,
+      },
+    },
+  },
+  Cleric: {
+    base: {
+      maxHp: 10,
+      armorClass: 16,
+      speed: 30,
+      abilities: {
+        str: 12,
+        dex: 10,
+        int: 8,
+      },
+    },
+    growth: {
+      maxHp: 5,
+      armorClass: 0,
+      abilities: {
+        str: 0,
+        dex: 0,
+        int: 0,
+      },
+    },
+  },
+  Druid: {
+    base: {
+      maxHp: 10,
+      armorClass: 13,
+      speed: 30,
+      abilities: {
+        str: 8,
+        dex: 14,
+        int: 10,
+      },
+    },
+    growth: {
+      maxHp: 5,
+      armorClass: 0,
+      abilities: {
+        str: 0,
+        dex: 0.2,
+        int: 0,
+      },
+    },
+  },
   Fighter: {
     base: {
       maxHp: 20,
@@ -205,6 +337,48 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
       armorClass: 0.5,
       abilities: {
         str: 0.5,
+        dex: 0,
+        int: 0,
+      },
+    },
+  },
+  Monk: {
+    base: {
+      maxHp: 10,
+      armorClass: 15,
+      speed: 30,
+      abilities: {
+        str: 10,
+        dex: 15,
+        int: 8,
+      },
+    },
+    growth: {
+      maxHp: 5,
+      armorClass: 0,
+      abilities: {
+        str: 0,
+        dex: 0.4,
+        int: 0,
+      },
+    },
+  },
+  Paladin: {
+    base: {
+      maxHp: 12,
+      armorClass: 18,
+      speed: 30,
+      abilities: {
+        str: 15,
+        dex: 8,
+        int: 8,
+      },
+    },
+    growth: {
+      maxHp: 6,
+      armorClass: 0,
+      abilities: {
+        str: 0.3,
         dex: 0,
         int: 0,
       },
@@ -249,6 +423,48 @@ const classStatProfiles: Record<ClassName, ClassStatProfile> = {
         str: 0,
         dex: 0.4,
         int: 0.2,
+      },
+    },
+  },
+  Sorcerer: {
+    base: {
+      maxHp: 8,
+      armorClass: 12,
+      speed: 30,
+      abilities: {
+        str: 8,
+        dex: 14,
+        int: 10,
+      },
+    },
+    growth: {
+      maxHp: 4,
+      armorClass: 0,
+      abilities: {
+        str: 0,
+        dex: 0.2,
+        int: 0,
+      },
+    },
+  },
+  Warlock: {
+    base: {
+      maxHp: 10,
+      armorClass: 13,
+      speed: 30,
+      abilities: {
+        str: 8,
+        dex: 14,
+        int: 10,
+      },
+    },
+    growth: {
+      maxHp: 5,
+      armorClass: 0,
+      abilities: {
+        str: 0,
+        dex: 0.2,
+        int: 0,
       },
     },
   },
@@ -862,6 +1078,8 @@ export function CharacterPage({
   onCreateCharacter,
   onCloneCharacter,
   onUpdateCharacter,
+  onLevelUpCharacter,
+  onUpdatePreparedSpells,
   onDeleteCharacter,
   autoOpenCreate = false,
   sessionReturnTitle = null,
@@ -884,6 +1102,12 @@ export function CharacterPage({
   const [createStepIndex, setCreateStepIndex] = useState(0);
   const [isStatsReferenceOpen, setStatsReferenceOpen] = useState(false);
   const [itemCatalog, setItemCatalog] = useState<ItemResponseDto[]>([]);
+  const [levelUpDraft, setLevelUpDraft] = useState<{
+    targetLevel: number;
+    subclassName: string;
+    knownSpells: string[];
+    preparedSpells: string[];
+  }>({ targetLevel: 2, subclassName: '', knownSpells: [], preparedSpells: [] });
   // 인벤토리 편집 영역 DOM 참조입니다. 필요 시 스크롤/포커스 제어에 씁니다.
   const inventoryEditorRef = useRef<HTMLDivElement | null>(null);
   const didAutoOpenCreateRef = useRef(false);
@@ -948,9 +1172,9 @@ export function CharacterPage({
     () => getImplementedSpellOptions(formState.className, 'cantrip'),
     [formState.className]
   );
-  const level1SpellOptions = useMemo(
-    () => getImplementedSpellOptions(formState.className, 'level1'),
-    [formState.className]
+  const slotSpellOptions = useMemo(
+    () => getImplementedSpellOptions(formState.className, 'slot', formState.level ?? 1),
+    [formState.className, formState.level]
   );
 
   // ancestry → race(시드)룩업. ancestry 가 race.key 또는 race.koName 와 매칭되면 보정 적용.
@@ -1172,6 +1396,46 @@ export function CharacterPage({
     () => characters.find((character) => character.id === selectedCharacterId) ?? null,
     [characters, selectedCharacterId]
   );
+  const selectedCharacterClassKey = normalizeClassValue(selectedCharacter?.className ?? '').toLowerCase();
+  const selectedSubclassOptions = selectedCharacter
+    ? (implementedSubclassOptions[selectedCharacterClassKey] ?? [])
+    : [];
+  const selectedKnownSlotSpells = useMemo(
+    () => selectedCharacter?.spells?.spells ?? [],
+    [selectedCharacter]
+  );
+  const selectedLevelUpLearnableSlotSpells = useMemo(() => {
+    if (!selectedCharacter) return [];
+    const known = new Set(selectedKnownSlotSpells);
+    return getImplementedSpellOptions(
+      selectedCharacter.className,
+      'slot',
+      levelUpDraft.targetLevel
+    ).filter((spell) => !known.has(spell.id));
+  }, [levelUpDraft.targetLevel, selectedCharacter, selectedKnownSlotSpells]);
+  const selectedPreparedCandidateSlotSpells = useMemo(
+    () => Array.from(new Set([...selectedKnownSlotSpells, ...levelUpDraft.knownSpells])),
+    [levelUpDraft.knownSpells, selectedKnownSlotSpells]
+  );
+  const selectedPreparedSpells = useMemo(
+    () => selectedCharacter?.spells?.preparedSpells ?? [],
+    [selectedCharacter]
+  );
+
+  useEffect(() => {
+    if (!selectedCharacter) {
+      setLevelUpDraft({ targetLevel: 2, subclassName: '', knownSpells: [], preparedSpells: [] });
+      return;
+    }
+
+    setLevelUpDraft({
+      targetLevel: Math.min(20, Math.max(2, selectedCharacter.level + 1)),
+      subclassName: selectedCharacter.subclassName ?? '',
+      knownSpells: [],
+      preparedSpells: selectedPreparedSpells,
+    });
+  }, [selectedCharacter, selectedPreparedSpells]);
+
   const ancestryOptions = useMemo(
     () => raceCatalog.map(({ value, label }) => ({ value, label })),
     [raceCatalog]
@@ -1388,17 +1652,14 @@ export function CharacterPage({
       return;
     }
 
-    if (
-      selectedClass?.key === 'wizard' &&
-      (selectedClass.startingCantripCount > 0 || selectedClass.startingSpellCount > 0)
-    ) {
+    if (selectedClass && (selectedClass.startingCantripCount > 0 || selectedClass.startingSpellCount > 0)) {
       const requiredCantripCount = Math.min(
         selectedClass.startingCantripCount,
         cantripOptions.length
       );
       const requiredSpellCount = Math.min(
         selectedClass.startingSpellCount,
-        level1SpellOptions.length
+        slotSpellOptions.length
       );
       const cantrips = formState.startingSpells?.cantrips ?? [];
       const spells = formState.startingSpells?.spells ?? [];
@@ -1410,9 +1671,24 @@ export function CharacterPage({
         .filter((value) => value.trim().length > 0).length;
       if (filledCantripCount < requiredCantripCount || filledSpellCount < requiredSpellCount) {
         setFormValidationError(
-          `위저드 클래스는 시작 주문을 모두 선택해야 캐릭터를 생성할 수 있습니다. ` +
-            `(캔트립 ${requiredCantripCount}개, 1레벨 주문 ${requiredSpellCount}개)`
+          `${selectedClass.koName} 클래스는 시작 주문을 모두 선택해야 캐릭터를 생성할 수 있습니다. ` +
+            `(캔트립 ${requiredCantripCount}개, 슬롯 주문 ${requiredSpellCount}개)`
         );
+        return;
+      }
+      const selectedCantrips = cantrips
+        .slice(0, requiredCantripCount)
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const selectedSpells = spells
+        .slice(0, requiredSpellCount)
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (
+        new Set(selectedCantrips).size !== selectedCantrips.length ||
+        new Set(selectedSpells).size !== selectedSpells.length
+      ) {
+        setFormValidationError('시작 주문은 같은 주문을 중복해서 선택할 수 없습니다.');
         return;
       }
     }
@@ -1444,6 +1720,52 @@ export function CharacterPage({
   async function handleCloneSelectedCharacter() {
     if (!selectedCharacter) return;
     await onCloneCharacter(selectedCharacter.id);
+  }
+
+  async function handleLevelUpSelectedCharacter() {
+    if (!selectedCharacter || selectedCharacter.level >= 20) return;
+    const targetLevel = Math.min(20, Math.max(selectedCharacter.level + 1, levelUpDraft.targetLevel));
+    await onLevelUpCharacter(selectedCharacter.id, {
+      targetLevel,
+      hpMode: 'average',
+      applyToActiveSessions: usedCharacterIds.has(selectedCharacter.id),
+      ...(levelUpDraft.subclassName ? { subclassName: levelUpDraft.subclassName } : {}),
+      ...(levelUpDraft.knownSpells.length ? { knownSpells: levelUpDraft.knownSpells } : {}),
+      ...(selectedPreparedCandidateSlotSpells.length
+        ? { preparedSpells: levelUpDraft.preparedSpells.filter(Boolean) }
+        : {}),
+    });
+  }
+
+  async function handleSavePreparedSpells() {
+    if (!selectedCharacter) return;
+    await onUpdatePreparedSpells(selectedCharacter.id, {
+      preparedSpells: levelUpDraft.preparedSpells.filter(Boolean),
+    });
+  }
+
+  function togglePreparedSpell(spellId: string) {
+    setLevelUpDraft((current) => ({
+      ...current,
+      preparedSpells: current.preparedSpells.includes(spellId)
+        ? current.preparedSpells.filter((id) => id !== spellId)
+        : [...current.preparedSpells, spellId],
+    }));
+  }
+
+  function toggleLevelUpKnownSpell(spellId: string) {
+    setLevelUpDraft((current) => {
+      const isSelected = current.knownSpells.includes(spellId);
+      return {
+        ...current,
+        knownSpells: isSelected
+          ? current.knownSpells.filter((id) => id !== spellId)
+          : [...current.knownSpells, spellId],
+        preparedSpells: isSelected
+          ? current.preparedSpells.filter((id) => id !== spellId)
+          : current.preparedSpells,
+      };
+    });
   }
 
   async function handleDeleteSelectedCharacter() {
@@ -1696,6 +2018,103 @@ export function CharacterPage({
                         <dd>{formatStat(selectedCharacter.proficiencyBonus)}</dd>
                       </div>
                     </dl>
+
+                    <section className="fantasy-character-stats-section">
+                      <h3>성장</h3>
+                      <div className="character-growth-panel">
+                        <label htmlFor="character-level-up-target">목표 레벨</label>
+                        <div className="character-growth-row">
+                          <input
+                            id="character-level-up-target"
+                            type="number"
+                            min={selectedCharacter.level + 1}
+                            max={20}
+                            value={levelUpDraft.targetLevel}
+                            disabled={busy || selectedCharacter.level >= 20}
+                            onChange={(event) =>
+                              setLevelUpDraft((current) => ({
+                                ...current,
+                                targetLevel: Number(event.target.value),
+                              }))
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void handleLevelUpSelectedCharacter()}
+                            disabled={busy || selectedCharacter.level >= 20}
+                          >
+                            레벨업
+                          </button>
+                        </div>
+                        {selectedSubclassOptions.length ? (
+                          <div>
+                            <label htmlFor="character-level-up-subclass">서브클래스</label>
+                            <select
+                              id="character-level-up-subclass"
+                              value={levelUpDraft.subclassName}
+                              disabled={busy || Boolean(selectedCharacter.subclassName)}
+                              onChange={(event) =>
+                                setLevelUpDraft((current) => ({
+                                  ...current,
+                                  subclassName: event.target.value,
+                                }))
+                              }
+                            >
+                              <option value="">필요 시 선택</option>
+                              {selectedSubclassOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : null}
+                        {selectedLevelUpLearnableSlotSpells.length ? (
+                          <div>
+                            <label>새 주문 습득</label>
+                            <div className="character-prepared-spell-list">
+                              {selectedLevelUpLearnableSlotSpells.map((spell) => (
+                                <label key={spell.id} className="character-prepared-spell-option">
+                                  <input
+                                    type="checkbox"
+                                    checked={levelUpDraft.knownSpells.includes(spell.id)}
+                                    disabled={busy}
+                                    onChange={() => toggleLevelUpKnownSpell(spell.id)}
+                                  />
+                                  <span>{spell.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </section>
+
+                    {selectedPreparedCandidateSlotSpells.length ? (
+                      <section className="fantasy-character-stats-section">
+                        <h3>준비 주문</h3>
+                        <div className="character-prepared-spell-list">
+                          {selectedPreparedCandidateSlotSpells.map((spellId) => (
+                            <label key={spellId} className="character-prepared-spell-option">
+                              <input
+                                type="checkbox"
+                                checked={levelUpDraft.preparedSpells.includes(spellId)}
+                                disabled={busy}
+                                onChange={() => togglePreparedSpell(spellId)}
+                              />
+                              <span>{getImplementedSpellLabel(spellId)}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleSavePreparedSpells()}
+                          disabled={busy || levelUpDraft.knownSpells.length > 0}
+                        >
+                          준비 주문 저장
+                        </button>
+                      </section>
+                    ) : null}
 
                     <section className="fantasy-character-stats-section">
                       <h3>능력치</h3>
@@ -2899,7 +3318,7 @@ export function CharacterPage({
                       );
                       const renderedSpellCount = Math.min(
                         selectedClass.startingSpellCount,
-                        level1SpellOptions.length
+                        slotSpellOptions.length
                       );
                       return (
                         <section className="character-form-section character-create-loadout-spells">
@@ -2958,7 +3377,7 @@ export function CharacterPage({
                           {renderedSpellCount > 0 && (
                             <div>
                               <label style={{ display: 'block', marginBottom: 6 }}>
-                                1레벨 주문
+                                슬롯 주문
                               </label>
                               {Array.from({ length: renderedSpellCount }).map((_, idx) => (
                                 <select
@@ -2983,8 +3402,8 @@ export function CharacterPage({
                                   }}
                                   style={{ marginRight: 6, marginBottom: 4 }}
                                 >
-                                  <option value="">1레벨 주문 {idx + 1} 선택</option>
-                                  {level1SpellOptions.map((spell) => (
+                                  <option value="">슬롯 주문 {idx + 1} 선택</option>
+                                  {slotSpellOptions.map((spell) => (
                                     <option
                                       key={spell.id}
                                       value={spell.id}

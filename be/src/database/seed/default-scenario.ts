@@ -101,6 +101,7 @@ function createRuleRuntimeSmokeMap(nodeId: string) {
     gridSize: 64,
     width: 768,
     height: 512,
+    fogRects: [],
     tokens: [
       {
         id: `token_${nodeId}_goblin`,
@@ -130,18 +131,20 @@ function createRuleRuntimeSmokeMap(nodeId: string) {
           nameKo: "거대 쥐",
         },
       },
+    ],
+    objectCells: [
       {
-        id: `token_${nodeId}_cover`,
+        id: `object_${nodeId}_cover_crate`,
         name: "Half Cover Crate",
+        description: "A waist-high crate that grants half cover against ranged attacks.",
         x: 320,
         y: 192,
-        size: 64,
-        hidden: false,
-        isHostile: false,
-        coverLevel: "half",
+        width: 64,
+        height: 64,
+        visibleToPlayers: true,
       },
     ],
-    terrain: [
+    terrainCells: [
       { id: `terrain_${nodeId}_burning`, x: 384, y: 256, terrainEffectId: "terrain.burning" },
       { id: `terrain_${nodeId}_poison`, x: 448, y: 256, terrainEffectId: "terrain.poison_cloud" },
     ],
@@ -232,7 +235,7 @@ const scenarioNodes = [
     fallbackNodeId: RULE_RUNTIME_TRAP_NODE_ID,
     nodeMetaJson: JSON.stringify({
       smokeTest: {
-        commands: ["/rest short", "/rest long"],
+        suggestedCommands: ["/rest short", "/rest long"],
         verifies: ["rest-resolution", "condition-until-rest-expiry"],
       },
     }),
@@ -273,7 +276,10 @@ const scenarioNodes = [
     nodeMetaJson: JSON.stringify({
       smokeTest: {
         verifies: ["saving-throw", "condition-runtime", "terrain-poison-cloud"],
-        suggestedCommands: ["/check investigation 13", "/condition add target poisoned"],
+        suggestedCommands: [
+          "/check investigation 13",
+          "/condition add token_node_rule_smoke_trap_save_goblin poisoned",
+        ],
       },
     }),
   },
@@ -305,7 +311,7 @@ const scenarioNodes = [
     nodeMetaJson: JSON.stringify({
       smokeTest: {
         verifies: ["cover-position", "monster-ability", "terrain-effect"],
-        suggestedCommands: ["/attack token_rule_smoke_cover_combat_goblin"],
+        suggestedCommands: ["/attack token_node_rule_smoke_cover_combat_goblin"],
       },
     }),
   },
@@ -329,7 +335,9 @@ const scenarioNodes = [
     nodeMetaJson: JSON.stringify({
       smokeTest: {
         verifies: ["aoe-targeting", "aoe-damage", "spell-scaling"],
-        suggestedCommands: ["/cast_area fireball 15 target-1,target-2 4"],
+        suggestedCommands: [
+          "/cast_area fireball 15 token_node_rule_smoke_aoe_goblin,token_node_rule_smoke_aoe_rat 4",
+        ],
       },
     }),
   },
@@ -361,7 +369,7 @@ const scenarioNodes = [
     nodeMetaJson: JSON.stringify({
       smokeTest: {
         verifies: ["condition-lifecycle", "concentration-runtime", "forced-movement"],
-        suggestedCommands: ["/condition add target stunned"],
+        suggestedCommands: ["/condition add token_node_rule_smoke_condition_goblin stunned"],
       },
     }),
   },
@@ -375,7 +383,7 @@ const scenarioNodes = [
     imageUrl: null,
     checkOptionsJson: JSON.stringify({
       checks: [],
-      vttMap: null,
+      vttMap: createRuleRuntimeSmokeMap(RULE_RUNTIME_HUMAN_GM_NODE_ID),
     }),
     transitionsJson: JSON.stringify([]),
     cluesJson: JSON.stringify([
@@ -391,6 +399,40 @@ const scenarioNodes = [
     nodeMetaJson: JSON.stringify({
       smokeTest: {
         verifies: ["human-gm-override", "turn-log", "state-diff", "ai-assist-accept"],
+        manualActions: [
+          {
+            kind: "scene_text",
+            publicNarration: "GM override smoke: the final chamber description is recorded.",
+          },
+          {
+            kind: "reveal_handout",
+            targetId: "clue_rule_smoke_gm_override",
+            publicNarration: "GM override smoke: reveal the HUMAN GM handout.",
+            statePatch: {
+              contentId: "clue_rule_smoke_gm_override",
+              contentKind: "clue",
+              scope: "party",
+              recipientId: null,
+            },
+          },
+          {
+            kind: "adjust_hp",
+            targetId: "token_node_rule_smoke_human_gm_goblin",
+            publicNarration: "GM override smoke: adjust a visible target HP total.",
+            statePatch: {
+              targetType: "combatParticipant",
+              currentHp: 3,
+            },
+          },
+          {
+            kind: "ai_assist_accept",
+            publicNarration: "GM override smoke: accept an AI assist suggestion as the HUMAN GM.",
+            metadata: {
+              assistType: "scene_text",
+              suggestionId: "rule-smoke-ai-assist",
+            },
+          },
+        ],
       },
     }),
   },

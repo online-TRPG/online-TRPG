@@ -46,6 +46,8 @@ const DEFAULT_DIRECT_DAMAGE_TYPE = "untyped";
 const CHILL_TOUCH_SPELL_ID = "spell.chill_touch";
 const FIRE_BOLT_SPELL_ID = "spell.fire_bolt";
 const MAGIC_MISSILE_SPELL_ID = "spell.magic_missile";
+const SLEEP_SPELL_ID = "spell.sleep";
+const LIGHT_SPELL_ID = "spell.light";
 const SECOND_WIND_FEATURE_ID = "class.fighter.feature.second_wind";
 const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
 const FIGHTING_STYLE_FEATURE_ID = "class.fighter.feature.fighting_style";
@@ -91,6 +93,9 @@ type SessionCharacterForRules = {
   id: string;
   userId: string;
   characterId: string;
+  tokenId?: string | null;
+  combatParticipantId?: string | null;
+  isCombatParticipantOnly?: boolean;
   currentHp: number;
   tempHp: number;
   conditionsJson: string;
@@ -109,6 +114,7 @@ type SessionCharacterForRules = {
     proficientSkillsJson: string;
     armorClass: number;
     speed: number;
+    spellsJson?: string | null;
     inventoryJson?: string | null;
     equippedWeaponId?: string | null;
   };
@@ -151,7 +157,8 @@ type EquippedWeaponProfile = {
 };
 
 export type CharacterStatePatch = {
-  sessionCharacterId: string;
+  sessionCharacterId?: string;
+  combatParticipantId?: string;
   currentHp?: number;
   tempHp?: number;
   conditions?: unknown[];
@@ -661,6 +668,24 @@ export class ActionRuleService {
     const spellDamageDice = this.resolveSpellDamageDice(spellDefinition, actor.character.level);
     const spellLevel = spellDefinition ? this.resolveSpellLevel(spellDefinition) : 0;
     const slotLevel = command.slotLevel ?? spellLevel;
+    const spellKnowledgeRejection = this.resolveSpellKnowledgeRejection(actor, command.spellId, spellLevel);
+    if (spellKnowledgeRejection) {
+      return {
+        structuredAction: {
+          type: "cast_spell",
+          spellId: command.spellId,
+          slotLevel,
+          target: command.target,
+          targetDistanceFt: command.targetDistanceFt,
+          rejectedReason: spellKnowledgeRejection,
+        },
+        diceResult: null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: this.createSpellRejectedNarration(spellKnowledgeRejection),
+        stateChanges: [],
+        runtimeEffects: [],
+      };
+    }
     let spellScaling: SpellScalingResult | null = null;
     try {
       if (command.slotLevel !== null && spellLevel === 0 && command.slotLevel !== 0) {
@@ -685,6 +710,28 @@ export class ActionRuleService {
         stateChanges: [],
       };
     }
+    if (command.spellId === SLEEP_SPELL_ID) {
+      return this.resolveSleepSpell({
+        command,
+        targets: this.resolveSpellTargetList(command.target, sessionCharacters),
+        spellDefinition,
+        spellLevel,
+        slotLevel,
+        spellScaling,
+      });
+    }
+
+    if (command.spellId === LIGHT_SPELL_ID) {
+      return this.resolveLightSpell({
+        command,
+        target: this.requireTarget(command.target, sessionCharacters),
+        spellDefinition,
+        spellLevel,
+        slotLevel,
+        spellScaling,
+      });
+    }
+
     const target = this.requireTarget(command.target, sessionCharacters);
     const targetArmorClass = target.character.armorClass;
 
@@ -851,6 +898,23 @@ export class ActionRuleService {
 
     const spellLevel = this.resolveSpellLevel(spellDefinition);
     const slotLevel = command.slotLevel ?? spellLevel;
+    const spellKnowledgeRejection = this.resolveSpellKnowledgeRejection(actor, command.spellId, spellLevel);
+    if (spellKnowledgeRejection) {
+      return {
+        structuredAction: {
+          type: "cast_area_spell",
+          spellId: command.spellId,
+          slotLevel,
+          targetIds: command.targetIds,
+          rejectedReason: spellKnowledgeRejection,
+        },
+        diceResult: null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: this.createSpellRejectedNarration(spellKnowledgeRejection),
+        stateChanges: [],
+        runtimeEffects: [],
+      };
+    }
     let spellScaling: SpellScalingResult | null = null;
     try {
       spellScaling = this.resolveSpellScaling(spellDefinition, slotLevel);
@@ -1099,6 +1163,114 @@ export class ActionRuleService {
             ? { conditions: concentrationCheck.conditions }
             : {}),
         },
+      ],
+      runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
+    };
+  }
+
+  private resolveSleepSpell(params: {
+    command: Extract<ParsedCommand, { type: "cast_spell" }>;
+    targets: SessionCharacterForRules[];
+    spellDefinition: RuleCatalogEntry | null;
+    spellLevel: number;
+    slotLevel: number;
+    spellScaling: SpellScalingResult | null;
+  }): ActionResolution {
+    const damageDice =
+      params.spellScaling?.damageDice ??
+      this.resolveSpellDamageDice(params.spellDefinition, 1) ??
+      "5d8";
+    const poolRoll = this.diceService.roll(damageDice);
+    let remainingPool = poolRoll.total;
+    const sleptTargetIds: string[] = [];
+    const stateChanges: CharacterStatePatch[] = [];
+
+    for (const target of [...params.targets].sort((left, right) => left.currentHp - right.currentHp)) {
+      if (target.currentHp <= 0 || target.currentHp > remainingPool) {
+        continue;
+      }
+      remainingPool -= target.currentHp;
+      sleptTargetIds.push(target.id);
+      stateChanges.push(
+        this.createTargetStatePatch(target, {
+          conditions: this.conditionRuntime.applyCondition(
+            this.conditionRuntime.parseConditionsJson(target.conditionsJson),
+            this.conditionRuntime.createCondition({
+              conditionId: "combat:sleep",
+              sourceId: SLEEP_SPELL_ID,
+              duration: { type: "rounds", remaining: 10 },
+              stackPolicy: "replace",
+              tags: ["combat:unconscious", "condition:incapacitated"],
+            }),
+          ),
+        }),
+      );
+    }
+
+    return {
+      structuredAction: {
+        type: "cast_spell",
+        spellId: params.command.spellId,
+        slotLevel: params.slotLevel,
+        target: params.command.target,
+        targetDistanceFt: params.command.targetDistanceFt,
+        spellDefinition: this.toStructuredSpellDefinition(params.spellDefinition, params.spellLevel),
+        spellScaling: params.spellScaling,
+        sleepPoolTotal: poolRoll.total,
+        sleepPoolRemaining: remainingPool,
+        sleptTargetIds,
+      },
+      diceResult: poolRoll,
+      outcome: ActionOutcome.SUCCESS,
+      narration: sleptTargetIds.length
+        ? `Sleep 주문으로 ${sleptTargetIds.length}개 대상을 잠재웠습니다.`
+        : "Sleep 주문이 잠재운 대상이 없습니다.",
+      stateChanges,
+      runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
+    };
+  }
+
+  private resolveLightSpell(params: {
+    command: Extract<ParsedCommand, { type: "cast_spell" }>;
+    target: SessionCharacterForRules;
+    spellDefinition: RuleCatalogEntry | null;
+    spellLevel: number;
+    slotLevel: number;
+    spellScaling: SpellScalingResult | null;
+  }): ActionResolution {
+    const lightRadiusFt = this.resolveLightRadiusFt(params.spellDefinition);
+    const existingConditions = this.conditionRuntime.parseConditionsJson(params.target.conditionsJson);
+    const nextConditions = this.conditionRuntime.applyCondition(
+      existingConditions,
+      this.conditionRuntime.createCondition({
+        conditionId: LIGHT_SPELL_ID,
+        sourceId: LIGHT_SPELL_ID,
+        duration: { type: "permanent" },
+        stackPolicy: "replace",
+        tags: [
+          "effect:bright_light",
+          "utility:illumination",
+          `light_radius:${lightRadiusFt}`,
+        ],
+      }),
+    );
+
+    return {
+      structuredAction: {
+        type: "cast_spell",
+        spellId: params.command.spellId,
+        slotLevel: params.slotLevel,
+        target: params.target.id,
+        targetDistanceFt: params.command.targetDistanceFt,
+        spellDefinition: this.toStructuredSpellDefinition(params.spellDefinition, params.spellLevel),
+        spellScaling: params.spellScaling,
+        lightRadiusFt,
+      },
+      diceResult: null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: "Light 주문으로 밝은 빛을 만들었습니다.",
+      stateChanges: [
+        this.createTargetStatePatch(params.target, { conditions: nextConditions }),
       ],
       runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
     };
@@ -1874,7 +2046,7 @@ export class ActionRuleService {
     rest: RestResolution,
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
-    const currentExhaustionLevel = runtimeContext.resource?.exhaustionLevel ?? 1;
+    const currentExhaustionLevel = runtimeContext.resource?.exhaustionLevel ?? 0;
     return {
       structuredAction: {
         type: "rest",
@@ -2055,7 +2227,7 @@ export class ActionRuleService {
       diceResult: null,
       outcome: ActionOutcome.SUCCESS,
       narration: `${target.character.name}의 상태를 갱신했습니다.`,
-      stateChanges: [{ sessionCharacterId: target.id, conditions: nextConditions }],
+      stateChanges: [this.createTargetStatePatch(target, { conditions: nextConditions })],
     };
   }
 
@@ -2139,6 +2311,18 @@ export class ActionRuleService {
     return target;
   }
 
+  private resolveSpellTargetList(
+    targetToken: string,
+    sessionCharacters: SessionCharacterForRules[],
+  ): SessionCharacterForRules[] {
+    const targets = targetToken
+      .split(",")
+      .map((token) => token.trim())
+      .filter(Boolean)
+      .map((token) => this.requireTarget(token, sessionCharacters));
+    return Array.from(new Map(targets.map((target) => [target.id, target])).values());
+  }
+
   private findTarget(
     targetToken: string,
     sessionCharacters: SessionCharacterForRules[],
@@ -2160,10 +2344,23 @@ export class ActionRuleService {
       candidate.characterId,
       candidate.character.id,
       candidate.character.name,
+      candidate.tokenId,
+      candidate.combatParticipantId,
       candidate.user?.id,
       candidate.user?.displayName,
       candidate.user?.profile?.nickname,
     ].filter((alias): alias is string => Boolean(alias?.trim()));
+  }
+
+  private createTargetStatePatch(
+    target: SessionCharacterForRules,
+    change: Omit<CharacterStatePatch, "sessionCharacterId" | "combatParticipantId">,
+  ): CharacterStatePatch {
+    return {
+      ...change,
+      sessionCharacterId: target.isCombatParticipantOnly ? undefined : target.id,
+      combatParticipantId: target.combatParticipantId ?? undefined,
+    };
   }
 
   private normalizeTargetToken(value: string): string {
@@ -2997,6 +3194,40 @@ export class ActionRuleService {
     return Number.isInteger(level) && level >= 0 ? level : 0;
   }
 
+  private resolveSpellKnowledgeRejection(
+    actor: SessionCharacterForRules,
+    spellId: string,
+    spellLevel: number,
+  ): "spell_not_known" | "spell_not_prepared" | null {
+    const spellInventory = this.parseJson<{
+      cantrips?: string[];
+      spells?: string[];
+      preparedSpells?: string[];
+    } | null>(actor.character.spellsJson, null);
+    if (!spellInventory) {
+      return null;
+    }
+
+    const knownCantrips = (spellInventory.cantrips ?? []).map((value) => this.normalizeRuleToken(value));
+    if (knownCantrips.includes(spellId)) {
+      return null;
+    }
+
+    const knownSpells = (spellInventory.spells ?? []).map((value) => this.normalizeRuleToken(value));
+    if (!knownSpells.includes(spellId)) {
+      return "spell_not_known";
+    }
+
+    const preparedSpells = Array.isArray(spellInventory.preparedSpells)
+      ? spellInventory.preparedSpells.map((value) => this.normalizeRuleToken(value))
+      : null;
+    if (spellLevel > 0 && preparedSpells && !preparedSpells.includes(spellId)) {
+      return "spell_not_prepared";
+    }
+
+    return null;
+  }
+
   private resolveSpellDamageDice(
     spellDefinition: RuleCatalogEntry | null,
     characterLevel: number,
@@ -3032,7 +3263,7 @@ export class ActionRuleService {
         spellId: spellDefinition.id,
         baseSpellLevel,
         slotLevel: baseSpellLevel,
-        baseDamageDice: spellDefinition.damage?.dice ?? null,
+        baseDamageDice: this.resolveSpellBaseDamageDice(spellDefinition),
       });
     }
 
@@ -3040,10 +3271,21 @@ export class ActionRuleService {
       spellId: spellDefinition.id,
       baseSpellLevel,
       slotLevel,
-      baseDamageDice: spellDefinition.damage?.dice ?? null,
+      baseDamageDice: this.resolveSpellBaseDamageDice(spellDefinition),
       baseTargetCount: this.resolveBaseTargetCount(spellDefinition),
       scalingRules: this.toSpellScalingRules(spellDefinition),
     });
+  }
+
+  private resolveSpellBaseDamageDice(spellDefinition: RuleCatalogEntry | null): string | null {
+    const poolTag = spellDefinition?.runtimeEffect.tags.find((tag) => tag.startsWith("hit_point_pool:"));
+    return poolTag?.slice("hit_point_pool:".length) ?? spellDefinition?.damage?.dice ?? null;
+  }
+
+  private resolveLightRadiusFt(spellDefinition: RuleCatalogEntry | null): number {
+    const radiusTag = spellDefinition?.runtimeEffect.tags.find((tag) => tag.startsWith("light_radius:"));
+    const radiusFt = Number(radiusTag?.slice("light_radius:".length));
+    return Number.isInteger(radiusFt) && radiusFt > 0 ? radiusFt : 40;
   }
 
   private resolveBaseTargetCount(spellDefinition: RuleCatalogEntry): number | null {
@@ -3128,6 +3370,10 @@ export class ActionRuleService {
         return "지원하지 않는 주문입니다.";
       case "invalid_spell_slot_level":
         return "주문 슬롯 레벨이 유효하지 않습니다.";
+      case "spell_not_known":
+        return "시전자가 알지 못하는 주문입니다.";
+      case "spell_not_prepared":
+        return "준비되지 않은 주문입니다.";
       case "cantrip_not_known":
         return "시전자가 알지 못하는 cantrip입니다.";
       case "action_unavailable":

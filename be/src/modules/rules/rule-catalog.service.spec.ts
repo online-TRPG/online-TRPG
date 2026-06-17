@@ -231,7 +231,10 @@ describe("RuleCatalogService", () => {
         "class.fighter.feature.second_wind",
         "class.fighter.feature.action_surge",
       ],
-      actionFeatureIds: ["class.fighter.feature.second_wind"],
+      actionFeatureIds: [
+        "class.fighter.feature.second_wind",
+        "class.fighter.feature.action_surge",
+      ],
       resourceIds: [
         "resource.fighter.second_wind",
         "resource.fighter.action_surge",
@@ -245,6 +248,19 @@ describe("RuleCatalogService", () => {
       ],
       actionFeatureIds: ["class.barbarian.feature.rage"],
       resourceIds: ["resource.barbarian.rage"],
+    });
+  });
+
+  it("exposes resource-backed action tags as class action features", () => {
+    expect(service.getClassFeatureSnapshot("monk", 2)).toMatchObject({
+      featureIds: [
+        "class.monk.feature.martial_arts",
+        "class.monk.feature.unarmored_defense",
+        "class.monk.feature.ki",
+        "class.monk.feature.unarmored_movement",
+      ],
+      actionFeatureIds: ["class.monk.feature.ki"],
+      resourceIds: ["resource.monk.ki"],
     });
   });
 

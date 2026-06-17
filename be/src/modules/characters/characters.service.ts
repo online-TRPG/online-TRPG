@@ -61,6 +61,14 @@ const LOCKED_SESSION_STATUSES: ReadonlySet<PrismaSessionStatus> = new Set([
   PrismaSessionStatus.PAUSED,
 ]);
 
+const MVP_STARTING_CANTRIP_IDS = new Set(["spell.chill_touch", "spell.fire_bolt", "spell.light"]);
+const MVP_STARTING_SLOT_SPELL_IDS = new Set([
+  "spell.magic_missile",
+  "spell.shield",
+  "spell.sleep",
+]);
+const MVP_STARTING_LEVEL5_SLOT_SPELL_IDS = new Set(["spell.fireball"]);
+
 @Injectable()
 export class CharactersService {
   constructor(
@@ -97,7 +105,7 @@ export class CharactersService {
     const offhandWeaponId =
       dto.offhandWeaponId ?? this.resolveDefaultOffhandEquipmentId(inventory, equippedWeaponId);
     await this.validateEquipmentLoadout(inventory, equippedWeaponId, offhandWeaponId);
-    const spellsJsonValue = await this.resolveStartingSpells(className, dto.startingSpells);
+    const spellsJsonValue = await this.resolveStartingSpells(className, level, dto.startingSpells);
     const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
       className,
       level,
@@ -397,6 +405,14 @@ export class CharactersService {
       level: resolution.toLevel,
       requestedFeatures: this.parseStringArrayJson(existing.featuresJson),
     });
+    const nextSpellsJson =
+      dto.knownSpells === undefined && dto.preparedSpells === undefined
+        ? undefined
+        : this.resolveLevelUpSpellsJson(existing.spellsJson, {
+            knownSpells: dto.knownSpells,
+            preparedSpells: dto.preparedSpells,
+            level: resolution.toLevel,
+          });
     const hpDelta = Math.max(0, resolution.maxHpAfter - existing.maxHp);
 
     const updated = await this.prisma.character.update({
@@ -407,6 +423,7 @@ export class CharactersService {
         proficiencyBonus: resolution.proficiencyBonusAfter,
         maxHp: resolution.maxHpAfter,
         featuresJson: JSON.stringify(finalFeatures),
+        ...(nextSpellsJson !== undefined ? { spellsJson: nextSpellsJson } : {}),
       },
       include: {
         sessionCharacters: {
@@ -439,34 +456,12 @@ export class CharactersService {
     dto: UpdatePreparedSpellsDto,
   ): Promise<CharacterResponseDto> {
     const existing = await this.getOwnedCharacterOrThrow(userId, characterId);
-    const spells = this.parseSpellsJson(existing.spellsJson);
-    if (!spells) {
-      throw new BadRequestException({
-        code: "PREPARED_SPELLS_NOT_AVAILABLE",
-        message: "주문을 가진 캐릭터만 준비 주문을 갱신할 수 있습니다.",
-      });
-    }
-
-    const knownSpellIds = new Set(spells.spells.map((spell) => this.normalizeSpellId(spell)));
-    const preparedSpells = Array.from(
-      new Set(dto.preparedSpells.map((spell) => this.normalizeSpellId(spell)).filter(Boolean)),
-    );
-    const unknownPreparedSpell = preparedSpells.find((spell) => !knownSpellIds.has(spell));
-    if (unknownPreparedSpell) {
-      throw new BadRequestException({
-        code: "PREPARED_SPELL_NOT_KNOWN",
-        message: "알고 있거나 주문책에 있는 슬롯 주문만 준비할 수 있습니다.",
-        spellId: unknownPreparedSpell,
-      });
-    }
+    const spellsJson = this.resolvePreparedSpellsJson(existing.spellsJson, dto.preparedSpells);
 
     const updated = await this.prisma.character.update({
       where: { id: characterId },
       data: {
-        spellsJson: JSON.stringify({
-          ...spells,
-          preparedSpells,
-        }),
+        spellsJson,
       },
       include: {
         sessionCharacters: {
@@ -489,6 +484,97 @@ export class CharactersService {
     }
 
     return mapCharacter(updated);
+  }
+
+  private resolvePreparedSpellsJson(
+    spellsJson: string | null,
+    requestedPreparedSpells: string[],
+  ): string {
+    const spells = this.parseSpellsJson(spellsJson);
+    if (!spells) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELLS_NOT_AVAILABLE",
+        message: "주문을 가진 캐릭터만 준비 주문을 갱신할 수 있습니다.",
+      });
+    }
+
+    const knownSpellIds = new Set(spells.spells.map((spell) => this.normalizeSpellId(spell)));
+    const preparedSpells = Array.from(
+      new Set(requestedPreparedSpells.map((spell) => this.normalizeSpellId(spell)).filter(Boolean)),
+    );
+    const unknownPreparedSpell = preparedSpells.find((spell) => !knownSpellIds.has(spell));
+    if (unknownPreparedSpell) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELL_NOT_KNOWN",
+        message: "알고 있거나 주문책에 있는 슬롯 주문만 준비할 수 있습니다.",
+        spellId: unknownPreparedSpell,
+      });
+    }
+
+    return JSON.stringify({
+      ...spells,
+      preparedSpells,
+    });
+  }
+
+  private resolveLevelUpSpellsJson(
+    spellsJson: string | null,
+    params: {
+      knownSpells?: string[];
+      preparedSpells?: string[];
+      level: number;
+    },
+  ): string {
+    const spells = this.parseSpellsJson(spellsJson);
+    if (!spells) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_SPELLS_NOT_AVAILABLE",
+        message: "주문을 가진 캐릭터만 레벨업 주문을 갱신할 수 있습니다.",
+      });
+    }
+
+    const knownSpellPool = this.getMvpStartingSlotSpellPool(params.level);
+    const requestedKnownSpells = (params.knownSpells ?? [])
+      .map((spell) => this.normalizeSpellId(spell))
+      .filter(Boolean);
+    const nextKnownSpells = Array.from(
+      new Set([
+        ...spells.spells.map((spell) => this.normalizeSpellId(spell)).filter(Boolean),
+        ...requestedKnownSpells,
+      ]),
+    );
+    const unsupportedKnownSpell = requestedKnownSpells.find((spell) => !knownSpellPool.has(spell));
+    if (unsupportedKnownSpell) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_SPELL_NOT_AVAILABLE",
+        message: "현재 MVP 실행 주문 풀에 있는 슬롯 주문만 레벨업으로 습득할 수 있습니다.",
+        spellId: unsupportedKnownSpell,
+      });
+    }
+
+    const preparedSpells =
+      params.preparedSpells === undefined
+        ? (spells.preparedSpells ?? [])
+        : Array.from(
+            new Set(
+              params.preparedSpells.map((spell) => this.normalizeSpellId(spell)).filter(Boolean),
+            ),
+          );
+    const nextKnownSet = new Set(nextKnownSpells);
+    const unknownPreparedSpell = preparedSpells.find((spell) => !nextKnownSet.has(spell));
+    if (unknownPreparedSpell) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELL_NOT_KNOWN",
+        message: "알고 있거나 주문책에 있는 슬롯 주문만 준비할 수 있습니다.",
+        spellId: unknownPreparedSpell,
+      });
+    }
+
+    return JSON.stringify({
+      ...spells,
+      spells: nextKnownSpells,
+      preparedSpells,
+    });
   }
 
   async deleteCharacter(userId: string, characterId: string): Promise<void> {
@@ -579,6 +665,7 @@ export class CharactersService {
     dto: UpdateCharacterEquipmentDto,
   ): Promise<CharacterResponseDto> {
     const character = await this.getOwnedCharacterOrThrow(userId, characterId);
+    await this.assertCharacterNotLocked(characterId);
 
     const inventory = JSON.parse(character.inventoryJson) as InventoryItemDto[];
     const finalLoadout = await this.resolveNextEquipmentLoadout({
@@ -1188,6 +1275,7 @@ export class CharactersService {
   // 반환값: spellsJson 에 저장할 문자열(또는 null = 마법 없는 클래스/legacy)
   private async resolveStartingSpells(
     className: string,
+    level: number,
     startingSpells: StartingSpellsDto | undefined,
   ): Promise<string | null> {
     const klass = await this.catalogService.findClassByKey(className.toLowerCase());
@@ -1220,6 +1308,20 @@ export class CharactersService {
 
     const cantrips = startingSpells.cantrips.map((s) => s.trim()).filter((s) => s.length > 0);
     const spells = startingSpells.spells.map((s) => s.trim()).filter((s) => s.length > 0);
+    if (cantrips.length !== needCantrips) {
+      throw new BadRequestException(
+        `시작 주문: 비어 있지 않은 캔트립 ${cantrips.length}개가 ${klass.koName} 요구치 ${needCantrips}개와 일치하지 않습니다.`,
+      );
+    }
+    if (spells.length !== needSpells) {
+      throw new BadRequestException(
+        `시작 주문: 비어 있지 않은 주문 ${spells.length}개가 ${klass.koName} 요구치 ${needSpells}개와 일치하지 않습니다.`,
+      );
+    }
+    this.assertUniqueStartingSpellIds(cantrips, "캔트립");
+    this.assertUniqueStartingSpellIds(spells, "주문");
+    this.assertMvpStartingSpellPool(cantrips, "캔트립", MVP_STARTING_CANTRIP_IDS);
+    this.assertMvpStartingSpellPool(spells, "주문", this.getMvpStartingSlotSpellPool(level));
     const knownSpellIds = new Set(spells.map((spell) => this.normalizeSpellId(spell)));
     const preparedSpells = startingSpells.preparedSpells
       ? Array.from(
@@ -1556,7 +1658,31 @@ export class CharactersService {
   }
 
   private normalizeSpellId(spellId: string): string {
-    return spellId.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    const normalized = spellId.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return normalized.startsWith("spell.") ? normalized : `spell.${normalized}`;
+  }
+
+  private assertUniqueStartingSpellIds(spellIds: string[], label: string): void {
+    const normalized = spellIds.map((spellId) => this.normalizeSpellId(spellId));
+    if (new Set(normalized).size !== normalized.length) {
+      throw new BadRequestException(`시작 주문: ${label} 선택에 중복이 있습니다.`);
+    }
+  }
+
+  private assertMvpStartingSpellPool(spellIds: string[], label: string, allowedSpellIds: Set<string>): void {
+    const unsupportedSpellId = spellIds
+      .map((spellId) => this.normalizeSpellId(spellId))
+      .find((spellId) => !allowedSpellIds.has(spellId));
+    if (unsupportedSpellId) {
+      throw new BadRequestException(`시작 주문: ${label} ${unsupportedSpellId}은(는) 현재 MVP 실행 주문 풀이 아닙니다.`);
+    }
+  }
+
+  private getMvpStartingSlotSpellPool(level: number): Set<string> {
+    return new Set([
+      ...MVP_STARTING_SLOT_SPELL_IDS,
+      ...(level >= 5 ? MVP_STARTING_LEVEL5_SLOT_SPELL_IDS : []),
+    ]);
   }
 
   private async resolveCharacterFeatureSnapshot(params: {

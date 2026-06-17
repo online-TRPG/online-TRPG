@@ -79,6 +79,7 @@ const createCharacter = (
       proficientSkillsJson: overrides.character?.proficientSkillsJson ?? "[]",
       armorClass: overrides.character?.armorClass ?? 10,
       speed: overrides.character?.speed ?? 30,
+      spellsJson: overrides.character?.spellsJson ?? null,
       inventoryJson: overrides.character?.inventoryJson ?? "[]",
       equippedWeaponId: overrides.character?.equippedWeaponId ?? null,
     },
@@ -200,6 +201,77 @@ describe("ActionRuleService", () => {
     expect(structuredAction.finalDamage).toBe(3);
     expect(result.stateChanges).toEqual([
       { sessionCharacterId: "target", currentHp: 7, markDead: false },
+    ]);
+  });
+
+  it("resolves condition command targets by VTT token id aliases", () => {
+    const service = createService([]);
+    const actor = createCharacter({ id: "actor", characterId: "actor-character" });
+    const target = {
+      ...createCharacter({
+        id: "target",
+        characterId: "target-character",
+        conditionsJson: "[]",
+        character: { id: "target-character", name: "Smoke Goblin" },
+      }),
+      tokenId: "token_node_rule_smoke_condition_goblin",
+    } as TestSessionCharacter & { tokenId: string };
+
+    const result = service.resolveAction(
+      "/condition add token_node_rule_smoke_condition_goblin stunned",
+      actor,
+      [actor, target],
+    );
+
+    expect(result.structuredAction).toMatchObject({
+      type: "condition",
+      operation: "add",
+      target: "target",
+      condition: "stunned",
+    });
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", conditions: ["stunned"] },
+    ]);
+  });
+
+  it("resolves condition command targets to combat participant state patches", () => {
+    const service = createService([]);
+    const actor = createCharacter({ id: "actor", characterId: "actor-character" });
+    const target = {
+      ...createCharacter({
+        id: "combat-participant:monster-participant-1",
+        userId: "combat-participant:monster-participant-1",
+        characterId: "combat-participant:monster-participant-1",
+        conditionsJson: "[]",
+        character: {
+          id: "combat-participant:monster-participant-1",
+          name: "Smoke Goblin",
+          className: "monster",
+        },
+        user: null,
+      }),
+      tokenId: "token_node_rule_smoke_condition_goblin",
+      combatParticipantId: "monster-participant-1",
+      isCombatParticipantOnly: true,
+    } as TestSessionCharacter & {
+      tokenId: string;
+      combatParticipantId: string;
+      isCombatParticipantOnly: boolean;
+    };
+
+    const result = service.resolveAction(
+      "/condition add token_node_rule_smoke_condition_goblin stunned",
+      actor,
+      [actor, target],
+    );
+
+    expect(result.structuredAction).toMatchObject({
+      type: "condition",
+      target: "combat-participant:monster-participant-1",
+      condition: "stunned",
+    });
+    expect(result.stateChanges).toEqual([
+      { combatParticipantId: "monster-participant-1", conditions: ["stunned"] },
     ]);
   });
 
@@ -1306,6 +1378,55 @@ describe("ActionRuleService", () => {
     ]);
   });
 
+  it("rejects area spells that are known but not prepared", () => {
+    const service = createService([
+      {
+        expression: "8d6",
+        rolls: [6, 5, 4, 4, 3, 3, 2, 2],
+        modifier: 0,
+        total: 29,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      createDiceResult([8], 1),
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "wizard",
+        level: 5,
+        spellsJson: JSON.stringify({
+          cantrips: [],
+          spells: ["spell.fireball"],
+          preparedSpells: [],
+        }),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 20,
+      character: {
+        id: "target-character",
+        name: "Target",
+        abilitiesJson: JSON.stringify({ dex: 12 }),
+      },
+    });
+
+    const result = service.resolveAction("/cast_area fireball 15 target", actor, [actor, target]);
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.diceResult).toBeNull();
+    expect(result.stateChanges).toEqual([]);
+    expect(result.runtimeEffects).toEqual([]);
+    expect(result.structuredAction).toMatchObject({
+      type: "cast_area_spell",
+      spellId: "spell.fireball",
+      targetIds: ["target"],
+      rejectedReason: "spell_not_prepared",
+    });
+  });
+
   it("resolves concentration checks for area spell damage", () => {
     const service = createService([
       {
@@ -1496,6 +1617,147 @@ describe("ActionRuleService", () => {
       { type: "SPEND_ACTION" },
       { type: "SPEND_SPELL_SLOT", slotLevel: 3 },
     ]);
+  });
+
+  it("rejects a known leveled spell that is not prepared", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "wizard",
+        level: 5,
+        spellsJson: JSON.stringify({
+          cantrips: ["spell.fire_bolt"],
+          spells: ["spell.magic_missile", "spell.sleep"],
+          preparedSpells: ["spell.sleep"],
+        }),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 30,
+      character: { id: "target-character", name: "Target", armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/cast magic_missile target 120 1", actor, [actor, target]);
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.diceResult).toBeNull();
+    expect(result.stateChanges).toEqual([]);
+    expect(result.runtimeEffects).toEqual([]);
+    expect(result.structuredAction).toMatchObject({
+      type: "cast_spell",
+      spellId: "spell.magic_missile",
+      rejectedReason: "spell_not_prepared",
+    });
+  });
+
+  it("executes sleep as a catalog-driven hit point pool condition spell", () => {
+    const service = createService([
+      {
+        expression: "9d8",
+        rolls: [4, 4, 4, 4, 4, 4, 4, 4, 3],
+        modifier: 0,
+        total: 35,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: { className: "wizard", level: 5 },
+    });
+    const weakerTarget = createCharacter({
+      id: "weaker",
+      characterId: "weaker-character",
+      currentHp: 12,
+      character: { id: "weaker-character", name: "Weaker", armorClass: 10 },
+    });
+    const strongerTarget = createCharacter({
+      id: "stronger",
+      characterId: "stronger-character",
+      currentHp: 28,
+      character: { id: "stronger-character", name: "Stronger", armorClass: 10 },
+    });
+
+    const result = service.resolveAction(
+      "/cast sleep weaker,stronger 90 3",
+      actor,
+      [actor, strongerTarget, weakerTarget],
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.diceResult).toMatchObject({ expression: "9d8", total: 35 });
+    expect(result.structuredAction).toMatchObject({
+      type: "cast_spell",
+      spellId: "spell.sleep",
+      slotLevel: 3,
+      spellScaling: {
+        baseSpellLevel: 1,
+        slotLevel: 3,
+        damageDice: "9d8",
+      },
+      sleepPoolTotal: 35,
+      sleptTargetIds: ["weaker"],
+    });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "weaker",
+        conditions: [
+          expect.objectContaining({
+            conditionId: "combat:sleep",
+            sourceId: "spell.sleep",
+            tags: expect.arrayContaining(["combat:unconscious", "condition:incapacitated"]),
+          }),
+        ],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SPELL_SLOT", slotLevel: 3 },
+    ]);
+  });
+
+  it("executes light as a catalog-driven utility condition spell", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      conditionsJson: "[]",
+      character: { className: "wizard", level: 5 },
+    });
+
+    const result = service.resolveAction("/cast light actor 5 0", actor, [actor]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.diceResult).toBeNull();
+    expect(result.structuredAction).toMatchObject({
+      type: "cast_spell",
+      spellId: "spell.light",
+      slotLevel: 0,
+      target: "actor",
+      spellDefinition: {
+        id: "spell.light",
+        level: 0,
+      },
+      lightRadiusFt: 40,
+    });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "actor",
+        conditions: [
+          expect.objectContaining({
+            conditionId: "condition.spell.light",
+            sourceId: "spell.light",
+            duration: { type: "permanent" },
+            tags: expect.arrayContaining(["effect:bright_light", "utility:illumination", "light_radius:40"]),
+          }),
+        ],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
   });
 
   it("rejects invalid spell slot levels without throwing", () => {
@@ -2205,7 +2467,7 @@ describe("ActionRuleService", () => {
         type: "RECOVER_LONG_REST",
         actionSurgeUses: 0,
         rageUses: 4,
-        reduceExhaustionBy: 1,
+        reduceExhaustionBy: 0,
       },
     ]);
     expect(result.structuredAction).toMatchObject({
@@ -2241,7 +2503,7 @@ describe("ActionRuleService", () => {
         type: "RECOVER_LONG_REST",
         actionSurgeUses: 0,
         rageUses: 3,
-        reduceExhaustionBy: 1,
+        reduceExhaustionBy: 0,
       },
     ]);
   });
