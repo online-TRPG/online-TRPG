@@ -1164,7 +1164,13 @@
 .combat-spell-filter-rail {
   min-width: 0;
   display: grid;
-  grid-template-rows: repeat(4, 22px);
+  grid-auto-rows: minmax(22px, auto);
+  gap: 3px;
+}
+
+.combat-spell-slot-stack {
+  min-width: 0;
+  display: grid;
   gap: 3px;
 }
 

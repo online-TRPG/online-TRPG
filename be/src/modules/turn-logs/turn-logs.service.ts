@@ -3,6 +3,7 @@ import {
   ActionOutcome as PrismaActionOutcome,
 } from "@prisma/client";
 import {
+  ActionQueueStatus,
   ActionOutcome,
   TurnLogListResponseDto,
   TurnLogResponseDto,
@@ -51,6 +52,7 @@ export class TurnLogsService {
       include: {
         playerAction: {
           select: {
+            queueStatus: true,
             clientCreatedAt: true,
             createdAt: true,
           },
@@ -85,6 +87,7 @@ export class TurnLogsService {
       include: {
         playerAction: {
           select: {
+            queueStatus: true,
             clientCreatedAt: true,
             createdAt: true,
           },
@@ -122,12 +125,13 @@ export class TurnLogsService {
         where: { id: turnLogId },
         data: { narration },
         include: {
-          playerAction: {
-            select: {
-              clientCreatedAt: true,
-              createdAt: true,
-            },
+        playerAction: {
+          select: {
+            queueStatus: true,
+            clientCreatedAt: true,
+            createdAt: true,
           },
+        },
         },
       });
       return this.mapTurnLog(updated);
@@ -152,6 +156,7 @@ export class TurnLogsService {
     actorUserId: string | null;
     sessionCharacterId: string | null;
     playerAction?: {
+      queueStatus?: string;
       clientCreatedAt: Date;
       createdAt: Date;
     } | null;
@@ -171,6 +176,7 @@ export class TurnLogsService {
       sessionCharacterId: row.sessionCharacterId,
       actionClientCreatedAt: row.playerAction?.clientCreatedAt.toISOString() ?? null,
       actionCreatedAt: row.playerAction?.createdAt.toISOString() ?? null,
+      actionQueueStatus: this.toSharedActionQueueStatus(row.playerAction?.queueStatus),
       rawInput: row.rawInput,
       structuredAction: this.parseNullableJson(row.structuredActionJson),
       diceResult: this.parseNullableJson(row.diceResultJson),
@@ -183,6 +189,12 @@ export class TurnLogsService {
 
   private toPrismaOutcome(value: ActionOutcome): PrismaActionOutcome {
     return value as PrismaActionOutcome;
+  }
+
+  private toSharedActionQueueStatus(value: string | null | undefined): ActionQueueStatus | null {
+    return Object.values(ActionQueueStatus).includes(value as ActionQueueStatus)
+      ? (value as ActionQueueStatus)
+      : null;
   }
 
   private parseJson<T>(value: string | null | undefined, fallback: T): T {

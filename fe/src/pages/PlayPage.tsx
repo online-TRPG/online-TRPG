@@ -71,6 +71,7 @@ import {
   endCombat,
   endCombatTurn,
   acceptCombatReaction,
+  applyHumanGmCombatCondition,
   resolveCombatActorAction,
   castCombatSpell,
   createHumanGmMessage,
@@ -1038,6 +1039,16 @@ const QUICK_CREATE_CLASS_COMBAT_DEFAULTS: Readonly<
   rogue: { armorClass: 14, speed: 36 },
   wizard: { armorClass: 12, speed: 30 },
 };
+const QUICK_CREATE_MVP_CANTRIPS = ['spell.chill_touch', 'spell.fire_bolt', 'spell.light'];
+const QUICK_CREATE_MVP_LEVEL1_SPELLS = [
+  'spell.magic_missile',
+  'spell.shield',
+  'spell.sleep',
+];
+const QUICK_CREATE_MVP_LEVEL5_SLOT_SPELLS_BY_CLASS: Readonly<Record<string, string[]>> = {
+  sorcerer: ['spell.fireball'],
+  wizard: ['spell.fireball'],
+};
 
 // 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
 const defaultCharacter: QuickCreateFormState = {
@@ -1093,6 +1104,27 @@ function getDefaultStartingEquipmentItemSelections(
     });
   });
   return selections;
+}
+
+function getDefaultQuickCreateStartingSpells(klass: ClassDefinitionResponseDto, level: number) {
+  if (klass.startingCantripCount <= 0 && klass.startingSpellCount <= 0) {
+    return undefined;
+  }
+  const level5Spells = level >= 5
+    ? (QUICK_CREATE_MVP_LEVEL5_SLOT_SPELLS_BY_CLASS[klass.key] ?? [])
+    : [];
+  const slotSpells = Array.from(
+    new Set([
+      ...QUICK_CREATE_MVP_LEVEL1_SPELLS.slice(0, Math.max(0, klass.startingSpellCount - level5Spells.length)),
+      ...level5Spells,
+      ...QUICK_CREATE_MVP_LEVEL1_SPELLS,
+    ]),
+  );
+
+  return {
+    cantrips: QUICK_CREATE_MVP_CANTRIPS.slice(0, klass.startingCantripCount),
+    spells: slotSpells.slice(0, klass.startingSpellCount),
+  };
 }
 
 function getQuickCreatePointBuyBase(classKey: string): QuickCreateAbilities {
@@ -2810,14 +2842,10 @@ export function PlayPage({
       ).fill(0),
       startingEquipmentItemSelections:
         getDefaultStartingEquipmentItemSelections(selectedQuickCreateClass),
-      startingSpells:
-        selectedQuickCreateClass.startingCantripCount > 0 ||
-          selectedQuickCreateClass.startingSpellCount > 0
-          ? {
-            cantrips: new Array(selectedQuickCreateClass.startingCantripCount).fill(''),
-            spells: new Array(selectedQuickCreateClass.startingSpellCount).fill(''),
-          }
-          : undefined,
+      startingSpells: getDefaultQuickCreateStartingSpells(
+        selectedQuickCreateClass,
+        quickCreateLevel,
+      ),
       assignToSession: true,
     };
 
@@ -3345,6 +3373,42 @@ export function PlayPage({
   async function handleReadyCombatAction(targetParticipantId: string) {
     if (!session || isCombatBusy) return;
     await onSendAction(`/ready enter attack ${targetParticipantId} 30`);
+  }
+
+  async function handleApplyCombatCondition(
+    targetTokenOrParticipantId: string,
+    conditionId: string,
+    operation: 'add' | 'remove'
+  ) {
+    if (!session || isCombatBusy) return;
+    if (!canUseHumanGmView) {
+      await onSendAction(`/condition ${operation} ${targetTokenOrParticipantId} ${conditionId}`);
+      return;
+    }
+
+    setCombatBusy(true);
+    setCombatError(null);
+    try {
+      const nextSnapshot = await applyHumanGmCombatCondition(user, session.id, {
+        targetId: targetTokenOrParticipantId,
+        conditionId,
+        operation,
+      });
+      const nextMap = nextSnapshot.state.flags?.vttMap as VttMapStateDto | undefined;
+      if (nextMap && typeof nextMap === 'object') {
+        latestConfirmedMapRef.current = nextMap;
+        setVttMap(nextMap);
+      }
+      const refreshedCombat = await getCombat(user, session.id);
+      setCombat(refreshedCombat);
+      onCombatActionLog('GM 상태 조정 완료');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'GM 상태 조정에 실패했습니다.';
+      setCombatError(message);
+      onCombatActionLog(message);
+    } finally {
+      setCombatBusy(false);
+    }
   }
 
   async function handleDropInventoryItem(
@@ -4249,6 +4313,7 @@ export function PlayPage({
                   onDodge={handleDodgeCombatAction}
                   onHide={handleHideCombatAction}
                   onReadyAction={handleReadyCombatAction}
+                  onApplyCondition={handleApplyCombatCondition}
                   onUseClassFeature={handleCombatClassFeature}
                   onCastSpell={handleCastCombatSpell}
                   onEndCombat={handleEndCombat}

@@ -540,6 +540,7 @@ export class RevealSessionContentDto {
   @ApiPropertyOptional({ default: "clue" })
   @IsOptional()
   @IsString()
+  @IsIn(["clue", "item", "event"])
   @MaxLength(40)
   contentKind?: string;
 
@@ -679,6 +680,25 @@ export class HumanGmMessageDto {
   @IsString()
   @MaxLength(1000)
   privateNote?: string | null;
+}
+
+export class ApplyHumanGmCombatConditionDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  targetId!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  conditionId!: string;
+
+  @ApiPropertyOptional({ enum: ["add", "remove"], default: "add" })
+  @IsOptional()
+  @IsIn(["add", "remove"])
+  operation?: "add" | "remove";
 }
 
 export class UpdateSessionNodeDto {

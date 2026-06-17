@@ -1,7 +1,12 @@
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
-import { HumanGmMessageDto, ScenarioNodeType } from "@trpg/shared-types";
-import { ForbiddenException } from "@nestjs/common";
+import {
+  ApplyHumanGmCombatConditionDto,
+  HumanGmMessageDto,
+  RevealSessionContentDto,
+  ScenarioNodeType,
+} from "@trpg/shared-types";
+import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { SessionsService } from "./sessions.service";
 
 describe("HumanGmMessageDto validation", () => {
@@ -18,6 +23,571 @@ describe("HumanGmMessageDto validation", () => {
 
     expect(errors).toEqual([]);
     expect(dto.privateNote).toBe("The guard heard this.");
+  });
+});
+
+describe("RevealSessionContentDto validation", () => {
+  it("rejects unsupported HUMAN GM reveal content kinds before audit logging", async () => {
+    const dto = plainToInstance(RevealSessionContentDto, {
+      contentId: "clue-1",
+      contentKind: "unsupported",
+      scope: "party",
+    });
+
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: false,
+    });
+
+    expect(errors.some((error) => error.property === "contentKind")).toBe(true);
+  });
+});
+
+describe("ApplyHumanGmCombatConditionDto validation", () => {
+  it("rejects unsupported HUMAN GM condition operations", async () => {
+    const dto = plainToInstance(ApplyHumanGmCombatConditionDto, {
+      targetId: "token-1",
+      conditionId: "condition.stunned",
+      operation: "toggle",
+    });
+
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: false,
+    });
+
+    expect(errors.some((error) => error.property === "operation")).toBe(true);
+  });
+});
+
+describe("SessionsService HUMAN GM messages", () => {
+  it("records the created GM message id in override metadata and state diff", async () => {
+    const now = new Date("2026-05-25T00:00:00.000Z");
+    const tx = {
+      gameState: {
+        update: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn().mockResolvedValue({ version: 4 }),
+      },
+      session: {
+        update: jest.fn().mockResolvedValue({}),
+      },
+      turnLog: {
+        findFirst: jest.fn().mockResolvedValue({ turnNumber: 2 }),
+        create: jest.fn().mockImplementation(async ({ data }) => ({
+          id: "turn-log-1",
+          turnNumber: data.turnNumber,
+          playerActionId: null,
+          actorUserId: data.actorUserId,
+          sessionCharacterId: null,
+          rawInput: data.rawInput,
+          structuredActionJson: data.structuredActionJson,
+          stateDiffJson: data.stateDiffJson,
+          outcome: data.outcome,
+          narration: data.narration,
+          createdAt: now,
+        })),
+      },
+      stateDiff: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (txClient: typeof tx) => Promise<unknown>) => callback(tx)),
+    };
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitStateDiffApplied: jest.fn(),
+      emitSessionSnapshot: jest.fn(),
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    const serviceInternals = service as unknown as {
+      getHumanGmSessionForOperator: jest.Mock;
+      getGameStateEntityOrThrow: jest.Mock;
+      buildSnapshot: jest.Mock;
+    };
+    serviceInternals.getHumanGmSessionForOperator = jest.fn().mockResolvedValue({
+      id: "session-1",
+      status: "PLAYING",
+    });
+    serviceInternals.getGameStateEntityOrThrow = jest.fn().mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1", scenarioId: "scenario-1" },
+      state: { version: 4, currentNodeId: "node-1", flagsJson: "{}" },
+    });
+    serviceInternals.buildSnapshot = jest.fn().mockResolvedValue({ session: { id: "session-1" } });
+
+    await service.createHumanGmMessage("gm-user", "session-1", {
+      content: "The hall falls silent.",
+      privateNote: "The scout is listening.",
+    });
+
+    const flagsUpdate = tx.gameState.update.mock.calls[0]?.[0] as { data: { flagsJson: string } };
+    const createdMessage = JSON.parse(flagsUpdate.data.flagsJson).gmMessages[0] as { id: string };
+    const turnLogCreate = tx.turnLog.create.mock.calls[0]?.[0] as {
+      data: { structuredActionJson: string; stateDiffJson: string };
+    };
+    const structuredAction = JSON.parse(turnLogCreate.data.structuredActionJson);
+    const stateDiff = JSON.parse(turnLogCreate.data.stateDiffJson);
+
+    expect(createdMessage.id).toEqual(expect.any(String));
+    expect(structuredAction).toEqual(
+      expect.objectContaining({
+        type: "gm_override",
+        kind: "scene_text",
+        hasPrivateNote: true,
+        metadata: expect.objectContaining({
+          gmMessageId: createdMessage.id,
+          messageType: "gm",
+        }),
+      }),
+    );
+    expect(stateDiff.diff).toEqual(
+      expect.objectContaining({
+        gmMessageCreated: true,
+        gmMessageId: createdMessage.id,
+      }),
+    );
+    expect(structuredAction.metadata).not.toHaveProperty("privateNote");
+  });
+});
+
+describe("SessionsService HUMAN GM reveal", () => {
+  it("rejects unsupported reveal content kinds before writing audit data", async () => {
+    const prisma = {
+      $transaction: jest.fn(() => {
+        throw new Error("transaction should not run");
+      }),
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const serviceInternals = service as unknown as {
+      getHumanGmSessionForOperator: jest.Mock;
+      getActiveSessionScenarioEntityOrThrow: jest.Mock;
+      ensureSessionScenarioNodeSnapshotForScenario: jest.Mock;
+      findSessionScenarioRevealable: jest.Mock;
+    };
+    serviceInternals.getHumanGmSessionForOperator = jest
+      .fn()
+      .mockResolvedValue({ id: "session-1" });
+    serviceInternals.getActiveSessionScenarioEntityOrThrow = jest.fn().mockResolvedValue({
+      id: "session-scenario-1",
+      scenarioId: "scenario-1",
+    });
+    serviceInternals.ensureSessionScenarioNodeSnapshotForScenario = jest.fn().mockResolvedValue(undefined);
+    serviceInternals.findSessionScenarioRevealable = jest.fn().mockResolvedValue({
+      id: "clue-1",
+      title: "Clue",
+    });
+
+    await expect(
+      service.revealSessionContent("gm-user", "session-1", {
+        contentId: "clue-1",
+        contentKind: "unsupported",
+        scope: "party",
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(serviceInternals.findSessionScenarioRevealable).not.toHaveBeenCalled();
+  });
+
+  it("links a HUMAN GM handout reveal to the generated override turn log", async () => {
+    const now = new Date("2026-05-25T00:00:00.000Z");
+    const createdReveal = {
+      id: "reveal-1",
+      sessionScenarioId: "session-scenario-1",
+      contentId: "clue-1",
+      contentKind: "clue",
+      scope: "party",
+      recipientId: null,
+      revealedAt: now,
+      revealedBy: "human_gm",
+      reason: "Reveal the inscription.",
+      snapshotJson: JSON.stringify({ id: "clue-1", title: "Inscription" }),
+      turnLogId: null,
+    };
+    const tx = {
+      sessionReveal: {
+        upsert: jest.fn().mockResolvedValue(createdReveal),
+        update: jest.fn().mockResolvedValue({ ...createdReveal, turnLogId: "turn-log-1" }),
+      },
+      turnLog: {
+        findFirst: jest.fn().mockResolvedValue({ turnNumber: 7 }),
+        create: jest.fn().mockResolvedValue({
+          id: "turn-log-1",
+          turnNumber: 8,
+          playerActionId: null,
+          actorUserId: "gm-user",
+          sessionCharacterId: null,
+          rawInput: "gm:reveal_handout",
+          structuredActionJson: JSON.stringify({
+            type: "gm_override",
+            kind: "reveal_handout",
+            targetId: "clue-1",
+            public: true,
+            hasPrivateNote: false,
+            metadata: { reason: "Reveal the inscription." },
+          }),
+          stateDiffJson: JSON.stringify({
+            baseVersion: 3,
+            nextVersion: 4,
+            reason: "gm_override:reveal_handout",
+            diff: { revealId: "reveal-1" },
+          }),
+          outcome: "SUCCESS",
+          narration: "Reveal the inscription.",
+          createdAt: now,
+        }),
+      },
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({ version: 3 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      stateDiff: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (txClient: typeof tx) => Promise<unknown>) => callback(tx)),
+    };
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitStateDiffApplied: jest.fn(),
+      emitSessionSnapshot: jest.fn(),
+      emitCombatUpdated: jest.fn(),
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    const serviceInternals = service as unknown as {
+      getHumanGmSessionForOperator: jest.Mock;
+      getActiveSessionScenarioEntityOrThrow: jest.Mock;
+      ensureSessionScenarioNodeSnapshotForScenario: jest.Mock;
+      findSessionScenarioRevealable: jest.Mock;
+      buildSnapshot: jest.Mock;
+    };
+    serviceInternals.getHumanGmSessionForOperator = jest
+      .fn()
+      .mockResolvedValue({ id: "session-1" });
+    serviceInternals.getActiveSessionScenarioEntityOrThrow = jest.fn().mockResolvedValue({
+      id: "session-scenario-1",
+      scenarioId: "scenario-1",
+    });
+    serviceInternals.ensureSessionScenarioNodeSnapshotForScenario = jest.fn().mockResolvedValue(undefined);
+    serviceInternals.findSessionScenarioRevealable = jest.fn().mockResolvedValue({
+      id: "clue-1",
+      title: "Inscription",
+      handoutText: "The mark means danger.",
+    });
+    serviceInternals.buildSnapshot = jest.fn().mockResolvedValue({ session: { id: "session-1" } });
+
+    await expect(
+      service.revealSessionContent("gm-user", "session-1", {
+        contentId: "clue-1",
+        contentKind: "clue",
+        scope: "party",
+        reason: "Reveal the inscription.",
+      }),
+    ).resolves.toMatchObject({
+      id: "reveal-1",
+      contentId: "clue-1",
+      revealedBy: "human_gm",
+    });
+
+    expect(tx.sessionReveal.update).toHaveBeenCalledWith({
+      where: { id: "reveal-1" },
+      data: { turnLogId: "turn-log-1" },
+    });
+    expect(realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ turnLogId: "turn-log-1" }),
+    );
+  });
+});
+
+describe("SessionsService HUMAN GM combat conditions", () => {
+  it("updates a combat participant condition and writes a GM override log", async () => {
+    const now = new Date("2026-05-25T00:00:00.000Z");
+    const tx = {
+      combatParticipant: {
+        update: jest.fn().mockResolvedValue({}),
+      },
+      turnLog: {
+        findFirst: jest.fn().mockResolvedValue({ turnNumber: 4 }),
+        create: jest.fn().mockResolvedValue({
+          id: "turn-log-1",
+          turnNumber: 5,
+          playerActionId: null,
+          actorUserId: "gm-user",
+          sessionCharacterId: null,
+          rawInput: "gm:set_condition",
+          structuredActionJson: JSON.stringify({
+            type: "gm_override",
+            kind: "set_condition",
+            targetId: "participant-goblin",
+            public: true,
+            hasPrivateNote: false,
+            metadata: {
+              operation: "add",
+              conditionId: "condition.stunned",
+              tokenId: "token-goblin",
+              targetName: "Smoke Goblin",
+            },
+          }),
+          stateDiffJson: JSON.stringify({
+            baseVersion: 2,
+            nextVersion: 3,
+            reason: "gm_override:set_condition",
+            diff: {
+              combatParticipants: [
+                {
+                  combatParticipantId: "participant-goblin",
+                  tokenId: "token-goblin",
+                  conditions: ["condition.stunned"],
+                },
+              ],
+            },
+          }),
+          outcome: "SUCCESS",
+          narration: "GM이 Smoke Goblin에게 기절 상태를 적용했습니다.",
+          createdAt: now,
+        }),
+      },
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({ version: 2 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      stateDiff: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const prisma = {
+      combat: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "combat-1",
+          sessionId: "session-1",
+          status: "ACTIVE",
+          participants: [
+            {
+              id: "participant-goblin",
+              tokenId: "token-goblin",
+              nameSnapshot: "Smoke Goblin",
+              conditionsJson: "[]",
+            },
+          ],
+        }),
+      },
+      $transaction: jest.fn((callback: (txClient: typeof tx) => Promise<unknown>) => callback(tx)),
+    };
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitStateDiffApplied: jest.fn(),
+      emitSessionSnapshot: jest.fn(),
+      emitCombatUpdated: jest.fn(),
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    const serviceInternals = service as unknown as {
+      getHumanGmSessionForOperator: jest.Mock;
+      getActiveSessionScenarioEntityOrThrow: jest.Mock;
+      buildSnapshot: jest.Mock;
+    };
+    serviceInternals.getHumanGmSessionForOperator = jest
+      .fn()
+      .mockResolvedValue({ id: "session-1" });
+    serviceInternals.getActiveSessionScenarioEntityOrThrow = jest.fn().mockResolvedValue({
+      id: "session-scenario-1",
+      scenarioId: "scenario-1",
+    });
+    serviceInternals.buildSnapshot = jest.fn().mockResolvedValue({ session: { id: "session-1" } });
+
+    await expect(
+      service.applyHumanGmCombatCondition("gm-user", "session-1", {
+        targetId: "token-goblin",
+        conditionId: "condition.stunned",
+        operation: "add",
+      }),
+    ).resolves.toMatchObject({ session: { id: "session-1" } });
+
+    expect(tx.combatParticipant.update).toHaveBeenCalledWith({
+      where: { id: "participant-goblin" },
+      data: { conditionsJson: JSON.stringify(["condition.stunned"]) },
+    });
+    expect(tx.turnLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          rawInput: "gm:set_condition",
+          narration: "GM이 Smoke Goblin에게 기절 상태를 적용했습니다.",
+        }),
+      }),
+    );
+    expect(realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ turnLogId: "turn-log-1" }),
+    );
+    expect(realtimeEvents.emitCombatUpdated).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        combatId: "combat-1",
+        participants: [
+          expect.objectContaining({
+            sessionEntityId: "participant-goblin",
+            tokenId: "token-goblin",
+            conditions: ["condition.stunned"],
+          }),
+        ],
+      }),
+    );
+    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalled();
+  });
+
+  it("removes a combat participant condition through the GM override path", async () => {
+    const now = new Date("2026-05-25T00:00:00.000Z");
+    const tx = {
+      combatParticipant: {
+        update: jest.fn().mockResolvedValue({}),
+      },
+      turnLog: {
+        findFirst: jest.fn().mockResolvedValue({ turnNumber: 5 }),
+        create: jest.fn().mockResolvedValue({
+          id: "turn-log-remove",
+          turnNumber: 6,
+          playerActionId: null,
+          actorUserId: "gm-user",
+          sessionCharacterId: null,
+          rawInput: "gm:set_condition",
+          structuredActionJson: JSON.stringify({
+            type: "gm_override",
+            kind: "set_condition",
+            targetId: "participant-goblin",
+            public: true,
+            hasPrivateNote: false,
+            metadata: {
+              operation: "remove",
+              conditionId: "condition.stunned",
+              tokenId: "token-goblin",
+              targetName: "Smoke Goblin",
+            },
+          }),
+          stateDiffJson: JSON.stringify({
+            baseVersion: 3,
+            nextVersion: 4,
+            reason: "gm_override:set_condition",
+            diff: {
+              combatParticipants: [
+                {
+                  combatParticipantId: "participant-goblin",
+                  tokenId: "token-goblin",
+                  conditions: ["condition.poisoned"],
+                },
+              ],
+            },
+          }),
+          outcome: "SUCCESS",
+          narration: "GM이 Smoke Goblin에게서 기절 상태를 제거했습니다.",
+          createdAt: now,
+        }),
+      },
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({ version: 3 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      stateDiff: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const prisma = {
+      combat: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "combat-1",
+          sessionId: "session-1",
+          status: "ACTIVE",
+          roundNo: 1,
+          turnNo: 1,
+          currentParticipantId: "participant-goblin",
+          participants: [
+            {
+              id: "participant-goblin",
+              entityType: "MONSTER",
+              sessionCharacterId: null,
+              tokenId: "token-goblin",
+              nameSnapshot: "Smoke Goblin",
+              currentHp: 7,
+              maxHp: 7,
+              armorClass: 15,
+              initiative: 12,
+              turnOrder: 1,
+              isAlive: true,
+              isHostile: true,
+              conditionsJson: JSON.stringify(["condition.stunned", "condition.poisoned"]),
+            },
+          ],
+        }),
+      },
+      $transaction: jest.fn((callback: (txClient: typeof tx) => Promise<unknown>) => callback(tx)),
+    };
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitStateDiffApplied: jest.fn(),
+      emitSessionSnapshot: jest.fn(),
+      emitCombatUpdated: jest.fn(),
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    const serviceInternals = service as unknown as {
+      getHumanGmSessionForOperator: jest.Mock;
+      getActiveSessionScenarioEntityOrThrow: jest.Mock;
+      buildSnapshot: jest.Mock;
+    };
+    serviceInternals.getHumanGmSessionForOperator = jest
+      .fn()
+      .mockResolvedValue({ id: "session-1" });
+    serviceInternals.getActiveSessionScenarioEntityOrThrow = jest.fn().mockResolvedValue({
+      id: "session-scenario-1",
+      scenarioId: "scenario-1",
+    });
+    serviceInternals.buildSnapshot = jest.fn().mockResolvedValue({ session: { id: "session-1" } });
+
+    await service.applyHumanGmCombatCondition("gm-user", "session-1", {
+      targetId: "participant-goblin",
+      conditionId: "condition.stunned",
+      operation: "remove",
+    });
+
+    expect(tx.combatParticipant.update).toHaveBeenCalledWith({
+      where: { id: "participant-goblin" },
+      data: { conditionsJson: JSON.stringify(["condition.poisoned"]) },
+    });
+    expect(realtimeEvents.emitCombatUpdated).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        participants: [
+          expect.objectContaining({
+            sessionEntityId: "participant-goblin",
+            conditions: ["condition.poisoned"],
+          }),
+        ],
+      }),
+    );
   });
 });
 

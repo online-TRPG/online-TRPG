@@ -696,7 +696,8 @@ export class RuleCatalogService {
       actionFeatureIds: features
         .filter((feature) =>
           this.isActionTrigger(feature.trigger) ||
-          this.isActionCost(feature.cost),
+          this.isActionCost(feature.cost) ||
+          this.hasActionRuntimeTag(feature.runtimeEffect.tags),
         )
         .map((feature) => feature.id),
       resourceIds: Array.from(
@@ -799,6 +800,16 @@ export class RuleCatalogService {
 
   private isActionCost(cost: RuleCost): boolean {
     return cost.type === "action" || cost.type === "bonus_action" || cost.type === "reaction";
+  }
+
+  private hasActionRuntimeTag(tags: string[]): boolean {
+    return tags.some(
+      (tag) =>
+        tag === "action:standard" ||
+        tag === "action:bonus" ||
+        tag === "action:reaction" ||
+        tag === "action:free",
+    );
   }
 
   private isCatalogFeatureId(feature: string): boolean {

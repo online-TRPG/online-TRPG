@@ -1,5 +1,6 @@
 import type {
   ActionAcceptedResponseDto,
+  ApplyHumanGmCombatConditionDto,
   ApplyCombatDamageDto,
   AutoMonsterTurnDto,
   AuthTokenResponseDto,
@@ -1535,6 +1536,25 @@ export async function grantHumanGmInventoryItem(
 ): Promise<SessionSnapshot> {
   const snapshot = await requestJson<SessionSnapshotDto>(
     `/sessions/${sessionId}/gm/inventory/grant`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+      body: payload,
+    }
+  );
+
+  return normalizeSessionSnapshot(snapshot);
+}
+
+export async function applyHumanGmCombatCondition(
+  user: StoredUser,
+  sessionId: string,
+  payload: ApplyHumanGmCombatConditionDto,
+  accessToken?: string | null
+): Promise<SessionSnapshot> {
+  const snapshot = await requestJson<SessionSnapshotDto>(
+    `/sessions/${sessionId}/gm/combat/conditions`,
     {
       method: 'POST',
       user,

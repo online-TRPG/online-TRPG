@@ -33,7 +33,7 @@ import { StateDiffService } from "../rules/state-diff.service";
 import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
-import { badRequest, notFound } from "../../common/exceptions/domain-error";
+import { badRequest, conflict, notFound } from "../../common/exceptions/domain-error";
 
 type RuntimeTurnStateKey = {
   combatId: string;
@@ -50,6 +50,65 @@ type RuntimeActor = {
     level: number;
     featuresJson?: string | null;
   };
+};
+
+type RuleTargetCharacter = {
+  id: string;
+  userId: string;
+  characterId: string;
+  tokenId?: string | null;
+  combatParticipantId?: string | null;
+  isCombatParticipantOnly?: boolean;
+  currentHp: number;
+  tempHp: number;
+  conditionsJson: string;
+  inventorySnapshotJson?: string | null;
+  inventoryEntries?: Array<{
+    id: string;
+    itemDefinitionId: string;
+    itemDefinition: {
+      id: string;
+      itemType: string;
+      damageDice?: string | null;
+      damageType?: string | null;
+      propertiesJson?: string | null;
+    };
+  }>;
+  character: {
+    id: string;
+    name: string;
+    className: string;
+    subclassName?: string | null;
+    level: number;
+    maxHp: number;
+    abilitiesJson: string;
+    proficiencyBonus: number;
+    featuresJson?: string | null;
+    proficientSkillsJson: string;
+    armorClass: number;
+    speed: number;
+    spellsJson?: string | null;
+    inventoryJson?: string | null;
+    equippedWeaponId?: string | null;
+  };
+  user?: {
+    id: string;
+    displayName: string;
+    profile?: { nickname: string } | null;
+  } | null;
+};
+
+type RuntimeCombatParticipant = {
+  id: string;
+  sessionCharacterId: string | null;
+  tokenId: string | null;
+  nameSnapshot: string;
+  currentHp: number | null;
+  maxHp: number | null;
+  armorClass: number | null;
+  speedFt: number | null;
+  conditionsJson: string | null;
+  isHostile: boolean;
 };
 
 type RuntimeEffectParams = {
@@ -220,6 +279,7 @@ export class ActionProcessorService {
     }
 
     const runtime = await this.buildRuntime(session.id, sessionScenario.id, actor, state);
+    const ruleTargets = this.createRuleTargets(sessionCharacters, runtime.combatParticipants);
 
     // BE → AI Interpreter (AI-SERVER-001). 자연어 → 구조화 action 후보를 AiTrace 로 영속.
     // Phase 1: 결과를 룰 판정에 사용하지 않음 (actionRules 시그니처 변경 동반이라 별 PR).
@@ -230,7 +290,7 @@ export class ActionProcessorService {
         rawText: action.rawText,
         actorCharacterId: actor.character.id,
         sceneSummary: `${session.title} - ${actor.character.name}의 행동`,
-        availableTargets: sessionCharacters.map((c) => c.character.name),
+        availableTargets: ruleTargets.map((c) => c.character.name),
       });
     } catch (error) {
       this.logger.warn(
@@ -241,7 +301,7 @@ export class ActionProcessorService {
     const resolution = this.actionRules.resolveAction(
       action.rawText,
       actor,
-      sessionCharacters,
+      ruleTargets,
       runtime.context,
     );
     const runtimeEffectParams = {
@@ -337,6 +397,7 @@ export class ActionProcessorService {
   ): Promise<{
     context: RuleRuntimeContext;
     turnStateKey: RuntimeTurnStateKey | null;
+    combatParticipants: RuntimeCombatParticipant[];
   }> {
     const vttMap = await this.sessionsService.getVttMapBaseline(sessionId, sessionScenarioId, state);
     const map = this.mapPositions.createRuntimeMap(vttMap);
@@ -376,6 +437,7 @@ export class ActionProcessorService {
             : null,
         },
         turnStateKey: null,
+        combatParticipants: combat?.participants ?? [],
       };
     }
 
@@ -408,7 +470,62 @@ export class ActionProcessorService {
         },
       },
       turnStateKey,
+      combatParticipants: combat.participants,
     };
+  }
+
+  private createRuleTargets(
+    sessionCharacters: RuleTargetCharacter[],
+    combatParticipants: RuntimeCombatParticipant[],
+  ): RuleTargetCharacter[] {
+    const participantBySessionCharacterId = new Map(
+      combatParticipants
+        .filter((participant) => participant.sessionCharacterId)
+        .map((participant) => [participant.sessionCharacterId as string, participant]),
+    );
+    const sessionTargets = sessionCharacters.map((sessionCharacter) => {
+      const participant = participantBySessionCharacterId.get(sessionCharacter.id);
+      return {
+        ...sessionCharacter,
+        tokenId: participant?.tokenId ?? sessionCharacter.tokenId,
+        combatParticipantId: participant?.id ?? sessionCharacter.combatParticipantId,
+      };
+    });
+    const participantOnlyTargets = combatParticipants
+      .filter((participant) => !participant.sessionCharacterId)
+      .map((participant): RuleTargetCharacter => ({
+        id: `combat-participant:${participant.id}`,
+        userId: `combat-participant:${participant.id}`,
+        characterId: `combat-participant:${participant.id}`,
+        tokenId: participant.tokenId,
+        combatParticipantId: participant.id,
+        isCombatParticipantOnly: true,
+        currentHp: participant.currentHp ?? 0,
+        tempHp: 0,
+        conditionsJson: participant.conditionsJson ?? "[]",
+        inventorySnapshotJson: null,
+        inventoryEntries: [],
+        user: null,
+        character: {
+          id: `combat-participant:${participant.id}`,
+          name: participant.nameSnapshot,
+          className: participant.isHostile ? "monster" : "npc",
+          subclassName: null,
+          level: 1,
+          maxHp: participant.maxHp ?? participant.currentHp ?? 1,
+          abilitiesJson: "{}",
+          proficiencyBonus: 2,
+          featuresJson: "[]",
+          proficientSkillsJson: "[]",
+          armorClass: participant.armorClass ?? 10,
+          speed: participant.speedFt ?? 30,
+          spellsJson: null,
+          inventoryJson: "[]",
+          equippedWeaponId: null,
+        },
+      }));
+
+    return [...sessionTargets, ...participantOnlyTargets];
   }
 
   private async applyRuntimeEffects(
@@ -611,6 +728,7 @@ export class ActionProcessorService {
       sessionScenario.id,
       state,
     );
+    this.assertMapRuntimeEffectsApplicable(baselineMap, effects);
     const nextMap = this.applyMapRuntimeEffectsToMap(baselineMap, effects);
 
     const savedMap = await this.prisma.$transaction(async (tx) => {
@@ -691,6 +809,30 @@ export class ActionProcessorService {
       objectCells,
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  private assertMapRuntimeEffectsApplicable(
+    map: VttMapStateDto,
+    effects: InventoryMapRuntimeEffect[],
+  ): void {
+    const objectIds = new Set((map.objectCells ?? []).map((cell) => cell.id));
+    for (const effect of effects) {
+      if (
+        (effect.type === "UPDATE_MAP_OBJECT_QUANTITY" || effect.type === "REMOVE_MAP_OBJECT") &&
+        !objectIds.has(effect.objectId)
+      ) {
+        throw conflict("VTT_409", "맵 오브젝트가 이미 사라졌습니다.", {
+          reason: "MAP_OBJECT_NOT_FOUND",
+          objectId: effect.objectId,
+        });
+      }
+      if (effect.type === "CREATE_MAP_OBJECT") {
+        objectIds.add(effect.objectId);
+      }
+      if (effect.type === "REMOVE_MAP_OBJECT") {
+        objectIds.delete(effect.objectId);
+      }
+    }
   }
 
   private async addInventoryItemWithClient(

@@ -90,6 +90,7 @@ export class StartingSpellsDto {
   @IsArray()
   @IsString({ each: true })
   preparedSpells?: string[];
+
 }
 
 export class InventoryItemDto {
@@ -486,6 +487,24 @@ export class LevelUpCharacterDto {
   @IsString()
   @MaxLength(80)
   subclassName?: string | null;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "레벨업과 함께 갱신할 준비 주문 목록입니다. 알고 있는 슬롯 주문만 허용됩니다.",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  preparedSpells?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "레벨업으로 새로 습득하거나 주문책에 추가할 MVP 슬롯 주문 목록입니다.",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  knownSpells?: string[];
 }
 
 export class UpdateCharacterEquipmentDto {

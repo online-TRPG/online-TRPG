@@ -23,6 +23,10 @@ import {
   SessionVisibility as PrismaSessionVisibility,
 } from "@prisma/client";
 import {
+  ApplyHumanGmCombatConditionDto,
+  CombatEntityType,
+  CombatResponseDto,
+  CombatStatus,
   ConnectionStatus,
   ActionOutcome,
   CreateSessionDto,
@@ -100,6 +104,8 @@ const gmModeToPrisma: Record<GmMode, PrismaGmMode> = {
   [GmMode.AI]: PrismaGmMode.AI,
   [GmMode.HUMAN]: PrismaGmMode.HUMAN,
 };
+
+const revealContentKinds = new Set(["clue", "item", "event"]);
 
 type RevealPolicyMode =
   | "AUTO_REVEAL"
@@ -230,6 +236,14 @@ export class SessionsService {
         },
       });
 
+      if (startNodeId) {
+        await this.ensureSessionScenarioNodeSnapshot(tx, sessionScenario.id, scenario.id);
+        await this.recordNodeVisit(tx, {
+          sessionScenarioId: sessionScenario.id,
+          nodeId: startNodeId,
+        });
+      }
+
       return createdSession;
     });
 
@@ -337,6 +351,7 @@ export class SessionsService {
     const session = await this.getSessionEntityOrThrow(sessionId);
     const resolvedSessionId = session.id;
     const participant = await this.getJoinedParticipantOrThrow(userId, resolvedSessionId);
+    let canEmitSnapshot = true;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.sessionParticipant.update({
@@ -371,6 +386,7 @@ export class SessionsService {
           where: { id: resolvedSessionId },
           data: { status: PrismaSessionStatus.DISBANDED },
         });
+        canEmitSnapshot = false;
         return;
       }
 
@@ -406,7 +422,9 @@ export class SessionsService {
       }
     });
 
-    this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, await this.buildSnapshot(resolvedSessionId));
+    if (canEmitSnapshot) {
+      this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, await this.buildSnapshot(resolvedSessionId));
+    }
   }
 
   async getSessionForUser(userId: string, sessionId: string): Promise<SessionDetailResponseDto> {
@@ -954,6 +972,10 @@ export class SessionsService {
     const resolvedSessionId = session.id;
     await this.ensureMembership(userId, resolvedSessionId);
     const { sessionScenario, state } = await this.getGameStateEntityOrThrow(resolvedSessionId);
+    await this.ensureSessionScenarioNodeSnapshotForScenario(
+      sessionScenario.id,
+      sessionScenario.scenarioId,
+    );
     const visits = await this.prisma.sessionNodeVisit.findMany({
       where: { sessionScenarioId: sessionScenario.id },
       orderBy: { firstVisitedAt: "asc" },
@@ -1028,6 +1050,9 @@ export class SessionsService {
     const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
     await this.ensureSessionScenarioNodeSnapshotForScenario(activeScenario.id, activeScenario.scenarioId);
     const contentKind = dto.contentKind?.trim() || "clue";
+    if (!revealContentKinds.has(contentKind)) {
+      throw new BadRequestException("Unsupported reveal content kind.");
+    }
     const scope = dto.scope ?? "party";
     const recipientId = dto.recipientId?.trim() || null;
     const content = await this.findSessionScenarioRevealable(activeScenario.id, dto.contentId);
@@ -1062,6 +1087,10 @@ export class SessionsService {
         metadata: {
           reason: dto.reason?.trim() || "manual_gm_reveal",
         },
+      });
+      await tx.sessionReveal.update({
+        where: { id: createdReveal.id },
+        data: { turnLogId: gmTurnLog.turnLog.turnLogId },
       });
       return createdReveal;
     });
@@ -1749,8 +1778,9 @@ export class SessionsService {
     const gmMessages = Array.isArray(flags.gmMessages) ? [...(flags.gmMessages as unknown[])] : [];
     let gmTurnLog: HumanGmOverrideLogResult | null = null;
 
+    const gmMessageId = randomUUID();
     gmMessages.push({
-      id: randomUUID(),
+      id: gmMessageId,
       type: dto.asNpc ? "npc" : "gm",
       speakerName: dto.speakerName?.trim() || null,
       content: dto.content.trim(),
@@ -1802,10 +1832,12 @@ export class SessionsService {
         targetId: dto.speakerName?.trim() || null,
         statePatch: {
           gmMessageCreated: true,
+          gmMessageId,
           messageType: dto.asNpc ? "npc" : "gm",
           speakerName: dto.speakerName?.trim() || null,
         },
         metadata: {
+          gmMessageId,
           speakerName: dto.speakerName?.trim() || null,
           messageType: dto.asNpc ? "npc" : "gm",
         },
@@ -1935,6 +1967,92 @@ export class SessionsService {
     this.realtimeEvents.emitCharacterUpdated(
       resolvedSessionId,
       mapSessionCharacter(updatedCharacter),
+    );
+    this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
+    return snapshot;
+  }
+
+  async applyHumanGmCombatCondition(
+    userId: string,
+    sessionId: string,
+    dto: ApplyHumanGmCombatConditionDto,
+  ): Promise<SessionSnapshotDto> {
+    const session = await this.getHumanGmSessionForOperator(userId, sessionId);
+    const resolvedSessionId = session.id;
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
+    const combat = await this.prisma.combat.findFirst({
+      where: {
+        sessionId: resolvedSessionId,
+        status: PrismaCombatStatus.ACTIVE,
+      },
+      include: { participants: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!combat) {
+      throw new NotFoundException("활성 전투를 찾을 수 없습니다.");
+    }
+
+    const targetId = dto.targetId.trim();
+    const target = combat.participants.find(
+      (participant) => participant.id === targetId || participant.tokenId === targetId,
+    );
+    if (!target) {
+      throw new NotFoundException("상태를 적용할 전투 대상을 찾을 수 없습니다.");
+    }
+
+    const conditionId = dto.conditionId.trim();
+    const operation = dto.operation ?? "add";
+    const currentConditions = this.parseJson<unknown[]>(target.conditionsJson, []);
+    const nextConditions =
+      operation === "add"
+        ? this.addHumanGmCondition(currentConditions, conditionId)
+        : this.removeHumanGmCondition(currentConditions, conditionId);
+    const conditionLabel = this.getHumanGmConditionLabel(conditionId);
+    const publicNarration =
+      operation === "add"
+        ? `GM이 ${target.nameSnapshot}에게 ${conditionLabel} 상태를 적용했습니다.`
+        : `GM이 ${target.nameSnapshot}에게서 ${conditionLabel} 상태를 제거했습니다.`;
+
+    const gmTurnLog = await this.prisma.$transaction(async (tx) => {
+      await tx.combatParticipant.update({
+        where: { id: target.id },
+        data: { conditionsJson: JSON.stringify(nextConditions) },
+      });
+      return this.createHumanGmOverrideTurnLog({
+        tx,
+        kind: "set_condition",
+        sessionId: resolvedSessionId,
+        sessionScenarioId: activeScenario.id,
+        gmUserId: userId,
+        targetId: target.id,
+        publicNarration,
+        statePatch: {
+          combatParticipants: [
+            {
+              combatParticipantId: target.id,
+              tokenId: target.tokenId,
+              conditions: nextConditions,
+            },
+          ],
+        },
+        metadata: {
+          operation,
+          conditionId,
+          tokenId: target.tokenId,
+          targetName: target.nameSnapshot,
+        },
+      });
+    });
+
+    const snapshot = await this.buildSnapshot(resolvedSessionId);
+    this.realtimeEvents.emitTurnLogCreated(resolvedSessionId, gmTurnLog.turnLog);
+    if (gmTurnLog.stateDiff) {
+      this.realtimeEvents.emitStateDiffApplied(resolvedSessionId, gmTurnLog.stateDiff);
+    }
+    this.realtimeEvents.emitCombatUpdated(
+      resolvedSessionId,
+      this.mapHumanGmCombatConditionResponse(combat, target.id, nextConditions),
     );
     this.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
     return snapshot;
@@ -3442,6 +3560,172 @@ export class SessionsService {
     return session;
   }
 
+  private addHumanGmCondition(currentConditions: unknown[], conditionId: string): unknown[] {
+    const normalized = this.normalizeHumanGmConditionId(conditionId);
+    if (
+      currentConditions.some((condition) => {
+        if (typeof condition === "string") {
+          return this.normalizeHumanGmConditionId(condition) === normalized;
+        }
+        if (condition && typeof condition === "object" && !Array.isArray(condition)) {
+          const structuredId = (condition as { conditionId?: unknown }).conditionId;
+          return (
+            typeof structuredId === "string" &&
+            this.normalizeHumanGmConditionId(structuredId) === normalized
+          );
+        }
+        return false;
+      })
+    ) {
+      return currentConditions;
+    }
+
+    return [...currentConditions, conditionId];
+  }
+
+  private removeHumanGmCondition(currentConditions: unknown[], conditionId: string): unknown[] {
+    const normalized = this.normalizeHumanGmConditionId(conditionId);
+    return currentConditions.filter((condition) => {
+      if (typeof condition === "string") {
+        return this.normalizeHumanGmConditionId(condition) !== normalized;
+      }
+      if (condition && typeof condition === "object" && !Array.isArray(condition)) {
+        const structuredId = (condition as { conditionId?: unknown }).conditionId;
+        return (
+          typeof structuredId !== "string" ||
+          this.normalizeHumanGmConditionId(structuredId) !== normalized
+        );
+      }
+      return true;
+    });
+  }
+
+  private normalizeHumanGmConditionId(conditionId: string): string {
+    return conditionId.trim().toLowerCase().replace(/^condition\./, "");
+  }
+
+  private getHumanGmConditionLabel(conditionId: string): string {
+    const normalized = this.normalizeHumanGmConditionId(conditionId);
+    const labels: Record<string, string> = {
+      stunned: "기절",
+      poisoned: "중독",
+      prone: "넘어짐",
+      burning: "화상",
+      restrained: "구속",
+      frightened: "공포",
+      paralyzed: "마비",
+      incapacitated: "무력화",
+    };
+
+    return labels[normalized] ?? conditionId;
+  }
+
+  private mapHumanGmCombatConditionResponse(
+    combat: {
+      id: string;
+      sessionId: string;
+      status: unknown;
+      roundNo: number;
+      turnNo: number;
+      currentParticipantId?: string | null;
+      participants: Array<{
+        id: string;
+        entityType?: unknown;
+        sessionCharacterId?: string | null;
+        tokenId?: string | null;
+        nameSnapshot: string;
+        currentHp?: number | null;
+        maxHp?: number | null;
+        armorClass?: number | null;
+        initiative?: number;
+        turnOrder?: number;
+        isAlive?: boolean;
+        isHostile?: boolean;
+        conditionsJson?: string | null;
+      }>;
+    },
+    changedParticipantId: string,
+    nextConditions: unknown[],
+  ): CombatResponseDto {
+    const aliveParticipants = combat.participants.filter(
+      (participant) => participant.isAlive !== false,
+    );
+    const currentTurnIndex = combat.currentParticipantId
+      ? aliveParticipants.findIndex((participant) => participant.id === combat.currentParticipantId)
+      : -1;
+    const currentTurnOrder =
+      combat.participants.find((participant) => participant.id === combat.currentParticipantId)
+        ?.turnOrder ?? Number.MAX_SAFE_INTEGER;
+
+    return {
+      combatId: combat.id,
+      sessionId: combat.sessionId,
+      status: combat.status as CombatStatus,
+      roundNo: combat.roundNo,
+      turnNo: combat.turnNo,
+      roundTurnNo: currentTurnIndex >= 0 ? currentTurnIndex + 1 : 0,
+      currentEntityId: combat.currentParticipantId ?? null,
+      participants: combat.participants.map((participant) => {
+        const conditionEntries =
+          participant.id === changedParticipantId
+            ? nextConditions
+            : this.parseJson<unknown[]>(participant.conditionsJson ?? "[]", []);
+        return {
+          sessionEntityId: participant.id,
+          entityType: (participant.entityType ?? CombatEntityType.MONSTER) as CombatEntityType,
+          sessionCharacterId: participant.sessionCharacterId ?? null,
+          tokenId: participant.tokenId ?? null,
+          name: participant.nameSnapshot,
+          currentHp: participant.currentHp ?? null,
+          maxHp: participant.maxHp ?? null,
+          armorClass: participant.armorClass ?? null,
+          initiative: participant.initiative ?? 0,
+          turnOrder: participant.turnOrder ?? 0,
+          isAlive: participant.isAlive ?? true,
+          isHostile: participant.isHostile ?? false,
+          hasActedThisRound:
+            participant.isAlive !== false &&
+            participant.id !== combat.currentParticipantId &&
+            (participant.turnOrder ?? 0) < currentTurnOrder,
+          conditions: this.toHumanGmCombatConditionTags(conditionEntries),
+          actionResources: {
+            actionAvailable: participant.id === combat.currentParticipantId,
+            bonusActionAvailable: participant.id === combat.currentParticipantId,
+            reactionAvailable: true,
+            additionalActionAvailable: false,
+            twoWeaponAttackAvailable: false,
+            sneakAttackAvailable: true,
+            movementFtTotal: 30,
+            movementFtRemaining: 30,
+            spellSlotLevel1Total: 0,
+            spellSlotLevel1Remaining: 0,
+            spellSlots: {},
+          },
+          monsterActions: [],
+        };
+      }),
+    };
+  }
+
+  private toHumanGmCombatConditionTags(conditionEntries: unknown[]): string[] {
+    const tags = conditionEntries.flatMap((condition) => {
+      if (typeof condition === "string") {
+        return [condition];
+      }
+      if (!condition || typeof condition !== "object" || Array.isArray(condition)) {
+        return [];
+      }
+      const record = condition as { conditionId?: unknown; tags?: unknown };
+      return [
+        typeof record.conditionId === "string" ? record.conditionId : null,
+        ...(Array.isArray(record.tags)
+          ? record.tags.filter((tag): tag is string => typeof tag === "string")
+          : []),
+      ].filter((tag): tag is string => Boolean(tag));
+    });
+    return Array.from(new Set(tags));
+  }
+
   private async createHumanGmOverrideTurnLog(params: {
     tx?: Prisma.TransactionClient;
     kind: GmOverrideKind;
@@ -3532,6 +3816,7 @@ export class SessionsService {
       sessionCharacterId: created.sessionCharacterId,
       actionClientCreatedAt: null,
       actionCreatedAt: null,
+      actionQueueStatus: null,
       rawInput: created.rawInput,
       structuredAction: this.parseJson<Record<string, unknown> | null>(
         created.structuredActionJson,
@@ -4260,6 +4545,7 @@ export class SessionsService {
       sessionCharacterId: created.sessionCharacterId,
       actionClientCreatedAt: null,
       actionCreatedAt: null,
+      actionQueueStatus: null,
       rawInput: created.rawInput,
       structuredAction,
       diceResult,
@@ -4478,6 +4764,7 @@ export class SessionsService {
       sessionCharacterId: created.sessionCharacterId,
       actionClientCreatedAt: null,
       actionCreatedAt: null,
+      actionQueueStatus: null,
       rawInput: created.rawInput,
       structuredAction,
       diceResult,

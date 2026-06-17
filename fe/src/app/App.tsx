@@ -579,6 +579,12 @@ export function App() {
             onCreateCharacter={(payload) => session.createCharacter(payload)}
             onCloneCharacter={(characterId) => session.cloneCharacter(characterId)}
             onUpdateCharacter={(characterId, payload) => session.updateCharacter(characterId, payload)}
+            onLevelUpCharacter={(characterId, payload) =>
+              session.levelUpCharacter(characterId, payload)
+            }
+            onUpdatePreparedSpells={(characterId, payload) =>
+              session.updatePreparedSpells(characterId, payload)
+            }
             onDeleteCharacter={(characterId) => session.deleteCharacter(characterId)}
             autoOpenCreate={characterPageState?.characterCreateReturn?.autoOpenCreate === true}
             sessionReturnTitle={characterPageState?.characterCreateReturn?.sessionTitle ?? null}

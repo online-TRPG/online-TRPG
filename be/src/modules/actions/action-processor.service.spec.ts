@@ -123,7 +123,7 @@ describe("ActionProcessorService map object runtime effects", () => {
 });
 
 describe("ActionProcessorService inventory/map atomic runtime effects", () => {
-  const createService = (options?: { inventoryEntry?: unknown | null }) => {
+  const createService = (options?: { inventoryEntry?: unknown | null; map?: VttMapStateDto }) => {
     const tx = {
       itemDefinition: {
         findFirst: jest.fn().mockResolvedValue({
@@ -200,7 +200,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
         sessionScenario: { id: "session-scenario-1" },
         state: { currentNodeId: "node-1", flagsJson: null },
       }),
-      getVttMapBaseline: jest.fn().mockResolvedValue(createBaseMap()),
+      getVttMapBaseline: jest.fn().mockResolvedValue(options?.map ?? createBaseMap()),
       normalizeVttMap: jest.fn((map: VttMapStateDto) => map),
       redactVttMapForPlayer: jest.fn((map: VttMapStateDto) => ({
         ...map,
@@ -332,6 +332,143 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
     expect(tx.gameState.update).not.toHaveBeenCalled();
     expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
     expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
+  });
+
+  it("does not add inventory when the paired map object has already disappeared", async () => {
+    const emptyMap = {
+      ...createBaseMap(),
+      objectCells: [],
+    };
+    const { service, tx, realtimeEvents, mapRuntime } = createService({ map: emptyMap });
+
+    await expect(
+      service.applyInventoryMapRuntimeEffectsAtomically(params, [
+        {
+          type: "ADD_ITEM",
+          itemDefinitionId: "equipment.rope",
+          quantity: 2,
+        },
+        {
+          type: "REMOVE_MAP_OBJECT",
+          objectId: "object-rope",
+        },
+      ]),
+    ).rejects.toMatchObject({
+      response: {
+        code: "VTT_409",
+        data: { reason: "MAP_OBJECT_NOT_FOUND", objectId: "object-rope" },
+      },
+    });
+
+    expect(tx.inventoryEntry.create).not.toHaveBeenCalled();
+    expect(tx.gameState.update).not.toHaveBeenCalled();
+    expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
+    expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
+  });
+});
+
+describe("ActionProcessorService rule targets", () => {
+  it("projects combat participant token ids into rule targets", () => {
+    const service = new ActionProcessorService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      createRuleTargets: (sessionCharacters: unknown[], combatParticipants: unknown[]) => Array<{
+        id: string;
+        tokenId?: string | null;
+        combatParticipantId?: string | null;
+        isCombatParticipantOnly?: boolean;
+        character: { name: string; spellsJson?: string | null };
+      }>;
+    };
+
+    const targets = service.createRuleTargets(
+      [
+        {
+          id: "session-character-1",
+          userId: "user-1",
+          characterId: "character-1",
+          currentHp: 10,
+          tempHp: 0,
+          conditionsJson: "[]",
+          character: {
+            id: "character-1",
+            name: "Hero",
+            className: "fighter",
+            level: 1,
+            maxHp: 10,
+            abilitiesJson: "{}",
+            proficiencyBonus: 2,
+            proficientSkillsJson: "[]",
+            armorClass: 10,
+            speed: 30,
+            spellsJson: JSON.stringify({
+              cantrips: ["spell.fire_bolt"],
+              spells: ["spell.magic_missile"],
+              preparedSpells: [],
+            }),
+          },
+        },
+      ],
+      [
+        {
+          id: "participant-hero",
+          sessionCharacterId: "session-character-1",
+          tokenId: "token-hero",
+          nameSnapshot: "Hero",
+          currentHp: 10,
+          maxHp: 10,
+          armorClass: 10,
+          speedFt: 30,
+          conditionsJson: "[]",
+          isHostile: false,
+        },
+        {
+          id: "participant-goblin",
+          sessionCharacterId: null,
+          tokenId: "token_node_rule_smoke_condition_goblin",
+          nameSnapshot: "Smoke Goblin",
+          currentHp: 7,
+          maxHp: 7,
+          armorClass: 15,
+          speedFt: 30,
+          conditionsJson: "[]",
+          isHostile: true,
+        },
+      ],
+    );
+
+    expect(targets).toEqual([
+      expect.objectContaining({
+        id: "session-character-1",
+        tokenId: "token-hero",
+        combatParticipantId: "participant-hero",
+        character: expect.objectContaining({
+          spellsJson: JSON.stringify({
+            cantrips: ["spell.fire_bolt"],
+            spells: ["spell.magic_missile"],
+            preparedSpells: [],
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        id: "combat-participant:participant-goblin",
+        tokenId: "token_node_rule_smoke_condition_goblin",
+        combatParticipantId: "participant-goblin",
+        isCombatParticipantOnly: true,
+        character: expect.objectContaining({ name: "Smoke Goblin" }),
+      }),
+    ]);
   });
 });
 

@@ -8,10 +8,12 @@ import type {
   ResolveMainCommandCheckDto,
   StateDiffResponseDto,
   RestActionDto,
+  LevelUpCharacterDto,
   SubmitMainCommandDto,
   SystemMessageEventDto,
   SubmitActionDto,
   TurnLogResponseDto,
+  UpdatePreparedSpellsDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
 import type { Socket } from 'socket.io-client';
@@ -29,6 +31,7 @@ import {
   listMyCharacters as apiListMyCharacters,
   listMySessions as apiListMySessions,
   listSessions,
+  levelUpCharacter as apiLevelUpCharacter,
   selectSessionCharacter as apiSelectSessionCharacter,
   startSession as apiStartSession,
   resolveMainCommandCheck as apiResolveMainCommandCheck,
@@ -37,6 +40,7 @@ import {
   submitAction as apiSubmitAction,
   updateCharacter as apiUpdateCharacter,
   updateHumanGm as apiUpdateHumanGm,
+  updatePreparedSpells as apiUpdatePreparedSpells,
   updateReadyState as apiUpdateReadyState,
 } from '../services/api';
 import { connectSessionSocket, sendRealtimeChatMessage } from '../services/realtime';
@@ -132,6 +136,8 @@ export interface UseSessionReturn {
   createCharacter: (payload: CharacterPayload) => Promise<boolean>;
   cloneCharacter: (characterId: string) => Promise<void>;
   updateCharacter: (characterId: string, payload: CharacterPayload) => Promise<boolean>;
+  levelUpCharacter: (characterId: string, payload: LevelUpCharacterDto) => Promise<boolean>;
+  updatePreparedSpells: (characterId: string, payload: UpdatePreparedSpellsDto) => Promise<boolean>;
   deleteCharacter: (characterId: string) => Promise<void>;
   selectCharacter: (characterId: string | null) => Promise<void>;
   setReadyState: (isReady: boolean) => Promise<void>;
@@ -331,6 +337,7 @@ function getTurnLogRestApprovalMetadata(turnLog: TurnLogResponseDto): LogEntry['
     typeof structuredAction !== 'object' ||
     (structuredAction as { type?: unknown }).type !== 'rest' ||
     (structuredAction as { approvalStatus?: unknown }).approvalStatus !== 'gm_required' ||
+    turnLog.actionQueueStatus !== 'REJECTED' ||
     !turnLog.playerActionId
   ) {
     return undefined;
@@ -1413,6 +1420,56 @@ export function useSession(
     return succeeded;
   }
 
+  async function levelUpCharacter(
+    characterId: string,
+    payload: LevelUpCharacterDto
+  ): Promise<boolean> {
+    if (!user) return false;
+    setError(null);
+    setBusy(true);
+    let succeeded = false;
+
+    try {
+      const updated = await apiLevelUpCharacter(user, characterId, payload, accessToken);
+      await refreshMyCharacters();
+      if (snapshot) {
+        await syncSession(snapshot.session.id);
+      }
+      succeeded = true;
+      appendLog('rest', '레벨업', `${updated.name} 캐릭터가 ${updated.level}레벨이 되었습니다.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '캐릭터 레벨업에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
+    return succeeded;
+  }
+
+  async function updatePreparedSpells(
+    characterId: string,
+    payload: UpdatePreparedSpellsDto
+  ): Promise<boolean> {
+    if (!user) return false;
+    setError(null);
+    setBusy(true);
+    let succeeded = false;
+
+    try {
+      const updated = await apiUpdatePreparedSpells(user, characterId, payload, accessToken);
+      await refreshMyCharacters();
+      if (snapshot) {
+        await syncSession(snapshot.session.id);
+      }
+      succeeded = true;
+      appendLog('rest', '준비 주문', `${updated.name} 캐릭터의 준비 주문을 갱신했습니다.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '준비 주문 갱신에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
+    return succeeded;
+  }
+
   async function deleteCharacter(characterId: string) {
     if (!user) return;
     setError(null);
@@ -1824,6 +1881,8 @@ export function useSession(
     createCharacter,
     cloneCharacter,
     updateCharacter,
+    levelUpCharacter,
+    updatePreparedSpells,
     deleteCharacter,
     selectCharacter,
     setReadyState,

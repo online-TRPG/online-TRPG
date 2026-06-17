@@ -28,10 +28,14 @@ import './CombatNodeSurface.css';
 type CombatActionTab = 'basic' | 'ability' | 'spell';
 type CombatMovementMode = 'normal' | 'jump';
 type CombatActorActionType = 'attack' | 'dash' | 'dodge' | 'hide';
-type SpellFilter = 'all' | 'cantrip' | 'level1';
+type SpellFilter = 'all' | 'cantrip' | 'level1' | 'level3';
 type CombatResourceIconKind = 'action' | 'bonus' | 'reaction';
 type CombatParticipant = CombatResponseDto['participants'][number];
 type CombatMonsterAction = NonNullable<CombatParticipant['monsterActions']>[number];
+type CombatConditionOption = {
+  id: string;
+  label: string;
+};
 
 type CombatAbilityButton = {
   key: string;
@@ -85,6 +89,11 @@ interface CombatNodeSurfaceProps {
   onDodge: () => void | Promise<void>;
   onHide: () => void | Promise<void>;
   onReadyAction: (targetParticipantId: string) => void | Promise<void>;
+  onApplyCondition?: (
+    targetTokenOrParticipantId: string,
+    conditionId: string,
+    operation: 'add' | 'remove'
+  ) => void | Promise<void>;
   onUseClassFeature: (action: 'second_wind') => void | Promise<void>;
   onCastSpell: (
     spellId: string,
@@ -108,6 +117,13 @@ const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: strin
 ];
 
 const mvpSpellLabels = ['Chill Touch', 'Fire Bolt', 'Light', 'Magic Missile', 'Shield', 'Sleep', 'Fireball'];
+
+const gmCombatConditionOptions: CombatConditionOption[] = [
+  { id: 'condition.stunned', label: '기절' },
+  { id: 'condition.poisoned', label: '중독' },
+  { id: 'condition.prone', label: '넘어짐' },
+  { id: 'condition.burning', label: '화상' },
+];
 
 const mvpSpellIdsByLabel: Record<string, string> = {
   'Chill Touch': 'spell.chill_touch',
@@ -142,6 +158,7 @@ const spellFilterOptions: Array<{ id: SpellFilter; label: string }> = [
   { id: 'all', label: '전체' },
   { id: 'cantrip', label: '소마법' },
   { id: 'level1', label: '1레벨 마법' },
+  { id: 'level3', label: '3레벨 마법' },
 ];
 
 const combatActionIconNames: Partial<Record<string, GameIconName>> = {
@@ -152,6 +169,10 @@ const combatActionIconNames: Partial<Record<string, GameIconName>> = {
   회피: 'game-icons:dodge',
   숨기: 'game-icons:ninja-mask',
   준비: 'game-icons:time-trap',
+  기절: 'game-icons:knockout',
+  중독: 'game-icons:poison-bottle',
+  넘어짐: 'game-icons:falling',
+  화상: 'game-icons:burning-round-shot',
   'Second Wind': 'game-icons:health-increase',
   'Chill Touch': 'game-icons:ice-bolt',
   'Fire Bolt': 'game-icons:fireball',
@@ -260,6 +281,15 @@ function formatLevel1SpellSlots(remaining: number, total: number) {
   const cappedRemaining = Math.min(cappedTotal, Math.max(0, Math.floor(remaining)));
   if (cappedTotal <= 0) return '1 --';
   return `1 ${Array.from({ length: cappedTotal }, (_, index) =>
+    index < cappedRemaining ? '●' : '○'
+  ).join('')}`;
+}
+
+function formatSpellSlotPips(level: string, remaining: number, total: number) {
+  const cappedTotal = Math.max(0, Math.floor(total));
+  const cappedRemaining = Math.min(cappedTotal, Math.max(0, Math.floor(remaining)));
+  if (cappedTotal <= 0) return `${level} --`;
+  return `${level} ${Array.from({ length: cappedTotal }, (_, index) =>
     index < cappedRemaining ? '●' : '○'
   ).join('')}`;
 }
@@ -566,6 +596,7 @@ export function CombatNodeSurface({
   onDodge,
   onHide,
   onReadyAction,
+  onApplyCondition,
   onUseClassFeature,
   onCastSpell,
   onEndCombat,
@@ -594,6 +625,7 @@ export function CombatNodeSurface({
         const spellLevel = getSpellLevel(label);
         if (spellFilter === 'cantrip') return spellLevel === 0;
         if (spellFilter === 'level1') return spellLevel === 1;
+        if (spellFilter === 'level3') return spellLevel === 3;
         return true;
       }),
     [knownMvpSpellActions, spellFilter]
@@ -624,6 +656,12 @@ export function CombatNodeSurface({
     level1SpellSlotsTotal
   );
   const spellSlotResources = myActionResources?.spellSlots ?? {};
+  const visibleSpellSlotEntries = Object.entries(spellSlotResources)
+    .filter(([level, resource]) => {
+      const numericLevel = Number(level);
+      return Number.isInteger(numericLevel) && numericLevel > 0 && resource.total > 0;
+    })
+    .sort(([left], [right]) => Number(left) - Number(right));
   const getSpellSlotTotal = (spellLevel: number) => {
     if (spellLevel === 1) return spellSlotResources['1']?.total ?? level1SpellSlotsTotal;
     return spellSlotResources[String(spellLevel)]?.total ?? 0;
@@ -868,6 +906,16 @@ export function CombatNodeSurface({
   const classAbilityButtons = useMemo(
     () => getClassAbilityButtons(myCharacter, myCombatParticipant?.conditions),
     [myCharacter, myCombatParticipant?.conditions]
+  );
+  const selectedConditionTargetId = selectedTargetParticipant
+    ? getParticipantTokenId(selectedTargetParticipant) ?? selectedTargetParticipant.sessionEntityId
+    : null;
+  const canApplyGmCondition = Boolean(
+    isGmView &&
+      onApplyCondition &&
+      selectedConditionTargetId &&
+      selectedTargetParticipant?.isAlive &&
+      !isCombatBusy
   );
   const currentTab = actionTabs.find((tab) => tab.id === activeTab) ?? actionTabs[0];
   const turnOrder = combat?.participants ?? [];
@@ -1599,9 +1647,23 @@ export function CombatNodeSurface({
             {currentTab.id === 'spell' ? (
               <div className="combat-spell-picker">
                 <div className="combat-spell-filter-rail" aria-label="마법 목록 필터">
-                  <span className="combat-spell-slot-mini" title="1레벨 주문 슬롯">
-                    {level1SpellSlotLabel}
-                  </span>
+                  <div className="combat-spell-slot-stack" aria-label="주문 슬롯">
+                    {visibleSpellSlotEntries.length ? (
+                      visibleSpellSlotEntries.map(([level, resource]) => (
+                        <span
+                          key={level}
+                          className="combat-spell-slot-mini"
+                          title={`${level}레벨 주문 슬롯`}
+                        >
+                          {formatSpellSlotPips(level, resource.remaining, resource.total)}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="combat-spell-slot-mini" title="1레벨 주문 슬롯">
+                        {level1SpellSlotLabel}
+                      </span>
+                    )}
+                  </div>
                   {spellFilterOptions.map((option) => (
                     <button
                       key={option.id}
@@ -1657,8 +1719,9 @@ export function CombatNodeSurface({
                 </div>
               </div>
             ) : currentTab.id === 'ability' ? (
-              classAbilityButtons.length ? (
-                classAbilityButtons.map((ability) => {
+              classAbilityButtons.length || isGmView ? (
+                <>
+                  {classAbilityButtons.map((ability) => {
                   const canUseFeature = Boolean(
                     canUsePlayerCharacterActions &&
                     !isCombatBusy &&
@@ -1715,7 +1778,44 @@ export function CombatNodeSurface({
                       <CombatActionButtonContent label={ability.label} />
                     </button>
                   );
-                })
+                })}
+                  {isGmView
+                    ? gmCombatConditionOptions.map((condition) => {
+                        const alreadyApplied = Boolean(
+                          selectedTargetParticipant?.conditions.includes(condition.id) ||
+                            selectedTargetParticipant?.conditions.includes(
+                              condition.id.replace(/^condition\./, '')
+                            )
+                        );
+                        return (
+                          <button
+                            type="button"
+                            key={condition.id}
+                            className="combat-action-button has-action-icon"
+                            disabled={!canApplyGmCondition}
+                            title={
+                              !selectedTargetParticipant
+                                ? '상태를 적용할 토큰을 선택하세요.'
+                                : alreadyApplied
+                                  ? `${selectedTargetParticipant.name}에게서 ${condition.label} 상태를 제거합니다.`
+                                  : `${selectedTargetParticipant.name}에게 ${condition.label} 상태를 적용합니다.`
+                            }
+                            onClick={() => {
+                              if (canApplyGmCondition && selectedConditionTargetId) {
+                                void onApplyCondition?.(
+                                  selectedConditionTargetId,
+                                  condition.id,
+                                  alreadyApplied ? 'remove' : 'add'
+                                );
+                              }
+                            }}
+                          >
+                            <CombatActionButtonContent label={condition.label} />
+                          </button>
+                        );
+                      })
+                    : null}
+                </>
               ) : (
                 <button type="button" className="combat-action-empty-button" disabled>
                   사용 가능한 직업 능력 없음

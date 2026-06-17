@@ -530,6 +530,38 @@
   color: #2e1a0e;
 }
 
+.character-growth-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.character-growth-panel label,
+.character-prepared-spell-option {
+  font-size: 15px;
+  font-weight: 700;
+  color: #2e1a0e;
+}
+
+.character-growth-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 96px) minmax(88px, max-content);
+  gap: 8px;
+  align-items: center;
+}
+
+.character-prepared-spell-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.character-prepared-spell-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
 .fantasy-character-abilities-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -21,6 +21,7 @@ import {
   ApiTags,
 } from "@nestjs/swagger";
 import {
+  ApplyHumanGmCombatConditionDto,
   CreateSessionDto,
   CreateVttMapPingDto,
   GameStateResponseDto,
@@ -183,17 +184,16 @@ export class SessionsController {
     );
   }
 
-  @Delete(":id")
+  @Delete(":id/leave")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiNoContentResponse()
-  @HttpCode(200)
-  async deleteSession(
+  @HttpCode(204)
+  async leaveSession(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<ApiResponse<null>> {
-    await this.sessionsService.deleteSession(userId, sessionId);
-    return apiResponse("SESSION_200", "Session deleted.", null);
+  ): Promise<void> {
+    await this.sessionsService.leaveSession(userId, sessionId);
   }
 
   @Post(":id/join")
@@ -211,16 +211,17 @@ export class SessionsController {
     );
   }
 
-  @Delete(":id/leave")
+  @Delete(":id")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiNoContentResponse()
-  @HttpCode(204)
-  async leaveSession(
+  @HttpCode(200)
+  async deleteSession(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<void> {
-    await this.sessionsService.leaveSession(userId, sessionId);
+  ): Promise<ApiResponse<null>> {
+    await this.sessionsService.deleteSession(userId, sessionId);
+    return apiResponse("SESSION_200", "Session deleted.", null);
   }
 
   @Get(":id/participants")
@@ -506,6 +507,22 @@ export class SessionsController {
       "SESSION_200",
       "GM inventory item granted.",
       await this.sessionsService.grantHumanGmInventoryItem(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/gm/combat/conditions")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async applyHumanGmCombatCondition(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: ApplyHumanGmCombatConditionDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM combat condition applied.",
+      await this.sessionsService.applyHumanGmCombatCondition(userId, sessionId, dto),
     );
   }
 
