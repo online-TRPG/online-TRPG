@@ -1,6 +1,250 @@
 import { VttMapStateDto } from "@trpg/shared-types";
 import { ActionProcessorService } from "./action-processor.service";
 
+describe("ActionProcessorService session action queue", () => {
+  it("processes a session queue once when processNext is called concurrently", async () => {
+    let markProcessingStarted: (() => void) | null = null;
+    const processingStarted = new Promise<void>((resolve) => {
+      markProcessingStarted = resolve;
+    });
+    let releaseProcessing: (() => void) | null = null;
+    const processingGate = new Promise<void>((resolve) => {
+      releaseProcessing = resolve;
+    });
+    const action = {
+      id: "action-1",
+      sessionId: "session-1",
+      userId: "user-1",
+      sessionCharacterId: "session-character-1",
+      rawText: "/item pickup object-rope equipment.rope 1 1 0",
+    };
+    const prisma = {
+      playerAction: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce(action)
+          .mockResolvedValueOnce(null),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitSystemMessage: jest.fn(),
+    };
+    const service = new ActionProcessorService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      processNext: (sessionId: string) => Promise<void>;
+      processAction: (actionId: string) => Promise<unknown>;
+    };
+    const processAction = jest
+      .spyOn(service, "processAction")
+      .mockImplementation(async () => {
+        markProcessingStarted?.();
+        await processingGate;
+        return { turnLogId: "turn-log-1" };
+      });
+
+    const first = service.processNext("session-1");
+    await processingStarted;
+    const second = service.processNext("session-1");
+    releaseProcessing?.();
+    await Promise.all([first, second]);
+
+    expect(prisma.playerAction.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "action-1",
+        queueStatus: "PENDING",
+      },
+      data: { queueStatus: "PROCESSING" },
+    });
+    expect(processAction).toHaveBeenCalledTimes(1);
+    expect(prisma.playerAction.update).toHaveBeenCalledTimes(1);
+    expect(realtimeEvents.emitTurnLogCreated).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not process an action when another worker claimed it first", async () => {
+    const action = {
+      id: "action-1",
+      sessionId: "session-1",
+      userId: "user-1",
+      sessionCharacterId: "session-character-1",
+      rawText: "/rest short",
+    };
+    const prisma = {
+      playerAction: {
+        findFirst: jest.fn().mockResolvedValue(action),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        update: jest.fn(),
+      },
+    };
+    const service = new ActionProcessorService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      processNext: (sessionId: string) => Promise<void>;
+      processAction: (actionId: string) => Promise<unknown>;
+    };
+    const processAction = jest.spyOn(service, "processAction");
+
+    await service.processNext("session-1");
+
+    expect(processAction).not.toHaveBeenCalled();
+    expect(prisma.playerAction.update).not.toHaveBeenCalled();
+  });
+
+  it("drains an action submitted while the active processor is finishing", async () => {
+    let releaseEmptyQueueCheck: (() => void) | null = null;
+    const emptyQueueCheckGate = new Promise<void>((resolve) => {
+      releaseEmptyQueueCheck = resolve;
+    });
+    let markEmptyQueueCheckStarted: (() => void) | null = null;
+    const emptyQueueCheckStarted = new Promise<void>((resolve) => {
+      markEmptyQueueCheckStarted = resolve;
+    });
+    const firstAction = {
+      id: "action-1",
+      sessionId: "session-1",
+      userId: "user-1",
+      sessionCharacterId: "session-character-1",
+      rawText: "/rest short",
+    };
+    const secondAction = {
+      ...firstAction,
+      id: "action-2",
+      rawText: "/rest long",
+    };
+    const prisma = {
+      playerAction: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce(firstAction)
+          .mockImplementationOnce(async () => {
+            markEmptyQueueCheckStarted?.();
+            await emptyQueueCheckGate;
+            return null;
+          })
+          .mockResolvedValueOnce(secondAction)
+          .mockResolvedValueOnce(null),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const service = new ActionProcessorService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { emitTurnLogCreated: jest.fn() } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      processNext: (sessionId: string) => Promise<void>;
+      processAction: (actionId: string) => Promise<unknown>;
+    };
+    const processAction = jest
+      .spyOn(service, "processAction")
+      .mockResolvedValue({ turnLogId: "turn-log-1" });
+
+    const activeProcessor = service.processNext("session-1");
+    await emptyQueueCheckStarted;
+    const lateRequest = service.processNext("session-1");
+    releaseEmptyQueueCheck?.();
+    await Promise.all([activeProcessor, lateRequest]);
+
+    expect(processAction).toHaveBeenNthCalledWith(1, "action-1");
+    expect(processAction).toHaveBeenNthCalledWith(2, "action-2");
+    expect(prisma.playerAction.updateMany).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses an existing turn log when a later action mutation fails", async () => {
+    const action = {
+      id: "action-1",
+      sessionId: "session-1",
+      userId: "user-1",
+      sessionCharacterId: "session-character-1",
+      rawText: "/item pickup object-rope equipment.rope 1 1 0",
+    };
+    const prisma = {
+      playerAction: {
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const correctedFailureLog = {
+      turnLogId: "turn-log-1",
+      outcome: "FAILURE",
+      narration: "행동 처리 실패: VTT map state conflict",
+    };
+    const turnLogsService = {
+      markLatestPlayerActionFailed: jest.fn().mockResolvedValue(correctedFailureLog),
+      createTurnLog: jest.fn(),
+    };
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitSystemMessage: jest.fn(),
+    };
+    const service = new ActionProcessorService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      turnLogsService as never,
+      realtimeEvents as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      processClaimedAction: (claimedAction: typeof action) => Promise<void>;
+      processAction: (actionId: string) => Promise<unknown>;
+    };
+    jest
+      .spyOn(service, "processAction")
+      .mockRejectedValue(new Error("VTT map state conflict"));
+
+    await service.processClaimedAction(action);
+
+    expect(turnLogsService.markLatestPlayerActionFailed).toHaveBeenCalledWith(
+      "action-1",
+      "VTT map state conflict",
+    );
+    expect(turnLogsService.createTurnLog).not.toHaveBeenCalled();
+    expect(realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith(
+      "session-1",
+      correctedFailureLog,
+    );
+  });
+});
+
 const createBaseMap = (): VttMapStateDto => ({
   id: "map-1",
   scenarioNodeId: "node-1",
@@ -187,7 +431,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
           currentNodeId: "node-1",
           flagsJson: JSON.stringify({ unrelatedFlag: true }),
         }),
-        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
     const prisma = {
@@ -201,7 +445,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       getSessionEntityOrThrow: jest.fn().mockResolvedValue({ hostUserId: "host-user-1" }),
       getGameStateEntityOrThrow: jest.fn().mockResolvedValue({
         sessionScenario: { id: "session-scenario-1" },
-        state: { currentNodeId: "node-1", flagsJson: null },
+        state: { currentNodeId: "node-1", flagsJson: null, version: 7 },
       }),
       getVttMapBaseline: jest.fn().mockResolvedValue(options?.map ?? createBaseMap()),
       normalizeVttMap: jest.fn((map: VttMapStateDto) => map),
@@ -212,6 +456,9 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
     };
     const realtimeEvents = {
       emitVttMapUpdated: jest.fn(),
+    };
+    const actionEconomy = {
+      spendAction: jest.fn().mockResolvedValue({ actionUsed: true }),
     };
     const mapRuntime = {
       saveSystemVttMap: jest.fn(),
@@ -225,7 +472,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       {} as never,
       realtimeEvents as never,
       {} as never,
-      {} as never,
+      actionEconomy as never,
       {} as never,
       {} as never,
       {} as never,
@@ -237,6 +484,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       tx,
       prisma,
       realtimeEvents,
+      actionEconomy,
       mapRuntime,
     };
   };
@@ -277,9 +525,14 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
     expect(tx.sessionCharacter.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "session-character-1" } }),
     );
-    const updateArg = tx.gameState.update.mock.calls[0]?.[0] as {
+    const updateArg = tx.gameState.updateMany.mock.calls[0]?.[0] as {
+      where: { sessionScenarioId: string; version: number };
       data: { flagsJson: string; version: { increment: number } };
     };
+    expect(updateArg.where).toEqual({
+      sessionScenarioId: "session-scenario-1",
+      version: 7,
+    });
     expect(updateArg.data.version).toEqual({ increment: 1 });
     expect(JSON.parse(updateArg.data.flagsJson)).toEqual(
       expect.objectContaining({
@@ -313,6 +566,68 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
     );
   });
 
+  it("spends the paired item interaction action inside the inventory and map transaction", async () => {
+    const { service, tx, actionEconomy } = createService();
+    const turnStateKey = {
+      combatId: "combat-1",
+      combatParticipantId: "participant-1",
+      roundNo: 1,
+      turnNo: 2,
+      sessionCharacterId: "session-character-1",
+    };
+
+    await service.applyInventoryMapRuntimeEffectsAtomically(
+      { ...params, turnStateKey },
+      [
+        { type: "SPEND_ACTION" },
+        {
+          type: "ADD_ITEM",
+          itemDefinitionId: "equipment.rope",
+          quantity: 2,
+        },
+        {
+          type: "REMOVE_MAP_OBJECT",
+          objectId: "object-rope",
+        },
+      ],
+    );
+
+    expect(actionEconomy.spendAction).toHaveBeenCalledWith(turnStateKey, tx);
+  });
+
+  it("defers paired item interaction action spending until the atomic transaction", async () => {
+    const { service, actionEconomy } = createService();
+
+    await service.applyEarlyRuntimeEffects(
+      {
+        runtimeEffects: [
+          { type: "SPEND_ACTION" },
+          {
+            type: "ADD_ITEM",
+            itemDefinitionId: "equipment.rope",
+            quantity: 1,
+          },
+          {
+            type: "REMOVE_MAP_OBJECT",
+            objectId: "object-rope",
+          },
+        ],
+      },
+      {
+        ...params,
+        turnStateKey: {
+          combatId: "combat-1",
+          combatParticipantId: "participant-1",
+          roundNo: 1,
+          turnNo: 2,
+          sessionCharacterId: "session-character-1",
+        },
+      },
+    );
+
+    expect(actionEconomy.spendAction).not.toHaveBeenCalled();
+  });
+
   it("does not persist or emit map changes when the paired inventory mutation fails", async () => {
     const { service, tx, realtimeEvents, mapRuntime } = createService({ inventoryEntry: null });
 
@@ -334,7 +649,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       ]),
     ).rejects.toThrow();
 
-    expect(tx.gameState.update).not.toHaveBeenCalled();
+    expect(tx.gameState.updateMany).toHaveBeenCalledTimes(1);
     expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
     expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
   });
@@ -366,7 +681,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
     });
 
     expect(tx.inventoryEntry.create).not.toHaveBeenCalled();
-    expect(tx.gameState.update).not.toHaveBeenCalled();
+    expect(tx.gameState.updateMany).not.toHaveBeenCalled();
     expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
     expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
   });
@@ -407,7 +722,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(tx.inventoryEntry.create).not.toHaveBeenCalled();
-    expect(tx.gameState.update).not.toHaveBeenCalled();
+    expect(tx.gameState.updateMany).not.toHaveBeenCalled();
     expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
     expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
   });
@@ -451,7 +766,53 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(tx.inventoryEntry.delete).not.toHaveBeenCalled();
     expect(tx.inventoryEntry.update).not.toHaveBeenCalled();
-    expect(tx.gameState.update).not.toHaveBeenCalled();
+    expect(tx.gameState.updateMany).not.toHaveBeenCalled();
+    expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
+    expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
+  });
+
+  it("rejects a concurrent pickup when the VTT state version changed", async () => {
+    const { service, tx, realtimeEvents, actionEconomy, mapRuntime } = createService();
+    tx.gameState.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(
+      service.applyInventoryMapRuntimeEffectsAtomically(
+        {
+          ...params,
+          turnStateKey: {
+            combatId: "combat-1",
+            combatParticipantId: "participant-1",
+            roundNo: 1,
+            turnNo: 2,
+            sessionCharacterId: "session-character-1",
+          },
+        },
+        [
+          { type: "SPEND_ACTION" },
+          {
+            type: "ADD_ITEM",
+            itemDefinitionId: "equipment.rope",
+            quantity: 2,
+          },
+          {
+            type: "REMOVE_MAP_OBJECT",
+            objectId: "object-rope",
+          },
+        ],
+      ),
+    ).rejects.toMatchObject({
+      response: {
+        code: "VTT_409",
+        data: {
+          reason: "MAP_STATE_VERSION_CONFLICT",
+          expectedVersion: 7,
+        },
+      },
+    });
+
+    expect(actionEconomy.spendAction).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.create).not.toHaveBeenCalled();
+    expect(tx.sessionCharacter.update).not.toHaveBeenCalled();
     expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
     expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
   });

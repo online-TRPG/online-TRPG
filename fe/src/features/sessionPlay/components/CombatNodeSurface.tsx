@@ -194,6 +194,8 @@ const mvpSpellLevelById: Record<string, 0 | 1 | 3> = {
   'spell.fireball': 3,
 };
 
+const preparedSpellClassKeys = new Set(['cleric', 'druid', 'paladin', 'wizard']);
+
 const spellFilterOptions: Array<{ id: SpellFilter; label: string }> = [
   { id: 'all', label: '전체' },
   { id: 'cantrip', label: '소마법' },
@@ -314,7 +316,11 @@ function hasMvpSpell(character: SessionCharacterResponseDto | null, spellId: str
 
   const spellLevel = mvpSpellLevelById[spellId];
   const preparedSpells = character.spells?.preparedSpells;
-  if (spellLevel && preparedSpells) {
+  if (
+    spellLevel &&
+    preparedSpellClassKeys.has(normalizeClassKey(character.className)) &&
+    preparedSpells
+  ) {
     return preparedSpells.map(normalizeSpellId).includes(spellId);
   }
 
@@ -331,6 +337,32 @@ function getKnownMvpSpellActions(character: SessionCharacterResponseDto | null) 
 function getSpellLevel(label: string) {
   const spellId = mvpSpellIdsByLabel[label];
   return spellId ? mvpSpellLevelById[spellId] : undefined;
+}
+
+function getSpellTargetingHint(spellId: string) {
+  if (
+    spellId === 'spell.chill_touch' ||
+    spellId === 'spell.fire_bolt' ||
+    spellId === 'spell.ray_of_frost'
+  ) {
+    return '사거리 안의 적 토큰을 선택하세요. 벽/닫힌 문/오브젝트 엄폐는 서버가 명중 보정에 반영합니다.';
+  }
+  if (spellId === 'spell.magic_missile') {
+    return '사거리 안의 적 토큰을 선택하세요. 대상이 완전 엄폐 뒤에 있으면 슬롯/행동 소모 전에 서버가 차단합니다.';
+  }
+  if (spellId === 'spell.cure_wounds') {
+    return '접촉 가능한 아군 또는 자기 토큰을 선택하세요. 완전 엄폐 뒤 대상은 서버가 차단합니다.';
+  }
+  if (spellId === 'spell.sleep') {
+    return '사거리 안의 타일을 선택하세요. 원점에서 완전 엄폐인 대상은 Sleep HP pool에서 제외됩니다.';
+  }
+  if (spellId === 'spell.fireball') {
+    return '사거리 안의 폭발 원점을 선택하세요. 완전 엄폐 대상은 제외되고, 일부 엄폐는 Dex 내성 보너스로 적용됩니다.';
+  }
+  if (spellId === 'spell.light') {
+    return '사거리 안의 타일을 선택하세요.';
+  }
+  return '사거리 안의 타일 또는 대상을 선택하세요.';
 }
 
 function formatLevel1SpellSlots(remaining: number, total: number) {
@@ -1518,14 +1550,7 @@ export function CombatNodeSurface({
       : combatMovementMode === 'jump'
         ? '도약: 경로상의 토큰은 무시하지만 벽과 이동불가 타일은 막습니다.'
         : targetingSpellId
-          ? targetingSpellId === 'spell.chill_touch' ||
-            targetingSpellId === 'spell.fire_bolt' ||
-            targetingSpellId === 'spell.ray_of_frost' ||
-            targetingSpellId === 'spell.magic_missile'
-            ? '사거리 안의 적 토큰을 선택하세요.'
-            : targetingSpellId === 'spell.cure_wounds'
-              ? '접촉 가능한 아군 또는 자기 토큰을 선택하세요.'
-              : '사거리 안의 타일을 선택하세요.'
+          ? getSpellTargetingHint(targetingSpellId)
           : '';
 
   return (
@@ -1584,7 +1609,12 @@ export function CombatNodeSurface({
                             participantObservation.healthText,
                             participantObservation.conditionText,
                           ].join(' / ')
-                        : `${participant.name} / HP ${participant.currentHp ?? '-'}/${participant.maxHp ?? '-'}`;
+                        : [
+                            `${participant.name} / HP ${participant.currentHp ?? '-'}/${participant.maxHp ?? '-'}`,
+                            participant.concentration ? '집중 유지 중' : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' / ');
                   return (
                     <button
                       type="button"
@@ -1635,6 +1665,15 @@ export function CombatNodeSurface({
                             <span>{participant.name.slice(0, 1)}</span>
                           )}
                         </span>
+                        {participant.concentration ? (
+                          <span
+                            className="combat-turn-concentration"
+                            title="정신을 집중해 주문을 유지하고 있다"
+                            aria-label="집중 유지 중"
+                          >
+                            집중
+                          </span>
+                        ) : null}
                       </span>
                     </button>
                   );

@@ -591,6 +591,32 @@ export class SessionRevealResponseDto {
   reason!: string | null;
 }
 
+export class PendingRestApprovalDto {
+  @ApiProperty()
+  actionId!: string;
+
+  @ApiProperty({ enum: ["short", "long"], nullable: true })
+  restType!: "short" | "long" | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  hitDiceToSpend!: number | null;
+
+  @ApiProperty()
+  requesterUserId!: string;
+
+  @ApiProperty()
+  requesterDisplayName!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  sessionCharacterId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  characterName!: string | null;
+
+  @ApiProperty()
+  requestedAt!: string;
+}
+
 export class SessionSnapshotDto {
   @ApiProperty({ type: SessionResponseDto })
   session!: SessionResponseDto;
@@ -606,6 +632,9 @@ export class SessionSnapshotDto {
 
   @ApiProperty({ type: GameStateResponseDto })
   state!: GameStateResponseDto;
+
+  @ApiPropertyOptional({ type: [PendingRestApprovalDto] })
+  pendingRestApprovals?: PendingRestApprovalDto[];
 }
 
 export class SessionListItemResponseDto {

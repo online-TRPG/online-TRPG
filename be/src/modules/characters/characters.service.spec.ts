@@ -84,6 +84,23 @@ describe("CharactersService level up", () => {
       findByKey: jest.fn().mockResolvedValue(null),
     };
     const ruleCatalogService = {
+      getSubclassChoiceLevel: jest.fn((className: string) => {
+        const choiceLevels: Record<string, number> = {
+          cleric: 1,
+          sorcerer: 1,
+          warlock: 1,
+          druid: 2,
+          wizard: 2,
+          barbarian: 3,
+          bard: 3,
+          fighter: 3,
+          monk: 3,
+          paladin: 3,
+          ranger: 3,
+          rogue: 3,
+        };
+        return choiceLevels[className.trim().toLowerCase()] ?? null;
+      }),
       getCharacterFeatureSnapshot: jest.fn().mockReturnValue({
         featureIds: [
           "class.fighter.feature.fighting_style",
@@ -243,6 +260,43 @@ describe("CharactersService level up", () => {
     ).rejects.toMatchObject({
       response: expect.objectContaining({
         code: "PREPARED_SPELL_LIMIT_EXCEEDED",
+      }),
+    });
+
+    expect(prisma.character.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects prepared spell selections for known-spell casters", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d6",
+      koName: "소서러",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 2,
+      startingSpellCount: 2,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+
+    await expect(
+      service.createCharacter("user-1", {
+        name: "Prepared Sorcerer",
+        ancestry: "Unknown",
+        className: "sorcerer",
+        level: 1,
+        abilities: { str: 8, dex: 14, con: 14, int: 10, wis: 10, cha: 15 },
+        proficientSkills: [],
+        startingEquipmentSelection: [],
+        startingSpells: {
+          cantrips: ["spell.fire_bolt", "spell.ray_of_frost"],
+          spells: ["spell.magic_missile", "spell.shield"],
+          preparedSpells: ["spell.magic_missile"],
+        },
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "PREPARED_SPELLS_NOT_SUPPORTED",
       }),
     });
 
@@ -684,6 +738,53 @@ describe("CharactersService level up", () => {
     expect(result.spells?.preparedSpells).toEqual(["spell.fireball"]);
   });
 
+  it("does not create an empty prepared-spell list when a known caster learns a spell", async () => {
+    const { service, prisma } = createService();
+    const existing = {
+      ...baseCharacter,
+      className: "sorcerer",
+      subclassName: "draconic_bloodline",
+      level: 4,
+      maxHp: 20,
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.fire_bolt"],
+        spells: ["spell.magic_missile"],
+      }),
+      sessionCharacters: [],
+    };
+    const updated = {
+      ...existing,
+      level: 5,
+      maxHp: 26,
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.fire_bolt"],
+        spells: ["spell.magic_missile", "spell.fireball"],
+      }),
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    };
+
+    prisma.character.findUnique.mockResolvedValue(existing);
+    prisma.character.update.mockResolvedValue(updated);
+
+    const result = await service.levelUpCharacter("user-1", "character-1", {
+      targetLevel: 5,
+      hpMode: "average",
+      knownSpells: ["spell.fireball"],
+    });
+
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          spellsJson: JSON.stringify({
+            cantrips: ["spell.fire_bolt"],
+            spells: ["spell.magic_missile", "spell.fireball"],
+          }),
+        }),
+      }),
+    );
+    expect(result.spells?.preparedSpells).toBeUndefined();
+  });
+
   it("updates prepared spells during an active session and emits a fresh snapshot", async () => {
     const { service, prisma, sessionsService, realtimeEvents } = createService();
     const existing = {
@@ -803,6 +904,31 @@ describe("CharactersService level up", () => {
     ).rejects.toMatchObject({
       response: expect.objectContaining({
         code: "PREPARED_SPELL_LIMIT_EXCEEDED",
+      }),
+    });
+
+    expect(prisma.character.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects prepared spell updates for known-spell casters", async () => {
+    const { service, prisma } = createService();
+    prisma.character.findUnique.mockResolvedValue({
+      ...baseCharacter,
+      className: "warlock",
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.fire_bolt"],
+        spells: ["spell.magic_missile", "spell.shield"],
+      }),
+      sessionCharacters: [],
+    });
+
+    await expect(
+      service.updatePreparedSpells("user-1", "character-1", {
+        preparedSpells: ["spell.magic_missile"],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "PREPARED_SPELLS_NOT_SUPPORTED",
       }),
     });
 

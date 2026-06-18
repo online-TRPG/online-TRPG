@@ -11,6 +11,7 @@ import { randomUUID } from "crypto";
 import {
   CombatStatus as PrismaCombatStatus,
   ConnectionStatus as PrismaConnectionStatus,
+  ActionQueueStatus as PrismaActionQueueStatus,
   GamePhase as PrismaGamePhase,
   GmMode as PrismaGmMode,
   ParticipantRole as PrismaParticipantRole,
@@ -89,6 +90,8 @@ import {
   GmOverrideKind,
   GmOverrideService,
 } from "../rules/gm-override.service";
+import { ConcentrationRuntimeService } from "../rules/concentration-runtime.service";
+import { ConditionRuntimeService } from "../rules/condition-runtime.service";
 import { ScenariosService } from "../scenarios/scenarios.service";
 import { UsersService } from "../users/users.service";
 
@@ -163,6 +166,8 @@ function isSessionListItem(
 export class SessionsService {
   private readonly logger = new Logger(SessionsService.name);
   private readonly gmOverrideService = new GmOverrideService();
+  private readonly conditionRuntime = new ConditionRuntimeService();
+  private readonly concentrationRuntime = new ConcentrationRuntimeService();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -3211,6 +3216,7 @@ export class SessionsService {
     if (!activeScenario?.gameState) {
       throw new NotFoundException(`Game state for session ${resolvedSessionId} was not found.`);
     }
+    const pendingRestApprovals = await this.buildPendingRestApprovals(resolvedSessionId);
 
     return {
       session: mapSession(ensuredSession),
@@ -3218,7 +3224,88 @@ export class SessionsService {
       participants: ensuredSession.participants.map(mapParticipant),
       sessionCharacters: ensuredSession.sessionCharacters.map(mapSessionCharacter),
       state: mapGameState(activeScenario.gameState, resolvedSessionId),
+      pendingRestApprovals,
     };
+  }
+
+  private async buildPendingRestApprovals(
+    sessionId: string
+  ): Promise<NonNullable<SessionSnapshotDto["pendingRestApprovals"]>> {
+    const actions = await this.prisma.playerAction.findMany({
+      where: {
+        sessionId,
+        queueStatus: PrismaActionQueueStatus.REJECTED,
+        failureReason: "REST_REQUIRES_GM_APPROVAL",
+      },
+      orderBy: { clientCreatedAt: "asc" },
+    });
+    const requesterUserIds = Array.from(new Set(actions.map((action) => action.userId)));
+    const sessionCharacterIds = Array.from(
+      new Set(
+        actions
+          .map((action) => action.sessionCharacterId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    const [requesters, sessionCharacters] = await Promise.all([
+      requesterUserIds.length
+        ? this.prisma.user.findMany({
+            where: { id: { in: requesterUserIds } },
+            select: { id: true, displayName: true },
+          })
+        : [],
+      sessionCharacterIds.length
+        ? this.prisma.sessionCharacter.findMany({
+            where: { id: { in: sessionCharacterIds } },
+            select: {
+              id: true,
+              character: {
+                select: { name: true },
+              },
+            },
+          })
+        : [],
+    ]);
+    const requesterById = new Map(requesters.map((user) => [user.id, user]));
+    const sessionCharacterById = new Map(
+      sessionCharacters.map((sessionCharacter) => [sessionCharacter.id, sessionCharacter]),
+    );
+
+    return actions
+      .filter((action) => action.rawText.trim().toLowerCase().startsWith("/rest "))
+      .map((action) => ({
+        actionId: action.id,
+        restType: this.resolveRestTypeFromRawText(action.rawText),
+        hitDiceToSpend: this.resolveRestHitDiceFromRawText(action.rawText),
+        requesterUserId: action.userId,
+        requesterDisplayName:
+          requesterById.get(action.userId)?.displayName ?? action.userId,
+        sessionCharacterId: action.sessionCharacterId,
+        characterName: action.sessionCharacterId
+          ? sessionCharacterById.get(action.sessionCharacterId)?.character.name ?? null
+          : null,
+        requestedAt: action.clientCreatedAt.toISOString(),
+      }));
+  }
+
+  private resolveRestTypeFromRawText(rawText: string): "short" | "long" | null {
+    const normalized = rawText.trim().toLowerCase();
+    if (normalized.startsWith("/rest short")) {
+      return "short";
+    }
+    if (normalized.startsWith("/rest long")) {
+      return "long";
+    }
+    return null;
+  }
+
+  private resolveRestHitDiceFromRawText(rawText: string): number | null {
+    const match = rawText.trim().toLowerCase().match(/^\/rest\s+short\s+(\d+)/);
+    if (!match) {
+      return null;
+    }
+    const value = Number.parseInt(match[1] ?? "", 10);
+    return Number.isInteger(value) && value > 0 ? value : null;
   }
 
   async buildDetail(sessionId: string): Promise<SessionDetailResponseDto> {
@@ -3278,6 +3365,7 @@ export class SessionsService {
     if (!activeScenario?.gameState) {
       throw new NotFoundException(`Game state for session ${resolvedSessionId} was not found.`);
     }
+    const pendingRestApprovals = await this.buildPendingRestApprovals(resolvedSessionId);
 
     return {
       session: mapSession(ensuredSession),
@@ -3288,6 +3376,7 @@ export class SessionsService {
       scenario: mapScenarioSummary(activeScenario.scenario),
       host: mapUser(ensuredHost),
       owner: mapUser(ensuredHost),
+      pendingRestApprovals,
       captain: null,
     };
   }
@@ -3714,6 +3803,7 @@ export class SessionsService {
             participant.id !== combat.currentParticipantId &&
             (participant.turnOrder ?? 0) < currentTurnOrder,
           conditions: this.toHumanGmCombatConditionTags(conditionEntries),
+          concentration: this.toHumanGmCombatConcentration(conditionEntries),
           actionResources: {
             actionAvailable: participant.id === combat.currentParticipantId,
             bonusActionAvailable: participant.id === combat.currentParticipantId,
@@ -3750,6 +3840,24 @@ export class SessionsService {
       ].filter((tag): tag is string => Boolean(tag));
     });
     return Array.from(new Set(tags));
+  }
+
+  private toHumanGmCombatConcentration(conditionEntries: unknown[]) {
+    const conditions = this.conditionRuntime.parseConditionsJson(
+      JSON.stringify(conditionEntries),
+    );
+    const concentrationState =
+      this.concentrationRuntime.readActiveConcentration(conditions);
+    return concentrationState
+      ? {
+          spellId: concentrationState.spellId,
+          targetIds: concentrationState.targetIds,
+          effectIds: concentrationState.effectIds,
+          startedAtRound: concentrationState.startedAtRound,
+          endsAtRound: concentrationState.endsAtRound ?? null,
+          endsAtTurn: concentrationState.endsAtTurn ?? null,
+        }
+      : null;
   }
 
   private async createHumanGmOverrideTurnLog(params: {

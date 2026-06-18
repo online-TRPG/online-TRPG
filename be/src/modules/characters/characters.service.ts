@@ -381,6 +381,9 @@ export class CharactersService {
         currentMaxHp: existing.maxHp,
         hpMode: dto.hpMode ?? "average",
         rolledHpByLevel: dto.rolledHpByLevel ?? {},
+        subclassChoiceLevel: this.ruleCatalogService.getSubclassChoiceLevel(
+          existing.className,
+        ),
       });
     } catch (error) {
       throw new BadRequestException(
@@ -690,6 +693,22 @@ export class CharactersService {
       });
     }
 
+    if (!this.isPreparedSpellcaster(params.className)) {
+      if (params.preparedSpells !== undefined) {
+        throw new BadRequestException({
+          code: "PREPARED_SPELLS_NOT_SUPPORTED",
+          message: "이 직업은 준비 주문 모델을 사용하지 않습니다.",
+          className: params.className,
+        });
+      }
+      const knownCasterSpells = { ...spells };
+      delete knownCasterSpells.preparedSpells;
+      return JSON.stringify({
+        ...knownCasterSpells,
+        spells: nextKnownSpells,
+      });
+    }
+
     const preparedSpells =
       params.preparedSpells === undefined
         ? (spells.preparedSpells ?? [])
@@ -725,7 +744,14 @@ export class CharactersService {
     preparedSpells: string[],
   ): void {
     const limit = this.resolvePreparedSpellLimit(character);
-    if (limit === null || preparedSpells.length <= limit) {
+    if (limit === null) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELLS_NOT_SUPPORTED",
+        message: "이 직업은 준비 주문 모델을 사용하지 않습니다.",
+        className: character.className,
+      });
+    }
+    if (preparedSpells.length <= limit) {
       return;
     }
 
@@ -752,6 +778,14 @@ export class CharactersService {
       return Math.max(1, Math.floor(level / 2) + this.getAbilityModifier(character.abilities.cha));
     }
     return null;
+  }
+
+  private isPreparedSpellcaster(className: string): boolean {
+    const normalized = className.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return normalized === "wizard" ||
+      normalized === "cleric" ||
+      normalized === "druid" ||
+      normalized === "paladin";
   }
 
   async deleteCharacter(userId: string, characterId: string): Promise<void> {

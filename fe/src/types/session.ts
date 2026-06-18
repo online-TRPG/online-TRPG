@@ -135,6 +135,7 @@ export interface LogEntry {
       actionId: string;
       restType?: "short" | "long" | null;
       status?: string | null;
+      hitDiceToSpend?: number | null;
     };
   };
 }

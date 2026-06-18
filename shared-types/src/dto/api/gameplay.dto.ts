@@ -72,6 +72,18 @@ export class ActionAcceptedResponseDto {
 
   @ApiProperty()
   baseStateVersion!: number;
+
+  @ApiPropertyOptional({
+    type: Object,
+    nullable: true,
+    description: "Structured HUMAN GM rest approval status when the accepted action is waiting for or came from rest approval.",
+  })
+  restApproval?: {
+    actionId: string;
+    restType: "short" | "long" | null;
+    status: "gm_required" | "approved";
+    hitDiceToSpend?: number | null;
+  } | null;
 }
 
 export class UseInventoryItemDto {
@@ -517,6 +529,26 @@ export class CombatMonsterActionOptionDto {
   unavailableReason?: string | null;
 }
 
+export class CombatConcentrationStateDto {
+  @ApiProperty()
+  spellId!: string;
+
+  @ApiProperty({ type: [String] })
+  targetIds!: string[];
+
+  @ApiProperty({ type: [String] })
+  effectIds!: string[];
+
+  @ApiProperty()
+  startedAtRound!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  endsAtRound!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  endsAtTurn!: number | null;
+}
+
 export class CombatParticipantResponseDto {
   @ApiProperty()
   sessionEntityId!: string;
@@ -559,6 +591,9 @@ export class CombatParticipantResponseDto {
 
   @ApiProperty({ type: [String] })
   conditions!: string[];
+
+  @ApiPropertyOptional({ type: CombatConcentrationStateDto, nullable: true })
+  concentration!: CombatConcentrationStateDto | null;
 
   @ApiProperty({ type: CombatActionResourcesDto })
   actionResources!: CombatActionResourcesDto;

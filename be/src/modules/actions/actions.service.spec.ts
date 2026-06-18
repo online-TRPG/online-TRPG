@@ -155,7 +155,12 @@ describe("ActionsService.submitRestAction", () => {
       sessionParticipant: { findUnique: jest.fn() },
       sessionCharacter: { findUnique: jest.fn(), findFirst: jest.fn() },
       combat: { findFirst: jest.fn() },
-      playerAction: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+      playerAction: {
+        create: jest.fn(),
+        findUnique: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+      },
     };
     const sessionsService = {
       getSessionEntityOrThrow: jest.fn(),
@@ -300,6 +305,12 @@ describe("ActionsService.submitRestAction", () => {
       sessionId: "session-1",
       queueStatus: ActionQueueStatus.REJECTED,
       baseStateVersion: 11,
+      restApproval: {
+        actionId: "approval-action-1",
+        restType: "short",
+        status: "gm_required",
+        hitDiceToSpend: null,
+      },
     });
     expect(deps.prisma.playerAction.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -421,12 +432,7 @@ describe("ActionsService.submitRestAction", () => {
       baseStateVersion: 11,
       clientCreatedAt: new Date("2026-06-14T01:00:00.000Z"),
     });
-    deps.prisma.playerAction.update.mockResolvedValue({
-      id: "approval-action-1",
-      userId: "player-user-1",
-      rawText: "/rest short 1",
-      clientCreatedAt: new Date("2026-06-14T01:00:00.000Z"),
-    });
+    deps.prisma.playerAction.updateMany.mockResolvedValue({ count: 1 });
 
     await expect(
       deps.service.approveRestAction("gm-user-1", "session-1", "approval-action-1"),
@@ -435,9 +441,19 @@ describe("ActionsService.submitRestAction", () => {
       sessionId: "session-1",
       queueStatus: ActionQueueStatus.PENDING,
       baseStateVersion: 11,
+      restApproval: {
+        actionId: "approval-action-1",
+        restType: "short",
+        status: "approved",
+        hitDiceToSpend: 1,
+      },
     });
-    expect(deps.prisma.playerAction.update).toHaveBeenCalledWith({
-      where: { id: "approval-action-1" },
+    expect(deps.prisma.playerAction.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "approval-action-1",
+        queueStatus: PrismaActionQueueStatus.REJECTED,
+        failureReason: "REST_REQUIRES_GM_APPROVAL",
+      },
       data: {
         queueStatus: PrismaActionQueueStatus.PENDING,
         failureReason: null,
@@ -445,6 +461,47 @@ describe("ActionsService.submitRestAction", () => {
       },
     });
     expect(deps.actionProcessor.processNext).toHaveBeenCalledWith("session-1");
+  });
+
+  it("rejects a duplicate HUMAN GM rest approval after another GM claimed it", async () => {
+    const deps = createService();
+    deps.sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      status: PrismaSessionStatus.PLAYING,
+      gmMode: PrismaGmMode.HUMAN,
+    });
+    deps.sessionsService.ensureMembership.mockResolvedValue(undefined);
+    deps.sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      state: { phase: PrismaGamePhase.EXPLORATION, version: 12 },
+    });
+    deps.prisma.sessionParticipant.findUnique.mockResolvedValue({
+      role: PrismaParticipantRole.GM,
+      status: PrismaParticipantStatus.JOINED,
+    });
+    deps.prisma.playerAction.findUnique.mockResolvedValue({
+      id: "approval-action-1",
+      sessionId: "session-1",
+      userId: "player-user-1",
+      sessionCharacterId: "session-character-1",
+      rawText: "/rest short 1",
+      queueStatus: PrismaActionQueueStatus.REJECTED,
+      failureReason: "REST_REQUIRES_GM_APPROVAL",
+      baseStateVersion: 11,
+      clientCreatedAt: new Date("2026-06-14T01:00:00.000Z"),
+    });
+    deps.prisma.playerAction.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      deps.service.approveRestAction("gm-user-1", "session-1", "approval-action-1"),
+    ).rejects.toMatchObject({
+      response: {
+        code: "ACTION_400",
+        data: { reason: "REST_APPROVAL_ALREADY_CLAIMED" },
+      },
+    });
+
+    expect(deps.actionProcessor.processNext).not.toHaveBeenCalled();
+    expect(deps.realtimeEvents.emitActionAccepted).not.toHaveBeenCalled();
   });
 
   it("rejects approving a HUMAN GM rest request after combat starts", async () => {
@@ -482,7 +539,7 @@ describe("ActionsService.submitRestAction", () => {
         data: { reason: "REST_BLOCKED_IN_COMBAT" },
       },
     });
-    expect(deps.prisma.playerAction.update).not.toHaveBeenCalled();
+    expect(deps.prisma.playerAction.updateMany).not.toHaveBeenCalled();
     expect(deps.actionProcessor.processNext).not.toHaveBeenCalled();
   });
 });

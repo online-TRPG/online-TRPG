@@ -28,6 +28,7 @@ describe("LevelUpService", () => {
       targetLevel: 3,
       hitDie: "d10",
       constitutionScore: 14,
+      subclassChoiceLevel: catalog.getSubclassChoiceLevel("fighter"),
       classFeatures: catalog.listClassFeaturesForLevel("fighter", 3),
       subclassFeatures: catalog.listSubclassFeatures("fighter", "champion", 3),
     });
@@ -63,6 +64,7 @@ describe("LevelUpService", () => {
         targetLevel: 2,
         hitDie: "d6",
         constitutionScore: 12,
+        subclassChoiceLevel: catalog.getSubclassChoiceLevel("wizard"),
         hpMode: "rolled",
         rolledHpByLevel: { 2: 5 },
       }),

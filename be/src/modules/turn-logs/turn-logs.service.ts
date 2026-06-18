@@ -125,13 +125,49 @@ export class TurnLogsService {
         where: { id: turnLogId },
         data: { narration },
         include: {
-        playerAction: {
-          select: {
-            queueStatus: true,
-            clientCreatedAt: true,
-            createdAt: true,
+          playerAction: {
+            select: {
+              queueStatus: true,
+              clientCreatedAt: true,
+              createdAt: true,
+            },
           },
         },
+      });
+      return this.mapTurnLog(updated);
+    } catch {
+      return null;
+    }
+  }
+
+  async markLatestPlayerActionFailed(
+    playerActionId: string,
+    errorMessage: string,
+  ): Promise<TurnLogResponseDto | null> {
+    try {
+      const existing = await this.prisma.turnLog.findFirst({
+        where: { playerActionId },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      });
+      if (!existing) {
+        return null;
+      }
+
+      const updated = await this.prisma.turnLog.update({
+        where: { id: existing.id },
+        data: {
+          outcome: this.toPrismaOutcome(ActionOutcome.FAILURE),
+          narration: `행동 처리 실패: ${errorMessage}`,
+        },
+        include: {
+          playerAction: {
+            select: {
+              queueStatus: true,
+              clientCreatedAt: true,
+              createdAt: true,
+            },
+          },
         },
       });
       return this.mapTurnLog(updated);
