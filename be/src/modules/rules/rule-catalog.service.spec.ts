@@ -144,6 +144,13 @@ describe("RuleCatalogService", () => {
     ]);
   });
 
+  it("derives each class subclass choice level from catalog definitions", () => {
+    expect(service.getSubclassChoiceLevel("cleric")).toBe(1);
+    expect(service.getSubclassChoiceLevel("wizard")).toBe(2);
+    expect(service.getSubclassChoiceLevel("fighter")).toBe(3);
+    expect(service.getSubclassChoiceLevel("unknown-class")).toBeNull();
+  });
+
   it("builds a full character feature snapshot with race, class, subclass, and custom features", () => {
     expect(
       service.getCharacterFeatureSnapshot({

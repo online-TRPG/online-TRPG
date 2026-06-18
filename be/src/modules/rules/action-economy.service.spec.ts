@@ -72,6 +72,25 @@ describe("ActionEconomyService", () => {
     });
   });
 
+  it("spends an action through the provided transaction client", async () => {
+    const { service, prisma } = createService();
+    const transactionClient = {
+      combatTurnState: {
+        upsert: jest.fn().mockResolvedValue(createTurnState()),
+        update: jest.fn().mockResolvedValue(createTurnState({ actionUsed: true })),
+      },
+    };
+
+    await expect(
+      service.spendAction(key, transactionClient as never),
+    ).resolves.toMatchObject({ actionUsed: true });
+
+    expect(transactionClient.combatTurnState.upsert).toHaveBeenCalledTimes(1);
+    expect(transactionClient.combatTurnState.update).toHaveBeenCalledTimes(1);
+    expect(prisma.combatTurnState.upsert).not.toHaveBeenCalled();
+    expect(prisma.combatTurnState.update).not.toHaveBeenCalled();
+  });
+
   it("spends an additional action granted by Action Surge after the normal action was used", async () => {
     const { service, prisma } = createService();
     prisma.combatTurnState.upsert.mockResolvedValue(

@@ -14,6 +14,7 @@ export type LevelUpInput = {
   currentMaxHp?: number | null;
   hpMode?: LevelUpHpMode;
   rolledHpByLevel?: Record<number, number>;
+  subclassChoiceLevel?: number | null;
   classFeatures?: RuleCatalogEntry[];
   subclassFeatures?: RuleCatalogEntry[];
 };
@@ -60,21 +61,6 @@ const HIT_DIE_STATS: Record<HitDie, { max: number; average: number }> = {
   d8: { max: 8, average: 5 },
   d10: { max: 10, average: 6 },
   d12: { max: 12, average: 7 },
-};
-
-const SUBCLASS_CHOICE_LEVELS: Record<string, number> = {
-  barbarian: 3,
-  bard: 3,
-  cleric: 1,
-  druid: 2,
-  fighter: 3,
-  monk: 3,
-  paladin: 3,
-  ranger: 3,
-  rogue: 3,
-  sorcerer: 1,
-  warlock: 1,
-  wizard: 2,
 };
 
 const ASI_OR_FEAT_LEVELS = new Set([4, 8, 12, 16, 19]);
@@ -145,7 +131,11 @@ export class LevelUpService {
       maxHpAfter,
       hpGains,
       grantedFeatures: this.resolveGrantedFeatures(input, currentLevel, targetLevel),
-      subclassChoiceRequiredAtLevels: this.resolveChoiceLevels(classKey, currentLevel, targetLevel, SUBCLASS_CHOICE_LEVELS),
+      subclassChoiceRequiredAtLevels: this.resolveSubclassChoiceLevels(
+        currentLevel,
+        targetLevel,
+        input.subclassChoiceLevel,
+      ),
       asiOrFeatChoiceRequiredAtLevels: this.resolveAsiLevels(currentLevel, targetLevel),
     };
   }
@@ -210,14 +200,16 @@ export class LevelUpService {
       }));
   }
 
-  private resolveChoiceLevels(
-    classKey: string,
+  private resolveSubclassChoiceLevels(
     currentLevel: number,
     targetLevel: number,
-    choices: Record<string, number>,
+    subclassChoiceLevel: number | null | undefined,
   ): number[] {
-    const level = choices[classKey];
-    return level && level > currentLevel && level <= targetLevel ? [level] : [];
+    if (subclassChoiceLevel === null || subclassChoiceLevel === undefined) {
+      return [];
+    }
+    const level = this.assertLevel(subclassChoiceLevel, "subclassChoiceLevel");
+    return level > currentLevel && level <= targetLevel ? [level] : [];
   }
 
   private resolveAsiLevels(currentLevel: number, targetLevel: number): number[] {

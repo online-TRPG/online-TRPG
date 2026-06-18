@@ -6,7 +6,7 @@ import {
   RevealSessionContentDto,
   ScenarioNodeType,
 } from "@trpg/shared-types";
-import { BadRequestException, ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
 import { SessionsService } from "./sessions.service";
 
 describe("HumanGmMessageDto validation", () => {
@@ -57,6 +57,101 @@ describe("ApplyHumanGmCombatConditionDto validation", () => {
     });
 
     expect(errors.some((error) => error.property === "operation")).toBe(true);
+  });
+});
+
+describe("SessionsService pending rest approval projection", () => {
+  it("projects HUMAN GM rest approval requests for reconnect snapshots", async () => {
+    const prisma = {
+      playerAction: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "action-short",
+            rawText: "/rest short 2",
+            userId: "player-1",
+            sessionCharacterId: "session-character-1",
+            clientCreatedAt: new Date("2026-06-18T01:02:03.000Z"),
+          },
+          {
+            id: "action-long",
+            rawText: "/rest long",
+            userId: "player-2",
+            sessionCharacterId: null,
+            clientCreatedAt: new Date("2026-06-18T01:03:04.000Z"),
+          },
+        ]),
+      },
+      user: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: "player-1", displayName: "Mira" },
+          { id: "player-2", displayName: "Toma" },
+        ]),
+      },
+      sessionCharacter: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "session-character-1",
+            character: { name: "Mira the Bold" },
+          },
+        ]),
+      },
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const projection = await (
+      service as unknown as {
+        buildPendingRestApprovals: (sessionId: string) => Promise<unknown[]>;
+      }
+    ).buildPendingRestApprovals("session-1");
+
+    expect(prisma.playerAction.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          sessionId: "session-1",
+          failureReason: "REST_REQUIRES_GM_APPROVAL",
+        }),
+      }),
+    );
+    expect(prisma.user.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ["player-1", "player-2"] } },
+      select: { id: true, displayName: true },
+    });
+    expect(prisma.sessionCharacter.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ["session-character-1"] } },
+      select: {
+        id: true,
+        character: {
+          select: { name: true },
+        },
+      },
+    });
+    expect(projection).toEqual([
+      {
+        actionId: "action-short",
+        restType: "short",
+        hitDiceToSpend: 2,
+        requesterUserId: "player-1",
+        requesterDisplayName: "Mira",
+        sessionCharacterId: "session-character-1",
+        characterName: "Mira the Bold",
+        requestedAt: "2026-06-18T01:02:03.000Z",
+      },
+      {
+        actionId: "action-long",
+        restType: "long",
+        hitDiceToSpend: null,
+        requesterUserId: "player-2",
+        requesterDisplayName: "Toma",
+        sessionCharacterId: null,
+        characterName: null,
+        requestedAt: "2026-06-18T01:03:04.000Z",
+      },
+    ]);
   });
 });
 
@@ -162,6 +257,20 @@ describe("SessionsService HUMAN GM messages", () => {
       },
     });
     expect(structuredAction.metadata).not.toHaveProperty("privateNote");
+    expect(flagsUpdate.data.flagsJson).not.toContain("The scout is listening.");
+    expect(turnLogCreate.data.structuredActionJson).not.toContain("The scout is listening.");
+    expect(turnLogCreate.data.stateDiffJson).not.toContain("The scout is listening.");
+    expect(realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        structuredAction: expect.not.objectContaining({
+          privateNote: "The scout is listening.",
+        }),
+        stateDiff: expect.not.objectContaining({
+          privateNote: "The scout is listening.",
+        }),
+      }),
+    );
   });
 });
 
@@ -459,6 +568,7 @@ describe("SessionsService HUMAN GM combat conditions", () => {
             sessionEntityId: "participant-goblin",
             tokenId: "token-goblin",
             conditions: ["condition.stunned"],
+            concentration: null,
           }),
         ],
       }),
@@ -594,6 +704,7 @@ describe("SessionsService HUMAN GM combat conditions", () => {
           expect.objectContaining({
             sessionEntityId: "participant-goblin",
             conditions: ["condition.poisoned"],
+            concentration: null,
           }),
         ],
       }),
@@ -602,13 +713,10 @@ describe("SessionsService HUMAN GM combat conditions", () => {
 });
 
 describe("SessionsService HUMAN GM runtime permissions", () => {
-  it("rejects a stale gmUserId when the user is not a joined GM participant", async () => {
+  function createPermissionService(participant: unknown) {
     const prisma = {
       sessionParticipant: {
-        findUnique: jest.fn().mockResolvedValue({
-          status: "LEFT",
-          role: "PLAYER",
-        }),
+        findUnique: jest.fn().mockResolvedValue(participant),
       },
     };
     const service = new SessionsService(
@@ -620,6 +728,86 @@ describe("SessionsService HUMAN GM runtime permissions", () => {
       getHumanGmSessionForOperator: (userId: string, sessionId: string) => Promise<unknown>;
       getSessionEntityOrThrow: jest.Mock;
     };
+    return { prisma, service };
+  }
+
+  it("rejects HUMAN GM override controls in AI GM sessions before participant checks", async () => {
+    const { prisma, service } = createPermissionService({
+      status: "JOINED",
+      role: "HOST",
+    });
+    service.getSessionEntityOrThrow = jest.fn().mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: "AI",
+      gmUserId: null,
+    });
+
+    await expect(
+      service.getHumanGmSessionForOperator("host-user", "session-1"),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(prisma.sessionParticipant.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("rejects a joined GM participant when they are not the assigned HUMAN GM operator", async () => {
+    const { prisma, service } = createPermissionService({
+      status: "JOINED",
+      role: "GM",
+    });
+    service.getSessionEntityOrThrow = jest.fn().mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: "HUMAN",
+      gmUserId: "assigned-gm",
+    });
+
+    await expect(
+      service.getHumanGmSessionForOperator("other-gm", "session-1"),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(prisma.sessionParticipant.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("allows the assigned HUMAN GM only when they are still a joined GM participant", async () => {
+    const { prisma, service } = createPermissionService({
+      status: "JOINED",
+      role: "GM",
+    });
+    service.getSessionEntityOrThrow = jest.fn().mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: "HUMAN",
+      gmUserId: "gm-user",
+    });
+
+    await expect(
+      service.getHumanGmSessionForOperator("gm-user", "session-1"),
+    ).resolves.toMatchObject({
+      id: "session-1",
+      gmMode: "HUMAN",
+      gmUserId: "gm-user",
+    });
+
+    expect(prisma.sessionParticipant.findUnique).toHaveBeenCalledWith({
+      where: {
+        sessionId_userId: {
+          sessionId: "session-1",
+          userId: "gm-user",
+        },
+      },
+      select: {
+        role: true,
+        status: true,
+      },
+    });
+  });
+
+  it("rejects a stale gmUserId when the user is not a joined GM participant", async () => {
+    const { prisma, service } = createPermissionService({
+      status: "LEFT",
+      role: "PLAYER",
+    });
     service.getSessionEntityOrThrow = jest.fn().mockResolvedValue({
       id: "session-1",
       hostUserId: "host-user",

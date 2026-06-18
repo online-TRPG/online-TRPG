@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { CombatTurnState } from "@prisma/client";
+import { CombatTurnState, Prisma } from "@prisma/client";
 import { badRequest } from "../../common/exceptions/domain-error";
 import { PrismaService } from "../../database/prisma.service";
 
@@ -11,12 +11,17 @@ type TurnStateKey = {
   sessionCharacterId?: string | null;
 };
 
+type ActionEconomyClient = Pick<Prisma.TransactionClient, "combatTurnState">;
+
 @Injectable()
 export class ActionEconomyService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getOrCreateTurnState(params: TurnStateKey): Promise<CombatTurnState> {
-    return this.prisma.combatTurnState.upsert({
+  async getOrCreateTurnState(
+    params: TurnStateKey,
+    client: ActionEconomyClient = this.prisma,
+  ): Promise<CombatTurnState> {
+    return client.combatTurnState.upsert({
       where: {
         combatId_roundNo_turnNo_combatParticipantId: this.toUniqueKey(params),
       },
@@ -31,17 +36,20 @@ export class ActionEconomyService {
     });
   }
 
-  async spendAction(params: TurnStateKey): Promise<CombatTurnState> {
-    const state = await this.getOrCreateTurnState(params);
+  async spendAction(
+    params: TurnStateKey,
+    client: ActionEconomyClient = this.prisma,
+  ): Promise<CombatTurnState> {
+    const state = await this.getOrCreateTurnState(params, client);
 
     if (!state.actionUsed) {
-      return this.updateTurnState(params, { actionUsed: true });
+      return this.updateTurnState(params, { actionUsed: true }, client);
     }
 
     if (state.additionalActionGranted) {
       // Action Surge로 받은 추가 action은 main action과 별도 칸으로 본다.
       // 사용 후에는 다시 false로 내려서 같은 턴에 여러 번 쓰지 못하게 한다.
-      return this.updateTurnState(params, { additionalActionGranted: false });
+      return this.updateTurnState(params, { additionalActionGranted: false }, client);
     }
 
     throw badRequest("ACTION_400", "사용 가능한 action이 없습니다.", {
@@ -125,8 +133,9 @@ export class ActionEconomyService {
         | "movementFtSpent"
       >
     >,
+    client: ActionEconomyClient = this.prisma,
   ): Promise<CombatTurnState> {
-    return this.prisma.combatTurnState.update({
+    return client.combatTurnState.update({
       where: {
         combatId_roundNo_turnNo_combatParticipantId: this.toUniqueKey(params),
       },

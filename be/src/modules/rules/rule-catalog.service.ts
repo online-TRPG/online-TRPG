@@ -802,6 +802,14 @@ export class RuleCatalogService {
       });
   }
 
+  getSubclassChoiceLevel(classKey: string): number | null {
+    const normalizedClassKey = this.normalizeClassKey(classKey);
+    const levels = this.listEntries("subclass_features")
+      .filter((entry) => entry.levelRequirement.classKey === normalizedClassKey)
+      .map((entry) => entry.levelRequirement.minClassLevel ?? 1);
+    return levels.length ? Math.min(...levels) : null;
+  }
+
   listMonsterAbilities(monsterId: string): RuleCatalogEntry[] {
     const normalizedMonsterId = this.normalizeMonsterId(monsterId);
     return this.listEntries("monster_abilities")

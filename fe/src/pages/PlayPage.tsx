@@ -2836,17 +2836,20 @@ export function PlayPage({
     vttMap?.tokens,
   ]);
   const pendingRestApprovals = useMemo(
-    () =>
-      logs
+    () => {
+      const seenActionIds = new Set<string>();
+      const logApprovals = logs
         .map((log) => {
           const restApproval = log.metadata?.restApproval;
           if (
             !restApproval?.actionId ||
             restApproval.status !== 'gm_required' ||
-            approvedRestRequestIds.has(restApproval.actionId)
+            approvedRestRequestIds.has(restApproval.actionId) ||
+            seenActionIds.has(restApproval.actionId)
           ) {
             return null;
           }
+          seenActionIds.add(restApproval.actionId);
           return {
             actionId: restApproval.actionId,
             restType: restApproval.restType,
@@ -2861,8 +2864,41 @@ export function PlayPage({
             requester: string;
             message: string;
           } => approval !== null
-        ),
-    [approvedRestRequestIds, logs]
+        );
+
+      const snapshotApprovals = (snapshot?.pendingRestApprovals ?? [])
+        .map((approval) => {
+          if (
+            !approval.actionId ||
+            approvedRestRequestIds.has(approval.actionId) ||
+            seenActionIds.has(approval.actionId)
+          ) {
+            return null;
+          }
+          seenActionIds.add(approval.actionId);
+          const restLabel = approval.restType === 'long' ? '긴 휴식' : '짧은 휴식';
+          const characterLabel = approval.characterName
+            ? `${approval.characterName}의 `
+            : '';
+          return {
+            actionId: approval.actionId,
+            restType: approval.restType,
+            requester: approval.requesterDisplayName,
+            message: `${characterLabel}${restLabel} 요청이 GM 승인 대기 상태입니다.`,
+          };
+        })
+        .filter(
+          (approval): approval is {
+            actionId: string;
+            restType: 'short' | 'long' | null;
+            requester: string;
+            message: string;
+          } => approval !== null
+        );
+
+      return [...logApprovals, ...snapshotApprovals];
+    },
+    [approvedRestRequestIds, logs, snapshot?.pendingRestApprovals]
   );
   const visibleRestApproval = canUseHumanGmView ? pendingRestApprovals[0] ?? null : null;
   const latestRenderedLogId = renderedRows[renderedRows.length - 1]?.id ?? null;

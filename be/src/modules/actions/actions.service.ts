@@ -387,6 +387,13 @@ export class ActionsService {
       sessionId: params.sessionId,
       queueStatus: ActionQueueStatus.REJECTED,
       baseStateVersion: params.stateVersion,
+      restApproval: {
+        actionId: action.id,
+        restType: params.restType,
+        status: "gm_required",
+        hitDiceToSpend:
+          params.restType === "short" ? params.hitDiceToSpend ?? null : null,
+      },
     };
   }
 
@@ -448,30 +455,65 @@ export class ActionsService {
       });
     }
 
-    const approvedAction = await this.prisma.playerAction.update({
-      where: { id: action.id },
+    const approvalClaim = await this.prisma.playerAction.updateMany({
+      where: {
+        id: action.id,
+        queueStatus: PrismaActionQueueStatus.REJECTED,
+        failureReason: "REST_REQUIRES_GM_APPROVAL",
+      },
       data: {
         queueStatus: PrismaActionQueueStatus.PENDING,
         failureReason: null,
         processedAt: null,
       },
     });
+    if (approvalClaim.count !== 1) {
+      throw badRequest("ACTION_400", "이미 처리 중이거나 처리된 휴식 요청입니다.", {
+        reason: "REST_APPROVAL_ALREADY_CLAIMED",
+      });
+    }
 
     this.realtimeEvents.emitActionAccepted(session.id, {
-      playerActionId: approvedAction.id,
-      actorUserId: approvedAction.userId,
-      rawText: approvedAction.rawText,
-      clientCreatedAt: approvedAction.clientCreatedAt.toISOString(),
+      playerActionId: action.id,
+      actorUserId: action.userId,
+      rawText: action.rawText,
+      clientCreatedAt: action.clientCreatedAt.toISOString(),
     });
 
     await this.actionProcessor.processNext(session.id);
 
     return {
-      playerActionId: approvedAction.id,
+      playerActionId: action.id,
       sessionId: session.id,
       queueStatus: ActionQueueStatus.PENDING,
       baseStateVersion: action.baseStateVersion,
+      restApproval: {
+        actionId: action.id,
+        restType: this.resolveRestTypeFromRawText(action.rawText),
+        status: "approved",
+        hitDiceToSpend: this.resolveRestHitDiceFromRawText(action.rawText),
+      },
     };
+  }
+
+  private resolveRestTypeFromRawText(rawText: string): "short" | "long" | null {
+    const normalized = rawText.trim().toLowerCase();
+    if (normalized.startsWith("/rest short")) {
+      return "short";
+    }
+    if (normalized.startsWith("/rest long")) {
+      return "long";
+    }
+    return null;
+  }
+
+  private resolveRestHitDiceFromRawText(rawText: string): number | null {
+    const match = rawText.trim().toLowerCase().match(/^\/rest\s+short\s+(\d+)/);
+    if (!match) {
+      return null;
+    }
+    const value = Number.parseInt(match[1] ?? "", 10);
+    return Number.isInteger(value) && value > 0 ? value : null;
   }
 
   async useInventoryItem(

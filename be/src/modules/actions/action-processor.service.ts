@@ -127,6 +127,10 @@ type InventoryMapRuntimeEffect = Extract<
   | { type: "REMOVE_MAP_OBJECT" }
 >;
 
+type InventoryMapAtomicRuntimeEffect =
+  | InventoryMapRuntimeEffect
+  | Extract<ActionRuntimeEffect, { type: "SPEND_ACTION" }>;
+
 const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
 const RAGE_FEATURE_ID = "class.barbarian.feature.rage";
 const MONSTER_LIMITED_USE_EXPENDED_FLAG = "monsterLimitedUseExpended";
@@ -134,6 +138,8 @@ const MONSTER_LIMITED_USE_EXPENDED_FLAG = "monsterLimitedUseExpended";
 @Injectable()
 export class ActionProcessorService {
   private readonly logger = new Logger(ActionProcessorService.name);
+  private readonly processingSessionIds = new Set<string>();
+  private readonly processAgainSessionIds = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -152,20 +158,58 @@ export class ActionProcessorService {
   ) {}
 
   async processNext(sessionId: string): Promise<void> {
+    if (this.processingSessionIds.has(sessionId)) {
+      this.processAgainSessionIds.add(sessionId);
+      return;
+    }
+    this.processingSessionIds.add(sessionId);
+
+    try {
+      while (true) {
+        const action = await this.claimNextPendingAction(sessionId);
+        if (!action) {
+          if (this.processAgainSessionIds.delete(sessionId)) {
+            continue;
+          }
+          return;
+        }
+        await this.processClaimedAction(action);
+      }
+    } finally {
+      this.processingSessionIds.delete(sessionId);
+      if (this.processAgainSessionIds.delete(sessionId)) {
+        await this.processNext(sessionId);
+      }
+    }
+  }
+
+  private async claimNextPendingAction(sessionId: string) {
     const action = await this.prisma.playerAction.findFirst({
       where: { sessionId, queueStatus: PrismaActionQueueStatus.PENDING },
       orderBy: { createdAt: "asc" },
     });
 
     if (!action) {
-      return;
+      return null;
     }
 
-    await this.prisma.playerAction.update({
-      where: { id: action.id },
+    const claimed = await this.prisma.playerAction.updateMany({
+      where: {
+        id: action.id,
+        queueStatus: PrismaActionQueueStatus.PENDING,
+      },
       data: { queueStatus: PrismaActionQueueStatus.PROCESSING },
     });
+    return claimed.count === 1 ? action : null;
+  }
 
+  private async processClaimedAction(action: {
+    id: string;
+    sessionId: string;
+    userId: string;
+    sessionCharacterId: string | null;
+    rawText: string;
+  }): Promise<void> {
     try {
       const turnLog = await this.processAction(action.id);
       await this.prisma.playerAction.update({
@@ -186,6 +230,15 @@ export class ActionProcessorService {
           processedAt: new Date(),
         },
       });
+
+      const correctedTurnLog = await this.turnLogsService.markLatestPlayerActionFailed(
+        action.id,
+        errorMessage,
+      );
+      if (correctedTurnLog) {
+        this.realtimeEvents.emitTurnLogCreated(action.sessionId, correctedTurnLog);
+        return;
+      }
 
       const failureTurnLog = await this.createFailureTurnLog(action, errorMessage);
       if (failureTurnLog) {
@@ -534,12 +587,13 @@ export class ActionProcessorService {
     params: RuntimeEffectParams,
   ): Promise<boolean> {
     let changed = false;
-    let effects = (resolution.runtimeEffects ?? []).filter((effect) => !this.isEarlyRuntimeEffect(effect));
+    const allEffects = resolution.runtimeEffects ?? [];
+    let effects = allEffects.filter((effect) => !this.isEarlyRuntimeEffect(effect));
     if (this.hasInventoryMapRuntimeEffects(effects)) {
       await this.applyInventoryMapRuntimeEffectsAtomically(
         params,
-        effects.filter((effect): effect is InventoryMapRuntimeEffect =>
-          this.isInventoryMapRuntimeEffect(effect),
+        allEffects.filter((effect): effect is InventoryMapAtomicRuntimeEffect =>
+          this.isInventoryMapAtomicRuntimeEffect(effect),
         ),
       );
       effects = effects.filter((effect) => !this.isInventoryMapRuntimeEffect(effect));
@@ -558,8 +612,13 @@ export class ActionProcessorService {
     params: RuntimeEffectParams,
   ): Promise<boolean> {
     let changed = false;
-    for (const effect of resolution.runtimeEffects ?? []) {
+    const effects = resolution.runtimeEffects ?? [];
+    const deferActionSpend = this.hasInventoryMapRuntimeEffects(effects);
+    for (const effect of effects) {
       if (!this.isEarlyRuntimeEffect(effect)) {
+        continue;
+      }
+      if (deferActionSpend && effect.type === "SPEND_ACTION") {
         continue;
       }
       await this.applyRuntimeEffect(effect, params);
@@ -801,6 +860,12 @@ export class ActionProcessorService {
     return this.isInventoryRuntimeEffect(effect) || this.isMapRuntimeEffect(effect);
   }
 
+  private isInventoryMapAtomicRuntimeEffect(
+    effect: ActionRuntimeEffect,
+  ): effect is InventoryMapAtomicRuntimeEffect {
+    return effect.type === "SPEND_ACTION" || this.isInventoryMapRuntimeEffect(effect);
+  }
+
   private isInventoryRuntimeEffect(effect: ActionRuntimeEffect): boolean {
     return effect.type === "ADD_ITEM" || effect.type === "REMOVE_ITEM";
   }
@@ -820,7 +885,7 @@ export class ActionProcessorService {
 
   private async applyInventoryMapRuntimeEffectsAtomically(
     params: RuntimeEffectParams,
-    effects: InventoryMapRuntimeEffect[],
+    effects: InventoryMapAtomicRuntimeEffect[],
   ): Promise<void> {
     const session = await this.sessionsService.getSessionEntityOrThrow(params.sessionId);
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(params.sessionId);
@@ -833,16 +898,6 @@ export class ActionProcessorService {
     const nextMap = this.applyMapRuntimeEffectsToMap(baselineMap, effects);
 
     const savedMap = await this.prisma.$transaction(async (tx) => {
-      for (const effect of effects) {
-        if (effect.type === "ADD_ITEM") {
-          await this.addInventoryItemWithClient(tx, params.sessionCharacterId, effect);
-        } else if (effect.type === "REMOVE_ITEM") {
-          await this.removeInventoryItemWithClient(tx, params.sessionCharacterId, effect);
-        }
-      }
-
-      await this.syncSessionInventorySnapshotWithClient(tx, params.sessionCharacterId);
-
       const currentState = await tx.gameState.findUnique({
         where: { sessionScenarioId: params.sessionScenarioId },
         select: { currentNodeId: true, flagsJson: true },
@@ -852,8 +907,11 @@ export class ActionProcessorService {
         nextMap,
         currentState?.currentNodeId ?? state.currentNodeId ?? null,
       );
-      await tx.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
+      const updatedState = await tx.gameState.updateMany({
+        where: {
+          sessionScenarioId: params.sessionScenarioId,
+          version: state.version,
+        },
         data: {
           version: { increment: 1 },
           flagsJson: JSON.stringify({
@@ -862,6 +920,26 @@ export class ActionProcessorService {
           }),
         },
       });
+      if (updatedState.count !== 1) {
+        throw conflict("VTT_409", "다른 요청이 맵 상태를 먼저 변경했습니다.", {
+          reason: "MAP_STATE_VERSION_CONFLICT",
+          expectedVersion: state.version,
+        });
+      }
+
+      for (const effect of effects) {
+        if (effect.type === "SPEND_ACTION") {
+          if (params.turnStateKey) {
+            await this.actionEconomy.spendAction(params.turnStateKey, tx);
+          }
+        } else if (effect.type === "ADD_ITEM") {
+          await this.addInventoryItemWithClient(tx, params.sessionCharacterId, effect);
+        } else if (effect.type === "REMOVE_ITEM") {
+          await this.removeInventoryItemWithClient(tx, params.sessionCharacterId, effect);
+        }
+      }
+
+      await this.syncSessionInventorySnapshotWithClient(tx, params.sessionCharacterId);
       return normalizedMap;
     });
 
@@ -874,7 +952,7 @@ export class ActionProcessorService {
 
   private applyMapRuntimeEffectsToMap(
     map: VttMapStateDto,
-    effects: InventoryMapRuntimeEffect[],
+    effects: InventoryMapAtomicRuntimeEffect[],
   ): VttMapStateDto {
     const gridSize = map.gridSize || 50;
     let objectCells = [...(map.objectCells ?? [])];
@@ -918,7 +996,7 @@ export class ActionProcessorService {
 
   private assertMapRuntimeEffectsApplicable(
     map: VttMapStateDto,
-    effects: InventoryMapRuntimeEffect[],
+    effects: InventoryMapAtomicRuntimeEffect[],
   ): void {
     const objectIds = new Set((map.objectCells ?? []).map((cell) => cell.id));
     for (const effect of effects) {

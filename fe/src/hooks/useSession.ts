@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
+  ActionAcceptedResponseDto,
   ActionAcceptedEventDto,
   ActionInputType,
   ActionScope,
@@ -354,6 +355,41 @@ function getTurnLogRestApprovalMetadata(turnLog: TurnLogResponseDto): LogEntry['
       status: typeof restAction.approvalStatus === 'string' ? restAction.approvalStatus : null,
     },
   };
+}
+
+function getRestApprovalMetadataFromResponse(
+  response: ActionAcceptedResponseDto
+): LogEntry['metadata'] | undefined {
+  const restApproval = response.restApproval;
+
+  if (!restApproval?.actionId) {
+    return undefined;
+  }
+
+  return {
+    restApproval: {
+      actionId: restApproval.actionId,
+      restType: restApproval.restType,
+      status: restApproval.status,
+      hitDiceToSpend: restApproval.hitDiceToSpend ?? null,
+    },
+  };
+}
+
+function formatRestApprovalRequestMessage(
+  restApproval: NonNullable<ActionAcceptedResponseDto['restApproval']>
+) {
+  const label = restApproval.restType === 'long' ? '긴 휴식' : '짧은 휴식';
+  const hitDiceSuffix =
+    restApproval.restType === 'short' && restApproval.hitDiceToSpend
+      ? ` · 히트 다이스 ${restApproval.hitDiceToSpend}개`
+      : '';
+
+  return `[MAIN]${label} 요청이 GM 승인 대기 상태입니다.${hitDiceSuffix}`;
+}
+
+function isLongRestAccepted(response: ActionAcceptedResponseDto, requestedRestType?: RestActionDto['restType']) {
+  return response.restApproval?.restType === 'long' || requestedRestType === 'long';
 }
 
 function getTurnLogMetadata(turnLog: TurnLogResponseDto): LogEntry['metadata'] | undefined {
@@ -1670,7 +1706,7 @@ export function useSession(
     setBusy(true);
 
     try {
-      await apiSubmitRestAction(
+      const response = await apiSubmitRestAction(
         user,
         snapshot.session.id,
         {
@@ -1682,7 +1718,26 @@ export function useSession(
         },
         accessToken,
       );
+      const restApprovalMetadata = getRestApprovalMetadataFromResponse(response);
+      if (response.restApproval?.status === 'gm_required' && restApprovalMetadata) {
+        appendLog(
+          'action',
+          user.displayName,
+          formatRestApprovalRequestMessage(response.restApproval),
+          `rest-approval:${response.restApproval.actionId}`,
+          undefined,
+          restApprovalMetadata
+        );
+      }
       await syncSession(snapshot.session.id);
+      if (isLongRestAccepted(response, restType) && response.restApproval?.status !== 'gm_required') {
+        appendLog(
+          'rest',
+          '준비 주문 안내',
+          '긴 휴식이 처리되었습니다. 준비 주문을 쓰는 캐릭터는 캐릭터 화면에서 준비 주문을 다시 조정할 수 있습니다.',
+          `long-rest-prepared-spells:${response.playerActionId}`
+        );
+      }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '휴식 요청에 실패했습니다.';
       setError(message);
@@ -1699,9 +1754,24 @@ export function useSession(
     setBusy(true);
 
     try {
-      await apiApproveRestAction(user, snapshot.session.id, actionId, accessToken);
+      const response = await apiApproveRestAction(user, snapshot.session.id, actionId, accessToken);
       await syncSession(snapshot.session.id);
-      appendLog('rest', '휴식 승인', 'GM이 휴식 요청을 승인했습니다.');
+      appendLog(
+        'rest',
+        '휴식 승인',
+        'GM이 휴식 요청을 승인했습니다.',
+        `rest-approval:${actionId}:approved`,
+        undefined,
+        getRestApprovalMetadataFromResponse(response)
+      );
+      if (isLongRestAccepted(response)) {
+        appendLog(
+          'rest',
+          '준비 주문 안내',
+          '긴 휴식이 승인되었습니다. 준비 주문을 쓰는 캐릭터는 캐릭터 화면에서 준비 주문을 다시 조정할 수 있습니다.',
+          `long-rest-prepared-spells:${response.playerActionId}`
+        );
+      }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '휴식 요청 승인에 실패했습니다.';
       setError(message);

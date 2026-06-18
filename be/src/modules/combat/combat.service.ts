@@ -1529,6 +1529,7 @@ export class CombatService {
           this.resolveCombatSpellRangeFt(spellDefinition, 120),
         ),
       );
+      targets.forEach((target) => this.assertSpellTargetLineOfEffect(map, casterToken, target));
       await this.assertSpellSlotAvailable(session.id, caster.sessionCharacterId, slotLevel);
       await this.spendCurrentActionIfNeeded(combat, caster);
       await this.spendSpellSlot(session.id, caster.sessionCharacterId, slotLevel);
@@ -1556,6 +1557,7 @@ export class CombatService {
         target,
         this.resolveCombatSpellRangeFt(spellDefinition, 5),
       );
+      this.assertSpellTargetLineOfEffect(map, casterToken, target);
       await this.assertSpellSlotAvailable(session.id, caster.sessionCharacterId, slotLevel);
       await this.spendCurrentActionIfNeeded(combat, caster);
       await this.spendSpellSlot(session.id, caster.sessionCharacterId, slotLevel);
@@ -1582,7 +1584,10 @@ export class CombatService {
         .filter((participant) => participant.isAlive && participant.id !== caster.id && (participant.currentHp ?? 0) > 0)
         .filter((participant) => {
           const token = this.findParticipantToken(map, participant);
-          return token ? this.getGridPointDistanceFt(map, point, token) <= 20 : false;
+          return token
+            ? this.getGridPointDistanceFt(map, point, token) <= 20 &&
+                this.resolveAoeCover(map, point, participant, false).targetable
+            : false;
         })
         .sort((left, right) => (left.currentHp ?? 0) - (right.currentHp ?? 0));
       const slept: string[] = [];
@@ -1628,15 +1633,22 @@ export class CombatService {
           hidden: token.hidden,
         })),
       }).tokenIds;
-      const targets = combat.participants.filter(
+      const possibleTargets = combat.participants.filter(
         (participant) => participant.tokenId && targetTokenIds.includes(participant.tokenId),
       );
+      const targetsWithCover = possibleTargets
+        .map((target) => ({
+          target,
+          cover: this.resolveAoeCover(map, point, target, saveAbility === "dex"),
+        }))
+        .filter(({ cover }) => cover.targetable);
+      const targets = targetsWithCover.map(({ target }) => target);
       if (!targets.length) {
         throw conflict("COMBAT_409", "Fireball 범위 안에 대상이 없습니다.", { reason: "SPELL_TARGET_REQUIRED" });
       }
       const saveDc = await this.resolveCombatSpellSaveDc(caster.sessionCharacterId);
       const aoeTargets = await Promise.all(
-        targets.map((target) => this.toCombatAoeDamageTarget(target, map, saveAbility)),
+        targetsWithCover.map(({ target, cover }) => this.toCombatAoeDamageTarget(target, map, saveAbility, cover)),
       );
       await this.assertSpellSlotAvailable(session.id, caster.sessionCharacterId, slotLevel);
       await this.spendCurrentActionIfNeeded(combat, caster);
@@ -4459,6 +4471,33 @@ export class CombatService {
     });
   }
 
+  private resolveAoeCover(
+    map: VttMapStateDto,
+    origin: { x: number; y: number },
+    target: CombatParticipantEntity,
+    appliesToDexteritySave: boolean,
+  ): CoverModifierProduced {
+    const targetToken = this.findParticipantToken(map, target);
+    const coverResolution =
+      targetToken
+        ? this.coverPositions.resolveCover({
+            attacker: this.mapPointToGridPoint(map, origin),
+            target: this.toCoverGridPoint(map, targetToken),
+            blockers: this.mapCoverBlockers(map),
+          })
+        : this.coverPositions.resolveCover({
+            attacker: { x: 0, y: 0 },
+            target: { x: 0, y: 0 },
+            blockers: [],
+          });
+
+    return this.ruleEngine.resolveCoverModifiers({
+      coverLevel: coverResolution.coverLevel,
+      appliesToAttackRoll: false,
+      appliesToDexteritySave,
+    }).produced;
+  }
+
   private async assertMonsterLimitedUseActionAvailable(
     sessionId: string,
     actor: CombatParticipantEntity,
@@ -5499,8 +5538,13 @@ export class CombatService {
     participant: CombatParticipantEntity,
     map: VttMapStateDto,
     saveAbility: SavingThrowAbility,
+    cover?: CoverModifierProduced,
   ): Promise<AoeDamageTarget> {
     const damageTags = this.combatConditionTags(await this.readCombatConditionEntries(participant));
+    const coverSaveBonus =
+      cover && cover.dexteritySaveBonus > 0
+        ? [{ source: `cover:${cover.coverLevel}:dex_save`, value: cover.dexteritySaveBonus }]
+        : undefined;
     if (!participant.sessionCharacterId) {
       const token = this.findParticipantToken(map, participant);
       return {
@@ -5509,6 +5553,7 @@ export class CombatService {
         abilityModifiers: {
           [saveAbility]: saveAbility === "dex" && token ? this.resolveMonsterDexterityModifier(token) : 0,
         },
+        bonusModifiers: coverSaveBonus,
         immunities: this.getDamageTypesByPrefix(damageTags, "immunity"),
         resistances: this.getDamageTypesByPrefix(damageTags, "resistance"),
         vulnerabilities: this.getDamageTypesByPrefix(damageTags, "vulnerability"),
@@ -5545,6 +5590,7 @@ export class CombatService {
       },
       proficiencyBonus: sessionCharacter?.character.proficiencyBonus ?? 0,
       proficientSaves,
+      bonusModifiers: coverSaveBonus,
       immunities: this.getDamageTypesByPrefix(damageTags, "immunity"),
       resistances: this.getDamageTypesByPrefix(damageTags, "resistance"),
       vulnerabilities: this.getDamageTypesByPrefix(damageTags, "vulnerability"),
@@ -5618,6 +5664,33 @@ export class CombatService {
     const targetToken = this.findParticipantToken(map, target);
     if (!targetToken || this.getTokenGridDistanceFt(map, casterToken, targetToken) > rangeFt) {
       throw conflict("COMBAT_409", "주문 대상이 사거리 밖입니다.", { reason: "SPELL_TARGET_OUT_OF_RANGE" });
+    }
+  }
+
+  private assertSpellTargetLineOfEffect(
+    map: VttMapStateDto,
+    casterToken: VttMapStateDto["tokens"][number],
+    target: CombatParticipantEntity,
+  ): void {
+    const targetToken = this.findParticipantToken(map, target);
+    if (!targetToken) {
+      return;
+    }
+    const coverResolution = this.coverPositions.resolveCover({
+      attacker: this.toCoverGridPoint(map, casterToken),
+      target: this.toCoverGridPoint(map, targetToken),
+      blockers: this.mapCoverBlockers(map),
+    });
+    const coverRuleResult = this.ruleEngine.resolveCoverModifiers({
+      coverLevel: coverResolution.coverLevel,
+      appliesToAttackRoll: false,
+      appliesToDexteritySave: false,
+    });
+    if (!coverRuleResult.produced.targetable) {
+      throw conflict("COMBAT_409", "대상이 완전 엄폐 상태입니다.", {
+        reason: "TARGET_HAS_FULL_COVER",
+        coverLevel: coverRuleResult.produced.coverLevel,
+      });
     }
   }
 
@@ -6151,6 +6224,7 @@ export class CombatService {
       target,
       this.resolveCombatSpellRangeFt(this.resolveCombatSpellDefinition("spell.magic_missile"), 120),
     );
+    this.assertSpellTargetLineOfEffect(map, casterToken, target);
 
     await this.actionEconomy.spendReaction({
       combatId: params.combat.id,
@@ -7565,9 +7639,17 @@ export class CombatService {
         const currentHp = sessionCharacter?.currentHp ?? participant.currentHp ?? null;
         const maxHp = sessionCharacter?.character.maxHp ?? participant.maxHp ?? null;
         const armorClass = sessionCharacter?.character.armorClass ?? participant.armorClass ?? null;
+        const conditionsJson =
+          sessionCharacter?.conditionsJson ?? participant.conditionsJson ?? "[]";
+        const conditionEntries = this.parseConditionEntries(conditionsJson);
+        const conditionInstances = this.conditionRuntime.parseConditionsJson(
+          JSON.stringify(conditionEntries),
+        );
+        const concentrationState =
+          this.concentrationRuntime.readActiveConcentration(conditionInstances);
         const movementFtTotal = this.applyMovementSpeedPenalties(
           sessionCharacter?.character.speed ?? participant.speedFt ?? 30,
-          sessionCharacter?.conditionsJson ?? participant.conditionsJson ?? "[]",
+          conditionsJson,
         );
         const turnState = turnStateByParticipantId.get(participant.id) ?? null;
         const spellSlots = this.resolveCombatSpellSlotResources(
@@ -7595,9 +7677,17 @@ export class CombatService {
             participant.isAlive &&
             participant.id !== combat.currentParticipantId &&
             participant.turnOrder < currentTurnOrder,
-          conditions: this.parseConditions(
-            sessionCharacter?.conditionsJson ?? participant.conditionsJson ?? "[]",
-          ),
+          conditions: this.combatConditionTags(conditionEntries),
+          concentration: concentrationState
+            ? {
+                spellId: concentrationState.spellId,
+                targetIds: concentrationState.targetIds,
+                effectIds: concentrationState.effectIds,
+                startedAtRound: concentrationState.startedAtRound,
+                endsAtRound: concentrationState.endsAtRound ?? null,
+                endsAtTurn: concentrationState.endsAtTurn ?? null,
+              }
+            : null,
           actionResources: {
             actionAvailable: !turnState?.actionUsed || Boolean(turnState?.additionalActionGranted),
             bonusActionAvailable: !Boolean(turnState?.bonusActionUsed),

@@ -41,6 +41,46 @@ describe("ConcentrationRuntimeService", () => {
     ]);
   });
 
+  it("reads the active concentration state from structured condition tags", () => {
+    const concentration = conditionRuntime.createCondition({
+      conditionId: "condition.concentration",
+      sourceId: "spell.hold_person",
+      appliedAtRound: 2,
+      expiresAtTurn: { round: 12, turn: 3 },
+      tags: [
+        "concentration",
+        "concentration:spell:spell.hold_person",
+        "concentration:target:target-1",
+        "concentration:target:target-2",
+        "concentration:effect:effect-hold-1",
+      ],
+    });
+
+    expect(service.readActiveConcentration([concentration])).toEqual({
+      casterId: "",
+      spellId: "spell.hold_person",
+      targetIds: ["target-1", "target-2"],
+      effectIds: ["effect-hold-1"],
+      startedAtRound: 2,
+      endsAtRound: 12,
+      endsAtTurn: 3,
+    });
+  });
+
+  it("returns null when no valid active concentration can be decoded", () => {
+    const malformed = conditionRuntime.createCondition({
+      conditionId: "condition.concentration",
+      sourceId: null,
+      tags: ["concentration"],
+    });
+    const poisoned = conditionRuntime.createCondition({
+      conditionId: "condition.poisoned",
+    });
+
+    expect(service.readActiveConcentration([poisoned])).toBeNull();
+    expect(service.readActiveConcentration([malformed])).toBeNull();
+  });
+
   it("keeps concentration when the damage check succeeds", () => {
     const concentration = conditionRuntime.createCondition({
       conditionId: "condition.concentration",
