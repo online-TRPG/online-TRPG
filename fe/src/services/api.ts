@@ -16,6 +16,7 @@ import type {
   CreateVttMapPingDto,
   EquippedWeaponAttackDto,
   EndTurnDto,
+  ForceMoveCombatParticipantDto,
   GrantHumanGmInventoryItemDto,
   GmMode,
   HumanGmMessageDto,
@@ -1242,6 +1243,20 @@ export function moveCombatParticipant(
   accessToken?: string | null
 ): Promise<CombatMoveResultDto> {
   return requestJson<CombatMoveResultDto>(`/sessions/${sessionId}/combat/move`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function forceMoveCombatParticipant(
+  user: StoredUser,
+  sessionId: string,
+  payload: ForceMoveCombatParticipantDto,
+  accessToken?: string | null
+): Promise<CombatMoveResultDto> {
+  return requestJson<CombatMoveResultDto>(`/sessions/${sessionId}/combat/force-move`, {
     method: 'POST',
     user,
     accessToken,

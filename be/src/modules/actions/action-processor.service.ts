@@ -129,6 +129,7 @@ type InventoryMapRuntimeEffect = Extract<
 
 const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
 const RAGE_FEATURE_ID = "class.barbarian.feature.rage";
+const MONSTER_LIMITED_USE_EXPENDED_FLAG = "monsterLimitedUseExpended";
 
 @Injectable()
 export class ActionProcessorService {
@@ -637,6 +638,7 @@ export class ActionProcessorService {
           actionSurgeUses: effect.actionSurgeUses,
           hitDiceSpent: effect.hitDiceSpent,
         });
+        await this.recoverShortRestMonsterLimitedUses(params.sessionScenarioId);
         return;
       case "RECOVER_LONG_REST":
         // Long Rest는 Rage/Frenzy 같은 지속 자원까지 종료하므로 전용 회복 메서드에 위임한다.
@@ -680,7 +682,8 @@ export class ActionProcessorService {
     resolution: ActionResolution,
     params: RuntimeEffectParams,
   ): Promise<void> {
-    for (const effect of resolution.runtimeEffects ?? []) {
+    const effects = resolution.runtimeEffects ?? [];
+    for (const effect of effects) {
       if (effect.type === "SPEND_SPELL_SLOT") {
         await this.assertSpellSlotAvailable(
           params.sessionScenarioId,
@@ -688,6 +691,104 @@ export class ActionProcessorService {
           effect.slotLevel,
         );
       }
+    }
+    const laterEffects = effects.filter((effect) => !this.isEarlyRuntimeEffect(effect));
+    await this.assertInventoryRuntimeEffectsApplicable(
+      params.sessionCharacterId,
+      laterEffects.filter((effect) => this.isInventoryRuntimeEffect(effect)),
+    );
+    if (!this.hasInventoryMapRuntimeEffects(laterEffects)) {
+      return;
+    }
+    const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(
+      params.sessionId,
+    );
+    const baselineMap = await this.sessionsService.getVttMapBaseline(
+      params.sessionId,
+      sessionScenario.id,
+      state,
+    );
+    this.assertMapRuntimeEffectsApplicable(
+      baselineMap,
+      laterEffects.filter((effect): effect is InventoryMapRuntimeEffect =>
+        this.isInventoryMapRuntimeEffect(effect),
+      ),
+    );
+  }
+
+  private async assertInventoryRuntimeEffectsApplicable(
+    sessionCharacterId: string,
+    effects: ActionRuntimeEffect[],
+  ): Promise<void> {
+    for (const effect of effects) {
+      if (effect.type === "ADD_ITEM") {
+        await this.assertInventoryItemDefinitionAvailable(effect);
+      } else if (effect.type === "REMOVE_ITEM") {
+        await this.assertInventoryEntryRemovable(sessionCharacterId, effect);
+      }
+    }
+  }
+
+  private async assertInventoryItemDefinitionAvailable(
+    effect: Extract<ActionRuntimeEffect, { type: "ADD_ITEM" }>,
+  ): Promise<void> {
+    const itemDefinition = await this.prisma.itemDefinition.findFirst({
+      where: {
+        OR: [
+          { id: effect.itemDefinitionId },
+          { name: { equals: effect.itemDefinitionId, mode: "insensitive" } },
+        ],
+      },
+    });
+    if (!itemDefinition) {
+      throw notFound("INVENTORY_404", "아이템 정의를 찾을 수 없습니다.", {
+        reason: "ITEM_DEFINITION_NOT_FOUND",
+        itemDefinitionId: effect.itemDefinitionId,
+      });
+    }
+  }
+
+  private async assertInventoryEntryRemovable(
+    sessionCharacterId: string,
+    effect: Extract<ActionRuntimeEffect, { type: "REMOVE_ITEM" }>,
+  ): Promise<void> {
+    const quantity = this.normalizeInventoryQuantity(effect.quantity);
+    const entry = await this.prisma.inventoryEntry.findFirst({
+      where: {
+        sessionCharacterId,
+        OR: [
+          { id: effect.itemId },
+          { itemDefinitionId: effect.itemId },
+          {
+            itemDefinition: {
+              is: {
+                OR: [
+                  { id: effect.itemId },
+                  { name: { equals: effect.itemId, mode: "insensitive" } },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!entry) {
+      throw notFound("INVENTORY_404", "인벤토리 아이템을 찾을 수 없습니다.", {
+        reason: "INVENTORY_ENTRY_NOT_FOUND",
+        itemId: effect.itemId,
+      });
+    }
+    if (quantity < entry.quantity) {
+      return;
+    }
+    const containedCount = await this.prisma.inventoryEntry.count({
+      where: { containerEntryId: entry.id },
+    });
+    if (containedCount > 0) {
+      throw badRequest("INVENTORY_400", "내용물이 있는 컨테이너는 삭제할 수 없습니다.", {
+        reason: "CONTAINER_NOT_EMPTY",
+      });
     }
   }
 
@@ -796,7 +897,11 @@ export class ActionProcessorService {
       } else if (effect.type === "UPDATE_MAP_OBJECT_QUANTITY") {
         objectCells = objectCells.map((cell) =>
           cell.id === effect.objectId
-            ? { ...cell, description: `${effect.itemDefinitionId} x${effect.quantity}` }
+            ? {
+                ...cell,
+                description: `${effect.itemDefinitionId} x${effect.quantity}`,
+                hiddenItemIds: [effect.itemDefinitionId],
+              }
             : cell,
         );
       } else if (effect.type === "REMOVE_MAP_OBJECT") {
@@ -1105,6 +1210,7 @@ export class ActionProcessorService {
           ? {
               ...cell,
               description: `${effect.itemDefinitionId} x${effect.quantity}`,
+              hiddenItemIds: [effect.itemDefinitionId],
             }
           : cell,
       ),
@@ -1161,8 +1267,20 @@ export class ActionProcessorService {
       JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
       {},
     );
+    const hasSpellSlotsFlag = Object.prototype.hasOwnProperty.call(
+      flags,
+      "spellSlotsBySessionCharacterId",
+    );
+    const limitedUseRecovery = this.clearRestBoundMonsterLimitedUses(
+      flags[MONSTER_LIMITED_USE_EXPENDED_FLAG],
+      "long",
+    );
+    const hasSpellSlotOverride = Object.prototype.hasOwnProperty.call(
+      spellSlotsBySessionCharacterId,
+      sessionCharacterId,
+    );
 
-    if (!Object.prototype.hasOwnProperty.call(spellSlotsBySessionCharacterId, sessionCharacterId)) {
+    if (!hasSpellSlotOverride && !limitedUseRecovery.changed) {
       return;
     }
 
@@ -1176,10 +1294,97 @@ export class ActionProcessorService {
       data: {
         flagsJson: JSON.stringify({
           ...flags,
-          spellSlotsBySessionCharacterId: remainingSpellSlotsBySessionCharacterId,
+          ...(limitedUseRecovery.hasFlag || limitedUseRecovery.changed
+            ? { [MONSTER_LIMITED_USE_EXPENDED_FLAG]: limitedUseRecovery.value }
+            : {}),
+          ...(hasSpellSlotOverride || hasSpellSlotsFlag
+            ? {
+                spellSlotsBySessionCharacterId: hasSpellSlotOverride
+                  ? remainingSpellSlotsBySessionCharacterId
+                  : spellSlotsBySessionCharacterId,
+              }
+            : {}),
         }),
       },
     });
+  }
+
+  private async recoverShortRestMonsterLimitedUses(sessionScenarioId: string): Promise<void> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const limitedUseRecovery = this.clearRestBoundMonsterLimitedUses(
+      flags[MONSTER_LIMITED_USE_EXPENDED_FLAG],
+      "short",
+    );
+
+    if (!limitedUseRecovery.changed) {
+      return;
+    }
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          [MONSTER_LIMITED_USE_EXPENDED_FLAG]: limitedUseRecovery.value,
+        }),
+      },
+    });
+  }
+
+  private clearRestBoundMonsterLimitedUses(value: unknown, restKind: "short" | "long"): {
+    value: Record<string, Record<string, unknown>>;
+    changed: boolean;
+    hasFlag: boolean;
+  } {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return { value: {}, changed: false, hasFlag: false };
+    }
+
+    let changed = false;
+    const remaining: Record<string, Record<string, unknown>> = {};
+    for (const [participantId, actions] of Object.entries(value)) {
+      if (!actions || typeof actions !== "object" || Array.isArray(actions)) {
+        changed = true;
+        continue;
+      }
+
+      const remainingActions: Record<string, unknown> = {};
+      for (const [actionId, entry] of Object.entries(actions)) {
+        if (this.isRestBoundMonsterLimitedUse(entry, restKind)) {
+          changed = true;
+          continue;
+        }
+        remainingActions[actionId] = entry;
+      }
+
+      if (Object.keys(remainingActions).length > 0) {
+        remaining[participantId] = remainingActions;
+      } else {
+        changed = true;
+      }
+    }
+
+    return { value: remaining, changed, hasFlag: true };
+  }
+
+  private isRestBoundMonsterLimitedUse(entry: unknown, restKind: "short" | "long"): boolean {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return false;
+    }
+    const usage = (entry as { usage?: unknown }).usage;
+    if (typeof usage !== "string") {
+      return false;
+    }
+    const match = usage.trim().match(/^\d+\s*\/\s*(day|rest)$/i);
+    if (!match) {
+      return false;
+    }
+    const scope = match[1]?.toLowerCase();
+    return scope === "rest" || (restKind === "long" && scope === "day");
   }
 
   private async spendSpellSlot(

@@ -446,4 +446,43 @@ describe("ActionsService.submitRestAction", () => {
     });
     expect(deps.actionProcessor.processNext).toHaveBeenCalledWith("session-1");
   });
+
+  it("rejects approving a HUMAN GM rest request after combat starts", async () => {
+    const deps = createService();
+    deps.sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      status: PrismaSessionStatus.PLAYING,
+      gmMode: PrismaGmMode.HUMAN,
+    });
+    deps.sessionsService.ensureMembership.mockResolvedValue(undefined);
+    deps.sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      state: { phase: PrismaGamePhase.COMBAT, version: 12 },
+    });
+    deps.prisma.sessionParticipant.findUnique.mockResolvedValue({
+      role: PrismaParticipantRole.GM,
+      status: PrismaParticipantStatus.JOINED,
+    });
+    deps.prisma.playerAction.findUnique.mockResolvedValue({
+      id: "approval-action-1",
+      sessionId: "session-1",
+      userId: "player-user-1",
+      sessionCharacterId: "session-character-1",
+      rawText: "/rest short 1",
+      queueStatus: PrismaActionQueueStatus.REJECTED,
+      failureReason: "REST_REQUIRES_GM_APPROVAL",
+      baseStateVersion: 11,
+      clientCreatedAt: new Date("2026-06-14T01:00:00.000Z"),
+    });
+
+    await expect(
+      deps.service.approveRestAction("gm-user-1", "session-1", "approval-action-1"),
+    ).rejects.toMatchObject({
+      response: {
+        code: "ACTION_403",
+        data: { reason: "REST_BLOCKED_IN_COMBAT" },
+      },
+    });
+    expect(deps.prisma.playerAction.update).not.toHaveBeenCalled();
+    expect(deps.actionProcessor.processNext).not.toHaveBeenCalled();
+  });
 });

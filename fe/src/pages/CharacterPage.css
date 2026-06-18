@@ -549,6 +549,48 @@
   align-items: center;
 }
 
+.character-asi-panel {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid rgba(78, 43, 20, 0.28);
+  border-bottom: 1px solid rgba(78, 43, 20, 0.28);
+}
+
+.character-asi-heading,
+.character-asi-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.character-asi-heading span,
+.character-asi-panel small {
+  color: #654127;
+}
+
+.character-asi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 14px;
+}
+
+.character-asi-control > span {
+  min-width: 32px;
+}
+
+.character-asi-control strong {
+  min-width: 58px;
+  text-align: center;
+}
+
+.character-asi-control button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
 .character-prepared-spell-list {
   display: grid;
   gap: 8px;

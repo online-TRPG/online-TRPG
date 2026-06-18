@@ -151,6 +151,16 @@ describe("SessionsService HUMAN GM messages", () => {
         gmMessageId: createdMessage.id,
       }),
     );
+    expect(tx.stateDiff.create).toHaveBeenCalledWith({
+      data: {
+        sessionScenarioId: "session-scenario-1",
+        turnLogId: "turn-log-1",
+        baseVersion: 4,
+        nextVersion: 5,
+        reason: "gm_override:scene_text",
+        diffJson: JSON.stringify(stateDiff.diff),
+      },
+    });
     expect(structuredAction.metadata).not.toHaveProperty("privateNote");
   });
 });
@@ -588,6 +598,51 @@ describe("SessionsService HUMAN GM combat conditions", () => {
         ],
       }),
     );
+  });
+});
+
+describe("SessionsService HUMAN GM runtime permissions", () => {
+  it("rejects a stale gmUserId when the user is not a joined GM participant", async () => {
+    const prisma = {
+      sessionParticipant: {
+        findUnique: jest.fn().mockResolvedValue({
+          status: "LEFT",
+          role: "PLAYER",
+        }),
+      },
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      getHumanGmSessionForOperator: (userId: string, sessionId: string) => Promise<unknown>;
+      getSessionEntityOrThrow: jest.Mock;
+    };
+    service.getSessionEntityOrThrow = jest.fn().mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: "HUMAN",
+      gmUserId: "gm-user",
+    });
+
+    await expect(
+      service.getHumanGmSessionForOperator("gm-user", "session-1"),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(prisma.sessionParticipant.findUnique).toHaveBeenCalledWith({
+      where: {
+        sessionId_userId: {
+          sessionId: "session-1",
+          userId: "gm-user",
+        },
+      },
+      select: {
+        role: true,
+        status: true,
+      },
+    });
   });
 });
 

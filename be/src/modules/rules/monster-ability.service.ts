@@ -28,6 +28,7 @@ export type ExecutableMonsterAction = {
 
 const MONSTER_ACTION_PREFERENCES: Record<string, string[]> = {
   "monster.giant_rat": ["action.bite"],
+  "monster.giant_spider": ["action.bite"],
   "monster.goblin": ["action.scimitar", "action.shortbow", "monster.goblin.ability.nimble_escape"],
 };
 
@@ -113,7 +114,10 @@ export class MonsterAbilityService {
       save: entry.save
         ? { ability: entry.save.ability, dcSource: entry.save.dcSource ?? null, fixedDc: entry.save.fixedDc ?? null }
         : null,
-      conditionRiders: this.readPrefixedTags(entry.runtimeEffect.tags, "condition:"),
+      conditionRiders: this.readPrefixedTags(entry.runtimeEffect.tags, "condition:")
+        .map((conditionId) =>
+          conditionId.startsWith("condition.") ? conditionId : `condition.${conditionId}`,
+        ),
       effectTags: this.resolveEffectTags(entry),
     };
   }
@@ -162,6 +166,7 @@ export class MonsterAbilityService {
     return [
       ...this.readPrefixedTags(entry.runtimeEffect.tags, "option:"),
       ...this.readPrefixedTags(entry.runtimeEffect.tags, "effect:"),
+      ...entry.runtimeEffect.tags.filter((tag) => tag.startsWith("multiattack:")),
     ];
   }
 

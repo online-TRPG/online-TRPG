@@ -27,6 +27,7 @@ import './CombatNodeSurface.css';
 
 type CombatActionTab = 'basic' | 'ability' | 'spell';
 type CombatMovementMode = 'normal' | 'jump';
+type ForcedMovementMode = 'push' | 'pull' | 'slide';
 type CombatActorActionType = 'attack' | 'dash' | 'dodge' | 'hide';
 type SpellFilter = 'all' | 'cantrip' | 'level1' | 'level3';
 type CombatResourceIconKind = 'action' | 'bonus' | 'reaction';
@@ -77,6 +78,12 @@ interface CombatNodeSurfaceProps {
     item: InventoryItemDto,
     point: { x: number; y: number }
   ) => void | Promise<void>;
+  onPickupMapObject?: (
+    objectId: string,
+    itemDefinitionId: string,
+    quantity: number,
+    point: { x: number; y: number }
+  ) => void | Promise<void>;
   onAttackWithEquippedWeapon: (targetParticipantId: string) => void | Promise<void>;
   onMonsterAction?: (
     targetParticipantId?: string | null,
@@ -94,10 +101,20 @@ interface CombatNodeSurfaceProps {
     conditionId: string,
     operation: 'add' | 'remove'
   ) => void | Promise<void>;
+  onForceMoveParticipant?: (
+    targetParticipantId: string,
+    mode: ForcedMovementMode,
+    origin: { x: number; y: number },
+    distanceFt: number
+  ) => void | Promise<void>;
   onUseClassFeature: (action: 'second_wind') => void | Promise<void>;
   onCastSpell: (
     spellId: string,
-    payload: { targetParticipantIds?: string[]; point?: { x: number; y: number } | null }
+    payload: {
+      targetParticipantIds?: string[];
+      point?: { x: number; y: number } | null;
+      slotLevel?: number;
+    }
   ) => void | Promise<void>;
   onEndCombat: () => void;
   onEndTurn: (force?: boolean) => void;
@@ -116,7 +133,17 @@ const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: strin
   },
 ];
 
-const mvpSpellLabels = ['Chill Touch', 'Fire Bolt', 'Light', 'Magic Missile', 'Shield', 'Sleep', 'Fireball'];
+const mvpSpellLabels = [
+  'Chill Touch',
+  'Fire Bolt',
+  'Ray of Frost',
+  'Light',
+  'Magic Missile',
+  'Cure Wounds',
+  'Shield',
+  'Sleep',
+  'Fireball',
+];
 
 const gmCombatConditionOptions: CombatConditionOption[] = [
   { id: 'condition.stunned', label: '기절' },
@@ -125,11 +152,20 @@ const gmCombatConditionOptions: CombatConditionOption[] = [
   { id: 'condition.burning', label: '화상' },
 ];
 
+const gmForcedMovementOptions: Array<{ mode: ForcedMovementMode; label: string }> = [
+  { mode: 'push', label: '밀치기' },
+  { mode: 'pull', label: '당기기' },
+  { mode: 'slide', label: '이동시키기' },
+];
+const gmForcedMovementDistanceOptions = [5, 10, 15, 20, 30];
+
 const mvpSpellIdsByLabel: Record<string, string> = {
   'Chill Touch': 'spell.chill_touch',
   'Fire Bolt': 'spell.fire_bolt',
+  'Ray of Frost': 'spell.ray_of_frost',
   Light: 'spell.light',
   'Magic Missile': 'spell.magic_missile',
+  'Cure Wounds': 'spell.cure_wounds',
   Shield: 'spell.shield',
   Sleep: 'spell.sleep',
   Fireball: 'spell.fireball',
@@ -138,8 +174,10 @@ const mvpSpellIdsByLabel: Record<string, string> = {
 const mvpSpellRangeFtById: Record<string, number> = {
   'spell.chill_touch': 120,
   'spell.fire_bolt': 120,
+  'spell.ray_of_frost': 60,
   'spell.light': 5,
   'spell.magic_missile': 120,
+  'spell.cure_wounds': 5,
   'spell.sleep': 90,
   'spell.fireball': 150,
 };
@@ -147,8 +185,10 @@ const mvpSpellRangeFtById: Record<string, number> = {
 const mvpSpellLevelById: Record<string, 0 | 1 | 3> = {
   'spell.chill_touch': 0,
   'spell.fire_bolt': 0,
+  'spell.ray_of_frost': 0,
   'spell.light': 0,
   'spell.magic_missile': 1,
+  'spell.cure_wounds': 1,
   'spell.shield': 1,
   'spell.sleep': 1,
   'spell.fireball': 3,
@@ -176,8 +216,10 @@ const combatActionIconNames: Partial<Record<string, GameIconName>> = {
   'Second Wind': 'game-icons:health-increase',
   'Chill Touch': 'game-icons:ice-bolt',
   'Fire Bolt': 'game-icons:fireball',
+  'Ray of Frost': 'game-icons:ice-bolt',
   Light: 'game-icons:sun',
   'Magic Missile': 'game-icons:magic-swirl',
+  'Cure Wounds': 'game-icons:health-increase',
   Shield: 'game-icons:magic-shield',
   Sleep: 'game-icons:night-sleep',
   Fireball: 'game-icons:fireball',
@@ -207,6 +249,12 @@ function getMonsterActionRangeLabel(action: CombatParticipant['monsterActions'][
     return `${action.rangeFt}/${action.longRangeFt}ft`;
   }
   return `${action.rangeFt}ft`;
+}
+
+function getMonsterActionUnavailableLabel(action: CombatMonsterAction) {
+  if (action.unavailableReason === 'MONSTER_RECHARGE_ACTION_EXPENDED') return '재충전 대기';
+  if (action.unavailableReason === 'MONSTER_LIMITED_USE_ACTION_EXPENDED') return '사용 완료';
+  return action.available === false ? '사용 불가' : null;
 }
 
 function normalizeClassKey(value: string | null | undefined) {
@@ -258,10 +306,19 @@ function normalizeSpellId(value: string) {
 
 function hasMvpSpell(character: SessionCharacterResponseDto | null, spellId: string) {
   if (!character) return false;
-  const learned = [...(character.spells?.cantrips ?? []), ...(character.spells?.spells ?? [])].map(
-    normalizeSpellId
-  );
-  return learned.includes(spellId);
+  const cantrips = (character.spells?.cantrips ?? []).map(normalizeSpellId);
+  if (cantrips.includes(spellId)) return true;
+
+  const learnedSpells = (character.spells?.spells ?? []).map(normalizeSpellId);
+  if (!learnedSpells.includes(spellId)) return false;
+
+  const spellLevel = mvpSpellLevelById[spellId];
+  const preparedSpells = character.spells?.preparedSpells;
+  if (spellLevel && preparedSpells) {
+    return preparedSpells.map(normalizeSpellId).includes(spellId);
+  }
+
+  return true;
 }
 
 function getKnownMvpSpellActions(character: SessionCharacterResponseDto | null) {
@@ -506,6 +563,40 @@ function getGridDistanceFt(
   return Math.max(Math.abs(leftColumn - rightColumn), Math.abs(leftRow - rightRow)) * 5;
 }
 
+function getSelectionGridPoint(
+  selection: BattleMapSelection | null,
+  map: VttMapStateDto | null
+) {
+  if (!selection || !map) return null;
+  return {
+    x: Math.floor(Math.min(Math.max(selection.point.x, 0), Math.max(0, map.width - 1)) / map.gridSize),
+    y: Math.floor(Math.min(Math.max(selection.point.y, 0), Math.max(0, map.height - 1)) / map.gridSize),
+  };
+}
+
+function getMapObjectItemPayload(
+  selection: BattleMapSelection | null,
+  map: VttMapStateDto | null
+) {
+  if (!selection || selection.kind !== 'object') return null;
+  const objectCell = selection.cell as NonNullable<VttMapStateDto['objectCells']>[number];
+  const itemDefinitionId = objectCell.hiddenItemIds?.[0]?.trim();
+  if (!itemDefinitionId) return null;
+  const gridPoint = getSelectionGridPoint(selection, map);
+  if (!gridPoint) return null;
+  const escapedItemDefinitionId = itemDefinitionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = objectCell.description?.match(
+    new RegExp(`(?:^|\\s)${escapedItemDefinitionId}\\s+x(\\d+)(?:\\s|$)`)
+  );
+  const quantity = Number(match?.[1]);
+  return {
+    objectId: objectCell.id,
+    itemDefinitionId,
+    quantity: Number.isInteger(quantity) && quantity > 0 ? quantity : 1,
+    point: gridPoint,
+  };
+}
+
 function getResourceFillPercent(
   current: number | null | undefined,
   max: number | null | undefined
@@ -588,6 +679,7 @@ export function CombatNodeSurface({
   onUseInventoryItem,
   onEquipInventoryItem,
   onThrowInventoryItem,
+  onPickupMapObject,
   onAttackWithEquippedWeapon,
   onMonsterAction,
   onAttackWithOffhandWeapon,
@@ -597,6 +689,7 @@ export function CombatNodeSurface({
   onHide,
   onReadyAction,
   onApplyCondition,
+  onForceMoveParticipant,
   onUseClassFeature,
   onCastSpell,
   onEndCombat,
@@ -609,10 +702,12 @@ export function CombatNodeSurface({
     null
   );
   const [selectedMapTokenId, setSelectedMapTokenId] = useState<string | null>(null);
-  const [, setSelectedMapSelection] = useState<BattleMapSelection | null>(null);
+  const [selectedMapSelection, setSelectedMapSelection] = useState<BattleMapSelection | null>(null);
   const [isAttackTargeting, setAttackTargeting] = useState(false);
   const [isSneakAttackTargeting, setSneakAttackTargeting] = useState(false);
   const [targetingSpellId, setTargetingSpellId] = useState<string | null>(null);
+  const [spellSlotLevelBySpellId, setSpellSlotLevelBySpellId] = useState<Record<string, number>>({});
+  const [gmForcedMovementDistanceFt, setGmForcedMovementDistanceFt] = useState(10);
   const [targetingMonsterActionId, setTargetingMonsterActionId] = useState<string | null>(null);
   const [combatMovementMode, setCombatMovementMode] = useState<CombatMovementMode>('normal');
   const [spellFilter, setSpellFilter] = useState<SpellFilter>('all');
@@ -674,6 +769,31 @@ export function CombatNodeSurface({
         : (spellSlotResources[String(spellLevel)]?.remaining ?? 0);
     return Math.min(total, Math.max(0, remaining));
   };
+  const getAvailableSlotLevelsForSpell = (spellLevel: number | undefined) => {
+    if (typeof spellLevel !== 'number' || spellLevel <= 0) return [];
+    return Object.entries(spellSlotResources)
+      .map(([level, resource]) => ({
+        level: Number(level),
+        remaining: resource.remaining,
+        total: resource.total,
+      }))
+      .filter(
+        (entry) =>
+          Number.isInteger(entry.level) &&
+          entry.level >= spellLevel &&
+          entry.total > 0 &&
+          entry.remaining > 0
+      )
+      .sort((left, right) => left.level - right.level)
+      .map((entry) => entry.level);
+  };
+  const getSelectedSlotLevelForSpell = (spellId: string, spellLevel: number | undefined) => {
+    if (typeof spellLevel !== 'number' || spellLevel <= 0) return undefined;
+    const availableLevels = getAvailableSlotLevelsForSpell(spellLevel);
+    if (!availableLevels.length) return spellLevel;
+    const selected = spellSlotLevelBySpellId[spellId];
+    return availableLevels.includes(selected) ? selected : availableLevels[0];
+  };
   const equippedWeapon =
     inventory.find((item) => isEquippedItem(item, myCharacter?.equippedWeaponId)) ?? null;
   const offhandWeapon =
@@ -726,6 +846,14 @@ export function CombatNodeSurface({
   const selectedHostileObservation = selectedMapParticipant?.isHostile
     ? describeCombatParticipantObservation(selectedMapParticipant)
     : null;
+  const selectedObjectItemPayload = getMapObjectItemPayload(selectedMapSelection, map);
+  const canPickupSelectedObject = Boolean(
+    selectedObjectItemPayload &&
+      onPickupMapObject &&
+      canUsePlayerCharacterActions &&
+      !isInventoryBusy &&
+      !isCombatBusy
+  );
   const attackName = equippedWeapon?.name ?? '기본 공격';
   const attackRangeFt = equippedWeapon ? getWeaponFallbackRangeFt(equippedWeapon) : 5;
   const offhandAttackName = offhandWeapon ? `보조 공격(${offhandWeapon.name})` : '보조 공격';
@@ -850,6 +978,7 @@ export function CombatNodeSurface({
     return getGridDistanceFt(map, sourceToken, targetToken) <= getThrowableLongRangeFt(item);
   };
   const canUseMonsterActionCost = (monsterAction: CombatMonsterAction) => {
+    if (monsterAction.available === false) return false;
     if (!canControlHostileMonster || !activeActionResources) return false;
     if (monsterAction.costType === 'bonus_action') {
       return activeActionResources.bonusActionAvailable;
@@ -915,6 +1044,23 @@ export function CombatNodeSurface({
       onApplyCondition &&
       selectedConditionTargetId &&
       selectedTargetParticipant?.isAlive &&
+      !isCombatBusy
+  );
+  const activeActorToken = activeCombatActor
+    ? getMapToken(getParticipantTokenId(activeCombatActor))
+    : null;
+  const selectedTargetToken = selectedTargetParticipant
+    ? getMapToken(getParticipantTokenId(selectedTargetParticipant))
+    : null;
+  const forcedMovementOrigin = activeActorToken
+    ? { x: activeActorToken.x, y: activeActorToken.y }
+    : null;
+  const canForceMoveSelectedTarget = Boolean(
+    isGmView &&
+      onForceMoveParticipant &&
+      selectedTargetParticipant?.isAlive &&
+      selectedTargetToken &&
+      forcedMovementOrigin &&
       !isCombatBusy
   );
   const currentTab = actionTabs.find((tab) => tab.id === activeTab) ?? actionTabs[0];
@@ -1244,32 +1390,46 @@ export function CombatNodeSurface({
     setTargetingSpellId((current) => (current === spellId ? null : spellId));
   }
 
+  function buildSpellCastPayload(spellId: string) {
+    const spellLevel = mvpSpellLevelById[spellId];
+    const slotLevel = getSelectedSlotLevelForSpell(spellId, spellLevel);
+    return typeof slotLevel === 'number' && slotLevel > 0 && slotLevel !== spellLevel
+      ? { slotLevel }
+      : {};
+  }
+
   function castTargetingSpell(spellId: string, selection: BattleMapSelection | null) {
     if (
       spellId === 'spell.chill_touch' ||
       spellId === 'spell.fire_bolt' ||
-      spellId === 'spell.magic_missile'
+      spellId === 'spell.ray_of_frost' ||
+      spellId === 'spell.magic_missile' ||
+      spellId === 'spell.cure_wounds'
     ) {
       if (selection?.kind !== 'token') return;
       const participant = getParticipantByTokenId(selection.token.id);
-      if (!participant?.isHostile || !participant.isAlive) return;
+      if (!participant?.isAlive) return;
+      if (spellId !== 'spell.cure_wounds' && !participant.isHostile) return;
       if (!isParticipantSpellTargetInRange(participant, spellId)) return;
       setTargetingSpellId(null);
-      void onCastSpell(spellId, { targetParticipantIds: [participant.sessionEntityId] });
+      void onCastSpell(spellId, {
+        targetParticipantIds: [participant.sessionEntityId],
+        ...buildSpellCastPayload(spellId),
+      });
       return;
     }
     if (spellId === 'spell.sleep' || spellId === 'spell.fireball') {
       const point = selection?.point ?? null;
       if (!point || !isPointSpellTargetInRange(point, spellId)) return;
       setTargetingSpellId(null);
-      void onCastSpell(spellId, { point });
+      void onCastSpell(spellId, { point, ...buildSpellCastPayload(spellId) });
       return;
     }
     if (spellId === 'spell.light') {
       const point = selection?.point ?? null;
       if (!point || !isPointSpellTargetInRange(point, spellId)) return;
       setTargetingSpellId(null);
-      void onCastSpell(spellId, { point });
+      void onCastSpell(spellId, { point, ...buildSpellCastPayload(spellId) });
     }
   }
 
@@ -1360,9 +1520,12 @@ export function CombatNodeSurface({
         : targetingSpellId
           ? targetingSpellId === 'spell.chill_touch' ||
             targetingSpellId === 'spell.fire_bolt' ||
+            targetingSpellId === 'spell.ray_of_frost' ||
             targetingSpellId === 'spell.magic_missile'
             ? '사거리 안의 적 토큰을 선택하세요.'
-            : '사거리 안의 타일을 선택하세요.'
+            : targetingSpellId === 'spell.cure_wounds'
+              ? '접촉 가능한 아군 또는 자기 토큰을 선택하세요.'
+              : '사거리 안의 타일을 선택하세요.'
           : '';
 
   return (
@@ -1681,9 +1844,17 @@ export function CombatNodeSurface({
                       const spellId = mvpSpellIdsByLabel[action];
                       const spellLevel = spellId ? mvpSpellLevelById[spellId] : undefined;
                       const isSlottedSpell = typeof spellLevel === 'number' && spellLevel > 0;
-                      const spellSlotRemaining = isSlottedSpell
-                        ? getSpellSlotRemaining(spellLevel)
-                        : Number.POSITIVE_INFINITY;
+                      const availableSlotLevels = getAvailableSlotLevelsForSpell(spellLevel);
+                      const selectedSlotLevel =
+                        spellId && isSlottedSpell
+                          ? getSelectedSlotLevelForSpell(spellId, spellLevel)
+                          : undefined;
+                      const spellSlotRemaining =
+                        isSlottedSpell && selectedSlotLevel
+                          ? getSpellSlotRemaining(selectedSlotLevel)
+                          : isSlottedSpell
+                            ? 0
+                            : Number.POSITIVE_INFINITY;
                       const disabled =
                         !canUsePlayerCharacterActions ||
                         !canUseAction ||
@@ -1691,24 +1862,50 @@ export function CombatNodeSurface({
                         spellId === 'spell.shield' ||
                         (isSlottedSpell && spellSlotRemaining <= 0);
                       return (
-                        <button
-                          type="button"
-                          className={`combat-action-button has-action-icon${targetingSpellId === spellId ? ' targeting' : ''}`}
-                          key={action}
-                          disabled={disabled}
-                          title={
-                            spellId === 'spell.shield'
-                              ? 'Shield는 공격받을 때 반응 팝업으로 사용합니다.'
-                              : isSlottedSpell && spellSlotRemaining <= 0
-                                ? `사용 가능한 ${spellLevel}레벨 주문 슬롯이 없습니다.`
-                                : targetingSpellId === spellId
-                                  ? `${action} 사거리 안의 유효한 대상 또는 지점을 선택하세요.`
-                                  : `${action} 타겟팅`
-                          }
-                          onClick={() => spellId && startSpellTargeting(spellId)}
-                        >
-                          <CombatActionButtonContent label={action} />
-                        </button>
+                        <div className="combat-spell-action-wrap" key={action}>
+                          <button
+                            type="button"
+                            className={`combat-action-button has-action-icon${targetingSpellId === spellId ? ' targeting' : ''}`}
+                            disabled={disabled}
+                            title={
+                              spellId === 'spell.shield'
+                                ? 'Shield는 공격받을 때 반응 팝업으로 사용합니다.'
+                                : isSlottedSpell && spellSlotRemaining <= 0
+                                  ? `사용 가능한 ${spellLevel}레벨 주문 슬롯이 없습니다.`
+                                  : targetingSpellId === spellId
+                                    ? `${action} 사거리 안의 유효한 대상 또는 지점을 선택하세요.`
+                                    : `${action} 타겟팅`
+                            }
+                            onClick={() => spellId && startSpellTargeting(spellId)}
+                          >
+                            <CombatActionButtonContent label={action} />
+                          </button>
+                          {spellId && isSlottedSpell && availableSlotLevels.length ? (
+                            <label
+                              className="combat-spell-slot-select"
+                              title={`${action}에 사용할 주문 슬롯`}
+                            >
+                              <span>슬롯</span>
+                              <select
+                                value={selectedSlotLevel}
+                                disabled={disabled || targetingSpellId === spellId}
+                                onChange={(event) => {
+                                  const nextLevel = Number(event.target.value);
+                                  setSpellSlotLevelBySpellId((current) => ({
+                                    ...current,
+                                    [spellId]: nextLevel,
+                                  }));
+                                }}
+                              >
+                                {availableSlotLevels.map((level) => (
+                                  <option key={level} value={level}>
+                                    {level}레벨
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          ) : null}
+                        </div>
                       );
                     })
                   ) : (
@@ -1815,6 +2012,62 @@ export function CombatNodeSurface({
                         );
                       })
                     : null}
+                  {isGmView
+                    ? (
+                        <>
+                          <label
+                            className="combat-spell-slot-select"
+                            title="강제 이동 거리"
+                          >
+                            <span>거리</span>
+                            <select
+                              value={gmForcedMovementDistanceFt}
+                              disabled={isCombatBusy}
+                              onChange={(event) =>
+                                setGmForcedMovementDistanceFt(Number(event.target.value))
+                              }
+                            >
+                              {gmForcedMovementDistanceOptions.map((distanceFt) => (
+                                <option key={distanceFt} value={distanceFt}>
+                                  {distanceFt}ft
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          {gmForcedMovementOptions.map((option) => (
+                            <button
+                              type="button"
+                              key={option.mode}
+                              className="combat-action-button has-action-icon"
+                              disabled={!canForceMoveSelectedTarget}
+                              title={
+                                !selectedTargetParticipant
+                                  ? '강제 이동할 토큰을 선택하세요.'
+                                  : !forcedMovementOrigin
+                                    ? '강제 이동 기준이 될 현재 전투 액터 토큰을 찾을 수 없습니다.'
+                                    : `${selectedTargetParticipant.name}을 ${gmForcedMovementDistanceFt}ft ${option.label}`
+                              }
+                              onClick={() => {
+                                if (
+                                  canForceMoveSelectedTarget &&
+                                  selectedTargetParticipant &&
+                                  forcedMovementOrigin
+                                ) {
+                                  void onForceMoveParticipant?.(
+                                    selectedTargetParticipant.sessionEntityId,
+                                    option.mode,
+                                    forcedMovementOrigin,
+                                    gmForcedMovementDistanceFt
+                                  );
+                                }
+                              }}
+                            >
+                              <CombatActionButtonContent label={option.label} />
+                            </button>
+                          ))}
+                        </>
+                      )
+                    : null}
                 </>
               ) : (
                 <button type="button" className="combat-action-empty-button" disabled>
@@ -1830,6 +2083,7 @@ export function CombatNodeSurface({
                         {activeMonsterActions.map((monsterAction) => {
                           const monsterActionId = monsterAction.actionId;
                           const rangeLabel = getMonsterActionRangeLabel(monsterAction);
+                          const unavailableLabel = getMonsterActionUnavailableLabel(monsterAction);
                           const isTargetingThisAction =
                             isAttackTargeting && targetingMonsterActionId === monsterActionId;
                           const canUseThisMonsterAction = canUseMonsterTargetedAction(monsterAction);
@@ -1855,6 +2109,8 @@ export function CombatNodeSurface({
                                     }`
                                   : isTargetingThisAction
                                   ? `${monsterAction.label} 대상 플레이어 캐릭터 토큰을 선택하세요.`
+                                  : unavailableLabel
+                                  ? `${monsterAction.label}: ${unavailableLabel}`
                                   : !selectedTargetParticipant
                                     ? `${monsterAction.label} 버튼을 눌러 대상을 선택하세요.`
                                     : canUseThisMonsterAction
@@ -1887,6 +2143,9 @@ export function CombatNodeSurface({
                               }}
                             >
                               <CombatActionButtonContent label={monsterAction.label} />
+                              {unavailableLabel ? (
+                                <span className="combat-action-status-badge">{unavailableLabel}</span>
+                              ) : null}
                             </button>
                           );
                         })}
@@ -2092,6 +2351,32 @@ export function CombatNodeSurface({
             <span className="combat-frame-corner bottom-right" aria-hidden="true" />
             <div className="combat-inventory-head">
               <span className="combat-node-eyebrow">인벤토리</span>
+              {selectedObjectItemPayload ? (
+                <button
+                  type="button"
+                  className="combat-inventory-pickup"
+                  disabled={!canPickupSelectedObject}
+                  title={
+                    isGmView
+                      ? 'GM 화면에서는 맵 오브젝트를 조회만 합니다.'
+                      : !canUsePlayerCharacterActions
+                        ? '자기 턴에 선택한 맵 오브젝트를 주울 수 있습니다.'
+                        : `${selectedObjectItemPayload.itemDefinitionId} 줍기`
+                  }
+                  onClick={() => {
+                    if (canPickupSelectedObject && selectedObjectItemPayload) {
+                      void onPickupMapObject?.(
+                        selectedObjectItemPayload.objectId,
+                        selectedObjectItemPayload.itemDefinitionId,
+                        selectedObjectItemPayload.quantity,
+                        selectedObjectItemPayload.point
+                      );
+                    }
+                  }}
+                >
+                  줍기
+                </button>
+              ) : null}
               {inventory.length ? (
                 <button
                   type="button"

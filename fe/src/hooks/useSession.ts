@@ -1682,6 +1682,7 @@ export function useSession(
         },
         accessToken,
       );
+      await syncSession(snapshot.session.id);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '휴식 요청에 실패했습니다.';
       setError(message);
@@ -1699,6 +1700,7 @@ export function useSession(
 
     try {
       await apiApproveRestAction(user, snapshot.session.id, actionId, accessToken);
+      await syncSession(snapshot.session.id);
       appendLog('rest', '휴식 승인', 'GM이 휴식 요청을 승인했습니다.');
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '휴식 요청 승인에 실패했습니다.';

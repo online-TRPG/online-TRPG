@@ -44,6 +44,7 @@ describe("CharactersService level up", () => {
       },
       sessionCharacter: {
         update: jest.fn(),
+        findUniqueOrThrow: jest.fn(),
       },
       sessionParticipant: {
         update: jest.fn(),
@@ -66,6 +67,7 @@ describe("CharactersService level up", () => {
     };
     const realtimeEvents = {
       emitSessionSnapshot: jest.fn(),
+      emitCharacterUpdated: jest.fn(),
     };
     const catalogService = {
       findClassByKey: jest.fn().mockResolvedValue({
@@ -210,6 +212,43 @@ describe("CharactersService level up", () => {
     expect(prisma.character.create).not.toHaveBeenCalled();
   });
 
+  it("rejects starting prepared spells that exceed the prepared caster limit", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d6",
+      koName: "위저드",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 3,
+      startingSpellCount: 3,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+
+    await expect(
+      service.createCharacter("user-1", {
+        name: "Overprepared Wizard",
+        ancestry: "Unknown",
+        className: "wizard",
+        level: 1,
+        abilities: { str: 8, dex: 14, con: 14, int: 12, wis: 10, cha: 10 },
+        proficientSkills: [],
+        startingEquipmentSelection: [],
+        startingSpells: {
+          cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
+          spells: ["spell.magic_missile", "spell.shield", "spell.sleep"],
+          preparedSpells: ["spell.magic_missile", "spell.shield", "spell.sleep"],
+        },
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "PREPARED_SPELL_LIMIT_EXCEEDED",
+      }),
+    });
+
+    expect(prisma.character.create).not.toHaveBeenCalled();
+  });
+
   it("accepts executable higher-level MVP spells for higher-level starting casters", async () => {
     const { service, prisma, catalogService } = createService();
     catalogService.findClassByKey.mockResolvedValue({
@@ -265,6 +304,58 @@ describe("CharactersService level up", () => {
     expect(result.spells?.preparedSpells).toEqual(["spell.fireball"]);
   });
 
+  it("accepts Cure Wounds as an executable MVP starting prepared spell", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d8",
+      koName: "클레릭",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 3,
+      startingSpellCount: 3,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+    prisma.character.create.mockResolvedValue({
+      ...baseCharacter,
+      className: "cleric",
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
+        spells: ["spell.magic_missile", "spell.cure_wounds", "spell.sleep"],
+        preparedSpells: ["spell.cure_wounds"],
+      }),
+      sessionCharacters: [],
+    });
+
+    const result = await service.createCharacter("user-1", {
+      name: "Healing Cleric",
+      ancestry: "Unknown",
+      className: "cleric",
+      level: 1,
+      abilities: { str: 10, dex: 12, con: 14, int: 10, wis: 16, cha: 10 },
+      proficientSkills: [],
+      startingEquipmentSelection: [],
+      startingSpells: {
+        cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
+        spells: ["spell.magic_missile", "spell.cure_wounds", "spell.sleep"],
+        preparedSpells: ["spell.cure_wounds"],
+      },
+    });
+
+    expect(prisma.character.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          spellsJson: JSON.stringify({
+            cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
+            spells: ["spell.magic_missile", "spell.cure_wounds", "spell.sleep"],
+            preparedSpells: ["spell.cure_wounds"],
+          }),
+        }),
+      }),
+    );
+    expect(result.spells?.preparedSpells).toEqual(["spell.cure_wounds"]);
+  });
+
   it("levels up the character and explicitly updates active session snapshots", async () => {
     const { service, prisma, sessionsService, realtimeEvents, ruleCatalogService } = createService();
     const existing = {
@@ -297,6 +388,17 @@ describe("CharactersService level up", () => {
 
     prisma.character.findUnique.mockResolvedValue(existing);
     prisma.character.update.mockResolvedValue(updated);
+    prisma.sessionCharacter.findUniqueOrThrow.mockResolvedValue({
+      ...existing.sessionCharacters[0],
+      currentHp: 28,
+      tempHp: 0,
+      status: "ACTIVE",
+      character: updated,
+      resource: { hitDiceSpent: 0 },
+      inventoryEntries: [],
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    });
 
     const result = await service.levelUpCharacter("user-1", "character-1", {
       targetLevel: 3,
@@ -312,6 +414,7 @@ describe("CharactersService level up", () => {
           level: 3,
           subclassName: "champion",
           maxHp: 28,
+          armorClass: 16,
           proficiencyBonus: 2,
           featuresJson: JSON.stringify([
             "class.fighter.feature.fighting_style",
@@ -330,6 +433,19 @@ describe("CharactersService level up", () => {
       where: { id: "session-character-1" },
       data: { currentHp: 28 },
     });
+    expect(realtimeEvents.emitCharacterUpdated).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        id: "session-character-1",
+        level: 3,
+        maxHp: 28,
+        currentHp: 28,
+        subclassName: "champion",
+        features: expect.arrayContaining([
+          "subclass.fighter.champion.feature.improved_critical",
+        ]),
+      }),
+    );
     expect(sessionsService.buildSnapshot).toHaveBeenCalledWith("session-1");
     expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalledWith("session-1", { sessionId: "session-1" });
     expect(result.level).toBe(3);
@@ -355,6 +471,113 @@ describe("CharactersService level up", () => {
     });
 
     expect(prisma.character.update).not.toHaveBeenCalled();
+  });
+
+  it("requires all ASI points when level up crosses an ability score improvement level", async () => {
+    const { service, prisma } = createService();
+    prisma.character.findUnique.mockResolvedValue({
+      ...baseCharacter,
+      level: 3,
+      subclassName: "champion",
+      maxHp: 28,
+      sessionCharacters: [],
+    });
+
+    await expect(
+      service.levelUpCharacter("user-1", "character-1", {
+        targetLevel: 4,
+        abilityScoreIncreases: { str: 1 },
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "LEVEL_UP_ASI_REQUIRED",
+        requiredPoints: 2,
+        allocatedPoints: 1,
+      }),
+    });
+
+    expect(prisma.character.update).not.toHaveBeenCalled();
+  });
+
+  it("applies ASI, recalculates derived stats, and carries the max HP gain into active sessions", async () => {
+    const { service, prisma, realtimeEvents } = createService();
+    const existing = {
+      ...baseCharacter,
+      level: 3,
+      subclassName: "champion",
+      maxHp: 28,
+      armorClass: 11,
+      inventoryJson: JSON.stringify([]),
+      sessionCharacters: [
+        {
+          id: "session-character-1",
+          sessionId: "session-1",
+          userId: "user-1",
+          currentHp: 20,
+          session: { id: "session-1", status: PrismaSessionStatus.PLAYING },
+        },
+      ],
+    };
+    const updated = {
+      ...existing,
+      level: 8,
+      abilitiesJson: JSON.stringify({ str: 15, dex: 14, con: 16, int: 10, wis: 10, cha: 10 }),
+      maxHp: 76,
+      armorClass: 12,
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    };
+    prisma.character.findUnique.mockResolvedValue(existing);
+    prisma.character.update.mockResolvedValue(updated);
+    prisma.sessionCharacter.findUniqueOrThrow.mockResolvedValue({
+      ...existing.sessionCharacters[0],
+      currentHp: 68,
+      tempHp: 0,
+      status: "ACTIVE",
+      character: updated,
+      resource: { hitDiceSpent: 0 },
+      inventoryEntries: [],
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    });
+
+    const result = await service.levelUpCharacter("user-1", "character-1", {
+      targetLevel: 8,
+      applyToActiveSessions: true,
+      abilityScoreIncreases: { dex: 2, con: 2 },
+    });
+
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          abilitiesJson: JSON.stringify({
+            str: 15,
+            dex: 14,
+            con: 16,
+            int: 10,
+            wis: 10,
+            cha: 10,
+          }),
+          maxHp: 76,
+          armorClass: 12,
+        }),
+      }),
+    );
+    expect(prisma.sessionCharacter.update).toHaveBeenCalledWith({
+      where: { id: "session-character-1" },
+      data: { currentHp: 68 },
+    });
+    expect(realtimeEvents.emitCharacterUpdated).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        abilities: expect.objectContaining({ dex: 14, con: 16 }),
+        maxHp: 76,
+        armorClass: 12,
+        currentHp: 68,
+      }),
+    );
+    expect(result.abilities).toMatchObject({ dex: 14, con: 16 });
+    expect(result.maxHp).toBe(76);
+    expect(result.armorClass).toBe(12);
   });
 
   it("updates prepared spells as part of level up when requested", async () => {
@@ -492,6 +715,17 @@ describe("CharactersService level up", () => {
 
     prisma.character.findUnique.mockResolvedValue(existing);
     prisma.character.update.mockResolvedValue(updated);
+    prisma.sessionCharacter.findUniqueOrThrow.mockResolvedValue({
+      ...existing.sessionCharacters[0],
+      currentHp: 8,
+      tempHp: 0,
+      status: "ACTIVE",
+      character: updated,
+      resource: { hitDiceSpent: 0 },
+      inventoryEntries: [],
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    });
 
     const result = await service.updatePreparedSpells("user-1", "character-1", {
       preparedSpells: [" spell.magic_missile ", "spell.magic_missile"],
@@ -507,6 +741,15 @@ describe("CharactersService level up", () => {
             preparedSpells: ["spell.magic_missile"],
           }),
         },
+      }),
+    );
+    expect(realtimeEvents.emitCharacterUpdated).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        id: "session-character-1",
+        spells: expect.objectContaining({
+          preparedSpells: ["spell.magic_missile"],
+        }),
       }),
     );
     expect(sessionsService.buildSnapshot).toHaveBeenCalledWith("session-1");
@@ -532,6 +775,34 @@ describe("CharactersService level up", () => {
     ).rejects.toMatchObject({
       response: expect.objectContaining({
         code: "PREPARED_SPELL_NOT_KNOWN",
+      }),
+    });
+
+    expect(prisma.character.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects prepared spell updates that exceed the prepared caster limit", async () => {
+    const { service, prisma } = createService();
+    prisma.character.findUnique.mockResolvedValue({
+      ...baseCharacter,
+      className: "wizard",
+      level: 1,
+      abilitiesJson: JSON.stringify({ str: 8, dex: 12, con: 14, int: 12, wis: 10, cha: 10 }),
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.fire_bolt"],
+        spells: ["spell.magic_missile", "spell.shield", "spell.sleep"],
+        preparedSpells: ["spell.magic_missile"],
+      }),
+      sessionCharacters: [],
+    });
+
+    await expect(
+      service.updatePreparedSpells("user-1", "character-1", {
+        preparedSpells: ["spell.magic_missile", "spell.shield", "spell.sleep"],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "PREPARED_SPELL_LIMIT_EXCEEDED",
       }),
     });
 

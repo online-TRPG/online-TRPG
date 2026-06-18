@@ -26,22 +26,37 @@ const createDiceResult = (
   advantageState: DiceAdvantageState.NORMAL,
 });
 
+const createDeterministicSmokeRoll = (expression: string): DiceRollResponseDto => {
+  const match = expression.trim().match(/^(\d+)d(\d+)([+-]\d+)?$/i);
+  if (!match) {
+    throw new Error(`No smoke dice result configured for ${expression}.`);
+  }
+
+  const count = Number(match[1]);
+  const sides = Number(match[2]);
+  const modifier = match[3] ? Number(match[3]) : 0;
+  return createDiceResult(
+    expression,
+    Array.from({ length: count }, () => Math.max(1, Math.ceil(sides / 2))),
+    modifier,
+  );
+};
+
 const createActionRuleService = (): ActionRuleService => {
-  const queuedRolls = [
-    createDiceResult("1d20", [15]),
-    createDiceResult("1d20+2", [18], 2),
-    createDiceResult("1d6", [4]),
-    createDiceResult("9d6", [6, 5, 4, 4, 3, 3, 2, 2, 1]),
-    createDiceResult("1d20", [6]),
-    createDiceResult("1d20", [18]),
-  ];
+  const rollByExpression = new Map<string, DiceRollResponseDto>([
+    ["2d8+3", createDiceResult("2d8+3", [6, 5], 3)],
+    ["1d20", createDiceResult("1d20", [15])],
+    ["1d20+2", createDiceResult("1d20+2", [18], 2)],
+    ["1d6", createDiceResult("1d6", [4])],
+    ["9d6", createDiceResult("9d6", [6, 5, 4, 4, 3, 3, 2, 2, 1])],
+    ["1d20+3", createDiceResult("1d20+3", [15], 3)],
+    ["1d4", createDiceResult("1d4", [3])],
+    ["1d4+5", createDiceResult("1d4+5", [3], 5)],
+  ]);
   const diceService = {
-    roll: jest.fn(() => {
-      const roll = queuedRolls.shift();
-      if (!roll) {
-        throw new Error("No smoke dice result remained.");
-      }
-      return roll;
+    roll: jest.fn((expression: string) => {
+      const roll = rollByExpression.get(expression) ?? createDeterministicSmokeRoll(expression);
+      return { ...roll, rolls: [...roll.rolls] };
     }),
   } as unknown as DiceService;
   const ruleEngine = new RuleEngineService();
@@ -63,7 +78,17 @@ const createSmokeActor = (): SmokeSessionCharacter => ({
   currentHp: 30,
   tempHp: 0,
   conditionsJson: "[]",
-  inventorySnapshotJson: null,
+  inventorySnapshotJson: JSON.stringify([
+    {
+      id: "entry-smoke-dagger",
+      itemDefinitionId: "equipment.dagger",
+      name: "Dagger",
+      quantity: 2,
+      damageDice: "1d4",
+      damageType: "piercing",
+      properties: ["finesse", "light", "thrown", "proficient"],
+    },
+  ]),
   inventoryEntries: [],
   user: {
     id: "smoke-actor-user",
@@ -82,11 +107,41 @@ const createSmokeActor = (): SmokeSessionCharacter => ({
     proficientSkillsJson: JSON.stringify(["investigation"]),
     armorClass: 12,
     speed: 30,
-    spellsJson: null,
+    spellsJson: JSON.stringify({
+      cantrips: ["spell.ray_of_frost"],
+      spells: ["spell.cure_wounds", "spell.fireball"],
+      preparedSpells: ["spell.cure_wounds", "spell.fireball"],
+    }),
     inventoryJson: "[]",
     equippedWeaponId: null,
   },
 });
+
+const createSmokeConcentrationConditions = (targetId: string): unknown[] => [
+  {
+    conditionId: "condition.concentration",
+    sourceId: "spell.hold_person",
+    duration: { type: "concentration", maxRounds: 10 },
+    saveEnds: null,
+    stackPolicy: "replace",
+    appliedAtRound: 0,
+    tags: [
+      "concentration",
+      "concentration:spell:spell.hold_person",
+      `concentration:target:${targetId}`,
+      `concentration:effect:effect-${targetId}`,
+    ],
+  },
+  {
+    conditionId: `effect-${targetId}`,
+    sourceId: "spell.hold_person",
+    duration: { type: "concentration_linked" },
+    saveEnds: null,
+    stackPolicy: "replace",
+    appliedAtRound: 0,
+    tags: [`concentration:effect:effect-${targetId}`],
+  },
+];
 
 const createSmokeTarget = (token: { id: string; name?: string; isHostile?: boolean }): SmokeSessionCharacter => ({
   id: token.id,
@@ -95,7 +150,9 @@ const createSmokeTarget = (token: { id: string; name?: string; isHostile?: boole
   characterId: `${token.id}-character`,
   currentHp: 20,
   tempHp: 0,
-  conditionsJson: token.isHostile ? JSON.stringify(["hostile"]) : "[]",
+  conditionsJson: token.id === "token_node_rule_smoke_aoe_goblin"
+    ? JSON.stringify(createSmokeConcentrationConditions(token.id))
+    : token.isHostile ? JSON.stringify(["hostile"]) : "[]",
   inventorySnapshotJson: null,
   inventoryEntries: [],
   user: null,
@@ -179,7 +236,11 @@ describe("default scenario seed", () => {
         return areaMatch[1].split(",").map((targetId) => targetId.trim()).filter(Boolean);
       }
       const conditionMatch = command.match(/^\/condition\s+(?:add|remove)\s+(\S+)\s+\S+/);
-      return conditionMatch ? [conditionMatch[1]] : [];
+      if (conditionMatch) {
+        return [conditionMatch[1]];
+      }
+      const castMatch = command.match(/^\/cast\s+\S+\s+(\S+)/);
+      return castMatch ? [castMatch[1]] : [];
     });
 
     expect(commandTargetIds.length).toBeGreaterThan(0);
@@ -208,6 +269,50 @@ describe("default scenario seed", () => {
     }
   });
 
+  it("keeps the rule runtime smoke scenario completable from start to HUMAN GM terminal node", async () => {
+    const { scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
+
+    const smokeNodes = scenarioNodeUpserts
+      .map((args) => args.create)
+      .filter((node): node is Record<string, unknown> => node?.scenarioId === RULE_RUNTIME_SMOKE_SCENARIO_ID);
+    const nodesById = new Map(smokeNodes.map((node) => [String(node.id), node]));
+    const visited: string[] = [];
+    let currentNodeId: string | null = RULE_RUNTIME_SMOKE_START_NODE_ID;
+
+    while (currentNodeId) {
+      const node = nodesById.get(currentNodeId);
+      expect(node).toBeDefined();
+      expect(visited).not.toContain(currentNodeId);
+      visited.push(currentNodeId);
+      currentNodeId = typeof node?.fallbackNodeId === "string" ? node.fallbackNodeId : null;
+    }
+
+    expect(visited).toEqual([
+      RULE_RUNTIME_SMOKE_START_NODE_ID,
+      "node_rule_smoke_trap_save",
+      "node_rule_smoke_cover_combat",
+      "node_rule_smoke_aoe",
+      "node_rule_smoke_condition",
+      "node_rule_smoke_human_gm",
+    ]);
+    expect(nodesById.get(visited[visited.length - 1])?.fallbackNodeId).toBeNull();
+  });
+
+  it("marks every rule runtime smoke node for both AI GM and HUMAN GM execution", async () => {
+    const { scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
+    const smokeNodes = scenarioNodeUpserts
+      .map((args) => args.create)
+      .filter((node): node is Record<string, unknown> => node?.scenarioId === RULE_RUNTIME_SMOKE_SCENARIO_ID);
+
+    expect(smokeNodes.length).toBeGreaterThan(0);
+    for (const node of smokeNodes) {
+      const meta = JSON.parse(String(node.nodeMetaJson ?? "{}")) as {
+        smokeTest?: { gmModes?: string[] };
+      };
+      expect(meta.smokeTest?.gmModes).toEqual(["AI", "HUMAN"]);
+    }
+  });
+
   it("keeps all rule runtime smoke suggested commands parseable by the command parser", async () => {
     const { scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
     const parser = new CommandParserService();
@@ -228,6 +333,184 @@ describe("default scenario seed", () => {
     }
   });
 
+  it("covers executable inventory drop, pickup, and throw commands in rule runtime smoke metadata", async () => {
+    const { scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
+
+    const smokeNodes = scenarioNodeUpserts
+      .map((args) => args.create)
+      .filter((node): node is Record<string, unknown> => node?.scenarioId === RULE_RUNTIME_SMOKE_SCENARIO_ID);
+    const commands = smokeNodes.flatMap((node) => {
+      const meta = JSON.parse(String(node.nodeMetaJson ?? "{}")) as {
+        smokeTest?: { suggestedCommands?: string[] };
+      };
+      return meta.smokeTest?.suggestedCommands ?? [];
+    });
+    const objectIds = new Set(
+      smokeNodes.flatMap((node) => {
+        const options = JSON.parse(String(node.checkOptionsJson ?? "{}")) as {
+          vttMap?: { objectCells?: Array<{ id: string; hiddenItemIds?: string[] }> } | null;
+        };
+        return options.vttMap?.objectCells?.map((objectCell) => objectCell.id) ?? [];
+      }),
+    );
+
+    expect(commands).toEqual(
+      expect.arrayContaining([
+        "/item pickup object_node_rule_smoke_condition_rope equipment.rope 1 3 4",
+        "/item drop entry-smoke-dagger 1 3 4",
+        "/item throw entry-smoke-dagger 1 4 4",
+      ]),
+    );
+    expect(objectIds.has("object_node_rule_smoke_condition_rope")).toBe(true);
+  });
+
+  it("documents executable combat API smoke actions for forced movement and ready triggers", async () => {
+    const { scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
+
+    const smokeNodes = scenarioNodeUpserts
+      .map((args) => args.create)
+      .filter((node): node is Record<string, unknown> => node?.scenarioId === RULE_RUNTIME_SMOKE_SCENARIO_ID);
+    const conditionNode = smokeNodes.find((node) => node.id === "node_rule_smoke_condition");
+    const meta = JSON.parse(String(conditionNode?.nodeMetaJson ?? "{}")) as {
+      smokeTest?: {
+        verifies?: string[];
+        apiActions?: Array<{
+          kind: string;
+          endpoint: string;
+          method: string;
+          payload: Record<string, unknown>;
+          expects?: string[];
+        }>;
+      };
+    };
+    const apiActions = meta.smokeTest?.apiActions ?? [];
+
+    expect(meta.smokeTest?.verifies).toEqual(
+      expect.arrayContaining([
+        "forced-movement",
+        "ready-action-trigger",
+        "monster-save-condition-rider",
+      ]),
+    );
+    expect(apiActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "force_move",
+          method: "POST",
+          endpoint: "/sessions/:sessionId/combat/force-move",
+          payload: expect.objectContaining({
+            participantId: "combat:node_rule_smoke_condition:goblin",
+            mode: "push",
+            origin: { x: 128, y: 256 },
+            distanceFt: 10,
+          }),
+          expects: expect.arrayContaining(["forced_movement", "terrain_effect", "ready_action_prompt"]),
+        }),
+        expect.objectContaining({
+          kind: "monster_actor_action",
+          method: "POST",
+          endpoint: "/sessions/:sessionId/combat/actor-action",
+          actorParticipantId: "combat:node_rule_smoke_condition:spider",
+          payload: expect.objectContaining({
+            actionType: "attack",
+            actionId: "action.bite",
+            targetParticipantId: "combat:node_rule_smoke_condition:actor",
+            autoEndTurn: false,
+          }),
+          expects: expect.arrayContaining([
+            "saving_throw:con:dc11",
+            "condition.poisoned",
+            "combat_snapshot_refresh",
+          ]),
+        }),
+      ]),
+    );
+  });
+
+  it("executes Ray of Frost smoke metadata with its movement condition rider", async () => {
+    const { scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
+    const conditionNode = scenarioNodeUpserts
+      .map((args) => args.create)
+      .find((node) => node?.id === "node_rule_smoke_condition");
+    const meta = JSON.parse(String(conditionNode?.nodeMetaJson ?? "{}")) as {
+      smokeTest?: { suggestedCommands?: string[] };
+    };
+    const command = meta.smokeTest?.suggestedCommands?.find((entry) =>
+      entry.startsWith("/cast ray_of_frost "),
+    );
+    const options = JSON.parse(String(conditionNode?.checkOptionsJson ?? "{}")) as {
+      vttMap?: { tokens?: Array<{ id: string; name?: string; isHostile?: boolean }> } | null;
+    };
+    const actor = createSmokeActor();
+    const targets = options.vttMap?.tokens?.map(createSmokeTarget) ?? [];
+    const result = createActionRuleService().resolveAction(
+      String(command),
+      actor,
+      [actor, ...targets],
+      { map: new MapPositionService().createRuntimeMap(options.vttMap) },
+    );
+
+    expect(result.outcome).not.toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.structuredAction).toMatchObject({
+      spellId: "spell.ray_of_frost",
+      damageType: "cold",
+    });
+    expect(result.stateChanges).toEqual([
+      expect.objectContaining({
+        sessionCharacterId: "token_node_rule_smoke_condition_goblin",
+        conditions: expect.arrayContaining([
+          expect.objectContaining({
+            conditionId: "condition.spell.ray_of_frost",
+            tags: ["movement_speed_penalty:10"],
+          }),
+        ]),
+      }),
+    ]);
+  });
+
+  it("covers concentration runtime with an executable AoE smoke command", async () => {
+    const { scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
+
+    const smokeNodes = scenarioNodeUpserts
+      .map((args) => args.create)
+      .filter((node): node is Record<string, unknown> => node?.scenarioId === RULE_RUNTIME_SMOKE_SCENARIO_ID);
+    const aoeNode = smokeNodes.find((node) => node.id === "node_rule_smoke_aoe");
+    const meta = JSON.parse(String(aoeNode?.nodeMetaJson ?? "{}")) as {
+      smokeTest?: { suggestedCommands?: string[] };
+    };
+    const command = meta.smokeTest?.suggestedCommands?.find((entry) =>
+      entry.startsWith("/cast_area fireball "),
+    );
+    const options = JSON.parse(String(aoeNode?.checkOptionsJson ?? "{}")) as {
+      vttMap?: { tokens?: Array<{ id: string; name?: string; isHostile?: boolean }> } | null;
+    };
+    const targets = options.vttMap?.tokens?.map(createSmokeTarget) ?? [];
+
+    expect(command).toBeDefined();
+    const result = createActionRuleService().resolveAction(
+      String(command),
+      createSmokeActor(),
+      [createSmokeActor(), ...targets],
+      { map: new MapPositionService().createRuntimeMap(options.vttMap) },
+    );
+    const structuredAction = result.structuredAction as {
+      aoe?: {
+        concentrationChecks?: Array<{
+          targetId: string;
+          concentrationMaintained: boolean;
+        }>;
+      };
+    };
+
+    expect(result.outcome).not.toBe(ActionOutcome.IMPOSSIBLE);
+    expect(structuredAction.aoe?.concentrationChecks).toEqual([
+      expect.objectContaining({
+        targetId: "token_node_rule_smoke_aoe_goblin",
+        concentrationMaintained: expect.any(Boolean),
+      }),
+    ]);
+  });
+
   it("keeps rule runtime smoke suggested commands executable by the action resolver", async () => {
     const { scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
 
@@ -244,14 +527,18 @@ describe("default scenario seed", () => {
       return (meta.smokeTest?.suggestedCommands ?? []).map((command) => ({
         command,
         tokens: options.vttMap?.tokens ?? [],
+        map: options.vttMap ?? null,
       }));
     });
 
     expect(commandContexts.length).toBeGreaterThan(0);
-    for (const { command, tokens } of commandContexts) {
+    const mapPositions = new MapPositionService();
+    for (const { command, tokens, map } of commandContexts) {
       const actor = createSmokeActor();
       const targets = tokens.map(createSmokeTarget);
-      const result = createActionRuleService().resolveAction(command, actor, [actor, ...targets]);
+      const result = createActionRuleService().resolveAction(command, actor, [actor, ...targets], {
+        map: mapPositions.createRuntimeMap(map),
+      });
 
       expect(result.outcome).not.toBe(ActionOutcome.IMPOSSIBLE);
       expect(result.structuredAction).not.toMatchObject({

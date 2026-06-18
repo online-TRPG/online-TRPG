@@ -104,6 +104,7 @@ describe("ActionProcessorService map object runtime effects", () => {
           expect.objectContaining({
             id: "object-rope",
             description: "equipment.rope x3",
+            hiddenItemIds: ["equipment.rope"],
           }),
         ],
       }),
@@ -193,6 +194,8 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       $transaction: jest.fn(async (callback: (transactionClient: typeof tx) => Promise<unknown>) =>
         callback(tx),
       ),
+      itemDefinition: tx.itemDefinition,
+      inventoryEntry: tx.inventoryEntry,
     };
     const sessionsService = {
       getSessionEntityOrThrow: jest.fn().mockResolvedValue({ hostUserId: "host-user-1" }),
@@ -286,6 +289,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
             expect.objectContaining({
               id: "object-rope",
               description: "equipment.rope x3",
+              hiddenItemIds: ["equipment.rope"],
             }),
           ],
         }),
@@ -301,6 +305,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
             expect.objectContaining({
               id: "object-rope",
               description: "equipment.rope x3",
+              hiddenItemIds: ["equipment.rope"],
             }),
           ],
         }),
@@ -361,6 +366,91 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
     });
 
     expect(tx.inventoryEntry.create).not.toHaveBeenCalled();
+    expect(tx.gameState.update).not.toHaveBeenCalled();
+    expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
+    expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing paired map objects before early runtime effects run", async () => {
+    const emptyMap = {
+      ...createBaseMap(),
+      objectCells: [],
+    };
+    const { service, tx, prisma, realtimeEvents, mapRuntime } = createService({ map: emptyMap });
+
+    await expect(
+      service.assertRuntimeEffectPreconditions(
+        {
+          runtimeEffects: [
+            {
+              type: "SPEND_ACTION",
+            },
+            {
+              type: "ADD_ITEM",
+              itemDefinitionId: "equipment.rope",
+              quantity: 2,
+            },
+            {
+              type: "REMOVE_MAP_OBJECT",
+              objectId: "object-rope",
+            },
+          ],
+        },
+        params,
+      ),
+    ).rejects.toMatchObject({
+      response: {
+        code: "VTT_409",
+        data: { reason: "MAP_OBJECT_NOT_FOUND", objectId: "object-rope" },
+      },
+    });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.create).not.toHaveBeenCalled();
+    expect(tx.gameState.update).not.toHaveBeenCalled();
+    expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
+    expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing inventory entries before early runtime effects run", async () => {
+    const { service, tx, prisma, realtimeEvents, mapRuntime } = createService({
+      inventoryEntry: null,
+    });
+
+    await expect(
+      service.assertRuntimeEffectPreconditions(
+        {
+          runtimeEffects: [
+            {
+              type: "SPEND_ACTION",
+            },
+            {
+              type: "REMOVE_ITEM",
+              itemId: "entry-rope",
+              quantity: 1,
+            },
+            {
+              type: "CREATE_MAP_OBJECT",
+              objectId: "object:dropped:entry-rope:2:0",
+              itemDefinitionId: "equipment.rope",
+              name: "Rope",
+              quantity: 1,
+              point: { x: 2, y: 0 },
+            },
+          ],
+        },
+        params,
+      ),
+    ).rejects.toMatchObject({
+      response: {
+        code: "INVENTORY_404",
+        data: { reason: "INVENTORY_ENTRY_NOT_FOUND", itemId: "entry-rope" },
+      },
+    });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.delete).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.update).not.toHaveBeenCalled();
     expect(tx.gameState.update).not.toHaveBeenCalled();
     expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
     expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
@@ -522,6 +612,109 @@ describe("ActionProcessorService rest runtime effects", () => {
         flagsJson: JSON.stringify({
           spellSlotsBySessionCharacterId: {
             "session-character-2": { "1": 1 },
+          },
+          unrelatedFlag: true,
+        }),
+      },
+    });
+  });
+
+  it("clears rest-bound monster limited-use flags on long rest", async () => {
+    const { service, prisma } = createService(
+      JSON.stringify({
+        monsterLimitedUseExpended: {
+          "participant-dragon": {
+            "monster.dragon.frightful_presence": {
+              usage: "1/day",
+              used: 1,
+              limit: 1,
+            },
+            "monster.dragon.legendary_resistance": {
+              usage: "3/rest",
+              used: 2,
+              limit: 3,
+            },
+            "monster.dragon.combat_surge": {
+              usage: "1/combat",
+              used: 1,
+              limit: 1,
+            },
+          },
+        },
+        spellSlotsBySessionCharacterId: {
+          "session-character-1": { "1": 0 },
+        },
+        unrelatedFlag: true,
+      }),
+    );
+
+    await service.recoverLongRestSpellSlots("session-scenario-1", "session-character-1");
+
+    expect(prisma.gameState.update).toHaveBeenCalledWith({
+      where: { sessionScenarioId: "session-scenario-1" },
+      data: {
+        flagsJson: JSON.stringify({
+          monsterLimitedUseExpended: {
+            "participant-dragon": {
+              "monster.dragon.combat_surge": {
+                usage: "1/combat",
+                used: 1,
+                limit: 1,
+              },
+            },
+          },
+          spellSlotsBySessionCharacterId: {},
+          unrelatedFlag: true,
+        }),
+      },
+    });
+  });
+
+  it("clears rest-only monster limited-use flags on short rest", async () => {
+    const { service, prisma } = createService(
+      JSON.stringify({
+        monsterLimitedUseExpended: {
+          "participant-dragon": {
+            "monster.dragon.frightful_presence": {
+              usage: "1/day",
+              used: 1,
+              limit: 1,
+            },
+            "monster.dragon.legendary_resistance": {
+              usage: "3/rest",
+              used: 2,
+              limit: 3,
+            },
+            "monster.dragon.combat_surge": {
+              usage: "1/combat",
+              used: 1,
+              limit: 1,
+            },
+          },
+        },
+        unrelatedFlag: true,
+      }),
+    );
+
+    await service.recoverShortRestMonsterLimitedUses("session-scenario-1");
+
+    expect(prisma.gameState.update).toHaveBeenCalledWith({
+      where: { sessionScenarioId: "session-scenario-1" },
+      data: {
+        flagsJson: JSON.stringify({
+          monsterLimitedUseExpended: {
+            "participant-dragon": {
+              "monster.dragon.frightful_presence": {
+                usage: "1/day",
+                used: 1,
+                limit: 1,
+              },
+              "monster.dragon.combat_surge": {
+                usage: "1/combat",
+                used: 1,
+                limit: 1,
+              },
+            },
           },
           unrelatedFlag: true,
         }),

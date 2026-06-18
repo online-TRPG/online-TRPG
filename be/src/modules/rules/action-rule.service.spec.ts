@@ -699,6 +699,7 @@ describe("ActionRuleService", () => {
     });
     expect(structuredAction.result.distanceFt).toBe(5);
     expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
       { type: "REMOVE_ITEM", itemId: "entry-dagger", quantity: 1 },
       {
         type: "CREATE_MAP_OBJECT",
@@ -709,6 +710,49 @@ describe("ActionRuleService", () => {
         point: { x: 1, y: 0 },
       },
     ]);
+  });
+
+  it("rejects item drop commands when no action is available", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        inventoryJson: JSON.stringify([
+          {
+            id: "entry-dagger",
+            itemDefinitionId: "equipment.dagger",
+            name: "Dagger",
+            quantity: 2,
+          },
+        ]),
+      },
+    });
+
+    const result = service.resolveAction("/item drop entry-dagger 1 1 0", actor, [actor], {
+      map: {
+        gridType: "square",
+        gridSize: 50,
+        tokens: [
+          { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+        ],
+      },
+      turnState: {
+        actionUsed: true,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.structuredAction).toMatchObject({
+      type: "item_interaction",
+      operation: "drop",
+      itemId: "entry-dagger",
+    });
+    expect(result.runtimeEffects).toEqual([]);
   });
 
   it("resolves item pickup commands into inventory addition and map object removal metadata", () => {
@@ -762,9 +806,59 @@ describe("ActionRuleService", () => {
       distanceFt: 5,
     });
     expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
       { type: "ADD_ITEM", itemDefinitionId: "equipment.rope", quantity: 1 },
       { type: "REMOVE_MAP_OBJECT", objectId: "object-rope" },
     ]);
+  });
+
+  it("rejects item pickup commands when no action is available", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+    });
+
+    const result = service.resolveAction(
+      "/item pickup object-rope equipment.rope 1 1 0",
+      actor,
+      [actor],
+      {
+        map: {
+          gridType: "square",
+          gridSize: 50,
+          tokens: [
+            { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+          ],
+          objectCells: [
+            {
+              id: "object-rope",
+              x: 50,
+              y: 0,
+              width: 50,
+              height: 50,
+              description: "equipment.rope x1",
+              hiddenItemIds: ["equipment.rope"],
+            },
+          ],
+        },
+        turnState: {
+          actionUsed: true,
+          bonusActionUsed: false,
+          reactionUsed: false,
+          additionalActionGranted: false,
+          sneakAttackUsed: false,
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.structuredAction).toMatchObject({
+      type: "item_interaction",
+      operation: "pickup",
+      itemDefinitionId: "equipment.rope",
+    });
+    expect(result.runtimeEffects).toEqual([]);
   });
 
   it("rejects item pickup when the VTT map object is missing", () => {
@@ -834,6 +928,7 @@ describe("ActionRuleService", () => {
 
     expect(result.outcome).toBe(ActionOutcome.SUCCESS);
     expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
       { type: "ADD_ITEM", itemDefinitionId: "equipment.rope", quantity: 2 },
       {
         type: "UPDATE_MAP_OBJECT_QUANTITY",
@@ -951,6 +1046,54 @@ describe("ActionRuleService", () => {
       },
       { type: "SPEND_ACTION" },
     ]);
+  });
+
+  it("rejects item throw commands when no action is available", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        abilitiesJson: JSON.stringify({ str: 12, dex: 16 }),
+        proficiencyBonus: 2,
+        inventoryJson: JSON.stringify([
+          {
+            id: "entry-dagger",
+            itemDefinitionId: "equipment.dagger",
+            name: "Dagger",
+            quantity: 1,
+            damageDice: "1d4",
+            damageType: "piercing",
+            properties: ["finesse", "light", "thrown", "proficient"],
+          },
+        ]),
+      },
+    });
+
+    const result = service.resolveAction("/item throw entry-dagger 1 4 0", actor, [actor], {
+      map: {
+        gridType: "square",
+        gridSize: 50,
+        tokens: [
+          { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+        ],
+      },
+      turnState: {
+        actionUsed: true,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.structuredAction).toMatchObject({
+      type: "item_interaction",
+      operation: "throw",
+      itemId: "entry-dagger",
+    });
+    expect(result.runtimeEffects).toEqual([]);
   });
 
   it("resolves thrown item hits into attack damage without creating a miss object", () => {
@@ -1240,6 +1383,60 @@ describe("ActionRuleService", () => {
     expect(structuredAction.ruleResults.map((ruleResult) => ruleResult.hookId)).toEqual([
       RULE_HOOK_IDS.RESOLVE_ATTACK_ROLL,
       RULE_HOOK_IDS.APPLY_DAMAGE_MODIFIERS,
+    ]);
+  });
+
+  it("applies Ray of Frost movement penalty through catalog attack spell data", () => {
+    const service = createService([
+      createDiceResult([18], 3),
+      {
+        expression: "2d8",
+        rolls: [6, 5],
+        modifier: 0,
+        total: 11,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "wizard",
+        level: 5,
+        proficiencyBonus: 3,
+        spellsJson: JSON.stringify({ cantrips: ["spell.ray_of_frost"] }),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 20,
+      character: { id: "target-character", name: "Target", armorClass: 12 },
+    });
+
+    const result = service.resolveAction("/cast ray_of_frost target 60", actor, [actor, target]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.structuredAction).toMatchObject({
+      spellId: "spell.ray_of_frost",
+      damageType: "cold",
+      damageDice: "2d8",
+      finalDamage: 11,
+    });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "target",
+        currentHp: 9,
+        markDead: false,
+        conditions: [
+          expect.objectContaining({
+            conditionId: "condition.spell.ray_of_frost",
+            sourceId: "spell.ray_of_frost",
+            duration: { type: "rounds", remaining: 1 },
+            tags: ["movement_speed_penalty:10"],
+          }),
+        ],
+      },
     ]);
   });
 
@@ -1616,6 +1813,66 @@ describe("ActionRuleService", () => {
     expect(result.runtimeEffects).toEqual([
       { type: "SPEND_ACTION" },
       { type: "SPEND_SPELL_SLOT", slotLevel: 3 },
+    ]);
+  });
+
+  it("executes cure wounds as a catalog-driven touch healing spell", () => {
+    const service = createService([
+      {
+        expression: "2d8+3",
+        rolls: [6, 5],
+        modifier: 3,
+        total: 14,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "cleric",
+        level: 3,
+        abilitiesJson: JSON.stringify({ wis: 16 }),
+        spellsJson: JSON.stringify({
+          spells: ["spell.cure_wounds"],
+          preparedSpells: ["spell.cure_wounds"],
+        }),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 4,
+      character: { id: "target-character", name: "Target", maxHp: 18, armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/cast cure_wounds target 5 2", actor, [actor, target]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.diceResult).toMatchObject({ expression: "2d8+3", total: 14 });
+    expect(result.structuredAction).toMatchObject({
+      type: "cast_spell",
+      spellId: "spell.cure_wounds",
+      slotLevel: 2,
+      target: "target",
+      spellDefinition: {
+        id: "spell.cure_wounds",
+        level: 1,
+      },
+      spellScaling: {
+        baseSpellLevel: 1,
+        slotLevel: 2,
+        damageDice: "2d8",
+      },
+      healingDice: "2d8+3",
+      finalHealing: 14,
+    });
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 18 },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SPELL_SLOT", slotLevel: 2 },
     ]);
   });
 

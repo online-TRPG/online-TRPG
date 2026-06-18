@@ -2405,7 +2405,7 @@ export function BattleMap({
             ) : null}
 
             {!canEditMap ? (
-              <BattleMapSessionObstacleLayer terrainCells={terrainCells} wallCells={wallCells} />
+              <BattleMapSessionObstacleLayer map={map} terrainCells={terrainCells} wallCells={wallCells} />
             ) : null}
 
             <BattleMapObjectMarkerLayer

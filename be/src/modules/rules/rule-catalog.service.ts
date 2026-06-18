@@ -514,6 +514,16 @@ const SPELL_DEFINITIONS: RuleCatalogEntry[] = [
     hookId: "hook.spell.cast_fire_bolt",
     scaling: { mode: "character_level", table: { 5: "2d10", 11: "3d10", 17: "4d10" } },
   }),
+  spell("spell.ray_of_frost", {
+    level: 0,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 60 },
+    damage: { dice: "1d8", type: "cold", scaling: "character_level" },
+    duration: { unit: "round", amount: 1 },
+    tags: ["spell_attack:ranged", "damage:cold", "movement_speed_penalty:10"],
+    hookId: "hook.spell.cast_ray_of_frost",
+    scaling: { mode: "character_level", table: { 5: "2d8", 11: "3d8", 17: "4d8" } },
+  }),
   spell("spell.light", {
     level: 0,
     cost: { type: "action" },
@@ -531,6 +541,16 @@ const SPELL_DEFINITIONS: RuleCatalogEntry[] = [
     tags: ["damage:force", "hit:auto", "missile_count:3"],
     hookId: "hook.spell.cast_magic_missile",
     scaling: { mode: "slot_level", table: { mode: "target_count", count: 1, perSlotAbove: 1 } },
+  }),
+  spell("spell.cure_wounds", {
+    level: 1,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d8", type: "healing", scaling: "slot_level" },
+    duration: { unit: "instant", amount: null },
+    tags: ["healing", "range:5"],
+    hookId: "hook.spell.cast_cure_wounds",
+    scaling: { mode: "slot_level", table: { mode: "damage_dice", dice: "1d8", perSlotAbove: 1 } },
   }),
   spell("spell.shield", {
     level: 1,
@@ -563,6 +583,29 @@ const SPELL_DEFINITIONS: RuleCatalogEntry[] = [
 ];
 
 const MONSTER_ABILITY_DEFINITIONS: RuleCatalogEntry[] = [
+  monsterAbility("monster.brown_bear.ability.multiattack", {
+    monsterId: "monster.brown_bear",
+    cost: { type: "action" },
+    targeting: SELF_TARGETING,
+    tags: ["multiattack:action.bite:1", "multiattack:action.claws:1"],
+    hookId: "hook.monster.multiattack",
+  }),
+  monsterAbility("monster.brown_bear.ability.bite", {
+    monsterId: "monster.brown_bear",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d8+4", type: "piercing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+5", "srd_action_id:action.bite"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.brown_bear.ability.claws", {
+    monsterId: "monster.brown_bear",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "2d6+4", type: "slashing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+5", "srd_action_id:action.claws"],
+    hookId: "hook.monster.attack",
+  }),
   monsterAbility("monster.goblin.ability.scimitar", {
     monsterId: "monster.goblin",
     cost: { type: "action" },
@@ -592,6 +635,20 @@ const MONSTER_ABILITY_DEFINITIONS: RuleCatalogEntry[] = [
     targeting: { type: "creature", rangeFt: 5 },
     damage: { dice: "1d4+2", type: "piercing" },
     tags: ["attack:melee_weapon", "attack_bonus:+4", "srd_action_id:action.bite"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.giant_spider.ability.bite", {
+    monsterId: "monster.giant_spider",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    save: { ability: "con", dcSource: "fixed", fixedDc: 11 },
+    damage: { dice: "1d8+3", type: "piercing" },
+    tags: [
+      "attack:melee_weapon",
+      "attack_bonus:+5",
+      "srd_action_id:action.bite",
+      "condition:poisoned",
+    ],
     hookId: "hook.monster.attack",
   }),
 ];

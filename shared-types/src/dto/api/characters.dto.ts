@@ -71,6 +71,44 @@ export class AbilityScoresDto {
   cha!: number;
 }
 
+export class LevelUpAbilityScoreIncreasesDto {
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  str?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  dex?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  con?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  int?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  wis?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  cha?: number;
+}
+
 export class StartingSpellsDto {
   @ApiProperty({ type: [String], example: ["light", "ray-of-frost", "fire-bolt"] })
   @IsArray()
@@ -487,6 +525,16 @@ export class LevelUpCharacterDto {
   @IsString()
   @MaxLength(80)
   subclassName?: string | null;
+
+  @ApiPropertyOptional({
+    type: LevelUpAbilityScoreIncreasesDto,
+    description: "4, 8, 12, 16, 19레벨 ASI에서 배분할 능력치 상승치입니다. ASI마다 총 2점을 배분합니다.",
+  })
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => LevelUpAbilityScoreIncreasesDto)
+  abilityScoreIncreases?: LevelUpAbilityScoreIncreasesDto;
 
   @ApiPropertyOptional({
     type: [String],
