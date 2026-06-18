@@ -86,6 +86,42 @@ describe("MonsterAbilityService", () => {
     });
   });
 
+  it("exposes multiattack references from catalog tags", () => {
+    const actions = service.listExecutableActions("monster.brown_bear");
+
+    expect(actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionId: "monster.brown_bear.ability.multiattack",
+        attackKind: "special",
+        costType: "action",
+        specialType: "multiattack",
+        effectTags: ["multiattack:action.bite:1", "multiattack:action.claws:1"],
+      }),
+      expect.objectContaining({
+        actionId: "action.bite",
+        attackKind: "melee_weapon",
+        damageDice: "1d8+4",
+      }),
+      expect.objectContaining({
+        actionId: "action.claws",
+        attackKind: "melee_weapon",
+        damageDice: "2d6+4",
+      }),
+    ]));
+  });
+
+  it("projects save-based condition riders for giant spider bite", () => {
+    expect(service.chooseAction("monster.giant_spider")).toMatchObject({
+      actionId: "action.bite",
+      attackKind: "melee_weapon",
+      attackBonus: 5,
+      damageDice: "1d8+3",
+      damageType: "piercing",
+      save: { ability: "con", dcSource: "fixed", fixedDc: 11 },
+      conditionRiders: ["condition.poisoned"],
+    });
+  });
+
   it("returns no executable actions for monsters without catalog attacks", () => {
     expect(service.listExecutableActions("monster.unknown")).toEqual([]);
     expect(service.chooseAction("monster.unknown")).toBeNull();

@@ -509,6 +509,12 @@ export class CombatMonsterActionOptionDto {
 
   @ApiPropertyOptional({ type: [String] })
   effectTags?: string[];
+
+  @ApiPropertyOptional()
+  available?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  unavailableReason?: string | null;
 }
 
 export class CombatParticipantResponseDto {
@@ -881,6 +887,9 @@ export class CombatActionResultDto {
 
   @ApiPropertyOptional({ type: Object, nullable: true })
   map?: VttMapStateDto | null;
+
+  @ApiPropertyOptional({ type: CombatReactionPromptDto, nullable: true })
+  pendingReaction?: CombatReactionPromptDto | null;
 }
 
 export class StateDiffResponseDto {

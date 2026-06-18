@@ -104,7 +104,18 @@ function createRuleRuntimeSmokeMap(nodeId: string) {
     fogRects: [],
     tokens: [
       {
+        id: `token_${nodeId}_actor`,
+        sessionCharacterId: "smoke-actor",
+        name: "Smoke Actor",
+        x: 128,
+        y: 256,
+        size: 64,
+        hidden: false,
+        isHostile: false,
+      },
+      {
         id: `token_${nodeId}_goblin`,
+        sessionCharacterId: `token_${nodeId}_goblin`,
         name: "Smoke Goblin",
         x: 448,
         y: 192,
@@ -119,6 +130,7 @@ function createRuleRuntimeSmokeMap(nodeId: string) {
       },
       {
         id: `token_${nodeId}_rat`,
+        sessionCharacterId: `token_${nodeId}_rat`,
         name: "Smoke Giant Rat",
         x: 576,
         y: 256,
@@ -129,6 +141,21 @@ function createRuleRuntimeSmokeMap(nodeId: string) {
           id: "monster.giant_rat",
           nameEn: "Giant Rat",
           nameKo: "거대 쥐",
+        },
+      },
+      {
+        id: `token_${nodeId}_spider`,
+        sessionCharacterId: `token_${nodeId}_spider`,
+        name: "Smoke Giant Spider",
+        x: 576,
+        y: 128,
+        size: 64,
+        hidden: false,
+        isHostile: true,
+        monster: {
+          id: "monster.giant_spider",
+          nameEn: "Giant Spider",
+          nameKo: "거대 거미",
         },
       },
     ],
@@ -142,6 +169,17 @@ function createRuleRuntimeSmokeMap(nodeId: string) {
         width: 64,
         height: 64,
         visibleToPlayers: true,
+      },
+      {
+        id: `object_${nodeId}_rope`,
+        name: "Smoke Rope",
+        description: "equipment.rope x1",
+        x: 192,
+        y: 256,
+        width: 64,
+        height: 64,
+        visibleToPlayers: true,
+        hiddenItemIds: ["equipment.rope"],
       },
     ],
     terrainCells: [
@@ -235,8 +273,9 @@ const scenarioNodes = [
     fallbackNodeId: RULE_RUNTIME_TRAP_NODE_ID,
     nodeMetaJson: JSON.stringify({
       smokeTest: {
-        suggestedCommands: ["/rest short", "/rest long"],
-        verifies: ["rest-resolution", "condition-until-rest-expiry"],
+        gmModes: ["AI", "HUMAN"],
+        suggestedCommands: ["/rest short", "/rest long", "/cast cure_wounds smoke-actor 5 2"],
+        verifies: ["rest-resolution", "condition-until-rest-expiry", "spell-healing"],
       },
     }),
   },
@@ -275,6 +314,7 @@ const scenarioNodes = [
     fallbackNodeId: RULE_RUNTIME_COVER_NODE_ID,
     nodeMetaJson: JSON.stringify({
       smokeTest: {
+        gmModes: ["AI", "HUMAN"],
         verifies: ["saving-throw", "condition-runtime", "terrain-poison-cloud"],
         suggestedCommands: [
           "/check investigation 13",
@@ -310,6 +350,7 @@ const scenarioNodes = [
     fallbackNodeId: RULE_RUNTIME_AOE_NODE_ID,
     nodeMetaJson: JSON.stringify({
       smokeTest: {
+        gmModes: ["AI", "HUMAN"],
         verifies: ["cover-position", "monster-ability", "terrain-effect"],
         suggestedCommands: ["/attack token_node_rule_smoke_cover_combat_goblin"],
       },
@@ -334,6 +375,7 @@ const scenarioNodes = [
     fallbackNodeId: RULE_RUNTIME_CONDITION_NODE_ID,
     nodeMetaJson: JSON.stringify({
       smokeTest: {
+        gmModes: ["AI", "HUMAN"],
         verifies: ["aoe-targeting", "aoe-damage", "spell-scaling"],
         suggestedCommands: [
           "/cast_area fireball 15 token_node_rule_smoke_aoe_goblin,token_node_rule_smoke_aoe_rat 4",
@@ -368,8 +410,49 @@ const scenarioNodes = [
     fallbackNodeId: RULE_RUNTIME_HUMAN_GM_NODE_ID,
     nodeMetaJson: JSON.stringify({
       smokeTest: {
-        verifies: ["condition-lifecycle", "concentration-runtime", "forced-movement"],
-        suggestedCommands: ["/condition add token_node_rule_smoke_condition_goblin stunned"],
+        gmModes: ["AI", "HUMAN"],
+        verifies: [
+          "condition-lifecycle",
+          "concentration-runtime",
+          "forced-movement",
+          "ready-action-trigger",
+          "spell-condition-rider",
+          "monster-save-condition-rider",
+        ],
+        suggestedCommands: [
+          "/condition add token_node_rule_smoke_condition_goblin stunned",
+          "/cast ray_of_frost token_node_rule_smoke_condition_goblin 60",
+          "/item pickup object_node_rule_smoke_condition_rope equipment.rope 1 3 4",
+          "/item drop entry-smoke-dagger 1 3 4",
+          "/item throw entry-smoke-dagger 1 4 4",
+        ],
+        apiActions: [
+          {
+            kind: "force_move",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/force-move",
+            payload: {
+              participantId: "combat:node_rule_smoke_condition:goblin",
+              mode: "push",
+              origin: { x: 128, y: 256 },
+              distanceFt: 10,
+            },
+            expects: ["forced_movement", "terrain_effect", "ready_action_prompt"],
+          },
+          {
+            kind: "monster_actor_action",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/actor-action",
+            payload: {
+              actionType: "attack",
+              actionId: "action.bite",
+              targetParticipantId: "combat:node_rule_smoke_condition:actor",
+              autoEndTurn: false,
+            },
+            actorParticipantId: "combat:node_rule_smoke_condition:spider",
+            expects: ["saving_throw:con:dc11", "condition.poisoned", "combat_snapshot_refresh"],
+          },
+        ],
       },
     }),
   },
@@ -398,6 +481,7 @@ const scenarioNodes = [
     fallbackNodeId: null,
     nodeMetaJson: JSON.stringify({
       smokeTest: {
+        gmModes: ["AI", "HUMAN"],
         verifies: ["human-gm-override", "turn-log", "state-diff", "ai-assist-accept"],
         manualActions: [
           {

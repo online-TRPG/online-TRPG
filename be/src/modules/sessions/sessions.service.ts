@@ -3557,7 +3557,33 @@ export class SessionsService {
     }
 
     this.ensureGmRuntimeOperator(userId, session);
+    await this.ensureJoinedGmRuntimeParticipant(userId, session.id);
     return session;
+  }
+
+  private async ensureJoinedGmRuntimeParticipant(userId: string, sessionId: string): Promise<void> {
+    const participant = await this.prisma.sessionParticipant.findUnique({
+      where: {
+        sessionId_userId: {
+          sessionId,
+          userId,
+        },
+      },
+      select: {
+        role: true,
+        status: true,
+      },
+    });
+
+    if (
+      participant?.status !== PrismaParticipantStatus.JOINED ||
+      (
+        participant.role !== PrismaParticipantRole.GM &&
+        participant.role !== PrismaParticipantRole.HOST
+      )
+    ) {
+      throw new ForbiddenException("GM 권한이 필요합니다.");
+    }
   }
 
   private addHumanGmCondition(currentConditions: unknown[], conditionId: string): unknown[] {

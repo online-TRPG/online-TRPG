@@ -45,7 +45,9 @@ const DEFAULT_WEAPON_DAMAGE_TYPE = "slashing";
 const DEFAULT_DIRECT_DAMAGE_TYPE = "untyped";
 const CHILL_TOUCH_SPELL_ID = "spell.chill_touch";
 const FIRE_BOLT_SPELL_ID = "spell.fire_bolt";
+const RAY_OF_FROST_SPELL_ID = "spell.ray_of_frost";
 const MAGIC_MISSILE_SPELL_ID = "spell.magic_missile";
+const CURE_WOUNDS_SPELL_ID = "spell.cure_wounds";
 const SLEEP_SPELL_ID = "spell.sleep";
 const LIGHT_SPELL_ID = "spell.light";
 const SECOND_WIND_FEATURE_ID = "class.fighter.feature.second_wind";
@@ -747,7 +749,19 @@ export class ActionRuleService {
       });
     }
 
-    if (command.spellId === FIRE_BOLT_SPELL_ID) {
+    if (command.spellId === CURE_WOUNDS_SPELL_ID) {
+      return this.resolveCureWounds({
+        command,
+        actor,
+        target,
+        spellDefinition,
+        spellLevel,
+        slotLevel,
+        spellScaling,
+      });
+    }
+
+    if (command.spellId === FIRE_BOLT_SPELL_ID || command.spellId === RAY_OF_FROST_SPELL_ID) {
       return this.resolveSpellAttackDamage({
         command,
         actor,
@@ -1066,11 +1080,25 @@ export class ActionRuleService {
       ruleResults.push(damageRuleResult);
       finalDamage = damageRuleResult.produced.finalDamage;
       const nextHp = Math.max(params.target.currentHp - finalDamage, 0);
-      stateChanges.push({
+      const stateChange: CharacterStatePatch = {
         sessionCharacterId: params.target.id,
         currentHp: nextHp,
         markDead: nextHp <= 0,
-      });
+      };
+      const speedPenaltyFt = this.resolveMovementSpeedPenaltyFt(params.spellDefinition);
+      if (speedPenaltyFt > 0) {
+        stateChange.conditions = this.conditionRuntime.applyCondition(
+          this.conditionRuntime.parseConditionsJson(params.target.conditionsJson),
+          this.conditionRuntime.createCondition({
+            conditionId: `condition.spell.${params.command.spellId.slice("spell.".length)}`,
+            sourceId: params.command.spellId,
+            duration: { type: "rounds", remaining: 1 },
+            stackPolicy: "replace",
+            tags: [`movement_speed_penalty:${speedPenaltyFt}`],
+          }),
+        );
+      }
+      stateChanges.push(stateChange);
     }
 
     return {
@@ -1164,6 +1192,67 @@ export class ActionRuleService {
             : {}),
         },
       ],
+      runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
+    };
+  }
+
+  private resolveCureWounds(params: {
+    command: Extract<ParsedCommand, { type: "cast_spell" }>;
+    actor: SessionCharacterForRules;
+    target: SessionCharacterForRules;
+    spellDefinition: RuleCatalogEntry | null;
+    spellLevel: number;
+    slotLevel: number;
+    spellScaling: SpellScalingResult | null;
+  }): ActionResolution {
+    const maxRangeFt = this.resolveSpellRangeFt(params.spellDefinition);
+    if (maxRangeFt !== null && params.command.targetDistanceFt > maxRangeFt) {
+      return {
+        structuredAction: {
+          type: "cast_spell",
+          spellId: params.command.spellId,
+          slotLevel: params.slotLevel,
+          target: params.target.id,
+          targetDistanceFt: params.command.targetDistanceFt,
+          spellDefinition: this.toStructuredSpellDefinition(params.spellDefinition, params.spellLevel),
+          spellScaling: params.spellScaling,
+          rejectedReason: "target_out_of_range",
+        },
+        diceResult: null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: this.createSpellRejectedNarration("target_out_of_range"),
+        stateChanges: [],
+        runtimeEffects: [],
+      };
+    }
+
+    const healingBaseDice =
+      params.spellScaling?.damageDice ??
+      this.resolveSpellDamageDice(params.spellDefinition, params.actor.character.level) ??
+      "1d8";
+    const healingModifier = this.resolveSpellcastingAbilityModifier(params.actor);
+    const healingDice = `${healingBaseDice}${healingModifier >= 0 ? "+" : ""}${healingModifier}`;
+    const healingRoll = this.diceService.roll(healingDice);
+    const finalHealing = healingRoll.total;
+    const nextHp = Math.min(params.target.currentHp + finalHealing, params.target.character.maxHp);
+
+    return {
+      structuredAction: {
+        type: "cast_spell",
+        spellId: params.command.spellId,
+        slotLevel: params.slotLevel,
+        target: params.target.id,
+        targetDistanceFt: params.command.targetDistanceFt,
+        spellDefinition: this.toStructuredSpellDefinition(params.spellDefinition, params.spellLevel),
+        spellScaling: params.spellScaling,
+        healingDice,
+        healingRoll: { ...healingRoll },
+        finalHealing,
+      },
+      diceResult: healingRoll,
+      outcome: ActionOutcome.SUCCESS,
+      narration: "Cure Wounds 주문으로 대상을 회복했습니다.",
+      stateChanges: [{ sessionCharacterId: params.target.id, currentHp: nextHp }],
       runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
     };
   }
@@ -1383,6 +1472,14 @@ export class ActionRuleService {
       if (result.type !== "pickup") {
         throw new Error("Unexpected pickup item interaction resolution.");
       }
+      if (!this.hasActionAvailable(runtimeContext)) {
+        return this.createActionUnavailableResolution("item_interaction", {
+          operation: "pickup",
+          objectId: command.objectId,
+          itemDefinitionId: command.itemDefinitionId,
+          quantity: command.quantity,
+        });
+      }
       const remainingQuantity =
         pickupObject.quantity !== null ? pickupObject.quantity - result.quantity : 0;
 
@@ -1401,6 +1498,7 @@ export class ActionRuleService {
         narration: "아이템을 주웠습니다.",
         stateChanges: [],
         runtimeEffects: [
+          { type: "SPEND_ACTION" },
           {
             type: "ADD_ITEM",
             itemDefinitionId: result.itemDefinitionId,
@@ -1435,6 +1533,13 @@ export class ActionRuleService {
       if (result.type !== "drop") {
         throw new Error("Unexpected drop item interaction resolution.");
       }
+      if (!this.hasActionAvailable(runtimeContext)) {
+        return this.createActionUnavailableResolution("item_interaction", {
+          operation: "drop",
+          itemId: command.itemId,
+          quantity: command.quantity,
+        });
+      }
 
       return {
         structuredAction: {
@@ -1450,6 +1555,7 @@ export class ActionRuleService {
         narration: `${item.name}을(를) 바닥에 내려놓았습니다.`,
         stateChanges: [],
         runtimeEffects: [
+          { type: "SPEND_ACTION" },
           {
             type: "REMOVE_ITEM",
             itemId: result.entryId,
@@ -1484,16 +1590,15 @@ export class ActionRuleService {
     if (result.type !== "throw") {
       throw new Error("Unexpected throw item interaction resolution.");
     }
+    if (!this.hasActionAvailable(runtimeContext)) {
+      return this.createActionUnavailableResolution("item_interaction", {
+        operation: "throw",
+        itemId: command.itemId,
+        quantity: command.quantity,
+      });
+    }
     const thrownTarget = this.findTargetAtGridPoint(command.point, actor.id, sessionCharacters, runtimeContext.map);
     if (thrownTarget) {
-      if (!this.hasActionAvailable(runtimeContext)) {
-        return this.createActionUnavailableResolution("item_interaction", {
-          operation: "throw",
-          itemId: command.itemId,
-          quantity: command.quantity,
-        });
-      }
-
       const attackAdvantageState = result.attack.inNormalRange
         ? DiceAdvantageState.NORMAL
         : DiceAdvantageState.DISADVANTAGE;
@@ -3152,7 +3257,17 @@ export class ActionRuleService {
   private resolveKnownCantrips(spellId: string): string[] {
     // 아직 캐릭터별 주문 목록 모델이 없어서, MVP에서는 실행 경로가 붙은 cantrip만
     // "시전자가 알고 있는 cantrip"으로 간주한다. 주문 목록 테이블이 생기면 여기만 바꾸면 된다.
-    return [CHILL_TOUCH_SPELL_ID, FIRE_BOLT_SPELL_ID].includes(spellId) ? [spellId] : [];
+    return [CHILL_TOUCH_SPELL_ID, FIRE_BOLT_SPELL_ID, RAY_OF_FROST_SPELL_ID].includes(spellId)
+      ? [spellId]
+      : [];
+  }
+
+  private resolveMovementSpeedPenaltyFt(spellDefinition: RuleCatalogEntry | null): number {
+    const tag = spellDefinition?.runtimeEffect.tags.find((value) =>
+      value.startsWith("movement_speed_penalty:"),
+    );
+    const value = Number(tag?.slice("movement_speed_penalty:".length));
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
   }
 
   private resolveSpellDefinition(spellId: string): RuleCatalogEntry | null {
@@ -3226,6 +3341,27 @@ export class ActionRuleService {
     }
 
     return null;
+  }
+
+  private resolveSpellcastingAbilityModifier(actor: SessionCharacterForRules): number {
+    const abilities = this.parseJson<Record<string, number>>(actor.character.abilitiesJson, {});
+    const classKey = actor.character.className.trim().toLowerCase();
+    let abilityKey = "int";
+    if (classKey === "cleric" || classKey === "druid" || classKey === "ranger") {
+      abilityKey = "wis";
+    } else if (
+      classKey === "bard" ||
+      classKey === "paladin" ||
+      classKey === "sorcerer" ||
+      classKey === "warlock"
+    ) {
+      abilityKey = "cha";
+    }
+    return this.toAbilityModifier(abilities[abilityKey] ?? 10);
+  }
+
+  private toAbilityModifier(score: number): number {
+    return Math.floor((score - 10) / 2);
   }
 
   private resolveSpellDamageDice(

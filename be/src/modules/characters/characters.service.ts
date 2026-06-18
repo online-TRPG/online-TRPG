@@ -54,6 +54,8 @@ const defaultAbilityScores = {
 // 능력치 범위: D&D 5e 공식 상한 20 + 매직 아이템/주문 보정 여유로 30. Point Buy(8~15)는 별도로 검사.
 const ABILITY_SCORE_MIN = 1;
 const ABILITY_SCORE_MAX = 30;
+const ASI_ABILITY_SCORE_MAX = 20;
+const ABILITY_KEYS = ["str", "dex", "con", "int", "wis", "cha"] as const;
 
 // PATCH 류를 막는 세션 상태. RECRUITING/COMPLETED/DISBANDED 는 수정 허용.
 const LOCKED_SESSION_STATUSES: ReadonlySet<PrismaSessionStatus> = new Set([
@@ -61,8 +63,14 @@ const LOCKED_SESSION_STATUSES: ReadonlySet<PrismaSessionStatus> = new Set([
   PrismaSessionStatus.PAUSED,
 ]);
 
-const MVP_STARTING_CANTRIP_IDS = new Set(["spell.chill_touch", "spell.fire_bolt", "spell.light"]);
+const MVP_STARTING_CANTRIP_IDS = new Set([
+  "spell.chill_touch",
+  "spell.fire_bolt",
+  "spell.light",
+  "spell.ray_of_frost",
+]);
 const MVP_STARTING_SLOT_SPELL_IDS = new Set([
+  "spell.cure_wounds",
   "spell.magic_missile",
   "spell.shield",
   "spell.sleep",
@@ -105,7 +113,12 @@ export class CharactersService {
     const offhandWeaponId =
       dto.offhandWeaponId ?? this.resolveDefaultOffhandEquipmentId(inventory, equippedWeaponId);
     await this.validateEquipmentLoadout(inventory, equippedWeaponId, offhandWeaponId);
-    const spellsJsonValue = await this.resolveStartingSpells(className, level, dto.startingSpells);
+    const spellsJsonValue = await this.resolveStartingSpells(
+      className,
+      level,
+      abilities,
+      dto.startingSpells,
+    );
     const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
       className,
       level,
@@ -398,6 +411,11 @@ export class CharactersService {
       });
     }
 
+    const finalAbilities = this.resolveLevelUpAbilityScores(
+      abilities,
+      dto.abilityScoreIncreases,
+      resolution.asiOrFeatChoiceRequiredAtLevels,
+    );
     const finalFeatures = await this.resolveCharacterFeatureSnapshot({
       ancestry: existing.ancestry,
       className: existing.className,
@@ -412,16 +430,48 @@ export class CharactersService {
             knownSpells: dto.knownSpells,
             preparedSpells: dto.preparedSpells,
             level: resolution.toLevel,
+            className: existing.className,
+            abilities: finalAbilities,
           });
-    const hpDelta = Math.max(0, resolution.maxHpAfter - existing.maxHp);
+    const constitutionModifierDelta =
+      this.getAbilityModifier(finalAbilities.con) - this.getAbilityModifier(abilities.con);
+    const finalMaxHp =
+      resolution.maxHpAfter + constitutionModifierDelta * resolution.toLevel;
+    const inventory = this.parseInventoryItemsJson(existing.inventoryJson);
+    const previousCalculatedArmorClass = this.resolveArmorClass(
+      existing.className,
+      abilities,
+      inventory,
+      existing.armorClass,
+      existing.offhandWeaponId ?? null,
+    );
+    const normalizedClassName = existing.className.trim().toLowerCase();
+    const canRecalculateArmorClass =
+      inventory.some((item) => this.isArmorInventoryItem(item)) ||
+      normalizedClassName.includes("barbarian") ||
+      normalizedClassName.includes("monk") ||
+      existing.armorClass === previousCalculatedArmorClass;
+    const recalculatedArmorClass = this.resolveArmorClass(
+      existing.className,
+      finalAbilities,
+      inventory,
+      existing.armorClass,
+      existing.offhandWeaponId ?? null,
+    );
+    const finalArmorClass = canRecalculateArmorClass
+      ? recalculatedArmorClass
+      : existing.armorClass;
+    const hpDelta = Math.max(0, finalMaxHp - existing.maxHp);
 
     const updated = await this.prisma.character.update({
       where: { id: characterId },
       data: {
         level: resolution.toLevel,
         subclassName: selectedSubclassName ?? null,
+        abilitiesJson: JSON.stringify(finalAbilities),
         proficiencyBonus: resolution.proficiencyBonusAfter,
-        maxHp: resolution.maxHpAfter,
+        maxHp: finalMaxHp,
+        armorClass: finalArmorClass,
         featuresJson: JSON.stringify(finalFeatures),
         ...(nextSpellsJson !== undefined ? { spellsJson: nextSpellsJson } : {}),
       },
@@ -438,8 +488,23 @@ export class CharactersService {
           typeof assignment.currentHp === "number" ? assignment.currentHp : existing.maxHp;
         await this.prisma.sessionCharacter.update({
           where: { id: assignment.id },
-          data: { currentHp: Math.min(resolution.maxHpAfter, currentHp + hpDelta) },
+          data: { currentHp: Math.min(finalMaxHp, currentHp + hpDelta) },
         });
+        const updatedSessionCharacter = await this.prisma.sessionCharacter.findUniqueOrThrow({
+          where: { id: assignment.id },
+          include: {
+            character: true,
+            resource: true,
+            inventoryEntries: {
+              include: { itemDefinition: true },
+              orderBy: { createdAt: "asc" },
+            },
+          },
+        });
+        this.realtimeEvents.emitCharacterUpdated(
+          assignment.sessionId,
+          mapSessionCharacter(updatedSessionCharacter),
+        );
         this.realtimeEvents.emitSessionSnapshot(
           assignment.sessionId,
           await this.sessionsService.buildSnapshot(assignment.sessionId),
@@ -450,13 +515,67 @@ export class CharactersService {
     return mapCharacter(updated);
   }
 
+  private resolveLevelUpAbilityScores(
+    current: AbilityScoresDto,
+    requested: LevelUpCharacterDto["abilityScoreIncreases"],
+    asiLevels: number[],
+  ): AbilityScoresDto {
+    const requiredPoints = asiLevels.length * 2;
+    const increases = requested ?? {};
+    let allocatedPoints = 0;
+    const next = { ...current };
+
+    for (const ability of ABILITY_KEYS) {
+      const increase = increases[ability] ?? 0;
+      if (!Number.isInteger(increase) || increase < 0) {
+        throw new BadRequestException({
+          code: "LEVEL_UP_INVALID_ASI",
+          message: "능력치 상승치는 0 이상의 정수여야 합니다.",
+          ability,
+          increase,
+        });
+      }
+      allocatedPoints += increase;
+      const nextScore = current[ability] + increase;
+      if (nextScore > ASI_ABILITY_SCORE_MAX) {
+        throw new BadRequestException({
+          code: "LEVEL_UP_INVALID_ASI",
+          message: `ASI로 올린 능력치는 ${ASI_ABILITY_SCORE_MAX}을 넘을 수 없습니다.`,
+          ability,
+          currentScore: current[ability],
+          increase,
+          maximum: ASI_ABILITY_SCORE_MAX,
+        });
+      }
+      next[ability] = nextScore;
+    }
+
+    if (allocatedPoints !== requiredPoints) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_ASI_REQUIRED",
+        message: requiredPoints
+          ? `이번 레벨업에는 능력치 상승 ${requiredPoints}점을 모두 배분해야 합니다.`
+          : "이번 레벨업 구간에는 능력치 상승점을 배분할 수 없습니다.",
+        levels: asiLevels,
+        requiredPoints,
+        allocatedPoints,
+      });
+    }
+
+    return next;
+  }
+
   async updatePreparedSpells(
     userId: string,
     characterId: string,
     dto: UpdatePreparedSpellsDto,
   ): Promise<CharacterResponseDto> {
     const existing = await this.getOwnedCharacterOrThrow(userId, characterId);
-    const spellsJson = this.resolvePreparedSpellsJson(existing.spellsJson, dto.preparedSpells);
+    const spellsJson = this.resolvePreparedSpellsJson(existing.spellsJson, dto.preparedSpells, {
+      className: existing.className,
+      level: existing.level,
+      abilities: JSON.parse(existing.abilitiesJson) as AbilityScoresDto,
+    });
 
     const updated = await this.prisma.character.update({
       where: { id: characterId },
@@ -477,6 +596,21 @@ export class CharactersService {
       ) {
         continue;
       }
+      const updatedSessionCharacter = await this.prisma.sessionCharacter.findUniqueOrThrow({
+        where: { id: assignment.id },
+        include: {
+          character: true,
+          resource: true,
+          inventoryEntries: {
+            include: { itemDefinition: true },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      });
+      this.realtimeEvents.emitCharacterUpdated(
+        assignment.sessionId,
+        mapSessionCharacter(updatedSessionCharacter),
+      );
       this.realtimeEvents.emitSessionSnapshot(
         assignment.sessionId,
         await this.sessionsService.buildSnapshot(assignment.sessionId),
@@ -489,6 +623,7 @@ export class CharactersService {
   private resolvePreparedSpellsJson(
     spellsJson: string | null,
     requestedPreparedSpells: string[],
+    character: { className: string; level: number; abilities: AbilityScoresDto },
   ): string {
     const spells = this.parseSpellsJson(spellsJson);
     if (!spells) {
@@ -510,6 +645,7 @@ export class CharactersService {
         spellId: unknownPreparedSpell,
       });
     }
+    this.assertPreparedSpellLimit(character, preparedSpells);
 
     return JSON.stringify({
       ...spells,
@@ -523,6 +659,8 @@ export class CharactersService {
       knownSpells?: string[];
       preparedSpells?: string[];
       level: number;
+      className: string;
+      abilities: AbilityScoresDto;
     },
   ): string {
     const spells = this.parseSpellsJson(spellsJson);
@@ -569,12 +707,51 @@ export class CharactersService {
         spellId: unknownPreparedSpell,
       });
     }
+    this.assertPreparedSpellLimit({
+      className: params.className,
+      level: params.level,
+      abilities: params.abilities,
+    }, preparedSpells);
 
     return JSON.stringify({
       ...spells,
       spells: nextKnownSpells,
       preparedSpells,
     });
+  }
+
+  private assertPreparedSpellLimit(
+    character: { className: string; level: number; abilities: AbilityScoresDto },
+    preparedSpells: string[],
+  ): void {
+    const limit = this.resolvePreparedSpellLimit(character);
+    if (limit === null || preparedSpells.length <= limit) {
+      return;
+    }
+
+    throw new BadRequestException({
+      code: "PREPARED_SPELL_LIMIT_EXCEEDED",
+      message: "준비 가능한 주문 수를 초과했습니다.",
+      preparedCount: preparedSpells.length,
+      preparedLimit: limit,
+    });
+  }
+
+  private resolvePreparedSpellLimit(
+    character: { className: string; level: number; abilities: AbilityScoresDto },
+  ): number | null {
+    const className = character.className.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    const level = Math.max(1, Math.min(20, Math.floor(character.level)));
+    if (className.includes("wizard")) {
+      return Math.max(1, level + this.getAbilityModifier(character.abilities.int));
+    }
+    if (className.includes("cleric") || className.includes("druid")) {
+      return Math.max(1, level + this.getAbilityModifier(character.abilities.wis));
+    }
+    if (className.includes("paladin")) {
+      return Math.max(1, Math.floor(level / 2) + this.getAbilityModifier(character.abilities.cha));
+    }
+    return null;
   }
 
   async deleteCharacter(userId: string, characterId: string): Promise<void> {
@@ -1276,6 +1453,7 @@ export class CharactersService {
   private async resolveStartingSpells(
     className: string,
     level: number,
+    abilities: AbilityScoresDto,
     startingSpells: StartingSpellsDto | undefined,
   ): Promise<string | null> {
     const klass = await this.catalogService.findClassByKey(className.toLowerCase());
@@ -1339,6 +1517,9 @@ export class CharactersService {
         message: "알고 있거나 주문책에 있는 슬롯 주문만 준비할 수 있습니다.",
         spellId: unknownPreparedSpell,
       });
+    }
+    if (preparedSpells) {
+      this.assertPreparedSpellLimit({ className, level, abilities }, preparedSpells);
     }
 
     return JSON.stringify({

@@ -7,7 +7,12 @@ import {
 } from "@prisma/client";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
-import { CastCombatSpellDto, CombatReactionResponseDto, DiceAdvantageState } from "@trpg/shared-types";
+import {
+  CastCombatSpellDto,
+  CombatReactionPromptDto,
+  CombatReactionResponseDto,
+  DiceAdvantageState,
+} from "@trpg/shared-types";
 import { CombatService } from "./combat.service";
 import {
   PENDING_READY_ACTIONS_FLAG,
@@ -359,6 +364,87 @@ describe("CombatService lifecycle", () => {
 
     // 가드는 트랜잭션 이전에 막아야 한다 — 종료된 전투 노드에서 새 전투가 생성되면 안 된다.
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("clears combat-bound monster limited-use flags when combat ends", async () => {
+    const { service, prisma, sessionsService, realtimeEvents } = createService();
+    const hero = createParticipant({
+      id: "participant-hero",
+      sessionCharacterId: "session-character-1",
+      isHostile: false,
+      turnOrder: 1,
+    });
+    const monster = createParticipant({
+      id: "participant-monster",
+      sessionCharacterId: null,
+      entityType: PrismaCombatEntityType.MONSTER,
+      isHostile: true,
+      turnOrder: 2,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 2,
+      turnNo: 4,
+      currentParticipantId: hero.id,
+      participants: [hero, monster],
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: PrismaGmMode.HUMAN,
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        flagsJson: JSON.stringify({
+          monsterLimitedUseExpended: {
+            [monster.id]: {
+              "monster.cult_fanatic.ability.combat_surge": {
+                usage: "1/combat",
+                used: 1,
+                limit: 1,
+              },
+              "monster.cult_fanatic.ability.dark_blessing": {
+                usage: "1/day",
+                used: 1,
+                limit: 1,
+              },
+            },
+          },
+          unrelatedFlag: true,
+        }),
+        currentNodeId: null,
+      },
+    });
+    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
+    prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.combat.findUniqueOrThrow.mockResolvedValue(combat);
+
+    await service.endCombat("host-user", "session-1");
+
+    expect(prisma.gameState.update).toHaveBeenCalledWith({
+      where: { sessionScenarioId: "session-scenario-1" },
+      data: {
+        flagsJson: JSON.stringify({
+          monsterLimitedUseExpended: {
+            [monster.id]: {
+              "monster.cult_fanatic.ability.dark_blessing": {
+                usage: "1/day",
+                used: 1,
+                limit: 1,
+              },
+            },
+          },
+          unrelatedFlag: true,
+        }),
+      },
+    });
+    expect(sessionsService.completeActiveCombatState).toHaveBeenCalledWith("session-1", "combat-1");
+    expect(realtimeEvents.emitCombatUpdated).toHaveBeenCalled();
   });
 
   it("creates the next turn state when a turn ends", async () => {
@@ -732,6 +818,138 @@ describe("CombatService lifecycle", () => {
       turnLogId: "turn-log-1",
     });
     expect(result.pendingReaction).toBeNull();
+  });
+
+  it("triggers ready actions when forced movement moves a creature into range", async () => {
+    const { service, prisma, sessionsService, turnLogsService, realtimeEvents } = createService();
+    const target = createParticipant({
+      id: "participant-target",
+      sessionCharacterId: null,
+      tokenId: "token-target",
+      entityType: PrismaCombatEntityType.MONSTER,
+      nameSnapshot: "Skeleton",
+      turnOrder: 1,
+      isHostile: true,
+    });
+    const origin = createParticipant({
+      id: "participant-origin",
+      sessionCharacterId: "session-character-1",
+      tokenId: "token-origin",
+      nameSnapshot: "Cleric",
+      turnOrder: 2,
+    });
+    const reactor = createParticipant({
+      id: "participant-reactor",
+      sessionCharacterId: "session-character-reactor",
+      tokenId: "token-reactor",
+      nameSnapshot: "Archer",
+      turnOrder: 3,
+      isHostile: false,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 1,
+      currentParticipantId: origin.id,
+      participants: [target, origin, reactor],
+    };
+    const pendingReadyAction = {
+      id: "reaction:ready:participant-reactor:1:1",
+      type: "ready_action",
+      actorParticipantId: reactor.id,
+      actorUserId: "reactor-user",
+      combatId: "combat-1",
+      roundNo: 1,
+      turnNo: 1,
+      trigger: { type: "creature_enters_range", targetParticipantId: target.id, rangeFt: 5 },
+      heldAction: { type: "attack", targetParticipantId: target.id },
+      originalCost: "action",
+      consumesReaction: true,
+      expiresAtRound: 2,
+      expiresAtTurn: 1,
+      createdAt: "1970-01-01T00:00:00.000Z",
+    };
+    const map = {
+      id: "map-1",
+      gridType: "square" as const,
+      gridSize: 50,
+      width: 300,
+      height: 300,
+      tokens: [
+        { id: "token-origin", sessionCharacterId: "session-character-1", x: 50, y: 50, size: 50, hidden: false },
+        { id: "token-target", x: 100, y: 50, size: 50, hidden: false },
+        {
+          id: "token-reactor",
+          sessionCharacterId: "session-character-reactor",
+          x: 250,
+          y: 50,
+          size: 50,
+          hidden: false,
+        },
+      ],
+      fogRects: [],
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        flagsJson: JSON.stringify({
+          [PENDING_READY_ACTIONS_FLAG]: [pendingReadyAction],
+        }),
+        currentNodeId: null,
+      },
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue(map);
+    sessionsService.saveSystemVttMap.mockImplementation(async (_sessionId, nextMap) => nextMap);
+    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
+    prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    turnLogsService.createTurnLog.mockResolvedValue({ turnLogId: "turn-log-1" });
+
+    const result = await service.forceMoveParticipant("host-user", "session-1", {
+      participantId: "participant-target",
+      mode: "push",
+      origin: { x: 50, y: 50 },
+      distanceFt: 10,
+    });
+
+    expect(result.pendingReaction).toEqual(
+      expect.objectContaining({
+        type: "ready_action",
+        reactorParticipantId: reactor.id,
+        reactorName: "Archer",
+        moverParticipantId: target.id,
+        moverName: "Skeleton",
+      }),
+    );
+    expect(result.message).toContain("준비행동 1개가 발동 대기 중입니다.");
+    const updateCall = prisma.gameState.update.mock.calls[0]?.[0];
+    expect(updateCall.where).toEqual({ sessionScenarioId: "session-scenario-1" });
+    const updatedFlags = JSON.parse(updateCall.data.flagsJson);
+    expect(updatedFlags[PENDING_READY_ACTIONS_FLAG]).toEqual([]);
+    expect(updatedFlags[TRIGGERED_READY_ACTIONS_FLAG]).toEqual([
+      expect.objectContaining({
+        type: "triggered_ready_action",
+        pending: pendingReadyAction,
+        status: "pending_response",
+      }),
+    ]);
+    expect(realtimeEvents.emitCombatReactionPrompt).toHaveBeenCalledWith(
+      "session-1",
+      "reactor-user",
+      expect.objectContaining({
+        type: "ready_action",
+        reactorParticipantId: reactor.id,
+        moverParticipantId: target.id,
+      }),
+    );
   });
 
   it("does not prompt opportunity attacks when the mover has disengaged", async () => {
@@ -1666,8 +1884,11 @@ describe("CombatService lifecycle", () => {
       },
     });
 
-    const triggeredCount = await (service as unknown as {
-      resolveReadyActionsForMovement(params: unknown): Promise<number>;
+    const triggeredResult = await (service as unknown as {
+      resolveReadyActionsForMovement(params: unknown): Promise<{
+        count: number;
+        prompts: CombatReactionPromptDto[];
+      }>;
     }).resolveReadyActionsForMovement({
       sessionId: "session-1",
       combat: {
@@ -1696,7 +1917,16 @@ describe("CombatService lifecycle", () => {
       nextMoverToken: { id: "token-2", x: 100, y: 0, size: 50, hidden: false },
     });
 
-    expect(triggeredCount).toBe(1);
+    expect(triggeredResult.count).toBe(1);
+    expect(triggeredResult.prompts).toEqual([
+      expect.objectContaining({
+        id: "triggered:reaction:ready:participant-1:1:1:1:2",
+        type: "ready_action",
+        reactorParticipantId: "participant-1",
+        moverParticipantId: "monster-1",
+        message: "Hero의 준비행동 조건이 충족되었습니다. 실행할까요?",
+      }),
+    ]);
     const updateCall = prisma.gameState.update.mock.calls[0]?.[0];
     expect(updateCall.where).toEqual({ sessionScenarioId: "session-scenario-1" });
     const updatedFlags = JSON.parse(updateCall.data.flagsJson);
@@ -2439,6 +2669,95 @@ describe("CombatService lifecycle", () => {
     expect(result.message).toBe("Chill Touch 명중");
   });
 
+  it("casts Ray of Frost with a one-round movement speed penalty", async () => {
+    const { service, prisma, sessionsService } = createService();
+    const caster = createParticipant({
+      id: "participant-1",
+      tokenId: "token-1",
+      sessionCharacterId: "session-character-1",
+      nameSnapshot: "Wizard",
+    });
+    const target = createParticipant({
+      id: "monster-1",
+      tokenId: "token-2",
+      sessionCharacterId: null,
+      entityType: PrismaCombatEntityType.MONSTER,
+      nameSnapshot: "Skeleton",
+      currentHp: 20,
+      maxHp: 20,
+      isHostile: true,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 1,
+      currentParticipantId: caster.id,
+      participants: [caster, target],
+    };
+    const map = {
+      id: "map-1",
+      gridType: "square" as const,
+      gridSize: 50,
+      width: 500,
+      height: 500,
+      tokens: [
+        { id: "token-1", sessionCharacterId: "session-character-1", x: 0, y: 0, size: 50, hidden: false },
+        { id: "token-2", x: 100, y: 0, size: 50, hidden: false },
+      ],
+      fogRects: [],
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    };
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({ id: "session-1", hostUserId: "host-user" });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: { flagsJson: "{}", currentNodeId: null },
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue(map);
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.sessionCharacter.findUnique.mockResolvedValue({
+      id: "session-character-1",
+      userId: "user-1",
+      character: {
+        ownerUserId: "user-1",
+        className: "Wizard",
+        spellsJson: JSON.stringify({ cantrips: ["spell.ray_of_frost"] }),
+        abilitiesJson: JSON.stringify({ int: 16 }),
+        proficiencyBonus: 3,
+        level: 5,
+      },
+    });
+    const resolveAttack = jest.spyOn(service, "resolveAttack").mockResolvedValue({
+      combat: { id: "combat-1" },
+      message: "Ray of Frost 명중",
+      attackTotal: 18,
+      damageTotal: 9,
+    } as never);
+
+    await service.castSpell("user-1", "session-1", {
+      spellId: "spell.ray_of_frost",
+      targetParticipantIds: ["monster-1"],
+    });
+
+    expect(resolveAttack).toHaveBeenCalledWith(
+      "user-1",
+      "session-1",
+      expect.objectContaining({
+        targetParticipantId: "monster-1",
+        damageDice: "2d8",
+      }),
+      expect.objectContaining({
+        messagePrefix: "Ray of Frost",
+        onHitCondition: expect.objectContaining({
+          conditionId: "condition.spell.ray_of_frost",
+          duration: { type: "rounds", remaining: 1 },
+          tags: ["movement_speed_penalty:10"],
+        }),
+      }),
+    );
+  });
+
   it("upcasts combat Magic Missile with the requested spell slot level", async () => {
     const { service, prisma, sessionsService, diceService, actionEconomy, realtimeEvents, turnLogsService } = createService();
     const caster = createParticipant({
@@ -2566,6 +2885,147 @@ describe("CombatService lifecycle", () => {
     expect(realtimeEvents.emitDiceRolled).toHaveBeenCalledTimes(5);
     expect(result.message).toBe("Magic Missile: Skeleton 2, Skeleton 3, Skeleton 4, Skeleton 5, Skeleton 2 역장 피해");
     expect(result.damageTotal).toBe(16);
+  });
+
+  it("casts Cure Wounds as a catalog-backed touch healing spell", async () => {
+    const { service, prisma, sessionsService, diceService, actionEconomy, realtimeEvents, turnLogsService } = createService();
+    const caster = createParticipant({
+      id: "participant-1",
+      tokenId: "token-1",
+      sessionCharacterId: "session-character-1",
+      nameSnapshot: "Cleric",
+    });
+    const ally = createParticipant({
+      id: "participant-2",
+      tokenId: "token-2",
+      sessionCharacterId: "session-character-2",
+      nameSnapshot: "Fighter",
+      currentHp: 4,
+      maxHp: 18,
+      turnOrder: 2,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 1,
+      currentParticipantId: caster.id,
+      participants: [caster, ally],
+    };
+    const map = {
+      id: "map-1",
+      gridType: "square" as const,
+      gridSize: 50,
+      width: 500,
+      height: 500,
+      tokens: [
+        { id: "token-1", sessionCharacterId: "session-character-1", x: 0, y: 0, size: 50, hidden: false },
+        { id: "token-2", sessionCharacterId: "session-character-2", x: 50, y: 0, size: 50, hidden: false },
+      ],
+      fogRects: [],
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        flagsJson: JSON.stringify({
+          spellSlotsBySessionCharacterId: {
+            "session-character-1": { "2": 1 },
+          },
+        }),
+        currentNodeId: null,
+      },
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue(map);
+    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.sessionCharacter.findUnique
+      .mockResolvedValueOnce({
+        id: "session-character-1",
+        userId: "user-1",
+        character: {
+          ownerUserId: "user-1",
+          className: "Cleric",
+          spellsJson: JSON.stringify({
+            spells: ["spell.cure_wounds"],
+            preparedSpells: ["spell.cure_wounds"],
+          }),
+          abilitiesJson: JSON.stringify({ wis: 16 }),
+          proficiencyBonus: 3,
+          level: 3,
+        },
+      })
+      .mockResolvedValueOnce({
+        id: "session-character-2",
+        currentHp: 4,
+        character: { maxHp: 18 },
+      });
+    diceService.roll.mockReturnValueOnce({
+      expression: "2d8+3",
+      rolls: [6, 5],
+      modifier: 3,
+      total: 14,
+      advantageState: "NORMAL",
+    });
+    turnLogsService.createTurnLog.mockResolvedValue({ turnLogId: "turn-log-1" });
+
+    const result = await service.castSpell("user-1", "session-1", {
+      spellId: "spell.cure_wounds",
+      slotLevel: 2,
+      targetParticipantIds: ["participant-2"],
+    });
+
+    expect(actionEconomy.spendAction).toHaveBeenCalledWith({
+      combatId: "combat-1",
+      combatParticipantId: "participant-1",
+      roundNo: 1,
+      turnNo: 1,
+      sessionCharacterId: "session-character-1",
+    });
+    expect(diceService.roll).toHaveBeenCalledWith("2d8+3");
+    expect(prisma.gameState.update).toHaveBeenCalledWith({
+      where: { sessionScenarioId: "session-scenario-1" },
+      data: {
+        flagsJson: JSON.stringify({
+          spellSlotsBySessionCharacterId: {
+            "session-character-1": { "2": 0 },
+          },
+        }),
+      },
+    });
+    expect(prisma.sessionCharacter.update).toHaveBeenCalledWith({
+      where: { id: "session-character-2" },
+      data: { currentHp: 18 },
+    });
+    expect(prisma.combatParticipant.update).toHaveBeenCalledWith({
+      where: { id: "participant-2" },
+      data: { currentHp: 18, isAlive: true },
+    });
+    expect(turnLogsService.createTurnLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        structuredAction: expect.objectContaining({
+          type: "spell_cast",
+          spellId: "spell.cure_wounds",
+          baseSpellLevel: 1,
+          slotLevel: 2,
+          spellScaling: expect.objectContaining({
+            damageDice: "2d8",
+            slotLevelsAboveBase: 1,
+          }),
+          targetParticipantIds: ["participant-2"],
+        }),
+        diceResult: expect.objectContaining({ expression: "2d8+3", total: 14 }),
+      }),
+    );
+    expect(realtimeEvents.emitDiceRolled).toHaveBeenCalledWith("session-1", expect.objectContaining({ total: 14 }));
+    expect(result.message).toBe("Cure Wounds: Fighter 14 회복");
+    expect(result.damageTotal).toBe(14);
   });
 
   it("exposes combat spell slot resources by spell level for the active caster", async () => {
@@ -3919,6 +4379,13 @@ describe("CombatService lifecycle", () => {
     expect(result.message).toContain("Shield 반응을 기다리는 중입니다.");
     expect(result.attackTotal).toBe(16);
     expect(result.damageTotal).toBeNull();
+    expect(result.pendingReaction).toMatchObject({
+      type: "shield",
+      reactorParticipantId: target.id,
+      reactorName: "Wizard",
+      moverParticipantId: attacker.id,
+      moverName: "Bandit",
+    });
   });
 
   it("rejects attacks when a wall gives the target full cover", async () => {
@@ -4162,6 +4629,282 @@ describe("CombatService lifecycle", () => {
         confidence: "medium",
         costType: "action",
       }),
+    ]);
+  });
+
+  it("executes a monster multiattack as one action with multiple catalog attacks", async () => {
+    const { service, prisma, sessionsService, diceService, actionEconomy, monsterAbilities, turnLogsService } =
+      createService();
+    const monster = createParticipant({
+      id: "participant-monster",
+      sessionCharacterId: null,
+      tokenId: "token-monster",
+      entityType: PrismaCombatEntityType.MONSTER,
+      nameSnapshot: "Brown Bear",
+      isHostile: true,
+      speedFt: 40,
+    });
+    const target = createParticipant({
+      id: "participant-target",
+      sessionCharacterId: null,
+      tokenId: "token-target",
+      entityType: PrismaCombatEntityType.PLAYER_CHARACTER,
+      nameSnapshot: "Hero",
+      isHostile: false,
+      armorClass: 12,
+      currentHp: 40,
+      maxHp: 40,
+      turnOrder: 2,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 2,
+      turnNo: 3,
+      currentParticipantId: monster.id,
+      participants: [monster, target],
+    };
+    const multiattack = {
+      monsterId: "monster.brown_bear",
+      actionId: "monster.brown_bear.ability.multiattack",
+      label: "Multiattack",
+      attackKind: "special",
+      attackBonus: 0,
+      damageDice: "",
+      damageType: null,
+      reachFt: null,
+      rangeFt: null,
+      confidence: "medium" as const,
+      costType: "action",
+      specialType: "multiattack",
+      usage: null,
+      recharge: null,
+      save: null,
+      conditionRiders: [],
+      effectTags: ["multiattack:action.bite:1", "multiattack:action.claws:1"],
+    };
+    const bite = {
+      monsterId: "monster.brown_bear",
+      actionId: "action.bite",
+      label: "Bite",
+      attackKind: "melee_weapon",
+      attackBonus: 5,
+      damageDice: "1d8+4",
+      damageType: "piercing",
+      reachFt: 5,
+      rangeFt: null,
+      confidence: "high" as const,
+      costType: "action",
+    };
+    const claws = {
+      monsterId: "monster.brown_bear",
+      actionId: "action.claws",
+      label: "Claws",
+      attackKind: "melee_weapon",
+      attackBonus: 5,
+      damageDice: "2d6+4",
+      damageType: "slashing",
+      reachFt: 5,
+      rangeFt: null,
+      confidence: "high" as const,
+      costType: "action",
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: PrismaGmMode.HUMAN,
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue({
+      id: "map-1",
+      gridType: "square",
+      gridSize: 50,
+      width: 200,
+      height: 200,
+      tokens: [
+        { id: "token-monster", x: 0, y: 0, size: 50, hidden: false, monster: { id: "monster.brown_bear" } },
+        { id: "token-target", x: 50, y: 0, size: 50, hidden: false },
+      ],
+      fogRects: [],
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    });
+    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
+    prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    monsterAbilities.chooseAction.mockReturnValueOnce(multiattack);
+    (monsterAbilities.listExecutableActions as jest.Mock).mockReturnValue([multiattack, bite, claws]);
+    turnLogsService.createTurnLog
+      .mockResolvedValueOnce({ turnLogId: "turn-log-bite" })
+      .mockResolvedValueOnce({ turnLogId: "turn-log-claws" });
+    diceService.roll
+      .mockReturnValueOnce({
+        expression: "1d20+5",
+        rolls: [13],
+        modifier: 5,
+        total: 18,
+        advantageState: "NORMAL",
+      })
+      .mockReturnValueOnce({
+        expression: "1d8+4",
+        rolls: [4],
+        modifier: 4,
+        total: 8,
+        advantageState: "NORMAL",
+      })
+      .mockReturnValueOnce({
+        expression: "1d20+5",
+        rolls: [12],
+        modifier: 5,
+        total: 17,
+        advantageState: "NORMAL",
+      })
+      .mockReturnValueOnce({
+        expression: "2d6+4",
+        rolls: [3, 4],
+        modifier: 4,
+        total: 11,
+        advantageState: "NORMAL",
+      });
+
+    const result = await service.resolveActorAction("host-user", "session-1", {
+      actionType: "attack",
+      actionId: multiattack.actionId,
+      targetParticipantId: target.id,
+      autoEndTurn: false,
+    });
+
+    expect(actionEconomy.spendAction).toHaveBeenCalledTimes(1);
+    expect(diceService.roll).toHaveBeenCalledWith("1d20+5", expect.any(String));
+    expect(diceService.roll).toHaveBeenCalledWith("1d8+4");
+    expect(diceService.roll).toHaveBeenCalledWith("2d6+4");
+    expect(turnLogsService.createTurnLog).toHaveBeenCalledTimes(2);
+    expect(result.message).toContain("Brown Bear Multiattack");
+    expect(result.message).toContain("Bite");
+    expect(result.message).toContain("Claws");
+  });
+
+  it("marks expended monster actions as unavailable in combat options", async () => {
+    const { service, prisma, sessionsService, monsterAbilities } = createService();
+    const monster = createParticipant({
+      id: "participant-monster",
+      sessionCharacterId: null,
+      tokenId: "token-monster",
+      entityType: PrismaCombatEntityType.MONSTER,
+      nameSnapshot: "Dragon Whelp",
+      isHostile: true,
+      turnOrder: 1,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 2,
+      turnNo: 3,
+      currentParticipantId: monster.id,
+      participants: [monster],
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: PrismaGmMode.HUMAN,
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        flagsJson: JSON.stringify({
+          monsterRechargeExpended: {
+            [monster.id]: {
+              "monster.dragon_whelp.ability.fire_breath": {
+                recharge: "5-6",
+                roundNo: 1,
+                turnNo: 1,
+              },
+            },
+          },
+          monsterLimitedUseExpended: {
+            [monster.id]: {
+              "monster.dragon_whelp.ability.dark_blessing": {
+                usage: "1/day",
+                used: 1,
+                limit: 1,
+                roundNo: 1,
+                turnNo: 1,
+              },
+            },
+          },
+        }),
+        currentNodeId: null,
+      },
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue({
+      id: "map-1",
+      gridType: "square",
+      gridSize: 50,
+      width: 200,
+      height: 200,
+      tokens: [
+        { id: "token-monster", x: 0, y: 0, size: 50, hidden: false, monster: { id: "monster.dragon_whelp" } },
+      ],
+      fogRects: [],
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    (monsterAbilities.listExecutableActions as jest.Mock).mockReturnValue([
+      {
+        monsterId: "monster.dragon_whelp",
+        actionId: "monster.dragon_whelp.ability.fire_breath",
+        label: "Fire Breath",
+        attackKind: "ranged",
+        attackBonus: 7,
+        damageDice: "2d6",
+        damageType: "fire",
+        reachFt: null,
+        rangeFt: { normal: 30, long: null },
+        confidence: "high",
+        costType: "action",
+        usage: null,
+        recharge: "5-6",
+        save: null,
+        conditionRiders: [],
+        effectTags: [],
+      },
+      {
+        monsterId: "monster.dragon_whelp",
+        actionId: "monster.dragon_whelp.ability.dark_blessing",
+        label: "Dark Blessing",
+        attackKind: "ranged",
+        attackBonus: 6,
+        damageDice: "2d6",
+        damageType: "necrotic",
+        reachFt: null,
+        rangeFt: { normal: 30, long: null },
+        confidence: "high",
+        costType: "action",
+        usage: "1/day",
+        recharge: null,
+        save: null,
+        conditionRiders: [],
+        effectTags: [],
+      },
+    ]);
+
+    const result = await service.getCombat("host-user", "session-1");
+    const actions = result.participants[0].monsterActions;
+
+    expect(actions).toEqual([
+      expect.objectContaining({
+        actionId: "monster.dragon_whelp.ability.fire_breath",
+        available: false,
+        unavailableReason: "MONSTER_RECHARGE_ACTION_EXPENDED",
+      }),
+      expect.objectContaining({
+        actionId: "monster.dragon_whelp.ability.dark_blessing",
+        available: false,
+        unavailableReason: "MONSTER_LIMITED_USE_ACTION_EXPENDED",
+      }),
+      expect.any(Object),
     ]);
   });
 
@@ -4729,6 +5472,241 @@ describe("CombatService lifecycle", () => {
     expect(prisma.gameState.update).not.toHaveBeenCalled();
   });
 
+  it("records a monster limited-use action as expended when it is used", async () => {
+    const {
+      service,
+      prisma,
+      sessionsService,
+      diceService,
+      monsterAbilities,
+      turnLogsService,
+    } = createService();
+    const monster = createParticipant({
+      id: "participant-monster",
+      sessionCharacterId: null,
+      tokenId: "token-monster",
+      entityType: PrismaCombatEntityType.MONSTER,
+      nameSnapshot: "Cult Fanatic",
+      isHostile: true,
+      speedFt: 30,
+    });
+    const target = createParticipant({
+      id: "participant-target",
+      sessionCharacterId: null,
+      tokenId: "token-target",
+      entityType: PrismaCombatEntityType.PLAYER_CHARACTER,
+      nameSnapshot: "Hero",
+      isHostile: false,
+      armorClass: 12,
+      currentHp: 20,
+      maxHp: 20,
+      turnOrder: 2,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 2,
+      turnNo: 3,
+      currentParticipantId: monster.id,
+      participants: [monster, target],
+    };
+    const selectedAction = {
+      monsterId: "monster.cult_fanatic",
+      actionId: "monster.cult_fanatic.ability.dark_blessing",
+      label: "Dark Blessing",
+      attackKind: "ranged",
+      attackBonus: 6,
+      damageDice: "2d6",
+      damageType: "necrotic",
+      reachFt: null,
+      rangeFt: { normal: 30, long: null },
+      confidence: "high" as const,
+      costType: "action",
+      usage: "1/day",
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: PrismaGmMode.HUMAN,
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: { flagsJson: "{}", currentNodeId: null },
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue({
+      id: "map-1",
+      gridType: "square",
+      gridSize: 50,
+      width: 500,
+      height: 500,
+      tokens: [
+        { id: "token-monster", x: 0, y: 0, size: 50, hidden: false, monster: { id: "monster.cult_fanatic" } },
+        { id: "token-target", x: 100, y: 0, size: 50, hidden: false },
+      ],
+      fogRects: [],
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    });
+    sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
+    prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    monsterAbilities.chooseAction.mockReturnValueOnce(selectedAction);
+    turnLogsService.createTurnLog.mockResolvedValue({ turnLogId: "turn-log-1" });
+    diceService.roll
+      .mockReturnValueOnce({
+        expression: "1d20+6",
+        rolls: [12],
+        modifier: 6,
+        total: 18,
+        advantageState: "NORMAL",
+      })
+      .mockReturnValueOnce({
+        expression: "2d6",
+        rolls: [5],
+        modifier: 0,
+        total: 5,
+        advantageState: "NORMAL",
+      });
+
+    await service.resolveActorAction("host-user", "session-1", {
+      actionType: "attack",
+      actionId: selectedAction.actionId,
+      targetParticipantId: target.id,
+    });
+
+    expect(prisma.gameState.update).toHaveBeenCalledWith({
+      where: { sessionScenarioId: "session-scenario-1" },
+      data: {
+        flagsJson: JSON.stringify({
+          monsterLimitedUseExpended: {
+            [monster.id]: {
+              [selectedAction.actionId]: {
+                usage: "1/day",
+                used: 1,
+                limit: 1,
+                roundNo: 2,
+                turnNo: 3,
+              },
+            },
+          },
+        }),
+      },
+    });
+  });
+
+  it("rejects a monster limited-use action that has no uses remaining", async () => {
+    const {
+      service,
+      prisma,
+      sessionsService,
+      diceService,
+      monsterAbilities,
+    } = createService();
+    const monster = createParticipant({
+      id: "participant-monster",
+      sessionCharacterId: null,
+      tokenId: "token-monster",
+      entityType: PrismaCombatEntityType.MONSTER,
+      nameSnapshot: "Cult Fanatic",
+      isHostile: true,
+      speedFt: 30,
+    });
+    const target = createParticipant({
+      id: "participant-target",
+      sessionCharacterId: null,
+      tokenId: "token-target",
+      entityType: PrismaCombatEntityType.PLAYER_CHARACTER,
+      nameSnapshot: "Hero",
+      isHostile: false,
+      armorClass: 12,
+      currentHp: 20,
+      maxHp: 20,
+      turnOrder: 2,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 2,
+      turnNo: 3,
+      currentParticipantId: monster.id,
+      participants: [monster, target],
+    };
+    const selectedAction = {
+      monsterId: "monster.cult_fanatic",
+      actionId: "monster.cult_fanatic.ability.dark_blessing",
+      label: "Dark Blessing",
+      attackKind: "ranged",
+      attackBonus: 6,
+      damageDice: "2d6",
+      damageType: "necrotic",
+      reachFt: null,
+      rangeFt: { normal: 30, long: null },
+      confidence: "high" as const,
+      costType: "action",
+      usage: "1/day",
+    };
+
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+      gmMode: PrismaGmMode.HUMAN,
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        flagsJson: JSON.stringify({
+          monsterLimitedUseExpended: {
+            [monster.id]: {
+              [selectedAction.actionId]: {
+                usage: "1/day",
+                used: 1,
+                limit: 1,
+                roundNo: 1,
+                turnNo: 1,
+              },
+            },
+          },
+        }),
+        currentNodeId: null,
+      },
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue({
+      id: "map-1",
+      gridType: "square",
+      gridSize: 50,
+      width: 500,
+      height: 500,
+      tokens: [
+        { id: "token-monster", x: 0, y: 0, size: 50, hidden: false, monster: { id: "monster.cult_fanatic" } },
+        { id: "token-target", x: 100, y: 0, size: 50, hidden: false },
+      ],
+      fogRects: [],
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    });
+    prisma.sessionParticipant.findUnique.mockResolvedValue({ role: PrismaParticipantRole.HOST });
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    monsterAbilities.chooseAction.mockReturnValueOnce(selectedAction);
+
+    await expect(
+      service.resolveActorAction("host-user", "session-1", {
+        actionType: "attack",
+        actionId: selectedAction.actionId,
+        targetParticipantId: target.id,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        data: expect.objectContaining({
+          reason: "MONSTER_LIMITED_USE_ACTION_EXPENDED",
+        }),
+      }),
+    });
+
+    expect(diceService.roll).not.toHaveBeenCalled();
+    expect(prisma.gameState.update).not.toHaveBeenCalled();
+  });
+
   it("applies a monster attack condition rider when the target fails its saving throw", async () => {
     const {
       service,
@@ -4879,7 +5857,27 @@ describe("CombatService lifecycle", () => {
       "session-1",
       expect.objectContaining({ expression: "1d20+0", total: 8 }),
     );
+    expect(realtimeEvents.emitCombatUpdated).toHaveBeenLastCalledWith(
+      "session-1",
+      expect.objectContaining({
+        participants: expect.arrayContaining([
+          expect.objectContaining({
+            sessionEntityId: target.id,
+            conditions: expect.arrayContaining(["condition.poisoned"]),
+          }),
+        ]),
+      }),
+    );
+    expect(sessionsService.buildSnapshot).toHaveBeenCalledWith("session-1");
     expect(result.message).toContain("condition.poisoned 적용");
+    expect(result.combat.participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionEntityId: target.id,
+          conditions: expect.arrayContaining(["condition.poisoned"]),
+        }),
+      ]),
+    );
   });
 
   it("executes Nimble Escape as a monster special mobility action using the bonus action", async () => {
@@ -5150,6 +6148,13 @@ describe("CombatService lifecycle", () => {
     expect(result.message).toContain("Shield 반응을 기다리는 중입니다.");
     expect(result.attackTotal).toBe(16);
     expect(result.damageTotal).toBeNull();
+    expect(result.pendingReaction).toMatchObject({
+      type: "shield",
+      reactorParticipantId: target.id,
+      reactorName: "Wizard",
+      moverParticipantId: monster.id,
+      moverName: "Goblin",
+    });
   });
 
   it("rejects a human GM monster attack before damage or logs when the current action is already spent", async () => {

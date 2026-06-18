@@ -172,6 +172,11 @@ type CombatMovementResolution = CombatMoveResultDto & {
   movementCostFt: number;
 };
 
+type ReadyActionMovementResult = {
+  count: number;
+  prompts: CombatReactionPromptDto[];
+};
+
 const RAGE_CONDITION_TAGS = [
   "rage",
   "condition.rage",
@@ -201,6 +206,7 @@ const COMBAT_JUMP_EXTRA_MOVEMENT_FT = 10;
 const SECOND_WIND_EXPENDED_TAG = "resource:second_wind_expended";
 const PENDING_COMBAT_REACTION_FLAG = "pendingCombatReaction";
 const MONSTER_RECHARGE_EXPENDED_FLAG = "monsterRechargeExpended";
+const MONSTER_LIMITED_USE_EXPENDED_FLAG = "monsterLimitedUseExpended";
 
 @Injectable()
 export class CombatService {
@@ -767,9 +773,28 @@ export class CombatService {
     const responseMap = terrainEffectApplication.damageRoll && !target.isAlive
       ? await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id)
       : savedMap;
+    let triggeredReadyActions: ReadyActionMovementResult = { count: 0, prompts: [] };
+    if (resolution.distanceMovedFt > 0) {
+      const latestCombat = await this.getActiveCombatEntity(session.id);
+      const latestTarget = this.findCombatParticipantOrThrow(latestCombat, target.id);
+      if (latestTarget.isAlive) {
+        triggeredReadyActions = await this.resolveReadyActionsForMovement({
+          sessionId: session.id,
+          combat: latestCombat,
+          mover: latestTarget,
+          map: savedMap,
+          nextMoverToken: { ...targetToken, ...destination },
+        });
+      }
+    }
     const response = await this.mapCombat(await this.getActiveCombatEntity(session.id));
     const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
-    const message = `${target.nameSnapshot} 강제이동: ${resolution.distanceMovedFt}ft (${resolution.stoppedReason})`;
+    const readyActionMessage =
+      triggeredReadyActions.count > 0 ? `준비행동 ${triggeredReadyActions.count}개가 발동 대기 중입니다.` : null;
+    const message = [
+      `${target.nameSnapshot} 강제이동: ${resolution.distanceMovedFt}ft (${resolution.stoppedReason})`,
+      readyActionMessage,
+    ].filter((entry): entry is string => Boolean(entry)).join(" / ");
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId: session.id,
       sessionScenarioId: sessionScenario.id,
@@ -816,7 +841,7 @@ export class CombatService {
       combat: response,
       map: responseMap,
       message,
-      pendingReaction: null,
+      pendingReaction: triggeredReadyActions.prompts[0] ?? null,
     };
   }
 
@@ -967,13 +992,14 @@ export class CombatService {
         movementCostFt,
       };
     }
-    const triggeredReadyActionCount = await this.resolveReadyActionsForMovement({
+    const triggeredReadyActions = await this.resolveReadyActionsForMovement({
       sessionId: params.session.id,
       combat: latestCombat,
       mover: latestMover,
       map: savedMap,
       nextMoverToken: { ...params.moverToken, x: to.x, y: to.y },
     });
+    const triggeredReadyActionCount = triggeredReadyActions.count;
     const response = await this.mapCombat(await this.getActiveCombatEntity(params.session.id));
     this.realtimeEvents.emitCombatUpdated(params.session.id, response);
     if (
@@ -1009,7 +1035,7 @@ export class CombatService {
         : [movementMessage, terrainConditionMessage, readyActionMessage]
             .filter((message): message is string => Boolean(message))
             .join(" / "),
-      pendingReaction: null,
+      pendingReaction: triggeredReadyActions.prompts[0] ?? null,
       movementDistanceFt,
       movementCostFt,
     };
@@ -1224,7 +1250,7 @@ export class CombatService {
           ? ""
           : " / 턴 종료"
       }`,
-      pendingReaction: null,
+      pendingReaction: attackResult.pendingReaction ?? null,
     };
   }
 
@@ -1427,7 +1453,11 @@ export class CombatService {
       throw conflict("COMBAT_409", "시전자 토큰을 찾을 수 없습니다.", { reason: "CASTER_TOKEN_NOT_FOUND" });
     }
 
-    if (spellId === "spell.fire_bolt" || spellId === "spell.chill_touch") {
+    if (
+      spellId === "spell.fire_bolt" ||
+      spellId === "spell.chill_touch" ||
+      spellId === "spell.ray_of_frost"
+    ) {
       this.resolveCombatSpellSlotLevel(spellId, dto.slotLevel);
       const target = this.findCombatParticipantOrThrow(combat, dto.targetParticipantIds?.[0] ?? "");
       this.assertSpellTargetInRange(
@@ -1450,7 +1480,26 @@ export class CombatService {
           ),
           damageBonus: 0,
         },
-        { messagePrefix: spellId === "spell.chill_touch" ? "Chill Touch" : "Fire Bolt" },
+        {
+          messagePrefix:
+            spellId === "spell.chill_touch"
+              ? "Chill Touch"
+              : spellId === "spell.ray_of_frost"
+                ? "Ray of Frost"
+                : "Fire Bolt",
+          ...(spellId === "spell.ray_of_frost"
+            ? {
+                onHitCondition: this.conditionRuntime.createCondition({
+                  conditionId: "condition.spell.ray_of_frost",
+                  sourceId: spellId,
+                  duration: { type: "rounds", remaining: 1 },
+                  stackPolicy: "replace",
+                  appliedAtRound: combat.roundNo,
+                  tags: ["movement_speed_penalty:10"],
+                }),
+              }
+            : {}),
+        },
       );
     }
 
@@ -1498,6 +1547,27 @@ export class CombatService {
         damageTotal = (damageTotal ?? 0) + roll.total;
       }
       message = `Magic Missile: ${applied.join(", ")} 역장 피해`;
+    } else if (spellId === "spell.cure_wounds") {
+      spellScaling = this.resolveCombatSpellScalingFromCatalog(spellDefinition, slotLevel);
+      const target = this.findCombatParticipantOrThrow(combat, dto.targetParticipantIds?.[0] ?? "");
+      this.assertSpellTargetInRange(
+        map,
+        casterToken,
+        target,
+        this.resolveCombatSpellRangeFt(spellDefinition, 5),
+      );
+      await this.assertSpellSlotAvailable(session.id, caster.sessionCharacterId, slotLevel);
+      await this.spendCurrentActionIfNeeded(combat, caster);
+      await this.spendSpellSlot(session.id, caster.sessionCharacterId, slotLevel);
+      const healingModifier = await this.resolveSpellcastingAbilityModifier(caster.sessionCharacterId);
+      const healingBaseDice =
+        spellScaling.damageDice ?? this.resolveCombatSpellBaseDamageDice(spellDefinition) ?? "1d8";
+      const healingDice = `${healingBaseDice}${healingModifier >= 0 ? "+" : ""}${healingModifier}`;
+      const healingRoll = this.diceService.roll(healingDice);
+      diceResults.push(healingRoll);
+      await this.applyHitPointDelta(combat, target, healingRoll.total);
+      damageTotal = healingRoll.total;
+      message = `Cure Wounds: ${target.nameSnapshot} ${healingRoll.total} 회복`;
     } else if (spellId === "spell.sleep") {
       spellScaling = this.resolveCombatSpellScalingFromCatalog(spellDefinition, slotLevel);
       const point = dto.point ?? this.requireTargetPoint(map, casterToken);
@@ -1626,7 +1696,7 @@ export class CombatService {
     const updated = await this.getActiveCombatEntity(session.id);
     const response = await this.completeCombatIfResolved(session.id, updated);
     const turnLogDiceResult =
-      (spellId === "spell.sleep" || spellId === "spell.fireball") && diceResults[0]
+      (spellId === "spell.cure_wounds" || spellId === "spell.sleep" || spellId === "spell.fireball") && diceResults[0]
         ? { ...diceResults[0] }
         : null;
     const turnLog = await this.turnLogsService.createTurnLog({
@@ -1677,7 +1747,7 @@ export class CombatService {
     options: {
       messagePrefix?: string;
       fixedDamageTotal?: number;
-      actionCost?: "action" | "bonus_action" | "reaction";
+      actionCost?: "action" | "bonus_action" | "reaction" | "none";
       attackAction?: { weaponId?: string | null; weaponIsLightMelee: boolean };
       reactionUserId?: string;
       forceDisadvantage?: boolean;
@@ -1686,6 +1756,7 @@ export class CombatService {
         weaponProperties: string[];
         attackKind: "melee_weapon_attack" | "ranged_weapon_attack";
       };
+      onHitCondition?: ConditionInstance;
     } = {},
   ): Promise<CombatActionResultDto> {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
@@ -1757,6 +1828,8 @@ export class CombatService {
       });
     } else if (options.actionCost === "bonus_action") {
       await this.spendCurrentBonusActionIfNeeded(combat, attacker);
+    } else if (options.actionCost === "none") {
+      // Multiattack pays the action cost once before resolving child attacks.
     } else {
       await this.spendCurrentActionIfNeeded(combat, attacker);
       if (options.attackAction && combat.currentParticipantId === attacker.id) {
@@ -1789,7 +1862,7 @@ export class CombatService {
         damageDice: dto.damageDice,
         damageBonus: dto.damageBonus,
       });
-      this.realtimeEvents.emitCombatReactionPrompt(session.id, pending.reactorUserId, {
+      const prompt = {
         id: pending.id,
         type: "shield",
         reactorParticipantId: target.id,
@@ -1797,13 +1870,15 @@ export class CombatService {
         moverParticipantId: attacker.id,
         moverName: attacker.nameSnapshot,
         message: `${target.nameSnapshot}이(가) 공격에 맞았습니다. Shield를 사용해 AC +5를 적용할까요?`,
-      });
+      } as const;
+      this.realtimeEvents.emitCombatReactionPrompt(session.id, pending.reactorUserId, prompt);
       return {
         combat: await this.mapCombat(combat),
         message: "Shield 반응을 기다리는 중입니다.",
         attackTotal: attackRoll.total,
         damageTotal: null,
         turnLogId: null,
+        pendingReaction: prompt,
       };
     }
     const fixedDamageTotal =
@@ -1839,6 +1914,9 @@ export class CombatService {
 
     if (damageTotal !== null && damageTotal > 0) {
       await this.applyHitPointDelta(combat, target, -damageTotal);
+    }
+    if (hit && options.onHitCondition) {
+      await this.addCombatConditionInstance(target, options.onHitCondition);
     }
     const concentrationCheck =
       damageTotal !== null && damageTotal > 0
@@ -1882,6 +1960,7 @@ export class CombatService {
         criticalMiss,
         advantageState: attackAdvantageState,
         damageTotal,
+        appliedCondition: hit && options.onHitCondition ? options.onHitCondition : null,
         concentrationCheck: concentrationCheck
           ? {
               concentrationMaintained: concentrationCheck.concentrationMaintained,
@@ -2520,6 +2599,7 @@ export class CombatService {
           combat,
           actor,
           action: monsterAction,
+          targetParticipantId: dto.targetParticipantId ?? null,
           autoEndTurn: dto.autoEndTurn === true,
         });
       }
@@ -2621,6 +2701,7 @@ export class CombatService {
         combat,
         actor: attacker,
         action,
+        targetParticipantId: dto.targetParticipantId ?? null,
         autoEndTurn: dto.autoEndTurn !== false,
       });
     }
@@ -2708,6 +2789,7 @@ export class CombatService {
         attackTotal: null,
         damageTotal: null,
         map: movementResult.map,
+        pendingReaction: movementResult.pendingReaction,
       };
     }
     if (movementResult && movementResult.combat.status !== CombatStatus.ACTIVE) {
@@ -2798,6 +2880,13 @@ export class CombatService {
     ) {
       return "monster.giant_rat";
     }
+    if (
+      normalized.includes("giant spider") ||
+      normalized.includes("거대 거미") ||
+      normalized.includes("왕거미")
+    ) {
+      return "monster.giant_spider";
+    }
     return null;
   }
 
@@ -2823,6 +2912,7 @@ export class CombatService {
   private listMonsterActionOptionsForParticipant(
     participant: CombatParticipantEntity,
     token: VttMapStateDto["tokens"][number] | null,
+    flags: Record<string, unknown> = {},
   ): CombatMonsterActionOptionDto[] {
     if (participant.entityType !== PrismaCombatEntityType.MONSTER) {
       return [];
@@ -2844,45 +2934,73 @@ export class CombatService {
         seenActionIds.add(action.actionId);
         return true;
       })
-      .map((action) => ({
-        actionId: action.actionId,
-        label: action.label,
-        attackKind: action.attackKind,
-        attackBonus: action.attackBonus,
-        damageDice: action.damageDice,
-        damageType: action.damageType,
-        rangeFt: this.getMonsterActionRangeFt(action),
-        longRangeFt: action.rangeFt?.long ?? null,
-        confidence: action.confidence,
-        costType:
-          "costType" in action && typeof action.costType === "string"
-            ? action.costType
-            : "action",
-        specialType:
-          "specialType" in action && typeof action.specialType === "string"
-            ? action.specialType
-            : null,
-        usage:
-          "usage" in action && typeof action.usage === "string"
-            ? action.usage
-            : null,
-        recharge:
-          "recharge" in action && typeof action.recharge === "string"
-            ? action.recharge
-            : null,
-        save:
-          "save" in action && action.save
-            ? action.save
-            : null,
-        conditionRiders:
-          "conditionRiders" in action && Array.isArray(action.conditionRiders)
-            ? action.conditionRiders
-            : [],
-        effectTags:
-          "effectTags" in action && Array.isArray(action.effectTags)
-            ? action.effectTags
-            : [],
-      }));
+      .map((action) => {
+        const unavailableReason = this.resolveMonsterActionUnavailableReason(participant, action, flags);
+        return {
+          actionId: action.actionId,
+          label: action.label,
+          attackKind: action.attackKind,
+          attackBonus: action.attackBonus,
+          damageDice: action.damageDice,
+          damageType: action.damageType,
+          rangeFt: this.getMonsterActionRangeFt(action),
+          longRangeFt: action.rangeFt?.long ?? null,
+          confidence: action.confidence,
+          costType:
+            "costType" in action && typeof action.costType === "string"
+              ? action.costType
+              : "action",
+          specialType:
+            "specialType" in action && typeof action.specialType === "string"
+              ? action.specialType
+              : null,
+          usage:
+            "usage" in action && typeof action.usage === "string"
+              ? action.usage
+              : null,
+          recharge:
+            "recharge" in action && typeof action.recharge === "string"
+              ? action.recharge
+              : null,
+          save:
+            "save" in action && action.save
+              ? action.save
+              : null,
+          conditionRiders:
+            "conditionRiders" in action && Array.isArray(action.conditionRiders)
+              ? action.conditionRiders
+              : [],
+          effectTags:
+            "effectTags" in action && Array.isArray(action.effectTags)
+              ? action.effectTags
+              : [],
+          ...(unavailableReason
+            ? { available: false, unavailableReason }
+            : {}),
+        };
+      });
+  }
+
+  private resolveMonsterActionUnavailableReason(
+    participant: CombatParticipantEntity,
+    action: SrdEngineExecutableMonsterAction,
+    flags: Record<string, unknown>,
+  ): string | null {
+    const rechargeExpended = this.parseMonsterRechargeExpended(flags[MONSTER_RECHARGE_EXPENDED_FLAG]);
+    if (this.isRechargeMonsterAction(action) && rechargeExpended[participant.id]?.[action.actionId]) {
+      return "MONSTER_RECHARGE_ACTION_EXPENDED";
+    }
+
+    const limitedUseLimit = this.resolveMonsterLimitedUseLimit(action);
+    if (limitedUseLimit !== null) {
+      const limitedUseExpended = this.parseMonsterLimitedUseExpended(flags[MONSTER_LIMITED_USE_EXPENDED_FLAG]);
+      const used = this.extractMonsterLimitedUseUsed(limitedUseExpended[participant.id]?.[action.actionId]);
+      if (used >= limitedUseLimit) {
+        return "MONSTER_LIMITED_USE_ACTION_EXPENDED";
+      }
+    }
+
+    return null;
   }
 
   private async resolveMonsterAttackAction(params: {
@@ -2896,6 +3014,7 @@ export class CombatService {
     sourceTokenId: string | null;
     targetTokenId: string | null;
     movementDistanceFt?: number;
+    actionCost?: "action" | "none";
     autoEndTurn: boolean;
     autoEndTurnWhenOutOfRange: boolean;
   }): Promise<CombatActionResultDto> {
@@ -2946,7 +3065,9 @@ export class CombatService {
       damageDice: params.action.damageDice,
     });
     await this.assertMonsterRechargeActionAvailable(params.session.id, params.attacker, params.action);
+    await this.assertMonsterLimitedUseActionAvailable(params.session.id, params.attacker, params.action);
     await this.recordMonsterRechargeActionExpended(params.session.id, params.combat, params.attacker, params.action);
+    await this.recordMonsterLimitedUseActionExpended(params.session.id, params.combat, params.attacker, params.action);
     const result = await this.resolveAttack(params.userId, params.session.id, {
       attackerParticipantId: params.attacker.id,
       targetParticipantId: params.target.id,
@@ -2954,6 +3075,7 @@ export class CombatService {
       damageDice: params.action.damageDice,
       damageBonus: 0,
     }, {
+      actionCost: params.actionCost ?? "action",
       forceDisadvantage: rangeCheck.longRangeDisadvantage,
     });
     this.logAutoMonsterTurn("monster attack resolved", {
@@ -2970,6 +3092,17 @@ export class CombatService {
         ? await this.applyMonsterActionConditionRiders(params.session.id, params.combat, params.target, params.action)
         : { saveRolls: [], appliedConditionTags: [] };
     conditionRiders.saveRolls.forEach((roll) => this.realtimeEvents.emitDiceRolled(params.session.id, roll));
+    let resultWithRiders = result;
+    if (conditionRiders.appliedConditionTags.length > 0) {
+      const latestCombat = await this.getActiveCombatEntity(params.session.id);
+      const refreshedCombat = await this.mapCombat(latestCombat);
+      this.realtimeEvents.emitCombatUpdated(params.session.id, refreshedCombat);
+      this.realtimeEvents.emitSessionSnapshot(
+        params.session.id,
+        await this.sessionsService.buildSnapshot(params.session.id),
+      );
+      resultWithRiders = { ...result, combat: refreshedCombat };
+    }
 
     const movementMessage =
       (params.movementDistanceFt ?? 0) > 0 ? ` ${params.movementDistanceFt ?? 0}ft 이동 후` : "";
@@ -2979,14 +3112,14 @@ export class CombatService {
       : "";
     if (await this.hasPendingCombatReaction(params.session.id)) {
       return {
-        ...result,
-        message: `${actionMessage}: ${result.message}${riderMessage}`,
+        ...resultWithRiders,
+        message: `${actionMessage}: ${resultWithRiders.message}${riderMessage}`,
       };
     }
-    if (!params.autoEndTurn || result.combat.status !== CombatStatus.ACTIVE) {
+    if (!params.autoEndTurn || resultWithRiders.combat.status !== CombatStatus.ACTIVE) {
       return {
-        ...result,
-        message: `${actionMessage}: ${result.message}${riderMessage}`,
+        ...resultWithRiders,
+        message: `${actionMessage}: ${resultWithRiders.message}${riderMessage}`,
       };
     }
 
@@ -3001,9 +3134,9 @@ export class CombatService {
     }
 
     return {
-      ...result,
-      combat: await this.mapCombat(await this.getCombatEntityById(result.combat.combatId)),
-      message: `${actionMessage}: ${result.message}${riderMessage} / 턴 종료`,
+      ...resultWithRiders,
+      combat: await this.mapCombat(await this.getCombatEntityById(resultWithRiders.combat.combatId)),
+      message: `${actionMessage}: ${resultWithRiders.message}${riderMessage} / 턴 종료`,
     };
   }
 
@@ -3105,6 +3238,7 @@ export class CombatService {
     combat: NonNullable<CombatWithParticipants>;
     actor: CombatParticipantEntity;
     action: SrdEngineExecutableMonsterAction;
+    targetParticipantId?: string | null;
     autoEndTurn: boolean;
   }): Promise<CombatActionResultDto> {
     await this.ensureActorCanAct(params.userId, params.session.id, params.combat, params.actor);
@@ -3126,6 +3260,18 @@ export class CombatService {
       "specialType" in params.action && typeof params.action.specialType === "string"
         ? params.action.specialType
         : null;
+    if (specialType === "multiattack") {
+      return this.resolveMonsterMultiattackAction({
+        userId: params.userId,
+        session: params.session,
+        combat: params.combat,
+        actor: params.actor,
+        action: params.action,
+        effectTags,
+        targetParticipantId: params.targetParticipantId ?? null,
+        autoEndTurn: params.autoEndTurn,
+      });
+    }
     const condition =
       specialType === "mobility" && effectTags.includes("disengage")
         ? COMBAT_CONDITION_DISENGAGE
@@ -3140,7 +3286,9 @@ export class CombatService {
     }
 
     await this.assertMonsterRechargeActionAvailable(params.session.id, params.actor, params.action);
+    await this.assertMonsterLimitedUseActionAvailable(params.session.id, params.actor, params.action);
     await this.recordMonsterRechargeActionExpended(params.session.id, params.combat, params.actor, params.action);
+    await this.recordMonsterLimitedUseActionExpended(params.session.id, params.combat, params.actor, params.action);
     await this.addCombatCondition(params.actor, condition);
     const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(params.session.id);
     if (params.autoEndTurn) {
@@ -3184,6 +3332,128 @@ export class CombatService {
       damageTotal: null,
       turnLogId: turnLog.turnLogId,
     };
+  }
+
+  private async resolveMonsterMultiattackAction(params: {
+    userId: string;
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
+    combat: NonNullable<CombatWithParticipants>;
+    actor: CombatParticipantEntity;
+    action: SrdEngineExecutableMonsterAction;
+    effectTags: string[];
+    targetParticipantId?: string | null;
+    autoEndTurn: boolean;
+  }): Promise<CombatActionResultDto> {
+    const attacks = this.parseMonsterMultiattackTags(params.effectTags);
+    if (attacks.length === 0) {
+      throw unprocessable("COMBAT_422", "몬스터 multiattack 구성이 비어 있습니다.", {
+        reason: "MONSTER_MULTIATTACK_EMPTY",
+        actionId: params.action.actionId,
+      });
+    }
+
+    await this.assertMonsterRechargeActionAvailable(params.session.id, params.actor, params.action);
+    await this.assertMonsterLimitedUseActionAvailable(params.session.id, params.actor, params.action);
+    await this.recordMonsterRechargeActionExpended(params.session.id, params.combat, params.actor, params.action);
+    await this.recordMonsterLimitedUseActionExpended(params.session.id, params.combat, params.actor, params.action);
+
+    const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(params.session), params.session.id);
+    const actorToken = this.findParticipantToken(map, params.actor);
+    const target = params.targetParticipantId
+      ? this.findCombatParticipantOrThrow(params.combat, params.targetParticipantId)
+      : params.combat.participants.find((participant) => !participant.isHostile && participant.isAlive);
+    if (!target || target.isHostile || !target.isAlive) {
+      throw unprocessable("COMBAT_422", "몬스터가 공격할 수 있는 대상이 없습니다.", {
+        reason: "MONSTER_TARGET_NOT_FOUND",
+      });
+    }
+    const targetToken = this.findParticipantToken(map, target);
+    const childActions = [
+      ...this.monsterAbilities.listExecutableActions(params.action.monsterId),
+      ...this.srdEngine.getExecutableMonsterActions(params.action.monsterId),
+    ];
+
+    const results: CombatActionResultDto[] = [];
+    for (const attack of attacks) {
+      const childAction = childActions.find((candidate) =>
+        candidate.actionId === attack.actionId ||
+        ("catalogEntryId" in candidate && candidate.catalogEntryId === attack.actionId),
+      );
+      if (!childAction || childAction.attackKind === "special") {
+        throw unprocessable("COMBAT_422", "몬스터 multiattack 하위 공격을 찾을 수 없습니다.", {
+          reason: "MONSTER_MULTIATTACK_CHILD_NOT_FOUND",
+          actionId: params.action.actionId,
+          childActionId: attack.actionId,
+        });
+      }
+      for (let index = 0; index < attack.count; index += 1) {
+        const result = await this.resolveMonsterAttackAction({
+          userId: params.userId,
+          session: params.session,
+          combat: params.combat,
+          attacker: params.actor,
+          target,
+          action: childAction,
+          map,
+          sourceTokenId: actorToken?.id ?? params.actor.tokenId ?? null,
+          targetTokenId: targetToken?.id ?? target.tokenId ?? null,
+          movementDistanceFt: 0,
+          actionCost: "none",
+          autoEndTurn: false,
+          autoEndTurnWhenOutOfRange: false,
+        });
+        results.push(result);
+        if (await this.hasPendingCombatReaction(params.session.id)) {
+          return {
+            ...result,
+            message: `${params.actor.nameSnapshot} ${params.action.label}: ${result.message}`,
+          };
+        }
+      }
+    }
+
+    if (params.autoEndTurn) {
+      const latestCombat = await this.getActiveCombatEntity(params.session.id);
+      if (latestCombat.currentParticipantId === params.actor.id) {
+        await this.advanceCurrentTurn(params.session.id, latestCombat);
+      }
+    }
+
+    const updated = await this.getActiveCombatEntity(params.session.id);
+    const response = await this.mapCombat(updated);
+    const totalDamage = results.reduce((sum, result) => sum + (result.damageTotal ?? 0), 0);
+    const lastAttackTotal = results.length ? results[results.length - 1].attackTotal : null;
+    const message = `${params.actor.nameSnapshot} ${params.action.label}: ${results
+      .map((result) => result.message)
+      .join(" / ")}${params.autoEndTurn ? " / 턴 종료" : ""}`;
+
+    this.realtimeEvents.emitCombatUpdated(params.session.id, response);
+    this.realtimeEvents.emitSessionSnapshot(
+      params.session.id,
+      await this.sessionsService.buildSnapshot(params.session.id),
+    );
+
+    return {
+      combat: response,
+      message,
+      attackTotal: lastAttackTotal,
+      damageTotal: totalDamage,
+      turnLogId: results[results.length - 1]?.turnLogId,
+    };
+  }
+
+  private parseMonsterMultiattackTags(effectTags: string[]): Array<{ actionId: string; count: number }> {
+    return effectTags.flatMap((tag) => {
+      const match = /^multiattack:([^:]+)(?::(\d+))?$/.exec(tag);
+      if (!match) {
+        return [];
+      }
+      const count = match[2] ? Number(match[2]) : 1;
+      if (!Number.isInteger(count) || count <= 0) {
+        return [];
+      }
+      return [{ actionId: match[1], count }];
+    });
   }
 
   private buildFallbackMonsterAction(
@@ -4189,8 +4459,92 @@ export class CombatService {
     });
   }
 
+  private async assertMonsterLimitedUseActionAvailable(
+    sessionId: string,
+    actor: CombatParticipantEntity,
+    action: SrdEngineExecutableMonsterAction,
+  ): Promise<void> {
+    const limit = this.resolveMonsterLimitedUseLimit(action);
+    if (limit === null) {
+      return;
+    }
+
+    const { state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const expended = this.parseMonsterLimitedUseExpended(flags[MONSTER_LIMITED_USE_EXPENDED_FLAG]);
+    const used = this.extractMonsterLimitedUseUsed(expended[actor.id]?.[action.actionId]);
+    if (used >= limit) {
+      throw conflict("COMBAT_409", "사용 횟수가 남지 않은 몬스터 행동입니다.", {
+        reason: "MONSTER_LIMITED_USE_ACTION_EXPENDED",
+        actorParticipantId: actor.id,
+        actionId: action.actionId,
+        usage: action.usage ?? null,
+        used,
+        limit,
+      });
+    }
+  }
+
+  private async recordMonsterLimitedUseActionExpended(
+    sessionId: string,
+    combat: NonNullable<CombatWithParticipants>,
+    actor: CombatParticipantEntity,
+    action: SrdEngineExecutableMonsterAction,
+  ): Promise<void> {
+    const limit = this.resolveMonsterLimitedUseLimit(action);
+    if (limit === null) {
+      return;
+    }
+
+    const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const expended = this.parseMonsterLimitedUseExpended(flags[MONSTER_LIMITED_USE_EXPENDED_FLAG]);
+    const used = this.extractMonsterLimitedUseUsed(expended[actor.id]?.[action.actionId]) + 1;
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: sessionScenario.id },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          [MONSTER_LIMITED_USE_EXPENDED_FLAG]: {
+            ...expended,
+            [actor.id]: {
+              ...(expended[actor.id] ?? {}),
+              [action.actionId]: {
+                usage: action.usage ?? null,
+                used,
+                limit,
+                roundNo: combat.roundNo,
+                turnNo: combat.turnNo,
+              },
+            },
+          },
+        }),
+      },
+    });
+  }
+
   private isRechargeMonsterAction(action: SrdEngineExecutableMonsterAction): boolean {
     return typeof action.recharge === "string" && action.recharge.trim().length > 0;
+  }
+
+  private resolveMonsterLimitedUseLimit(action: SrdEngineExecutableMonsterAction): number | null {
+    if (typeof action.usage !== "string") {
+      return null;
+    }
+    const match = action.usage.trim().match(/^(\d+)\s*\/\s*(day|combat|rest)$/i);
+    if (!match) {
+      return null;
+    }
+    const limit = Number(match[1]);
+    return Number.isInteger(limit) && limit > 0 ? limit : null;
+  }
+
+  private extractMonsterLimitedUseUsed(entry: unknown): number {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return 0;
+    }
+    const used = (entry as { used?: unknown }).used;
+    return typeof used === "number" && Number.isInteger(used) && used > 0 ? used : 0;
   }
 
   private extractMonsterRechargeValue(entry: unknown): string | null {
@@ -4212,6 +4566,21 @@ export class CombatService {
   }
 
   private parseMonsterRechargeExpended(value: unknown): Record<string, Record<string, unknown>> {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return {};
+    }
+
+    const result: Record<string, Record<string, unknown>> = {};
+    for (const [participantId, actions] of Object.entries(value)) {
+      if (!actions || typeof actions !== "object" || Array.isArray(actions)) {
+        continue;
+      }
+      result[participantId] = { ...(actions as Record<string, unknown>) };
+    }
+    return result;
+  }
+
+  private parseMonsterLimitedUseExpended(value: unknown): Record<string, Record<string, unknown>> {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return {};
     }
@@ -4834,7 +5203,9 @@ export class CombatService {
   ): void {
     const allowed = new Set([
       "spell.chill_touch",
+      "spell.cure_wounds",
       "spell.fire_bolt",
+      "spell.ray_of_frost",
       "spell.fireball",
       "spell.light",
       "spell.magic_missile",
@@ -4903,8 +5274,10 @@ export class CombatService {
     switch (spellId) {
       case "spell.fire_bolt":
       case "spell.chill_touch":
+      case "spell.ray_of_frost":
       case "spell.light":
         return 0;
+      case "spell.cure_wounds":
       case "spell.magic_missile":
       case "spell.shield":
       case "spell.sleep":
@@ -5096,6 +5469,24 @@ export class CombatService {
     const sessionCharacter = await this.getSessionCharacterForSpell(sessionCharacterId);
     const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
     return sessionCharacter.character.proficiencyBonus + this.getAbilityModifier(abilities.int);
+  }
+
+  private async resolveSpellcastingAbilityModifier(sessionCharacterId: string): Promise<number> {
+    const sessionCharacter = await this.getSessionCharacterForSpell(sessionCharacterId);
+    const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
+    const classKey = sessionCharacter.character.className.trim().toLowerCase();
+    let abilityKey = "int";
+    if (classKey === "cleric" || classKey === "druid" || classKey === "ranger") {
+      abilityKey = "wis";
+    } else if (
+      classKey === "bard" ||
+      classKey === "paladin" ||
+      classKey === "sorcerer" ||
+      classKey === "warlock"
+    ) {
+      abilityKey = "cha";
+    }
+    return this.getAbilityModifier(abilities[abilityKey] ?? 10);
   }
 
   private async resolveCombatSpellSaveDc(sessionCharacterId: string): Promise<number> {
@@ -5717,7 +6108,7 @@ export class CombatService {
       combat: attackResult.combat,
       map: latestMap,
       message: attackResult.message,
-      pendingReaction: null,
+      pendingReaction: attackResult.pendingReaction ?? null,
     };
   }
 
@@ -5944,6 +6335,7 @@ export class CombatService {
 
   private async completeCombat(sessionId: string, combatId: string): Promise<CombatResponseDto> {
     const combat = await this.getCombatEntityById(combatId);
+    await this.clearCombatBoundMonsterLimitedUses(sessionId);
     if (this.isPartyDefeated(combat)) {
       await this.sessionsService.completeSessionAfterPartyDefeat(sessionId, combatId);
       return this.mapCombat(await this.getCombatEntityById(combatId));
@@ -5951,6 +6343,52 @@ export class CombatService {
 
     await this.sessionsService.completeActiveCombatState(sessionId, combatId);
     return this.mapCombat(await this.getCombatEntityById(combatId));
+  }
+
+  private async clearCombatBoundMonsterLimitedUses(sessionId: string): Promise<void> {
+    const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const expended = this.parseMonsterLimitedUseExpended(flags[MONSTER_LIMITED_USE_EXPENDED_FLAG]);
+    let changed = false;
+    const remaining: Record<string, Record<string, unknown>> = {};
+
+    for (const [participantId, actions] of Object.entries(expended)) {
+      const remainingActions: Record<string, unknown> = {};
+      for (const [actionId, entry] of Object.entries(actions)) {
+        if (this.isCombatBoundMonsterLimitedUse(entry)) {
+          changed = true;
+          continue;
+        }
+        remainingActions[actionId] = entry;
+      }
+      if (Object.keys(remainingActions).length > 0) {
+        remaining[participantId] = remainingActions;
+      } else {
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      return;
+    }
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: sessionScenario.id },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          [MONSTER_LIMITED_USE_EXPENDED_FLAG]: remaining,
+        }),
+      },
+    });
+  }
+
+  private isCombatBoundMonsterLimitedUse(entry: unknown): boolean {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return false;
+    }
+    const usage = (entry as { usage?: unknown }).usage;
+    return typeof usage === "string" && /^\d+\s*\/\s*combat$/i.test(usage.trim());
   }
 
   private isPartyDefeated(combat: NonNullable<CombatWithParticipants>): boolean {
@@ -6430,13 +6868,31 @@ export class CombatService {
 
   private async resolveParticipantSpeedFt(participant: CombatParticipantEntity): Promise<number> {
     if (!participant.sessionCharacterId) {
-      return participant.speedFt ?? 30;
+      return this.applyMovementSpeedPenalties(
+        participant.speedFt ?? 30,
+        participant.conditionsJson ?? "[]",
+      );
     }
     const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
       where: { id: participant.sessionCharacterId },
-      select: { character: { select: { speed: true } } },
+      select: {
+        conditionsJson: true,
+        character: { select: { speed: true } },
+      },
     });
-    return sessionCharacter?.character.speed ?? participant.speedFt ?? 30;
+    return this.applyMovementSpeedPenalties(
+      sessionCharacter?.character.speed ?? participant.speedFt ?? 30,
+      sessionCharacter?.conditionsJson ?? participant.conditionsJson ?? "[]",
+    );
+  }
+
+  private applyMovementSpeedPenalties(baseSpeedFt: number, conditionsJson: string): number {
+    const penaltyFt = this.parseConditions(conditionsJson)
+      .filter((tag) => tag.startsWith("movement_speed_penalty:"))
+      .map((tag) => Number(tag.slice("movement_speed_penalty:".length)))
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .reduce((total, value) => total + value, 0);
+    return Math.max(0, baseSpeedFt - penaltyFt);
   }
 
   private async resolveStealthModifier(participant: CombatParticipantEntity): Promise<number> {
@@ -6818,15 +7274,16 @@ export class CombatService {
     mover: CombatParticipantEntity;
     map: VttMapStateDto;
     nextMoverToken: VttMapToken;
-  }): Promise<number> {
+  }): Promise<ReadyActionMovementResult> {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(params.sessionId);
     const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
     const pendingActions = this.parsePendingReadyActions(flags[PENDING_READY_ACTIONS_FLAG]);
     if (pendingActions.length === 0) {
-      return 0;
+      return { count: 0, prompts: [] };
     }
 
     const triggered = [];
+    const prompts: CombatReactionPromptDto[] = [];
     const remaining: PendingReadyAction[] = [];
     for (const pending of pendingActions) {
       if (pending.actorParticipantId === params.mover.id) {
@@ -6860,7 +7317,7 @@ export class CombatService {
         const triggeredReadyAction = this.readyActions.createTriggeredReadyAction(pending, event);
         triggered.push(triggeredReadyAction);
         const actorName = actor.nameSnapshot || "준비행동 사용자";
-        this.realtimeEvents.emitCombatReactionPrompt(params.sessionId, pending.actorUserId, {
+        const prompt: CombatReactionPromptDto = {
           id: triggeredReadyAction.id,
           type: "ready_action",
           reactorParticipantId: pending.actorParticipantId,
@@ -6868,14 +7325,16 @@ export class CombatService {
           moverParticipantId: params.mover.id,
           moverName: params.mover.nameSnapshot,
           message: `${actorName}의 준비행동 조건이 충족되었습니다. 실행할까요?`,
-        });
+        };
+        prompts.push(prompt);
+        this.realtimeEvents.emitCombatReactionPrompt(params.sessionId, pending.actorUserId, prompt);
         continue;
       }
       remaining.push(pending);
     }
 
     if (triggered.length === 0) {
-      return 0;
+      return { count: 0, prompts: [] };
     }
 
     await this.prisma.gameState.update({
@@ -6900,7 +7359,7 @@ export class CombatService {
         `준비행동 ${triggered.length}개가 발동 대기 중입니다.`,
       );
     }
-    return triggered.length;
+    return { count: triggered.length, prompts };
   }
 
   private parsePendingReadyActions(value: unknown): PendingReadyAction[] {
@@ -7106,7 +7565,10 @@ export class CombatService {
         const currentHp = sessionCharacter?.currentHp ?? participant.currentHp ?? null;
         const maxHp = sessionCharacter?.character.maxHp ?? participant.maxHp ?? null;
         const armorClass = sessionCharacter?.character.armorClass ?? participant.armorClass ?? null;
-        const movementFtTotal = sessionCharacter?.character.speed ?? participant.speedFt ?? 30;
+        const movementFtTotal = this.applyMovementSpeedPenalties(
+          sessionCharacter?.character.speed ?? participant.speedFt ?? 30,
+          sessionCharacter?.conditionsJson ?? participant.conditionsJson ?? "[]",
+        );
         const turnState = turnStateByParticipantId.get(participant.id) ?? null;
         const spellSlots = this.resolveCombatSpellSlotResources(
           sessionCharacter?.character ?? null,
@@ -7154,6 +7616,7 @@ export class CombatService {
           monsterActions: this.listMonsterActionOptionsForParticipant(
             participant,
             this.findParticipantToken(map, participant),
+            flags,
           ),
         };
       }),

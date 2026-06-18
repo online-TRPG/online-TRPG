@@ -424,12 +424,23 @@ describe("RuleCatalogService", () => {
     expect(service.listEntries("spell_definitions").map((entry) => entry.id)).toEqual([
       "spell.chill_touch",
       "spell.fire_bolt",
+      "spell.ray_of_frost",
       "spell.light",
       "spell.magic_missile",
+      "spell.cure_wounds",
       "spell.shield",
       "spell.sleep",
       "spell.fireball",
     ]);
+
+    expect(service.getEntry("spell.ray_of_frost")).toMatchObject({
+      targeting: { type: "creature", rangeFt: 60 },
+      damage: { dice: "1d8", type: "cold", scaling: "character_level" },
+      runtimeEffect: {
+        tags: expect.arrayContaining(["movement_speed_penalty:10"]),
+        hookId: "hook.spell.cast_ray_of_frost",
+      },
+    });
 
     expect(service.getEntry("spell.sleep")).toMatchObject({
       id: "spell.sleep",
@@ -472,10 +483,20 @@ describe("RuleCatalogService", () => {
 
   it("promotes MVP monster actions into catalog ability entries", () => {
     expect(service.listEntries("monster_abilities").map((entry) => entry.id)).toEqual([
+      "monster.brown_bear.ability.multiattack",
+      "monster.brown_bear.ability.bite",
+      "monster.brown_bear.ability.claws",
       "monster.goblin.ability.scimitar",
       "monster.goblin.ability.shortbow",
       "monster.goblin.ability.nimble_escape",
       "monster.giant_rat.ability.bite",
+      "monster.giant_spider.ability.bite",
+    ]);
+
+    expect(service.listMonsterAbilities("brown bear").map((entry) => entry.id)).toEqual([
+      "monster.brown_bear.ability.bite",
+      "monster.brown_bear.ability.claws",
+      "monster.brown_bear.ability.multiattack",
     ]);
 
     expect(service.listMonsterAbilities("goblin").map((entry) => entry.id)).toEqual([

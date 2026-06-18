@@ -20,6 +20,7 @@ import type {
   ActionOutcome,
   ClassDefinitionResponseDto,
   CombatActionResultDto,
+  CombatMoveResultDto,
   CombatReactionPromptDto,
   CombatResponseDto,
   ItemResponseDto,
@@ -79,6 +80,7 @@ import {
   dashCombatAction,
   declineCombatReaction,
   dodgeCombatAction,
+  forceMoveCombatParticipant,
   getCombat,
   getHumanGmNodeMoveOptions,
   getPlayerScenario,
@@ -128,6 +130,10 @@ type PendingOptimisticTokenMove = {
   tokenId: string;
   optimisticUpdatedAt: string;
   previousMap: VttMapStateDto;
+};
+
+type PendingCombatReactionPrompt = {
+  reaction: CombatReactionPromptDto;
 };
 
 function shouldLogMapMovePerf() {
@@ -190,6 +196,19 @@ function applyOptimisticTokenMove(
     ),
     updatedAt: optimisticUpdatedAt,
   };
+}
+
+function getCombatReactionTypeLabel(type: CombatReactionPromptDto['type']) {
+  switch (type) {
+    case 'opportunity_attack':
+      return '기회공격';
+    case 'shield':
+      return 'Shield 반응';
+    case 'ready_action':
+      return '준비행동';
+    default:
+      return '반응';
+  }
 }
 const sessionTabDescriptions: Record<
   (typeof sessionTabs)[number],
@@ -1039,9 +1058,15 @@ const QUICK_CREATE_CLASS_COMBAT_DEFAULTS: Readonly<
   rogue: { armorClass: 14, speed: 36 },
   wizard: { armorClass: 12, speed: 30 },
 };
-const QUICK_CREATE_MVP_CANTRIPS = ['spell.chill_touch', 'spell.fire_bolt', 'spell.light'];
+const QUICK_CREATE_MVP_CANTRIPS = [
+  'spell.chill_touch',
+  'spell.fire_bolt',
+  'spell.light',
+  'spell.ray_of_frost',
+];
 const QUICK_CREATE_MVP_LEVEL1_SPELLS = [
   'spell.magic_missile',
+  'spell.cure_wounds',
   'spell.shield',
   'spell.sleep',
 ];
@@ -1049,6 +1074,31 @@ const QUICK_CREATE_MVP_LEVEL5_SLOT_SPELLS_BY_CLASS: Readonly<Record<string, stri
   sorcerer: ['spell.fireball'],
   wizard: ['spell.fireball'],
 };
+
+function getQuickCreateAbilityModifier(score: number | null | undefined) {
+  return Math.floor(((score ?? 10) - 10) / 2);
+}
+
+function getQuickCreatePreparedSpellAbilityKey(classKey: string | null | undefined) {
+  const normalized = (classKey ?? '').trim().toLowerCase();
+  if (normalized === 'wizard') return 'int' as const;
+  if (normalized === 'cleric' || normalized === 'druid') return 'wis' as const;
+  if (normalized === 'paladin') return 'cha' as const;
+  return null;
+}
+
+function getQuickCreatePreparedSpellLimit(
+  classKey: string | null | undefined,
+  level: number,
+  abilities: QuickCreateAbilities,
+) {
+  const abilityKey = getQuickCreatePreparedSpellAbilityKey(classKey);
+  if (!abilityKey) return null;
+  const normalizedClassKey = (classKey ?? '').trim().toLowerCase();
+  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
+  const levelBase = normalizedClassKey === 'paladin' ? Math.floor(normalizedLevel / 2) : normalizedLevel;
+  return Math.max(1, levelBase + getQuickCreateAbilityModifier(abilities[abilityKey]));
+}
 
 // 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
 const defaultCharacter: QuickCreateFormState = {
@@ -1106,7 +1156,11 @@ function getDefaultStartingEquipmentItemSelections(
   return selections;
 }
 
-function getDefaultQuickCreateStartingSpells(klass: ClassDefinitionResponseDto, level: number) {
+function getDefaultQuickCreateStartingSpells(
+  klass: ClassDefinitionResponseDto,
+  level: number,
+  abilities: QuickCreateAbilities,
+) {
   if (klass.startingCantripCount <= 0 && klass.startingSpellCount <= 0) {
     return undefined;
   }
@@ -1120,10 +1174,15 @@ function getDefaultQuickCreateStartingSpells(klass: ClassDefinitionResponseDto, 
       ...QUICK_CREATE_MVP_LEVEL1_SPELLS,
     ]),
   );
+  const selectedSlotSpells = slotSpells.slice(0, klass.startingSpellCount);
+  const preparedSpellLimit = getQuickCreatePreparedSpellLimit(klass.key, level, abilities);
 
   return {
     cantrips: QUICK_CREATE_MVP_CANTRIPS.slice(0, klass.startingCantripCount),
-    spells: slotSpells.slice(0, klass.startingSpellCount),
+    spells: selectedSlotSpells,
+    ...(preparedSpellLimit !== null
+      ? { preparedSpells: selectedSlotSpells.slice(0, preparedSpellLimit) }
+      : {}),
   };
 }
 
@@ -1572,6 +1631,59 @@ function isCombatActionResultDto(value: unknown): value is CombatActionResultDto
   );
 }
 
+function isCombatReactionPromptDto(value: unknown): value is CombatReactionPromptDto {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    typeof (value as { id?: unknown }).id === 'string' &&
+    ['opportunity_attack', 'shield', 'ready_action'].includes(
+      String((value as { type?: unknown }).type)
+    ) &&
+    typeof (value as { reactorParticipantId?: unknown }).reactorParticipantId === 'string' &&
+    typeof (value as { message?: unknown }).message === 'string'
+  );
+}
+
+function formatCombatMoveResultMessage(result: CombatMoveResultDto): string {
+  const baseMessage = result.message?.trim() || '전투 이동을 처리했습니다.';
+  const movementDistanceFt =
+    typeof result.movementDistanceFt === 'number' ? result.movementDistanceFt : null;
+  const movementCostFt = typeof result.movementCostFt === 'number' ? result.movementCostFt : null;
+
+  if (
+    movementDistanceFt !== null &&
+    movementCostFt !== null &&
+    movementCostFt !== movementDistanceFt &&
+    !/소모\s*\d+\s*ft/i.test(baseMessage)
+  ) {
+    return `${baseMessage} / 이동 소모 ${movementCostFt}ft`;
+  }
+
+  return baseMessage;
+}
+
+function formatCombatActionResultMessage(result: CombatActionResultDto): string {
+  const baseMessage = result.message?.trim() || '전투 행동을 처리했습니다.';
+  const details: string[] = [];
+
+  if (
+    typeof result.attackTotal === 'number' &&
+    !/(명중|공격|attack)\s*(굴림|총합|total)?\s*\d+/i.test(baseMessage)
+  ) {
+    details.push(`명중 ${result.attackTotal}`);
+  }
+
+  if (
+    typeof result.damageTotal === 'number' &&
+    result.damageTotal > 0 &&
+    !/(피해|damage)\s*\d+/i.test(baseMessage)
+  ) {
+    details.push(`피해 ${result.damageTotal}`);
+  }
+
+  return details.length ? `${baseMessage} / ${details.join(' / ')}` : baseMessage;
+}
+
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function PlayPage({
   user,
@@ -1668,6 +1780,51 @@ export function PlayPage({
     onLeaveSession();
   }
 
+  const requestCombatReactionDecision = useCallback((reaction: CombatReactionPromptDto) => {
+    if (pendingCombatReactionDecisionRef.current?.id === reaction.id) {
+      return pendingCombatReactionDecisionRef.current.promise;
+    }
+    pendingCombatReactionResolverRef.current?.(false);
+    const promise = new Promise<boolean>((resolve) => {
+      pendingCombatReactionResolverRef.current = resolve;
+      setPendingCombatReaction({ reaction });
+    });
+    pendingCombatReactionDecisionRef.current = { id: reaction.id, promise };
+    return promise;
+  }, []);
+
+  function resolvePendingCombatReaction(accepted: boolean) {
+    const resolver = pendingCombatReactionResolverRef.current;
+    pendingCombatReactionResolverRef.current = null;
+    pendingCombatReactionDecisionRef.current = null;
+    setPendingCombatReaction(null);
+    resolver?.(accepted);
+  }
+
+  function isCombatReactionForCurrentUser(
+    reaction: CombatReactionPromptDto,
+    combatView: CombatResponseDto | null = combat
+  ) {
+    return Boolean(
+      combatView?.participants.some(
+        (candidate) =>
+          candidate.sessionEntityId === reaction.reactorParticipantId &&
+          candidate.sessionCharacterId &&
+          sessionCharacters.some(
+            (character) => character.id === candidate.sessionCharacterId && character.userId === user.id
+          )
+      )
+    );
+  }
+
+  function claimCombatReactionHandling(reactionId: string) {
+    if (claimedCombatReactionIdsRef.current.has(reactionId)) {
+      return false;
+    }
+    claimedCombatReactionIdsRef.current.add(reactionId);
+    return true;
+  }
+
   const [inventoryUseFeedback, setInventoryUseFeedback] = useState<string | null>(null);
   const [isInventoryUsePending, setInventoryUsePending] = useState(false);
   const [formState, setFormState] = useState<QuickCreateFormState>(defaultCharacter);
@@ -1684,6 +1841,8 @@ export function PlayPage({
   const [combat, setCombat] = useState<CombatResponseDto | null>(null);
   const [combatError, setCombatError] = useState<string | null>(null);
   const [isCombatBusy, setCombatBusy] = useState(false);
+  const [pendingCombatReaction, setPendingCombatReaction] =
+    useState<PendingCombatReactionPrompt | null>(null);
   const [isGmNodeMovePending, setGmNodeMovePending] = useState(false);
   const [gmNodeMoveOptions, setGmNodeMoveOptions] = useState<ExplorationNodeMoveOption[]>([]);
   const [gmItemCatalog, setGmItemCatalog] = useState<ItemResponseDto[]>([]);
@@ -1702,6 +1861,9 @@ export function PlayPage({
   const scenarioDescriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
   const pendingOptimisticTokenMoveRef = useRef<PendingOptimisticTokenMove | null>(null);
+  const pendingCombatReactionResolverRef = useRef<((accepted: boolean) => void) | null>(null);
+  const pendingCombatReactionDecisionRef = useRef<{ id: string; promise: Promise<boolean> } | null>(null);
+  const claimedCombatReactionIdsRef = useRef<Set<string>>(new Set());
   const mapSaveRef = useRef<{
     isSaving: boolean;
     pending: VttMapStateDto | null;
@@ -2673,6 +2835,36 @@ export function PlayPage({
     user.displayName,
     vttMap?.tokens,
   ]);
+  const pendingRestApprovals = useMemo(
+    () =>
+      logs
+        .map((log) => {
+          const restApproval = log.metadata?.restApproval;
+          if (
+            !restApproval?.actionId ||
+            restApproval.status !== 'gm_required' ||
+            approvedRestRequestIds.has(restApproval.actionId)
+          ) {
+            return null;
+          }
+          return {
+            actionId: restApproval.actionId,
+            restType: restApproval.restType,
+            requester: log.title,
+            message: stripScopePrefix(log.message),
+          };
+        })
+        .filter(
+          (approval): approval is {
+            actionId: string;
+            restType: 'short' | 'long' | null;
+            requester: string;
+            message: string;
+          } => approval !== null
+        ),
+    [approvedRestRequestIds, logs]
+  );
+  const visibleRestApproval = canUseHumanGmView ? pendingRestApprovals[0] ?? null : null;
   const latestRenderedLogId = renderedRows[renderedRows.length - 1]?.id ?? null;
   const storyRpUtterances = useMemo<StoryRpUtterance[]>(() => {
     const now = Date.now();
@@ -2845,6 +3037,7 @@ export function PlayPage({
       startingSpells: getDefaultQuickCreateStartingSpells(
         selectedQuickCreateClass,
         quickCreateLevel,
+        quickCreateAbilities,
       ),
       assignToSession: true,
     };
@@ -3450,7 +3643,11 @@ export function PlayPage({
 
   async function handleCastCombatSpell(
     spellId: string,
-    payload: { targetParticipantIds?: string[]; point?: { x: number; y: number } | null }
+    payload: {
+      targetParticipantIds?: string[];
+      point?: { x: number; y: number } | null;
+      slotLevel?: number;
+    }
   ) {
     if (!session || isCombatBusy) return;
     await runCombatRequest(async () => {
@@ -3504,15 +3701,16 @@ export function PlayPage({
       });
 
       if (result.pendingReaction) {
-        const isMine = combat.participants.some(
-          (candidate) =>
-            candidate.sessionEntityId === result.pendingReaction?.reactorParticipantId &&
-            candidate.sessionCharacterId &&
-            sessionCharacters.some(
-              (character) => character.id === candidate.sessionCharacterId && character.userId === user.id
-            )
-        );
-        if (!isMine) {
+        const reactionIsMine = isCombatReactionForCurrentUser(result.pendingReaction, result.combat);
+        if (!reactionIsMine) {
+          if (result.pendingReaction.type === 'ready_action') {
+            setCombat(result.combat);
+            setVttMapIfChanged(result.map, 'combat-move-ready-pending');
+            pendingOptimisticTokenMoveRef.current = null;
+            logMapMovePerf('combat move request', requestStartedAt, `token=${token.id}`);
+            onCombatActionLog(formatCombatMoveResultMessage(result));
+            return result.map;
+          }
           const pendingMove = pendingOptimisticTokenMoveRef.current;
           if (pendingMove?.tokenId === token.id && pendingMove.optimisticUpdatedAt === optimisticUpdatedAt) {
             setVttMap((current) =>
@@ -3522,7 +3720,25 @@ export function PlayPage({
           }
           return null;
         }
-        const accepted = window.confirm(result.pendingReaction.message);
+        if (!claimCombatReactionHandling(result.pendingReaction.id)) {
+          if (result.pendingReaction.type === 'ready_action') {
+            setCombat(result.combat);
+            setVttMapIfChanged(result.map, 'combat-move-ready-claimed');
+            pendingOptimisticTokenMoveRef.current = null;
+            logMapMovePerf('combat move request', requestStartedAt, `token=${token.id}`);
+            onCombatActionLog(formatCombatMoveResultMessage(result));
+            return result.map;
+          }
+          const pendingMove = pendingOptimisticTokenMoveRef.current;
+          if (pendingMove?.tokenId === token.id && pendingMove.optimisticUpdatedAt === optimisticUpdatedAt) {
+            setVttMap((current) =>
+              current?.updatedAt === optimisticUpdatedAt ? pendingMove.previousMap : current
+            );
+            pendingOptimisticTokenMoveRef.current = null;
+          }
+          return null;
+        }
+        const accepted = await requestCombatReactionDecision(result.pendingReaction);
         result = accepted
           ? await acceptCombatReaction(user, session.id, { reactionId: result.pendingReaction.id })
           : await declineCombatReaction(user, session.id, { reactionId: result.pendingReaction.id });
@@ -3532,6 +3748,7 @@ export function PlayPage({
       setVttMapIfChanged(result.map, 'combat-move');
       pendingOptimisticTokenMoveRef.current = null;
       logMapMovePerf('combat move request', requestStartedAt, `token=${token.id}`);
+      onCombatActionLog(formatCombatMoveResultMessage(result));
       return result.map;
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '전투 이동에 실패했습니다.';
@@ -3550,6 +3767,50 @@ export function PlayPage({
     }
   }
 
+  async function handleForceMoveCombatParticipant(
+    participantId: string,
+    mode: 'push' | 'pull' | 'slide',
+    origin: { x: number; y: number },
+    distanceFt: number
+  ) {
+    if (!session || !combat || isCombatBusy) return;
+
+    setCombatBusy(true);
+    setCombatError(null);
+    setMapLoadError(null);
+
+    try {
+      let result = await forceMoveCombatParticipant(user, session.id, {
+        participantId,
+        mode,
+        origin,
+        distanceFt,
+      });
+      setCombat(result.combat);
+      setVttMapIfChanged(result.map, 'combat-force-move');
+      onCombatActionLog(formatCombatMoveResultMessage(result));
+      if (
+        isCombatReactionPromptDto(result.pendingReaction) &&
+        isCombatReactionForCurrentUser(result.pendingReaction, result.combat) &&
+        claimCombatReactionHandling(result.pendingReaction.id)
+      ) {
+        const accepted = await requestCombatReactionDecision(result.pendingReaction);
+        result = accepted
+          ? await acceptCombatReaction(user, session.id, { reactionId: result.pendingReaction.id })
+          : await declineCombatReaction(user, session.id, { reactionId: result.pendingReaction.id });
+        setCombat(result.combat);
+        setVttMapIfChanged(result.map, 'combat-force-move-reaction');
+        onCombatActionLog(formatCombatMoveResultMessage(result));
+      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '강제 이동 처리에 실패했습니다.';
+      setCombatError(message);
+      setMapLoadError(message);
+    } finally {
+      setCombatBusy(false);
+    }
+  }
+
   useEffect(() => {
     function handleReactionPrompt(event: Event) {
       if (!session) return;
@@ -3558,13 +3819,18 @@ export function PlayPage({
         !reaction ||
         !['opportunity_attack', 'shield', 'ready_action'].includes(reaction.type)
       ) return;
-      const accepted = window.confirm(reaction.message);
-      const request = accepted ? acceptCombatReaction : declineCombatReaction;
-      void request(user, session.id, { reactionId: reaction.id })
+      if (!isCombatReactionForCurrentUser(reaction)) return;
+      if (!claimCombatReactionHandling(reaction.id)) return;
+      void requestCombatReactionDecision(reaction)
+        .then((accepted) => {
+          const request = accepted ? acceptCombatReaction : declineCombatReaction;
+          return request(user, session.id, { reactionId: reaction.id });
+        })
         .then((result) => {
           setCombat(result.combat);
           setVttMap(result.map);
           latestConfirmedMapRef.current = result.map;
+          onCombatActionLog(formatCombatMoveResultMessage(result));
         })
         .catch((caught) => {
           const message = caught instanceof Error ? caught.message : '반응 처리에 실패했습니다.';
@@ -3574,7 +3840,14 @@ export function PlayPage({
 
     window.addEventListener('trpg:combat-reaction-prompt', handleReactionPrompt);
     return () => window.removeEventListener('trpg:combat-reaction-prompt', handleReactionPrompt);
-  }, [session, user]);
+  }, [
+    combat,
+    onCombatActionLog,
+    requestCombatReactionDecision,
+    session,
+    sessionCharacters,
+    user,
+  ]);
 
   function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -3818,7 +4091,27 @@ export function PlayPage({
       setCombat(nextCombat);
       logCombatRequestSucceeded(session.id, nextCombat);
       if (isCombatActionResultDto(result)) {
-        onCombatActionLog(result.message, result.turnLogId);
+        if (result.map) {
+          setVttMapIfChanged(result.map, 'combat-action');
+          latestConfirmedMapRef.current = result.map;
+        }
+        onCombatActionLog(formatCombatActionResultMessage(result), result.turnLogId);
+        if (isCombatReactionPromptDto(result.pendingReaction)) {
+          if (!isCombatReactionForCurrentUser(result.pendingReaction, nextCombat)) {
+            return;
+          }
+          if (!claimCombatReactionHandling(result.pendingReaction.id)) {
+            return;
+          }
+          const accepted = await requestCombatReactionDecision(result.pendingReaction);
+          const reactionResult = accepted
+            ? await acceptCombatReaction(user, session.id, { reactionId: result.pendingReaction.id })
+            : await declineCombatReaction(user, session.id, { reactionId: result.pendingReaction.id });
+          setCombat(reactionResult.combat);
+          setVttMapIfChanged(reactionResult.map, 'combat-action-reaction');
+          latestConfirmedMapRef.current = reactionResult.map;
+          onCombatActionLog(formatCombatMoveResultMessage(reactionResult));
+        }
       }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '전투 처리에 실패했습니다.';
@@ -4241,6 +4534,12 @@ export function PlayPage({
                   getCharacterColorStyle={(character) =>
                     buildStoryPartyColorStyle(getCharacterTokenColor(character))
                   }
+                  isBusy={busy}
+                  onRequestRest={onRequestRest}
+                  gmNodeMoveOptions={gmNodeMoveOptions}
+                  onGmNodeMove={handleGmNodeMove}
+                  onGmMessage={handleGmMessage}
+                  isGmMessagePending={isGmMessagePending}
                 />
               ) : isExplorationNode ? (
                 <ExplorationNodeSurface
@@ -4305,6 +4604,7 @@ export function PlayPage({
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onEquipInventoryItem={handleEquipInventoryItem}
                   onThrowInventoryItem={handleThrowInventoryItem}
+                  onPickupMapObject={handlePickupMapObject}
                   onAttackWithEquippedWeapon={handleEquippedWeaponAttack}
                   onMonsterAction={handleMonsterCombatAction}
                   onAttackWithOffhandWeapon={handleOffhandWeaponAttack}
@@ -4314,6 +4614,7 @@ export function PlayPage({
                   onHide={handleHideCombatAction}
                   onReadyAction={handleReadyCombatAction}
                   onApplyCondition={handleApplyCombatCondition}
+                  onForceMoveParticipant={handleForceMoveCombatParticipant}
                   onUseClassFeature={handleCombatClassFeature}
                   onCastSpell={handleCastCombatSpell}
                   onEndCombat={handleEndCombat}
@@ -4334,6 +4635,29 @@ export function PlayPage({
                   <h1>메인화면</h1>
                 </div>
               )}
+              {pendingCombatReaction ? (
+                <section className="session-combat-reaction-banner" aria-label="전투 반응 대기">
+                  <div>
+                    <span className="session-combat-reaction-eyebrow">
+                      {getCombatReactionTypeLabel(pendingCombatReaction.reaction.type)}
+                    </span>
+                    <strong>{pendingCombatReaction.reaction.reactorName} 반응 선택</strong>
+                    <p>{pendingCombatReaction.reaction.message}</p>
+                  </div>
+                  <div className="session-combat-reaction-actions">
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => resolvePendingCombatReaction(false)}
+                    >
+                      포기
+                    </button>
+                    <button type="button" onClick={() => resolvePendingCombatReaction(true)}>
+                      사용
+                    </button>
+                  </div>
+                </section>
+              ) : null}
               {mapLoadError ? <p className="panel-error">{mapLoadError}</p> : null}
             </section>
           ) : null}
@@ -4693,6 +5017,24 @@ export function PlayPage({
               <p>{sessionTabDescriptions[activeTab].description}</p>
             )}
           </div>
+
+          {visibleRestApproval ? (
+            <section className="session-rest-approval-banner" aria-label="휴식 승인 대기">
+              <div>
+                <span className="session-rest-approval-eyebrow">GM 승인 대기</span>
+                <strong>
+                  {visibleRestApproval.restType === 'long' ? '긴 휴식' : '짧은 휴식'} 요청
+                </strong>
+                <p>{visibleRestApproval.requester}: {visibleRestApproval.message}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleApproveRestRequest(visibleRestApproval.actionId)}
+              >
+                승인
+              </button>
+            </section>
+          ) : null}
 
           {activeTab === 'Main' || activeTab === 'Chat' ? (
             <>
