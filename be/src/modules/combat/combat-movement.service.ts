@@ -398,7 +398,24 @@ export class CombatMovementService {
     const sourceRow = this.getGridIndex(sourceToken.y, map.gridSize, map.height);
     const targetColumn = this.getGridIndex(targetToken.x, map.gridSize, map.width);
     const targetRow = this.getGridIndex(targetToken.y, map.gridSize, map.height);
-    return Math.max(Math.abs(sourceColumn - targetColumn), Math.abs(sourceRow - targetRow)) * 5;
+    const horizontalDistanceFt =
+      Math.max(Math.abs(sourceColumn - targetColumn), Math.abs(sourceRow - targetRow)) * 5;
+    const elevationDeltaFt = Math.abs(
+      this.resolveElevationDeltaFtAtPoint(map, sourceToken) -
+        this.resolveElevationDeltaFtAtPoint(map, targetToken),
+    );
+    if (elevationDeltaFt <= 0) {
+      return horizontalDistanceFt;
+    }
+
+    return Math.ceil(Math.hypot(horizontalDistanceFt, elevationDeltaFt) / 5) * 5;
+  }
+
+  resolveElevationDeltaFtAtPoint(map: VttMapStateDto, point: { x: number; y: number }): number {
+    return this.resolveTerrainEffectsAtPoint(map, point).reduce(
+      (sum, entered) => sum + entered.effect.elevationDeltaFt,
+      0,
+    );
   }
 
   getGridIndex(value: number, gridSize: number, maxSize: number): number {

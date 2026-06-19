@@ -191,7 +191,12 @@ function parseScenarioNodeConfig(value: string): {
 }
 
 function stripPrivateGameFlags(flags: Record<string, unknown>): Record<string, unknown> {
-  const { vttMap: _vttMap, ...publicFlags } = flags;
+  const {
+    vttMap: _vttMap,
+    gmPrivateNotes: _gmPrivateNotes,
+    humanGmAiAssistSuggestions: _humanGmAiAssistSuggestions,
+    ...publicFlags
+  } = flags;
   return publicFlags;
 }
 

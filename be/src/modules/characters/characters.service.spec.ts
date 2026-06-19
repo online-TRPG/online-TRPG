@@ -157,7 +157,7 @@ describe("CharactersService level up", () => {
         startingEquipmentSelection: [],
         startingSpells: {
           cantrips: ["spell.fire_bolt", ""],
-          spells: ["spell.magic_missile", " ", "spell.sleep"],
+          spells: ["spell.magic_missile", " ", "spell.sleep", "spell.cure_wounds"],
         },
       }),
     ).rejects.toThrow("시작 주문");
@@ -189,7 +189,12 @@ describe("CharactersService level up", () => {
         startingEquipmentSelection: [],
         startingSpells: {
           cantrips: ["spell.fire_bolt", "fire bolt", "spell.light"],
-          spells: ["spell.magic_missile", "spell.shield", "spell.sleep"],
+          spells: [
+            "spell.magic_missile",
+            "spell.shield",
+            "spell.sleep",
+            "spell.cure_wounds",
+          ],
         },
       }),
     ).rejects.toThrow("시작 주문");
@@ -221,7 +226,12 @@ describe("CharactersService level up", () => {
         startingEquipmentSelection: [],
         startingSpells: {
           cantrips: ["spell.fire_bolt", "spell.light", "spell.mending"],
-          spells: ["spell.magic_missile", "spell.shield", "spell.detect_magic"],
+          spells: [
+            "spell.magic_missile",
+            "spell.shield",
+            "spell.detect_magic",
+            "spell.cure_wounds",
+          ],
         },
       }),
     ).rejects.toThrow("MVP");
@@ -253,7 +263,12 @@ describe("CharactersService level up", () => {
         startingEquipmentSelection: [],
         startingSpells: {
           cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-          spells: ["spell.magic_missile", "spell.shield", "spell.sleep"],
+          spells: [
+            "spell.magic_missile",
+            "spell.shield",
+            "spell.sleep",
+            "spell.cure_wounds",
+          ],
           preparedSpells: ["spell.magic_missile", "spell.shield", "spell.sleep"],
         },
       }),
@@ -289,7 +304,12 @@ describe("CharactersService level up", () => {
         proficientSkills: [],
         startingEquipmentSelection: [],
         startingSpells: {
-          cantrips: ["spell.fire_bolt", "spell.ray_of_frost"],
+          cantrips: [
+            "spell.fire_bolt",
+            "spell.ray_of_frost",
+            "spell.light",
+            "spell.chill_touch",
+          ],
           spells: ["spell.magic_missile", "spell.shield"],
           preparedSpells: ["spell.magic_missile"],
         },
@@ -322,8 +342,18 @@ describe("CharactersService level up", () => {
       maxHp: 32,
       proficiencyBonus: 3,
       spellsJson: JSON.stringify({
-        cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-        spells: ["spell.magic_missile", "spell.shield", "spell.fireball"],
+        cantrips: [
+          "spell.fire_bolt",
+          "spell.light",
+          "spell.chill_touch",
+          "spell.ray_of_frost",
+        ],
+        spells: [
+          "spell.magic_missile",
+          "spell.shield",
+          "spell.fireball",
+          "spell.cure_wounds",
+        ],
         preparedSpells: ["spell.fireball"],
       }),
       sessionCharacters: [],
@@ -333,13 +363,24 @@ describe("CharactersService level up", () => {
       name: "Fireball Wizard",
       ancestry: "Unknown",
       className: "wizard",
+      subclassName: "evocation",
       level: 5,
       abilities: { str: 8, dex: 14, con: 14, int: 15, wis: 10, cha: 10 },
       proficientSkills: [],
       startingEquipmentSelection: [],
       startingSpells: {
-        cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-        spells: ["spell.magic_missile", "spell.shield", "spell.fireball"],
+        cantrips: [
+          "spell.fire_bolt",
+          "spell.light",
+          "spell.chill_touch",
+          "spell.ray_of_frost",
+        ],
+        spells: [
+          "spell.magic_missile",
+          "spell.shield",
+          "spell.fireball",
+          "spell.cure_wounds",
+        ],
         preparedSpells: ["spell.fireball"],
       },
     });
@@ -348,8 +389,18 @@ describe("CharactersService level up", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           spellsJson: JSON.stringify({
-            cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-            spells: ["spell.magic_missile", "spell.shield", "spell.fireball"],
+            cantrips: [
+              "spell.fire_bolt",
+              "spell.light",
+              "spell.chill_touch",
+              "spell.ray_of_frost",
+            ],
+            spells: [
+              "spell.magic_missile",
+              "spell.shield",
+              "spell.fireball",
+              "spell.cure_wounds",
+            ],
             preparedSpells: ["spell.fireball"],
           }),
         }),
@@ -375,7 +426,12 @@ describe("CharactersService level up", () => {
       className: "cleric",
       spellsJson: JSON.stringify({
         cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-        spells: ["spell.magic_missile", "spell.cure_wounds", "spell.sleep"],
+        spells: [
+          "spell.magic_missile",
+          "spell.cure_wounds",
+          "spell.shield",
+          "spell.sleep",
+        ],
         preparedSpells: ["spell.cure_wounds"],
       }),
       sessionCharacters: [],
@@ -385,13 +441,19 @@ describe("CharactersService level up", () => {
       name: "Healing Cleric",
       ancestry: "Unknown",
       className: "cleric",
+      subclassName: "life",
       level: 1,
       abilities: { str: 10, dex: 12, con: 14, int: 10, wis: 16, cha: 10 },
       proficientSkills: [],
       startingEquipmentSelection: [],
       startingSpells: {
         cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-        spells: ["spell.magic_missile", "spell.cure_wounds", "spell.sleep"],
+        spells: [
+          "spell.magic_missile",
+          "spell.cure_wounds",
+          "spell.shield",
+          "spell.sleep",
+        ],
         preparedSpells: ["spell.cure_wounds"],
       },
     });
@@ -401,13 +463,42 @@ describe("CharactersService level up", () => {
         data: expect.objectContaining({
           spellsJson: JSON.stringify({
             cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-            spells: ["spell.magic_missile", "spell.cure_wounds", "spell.sleep"],
+            spells: [
+              "spell.magic_missile",
+              "spell.cure_wounds",
+              "spell.shield",
+              "spell.sleep",
+            ],
             preparedSpells: ["spell.cure_wounds"],
           }),
         }),
       }),
     );
     expect(result.spells?.preparedSpells).toEqual(["spell.cure_wounds"]);
+  });
+
+  it("requires a subclass when character creation starts at or above the class choice level", async () => {
+    const { service, prisma } = createService();
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+
+    await expect(
+      service.createCharacter("user-1", {
+        name: "Subclassless Fighter",
+        ancestry: "Unknown",
+        className: "fighter",
+        level: 3,
+        abilities: { str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 10 },
+        proficientSkills: [],
+        startingEquipmentSelection: [],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "CHARACTER_SUBCLASS_REQUIRED",
+        levels: [3],
+      }),
+    });
+
+    expect(prisma.character.create).not.toHaveBeenCalled();
   });
 
   it("levels up the character and explicitly updates active session snapshots", async () => {
@@ -521,6 +612,42 @@ describe("CharactersService level up", () => {
     ).rejects.toMatchObject({
       response: expect.objectContaining({
         code: "LEVEL_UP_SUBCLASS_REQUIRED",
+      }),
+    });
+
+    expect(prisma.character.update).not.toHaveBeenCalled();
+  });
+
+  it("requires a missing level-one subclass on the next level up for legacy characters", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d8",
+      koName: "클레릭",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 3,
+      startingSpellCount: 3,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    prisma.character.findUnique.mockResolvedValue({
+      ...baseCharacter,
+      className: "cleric",
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.light"],
+        spells: ["spell.cure_wounds"],
+        preparedSpells: ["spell.cure_wounds"],
+      }),
+      sessionCharacters: [],
+    });
+
+    await expect(
+      service.levelUpCharacter("user-1", "character-1", {
+        targetLevel: 2,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "LEVEL_UP_SUBCLASS_REQUIRED",
+        levels: [1],
       }),
     });
 
@@ -783,6 +910,147 @@ describe("CharactersService level up", () => {
       }),
     );
     expect(result.spells?.preparedSpells).toBeUndefined();
+  });
+
+  it("rejects known caster spell additions beyond the SRD progression increase", async () => {
+    const { service, prisma } = createService();
+    prisma.character.findUnique.mockResolvedValue({
+      ...baseCharacter,
+      className: "sorcerer",
+      subclassName: "draconic_bloodline",
+      level: 4,
+      spellsJson: JSON.stringify({
+        cantrips: [
+          "spell.fire_bolt",
+          "spell.light",
+          "spell.ray_of_frost",
+          "spell.chill_touch",
+        ],
+        spells: ["spell.magic_missile", "spell.shield", "spell.sleep"],
+      }),
+      sessionCharacters: [],
+    });
+
+    await expect(
+      service.levelUpCharacter("user-1", "character-1", {
+        targetLevel: 5,
+        knownSpells: ["spell.cure_wounds", "spell.fireball"],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "LEVEL_UP_SPELL_LEARN_LIMIT_EXCEEDED",
+        learnLimit: 1,
+      }),
+    });
+
+    expect(prisma.character.update).not.toHaveBeenCalled();
+  });
+
+  it("replaces one known caster spell while preserving the target spell count", async () => {
+    const { service, prisma } = createService();
+    const existing = {
+      ...baseCharacter,
+      className: "warlock",
+      subclassName: "fiend",
+      level: 9,
+      maxHp: 60,
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.fire_bolt", "spell.light", "spell.ray_of_frost"],
+        spells: ["spell.magic_missile"],
+      }),
+      sessionCharacters: [],
+    };
+    const updated = {
+      ...existing,
+      level: 10,
+      maxHp: 67,
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.fire_bolt", "spell.light", "spell.ray_of_frost"],
+        spells: ["spell.shield"],
+      }),
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    };
+    prisma.character.findUnique.mockResolvedValue(existing);
+    prisma.character.update.mockResolvedValue(updated);
+
+    const result = await service.levelUpCharacter("user-1", "character-1", {
+      targetLevel: 10,
+      knownSpells: ["spell.shield"],
+      forgottenSpells: ["spell.magic_missile"],
+    });
+
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          spellsJson: JSON.stringify({
+            cantrips: ["spell.fire_bolt", "spell.light", "spell.ray_of_frost"],
+            spells: ["spell.shield"],
+          }),
+        }),
+      }),
+    );
+    expect(result.spells?.spells).toEqual(["spell.shield"]);
+  });
+
+  it("adds a cantrip only when the target level progression grants one", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d8",
+      koName: "클레릭",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 3,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    const existing = {
+      ...baseCharacter,
+      className: "cleric",
+      subclassName: "life",
+      level: 3,
+      maxHp: 24,
+      abilitiesJson: JSON.stringify({ str: 10, dex: 10, con: 14, int: 10, wis: 14, cha: 10 }),
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.fire_bolt", "spell.light", "spell.ray_of_frost"],
+        spells: ["spell.cure_wounds"],
+        preparedSpells: ["spell.cure_wounds"],
+      }),
+      sessionCharacters: [],
+    };
+    const updated = {
+      ...existing,
+      level: 4,
+      maxHp: 32,
+      abilitiesJson: JSON.stringify({ str: 10, dex: 10, con: 14, int: 10, wis: 16, cha: 10 }),
+      spellsJson: JSON.stringify({
+        cantrips: [
+          "spell.fire_bolt",
+          "spell.light",
+          "spell.ray_of_frost",
+          "spell.chill_touch",
+        ],
+        spells: ["spell.cure_wounds"],
+        preparedSpells: ["spell.cure_wounds"],
+      }),
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    };
+    prisma.character.findUnique.mockResolvedValue(existing);
+    prisma.character.update.mockResolvedValue(updated);
+
+    const result = await service.levelUpCharacter("user-1", "character-1", {
+      targetLevel: 4,
+      abilityScoreIncreases: { wis: 2 },
+      cantrips: ["spell.chill_touch"],
+    });
+
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          spellsJson: updated.spellsJson,
+        }),
+      }),
+    );
+    expect(result.spells?.cantrips).toContain("spell.chill_touch");
   });
 
   it("updates prepared spells during an active session and emits a fresh snapshot", async () => {

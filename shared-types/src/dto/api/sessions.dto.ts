@@ -250,6 +250,58 @@ export class GrantHumanGmInventoryItemDto {
   quantity?: number;
 }
 
+export class RemoveHumanGmInventoryItemDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  sessionCharacterId!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  itemId!: string;
+
+  @ApiPropertyOptional({ default: 1, minimum: 1, maximum: 99 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  quantity?: number;
+}
+
+export class SetHumanGmDifficultyClassDto {
+  @ApiProperty({ description: "Trap, check, save, or scene target id." })
+  @IsString()
+  @IsNotEmpty()
+  targetId!: string;
+
+  @ApiProperty({ minimum: 1, maximum: 40 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(40)
+  dc!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  label?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: "Optional ability or save id such as dexterity or wisdom." })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  ability?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  privateNote?: string | null;
+}
+
 export class SessionScenarioResponseDto {
   @ApiProperty()
   id!: string;
@@ -618,6 +670,104 @@ export class PendingRestApprovalDto {
 
   @ApiProperty()
   expiresAt!: string;
+}
+
+export class HumanGmPrivateNoteDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  turnLogId!: string;
+
+  @ApiProperty()
+  kind!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  targetId!: string | null;
+
+  @ApiProperty()
+  note!: string;
+
+  @ApiProperty()
+  gmUserId!: string;
+
+  @ApiProperty()
+  createdAt!: string;
+}
+
+export class HumanGmAiAssistSuggestionDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  assistType!: string;
+
+  @ApiProperty()
+  content!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  suggestedActionId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  targetId!: string | null;
+
+  @ApiProperty({ enum: ["PENDING", "ACCEPTED"] })
+  status!: "PENDING" | "ACCEPTED";
+
+  @ApiProperty()
+  createdByUserId!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  acceptedByUserId!: string | null;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  acceptedAt!: string | null;
+}
+
+export class CreateHumanGmAiAssistSuggestionDto {
+  @ApiProperty({ enum: ["scene_text", "npc_dialogue", "node_move", "combat", "rules", "other"] })
+  @IsIn(["scene_text", "npc_dialogue", "node_move", "combat", "rules", "other"])
+  assistType!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  content!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  suggestedActionId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  targetId?: string | null;
+}
+
+export class AcceptHumanGmAiAssistSuggestionDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  suggestionId!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  publicNarration?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  privateNote?: string | null;
 }
 
 export class SessionSnapshotDto {

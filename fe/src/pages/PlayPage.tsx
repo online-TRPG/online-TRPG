@@ -23,6 +23,8 @@ import type {
   CombatMoveResultDto,
   CombatReactionPromptDto,
   CombatResponseDto,
+  CreateHumanGmAiAssistSuggestionDto,
+  HumanGmAiAssistSuggestionDto,
   ItemResponseDto,
   InventoryItemDto,
   MainCommandResponseDto,
@@ -69,6 +71,7 @@ import {
 } from '../features/sessionPlay/utils/characterVisuals';
 import type { CharacterPayload } from '../hooks/useSession';
 import {
+  acceptHumanGmAiAssistSuggestion,
   endCombat,
   endCombatTurn,
   acceptCombatReaction,
@@ -76,6 +79,7 @@ import {
   adjustHumanGmCombatHp,
   resolveCombatActorAction,
   castCombatSpell,
+  createHumanGmAiAssistSuggestion,
   createHumanGmMessage,
   createVttMapPing,
   dashCombatAction,
@@ -83,6 +87,7 @@ import {
   dodgeCombatAction,
   forceMoveCombatParticipant,
   getCombat,
+  getHumanGmAiAssistSuggestions,
   getHumanGmNodeMoveOptions,
   getPlayerScenario,
   getVttMap,
@@ -1053,6 +1058,22 @@ const QUICK_CREATE_CLASS_PRESET_BY_KEY = new Map<string, string>([
   ['rogue', 'preset_rogue'],
   ['fighter', 'preset_warrior'],
 ]);
+const QUICK_CREATE_SUBCLASS_BY_CLASS_KEY: Readonly<
+  Record<string, { choiceLevel: number; subclassName: string }>
+> = {
+  barbarian: { choiceLevel: 3, subclassName: 'berserker' },
+  bard: { choiceLevel: 3, subclassName: 'lore' },
+  cleric: { choiceLevel: 1, subclassName: 'life' },
+  druid: { choiceLevel: 2, subclassName: 'land' },
+  fighter: { choiceLevel: 3, subclassName: 'champion' },
+  monk: { choiceLevel: 3, subclassName: 'open_hand' },
+  paladin: { choiceLevel: 3, subclassName: 'devotion' },
+  ranger: { choiceLevel: 3, subclassName: 'hunter' },
+  rogue: { choiceLevel: 3, subclassName: 'thief' },
+  sorcerer: { choiceLevel: 1, subclassName: 'draconic_bloodline' },
+  warlock: { choiceLevel: 1, subclassName: 'fiend' },
+  wizard: { choiceLevel: 2, subclassName: 'evocation' },
+};
 const QUICK_CREATE_CLASS_COMBAT_DEFAULTS: Readonly<
   Record<string, { armorClass: number; speed: number }>
 > = {
@@ -1164,9 +1185,8 @@ function getDefaultQuickCreateStartingSpells(
   level: number,
   abilities: QuickCreateAbilities,
 ) {
-  if (klass.startingCantripCount <= 0 && klass.startingSpellCount <= 0) {
-    return undefined;
-  }
+  const progression =
+    klass.spellcastingProgression?.find((entry) => entry.classLevel === level) ?? null;
   const level5Spells = level >= 5
     ? (QUICK_CREATE_MVP_LEVEL5_SLOT_SPELLS_BY_CLASS[klass.key] ?? [])
     : [];
@@ -1177,11 +1197,27 @@ function getDefaultQuickCreateStartingSpells(
       ...QUICK_CREATE_MVP_LEVEL1_SPELLS,
     ]),
   );
-  const selectedSlotSpells = slotSpells.slice(0, klass.startingSpellCount);
   const preparedSpellLimit = getQuickCreatePreparedSpellLimit(klass.key, level, abilities);
+  const cantripCount = Math.min(
+    progression?.cantripsKnown ?? klass.startingCantripCount,
+    QUICK_CREATE_MVP_CANTRIPS.length,
+  );
+  const slotSpellCount = Math.min(
+    preparedSpellLimit !== null && klass.key !== 'wizard' && progression
+      ? slotSpells.length
+      : (progression?.spellsKnown ??
+          (klass.key === 'wizard'
+            ? Math.max(klass.startingSpellCount, QUICK_CREATE_MVP_LEVEL1_SPELLS.length)
+            : klass.startingSpellCount)),
+    slotSpells.length,
+  );
+  if (cantripCount <= 0 && slotSpellCount <= 0) {
+    return undefined;
+  }
+  const selectedSlotSpells = slotSpells.slice(0, slotSpellCount);
 
   return {
-    cantrips: QUICK_CREATE_MVP_CANTRIPS.slice(0, klass.startingCantripCount),
+    cantrips: QUICK_CREATE_MVP_CANTRIPS.slice(0, cantripCount),
     spells: selectedSlotSpells,
     ...(preparedSpellLimit !== null
       ? { preparedSpells: selectedSlotSpells.slice(0, preparedSpellLimit) }
@@ -1855,6 +1891,9 @@ export function PlayPage({
   const [gmItemCatalogError, setGmItemCatalogError] = useState<string | null>(null);
   const [isGmInventoryGrantPending, setGmInventoryGrantPending] = useState(false);
   const [isGmMessagePending, setGmMessagePending] = useState(false);
+  const [gmAiAssistSuggestions, setGmAiAssistSuggestions] =
+    useState<HumanGmAiAssistSuggestionDto[]>([]);
+  const [isGmAiAssistPending, setGmAiAssistPending] = useState(false);
   const [isCombatChecked, setCombatChecked] = useState(false);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
@@ -2034,6 +2073,29 @@ export function PlayPage({
       ignore = true;
     };
   }, [canUseHumanGmView, currentNode?.id, session?.id, snapshot?.state.version, user]);
+  useEffect(() => {
+    if (!session?.id || !canUseHumanGmView) {
+      setGmAiAssistSuggestions([]);
+      return;
+    }
+
+    let ignore = false;
+    getHumanGmAiAssistSuggestions(user, session.id)
+      .then((suggestions) => {
+        if (!ignore) {
+          setGmAiAssistSuggestions(suggestions);
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setGmAiAssistSuggestions([]);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [canUseHumanGmView, session?.id, snapshot?.state.version, user]);
   useEffect(() => {
     if (!canUseHumanGmView || gmItemCatalog.length) {
       return;
@@ -3100,6 +3162,12 @@ export function PlayPage({
       name: formState.name.trim(),
       ancestry: selectedQuickCreateRace?.koName ?? formState.ancestryKey,
       className: toStoredClassName(selectedQuickCreateClass.key),
+      subclassName:
+        quickCreateLevel >=
+        (QUICK_CREATE_SUBCLASS_BY_CLASS_KEY[selectedQuickCreateClass.key]?.choiceLevel ??
+          Number.POSITIVE_INFINITY)
+          ? QUICK_CREATE_SUBCLASS_BY_CLASS_KEY[selectedQuickCreateClass.key]?.subclassName ?? null
+          : null,
       avatarType: quickCreatePresetId ? 'PRESET' : 'DEFAULT',
       avatarPresetId: quickCreatePresetId,
       avatarUrl: null,
@@ -3616,6 +3684,30 @@ export function PlayPage({
     await runCombatRequest(() => hideCombatAction(user, session.id));
   }
 
+  async function executeGmMessage(payload: {
+    content: string;
+    speakerName?: string | null;
+    asNpc?: boolean;
+    privateNote?: string | null;
+  }) {
+    if (!session || !canUseHumanGmView) {
+      throw new Error('HUMAN GM 메시지를 실행할 수 없는 세션 상태입니다.');
+    }
+
+    const nextSnapshot = await createHumanGmMessage(user, session.id, {
+      content: payload.content,
+      speakerName: payload.speakerName?.trim() || undefined,
+      asNpc: payload.asNpc,
+      privateNote: payload.privateNote?.trim() || null,
+    });
+    const nextMap = nextSnapshot.state.flags?.vttMap as VttMapStateDto | undefined;
+    if (nextMap && typeof nextMap === 'object') {
+      latestConfirmedMapRef.current = nextMap;
+      setVttMap(nextMap);
+    }
+    onAction(payload.asNpc ? 'GM NPC 대사' : 'GM 장면 묘사');
+  }
+
   async function handleGmMessage(payload: {
     content: string;
     speakerName?: string | null;
@@ -3627,24 +3719,87 @@ export function PlayPage({
     setGmMessagePending(true);
     setScenarioLoadError(null);
     try {
-      const nextSnapshot = await createHumanGmMessage(user, session.id, {
-        content: payload.content,
-        speakerName: payload.speakerName?.trim() || undefined,
-        asNpc: payload.asNpc,
-        privateNote: payload.privateNote?.trim() || null,
-      });
-      const nextMap = nextSnapshot.state.flags?.vttMap as VttMapStateDto | undefined;
-      if (nextMap && typeof nextMap === 'object') {
-        latestConfirmedMapRef.current = nextMap;
-        setVttMap(nextMap);
-      }
-      onAction(payload.asNpc ? 'GM NPC 대사' : 'GM 장면 묘사');
+      await executeGmMessage(payload);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'GM 메시지 전송에 실패했습니다.';
       setScenarioLoadError(message);
       onCombatActionLog(message);
     } finally {
       setGmMessagePending(false);
+    }
+  }
+
+  async function handleGmAiAssistCreate(payload: CreateHumanGmAiAssistSuggestionDto) {
+    if (!session || !canUseHumanGmView || isGmAiAssistPending) return;
+
+    setGmAiAssistPending(true);
+    setScenarioLoadError(null);
+    try {
+      const suggestion = await createHumanGmAiAssistSuggestion(user, session.id, payload);
+      setGmAiAssistSuggestions((current) => [
+        suggestion,
+        ...current.filter((candidate) => candidate.id !== suggestion.id),
+      ]);
+      onAction('GM AI 보조 제안 등록');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'AI 보조 제안 등록에 실패했습니다.';
+      setScenarioLoadError(message);
+      onCombatActionLog(message);
+    } finally {
+      setGmAiAssistPending(false);
+    }
+  }
+
+  async function handleGmAiAssistAccept(suggestion: HumanGmAiAssistSuggestionDto) {
+    if (!session || !canUseHumanGmView || isGmAiAssistPending) return;
+
+    let acceptanceRecorded = false;
+    setGmAiAssistPending(true);
+    setScenarioLoadError(null);
+    try {
+      await acceptHumanGmAiAssistSuggestion(user, session.id, {
+        suggestionId: suggestion.id,
+        publicNarration: 'GM이 AI 보조 제안을 승인했습니다.',
+      });
+      acceptanceRecorded = true;
+      setGmAiAssistSuggestions((current) =>
+        current.map((candidate) =>
+          candidate.id === suggestion.id
+            ? {
+                ...candidate,
+                status: 'ACCEPTED',
+                acceptedByUserId: user.id,
+                acceptedAt: new Date().toISOString(),
+              }
+            : candidate
+        )
+      );
+
+      if (suggestion.assistType === 'scene_text') {
+        await executeGmMessage({ content: suggestion.content });
+      } else if (suggestion.assistType === 'npc_dialogue') {
+        await executeGmMessage({
+          content: suggestion.content,
+          speakerName: suggestion.targetId,
+          asNpc: true,
+        });
+      } else if (suggestion.assistType === 'node_move') {
+        const nodeId = suggestion.suggestedActionId ?? suggestion.targetId;
+        if (!nodeId) {
+          throw new Error('승인된 장면 이동 제안에 대상 노드가 없습니다.');
+        }
+        await executeGmNodeMove(nodeId);
+      }
+      onAction('GM AI 보조 제안 승인');
+    } catch (caught) {
+      const cause = caught instanceof Error ? caught.message : '알 수 없는 오류';
+      const message = acceptanceRecorded
+        ? `AI 보조 제안 승인은 기록됐지만 적용에 실패했습니다: ${cause}`
+        : `AI 보조 제안 승인에 실패했습니다: ${cause}`;
+      setScenarioLoadError(message);
+      onCombatActionLog(message);
+    } finally {
+      setGmAiAssistPending(false);
     }
   }
 
@@ -4153,29 +4308,37 @@ export function PlayPage({
     }
   }
 
+  async function executeGmNodeMove(nodeId: string) {
+    if (!session || !canUseHumanGmView) {
+      throw new Error('HUMAN GM 노드 이동을 실행할 수 없는 세션 상태입니다.');
+    }
+
+    const nextSnapshot = await updateHumanGmSessionNode(user, session.id, nodeId);
+    const nextMap = nextSnapshot.state.flags?.vttMap as VttMapStateDto | undefined;
+    if (nextMap && typeof nextMap === 'object') {
+      latestConfirmedMapRef.current = nextMap;
+      setVttMap(nextMap);
+    } else {
+      const savedMap = await getVttMap(user, session.id);
+      latestConfirmedMapRef.current = savedMap;
+      setVttMap(savedMap);
+    }
+    const nextPlayerScenario = await getPlayerScenario(user, session.id);
+    setPlayerScenario(nextPlayerScenario);
+    setCombat(null);
+    setCombatChecked(false);
+    setCombatError(null);
+    setSelectedExplorationMapSelection(null);
+    onAction('GM 노드 이동');
+  }
+
   async function handleGmNodeMove(nodeId: string) {
     if (!session || !canUseHumanGmView || isGmNodeMovePending) return;
     setGmNodeMovePending(true);
     setMapLoadError(null);
     setScenarioLoadError(null);
     try {
-      const nextSnapshot = await updateHumanGmSessionNode(user, session.id, nodeId);
-      const nextMap = nextSnapshot.state.flags?.vttMap as VttMapStateDto | undefined;
-      if (nextMap && typeof nextMap === 'object') {
-        latestConfirmedMapRef.current = nextMap;
-        setVttMap(nextMap);
-      } else {
-        const savedMap = await getVttMap(user, session.id);
-        latestConfirmedMapRef.current = savedMap;
-        setVttMap(savedMap);
-      }
-      const nextPlayerScenario = await getPlayerScenario(user, session.id);
-      setPlayerScenario(nextPlayerScenario);
-      setCombat(null);
-      setCombatChecked(false);
-      setCombatError(null);
-      setSelectedExplorationMapSelection(null);
-      onAction('GM 노드 이동');
+      await executeGmNodeMove(nodeId);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '노드 이동에 실패했습니다.';
       setScenarioLoadError(message);
@@ -4655,6 +4818,10 @@ export function PlayPage({
                   onGmNodeMove={handleGmNodeMove}
                   onGmMessage={handleGmMessage}
                   isGmMessagePending={isGmMessagePending}
+                  gmAiAssistSuggestions={gmAiAssistSuggestions}
+                  onGmAiAssistCreate={handleGmAiAssistCreate}
+                  onGmAiAssistAccept={handleGmAiAssistAccept}
+                  isGmAiAssistPending={isGmAiAssistPending}
                 />
               ) : isExplorationNode ? (
                 <ExplorationNodeSurface

@@ -884,6 +884,7 @@ export class ActionRuleService {
       let damageRoll: DiceRollResponseDto | null = null;
       let finalDamage = 0;
       const ruleResults: RuleHookResult<unknown>[] = [attackRuleResult];
+      let landingPoint: ItemInteractionPoint | null = null;
 
       if (attackRuleResult.produced.hit) {
         damageRoll = this.diceService.roll(result.attack.damageDice);
@@ -901,13 +902,14 @@ export class ActionRuleService {
           markDead: nextHp <= 0,
         });
       } else {
+        landingPoint = this.resolveThrownMissLandingPoint(command.point, attackRoll);
         runtimeEffects.push({
           type: "CREATE_MAP_OBJECT",
-          objectId: this.createThrownItemObjectId(result.entryId, result.missObject.point),
+          objectId: this.createThrownItemObjectId(result.entryId, landingPoint),
           itemDefinitionId: result.missObject.itemDefinitionId,
           name: result.missObject.name,
           quantity: result.missObject.quantity,
-          point: result.missObject.point,
+          point: landingPoint,
         });
       }
       runtimeEffects.push({ type: "SPEND_ACTION" });
@@ -924,6 +926,7 @@ export class ActionRuleService {
           damageType: result.attack.damageType,
           damageRoll: damageRoll ? { ...damageRoll } : null,
           finalDamage,
+          landingPoint,
           result,
           ruleResults,
         },
@@ -1887,6 +1890,28 @@ export class ActionRuleService {
     return `object:thrown:${entryId}:${point.x}:${point.y}`;
   }
 
+  private resolveThrownMissLandingPoint(
+    targetPoint: ItemInteractionPoint,
+    attackRoll: DiceRollResponseDto,
+  ): ItemInteractionPoint {
+    const naturalD20 = this.selectNaturalD20(attackRoll);
+    const missOffsets = [
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+      { x: -1, y: 1 },
+      { x: -1, y: 0 },
+      { x: -1, y: -1 },
+      { x: 0, y: -1 },
+      { x: 1, y: -1 },
+    ];
+    const offset = missOffsets[(naturalD20 - 1) % missOffsets.length] ?? { x: 1, y: 0 };
+    return {
+      x: targetPoint.x + offset.x,
+      y: targetPoint.y + offset.y,
+    };
+  }
+
   private resolvePickupMapObject(
     command: Extract<ParsedCommand, { type: "item_interaction"; operation: "pickup" }>,
     map: RuleMapRuntimeContext | null | undefined,
@@ -1916,8 +1941,8 @@ export class ActionRuleService {
       return { objectCell, quantity: null, rejectedReason: "map_object_position_mismatch" };
     }
 
-    const quantity = this.resolveMapObjectQuantity(objectCell, command.itemDefinitionId);
-    if (quantity !== null && command.quantity > quantity) {
+    const quantity = this.resolveMapObjectQuantity(objectCell, command.itemDefinitionId) ?? 1;
+    if (command.quantity > quantity) {
       return { objectCell, quantity, rejectedReason: "insufficient_map_object_quantity" };
     }
 

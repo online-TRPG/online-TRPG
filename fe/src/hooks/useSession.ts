@@ -88,6 +88,7 @@ export interface CharacterPayload {
   name: string;
   ancestry: string;
   className: string;
+  subclassName?: string | null;
   avatarType?: 'DEFAULT' | 'PRESET' | 'UPLOAD';
   avatarPresetId?: string | null;
   avatarUrl?: string | null;
@@ -1443,6 +1444,7 @@ export function useSession(
           name: payload.name,
           ancestry: payload.ancestry,
           className: payload.className,
+          subclassName: payload.subclassName,
           avatarType: payload.avatarType,
           avatarPresetId: payload.avatarPresetId,
           avatarUrl: payload.avatarUrl,

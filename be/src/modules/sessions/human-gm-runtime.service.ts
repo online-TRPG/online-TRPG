@@ -15,7 +15,9 @@ import {
   GrantHumanGmInventoryItemDto,
   HumanGmMessageDto,
   HumanGmNodeMoveOptionDto,
+  RemoveHumanGmInventoryItemDto,
   ScenarioNodeType,
+  SetHumanGmDifficultyClassDto,
   SessionSnapshotDto,
   UpdateSessionNodeDto,
 } from "@trpg/shared-types";
@@ -201,6 +203,151 @@ export class HumanGmRuntimeService {
       runtime.realtimeEvents.emitStateDiffApplied(resolvedSessionId, gmTurnLog.stateDiff);
     }
     runtime.realtimeEvents.emitCharacterUpdated(resolvedSessionId, mapSessionCharacter(updatedCharacter));
+    runtime.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
+    return snapshot;
+  }
+
+  async removeHumanGmInventoryItem(runtime: HumanGmRuntime, userId: string, sessionId: string, dto: RemoveHumanGmInventoryItemDto): Promise<SessionSnapshotDto> {
+    const session = await runtime.getHumanGmSessionForOperator(userId, sessionId);
+    const resolvedSessionId = session.id;
+    if (session.status === PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("Started sessions are required for GM inventory removals.");
+    }
+
+    const quantity = dto.quantity ?? 1;
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+      throw new BadRequestException("회수할 아이템 수량이 올바르지 않습니다.");
+    }
+
+    const [activeScenario, targetCharacter] = await Promise.all([
+      runtime.getActiveSessionScenarioEntityOrThrow(resolvedSessionId),
+      runtime.prisma.sessionCharacter.findUnique({
+        where: { id: dto.sessionCharacterId },
+        include: {
+          character: true,
+          participant: {
+            select: { role: true },
+          },
+        },
+      }),
+    ]);
+
+    if (!targetCharacter || targetCharacter.sessionId !== resolvedSessionId || targetCharacter.status !== PrismaSessionCharacterStatus.ACTIVE) {
+      throw new NotFoundException("대상 세션 캐릭터를 찾을 수 없습니다.");
+    }
+    if (targetCharacter.participant.role === PrismaParticipantRole.GM) {
+      throw new ForbiddenException("GM 참가자의 인벤토리 아이템은 회수할 수 없습니다.");
+    }
+
+    const gmTurnLog = await runtime.prisma.$transaction(async (tx) => {
+      const removed = await runtime.removeSessionInventoryItem(tx, {
+        sessionCharacterId: targetCharacter.id,
+        itemId: dto.itemId,
+        quantity,
+      });
+      await runtime.refreshSessionInventorySnapshot(targetCharacter.id, tx);
+      return runtime.createHumanGmOverrideTurnLog({
+        tx,
+        kind: "adjust_item",
+        sessionId: resolvedSessionId,
+        sessionScenarioId: activeScenario.id,
+        gmUserId: userId,
+        targetId: targetCharacter.id,
+        publicNarration: `GM이 ${targetCharacter.character.name}에게서 ${removed.itemName} x${removed.removedQuantity}을(를) 회수했습니다.`,
+        statePatch: {
+          inventory: {
+            sessionCharacterId: targetCharacter.id,
+            itemDefinitionId: removed.itemDefinitionId,
+            quantityDelta: -removed.removedQuantity,
+          },
+        },
+        metadata: {
+          operation: "remove",
+          itemName: removed.itemName,
+          itemType: removed.itemType,
+          quantity: removed.removedQuantity,
+        },
+      });
+    });
+
+    const updatedCharacter = await runtime.prisma.sessionCharacter.findUniqueOrThrow({
+      where: { id: targetCharacter.id },
+      include: {
+        character: true,
+        inventoryEntries: {
+          include: { itemDefinition: true },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+    const snapshot = await runtime.buildSnapshot(resolvedSessionId);
+    runtime.realtimeEvents.emitTurnLogCreated(resolvedSessionId, gmTurnLog.turnLog);
+    if (gmTurnLog.stateDiff) {
+      runtime.realtimeEvents.emitStateDiffApplied(resolvedSessionId, gmTurnLog.stateDiff);
+    }
+    runtime.realtimeEvents.emitCharacterUpdated(resolvedSessionId, mapSessionCharacter(updatedCharacter));
+    runtime.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
+    return snapshot;
+  }
+
+  async setHumanGmDifficultyClass(
+    runtime: HumanGmRuntime,
+    userId: string,
+    sessionId: string,
+    dto: SetHumanGmDifficultyClassDto,
+  ): Promise<SessionSnapshotDto> {
+    const session = await runtime.getHumanGmSessionForOperator(userId, sessionId);
+    const resolvedSessionId = session.id;
+    if (session.status === PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("Started sessions are required for GM DC overrides.");
+    }
+    const activeScenario = await runtime.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
+    const targetId = dto.targetId.trim();
+    if (!targetId) {
+      throw new BadRequestException("DC를 적용할 대상을 입력해야 합니다.");
+    }
+    if (!Number.isInteger(dto.dc) || dto.dc < 1 || dto.dc > 40) {
+      throw new BadRequestException("DC 값은 1에서 40 사이의 정수여야 합니다.");
+    }
+    const dc = runtime.clampNumber(dto.dc, 1, 40);
+    const label = dto.label?.trim() || targetId;
+    const ability = dto.ability?.trim() || null;
+    const publicNarration = ability
+      ? `GM이 ${label}의 ${ability} DC를 ${dc}(으)로 설정했습니다.`
+      : `GM이 ${label}의 DC를 ${dc}(으)로 설정했습니다.`;
+
+    const gmTurnLog = await runtime.prisma.$transaction((tx) =>
+      runtime.createHumanGmOverrideTurnLog({
+        tx,
+        kind: "set_dc",
+        sessionId: resolvedSessionId,
+        sessionScenarioId: activeScenario.id,
+        gmUserId: userId,
+        targetId,
+        publicNarration,
+        privateNote: dto.privateNote,
+        statePatch: {
+          difficultyClassOverride: {
+            targetId,
+            label,
+            ability,
+            dc,
+          },
+        },
+        metadata: {
+          targetId,
+          label,
+          ability,
+          dc,
+        },
+      }),
+    );
+
+    const snapshot = await runtime.buildSnapshot(resolvedSessionId);
+    runtime.realtimeEvents.emitTurnLogCreated(resolvedSessionId, gmTurnLog.turnLog);
+    if (gmTurnLog.stateDiff) {
+      runtime.realtimeEvents.emitStateDiffApplied(resolvedSessionId, gmTurnLog.stateDiff);
+    }
     runtime.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
     return snapshot;
   }

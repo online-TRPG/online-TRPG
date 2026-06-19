@@ -553,6 +553,33 @@ export class LevelUpCharacterDto {
   @IsArray()
   @IsString({ each: true })
   knownSpells?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "레벨업으로 새로 습득할 캔트립 목록입니다.",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  cantrips?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "known caster가 이번 레벨업에서 교체할 기존 슬롯 주문 목록입니다.",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  forgottenSpells?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "이번 레벨업에서 교체할 기존 캔트립 목록입니다.",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  forgottenCantrips?: string[];
 }
 
 export class UpdateCharacterEquipmentDto {

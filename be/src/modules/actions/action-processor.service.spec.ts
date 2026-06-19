@@ -44,7 +44,6 @@ describe("ActionProcessorService session action queue", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
     ) as unknown as {
       processNext: (sessionId: string) => Promise<void>;
       processAction: (actionId: string) => Promise<unknown>;
@@ -92,7 +91,6 @@ describe("ActionProcessorService session action queue", () => {
     };
     const service = new ActionProcessorService(
       prisma as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -164,7 +162,6 @@ describe("ActionProcessorService session action queue", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
     ) as unknown as {
       processNext: (sessionId: string) => Promise<void>;
       processAction: (actionId: string) => Promise<unknown>;
@@ -222,7 +219,6 @@ describe("ActionProcessorService session action queue", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
     ) as unknown as {
       processClaimedAction: (claimedAction: typeof action) => Promise<void>;
       processAction: (actionId: string) => Promise<unknown>;
@@ -270,22 +266,10 @@ const createBaseMap = (): VttMapStateDto => ({
   ],
 });
 
-describe("ActionProcessorService map object runtime effects", () => {
-  const createService = (map = createBaseMap()) => {
-    const sessionsService = {
-      getGameStateEntityOrThrow: jest.fn().mockResolvedValue({
-        sessionScenario: { id: "session-scenario-1" },
-        state: { currentNodeId: "node-1", flagsJson: null },
-      }),
-      getVttMapBaseline: jest.fn().mockResolvedValue(map),
-    };
-    const mapRuntime = {
-      saveSystemVttMap: jest.fn().mockImplementation(async (_sessionId, nextMap) => nextMap),
-    };
-
+describe("ActionProcessorService map-only runtime effects", () => {
+  it("rejects direct VTT object mutations before a success turn log can be created", async () => {
     const service = new ActionProcessorService(
       {} as never,
-      sessionsService as never,
       {} as never,
       {} as never,
       {} as never,
@@ -295,75 +279,42 @@ describe("ActionProcessorService map object runtime effects", () => {
       {} as never,
       {} as never,
       {} as never,
-      mapRuntime as never,
-    );
+      {} as never,
+    ) as unknown as {
+      assertRuntimeEffectPreconditions: (...args: unknown[]) => Promise<void>;
+    };
 
-    return { service: service as unknown as Record<string, (...args: unknown[]) => Promise<void>>, mapRuntime };
-  };
-
-  it("creates dropped or thrown item map objects from runtime effects", async () => {
-    const { service, mapRuntime } = createService();
-
-    await service.createMapObjectFromRuntimeEffect("session-1", {
-      type: "CREATE_MAP_OBJECT",
-      objectId: "object:thrown:entry-dagger:4:0",
-      itemDefinitionId: "equipment.dagger",
-      name: "Dagger",
-      quantity: 1,
-      point: { x: 4, y: 0 },
+    await expect(
+      service.assertRuntimeEffectPreconditions(
+        {
+          runtimeEffects: [
+            { type: "SPEND_ACTION" },
+            {
+              type: "CREATE_MAP_OBJECT",
+              objectId: "object:thrown:entry-dagger:4:0",
+              itemDefinitionId: "equipment.dagger",
+              name: "Dagger",
+              quantity: 1,
+              point: { x: 4, y: 0 },
+            },
+          ],
+        },
+        {
+          sessionId: "session-1",
+          sessionScenarioId: "session-scenario-1",
+          sessionCharacterId: "session-character-1",
+          turnStateKey: null,
+        },
+      ),
+    ).rejects.toMatchObject({
+      response: {
+        code: "VTT_409",
+        data: {
+          reason: "MAP_EFFECT_REQUIRES_ATOMIC_INVENTORY_PAIR",
+          effectType: "CREATE_MAP_OBJECT",
+        },
+      },
     });
-
-    expect(mapRuntime.saveSystemVttMap).toHaveBeenCalledWith(
-      "session-1",
-      expect.objectContaining({
-        objectCells: expect.arrayContaining([
-          expect.objectContaining({
-            id: "object:thrown:entry-dagger:4:0",
-            x: 200,
-            y: 0,
-            width: 50,
-            height: 50,
-            description: "equipment.dagger x1",
-            hiddenItemIds: ["equipment.dagger"],
-          }),
-        ]),
-      }),
-    );
-  });
-
-  it("updates map object quantity without deleting the cell", async () => {
-    const { service, mapRuntime } = createService();
-
-    await service.updateMapObjectQuantityFromRuntimeEffect("session-1", {
-      type: "UPDATE_MAP_OBJECT_QUANTITY",
-      objectId: "object-rope",
-      itemDefinitionId: "equipment.rope",
-      quantity: 3,
-    });
-
-    expect(mapRuntime.saveSystemVttMap).toHaveBeenCalledWith(
-      "session-1",
-      expect.objectContaining({
-        objectCells: [
-          expect.objectContaining({
-            id: "object-rope",
-            description: "equipment.rope x3",
-            hiddenItemIds: ["equipment.rope"],
-          }),
-        ],
-      }),
-    );
-  });
-
-  it("removes picked up map objects from the saved VTT map", async () => {
-    const { service, mapRuntime } = createService();
-
-    await service.removeMapObjectFromRuntimeEffect("session-1", "object-rope");
-
-    expect(mapRuntime.saveSystemVttMap).toHaveBeenCalledWith(
-      "session-1",
-      expect.objectContaining({ objectCells: [] }),
-    );
   });
 });
 
@@ -389,6 +340,15 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       },
       inventoryEntry: {
         create: jest.fn().mockResolvedValue({ id: "entry-rope" }),
+        findUnique: jest.fn().mockResolvedValue({
+          id: "bag-entry",
+          sessionCharacterId: "session-character-1",
+          containerState: {
+            currentWeightLb: 0,
+            currentVolumeCuFt: 0,
+            integrity: "INTACT",
+          },
+        }),
         findFirst: jest.fn().mockResolvedValue(
           options && "inventoryEntry" in options
             ? options.inventoryEntry
@@ -433,6 +393,9 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
         }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      containerState: {
+        update: jest.fn(),
+      },
     };
     const prisma = {
       $transaction: jest.fn(async (callback: (transactionClient: typeof tx) => Promise<unknown>) =>
@@ -440,6 +403,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       ),
       itemDefinition: tx.itemDefinition,
       inventoryEntry: tx.inventoryEntry,
+      containerState: tx.containerState,
     };
     const sessionsService = {
       getSessionEntityOrThrow: jest.fn().mockResolvedValue({ hostUserId: "host-user-1" }),
@@ -460,9 +424,6 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
     const actionEconomy = {
       spendAction: jest.fn().mockResolvedValue({ actionUsed: true }),
     };
-    const mapRuntime = {
-      saveSystemVttMap: jest.fn(),
-    };
 
     const service = new ActionProcessorService(
       prisma as never,
@@ -476,7 +437,6 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       {} as never,
       {} as never,
       {} as never,
-      mapRuntime as never,
     );
 
     return {
@@ -485,7 +445,6 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       prisma,
       realtimeEvents,
       actionEconomy,
-      mapRuntime,
     };
   };
 
@@ -497,7 +456,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
   };
 
   it("saves inventory and VTT map pickup changes in a single transaction", async () => {
-    const { service, tx, prisma, realtimeEvents, mapRuntime } = createService();
+    const { service, tx, prisma, realtimeEvents } = createService();
 
     await service.applyInventoryMapRuntimeEffectsAtomically(params, [
       {
@@ -514,14 +473,11 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
     ]);
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(tx.inventoryEntry.create).toHaveBeenCalledWith({
-      data: {
-        sessionCharacterId: "session-character-1",
-        itemDefinitionId: "equipment.rope",
-        quantity: 2,
-        containerEntryId: null,
-      },
+    expect(tx.inventoryEntry.update).toHaveBeenCalledWith({
+      where: { id: "entry-rope" },
+      data: { quantity: { increment: 2 } },
     });
+    expect(tx.inventoryEntry.create).not.toHaveBeenCalled();
     expect(tx.sessionCharacter.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "session-character-1" } }),
     );
@@ -548,7 +504,6 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
         }),
       }),
     );
-    expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
     expect(realtimeEvents.emitVttMapUpdated).toHaveBeenCalledWith(
       "session-1",
       expect.objectContaining({
@@ -629,7 +584,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
   });
 
   it("does not persist or emit map changes when the paired inventory mutation fails", async () => {
-    const { service, tx, realtimeEvents, mapRuntime } = createService({ inventoryEntry: null });
+    const { service, tx, realtimeEvents } = createService({ inventoryEntry: null });
 
     await expect(
       service.applyInventoryMapRuntimeEffectsAtomically(params, [
@@ -650,7 +605,6 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
     ).rejects.toThrow();
 
     expect(tx.gameState.updateMany).toHaveBeenCalledTimes(1);
-    expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
     expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
   });
 
@@ -659,7 +613,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       ...createBaseMap(),
       objectCells: [],
     };
-    const { service, tx, realtimeEvents, mapRuntime } = createService({ map: emptyMap });
+    const { service, tx, realtimeEvents } = createService({ map: emptyMap });
 
     await expect(
       service.applyInventoryMapRuntimeEffectsAtomically(params, [
@@ -682,7 +636,260 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
 
     expect(tx.inventoryEntry.create).not.toHaveBeenCalled();
     expect(tx.gameState.updateMany).not.toHaveBeenCalled();
-    expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
+    expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
+  });
+
+  it("recalculates container state inside the atomic pickup transaction", async () => {
+    const { service, tx } = createService();
+    tx.inventoryEntry.findFirst.mockResolvedValueOnce(null);
+    tx.inventoryEntry.findMany
+      .mockResolvedValueOnce([
+        {
+          id: "entry-rope",
+          itemDefinitionId: "equipment.rope",
+          quantity: 2,
+          containerEntryId: "bag-entry",
+          itemDefinition: {
+            name: "Rope",
+            itemType: "GEAR",
+            description: "50 feet of hempen rope",
+            weightLb: 10,
+            volumeCuFt: 0.2,
+          },
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    await service.applyInventoryMapRuntimeEffectsAtomically(params, [
+      {
+        type: "ADD_ITEM",
+        itemDefinitionId: "equipment.rope",
+        quantity: 2,
+        containerEntryId: "bag-entry",
+      },
+      {
+        type: "REMOVE_MAP_OBJECT",
+        objectId: "object-rope",
+      },
+    ]);
+
+    expect(tx.inventoryEntry.create).toHaveBeenCalledWith({
+      data: {
+        sessionCharacterId: "session-character-1",
+        itemDefinitionId: "equipment.rope",
+        quantity: 2,
+        containerEntryId: "bag-entry",
+      },
+    });
+    expect(tx.containerState.update).toHaveBeenCalledWith({
+      where: { inventoryEntryId: "bag-entry" },
+      data: {
+        currentWeightLb: 20,
+        currentVolumeCuFt: 0.4,
+      },
+    });
+  });
+
+  it("rejects over-capacity container pickup before the atomic transaction starts", async () => {
+    const { service, tx, prisma, realtimeEvents } = createService();
+    tx.inventoryEntry.findUnique.mockResolvedValueOnce({
+      id: "bag-entry",
+      sessionCharacterId: "session-character-1",
+      containerState: {
+        currentWeightLb: 495,
+        currentVolumeCuFt: 0,
+        integrity: "INTACT",
+      },
+    });
+
+    await expect(
+      service.assertRuntimeEffectPreconditions(
+        {
+          runtimeEffects: [
+            {
+              type: "ADD_ITEM",
+              itemDefinitionId: "equipment.rope",
+              quantity: 1,
+              containerEntryId: "bag-entry",
+            },
+            {
+              type: "REMOVE_MAP_OBJECT",
+              objectId: "object-rope",
+            },
+          ],
+        },
+        params,
+      ),
+    ).rejects.toMatchObject({
+      response: {
+        code: "INVENTORY_400",
+        data: {
+          reason: "bag_of_holding_capacity_exceeded",
+          capacityViolation: "weight",
+          containerDestroyed: true,
+        },
+      },
+    });
+
+    expect(tx.containerState.update).toHaveBeenCalledWith({
+      where: { inventoryEntryId: "bag-entry" },
+      data: { integrity: "OVERLOADED" },
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.create).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.update).not.toHaveBeenCalled();
+    expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
+  });
+
+  it("rejects creating a map object with an existing id before inventory changes", async () => {
+    const { service, tx, realtimeEvents } = createService();
+
+    await expect(
+      service.applyInventoryMapRuntimeEffectsAtomically(params, [
+        {
+          type: "REMOVE_ITEM",
+          itemId: "entry-rope",
+          quantity: 1,
+        },
+        {
+          type: "CREATE_MAP_OBJECT",
+          objectId: "object-rope",
+          itemDefinitionId: "equipment.rope",
+          name: "Rope",
+          quantity: 1,
+          point: { x: 2, y: 0 },
+        },
+      ]),
+    ).rejects.toMatchObject({
+      response: {
+        code: "VTT_409",
+        data: { reason: "MAP_OBJECT_ALREADY_EXISTS", objectId: "object-rope" },
+      },
+    });
+
+    expect(tx.inventoryEntry.delete).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.update).not.toHaveBeenCalled();
+    expect(tx.gameState.updateMany).not.toHaveBeenCalled();
+    expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
+  });
+
+  it("rejects existing map object ids before early runtime effects run", async () => {
+    const { service, tx, prisma, realtimeEvents } = createService();
+
+    await expect(
+      service.assertRuntimeEffectPreconditions(
+        {
+          runtimeEffects: [
+            {
+              type: "SPEND_ACTION",
+            },
+            {
+              type: "REMOVE_ITEM",
+              itemId: "entry-rope",
+              quantity: 1,
+            },
+            {
+              type: "CREATE_MAP_OBJECT",
+              objectId: "object-rope",
+              itemDefinitionId: "equipment.rope",
+              name: "Rope",
+              quantity: 1,
+              point: { x: 2, y: 0 },
+            },
+          ],
+        },
+        params,
+      ),
+    ).rejects.toMatchObject({
+      response: {
+        code: "VTT_409",
+        data: { reason: "MAP_OBJECT_ALREADY_EXISTS", objectId: "object-rope" },
+      },
+    });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.delete).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.update).not.toHaveBeenCalled();
+    expect(tx.gameState.updateMany).not.toHaveBeenCalled();
+    expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid map object quantities before inventory changes", async () => {
+    const { service, tx, prisma, realtimeEvents } = createService();
+
+    await expect(
+      service.assertRuntimeEffectPreconditions(
+        {
+          runtimeEffects: [
+            {
+              type: "SPEND_ACTION",
+            },
+            {
+              type: "ADD_ITEM",
+              itemDefinitionId: "equipment.rope",
+              quantity: 1,
+            },
+            {
+              type: "UPDATE_MAP_OBJECT_QUANTITY",
+              objectId: "object-rope",
+              itemDefinitionId: "equipment.rope",
+              quantity: 0,
+            },
+          ],
+        },
+        params,
+      ),
+    ).rejects.toMatchObject({
+      response: {
+        code: "VTT_400",
+        data: { reason: "INVALID_MAP_OBJECT_QUANTITY", quantity: 0 },
+      },
+    });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.create).not.toHaveBeenCalled();
+    expect(tx.gameState.updateMany).not.toHaveBeenCalled();
+    expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid created map object points before inventory changes", async () => {
+    const { service, tx, prisma, realtimeEvents } = createService();
+
+    await expect(
+      service.assertRuntimeEffectPreconditions(
+        {
+          runtimeEffects: [
+            {
+              type: "SPEND_ACTION",
+            },
+            {
+              type: "REMOVE_ITEM",
+              itemId: "entry-rope",
+              quantity: 1,
+            },
+            {
+              type: "CREATE_MAP_OBJECT",
+              objectId: "object-rope-new",
+              itemDefinitionId: "equipment.rope",
+              name: "Rope",
+              quantity: 1,
+              point: { x: 1.5, y: 0 },
+            },
+          ],
+        },
+        params,
+      ),
+    ).rejects.toMatchObject({
+      response: {
+        code: "VTT_400",
+        data: { reason: "INVALID_MAP_OBJECT_POINT", objectId: "object-rope-new" },
+      },
+    });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.delete).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.update).not.toHaveBeenCalled();
+    expect(tx.gameState.updateMany).not.toHaveBeenCalled();
     expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
   });
 
@@ -691,7 +898,7 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
       ...createBaseMap(),
       objectCells: [],
     };
-    const { service, tx, prisma, realtimeEvents, mapRuntime } = createService({ map: emptyMap });
+    const { service, tx, prisma, realtimeEvents } = createService({ map: emptyMap });
 
     await expect(
       service.assertRuntimeEffectPreconditions(
@@ -723,12 +930,11 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(tx.inventoryEntry.create).not.toHaveBeenCalled();
     expect(tx.gameState.updateMany).not.toHaveBeenCalled();
-    expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
     expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
   });
 
   it("rejects missing inventory entries before early runtime effects run", async () => {
-    const { service, tx, prisma, realtimeEvents, mapRuntime } = createService({
+    const { service, tx, prisma, realtimeEvents } = createService({
       inventoryEntry: null,
     });
 
@@ -767,12 +973,11 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
     expect(tx.inventoryEntry.delete).not.toHaveBeenCalled();
     expect(tx.inventoryEntry.update).not.toHaveBeenCalled();
     expect(tx.gameState.updateMany).not.toHaveBeenCalled();
-    expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
     expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
   });
 
   it("rejects a concurrent pickup when the VTT state version changed", async () => {
-    const { service, tx, realtimeEvents, actionEconomy, mapRuntime } = createService();
+    const { service, tx, realtimeEvents, actionEconomy } = createService();
     tx.gameState.updateMany.mockResolvedValueOnce({ count: 0 });
 
     await expect(
@@ -813,7 +1018,6 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
     expect(actionEconomy.spendAction).not.toHaveBeenCalled();
     expect(tx.inventoryEntry.create).not.toHaveBeenCalled();
     expect(tx.sessionCharacter.update).not.toHaveBeenCalled();
-    expect(mapRuntime.saveSystemVttMap).not.toHaveBeenCalled();
     expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
   });
 });
@@ -821,7 +1025,6 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
 describe("ActionProcessorService rule targets", () => {
   it("projects combat participant token ids into rule targets", () => {
     const service = new ActionProcessorService(
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -938,7 +1141,6 @@ describe("ActionProcessorService rest runtime effects", () => {
     };
     const service = new ActionProcessorService(
       prisma as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,

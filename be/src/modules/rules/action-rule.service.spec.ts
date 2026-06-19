@@ -981,6 +981,48 @@ describe("ActionRuleService", () => {
     expect(result.runtimeEffects).toEqual([]);
   });
 
+  it("treats item map objects without an explicit stack quantity as a single item", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+    });
+
+    const result = service.resolveAction(
+      "/item pickup object-rope equipment.rope 2 1 0",
+      actor,
+      [actor],
+      {
+        map: {
+          gridType: "square",
+          gridSize: 50,
+          tokens: [
+            { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+          ],
+          objectCells: [
+            {
+              id: "object-rope",
+              x: 50,
+              y: 0,
+              width: 50,
+              height: 50,
+              description: "Coiled rope",
+              hiddenItemIds: ["equipment.rope"],
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.structuredAction).toMatchObject({
+      type: "item_interaction",
+      operation: "pickup",
+      rejectedReason: "insufficient_map_object_quantity",
+    });
+    expect(result.runtimeEffects).toEqual([]);
+  });
+
   it("resolves item throw commands into thrown attack metadata", () => {
     const service = createService([]);
     const actor = createCharacter({
@@ -1174,7 +1216,7 @@ describe("ActionRuleService", () => {
     ]);
   });
 
-  it("creates a thrown item miss object when the attack misses a token at the target point", () => {
+  it("creates a thrown item miss object near the target when the attack misses a token", () => {
     const service = createService([createDiceResult([3], 5)]);
     const actor = createCharacter({
       id: "actor",
@@ -1222,15 +1264,21 @@ describe("ActionRuleService", () => {
 
     expect(result.outcome).toBe(ActionOutcome.FAILURE);
     expect(result.stateChanges).toEqual([]);
+    expect(result.structuredAction).toMatchObject({
+      type: "item_interaction",
+      operation: "throw",
+      target: "target",
+      landingPoint: { x: 4, y: 1 },
+    });
     expect(result.runtimeEffects).toEqual([
       { type: "REMOVE_ITEM", itemId: "entry-dagger", quantity: 1 },
       {
         type: "CREATE_MAP_OBJECT",
-        objectId: "object:thrown:entry-dagger:4:0",
+        objectId: "object:thrown:entry-dagger:4:1",
         itemDefinitionId: "equipment.dagger",
         name: "Dagger",
         quantity: 1,
-        point: { x: 4, y: 0 },
+        point: { x: 4, y: 1 },
       },
       { type: "SPEND_ACTION" },
     ]);

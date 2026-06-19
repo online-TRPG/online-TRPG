@@ -2,6 +2,7 @@ import type {
   ActionAcceptedResponseDto,
   ApplyHumanGmCombatConditionDto,
   AdjustHumanGmCombatHpDto,
+  AcceptHumanGmAiAssistSuggestionDto,
   ApplyCombatDamageDto,
   AutoMonsterTurnDto,
   AuthTokenResponseDto,
@@ -13,6 +14,7 @@ import type {
   CastCombatSpellDto,
   CombatReactionResponseDto,
   CombatResponseDto,
+  CreateHumanGmAiAssistSuggestionDto,
   CreateScenarioDto,
   CreateVttMapPingDto,
   EquippedWeaponAttackDto,
@@ -21,7 +23,9 @@ import type {
   GrantHumanGmInventoryItemDto,
   GmMode,
   HumanGmMessageDto,
+  HumanGmAiAssistSuggestionDto,
   HumanGmNodeMoveOptionDto,
+  HumanGmPrivateNoteDto,
   LoginResponseDto,
   MainCommandResponseDto,
   MoveCombatParticipantDto,
@@ -29,7 +33,9 @@ import type {
   OAuthUrlResponseDto,
   ResolveCombatAttackDto,
   ResolveMainCommandCheckDto,
+  RemoveHumanGmInventoryItemDto,
   RestActionDto,
+  SetHumanGmDifficultyClassDto,
   ScenarioAssetKind,
   ScenarioAssetResponseDto,
   ClassDefinitionResponseDto,
@@ -124,6 +130,7 @@ interface CharacterMutationPayload {
   name: string;
   ancestry: string;
   className: string;
+  subclassName?: string | null;
   avatarType?: 'DEFAULT' | 'PRESET' | 'UPLOAD';
   avatarPresetId?: string | null;
   avatarUrl?: string | null;
@@ -1343,6 +1350,7 @@ export function createCharacter(
       name: payload.name,
       ancestry: payload.ancestry,
       className: payload.className,
+      subclassName: payload.subclassName,
       avatarType: payload.avatarType,
       avatarPresetId: payload.avatarPresetId,
       avatarUrl: payload.avatarUrl,
@@ -1412,6 +1420,7 @@ export function updateCharacter(
       name: payload.name,
       ancestry: payload.ancestry,
       className: payload.className,
+      subclassName: payload.subclassName,
       avatarType: payload.avatarType,
       avatarPresetId: payload.avatarPresetId,
       avatarUrl: payload.avatarUrl,
@@ -1603,6 +1612,101 @@ export async function applyHumanGmCombatCondition(
 ): Promise<SessionSnapshot> {
   const snapshot = await requestJson<SessionSnapshotDto>(
     `/sessions/${sessionId}/gm/combat/conditions`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+      body: payload,
+    }
+  );
+
+  return normalizeSessionSnapshot(snapshot);
+}
+
+export async function removeHumanGmInventoryItem(
+  user: StoredUser,
+  sessionId: string,
+  payload: RemoveHumanGmInventoryItemDto,
+  accessToken?: string | null
+): Promise<SessionSnapshot> {
+  const snapshot = await requestJson<SessionSnapshotDto>(
+    `/sessions/${sessionId}/gm/inventory/remove`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+      body: payload,
+    }
+  );
+
+  return normalizeSessionSnapshot(snapshot);
+}
+
+export async function setHumanGmDifficultyClass(
+  user: StoredUser,
+  sessionId: string,
+  payload: SetHumanGmDifficultyClassDto,
+  accessToken?: string | null
+): Promise<SessionSnapshot> {
+  const snapshot = await requestJson<SessionSnapshotDto>(
+    `/sessions/${sessionId}/gm/dc`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+      body: payload,
+    }
+  );
+
+  return normalizeSessionSnapshot(snapshot);
+}
+
+export function getHumanGmPrivateNotes(
+  user: StoredUser,
+  sessionId: string,
+  accessToken?: string | null
+): Promise<HumanGmPrivateNoteDto[]> {
+  return requestJson<HumanGmPrivateNoteDto[]>(`/sessions/${sessionId}/gm/private-notes`, {
+    method: 'GET',
+    user,
+    accessToken,
+  });
+}
+
+export function createHumanGmAiAssistSuggestion(
+  user: StoredUser,
+  sessionId: string,
+  payload: CreateHumanGmAiAssistSuggestionDto,
+  accessToken?: string | null
+): Promise<HumanGmAiAssistSuggestionDto> {
+  return requestJson<HumanGmAiAssistSuggestionDto>(`/sessions/${sessionId}/gm/ai-assist/suggestions`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function getHumanGmAiAssistSuggestions(
+  user: StoredUser,
+  sessionId: string,
+  accessToken?: string | null
+): Promise<HumanGmAiAssistSuggestionDto[]> {
+  return requestJson<HumanGmAiAssistSuggestionDto[]>(`/sessions/${sessionId}/gm/ai-assist/suggestions`, {
+    method: 'GET',
+    user,
+    accessToken,
+  });
+}
+
+export async function acceptHumanGmAiAssistSuggestion(
+  user: StoredUser,
+  sessionId: string,
+  payload: AcceptHumanGmAiAssistSuggestionDto,
+  accessToken?: string | null
+): Promise<SessionSnapshot> {
+  const snapshot = await requestJson<SessionSnapshotDto>(
+    `/sessions/${sessionId}/gm/ai-assist/accept`,
     {
       method: 'POST',
       user,
