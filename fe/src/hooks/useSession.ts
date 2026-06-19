@@ -20,6 +20,7 @@ import type {
 import type { Socket } from 'socket.io-client';
 import {
   approveRestAction as apiApproveRestAction,
+  cancelRestAction as apiCancelRestAction,
   cloneCharacter as apiCloneCharacter,
   createCharacter as apiCreateCharacter,
   createSession as apiCreateSession,
@@ -36,6 +37,7 @@ import {
   selectSessionCharacter as apiSelectSessionCharacter,
   startSession as apiStartSession,
   resolveMainCommandCheck as apiResolveMainCommandCheck,
+  rejectRestAction as apiRejectRestAction,
   submitMainCommand as apiSubmitMainCommand,
   submitRestAction as apiSubmitRestAction,
   submitAction as apiSubmitAction,
@@ -154,7 +156,9 @@ export interface UseSessionReturn {
     characterId?: string,
     hitDiceToSpend?: number,
   ) => Promise<void>;
-  approveRestRequest: (actionId: string) => Promise<void>;
+  approveRestRequest: (actionId: string) => Promise<boolean>;
+  rejectRestRequest: (actionId: string) => Promise<boolean>;
+  cancelRestRequest: (actionId: string) => Promise<boolean>;
   sendAction: (rawText: string) => Promise<void>;
   sendChatMessage: (content: string, scope?: 'CHAT' | 'MAIN') => Promise<void>;
   loadOlderTurnLogs: () => Promise<void>;
@@ -344,7 +348,11 @@ function getTurnLogRestApprovalMetadata(turnLog: TurnLogResponseDto): LogEntry['
     return undefined;
   }
 
-  const restAction = structuredAction as { restType?: unknown; approvalStatus?: unknown };
+  const restAction = structuredAction as {
+    restType?: unknown;
+    approvalStatus?: unknown;
+    approvalExpiresAt?: unknown;
+  };
   return {
     restApproval: {
       actionId: turnLog.playerActionId,
@@ -353,6 +361,10 @@ function getTurnLogRestApprovalMetadata(turnLog: TurnLogResponseDto): LogEntry['
           ? restAction.restType
           : null,
       status: typeof restAction.approvalStatus === 'string' ? restAction.approvalStatus : null,
+      expiresAt:
+        typeof restAction.approvalExpiresAt === 'string'
+          ? restAction.approvalExpiresAt
+          : null,
     },
   };
 }
@@ -372,6 +384,7 @@ function getRestApprovalMetadataFromResponse(
       restType: restApproval.restType,
       status: restApproval.status,
       hitDiceToSpend: restApproval.hitDiceToSpend ?? null,
+      expiresAt: restApproval.expiresAt ?? null,
     },
   };
 }
@@ -1748,7 +1761,7 @@ export function useSession(
   }
 
   async function approveRestRequest(actionId: string) {
-    if (!user || !snapshot) return;
+    if (!user || !snapshot) return false;
 
     setError(null);
     setBusy(true);
@@ -1772,10 +1785,68 @@ export function useSession(
           `long-rest-prepared-spells:${response.playerActionId}`
         );
       }
+      return true;
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '휴식 요청 승인에 실패했습니다.';
       setError(message);
       appendLog('socket', '휴식 승인 실패', message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rejectRestRequest(actionId: string) {
+    if (!user || !snapshot) return false;
+
+    setError(null);
+    setBusy(true);
+
+    try {
+      const response = await apiRejectRestAction(user, snapshot.session.id, actionId, accessToken);
+      await syncSession(snapshot.session.id);
+      appendLog(
+        'rest',
+        '휴식 거절',
+        'GM이 휴식 요청을 거절했습니다.',
+        `rest-approval:${actionId}:rejected`,
+        undefined,
+        getRestApprovalMetadataFromResponse(response)
+      );
+      return true;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '휴식 요청 거절에 실패했습니다.';
+      setError(message);
+      appendLog('socket', '휴식 거절 실패', message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelRestRequest(actionId: string) {
+    if (!user || !snapshot) return false;
+
+    setError(null);
+    setBusy(true);
+
+    try {
+      const response = await apiCancelRestAction(user, snapshot.session.id, actionId, accessToken);
+      await syncSession(snapshot.session.id);
+      appendLog(
+        'rest',
+        '휴식 요청 취소',
+        '휴식 요청을 취소했습니다.',
+        `rest-approval:${actionId}:cancelled`,
+        undefined,
+        getRestApprovalMetadataFromResponse(response)
+      );
+      return true;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '휴식 요청 취소에 실패했습니다.';
+      setError(message);
+      appendLog('socket', '휴식 요청 취소 실패', message);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -1965,6 +2036,8 @@ export function useSession(
     resolveMainCommandCheck,
     requestRest,
     approveRestRequest,
+    rejectRestRequest,
+    cancelRestRequest,
     sendAction,
     sendChatMessage,
     loadOlderTurnLogs,

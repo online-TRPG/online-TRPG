@@ -1,6 +1,7 @@
 import type {
   ActionAcceptedResponseDto,
   ApplyHumanGmCombatConditionDto,
+  AdjustHumanGmCombatHpDto,
   ApplyCombatDamageDto,
   AutoMonsterTurnDto,
   AuthTokenResponseDto,
@@ -863,6 +864,38 @@ export function approveRestAction(
   );
 }
 
+export function rejectRestAction(
+  user: StoredUser,
+  sessionId: string,
+  actionId: string,
+  accessToken?: string | null
+): Promise<ActionAcceptedResponseDto> {
+  return requestJson<ActionAcceptedResponseDto>(
+    `/sessions/${sessionId}/actions/rest/requests/${actionId}/reject`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+    }
+  );
+}
+
+export function cancelRestAction(
+  user: StoredUser,
+  sessionId: string,
+  actionId: string,
+  accessToken?: string | null
+): Promise<ActionAcceptedResponseDto> {
+  return requestJson<ActionAcceptedResponseDto>(
+    `/sessions/${sessionId}/actions/rest/requests/${actionId}/cancel`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+    }
+  );
+}
+
 export function submitMainCommand(
   user: StoredUser,
   sessionId: string,
@@ -1579,6 +1612,20 @@ export async function applyHumanGmCombatCondition(
   );
 
   return normalizeSessionSnapshot(snapshot);
+}
+
+export async function adjustHumanGmCombatHp(
+  user: StoredUser,
+  sessionId: string,
+  payload: AdjustHumanGmCombatHpDto,
+  accessToken?: string | null
+): Promise<SessionSnapshotDto> {
+  return requestJson<SessionSnapshotDto>(`/sessions/${sessionId}/gm/combat/hp`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
 }
 
 export async function startSession(

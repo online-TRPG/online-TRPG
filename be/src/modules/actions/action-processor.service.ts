@@ -459,6 +459,11 @@ export class ActionProcessorService {
       actor.id,
       this.resolveInitialResourceDefaults(actor),
     );
+    const spellSlotState = this.resolveRuntimeSpellSlotState(
+      state.flagsJson,
+      actor.id,
+      actor.character,
+    );
     const combat = await this.prisma.combat.findFirst({
       where: {
         sessionId,
@@ -479,6 +484,8 @@ export class ActionProcessorService {
         context: {
           map,
           hasActiveCombat: Boolean(combat),
+          spellSlots: spellSlotState.current,
+          spellSlotMaximums: spellSlotState.maximums,
           resource: this.toRuntimeResource(resource),
           turnState: null,
           combat: combat
@@ -508,6 +515,8 @@ export class ActionProcessorService {
       context: {
         map,
         hasActiveCombat: true,
+        spellSlots: spellSlotState.current,
+        spellSlotMaximums: spellSlotState.maximums,
         resource: this.toRuntimeResource(resource),
         turnState: {
           actionUsed: turnState.actionUsed,
@@ -1574,6 +1583,36 @@ export class ActionProcessorService {
     );
   }
 
+  private resolveRuntimeSpellSlotState(
+    flagsJson: string | null,
+    sessionCharacterId: string,
+    character: { className: string; level: number },
+  ): {
+    current: Record<string, number>;
+    maximums: Record<string, number>;
+  } {
+    const flags = this.parseJson<Record<string, unknown>>(flagsJson, {});
+    const byCharacter = this.parseJson<Record<string, Record<string, number>>>(
+      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
+      {},
+    );
+    const overrides = byCharacter[sessionCharacterId] ?? {};
+    const maximums: Record<string, number> = {};
+    const current: Record<string, number> = {};
+
+    for (let slotLevel = 1; slotLevel <= 9; slotLevel += 1) {
+      const maximum = this.spellSlots.resolveMaximumForCharacter(character, slotLevel);
+      if (maximum < 1) {
+        continue;
+      }
+      const key = String(slotLevel);
+      maximums[key] = maximum;
+      current[key] = Math.max(0, Math.floor(overrides[key] ?? maximum));
+    }
+
+    return { current, maximums };
+  }
+
   private parseJson<T>(value: string | null | undefined, fallback: T): T {
     if (!value) {
       return fallback;
@@ -1592,6 +1631,7 @@ export class ActionProcessorService {
     rageActive: boolean;
     frenzyActive: boolean;
     exhaustionLevel: number;
+    hitDiceSpent: number;
   }): NonNullable<RuleRuntimeContext["resource"]> {
     return {
       secondWindAvailable: resource.secondWindAvailable,
@@ -1600,6 +1640,7 @@ export class ActionProcessorService {
       rageActive: resource.rageActive,
       frenzyActive: resource.frenzyActive,
       exhaustionLevel: resource.exhaustionLevel,
+      hitDiceSpent: resource.hitDiceSpent,
     };
   }
 

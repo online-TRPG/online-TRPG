@@ -26,7 +26,13 @@ MVP의 상위 완료 기준은 [`structure/QUALITY_MVP_ACCEPTANCE.md`](structure
 | 부분 연결 | resolver 또는 일부 API/UI는 있으나 모든 진입 경로가 같은 규칙을 사용하지 않음 |
 | 미구현 | MVP에 필요한 실행 경로 또는 검증 수단이 없음 |
 
-2026-06-18 현재 worktree에는 대규모 미커밋 변경이 있다. 따라서 이 문서에서 테스트 실행 결과를 근거로 “완료”라고 판정하지 않는다. 저장소 지침에 따라 Codex는 테스트를 직접 실행하지 않으며, 사용자가 실행할 검증 명령과 수동 시나리오를 마지막 절에 제공한다.
+2026-06-18 현재 worktree에는 대규모 미커밋 변경이 있다. 따라서 검증되지 않은 항목을 “완료”라고 판정하지 않는다. 저장소 지침에 따라 Codex는 테스트를 직접 실행하지 않으며, 사용자가 실행할 검증 명령과 수동 시나리오를 마지막 절에 제공한다.
+
+2026-06-18 사용자 실행 검증:
+
+- `npm run build -w @trpg/shared-types`: 성공(exit 0).
+- `npm run build -w @trpg/be`: 성공(exit 0).
+- 프론트엔드 build, 회귀 spec, AI/HUMAN GM 브라우저 smoke는 아직 검증 증거가 없다.
 
 ## 3. 유지할 아키텍처 계약
 
@@ -92,17 +98,17 @@ MVP의 상위 완료 기준은 [`structure/QUALITY_MVP_ACCEPTANCE.md`](structure
 | --- | --- | --- | --- |
 | 레벨업 | 구현됨·검증 대기 | `POST /characters/:id/level-up`, 캐릭터 UI, feature snapshot, HP/PB/ASI 반영 | 서브클래스 선택 레벨과 주문 갱신 경계, 세션 snapshot 동기화, 실제 UI 완주 |
 | 주문 준비 | 구현됨·검증 대기 | `PATCH /characters/:id/prepared-spells`, 클래스/능력치 기반 준비 수 제한, prepared/known caster 분리, 전투 UI 필터, long rest 후 준비 주문 변경 안내 | 전체 직업 회귀 검증, 브라우저에서 long rest→준비 주문 변경 완주 |
-| short/long rest | 구현됨·검증 대기 | 전용 REST API, HUMAN GM 승인 API/UI, 구조화 `restApproval` 요청/승인 응답과 FE 즉시 반영, snapshot `pendingRestApprovals` 재접속 projection, 전투 중 차단, 자원/슬롯/상태 회복 | 승인 거절/취소/만료, 브라우저 재접속 복원 검증, 전체 로그와 권한 검증 |
+| short/long rest | 구현됨·검증 대기 | 전용 REST API, HUMAN GM 승인·거절·요청자 취소 API/UI, 24시간 승인 만료 정책, 구조화 `restApproval` 요청/결정 응답과 FE 즉시 반영, snapshot `pendingRestApprovals` 재접속 projection, 전투 중 실행 차단, 자원/슬롯/상태 회복 | 브라우저 재접속 복원 검증, 전체 로그와 권한 검증 |
 | 상태/내성 | 부분 연결 | command, 지형, 주문/몬스터 rider, 턴/휴식 lifecycle 일부 | 모든 피해·공격·턴 hook과 구조화 condition instance 일치 |
 | 엄폐 | 부분 연결 | VTT object/wall/door 기반 공격 보정, 직접 대상 주문 full cover 차단, Sleep/Fireball AoE full cover 처리, Dex-save AoE 엄폐 보너스, smoke cover map, 전투 주문 targeting hint | 모든 ranged weapon/monster action과 정밀 UI target preview 경로 통일 |
-| 집중 | 부분 연결 | 여러 피해 경로의 concentration save와 해제, 구조화 concentration 전투 응답, 참가자 관찰 UI 표시 | 모든 피해 원천과 공통 damage finalizer 통일, 집중 주문·연결 효과 실행 범위 확대, 종료 이유 추적 |
+| 집중 | 구현됨·검증 대기 | 현재 전투 피해 원천의 공통 damage finalizer, concentration save와 해제, 구조화 concentration 전투 응답, 참가자 관찰 UI 표시 | 집중 주문·연결 효과 실행 범위 확대, 종료 이유 추적, 사용자 회귀 검증 |
 | 강제이동 | 구현됨·검증 대기 | `POST /combat/force-move`, 지형 진입 효과, GM UI, ready trigger 반환 | 주문/몬스터 rider가 같은 경로 사용, 충돌·낙하·기회공격 예외 검증 |
 | AoE | 부분 연결 | sphere 중심 Fireball/Sleep, 대상별 save/피해, Sleep full cover 제외, Fireball 원점 기준 엄폐 보정, command 경로, 전투 UI 원점 선택 안내 | cone/line/cube 실제 주문 연결, 시각적 AoE preview와 서버 결과 일치 |
 | 준비행동 | 구현됨·검증 대기 | pending 저장, 이동 trigger, reaction prompt UI, accept/decline, 일부 held action 실행 | 공격/주문/턴 이벤트 trigger 확대, 모든 held action 비용과 만료 규칙 |
 | MVP 주문 | 구현됨·검증 대기 | 9개 전투 주문과 slot 선택/upcast UI | 공통 executor 비율 확대, concentration/buff/debuff/utility 대표 주문 추가 |
 | 몬스터 능력 | 부분 연결 | catalog/SRD 후보, HUMAN/AI 공통 선택, recharge, multiattack, save/condition rider, limited use 기반 | aura, 지속 효과, 복합 target, 모든 사용량 UI/로그/회복 검증 |
 | 아이템/VTT object | 구현됨·검증 대기 | drop/pickup/throw, map object UI, inventory+map transaction, `GameState.version` 기반 동시 변경 차단 | 동시 pickup 실제 회귀 검증, 던지기 명중/빗나감 착지, container/capacity 원자성 |
-| 지형 | 부분 연결 | terrainEffectId, 이동 비용, 진입/턴 시작 피해·상태, obscurement, UI 시각화 | 종료 turn hook, elevation/미끄러짐, 시야·엄폐와 복합 효과 검증 |
+| 지형 | 부분 연결 | terrainEffectId, 이동 비용, 진입/턴 시작/턴 종료/이탈 피해·상태 lifecycle, 겹친 damage packet, 구조화 API/UI 로그, obscurement | elevation/미끄러짐 정밀 결과, 시야·엄폐와 복합 효과 검증 |
 | HUMAN GM override | 부분 연결 | 메시지, 공개, 지급, 상태, 노드, 전투 시작/종료와 TurnLog/StateDiff, HUMAN 모드·지정 GM·JOINED GM/HOST 참가자 권한 helper | HP/DC/아이템 회수 등 남은 조작, private note projection, 전 권한 회귀 |
 | smoke scenario | 구현됨·검증 대기 | 휴식→함정/내성→엄폐→AoE→상태/아이템→HUMAN GM 노드 seed | 실제 DB/API/브라우저에서 AI/HUMAN 각각 완주한 증거 |
 
@@ -183,25 +189,30 @@ P0는 새로운 카탈로그 종류를 늘리는 단계가 아니다. 현재 구
 - `POST /sessions/:sessionId/actions/rest/short`
 - `POST /sessions/:sessionId/actions/rest/long`
 - `POST /sessions/:sessionId/actions/rest/requests/:actionId/approve`
+- `POST /sessions/:sessionId/actions/rest/requests/:actionId/reject`
+- `POST /sessions/:sessionId/actions/rest/requests/:actionId/cancel`
 
 현재 구현:
 
 - AI GM/일반 허용 경로와 HUMAN GM 승인 대기 경로가 있다.
-- HUMAN GM 화면에 승인 배너가 있다.
+- HUMAN GM 화면에 승인·거절 배너가 있다.
 - 전투 중 휴식 요청과 승인 시도를 차단한다.
 - 승인 전환은 `REJECTED + REST_REQUIRES_GM_APPROVAL` 조건부 update를 사용해 중복 GM 승인을 차단한다.
-- 휴식 요청/승인 API 응답은 `restApproval` 구조화 metadata를 반환하고, FE는 해당 응답을 즉시 로그 metadata로 반영해 HUMAN GM 승인 배너/버튼을 갱신한다.
+- GM 거절은 같은 조건부 claim으로 원본 요청을 `FAILED + REST_REJECTED_BY_GM`으로 종결하고 GM 행위자가 포함된 결정 TurnLog를 남긴다.
+- 요청자 취소는 원본 요청 소유자만 가능하며 `FAILED + REST_CANCELLED_BY_REQUESTER`로 종결하고 결정 TurnLog를 남긴다.
+- 승인 대기는 요청 생성 후 24시간에 만료된다. snapshot은 만료 요청을 투영하지 않으며, 늦은 결정 요청은 원본 action을 `FAILED + REST_APPROVAL_EXPIRED`로 종결하고 자동 결정 TurnLog를 남긴다.
+- 휴식 요청/승인/거절/취소 API 응답은 `restApproval` 구조화 metadata를 반환하고, FE는 해당 응답을 즉시 로그 metadata로 반영해 GM 결정 배너와 요청자 취소 배너를 갱신한다.
 - snapshot은 미처리 HUMAN GM 휴식 요청을 `pendingRestApprovals` projection으로 제공하고, FE는 로그 metadata와 snapshot projection을 합쳐 승인 배너를 복원한다.
+- 요청·승인 실행·거절·취소·만료 로그는 같은 `playerActionId`를 유지하며, FE는 후속 결정 로그를 받으면 이전 `gm_required` 배너를 즉시 종료한다.
 - TurnLog 기반 복원도 유지되어 과거 로그와 즉시 응답 로그가 같은 `actionId`를 가리키면 FE에서 중복 배너를 제거한다.
 - hit dice, HP, class resource, spell slot override, rest-bound condition, 일부 monster limited use 회복 경로가 있다.
+- 실행된 휴식의 TurnLog `structuredAction.restResult`는 HP/temp HP, 제거 condition, class resource, hit dice, 주문 슬롯의 before/after와 회복 태그를 한 결과로 기록한다. 캐릭터 HP/condition 변경은 기존 `StateDiff`에도 함께 남는다.
 
 남은 작업:
 
-1. 승인뿐 아니라 거절/취소/만료 정책을 정한다.
-2. 같은 요청의 중복 승인은 현재 조건부 claim으로 차단하며, 다른 GM/플레이어 권한 회귀와 브라우저 피드백을 검증한다.
-3. long rest 후 prepared spell 변경 가능 안내가 실제 플레이 화면에서 보이는지 브라우저로 검증한다.
-4. 휴식 결과의 HP, hit dice, slot, class resource, condition diff를 한 결과로 기록한다.
-5. 재접속한 HUMAN GM이 `pendingRestApprovals` 기반 배너를 보는지 브라우저에서 확인한다.
+1. 같은 요청의 중복 결정은 현재 조건부 claim으로 차단하며, 다른 GM/플레이어 권한 회귀와 브라우저 피드백을 검증한다.
+2. long rest 후 prepared spell 변경 가능 안내가 실제 플레이 화면에서 보이는지 브라우저로 검증한다.
+3. 재접속한 HUMAN GM과 요청자가 `pendingRestApprovals` 기반 배너를 보는지 브라우저에서 확인한다.
 
 완료 기준:
 
@@ -412,15 +423,28 @@ P1 이후 목표:
 - `terrain.burning`
 - `terrain.poison_cloud`
 
+현재 hook 계약:
+
+- `trigger:on_enter`는 normal/forced movement의 공통 cell-enter 경로에서만 실행한다.
+- `trigger:on_turn_start`는 해당 지형 위에서 턴을 시작한 참여자에게만 실행한다.
+- `trigger:on_exit`는 출발 셀에는 있고 도착 셀에는 없는 effect에 실행하며, poison cloud가 만든 poisoned만 해제한다.
+- `trigger:on_turn_end`는 terrain burning condition의 `damage_over_time:fire:1d6` packet을 공통 damage finalizer로 처리한다.
+- burning은 enter/start/end, poison cloud는 enter/start/exit trigger를 가지며 hazardous/slippery는 진입 trigger만 가진다.
+- 두 피해 hook은 공통 combat damage finalizer를 사용해 HP, 생존 상태, 집중 판정을 함께 처리한다.
+- 겹친 서로 다른 피해 지형은 effect id별 damage packet을 각각 한 번 적용하고 합산 피해로 집중 판정을 한 번 수행한다.
+- 같은 effect id의 여러 셀을 한 이동에서 통과할 때는 save·피해·condition을 한 번만 적용하며, 결과는 맵 셀 배열 순서에 의존하지 않는다.
+- normal/forced movement와 turn-start/turn-end API는 trigger, effect id, 피해 유형·굴림·합계, condition 적용·해제, 집중 유지 여부를 구조화해 반환하고 플레이 UI 로그에 지형 결과를 표시한다.
+- turn-start/turn-end 지형 lifecycle은 `turn_terrain_lifecycle` TurnLog로 저장·브로드캐스트되어 요청자뿐 아니라 다른 참가자와 재접속 로그에서도 복원된다.
+
 남은 작업:
 
 1. normal movement와 forced movement가 같은 cell-enter hook을 사용한다.
-2. 턴 시작/턴 종료/지형 이탈 hook을 분리한다.
+2. turn-end/exit effect를 시나리오 smoke에서 실제 플레이 검증한다.
 3. difficult terrain의 이동 비용이 UI 표시와 서버 차감에서 일치하게 한다.
 4. obscurement를 attack advantage/disadvantage, line of sight, target visibility에 연결한다.
 5. elevation을 거리, 엄폐, 낙하와 연결할 최소 MVP 규칙을 정한다.
 6. slippery terrain은 save와 prone/forced stop 같은 명시적 결과를 가진다.
-7. 여러 terrain cell이 겹칠 때 합성 순서와 중복 피해 정책을 고정한다.
+7. 지형 결과 로그의 다국어 label과 시각적 강조를 정리한다.
 
 완료 기준:
 

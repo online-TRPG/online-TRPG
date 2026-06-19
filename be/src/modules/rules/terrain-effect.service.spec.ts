@@ -18,7 +18,14 @@ describe("TerrainEffectService", () => {
       terrainEffectId: "terrain.poison_cloud",
       saveDc: 13,
       damage: { dice: "1d6", type: "poison" },
+      damagePackets: [
+        { sourceEffectId: "terrain.poison_cloud", dice: "1d6", type: "poison" },
+      ],
       conditionTags: ["condition.poisoned"],
+      runtimeTags: expect.arrayContaining([
+        "trigger:on_exit",
+        "condition_ends:on_exit",
+      ]),
     });
   });
 
@@ -46,15 +53,52 @@ describe("TerrainEffectService", () => {
       heavilyObscured: true,
       saveDc: 12,
       damage: { dice: "1d6", type: "fire" },
+      damagePackets: [
+        { sourceEffectId: "terrain.burning", dice: "1d6", type: "fire" },
+      ],
       conditionTags: ["condition.burning"],
       runtimeTags: [
         "movement:difficult_terrain",
         "trigger:on_enter",
+        "trigger:on_turn_start",
+        "trigger:on_turn_end",
         "damage:fire",
+        "damage_over_time:fire:1d6",
         "condition:burning",
         "vision:obscured",
       ],
     });
+  });
+
+  it("combines one damage packet per distinct terrain effect independent of input order", () => {
+    const forward = service.resolveCombinedEffects([
+      "terrain.poison_cloud",
+      "terrain.burning",
+      "terrain.poison_cloud",
+    ]);
+    const reverse = service.resolveCombinedEffects([
+      "terrain.burning",
+      "terrain.poison_cloud",
+    ]);
+
+    expect(forward.damagePackets).toEqual([
+      { sourceEffectId: "terrain.burning", dice: "1d6", type: "fire" },
+      { sourceEffectId: "terrain.poison_cloud", dice: "1d6", type: "poison" },
+    ]);
+    expect(reverse.damagePackets).toEqual(forward.damagePackets);
+  });
+
+  it("separates movement-only and persistent terrain triggers", () => {
+    const slippery = service.resolveEffect("terrain.slippery");
+    const burning = service.resolveEffect("terrain.burning");
+    const poisonCloud = service.resolveEffect("terrain.poison_cloud");
+
+    expect(slippery && service.supportsTrigger(slippery, "on_enter")).toBe(true);
+    expect(slippery && service.supportsTrigger(slippery, "on_turn_start")).toBe(false);
+    expect(burning && service.supportsTrigger(burning, "on_turn_start")).toBe(true);
+    expect(burning && service.supportsTrigger(burning, "on_turn_end")).toBe(true);
+    expect(poisonCloud && service.supportsTrigger(poisonCloud, "on_turn_start")).toBe(true);
+    expect(poisonCloud && service.supportsTrigger(poisonCloud, "on_exit")).toBe(true);
   });
 
   it("lists the roadmap terrain effects", () => {

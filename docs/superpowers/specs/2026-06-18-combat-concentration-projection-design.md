@@ -21,7 +21,7 @@
 - `CombatService.mapCombat()`의 참가자별 집중 상태 투영
 - 참가자 상태 관찰 문구와 전투 UI 표시
 - 서버 단위 스펙과 프런트 타입 빌드·수동 확인
-- `doc/future_plan.md` 구현 상태 갱신
+- `doc/future_plan_mvp.md` 구현 상태 갱신
 
 제외:
 
@@ -147,4 +147,4 @@ npm run build -w @trpg/fe
 - `be/src/modules/combat/combat.service.spec.ts`
 - `fe/src/features/sessionPlay/utils/combatParticipantObservation.ts`
 - `fe/src/features/sessionPlay/components/CombatNodeSurface.tsx`
-- `doc/future_plan.md`
+- `doc/future_plan_mvp.md`

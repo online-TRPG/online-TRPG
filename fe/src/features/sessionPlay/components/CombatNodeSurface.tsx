@@ -101,6 +101,10 @@ interface CombatNodeSurfaceProps {
     conditionId: string,
     operation: 'add' | 'remove'
   ) => void | Promise<void>;
+  onAdjustHp?: (
+    targetTokenOrParticipantId: string,
+    currentHp: number
+  ) => void | Promise<void>;
   onForceMoveParticipant?: (
     targetParticipantId: string,
     mode: ForcedMovementMode,
@@ -721,6 +725,7 @@ export function CombatNodeSurface({
   onHide,
   onReadyAction,
   onApplyCondition,
+  onAdjustHp,
   onForceMoveParticipant,
   onUseClassFeature,
   onCastSpell,
@@ -738,6 +743,7 @@ export function CombatNodeSurface({
   const [isAttackTargeting, setAttackTargeting] = useState(false);
   const [isSneakAttackTargeting, setSneakAttackTargeting] = useState(false);
   const [targetingSpellId, setTargetingSpellId] = useState<string | null>(null);
+  const [gmHpValue, setGmHpValue] = useState(0);
   const [spellSlotLevelBySpellId, setSpellSlotLevelBySpellId] = useState<Record<string, number>>({});
   const [gmForcedMovementDistanceFt, setGmForcedMovementDistanceFt] = useState(10);
   const [targetingMonsterActionId, setTargetingMonsterActionId] = useState<string | null>(null);
@@ -1078,6 +1084,16 @@ export function CombatNodeSurface({
       selectedTargetParticipant?.isAlive &&
       !isCombatBusy
   );
+  const canAdjustGmHp = Boolean(
+    isGmView &&
+      onAdjustHp &&
+      selectedConditionTargetId &&
+      selectedTargetParticipant &&
+      !isCombatBusy
+  );
+  useEffect(() => {
+    setGmHpValue(selectedTargetParticipant?.currentHp ?? 0);
+  }, [selectedTargetParticipant?.currentHp, selectedTargetParticipant?.sessionEntityId]);
   const activeActorToken = activeCombatActor
     ? getMapToken(getParticipantTokenId(activeCombatActor))
     : null;
@@ -2051,6 +2067,38 @@ export function CombatNodeSurface({
                         );
                       })
                     : null}
+                  {isGmView ? (
+                    <>
+                      <label className="combat-spell-slot-select" title="대상 HP 직접 조정">
+                        <span>HP</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={selectedTargetParticipant?.maxHp ?? undefined}
+                          value={gmHpValue}
+                          disabled={!canAdjustGmHp}
+                          onChange={(event) => setGmHpValue(Number(event.target.value))}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="combat-action-button has-action-icon"
+                        disabled={!canAdjustGmHp}
+                        title={
+                          selectedTargetParticipant
+                            ? `${selectedTargetParticipant.name}의 HP를 ${gmHpValue}(으)로 조정합니다.`
+                            : 'HP를 조정할 토큰을 선택하세요.'
+                        }
+                        onClick={() => {
+                          if (canAdjustGmHp && selectedConditionTargetId) {
+                            void onAdjustHp?.(selectedConditionTargetId, gmHpValue);
+                          }
+                        }}
+                      >
+                        <CombatActionButtonContent label="HP 적용" />
+                      </button>
+                    </>
+                  ) : null}
                   {isGmView
                     ? (
                         <>

@@ -1,8 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import {
-  MainCommandCheckOptionDto,
-  MainCommandStatus,
-} from "@trpg/shared-types";
+import { MainCommandCheckOptionDto, MainCommandStatus } from "@trpg/shared-types";
 import { SessionsService } from "./sessions.service";
 
 type MapPoint = { x: number; y: number };
@@ -36,18 +33,20 @@ export class VttMapObjectRuntimeService {
       };
     }
 
-    const reveal = await this.sessionsService.revealVttObjectContentsAtPoint({
+    const reveal = (await this.sessionsService.revealVttObjectContentsAtPoint({
       sessionId: params.sessionId,
       sessionScenarioId: params.sessionScenarioId,
       nodeId: params.nodeId,
       mapPoint: params.mapPoint,
       sessionCharacterId: params.actorSessionCharacterId,
       revealedBy: "player",
-    });
+    })) as {
+      count: number;
+      revealedClues: Array<{ title: string }>;
+      revealedItems: Array<{ name: string; description?: string | null }>;
+    };
     const revealSummary = [
-      reveal.revealedClues.length
-        ? `단서 ${reveal.revealedClues.map((clue) => clue.title).join(", ")}`
-        : null,
+      reveal.revealedClues.length ? `단서 ${reveal.revealedClues.map((clue) => clue.title).join(", ")}` : null,
       reveal.revealedItems.length
         ? `인벤토리에 추가된 아이템 ${reveal.revealedItems
             .map((item) => (item.description?.trim() ? `${item.name} (${item.description.trim()})` : item.name))
@@ -74,20 +73,11 @@ export class VttMapObjectRuntimeService {
     const observed = await this.sessionsService.revealObservableVttObjectsInPartyVision(params);
     return {
       status: observed.count > 0 ? MainCommandStatus.RESOLVED : MainCommandStatus.MESSAGE,
-      message:
-        observed.count > 0
-          ? `시야 안에서 수상한 오브젝트를 발견했습니다: ${observed.objectNames.join(", ")}.`
-          : "새로 발견한 위험 요소는 없습니다.",
+      message: observed.count > 0 ? `시야 안에서 수상한 오브젝트를 발견했습니다: ${observed.objectNames.join(", ")}.` : "새로 발견한 위험 요소는 없습니다.",
     };
   }
 
-  triggerEventAtPoint(params: {
-    sessionId: string;
-    sessionScenarioId: string;
-    nodeId: string;
-    mapPoint: MapPoint;
-    includeHiddenObject?: boolean;
-  }): Promise<{
+  triggerEventAtPoint(params: { sessionId: string; sessionScenarioId: string; nodeId: string; mapPoint: MapPoint; includeHiddenObject?: boolean }): Promise<{
     status: MainCommandStatus;
     message: string;
   }> {

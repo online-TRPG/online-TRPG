@@ -489,8 +489,23 @@ const TERRAIN_EFFECT_DEFINITIONS: RuleCatalogEntry[] = [
   terrainEffect("terrain.obscurement", ["vision:obscured"]),
   terrainEffect("terrain.elevation", ["position:elevated"]),
   terrainEffect("terrain.slippery", ["trigger:on_enter", "save:dex", "condition:prone"]),
-  terrainEffect("terrain.burning", ["trigger:on_enter", "damage:fire", "condition:burning"]),
-  terrainEffect("terrain.poison_cloud", ["trigger:on_enter", "save:con", "damage:poison", "condition:poisoned"]),
+  terrainEffect("terrain.burning", [
+    "trigger:on_enter",
+    "trigger:on_turn_start",
+    "trigger:on_turn_end",
+    "damage:fire",
+    "damage_over_time:fire:1d6",
+    "condition:burning",
+  ]),
+  terrainEffect("terrain.poison_cloud", [
+    "trigger:on_enter",
+    "trigger:on_turn_start",
+    "trigger:on_exit",
+    "save:con",
+    "damage:poison",
+    "condition:poisoned",
+    "condition_ends:on_exit",
+  ]),
 ];
 
 const SPELL_DEFINITIONS: RuleCatalogEntry[] = [

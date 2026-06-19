@@ -81,8 +81,9 @@ export class ActionAcceptedResponseDto {
   restApproval?: {
     actionId: string;
     restType: "short" | "long" | null;
-    status: "gm_required" | "approved";
+    status: "gm_required" | "approved" | "rejected" | "cancelled" | "expired";
     hitDiceToSpend?: number | null;
+    expiresAt?: string | null;
   } | null;
 }
 
@@ -664,6 +665,40 @@ export class EndTurnDto {
   force?: boolean;
 }
 
+export class CombatTerrainDamagePacketDto {
+  @ApiProperty()
+  sourceEffectId!: string;
+
+  @ApiProperty()
+  damageType!: string;
+
+  @ApiProperty()
+  expression!: string;
+
+  @ApiProperty()
+  total!: number;
+}
+
+export class CombatTerrainEffectResultDto {
+  @ApiProperty({ enum: ["on_enter", "on_turn_start", "on_turn_end", "on_exit"] })
+  trigger!: "on_enter" | "on_turn_start" | "on_turn_end" | "on_exit";
+
+  @ApiProperty()
+  damageTotal!: number;
+
+  @ApiProperty({ type: [CombatTerrainDamagePacketDto] })
+  damagePackets!: CombatTerrainDamagePacketDto[];
+
+  @ApiProperty({ type: [String] })
+  appliedConditionTags!: string[];
+
+  @ApiProperty({ type: [String] })
+  removedConditionTags!: string[];
+
+  @ApiPropertyOptional({ nullable: true })
+  concentrationMaintained!: boolean | null;
+}
+
 export class TurnAdvanceResponseDto {
   @ApiProperty()
   combatId!: string;
@@ -679,6 +714,15 @@ export class TurnAdvanceResponseDto {
 
   @ApiProperty()
   turnNo!: number;
+
+  @ApiPropertyOptional()
+  message?: string;
+
+  @ApiPropertyOptional({ type: CombatTerrainEffectResultDto, nullable: true })
+  terrainEffects?: CombatTerrainEffectResultDto | null;
+
+  @ApiPropertyOptional({ type: CombatTerrainEffectResultDto, nullable: true })
+  turnEndTerrainEffects?: CombatTerrainEffectResultDto | null;
 }
 
 export class ApplyCombatDamageDto {
@@ -861,6 +905,9 @@ export class CombatMoveResultDto {
 
   @ApiPropertyOptional()
   movementCostFt?: number;
+
+  @ApiPropertyOptional({ type: CombatTerrainEffectResultDto, nullable: true })
+  terrainEffects?: CombatTerrainEffectResultDto | null;
 }
 
 export class AutoMonsterTurnDto {
