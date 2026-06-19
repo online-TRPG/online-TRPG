@@ -8,7 +8,7 @@
     "srd-data"
   ],
   "scripts": {
-    "build": "npm run build -w @trpg/shared-types && npm run build -w @trpg/srd-data && npm run sync:fe:srd && npm run build -w @trpg/be && npm run build -w @trpg/fe",
+    "build": "npm run build -w @trpg/shared-types && echo [build] @trpg/shared-types completed && npm run build -w @trpg/srd-data && npm run sync:fe:srd && npm run build -w @trpg/be && echo [build] @trpg/be completed && npm run build -w @trpg/fe",
     "dev": "npm run build -w @trpg/shared-types && npm run build -w @trpg/srd-data && npm run start:dev -w @trpg/be",
     "dev:be": "npm run build -w @trpg/shared-types && npm run build -w @trpg/srd-data && npm run start:dev -w @trpg/be",
     "dev:fe": "npm run sync:fe:srd && npm run dev -w @trpg/fe",
