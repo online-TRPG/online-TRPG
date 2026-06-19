@@ -1,4 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
+import type { SpellcastingProgressionEntry } from "../../constants/spellcasting-progression";
 
 export class ItemResponseDto {
   @ApiProperty()
@@ -71,4 +72,7 @@ export class ClassDefinitionResponseDto {
     description: "선택해야 할 숙련 스킬 개수. 0이면 검증 없음 (시드에 없는 legacy 클래스).",
   })
   skillChoiceCount!: number;
+
+  @ApiProperty({ type: [Object] })
+  spellcastingProgression?: SpellcastingProgressionEntry[];
 }

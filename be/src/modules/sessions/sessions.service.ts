@@ -26,19 +26,25 @@ import {
 import {
   ApplyHumanGmCombatConditionDto,
   AdjustHumanGmCombatHpDto,
+  AcceptHumanGmAiAssistSuggestionDto,
   CombatEntityType,
   CombatResponseDto,
   CombatStatus,
   ConnectionStatus,
   ActionOutcome,
+  CreateHumanGmAiAssistSuggestionDto,
   CreateSessionDto,
   CreateVttMapPingDto,
   DiceAdvantageState,
   GameStateResponseDto,
   GmMode,
   GrantHumanGmInventoryItemDto,
+  RemoveHumanGmInventoryItemDto,
   HumanGmNodeMoveOptionDto,
   HumanGmMessageDto,
+  HumanGmAiAssistSuggestionDto,
+  SetHumanGmDifficultyClassDto,
+  HumanGmPrivateNoteDto,
   InventoryItemDto,
   JoinSessionDto,
   MainCommandCheckOptionDto,
@@ -186,6 +192,7 @@ export class SessionsService {
       buildSnapshot: this.buildSnapshot.bind(this),
       parseJson: this.parseJson.bind(this),
       grantSessionInventoryItem: this.grantSessionInventoryItem.bind(this),
+      removeSessionInventoryItem: this.removeSessionInventoryItem.bind(this),
       refreshSessionInventorySnapshot: this.refreshSessionInventorySnapshot.bind(this),
       conditionRuntime: this.conditionRuntime,
       concentrationRuntime: this.concentrationRuntime,
@@ -1615,6 +1622,152 @@ export class SessionsService {
     return this.humanGmRuntime.grantHumanGmInventoryItem(this.createHumanGmRuntime(), userId, sessionId, dto);
   }
 
+  async removeHumanGmInventoryItem(userId: string, sessionId: string, dto: RemoveHumanGmInventoryItemDto): Promise<SessionSnapshotDto> {
+    return this.humanGmRuntime.removeHumanGmInventoryItem(this.createHumanGmRuntime(), userId, sessionId, dto);
+  }
+
+  async setHumanGmDifficultyClass(userId: string, sessionId: string, dto: SetHumanGmDifficultyClassDto): Promise<SessionSnapshotDto> {
+    return this.humanGmRuntime.setHumanGmDifficultyClass(this.createHumanGmRuntime(), userId, sessionId, dto);
+  }
+
+  async listHumanGmPrivateNotes(userId: string, sessionId: string): Promise<HumanGmPrivateNoteDto[]> {
+    const session = await this.getHumanGmSessionForOperator(userId, sessionId);
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(session.id);
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: activeScenario.id },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const notes = Array.isArray(flags.gmPrivateNotes) ? flags.gmPrivateNotes : [];
+    return notes
+      .filter((note): note is HumanGmPrivateNoteDto => this.isHumanGmPrivateNote(note))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async createHumanGmAiAssistSuggestion(
+    userId: string,
+    sessionId: string,
+    dto: CreateHumanGmAiAssistSuggestionDto,
+  ): Promise<HumanGmAiAssistSuggestionDto> {
+    const session = await this.getHumanGmSessionForOperator(userId, sessionId);
+    if (session.status === PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("Started sessions are required for GM AI assist suggestions.");
+    }
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(session.id);
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: activeScenario.id },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const suggestion: HumanGmAiAssistSuggestionDto = {
+      id: `ai-assist:${randomUUID()}`,
+      assistType: dto.assistType,
+      content: dto.content.trim(),
+      suggestedActionId: dto.suggestedActionId?.trim() || null,
+      targetId: dto.targetId?.trim() || null,
+      status: "PENDING",
+      createdByUserId: userId,
+      acceptedByUserId: null,
+      createdAt: new Date().toISOString(),
+      acceptedAt: null,
+    };
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: activeScenario.id },
+      data: {
+        flagsJson: JSON.stringify(this.appendHumanGmAiAssistSuggestion(flags, suggestion)),
+      },
+    });
+
+    return suggestion;
+  }
+
+  async listHumanGmAiAssistSuggestions(
+    userId: string,
+    sessionId: string,
+  ): Promise<HumanGmAiAssistSuggestionDto[]> {
+    const session = await this.getHumanGmSessionForOperator(userId, sessionId);
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(session.id);
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: activeScenario.id },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    return this.getHumanGmAiAssistSuggestions(flags)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async acceptHumanGmAiAssistSuggestion(
+    userId: string,
+    sessionId: string,
+    dto: AcceptHumanGmAiAssistSuggestionDto,
+  ): Promise<SessionSnapshotDto> {
+    const session = await this.getHumanGmSessionForOperator(userId, sessionId);
+    if (session.status === PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("Started sessions are required for GM AI assist acceptance.");
+    }
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(session.id);
+    const initialState = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: activeScenario.id },
+      select: { flagsJson: true },
+    });
+    const initialFlags = this.parseJson<Record<string, unknown>>(initialState?.flagsJson, {});
+    const suggestion = this.getHumanGmAiAssistSuggestions(initialFlags).find((candidate) => candidate.id === dto.suggestionId);
+    if (!suggestion) {
+      throw new NotFoundException("승인할 AI assist 제안을 찾을 수 없습니다.");
+    }
+    if (suggestion.status !== "PENDING") {
+      throw new ConflictException("이미 처리된 AI assist 제안입니다.");
+    }
+
+    const gmTurnLog = await this.prisma.$transaction(async (tx) => {
+      const currentState = await tx.gameState.findUnique({
+        where: { sessionScenarioId: activeScenario.id },
+        select: { flagsJson: true },
+      });
+      const currentFlags = this.parseJson<Record<string, unknown>>(currentState?.flagsJson, {});
+      const currentSuggestion = this.getHumanGmAiAssistSuggestions(currentFlags).find((candidate) => candidate.id === dto.suggestionId);
+      if (!currentSuggestion) {
+        throw new NotFoundException("승인할 AI assist 제안을 찾을 수 없습니다.");
+      }
+      if (currentSuggestion.status !== "PENDING") {
+        throw new ConflictException("이미 처리된 AI assist 제안입니다.");
+      }
+      const acceptedLog = await this.createHumanGmOverrideTurnLog({
+        tx,
+        kind: "ai_assist_accept",
+        sessionId: session.id,
+        sessionScenarioId: activeScenario.id,
+        gmUserId: userId,
+        publicNarration: dto.publicNarration?.trim() || "GM이 AI assist 제안을 승인했습니다.",
+        privateNote: dto.privateNote,
+        metadata: {
+          assistType: currentSuggestion.assistType,
+          suggestionId: currentSuggestion.id,
+          suggestedActionId: currentSuggestion.suggestedActionId,
+          targetId: currentSuggestion.targetId,
+        },
+      });
+      const mergedState = await tx.gameState.findUnique({
+        where: { sessionScenarioId: activeScenario.id },
+        select: { flagsJson: true },
+      });
+      const mergedFlags = this.parseJson<Record<string, unknown>>(mergedState?.flagsJson, {});
+      await tx.gameState.update({
+        where: { sessionScenarioId: activeScenario.id },
+        data: {
+          flagsJson: JSON.stringify(this.markHumanGmAiAssistSuggestionAccepted(mergedFlags, currentSuggestion.id, userId)),
+        },
+      });
+      return acceptedLog;
+    });
+
+    const snapshot = await this.buildSnapshot(session.id);
+    this.realtimeEvents.emitTurnLogCreated(session.id, gmTurnLog.turnLog);
+    this.realtimeEvents.emitSessionSnapshot(session.id, snapshot);
+    return snapshot;
+  }
+
   async applyHumanGmCombatCondition(userId: string, sessionId: string, dto: ApplyHumanGmCombatConditionDto): Promise<SessionSnapshotDto> {
     return this.humanGmRuntime.applyHumanGmCombatCondition(this.createHumanGmRuntime(), userId, sessionId, dto);
   }
@@ -2231,10 +2384,11 @@ export class SessionsService {
       orderBy: { turnNumber: "desc" },
       select: { turnNumber: true },
     });
-    const state = resolution.stateDiff
+    const privateNote = params.privateNote?.trim() || null;
+    const state = resolution.stateDiff || privateNote
       ? await client.gameState.findUnique({
           where: { sessionScenarioId: params.sessionScenarioId },
-          select: { version: true },
+          select: { version: true, flagsJson: true },
         })
       : null;
     const baseVersion = state?.version ?? 1;
@@ -2262,11 +2416,28 @@ export class SessionsService {
       },
     });
 
-    if (stateDiff) {
+    const nextFlagsJson = privateNote
+      ? JSON.stringify(this.appendHumanGmPrivateNote(this.parseJson<Record<string, unknown>>(state?.flagsJson, {}), {
+          id: `gm-note:${created.id}`,
+          turnLogId: created.id,
+          kind: params.kind,
+          targetId: resolution.turnLog.structuredAction.targetId,
+          note: privateNote,
+          gmUserId: params.gmUserId,
+          createdAt: created.createdAt.toISOString(),
+        }))
+      : null;
+
+    if (stateDiff || nextFlagsJson) {
       await client.gameState.update({
         where: { sessionScenarioId: params.sessionScenarioId },
-        data: { version: nextVersion },
+        data: {
+          ...(stateDiff ? { version: nextVersion } : {}),
+          ...(nextFlagsJson ? { flagsJson: nextFlagsJson } : {}),
+        },
       });
+    }
+    if (stateDiff) {
       await client.stateDiff.create({
         data: {
           sessionScenarioId: params.sessionScenarioId,
@@ -2298,6 +2469,86 @@ export class SessionsService {
     };
 
     return { turnLog, stateDiff };
+  }
+
+  private appendHumanGmPrivateNote(flags: Record<string, unknown>, note: HumanGmPrivateNoteDto): Record<string, unknown> {
+    const currentNotes = Array.isArray(flags.gmPrivateNotes) ? flags.gmPrivateNotes.filter((value) => this.isHumanGmPrivateNote(value)) : [];
+    return {
+      ...flags,
+      gmPrivateNotes: [...currentNotes, note].slice(-100),
+    };
+  }
+
+  private isHumanGmPrivateNote(value: unknown): value is HumanGmPrivateNoteDto {
+    if (!value || typeof value !== "object") {
+      return false;
+    }
+    const candidate = value as Record<string, unknown>;
+    return (
+      typeof candidate.id === "string" &&
+      typeof candidate.turnLogId === "string" &&
+      typeof candidate.kind === "string" &&
+      (candidate.targetId === null || typeof candidate.targetId === "string") &&
+      typeof candidate.note === "string" &&
+      typeof candidate.gmUserId === "string" &&
+      typeof candidate.createdAt === "string"
+    );
+  }
+
+  private appendHumanGmAiAssistSuggestion(
+    flags: Record<string, unknown>,
+    suggestion: HumanGmAiAssistSuggestionDto,
+  ): Record<string, unknown> {
+    return {
+      ...flags,
+      humanGmAiAssistSuggestions: [...this.getHumanGmAiAssistSuggestions(flags), suggestion].slice(-100),
+    };
+  }
+
+  private markHumanGmAiAssistSuggestionAccepted(
+    flags: Record<string, unknown>,
+    suggestionId: string,
+    acceptedByUserId: string,
+  ): Record<string, unknown> {
+    const acceptedAt = new Date().toISOString();
+    const suggestions = this.getHumanGmAiAssistSuggestions(flags).map((suggestion) =>
+      suggestion.id === suggestionId
+        ? {
+            ...suggestion,
+            status: "ACCEPTED" as const,
+            acceptedByUserId,
+            acceptedAt,
+          }
+        : suggestion,
+    );
+    return {
+      ...flags,
+      humanGmAiAssistSuggestions: suggestions,
+    };
+  }
+
+  private getHumanGmAiAssistSuggestions(flags: Record<string, unknown>): HumanGmAiAssistSuggestionDto[] {
+    const suggestions = Array.isArray(flags.humanGmAiAssistSuggestions) ? flags.humanGmAiAssistSuggestions : [];
+    return suggestions.filter((suggestion): suggestion is HumanGmAiAssistSuggestionDto => this.isHumanGmAiAssistSuggestion(suggestion));
+  }
+
+  private isHumanGmAiAssistSuggestion(value: unknown): value is HumanGmAiAssistSuggestionDto {
+    if (!value || typeof value !== "object") {
+      return false;
+    }
+    const candidate = value as Record<string, unknown>;
+    return (
+      typeof candidate.id === "string" &&
+      typeof candidate.assistType === "string" &&
+      typeof candidate.content === "string" &&
+      (candidate.suggestedActionId === null || typeof candidate.suggestedActionId === "string") &&
+      (candidate.targetId === null || typeof candidate.targetId === "string") &&
+      (candidate.status === "PENDING" || candidate.status === "ACCEPTED") &&
+      typeof candidate.createdByUserId === "string" &&
+      (candidate.acceptedByUserId === null || typeof candidate.acceptedByUserId === "string") &&
+      typeof candidate.createdAt === "string" &&
+      (candidate.acceptedAt === null || typeof candidate.acceptedAt === "string")
+    );
   }
 
   private async transitionHumanGmCombat(userId: string, sessionId: string, phase: PrismaGamePhase): Promise<void> {
@@ -2409,15 +2660,68 @@ export class SessionsService {
     });
   }
 
+  private async removeSessionInventoryItem(
+    tx: Prisma.TransactionClient,
+    params: {
+      sessionCharacterId: string;
+      itemId: string;
+      quantity: number;
+    },
+  ): Promise<{
+    itemDefinitionId: string;
+    itemName: string;
+    itemType: string;
+    removedQuantity: number;
+  }> {
+    const entry = await tx.inventoryEntry.findFirst({
+      where: {
+        sessionCharacterId: params.sessionCharacterId,
+        OR: [
+          { id: params.itemId },
+          { itemDefinitionId: params.itemId },
+          {
+            itemDefinition: {
+              is: {
+                OR: [
+                  { id: params.itemId },
+                  { name: { equals: params.itemId, mode: "insensitive" } },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      include: { itemDefinition: true },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!entry) {
+      throw new NotFoundException("회수할 인벤토리 아이템을 찾을 수 없습니다.");
+    }
+
+    const removedQuantity = Math.min(params.quantity, entry.quantity);
+    if (removedQuantity >= entry.quantity) {
+      await tx.inventoryEntry.delete({ where: { id: entry.id } });
+    } else {
+      await tx.inventoryEntry.update({
+        where: { id: entry.id },
+        data: { quantity: { decrement: removedQuantity } },
+      });
+    }
+
+    return {
+      itemDefinitionId: entry.itemDefinitionId,
+      itemName: entry.itemDefinition.name,
+      itemType: entry.itemDefinition.itemType,
+      removedQuantity,
+    };
+  }
+
   private async refreshSessionInventorySnapshot(sessionCharacterId: string, client: Prisma.TransactionClient | PrismaService = this.prisma): Promise<void> {
     const entries = await client.inventoryEntry.findMany({
       where: { sessionCharacterId },
       include: { itemDefinition: true },
       orderBy: { createdAt: "asc" },
     });
-    if (!entries.length) {
-      return;
-    }
 
     await client.sessionCharacter.update({
       where: { id: sessionCharacterId },

@@ -266,6 +266,12 @@ describe("SessionsService HUMAN GM messages", () => {
     expect(flagsUpdate.data.flagsJson).not.toContain("The scout is listening.");
     expect(turnLogCreate.data.structuredActionJson).not.toContain("The scout is listening.");
     expect(turnLogCreate.data.stateDiffJson).not.toContain("The scout is listening.");
+    expect(tx.gameState.update).toHaveBeenCalledWith({
+      where: { sessionScenarioId: "session-scenario-1" },
+      data: expect.objectContaining({
+        flagsJson: expect.stringContaining("The scout is listening."),
+      }),
+    });
     expect(realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith(
       "session-1",
       expect.objectContaining({
@@ -277,6 +283,314 @@ describe("SessionsService HUMAN GM messages", () => {
         }),
       }),
     );
+  });
+});
+
+describe("SessionsService HUMAN GM private notes", () => {
+  it("returns stored private notes only through the GM endpoint projection", async () => {
+    const prisma = {
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({
+          flagsJson: JSON.stringify({
+            gmPrivateNotes: [
+              {
+                id: "gm-note:2",
+                turnLogId: "turn-log-2",
+                kind: "set_dc",
+                targetId: "trap:needle",
+                note: "Needle trap DC is higher after alert.",
+                gmUserId: "gm-user",
+                createdAt: "2026-06-20T00:00:02.000Z",
+              },
+              {
+                id: "gm-note:1",
+                turnLogId: "turn-log-1",
+                kind: "scene_text",
+                targetId: null,
+                note: "Scout is listening.",
+                gmUserId: "gm-user",
+                createdAt: "2026-06-20T00:00:01.000Z",
+              },
+              { id: "broken" },
+            ],
+          }),
+        }),
+      },
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const serviceInternals = service as unknown as {
+      getHumanGmSessionForOperator: jest.Mock;
+      getActiveSessionScenarioEntityOrThrow: jest.Mock;
+    };
+    serviceInternals.getHumanGmSessionForOperator = jest
+      .fn()
+      .mockResolvedValue({ id: "session-1", status: "PLAYING" });
+    serviceInternals.getActiveSessionScenarioEntityOrThrow = jest
+      .fn()
+      .mockResolvedValue({ id: "session-scenario-1" });
+
+    await expect(service.listHumanGmPrivateNotes("gm-user", "session-1")).resolves.toEqual([
+      {
+        id: "gm-note:2",
+        turnLogId: "turn-log-2",
+        kind: "set_dc",
+        targetId: "trap:needle",
+        note: "Needle trap DC is higher after alert.",
+        gmUserId: "gm-user",
+        createdAt: "2026-06-20T00:00:02.000Z",
+      },
+      {
+        id: "gm-note:1",
+        turnLogId: "turn-log-1",
+        kind: "scene_text",
+        targetId: null,
+        note: "Scout is listening.",
+        gmUserId: "gm-user",
+        createdAt: "2026-06-20T00:00:01.000Z",
+      },
+    ]);
+    expect(serviceInternals.getHumanGmSessionForOperator).toHaveBeenCalledWith("gm-user", "session-1");
+  });
+});
+
+describe("SessionsService HUMAN GM AI assist suggestions", () => {
+  it("lists private suggestions for the authorized HUMAN GM in newest-first order", async () => {
+    const prisma = {
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({
+          flagsJson: JSON.stringify({
+            humanGmAiAssistSuggestions: [
+              {
+                id: "ai-assist:older",
+                assistType: "rules",
+                content: "Older suggestion",
+                suggestedActionId: null,
+                targetId: null,
+                status: "ACCEPTED",
+                createdByUserId: "gm-user",
+                acceptedByUserId: "gm-user",
+                createdAt: "2026-06-20T00:00:01.000Z",
+                acceptedAt: "2026-06-20T00:00:03.000Z",
+              },
+              {
+                id: "ai-assist:newer",
+                assistType: "scene_text",
+                content: "Newer suggestion",
+                suggestedActionId: null,
+                targetId: "node-1",
+                status: "PENDING",
+                createdByUserId: "gm-user",
+                acceptedByUserId: null,
+                createdAt: "2026-06-20T00:00:02.000Z",
+                acceptedAt: null,
+              },
+              { id: "broken" },
+            ],
+          }),
+        }),
+      },
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const serviceInternals = service as unknown as {
+      getHumanGmSessionForOperator: jest.Mock;
+      getActiveSessionScenarioEntityOrThrow: jest.Mock;
+    };
+    serviceInternals.getHumanGmSessionForOperator = jest
+      .fn()
+      .mockResolvedValue({ id: "session-1", status: "PLAYING" });
+    serviceInternals.getActiveSessionScenarioEntityOrThrow = jest
+      .fn()
+      .mockResolvedValue({ id: "session-scenario-1" });
+
+    await expect(service.listHumanGmAiAssistSuggestions("gm-user", "session-1")).resolves.toEqual([
+      expect.objectContaining({ id: "ai-assist:newer", status: "PENDING" }),
+      expect.objectContaining({ id: "ai-assist:older", status: "ACCEPTED" }),
+    ]);
+    expect(serviceInternals.getHumanGmSessionForOperator).toHaveBeenCalledWith("gm-user", "session-1");
+  });
+
+  it("stores suggestions without creating public audit logs or state diffs", async () => {
+    const prisma = {
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({
+          flagsJson: JSON.stringify({ gmMessages: [] }),
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      turnLog: {
+        create: jest.fn(),
+      },
+      stateDiff: {
+        create: jest.fn(),
+      },
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const serviceInternals = service as unknown as {
+      getHumanGmSessionForOperator: jest.Mock;
+      getActiveSessionScenarioEntityOrThrow: jest.Mock;
+    };
+    serviceInternals.getHumanGmSessionForOperator = jest
+      .fn()
+      .mockResolvedValue({ id: "session-1", status: "PLAYING" });
+    serviceInternals.getActiveSessionScenarioEntityOrThrow = jest
+      .fn()
+      .mockResolvedValue({ id: "session-scenario-1" });
+
+    const suggestion = await service.createHumanGmAiAssistSuggestion("gm-user", "session-1", {
+      assistType: "scene_text",
+      content: "Describe the room more ominously.",
+      suggestedActionId: "scene-text",
+      targetId: "node-1",
+    });
+
+    expect(suggestion).toMatchObject({
+      assistType: "scene_text",
+      content: "Describe the room more ominously.",
+      suggestedActionId: "scene-text",
+      targetId: "node-1",
+      status: "PENDING",
+      createdByUserId: "gm-user",
+      acceptedByUserId: null,
+      acceptedAt: null,
+    });
+    const flagsUpdate = prisma.gameState.update.mock.calls[0]?.[0] as { data: { flagsJson: string } };
+    expect(JSON.parse(flagsUpdate.data.flagsJson)).toMatchObject({
+      gmMessages: [],
+      humanGmAiAssistSuggestions: [expect.objectContaining({ status: "PENDING" })],
+    });
+    expect(prisma.turnLog.create).not.toHaveBeenCalled();
+    expect(prisma.stateDiff.create).not.toHaveBeenCalled();
+  });
+
+  it("accepts a pending suggestion through gm override audit without public state diff", async () => {
+    const now = new Date("2026-06-20T00:00:00.000Z");
+    const pendingSuggestion = {
+      id: "ai-assist:1",
+      assistType: "scene_text",
+      content: "Describe the room more ominously.",
+      suggestedActionId: "scene-text",
+      targetId: "node-1",
+      status: "PENDING",
+      createdByUserId: "gm-user",
+      acceptedByUserId: null,
+      createdAt: now.toISOString(),
+      acceptedAt: null,
+    };
+    const tx = {
+      turnLog: {
+        findFirst: jest.fn().mockResolvedValue({ turnNumber: 4 }),
+        create: jest.fn().mockResolvedValue({
+          id: "turn-log-ai-assist",
+          turnNumber: 5,
+          playerActionId: null,
+          actorUserId: "gm-user",
+          sessionCharacterId: null,
+          rawInput: "gm:ai_assist_accept",
+          structuredActionJson: JSON.stringify({
+            type: "gm_override",
+            kind: "ai_assist_accept",
+            targetId: null,
+            public: true,
+            hasPrivateNote: false,
+            metadata: {
+              assistType: "scene_text",
+              suggestionId: "ai-assist:1",
+              suggestedActionId: "scene-text",
+              targetId: "node-1",
+            },
+          }),
+          stateDiffJson: null,
+          outcome: "SUCCESS",
+          narration: "GM이 AI assist 제안을 승인했습니다.",
+          createdAt: now,
+        }),
+      },
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({
+          flagsJson: JSON.stringify({ humanGmAiAssistSuggestions: [pendingSuggestion] }),
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      stateDiff: {
+        create: jest.fn(),
+      },
+    };
+    const prisma = {
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({
+          flagsJson: JSON.stringify({ humanGmAiAssistSuggestions: [pendingSuggestion] }),
+        }),
+      },
+      $transaction: jest.fn((callback: (txClient: typeof tx) => Promise<unknown>) => callback(tx)),
+    };
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitSessionSnapshot: jest.fn(),
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    const serviceInternals = service as unknown as {
+      getHumanGmSessionForOperator: jest.Mock;
+      getActiveSessionScenarioEntityOrThrow: jest.Mock;
+      buildSnapshot: jest.Mock;
+    };
+    serviceInternals.getHumanGmSessionForOperator = jest
+      .fn()
+      .mockResolvedValue({ id: "session-1", status: "PLAYING" });
+    serviceInternals.getActiveSessionScenarioEntityOrThrow = jest
+      .fn()
+      .mockResolvedValue({ id: "session-scenario-1" });
+    serviceInternals.buildSnapshot = jest
+      .fn()
+      .mockResolvedValue({ session: { id: "session-1" } });
+
+    await service.acceptHumanGmAiAssistSuggestion("gm-user", "session-1", {
+      suggestionId: "ai-assist:1",
+    });
+
+    expect(tx.turnLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          rawInput: "gm:ai_assist_accept",
+          stateDiffJson: null,
+        }),
+      }),
+    );
+    expect(tx.stateDiff.create).not.toHaveBeenCalled();
+    const flagsUpdate = tx.gameState.update.mock.calls[0]?.[0] as { data: { flagsJson: string } };
+    expect(JSON.parse(flagsUpdate.data.flagsJson).humanGmAiAssistSuggestions[0]).toMatchObject({
+      id: "ai-assist:1",
+      status: "ACCEPTED",
+      acceptedByUserId: "gm-user",
+      acceptedAt: expect.any(String),
+    });
+    expect(realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        rawInput: "gm:ai_assist_accept",
+        stateDiff: null,
+      }),
+    );
+    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalled();
   });
 });
 
@@ -869,6 +1183,346 @@ describe("SessionsService HUMAN GM combat HP override", () => {
         ],
       }),
     );
+  });
+});
+
+describe("SessionsService HUMAN GM inventory removal", () => {
+  it("removes inventory quantity and writes adjust_item audit state", async () => {
+    const now = new Date("2026-06-20T00:00:00.000Z");
+    const targetCharacter = {
+      id: "session-character-1",
+      sessionId: "session-1",
+      status: "ACTIVE",
+      currentHp: 10,
+      tempHp: 0,
+      conditionsJson: "[]",
+      inventorySnapshotJson: null,
+      characterId: "character-1",
+      participant: { role: "PLAYER" },
+      character: {
+        id: "character-1",
+        name: "Hero",
+        ownerUserId: "player-user",
+        className: "fighter",
+        level: 1,
+        maxHp: 10,
+        armorClass: 14,
+        speed: 30,
+        abilitiesJson: "{}",
+        featuresJson: null,
+        spellsJson: null,
+        inventoryJson: "[]",
+        equippedWeaponId: null,
+        offhandEquipmentId: null,
+      },
+    };
+    const itemDefinition = {
+      id: "equipment.rope",
+      name: "Rope",
+      itemType: "GEAR",
+      weightLb: 10,
+      volumeCuFt: null,
+      damageDice: null,
+      damageType: null,
+      armorClassBase: null,
+      armorClassBonus: null,
+      armorStrengthRequirement: null,
+      armorStealthDisadvantage: null,
+      useEffect: null,
+      propertiesJson: null,
+      packContentsJson: null,
+    };
+    const inventoryEntry = {
+      id: "entry-rope",
+      sessionCharacterId: "session-character-1",
+      itemDefinitionId: "equipment.rope",
+      quantity: 3,
+      containerEntryId: null,
+      itemDefinition,
+    };
+    const tx = {
+      inventoryEntry: {
+        findFirst: jest.fn().mockResolvedValue(inventoryEntry),
+        update: jest.fn().mockResolvedValue({}),
+        delete: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn().mockResolvedValue([{ ...inventoryEntry, quantity: 1 }]),
+      },
+      sessionCharacter: {
+        update: jest.fn().mockResolvedValue({}),
+      },
+      turnLog: {
+        findFirst: jest.fn().mockResolvedValue({ turnNumber: 3 }),
+        create: jest.fn().mockResolvedValue({
+          id: "turn-log-remove-item",
+          turnNumber: 4,
+          playerActionId: null,
+          actorUserId: "gm-user",
+          sessionCharacterId: null,
+          rawInput: "gm:adjust_item",
+          structuredActionJson: JSON.stringify({
+            type: "gm_override",
+            kind: "adjust_item",
+            targetId: "session-character-1",
+            public: true,
+            hasPrivateNote: false,
+            metadata: {
+              operation: "remove",
+              itemName: "Rope",
+              itemType: "GEAR",
+              quantity: 2,
+            },
+          }),
+          stateDiffJson: JSON.stringify({
+            baseVersion: 6,
+            nextVersion: 7,
+            reason: "gm_override:adjust_item",
+            diff: {
+              inventory: {
+                sessionCharacterId: "session-character-1",
+                itemDefinitionId: "equipment.rope",
+                quantityDelta: -2,
+              },
+            },
+          }),
+          outcome: "SUCCESS",
+          narration: "GM이 Hero에게서 Rope x2을(를) 회수했습니다.",
+          createdAt: now,
+        }),
+      },
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({ version: 6 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      stateDiff: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const prisma = {
+      sessionCharacter: {
+        findUnique: jest.fn().mockResolvedValue(targetCharacter),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          ...targetCharacter,
+          inventoryEntries: [{ ...inventoryEntry, quantity: 1 }],
+        }),
+      },
+      $transaction: jest.fn((callback: (txClient: typeof tx) => Promise<unknown>) =>
+        callback(tx),
+      ),
+    };
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitStateDiffApplied: jest.fn(),
+      emitSessionSnapshot: jest.fn(),
+      emitCharacterUpdated: jest.fn(),
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    const serviceInternals = service as unknown as {
+      getHumanGmSessionForOperator: jest.Mock;
+      getActiveSessionScenarioEntityOrThrow: jest.Mock;
+      buildSnapshot: jest.Mock;
+    };
+    serviceInternals.getHumanGmSessionForOperator = jest
+      .fn()
+      .mockResolvedValue({ id: "session-1", status: "PLAYING" });
+    serviceInternals.getActiveSessionScenarioEntityOrThrow = jest
+      .fn()
+      .mockResolvedValue({ id: "session-scenario-1" });
+    serviceInternals.buildSnapshot = jest
+      .fn()
+      .mockResolvedValue({ session: { id: "session-1" } });
+
+    await service.removeHumanGmInventoryItem("gm-user", "session-1", {
+      sessionCharacterId: "session-character-1",
+      itemId: "entry-rope",
+      quantity: 2,
+    });
+
+    expect(tx.inventoryEntry.update).toHaveBeenCalledWith({
+      where: { id: "entry-rope" },
+      data: { quantity: { decrement: 2 } },
+    });
+    expect(tx.inventoryEntry.delete).not.toHaveBeenCalled();
+    expect(tx.sessionCharacter.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "session-character-1" },
+      }),
+    );
+    expect(tx.turnLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          rawInput: "gm:adjust_item",
+          narration: "GM이 Hero에게서 Rope x2을(를) 회수했습니다.",
+        }),
+      }),
+    );
+    expect(realtimeEvents.emitStateDiffApplied).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        reason: "gm_override:adjust_item",
+        diff: {
+          inventory: {
+            sessionCharacterId: "session-character-1",
+            itemDefinitionId: "equipment.rope",
+            quantityDelta: -2,
+          },
+        },
+      }),
+    );
+    expect(realtimeEvents.emitCharacterUpdated).toHaveBeenCalled();
+    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalled();
+  });
+
+  it("clears the inventory snapshot when no entries remain", async () => {
+    const client = {
+      inventoryEntry: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      sessionCharacter: {
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const service = new SessionsService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const serviceInternals = service as unknown as {
+      refreshSessionInventorySnapshot: (sessionCharacterId: string, client: typeof client) => Promise<void>;
+    };
+
+    await serviceInternals.refreshSessionInventorySnapshot("session-character-1", client);
+
+    expect(client.sessionCharacter.update).toHaveBeenCalledWith({
+      where: { id: "session-character-1" },
+      data: { inventorySnapshotJson: "[]" },
+    });
+  });
+});
+
+describe("SessionsService HUMAN GM DC override", () => {
+  it("writes a set_dc audit state without exposing the private note in public diff", async () => {
+    const now = new Date("2026-06-20T00:00:00.000Z");
+    const tx = {
+      turnLog: {
+        findFirst: jest.fn().mockResolvedValue({ turnNumber: 9 }),
+        create: jest.fn().mockResolvedValue({
+          id: "turn-log-set-dc",
+          turnNumber: 10,
+          playerActionId: null,
+          actorUserId: "gm-user",
+          sessionCharacterId: null,
+          rawInput: "gm:set_dc",
+          structuredActionJson: JSON.stringify({
+            type: "gm_override",
+            kind: "set_dc",
+            targetId: "trap:needle",
+            public: true,
+            hasPrivateNote: true,
+            metadata: {
+              targetId: "trap:needle",
+              label: "Needle Trap",
+              ability: "dexterity",
+              dc: 16,
+            },
+          }),
+          stateDiffJson: JSON.stringify({
+            baseVersion: 2,
+            nextVersion: 3,
+            reason: "gm_override:set_dc",
+            diff: {
+              difficultyClassOverride: {
+                targetId: "trap:needle",
+                label: "Needle Trap",
+                ability: "dexterity",
+                dc: 16,
+              },
+            },
+          }),
+          outcome: "SUCCESS",
+          narration: "GM이 Needle Trap의 dexterity DC를 16(으)로 설정했습니다.",
+          createdAt: now,
+        }),
+      },
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({ version: 2 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      stateDiff: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (txClient: typeof tx) => Promise<unknown>) =>
+        callback(tx),
+      ),
+    };
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitStateDiffApplied: jest.fn(),
+      emitSessionSnapshot: jest.fn(),
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    const serviceInternals = service as unknown as {
+      getHumanGmSessionForOperator: jest.Mock;
+      getActiveSessionScenarioEntityOrThrow: jest.Mock;
+      buildSnapshot: jest.Mock;
+    };
+    serviceInternals.getHumanGmSessionForOperator = jest
+      .fn()
+      .mockResolvedValue({ id: "session-1", status: "PLAYING" });
+    serviceInternals.getActiveSessionScenarioEntityOrThrow = jest
+      .fn()
+      .mockResolvedValue({ id: "session-scenario-1" });
+    serviceInternals.buildSnapshot = jest
+      .fn()
+      .mockResolvedValue({ session: { id: "session-1" } });
+
+    await service.setHumanGmDifficultyClass("gm-user", "session-1", {
+      targetId: "trap:needle",
+      label: "Needle Trap",
+      ability: "dexterity",
+      dc: 16,
+      privateNote: "hidden trap math",
+    });
+
+    expect(tx.turnLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          rawInput: "gm:set_dc",
+          narration: "GM이 Needle Trap의 dexterity DC를 16(으)로 설정했습니다.",
+          structuredActionJson: expect.stringContaining('"hasPrivateNote":true'),
+        }),
+      }),
+    );
+    const turnLogCreate = tx.turnLog.create.mock.calls[0]?.[0]?.data;
+    expect(turnLogCreate.structuredActionJson).not.toContain("hidden trap math");
+    expect(turnLogCreate.stateDiffJson).not.toContain("hidden trap math");
+    expect(realtimeEvents.emitStateDiffApplied).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        reason: "gm_override:set_dc",
+        diff: {
+          difficultyClassOverride: {
+            targetId: "trap:needle",
+            label: "Needle Trap",
+            ability: "dexterity",
+            dc: 16,
+          },
+        },
+      }),
+    );
+    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalled();
   });
 });
 

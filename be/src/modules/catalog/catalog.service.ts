@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import {
   ClassDefinitionResponseDto,
   ItemResponseDto,
+  SPELLCASTING_PROGRESSION,
   StartingEquipmentDto,
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
@@ -32,6 +33,7 @@ export class CatalogService {
       startingSpellCount: c.startingSpellCount,
       skillChoices: JSON.parse(c.skillChoicesJson) as string[],
       skillChoiceCount: c.skillChoiceCount,
+      spellcastingProgression: [...(SPELLCASTING_PROGRESSION[c.key] ?? [])],
     }));
   }
 

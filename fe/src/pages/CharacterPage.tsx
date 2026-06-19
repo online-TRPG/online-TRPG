@@ -209,6 +209,21 @@ const implementedSubclassOptions: Record<string, Array<{ value: string; label: s
   wizard: [{ value: 'evocation', label: 'Evocation / 방출학파' }],
 };
 
+const subclassChoiceLevelByClass: Readonly<Record<string, number>> = {
+  barbarian: 3,
+  bard: 3,
+  cleric: 1,
+  druid: 2,
+  fighter: 3,
+  monk: 3,
+  paladin: 3,
+  ranger: 3,
+  rogue: 3,
+  sorcerer: 1,
+  warlock: 1,
+  wizard: 2,
+};
+
 function getImplementedSpellOptions(
   className: string | null | undefined,
   kind: 'cantrip' | 'slot',
@@ -254,6 +269,63 @@ function getPreparedSpellLimit(
   const classKey = normalizeClassValue(className ?? '').toLowerCase();
   const levelBase = classKey === 'paladin' ? Math.floor(normalizedLevel / 2) : normalizedLevel;
   return Math.max(1, levelBase + abilityModifier);
+}
+
+function getSpellcastingProgressionEntry(
+  klass: ClassDefinitionResponseDto | null | undefined,
+  level: number
+) {
+  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
+  return (
+    klass?.spellcastingProgression?.find((entry) => entry.classLevel === normalizedLevel) ?? null
+  );
+}
+
+function getMvpStartingSlotSpellCount(
+  klass: ClassDefinitionResponseDto | null | undefined,
+  className: string | null | undefined,
+  level: number
+) {
+  if (!klass) return 0;
+  const classKey = normalizeClassValue(className ?? '').toLowerCase();
+  const progression = getSpellcastingProgressionEntry(klass, level);
+  if (
+    getPreparedSpellAbilityKey(className) &&
+    classKey !== 'wizard' &&
+    progression
+  ) {
+    return getImplementedSpellOptions(className, 'slot', level).length;
+  }
+  if (typeof progression?.spellsKnown === 'number') {
+    return Math.min(
+      progression.spellsKnown,
+      getImplementedSpellOptions(className, 'slot', level).length
+    );
+  }
+  const seededCount =
+    classKey === 'wizard'
+      ? Math.max(
+          klass.startingSpellCount,
+          getImplementedSpellOptions(className, 'slot', 1).length
+        )
+      : klass.startingSpellCount;
+  return Math.min(
+    seededCount,
+    getImplementedSpellOptions(className, 'slot', level).length
+  );
+}
+
+function getMvpStartingCantripCount(
+  klass: ClassDefinitionResponseDto | null | undefined,
+  className: string | null | undefined,
+  level: number
+) {
+  if (!klass) return 0;
+  const progression = getSpellcastingProgressionEntry(klass, level);
+  return Math.min(
+    progression?.cantripsKnown ?? klass.startingCantripCount,
+    getImplementedSpellOptions(className, 'cantrip', level).length
+  );
 }
 
 function isSpellAlreadySelected(
@@ -880,6 +952,7 @@ function createDefaultCharacter(): CharacterPayload {
     name: '',
     ancestry: '',
     className: defaultClassName,
+    subclassName: null,
     avatarType: 'PRESET',
     avatarPresetId: 'preset_wizard',
     avatarUrl: null,
@@ -1144,13 +1217,19 @@ export function CharacterPage({
   const [levelUpDraft, setLevelUpDraft] = useState<{
     targetLevel: number;
     subclassName: string;
+    cantrips: string[];
     knownSpells: string[];
+    forgottenCantrips: string[];
+    forgottenSpells: string[];
     preparedSpells: string[];
     abilityScoreIncreases: Record<AbilityKey, number>;
   }>({
     targetLevel: 2,
     subclassName: '',
+    cantrips: [],
     knownSpells: [],
+    forgottenCantrips: [],
+    forgottenSpells: [],
     preparedSpells: [],
     abilityScoreIncreases: createEmptyAbilityScoreIncreases(),
   });
@@ -1214,13 +1293,31 @@ export function CharacterPage({
     if (!className) return null;
     return classDefinitions.find((c) => c.key === className) ?? null;
   }, [formState.className, classDefinitions]);
+  const selectedCreateClassKey = normalizeClassValue(formState.className ?? '').toLowerCase();
+  const selectedCreateSubclassOptions =
+    implementedSubclassOptions[selectedCreateClassKey] ?? [];
+  const selectedCreateSubclassChoiceLevel =
+    subclassChoiceLevelByClass[selectedCreateClassKey] ?? null;
+  const isCreateSubclassRequired =
+    selectedCreateSubclassChoiceLevel !== null &&
+    (formState.level ?? 1) >= selectedCreateSubclassChoiceLevel;
   const cantripOptions = useMemo(
     () => getImplementedSpellOptions(formState.className, 'cantrip'),
     [formState.className]
   );
+  const selectedStartingCantripCount = getMvpStartingCantripCount(
+    selectedClass,
+    formState.className,
+    formState.level ?? 1
+  );
   const slotSpellOptions = useMemo(
     () => getImplementedSpellOptions(formState.className, 'slot', formState.level ?? 1),
     [formState.className, formState.level]
+  );
+  const selectedStartingSlotSpellCount = getMvpStartingSlotSpellCount(
+    selectedClass,
+    formState.className,
+    formState.level ?? 1
   );
   const startingPreparedSpellLimit = useMemo(
     () => getPreparedSpellLimit(formState.className, formState.level, formState.abilities),
@@ -1455,25 +1552,91 @@ export function CharacterPage({
     [characters, selectedCharacterId]
   );
   const selectedCharacterClassKey = normalizeClassValue(selectedCharacter?.className ?? '').toLowerCase();
+  const selectedCharacterClassDefinition =
+    classDefinitions.find((klass) => klass.key === selectedCharacterClassKey) ?? null;
   const selectedSubclassOptions = selectedCharacter
     ? (implementedSubclassOptions[selectedCharacterClassKey] ?? [])
     : [];
+  const selectedSubclassChoiceLevel =
+    subclassChoiceLevelByClass[selectedCharacterClassKey] ?? null;
+  const isSelectedCharacterPreparedCaster =
+    getPreparedSpellAbilityKey(selectedCharacter?.className) !== null;
+  const isSelectedCharacterWizard = selectedCharacterClassKey === 'wizard';
+  const selectedCurrentCantrips = selectedCharacter?.spells?.cantrips ?? [];
+  const currentSpellcastingProgression = selectedCharacter
+    ? getSpellcastingProgressionEntry(
+        selectedCharacterClassDefinition,
+        selectedCharacter.level
+      )
+    : null;
+  const targetSpellcastingProgression = getSpellcastingProgressionEntry(
+    selectedCharacterClassDefinition,
+    levelUpDraft.targetLevel
+  );
+  const levelUpLevelDelta = selectedCharacter
+    ? Math.max(0, levelUpDraft.targetLevel - selectedCharacter.level)
+    : 0;
+  const cantripLearnAllowance =
+    Math.max(
+      0,
+      (targetSpellcastingProgression?.cantripsKnown ?? 0) -
+        (currentSpellcastingProgression?.cantripsKnown ?? 0)
+    ) + levelUpDraft.forgottenCantrips.length;
+  const knownSpellLearnAllowance =
+    (isSelectedCharacterWizard
+      ? levelUpLevelDelta * 2
+      : Math.max(
+          0,
+          (targetSpellcastingProgression?.spellsKnown ?? 0) -
+            (currentSpellcastingProgression?.spellsKnown ?? 0)
+        )) + levelUpDraft.forgottenSpells.length;
+  const canSelectKnownSpellGrowth =
+    isSelectedCharacterWizard ||
+    typeof targetSpellcastingProgression?.spellsKnown === 'number';
+  const isLevelUpSubclassRequired = Boolean(
+    selectedCharacter &&
+      !selectedCharacter.subclassName &&
+      selectedSubclassChoiceLevel !== null &&
+      levelUpDraft.targetLevel >= selectedSubclassChoiceLevel
+  );
   const selectedKnownSlotSpells = useMemo(
     () => selectedCharacter?.spells?.spells ?? [],
     [selectedCharacter]
   );
   const selectedLevelUpLearnableSlotSpells = useMemo(() => {
-    if (!selectedCharacter) return [];
+    if (!selectedCharacter || !canSelectKnownSpellGrowth) return [];
     const known = new Set(selectedKnownSlotSpells);
     return getImplementedSpellOptions(
       selectedCharacter.className,
       'slot',
       levelUpDraft.targetLevel
     ).filter((spell) => !known.has(spell.id));
-  }, [levelUpDraft.targetLevel, selectedCharacter, selectedKnownSlotSpells]);
+  }, [
+    canSelectKnownSpellGrowth,
+    levelUpDraft.targetLevel,
+    selectedCharacter,
+    selectedKnownSlotSpells,
+  ]);
+  const selectedLevelUpLearnableCantrips = useMemo(() => {
+    if (
+      !selectedCharacter ||
+      typeof targetSpellcastingProgression?.cantripsKnown !== 'number'
+    ) return [];
+    const known = new Set(selectedCurrentCantrips);
+    return getImplementedSpellOptions(selectedCharacter.className, 'cantrip').filter(
+      (spell) => !known.has(spell.id)
+    );
+  }, [selectedCharacter, selectedCurrentCantrips, targetSpellcastingProgression?.cantripsKnown]);
   const selectedPreparedCandidateSlotSpells = useMemo(
-    () => Array.from(new Set([...selectedKnownSlotSpells, ...levelUpDraft.knownSpells])),
-    [levelUpDraft.knownSpells, selectedKnownSlotSpells]
+    () =>
+      isSelectedCharacterPreparedCaster
+        ? Array.from(new Set([...selectedKnownSlotSpells, ...levelUpDraft.knownSpells]))
+        : [],
+    [
+      isSelectedCharacterPreparedCaster,
+      levelUpDraft.knownSpells,
+      selectedKnownSlotSpells,
+    ]
   );
   const selectedPreparedSpells = useMemo(
     () => selectedCharacter?.spells?.preparedSpells ?? [],
@@ -1488,13 +1651,37 @@ export function CharacterPage({
     0
   );
   const remainingAsiPoints = requiredAsiPoints - allocatedAsiPoints;
+  const levelUpAbilities = selectedCharacter
+    ? (Object.fromEntries(
+        (Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => [
+          ability,
+          selectedCharacter.abilities[ability] + levelUpDraft.abilityScoreIncreases[ability],
+        ])
+      ) as Record<AbilityKey, number>)
+    : null;
+  const selectedLevelUpPreparedSpellLimit = selectedCharacter
+    ? getPreparedSpellLimit(
+        selectedCharacter.className,
+        levelUpDraft.targetLevel,
+        levelUpAbilities
+      )
+    : null;
+  const isLevelUpPreparedSpellLimitExceeded =
+    selectedLevelUpPreparedSpellLimit !== null &&
+    levelUpDraft.preparedSpells.length > selectedLevelUpPreparedSpellLimit;
+  const isLevelUpSpellReplacementIncomplete =
+    levelUpDraft.knownSpells.length < levelUpDraft.forgottenSpells.length ||
+    levelUpDraft.cantrips.length < levelUpDraft.forgottenCantrips.length;
 
   useEffect(() => {
     if (!selectedCharacter) {
       setLevelUpDraft({
         targetLevel: 2,
         subclassName: '',
+        cantrips: [],
         knownSpells: [],
+        forgottenCantrips: [],
+        forgottenSpells: [],
         preparedSpells: [],
         abilityScoreIncreases: createEmptyAbilityScoreIncreases(),
       });
@@ -1504,7 +1691,10 @@ export function CharacterPage({
     setLevelUpDraft({
       targetLevel: Math.min(20, Math.max(2, selectedCharacter.level + 1)),
       subclassName: selectedCharacter.subclassName ?? '',
+      cantrips: [],
       knownSpells: [],
+      forgottenCantrips: [],
+      forgottenSpells: [],
       preparedSpells: selectedPreparedSpells,
       abilityScoreIncreases: createEmptyAbilityScoreIncreases(),
     });
@@ -1575,11 +1765,21 @@ export function CharacterPage({
     const startingEquipmentSelection = defaultClass
       ? new Array(defaultClass.startingEquipment.slots.length).fill(0)
       : undefined;
+    const defaultStartingSlotSpellCount = getMvpStartingSlotSpellCount(
+      defaultClass,
+      defaultClass?.key,
+      defaultScenario?.startLevel ?? defaults.level ?? 1
+    );
+    const defaultStartingCantripCount = getMvpStartingCantripCount(
+      defaultClass,
+      defaultClass?.key,
+      defaultScenario?.startLevel ?? defaults.level ?? 1
+    );
     const startingSpells =
-      defaultClass && (defaultClass.startingCantripCount > 0 || defaultClass.startingSpellCount > 0)
+      defaultClass && (defaultStartingCantripCount > 0 || defaultStartingSlotSpellCount > 0)
         ? {
-            cantrips: new Array(defaultClass.startingCantripCount).fill(''),
-            spells: new Array(defaultClass.startingSpellCount).fill(''),
+            cantrips: new Array(defaultStartingCantripCount).fill(''),
+            spells: new Array(defaultStartingSlotSpellCount).fill(''),
             ...(getPreparedSpellAbilityKey(defaultClass.key) ? { preparedSpells: [] } : {}),
           }
         : undefined;
@@ -1614,6 +1814,7 @@ export function CharacterPage({
       name: selectedCharacter.name,
       ancestry: selectedCharacter.ancestry,
       className: selectedCharacter.className,
+      subclassName: selectedCharacter.subclassName ?? null,
       avatarType: selectedCharacter.avatarType,
       avatarPresetId:
         selectedCharacter.avatarPresetId ?? getPresetIdForClassName(selectedCharacter.className),
@@ -1681,6 +1882,10 @@ export function CharacterPage({
         );
         return;
       }
+      if (isCreateSubclassRequired && !formState.subclassName) {
+        setFormValidationError('현재 시작 레벨에서는 서브클래스를 선택해야 합니다.');
+        return;
+      }
     }
 
     if (isStatsStep && pointBuyState.enforced && !pointBuyState.isValid) {
@@ -1720,6 +1925,11 @@ export function CharacterPage({
       return;
     }
 
+    if (isCreateSubclassRequired && !formState.subclassName) {
+      setFormValidationError('현재 시작 레벨에서는 서브클래스를 선택해야 합니다.');
+      return;
+    }
+
     if (!hasRequiredStartingEquipmentItemSelections(selectedClass, formState)) {
       setFormValidationError(
         '시작 장비의 자유 선택 항목에서 실제 아이템을 선택해야 캐릭터를 생성할 수 있습니다.'
@@ -1727,15 +1937,9 @@ export function CharacterPage({
       return;
     }
 
-    if (selectedClass && (selectedClass.startingCantripCount > 0 || selectedClass.startingSpellCount > 0)) {
-      const requiredCantripCount = Math.min(
-        selectedClass.startingCantripCount,
-        cantripOptions.length
-      );
-      const requiredSpellCount = Math.min(
-        selectedClass.startingSpellCount,
-        slotSpellOptions.length
-      );
+    if (selectedClass && (selectedStartingCantripCount > 0 || selectedStartingSlotSpellCount > 0)) {
+      const requiredCantripCount = selectedStartingCantripCount;
+      const requiredSpellCount = selectedStartingSlotSpellCount;
       const cantrips = formState.startingSpells?.cantrips ?? [];
       const spells = formState.startingSpells?.spells ?? [];
       const filledCantripCount = cantrips
@@ -1832,7 +2036,14 @@ export function CharacterPage({
         ? { abilityScoreIncreases: levelUpDraft.abilityScoreIncreases }
         : {}),
       ...(levelUpDraft.knownSpells.length ? { knownSpells: levelUpDraft.knownSpells } : {}),
-      ...(selectedPreparedCandidateSlotSpells.length
+      ...(levelUpDraft.cantrips.length ? { cantrips: levelUpDraft.cantrips } : {}),
+      ...(levelUpDraft.forgottenSpells.length
+        ? { forgottenSpells: levelUpDraft.forgottenSpells }
+        : {}),
+      ...(levelUpDraft.forgottenCantrips.length
+        ? { forgottenCantrips: levelUpDraft.forgottenCantrips }
+        : {}),
+      ...(isSelectedCharacterPreparedCaster
         ? { preparedSpells: levelUpDraft.preparedSpells.filter(Boolean) }
         : {}),
     });
@@ -1868,17 +2079,30 @@ export function CharacterPage({
   }
 
   function togglePreparedSpell(spellId: string) {
-    setLevelUpDraft((current) => ({
-      ...current,
-      preparedSpells: current.preparedSpells.includes(spellId)
-        ? current.preparedSpells.filter((id) => id !== spellId)
-        : [...current.preparedSpells, spellId],
-    }));
+    setLevelUpDraft((current) => {
+      const isSelected = current.preparedSpells.includes(spellId);
+      if (
+        !isSelected &&
+        selectedLevelUpPreparedSpellLimit !== null &&
+        current.preparedSpells.length >= selectedLevelUpPreparedSpellLimit
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        preparedSpells: isSelected
+          ? current.preparedSpells.filter((id) => id !== spellId)
+          : [...current.preparedSpells, spellId],
+      };
+    });
   }
 
   function toggleLevelUpKnownSpell(spellId: string) {
     setLevelUpDraft((current) => {
       const isSelected = current.knownSpells.includes(spellId);
+      if (!isSelected && current.knownSpells.length >= knownSpellLearnAllowance) {
+        return current;
+      }
       return {
         ...current,
         knownSpells: isSelected
@@ -1887,6 +2111,70 @@ export function CharacterPage({
         preparedSpells: isSelected
           ? current.preparedSpells.filter((id) => id !== spellId)
           : current.preparedSpells,
+      };
+    });
+  }
+
+  function toggleLevelUpCantrip(spellId: string) {
+    setLevelUpDraft((current) => {
+      const isSelected = current.cantrips.includes(spellId);
+      if (!isSelected && current.cantrips.length >= cantripLearnAllowance) {
+        return current;
+      }
+      return {
+        ...current,
+        cantrips: isSelected
+          ? current.cantrips.filter((id) => id !== spellId)
+          : [...current.cantrips, spellId],
+      };
+    });
+  }
+
+  function toggleForgottenSpell(spellId: string) {
+    setLevelUpDraft((current) => {
+      const isSelected = current.forgottenSpells.includes(spellId);
+      if (!isSelected && current.forgottenSpells.length >= levelUpLevelDelta) {
+        return current;
+      }
+      const forgottenSpells = isSelected
+        ? current.forgottenSpells.filter((id) => id !== spellId)
+        : [...current.forgottenSpells, spellId];
+      const baseAllowance = isSelectedCharacterWizard
+        ? levelUpLevelDelta * 2
+        : Math.max(
+            0,
+            (targetSpellcastingProgression?.spellsKnown ?? 0) -
+              (currentSpellcastingProgression?.spellsKnown ?? 0)
+          );
+      return {
+        ...current,
+        forgottenSpells,
+        knownSpells: current.knownSpells.slice(0, baseAllowance + forgottenSpells.length),
+        preparedSpells: isSelected
+          ? current.preparedSpells
+          : current.preparedSpells.filter((id) => id !== spellId),
+      };
+    });
+  }
+
+  function toggleForgottenCantrip(spellId: string) {
+    setLevelUpDraft((current) => {
+      const isSelected = current.forgottenCantrips.includes(spellId);
+      if (!isSelected && current.forgottenCantrips.length >= levelUpLevelDelta) {
+        return current;
+      }
+      const forgottenCantrips = isSelected
+        ? current.forgottenCantrips.filter((id) => id !== spellId)
+        : [...current.forgottenCantrips, spellId];
+      const baseAllowance = Math.max(
+        0,
+        (targetSpellcastingProgression?.cantripsKnown ?? 0) -
+          (currentSpellcastingProgression?.cantripsKnown ?? 0)
+      );
+      return {
+        ...current,
+        forgottenCantrips,
+        cantrips: current.cantrips.slice(0, baseAllowance + forgottenCantrips.length),
       };
     });
   }
@@ -2158,6 +2446,10 @@ export function CharacterPage({
                               setLevelUpDraft((current) => ({
                                 ...current,
                                 targetLevel: Number(event.target.value),
+                                cantrips: [],
+                                knownSpells: [],
+                                forgottenCantrips: [],
+                                forgottenSpells: [],
                               }))
                             }
                           />
@@ -2167,7 +2459,10 @@ export function CharacterPage({
                             disabled={
                               busy ||
                               selectedCharacter.level >= 20 ||
-                              remainingAsiPoints !== 0
+                              remainingAsiPoints !== 0 ||
+                              (isLevelUpSubclassRequired && !levelUpDraft.subclassName) ||
+                              isLevelUpPreparedSpellLimitExceeded ||
+                              isLevelUpSpellReplacementIncomplete
                             }
                           >
                             레벨업
@@ -2233,7 +2528,9 @@ export function CharacterPage({
                                 }))
                               }
                             >
-                              <option value="">필요 시 선택</option>
+                              <option value="">
+                                {isLevelUpSubclassRequired ? '필수 선택' : '필요 시 선택'}
+                              </option>
                               {selectedSubclassOptions.map((option) => (
                                 <option key={option.value} value={option.value}>
                                   {option.label}
@@ -2244,14 +2541,21 @@ export function CharacterPage({
                         ) : null}
                         {selectedLevelUpLearnableSlotSpells.length ? (
                           <div>
-                            <label>새 주문 습득</label>
+                            <label>
+                              새 주문 습득 {levelUpDraft.knownSpells.length}/{knownSpellLearnAllowance}
+                            </label>
                             <div className="character-prepared-spell-list">
                               {selectedLevelUpLearnableSlotSpells.map((spell) => (
                                 <label key={spell.id} className="character-prepared-spell-option">
                                   <input
                                     type="checkbox"
                                     checked={levelUpDraft.knownSpells.includes(spell.id)}
-                                    disabled={busy}
+                                    disabled={
+                                      busy ||
+                                      (!levelUpDraft.knownSpells.includes(spell.id) &&
+                                        levelUpDraft.knownSpells.length >=
+                                          knownSpellLearnAllowance)
+                                    }
                                     onChange={() => toggleLevelUpKnownSpell(spell.id)}
                                   />
                                   <span>{spell.label}</span>
@@ -2260,19 +2564,108 @@ export function CharacterPage({
                             </div>
                           </div>
                         ) : null}
+                        {!isSelectedCharacterPreparedCaster &&
+                        selectedKnownSlotSpells.length &&
+                        levelUpLevelDelta ? (
+                          <div>
+                            <label>
+                              교체할 주문 {levelUpDraft.forgottenSpells.length}/{levelUpLevelDelta}
+                            </label>
+                            <div className="character-prepared-spell-list">
+                              {selectedKnownSlotSpells.map((spellId) => (
+                                <label key={spellId} className="character-prepared-spell-option">
+                                  <input
+                                    type="checkbox"
+                                    checked={levelUpDraft.forgottenSpells.includes(spellId)}
+                                    disabled={
+                                      busy ||
+                                      (!levelUpDraft.forgottenSpells.includes(spellId) &&
+                                        levelUpDraft.forgottenSpells.length >= levelUpLevelDelta)
+                                    }
+                                    onChange={() => toggleForgottenSpell(spellId)}
+                                  />
+                                  <span>{getImplementedSpellLabel(spellId)}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                        {selectedLevelUpLearnableCantrips.length &&
+                        cantripLearnAllowance > 0 ? (
+                          <div>
+                            <label>
+                              새 캔트립 {levelUpDraft.cantrips.length}/{cantripLearnAllowance}
+                            </label>
+                            <div className="character-prepared-spell-list">
+                              {selectedLevelUpLearnableCantrips.map((spell) => (
+                                <label key={spell.id} className="character-prepared-spell-option">
+                                  <input
+                                    type="checkbox"
+                                    checked={levelUpDraft.cantrips.includes(spell.id)}
+                                    disabled={
+                                      busy ||
+                                      (!levelUpDraft.cantrips.includes(spell.id) &&
+                                        levelUpDraft.cantrips.length >= cantripLearnAllowance)
+                                    }
+                                    onChange={() => toggleLevelUpCantrip(spell.id)}
+                                  />
+                                  <span>{spell.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                        {selectedCurrentCantrips.length && levelUpLevelDelta ? (
+                          <div>
+                            <label>
+                              교체할 캔트립 {levelUpDraft.forgottenCantrips.length}/
+                              {levelUpLevelDelta}
+                            </label>
+                            <div className="character-prepared-spell-list">
+                              {selectedCurrentCantrips.map((spellId) => (
+                                <label key={spellId} className="character-prepared-spell-option">
+                                  <input
+                                    type="checkbox"
+                                    checked={levelUpDraft.forgottenCantrips.includes(spellId)}
+                                    disabled={
+                                      busy ||
+                                      (!levelUpDraft.forgottenCantrips.includes(spellId) &&
+                                        levelUpDraft.forgottenCantrips.length >=
+                                          levelUpLevelDelta)
+                                    }
+                                    onChange={() => toggleForgottenCantrip(spellId)}
+                                  />
+                                  <span>{getImplementedSpellLabel(spellId)}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </section>
 
-                    {selectedPreparedCandidateSlotSpells.length ? (
+                    {isSelectedCharacterPreparedCaster &&
+                    selectedPreparedCandidateSlotSpells.length ? (
                       <section className="fantasy-character-stats-section">
-                        <h3>준비 주문</h3>
+                        <h3>
+                          준비 주문
+                          {selectedLevelUpPreparedSpellLimit !== null
+                            ? ` ${levelUpDraft.preparedSpells.length}/${selectedLevelUpPreparedSpellLimit}`
+                            : ''}
+                        </h3>
                         <div className="character-prepared-spell-list">
                           {selectedPreparedCandidateSlotSpells.map((spellId) => (
                             <label key={spellId} className="character-prepared-spell-option">
                               <input
                                 type="checkbox"
                                 checked={levelUpDraft.preparedSpells.includes(spellId)}
-                                disabled={busy}
+                                disabled={
+                                  busy ||
+                                  (!levelUpDraft.preparedSpells.includes(spellId) &&
+                                    selectedLevelUpPreparedSpellLimit !== null &&
+                                    levelUpDraft.preparedSpells.length >=
+                                      selectedLevelUpPreparedSpellLimit)
+                                }
                                 onChange={() => togglePreparedSpell(spellId)}
                               />
                               <span>{getImplementedSpellLabel(spellId)}</span>
@@ -2475,15 +2868,51 @@ export function CharacterPage({
                                   current,
                                   nextLevel - currentLevel
                                 );
+                                const currentClassKey = normalizeClassValue(
+                                  current.className ?? ''
+                                ).toLowerCase();
+                                const subclassChoiceLevel =
+                                  subclassChoiceLevelByClass[currentClassKey] ?? null;
+                                const currentClass = classDefinitions.find(
+                                  (klass) => klass.key === currentClassKey
+                                );
+                                const startingSlotSpellCount = getMvpStartingSlotSpellCount(
+                                  currentClass,
+                                  current.className,
+                                  nextLevel
+                                );
+                                const startingCantripCount = getMvpStartingCantripCount(
+                                  currentClass,
+                                  current.className,
+                                  nextLevel
+                                );
+                                const startingSpells =
+                                  currentClass &&
+                                  (startingCantripCount > 0 ||
+                                    startingSlotSpellCount > 0)
+                                    ? {
+                                        cantrips: new Array(startingCantripCount).fill(''),
+                                        spells: new Array(startingSlotSpellCount).fill(''),
+                                        ...(getPreparedSpellAbilityKey(current.className)
+                                          ? { preparedSpells: [] }
+                                          : {}),
+                                      }
+                                    : undefined;
 
                                 return {
                                   ...current,
                                   scenarioId: nextScenarioId,
                                   level: nextLevel,
+                                  subclassName:
+                                    subclassChoiceLevel !== null &&
+                                    nextLevel >= subclassChoiceLevel
+                                      ? current.subclassName
+                                      : null,
                                   maxHp: nextStats.maxHp,
                                   armorClass: nextStats.armorClass,
                                   proficiencyBonus: nextStats.proficiencyBonus,
                                   abilities: nextAbilities,
+                                  startingSpells,
                                 };
                               })
                             }
@@ -2649,13 +3078,31 @@ export function CharacterPage({
                                 );
                                 const nextSpells =
                                   nextClass &&
-                                  (nextClass.startingCantripCount > 0 ||
-                                    nextClass.startingSpellCount > 0)
+                                  (getMvpStartingCantripCount(
+                                    nextClass,
+                                    className,
+                                    current.level ?? 1
+                                  ) > 0 ||
+                                    getMvpStartingSlotSpellCount(
+                                      nextClass,
+                                      className,
+                                      current.level ?? 1
+                                    ) > 0)
                                     ? {
-                                        cantrips: new Array(nextClass.startingCantripCount).fill(
-                                          ''
-                                        ),
-                                        spells: new Array(nextClass.startingSpellCount).fill(''),
+                                        cantrips: new Array(
+                                          getMvpStartingCantripCount(
+                                            nextClass,
+                                            className,
+                                            current.level ?? 1
+                                          )
+                                        ).fill(''),
+                                        spells: new Array(
+                                          getMvpStartingSlotSpellCount(
+                                            nextClass,
+                                            className,
+                                            current.level ?? 1
+                                          )
+                                        ).fill(''),
                                         ...(getPreparedSpellAbilityKey(className)
                                           ? { preparedSpells: [] }
                                           : {}),
@@ -2664,6 +3111,7 @@ export function CharacterPage({
                                 return {
                                   ...current,
                                   className,
+                                  subclassName: null,
                                   avatarType: 'PRESET',
                                   avatarPresetId: getPresetIdForClassName(className),
                                   avatarUrl: null,
@@ -2690,6 +3138,35 @@ export function CharacterPage({
                           </select>
                         </div>
                       </div>
+                      {selectedCreateSubclassOptions.length &&
+                      selectedCreateSubclassChoiceLevel !== null &&
+                      (formState.level ?? 1) >= selectedCreateSubclassChoiceLevel ? (
+                        <div className="field-row">
+                          <div>
+                            <label htmlFor="character-subclass-create">서브클래스</label>
+                            <select
+                              id="character-subclass-create"
+                              value={formState.subclassName ?? ''}
+                              onChange={(event) =>
+                                setFormState((current) => ({
+                                  ...current,
+                                  subclassName: event.target.value || null,
+                                }))
+                              }
+                              required={isCreateSubclassRequired}
+                            >
+                              <option value="">
+                                {isCreateSubclassRequired ? '필수 선택' : '서브클래스 선택'}
+                              </option>
+                              {selectedCreateSubclassOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      ) : null}
                     </section>
                   ) : null}
 
@@ -3485,17 +3962,11 @@ export function CharacterPage({
                     </div>
                   ) : isLoadoutStep &&
                     selectedClass &&
-                    (selectedClass.startingCantripCount > 0 ||
-                      selectedClass.startingSpellCount > 0) ? (
+                    (selectedStartingCantripCount > 0 ||
+                      selectedStartingSlotSpellCount > 0) ? (
                     (() => {
-                      const renderedCantripCount = Math.min(
-                        selectedClass.startingCantripCount,
-                        cantripOptions.length
-                      );
-                      const renderedSpellCount = Math.min(
-                        selectedClass.startingSpellCount,
-                        slotSpellOptions.length
-                      );
+                      const renderedCantripCount = selectedStartingCantripCount;
+                      const renderedSpellCount = selectedStartingSlotSpellCount;
                       return (
                         <section className="character-form-section character-create-loadout-spells">
                           <div className="section-heading compact">
@@ -3518,10 +3989,8 @@ export function CharacterPage({
                                     setFormValidationError(null);
                                     setFormState((current) => {
                                       const base: StartingSpellsDto = current.startingSpells ?? {
-                                        cantrips: new Array(
-                                          selectedClass.startingCantripCount
-                                        ).fill(''),
-                                        spells: new Array(selectedClass.startingSpellCount).fill(
+                                        cantrips: new Array(selectedStartingCantripCount).fill(''),
+                                        spells: new Array(selectedStartingSlotSpellCount).fill(
                                           ''
                                         ),
                                       };
@@ -3564,10 +4033,8 @@ export function CharacterPage({
                                     setFormValidationError(null);
                                     setFormState((current) => {
                                       const base: StartingSpellsDto = current.startingSpells ?? {
-                                        cantrips: new Array(
-                                          selectedClass.startingCantripCount
-                                        ).fill(''),
-                                        spells: new Array(selectedClass.startingSpellCount).fill(
+                                        cantrips: new Array(selectedStartingCantripCount).fill(''),
+                                        spells: new Array(selectedStartingSlotSpellCount).fill(
                                           ''
                                         ),
                                       };
@@ -3635,10 +4102,10 @@ export function CharacterPage({
                                             setFormState((current) => {
                                               const base: StartingSpellsDto = current.startingSpells ?? {
                                                 cantrips: new Array(
-                                                  selectedClass.startingCantripCount
+                                                  selectedStartingCantripCount
                                                 ).fill(''),
                                                 spells: new Array(
-                                                  selectedClass.startingSpellCount
+                                                  selectedStartingSlotSpellCount
                                                 ).fill(''),
                                               };
                                               const currentPrepared = base.preparedSpells ?? [];

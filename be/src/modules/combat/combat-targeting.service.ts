@@ -105,7 +105,9 @@ export class CombatTargetingService {
     const x = Math.floor(point.x);
     const y = Math.floor(point.y);
     const blocked = [
-      ...(map.terrainCells ?? []),
+      ...(map.terrainCells ?? []).filter(
+        (cell) => !this.combatMovement.extractTerrainEffectId(cell),
+      ),
       ...(map.wallCells ?? []),
       ...(map.doorCells ?? []).filter((door) => door.state !== "open" && door.state !== "broken"),
     ].some(

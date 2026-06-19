@@ -145,9 +145,24 @@ describe("RuleCatalogService", () => {
   });
 
   it("derives each class subclass choice level from catalog definitions", () => {
-    expect(service.getSubclassChoiceLevel("cleric")).toBe(1);
-    expect(service.getSubclassChoiceLevel("wizard")).toBe(2);
-    expect(service.getSubclassChoiceLevel("fighter")).toBe(3);
+    const expectedChoiceLevels = {
+      barbarian: 3,
+      bard: 3,
+      cleric: 1,
+      druid: 2,
+      fighter: 3,
+      monk: 3,
+      paladin: 3,
+      ranger: 3,
+      rogue: 3,
+      sorcerer: 1,
+      warlock: 1,
+      wizard: 2,
+    };
+
+    for (const [classKey, choiceLevel] of Object.entries(expectedChoiceLevels)) {
+      expect(service.getSubclassChoiceLevel(classKey)).toBe(choiceLevel);
+    }
     expect(service.getSubclassChoiceLevel("unknown-class")).toBeNull();
   });
 

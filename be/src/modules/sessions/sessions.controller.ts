@@ -23,18 +23,24 @@ import {
 import {
   ApplyHumanGmCombatConditionDto,
   AdjustHumanGmCombatHpDto,
+  AcceptHumanGmAiAssistSuggestionDto,
   CreateSessionDto,
+  CreateHumanGmAiAssistSuggestionDto,
   CreateVttMapPingDto,
   GameStateResponseDto,
   GrantHumanGmInventoryItemDto,
   HumanGmMessageDto,
+  HumanGmAiAssistSuggestionDto,
   HumanGmNodeMoveOptionDto,
+  HumanGmPrivateNoteDto,
   JoinSessionDto,
   MoveSessionTokenDto,
   ParticipantStatusResponseDto,
   PlayerScenarioViewDto,
   RevealSessionContentDto,
+  RemoveHumanGmInventoryItemDto,
   SelectSessionCharacterDto,
+  SetHumanGmDifficultyClassDto,
   SessionRevealResponseDto,
   SessionDetailResponseDto,
   SessionInviteResponseDto,
@@ -508,6 +514,100 @@ export class SessionsController {
       "SESSION_200",
       "GM inventory item granted.",
       await this.sessionsService.grantHumanGmInventoryItem(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/gm/inventory/remove")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async removeHumanGmInventoryItem(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: RemoveHumanGmInventoryItemDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM inventory item removed.",
+      await this.sessionsService.removeHumanGmInventoryItem(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/gm/dc")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async setHumanGmDifficultyClass(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: SetHumanGmDifficultyClassDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM difficulty class overridden.",
+      await this.sessionsService.setHumanGmDifficultyClass(userId, sessionId, dto),
+    );
+  }
+
+  @Get(":id/gm/private-notes")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: [HumanGmPrivateNoteDto] })
+  async listHumanGmPrivateNotes(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<ApiResponse<HumanGmPrivateNoteDto[]>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM private notes listed.",
+      await this.sessionsService.listHumanGmPrivateNotes(userId, sessionId),
+    );
+  }
+
+  @Post(":id/gm/ai-assist/suggestions")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: HumanGmAiAssistSuggestionDto })
+  async createHumanGmAiAssistSuggestion(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: CreateHumanGmAiAssistSuggestionDto,
+  ): Promise<ApiResponse<HumanGmAiAssistSuggestionDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM AI assist suggestion created.",
+      await this.sessionsService.createHumanGmAiAssistSuggestion(userId, sessionId, dto),
+    );
+  }
+
+  @Get(":id/gm/ai-assist/suggestions")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: [HumanGmAiAssistSuggestionDto] })
+  async listHumanGmAiAssistSuggestions(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<ApiResponse<HumanGmAiAssistSuggestionDto[]>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM AI assist suggestions listed.",
+      await this.sessionsService.listHumanGmAiAssistSuggestions(userId, sessionId),
+    );
+  }
+
+  @Post(":id/gm/ai-assist/accept")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async acceptHumanGmAiAssistSuggestion(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: AcceptHumanGmAiAssistSuggestionDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM AI assist suggestion accepted.",
+      await this.sessionsService.acceptHumanGmAiAssistSuggestion(userId, sessionId, dto),
     );
   }
 

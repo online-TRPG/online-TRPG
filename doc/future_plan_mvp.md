@@ -1,11 +1,13 @@
 # SRD 5e End-to-End Playable MVP 로드맵
 
 작성일: 2026-05-23
-현재 구현 반영일: 2026-06-18
+현재 구현 반영일: 2026-06-20
 
 ## 1. 문서 목적
 
 이 문서는 SRD 5e 룰과 콘텐츠를 많이 추가하는 장기 목록이 아니라, 이미 구축된 **룰 카탈로그 + resolver + 세션/전투 런타임 + 플레이 UI**를 하나의 실제 플레이 경로로 연결해 end-to-end playable MVP를 완성하기 위한 현재 작업 로드맵이다.
+
+상위 장기 범위는 [`future_plan.md`](future_plan.md)를 기준으로 한다. 이 MVP 문서는 장기 목표를 대체하거나 축소하지 않는다. `future_plan.md`의 12개 직업, 9개 종족, 319개 주문, 317개 몬스터 실행 가능화 목표는 유지하며, 이 문서는 그 목표로 가기 전에 먼저 검증해야 하는 P0 실행 경로를 정의한다.
 
 현재 우선순위는 다음과 같다.
 
@@ -96,8 +98,8 @@ MVP의 상위 완료 기준은 [`structure/QUALITY_MVP_ACCEPTANCE.md`](structure
 
 | 영역 | 현재 상태 | 현재 확인된 실행 표면 | MVP까지 남은 핵심 |
 | --- | --- | --- | --- |
-| 레벨업 | 구현됨·검증 대기 | `POST /characters/:id/level-up`, 캐릭터 UI, feature snapshot, HP/PB/ASI 반영 | 서브클래스 선택 레벨과 주문 갱신 경계, 세션 snapshot 동기화, 실제 UI 완주 |
-| 주문 준비 | 구현됨·검증 대기 | `PATCH /characters/:id/prepared-spells`, 클래스/능력치 기반 준비 수 제한, prepared/known caster 분리, 전투 UI 필터, long rest 후 준비 주문 변경 안내 | 전체 직업 회귀 검증, 브라우저에서 long rest→준비 주문 변경 완주 |
+| 레벨업 | 구현됨·검증 대기 | `POST /characters/:id/level-up`, 캐릭터 UI, feature snapshot, HP/PB/ASI, subclass 필수 선택, SRD known spell/cantrip progression 및 교체 반영 | 전체 직업 회귀 검증, 세션 snapshot 동기화와 실제 UI 완주 |
+| 주문 준비 | 구현됨·검증 대기 | `PATCH /characters/:id/prepared-spells`, 클래스/능력치 기반 준비 수 제한, prepared/known caster 분리, 준비형 직업 MVP known pool, 전투 UI 필터, long rest 후 준비 주문 변경 안내 | 전체 직업 회귀 검증, 브라우저에서 생성→준비 및 long rest→준비 주문 변경 완주 |
 | short/long rest | 구현됨·검증 대기 | 전용 REST API, HUMAN GM 승인·거절·요청자 취소 API/UI, 24시간 승인 만료 정책, 구조화 `restApproval` 요청/결정 응답과 FE 즉시 반영, snapshot `pendingRestApprovals` 재접속 projection, 전투 중 실행 차단, 자원/슬롯/상태 회복 | 브라우저 재접속 복원 검증, 전체 로그와 권한 검증 |
 | 상태/내성 | 부분 연결 | command, 지형, 주문/몬스터 rider, 턴/휴식 lifecycle 일부 | 모든 피해·공격·턴 hook과 구조화 condition instance 일치 |
 | 엄폐 | 부분 연결 | VTT object/wall/door 기반 공격 보정, 직접 대상 주문 full cover 차단, Sleep/Fireball AoE full cover 처리, Dex-save AoE 엄폐 보너스, smoke cover map, 전투 주문 targeting hint | 모든 ranged weapon/monster action과 정밀 UI target preview 경로 통일 |
@@ -107,9 +109,9 @@ MVP의 상위 완료 기준은 [`structure/QUALITY_MVP_ACCEPTANCE.md`](structure
 | 준비행동 | 구현됨·검증 대기 | pending 저장, 이동 trigger, reaction prompt UI, accept/decline, 일부 held action 실행 | 공격/주문/턴 이벤트 trigger 확대, 모든 held action 비용과 만료 규칙 |
 | MVP 주문 | 구현됨·검증 대기 | 9개 전투 주문과 slot 선택/upcast UI | 공통 executor 비율 확대, concentration/buff/debuff/utility 대표 주문 추가 |
 | 몬스터 능력 | 부분 연결 | catalog/SRD 후보, HUMAN/AI 공통 선택, recharge, multiattack, save/condition rider, limited use 기반 | aura, 지속 효과, 복합 target, 모든 사용량 UI/로그/회복 검증 |
-| 아이템/VTT object | 구현됨·검증 대기 | drop/pickup/throw, map object UI, inventory+map transaction, `GameState.version` 기반 동시 변경 차단 | 동시 pickup 실제 회귀 검증, 던지기 명중/빗나감 착지, container/capacity 원자성 |
+| 아이템/VTT object | 구현됨·검증 대기 | drop/pickup/throw, map object UI, inventory+map transaction, `GameState.version` 기반 동시 변경 차단, 동일 컨테이너 내 동일 아이템 stack merge, container capacity/state transaction 처리, throw hit/miss landing 분리 | 동시 pickup 실제 회귀 검증, 던지기 명중/빗나감 착지 사용자 실행 검증, container/capacity 사용자 실행 검증 |
 | 지형 | 부분 연결 | terrainEffectId, 이동 비용, 진입/턴 시작/턴 종료/이탈 피해·상태 lifecycle, 겹친 damage packet, 구조화 API/UI 로그, obscurement | elevation/미끄러짐 정밀 결과, 시야·엄폐와 복합 효과 검증 |
-| HUMAN GM override | 부분 연결 | 메시지, 공개, 지급, 상태, 노드, 전투 시작/종료와 TurnLog/StateDiff, HUMAN 모드·지정 GM·JOINED GM/HOST 참가자 권한 helper | HP/DC/아이템 회수 등 남은 조작, private note projection, 전 권한 회귀 |
+| HUMAN GM override | 부분 연결 | 메시지, 공개, 지급/회수, HP, DC, 상태, 노드, 전투 시작/종료, private note GM 조회, AI assist suggestion/accept 및 scene/NPC/node 적용 연결, HUMAN 모드·지정 GM·JOINED GM/HOST 참가자 권한 helper | AI assist 공통 화면/provider 연결, override 실패 감사, 전 권한 회귀 |
 | smoke scenario | 구현됨·검증 대기 | 휴식→함정/내성→엄폐→AoE→상태/아이템→HUMAN GM 노드 seed | 실제 DB/API/브라우저에서 AI/HUMAN 각각 완주한 증거 |
 
 ## 5. P0: End-to-End Playable MVP 완성
@@ -153,26 +155,35 @@ P0는 새로운 카탈로그 종류를 늘리는 단계가 아니다. 현재 구
 
 - 레벨업 endpoint와 UI가 있다.
 - 카탈로그 기반 class/subclass feature snapshot이 있다.
+- 캐릭터 생성과 레벨업은 클래스별 subclass 최초 feature 레벨을 선택 레벨로 사용하고, 해당 레벨 이상에서 누락되거나 현재 클래스/레벨에 존재하지 않는 subclass를 거부한다.
+- 1레벨 선택 직업의 legacy 무서브클래스 캐릭터도 다음 레벨업 전에 subclass 선택을 요구한다.
 - HP, proficiency bonus, ASI, AC 재계산 경로가 있다.
+- Constitution ASI가 바뀌면 새 modifier를 전체 목표 레벨에 소급해 최대 HP를 보정하고 활성 session character 현재 HP와 snapshot을 함께 갱신한다.
 - 주문 준비 변경 endpoint와 UI가 있다.
 - 준비 주문 수를 클래스, 레벨, 주문시전 능력치로 제한하는 경로가 있다.
+- known caster는 `preparedSpells`를 생성하지 않고 준비 주문 변경을 거부하며, CharacterPage도 준비 주문 UI/payload를 만들지 않는다.
+- prepared caster의 레벨업 UI는 목표 레벨과 ASI 반영 능력치로 준비 한도를 계산하고 한도 초과 선택과 요청을 차단한다.
+- cantrip, known slot spell, prepared spell은 서로 다른 컬렉션으로 유지한다.
+- 현재 MVP 주문 풀은 목표 레벨에서 실행 가능한 슬롯 레벨을 넘는 주문 습득을 거부한다.
+- `shared-types/constants/spellcasting-progression`이 SRD cantrips known/spells known progression을 제공하고, class catalog API가 이를 프론트에 전달한다.
+- known caster는 목표 레벨 progression 증가분만큼 새 주문을 배우며, 통과한 레벨 수만큼 기존 주문을 교체할 수 있다. 교체는 제거/추가 수가 맞아야 한다.
+- Wizard 주문책은 레벨당 최대 2개를 추가하고 레벨업으로 기존 주문을 제거하지 않는다.
+- cantrip도 progression 증가분만큼 습득하며, MVP 교체 정책은 통과한 레벨당 1개로 제한한다.
+- 준비형 Cleric/Druid/Paladin은 해당 레벨에 주문시전 progression이 있으면 실행 가능한 MVP 슬롯 주문 풀을 알고 있는 목록으로 받고 그 안에서 준비한다.
+- higher-level character creation은 시작 레벨 progression의 cantrip 수를 사용한다.
 - 진행 중 세션 캐릭터에 HP와 snapshot 이벤트를 반영하는 경로가 있다.
 - AI/GM 즉시 long rest와 HUMAN GM 승인 long rest 후 FE가 준비 주문 변경 안내를 표시한다.
 
 남은 작업:
 
-1. 클래스별 subclass 선택 레벨은 현재 `subclass_features` 카탈로그의 최초 feature 레벨에서 계산하며, 전체 직업 회귀 검증을 남긴다.
-2. subclass 선택이 필요한 레벨에서 누락/잘못된 선택을 거부한다.
-3. known spell caster와 prepared spell caster를 구분한다.
-   - prepared: cleric, druid, paladin, wizard 등 프로젝트가 지원하는 정책.
-   - known: bard, sorcerer, warlock 등.
-   - known caster는 `preparedSpells` 필드를 생성하지 않고 준비 주문 변경 API를 거부한다.
-4. cantrip, learned spell, prepared spell을 서로 다른 컬렉션 의미로 유지한다.
-5. 레벨업으로 주문을 추가/교체할 때 현재 레벨에서 시전 불가능한 주문을 거부한다.
-6. ASI로 Constitution이 변하면 현재/최대 HP와 진행 중 session snapshot을 일관되게 조정한다.
-7. 레벨업 중인 캐릭터가 활성 세션에 배정되어 있을 때 허용 정책을 명시한다.
-   - 기본안: 원본 캐릭터 갱신 후 활성 `SessionCharacter`의 파생 snapshot을 즉시 갱신하고 실시간 이벤트를 보낸다.
-8. UI wizard가 필요한 선택을 모두 받기 전에는 요청을 보내지 않는다.
+검증 대기:
+
+1. 12개 직업의 subclass 선택 레벨과 SRD subclass key를 사용자 실행 회귀 spec으로 대조한다.
+2. 1→3, 3→4레벨 성장과 활성 세션 snapshot 갱신을 사용자 실행 spec과 브라우저에서 확인한다.
+3. known/prepared caster 각각에서 레벨업 요청 payload와 준비 주문 UI가 분리되는지 브라우저로 확인한다.
+4. 목표 레벨에서 사용할 수 없는 주문과 준비 한도 초과가 FE/BE 양쪽에서 동일하게 차단되는지 사용자 실행 검증한다.
+5. known spell/cantrip 습득 및 교체 UI가 SRD progression 상한과 같은 수를 표시하는지 브라우저로 확인한다.
+6. Cleric/Druid/Paladin 생성 시 MVP 주문 풀이 저장되고 준비 주문을 선택할 수 있는지 브라우저로 확인한다.
 
 완료 기준:
 
@@ -390,15 +401,24 @@ P1 이후 목표:
 - map object에 `hiddenItemIds`와 수량 표현.
 - inventory entry, inventory snapshot, `GameState.flagsJson.vttMap`을 Prisma transaction 안에서 함께 갱신하는 경로.
 - 적용 전 inventory/map 사전 검증.
+- `ActionProcessorService`의 map-only runtime effect 직접 저장 helper는 제거했고, map object 변경은 inventory 변경과 함께 원자적 경로로 처리되지 않으면 TurnLog 생성 전 사전 검증에서 거부한다.
+- 새 map object 생성은 기존 object id와 충돌하면 transaction 전에 거부해 조용한 덮어쓰기를 막는다.
+- map object 생성/수량 변경 effect는 양의 정수 수량과 정수 grid 좌표를 transaction 전에 검증한다.
+- 수량 표기가 없는 item map object는 1개로 취급해 다수 pickup으로 아이템이 복제되지 않게 한다.
+- `InventoryRuntimeService.addItem`과 `ActionProcessorService`의 원자 pickup 경로는 같은 캐릭터, 같은 item definition, 같은 container entry의 기존 stack이 있으면 새 entry를 만들지 않고 수량을 증가시킨다.
+- 원자 pickup 경로에서 컨테이너에 아이템을 넣을 때 Bag of Holding capacity를 사전 검증하고, transaction 내부에서도 방어 검증한다. 성공 시 같은 transaction 안에서 container state를 재계산하며, 사전 검증에서 잡힌 용량 초과는 inventory/map 변경 전에 거부하고 container integrity를 `OVERLOADED`로 남긴다.
+- 토큰을 대상으로 한 throw는 공격 굴림이 명중하면 damage만 적용하고 map object를 만들지 않는다. 빗나가면 d20 자연값 기반으로 대상 칸 주변 착지 칸을 정해 그 위치에 thrown object를 만든다.
 
 남은 작업:
 
-1. 새 atomic 경로를 우회하는 legacy map helper 호출을 제거하거나 비활성화한다.
+검증 대기:
+
+1. `ActionProcessorService`에서 제거한 legacy map-only 경로가 회귀 spec과 backend build에서 깨지지 않는지 사용자 실행 검증을 받는다.
 2. 같은 object를 두 사용자가 동시에 줍는 경우 `GameState.version` compare-and-swap으로 한 명만 성공시키는 현재 구현을 실제 transaction 회귀 테스트로 검증한다.
-3. 부분 pickup 후 map object 수량과 inventory 수량 합이 보존되는지 검증한다.
-4. throw의 명중/빗나감과 착지 위치를 전투 결과와 연결한다.
-5. 컨테이너 용량, 내용물 보존, stack merge를 같은 transaction에서 처리한다.
-6. 실패 시 inventory, snapshot, map, action cost 중 어느 것도 부분 적용되지 않게 한다.
+3. 부분 pickup 후 map object 수량과 inventory 수량 합이 보존되는지 회귀 spec과 수동 smoke에서 검증한다.
+4. 컨테이너 capacity/state 처리가 원자 pickup transaction과 일반 inventory runtime 양쪽에서 같은 결과를 내는지 사용자 실행 회귀 spec으로 검증한다.
+5. throw 명중 시 map object가 생성되지 않고, 빗나감 시 대상 칸 주변 착지 object가 생성되는지 사용자 실행 회귀 spec으로 검증한다.
+6. 실패 시 inventory, snapshot, map, action cost 중 어느 것도 부분 적용되지 않음을 회귀 spec과 수동 smoke에서 검증한다.
    - 현재 inventory, snapshot, map, 전투 중 `SPEND_ACTION`은 한 Prisma transaction에 묶이고 `GameState.version` 충돌도 차단한다.
    - action queue는 프로세스 내 세션 단위 직렬화와 DB 조건부 claim을 사용한다.
    - transaction 이후 실패가 발생하면 기존 action `TurnLog`를 실패로 정정해 성공/실패 로그가 동시에 남지 않게 한다.
@@ -435,16 +455,28 @@ P1 이후 목표:
 - 같은 effect id의 여러 셀을 한 이동에서 통과할 때는 save·피해·condition을 한 번만 적용하며, 결과는 맵 셀 배열 순서에 의존하지 않는다.
 - normal/forced movement와 turn-start/turn-end API는 trigger, effect id, 피해 유형·굴림·합계, condition 적용·해제, 집중 유지 여부를 구조화해 반환하고 플레이 UI 로그에 지형 결과를 표시한다.
 - turn-start/turn-end 지형 lifecycle은 `turn_terrain_lifecycle` TurnLog로 저장·브로드캐스트되어 요청자뿐 아니라 다른 참가자와 재접속 로그에서도 복원된다.
+- forced movement API는 normal movement와 같은 `applyEnteredTerrainEffects(..., "on_enter")` 경로를 사용한다.
+- difficult terrain은 서버 이동 비용 계산에 반영되며, `terrainEffectId` 필드 기반 셀도 같은 비용 처리를 받는다.
+- slippery terrain은 진입 시 save와 prone condition 결과를 구조화해 반환한다.
+- heavily obscured terrain 위의 target은 attack advantage/disadvantage 계산에 반영된다.
+- Light 같은 target point 검증은 terrain effect cell을 구조물 차단물로 취급하지 않고, 벽·닫힌 문·effect id 없는 구조 terrain만 차단한다.
+- elevation terrain은 해당 지점의 `elevationDeltaFt`를 token grid distance에 반영한다. 사거리와 이동 비용은 평면 거리와 높이 차이를 합친 3D 거리를 5ft 단위로 올림해 사용한다.
 
 남은 작업:
 
-1. normal movement와 forced movement가 같은 cell-enter hook을 사용한다.
+검증 대기:
+
+1. normal movement와 forced movement가 같은 cell-enter hook 결과를 내는지 사용자 실행 회귀 spec과 smoke에서 검증한다.
 2. turn-end/exit effect를 시나리오 smoke에서 실제 플레이 검증한다.
-3. difficult terrain의 이동 비용이 UI 표시와 서버 차감에서 일치하게 한다.
-4. obscurement를 attack advantage/disadvantage, line of sight, target visibility에 연결한다.
-5. elevation을 거리, 엄폐, 낙하와 연결할 최소 MVP 규칙을 정한다.
-6. slippery terrain은 save와 prone/forced stop 같은 명시적 결과를 가진다.
-7. 지형 결과 로그의 다국어 label과 시각적 강조를 정리한다.
+3. difficult terrain의 이동 비용이 UI 표시와 서버 차감에서 일치하는지 브라우저 smoke로 검증한다.
+4. obscurement attack disadvantage, Light target point, line-of-effect 예외가 함께 기대대로 동작하는지 사용자 실행 회귀 spec으로 검증한다.
+5. slippery terrain의 save와 prone 결과를 사용자 실행 회귀 spec과 UI 로그에서 검증한다.
+6. 지형 결과 로그의 다국어 label과 시각적 강조를 브라우저에서 확인한다.
+
+아직 남은 구현:
+
+1. elevation을 엄폐와 낙하 결과에 연결할 최소 MVP 규칙을 정한다.
+2. obscurement를 target visibility 전체 정책과 연결한다.
 
 완료 기준:
 
@@ -460,6 +492,9 @@ P1 이후 목표:
 - handout/reveal.
 - 인벤토리 지급.
 - 전투 condition 조정.
+- 인벤토리 지급과 회수.
+- 전투 HP 조정.
+- 판정 DC override.
 - 노드 이동.
 - 전투 시작/종료.
 - 현재 몬스터 이동과 행동.
@@ -472,19 +507,32 @@ P1 이후 목표:
 - 선택적 `StateDiff`
 - GM user id, public narration, private note 존재 여부, target, metadata.
 - HUMAN GM runtime endpoint는 공통 `getHumanGmSessionForOperator()` 경로로 HUMAN mode, 지정 GM/host operator, JOINED GM/HOST participant 상태를 확인한다.
-- private note 원문은 현재 공통 `GameState.flags`, 공개 `TurnLog`, `StateDiff`, realtime turn log에 저장하지 않는 회귀로 보호한다. GM 전용 복원은 별도 저장소 또는 사용자별 snapshot projection이 필요하다.
+- private note 원문은 공개 `TurnLog`, `StateDiff`, realtime turn log, 공개 `GameState` projection에 저장하지 않는 회귀로 보호한다.
+- private note 원문은 `GameState.flagsJson.gmPrivateNotes` private namespace에 저장하고, `GET /sessions/:id/gm/private-notes`에서 HUMAN GM 권한을 통과한 사용자에게만 최신순으로 제공한다.
+- GM inventory 회수는 `adjust_item` override audit으로 기록하고, `quantityDelta`를 음수로 남긴다.
+- GM 판정 DC override는 `set_dc` override audit으로 기록하고, 공개 diff에는 target, label, ability, dc만 남기며 private note 원문은 포함하지 않는다.
+- AI assist suggestion은 `humanGmAiAssistSuggestions` private namespace에 PENDING으로 저장하며, 생성만으로 `TurnLog`, `StateDiff`, `GameState.version`을 만들거나 변경하지 않는다.
+- AI assist 승인 시에만 `ai_assist_accept` override audit TurnLog를 남기고, 제안 상태를 ACCEPTED로 바꾼다. 이 승인 감사는 기본적으로 공개 state diff를 만들지 않는다.
+- `GET /sessions/:id/gm/ai-assist/suggestions`는 HUMAN GM 권한을 다시 검사하고 private suggestion 목록을 최신순으로 복구한다.
+- 스토리 HUMAN GM 패널에서 AI assist suggestion을 유형별로 등록하고 PENDING 제안을 승인할 수 있다.
+- 승인된 `scene_text`, `npc_dialogue`, `node_move` 제안은 각각 기존 HUMAN GM message 또는 node move executor로 이어진다. `combat`, `rules`, `other`는 승인 감사만 남기며 자동 적용하지 않는다.
+- AI assist 승인 공개 narration 기본값에는 private suggestion 원문을 포함하지 않는다.
 
 남은 작업:
 
-1. 모든 GM endpoint에서 HUMAN GM mode인지 확인한다.
-2. session participant가 `JOINED`이며 역할이 GM/HOST인지 확인한다.
-3. host user id만으로 GM 권한을 추론하는 우회 경로를 제거한다.
-4. HP, 판정 DC, 상태, 아이템 추가/회수, 맵/노드, 전투 조작을 공통 override audit 형태로 기록한다.
-5. private note 원문은 공통 snapshot/공개 로그에 넣지 않고, 별도 저장소 또는 사용자별 snapshot으로 GM projection에서만 조회 가능하게 한다.
-6. 플레이어에게는 public narration과 공개 state diff만 전달한다.
-7. AI assist는 suggestion 생성과 GM 승인/적용을 분리한다.
-8. 승인되지 않은 AI suggestion은 상태를 변경하지 않는다.
-9. override 실패도 필요하면 감사 로그 또는 실패 로그로 추적한다.
+검증 대기:
+
+1. 모든 GM endpoint에서 HUMAN GM mode인지 사용자 실행 회귀 spec으로 확인한다.
+2. session participant가 `JOINED`이며 역할이 GM/HOST인지 사용자 실행 회귀 spec으로 확인한다.
+3. host user id만으로 GM 권한을 추론하는 우회 경로가 없는지 회귀 spec과 code review로 확인한다.
+4. HP, 상태, 아이템 지급/회수, 맵/노드, 전투 조작이 공통 override audit 형태로 기록되는지 사용자 실행 spec으로 검증한다.
+5. 플레이어에게는 public narration과 공개 state diff만 전달되고, GM에게만 private note 조회 endpoint가 열리는지 브라우저 smoke로 검증한다.
+
+아직 남은 구현:
+
+1. AI assist UI를 탐색/전투 노드에서도 직접 열 수 있도록 공통 HUMAN GM 도구 표면으로 승격한다.
+2. AI provider가 만든 suggestion을 현재 PENDING 저장 API에 연결한다.
+3. 승인 뒤 executor 적용이 실패한 경우 별도 실패 감사 로그로 추적한다.
 
 완료 기준:
 
@@ -593,6 +641,8 @@ P0 이후에 진행한다.
 - 규칙서 전문을 UI에서 재현하는 기능.
 
 단, P0 smoke에서 사용하는 룰과 콘텐츠는 예외 없이 실행 가능하고 감사 가능해야 한다.
+
+위 항목은 **P0의 비목표**일 뿐이며, 장기 로드맵에서 제거된 범위가 아니다. 장기 목표의 전체 범위와 우선 승격 대상은 [`future_plan.md`](future_plan.md)를 따른다.
 
 ## 9. 구현 순서와 의존성
 

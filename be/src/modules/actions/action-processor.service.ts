@@ -28,9 +28,10 @@ import { CharacterResourceService } from "../rules/character-resource.service";
 import { InventoryRuntimeService } from "../rules/inventory-runtime.service";
 import { MapPositionService } from "../rules/map-position.service";
 import { PENDING_READY_ACTIONS_FLAG } from "../rules/ready-action.service";
+import { RuleEngineService } from "../rules/rule-engine.service";
+import { BagOfHoldingIntegrity } from "../rules/rule-engine.types";
 import { SpellSlotService } from "../rules/spell-slot.service";
 import { StateDiffService } from "../rules/state-diff.service";
-import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import { badRequest, conflict, notFound } from "../../common/exceptions/domain-error";
@@ -131,6 +132,11 @@ type InventoryMapAtomicRuntimeEffect =
   | InventoryMapRuntimeEffect
   | Extract<ActionRuntimeEffect, { type: "SPEND_ACTION" }>;
 
+type InventoryContainerDbClient = Pick<
+  Prisma.TransactionClient,
+  "containerState" | "inventoryEntry"
+>;
+
 const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
 const RAGE_FEATURE_ID = "class.barbarian.feature.rage";
 const MONSTER_LIMITED_USE_EXPENDED_FLAG = "monsterLimitedUseExpended";
@@ -153,8 +159,8 @@ export class ActionProcessorService {
     private readonly characterResources: CharacterResourceService,
     private readonly inventoryRuntime: InventoryRuntimeService,
     private readonly mapPositions: MapPositionService,
-    private readonly mapRuntime: MapRuntimeService,
     private readonly spellSlots: SpellSlotService = new SpellSlotService(),
+    private readonly ruleEngine: RuleEngineService = new RuleEngineService(),
   ) {}
 
   async processNext(sessionId: string): Promise<void> {
@@ -735,13 +741,12 @@ export class ActionProcessorService {
         });
         return;
       case "CREATE_MAP_OBJECT":
-        await this.createMapObjectFromRuntimeEffect(params.sessionId, effect);
-        return;
       case "UPDATE_MAP_OBJECT_QUANTITY":
-        await this.updateMapObjectQuantityFromRuntimeEffect(params.sessionId, effect);
-        return;
       case "REMOVE_MAP_OBJECT":
-        await this.removeMapObjectFromRuntimeEffect(params.sessionId, effect.objectId);
+        throw conflict("VTT_409", "맵 오브젝트 변경은 인벤토리 변경과 같은 원자적 경로로만 처리할 수 있습니다.", {
+          reason: "MAP_EFFECT_REQUIRES_ATOMIC_INVENTORY_PAIR",
+          effectType: effect.type,
+        });
         return;
     }
   }
@@ -761,6 +766,7 @@ export class ActionProcessorService {
       }
     }
     const laterEffects = effects.filter((effect) => !this.isEarlyRuntimeEffect(effect));
+    this.assertNoUnpairedMapRuntimeEffects(laterEffects);
     await this.assertInventoryRuntimeEffectsApplicable(
       params.sessionCharacterId,
       laterEffects.filter((effect) => this.isInventoryRuntimeEffect(effect)),
@@ -790,7 +796,7 @@ export class ActionProcessorService {
   ): Promise<void> {
     for (const effect of effects) {
       if (effect.type === "ADD_ITEM") {
-        await this.assertInventoryItemDefinitionAvailable(effect);
+        await this.assertInventoryItemDefinitionAvailable(sessionCharacterId, effect);
       } else if (effect.type === "REMOVE_ITEM") {
         await this.assertInventoryEntryRemovable(sessionCharacterId, effect);
       }
@@ -798,6 +804,7 @@ export class ActionProcessorService {
   }
 
   private async assertInventoryItemDefinitionAvailable(
+    sessionCharacterId: string,
     effect: Extract<ActionRuntimeEffect, { type: "ADD_ITEM" }>,
   ): Promise<void> {
     const itemDefinition = await this.prisma.itemDefinition.findFirst({
@@ -812,6 +819,20 @@ export class ActionProcessorService {
       throw notFound("INVENTORY_404", "아이템 정의를 찾을 수 없습니다.", {
         reason: "ITEM_DEFINITION_NOT_FOUND",
         itemDefinitionId: effect.itemDefinitionId,
+      });
+    }
+    if (effect.containerEntryId) {
+      await this.validateContainerMutationWithClient(this.prisma, {
+        containerEntryId: effect.containerEntryId,
+        sessionCharacterId,
+        addedWeightLb: this.calculateItemWeight(
+          itemDefinition,
+          this.normalizeInventoryQuantity(effect.quantity),
+        ),
+        addedVolumeCuFt: this.calculateItemVolume(
+          itemDefinition,
+          this.normalizeInventoryQuantity(effect.quantity),
+        ),
       });
     }
   }
@@ -863,6 +884,21 @@ export class ActionProcessorService {
   private hasInventoryMapRuntimeEffects(effects: ActionRuntimeEffect[]): boolean {
     return effects.some((effect) => this.isInventoryRuntimeEffect(effect)) &&
       effects.some((effect) => this.isMapRuntimeEffect(effect));
+  }
+
+  private assertNoUnpairedMapRuntimeEffects(effects: ActionRuntimeEffect[]): void {
+    if (this.hasInventoryMapRuntimeEffects(effects)) {
+      return;
+    }
+    const mapOnlyEffect = effects.find((effect) => this.isMapRuntimeEffect(effect));
+    if (!mapOnlyEffect) {
+      return;
+    }
+
+    throw conflict("VTT_409", "맵 오브젝트 변경은 인벤토리 변경과 같은 원자적 경로로만 처리할 수 있습니다.", {
+      reason: "MAP_EFFECT_REQUIRES_ATOMIC_INVENTORY_PAIR",
+      effectType: mapOnlyEffect.type,
+    });
   }
 
   private isInventoryMapRuntimeEffect(effect: ActionRuntimeEffect): effect is InventoryMapRuntimeEffect {
@@ -1007,8 +1043,10 @@ export class ActionProcessorService {
     map: VttMapStateDto,
     effects: InventoryMapAtomicRuntimeEffect[],
   ): void {
-    const objectIds = new Set((map.objectCells ?? []).map((cell) => cell.id));
+    const existingObjectIds = new Set((map.objectCells ?? []).map((cell) => cell.id));
+    const objectIds = new Set(existingObjectIds);
     for (const effect of effects) {
+      this.assertMapRuntimeEffectPayloadApplicable(effect);
       if (
         (effect.type === "UPDATE_MAP_OBJECT_QUANTITY" || effect.type === "REMOVE_MAP_OBJECT") &&
         !objectIds.has(effect.objectId)
@@ -1019,11 +1057,42 @@ export class ActionProcessorService {
         });
       }
       if (effect.type === "CREATE_MAP_OBJECT") {
+        if (existingObjectIds.has(effect.objectId) || objectIds.has(effect.objectId)) {
+          throw conflict("VTT_409", "같은 id의 맵 오브젝트가 이미 있습니다.", {
+            reason: "MAP_OBJECT_ALREADY_EXISTS",
+            objectId: effect.objectId,
+          });
+        }
         objectIds.add(effect.objectId);
       }
       if (effect.type === "REMOVE_MAP_OBJECT") {
         objectIds.delete(effect.objectId);
       }
+    }
+  }
+
+  private assertMapRuntimeEffectPayloadApplicable(effect: InventoryMapAtomicRuntimeEffect): void {
+    if (effect.type === "CREATE_MAP_OBJECT") {
+      this.assertPositiveMapObjectQuantity(effect.quantity);
+      if (!Number.isInteger(effect.point.x) || !Number.isInteger(effect.point.y)) {
+        throw badRequest("VTT_400", "맵 오브젝트 좌표가 올바르지 않습니다.", {
+          reason: "INVALID_MAP_OBJECT_POINT",
+          objectId: effect.objectId,
+        });
+      }
+    }
+
+    if (effect.type === "UPDATE_MAP_OBJECT_QUANTITY") {
+      this.assertPositiveMapObjectQuantity(effect.quantity);
+    }
+  }
+
+  private assertPositiveMapObjectQuantity(quantity: number): void {
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      throw badRequest("VTT_400", "맵 오브젝트 수량이 올바르지 않습니다.", {
+        reason: "INVALID_MAP_OBJECT_QUANTITY",
+        quantity,
+      });
     }
   }
 
@@ -1047,14 +1116,44 @@ export class ActionProcessorService {
       });
     }
 
-    await tx.inventoryEntry.create({
-      data: {
+    if (effect.containerEntryId) {
+      await this.validateContainerMutationWithClient(tx, {
+        containerEntryId: effect.containerEntryId,
         sessionCharacterId,
-        itemDefinitionId: itemDefinition.id,
-        quantity,
-        containerEntryId: effect.containerEntryId ?? null,
+        addedWeightLb: this.calculateItemWeight(itemDefinition, quantity),
+        addedVolumeCuFt: this.calculateItemVolume(itemDefinition, quantity),
+      });
+    }
+
+    const data = {
+      sessionCharacterId,
+      itemDefinitionId: itemDefinition.id,
+      quantity,
+      containerEntryId: effect.containerEntryId ?? null,
+    };
+    const existingEntry = await tx.inventoryEntry.findFirst({
+      where: {
+        sessionCharacterId: data.sessionCharacterId,
+        itemDefinitionId: data.itemDefinitionId,
+        containerEntryId: data.containerEntryId,
       },
     });
+    if (existingEntry) {
+      await tx.inventoryEntry.update({
+        where: { id: existingEntry.id },
+        data: { quantity: { increment: quantity } },
+      });
+      if (effect.containerEntryId) {
+        await this.recalculateContainerStateWithClient(tx, effect.containerEntryId);
+      }
+      return;
+    }
+
+    await tx.inventoryEntry.create({ data });
+
+    if (effect.containerEntryId) {
+      await this.recalculateContainerStateWithClient(tx, effect.containerEntryId);
+    }
   }
 
   private async removeInventoryItemWithClient(
@@ -1099,6 +1198,9 @@ export class ActionProcessorService {
         });
       }
       await tx.inventoryEntry.delete({ where: { id: entry.id } });
+      if (entry.containerEntryId) {
+        await this.recalculateContainerStateWithClient(tx, entry.containerEntryId);
+      }
       return;
     }
 
@@ -1106,6 +1208,106 @@ export class ActionProcessorService {
       where: { id: entry.id },
       data: { quantity: { decrement: quantity } },
     });
+    if (entry.containerEntryId) {
+      await this.recalculateContainerStateWithClient(tx, entry.containerEntryId);
+    }
+  }
+
+  private async validateContainerMutationWithClient(
+    tx: InventoryContainerDbClient,
+    params: {
+      containerEntryId: string;
+      sessionCharacterId: string;
+      addedWeightLb: number;
+      addedVolumeCuFt: number;
+    },
+  ): Promise<void> {
+    const container = await tx.inventoryEntry.findUnique({
+      where: { id: params.containerEntryId },
+      include: { containerState: true },
+    });
+    if (!container) {
+      throw notFound("INVENTORY_404", "컨테이너를 찾을 수 없습니다.", {
+        reason: "CONTAINER_NOT_FOUND",
+      });
+    }
+    if (container.sessionCharacterId !== params.sessionCharacterId) {
+      throw badRequest("INVENTORY_400", "다른 캐릭터의 컨테이너로 아이템을 이동할 수 없습니다.", {
+        reason: "CONTAINER_OWNER_MISMATCH",
+      });
+    }
+    if (!container.containerState) {
+      throw badRequest("INVENTORY_400", "컨테이너 상태 정보가 없습니다.", {
+        reason: "CONTAINER_STATE_NOT_FOUND",
+      });
+    }
+
+    const ruleResult = this.ruleEngine.validateBagOfHoldingCapacity({
+      itemCurrentWeightLb: container.containerState.currentWeightLb,
+      itemCurrentVolumeCuFt: container.containerState.currentVolumeCuFt,
+      addedWeightLb: params.addedWeightLb,
+      addedVolumeCuFt: params.addedVolumeCuFt,
+      containerIntegrity: this.toRuleIntegrity(container.containerState.integrity),
+    });
+
+    if (!ruleResult.accepted) {
+      await tx.containerState.update({
+        where: { inventoryEntryId: params.containerEntryId },
+        data: { integrity: "OVERLOADED" },
+      });
+      throw badRequest("INVENTORY_400", "컨테이너 용량을 초과했습니다.", {
+        reason: ruleResult.rejectedReason ?? "BAG_OF_HOLDING_CAPACITY_REJECTED",
+        capacityViolation: ruleResult.produced.capacityViolation,
+        containerDestroyed: ruleResult.produced.containerDestroyed,
+      });
+    }
+  }
+
+  private async recalculateContainerStateWithClient(
+    tx: InventoryContainerDbClient,
+    containerEntryId: string,
+  ): Promise<void> {
+    const containedEntries = await tx.inventoryEntry.findMany({
+      where: { containerEntryId },
+      include: { itemDefinition: true },
+    });
+    const currentWeightLb = containedEntries.reduce(
+      (sum, entry) => sum + this.calculateItemWeight(entry.itemDefinition, entry.quantity),
+      0,
+    );
+    const currentVolumeCuFt = containedEntries.reduce(
+      (sum, entry) => sum + this.calculateItemVolume(entry.itemDefinition, entry.quantity),
+      0,
+    );
+
+    await tx.containerState.update({
+      where: { inventoryEntryId: containerEntryId },
+      data: {
+        currentWeightLb,
+        currentVolumeCuFt,
+      },
+    });
+  }
+
+  private calculateItemWeight(
+    itemDefinition: { weightLb?: number | null },
+    quantity: number,
+  ): number {
+    return (itemDefinition.weightLb ?? 0) * quantity;
+  }
+
+  private calculateItemVolume(
+    itemDefinition: { volumeCuFt?: number | null },
+    quantity: number,
+  ): number {
+    return (itemDefinition.volumeCuFt ?? 0) * quantity;
+  }
+
+  private toRuleIntegrity(value: string): BagOfHoldingIntegrity {
+    const normalized = value.trim().toLowerCase();
+    return ["intact", "pierced", "torn", "overloaded"].includes(normalized)
+      ? (normalized as BagOfHoldingIntegrity)
+      : "intact";
   }
 
   private async syncSessionInventorySnapshotWithClient(
@@ -1225,90 +1427,6 @@ export class ActionProcessorService {
     } catch {
       return new Set();
     }
-  }
-
-  private async createMapObjectFromRuntimeEffect(
-    sessionId: string,
-    effect: Extract<ActionRuntimeEffect, { type: "CREATE_MAP_OBJECT" }>,
-  ): Promise<void> {
-    const map = await this.getCurrentVttMap(sessionId);
-    if (!map) {
-      return;
-    }
-
-    const gridSize = map.gridSize || 50;
-    const objectCells = (map.objectCells ?? []).filter((cell) => cell.id !== effect.objectId);
-    await this.mapRuntime.saveSystemVttMap(sessionId, {
-      ...map,
-      objectCells: [
-        ...objectCells,
-        {
-          id: effect.objectId,
-          x: effect.point.x * gridSize,
-          y: effect.point.y * gridSize,
-          width: gridSize,
-          height: gridSize,
-          name: effect.name,
-          description: `${effect.itemDefinitionId} x${effect.quantity}`,
-          visibleToPlayers: true,
-          hiddenItemIds: [effect.itemDefinitionId],
-        },
-      ],
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  private async removeMapObjectFromRuntimeEffect(
-    sessionId: string,
-    objectId: string,
-  ): Promise<void> {
-    const map = await this.getCurrentVttMap(sessionId);
-    if (!map) {
-      return;
-    }
-
-    const objectCells = (map.objectCells ?? []).filter((cell) => cell.id !== objectId);
-    if (objectCells.length === (map.objectCells ?? []).length) {
-      return;
-    }
-
-    await this.mapRuntime.saveSystemVttMap(sessionId, {
-      ...map,
-      objectCells,
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  private async updateMapObjectQuantityFromRuntimeEffect(
-    sessionId: string,
-    effect: Extract<ActionRuntimeEffect, { type: "UPDATE_MAP_OBJECT_QUANTITY" }>,
-  ): Promise<void> {
-    const map = await this.getCurrentVttMap(sessionId);
-    const objectCells = map.objectCells ?? [];
-    const objectIndex = objectCells.findIndex((cell) => cell.id === effect.objectId);
-    if (objectIndex < 0) {
-      return;
-    }
-
-    await this.mapRuntime.saveSystemVttMap(sessionId, {
-      ...map,
-      objectCells: objectCells.map((cell, index) =>
-        index === objectIndex
-          ? {
-              ...cell,
-              description: `${effect.itemDefinitionId} x${effect.quantity}`,
-              hiddenItemIds: [effect.itemDefinitionId],
-            }
-          : cell,
-      ),
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  private async getCurrentVttMap(sessionId: string): Promise<VttMapStateDto> {
-    const { sessionScenario, state } =
-      await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    return this.sessionsService.getVttMapBaseline(sessionId, sessionScenario.id, state);
   }
 
   private async storePendingReadyAction(
