@@ -951,8 +951,76 @@ describe("ActionProcessorService rest runtime effects", () => {
       {} as never,
     );
 
-    return { service: service as unknown as Record<string, (...args: unknown[]) => Promise<void>>, prisma };
+    return {
+      service: service as unknown as Record<string, (...args: unknown[]) => Promise<void>>,
+      runtimeService: service,
+      prisma,
+    };
   };
+
+  it("projects current and maximum spell slots into the rule runtime", () => {
+    const { runtimeService } = createService(
+      JSON.stringify({
+        spellSlotsBySessionCharacterId: {
+          "session-character-1": { "1": 1, "2": 0 },
+        },
+      }),
+    );
+
+    const result = (
+      runtimeService as unknown as {
+        resolveRuntimeSpellSlotState: (
+          flagsJson: string,
+          sessionCharacterId: string,
+          character: { className: string; level: number },
+        ) => {
+          current: Record<string, number>;
+          maximums: Record<string, number>;
+        };
+      }
+    ).resolveRuntimeSpellSlotState(
+      JSON.stringify({
+        spellSlotsBySessionCharacterId: {
+          "session-character-1": { "1": 1, "2": 0 },
+        },
+      }),
+      "session-character-1",
+      { className: "wizard", level: 3 },
+    );
+
+    expect(result).toEqual({
+      current: { "1": 1, "2": 0 },
+      maximums: { "1": 4, "2": 2 },
+    });
+  });
+
+  it("projects spent hit dice into the rule runtime resource state", () => {
+    const { runtimeService } = createService(null);
+
+    const result = (
+      runtimeService as unknown as {
+        toRuntimeResource: (resource: {
+          secondWindAvailable: boolean;
+          actionSurgeUses: number;
+          rageUses: number;
+          rageActive: boolean;
+          frenzyActive: boolean;
+          exhaustionLevel: number;
+          hitDiceSpent: number;
+        }) => Record<string, unknown>;
+      }
+    ).toRuntimeResource({
+      secondWindAvailable: false,
+      actionSurgeUses: 0,
+      rageUses: 1,
+      rageActive: false,
+      frenzyActive: false,
+      exhaustionLevel: 0,
+      hitDiceSpent: 3,
+    });
+
+    expect(result).toMatchObject({ hitDiceSpent: 3 });
+  });
 
   it("recovers long-rest spell slots by clearing the spent slot override", async () => {
     const { service, prisma } = createService(

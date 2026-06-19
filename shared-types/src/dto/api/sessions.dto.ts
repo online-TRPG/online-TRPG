@@ -615,6 +615,9 @@ export class PendingRestApprovalDto {
 
   @ApiProperty()
   requestedAt!: string;
+
+  @ApiProperty()
+  expiresAt!: string;
 }
 
 export class SessionSnapshotDto {
@@ -728,6 +731,19 @@ export class ApplyHumanGmCombatConditionDto {
   @IsOptional()
   @IsIn(["add", "remove"])
   operation?: "add" | "remove";
+}
+
+export class AdjustHumanGmCombatHpDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  targetId!: string;
+
+  @ApiProperty()
+  @Type(() => Number)
+  @IsInt()
+  currentHp!: number;
 }
 
 export class UpdateSessionNodeDto {

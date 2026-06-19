@@ -216,7 +216,7 @@ describe("ActionsService.submitRestAction", () => {
       id: "action-1",
       userId: "user-1",
       rawText: "/rest short",
-      clientCreatedAt: new Date("2026-06-14T01:00:00.000Z"),
+      clientCreatedAt: new Date(),
     });
 
     await expect(deps.service.submitRestAction("user-1", "session-1", dto)).resolves.toMatchObject({
@@ -258,7 +258,7 @@ describe("ActionsService.submitRestAction", () => {
       id: "action-1",
       userId: "user-1",
       rawText: "/rest short 2",
-      clientCreatedAt: new Date("2026-06-14T01:00:00.000Z"),
+      clientCreatedAt: new Date(),
     });
 
     await deps.service.submitRestAction("user-1", "session-1", {
@@ -296,7 +296,7 @@ describe("ActionsService.submitRestAction", () => {
       id: "approval-action-1",
       userId: "user-1",
       rawText: "/rest short",
-      clientCreatedAt: new Date("2026-06-14T01:00:00.000Z"),
+      clientCreatedAt: new Date(),
     });
     deps.turnLogsService.createTurnLog.mockResolvedValue({ turnLogId: "turn-log-1" });
 
@@ -390,7 +390,7 @@ describe("ActionsService.submitRestAction", () => {
       id: "action-2",
       userId: "player-user-1",
       rawText: "/rest long",
-      clientCreatedAt: new Date("2026-06-14T01:00:00.000Z"),
+      clientCreatedAt: new Date(),
     });
 
     await deps.service.submitRestAction("gm-user-1", "session-1", {
@@ -430,7 +430,7 @@ describe("ActionsService.submitRestAction", () => {
       queueStatus: PrismaActionQueueStatus.REJECTED,
       failureReason: "REST_REQUIRES_GM_APPROVAL",
       baseStateVersion: 11,
-      clientCreatedAt: new Date("2026-06-14T01:00:00.000Z"),
+      clientCreatedAt: new Date(),
     });
     deps.prisma.playerAction.updateMany.mockResolvedValue({ count: 1 });
 
@@ -487,7 +487,7 @@ describe("ActionsService.submitRestAction", () => {
       queueStatus: PrismaActionQueueStatus.REJECTED,
       failureReason: "REST_REQUIRES_GM_APPROVAL",
       baseStateVersion: 11,
-      clientCreatedAt: new Date("2026-06-14T01:00:00.000Z"),
+      clientCreatedAt: new Date(),
     });
     deps.prisma.playerAction.updateMany.mockResolvedValue({ count: 0 });
 
@@ -528,7 +528,7 @@ describe("ActionsService.submitRestAction", () => {
       queueStatus: PrismaActionQueueStatus.REJECTED,
       failureReason: "REST_REQUIRES_GM_APPROVAL",
       baseStateVersion: 11,
-      clientCreatedAt: new Date("2026-06-14T01:00:00.000Z"),
+      clientCreatedAt: new Date(),
     });
 
     await expect(
@@ -541,5 +541,321 @@ describe("ActionsService.submitRestAction", () => {
     });
     expect(deps.prisma.playerAction.updateMany).not.toHaveBeenCalled();
     expect(deps.actionProcessor.processNext).not.toHaveBeenCalled();
+  });
+
+  it("expires a stale rest approval before a GM can approve it", async () => {
+    const deps = createService();
+    deps.sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      status: PrismaSessionStatus.PLAYING,
+      gmMode: PrismaGmMode.HUMAN,
+    });
+    deps.sessionsService.ensureMembership.mockResolvedValue(undefined);
+    deps.sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: { phase: PrismaGamePhase.EXPLORATION, version: 12 },
+    });
+    deps.prisma.sessionParticipant.findUnique.mockResolvedValue({
+      role: PrismaParticipantRole.GM,
+      status: PrismaParticipantStatus.JOINED,
+    });
+    deps.prisma.playerAction.findUnique.mockResolvedValue({
+      id: "approval-action-1",
+      sessionId: "session-1",
+      userId: "player-user-1",
+      sessionCharacterId: "session-character-1",
+      rawText: "/rest short 1",
+      queueStatus: PrismaActionQueueStatus.REJECTED,
+      failureReason: "REST_REQUIRES_GM_APPROVAL",
+      baseStateVersion: 11,
+      clientCreatedAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+    });
+    deps.prisma.playerAction.updateMany.mockResolvedValue({ count: 1 });
+    deps.turnLogsService.createTurnLog.mockResolvedValue({ turnLogId: "turn-log-expired" });
+
+    await expect(
+      deps.service.approveRestAction("gm-user-1", "session-1", "approval-action-1"),
+    ).rejects.toMatchObject({
+      response: {
+        code: "ACTION_400",
+        data: { reason: "REST_APPROVAL_EXPIRED" },
+      },
+    });
+    expect(deps.prisma.playerAction.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "approval-action-1",
+        queueStatus: PrismaActionQueueStatus.REJECTED,
+        failureReason: "REST_REQUIRES_GM_APPROVAL",
+      },
+      data: {
+        queueStatus: PrismaActionQueueStatus.FAILED,
+        failureReason: "REST_APPROVAL_EXPIRED",
+        processedAt: expect.any(Date),
+      },
+    });
+    expect(deps.turnLogsService.createTurnLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        playerActionId: "approval-action-1",
+        actorUserId: null,
+        structuredAction: expect.objectContaining({
+          type: "rest_approval",
+          requestActionId: "approval-action-1",
+          approvalStatus: "expired",
+        }),
+        outcome: ActionOutcome.NO_ROLL,
+      }),
+    );
+    expect(deps.realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith(
+      "session-1",
+      { turnLogId: "turn-log-expired" },
+    );
+    expect(deps.actionProcessor.processNext).not.toHaveBeenCalled();
+  });
+
+  it("lets a HUMAN GM reject a pending rest request without processing it", async () => {
+    const deps = createService();
+    deps.sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      status: PrismaSessionStatus.PLAYING,
+      gmMode: PrismaGmMode.HUMAN,
+    });
+    deps.sessionsService.ensureMembership.mockResolvedValue(undefined);
+    deps.sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: { phase: PrismaGamePhase.EXPLORATION, version: 12 },
+    });
+    deps.prisma.sessionParticipant.findUnique.mockResolvedValue({
+      role: PrismaParticipantRole.GM,
+      status: PrismaParticipantStatus.JOINED,
+    });
+    deps.prisma.playerAction.findUnique.mockResolvedValue({
+      id: "approval-action-1",
+      sessionId: "session-1",
+      userId: "player-user-1",
+      sessionCharacterId: "session-character-1",
+      rawText: "/rest short 2",
+      queueStatus: PrismaActionQueueStatus.REJECTED,
+      failureReason: "REST_REQUIRES_GM_APPROVAL",
+      baseStateVersion: 11,
+      clientCreatedAt: new Date(),
+    });
+    deps.prisma.playerAction.updateMany.mockResolvedValue({ count: 1 });
+    deps.turnLogsService.createTurnLog.mockResolvedValue({ turnLogId: "turn-log-rejection" });
+
+    await expect(
+      deps.service.rejectRestAction("gm-user-1", "session-1", "approval-action-1"),
+    ).resolves.toMatchObject({
+      playerActionId: "approval-action-1",
+      sessionId: "session-1",
+      queueStatus: ActionQueueStatus.FAILED,
+      baseStateVersion: 11,
+      restApproval: {
+        actionId: "approval-action-1",
+        restType: "short",
+        status: "rejected",
+        hitDiceToSpend: 2,
+      },
+    });
+    expect(deps.prisma.playerAction.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "approval-action-1",
+        queueStatus: PrismaActionQueueStatus.REJECTED,
+        failureReason: "REST_REQUIRES_GM_APPROVAL",
+      },
+      data: {
+        queueStatus: PrismaActionQueueStatus.FAILED,
+        failureReason: "REST_REJECTED_BY_GM",
+        processedAt: expect.any(Date),
+      },
+    });
+    expect(deps.turnLogsService.createTurnLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-1",
+        sessionScenarioId: "session-scenario-1",
+        playerActionId: "approval-action-1",
+        actorUserId: "gm-user-1",
+        sessionCharacterId: "session-character-1",
+        structuredAction: {
+          type: "rest_approval",
+          requestActionId: "approval-action-1",
+          restType: "short",
+          approvalStatus: "rejected",
+          hitDiceToSpend: 2,
+        },
+        outcome: ActionOutcome.NO_ROLL,
+      }),
+    );
+    expect(deps.realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith(
+      "session-1",
+      { turnLogId: "turn-log-rejection" },
+    );
+    expect(deps.actionProcessor.processNext).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplicate rest rejection after another GM resolves the request", async () => {
+    const deps = createService();
+    deps.sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      status: PrismaSessionStatus.PLAYING,
+      gmMode: PrismaGmMode.HUMAN,
+    });
+    deps.sessionsService.ensureMembership.mockResolvedValue(undefined);
+    deps.prisma.sessionParticipant.findUnique.mockResolvedValue({
+      role: PrismaParticipantRole.GM,
+      status: PrismaParticipantStatus.JOINED,
+    });
+    deps.prisma.playerAction.findUnique.mockResolvedValue({
+      id: "approval-action-1",
+      sessionId: "session-1",
+      userId: "player-user-1",
+      sessionCharacterId: "session-character-1",
+      rawText: "/rest long",
+      queueStatus: PrismaActionQueueStatus.REJECTED,
+      failureReason: "REST_REQUIRES_GM_APPROVAL",
+      baseStateVersion: 11,
+      clientCreatedAt: new Date(),
+    });
+    deps.prisma.playerAction.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      deps.service.rejectRestAction("gm-user-1", "session-1", "approval-action-1"),
+    ).rejects.toMatchObject({
+      response: {
+        code: "ACTION_400",
+        data: { reason: "REST_APPROVAL_ALREADY_CLAIMED" },
+      },
+    });
+    expect(deps.turnLogsService.createTurnLog).not.toHaveBeenCalled();
+    expect(deps.actionProcessor.processNext).not.toHaveBeenCalled();
+  });
+
+  it("rejects rest rejection from a joined non-GM participant", async () => {
+    const deps = createService();
+    deps.sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      status: PrismaSessionStatus.PLAYING,
+      gmMode: PrismaGmMode.HUMAN,
+    });
+    deps.sessionsService.ensureMembership.mockResolvedValue(undefined);
+    deps.prisma.sessionParticipant.findUnique.mockResolvedValue({
+      role: PrismaParticipantRole.PLAYER,
+      status: PrismaParticipantStatus.JOINED,
+    });
+
+    await expect(
+      deps.service.rejectRestAction("player-user-2", "session-1", "approval-action-1"),
+    ).rejects.toMatchObject({
+      response: {
+        code: "ACTION_403",
+        data: { reason: "GM_PERMISSION_REQUIRED" },
+      },
+    });
+    expect(deps.prisma.playerAction.findUnique).not.toHaveBeenCalled();
+    expect(deps.prisma.playerAction.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("lets the requester cancel a pending HUMAN GM rest request", async () => {
+    const deps = createService();
+    deps.sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      status: PrismaSessionStatus.PLAYING,
+      gmMode: PrismaGmMode.HUMAN,
+    });
+    deps.sessionsService.ensureMembership.mockResolvedValue(undefined);
+    deps.sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: { phase: PrismaGamePhase.EXPLORATION, version: 12 },
+    });
+    deps.prisma.playerAction.findUnique.mockResolvedValue({
+      id: "approval-action-1",
+      sessionId: "session-1",
+      userId: "player-user-1",
+      sessionCharacterId: "session-character-1",
+      rawText: "/rest long",
+      queueStatus: PrismaActionQueueStatus.REJECTED,
+      failureReason: "REST_REQUIRES_GM_APPROVAL",
+      baseStateVersion: 11,
+      clientCreatedAt: new Date(),
+    });
+    deps.prisma.playerAction.updateMany.mockResolvedValue({ count: 1 });
+    deps.turnLogsService.createTurnLog.mockResolvedValue({ turnLogId: "turn-log-cancel" });
+
+    await expect(
+      deps.service.cancelRestAction("player-user-1", "session-1", "approval-action-1"),
+    ).resolves.toMatchObject({
+      playerActionId: "approval-action-1",
+      sessionId: "session-1",
+      queueStatus: ActionQueueStatus.FAILED,
+      restApproval: {
+        actionId: "approval-action-1",
+        restType: "long",
+        status: "cancelled",
+        hitDiceToSpend: null,
+      },
+    });
+    expect(deps.prisma.playerAction.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "approval-action-1",
+        userId: "player-user-1",
+        queueStatus: PrismaActionQueueStatus.REJECTED,
+        failureReason: "REST_REQUIRES_GM_APPROVAL",
+      },
+      data: {
+        queueStatus: PrismaActionQueueStatus.FAILED,
+        failureReason: "REST_CANCELLED_BY_REQUESTER",
+        processedAt: expect.any(Date),
+      },
+    });
+    expect(deps.turnLogsService.createTurnLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        playerActionId: "approval-action-1",
+        actorUserId: "player-user-1",
+        sessionCharacterId: "session-character-1",
+        structuredAction: {
+          type: "rest_approval",
+          requestActionId: "approval-action-1",
+          restType: "long",
+          approvalStatus: "cancelled",
+        },
+        outcome: ActionOutcome.NO_ROLL,
+      }),
+    );
+    expect(deps.realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith(
+      "session-1",
+      { turnLogId: "turn-log-cancel" },
+    );
+    expect(deps.actionProcessor.processNext).not.toHaveBeenCalled();
+  });
+
+  it("rejects cancelling another requester's pending rest", async () => {
+    const deps = createService();
+    deps.sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      status: PrismaSessionStatus.PLAYING,
+      gmMode: PrismaGmMode.HUMAN,
+    });
+    deps.sessionsService.ensureMembership.mockResolvedValue(undefined);
+    deps.prisma.playerAction.findUnique.mockResolvedValue({
+      id: "approval-action-1",
+      sessionId: "session-1",
+      userId: "player-user-1",
+      sessionCharacterId: "session-character-1",
+      rawText: "/rest long",
+      queueStatus: PrismaActionQueueStatus.REJECTED,
+      failureReason: "REST_REQUIRES_GM_APPROVAL",
+      baseStateVersion: 11,
+      clientCreatedAt: new Date(),
+    });
+
+    await expect(
+      deps.service.cancelRestAction("player-user-2", "session-1", "approval-action-1"),
+    ).rejects.toMatchObject({
+      response: {
+        code: "ACTION_403",
+        data: { reason: "REST_REQUESTER_REQUIRED" },
+      },
+    });
+    expect(deps.prisma.playerAction.updateMany).not.toHaveBeenCalled();
+    expect(deps.turnLogsService.createTurnLog).not.toHaveBeenCalled();
   });
 });

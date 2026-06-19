@@ -73,6 +73,7 @@ import {
   endCombatTurn,
   acceptCombatReaction,
   applyHumanGmCombatCondition,
+  adjustHumanGmCombatHp,
   resolveCombatActorAction,
   castCombatSpell,
   createHumanGmMessage,
@@ -1003,7 +1004,9 @@ interface PlayPageProps {
     characterId?: string,
     hitDiceToSpend?: number,
   ) => Promise<void> | void;
-  onApproveRestRequest: (actionId: string) => Promise<void> | void;
+  onApproveRestRequest: (actionId: string) => Promise<boolean> | boolean;
+  onRejectRestRequest: (actionId: string) => Promise<boolean> | boolean;
+  onCancelRestRequest: (actionId: string) => Promise<boolean> | boolean;
   onSendAction: (rawText: string) => Promise<void> | void;
   onAction: (label: string) => void;
   onLoadOlderTurnLogs: () => void;
@@ -1709,6 +1712,8 @@ export function PlayPage({
   onResolveMainCommandCheck,
   onRequestRest,
   onApproveRestRequest,
+  onRejectRestRequest,
+  onCancelRestRequest,
   onSendAction,
   onAction,
   onLoadOlderTurnLogs,
@@ -1753,7 +1758,7 @@ export function PlayPage({
     Chat: 0,
   });
   const [revealedClueToast, setRevealedClueToast] = useState<PlayerScenarioClueDto | null>(null);
-  const [approvedRestRequestIds, setApprovedRestRequestIds] = useState<Set<string>>(
+  const [resolvedRestRequestIds, setResolvedRestRequestIds] = useState<Set<string>>(
     () => new Set(),
   );
 
@@ -1921,8 +1926,29 @@ export function PlayPage({
   );
 
   async function handleApproveRestRequest(actionId: string) {
-    await onApproveRestRequest(actionId);
-    setApprovedRestRequestIds((current) => {
+    const resolved = await onApproveRestRequest(actionId);
+    if (!resolved) return;
+    setResolvedRestRequestIds((current) => {
+      const next = new Set(current);
+      next.add(actionId);
+      return next;
+    });
+  }
+
+  async function handleRejectRestRequest(actionId: string) {
+    const resolved = await onRejectRestRequest(actionId);
+    if (!resolved) return;
+    setResolvedRestRequestIds((current) => {
+      const next = new Set(current);
+      next.add(actionId);
+      return next;
+    });
+  }
+
+  async function handleCancelRestRequest(actionId: string) {
+    const resolved = await onCancelRestRequest(actionId);
+    if (!resolved) return;
+    setResolvedRestRequestIds((current) => {
       const next = new Set(current);
       next.add(actionId);
       return next;
@@ -2838,13 +2864,23 @@ export function PlayPage({
   const pendingRestApprovals = useMemo(
     () => {
       const seenActionIds = new Set<string>();
+      const resolvedActionIds = new Set<string>();
+      for (const log of logs) {
+        const approval = log.metadata?.restApproval;
+        if (approval?.actionId && approval.status !== 'gm_required') {
+          resolvedActionIds.add(approval.actionId);
+        }
+      }
       const logApprovals = logs
         .map((log) => {
           const restApproval = log.metadata?.restApproval;
           if (
             !restApproval?.actionId ||
             restApproval.status !== 'gm_required' ||
-            approvedRestRequestIds.has(restApproval.actionId) ||
+            (restApproval.expiresAt &&
+              new Date(restApproval.expiresAt).getTime() <= Date.now()) ||
+            resolvedRestRequestIds.has(restApproval.actionId) ||
+            resolvedActionIds.has(restApproval.actionId) ||
             seenActionIds.has(restApproval.actionId)
           ) {
             return null;
@@ -2855,6 +2891,7 @@ export function PlayPage({
             restType: restApproval.restType,
             requester: log.title,
             message: stripScopePrefix(log.message),
+            expiresAt: restApproval.expiresAt ?? null,
           };
         })
         .filter(
@@ -2863,6 +2900,7 @@ export function PlayPage({
             restType: 'short' | 'long' | null;
             requester: string;
             message: string;
+            expiresAt: string | null;
           } => approval !== null
         );
 
@@ -2870,7 +2908,8 @@ export function PlayPage({
         .map((approval) => {
           if (
             !approval.actionId ||
-            approvedRestRequestIds.has(approval.actionId) ||
+            resolvedRestRequestIds.has(approval.actionId) ||
+            resolvedActionIds.has(approval.actionId) ||
             seenActionIds.has(approval.actionId)
           ) {
             return null;
@@ -2885,6 +2924,7 @@ export function PlayPage({
             restType: approval.restType,
             requester: approval.requesterDisplayName,
             message: `${characterLabel}${restLabel} 요청이 GM 승인 대기 상태입니다.`,
+            expiresAt: approval.expiresAt,
           };
         })
         .filter(
@@ -2893,14 +2933,23 @@ export function PlayPage({
             restType: 'short' | 'long' | null;
             requester: string;
             message: string;
+            expiresAt: string;
           } => approval !== null
         );
 
       return [...logApprovals, ...snapshotApprovals];
     },
-    [approvedRestRequestIds, logs, snapshot?.pendingRestApprovals]
+    [resolvedRestRequestIds, logs, snapshot?.pendingRestApprovals]
   );
   const visibleRestApproval = canUseHumanGmView ? pendingRestApprovals[0] ?? null : null;
+  const visibleOwnRestRequest = !canUseHumanGmView
+    ? (snapshot?.pendingRestApprovals ?? []).find(
+        (approval) =>
+          approval.requesterUserId === user.id &&
+          new Date(approval.expiresAt).getTime() > Date.now() &&
+          !resolvedRestRequestIds.has(approval.actionId),
+      ) ?? null
+    : null;
   const latestRenderedLogId = renderedRows[renderedRows.length - 1]?.id ?? null;
   const storyRpUtterances = useMemo<StoryRpUtterance[]>(() => {
     const now = Date.now();
@@ -3633,6 +3682,36 @@ export function PlayPage({
       onCombatActionLog('GM 상태 조정 완료');
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'GM 상태 조정에 실패했습니다.';
+      setCombatError(message);
+      onCombatActionLog(message);
+    } finally {
+      setCombatBusy(false);
+    }
+  }
+
+  async function handleAdjustCombatHp(
+    targetTokenOrParticipantId: string,
+    currentHp: number
+  ) {
+    if (!session || !canUseHumanGmView || isCombatBusy) return;
+
+    setCombatBusy(true);
+    setCombatError(null);
+    try {
+      const nextSnapshot = await adjustHumanGmCombatHp(user, session.id, {
+        targetId: targetTokenOrParticipantId,
+        currentHp,
+      });
+      const nextMap = nextSnapshot.state.flags?.vttMap as VttMapStateDto | undefined;
+      if (nextMap && typeof nextMap === 'object') {
+        latestConfirmedMapRef.current = nextMap;
+        setVttMap(nextMap);
+      }
+      const refreshedCombat = await getCombat(user, session.id);
+      setCombat(refreshedCombat);
+      onCombatActionLog('GM HP 조정 완료');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'GM HP 조정에 실패했습니다.';
       setCombatError(message);
       onCombatActionLog(message);
     } finally {
@@ -4650,6 +4729,7 @@ export function PlayPage({
                   onHide={handleHideCombatAction}
                   onReadyAction={handleReadyCombatAction}
                   onApplyCondition={handleApplyCombatCondition}
+                  onAdjustHp={handleAdjustCombatHp}
                   onForceMoveParticipant={handleForceMoveCombatParticipant}
                   onUseClassFeature={handleCombatClassFeature}
                   onCastSpell={handleCastCombatSpell}
@@ -5063,11 +5143,39 @@ export function PlayPage({
                 </strong>
                 <p>{visibleRestApproval.requester}: {visibleRestApproval.message}</p>
               </div>
+              <div className="session-rest-approval-actions">
+                <button
+                  type="button"
+                  onClick={() => void handleApproveRestRequest(visibleRestApproval.actionId)}
+                >
+                  승인
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => void handleRejectRestRequest(visibleRestApproval.actionId)}
+                >
+                  거절
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          {visibleOwnRestRequest ? (
+            <section className="session-rest-approval-banner" aria-label="휴식 승인 대기">
+              <div>
+                <span className="session-rest-approval-eyebrow">GM 승인 대기</span>
+                <strong>
+                  {visibleOwnRestRequest.restType === 'long' ? '긴 휴식' : '짧은 휴식'} 요청
+                </strong>
+                <p>GM이 결정하기 전까지 요청을 취소할 수 있습니다.</p>
+              </div>
               <button
                 type="button"
-                onClick={() => void handleApproveRestRequest(visibleRestApproval.actionId)}
+                className="secondary"
+                onClick={() => void handleCancelRestRequest(visibleOwnRestRequest.actionId)}
               >
-                승인
+                요청 취소
               </button>
             </section>
           ) : null}
@@ -5098,7 +5206,7 @@ export function PlayPage({
                         isGmUser &&
                           restApproval?.actionId &&
                           restApproval.status === 'gm_required' &&
-                          !approvedRestRequestIds.has(restApproval.actionId)
+                          !resolvedRestRequestIds.has(restApproval.actionId)
                       );
 
                       return (
@@ -5145,13 +5253,22 @@ export function PlayPage({
                                 ) : null}
                                 <span>{log.message}</span>
                                 {canApproveRestRequest && restApproval ? (
-                                  <button
-                                    type="button"
-                                    className="chat-thread-inline-action"
-                                    onClick={() => void handleApproveRestRequest(restApproval.actionId)}
-                                  >
-                                    휴식 승인
-                                  </button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="chat-thread-inline-action"
+                                      onClick={() => void handleApproveRestRequest(restApproval.actionId)}
+                                    >
+                                      휴식 승인
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="chat-thread-inline-action"
+                                      onClick={() => void handleRejectRestRequest(restApproval.actionId)}
+                                    >
+                                      휴식 거절
+                                    </button>
+                                  </>
                                 ) : null}
                               </div>
                               {log.rowClass !== 'notice' ? (

@@ -9,6 +9,7 @@
 | `README.md` | 문서 지도 |
 | `PENDING_WORK_ITEMS.md` | 완료 보관 문서에서 남긴 후속 작업 목록 |
 | `future_plan.md` | SRD 5e 룰/콘텐츠 확장 로드맵 |
+| `future_plan_mvp.md` | 현재 구현 상태 기반 End-to-End Playable MVP 로드맵 |
 
 ## 구조 문서
 

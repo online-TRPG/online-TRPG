@@ -112,11 +112,14 @@ export class ForcedMovementService {
       path.push(destination);
     }
 
-    const hazardByPoint = new Map((input.hazards ?? []).map((hazard) => [this.pointKey(hazard.point), hazard]));
+    const hazardsByPoint = new Map<string, ForcedMovementHazard[]>();
+    for (const hazard of input.hazards ?? []) {
+      const key = this.pointKey(hazard.point);
+      hazardsByPoint.set(key, [...(hazardsByPoint.get(key) ?? []), hazard]);
+    }
     const enteredHazards = path
       .slice(1)
-      .map((point) => hazardByPoint.get(this.pointKey(point)))
-      .filter((hazard): hazard is ForcedMovementHazard => Boolean(hazard));
+      .flatMap((point) => hazardsByPoint.get(this.pointKey(point)) ?? []);
     const enteredTerrainEffects = enteredHazards
       .map((hazard) => this.resolveEnteredTerrainEffect(hazard))
       .filter((effect): effect is ForcedMovementEnteredTerrainEffect => effect !== null);

@@ -30,7 +30,7 @@
   - 모든 참가자에게 공통 집중 배지와 접근 가능한 tooltip 문구를 추가한다.
 - 수정 `fe/src/features/sessionPlay/components/CombatNodeSurface.css`
   - 턴 카드 크기를 변경하지 않고 집중 배지를 배치하고 스타일링한다.
-- 수정 `doc/future_plan.md`
+- 수정 `doc/future_plan_mvp.md`
   - 새로 연결된 API/UI 표면을 기록하되, 더 넓은 집중 규칙 완료 작업은 남겨 둔다.
 
 새 데이터베이스 모델, migration, package, 테스트 runner, 프런트엔드 테스트 framework는 도입하지 않는다.
@@ -504,7 +504,7 @@ npm run build -w @trpg/fe
 ### 작업 5: 로드맵 근거 갱신 및 정적 검토 완료
 
 **파일:**
-- 수정: `doc/future_plan.md`
+- 수정: `doc/future_plan_mvp.md`
 - 검토: 작업 1~4에서 변경한 모든 파일
 
 - [x] **1단계: 집중 상태표 행 갱신**
@@ -548,7 +548,7 @@ npm run build -w @trpg/fe
 
 ```powershell
 git diff --check
-rg -n "concentration" shared-types/src/dto/api/gameplay.dto.ts be/src/modules/rules/concentration-runtime.service.ts be/src/modules/combat/combat.service.ts fe/src/features/sessionPlay/utils/combatParticipantObservation.ts doc/future_plan.md
+rg -n "concentration" shared-types/src/dto/api/gameplay.dto.ts be/src/modules/rules/concentration-runtime.service.ts be/src/modules/combat/combat.service.ts fe/src/features/sessionPlay/utils/combatParticipantObservation.ts doc/future_plan_mvp.md
 ```
 
 예상 결과:

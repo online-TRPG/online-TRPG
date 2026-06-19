@@ -2628,6 +2628,8 @@ describe("ActionRuleService", () => {
     });
 
     const result = service.resolveAction("/rest short 2", actor, [actor], {
+      spellSlots: { "1": 1 },
+      spellSlotMaximums: { "1": 4 },
       resource: {
         secondWindAvailable: false,
         actionSurgeUses: 0,
@@ -2659,6 +2661,27 @@ describe("ActionRuleService", () => {
       restType: "short",
       recoveredResources: {
         hitDiceSpent: 3,
+      },
+      restResult: {
+        hp: {
+          before: 5,
+          after: 21,
+          recovered: 16,
+        },
+        resources: {
+          before: expect.objectContaining({
+            secondWindAvailable: false,
+            hitDiceSpent: 1,
+          }),
+          after: expect.objectContaining({
+            secondWindAvailable: true,
+            hitDiceSpent: 3,
+          }),
+        },
+        spellSlots: {
+          before: { "1": 1 },
+          after: { "1": 1 },
+        },
       },
       recoveredTags: expect.arrayContaining(["hit_dice:spent:2"]),
     });
@@ -2707,7 +2730,19 @@ describe("ActionRuleService", () => {
       character: { className: "barbarian", level: 6, maxHp: 50 },
     });
 
-    const result = service.resolveAction("/rest long", actor, [actor]);
+    const result = service.resolveAction("/rest long", actor, [actor], {
+      spellSlots: { "1": 0, "2": 1 },
+      spellSlotMaximums: { "1": 4, "2": 3 },
+      resource: {
+        secondWindAvailable: true,
+        actionSurgeUses: 0,
+        rageUses: 1,
+        rageActive: true,
+        frenzyActive: false,
+        exhaustionLevel: 1,
+        hitDiceSpent: 2,
+      },
+    });
 
     expect(result.outcome).toBe(ActionOutcome.SUCCESS);
     expect(result.stateChanges).toEqual([
@@ -2730,6 +2765,44 @@ describe("ActionRuleService", () => {
     expect(result.structuredAction).toMatchObject({
       type: "rest",
       restType: "long",
+      restResult: {
+        hp: {
+          before: 3,
+          after: 50,
+          recovered: 47,
+        },
+        tempHp: {
+          before: 4,
+          after: 0,
+        },
+        conditions: {
+          beforeCount: 4,
+          afterCount: 1,
+          removed: [
+            "resource:rage_expended",
+            "rage",
+            "resistance:slashing",
+          ],
+        },
+        resources: {
+          before: expect.objectContaining({
+            rageUses: 1,
+            rageActive: true,
+            exhaustionLevel: 1,
+            hitDiceSpent: 2,
+          }),
+          after: expect.objectContaining({
+            rageUses: 4,
+            rageActive: false,
+            exhaustionLevel: 0,
+            hitDiceSpent: 0,
+          }),
+        },
+        spellSlots: {
+          before: { "1": 0, "2": 1 },
+          after: { "1": 4, "2": 3 },
+        },
+      },
       recoveredTags: expect.arrayContaining([
         "resource:rage_expended",
         "rage",

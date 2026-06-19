@@ -123,6 +123,38 @@ export class ActionsController {
     );
   }
 
+  @Post("rest/requests/:actionId/reject")
+  @ApiParam({ name: "sessionId" })
+  @ApiParam({ name: "actionId" })
+  @ApiCreatedResponse({ type: ActionAcceptedResponseDto })
+  async rejectRestAction(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Param("actionId") actionId: string,
+  ): Promise<ApiResponse<ActionAcceptedResponseDto>> {
+    return apiResponse(
+      "ACTION_REST_REJECT_201",
+      "휴식 요청을 거절했습니다.",
+      await this.actionsService.rejectRestAction(userId, sessionId, actionId),
+    );
+  }
+
+  @Post("rest/requests/:actionId/cancel")
+  @ApiParam({ name: "sessionId" })
+  @ApiParam({ name: "actionId" })
+  @ApiCreatedResponse({ type: ActionAcceptedResponseDto })
+  async cancelRestAction(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Param("actionId") actionId: string,
+  ): Promise<ApiResponse<ActionAcceptedResponseDto>> {
+    return apiResponse(
+      "ACTION_REST_CANCEL_201",
+      "휴식 요청을 취소했습니다.",
+      await this.actionsService.cancelRestAction(userId, sessionId, actionId),
+    );
+  }
+
   @Post("main-command")
   @ApiParam({ name: "sessionId" })
   @ApiCreatedResponse({ type: MainCommandResponseDto })

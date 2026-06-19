@@ -1756,6 +1756,22 @@
   background: #32618c;
 }
 
+.session-rest-approval-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.session-rest-approval-banner button.secondary {
+  background: transparent;
+  color: #5b3a15;
+}
+
+.session-rest-approval-banner button.secondary:hover,
+.session-rest-approval-banner button.secondary:focus-visible {
+  background: rgba(91, 58, 21, 0.12);
+}
+
 .session-combat-reaction-banner {
   position: absolute;
   left: 18px;

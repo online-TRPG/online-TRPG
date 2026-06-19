@@ -794,7 +794,9 @@ export function App() {
             onRequestRest={(restType, characterId, hitDiceToSpend) =>
               void session.requestRest(restType, characterId, hitDiceToSpend)
             }
-            onApproveRestRequest={(actionId) => void session.approveRestRequest(actionId)}
+            onApproveRestRequest={(actionId) => session.approveRestRequest(actionId)}
+            onRejectRestRequest={(actionId) => session.rejectRestRequest(actionId)}
+            onCancelRestRequest={(actionId) => session.cancelRestRequest(actionId)}
             onSendAction={(rawText) => void session.sendAction(rawText)}
             onAction={handleSessionMessage}
             onLoadOlderTurnLogs={() => void session.loadOlderTurnLogs()}

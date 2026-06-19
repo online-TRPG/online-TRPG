@@ -133,6 +133,29 @@ describe("ForcedMovementService", () => {
     });
   });
 
+  it("preserves distinct overlapping terrain effects at the same point", () => {
+    const result = service.resolveForcedMovement({
+      mode: "push",
+      origin: { x: 1, y: 1 },
+      target: { x: 2, y: 1 },
+      distanceFt: 5,
+      grid: { width: 6, height: 6 },
+      hazards: [
+        { point: { x: 3, y: 1 }, terrainEffectId: "terrain.burning" },
+        { point: { x: 3, y: 1 }, terrainEffectId: "terrain.poison_cloud" },
+      ],
+    });
+
+    expect(result.enteredHazards).toEqual([
+      { point: { x: 3, y: 1 }, terrainEffectId: "terrain.burning" },
+      { point: { x: 3, y: 1 }, terrainEffectId: "terrain.poison_cloud" },
+    ]);
+    expect(result.combinedEnteredTerrainEffect?.damagePackets).toEqual([
+      { sourceEffectId: "terrain.burning", dice: "1d6", type: "fire" },
+      { sourceEffectId: "terrain.poison_cloud", dice: "1d6", type: "poison" },
+    ]);
+  });
+
   it("reports edge-of-map falls without moving outside the grid", () => {
     expect(
       service.resolveForcedMovement({

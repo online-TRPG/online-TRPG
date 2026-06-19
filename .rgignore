@@ -1,0 +1,22 @@
+# Dependency and virtual environment directories
+node_modules/
+ai/.venv/
+
+# Build outputs and coverage
+dist/
+**/dist/
+coverage/
+
+# Runtime/generated local files
+runtime_logs/
+exec/dump/
+*.log
+
+# Large generated/search-noisy datasets
+srd-data/generated/
+fe/public/rulebooks/
+fe/public/srd/
+
+# Lockfiles are rarely useful for source search
+package-lock.json
+*.lock

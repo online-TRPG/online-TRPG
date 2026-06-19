@@ -32,6 +32,10 @@ import { InventoryRuntimeService } from "../rules/inventory-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
 import { ActionProcessorService } from "./action-processor.service";
+import {
+  getRestApprovalExpiresAt,
+  isRestApprovalExpired,
+} from "./rest-approval-policy";
 
 type SrdEquipmentContent = {
   itemId: string;
@@ -338,6 +342,7 @@ export class ActionsService {
     hitDiceToSpend?: number;
     rawText: string;
   }): Promise<ActionAcceptedResponseDto> {
+    const clientCreatedAt = new Date();
     const action = await this.prisma.playerAction.create({
       data: {
         sessionId: params.sessionId,
@@ -349,7 +354,7 @@ export class ActionsService {
         queueStatus: PrismaActionQueueStatus.REJECTED,
         failureReason: "REST_REQUIRES_GM_APPROVAL",
         baseStateVersion: params.stateVersion,
-        clientCreatedAt: new Date(),
+        clientCreatedAt,
       },
     });
 
@@ -371,6 +376,7 @@ export class ActionsService {
         type: "rest",
         restType: params.restType,
         approvalStatus: "gm_required",
+        approvalExpiresAt: getRestApprovalExpiresAt(clientCreatedAt).toISOString(),
         ...(params.restType === "short" && params.hitDiceToSpend
           ? { hitDiceToSpend: params.hitDiceToSpend }
           : {}),
@@ -393,6 +399,7 @@ export class ActionsService {
         status: "gm_required",
         hitDiceToSpend:
           params.restType === "short" ? params.hitDiceToSpend ?? null : null,
+        expiresAt: getRestApprovalExpiresAt(action.clientCreatedAt).toISOString(),
       },
     };
   }
@@ -447,6 +454,12 @@ export class ActionsService {
         reason: "INVALID_REST_APPROVAL_REQUEST",
       });
     }
+    if (isRestApprovalExpired(action.clientCreatedAt)) {
+      await this.expireRestApprovalRequest(session.id, action);
+      throw badRequest("ACTION_400", "휴식 승인 요청이 만료되었습니다.", {
+        reason: "REST_APPROVAL_EXPIRED",
+      });
+    }
 
     const { state } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     if (state.phase === PrismaGamePhase.COMBAT) {
@@ -492,8 +505,276 @@ export class ActionsService {
         restType: this.resolveRestTypeFromRawText(action.rawText),
         status: "approved",
         hitDiceToSpend: this.resolveRestHitDiceFromRawText(action.rawText),
+        expiresAt: getRestApprovalExpiresAt(action.clientCreatedAt).toISOString(),
       },
     };
+  }
+
+  async rejectRestAction(
+    userId: string,
+    sessionId: string,
+    actionId: string,
+  ): Promise<ActionAcceptedResponseDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    await this.sessionsService.ensureMembership(userId, session.id);
+    this.ensurePlaying(session.status);
+
+    if (session.gmMode !== PrismaGmMode.HUMAN) {
+      throw badRequest("ACTION_400", "HUMAN GM 세션의 휴식 요청만 거절할 수 있습니다.", {
+        reason: "HUMAN_GM_ONLY",
+      });
+    }
+
+    const requester = await this.prisma.sessionParticipant.findUnique({
+      where: {
+        sessionId_userId: {
+          sessionId: session.id,
+          userId,
+        },
+      },
+    });
+    const isGmOperator =
+      requester?.status === PrismaParticipantStatus.JOINED &&
+      (requester.role === PrismaParticipantRole.HOST ||
+        requester.role === PrismaParticipantRole.GM);
+    if (!isGmOperator) {
+      throw forbidden("ACTION_403", "휴식 요청 거절에는 GM 권한이 필요합니다.", {
+        reason: "GM_PERMISSION_REQUIRED",
+      });
+    }
+
+    const action = await this.prisma.playerAction.findUnique({
+      where: { id: actionId },
+    });
+    if (!action || action.sessionId !== session.id) {
+      throw badRequest("ACTION_400", "거절할 휴식 요청을 찾을 수 없습니다.", {
+        reason: "REST_APPROVAL_REQUEST_NOT_FOUND",
+      });
+    }
+    if (
+      action.queueStatus !== PrismaActionQueueStatus.REJECTED ||
+      action.failureReason !== "REST_REQUIRES_GM_APPROVAL" ||
+      !action.rawText.startsWith("/rest ")
+    ) {
+      throw badRequest("ACTION_400", "거절 가능한 휴식 요청이 아닙니다.", {
+        reason: "INVALID_REST_APPROVAL_REQUEST",
+      });
+    }
+    if (isRestApprovalExpired(action.clientCreatedAt)) {
+      await this.expireRestApprovalRequest(session.id, action);
+      throw badRequest("ACTION_400", "휴식 승인 요청이 만료되었습니다.", {
+        reason: "REST_APPROVAL_EXPIRED",
+      });
+    }
+
+    const rejectionClaim = await this.prisma.playerAction.updateMany({
+      where: {
+        id: action.id,
+        queueStatus: PrismaActionQueueStatus.REJECTED,
+        failureReason: "REST_REQUIRES_GM_APPROVAL",
+      },
+      data: {
+        queueStatus: PrismaActionQueueStatus.FAILED,
+        failureReason: "REST_REJECTED_BY_GM",
+        processedAt: new Date(),
+      },
+    });
+    if (rejectionClaim.count !== 1) {
+      throw badRequest("ACTION_400", "이미 처리 중이거나 처리된 휴식 요청입니다.", {
+        reason: "REST_APPROVAL_ALREADY_CLAIMED",
+      });
+    }
+
+    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
+    const restType = this.resolveRestTypeFromRawText(action.rawText);
+    const hitDiceToSpend = this.resolveRestHitDiceFromRawText(action.rawText);
+    const turnLog = await this.turnLogsService.createTurnLog({
+      sessionId: session.id,
+      sessionScenarioId: sessionScenario.id,
+      playerActionId: action.id,
+      actorUserId: userId,
+      sessionCharacterId: action.sessionCharacterId,
+      rawInput: null,
+      structuredAction: {
+        type: "rest_approval",
+        requestActionId: action.id,
+        restType,
+        approvalStatus: "rejected",
+        ...(hitDiceToSpend ? { hitDiceToSpend } : {}),
+      },
+      diceResult: null,
+      stateDiff: null,
+      outcome: ActionOutcome.NO_ROLL,
+      narration: "GM이 휴식 요청을 거절했습니다.",
+    });
+    this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
+
+    return {
+      playerActionId: action.id,
+      sessionId: session.id,
+      queueStatus: ActionQueueStatus.FAILED,
+      baseStateVersion: action.baseStateVersion,
+      restApproval: {
+        actionId: action.id,
+        restType,
+        status: "rejected",
+        hitDiceToSpend,
+        expiresAt: getRestApprovalExpiresAt(action.clientCreatedAt).toISOString(),
+      },
+    };
+  }
+
+  async cancelRestAction(
+    userId: string,
+    sessionId: string,
+    actionId: string,
+  ): Promise<ActionAcceptedResponseDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    await this.sessionsService.ensureMembership(userId, session.id);
+    this.ensurePlaying(session.status);
+
+    if (session.gmMode !== PrismaGmMode.HUMAN) {
+      throw badRequest("ACTION_400", "HUMAN GM 세션의 휴식 요청만 취소할 수 있습니다.", {
+        reason: "HUMAN_GM_ONLY",
+      });
+    }
+
+    const action = await this.prisma.playerAction.findUnique({
+      where: { id: actionId },
+    });
+    if (!action || action.sessionId !== session.id) {
+      throw badRequest("ACTION_400", "취소할 휴식 요청을 찾을 수 없습니다.", {
+        reason: "REST_APPROVAL_REQUEST_NOT_FOUND",
+      });
+    }
+    if (action.userId !== userId) {
+      throw forbidden("ACTION_403", "휴식 요청을 만든 사용자만 취소할 수 있습니다.", {
+        reason: "REST_REQUESTER_REQUIRED",
+      });
+    }
+    if (
+      action.queueStatus !== PrismaActionQueueStatus.REJECTED ||
+      action.failureReason !== "REST_REQUIRES_GM_APPROVAL" ||
+      !action.rawText.startsWith("/rest ")
+    ) {
+      throw badRequest("ACTION_400", "취소 가능한 휴식 요청이 아닙니다.", {
+        reason: "INVALID_REST_APPROVAL_REQUEST",
+      });
+    }
+    if (isRestApprovalExpired(action.clientCreatedAt)) {
+      await this.expireRestApprovalRequest(session.id, action);
+      throw badRequest("ACTION_400", "휴식 승인 요청이 만료되었습니다.", {
+        reason: "REST_APPROVAL_EXPIRED",
+      });
+    }
+
+    const cancellationClaim = await this.prisma.playerAction.updateMany({
+      where: {
+        id: action.id,
+        userId,
+        queueStatus: PrismaActionQueueStatus.REJECTED,
+        failureReason: "REST_REQUIRES_GM_APPROVAL",
+      },
+      data: {
+        queueStatus: PrismaActionQueueStatus.FAILED,
+        failureReason: "REST_CANCELLED_BY_REQUESTER",
+        processedAt: new Date(),
+      },
+    });
+    if (cancellationClaim.count !== 1) {
+      throw badRequest("ACTION_400", "이미 처리 중이거나 처리된 휴식 요청입니다.", {
+        reason: "REST_APPROVAL_ALREADY_CLAIMED",
+      });
+    }
+
+    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
+    const restType = this.resolveRestTypeFromRawText(action.rawText);
+    const hitDiceToSpend = this.resolveRestHitDiceFromRawText(action.rawText);
+    const turnLog = await this.turnLogsService.createTurnLog({
+      sessionId: session.id,
+      sessionScenarioId: sessionScenario.id,
+      playerActionId: action.id,
+      actorUserId: userId,
+      sessionCharacterId: action.sessionCharacterId,
+      rawInput: null,
+      structuredAction: {
+        type: "rest_approval",
+        requestActionId: action.id,
+        restType,
+        approvalStatus: "cancelled",
+        ...(hitDiceToSpend ? { hitDiceToSpend } : {}),
+      },
+      diceResult: null,
+      stateDiff: null,
+      outcome: ActionOutcome.NO_ROLL,
+      narration: "요청자가 휴식 요청을 취소했습니다.",
+    });
+    this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
+
+    return {
+      playerActionId: action.id,
+      sessionId: session.id,
+      queueStatus: ActionQueueStatus.FAILED,
+      baseStateVersion: action.baseStateVersion,
+      restApproval: {
+        actionId: action.id,
+        restType,
+        status: "cancelled",
+        hitDiceToSpend,
+        expiresAt: getRestApprovalExpiresAt(action.clientCreatedAt).toISOString(),
+      },
+    };
+  }
+
+  private async expireRestApprovalRequest(
+    sessionId: string,
+    action: {
+      id: string;
+      sessionCharacterId: string | null;
+      rawText: string;
+      clientCreatedAt: Date;
+    },
+  ): Promise<void> {
+    const expirationClaim = await this.prisma.playerAction.updateMany({
+      where: {
+        id: action.id,
+        queueStatus: PrismaActionQueueStatus.REJECTED,
+        failureReason: "REST_REQUIRES_GM_APPROVAL",
+      },
+      data: {
+        queueStatus: PrismaActionQueueStatus.FAILED,
+        failureReason: "REST_APPROVAL_EXPIRED",
+        processedAt: new Date(),
+      },
+    });
+    if (expirationClaim.count !== 1) {
+      return;
+    }
+
+    const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
+    const restType = this.resolveRestTypeFromRawText(action.rawText);
+    const hitDiceToSpend = this.resolveRestHitDiceFromRawText(action.rawText);
+    const turnLog = await this.turnLogsService.createTurnLog({
+      sessionId,
+      sessionScenarioId: sessionScenario.id,
+      playerActionId: action.id,
+      actorUserId: null,
+      sessionCharacterId: action.sessionCharacterId,
+      rawInput: null,
+      structuredAction: {
+        type: "rest_approval",
+        requestActionId: action.id,
+        restType,
+        approvalStatus: "expired",
+        approvalExpiresAt: getRestApprovalExpiresAt(action.clientCreatedAt).toISOString(),
+        ...(hitDiceToSpend ? { hitDiceToSpend } : {}),
+      },
+      diceResult: null,
+      stateDiff: null,
+      outcome: ActionOutcome.NO_ROLL,
+      narration: "휴식 승인 요청이 만료되었습니다.",
+    });
+    this.realtimeEvents.emitTurnLogCreated(sessionId, turnLog);
   }
 
   private resolveRestTypeFromRawText(rawText: string): "short" | "long" | null {

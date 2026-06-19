@@ -26,6 +26,7 @@
 - `README.md`
 - `PENDING_WORK_ITEMS.md`
 - `future_plan.md`
+- `future_plan_mvp.md`
 
 이유:
 

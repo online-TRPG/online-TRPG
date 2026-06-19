@@ -3,6 +3,7 @@ import { RealtimeCoreModule } from "../realtime/realtime-core.module";
 import { SessionsModule } from "../sessions/sessions.module";
 import { ActionEconomyService } from "./action-economy.service";
 import { ActionRuleService } from "./action-rule.service";
+import { ActionSpellRuleService } from "./action-spell-rule.service";
 import { AoeDamageService } from "./aoe-damage.service";
 import { AoeTargetingService } from "./aoe-targeting.service";
 import { CharacterResourceService } from "./character-resource.service";
@@ -34,6 +35,7 @@ import { TerrainEffectService } from "./terrain-effect.service";
   providers: [
     ActionEconomyService,
     ActionRuleService,
+    ActionSpellRuleService,
     AoeDamageService,
     AoeTargetingService,
     CharacterResourceService,
@@ -61,6 +63,7 @@ import { TerrainEffectService } from "./terrain-effect.service";
   exports: [
     ActionEconomyService,
     ActionRuleService,
+    ActionSpellRuleService,
     AoeDamageService,
     AoeTargetingService,
     CharacterResourceService,

@@ -8,6 +8,7 @@ import {
 } from "@trpg/shared-types";
 import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
 import { SessionsService } from "./sessions.service";
+import { getRestApprovalExpiresAt } from "../actions/rest-approval-policy";
 
 describe("HumanGmMessageDto validation", () => {
   it("keeps private GM notes through whitelist validation", async () => {
@@ -62,6 +63,8 @@ describe("ApplyHumanGmCombatConditionDto validation", () => {
 
 describe("SessionsService pending rest approval projection", () => {
   it("projects HUMAN GM rest approval requests for reconnect snapshots", async () => {
+    const shortRequestedAt = new Date();
+    const longRequestedAt = new Date(shortRequestedAt.getTime() + 1000);
     const prisma = {
       playerAction: {
         findMany: jest.fn().mockResolvedValue([
@@ -70,14 +73,14 @@ describe("SessionsService pending rest approval projection", () => {
             rawText: "/rest short 2",
             userId: "player-1",
             sessionCharacterId: "session-character-1",
-            clientCreatedAt: new Date("2026-06-18T01:02:03.000Z"),
+            clientCreatedAt: shortRequestedAt,
           },
           {
             id: "action-long",
             rawText: "/rest long",
             userId: "player-2",
             sessionCharacterId: null,
-            clientCreatedAt: new Date("2026-06-18T01:03:04.000Z"),
+            clientCreatedAt: longRequestedAt,
           },
         ]),
       },
@@ -114,6 +117,7 @@ describe("SessionsService pending rest approval projection", () => {
         where: expect.objectContaining({
           sessionId: "session-1",
           failureReason: "REST_REQUIRES_GM_APPROVAL",
+          clientCreatedAt: { gt: expect.any(Date) },
         }),
       }),
     );
@@ -139,7 +143,8 @@ describe("SessionsService pending rest approval projection", () => {
         requesterDisplayName: "Mira",
         sessionCharacterId: "session-character-1",
         characterName: "Mira the Bold",
-        requestedAt: "2026-06-18T01:02:03.000Z",
+        requestedAt: shortRequestedAt.toISOString(),
+        expiresAt: getRestApprovalExpiresAt(shortRequestedAt).toISOString(),
       },
       {
         actionId: "action-long",
@@ -149,7 +154,8 @@ describe("SessionsService pending rest approval projection", () => {
         requesterDisplayName: "Toma",
         sessionCharacterId: null,
         characterName: null,
-        requestedAt: "2026-06-18T01:03:04.000Z",
+        requestedAt: longRequestedAt.toISOString(),
+        expiresAt: getRestApprovalExpiresAt(longRequestedAt).toISOString(),
       },
     ]);
   });
@@ -705,6 +711,160 @@ describe("SessionsService HUMAN GM combat conditions", () => {
             sessionEntityId: "participant-goblin",
             conditions: ["condition.poisoned"],
             concentration: null,
+          }),
+        ],
+      }),
+    );
+  });
+});
+
+describe("SessionsService HUMAN GM combat HP override", () => {
+  it("updates combat HP and writes adjust_hp audit state", async () => {
+    const now = new Date("2026-06-19T00:00:00.000Z");
+    const target = {
+      id: "participant-ogre",
+      entityType: "MONSTER",
+      sessionCharacterId: null,
+      tokenId: "token-ogre",
+      nameSnapshot: "Ogre",
+      currentHp: 30,
+      maxHp: 40,
+      armorClass: 11,
+      initiative: 8,
+      turnOrder: 1,
+      isAlive: true,
+      isHostile: true,
+      conditionsJson: "[]",
+    };
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: "ACTIVE",
+      roundNo: 1,
+      turnNo: 1,
+      currentParticipantId: target.id,
+      participants: [target],
+    };
+    const tx = {
+      combatParticipant: {
+        update: jest.fn().mockResolvedValue({}),
+      },
+      sessionCharacter: {
+        update: jest.fn().mockResolvedValue({}),
+      },
+      turnLog: {
+        findFirst: jest.fn().mockResolvedValue({ turnNumber: 7 }),
+        create: jest.fn().mockResolvedValue({
+          id: "turn-log-hp",
+          turnNumber: 8,
+          playerActionId: null,
+          actorUserId: "gm-user",
+          sessionCharacterId: null,
+          rawInput: "gm:adjust_hp",
+          structuredActionJson: JSON.stringify({
+            type: "gm_override",
+            kind: "adjust_hp",
+            targetId: target.id,
+            public: true,
+            hasPrivateNote: false,
+            metadata: {
+              previousHp: 30,
+              nextHp: 14,
+              maximumHp: 40,
+              tokenId: "token-ogre",
+              targetName: "Ogre",
+            },
+          }),
+          stateDiffJson: JSON.stringify({
+            baseVersion: 4,
+            nextVersion: 5,
+            reason: "gm_override:adjust_hp",
+            diff: {
+              combatParticipants: [
+                {
+                  combatParticipantId: target.id,
+                  tokenId: "token-ogre",
+                  previousHp: 30,
+                  currentHp: 14,
+                  isAlive: true,
+                },
+              ],
+            },
+          }),
+          outcome: "SUCCESS",
+          narration: "GM이 Ogre의 HP를 30에서 14(으)로 조정했습니다.",
+          createdAt: now,
+        }),
+      },
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({ version: 4 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      stateDiff: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const prisma = {
+      combat: {
+        findFirst: jest.fn().mockResolvedValue(combat),
+      },
+      $transaction: jest.fn((callback: (txClient: typeof tx) => Promise<unknown>) =>
+        callback(tx),
+      ),
+    };
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitStateDiffApplied: jest.fn(),
+      emitSessionSnapshot: jest.fn(),
+      emitCombatUpdated: jest.fn(),
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    const serviceInternals = service as unknown as {
+      getHumanGmSessionForOperator: jest.Mock;
+      getActiveSessionScenarioEntityOrThrow: jest.Mock;
+      buildSnapshot: jest.Mock;
+    };
+    serviceInternals.getHumanGmSessionForOperator = jest
+      .fn()
+      .mockResolvedValue({ id: "session-1" });
+    serviceInternals.getActiveSessionScenarioEntityOrThrow = jest
+      .fn()
+      .mockResolvedValue({ id: "session-scenario-1" });
+    serviceInternals.buildSnapshot = jest
+      .fn()
+      .mockResolvedValue({ session: { id: "session-1" } });
+
+    await service.adjustHumanGmCombatHp("gm-user", "session-1", {
+      targetId: "token-ogre",
+      currentHp: 14,
+    });
+
+    expect(tx.combatParticipant.update).toHaveBeenCalledWith({
+      where: { id: target.id },
+      data: { currentHp: 14, isAlive: true },
+    });
+    expect(tx.sessionCharacter.update).not.toHaveBeenCalled();
+    expect(tx.turnLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          rawInput: "gm:adjust_hp",
+          narration: "GM이 Ogre의 HP를 30에서 14(으)로 조정했습니다.",
+        }),
+      }),
+    );
+    expect(realtimeEvents.emitCombatUpdated).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        participants: [
+          expect.objectContaining({
+            sessionEntityId: target.id,
+            currentHp: 14,
+            isAlive: true,
           }),
         ],
       }),

@@ -22,6 +22,7 @@ import {
 } from "@nestjs/swagger";
 import {
   ApplyHumanGmCombatConditionDto,
+  AdjustHumanGmCombatHpDto,
   CreateSessionDto,
   CreateVttMapPingDto,
   GameStateResponseDto,
@@ -523,6 +524,22 @@ export class SessionsController {
       "SESSION_200",
       "GM combat condition applied.",
       await this.sessionsService.applyHumanGmCombatCondition(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/gm/combat/hp")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async adjustHumanGmCombatHp(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: AdjustHumanGmCombatHpDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM combat hit points adjusted.",
+      await this.sessionsService.adjustHumanGmCombatHp(userId, sessionId, dto),
     );
   }
 

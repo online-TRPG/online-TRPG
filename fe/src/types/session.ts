@@ -136,6 +136,7 @@ export interface LogEntry {
       restType?: "short" | "long" | null;
       status?: string | null;
       hitDiceToSpend?: number | null;
+      expiresAt?: string | null;
     };
   };
 }
