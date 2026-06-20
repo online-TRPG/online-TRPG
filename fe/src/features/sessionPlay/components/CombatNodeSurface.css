@@ -3,7 +3,8 @@
 .combat-map-panel,
 .combat-resource-panel,
 .combat-action-panel,
-.combat-inventory-panel {
+.combat-inventory-panel,
+.combat-gm-ai-assist-panel {
   position: relative;
   box-sizing: border-box;
   /* 이중 액자 (바깥은 outline, 안은 border) */
@@ -718,6 +719,23 @@
   overflow: hidden;
 }
 
+.combat-gm-ai-assist-panel {
+  grid-column: 1 / -1;
+  padding: 14px 16px;
+  align-content: start;
+  border-color: #7c5a2d;
+  outline-color: rgba(217, 168, 79, 0.38);
+  background-color: #111419;
+  background-image:
+    linear-gradient(180deg, rgba(255, 237, 188, 0.05), transparent 38%),
+    linear-gradient(145deg, #18191c 0%, #0d1013 100%);
+  color: #ead9b0;
+  box-shadow:
+    inset 0 0 0 1px rgba(232, 201, 122, 0.18),
+    inset 0 0 22px rgba(0, 0, 0, 0.4),
+    0 4px 10px rgba(30, 18, 8, 0.5);
+}
+
 .combat-resource-panel strong {
   color: #ead9b0;
   font-size: 12px;
@@ -793,13 +811,15 @@
 
 .combat-resource-panel::before,
 .combat-action-panel::before,
-.combat-inventory-panel::before {
+.combat-inventory-panel::before,
+.combat-gm-ai-assist-panel::before {
   background-image: none;
 }
 
 .combat-resource-panel > :not(.combat-frame-corner),
 .combat-action-panel > :not(.combat-frame-corner),
-.combat-inventory-panel > :not(.combat-frame-corner) {
+.combat-inventory-panel > :not(.combat-frame-corner),
+.combat-gm-ai-assist-panel > :not(.combat-frame-corner) {
   position: relative;
   z-index: 2;
 }
@@ -1339,6 +1359,20 @@
   text-align: center;
   word-break: keep-all;
   overflow-wrap: anywhere;
+}
+
+.combat-action-subtext {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: #b8ad95;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .combat-spell-slot-select {

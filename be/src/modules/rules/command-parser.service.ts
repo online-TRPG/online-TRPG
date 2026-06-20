@@ -15,7 +15,14 @@ export type ParsedCommand =
   | {
       type: "ready";
       trigger: {
-        type: "creature_enters_range" | "creature_leaves_range" | "ally_attacked" | "enemy_casts_spell" | "manual";
+        type:
+          | "creature_enters_range"
+          | "creature_leaves_range"
+          | "ally_attacked"
+          | "enemy_casts_spell"
+          | "turn_start"
+          | "turn_end"
+          | "manual";
         targetParticipantId?: string | null;
         rangeFt?: number | null;
         tags?: string[];
@@ -200,9 +207,11 @@ export class CommandParserService {
 
   private parseCastSpell(args: string[]): ParsedCommand {
     const spellToken = args[0];
-    const target = args[1];
+    const spellId = spellToken ? this.normalizeSpellId(spellToken) : null;
+    const selfTargeted = spellId === "spell.detect_magic";
+    const target = args[1] ?? (selfTargeted ? "self" : null);
 
-    if (!spellToken || !target) {
+    if (!spellId || !target) {
       throw badRequest("ACTION_400", "잘못된 명령입니다.", {
         reason: "CAST_SPELL_AND_TARGET_REQUIRED",
       });
@@ -210,11 +219,11 @@ export class CommandParserService {
 
     return {
       type: "cast_spell",
-      spellId: this.normalizeSpellId(spellToken),
+      spellId,
       target,
       targetDistanceFt: this.parseOptionalPositiveInteger(
         args[2],
-        90,
+        selfTargeted ? 0 : 90,
         "INVALID_TARGET_DISTANCE",
       ),
       slotLevel: args[3]
@@ -461,9 +470,9 @@ export class CommandParserService {
 
   private normalizeReadyTriggerType(
     value: string,
-  ): "creature_enters_range" | "creature_leaves_range" | "ally_attacked" | "enemy_casts_spell" | "manual" {
+  ): Extract<ParsedCommand, { type: "ready" }>["trigger"]["type"] {
     const normalized = value.toLowerCase().replace(/-/g, "_");
-    const aliases: Record<string, "creature_enters_range" | "creature_leaves_range" | "ally_attacked" | "enemy_casts_spell" | "manual"> = {
+    const aliases: Record<string, Extract<ParsedCommand, { type: "ready" }>["trigger"]["type"]> = {
       enter: "creature_enters_range",
       enters: "creature_enters_range",
       creature_enters: "creature_enters_range",
@@ -477,6 +486,12 @@ export class CommandParserService {
       enemy_casts: "enemy_casts_spell",
       enemy_casts_spell: "enemy_casts_spell",
       spell: "enemy_casts_spell",
+      start: "turn_start",
+      turn_start: "turn_start",
+      starts_turn: "turn_start",
+      end: "turn_end",
+      turn_end: "turn_end",
+      ends_turn: "turn_end",
       manual: "manual",
     };
     const triggerType = aliases[normalized];

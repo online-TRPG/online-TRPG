@@ -10,7 +10,11 @@ import { CommandParserService } from "../../modules/rules/command-parser.service
 import { DiceService } from "../../modules/rules/dice.service";
 import { MapPositionService } from "../../modules/rules/map-position.service";
 import { RuleEngineService } from "../../modules/rules/rule-engine.service";
-import { RULE_RUNTIME_SMOKE_SCENARIO_ID, seedDefaultScenario } from "./default-scenario";
+import {
+  RULE_RUNTIME_SMOKE_SCENARIO_ID,
+  RULE_RUNTIME_SMOKE_START_NODE_ID,
+  seedDefaultScenario,
+} from "./default-scenario";
 
 type SmokeSessionCharacter = Parameters<ActionRuleService["resolveAction"]>[1];
 
@@ -109,8 +113,8 @@ const createSmokeActor = (): SmokeSessionCharacter => ({
     speed: 30,
     spellsJson: JSON.stringify({
       cantrips: ["spell.ray_of_frost"],
-      spells: ["spell.cure_wounds", "spell.fireball"],
-      preparedSpells: ["spell.cure_wounds", "spell.fireball"],
+      spells: ["spell.cure_wounds", "spell.detect_magic", "spell.fireball"],
+      preparedSpells: ["spell.cure_wounds", "spell.detect_magic", "spell.fireball"],
     }),
     inventoryJson: "[]",
     equippedWeaponId: null,
@@ -509,6 +513,30 @@ describe("default scenario seed", () => {
         concentrationMaintained: expect.any(Boolean),
       }),
     ]);
+  });
+
+  it("requires the P0 representative spell API paths in the smoke fixture", async () => {
+    const { scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
+    const smokeNodes = scenarioNodeUpserts
+      .map((args) => args.create)
+      .filter((node): node is Record<string, unknown> =>
+        node?.scenarioId === RULE_RUNTIME_SMOKE_SCENARIO_ID
+      );
+    const actionKinds = smokeNodes.flatMap((node) => {
+      const meta = JSON.parse(String(node.nodeMetaJson ?? "{}")) as {
+        smokeTest?: { apiActions?: Array<{ kind?: string }> };
+      };
+      return meta.smokeTest?.apiActions?.map((action) => action.kind) ?? [];
+    });
+
+    expect(actionKinds).toEqual(expect.arrayContaining([
+      "cast_burning_hands",
+      "cast_thunderwave",
+      "cast_entangle",
+      "cast_bless",
+      "cast_bane",
+      "cast_detect_magic",
+    ]));
   });
 
   it("keeps rule runtime smoke suggested commands executable by the action resolver", async () => {

@@ -264,7 +264,7 @@ const scenarioNodes = [
     imageUrl: null,
     checkOptionsJson: JSON.stringify({
       checks: [],
-      vttMap: null,
+      vttMap: createRuleRuntimeSmokeMap(RULE_RUNTIME_SMOKE_START_NODE_ID),
     }),
     transitionsJson: JSON.stringify([
       { condition: "default", nextNodeId: RULE_RUNTIME_TRAP_NODE_ID },
@@ -274,7 +274,7 @@ const scenarioNodes = [
     nodeMetaJson: JSON.stringify({
       smokeTest: {
         gmModes: ["AI", "HUMAN"],
-        suggestedCommands: ["/rest short", "/rest long", "/cast cure_wounds smoke-actor 5 2"],
+        suggestedCommands: ["/rest short", "/rest long", "/cast cure_wounds token_node_rule_smoke_rest_actor 5 2"],
         verifies: ["rest-resolution", "condition-until-rest-expiry", "spell-healing"],
       },
     }),
@@ -380,6 +380,45 @@ const scenarioNodes = [
         suggestedCommands: [
           "/cast_area fireball 15 token_node_rule_smoke_aoe_goblin,token_node_rule_smoke_aoe_rat 4",
         ],
+        apiActions: [
+          {
+            kind: "cast_burning_hands",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/spells/cast",
+            payload: {
+              spellId: "spell.burning_hands",
+              slotLevel: 1,
+              point: { x: 256, y: 192 },
+            },
+            expects: ["area:cone", "saving_throw:dex", "half_damage_on_success"],
+          },
+          {
+            kind: "cast_thunderwave",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/spells/cast",
+            payload: {
+              spellId: "spell.thunderwave",
+              slotLevel: 1,
+              point: { x: 256, y: 192 },
+            },
+            expects: ["area:cube", "saving_throw:con", "forced_movement:push:10"],
+          },
+          {
+            kind: "cast_entangle",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/spells/cast",
+            payload: {
+              spellId: "spell.entangle",
+              slotLevel: 1,
+              point: { x: 256, y: 192 },
+            },
+            expects: [
+              "terrain:terrain.difficult",
+              "condition.restrained",
+              "concentration-linked-cleanup",
+            ],
+          },
+        ],
       },
     }),
   },
@@ -422,11 +461,44 @@ const scenarioNodes = [
         suggestedCommands: [
           "/condition add token_node_rule_smoke_condition_goblin stunned",
           "/cast ray_of_frost token_node_rule_smoke_condition_goblin 60",
+          "/cast detect_magic",
           "/item pickup object_node_rule_smoke_condition_rope equipment.rope 1 3 4",
           "/item drop entry-smoke-dagger 1 3 4",
           "/item throw entry-smoke-dagger 1 4 4",
         ],
         apiActions: [
+          {
+            kind: "cast_bless",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/spells/cast",
+            payload: {
+              spellId: "spell.bless",
+              slotLevel: 1,
+              targetParticipantIds: ["combat:node_rule_smoke_condition:actor"],
+            },
+            expects: ["attack_roll:+1d4", "saving_throw:+1d4", "concentration"],
+          },
+          {
+            kind: "cast_bane",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/spells/cast",
+            payload: {
+              spellId: "spell.bane",
+              slotLevel: 1,
+              targetParticipantIds: ["combat:node_rule_smoke_condition:goblin"],
+            },
+            expects: ["saving_throw:cha", "attack_roll:-1d4", "saving_throw:-1d4"],
+          },
+          {
+            kind: "cast_detect_magic",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/spells/cast",
+            payload: {
+              spellId: "spell.detect_magic",
+              slotLevel: 1,
+            },
+            expects: ["detect:magic:30", "concentration", "private-content-not-revealed"],
+          },
           {
             kind: "force_move",
             method: "POST",

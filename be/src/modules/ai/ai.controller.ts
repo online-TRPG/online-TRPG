@@ -8,12 +8,14 @@ import {
 import {
   AiHintRequestDto,
   AiHintResponseDto,
+  AiHumanGmAssistSuggestionRequestDto,
   AiNarrationRequestDto,
   AiNarrationResponseDto,
   AiNpcDialogueRequestDto,
   AiNpcDialogueResponseDto,
   AiSummaryRequestDto,
   AiSummaryResponseDto,
+  HumanGmAiAssistSuggestionDto,
 } from "@trpg/shared-types";
 import { ApiResponse, apiResponse } from "../../common/api-response";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
@@ -55,6 +57,23 @@ export class AiController {
       "AI_201",
       "AI hint generated.",
       await this.aiService.runHint(userId, sessionId, dto),
+    );
+  }
+
+  @Post("gm-assist-suggestion")
+  @ApiSecurity("bearer")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "sessionId" })
+  @ApiCreatedResponse({ type: HumanGmAiAssistSuggestionDto })
+  async generateHumanGmAssistSuggestion(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() dto: AiHumanGmAssistSuggestionRequestDto,
+  ): Promise<ApiResponse<HumanGmAiAssistSuggestionDto>> {
+    return apiResponse(
+      "AI_201",
+      "AI GM assist suggestion generated.",
+      await this.aiService.generateHumanGmAssistSuggestion(userId, sessionId, dto),
     );
   }
 

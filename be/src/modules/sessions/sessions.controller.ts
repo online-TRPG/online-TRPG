@@ -37,6 +37,7 @@ import {
   MoveSessionTokenDto,
   ParticipantStatusResponseDto,
   PlayerScenarioViewDto,
+  ReportHumanGmAiAssistApplicationFailureDto,
   RevealSessionContentDto,
   RemoveHumanGmInventoryItemDto,
   SelectSessionCharacterDto,
@@ -608,6 +609,22 @@ export class SessionsController {
       "SESSION_200",
       "GM AI assist suggestion accepted.",
       await this.sessionsService.acceptHumanGmAiAssistSuggestion(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/gm/ai-assist/apply-failure")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async reportHumanGmAiAssistApplicationFailure(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: ReportHumanGmAiAssistApplicationFailureDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM AI assist application failure recorded.",
+      await this.sessionsService.reportHumanGmAiAssistApplicationFailure(userId, sessionId, dto),
     );
   }
 

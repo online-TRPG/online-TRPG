@@ -46,6 +46,22 @@ export class CombatMonsterActionService {
     return action;
   }
 
+  listExecutableActionsForParticipant(
+    participant: MonsterActionParticipant,
+    token: VttMapStateDto["tokens"][number] | null,
+  ): SrdEngineExecutableMonsterAction[] {
+    if (participant.entityType !== PrismaCombatEntityType.MONSTER) {
+      return [];
+    }
+
+    const monsterId = token?.monster?.id ?? this.inferMvpMonsterId(participant.nameSnapshot);
+    return [
+      ...this.monsterAbilities.listExecutableActions(monsterId),
+      ...this.srdEngine.getExecutableMonsterActions(monsterId),
+      this.buildFallbackMonsterAction(monsterId, participant.nameSnapshot),
+    ];
+  }
+
   listMonsterActionOptionsForParticipant(
     participant: MonsterActionParticipant,
     token: VttMapStateDto["tokens"][number] | null,
@@ -55,13 +71,8 @@ export class CombatMonsterActionService {
       return [];
     }
 
-    const monsterId = token?.monster?.id ?? this.inferMvpMonsterId(participant.nameSnapshot);
     const seenActionIds = new Set<string>();
-    const actions = [
-      ...this.monsterAbilities.listExecutableActions(monsterId),
-      ...this.srdEngine.getExecutableMonsterActions(monsterId),
-      this.buildFallbackMonsterAction(monsterId, participant.nameSnapshot),
-    ];
+    const actions = this.listExecutableActionsForParticipant(participant, token);
 
     return actions
       .filter((action) => {
@@ -91,6 +102,8 @@ export class CombatMonsterActionService {
             "costType" in action && typeof action.costType === "string"
               ? action.costType
               : "action",
+          targetKind: this.resolveMonsterActionTargetKind(action),
+          resolutionKind: this.resolveMonsterActionResolutionKind(action),
           specialType:
             "specialType" in action && typeof action.specialType === "string"
               ? action.specialType
@@ -115,6 +128,7 @@ export class CombatMonsterActionService {
             "effectTags" in action && Array.isArray(action.effectTags)
               ? action.effectTags
               : [],
+          childActions: this.parseMonsterChildActions(action),
           ...(unavailableReason
             ? { available: false, unavailableReason }
             : {}),
@@ -210,6 +224,49 @@ export class CombatMonsterActionService {
     }
 
     return null;
+  }
+
+  private resolveMonsterActionTargetKind(action: SrdEngineExecutableMonsterAction): CombatMonsterActionOptionDto["targetKind"] {
+    if (action.specialType === "multiattack") {
+      return "single_target";
+    }
+    if (action.attackKind !== "special") {
+      return "single_target";
+    }
+    if ((action.effectTags ?? []).some((tag) => tag.startsWith("area:"))) {
+      return "area";
+    }
+    if (action.specialType) {
+      return "self";
+    }
+    return "none";
+  }
+
+  private resolveMonsterActionResolutionKind(action: SrdEngineExecutableMonsterAction): CombatMonsterActionOptionDto["resolutionKind"] {
+    if (action.attackKind !== "special") {
+      return "attack";
+    }
+    if (action.save) {
+      return "save";
+    }
+    return "special";
+  }
+
+  private parseMonsterChildActions(action: SrdEngineExecutableMonsterAction): Array<{ actionId: string; count: number }> {
+    if (action.specialType !== "multiattack") {
+      return [];
+    }
+    return (action.effectTags ?? []).flatMap((tag) => {
+      const match = /^multiattack:([^:]+)(?::(\d+))?$/.exec(tag);
+      if (!match) {
+        return [];
+      }
+      const count = match[2] ? Number(match[2]) : 1;
+      if (!Number.isInteger(count) || count <= 0) {
+        return [];
+      }
+      return [{ actionId: match[1], count }];
+    });
   }
 
   private buildFallbackMonsterAction(

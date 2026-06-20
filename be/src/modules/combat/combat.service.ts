@@ -49,13 +49,13 @@ import type { ConditionInstance } from "../rules/condition-runtime.service";
 import { CoverPositionService } from "../rules/cover-position.service";
 import { DiceService } from "../rules/dice.service";
 import { ForcedMovementService } from "../rules/forced-movement.service";
-import type { ForcedMovementMode } from "../rules/forced-movement.service";
+import type { ForcedMovementMode, ForcedMovementResolution } from "../rules/forced-movement.service";
 import { MonsterAbilityService } from "../rules/monster-ability.service";
 import { RuleCatalogService } from "../rules/rule-catalog.service";
 import { TerrainEffectService } from "../rules/terrain-effect.service";
 import type { TerrainEffectTrigger } from "../rules/terrain-effect.service";
 import { PENDING_READY_ACTIONS_FLAG, ReadyActionService, TRIGGERED_READY_ACTIONS_FLAG } from "../rules/ready-action.service";
-import type { PendingReadyAction } from "../rules/ready-action.service";
+import type { PendingReadyAction, ReadyTriggerEvent } from "../rules/ready-action.service";
 import type { TriggeredReadyAction } from "../rules/ready-action.service";
 import { RuleEngineService } from "../rules/rule-engine.service";
 import type { CoverModifierProduced, SavingThrowAbility } from "../rules/rule-engine.types";
@@ -74,6 +74,7 @@ import { CombatMonsterActionService } from "./combat-monster-action.service";
 import { CombatMonsterResourceService } from "./combat-monster-resource.service";
 import {
   CombatReactionService,
+  type PendingMonsterMultiattackContinuation,
   type PendingOpportunityAttackContinuation,
   type PendingOpportunityAttackReaction,
   type PendingShieldReaction,
@@ -122,6 +123,15 @@ type CombatMovementResolution = CombatMoveResultDto & {
 type ReadyActionMovementResult = {
   count: number;
   prompts: CombatReactionPromptDto[];
+};
+
+type ForcedMovementEffectResult = {
+  savedMap: VttMapStateDto;
+  responseMap: VttMapStateDto;
+  resolution: ForcedMovementResolution;
+  terrainEffectApplication: CombatTerrainEffectApplication;
+  triggeredReadyActions: ReadyActionMovementResult;
+  message: string;
 };
 
 const RAGE_CONDITION_TAGS = ["rage", "condition.rage", "resistance:bludgeoning", "resistance:piercing", "resistance:slashing"];
@@ -242,6 +252,7 @@ export class CombatService {
       selectNaturalD20: this.selectNaturalD20.bind(this),
       canPromptShieldReaction: this.canPromptShieldReaction.bind(this),
       storePendingShieldReaction: this.storePendingShieldReaction.bind(this),
+      resolveReadyActionsForParticipantEvent: this.resolveReadyActionsForParticipantEvent.bind(this),
       mapCombat: this.mapCombat.bind(this),
       buildDamageExpression: this.buildDamageExpression.bind(this),
       resolveEquippedWeaponProfile: this.resolveEquippedWeaponProfile.bind(this),
@@ -254,6 +265,8 @@ export class CombatService {
       resolveActorHideAction: this.resolveActorHideAction.bind(this),
       resolveMonsterAttackAction: this.resolveMonsterAttackAction.bind(this),
       resolveMonsterSpecialAction: this.resolveMonsterSpecialAction.bind(this),
+      resolveForcedMovementEffect: this.resolveForcedMovementEffect.bind(this),
+      startCombatConcentration: this.startCombatConcentration.bind(this),
     };
   }
 
@@ -315,6 +328,10 @@ export class CombatService {
       finalizeCombatDamage: this.finalizeCombatDamage.bind(this),
       endExpiredRagesForCombat: this.endExpiredRagesForCombat.bind(this),
       expireReadyActionsForTurn: this.expireReadyActionsForTurn.bind(this),
+      expireCombatConcentrationLinkedEffects:
+        this.expireCombatConcentrationLinkedEffects.bind(this),
+      resolveReadyActionsForParticipantEvent: this.resolveReadyActionsForParticipantEvent.bind(this),
+      hasPendingTriggeredReadyAction: this.hasPendingTriggeredReadyAction.bind(this),
       getActiveCombatEntity: this.getActiveCombatEntity.bind(this),
       completeCombatIfResolved: this.completeCombatIfResolved.bind(this),
       mapCombat: this.mapCombat.bind(this),
@@ -579,7 +596,11 @@ export class CombatService {
     );
     this.realtimeEvents.emitCombatUpdated(session.id, response);
     this.realtimeEvents.emitSessionSnapshot(session.id, await this.sessionsService.buildSnapshot(session.id));
-    if (session.gmMode !== PrismaGmMode.HUMAN && this.isCurrentTurnAutoMonster(combat)) {
+    if (
+      session.gmMode !== PrismaGmMode.HUMAN &&
+      !(await this.hasPendingTriggeredReadyAction(session.id)) &&
+      this.isCurrentTurnAutoMonster(combat)
+    ) {
       this.logAutoMonsterTurn("startCombat detected monster current turn", {
         sessionId: session.id,
         combatId: combat.id,
@@ -595,7 +616,11 @@ export class CombatService {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     await this.sessionsService.ensureMembership(userId, session.id);
     const combat = await this.getActiveCombatEntity(session.id);
-    if (session.gmMode !== PrismaGmMode.HUMAN && this.isCurrentTurnAutoMonster(combat)) {
+    if (
+      session.gmMode !== PrismaGmMode.HUMAN &&
+      !(await this.hasPendingTriggeredReadyAction(session.id)) &&
+      this.isCurrentTurnAutoMonster(combat)
+    ) {
       this.logAutoMonsterTurn("getCombat detected monster current turn", {
         sessionId: session.id,
         combatId: combat.id,
@@ -738,83 +763,19 @@ export class CombatService {
     const combat = await this.getActiveCombatEntity(session.id);
     const target = this.findCombatParticipantOrThrow(combat, dto.participantId);
     const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id);
-    const targetToken = this.combatTargeting.findParticipantToken(map, target);
-    if (!targetToken) {
-      throw conflict("COMBAT_409", "강제이동 대상 토큰을 찾을 수 없습니다.", {
-        reason: "FORCED_MOVE_TOKEN_NOT_FOUND",
-      });
-    }
-
-    const resolution = this.forcedMovement.resolveForcedMovement({
-      mode: this.normalizeForcedMovementMode(dto.mode),
-      origin: this.combatMovement.mapPointToGridPoint(map, dto.origin),
-      target: this.combatCover.toCoverGridPoint(map, targetToken),
-      distanceFt: Math.max(0, Math.floor(dto.distanceFt)),
-      grid: {
-        width: Math.ceil(map.width / map.gridSize),
-        height: Math.ceil(map.height / map.gridSize),
-      },
-      obstacles: this.mapForcedMovementObstacles(map),
-      tokens: map.tokens
-        .filter((token) => token.id !== targetToken.id && token.hidden !== true)
-        .map((token) => ({
-          id: token.id,
-          point: this.combatCover.toCoverGridPoint(map, token),
-          blocksMovement: true,
-        })),
-      hazards: this.mapForcedMovementHazards(map),
-    });
-
-    const destination = {
-      x: this.clampNumber(resolution.destination.x * map.gridSize, 0, Math.max(0, map.width - targetToken.size)),
-      y: this.clampNumber(resolution.destination.y * map.gridSize, 0, Math.max(0, map.height - targetToken.size)),
-    };
-    const nextMap: VttMapStateDto = {
-      ...map,
-      tokens: map.tokens.map((token) => (token.id === targetToken.id ? { ...token, ...destination } : token)),
-      updatedAt: new Date().toISOString(),
-    };
-    const savedMap = await this.mapRuntimeService.saveSystemVttMap(session.id, nextMap);
-    const enteredTerrainEffectApplication = await this.applyEnteredTerrainEffects(combat, target, resolution.enteredTerrainEffects, "on_enter");
-    const exitedTerrainEffectApplication = await this.applyExitedTerrainEffects(
+    const movement = await this.resolveForcedMovementEffect({
+      sessionId: session.id,
+      combat,
       target,
-      this.combatMovement.resolveExitedTerrainEffects(map, { x: targetToken.x, y: targetToken.y }, destination),
-    );
-    const terrainEffectApplication = this.combatTerrain.mergeApplications(enteredTerrainEffectApplication, exitedTerrainEffectApplication);
-    const responseMap =
-      terrainEffectApplication.damageRoll && !target.isAlive
-        ? await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), session.id)
-        : savedMap;
-    let triggeredReadyActions: ReadyActionMovementResult = {
-      count: 0,
-      prompts: [],
-    };
-    if (resolution.distanceMovedFt > 0) {
-      const latestCombat = await this.getActiveCombatEntity(session.id);
-      const latestTarget = this.findCombatParticipantOrThrow(latestCombat, target.id);
-      if (latestTarget.isAlive) {
-        triggeredReadyActions = await this.resolveReadyActionsForMovement({
-          sessionId: session.id,
-          combat: latestCombat,
-          mover: latestTarget,
-          map: savedMap,
-          nextMoverToken: { ...targetToken, ...destination },
-        });
-      }
-    }
+      map,
+      mode: this.normalizeForcedMovementMode(dto.mode),
+      origin: dto.origin,
+      distanceFt: dto.distanceFt,
+    });
+    const { resolution, terrainEffectApplication, triggeredReadyActions, responseMap } = movement;
     const response = await this.mapCombat(await this.getActiveCombatEntity(session.id));
     const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
-    const readyActionMessage = triggeredReadyActions.count > 0 ? `준비행동 ${triggeredReadyActions.count}개가 발동 대기 중입니다.` : null;
-    const terrainDamageMessage = this.combatTerrain.describeDamage(terrainEffectApplication);
-    const terrainConditionMessage = this.combatTerrain.describeConditions(terrainEffectApplication);
-    const message = [
-      `${target.nameSnapshot} 강제이동: ${resolution.distanceMovedFt}ft (${resolution.stoppedReason})`,
-      terrainDamageMessage,
-      terrainConditionMessage,
-      readyActionMessage,
-    ]
-      .filter((entry): entry is string => Boolean(entry))
-      .join(" / ");
+    const message = movement.message;
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId: session.id,
       sessionScenarioId: sessionScenario.id,
@@ -852,6 +813,9 @@ export class CombatService {
       this.realtimeEvents.emitDiceRolled(session.id, damage.roll);
     }
     if (terrainEffectApplication.concentrationCheck) {
+      terrainEffectApplication.concentrationCheck.modifierRolls?.forEach((roll) =>
+        this.realtimeEvents.emitDiceRolled(session.id, roll),
+      );
       this.realtimeEvents.emitDiceRolled(session.id, terrainEffectApplication.concentrationCheck.diceResult);
     }
     this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
@@ -862,7 +826,109 @@ export class CombatService {
       map: responseMap,
       message,
       pendingReaction: triggeredReadyActions.prompts[0] ?? null,
+      pendingReactions: triggeredReadyActions.prompts,
       terrainEffects: this.combatTerrain.toResult(this.combatTerrain.resolveMovementResultTrigger(terrainEffectApplication), terrainEffectApplication),
+    };
+  }
+
+  private async resolveForcedMovementEffect(params: {
+    sessionId: string;
+    combat: NonNullable<CombatWithParticipants>;
+    target: CombatParticipantEntity;
+    map: VttMapStateDto;
+    mode: ForcedMovementMode;
+    origin: { x: number; y: number };
+    distanceFt: number;
+  }): Promise<ForcedMovementEffectResult> {
+    const targetToken = this.combatTargeting.findParticipantToken(params.map, params.target);
+    if (!targetToken) {
+      throw conflict("COMBAT_409", "강제이동 대상 토큰을 찾을 수 없습니다.", {
+        reason: "FORCED_MOVE_TOKEN_NOT_FOUND",
+      });
+    }
+    const resolution = this.forcedMovement.resolveForcedMovement({
+      mode: params.mode,
+      origin: this.combatMovement.mapPointToGridPoint(params.map, params.origin),
+      target: this.combatCover.toCoverGridPoint(params.map, targetToken),
+      distanceFt: Math.max(0, Math.floor(params.distanceFt)),
+      grid: {
+        width: Math.ceil(params.map.width / params.map.gridSize),
+        height: Math.ceil(params.map.height / params.map.gridSize),
+      },
+      obstacles: this.mapForcedMovementObstacles(params.map),
+      tokens: params.map.tokens
+        .filter((token) => token.id !== targetToken.id && token.hidden !== true)
+        .map((token) => ({
+          id: token.id,
+          point: this.combatCover.toCoverGridPoint(params.map, token),
+          blocksMovement: true,
+        })),
+      hazards: this.mapForcedMovementHazards(params.map),
+    });
+    const destination = {
+      x: this.clampNumber(resolution.destination.x * params.map.gridSize, 0, Math.max(0, params.map.width - targetToken.size)),
+      y: this.clampNumber(resolution.destination.y * params.map.gridSize, 0, Math.max(0, params.map.height - targetToken.size)),
+    };
+    const nextMap: VttMapStateDto = {
+      ...params.map,
+      tokens: params.map.tokens.map((token) => (token.id === targetToken.id ? { ...token, ...destination } : token)),
+      updatedAt: new Date().toISOString(),
+    };
+    const savedMap = await this.mapRuntimeService.saveSystemVttMap(params.sessionId, nextMap);
+    const enteredTerrainEffectApplication = await this.applyEnteredTerrainEffects(
+      params.combat,
+      params.target,
+      resolution.enteredTerrainEffects,
+      "on_enter",
+    );
+    const exitedTerrainEffectApplication = await this.applyExitedTerrainEffects(
+      params.target,
+      this.combatMovement.resolveExitedTerrainEffects(
+        params.map,
+        { x: targetToken.x, y: targetToken.y },
+        destination,
+      ),
+    );
+    const terrainEffectApplication = this.combatTerrain.mergeApplications(
+      enteredTerrainEffectApplication,
+      exitedTerrainEffectApplication,
+    );
+    const responseMap =
+      terrainEffectApplication.damageRoll && !params.target.isAlive
+        ? await this.sessionsService.getVttMapForUser(
+            this.getGmRuntimeUserId(await this.sessionsService.getSessionEntityOrThrow(params.sessionId)),
+            params.sessionId,
+          )
+        : savedMap;
+    let triggeredReadyActions: ReadyActionMovementResult = { count: 0, prompts: [] };
+    if (resolution.distanceMovedFt > 0) {
+      const latestCombat = await this.getActiveCombatEntity(params.sessionId);
+      const latestTarget = this.findCombatParticipantOrThrow(latestCombat, params.target.id);
+      if (latestTarget.isAlive) {
+        triggeredReadyActions = await this.resolveReadyActionsForMovement({
+          sessionId: params.sessionId,
+          combat: latestCombat,
+          mover: latestTarget,
+          map: savedMap,
+          nextMoverToken: { ...targetToken, ...destination },
+        });
+      }
+    }
+    const message = [
+      `${params.target.nameSnapshot} 강제이동: ${resolution.distanceMovedFt}ft (${resolution.stoppedReason})`,
+      this.combatTerrain.describeDamage(terrainEffectApplication),
+      this.combatTerrain.describeConditions(terrainEffectApplication),
+      triggeredReadyActions.count > 0 ? `준비행동 ${triggeredReadyActions.count}개가 발동 대기 중입니다.` : null,
+    ]
+      .filter((entry): entry is string => Boolean(entry))
+      .join(" / ");
+    return {
+      savedMap,
+      responseMap,
+      resolution,
+      terrainEffectApplication,
+      triggeredReadyActions,
+      message,
     };
   }
 
@@ -940,6 +1006,7 @@ export class CombatService {
         map: params.map,
         message: opportunityAttack.prompt.message,
         pendingReaction: opportunityAttack.prompt,
+        pendingReactions: [opportunityAttack.prompt],
         movementDistanceFt,
         movementCostFt,
       };
@@ -978,6 +1045,9 @@ export class CombatService {
       this.realtimeEvents.emitDiceRolled(params.session.id, damage.roll);
     }
     if (terrainEffectApplication.concentrationCheck) {
+      terrainEffectApplication.concentrationCheck.modifierRolls?.forEach((roll) =>
+        this.realtimeEvents.emitDiceRolled(params.session.id, roll),
+      );
       this.realtimeEvents.emitDiceRolled(params.session.id, terrainEffectApplication.concentrationCheck.diceResult);
     }
     if (!latestMover.isAlive) {
@@ -1040,6 +1110,7 @@ export class CombatService {
       map: savedMap,
       message: resolvedMovementMessage,
       pendingReaction: triggeredReadyActions.prompts[0] ?? null,
+      pendingReactions: triggeredReadyActions.prompts,
       movementDistanceFt,
       movementCostFt,
       terrainEffects: this.combatTerrain.toResult(this.combatTerrain.resolveMovementResultTrigger(terrainEffectApplication), terrainEffectApplication),
@@ -1050,7 +1121,9 @@ export class CombatService {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     await this.sessionsService.ensureMembership(userId, session.id);
     if (dto.reactionId.startsWith("triggered:")) {
-      return this.resolveTriggeredReadyAction(userId, session.id, dto.reactionId, true);
+      const result = await this.resolveTriggeredReadyAction(userId, session.id, dto.reactionId, true);
+      await this.resumeAutoMonsterTurnAfterReadyReaction(session.id);
+      return result;
     }
     const pending = await this.combatReactions.consumePendingCombatReaction(session.id, dto.reactionId);
     if (pending.type === "shield") {
@@ -1116,7 +1189,9 @@ export class CombatService {
     const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
     await this.sessionsService.ensureMembership(userId, session.id);
     if (dto.reactionId.startsWith("triggered:")) {
-      return this.resolveTriggeredReadyAction(userId, session.id, dto.reactionId, false);
+      const result = await this.resolveTriggeredReadyAction(userId, session.id, dto.reactionId, false);
+      await this.resumeAutoMonsterTurnAfterReadyReaction(session.id);
+      return result;
     }
     const pending = await this.combatReactions.consumePendingCombatReaction(session.id, dto.reactionId);
     if (pending.type === "shield") {
@@ -1264,6 +1339,10 @@ export class CombatService {
         attackKind: "melee_weapon_attack" | "ranged_weapon_attack";
       };
       onHitCondition?: ConditionInstance;
+      auditMetadata?: Record<string, unknown>;
+      shieldContinuation?: PendingMonsterMultiattackContinuation | null;
+      spellId?: string | null;
+      skipActorPermissionCheck?: boolean;
     } = {},
   ): Promise<CombatActionResultDto> {
     return this.combatActions.resolveAttack(this.createCombatActionRuntime(), userId, sessionId, dto, options);
@@ -1362,6 +1441,7 @@ export class CombatService {
     actionCost?: "action" | "none";
     autoEndTurn: boolean;
     autoEndTurnWhenOutOfRange: boolean;
+    shieldContinuation?: PendingMonsterMultiattackContinuation | null;
   }): Promise<CombatActionResultDto> {
     return this.combatTurns.resolveMonsterAttackAction(this.createCombatTurnRuntime(), params);
   }
@@ -1380,6 +1460,7 @@ export class CombatService {
     action: SrdEngineExecutableMonsterAction,
   ): Promise<{
     diceResult: DiceRollResponseDto | null;
+    modifierRolls?: DiceRollResponseDto[];
     success: boolean;
   } | null> {
     return this.combatTurns.resolveMonsterActionRiderSave(this.createCombatTurnRuntime(), target, action);
@@ -1486,7 +1567,11 @@ export class CombatService {
     return this.combatTurns.applyExitedTerrainEffects(this.createCombatTurnRuntime(), participant, exitedEffects);
   }
 
-  private async resolveCombatConcentrationDamageCheck(target: CombatParticipantEntity, damageTaken: number): Promise<CombatConcentrationCheckResult | null> {
+  private async resolveCombatConcentrationDamageCheck(
+    combat: NonNullable<CombatWithParticipants>,
+    target: CombatParticipantEntity,
+    damageTaken: number,
+  ): Promise<CombatConcentrationCheckResult | null> {
     const current = await this.combatConditions.readCombatConditionEntries(target);
     const conditions = this.conditionRuntime.parseConditionsJson(JSON.stringify(current));
     if (!conditions.some((condition) => condition.conditionId === "condition.concentration" || condition.tags.includes("concentration"))) {
@@ -1502,18 +1587,124 @@ export class CombatService {
       constitutionModifier: profile.constitutionModifier,
       proficiencyBonus: profile.proficiencyBonus,
       proficient: profile.proficient,
+      bonusModifiers: profile.conditionModifiers,
     });
 
     if (!result.concentrationMaintained) {
       await this.combatConditions.writeCombatConditionEntries(target, this.removeExpiredConditionEntries(current, result.removedConditions));
+      if (result.concentrationState?.effectIds.length) {
+        await this.removeCombatConcentrationLinkedEffects(
+          combat,
+          result.concentrationState.effectIds,
+        );
+      }
     }
 
     return {
       diceResult,
+      modifierRolls: profile.modifierRolls,
       concentrationState: result.concentrationState,
       concentrationMaintained: result.concentrationMaintained,
       removedConditions: result.removedConditions,
     };
+  }
+
+  private async startCombatConcentration(
+    combat: NonNullable<CombatWithParticipants>,
+    caster: CombatParticipantEntity,
+    params: {
+      spellId: string;
+      targetIds: string[];
+      effectIds: string[];
+      durationRounds: number;
+    },
+  ): Promise<void> {
+    const currentEntries = await this.combatConditions.readCombatConditionEntries(caster);
+    const currentConditions = this.conditionRuntime.parseConditionsJson(
+      JSON.stringify(currentEntries),
+    );
+    const previous = this.concentrationRuntime.readActiveConcentration(currentConditions);
+    if (previous?.effectIds.length) {
+      await this.removeCombatConcentrationLinkedEffects(combat, previous.effectIds);
+    }
+    const nextConditions = this.concentrationRuntime.startConcentration(currentConditions, {
+      casterId: caster.id,
+      spellId: params.spellId,
+      targetIds: params.targetIds,
+      effectIds: params.effectIds,
+      startedAtRound: combat.roundNo,
+      endsAtRound: combat.roundNo + Math.max(1, Math.floor(params.durationRounds)),
+      endsAtTurn: combat.turnNo,
+    });
+    await this.combatConditions.writeCombatConditionEntries(caster, nextConditions);
+  }
+
+  private async removeCombatConcentrationLinkedEffects(
+    combat: NonNullable<CombatWithParticipants>,
+    effectIds: string[],
+  ): Promise<void> {
+    const linkedIds = new Set(effectIds.map((effectId) => effectId.trim()).filter(Boolean));
+    if (!linkedIds.size) {
+      return;
+    }
+    for (const participant of combat.participants) {
+      const entries = await this.combatConditions.readCombatConditionEntries(participant);
+      const filtered = entries.filter((entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return true;
+        }
+        const sourceId = (entry as { sourceId?: unknown }).sourceId;
+        return typeof sourceId !== "string" || !linkedIds.has(sourceId);
+      });
+      if (filtered.length !== entries.length) {
+        await this.combatConditions.writeCombatConditionEntries(participant, filtered);
+      }
+    }
+    const session = await this.sessionsService.getSessionEntityOrThrow(combat.sessionId);
+    const map = await this.sessionsService.getVttMapForUser(
+      this.getGmRuntimeUserId(session),
+      combat.sessionId,
+    );
+    const terrainCells = (map.terrainCells ?? []).filter((cell) => !linkedIds.has(cell.id));
+    if (terrainCells.length !== (map.terrainCells ?? []).length) {
+      await this.mapRuntimeService.saveSystemVttMap(combat.sessionId, {
+        ...map,
+        terrainCells,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  private async expireCombatConcentrationLinkedEffects(
+    combat: NonNullable<CombatWithParticipants>,
+    participant: CombatParticipantEntity,
+    round: number,
+    turn: number,
+  ): Promise<number> {
+    const conditions = this.conditionRuntime.parseConditionsJson(
+      JSON.stringify(
+        await this.combatConditions.readCombatConditionEntries(participant),
+      ),
+    );
+    const resolution = this.conditionRuntime.resolveTurnEnd(conditions, {
+      round,
+      turn,
+    });
+    const effectIds = resolution.expiredConditions
+      .filter(
+        (condition) =>
+          condition.conditionId === "condition.concentration" ||
+          condition.tags.includes("concentration"),
+      )
+      .flatMap((condition) =>
+        condition.tags
+          .filter((tag) => tag.startsWith("concentration:effect:"))
+          .map((tag) => tag.slice("concentration:effect:".length)),
+      );
+    if (effectIds.length) {
+      await this.removeCombatConcentrationLinkedEffects(combat, effectIds);
+    }
+    return effectIds.length;
   }
 
   private async resolveParticipantConstitutionSaveProfile(participant: CombatParticipantEntity): Promise<{
@@ -1521,6 +1712,8 @@ export class CombatService {
     proficiencyBonus: number;
     proficient: boolean;
     saveModifier: number;
+    conditionModifiers: Array<{ source: string; value: number }>;
+    modifierRolls: DiceRollResponseDto[];
   }> {
     if (!participant.sessionCharacterId) {
       return {
@@ -1528,6 +1721,8 @@ export class CombatService {
         proficiencyBonus: 0,
         proficient: false,
         saveModifier: 0,
+        conditionModifiers: [],
+        modifierRolls: [],
       };
     }
 
@@ -1548,12 +1743,32 @@ export class CombatService {
     const proficient = this.combatConditions
       .combatConditionTags(await this.combatConditions.readCombatConditionEntries(participant))
       .some((tag) => tag === "save_proficiency:con" || tag === "save:con:proficient");
+    const conditionTags = this.combatConditions.combatConditionTags(
+      await this.combatConditions.readCombatConditionEntries(participant),
+    );
+    const modifierRolls: DiceRollResponseDto[] = [];
+    const conditionModifiers = [
+      ...(conditionTags.includes("roll_bonus:saving_throw:1d4")
+        ? [{
+            source: "spell.bless",
+            value: this.rollConditionModifier("1d4", 1, modifierRolls),
+          }]
+        : []),
+      ...(conditionTags.includes("roll_penalty:saving_throw:1d4")
+        ? [{
+            source: "spell.bane",
+            value: this.rollConditionModifier("1d4", -1, modifierRolls),
+          }]
+        : []),
+    ];
 
     return {
       constitutionModifier,
       proficiencyBonus,
       proficient,
       saveModifier: constitutionModifier + (proficient ? proficiencyBonus : 0),
+      conditionModifiers,
+      modifierRolls,
     };
   }
 
@@ -1565,6 +1780,8 @@ export class CombatService {
     proficiencyBonus: number;
     proficient: boolean;
     saveModifier: number;
+    conditionModifiers: Array<{ source: string; value: number }>;
+    modifierRolls: DiceRollResponseDto[];
   }> {
     if (!participant.sessionCharacterId) {
       return {
@@ -1572,6 +1789,8 @@ export class CombatService {
         proficiencyBonus: 0,
         proficient: false,
         saveModifier: 0,
+        conditionModifiers: [],
+        modifierRolls: [],
       };
     }
 
@@ -1589,15 +1808,34 @@ export class CombatService {
     const abilities = this.parseJson<Record<string, number>>(sessionCharacter?.character.abilitiesJson ?? "{}", {});
     const abilityModifier = this.getAbilityModifier(abilities[ability] ?? 10);
     const proficiencyBonus = sessionCharacter?.character.proficiencyBonus ?? 0;
-    const proficient = this.combatConditions
-      .combatConditionTags(await this.combatConditions.readCombatConditionEntries(participant))
+    const conditionTags = this.combatConditions.combatConditionTags(
+      await this.combatConditions.readCombatConditionEntries(participant),
+    );
+    const proficient = conditionTags
       .some((tag) => tag === `save_proficiency:${ability}` || tag === `save:${ability}:proficient`);
+    const modifierRolls: DiceRollResponseDto[] = [];
+    const conditionModifiers = [
+      ...(conditionTags.includes("roll_bonus:saving_throw:1d4")
+        ? [{
+            source: "spell.bless",
+            value: this.rollConditionModifier("1d4", 1, modifierRolls),
+          }]
+        : []),
+      ...(conditionTags.includes("roll_penalty:saving_throw:1d4")
+        ? [{
+            source: "spell.bane",
+            value: this.rollConditionModifier("1d4", -1, modifierRolls),
+          }]
+        : []),
+    ];
 
     return {
       abilityModifier,
       proficiencyBonus,
       proficient,
       saveModifier: abilityModifier + (proficient ? proficiencyBonus : 0),
+      conditionModifiers,
+      modifierRolls,
     };
   }
 
@@ -1827,6 +2065,25 @@ export class CombatService {
 
   private async runServerAutoMonsterTurns(sessionId: string): Promise<void> {
     return this.combatTurns.runServerAutoMonsterTurns(this.createCombatTurnRuntime(), sessionId);
+  }
+
+  private async resumeAutoMonsterTurnAfterReadyReaction(sessionId: string): Promise<void> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    if (session.gmMode === PrismaGmMode.HUMAN || (await this.hasPendingTriggeredReadyAction(sessionId))) {
+      return;
+    }
+    if (await this.combatReactions.hasPendingCombatReaction(sessionId)) {
+      return;
+    }
+    let combat: NonNullable<CombatWithParticipants>;
+    try {
+      combat = await this.getActiveCombatEntity(sessionId);
+    } catch {
+      return;
+    }
+    if (this.isCurrentTurnAutoMonster(combat)) {
+      this.scheduleServerAutoMonsterTurns(sessionId);
+    }
   }
 
   private logAutoMonsterTurn(message: string, data: Record<string, unknown> = {}): void {
@@ -2070,6 +2327,22 @@ export class CombatService {
             },
           ]
         : undefined;
+    const modifierRolls: DiceRollResponseDto[] = [];
+    const conditionSaveModifiers = [
+      ...(damageTags.includes("roll_bonus:saving_throw:1d4")
+        ? [{
+            source: "spell.bless",
+            value: this.rollConditionModifier("1d4", 1, modifierRolls),
+          }]
+        : []),
+      ...(damageTags.includes("roll_penalty:saving_throw:1d4")
+        ? [{
+            source: "spell.bane",
+            value: this.rollConditionModifier("1d4", -1, modifierRolls),
+          }]
+        : []),
+    ];
+    const bonusModifiers = [...(coverSaveBonus ?? []), ...conditionSaveModifiers];
     if (!participant.sessionCharacterId) {
       const token = this.combatTargeting.findParticipantToken(map, participant);
       return {
@@ -2078,7 +2351,8 @@ export class CombatService {
         abilityModifiers: {
           [saveAbility]: saveAbility === "dex" && token ? this.combatStats.resolveMonsterDexterityModifier(token) : 0,
         },
-        bonusModifiers: coverSaveBonus,
+        bonusModifiers,
+        modifierRolls,
         immunities: this.getDamageTypesByPrefix(damageTags, "immunity"),
         resistances: this.getDamageTypesByPrefix(damageTags, "resistance"),
         vulnerabilities: this.getDamageTypesByPrefix(damageTags, "vulnerability"),
@@ -2110,11 +2384,22 @@ export class CombatService {
       },
       proficiencyBonus: sessionCharacter?.character.proficiencyBonus ?? 0,
       proficientSaves,
-      bonusModifiers: coverSaveBonus,
+      bonusModifiers,
+      modifierRolls,
       immunities: this.getDamageTypesByPrefix(damageTags, "immunity"),
       resistances: this.getDamageTypesByPrefix(damageTags, "resistance"),
       vulnerabilities: this.getDamageTypesByPrefix(damageTags, "vulnerability"),
     };
+  }
+
+  private rollConditionModifier(
+    dice: string,
+    sign: 1 | -1,
+    rolls: DiceRollResponseDto[],
+  ): number {
+    const roll = this.diceService.roll(dice);
+    rolls.push(roll);
+    return sign * roll.total;
   }
 
   private getDamageTypesByPrefix(tags: string[], prefix: "immunity" | "resistance" | "vulnerability"): string[] {
@@ -2163,6 +2448,9 @@ export class CombatService {
     cover: CoverModifierProduced;
     damageDice?: string;
     damageBonus?: number;
+    spellId?: string | null;
+    conditionRollModifiers?: PendingShieldReaction["conditionRollModifiers"];
+    continuation?: PendingMonsterMultiattackContinuation | null;
   }): Promise<PendingShieldReaction> {
     const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
       where: { id: params.target.sessionCharacterId ?? "" },
@@ -2184,7 +2472,10 @@ export class CombatService {
       cover: params.cover,
       damageDice: params.damageDice,
       damageBonus: params.damageBonus,
+      spellId: params.spellId ?? null,
+      conditionRollModifiers: params.conditionRollModifiers ?? [],
       createdAt: new Date().toISOString(),
+      continuation: params.continuation ?? null,
     };
     if (!pending.reactorUserId) {
       throw conflict("COMBAT_409", "Shield 반응 사용자를 찾을 수 없습니다.", {
@@ -2221,10 +2512,29 @@ export class CombatService {
     const damageRoll = hit ? this.diceService.roll(this.buildDamageExpression(pending.damageDice, pending.damageBonus, false)) : null;
     const { concentrationCheck } = await this.finalizeCombatDamage(combat, target, damageRoll?.total ?? 0);
     const updated = await this.getActiveCombatEntity(sessionId);
+    const readySpellCastTriggers = pending.spellId
+      ? await this.resolveReadyActionsForParticipantEvent({
+          sessionId,
+          combat: updated,
+          sourceParticipantId: attacker.id,
+          targetParticipantId: target.id,
+          type: "enemy_casts_spell",
+        })
+      : { count: 0, prompts: [] };
+    const readyAttackTriggers = await this.resolveReadyActionsForParticipantEvent({
+      sessionId,
+      combat: await this.getActiveCombatEntity(sessionId),
+      sourceParticipantId: attacker.id,
+      targetParticipantId: target.id,
+      type: "ally_attacked",
+    });
+    const pendingReactions = [...readySpellCastTriggers.prompts, ...readyAttackTriggers.prompts];
     const response = await this.completeCombatIfResolved(sessionId, updated);
-    const message = hit
+    const attackMessage = hit
       ? `${accepted ? "Shield 후에도 " : ""}${attacker.nameSnapshot} 공격 명중: ${target.nameSnapshot}에게 ${damageRoll?.total ?? 0} 피해`
       : `${accepted ? "Shield: " : ""}${attacker.nameSnapshot} 공격 빗나감: ${pending.attackTotal} vs AC ${effectiveAc}`;
+    const readyActionMessage = pendingReactions.length > 0 ? ` / 준비행동 ${pendingReactions.length}개가 발동 대기 중입니다.` : "";
+    const message = `${attackMessage}${readyActionMessage}`;
     const { sessionScenario } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
     const turnLog = await this.turnLogsService.createTurnLog({
       sessionId,
@@ -2250,13 +2560,124 @@ export class CombatService {
       narration: message,
     });
     if (concentrationCheck) {
+      concentrationCheck.modifierRolls?.forEach((roll) =>
+        this.realtimeEvents.emitDiceRolled(sessionId, roll),
+      );
       this.realtimeEvents.emitDiceRolled(sessionId, concentrationCheck.diceResult);
     }
     this.realtimeEvents.emitTurnLogCreated(sessionId, turnLog);
     this.realtimeEvents.emitCombatUpdated(sessionId, response);
     this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
     const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
-    return { combat: response, map, message, pendingReaction: null };
+    if (pending.continuation) {
+      const continuationResult = await this.resolvePendingMonsterMultiattackContinuation({
+        session,
+        pending,
+        map,
+        prefixMessage: message,
+      });
+      const continuationPrompts = continuationResult.pendingReactions ?? (continuationResult.pendingReaction ? [continuationResult.pendingReaction] : []);
+      const combinedPrompts = [...pendingReactions, ...continuationPrompts];
+      return {
+        ...continuationResult,
+        pendingReaction: combinedPrompts[0] ?? null,
+        pendingReactions: combinedPrompts,
+      };
+    }
+    return {
+      combat: response,
+      map,
+      message,
+      pendingReaction: pendingReactions[0] ?? null,
+      pendingReactions,
+    };
+  }
+
+  private async resolvePendingMonsterMultiattackContinuation(params: {
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
+    pending: PendingShieldReaction;
+    map: VttMapStateDto;
+    prefixMessage: string;
+  }): Promise<CombatMoveResultDto> {
+    const continuation = params.pending.continuation;
+    if (!continuation) {
+      const response = await this.mapCombat(await this.getActiveCombatEntity(params.session.id));
+      return {
+        combat: response,
+        map: params.map,
+        message: params.prefixMessage,
+        pendingReaction: null,
+      };
+    }
+
+    const results: CombatActionResultDto[] = [];
+    for (let index = 0; index < continuation.remainingActions.length; index += 1) {
+      const combat = await this.getActiveCombatEntity(params.session.id);
+      const actor = this.findCombatParticipantOrThrow(combat, continuation.actorParticipantId);
+      const target = this.findCombatParticipantOrThrow(combat, continuation.targetParticipantId);
+      if (!actor.isAlive || !target.isAlive) {
+        const response = await this.completeCombatIfResolved(params.session.id, combat);
+        this.realtimeEvents.emitCombatUpdated(params.session.id, response);
+        return {
+          combat: response,
+          map: params.map,
+          message: `${params.prefixMessage} / ${continuation.parentAction.label}: 남은 공격 대상이 없어 중단`,
+          pendingReaction: null,
+        };
+      }
+
+      const action = continuation.remainingActions[index];
+      const remainingActions = continuation.remainingActions.slice(index + 1);
+      const result = await this.combatTurns.resolveMonsterAttackAction(this.createCombatTurnRuntime(), {
+        userId: this.getGmRuntimeUserId(params.session),
+        session: params.session,
+        combat,
+        attacker: actor,
+        target,
+        action,
+        map: params.map,
+        sourceTokenId: actor.tokenId,
+        targetTokenId: continuation.targetTokenId ?? target.tokenId,
+        movementDistanceFt: 0,
+        actionCost: "none",
+        autoEndTurn: false,
+        autoEndTurnWhenOutOfRange: false,
+        shieldContinuation: remainingActions.length
+          ? {
+              ...continuation,
+              remainingActions,
+            }
+          : null,
+      });
+      results.push(result);
+      if (await this.combatReactions.hasPendingCombatReaction(params.session.id)) {
+        return {
+          combat: result.combat,
+          map: params.map,
+          message: `${params.prefixMessage} / ${continuation.parentAction.label}: ${result.message}`,
+          pendingReaction: result.pendingReaction ?? null,
+        };
+      }
+    }
+
+    let response = results[results.length - 1]?.combat ?? await this.mapCombat(await this.getActiveCombatEntity(params.session.id));
+    if (continuation.autoEndTurn !== false && response.status === CombatStatus.ACTIVE) {
+      const latestCombat = await this.getActiveCombatEntity(params.session.id);
+      if (latestCombat.currentParticipantId === continuation.actorParticipantId) {
+        await this.advanceCurrentTurn(params.session.id, latestCombat);
+        response = await this.mapCombat(await this.getCombatEntityById(latestCombat.id));
+      }
+    }
+    this.realtimeEvents.emitCombatUpdated(params.session.id, response);
+    this.realtimeEvents.emitSessionSnapshot(params.session.id, await this.sessionsService.buildSnapshot(params.session.id));
+    return {
+      combat: response,
+      map: await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(params.session), params.session.id),
+      message: `${params.prefixMessage} / ${continuation.parentAction.label}: ${results.map((result) => result.message).join(" / ")}${
+        continuation.autoEndTurn === false || response.status !== CombatStatus.ACTIVE ? "" : " / 턴 종료"
+      }`,
+      pendingReaction: null,
+    };
   }
 
   private async resolveTriggeredReadyAction(userId: string, sessionId: string, triggeredId: string, accepted: boolean): Promise<CombatMoveResultDto> {
@@ -2268,6 +2689,19 @@ export class CombatService {
 
     const combat = await this.getActiveCombatEntity(sessionId);
     const actor = this.findCombatParticipantOrThrow(combat, triggered.pending.actorParticipantId);
+    if (!actor.isAlive || this.combatConditions.isCombatParticipantIncapacitated(actor)) {
+      const response = await this.mapCombat(combat);
+      const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
+      const message = `${actor.nameSnapshot}은(는) 행동할 수 없어 준비행동이 취소되었습니다.`;
+      this.realtimeEvents.emitCombatUpdated(sessionId, response);
+      this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
+      return {
+        combat: response,
+        map,
+        message,
+        pendingReaction: null,
+      };
+    }
     if (!accepted) {
       const response = await this.mapCombat(combat);
       const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
@@ -2595,6 +3029,9 @@ export class CombatService {
 
     this.realtimeEvents.emitDiceRolled(params.session.id, damageRoll);
     if (concentrationCheck) {
+      concentrationCheck.modifierRolls?.forEach((roll) =>
+        this.realtimeEvents.emitDiceRolled(params.session.id, roll),
+      );
       this.realtimeEvents.emitDiceRolled(params.session.id, concentrationCheck.diceResult);
     }
     this.realtimeEvents.emitTurnLogCreated(params.session.id, turnLog);
@@ -2784,7 +3221,11 @@ export class CombatService {
     }
 
     await this.applyHitPointDelta(combat, target, -damageApplied);
-    const concentrationCheck = await this.resolveCombatConcentrationDamageCheck(target, damageApplied);
+    const concentrationCheck = await this.resolveCombatConcentrationDamageCheck(
+      combat,
+      target,
+      damageApplied,
+    );
     return { damageApplied, concentrationCheck };
   }
 
@@ -2851,10 +3292,14 @@ export class CombatService {
   }): DiceAdvantageState {
     const hasAdvantage =
       params.attackerConditions.includes(COMBAT_CONDITION_HIDDEN) ||
+      params.targetConditions.includes("condition:restrained") ||
       params.targetConditions.some((condition) => COMBAT_INCAPACITATING_CONDITION_TAGS.has(condition)) ||
       params.allyWithin5FtOfTarget;
     const hasDisadvantage =
-      params.targetConditions.includes(COMBAT_CONDITION_DODGE) || params.targetHeavilyObscured === true || params.forceDisadvantage === true;
+      params.attackerConditions.includes("condition:restrained") ||
+      params.targetConditions.includes(COMBAT_CONDITION_DODGE) ||
+      params.targetHeavilyObscured === true ||
+      params.forceDisadvantage === true;
     if (hasAdvantage === hasDisadvantage) {
       return DiceAdvantageState.NORMAL;
     }
@@ -2922,7 +3367,14 @@ export class CombatService {
   }
 
   private applyMovementSpeedPenalties(baseSpeedFt: number, conditionsJson: string): number {
-    const penaltyFt = this.parseConditions(conditionsJson)
+    const conditions = this.parseConditions(conditionsJson);
+    if (
+      conditions.includes("condition:restrained") ||
+      conditions.includes("speed:zero")
+    ) {
+      return 0;
+    }
+    const penaltyFt = conditions
       .filter((tag) => tag.startsWith("movement_speed_penalty:"))
       .map((tag) => Number(tag.slice("movement_speed_penalty:".length)))
       .filter((value) => Number.isFinite(value) && value > 0)
@@ -2974,11 +3426,7 @@ export class CombatService {
   }
 
   private isParticipantInHeavilyObscuredTerrain(map: VttMapStateDto, participant: CombatParticipantEntity): boolean {
-    const token = this.combatTargeting.findParticipantToken(map, participant);
-    if (!token) {
-      return false;
-    }
-    return this.combatMovement.resolveTerrainEffectsAtPoint(map, { x: token.x, y: token.y }).some((entered) => entered.effect.heavilyObscured);
+    return this.combatTargeting.resolveParticipantTargetVisibility(map, participant).heavilyObscured;
   }
 
   private parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -3035,12 +3483,17 @@ export class CombatService {
       return 0;
     }
 
-    const resolution = this.readyActions.resolvePendingActions(pendingActions, {
+    const activePendingActions = pendingActions.filter((pending) => {
+      const actor = combat.participants.find((participant) => participant.id === pending.actorParticipantId);
+      return Boolean(actor && actor.isAlive && !this.combatConditions.isCombatParticipantIncapacitated(actor));
+    });
+    const unavailableCount = pendingActions.length - activePendingActions.length;
+    const resolution = this.readyActions.resolvePendingActions(activePendingActions, {
       type: "manual",
       roundNo: combat.roundNo,
       turnNo: combat.turnNo,
     });
-    if (resolution.expired.length === 0) {
+    if (resolution.expired.length === 0 && unavailableCount === 0) {
       return 0;
     }
 
@@ -3053,7 +3506,7 @@ export class CombatService {
         }),
       },
     });
-    return resolution.expired.length;
+    return resolution.expired.length + unavailableCount;
   }
 
   private async resolveReadyActionsForMovement(params: {
@@ -3073,15 +3526,20 @@ export class CombatService {
     const triggered = [];
     const prompts: CombatReactionPromptDto[] = [];
     const remaining: PendingReadyAction[] = [];
+    let stateChanged = false;
     for (const pending of pendingActions) {
+      const actor = params.combat.participants.find((participant) => participant.id === pending.actorParticipantId);
+      if (!actor || !actor.isAlive || this.combatConditions.isCombatParticipantIncapacitated(actor)) {
+        stateChanged = true;
+        continue;
+      }
       if (pending.actorParticipantId === params.mover.id) {
         remaining.push(pending);
         continue;
       }
 
-      const actor = params.combat.participants.find((participant) => participant.id === pending.actorParticipantId);
-      const actorToken = actor ? this.combatTargeting.findParticipantToken(params.map, actor) : null;
-      if (!actor || !actorToken) {
+      const actorToken = this.combatTargeting.findParticipantToken(params.map, actor);
+      if (!actorToken) {
         remaining.push(pending);
         continue;
       }
@@ -3096,10 +3554,11 @@ export class CombatService {
       };
       const resolution = this.readyActions.resolveTrigger(pending, event);
       if (resolution.expired) {
-        remaining.push(pending);
+        stateChanged = true;
         continue;
       }
       if (resolution.triggered) {
+        stateChanged = true;
         const triggeredReadyAction = this.readyActions.createTriggeredReadyAction(pending, event);
         triggered.push(triggeredReadyAction);
         const actorName = actor.nameSnapshot || "준비행동 사용자";
@@ -3119,7 +3578,106 @@ export class CombatService {
       remaining.push(pending);
     }
 
-    if (triggered.length === 0) {
+    if (!stateChanged) {
+      return { count: 0, prompts: [] };
+    }
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: sessionScenario.id },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          [PENDING_READY_ACTIONS_FLAG]: remaining,
+          [TRIGGERED_READY_ACTIONS_FLAG]: [...(Array.isArray(flags[TRIGGERED_READY_ACTIONS_FLAG]) ? flags[TRIGGERED_READY_ACTIONS_FLAG] : []), ...triggered],
+        }),
+      },
+    });
+    if (triggered.length > 0) {
+      this.realtimeEvents.emitSystemMessage(params.sessionId, "READY_ACTION_TRIGGERED", `준비행동 ${triggered.length}개가 발동 대기 중입니다.`);
+    }
+    return { count: triggered.length, prompts };
+  }
+
+  private async resolveReadyActionsForParticipantEvent(params: {
+    sessionId: string;
+    combat: NonNullable<CombatWithParticipants>;
+    sourceParticipantId?: string | null;
+    targetParticipantId?: string | null;
+    type: Extract<ReadyTriggerEvent["type"], "ally_attacked" | "enemy_casts_spell" | "turn_start" | "turn_end">;
+    eventRoundNo?: number;
+    eventTurnNo?: number;
+  }): Promise<ReadyActionMovementResult> {
+    const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(params.sessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const pendingActions = this.parsePendingReadyActions(flags[PENDING_READY_ACTIONS_FLAG]);
+    if (pendingActions.length === 0) {
+      return { count: 0, prompts: [] };
+    }
+
+    const source = params.sourceParticipantId
+      ? params.combat.participants.find((participant) => participant.id === params.sourceParticipantId) ?? null
+      : null;
+    const target = params.targetParticipantId
+      ? params.combat.participants.find((participant) => participant.id === params.targetParticipantId) ?? null
+      : null;
+    const subject = target ?? source;
+    const triggered = [];
+    const prompts: CombatReactionPromptDto[] = [];
+    const remaining: PendingReadyAction[] = [];
+    let stateChanged = false;
+
+    for (const pending of pendingActions) {
+      const actor = params.combat.participants.find((participant) => participant.id === pending.actorParticipantId);
+      if (!actor || !actor.isAlive || this.combatConditions.isCombatParticipantIncapacitated(actor)) {
+        stateChanged = true;
+        continue;
+      }
+      if (pending.actorParticipantId === params.sourceParticipantId) {
+        remaining.push(pending);
+        continue;
+      }
+      if (!subject) {
+        remaining.push(pending);
+        continue;
+      }
+      const event: ReadyTriggerEvent = {
+        type: params.type,
+        sourceParticipantId: params.sourceParticipantId ?? null,
+        targetParticipantId: params.targetParticipantId ?? null,
+        roundNo: params.eventRoundNo ?? params.combat.roundNo,
+        turnNo: params.eventTurnNo ?? params.combat.turnNo,
+        tags: [
+          ...(source ? [source.isHostile === actor.isHostile ? "source:ally" : "source:enemy"] : []),
+          ...(target ? [target.isHostile === actor.isHostile ? "ally" : "enemy"] : []),
+        ],
+      };
+      const resolution = this.readyActions.resolveTrigger(pending, event);
+      if (resolution.expired) {
+        stateChanged = true;
+        continue;
+      }
+      if (resolution.triggered) {
+        stateChanged = true;
+        const triggeredReadyAction = this.readyActions.createTriggeredReadyAction(pending, event);
+        triggered.push(triggeredReadyAction);
+        const actorName = actor.nameSnapshot || "준비행동 사용자";
+        const prompt: CombatReactionPromptDto = {
+          id: triggeredReadyAction.id,
+          type: "ready_action",
+          reactorParticipantId: pending.actorParticipantId,
+          reactorName: actorName,
+          moverParticipantId: subject.id,
+          moverName: subject.nameSnapshot,
+          message: `${actorName}의 준비행동 조건이 충족되었습니다. 실행할까요?`,
+        };
+        prompts.push(prompt);
+        this.realtimeEvents.emitCombatReactionPrompt(params.sessionId, pending.actorUserId, prompt);
+        continue;
+      }
+      remaining.push(pending);
+    }
+
+    if (!stateChanged) {
       return { count: 0, prompts: [] };
     }
 
@@ -3162,6 +3720,37 @@ export class CombatService {
         Boolean(pending.heldAction)
       );
     });
+  }
+
+  private async hasPendingTriggeredReadyAction(sessionId: string): Promise<boolean> {
+    const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(sessionId);
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const triggeredActions = this.parseTriggeredReadyActions(flags[TRIGGERED_READY_ACTIONS_FLAG]);
+    if (triggeredActions.length === 0) {
+      return false;
+    }
+    let combat: NonNullable<CombatWithParticipants>;
+    try {
+      combat = await this.getActiveCombatEntity(sessionId);
+    } catch {
+      return false;
+    }
+    const activeTriggeredActions = triggeredActions.filter((triggered) => {
+      const actor = combat.participants.find((participant) => participant.id === triggered.pending.actorParticipantId);
+      return Boolean(actor && actor.isAlive && !this.combatConditions.isCombatParticipantIncapacitated(actor));
+    });
+    if (activeTriggeredActions.length !== triggeredActions.length) {
+      await this.prisma.gameState.update({
+        where: { sessionScenarioId: sessionScenario.id },
+        data: {
+          flagsJson: JSON.stringify({
+            ...flags,
+            [TRIGGERED_READY_ACTIONS_FLAG]: activeTriggeredActions,
+          }),
+        },
+      });
+    }
+    return activeTriggeredActions.length > 0;
   }
 
   private parseTriggeredReadyActions(value: unknown): TriggeredReadyAction[] {

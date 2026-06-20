@@ -18,6 +18,7 @@ const MAGIC_MISSILE_SPELL_ID = "spell.magic_missile";
 const CURE_WOUNDS_SPELL_ID = "spell.cure_wounds";
 const SLEEP_SPELL_ID = "spell.sleep";
 const LIGHT_SPELL_ID = "spell.light";
+const DETECT_MAGIC_SPELL_ID = "spell.detect_magic";
 
 export type ActionSpellRuleRuntime = {
   createActionUnavailableResolution: (...args: any[]) => any;
@@ -198,6 +199,17 @@ export class ActionSpellRuleService {
       });
     }
 
+    if (command.spellId === DETECT_MAGIC_SPELL_ID) {
+      return this.resolveDetectMagicSpell({
+        command,
+        actor,
+        spellDefinition,
+        spellLevel,
+        slotLevel,
+        spellScaling,
+      });
+    }
+
     const target = this.requireTarget(command.target, sessionCharacters);
     const targetArmorClass = target.character.armorClass;
 
@@ -238,6 +250,24 @@ export class ActionSpellRuleService {
         spellDamageType,
         spellDamageDice,
       });
+    }
+
+    if (command.spellId !== CHILL_TOUCH_SPELL_ID) {
+      return {
+        structuredAction: {
+          type: "cast_spell",
+          spellId: command.spellId,
+          slotLevel,
+          target: command.target,
+          targetDistanceFt: command.targetDistanceFt,
+          rejectedReason: "unsupported_spell",
+        },
+        diceResult: null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: this.createSpellRejectedNarration("unsupported_spell"),
+        stateChanges: [],
+        runtimeEffects: [],
+      };
     }
 
     const precheckResult = this.ruleEngine.resolveChillTouch({
@@ -807,6 +837,48 @@ export class ActionSpellRuleService {
       outcome: ActionOutcome.SUCCESS,
       narration: "Light 주문으로 밝은 빛을 만들었습니다.",
       stateChanges: [this.createTargetStatePatch(params.target, { conditions: nextConditions })],
+      runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
+    };
+  }
+
+  private resolveDetectMagicSpell(params: {
+    command: Extract<ParsedCommand, { type: "cast_spell" }>;
+    actor: SessionCharacterForRules;
+    spellDefinition: RuleCatalogEntry | null;
+    spellLevel: number;
+    slotLevel: number;
+    spellScaling: SpellScalingResult | null;
+  }): ActionResolution {
+    const nextConditions = this.conditionRuntime.applyCondition(
+      this.conditionRuntime.parseConditionsJson(params.actor.conditionsJson),
+      this.conditionRuntime.createCondition({
+        conditionId: DETECT_MAGIC_SPELL_ID,
+        sourceId: DETECT_MAGIC_SPELL_ID,
+        duration: { type: "rounds", remaining: 100 },
+        stackPolicy: "replace",
+        tags: ["concentration", "utility:detection", "detect:magic:30"],
+      }),
+    );
+    return {
+      structuredAction: {
+        type: "cast_spell",
+        spellId: params.command.spellId,
+        slotLevel: params.slotLevel,
+        target: params.actor.id,
+        targetDistanceFt: 0,
+        spellDefinition: this.toStructuredSpellDefinition(
+          params.spellDefinition,
+          params.spellLevel,
+        ),
+        spellScaling: params.spellScaling,
+        detectionRangeFt: 30,
+      },
+      diceResult: null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: "Detect Magic으로 30ft 안의 마법 존재를 감지하기 시작했습니다.",
+      stateChanges: [
+        this.createTargetStatePatch(params.actor, { conditions: nextConditions }),
+      ],
       runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
     };
   }

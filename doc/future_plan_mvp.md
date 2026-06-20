@@ -36,6 +36,23 @@ MVP의 상위 완료 기준은 [`structure/QUALITY_MVP_ACCEPTANCE.md`](structure
 - `npm run build -w @trpg/be`: 성공(exit 0).
 - 프론트엔드 build, 회귀 spec, AI/HUMAN GM 브라우저 smoke는 아직 검증 증거가 없다.
 
+2026-06-20 Codex 컴파일 검증:
+
+- `npm run build -w @trpg/shared-types`: 성공(exit 0).
+- `npm run build -w @trpg/be`: 성공(exit 0).
+- `npm run build -w @trpg/fe`: 성공(exit 0). Vite chunk size 경고만 있으며 빌드는 완료됨.
+- `npx tsc -p be/tsconfig.json --noEmit --incremental false`: 성공(exit 0).
+- `npx tsc -p fe/tsconfig.json --noEmit --incremental false`: 성공(exit 0).
+- 테스트와 브라우저 smoke는 저장소 지침에 따라 실행하지 않았다.
+
+2026-06-20 장기 범위 보존 감사:
+
+- `srd-data/generated/srd/classes.jsonl`: 12개.
+- `srd-data/generated/srd/races.jsonl`: 9개.
+- `srd-data/generated/srd/spells.jsonl`: 319개.
+- `srd-data/generated/srd/monsters.jsonl`: 317개.
+- P0 실행 주문 목록은 위 원본 콘텐츠를 대체하거나 삭제하지 않고 별도 실행 가능 subset으로 유지한다.
+
 ## 3. 유지할 아키텍처 계약
 
 ### 3.1 룰 데이터와 실행 책임
@@ -105,13 +122,13 @@ MVP의 상위 완료 기준은 [`structure/QUALITY_MVP_ACCEPTANCE.md`](structure
 | 엄폐 | 부분 연결 | VTT object/wall/door 기반 공격 보정, 직접 대상 주문 full cover 차단, Sleep/Fireball AoE full cover 처리, Dex-save AoE 엄폐 보너스, smoke cover map, 전투 주문 targeting hint | 모든 ranged weapon/monster action과 정밀 UI target preview 경로 통일 |
 | 집중 | 구현됨·검증 대기 | 현재 전투 피해 원천의 공통 damage finalizer, concentration save와 해제, 구조화 concentration 전투 응답, 참가자 관찰 UI 표시 | 집중 주문·연결 효과 실행 범위 확대, 종료 이유 추적, 사용자 회귀 검증 |
 | 강제이동 | 구현됨·검증 대기 | `POST /combat/force-move`, 지형 진입 효과, GM UI, ready trigger 반환 | 주문/몬스터 rider가 같은 경로 사용, 충돌·낙하·기회공격 예외 검증 |
-| AoE | 부분 연결 | sphere 중심 Fireball/Sleep, 대상별 save/피해, Sleep full cover 제외, Fireball 원점 기준 엄폐 보정, command 경로, 전투 UI 원점 선택 안내 | cone/line/cube 실제 주문 연결, 시각적 AoE preview와 서버 결과 일치 |
-| 준비행동 | 구현됨·검증 대기 | pending 저장, 이동 trigger, reaction prompt UI, accept/decline, 일부 held action 실행 | 공격/주문/턴 이벤트 trigger 확대, 모든 held action 비용과 만료 규칙 |
-| MVP 주문 | 구현됨·검증 대기 | 9개 전투 주문과 slot 선택/upcast UI | 공통 executor 비율 확대, concentration/buff/debuff/utility 대표 주문 추가 |
-| 몬스터 능력 | 부분 연결 | catalog/SRD 후보, HUMAN/AI 공통 선택, recharge, multiattack, save/condition rider, limited use 기반 | aura, 지속 효과, 복합 target, 모든 사용량 UI/로그/회복 검증 |
+| AoE | 구현됨·검증 대기 | sphere Fireball/Sleep, cone Burning Hands, cube Thunderwave/Entangle, 대상별 save/피해, 엄폐 보정, command/API 경로, 전투 UI 원점/방향 선택 안내 | 시각적 AoE preview와 서버 결과의 브라우저 검증 |
+| 준비행동 | 구현됨·검증 대기 | pending 저장, 이동/공격/주문/턴 시작/턴 종료 trigger, reaction prompt UI, accept/decline, 일부 held action 실행 | 모든 held action 비용과 만료 규칙 |
+| MVP 주문 | 구현됨·검증 대기 | 16개 실행 주문과 slot 선택/upcast UI, Sacred Flame 단일 대상 내성, Thunderwave 강제이동, Entangle 집중 지형, Detect Magic 탐색, Bless/Bane 집중 d4 보정 | 공통 executor 비율 확대와 사용자 실행 검증 |
+| 몬스터 능력 | 부분 연결 | catalog/SRD 후보, HUMAN/AI 공통 선택, recharge, multiattack, save/condition rider, limited use 기반, aura/turn lifecycle hook 감사 표면 | aura 실제 피해·상태 실행, 복합 target, 모든 사용량 UI/로그/회복 검증 |
 | 아이템/VTT object | 구현됨·검증 대기 | drop/pickup/throw, map object UI, inventory+map transaction, `GameState.version` 기반 동시 변경 차단, 동일 컨테이너 내 동일 아이템 stack merge, container capacity/state transaction 처리, throw hit/miss landing 분리 | 동시 pickup 실제 회귀 검증, 던지기 명중/빗나감 착지 사용자 실행 검증, container/capacity 사용자 실행 검증 |
 | 지형 | 부분 연결 | terrainEffectId, 이동 비용, 진입/턴 시작/턴 종료/이탈 피해·상태 lifecycle, 겹친 damage packet, 구조화 API/UI 로그, obscurement | elevation/미끄러짐 정밀 결과, 시야·엄폐와 복합 효과 검증 |
-| HUMAN GM override | 부분 연결 | 메시지, 공개, 지급/회수, HP, DC, 상태, 노드, 전투 시작/종료, private note GM 조회, AI assist suggestion/accept 및 scene/NPC/node 적용 연결, HUMAN 모드·지정 GM·JOINED GM/HOST 참가자 권한 helper | AI assist 공통 화면/provider 연결, override 실패 감사, 전 권한 회귀 |
+| HUMAN GM override | 부분 연결 | 메시지, 공개, 지급/회수, HP, DC, 상태, 노드, 전투 시작/종료, private note GM 조회, AI assist provider suggestion/accept 및 scene/NPC/node 적용 연결, 스토리/탐색/전투 공통 HUMAN GM AI assist 표면, 적용 실패 감사, HUMAN 모드·지정 GM·JOINED GM/HOST 참가자 권한 helper | 전 권한 회귀, 브라우저 smoke, provider 실패/fallback 검증 |
 | smoke scenario | 구현됨·검증 대기 | 휴식→함정/내성→엄폐→AoE→상태/아이템→HUMAN GM 노드 seed | 실제 DB/API/브라우저에서 AI/HUMAN 각각 완주한 증거 |
 
 ## 5. P0: End-to-End Playable MVP 완성
@@ -288,7 +305,7 @@ action/spell/monster ability 선택
 
 #### AoE
 
-- targeting shape resolver는 sphere, cone, line, cube를 지원한다.
+- targeting shape resolver는 sphere, cone, line, cube를 지원하며 현재 sphere와 cone이 실제 전투 주문에 연결되어 있다.
 - CombatService는 resolver가 계산한 대상마다 save, cover, damage, condition을 개별 처리한다.
 - UI preview와 안내는 보조이며 서버가 최종 대상 목록을 반환한다.
 - 로그에는 shape, origin, size, 포함 대상, 대상별 save/피해를 남긴다.
@@ -296,10 +313,13 @@ action/spell/monster ability 선택
 #### 준비행동과 반응
 
 - pending ready action은 actor, trigger, held action, 원래 비용, reaction 필요 여부, 만료 turn을 포함한다.
-- 이동뿐 아니라 공격 시작, 주문 시전, 사거리 진입, 턴 시작/종료 trigger를 단계적으로 지원한다.
+- 이동, 공격 시작, 주문 시전, 사거리 진입, 턴 시작/종료 trigger를 지원한다.
 - trigger 시 해당 사용자에게 구조화된 reaction prompt를 보낸다.
+- 이동/강제이동 결과는 하위 호환용 `pendingReaction` 단일 필드와 함께 `pendingReactions` 배열을 반환하고, `CombatResponseDto.pendingReactions`도 triggered ready prompt를 재투영한다. 같은 이동에서 여러 ready prompt가 생기거나 재접속 후 snapshot으로 복원돼도 HTTP 응답, websocket, combat snapshot은 같은 id를 claim 기반으로 중복 처리하지 않는다.
+- 공격 resolver는 `ally_attacked`, 주문 executor와 spell attack은 `enemy_casts_spell` ready trigger를 발생시키고, 발생한 prompt를 action result의 `pendingReactions`와 combat snapshot에 남긴다. spell attack이 Shield 응답을 기다리는 경우에도 주문 맥락을 pending reaction에 보존해 Shield 처리 후 두 trigger를 평가한다.
+- 턴 전환은 pending 만료 전에 `turn_end`와 `turn_start`를 평가하고 `TurnAdvanceResponseDto.pendingReactions`에 prompt를 반환한다. prompt가 남아 있는 동안 AI 몬스터 자동 턴과 재접속 시 자동 실행을 멈추고, 마지막 ready 응답 처리 후 자동 턴을 다시 예약한다.
 - accept 시 reaction을 먼저 예약/소모한 뒤 held action을 실행한다.
-- decline/expire/actor incapacitated 시 pending 상태를 제거한다.
+- decline/expire/actor 사망·행동불능 시 pending 또는 triggered 상태를 제거한다. 트리거 순회, 턴 만료, 응답 직전, snapshot 재투영, AI 자동 턴 대기 검사가 같은 actor 실행 가능 조건을 사용한다.
 - Shield, opportunity attack, ready action prompt가 같은 UI queue에서 중복 처리되지 않아야 한다.
 
 완료 기준:
@@ -313,21 +333,21 @@ action/spell/monster ability 선택
 
 현재 전투 실행 주문:
 
-- cantrip: Chill Touch, Fire Bolt, Ray of Frost, Light
-- 1레벨: Magic Missile, Cure Wounds, Shield, Sleep
+- cantrip: Chill Touch, Fire Bolt, Ray of Frost, Sacred Flame, Light
+- 1레벨: Bless, Bane, Magic Missile, Burning Hands, Thunderwave, Entangle, Detect Magic, Cure Wounds, Shield, Sleep
 - 3레벨: Fireball
 
-현재 9개 주문은 공격, 회복, 반응, 광역, 상태 rider, utility, upcast의 최소 대표군이다. 다음 단계는 주문 수를 즉시 100개로 늘리는 것이 아니라, 공통 executor가 주문별 분기를 얼마나 대체하는지 높이는 것이다.
+현재 16개 주문은 공격, 단일 대상 내성, 회복, 반응, sphere/cone/cube 광역, 상태 rider, 강제이동, 집중 buff/debuff/지형, 탐색 utility, upcast의 최소 대표군이다. Bless/Bane은 대상 condition에 머물지 않고 실제 공격·내성 굴림마다 d4를 굴려 더하거나 빼며, 집중 종료 시 연결 효과를 제거한다. Sacred Flame은 엄폐 내성 보너스를 무시하는 단일 대상 Dex save 피해 경로를 사용한다. Thunderwave는 실패 대상만 공통 forced movement resolver로 밀어내며, Entangle은 집중 종료 시 구속과 terrain cell을 함께 제거한다. Detect Magic은 command와 전투 API/UI에서 같은 id를 사용한다.
 
 MVP 추가 대표군:
 
-1. concentration buff 1개
-2. concentration debuff 1개
-3. saving throw 단일 대상 피해 1개
-4. 강제이동 주문 1개
-5. difficult/hazard terrain 생성 주문 1개
-6. cone 또는 line AoE 1개
-7. 비전투 탐색/상호작용 주문 1개
+1. concentration buff 1개 — Bless 연결 완료
+2. concentration debuff 1개 — Bane 연결 완료
+3. saving throw 단일 대상 피해 1개 — Sacred Flame 연결 완료
+4. 강제이동 주문 1개 — Thunderwave 연결 완료
+5. difficult/hazard terrain 생성 주문 1개 — Entangle 연결 완료
+6. cone 또는 line AoE 1개 — Burning Hands cone 연결 완료
+7. 비전투 탐색/상호작용 주문 1개 — Detect Magic command/API 연결 완료
 
 각 spell definition이 표현해야 할 항목:
 
@@ -368,23 +388,21 @@ P1 이후 목표:
 - save-based damage와 condition rider.
 - limited-use 사용량과 rest/combat 회복.
 - UI의 available/unavailable 표시.
+- aura와 turn-start/turn-end 지속 능력을 감지하는 공통 hook이 `TurnAdvanceResponseDto.monsterLifecycleEffects`와 turn lifecycle `TurnLog`에 남는다.
+- 몬스터 공격 `TurnLog`는 action id, recharge/usage, save, condition rider, effect tag metadata를 남기고, 턴 시작 recharge roll은 turn lifecycle `TurnLog`의 `monsterRecharge`로 감사된다.
+- multiattack child attack 중 Shield 반응이 발생하면 남은 child action을 pending reaction continuation으로 저장하고, Shield 처리 후 action cost 추가 소모 없이 이어서 실행한다.
+- 전투 참가자 `monsterActions` option은 `targetKind`, `resolutionKind`, `rangeFt`/`longRangeFt`, `childActions`, save/rider/recharge/usage를 공통 형태로 정규화하고, 전투 UI는 target/resolution/child action/save/rider/recharge/usage 요약을 버튼 보조 텍스트와 title로 표시한다.
+- HUMAN GM 전투 UI는 multiattack을 self special이 아니라 single-target action으로 취급해 대상 토큰 선택 후 같은 몬스터 executor를 호출한다.
 
 남은 작업:
 
-1. 모든 후보를 다음 공통 형태로 정규화한다.
-   - action id
-   - cost
-   - target/range/AoE
-   - attack 또는 save
-   - damage
-   - condition/forced movement rider
-   - recharge/usage
-   - child actions
-2. multiattack의 각 하위 공격이 반응 대기 상태를 만들면 안전하게 일시 중단하고 재개한다.
-3. recharge와 limited use를 후보 표시와 실행 직전에 모두 검증한다.
-4. aura와 turn-start/turn-end 지속 능력을 추가할 hook을 정의한다.
-5. AI GM은 실행 가능한 후보 중 선택만 하고, HUMAN GM과 같은 executor를 호출한다.
-6. 행동 사용, recharge roll, rider 적용을 로그에 남긴다.
+검증 대기:
+
+1. 일반 공격, multiattack, recharge, save-based condition rider, limited-use 대표 몬스터의 backend spec을 사용자 실행으로 확인한다.
+2. HUMAN GM 브라우저 smoke에서 multiattack 버튼이 대상 선택 모드로 들어가고, 대상 토큰 선택 후 같은 action id executor를 호출하는지 확인한다.
+3. AI GM과 HUMAN GM이 같은 action id를 선택했을 때 같은 executor 결과와 TurnLog metadata를 남기는지 확인한다.
+4. 사용할 수 없는 recharge/limited-use 행동이 후보 표시와 실행 직전 서버 검증에서 모두 차단되는지 확인한다.
+5. aura와 turn-start/turn-end 지속 능력 hook은 P0에서 감사 표면까지만 닫고, 실제 피해·상태 실행은 P0 이후 확장으로 유지한다.
 
 완료 기준:
 
@@ -459,8 +477,10 @@ P1 이후 목표:
 - difficult terrain은 서버 이동 비용 계산에 반영되며, `terrainEffectId` 필드 기반 셀도 같은 비용 처리를 받는다.
 - slippery terrain은 진입 시 save와 prone condition 결과를 구조화해 반환한다.
 - heavily obscured terrain 위의 target은 attack advantage/disadvantage 계산에 반영된다.
+- target visibility의 P0 정책은 `hidden` 또는 토큰 누락이면 target 불가, `terrain.obscurement`/`terrain.poison_cloud` 같은 heavily obscured terrain이면 target 가능하되 공격 판정 불리점으로 처리하는 것이다.
 - Light 같은 target point 검증은 terrain effect cell을 구조물 차단물로 취급하지 않고, 벽·닫힌 문·effect id 없는 구조 terrain만 차단한다.
 - elevation terrain은 해당 지점의 `elevationDeltaFt`를 token grid distance에 반영한다. 사거리와 이동 비용은 평면 거리와 높이 차이를 합친 3D 거리를 5ft 단위로 올림해 사용한다.
+- 원거리 공격에서 대상이 공격자보다 10ft 이상 높은 elevation terrain 위에 있으면, 기존 구조물 엄폐가 없더라도 최소 half cover를 받는다. 근접 공격, full cover, three-quarters cover는 이 보정으로 덮어쓰지 않는다.
 
 남은 작업:
 
@@ -475,8 +495,7 @@ P1 이후 목표:
 
 아직 남은 구현:
 
-1. elevation을 엄폐와 낙하 결과에 연결할 최소 MVP 규칙을 정한다.
-2. obscurement를 target visibility 전체 정책과 연결한다.
+- 없음. elevation 낙하 결과는 P0에서는 자동 피해/강제 낙하까지 구현하지 않고, GM override 또는 forced movement 결과 로그로만 추적하는 최소 정책으로 둔다.
 
 완료 기준:
 
@@ -514,9 +533,11 @@ P1 이후 목표:
 - AI assist suggestion은 `humanGmAiAssistSuggestions` private namespace에 PENDING으로 저장하며, 생성만으로 `TurnLog`, `StateDiff`, `GameState.version`을 만들거나 변경하지 않는다.
 - AI assist 승인 시에만 `ai_assist_accept` override audit TurnLog를 남기고, 제안 상태를 ACCEPTED로 바꾼다. 이 승인 감사는 기본적으로 공개 state diff를 만들지 않는다.
 - `GET /sessions/:id/gm/ai-assist/suggestions`는 HUMAN GM 권한을 다시 검사하고 private suggestion 목록을 최신순으로 복구한다.
-- 스토리 HUMAN GM 패널에서 AI assist suggestion을 유형별로 등록하고 PENDING 제안을 승인할 수 있다.
+- 스토리, 탐색, 전투 HUMAN GM 패널에서 공통 AI assist suggestion UI로 유형별 제안을 등록하고 PENDING 제안을 승인할 수 있다.
+- 스토리, 탐색, 전투 HUMAN GM 패널에서 GM 요청문을 AI provider에 보내고, 생성 결과를 동일한 PENDING suggestion 저장 API로 등록할 수 있다.
 - 승인된 `scene_text`, `npc_dialogue`, `node_move` 제안은 각각 기존 HUMAN GM message 또는 node move executor로 이어진다. `combat`, `rules`, `other`는 승인 감사만 남기며 자동 적용하지 않는다.
 - AI assist 승인 공개 narration 기본값에는 private suggestion 원문을 포함하지 않는다.
+- 승인 뒤 `scene_text`, `npc_dialogue`, `node_move` executor 적용이 실패하면 `ai_assist_apply_failure` TurnLog를 별도로 남기고 적용 실패 원인과 suggestion id를 감사 metadata로 추적한다.
 
 남은 작업:
 
@@ -530,9 +551,7 @@ P1 이후 목표:
 
 아직 남은 구현:
 
-1. AI assist UI를 탐색/전투 노드에서도 직접 열 수 있도록 공통 HUMAN GM 도구 표면으로 승격한다.
-2. AI provider가 만든 suggestion을 현재 PENDING 저장 API에 연결한다.
-3. 승인 뒤 executor 적용이 실패한 경우 별도 실패 감사 로그로 추적한다.
+- 없음. 남은 항목은 사용자 실행 검증과 브라우저 smoke 확인이다.
 
 완료 기준:
 
@@ -756,16 +775,23 @@ npm run test -w @trpg/be -- combat.service.spec.ts --runInBand
 
 ```powershell
 npm run test -w @trpg/be -- rule-catalog.service.spec.ts --runInBand
+npm run test -w @trpg/be -- combat-spell.service.spec.ts --runInBand
 npm run test -w @trpg/be -- spell-slot.service.spec.ts --runInBand
 npm run test -w @trpg/be -- spell-scaling.service.spec.ts --runInBand
+npm run test -w @trpg/be -- aoe-damage.service.spec.ts --runInBand
 npm run test -w @trpg/be -- monster-ability.service.spec.ts --runInBand
 npm run test -w @trpg/be -- combat.service.spec.ts --runInBand
 ```
 
 수동 확인:
 
-- 9개 현재 MVP 주문.
+- 16개 현재 P0 실행 주문.
 - slot 선택과 upcast.
+- Sacred Flame 단일 대상 Dex save와 엄폐 보너스 무시.
+- Bless/Bane의 공격·내성 굴림별 d4와 집중 종료 연결 효과 제거.
+- Thunderwave 실패 대상의 공통 forced movement와 지형 진입 결과.
+- Entangle 험지·구속과 집중 종료 시 terrain/condition 동시 제거.
+- Detect Magic의 30ft 감지 결과와 private content 비노출.
 - monster multiattack.
 - recharge 성공/실패.
 - save-based condition rider.

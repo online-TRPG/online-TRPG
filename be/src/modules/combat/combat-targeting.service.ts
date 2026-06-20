@@ -11,6 +11,12 @@ type CombatTargetParticipant = {
   nameSnapshot: string;
 };
 
+export type CombatTargetVisibility = {
+  targetable: boolean;
+  heavilyObscured: boolean;
+  reason: "TOKEN_HIDDEN_OR_MISSING" | null;
+};
+
 @Injectable()
 export class CombatTargetingService {
   constructor(
@@ -41,6 +47,28 @@ export class CombatTargetingService {
           token.sessionCharacterId === participant.sessionCharacterId && token.hidden !== true,
       ) ?? null
     );
+  }
+
+  resolveParticipantTargetVisibility(
+    map: VttMapStateDto,
+    participant: CombatTargetParticipant,
+  ): CombatTargetVisibility {
+    const token = this.findParticipantToken(map, participant);
+    if (!token) {
+      return {
+        targetable: false,
+        heavilyObscured: false,
+        reason: "TOKEN_HIDDEN_OR_MISSING",
+      };
+    }
+
+    return {
+      targetable: true,
+      heavilyObscured: this.combatMovement
+        .resolveTerrainEffectsAtPoint(map, { x: token.x, y: token.y })
+        .some((entered) => entered.effect.heavilyObscured),
+      reason: null,
+    };
   }
 
   assertSpellTargetInRange(

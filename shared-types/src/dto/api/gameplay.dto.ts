@@ -505,6 +505,12 @@ export class CombatMonsterActionOptionDto {
   @ApiPropertyOptional({ nullable: true })
   costType?: string | null;
 
+  @ApiPropertyOptional({ enum: ["none", "self", "single_target", "area"], nullable: true })
+  targetKind?: "none" | "self" | "single_target" | "area" | null;
+
+  @ApiPropertyOptional({ enum: ["attack", "save", "special"], nullable: true })
+  resolutionKind?: "attack" | "save" | "special" | null;
+
   @ApiPropertyOptional({ nullable: true })
   specialType?: string | null;
 
@@ -522,6 +528,9 @@ export class CombatMonsterActionOptionDto {
 
   @ApiPropertyOptional({ type: [String] })
   effectTags?: string[];
+
+  @ApiPropertyOptional({ type: [Object] })
+  childActions?: Array<{ actionId: string; count: number }>;
 
   @ApiPropertyOptional()
   available?: boolean;
@@ -627,6 +636,9 @@ export class CombatResponseDto {
 
   @ApiProperty({ type: [CombatParticipantResponseDto] })
   participants!: CombatParticipantResponseDto[];
+
+  @ApiPropertyOptional({ type: () => [CombatReactionPromptDto] })
+  pendingReactions?: CombatReactionPromptDto[];
 }
 
 export class AvailableActionDto {
@@ -699,6 +711,26 @@ export class CombatTerrainEffectResultDto {
   concentrationMaintained!: boolean | null;
 }
 
+export class CombatMonsterLifecycleEffectDto {
+  @ApiProperty()
+  actorParticipantId!: string;
+
+  @ApiProperty()
+  actorName!: string;
+
+  @ApiProperty()
+  actionId!: string;
+
+  @ApiProperty()
+  label!: string;
+
+  @ApiProperty({ enum: ["aura", "turn_start", "turn_end"] })
+  hook!: "aura" | "turn_start" | "turn_end";
+
+  @ApiProperty({ type: [String] })
+  effectTags!: string[];
+}
+
 export class TurnAdvanceResponseDto {
   @ApiProperty()
   combatId!: string;
@@ -723,6 +755,12 @@ export class TurnAdvanceResponseDto {
 
   @ApiPropertyOptional({ type: CombatTerrainEffectResultDto, nullable: true })
   turnEndTerrainEffects?: CombatTerrainEffectResultDto | null;
+
+  @ApiPropertyOptional({ type: [CombatMonsterLifecycleEffectDto] })
+  monsterLifecycleEffects?: CombatMonsterLifecycleEffectDto[];
+
+  @ApiPropertyOptional({ type: () => [CombatReactionPromptDto] })
+  pendingReactions?: CombatReactionPromptDto[];
 }
 
 export class ApplyCombatDamageDto {
@@ -900,6 +938,9 @@ export class CombatMoveResultDto {
   @ApiPropertyOptional({ type: CombatReactionPromptDto, nullable: true })
   pendingReaction!: CombatReactionPromptDto | null;
 
+  @ApiPropertyOptional({ type: [CombatReactionPromptDto] })
+  pendingReactions?: CombatReactionPromptDto[];
+
   @ApiPropertyOptional()
   movementDistanceFt?: number;
 
@@ -972,6 +1013,9 @@ export class CombatActionResultDto {
 
   @ApiPropertyOptional({ type: CombatReactionPromptDto, nullable: true })
   pendingReaction?: CombatReactionPromptDto | null;
+
+  @ApiPropertyOptional({ type: [CombatReactionPromptDto] })
+  pendingReactions?: CombatReactionPromptDto[];
 }
 
 export class StateDiffResponseDto {

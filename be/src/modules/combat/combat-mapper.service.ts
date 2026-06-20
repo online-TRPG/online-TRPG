@@ -12,6 +12,8 @@ import { ConditionRuntimeService } from "../rules/condition-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { CombatConditionService } from "./combat-condition.service";
 import { CombatSpellService } from "./combat-spell.service";
+import { TRIGGERED_READY_ACTIONS_FLAG } from "../rules/ready-action.service";
+import type { TriggeredReadyAction } from "../rules/ready-action.service";
 
 type CombatForMapping = {
   id: string;
@@ -132,6 +134,11 @@ export class CombatMapperService {
       : 0;
     const currentTurnOrder = currentParticipant?.turnOrder ?? Number.MAX_SAFE_INTEGER;
     const map = await this.sessionsService.getVttMapForUser(options.gmRuntimeUserId, combat.sessionId);
+    const pendingReactions = this.mapTriggeredReadyActionPrompts(
+      flags[TRIGGERED_READY_ACTIONS_FLAG],
+      combat.participants,
+      sessionCharacterById,
+    );
 
     return {
       combatId: combat.id,
@@ -141,6 +148,7 @@ export class CombatMapperService {
       turnNo: combat.turnNo,
       roundTurnNo,
       currentEntityId: combat.currentParticipantId,
+      pendingReactions,
       participants: combat.participants.map((participant) => {
         const sessionCharacter = participant.sessionCharacterId
           ? sessionCharacterById.get(participant.sessionCharacterId)
@@ -223,7 +231,14 @@ export class CombatMapperService {
   }
 
   private applyMovementSpeedPenalties(baseSpeedFt: number, conditionsJson: string): number {
-    const penaltyFt = this.parseConditions(conditionsJson)
+    const conditions = this.parseConditions(conditionsJson);
+    if (
+      conditions.includes("condition:restrained") ||
+      conditions.includes("speed:zero")
+    ) {
+      return 0;
+    }
+    const penaltyFt = conditions
       .filter((tag) => tag.startsWith("movement_speed_penalty:"))
       .map((tag) => Number(tag.slice("movement_speed_penalty:".length)))
       .filter((value) => Number.isFinite(value) && value > 0)
@@ -259,5 +274,68 @@ export class CombatMapperService {
     } catch {
       return fallback;
     }
+  }
+
+  private mapTriggeredReadyActionPrompts(
+    value: unknown,
+    participants: CombatParticipantForMapping[],
+    sessionCharacterById: Map<string, SessionCharacterForMapping>,
+  ): CombatResponseDto["pendingReactions"] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    const participantById = new Map(participants.map((participant) => [participant.id, participant]));
+    return value.flatMap((candidate): NonNullable<CombatResponseDto["pendingReactions"]> => {
+      if (!candidate || typeof candidate !== "object") {
+        return [];
+      }
+      const triggered = candidate as Partial<TriggeredReadyAction>;
+      if (
+        triggered.type !== "triggered_ready_action" ||
+        triggered.status !== "pending_response" ||
+        typeof triggered.id !== "string" ||
+        !triggered.pending ||
+        !triggered.triggerEvent
+      ) {
+        return [];
+      }
+      const reactorParticipantId = triggered.pending.actorParticipantId;
+      const moverParticipantId =
+        triggered.triggerEvent.targetParticipantId ??
+        triggered.triggerEvent.sourceParticipantId ??
+        null;
+      if (!moverParticipantId) {
+        return [];
+      }
+      const reactor = participantById.get(reactorParticipantId);
+      const mover = participantById.get(moverParticipantId);
+      const reactorConditionsJson =
+        (reactor?.sessionCharacterId
+          ? sessionCharacterById.get(reactor.sessionCharacterId)?.conditionsJson
+          : null) ??
+        reactor?.conditionsJson ??
+        "[]";
+      if (
+        !reactor ||
+        !reactor.isAlive ||
+        this.combatConditions.isCombatParticipantIncapacitated({
+          ...reactor,
+          conditionsJson: reactorConditionsJson,
+        })
+      ) {
+        return [];
+      }
+      return [
+        {
+          id: triggered.id,
+          type: "ready_action",
+          reactorParticipantId,
+          reactorName: reactor?.nameSnapshot || "준비행동 사용자",
+          moverParticipantId,
+          moverName: mover?.nameSnapshot || "대상",
+          message: `${reactor?.nameSnapshot || "준비행동 사용자"}의 준비행동 조건이 충족되었습니다. 실행할까요?`,
+        },
+      ];
+    });
   }
 }

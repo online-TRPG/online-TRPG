@@ -82,6 +82,16 @@ describe("CommandParserService", () => {
     });
   });
 
+  it("parses self-target utility spells without a target token", () => {
+    expect(service.parse("/cast detect_magic")).toEqual({
+      type: "cast_spell",
+      spellId: "spell.detect_magic",
+      target: "self",
+      targetDistanceFt: 0,
+      slotLevel: null,
+    });
+  });
+
   it("parses condition commands with VTT token targets", () => {
     expect(service.parse("/condition add token_node_rule_smoke_condition_goblin stunned")).toEqual({
       type: "condition",
@@ -117,6 +127,34 @@ describe("CommandParserService", () => {
       heldAction: {
         type: "move",
         targetPoint: { x: 100, y: 0 },
+      },
+    });
+
+    expect(service.parse("/ready turn_start attack monster-1")).toEqual({
+      type: "ready",
+      trigger: {
+        type: "turn_start",
+        targetParticipantId: "monster-1",
+        rangeFt: null,
+        tags: ["targeted"],
+      },
+      heldAction: {
+        type: "attack",
+        targetParticipantId: "monster-1",
+      },
+    });
+
+    expect(service.parse("/ready turn-end attack monster-1")).toEqual({
+      type: "ready",
+      trigger: {
+        type: "turn_end",
+        targetParticipantId: "monster-1",
+        rangeFt: null,
+        tags: ["targeted"],
+      },
+      heldAction: {
+        type: "attack",
+        targetParticipantId: "monster-1",
       },
     });
   });

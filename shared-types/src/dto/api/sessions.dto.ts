@@ -770,6 +770,25 @@ export class AcceptHumanGmAiAssistSuggestionDto {
   privateNote?: string | null;
 }
 
+export class ReportHumanGmAiAssistApplicationFailureDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  suggestionId!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  failureReason!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  failedOperation?: string | null;
+}
+
 export class SessionSnapshotDto {
   @ApiProperty({ type: SessionResponseDto })
   session!: SessionResponseDto;

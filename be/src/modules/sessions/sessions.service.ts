@@ -43,6 +43,7 @@ import {
   HumanGmNodeMoveOptionDto,
   HumanGmMessageDto,
   HumanGmAiAssistSuggestionDto,
+  ReportHumanGmAiAssistApplicationFailureDto,
   SetHumanGmDifficultyClassDto,
   HumanGmPrivateNoteDto,
   InventoryItemDto,
@@ -220,6 +221,7 @@ export class SessionsService {
       ensureSessionScenarioNodeSnapshotForScenario: this.ensureSessionScenarioNodeSnapshotForScenario.bind(this),
       buildSnapshot: this.buildSnapshot.bind(this),
       createHumanGmOverrideTurnLog: this.createHumanGmOverrideTurnLog.bind(this),
+      findSessionScenarioRevealable: this.findSessionScenarioRevealable.bind(this),
       parseJson: this.parseJson.bind(this),
       getStringProperty: this.getStringProperty.bind(this),
       extractChecksFromCheckOptions: this.extractChecksFromCheckOptions.bind(this),
@@ -240,7 +242,7 @@ export class SessionsService {
     return {
       prisma: this.prisma,
       realtimeEvents: this.realtimeEvents,
-      sessionReveal: this.sessionReveal,
+      sessionReveal: this.sessionReveal ?? new SessionRevealService(),
       buildSnapshot: this.buildSnapshot.bind(this),
       clampNumber: this.clampNumber.bind(this),
       createSessionRevealRuntime: this.createSessionRevealRuntime.bind(this),
@@ -1768,6 +1770,43 @@ export class SessionsService {
     return snapshot;
   }
 
+  async reportHumanGmAiAssistApplicationFailure(
+    userId: string,
+    sessionId: string,
+    dto: ReportHumanGmAiAssistApplicationFailureDto,
+  ): Promise<SessionSnapshotDto> {
+    const session = await this.getHumanGmSessionForOperator(userId, sessionId);
+    if (session.status === PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("Started sessions are required for GM AI assist failure audit.");
+    }
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(session.id);
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: activeScenario.id },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const suggestion = this.getHumanGmAiAssistSuggestions(flags).find((candidate) => candidate.id === dto.suggestionId);
+    if (!suggestion) {
+      throw new NotFoundException("실패를 기록할 AI assist 제안을 찾을 수 없습니다.");
+    }
+    if (suggestion.status !== "ACCEPTED") {
+      throw new ConflictException("승인되지 않은 AI assist 제안의 적용 실패는 기록할 수 없습니다.");
+    }
+
+    const failureLog = await this.createHumanGmAiAssistApplicationFailureTurnLog({
+      sessionId: session.id,
+      sessionScenarioId: activeScenario.id,
+      gmUserId: userId,
+      suggestion,
+      failureReason: dto.failureReason,
+      failedOperation: dto.failedOperation,
+    });
+    const snapshot = await this.buildSnapshot(session.id);
+    this.realtimeEvents.emitTurnLogCreated(session.id, failureLog.turnLog);
+    this.realtimeEvents.emitSessionSnapshot(session.id, snapshot);
+    return snapshot;
+  }
+
   async applyHumanGmCombatCondition(userId: string, sessionId: string, dto: ApplyHumanGmCombatConditionDto): Promise<SessionSnapshotDto> {
     return this.humanGmRuntime.applyHumanGmCombatCondition(this.createHumanGmRuntime(), userId, sessionId, dto);
   }
@@ -2079,11 +2118,46 @@ export class SessionsService {
   }
 
   async buildSnapshot(sessionId: string): Promise<SessionSnapshotDto> {
-    return this.sessionSnapshot.buildSnapshot(this.createSessionSnapshotRuntime(), sessionId);
+    return (this.sessionSnapshot ?? new SessionSnapshotService()).buildSnapshot(this.createSessionSnapshotRuntime(), sessionId);
   }
 
   async buildDetail(sessionId: string): Promise<SessionDetailResponseDto> {
-    return this.sessionSnapshot.buildDetail(this.createSessionSnapshotRuntime(), sessionId);
+    return (this.sessionSnapshot ?? new SessionSnapshotService()).buildDetail(this.createSessionSnapshotRuntime(), sessionId);
+  }
+
+  async buildPendingRestApprovals(sessionId: string): Promise<NonNullable<SessionSnapshotDto["pendingRestApprovals"]>> {
+    return (this.sessionSnapshot ?? new SessionSnapshotService()).buildPendingRestApprovals(
+      this.createSessionSnapshotRuntime(),
+      sessionId,
+    );
+  }
+
+  mapPlayerScenarioNode(
+    node: Parameters<SessionRevealService["mapPlayerScenarioNode"]>[1],
+    revealedClueSnapshots: Parameters<SessionRevealService["mapPlayerScenarioNode"]>[2] = new Map(),
+  ): PlayerScenarioNodeDto {
+    return (this.sessionReveal ?? new SessionRevealService()).mapPlayerScenarioNode(
+      this.createSessionRevealRuntime(),
+      node,
+      revealedClueSnapshots,
+    );
+  }
+
+  async findSessionScenarioRevealable(sessionScenarioId: string, contentId: string): Promise<Record<string, unknown>> {
+    const nodes = await this.prisma.sessionScenarioNode.findMany({
+      where: { sessionScenarioId },
+      select: { nodeId: true, cluesJson: true },
+    });
+
+    for (const node of nodes) {
+      const clues = this.parseJson<Record<string, unknown>[]>(node.cluesJson, []);
+      const clue = clues.find((candidate) => this.getStringProperty(candidate, "id") === contentId);
+      if (clue) {
+        return { ...clue, nodeId: node.nodeId };
+      }
+    }
+
+    throw new NotFoundException(`Revealable content ${contentId} was not found in the active scenario.`);
   }
 
   async ensureMembership(userId: string, sessionId: string): Promise<void> {
@@ -2469,6 +2543,72 @@ export class SessionsService {
     };
 
     return { turnLog, stateDiff };
+  }
+
+  private async createHumanGmAiAssistApplicationFailureTurnLog(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    gmUserId: string;
+    suggestion: HumanGmAiAssistSuggestionDto;
+    failureReason: string;
+    failedOperation?: string | null;
+  }): Promise<HumanGmOverrideLogResult> {
+    const latest = await this.prisma.turnLog.findFirst({
+      where: { sessionId: params.sessionId },
+      orderBy: { turnNumber: "desc" },
+      select: { turnNumber: true },
+    });
+    const failureReason = params.failureReason.trim().slice(0, 500) || "Unknown AI assist application failure.";
+    const failedOperation = params.failedOperation?.trim().slice(0, 100) || null;
+    const structuredAction = {
+      type: "gm_override",
+      kind: "ai_assist_apply_failure",
+      targetId: params.suggestion.targetId,
+      public: true,
+      hasPrivateNote: false,
+      metadata: {
+        assistType: params.suggestion.assistType,
+        suggestionId: params.suggestion.id,
+        suggestedActionId: params.suggestion.suggestedActionId,
+        targetId: params.suggestion.targetId,
+        failedOperation,
+        failureReason,
+      },
+    };
+    const created = await this.prisma.turnLog.create({
+      data: {
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        actorUserId: params.gmUserId,
+        turnNumber: (latest?.turnNumber ?? 0) + 1,
+        rawInput: "gm:ai_assist_apply_failure",
+        structuredActionJson: JSON.stringify(structuredAction),
+        stateDiffJson: null,
+        outcome: PrismaActionOutcome.FAILURE,
+        narration: "GM AI assist 제안 승인 후 적용에 실패했습니다.",
+      },
+    });
+
+    return {
+      turnLog: {
+        turnLogId: created.id,
+        turnNumber: created.turnNumber,
+        playerActionId: created.playerActionId,
+        actorUserId: created.actorUserId,
+        sessionCharacterId: created.sessionCharacterId,
+        actionClientCreatedAt: null,
+        actionCreatedAt: null,
+        actionQueueStatus: null,
+        rawInput: created.rawInput,
+        structuredAction: this.parseJson<Record<string, unknown> | null>(created.structuredActionJson, null),
+        diceResult: null,
+        stateDiff: null,
+        outcome: created.outcome as ActionOutcome,
+        narration: created.narration,
+        createdAt: created.createdAt.toISOString(),
+      },
+      stateDiff: null,
+    };
   }
 
   private appendHumanGmPrivateNote(flags: Record<string, unknown>, note: HumanGmPrivateNoteDto): Record<string, unknown> {
@@ -2918,7 +3058,9 @@ export class SessionsService {
   }
 
   redactVttMapForPlayer(map: VttMapStateDto): VttMapStateDto {
-    return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).redactVttMapForPlayer(map);
+    return (this.sessionVttObjectRuntime ?? new SessionVttObjectRuntimeService())
+      .create(this.createSessionVttObjectRuntime())
+      .redactVttMapForPlayer(map);
   }
 
   private async finalizeRuntimeVttMapChange(params: {

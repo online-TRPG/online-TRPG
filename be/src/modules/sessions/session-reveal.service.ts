@@ -96,7 +96,7 @@ export class SessionRevealService {
     }
     const scope = dto.scope ?? "party";
     const recipientId = dto.recipientId?.trim() || null;
-    const content = await this.findSessionScenarioRevealable(runtime, activeScenario.id, dto.contentId);
+    const content = await runtime.findSessionScenarioRevealable(activeScenario.id, dto.contentId);
     let gmTurnLog: HumanGmOverrideLogResult | null = null;
 
     const reveal = await runtime.prisma.$transaction(async (tx) => {
@@ -334,6 +334,9 @@ export class SessionRevealService {
       select: { id: true, characterId: true },
     });
     const recipientIds = [userId, ...characterRecipients.flatMap((character) => [character.id, character.characterId])];
+    if (!runtime.prisma.sessionReveal?.findMany) {
+      return new Map();
+    }
     const reveals = await runtime.prisma.sessionReveal.findMany({
       where: {
         sessionScenarioId,

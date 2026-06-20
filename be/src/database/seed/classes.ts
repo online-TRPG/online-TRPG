@@ -51,7 +51,7 @@ const skillSelections: Record<string, { choices: string[]; count: number }> = {
 // 캐릭터 생성 runtime은 spellcasting progression이 열린 레벨에서 MVP 슬롯 주문 풀을 known 목록으로 확장한다.
 const spellCounts: Record<string, { cantrips: number; spells: number }> = {
   barbarian: { cantrips: 0, spells: 0 },
-  bard: { cantrips: 2, spells: 4 },
+  bard: { cantrips: 2, spells: 3 },
   cleric: { cantrips: 3, spells: 0 },
   druid: { cantrips: 2, spells: 0 },
   fighter: { cantrips: 0, spells: 0 },
@@ -59,9 +59,9 @@ const spellCounts: Record<string, { cantrips: number; spells: number }> = {
   paladin: { cantrips: 0, spells: 0 },
   ranger: { cantrips: 0, spells: 0 },
   rogue: { cantrips: 0, spells: 0 },
-  sorcerer: { cantrips: 4, spells: 2 },
+  sorcerer: { cantrips: 3, spells: 2 },
   warlock: { cantrips: 2, spells: 2 },
-  wizard: { cantrips: 3, spells: 4 },
+  wizard: { cantrips: 3, spells: 3 },
 };
 
 const classSeeds: ClassDefinitionSeed[] = [

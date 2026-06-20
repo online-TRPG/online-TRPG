@@ -55,4 +55,54 @@ describe("CombatTargetingService", () => {
 
     expect(() => service.assertLightPointAllowed(map as never, { x: 50, y: 0 })).toThrow();
   });
+
+  it("keeps heavily obscured targets targetable while marking them obscured", () => {
+    const service = createService();
+    const map = {
+      ...createMap(),
+      tokens: [{ id: "target-token", x: 50, y: 0, size: 50, hidden: false }],
+      terrainCells: [
+        {
+          id: "smoke",
+          terrainEffectId: "terrain.obscurement",
+          x: 50,
+          y: 0,
+          width: 50,
+          height: 50,
+        },
+      ],
+    };
+
+    expect(
+      service.resolveParticipantTargetVisibility(map as never, {
+        tokenId: "target-token",
+        sessionCharacterId: null,
+        nameSnapshot: "Target",
+      }),
+    ).toEqual({
+      targetable: true,
+      heavilyObscured: true,
+      reason: null,
+    });
+  });
+
+  it("treats hidden tokens as not targetable", () => {
+    const service = createService();
+    const map = {
+      ...createMap(),
+      tokens: [{ id: "target-token", x: 50, y: 0, size: 50, hidden: true }],
+    };
+
+    expect(
+      service.resolveParticipantTargetVisibility(map as never, {
+        tokenId: "target-token",
+        sessionCharacterId: null,
+        nameSnapshot: "Target",
+      }),
+    ).toEqual({
+      targetable: false,
+      heavilyObscured: false,
+      reason: "TOKEN_HIDDEN_OR_MISSING",
+    });
+  });
 });

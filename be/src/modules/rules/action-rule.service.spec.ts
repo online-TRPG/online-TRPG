@@ -2806,8 +2806,9 @@ describe("ActionRuleService", () => {
       {
         type: "RECOVER_LONG_REST",
         actionSurgeUses: 0,
+        hitDiceSpent: 0,
         rageUses: 4,
-        reduceExhaustionBy: 0,
+        reduceExhaustionBy: 1,
       },
     ]);
     expect(result.structuredAction).toMatchObject({

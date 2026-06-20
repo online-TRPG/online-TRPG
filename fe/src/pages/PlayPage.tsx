@@ -18,6 +18,7 @@ import type {
 } from 'react';
 import type {
   ActionOutcome,
+  AiHumanGmAssistSuggestionRequestDto,
   ClassDefinitionResponseDto,
   CombatActionResultDto,
   CombatMoveResultDto,
@@ -88,6 +89,7 @@ import {
   forceMoveCombatParticipant,
   getCombat,
   getHumanGmAiAssistSuggestions,
+  generateHumanGmAiAssistSuggestion,
   getHumanGmNodeMoveOptions,
   getPlayerScenario,
   getVttMap,
@@ -96,6 +98,7 @@ import {
   listItems,
   moveCombatParticipant,
   moveSessionToken,
+  reportHumanGmAiAssistApplicationFailure,
   resolveEquippedWeaponAttack,
   resolveOffhandWeaponAttack,
   resolveSneakAttackCombatAction,
@@ -1090,6 +1093,7 @@ const QUICK_CREATE_MVP_CANTRIPS = [
 ];
 const QUICK_CREATE_MVP_LEVEL1_SPELLS = [
   'spell.magic_missile',
+  'spell.burning_hands',
   'spell.cure_wounds',
   'spell.shield',
   'spell.sleep',
@@ -1683,6 +1687,22 @@ function isCombatReactionPromptDto(value: unknown): value is CombatReactionPromp
   );
 }
 
+function getCombatReactionPrompts(result: {
+  pendingReaction?: CombatReactionPromptDto | null;
+  pendingReactions?: CombatReactionPromptDto[] | null;
+}): CombatReactionPromptDto[] {
+  const prompts = [
+    ...(Array.isArray(result.pendingReactions) ? result.pendingReactions : []),
+    result.pendingReaction,
+  ].filter(isCombatReactionPromptDto);
+  const seen = new Set<string>();
+  return prompts.filter((prompt) => {
+    if (seen.has(prompt.id)) return false;
+    seen.add(prompt.id);
+    return true;
+  });
+}
+
 function formatCombatMoveResultMessage(result: CombatMoveResultDto): string {
   const baseMessage = result.message?.trim() || '전투 이동을 처리했습니다.';
   const movementDistanceFt =
@@ -2129,6 +2149,13 @@ export function PlayPage({
   }, [canUseHumanGmView, gmItemCatalog.length]);
   const currentSceneDescriptionText =
     currentNode?.sceneText?.trim() || '현재 장면 설명이 아직 준비되지 않았습니다.';
+  const recentGmAiAssistLogs = useMemo(
+    () =>
+      logs
+        .slice(-5)
+        .map((log) => [log.title, log.message].filter(Boolean).join(': ').slice(0, 220)),
+    [logs]
+  );
   const currentPublicClueIdSignature = useMemo(
     () => (currentNode?.publicClues ?? []).map((clue) => clue.id).sort().join('|'),
     [currentNode?.publicClues]
@@ -3750,6 +3777,27 @@ export function PlayPage({
     }
   }
 
+  async function handleGmAiAssistGenerate(payload: AiHumanGmAssistSuggestionRequestDto) {
+    if (!session || !canUseHumanGmView || isGmAiAssistPending) return;
+
+    setGmAiAssistPending(true);
+    setScenarioLoadError(null);
+    try {
+      const suggestion = await generateHumanGmAiAssistSuggestion(user, session.id, payload);
+      setGmAiAssistSuggestions((current) => [
+        suggestion,
+        ...current.filter((candidate) => candidate.id !== suggestion.id),
+      ]);
+      onAction('GM AI 보조 제안 생성');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'AI 보조 제안 생성에 실패했습니다.';
+      setScenarioLoadError(message);
+      onCombatActionLog(message);
+    } finally {
+      setGmAiAssistPending(false);
+    }
+  }
+
   async function handleGmAiAssistAccept(suggestion: HumanGmAiAssistSuggestionDto) {
     if (!session || !canUseHumanGmView || isGmAiAssistPending) return;
 
@@ -3796,6 +3844,17 @@ export function PlayPage({
       const message = acceptanceRecorded
         ? `AI 보조 제안 승인은 기록됐지만 적용에 실패했습니다: ${cause}`
         : `AI 보조 제안 승인에 실패했습니다: ${cause}`;
+      if (acceptanceRecorded) {
+        try {
+          await reportHumanGmAiAssistApplicationFailure(user, session.id, {
+            suggestionId: suggestion.id,
+            failedOperation: suggestion.assistType,
+            failureReason: cause.slice(0, 500),
+          });
+        } catch (auditError) {
+          console.warn('Failed to audit GM AI assist application failure.', auditError);
+        }
+      }
       setScenarioLoadError(message);
       onCombatActionLog(message);
     } finally {
@@ -3970,10 +4029,15 @@ export function PlayPage({
         movementMode,
       });
 
-      if (result.pendingReaction) {
-        const reactionIsMine = isCombatReactionForCurrentUser(result.pendingReaction, result.combat);
-        if (!reactionIsMine) {
-          if (result.pendingReaction.type === 'ready_action') {
+      const pendingPrompts = getCombatReactionPrompts(result);
+      if (pendingPrompts.length) {
+        const promptToHandle = pendingPrompts.find(
+          (prompt) =>
+            isCombatReactionForCurrentUser(prompt, result.combat) &&
+            claimCombatReactionHandling(prompt.id)
+        );
+        if (!promptToHandle) {
+          if (pendingPrompts.every((prompt) => prompt.type === 'ready_action')) {
             setCombat(result.combat);
             setVttMapIfChanged(result.map, 'combat-move-ready-pending');
             pendingOptimisticTokenMoveRef.current = null;
@@ -3990,28 +4054,10 @@ export function PlayPage({
           }
           return null;
         }
-        if (!claimCombatReactionHandling(result.pendingReaction.id)) {
-          if (result.pendingReaction.type === 'ready_action') {
-            setCombat(result.combat);
-            setVttMapIfChanged(result.map, 'combat-move-ready-claimed');
-            pendingOptimisticTokenMoveRef.current = null;
-            logMapMovePerf('combat move request', requestStartedAt, `token=${token.id}`);
-            onCombatActionLog(formatCombatMoveResultMessage(result));
-            return result.map;
-          }
-          const pendingMove = pendingOptimisticTokenMoveRef.current;
-          if (pendingMove?.tokenId === token.id && pendingMove.optimisticUpdatedAt === optimisticUpdatedAt) {
-            setVttMap((current) =>
-              current?.updatedAt === optimisticUpdatedAt ? pendingMove.previousMap : current
-            );
-            pendingOptimisticTokenMoveRef.current = null;
-          }
-          return null;
-        }
-        const accepted = await requestCombatReactionDecision(result.pendingReaction);
+        const accepted = await requestCombatReactionDecision(promptToHandle);
         result = accepted
-          ? await acceptCombatReaction(user, session.id, { reactionId: result.pendingReaction.id })
-          : await declineCombatReaction(user, session.id, { reactionId: result.pendingReaction.id });
+          ? await acceptCombatReaction(user, session.id, { reactionId: promptToHandle.id })
+          : await declineCombatReaction(user, session.id, { reactionId: promptToHandle.id });
       }
 
       setCombat(result.combat);
@@ -4059,15 +4105,16 @@ export function PlayPage({
       setCombat(result.combat);
       setVttMapIfChanged(result.map, 'combat-force-move');
       onCombatActionLog(formatCombatMoveResultMessage(result));
-      if (
-        isCombatReactionPromptDto(result.pendingReaction) &&
-        isCombatReactionForCurrentUser(result.pendingReaction, result.combat) &&
-        claimCombatReactionHandling(result.pendingReaction.id)
-      ) {
-        const accepted = await requestCombatReactionDecision(result.pendingReaction);
+      const promptToHandle = getCombatReactionPrompts(result).find(
+        (prompt) =>
+          isCombatReactionForCurrentUser(prompt, result.combat) &&
+          claimCombatReactionHandling(prompt.id)
+      );
+      if (promptToHandle) {
+        const accepted = await requestCombatReactionDecision(promptToHandle);
         result = accepted
-          ? await acceptCombatReaction(user, session.id, { reactionId: result.pendingReaction.id })
-          : await declineCombatReaction(user, session.id, { reactionId: result.pendingReaction.id });
+          ? await acceptCombatReaction(user, session.id, { reactionId: promptToHandle.id })
+          : await declineCombatReaction(user, session.id, { reactionId: promptToHandle.id });
         setCombat(result.combat);
         setVttMapIfChanged(result.map, 'combat-force-move-reaction');
         onCombatActionLog(formatCombatMoveResultMessage(result));
@@ -4110,6 +4157,39 @@ export function PlayPage({
 
     window.addEventListener('trpg:combat-reaction-prompt', handleReactionPrompt);
     return () => window.removeEventListener('trpg:combat-reaction-prompt', handleReactionPrompt);
+  }, [
+    combat,
+    onCombatActionLog,
+    requestCombatReactionDecision,
+    session,
+    sessionCharacters,
+    user,
+  ]);
+
+  useEffect(() => {
+    if (!session || !combat) return;
+    const reaction = getCombatReactionPrompts(combat).find(
+      (candidate) =>
+        isCombatReactionForCurrentUser(candidate, combat) &&
+        claimCombatReactionHandling(candidate.id)
+    );
+    if (!reaction) return;
+
+    void requestCombatReactionDecision(reaction)
+      .then((accepted) => {
+        const request = accepted ? acceptCombatReaction : declineCombatReaction;
+        return request(user, session.id, { reactionId: reaction.id });
+      })
+      .then((result) => {
+        setCombat(result.combat);
+        setVttMap(result.map);
+        latestConfirmedMapRef.current = result.map;
+        onCombatActionLog(formatCombatMoveResultMessage(result));
+      })
+      .catch((caught) => {
+        const message = caught instanceof Error ? caught.message : '반응 처리에 실패했습니다.';
+        setCombatError(message);
+      });
   }, [
     combat,
     onCombatActionLog,
@@ -4374,19 +4454,40 @@ export function PlayPage({
           latestConfirmedMapRef.current = result.map;
         }
         onCombatActionLog(formatCombatActionResultMessage(result), result.turnLogId);
-        if (isCombatReactionPromptDto(result.pendingReaction)) {
-          if (!isCombatReactionForCurrentUser(result.pendingReaction, nextCombat)) {
-            return;
-          }
-          if (!claimCombatReactionHandling(result.pendingReaction.id)) {
-            return;
-          }
-          const accepted = await requestCombatReactionDecision(result.pendingReaction);
+        const promptToHandle = getCombatReactionPrompts(result).find(
+          (prompt) =>
+            isCombatReactionForCurrentUser(prompt, nextCombat) &&
+            claimCombatReactionHandling(prompt.id)
+        );
+        if (promptToHandle) {
+          const accepted = await requestCombatReactionDecision(promptToHandle);
           const reactionResult = accepted
-            ? await acceptCombatReaction(user, session.id, { reactionId: result.pendingReaction.id })
-            : await declineCombatReaction(user, session.id, { reactionId: result.pendingReaction.id });
+            ? await acceptCombatReaction(user, session.id, { reactionId: promptToHandle.id })
+            : await declineCombatReaction(user, session.id, { reactionId: promptToHandle.id });
           setCombat(reactionResult.combat);
           setVttMapIfChanged(reactionResult.map, 'combat-action-reaction');
+          latestConfirmedMapRef.current = reactionResult.map;
+          onCombatActionLog(formatCombatMoveResultMessage(reactionResult));
+        }
+      }
+      if (result && typeof result === 'object' && !isCombatActionResultDto(result)) {
+        const promptToHandle = getCombatReactionPrompts(
+          result as {
+            pendingReaction?: CombatReactionPromptDto | null;
+            pendingReactions?: CombatReactionPromptDto[] | null;
+          }
+        ).find(
+          (prompt) =>
+            isCombatReactionForCurrentUser(prompt, nextCombat) &&
+            claimCombatReactionHandling(prompt.id)
+        );
+        if (promptToHandle) {
+          const accepted = await requestCombatReactionDecision(promptToHandle);
+          const reactionResult = accepted
+            ? await acceptCombatReaction(user, session.id, { reactionId: promptToHandle.id })
+            : await declineCombatReaction(user, session.id, { reactionId: promptToHandle.id });
+          setCombat(reactionResult.combat);
+          setVttMapIfChanged(reactionResult.map, 'combat-turn-reaction');
           latestConfirmedMapRef.current = reactionResult.map;
           onCombatActionLog(formatCombatMoveResultMessage(reactionResult));
         }
@@ -4820,8 +4921,10 @@ export function PlayPage({
                   isGmMessagePending={isGmMessagePending}
                   gmAiAssistSuggestions={gmAiAssistSuggestions}
                   onGmAiAssistCreate={handleGmAiAssistCreate}
+                  onGmAiAssistGenerate={handleGmAiAssistGenerate}
                   onGmAiAssistAccept={handleGmAiAssistAccept}
                   isGmAiAssistPending={isGmAiAssistPending}
+                  recentGmAiAssistLogs={recentGmAiAssistLogs}
                 />
               ) : isExplorationNode ? (
                 <ExplorationNodeSurface
@@ -4855,6 +4958,12 @@ export function PlayPage({
                   onGmNodeMove={handleGmNodeMove}
                   onGmMessage={handleGmMessage}
                   isGmMessagePending={isGmMessagePending}
+                  gmAiAssistSuggestions={gmAiAssistSuggestions}
+                  onGmAiAssistCreate={handleGmAiAssistCreate}
+                  onGmAiAssistGenerate={handleGmAiAssistGenerate}
+                  onGmAiAssistAccept={handleGmAiAssistAccept}
+                  isGmAiAssistPending={isGmAiAssistPending}
+                  recentGmAiAssistLogs={recentGmAiAssistLogs}
                   gmItemCatalog={gmItemCatalog}
                   isGmItemCatalogLoading={isGmItemCatalogLoading}
                   gmItemCatalogError={gmItemCatalogError}
@@ -4900,6 +5009,13 @@ export function PlayPage({
                   onForceMoveParticipant={handleForceMoveCombatParticipant}
                   onUseClassFeature={handleCombatClassFeature}
                   onCastSpell={handleCastCombatSpell}
+                  gmNodeMoveOptions={gmNodeMoveOptions}
+                  gmAiAssistSuggestions={gmAiAssistSuggestions}
+                  onGmAiAssistCreate={handleGmAiAssistCreate}
+                  onGmAiAssistGenerate={handleGmAiAssistGenerate}
+                  onGmAiAssistAccept={handleGmAiAssistAccept}
+                  isGmAiAssistPending={isGmAiAssistPending}
+                  recentGmAiAssistLogs={recentGmAiAssistLogs}
                   onEndCombat={handleEndCombat}
                   onEndTurn={handleEndCombatTurn}
                 />

@@ -1,7 +1,10 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import type {
+  AiHumanGmAssistSuggestionRequestDto,
   InventoryItemDto,
   ItemResponseDto,
+  CreateHumanGmAiAssistSuggestionDto,
+  HumanGmAiAssistSuggestionDto,
   PlayerScenarioNodeDto,
   RestActionDto,
   SessionCharacterResponseDto,
@@ -20,6 +23,7 @@ import { getCharacterClassLabel } from '../utils/characterVisuals';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { InventoryEquipmentStatus } from './InventoryEquipmentStatus';
 import { InventoryItemInfo } from './InventoryItemInfo';
+import { HumanGmAiAssistPanel } from './HumanGmAiAssistPanel';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import './ExplorationNodeSurface.css';
@@ -116,6 +120,18 @@ interface ExplorationNodeSurfaceProps {
     privateNote?: string | null;
   }) => Promise<void> | void;
   isGmMessagePending?: boolean;
+  gmAiAssistSuggestions?: HumanGmAiAssistSuggestionDto[];
+  onGmAiAssistCreate?: (
+    payload: CreateHumanGmAiAssistSuggestionDto
+  ) => Promise<void> | void;
+  onGmAiAssistGenerate?: (
+    payload: AiHumanGmAssistSuggestionRequestDto
+  ) => Promise<void> | void;
+  onGmAiAssistAccept?: (
+    suggestion: HumanGmAiAssistSuggestionDto
+  ) => Promise<void> | void;
+  isGmAiAssistPending?: boolean;
+  recentGmAiAssistLogs?: string[];
   gmItemCatalog?: ItemResponseDto[];
   isGmItemCatalogLoading?: boolean;
   gmItemCatalogError?: string | null;
@@ -822,6 +838,12 @@ export function ExplorationNodeSurface({
   onGmNodeMove,
   onGmMessage,
   isGmMessagePending = false,
+  gmAiAssistSuggestions = [],
+  onGmAiAssistCreate,
+  onGmAiAssistGenerate,
+  onGmAiAssistAccept,
+  isGmAiAssistPending = false,
+  recentGmAiAssistLogs = [],
   gmItemCatalog = [],
   isGmItemCatalogLoading = false,
   gmItemCatalogError = null,
@@ -1475,6 +1497,20 @@ export function ExplorationNodeSurface({
                 <p className="exploration-gm-empty-text">현재 노드에서 바로 이동 가능한 노드가 없습니다.</p>
               )}
               </div>
+
+              <HumanGmAiAssistPanel
+                className="exploration-gm-card exploration-gm-ai-assist"
+                nodeId={node?.id}
+                suggestions={gmAiAssistSuggestions}
+                nodeMoveOptions={gmNodeMoveOptions}
+                onCreate={onGmAiAssistCreate}
+                onGenerate={onGmAiAssistGenerate}
+                onAccept={onGmAiAssistAccept}
+                isBusy={isBusy}
+                isPending={isGmAiAssistPending}
+                sceneSummary={node?.sceneText ?? node?.title ?? scenarioTitle}
+                recentLogs={recentGmAiAssistLogs}
+              />
             </div>
           </aside>
         ) : null}

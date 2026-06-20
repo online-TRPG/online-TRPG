@@ -592,6 +592,109 @@ describe("SessionsService HUMAN GM AI assist suggestions", () => {
     );
     expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalled();
   });
+
+  it("records an accepted suggestion application failure as a failure audit turn log", async () => {
+    const now = new Date("2026-06-20T00:00:00.000Z");
+    const acceptedSuggestion = {
+      id: "ai-assist:1",
+      assistType: "node_move",
+      content: "Move to the next room.",
+      suggestedActionId: "node-next",
+      targetId: null,
+      status: "ACCEPTED",
+      createdByUserId: "gm-user",
+      acceptedByUserId: "gm-user",
+      createdAt: now.toISOString(),
+      acceptedAt: now.toISOString(),
+    };
+    const prisma = {
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({
+          flagsJson: JSON.stringify({ humanGmAiAssistSuggestions: [acceptedSuggestion] }),
+        }),
+      },
+      turnLog: {
+        findFirst: jest.fn().mockResolvedValue({ turnNumber: 6 }),
+        create: jest.fn().mockResolvedValue({
+          id: "turn-log-ai-assist-failure",
+          turnNumber: 7,
+          playerActionId: null,
+          actorUserId: "gm-user",
+          sessionCharacterId: null,
+          rawInput: "gm:ai_assist_apply_failure",
+          structuredActionJson: JSON.stringify({
+            type: "gm_override",
+            kind: "ai_assist_apply_failure",
+            targetId: null,
+            public: true,
+            hasPrivateNote: false,
+            metadata: {
+              assistType: "node_move",
+              suggestionId: "ai-assist:1",
+              suggestedActionId: "node-next",
+              targetId: null,
+              failedOperation: "node_move",
+              failureReason: "Node does not exist.",
+            },
+          }),
+          stateDiffJson: null,
+          outcome: "FAILURE",
+          narration: "GM AI assist 제안 승인 후 적용에 실패했습니다.",
+          createdAt: now,
+        }),
+      },
+    };
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitSessionSnapshot: jest.fn(),
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    const serviceInternals = service as unknown as {
+      getHumanGmSessionForOperator: jest.Mock;
+      getActiveSessionScenarioEntityOrThrow: jest.Mock;
+      buildSnapshot: jest.Mock;
+    };
+    serviceInternals.getHumanGmSessionForOperator = jest
+      .fn()
+      .mockResolvedValue({ id: "session-1", status: "PLAYING" });
+    serviceInternals.getActiveSessionScenarioEntityOrThrow = jest
+      .fn()
+      .mockResolvedValue({ id: "session-scenario-1" });
+    serviceInternals.buildSnapshot = jest
+      .fn()
+      .mockResolvedValue({ session: { id: "session-1" } });
+
+    await service.reportHumanGmAiAssistApplicationFailure("gm-user", "session-1", {
+      suggestionId: "ai-assist:1",
+      failedOperation: "node_move",
+      failureReason: "Node does not exist.",
+    });
+
+    expect(prisma.turnLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          rawInput: "gm:ai_assist_apply_failure",
+          stateDiffJson: null,
+          outcome: "FAILURE",
+          structuredActionJson: expect.stringContaining("ai_assist_apply_failure"),
+        }),
+      }),
+    );
+    expect(realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        rawInput: "gm:ai_assist_apply_failure",
+        outcome: "FAILURE",
+        stateDiff: null,
+      }),
+    );
+    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalled();
+  });
 });
 
 describe("SessionsService HUMAN GM reveal", () => {
@@ -1393,7 +1496,7 @@ describe("SessionsService HUMAN GM inventory removal", () => {
       {} as never,
     );
     const serviceInternals = service as unknown as {
-      refreshSessionInventorySnapshot: (sessionCharacterId: string, client: typeof client) => Promise<void>;
+      refreshSessionInventorySnapshot: (sessionCharacterId: string, client: unknown) => Promise<void>;
     };
 
     await serviceInternals.refreshSessionInventorySnapshot("session-character-1", client);
