@@ -1,8 +1,11 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type {
+  AiHumanGmAssistSuggestionRequestDto,
   ClassDefinitionResponseDto,
   CombatResponseDto,
+  CreateHumanGmAiAssistSuggestionDto,
+  HumanGmAiAssistSuggestionDto,
   InventoryItemDto,
   PlayerScenarioNodeDto,
   SessionCharacterResponseDto,
@@ -17,6 +20,7 @@ import turnDividerArrow from '../../../components/divider-arrow-gold-horizontal.
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { InventoryEquipmentStatus } from './InventoryEquipmentStatus';
 import { InventoryItemInfo } from './InventoryItemInfo';
+import { HumanGmAiAssistPanel } from './HumanGmAiAssistPanel';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import { getCharacterImage } from '../utils/characterVisuals';
@@ -120,6 +124,23 @@ interface CombatNodeSurfaceProps {
       slotLevel?: number;
     }
   ) => void | Promise<void>;
+  gmNodeMoveOptions?: Array<{
+    nodeId: string;
+    title: string;
+    label?: string | null;
+  }>;
+  gmAiAssistSuggestions?: HumanGmAiAssistSuggestionDto[];
+  onGmAiAssistCreate?: (
+    payload: CreateHumanGmAiAssistSuggestionDto
+  ) => Promise<void> | void;
+  onGmAiAssistGenerate?: (
+    payload: AiHumanGmAssistSuggestionRequestDto
+  ) => Promise<void> | void;
+  onGmAiAssistAccept?: (
+    suggestion: HumanGmAiAssistSuggestionDto
+  ) => Promise<void> | void;
+  isGmAiAssistPending?: boolean;
+  recentGmAiAssistLogs?: string[];
   onEndCombat: () => void;
   onEndTurn: (force?: boolean) => void;
 }
@@ -141,8 +162,15 @@ const mvpSpellLabels = [
   'Chill Touch',
   'Fire Bolt',
   'Ray of Frost',
+  'Sacred Flame',
   'Light',
+  'Detect Magic',
+  'Bless',
+  'Bane',
   'Magic Missile',
+  'Burning Hands',
+  'Thunderwave',
+  'Entangle',
   'Cure Wounds',
   'Shield',
   'Sleep',
@@ -167,8 +195,15 @@ const mvpSpellIdsByLabel: Record<string, string> = {
   'Chill Touch': 'spell.chill_touch',
   'Fire Bolt': 'spell.fire_bolt',
   'Ray of Frost': 'spell.ray_of_frost',
+  'Sacred Flame': 'spell.sacred_flame',
   Light: 'spell.light',
+  'Detect Magic': 'spell.detect_magic',
+  Bless: 'spell.bless',
+  Bane: 'spell.bane',
   'Magic Missile': 'spell.magic_missile',
+  'Burning Hands': 'spell.burning_hands',
+  Thunderwave: 'spell.thunderwave',
+  Entangle: 'spell.entangle',
   'Cure Wounds': 'spell.cure_wounds',
   Shield: 'spell.shield',
   Sleep: 'spell.sleep',
@@ -179,8 +214,15 @@ const mvpSpellRangeFtById: Record<string, number> = {
   'spell.chill_touch': 120,
   'spell.fire_bolt': 120,
   'spell.ray_of_frost': 60,
+  'spell.sacred_flame': 60,
   'spell.light': 5,
+  'spell.detect_magic': 0,
+  'spell.bless': 30,
+  'spell.bane': 30,
   'spell.magic_missile': 120,
+  'spell.burning_hands': 15,
+  'spell.thunderwave': 15,
+  'spell.entangle': 90,
   'spell.cure_wounds': 5,
   'spell.sleep': 90,
   'spell.fireball': 150,
@@ -190,8 +232,15 @@ const mvpSpellLevelById: Record<string, 0 | 1 | 3> = {
   'spell.chill_touch': 0,
   'spell.fire_bolt': 0,
   'spell.ray_of_frost': 0,
+  'spell.sacred_flame': 0,
   'spell.light': 0,
+  'spell.detect_magic': 1,
+  'spell.bless': 1,
+  'spell.bane': 1,
   'spell.magic_missile': 1,
+  'spell.burning_hands': 1,
+  'spell.thunderwave': 1,
+  'spell.entangle': 1,
   'spell.cure_wounds': 1,
   'spell.shield': 1,
   'spell.sleep': 1,
@@ -223,8 +272,15 @@ const combatActionIconNames: Partial<Record<string, GameIconName>> = {
   'Chill Touch': 'game-icons:ice-bolt',
   'Fire Bolt': 'game-icons:fireball',
   'Ray of Frost': 'game-icons:ice-bolt',
+  'Sacred Flame': 'game-icons:holy-hand-grenade',
   Light: 'game-icons:sun',
+  'Detect Magic': 'game-icons:magic-eye',
+  Bless: 'game-icons:angel-outfit',
+  Bane: 'game-icons:evil-eyes',
   'Magic Missile': 'game-icons:magic-swirl',
+  'Burning Hands': 'game-icons:fire-breath',
+  Thunderwave: 'game-icons:sonic-boom',
+  Entangle: 'game-icons:vines',
   'Cure Wounds': 'game-icons:health-increase',
   Shield: 'game-icons:magic-shield',
   Sleep: 'game-icons:night-sleep',
@@ -261,6 +317,34 @@ function getMonsterActionUnavailableLabel(action: CombatMonsterAction) {
   if (action.unavailableReason === 'MONSTER_RECHARGE_ACTION_EXPENDED') return '재충전 대기';
   if (action.unavailableReason === 'MONSTER_LIMITED_USE_ACTION_EXPENDED') return '사용 완료';
   return action.available === false ? '사용 불가' : null;
+}
+
+function getMonsterActionSummaryLabels(action: CombatMonsterAction) {
+  const labels: string[] = [];
+  if (action.targetKind === 'single_target') labels.push('Target');
+  if (action.targetKind === 'self') labels.push('Self');
+  if (action.targetKind === 'area') labels.push('Area');
+  if (action.resolutionKind === 'attack') labels.push('Attack');
+  if (action.resolutionKind === 'save') labels.push('Save');
+  if (action.resolutionKind === 'special') labels.push('Special');
+  if (action.childActions?.length) {
+    labels.push(
+      action.childActions
+        .map((child) => `${child.actionId}${child.count > 1 ? ` x${child.count}` : ''}`)
+        .join(', ')
+    );
+  }
+  if (action.save?.ability) {
+    labels.push(
+      `${action.save.ability.toUpperCase()} save${action.save.fixedDc ? ` DC ${action.save.fixedDc}` : ''}`
+    );
+  }
+  if (action.conditionRiders?.length) {
+    labels.push(action.conditionRiders.join(', '));
+  }
+  if (action.recharge) labels.push(`Recharge ${action.recharge}`);
+  if (action.usage) labels.push(action.usage);
+  return labels;
 }
 
 function normalizeClassKey(value: string | null | undefined) {
@@ -351,6 +435,9 @@ function getSpellTargetingHint(spellId: string) {
   ) {
     return '사거리 안의 적 토큰을 선택하세요. 벽/닫힌 문/오브젝트 엄폐는 서버가 명중 보정에 반영합니다.';
   }
+  if (spellId === 'spell.sacred_flame') {
+    return '시야와 사거리 안의 적 토큰을 선택하세요. 대상은 민첩 내성을 굴리며 엄폐 내성 보너스를 받지 않습니다.';
+  }
   if (spellId === 'spell.magic_missile') {
     return '사거리 안의 적 토큰을 선택하세요. 대상이 완전 엄폐 뒤에 있으면 슬롯/행동 소모 전에 서버가 차단합니다.';
   }
@@ -363,8 +450,26 @@ function getSpellTargetingHint(spellId: string) {
   if (spellId === 'spell.fireball') {
     return '사거리 안의 폭발 원점을 선택하세요. 완전 엄폐 대상은 제외되고, 일부 엄폐는 Dex 내성 보너스로 적용됩니다.';
   }
+  if (spellId === 'spell.burning_hands') {
+    return '시전자에서 15ft 이내의 방향 타일을 선택하세요. 해당 방향의 15ft cone 안 대상이 Dex 내성을 굴립니다.';
+  }
+  if (spellId === 'spell.thunderwave') {
+    return '시전자에서 15ft 이내의 시작 타일을 선택하세요. 15ft cube 안 대상은 건강 내성을 굴리고, 실패하면 10ft 밀려납니다.';
+  }
+  if (spellId === 'spell.entangle') {
+    return '사거리 안의 시작 타일을 선택하세요. 20ft cube가 험지가 되고, 범위 안 대상은 힘 내성 실패 시 구속됩니다.';
+  }
   if (spellId === 'spell.light') {
     return '사거리 안의 타일을 선택하세요.';
+  }
+  if (spellId === 'spell.detect_magic') {
+    return '시전자 중심 30ft 안의 마법 효과를 감지합니다. 맵의 아무 타일이나 선택해 시전하세요.';
+  }
+  if (spellId === 'spell.bless') {
+    return '30ft 안의 아군 토큰을 선택하세요. 공격 굴림과 내성 굴림에 매번 1d4를 더합니다.';
+  }
+  if (spellId === 'spell.bane') {
+    return '30ft 안의 적 토큰을 선택하세요. 매력 내성 실패 시 공격 굴림과 내성 굴림에서 매번 1d4를 뺍니다.';
   }
   return '사거리 안의 타일 또는 대상을 선택하세요.';
 }
@@ -729,6 +834,13 @@ export function CombatNodeSurface({
   onForceMoveParticipant,
   onUseClassFeature,
   onCastSpell,
+  gmNodeMoveOptions = [],
+  gmAiAssistSuggestions = [],
+  onGmAiAssistCreate,
+  onGmAiAssistGenerate,
+  onGmAiAssistAccept,
+  isGmAiAssistPending = false,
+  recentGmAiAssistLogs = [],
   onEndCombat,
   onEndTurn,
 }: CombatNodeSurfaceProps) {
@@ -1026,8 +1138,17 @@ export function CombatNodeSurface({
     }
     return activeActionResources.actionAvailable;
   };
+  const isMonsterTargetedAction = (monsterAction: CombatMonsterAction) =>
+    monsterAction.targetKind
+      ? monsterAction.targetKind === 'single_target'
+      : monsterAction.attackKind !== 'special' || monsterAction.specialType === 'multiattack';
+  const isMonsterSelfAction = (monsterAction: CombatMonsterAction) =>
+    monsterAction.targetKind
+      ? monsterAction.targetKind === 'self'
+      : monsterAction.attackKind === 'special' && monsterAction.specialType !== 'multiattack';
   const canUseMonsterTargetedAction = (monsterAction: CombatMonsterAction) => Boolean(
     canUseMonsterActionCost(monsterAction) &&
+      isMonsterTargetedAction(monsterAction) &&
       selectedTargetParticipant &&
       selectedTargetParticipant.isAlive &&
       selectedTargetParticipant.isHostile !== activeCombatActor?.isHostile &&
@@ -1035,7 +1156,7 @@ export function CombatNodeSurface({
   );
   const canUseMonsterSelfAction = (monsterAction: CombatMonsterAction) => Boolean(
     canUseMonsterActionCost(monsterAction) &&
-      monsterAction.attackKind === 'special' &&
+      isMonsterSelfAction(monsterAction) &&
       !isCombatBusy
   );
   const canUseReadyAction = Boolean(
@@ -1432,6 +1553,11 @@ export function CombatNodeSurface({
 
   function startSpellTargeting(spellId: string) {
     if (!spellId || spellId === 'spell.shield') return;
+    if (spellId === 'spell.detect_magic') {
+      setTargetingSpellId(null);
+      void onCastSpell(spellId, buildSpellCastPayload(spellId));
+      return;
+    }
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
     setTargetingMonsterActionId(null);
@@ -1451,13 +1577,24 @@ export function CombatNodeSurface({
       spellId === 'spell.chill_touch' ||
       spellId === 'spell.fire_bolt' ||
       spellId === 'spell.ray_of_frost' ||
+      spellId === 'spell.sacred_flame' ||
       spellId === 'spell.magic_missile' ||
-      spellId === 'spell.cure_wounds'
+      spellId === 'spell.cure_wounds' ||
+      spellId === 'spell.bless' ||
+      spellId === 'spell.bane'
     ) {
       if (selection?.kind !== 'token') return;
       const participant = getParticipantByTokenId(selection.token.id);
       if (!participant?.isAlive) return;
-      if (spellId !== 'spell.cure_wounds' && !participant.isHostile) return;
+      if (
+        spellId !== 'spell.cure_wounds' &&
+        spellId !== 'spell.bless' &&
+        !participant.isHostile
+      ) return;
+      if (
+        (spellId === 'spell.cure_wounds' || spellId === 'spell.bless') &&
+        participant.isHostile
+      ) return;
       if (!isParticipantSpellTargetInRange(participant, spellId)) return;
       setTargetingSpellId(null);
       void onCastSpell(spellId, {
@@ -1466,7 +1603,13 @@ export function CombatNodeSurface({
       });
       return;
     }
-    if (spellId === 'spell.sleep' || spellId === 'spell.fireball') {
+    if (
+      spellId === 'spell.sleep' ||
+      spellId === 'spell.fireball' ||
+      spellId === 'spell.burning_hands' ||
+      spellId === 'spell.thunderwave' ||
+      spellId === 'spell.entangle'
+    ) {
       const point = selection?.point ?? null;
       if (!point || !isPointSpellTargetInRange(point, spellId)) return;
       setTargetingSpellId(null);
@@ -1478,6 +1621,11 @@ export function CombatNodeSurface({
       if (!point || !isPointSpellTargetInRange(point, spellId)) return;
       setTargetingSpellId(null);
       void onCastSpell(spellId, { point, ...buildSpellCastPayload(spellId) });
+      return;
+    }
+    if (spellId === 'spell.detect_magic') {
+      setTargetingSpellId(null);
+      void onCastSpell(spellId, buildSpellCastPayload(spellId));
     }
   }
 
@@ -2170,6 +2318,11 @@ export function CombatNodeSurface({
                         {activeMonsterActions.map((monsterAction) => {
                           const monsterActionId = monsterAction.actionId;
                           const rangeLabel = getMonsterActionRangeLabel(monsterAction);
+                          const summaryLabels = getMonsterActionSummaryLabels(monsterAction);
+                          const summaryText = summaryLabels.join(' / ');
+                          const monsterActionTitle = `${activeCombatActor.name} ${monsterAction.label}${
+                            rangeLabel ? ` (${rangeLabel})` : ''
+                          }${summaryText ? ` - ${summaryText}` : ''}`;
                           const unavailableLabel = getMonsterActionUnavailableLabel(monsterAction);
                           const isTargetingThisAction =
                             isAttackTargeting && targetingMonsterActionId === monsterActionId;
@@ -2178,7 +2331,7 @@ export function CombatNodeSurface({
                           const canStartThisMonsterTargeting =
                             canControlHostileMonster &&
                             canUseMonsterActionCost(monsterAction) &&
-                            monsterAction.attackKind !== 'special';
+                            isMonsterTargetedAction(monsterAction);
                           return (
                             <button
                               type="button"
@@ -2191,9 +2344,7 @@ export function CombatNodeSurface({
                               }
                               title={
                                 canUseThisMonsterSelfAction
-                                  ? `${activeCombatActor.name} ${monsterAction.label}${
-                                      rangeLabel ? ` (${rangeLabel})` : ''
-                                    }`
+                                  ? monsterActionTitle
                                   : isTargetingThisAction
                                   ? `${monsterAction.label} 대상 플레이어 캐릭터 토큰을 선택하세요.`
                                   : unavailableLabel
@@ -2201,9 +2352,7 @@ export function CombatNodeSurface({
                                   : !selectedTargetParticipant
                                     ? `${monsterAction.label} 버튼을 눌러 대상을 선택하세요.`
                                     : canUseThisMonsterAction
-                                      ? `${activeCombatActor.name} ${monsterAction.label}${
-                                          rangeLabel ? ` (${rangeLabel})` : ''
-                                        }`
+                                      ? monsterActionTitle
                                       : '현재 몬스터가 행동할 수 없습니다.'
                               }
                               onClick={() => {
@@ -2230,6 +2379,9 @@ export function CombatNodeSurface({
                               }}
                             >
                               <CombatActionButtonContent label={monsterAction.label} />
+                              {summaryText ? (
+                                <span className="combat-action-subtext">{summaryText}</span>
+                              ) : null}
                               {unavailableLabel ? (
                                 <span className="combat-action-status-badge">{unavailableLabel}</span>
                               ) : null}
@@ -2635,6 +2787,21 @@ export function CombatNodeSurface({
             )}
           </div>
         </div>
+        {isGmView ? (
+          <HumanGmAiAssistPanel
+            className="combat-gm-ai-assist-panel"
+            nodeId={node?.id}
+            suggestions={gmAiAssistSuggestions}
+            nodeMoveOptions={gmNodeMoveOptions}
+            onCreate={onGmAiAssistCreate}
+            onGenerate={onGmAiAssistGenerate}
+            onAccept={onGmAiAssistAccept}
+            isBusy={Boolean(isCombatBusy)}
+            isPending={isGmAiAssistPending}
+            sceneSummary={node?.sceneText ?? node?.title ?? scenarioTitle}
+            recentLogs={recentGmAiAssistLogs}
+          />
+        ) : null}
       </section>
       {selectedTurnCharacter ? (
         <CharacterDetailModal

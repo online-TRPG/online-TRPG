@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { VttMapStateDto } from "@trpg/shared-types";
 import { conflict } from "../../common/exceptions/domain-error";
 import { CoverPositionService } from "../rules/cover-position.service";
-import type { CoverBlocker } from "../rules/cover-position.service";
+import type { CoverBlocker, CoverPositionResolution } from "../rules/cover-position.service";
 import { RuleEngineService } from "../rules/rule-engine.service";
 import type { CoverModifierProduced } from "../rules/rule-engine.types";
 import { CombatMovementService } from "./combat-movement.service";
@@ -30,8 +30,7 @@ export class CombatCoverService {
       });
     }
     if (
-      this.combatMovement.getTokenGridDistanceFt(map, attackerToken, targetToken) <=
-      DEFAULT_MELEE_ATTACK_DISTANCE_FT
+      this.getHorizontalTokenGridDistanceFt(map, attackerToken, targetToken) <= DEFAULT_MELEE_ATTACK_DISTANCE_FT
     ) {
       return this.coverPositions.resolveCover({
         attacker: this.toCoverGridPoint(map, attackerToken),
@@ -40,11 +39,12 @@ export class CombatCoverService {
       });
     }
 
-    return this.coverPositions.resolveCover({
+    const cover = this.coverPositions.resolveCover({
       attacker: this.toCoverGridPoint(map, attackerToken),
       target: this.toCoverGridPoint(map, targetToken),
       blockers: this.mapCoverBlockers(map),
     });
+    return this.applyElevationAttackCover(map, attackerToken, targetToken, cover);
   }
 
   resolveAoeCover(
@@ -123,6 +123,38 @@ export class CombatCoverService {
         .flatMap((cell) => this.cellCoverBlockers(map, cell, "full", true)),
       ...(map.objectCells ?? []).flatMap((cell) => this.cellCoverBlockers(map, cell, "half", false)),
     ];
+  }
+
+  private applyElevationAttackCover(
+    map: VttMapStateDto,
+    attackerToken: VttMapStateDto["tokens"][number],
+    targetToken: VttMapStateDto["tokens"][number],
+    cover: CoverPositionResolution,
+  ): CoverPositionResolution {
+    if (cover.coverLevel !== "none") {
+      return cover;
+    }
+    const attackerElevationFt = this.combatMovement.resolveElevationDeltaFtAtPoint(map, attackerToken);
+    const targetElevationFt = this.combatMovement.resolveElevationDeltaFtAtPoint(map, targetToken);
+    if (targetElevationFt - attackerElevationFt < 10) {
+      return cover;
+    }
+
+    return {
+      ...cover,
+      coverLevel: "half",
+      targetable: true,
+    };
+  }
+
+  private getHorizontalTokenGridDistanceFt(
+    map: VttMapStateDto,
+    attackerToken: VttMapStateDto["tokens"][number],
+    targetToken: VttMapStateDto["tokens"][number],
+  ): number {
+    const attacker = this.toCoverGridPoint(map, attackerToken);
+    const target = this.toCoverGridPoint(map, targetToken);
+    return Math.max(Math.abs(attacker.x - target.x), Math.abs(attacker.y - target.y)) * 5;
   }
 
   private cellCoverBlockers(

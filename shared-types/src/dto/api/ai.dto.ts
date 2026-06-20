@@ -165,6 +165,43 @@ export class AiHintResponseDto {
   fallbackReason?: string | null;
 }
 
+export class AiHumanGmAssistSuggestionRequestDto {
+  @ApiProperty({ enum: ["scene_text", "npc_dialogue", "node_move", "combat", "rules", "other"] })
+  @IsIn(["scene_text", "npc_dialogue", "node_move", "combat", "rules", "other"])
+  assistType!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  prompt!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1200)
+  sceneSummary!: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(8)
+  @IsString({ each: true })
+  recentLogs?: string[];
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  targetId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  suggestedActionId?: string | null;
+}
+
 export type AiSummaryType = "player_visible" | "ai_context";
 export type AiSummaryRange = "RECENT" | "FULL" | "SINCE_NODE";
 

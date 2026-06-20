@@ -3,11 +3,11 @@ import { ActionProcessorService } from "./action-processor.service";
 
 describe("ActionProcessorService session action queue", () => {
   it("processes a session queue once when processNext is called concurrently", async () => {
-    let markProcessingStarted: (() => void) | null = null;
+    let markProcessingStarted!: () => void;
     const processingStarted = new Promise<void>((resolve) => {
       markProcessingStarted = resolve;
     });
-    let releaseProcessing: (() => void) | null = null;
+    let releaseProcessing!: () => void;
     const processingGate = new Promise<void>((resolve) => {
       releaseProcessing = resolve;
     });
@@ -51,7 +51,7 @@ describe("ActionProcessorService session action queue", () => {
     const processAction = jest
       .spyOn(service, "processAction")
       .mockImplementation(async () => {
-        markProcessingStarted?.();
+        markProcessingStarted();
         await processingGate;
         return { turnLogId: "turn-log-1" };
       });
@@ -59,7 +59,7 @@ describe("ActionProcessorService session action queue", () => {
     const first = service.processNext("session-1");
     await processingStarted;
     const second = service.processNext("session-1");
-    releaseProcessing?.();
+    releaseProcessing();
     await Promise.all([first, second]);
 
     expect(prisma.playerAction.updateMany).toHaveBeenCalledWith({
@@ -114,11 +114,11 @@ describe("ActionProcessorService session action queue", () => {
   });
 
   it("drains an action submitted while the active processor is finishing", async () => {
-    let releaseEmptyQueueCheck: (() => void) | null = null;
+    let releaseEmptyQueueCheck!: () => void;
     const emptyQueueCheckGate = new Promise<void>((resolve) => {
       releaseEmptyQueueCheck = resolve;
     });
-    let markEmptyQueueCheckStarted: (() => void) | null = null;
+    let markEmptyQueueCheckStarted!: () => void;
     const emptyQueueCheckStarted = new Promise<void>((resolve) => {
       markEmptyQueueCheckStarted = resolve;
     });
@@ -140,7 +140,7 @@ describe("ActionProcessorService session action queue", () => {
           .fn()
           .mockResolvedValueOnce(firstAction)
           .mockImplementationOnce(async () => {
-            markEmptyQueueCheckStarted?.();
+            markEmptyQueueCheckStarted();
             await emptyQueueCheckGate;
             return null;
           })
@@ -173,7 +173,7 @@ describe("ActionProcessorService session action queue", () => {
     const activeProcessor = service.processNext("session-1");
     await emptyQueueCheckStarted;
     const lateRequest = service.processNext("session-1");
-    releaseEmptyQueueCheck?.();
+    releaseEmptyQueueCheck();
     await Promise.all([activeProcessor, lateRequest]);
 
     expect(processAction).toHaveBeenNthCalledWith(1, "action-1");

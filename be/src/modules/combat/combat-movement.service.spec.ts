@@ -34,8 +34,8 @@ describe("CombatMovementService", () => {
 
     const distance = service.getTokenGridDistanceFt(
       map as never,
-      { id: "source", x: 0, y: 0, size: 50, hidden: false },
-      { id: "target", x: 50, y: 0, size: 50, hidden: false },
+      { id: "source", name: "Source", x: 0, y: 0, size: 50, hidden: false },
+      { id: "target", name: "Target", x: 50, y: 0, size: 50, hidden: false },
     );
 
     expect(distance).toBe(15);
@@ -44,8 +44,8 @@ describe("CombatMovementService", () => {
   it("keeps flat adjacent token distance at 5ft", () => {
     const distance = service.getTokenGridDistanceFt(
       createMap() as never,
-      { id: "source", x: 0, y: 0, size: 50, hidden: false },
-      { id: "target", x: 50, y: 0, size: 50, hidden: false },
+      { id: "source", name: "Source", x: 0, y: 0, size: 50, hidden: false },
+      { id: "target", name: "Target", x: 50, y: 0, size: 50, hidden: false },
     );
 
     expect(distance).toBe(5);

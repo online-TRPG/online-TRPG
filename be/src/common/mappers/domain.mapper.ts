@@ -200,8 +200,14 @@ function stripPrivateGameFlags(flags: Record<string, unknown>): Record<string, u
   return publicFlags;
 }
 
-function toIsoString(value: Date): string {
-  return value.toISOString();
+function toIsoString(value: Date | string | undefined | null): string {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return new Date(0).toISOString();
 }
 
 function getActiveSessionScenario(session: SessionWithRelations): SessionScenarioWithScenario | null {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type {
+  AiHumanGmAssistSuggestionRequestDto,
   CreateHumanGmAiAssistSuggestionDto,
   HumanGmAiAssistSuggestionDto,
   PlayerScenarioNodeDto,
@@ -14,6 +15,7 @@ import {
 import quillImage from '../../../components/quill.webp';
 import storyNodeBadge from '../../../components/node_badge_story.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
+import { HumanGmAiAssistPanel } from './HumanGmAiAssistPanel';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import './StoryNodeSurface.css';
 
@@ -46,10 +48,14 @@ interface StoryNodeSurfaceProps {
   onGmAiAssistCreate?: (
     payload: CreateHumanGmAiAssistSuggestionDto
   ) => Promise<void> | void;
+  onGmAiAssistGenerate?: (
+    payload: AiHumanGmAssistSuggestionRequestDto
+  ) => Promise<void> | void;
   onGmAiAssistAccept?: (
     suggestion: HumanGmAiAssistSuggestionDto
   ) => Promise<void> | void;
   isGmAiAssistPending?: boolean;
+  recentGmAiAssistLogs?: string[];
 }
 
 export interface StoryRpUtterance {
@@ -74,7 +80,6 @@ export type StoryNodeMoveOption = {
 };
 
 type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
-type GmAiAssistType = CreateHumanGmAiAssistSuggestionDto['assistType'];
 
 const abilityKeys: AbilityKey[] = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 
@@ -99,19 +104,6 @@ const skillLabelMap: Map<string, string> = new Map([
   ['Stealth', '은신'],
   ['Survival', '생존'],
 ]);
-
-const gmAiAssistTypeOptions: Array<{ value: GmAiAssistType; label: string }> = [
-  { value: 'scene_text', label: '장면 묘사' },
-  { value: 'npc_dialogue', label: 'NPC 대사' },
-  { value: 'node_move', label: '장면 이동' },
-  { value: 'combat', label: '전투 조언' },
-  { value: 'rules', label: '규칙 조언' },
-  { value: 'other', label: '기타' },
-];
-
-function getGmAiAssistTypeLabel(assistType: string) {
-  return gmAiAssistTypeOptions.find((option) => option.value === assistType)?.label ?? assistType;
-}
 
 function getHpPercent(character: SessionCharacterResponseDto) {
   if (character.maxHp <= 0) return 0;
@@ -204,17 +196,16 @@ export function StoryNodeSurface({
   isGmMessagePending = false,
   gmAiAssistSuggestions = [],
   onGmAiAssistCreate,
+  onGmAiAssistGenerate,
   onGmAiAssistAccept,
   isGmAiAssistPending = false,
+  recentGmAiAssistLogs = [],
 }: StoryNodeSurfaceProps) {
   const [shortRestHitDiceToSpend, setShortRestHitDiceToSpend] = useState(0);
   const [isGmNpcMessage, setGmNpcMessage] = useState(false);
   const [gmMessageSpeaker, setGmMessageSpeaker] = useState('');
   const [gmMessageContent, setGmMessageContent] = useState('');
   const [gmMessagePrivateNote, setGmMessagePrivateNote] = useState('');
-  const [gmAiAssistType, setGmAiAssistType] = useState<GmAiAssistType>('scene_text');
-  const [gmAiAssistContent, setGmAiAssistContent] = useState('');
-  const [gmAiAssistTarget, setGmAiAssistTarget] = useState('');
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [speechBubbles, setSpeechBubbles] = useState<VisibleStoryRpUtterance[]>([]);
   const [highlightedCharacterIds, setHighlightedCharacterIds] = useState<Set<string>>(
@@ -246,9 +237,6 @@ export function StoryNodeSurface({
   );
   const shouldShowGmControls =
     isGmView && Boolean(onGmMessage || onGmNodeMove || onGmAiAssistCreate || onGmAiAssistAccept);
-  const pendingGmAiAssistSuggestions = gmAiAssistSuggestions.filter(
-    (suggestion) => suggestion.status === 'PENDING'
-  );
   const speechBubbleByCharacterId = useMemo(() => {
     const next = new Map<string, VisibleStoryRpUtterance>();
     speechBubbles.forEach((bubble) => {
@@ -355,25 +343,6 @@ export function StoryNodeSurface({
     });
     setGmMessageContent('');
     setGmMessagePrivateNote('');
-  }
-
-  async function handleGmAiAssistCreate() {
-    const content = gmAiAssistContent.trim();
-    if (!content || !onGmAiAssistCreate || isGmAiAssistPending) {
-      return;
-    }
-
-    const target = gmAiAssistTarget.trim();
-    await onGmAiAssistCreate({
-      assistType: gmAiAssistType,
-      content,
-      suggestedActionId: gmAiAssistType === 'node_move' ? target || null : null,
-      targetId: gmAiAssistType === 'npc_dialogue' ? target || null : node?.id ?? null,
-    });
-    setGmAiAssistContent('');
-    if (gmAiAssistType !== 'node_move') {
-      setGmAiAssistTarget('');
-    }
   }
 
   return (
@@ -544,95 +513,19 @@ export function StoryNodeSurface({
             )}
           </section>
 
-          <section className="story-gm-card story-gm-ai-assist">
-            <span className="story-node-eyebrow">AI 보조 제안</span>
-            <div className="story-gm-ai-compose">
-              <select
-                className="story-gm-input"
-                value={gmAiAssistType}
-                disabled={isGmAiAssistPending}
-                aria-label="AI 보조 제안 유형"
-                onChange={(event) => {
-                  setGmAiAssistType(event.target.value as GmAiAssistType);
-                  setGmAiAssistTarget('');
-                }}
-              >
-                {gmAiAssistTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              {gmAiAssistType === 'node_move' ? (
-                <select
-                  className="story-gm-input"
-                  value={gmAiAssistTarget}
-                  disabled={isGmAiAssistPending}
-                  aria-label="AI 보조 이동 대상"
-                  onChange={(event) => setGmAiAssistTarget(event.target.value)}
-                >
-                  <option value="">이동할 장면 선택</option>
-                  {gmNodeMoveOptions.map((option) => (
-                    <option key={option.nodeId} value={option.nodeId}>
-                      {option.label?.trim() || option.title}
-                    </option>
-                  ))}
-                </select>
-              ) : gmAiAssistType === 'npc_dialogue' ? (
-                <input
-                  className="story-gm-input"
-                  value={gmAiAssistTarget}
-                  placeholder="NPC 화자 이름"
-                  maxLength={100}
-                  disabled={isGmAiAssistPending}
-                  onChange={(event) => setGmAiAssistTarget(event.target.value)}
-                />
-              ) : null}
-              <textarea
-                className="story-gm-textarea"
-                value={gmAiAssistContent}
-                placeholder="검토할 AI 제안 내용을 입력하세요."
-                rows={3}
-                maxLength={2000}
-                disabled={isGmAiAssistPending}
-                onChange={(event) => setGmAiAssistContent(event.target.value)}
-              />
-              <button
-                type="button"
-                disabled={
-                  isBusy ||
-                  isGmAiAssistPending ||
-                  !onGmAiAssistCreate ||
-                  !gmAiAssistContent.trim() ||
-                  (gmAiAssistType === 'node_move' && !gmAiAssistTarget)
-                }
-                onClick={() => void handleGmAiAssistCreate()}
-              >
-                제안 등록
-              </button>
-            </div>
-            {pendingGmAiAssistSuggestions.length ? (
-              <div className="story-gm-ai-list">
-                {pendingGmAiAssistSuggestions.map((suggestion) => (
-                  <article key={suggestion.id}>
-                    <div>
-                      <strong>{getGmAiAssistTypeLabel(suggestion.assistType)}</strong>
-                      <span>{suggestion.content}</span>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={isBusy || isGmAiAssistPending || !onGmAiAssistAccept}
-                      onClick={() => void onGmAiAssistAccept?.(suggestion)}
-                    >
-                      승인
-                    </button>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <p className="story-gm-empty-text">승인 대기 중인 AI 제안이 없습니다.</p>
-            )}
-          </section>
+          <HumanGmAiAssistPanel
+            className="story-gm-card story-gm-ai-assist"
+            nodeId={node?.id}
+            suggestions={gmAiAssistSuggestions}
+            nodeMoveOptions={gmNodeMoveOptions}
+            onCreate={onGmAiAssistCreate}
+            onGenerate={onGmAiAssistGenerate}
+            onAccept={onGmAiAssistAccept}
+            isBusy={isBusy}
+            isPending={isGmAiAssistPending}
+            sceneSummary={node?.sceneText ?? node?.title ?? scenarioTitle}
+            recentLogs={recentGmAiAssistLogs}
+          />
         </aside>
       ) : null}
 

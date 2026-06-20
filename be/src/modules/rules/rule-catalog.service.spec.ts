@@ -3,6 +3,85 @@ import { RuleCatalogService } from "./rule-catalog.service";
 describe("RuleCatalogService", () => {
   const service = new RuleCatalogService();
 
+  it("catalogs Sacred Flame as a cover-ignoring single-target saving throw cantrip", () => {
+    expect(service.getEntry("spell.sacred_flame")).toMatchObject({
+      id: "spell.sacred_flame",
+      kind: "spell_definitions",
+      cost: { type: "action" },
+      targeting: { type: "creature", rangeFt: 60 },
+      save: { ability: "dex", dcSource: "spell_save_dc" },
+      damage: { dice: "1d8", type: "radiant", scaling: "character_level" },
+      concentration: false,
+      runtimeEffect: {
+        tags: expect.arrayContaining([
+          "spell_level:0",
+          "save:dex",
+          "damage:radiant",
+          "no_damage_on_success",
+          "ignore_cover_save_bonus",
+        ]),
+      },
+    });
+  });
+
+  it("catalogs Thunderwave as a cube save spell with forced movement", () => {
+    expect(service.getEntry("spell.thunderwave")).toMatchObject({
+      id: "spell.thunderwave",
+      kind: "spell_definitions",
+      targeting: { type: "area", shape: "cube", sizeFt: 15 },
+      save: { ability: "con", dcSource: "spell_save_dc" },
+      damage: { dice: "2d8", type: "thunder", scaling: "slot_level" },
+      runtimeEffect: {
+        tags: expect.arrayContaining([
+          "spell_level:1",
+          "area:cube",
+          "half_damage_on_success",
+          "forced_movement:push:10",
+        ]),
+      },
+    });
+  });
+
+  it("catalogs the P0 concentration buff, debuff, terrain, and utility spells", () => {
+    expect(service.getEntry("spell.bless")).toMatchObject({
+      concentration: true,
+      runtimeEffect: {
+        tags: expect.arrayContaining([
+          "target_count:3",
+          "roll_bonus:attack_roll:1d4",
+          "roll_bonus:saving_throw:1d4",
+        ]),
+      },
+    });
+    expect(service.getEntry("spell.bane")).toMatchObject({
+      concentration: true,
+      save: { ability: "cha", dcSource: "spell_save_dc" },
+      runtimeEffect: {
+        tags: expect.arrayContaining([
+          "roll_penalty:attack_roll:1d4",
+          "roll_penalty:saving_throw:1d4",
+        ]),
+      },
+    });
+    expect(service.getEntry("spell.entangle")).toMatchObject({
+      concentration: true,
+      targeting: { type: "area", shape: "cube", sizeFt: 20 },
+      runtimeEffect: {
+        tags: expect.arrayContaining([
+          "condition:restrained",
+          "terrain:terrain.difficult",
+        ]),
+      },
+    });
+    expect(service.getEntry("spell.detect_magic")).toMatchObject({
+      concentration: true,
+      targeting: { type: "self" },
+      runtimeEffect: {
+        tags: expect.arrayContaining(["utility:detection", "detect:magic:30"]),
+      },
+    });
+  });
+
   it("exposes the shared catalog entry shape for class features", () => {
     const entry = service.getEntry("class.wizard.feature.spellcasting");
 
@@ -444,14 +523,21 @@ describe("RuleCatalogService", () => {
 
   it("promotes MVP combat spells into executable catalog entries", () => {
     expect(service.listEntries("spell_definitions").map((entry) => entry.id)).toEqual([
+      "spell.bless",
+      "spell.bane",
       "spell.chill_touch",
       "spell.fire_bolt",
       "spell.ray_of_frost",
+      "spell.sacred_flame",
       "spell.light",
+      "spell.detect_magic",
       "spell.magic_missile",
       "spell.cure_wounds",
       "spell.shield",
       "spell.sleep",
+      "spell.burning_hands",
+      "spell.thunderwave",
+      "spell.entangle",
       "spell.fireball",
     ]);
 
@@ -499,6 +585,22 @@ describe("RuleCatalogService", () => {
           "half_damage_on_success",
         ],
         hookId: "hook.spell.cast_fireball",
+      },
+    });
+
+    expect(service.getEntry("spell.burning_hands")).toMatchObject({
+      id: "spell.burning_hands",
+      kind: "spell_definitions",
+      trigger: "action",
+      cost: { type: "action" },
+      targeting: { type: "area", shape: "cone", sizeFt: 15 },
+      save: { ability: "dex", dcSource: "spell_save_dc" },
+      damage: { dice: "3d6", type: "fire", scaling: "slot_level" },
+      scaling: { mode: "slot_level", table: { mode: "damage_dice", dice: "1d6", perSlotAbove: 1 } },
+      runtimeEffect: {
+        type: "spell",
+        tags: expect.arrayContaining(["spell_level:1", "area:cone", "range:15", "half_damage_on_success"]),
+        hookId: "hook.spell.cast_burning_hands",
       },
     });
   });

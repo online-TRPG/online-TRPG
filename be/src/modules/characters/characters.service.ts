@@ -72,14 +72,21 @@ const MVP_STARTING_CANTRIP_IDS = new Set([
   "spell.fire_bolt",
   "spell.light",
   "spell.ray_of_frost",
+  "spell.sacred_flame",
 ]);
 const MVP_STARTING_SLOT_SPELL_IDS = new Set([
+  "spell.bane",
+  "spell.bless",
   "spell.cure_wounds",
+  "spell.detect_magic",
+  "spell.entangle",
   "spell.magic_missile",
   "spell.shield",
   "spell.sleep",
+  "spell.thunderwave",
 ]);
 const MVP_STARTING_LEVEL5_SLOT_SPELL_IDS = new Set(["spell.fireball"]);
+const MVP_STARTING_SLOT_SPELL_SELECTION_COUNT = 4;
 
 @Injectable()
 export class CharactersService {
@@ -1734,8 +1741,12 @@ export class CharactersService {
       this.isPreparedSpellcaster(className) &&
       classKey !== "wizard" &&
       spellcastingProgression !== null;
+    const mvpSlotSpellSelectionCount = Math.min(
+      MVP_STARTING_SLOT_SPELL_SELECTION_COUNT,
+      this.getMvpStartingSlotSpellPool(level).size,
+    );
     const needSpells = usesDynamicPreparedPool
-      ? this.getMvpStartingSlotSpellPool(level).size
+      ? mvpSlotSpellSelectionCount
       : spellcastingProgression?.spellsKnown !== null &&
           spellcastingProgression?.spellsKnown !== undefined
         ? Math.min(
@@ -1744,7 +1755,7 @@ export class CharactersService {
           )
         : classKey === "wizard"
           ? Math.min(
-              Math.max(klass.startingSpellCount, MVP_STARTING_SLOT_SPELL_IDS.size),
+              Math.max(klass.startingSpellCount, mvpSlotSpellSelectionCount),
               this.getMvpStartingSlotSpellPool(level).size,
             )
           : klass.startingSpellCount;

@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { VttMapStateDto } from "@trpg/shared-types";
+import type { DiceRollResponseDto, VttMapStateDto } from "@trpg/shared-types";
 import { notFound } from "../../common/exceptions/domain-error";
 import { PrismaService } from "../../database/prisma.service";
 import type { CoverModifierProduced } from "../rules/rule-engine.types";
@@ -34,6 +34,17 @@ export type PendingOpportunityAttackContinuation = {
   action: SrdEngineExecutableMonsterAction;
 };
 
+export type PendingMonsterMultiattackContinuation = {
+  type: "monster_multiattack";
+  userId: string;
+  actorParticipantId: string;
+  targetParticipantId: string;
+  targetTokenId: string | null;
+  autoEndTurn: boolean;
+  parentAction: SrdEngineExecutableMonsterAction;
+  remainingActions: SrdEngineExecutableMonsterAction[];
+};
+
 export type PendingShieldReaction = {
   id: string;
   type: "shield";
@@ -50,7 +61,14 @@ export type PendingShieldReaction = {
   cover?: CoverModifierProduced;
   damageDice?: string;
   damageBonus?: number;
+  spellId?: string | null;
+  conditionRollModifiers?: Array<{
+    source: "spell.bless" | "spell.bane";
+    value: number;
+    roll: DiceRollResponseDto;
+  }>;
   createdAt: string;
+  continuation?: PendingMonsterMultiattackContinuation | null;
 };
 
 export type PendingCombatReaction = PendingOpportunityAttackReaction | PendingShieldReaction;

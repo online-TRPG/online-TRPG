@@ -2,6 +2,7 @@ import type { DiceRollResponseDto } from "@trpg/shared-types";
 
 export type CombatConcentrationCheckResult = {
   diceResult: DiceRollResponseDto;
+  modifierRolls?: DiceRollResponseDto[];
   concentrationState: unknown;
   concentrationMaintained: boolean;
   removedConditions: unknown[];

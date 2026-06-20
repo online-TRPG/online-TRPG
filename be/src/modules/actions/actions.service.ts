@@ -461,8 +461,8 @@ export class ActionsService {
       });
     }
 
-    const { state } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
-    if (state.phase === PrismaGamePhase.COMBAT) {
+    const gameState = await this.sessionsService.getGameStateEntityOrThrow(session.id);
+    if (gameState?.state?.phase === PrismaGamePhase.COMBAT) {
       throw forbidden("ACTION_403", "전투 중에는 휴식을 진행할 수 없습니다.", {
         reason: "REST_BLOCKED_IN_COMBAT",
       });

@@ -168,6 +168,51 @@ describe("ReadyActionService", () => {
     });
   });
 
+  it("matches turn start and turn end triggers for the selected participant", () => {
+    const turnStart = service.createPendingReadyAction({
+      actorParticipantId: "participant-reactor",
+      actorUserId: "user-1",
+      combatId: "combat-1",
+      roundNo: 1,
+      turnNo: 1,
+      reactionAvailable: true,
+      trigger: { type: "turn_start", targetParticipantId: "participant-target" },
+      heldAction: { type: "custom", description: "Raise the bridge." },
+    });
+    const turnEnd = service.createPendingReadyAction({
+      actorParticipantId: "participant-reactor",
+      actorUserId: "user-1",
+      combatId: "combat-1",
+      roundNo: 1,
+      turnNo: 1,
+      reactionAvailable: true,
+      trigger: { type: "turn_end", targetParticipantId: "participant-target" },
+      heldAction: { type: "custom", description: "Lower the gate." },
+    });
+    if (!turnStart.accepted || !turnEnd.accepted) {
+      throw new Error("expected accepted ready actions");
+    }
+
+    expect(
+      service.resolveTrigger(turnStart.pending, {
+        type: "turn_start",
+        sourceParticipantId: "participant-target",
+        targetParticipantId: "participant-target",
+        roundNo: 1,
+        turnNo: 2,
+      }),
+    ).toMatchObject({ triggered: true, reason: "trigger_matched" });
+    expect(
+      service.resolveTrigger(turnEnd.pending, {
+        type: "turn_end",
+        sourceParticipantId: "participant-target",
+        targetParticipantId: "participant-target",
+        roundNo: 1,
+        turnNo: 2,
+      }),
+    ).toMatchObject({ triggered: true, reason: "trigger_matched" });
+  });
+
   it("expires pending ready actions after their expiry turn", () => {
     const created = service.createPendingReadyAction({
       actorParticipantId: "participant-1",

@@ -54,15 +54,22 @@ export class CombatSpellService {
     spellId: string,
   ): void {
     const allowed = new Set([
+      "spell.bane",
+      "spell.bless",
       "spell.chill_touch",
+      "spell.burning_hands",
       "spell.cure_wounds",
+      "spell.detect_magic",
       "spell.fire_bolt",
+      "spell.entangle",
       "spell.ray_of_frost",
+      "spell.sacred_flame",
       "spell.fireball",
       "spell.light",
       "spell.magic_missile",
       "spell.shield",
       "spell.sleep",
+      "spell.thunderwave",
     ]);
     if (!allowed.has(spellId)) {
       throw conflict("COMBAT_409", "MVP 범위 밖의 주문입니다.", { reason: "SPELL_NOT_MVP", spellId });
@@ -127,12 +134,19 @@ export class CombatSpellService {
       case "spell.fire_bolt":
       case "spell.chill_touch":
       case "spell.ray_of_frost":
+      case "spell.sacred_flame":
       case "spell.light":
         return 0;
       case "spell.cure_wounds":
+      case "spell.burning_hands":
+      case "spell.bane":
+      case "spell.bless":
+      case "spell.detect_magic":
+      case "spell.entangle":
       case "spell.magic_missile":
       case "spell.shield":
       case "spell.sleep":
+      case "spell.thunderwave":
         return 1;
       case "spell.fireball":
         return 3;
@@ -220,6 +234,13 @@ export class CombatSpellService {
   }
 
   resolveCombatSpellBaseTargetCount(spellDefinition: RuleCatalogEntry): number | null {
+    const targetCountTag = spellDefinition.runtimeEffect.tags.find((tag) =>
+      tag.startsWith("target_count:"),
+    );
+    const taggedTargetCount = Number(targetCountTag?.slice("target_count:".length));
+    if (Number.isInteger(taggedTargetCount) && taggedTargetCount > 0) {
+      return taggedTargetCount;
+    }
     const missileTag = spellDefinition.runtimeEffect.tags.find((tag) => tag.startsWith("missile_count:"));
     const missileCount = Number(missileTag?.slice("missile_count:".length));
     if (Number.isInteger(missileCount) && missileCount > 0) {
@@ -265,8 +286,8 @@ export class CombatSpellService {
   }
 
   resolveSpellAttackBonusForCharacter(sessionCharacter: SpellSessionCharacter): number {
-    const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
-    return sessionCharacter.character.proficiencyBonus + this.getAbilityModifier(abilities.int);
+    return sessionCharacter.character.proficiencyBonus +
+      this.resolveSpellcastingAbilityModifierForCharacter(sessionCharacter);
   }
 
   async resolveSpellcastingAbilityModifier(sessionCharacterId: string): Promise<number> {
@@ -276,18 +297,7 @@ export class CombatSpellService {
 
   resolveSpellcastingAbilityModifierForCharacter(sessionCharacter: SpellSessionCharacter): number {
     const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
-    const classKey = sessionCharacter.character.className.trim().toLowerCase();
-    let abilityKey = "int";
-    if (classKey === "cleric" || classKey === "druid" || classKey === "ranger") {
-      abilityKey = "wis";
-    } else if (
-      classKey === "bard" ||
-      classKey === "paladin" ||
-      classKey === "sorcerer" ||
-      classKey === "warlock"
-    ) {
-      abilityKey = "cha";
-    }
+    const abilityKey = this.resolveSpellcastingAbilityKey(sessionCharacter.character.className);
     return this.getAbilityModifier(abilities[abilityKey] ?? 10);
   }
 
@@ -297,8 +307,9 @@ export class CombatSpellService {
   }
 
   resolveCombatSpellSaveDcForCharacter(sessionCharacter: SpellSessionCharacter): number {
-    const abilities = this.parseJson<Record<string, number>>(sessionCharacter.character.abilitiesJson, {});
-    return 8 + sessionCharacter.character.proficiencyBonus + this.getAbilityModifier(abilities.int);
+    return 8 +
+      sessionCharacter.character.proficiencyBonus +
+      this.resolveSpellcastingAbilityModifierForCharacter(sessionCharacter);
   }
 
   async resolveCharacterLevel(sessionCharacterId: string): Promise<number> {
@@ -484,6 +495,22 @@ export class CombatSpellService {
 
   private getAbilityModifier(score: number | null | undefined): number {
     return Math.floor(((score ?? 10) - 10) / 2);
+  }
+
+  private resolveSpellcastingAbilityKey(className: string): "int" | "wis" | "cha" {
+    const classKey = className.trim().toLowerCase();
+    if (classKey === "cleric" || classKey === "druid" || classKey === "ranger") {
+      return "wis";
+    }
+    if (
+      classKey === "bard" ||
+      classKey === "paladin" ||
+      classKey === "sorcerer" ||
+      classKey === "warlock"
+    ) {
+      return "cha";
+    }
+    return "int";
   }
 
   private parseJson<T>(value: string | null | undefined, fallback: T): T {

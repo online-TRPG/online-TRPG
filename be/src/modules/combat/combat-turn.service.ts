@@ -4,6 +4,7 @@ import {
   ActionOutcome,
   AutoMonsterTurnDto,
   CombatActionResultDto,
+  CombatMonsterLifecycleEffectDto,
   CombatStatus,
   DiceAdvantageState,
   DiceRollResponseDto,
@@ -16,6 +17,7 @@ import type { SavingThrowAbility } from "../rules/rule-engine.types";
 import type { TerrainEffectTrigger } from "../rules/terrain-effect.service";
 import type { SessionsService } from "../sessions/sessions.service";
 import type { EnteredTerrainEffect } from "./combat-movement.service";
+import type { PendingMonsterMultiattackContinuation } from "./combat-reaction.service";
 import type { CombatService } from "./combat.service";
 import type { CombatTerrainEffectApplication } from "./combat-terrain.types";
 import type { SrdEngineExecutableMonsterAction } from "./srd-engine.types";
@@ -103,9 +105,35 @@ export class CombatTurnService {
         ),
     );
 
+    const turnEndReadyActions = await runtime.resolveReadyActionsForParticipantEvent({
+      sessionId,
+      combat: updated,
+      sourceParticipantId: current.id,
+      targetParticipantId: current.id,
+      type: "turn_end",
+      eventRoundNo: combat.roundNo,
+      eventTurnNo: combat.turnNo,
+    });
+    const turnStartReadyActions = next
+      ? await runtime.resolveReadyActionsForParticipantEvent({
+          sessionId,
+          combat: updated,
+          sourceParticipantId: next.id,
+          targetParticipantId: next.id,
+          type: "turn_start",
+        })
+      : { count: 0, prompts: [] };
+    const readyActionPrompts = [...turnEndReadyActions.prompts, ...turnStartReadyActions.prompts];
     const expiredRageCount = await runtime.endExpiredRagesForCombat(updated);
     const expiredReadyActionCount = await runtime.expireReadyActionsForTurn(sessionId, updated);
     const turnEndTerrainApplication = await runtime.applyTurnEndTerrainConditionEffects(updated, current);
+    const expiredConcentrationEffectCount =
+      await runtime.expireCombatConcentrationLinkedEffects(
+        updated,
+        current,
+        updated.roundNo,
+        updated.turnNo,
+      );
     const expiredConditionCount = await runtime.combatConditions.resolveTurnEndConditions(current, updated.roundNo, updated.turnNo);
     const turnStartTerrainApplication = next
       ? await runtime.applyTurnStartTerrainEffects(sessionId, updated, next)
@@ -121,11 +149,29 @@ export class CombatTurnService {
     const monsterRecharge = next
       ? await runtime.combatMonsterResources.resolveMonsterRechargeActionsForTurnStart(sessionId, next)
       : { rechargedCount: 0, diceRolls: [] };
+    const turnEndMonsterLifecycleEffects = await this.resolveMonsterLifecycleEffects(runtime, sessionId, current, "turn_end");
+    const turnStartMonsterLifecycleEffects = next
+      ? await this.resolveMonsterLifecycleEffects(runtime, sessionId, next, "turn_start")
+      : [];
+    const auraMonsterLifecycleEffects = next
+      ? await this.resolveMonsterLifecycleEffects(runtime, sessionId, next, "aura")
+      : [];
+    const monsterLifecycleEffects = [
+      ...turnEndMonsterLifecycleEffects,
+      ...turnStartMonsterLifecycleEffects,
+      ...auraMonsterLifecycleEffects,
+    ];
 
     const turnMessage =
       [
         runtime.combatTerrain.describeLifecycle("턴 종료", turnEndTerrainApplication),
         runtime.combatTerrain.describeLifecycle("턴 시작", turnStartTerrainApplication),
+        this.describeMonsterRecharge(monsterRecharge),
+        this.describeMonsterLifecycleEffects(monsterLifecycleEffects),
+        expiredConcentrationEffectCount > 0
+          ? `집중 효과 ${expiredConcentrationEffectCount}개가 종료되었습니다.`
+          : null,
+        readyActionPrompts.length > 0 ? `준비행동 ${readyActionPrompts.length}개가 발동 대기 중입니다.` : null,
       ]
         .filter((message): message is string => Boolean(message))
         .join(" / ") || undefined;
@@ -140,6 +186,8 @@ export class CombatTurnService {
       ...(turnMessage ? { message: turnMessage } : {}),
       ...(turnStartTerrainEffects ? { terrainEffects: turnStartTerrainEffects } : {}),
       ...(turnEndTerrainEffects ? { turnEndTerrainEffects } : {}),
+      ...(monsterLifecycleEffects.length > 0 ? { monsterLifecycleEffects } : {}),
+      ...(readyActionPrompts.length > 0 ? { pendingReactions: readyActionPrompts } : {}),
     };
 
     if (response.message) {
@@ -158,8 +206,18 @@ export class CombatTurnService {
           turnNo: updated.turnNo,
           turnEndTerrainEffects: response.turnEndTerrainEffects ?? null,
           turnStartTerrainEffects: response.terrainEffects ?? null,
+          monsterRecharge: {
+            rechargedCount: monsterRecharge.rechargedCount,
+            diceRolls: monsterRecharge.diceRolls,
+          },
+          monsterLifecycleEffects: response.monsterLifecycleEffects ?? [],
+          readyActionTriggers: readyActionPrompts.map((prompt) => ({
+            id: prompt.id,
+            reactorParticipantId: prompt.reactorParticipantId,
+            eventParticipantId: prompt.moverParticipantId,
+          })),
         },
-        diceResult: (turnEndTerrainApplication.damageRoll ?? turnStartTerrainApplication.damageRoll ?? null) as unknown as Record<string, unknown> | null,
+        diceResult: (turnEndTerrainApplication.damageRoll ?? turnStartTerrainApplication.damageRoll ?? monsterRecharge.diceRolls[0] ?? null) as unknown as Record<string, unknown> | null,
         stateDiff: null,
         outcome: ActionOutcome.NO_ROLL,
         narration: response.message,
@@ -172,6 +230,9 @@ export class CombatTurnService {
       runtime.realtimeEvents.emitDiceRolled(sessionId, damage.roll);
     }
     if (turnEndTerrainApplication.concentrationCheck) {
+      turnEndTerrainApplication.concentrationCheck.modifierRolls?.forEach((roll) =>
+        runtime.realtimeEvents.emitDiceRolled(sessionId, roll),
+      );
       runtime.realtimeEvents.emitDiceRolled(sessionId, turnEndTerrainApplication.concentrationCheck.diceResult);
     }
     for (const saveRoll of turnStartTerrainApplication.saveRolls) {
@@ -181,6 +242,9 @@ export class CombatTurnService {
       runtime.realtimeEvents.emitDiceRolled(sessionId, damage.roll);
     }
     if (turnStartTerrainApplication.concentrationCheck) {
+      turnStartTerrainApplication.concentrationCheck.modifierRolls?.forEach((roll) =>
+        runtime.realtimeEvents.emitDiceRolled(sessionId, roll),
+      );
       runtime.realtimeEvents.emitDiceRolled(sessionId, turnStartTerrainApplication.concentrationCheck.diceResult);
     }
     for (const rechargeRoll of monsterRecharge.diceRolls) {
@@ -195,15 +259,21 @@ export class CombatTurnService {
     if (
       expiredRageCount > 0 ||
       expiredReadyActionCount > 0 ||
+      readyActionPrompts.length > 0 ||
       expiredConditionCount > 0 ||
       monsterRecharge.rechargedCount > 0 ||
+      monsterLifecycleEffects.length > 0 ||
       turnEndTerrainApplication.damageRoll ||
       turnStartTerrainApplication.damageRoll ||
       turnStartTerrainApplication.appliedConditionTags.length > 0
     ) {
       runtime.realtimeEvents.emitSessionSnapshot(sessionId, await runtime.sessionsService.buildSnapshot(sessionId));
     }
-    if (combatAfterTerrainEffects.status === CombatStatus.ACTIVE && !runtime.serverAutoMonsterTurnSessions.has(sessionId)) {
+    if (
+      combatAfterTerrainEffects.status === CombatStatus.ACTIVE &&
+      readyActionPrompts.length === 0 &&
+      !runtime.serverAutoMonsterTurnSessions.has(sessionId)
+    ) {
       runtime.logAutoMonsterTurn("advanceCurrentTurn checking monster automation", {
         sessionId,
         combatId: updated.id,
@@ -212,6 +282,44 @@ export class CombatTurnService {
       await runtime.runServerAutoMonsterTurns(sessionId);
     }
     return response;
+  }
+
+  private async resolveMonsterLifecycleEffects(
+    runtime: CombatTurnRuntime,
+    sessionId: string,
+    participant: CombatParticipantEntity,
+    hook: CombatMonsterLifecycleEffectDto["hook"],
+  ): Promise<CombatMonsterLifecycleEffectDto[]> {
+    if (participant.entityType !== PrismaCombatEntityType.MONSTER || !participant.isAlive) {
+      return [];
+    }
+
+    const session = await runtime.sessionsService.getSessionEntityOrThrow(sessionId);
+    const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), sessionId);
+    const token = runtime.combatTargeting.findParticipantToken(map, participant);
+    const actions = runtime.combatMonsterActions.listExecutableActionsForParticipant(participant, token);
+    return runtime.combatMonsterResources.resolveMonsterLifecycleEffectsForTurnHook({
+      actor: participant,
+      hook,
+      actions,
+    });
+  }
+
+  private describeMonsterLifecycleEffects(effects: CombatMonsterLifecycleEffectDto[]): string | null {
+    if (effects.length === 0) {
+      return null;
+    }
+    const labels = Array.from(new Set(effects.map((effect) => `${effect.actorName} ${effect.label}`)));
+    return `몬스터 지속 능력 확인: ${labels.join(", ")}`;
+  }
+
+  private describeMonsterRecharge(recharge: { rechargedCount: number; diceRolls: DiceRollResponseDto[] }): string | null {
+    if (recharge.diceRolls.length === 0) {
+      return null;
+    }
+    return recharge.rechargedCount > 0
+      ? `몬스터 재충전 ${recharge.rechargedCount}개 성공`
+      : "몬스터 재충전 없음";
   }
 
   async autoMonsterTurn(runtime: CombatTurnRuntime, userId: string, sessionId: string, dto: AutoMonsterTurnDto = {}): Promise<CombatActionResultDto> {
@@ -459,6 +567,13 @@ export class CombatTurnService {
           });
           return;
         }
+        if (await runtime.hasPendingTriggeredReadyAction(session.id)) {
+          runtime.logAutoMonsterTurn("run stopped: ready action response pending", {
+            sessionId: session.id,
+            step,
+          });
+          return;
+        }
 
         let combat: NonNullable<CombatWithParticipants>;
         try {
@@ -572,6 +687,13 @@ export class CombatTurnService {
   }
 
   logAutoMonsterTurn(runtime: CombatTurnRuntime, message: string, data: Record<string, unknown> = {}): void {
+    const isTest = process.env.NODE_ENV === "test";
+    const isAutoMonsterDebugEnabled = process.env.AUTO_MONSTER_DEBUG === "1";
+
+    if (isTest && !isAutoMonsterDebugEnabled) {
+      return;
+    }
+
     const line = `[AUTO_MONSTER] ${message} ${JSON.stringify(data)}`;
     runtime.logger.log(line);
     // Nest Logger 설정/transport가 꺼져 있어도 전투 자동 진행 추적은 개발 콘솔에 반드시 남긴다.
@@ -610,6 +732,7 @@ export class CombatTurnService {
       actionCost?: "action" | "none";
       autoEndTurn: boolean;
       autoEndTurnWhenOutOfRange: boolean;
+      shieldContinuation?: PendingMonsterMultiattackContinuation | null;
     },
   ): Promise<CombatActionResultDto> {
     const rangeCheck = runtime.combatMonsterActions.getMonsterActionRangeCheck(params.map, {
@@ -675,6 +798,28 @@ export class CombatTurnService {
       {
         actionCost: params.actionCost ?? "action",
         forceDisadvantage: rangeCheck.longRangeDisadvantage,
+        auditMetadata: {
+          source: "monster_action",
+          monsterAction: {
+            monsterId: params.action.monsterId,
+            actionId: params.action.actionId,
+            label: params.action.label,
+            attackKind: params.action.attackKind,
+            costType: params.action.costType ?? "action",
+            recharge: params.action.recharge ?? null,
+            usage: params.action.usage ?? null,
+            save: params.action.save ?? null,
+            conditionRiders: params.action.conditionRiders ?? [],
+            effectTags: params.action.effectTags ?? [],
+            damageType: params.action.damageType ?? null,
+          },
+          resourceChecks: {
+            rechargeChecked: runtime.combatMonsterResources.isRechargeMonsterAction(params.action),
+            limitedUseLimit: runtime.combatMonsterResources.resolveMonsterLimitedUseLimit(params.action),
+          },
+        },
+        shieldContinuation: params.shieldContinuation ?? null,
+        skipActorPermissionCheck: params.actionCost === "none",
       },
     );
     runtime.logAutoMonsterTurn("monster attack resolved", {
@@ -717,13 +862,19 @@ export class CombatTurnService {
     }
 
     const updated = await runtime.getActiveCombatEntity(params.session.id);
-    if (updated.currentParticipantId === params.attacker.id) {
+    const combatToAdvance =
+      updated.currentParticipantId === params.attacker.id
+        ? updated
+        : params.combat.currentParticipantId === params.attacker.id
+          ? params.combat
+          : null;
+    if (combatToAdvance) {
       runtime.logAutoMonsterTurn("monster auto ending turn", {
         sessionId: params.session.id,
-        combatId: updated.id,
+        combatId: combatToAdvance.id,
         attackerId: params.attacker.id,
       });
-      await runtime.advanceCurrentTurn(params.session.id, updated);
+      await runtime.advanceCurrentTurn(params.session.id, combatToAdvance);
     }
 
     return {
@@ -748,7 +899,10 @@ export class CombatTurnService {
     const saveResolution = await runtime.resolveMonsterActionRiderSave(target, action);
     if (saveResolution && saveResolution.success) {
       return {
-        saveRolls: saveResolution.diceResult ? [saveResolution.diceResult] : [],
+        saveRolls: [
+          ...(saveResolution.modifierRolls ?? []),
+          ...(saveResolution.diceResult ? [saveResolution.diceResult] : []),
+        ],
         appliedConditionTags: [],
       };
     }
@@ -769,7 +923,10 @@ export class CombatTurnService {
     }
 
     return {
-      saveRolls: saveResolution?.diceResult ? [saveResolution.diceResult] : [],
+      saveRolls: [
+        ...(saveResolution?.modifierRolls ?? []),
+        ...(saveResolution?.diceResult ? [saveResolution.diceResult] : []),
+      ],
       appliedConditionTags: Array.from(new Set(appliedConditionTags)),
     };
   }
@@ -780,6 +937,7 @@ export class CombatTurnService {
     action: SrdEngineExecutableMonsterAction,
   ): Promise<{
     diceResult: DiceRollResponseDto | null;
+    modifierRolls?: DiceRollResponseDto[];
     success: boolean;
   } | null> {
     const saveEnds = runtime.resolveMonsterActionSaveEnds(action);
@@ -796,8 +954,13 @@ export class CombatTurnService {
       proficiencyBonus: profile.proficiencyBonus,
       proficient: profile.proficient,
       advantageState: "normal",
+      bonusModifiers: profile.conditionModifiers,
     });
-    return { diceResult, success: result.produced.success };
+    return {
+      diceResult,
+      modifierRolls: profile.modifierRolls,
+      success: result.produced.success,
+    };
   }
 
   resolveMonsterActionSaveEnds(runtime: CombatTurnRuntime, action: SrdEngineExecutableMonsterAction): ConditionInstance["saveEnds"] {
@@ -894,9 +1057,20 @@ export class CombatTurnService {
       structuredAction: {
         type: "monster_special",
         actionId: params.action.actionId,
+        monsterId: params.action.monsterId,
+        label: params.action.label,
         specialType,
         condition,
+        costType,
+        recharge: params.action.recharge ?? null,
+        usage: params.action.usage ?? null,
+        save: params.action.save ?? null,
+        conditionRiders: params.action.conditionRiders ?? [],
         effectTags,
+        resourceChecks: {
+          rechargeChecked: runtime.combatMonsterResources.isRechargeMonsterAction(params.action),
+          limitedUseLimit: runtime.combatMonsterResources.resolveMonsterLimitedUseLimit(params.action),
+        },
       },
       diceResult: null,
       outcome: ActionOutcome.SUCCESS,
@@ -957,7 +1131,7 @@ export class CombatTurnService {
       ...runtime.srdEngine.getExecutableMonsterActions(params.action.monsterId),
     ];
 
-    const results: CombatActionResultDto[] = [];
+    const expandedChildActions: SrdEngineExecutableMonsterAction[] = [];
     for (const attack of attacks) {
       const childAction = childActions.find(
         (candidate) => candidate.actionId === attack.actionId || ("catalogEntryId" in candidate && candidate.catalogEntryId === attack.actionId),
@@ -970,28 +1144,47 @@ export class CombatTurnService {
         });
       }
       for (let index = 0; index < attack.count; index += 1) {
-        const result = await runtime.resolveMonsterAttackAction({
-          userId: params.userId,
-          session: params.session,
-          combat: params.combat,
-          attacker: params.actor,
-          target,
-          action: childAction,
-          map,
-          sourceTokenId: actorToken?.id ?? params.actor.tokenId ?? null,
-          targetTokenId: targetToken?.id ?? target.tokenId ?? null,
-          movementDistanceFt: 0,
-          actionCost: "none",
-          autoEndTurn: false,
-          autoEndTurnWhenOutOfRange: false,
-        });
-        results.push(result);
-        if (await runtime.combatReactions.hasPendingCombatReaction(params.session.id)) {
-          return {
-            ...result,
-            message: `${params.actor.nameSnapshot} ${params.action.label}: ${result.message}`,
-          };
-        }
+        expandedChildActions.push(childAction);
+      }
+    }
+
+    const results: CombatActionResultDto[] = [];
+    for (let index = 0; index < expandedChildActions.length; index += 1) {
+      const childAction = expandedChildActions[index];
+      const remainingActions = expandedChildActions.slice(index + 1);
+      const result = await runtime.resolveMonsterAttackAction({
+        userId: params.userId,
+        session: params.session,
+        combat: params.combat,
+        attacker: params.actor,
+        target,
+        action: childAction,
+        map,
+        sourceTokenId: actorToken?.id ?? params.actor.tokenId ?? null,
+        targetTokenId: targetToken?.id ?? target.tokenId ?? null,
+        movementDistanceFt: 0,
+        actionCost: "none",
+        autoEndTurn: false,
+        autoEndTurnWhenOutOfRange: false,
+        shieldContinuation: remainingActions.length
+          ? {
+              type: "monster_multiattack",
+              userId: params.userId,
+              actorParticipantId: params.actor.id,
+              targetParticipantId: target.id,
+              targetTokenId: targetToken?.id ?? target.tokenId ?? null,
+              autoEndTurn: params.autoEndTurn,
+              parentAction: params.action,
+              remainingActions,
+            }
+          : null,
+      });
+      results.push(result);
+      if (await runtime.combatReactions.hasPendingCombatReaction(params.session.id)) {
+        return {
+          ...result,
+          message: `${params.actor.nameSnapshot} ${params.action.label}: ${result.message}`,
+        };
       }
     }
 
@@ -1072,7 +1265,7 @@ export class CombatTurnService {
       }
       const profile = await runtime.resolveParticipantSavingThrowProfile(target, saveEnds.ability);
       const diceResult = runtime.diceService.roll(`1d20${profile.saveModifier >= 0 ? "+" : ""}${profile.saveModifier}`);
-      saveRolls.push(diceResult);
+      saveRolls.push(...profile.modifierRolls, diceResult);
       const result = runtime.ruleEngine.resolveSavingThrow({
         ability: saveEnds.ability,
         naturalD20: runtime.selectNaturalD20(diceResult.rolls, DiceAdvantageState.NORMAL),
@@ -1081,6 +1274,7 @@ export class CombatTurnService {
         proficiencyBonus: profile.proficiencyBonus,
         proficient: profile.proficient,
         advantageState: "normal",
+        bonusModifiers: profile.conditionModifiers,
       });
       if (!result.produced.success) {
         failedOrUnavoidableEffects.push(entered);

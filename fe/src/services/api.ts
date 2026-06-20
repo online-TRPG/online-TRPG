@@ -3,6 +3,7 @@ import type {
   ApplyHumanGmCombatConditionDto,
   AdjustHumanGmCombatHpDto,
   AcceptHumanGmAiAssistSuggestionDto,
+  AiHumanGmAssistSuggestionRequestDto,
   ApplyCombatDamageDto,
   AutoMonsterTurnDto,
   AuthTokenResponseDto,
@@ -34,6 +35,7 @@ import type {
   ResolveCombatAttackDto,
   ResolveMainCommandCheckDto,
   RemoveHumanGmInventoryItemDto,
+  ReportHumanGmAiAssistApplicationFailureDto,
   RestActionDto,
   SetHumanGmDifficultyClassDto,
   ScenarioAssetKind,
@@ -1687,6 +1689,23 @@ export function createHumanGmAiAssistSuggestion(
   });
 }
 
+export function generateHumanGmAiAssistSuggestion(
+  user: StoredUser,
+  sessionId: string,
+  payload: AiHumanGmAssistSuggestionRequestDto,
+  accessToken?: string | null
+): Promise<HumanGmAiAssistSuggestionDto> {
+  return requestJson<HumanGmAiAssistSuggestionDto>(
+    `/sessions/${sessionId}/ai/gm-assist-suggestion`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+      body: payload,
+    }
+  );
+}
+
 export function getHumanGmAiAssistSuggestions(
   user: StoredUser,
   sessionId: string,
@@ -1707,6 +1726,25 @@ export async function acceptHumanGmAiAssistSuggestion(
 ): Promise<SessionSnapshot> {
   const snapshot = await requestJson<SessionSnapshotDto>(
     `/sessions/${sessionId}/gm/ai-assist/accept`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+      body: payload,
+    }
+  );
+
+  return normalizeSessionSnapshot(snapshot);
+}
+
+export async function reportHumanGmAiAssistApplicationFailure(
+  user: StoredUser,
+  sessionId: string,
+  payload: ReportHumanGmAiAssistApplicationFailureDto,
+  accessToken?: string | null
+): Promise<SessionSnapshot> {
+  const snapshot = await requestJson<SessionSnapshotDto>(
+    `/sessions/${sessionId}/gm/ai-assist/apply-failure`,
     {
       method: 'POST',
       user,

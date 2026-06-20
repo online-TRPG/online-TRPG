@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { CombatEntityType as PrismaCombatEntityType } from "@prisma/client";
-import type { DiceRollResponseDto } from "@trpg/shared-types";
+import type { CombatMonsterLifecycleEffectDto, DiceRollResponseDto } from "@trpg/shared-types";
 import { conflict } from "../../common/exceptions/domain-error";
 import { PrismaService } from "../../database/prisma.service";
 import { DiceService } from "../rules/dice.service";
@@ -14,6 +14,8 @@ type MonsterResourceActor = {
   id: string;
   entityType: PrismaCombatEntityType;
   isAlive: boolean;
+  nameSnapshot?: string;
+  tokenId?: string | null;
 };
 
 type MonsterResourceCombat = {
@@ -84,6 +86,32 @@ export class CombatMonsterResourceService {
     });
 
     return { rechargedCount, diceRolls };
+  }
+
+  resolveMonsterLifecycleEffectsForTurnHook(params: {
+    actor: MonsterResourceActor | null;
+    hook: CombatMonsterLifecycleEffectDto["hook"];
+    actions: SrdEngineExecutableMonsterAction[];
+  }): CombatMonsterLifecycleEffectDto[] {
+    if (!params.actor || params.actor.entityType !== PrismaCombatEntityType.MONSTER || !params.actor.isAlive) {
+      return [];
+    }
+    const actor = params.actor;
+
+    return params.actions.flatMap((action) => {
+      const matchingTags = this.resolveMonsterLifecycleTags(action, params.hook);
+      if (matchingTags.length === 0) {
+        return [];
+      }
+      return [{
+        actorParticipantId: actor.id,
+        actorName: actor.nameSnapshot ?? "Monster",
+        actionId: action.actionId,
+        label: action.label,
+        hook: params.hook,
+        effectTags: matchingTags,
+      }];
+    });
   }
 
   async assertMonsterRechargeActionAvailable(
@@ -276,6 +304,21 @@ export class CombatMonsterResourceService {
 
   isRechargeMonsterAction(action: SrdEngineExecutableMonsterAction): boolean {
     return typeof action.recharge === "string" && action.recharge.trim().length > 0;
+  }
+
+  private resolveMonsterLifecycleTags(
+    action: SrdEngineExecutableMonsterAction,
+    hook: CombatMonsterLifecycleEffectDto["hook"],
+  ): string[] {
+    const effectTags = (action.effectTags ?? []).filter((tag) => typeof tag === "string" && tag.trim().length > 0);
+    const hookAliases: Record<CombatMonsterLifecycleEffectDto["hook"], string[]> = {
+      aura: ["aura", "trigger:aura", "hook:aura"],
+      turn_start: ["turn_start", "turn-start", "on_turn_start", "trigger:on_turn_start", "hook:turn_start"],
+      turn_end: ["turn_end", "turn-end", "on_turn_end", "trigger:on_turn_end", "hook:turn_end"],
+    };
+    return effectTags.filter((tag) =>
+      hookAliases[hook].some((alias) => tag === alias || tag.startsWith(`${alias}:`)),
+    );
   }
 
   resolveMonsterLimitedUseLimit(action: SrdEngineExecutableMonsterAction): number | null {
