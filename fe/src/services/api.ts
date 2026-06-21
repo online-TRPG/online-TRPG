@@ -498,7 +498,7 @@ export function listScenarios(): Promise<Scenario[]> {
 }
 
 function isProvidedScenarioForSelection(scenario: Scenario): boolean {
-  return scenario.id === DEFAULT_SCENARIO_ID;
+  return scenario.sourceType === 'SYSTEM' || scenario.id === DEFAULT_SCENARIO_ID;
 }
 
 export async function listAvailableScenarios(

@@ -9,7 +9,16 @@ import {
 
 const MVP_MONSTER_ACTION_PREFERENCES: Record<string, string[]> = {
   "monster.giant_rat": ["action.bite"],
+  "monster.giant_spider": ["action.web", "action.bite"],
   "monster.goblin": ["action.scimitar"],
+  "monster.orc": ["action.greataxe", "action.javelin"],
+  "monster.wolf": ["action.bite"],
+  "monster.skeleton": ["action.shortbow", "action.shortsword"],
+  "monster.zombie": ["action.slam"],
+  "monster.brown_bear": ["action.multiattack", "action.claws", "action.bite"],
+  "monster.dragon_whelp": ["action.fire_breath", "action.bite"],
+  "monster.cultist": ["action.scimitar"],
+  "monster.ogre": ["action.greatclub", "action.javelin"],
 };
 
 @Injectable()

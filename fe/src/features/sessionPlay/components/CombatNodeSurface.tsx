@@ -33,7 +33,7 @@ type CombatActionTab = 'basic' | 'ability' | 'spell';
 type CombatMovementMode = 'normal' | 'jump';
 type ForcedMovementMode = 'push' | 'pull' | 'slide';
 type CombatActorActionType = 'attack' | 'dash' | 'dodge' | 'hide';
-type SpellFilter = 'all' | 'cantrip' | 'level1' | 'level3';
+type SpellFilter = 'all' | 'cantrip' | 'level1' | 'level2' | 'level3';
 type CombatResourceIconKind = 'action' | 'bonus' | 'reaction';
 type CombatParticipant = CombatResponseDto['participants'][number];
 type CombatMonsterAction = NonNullable<CombatParticipant['monsterActions']>[number];
@@ -45,11 +45,29 @@ type CombatConditionOption = {
 type CombatAbilityButton = {
   key: string;
   label: string;
-  action: 'second_wind' | 'sneak_attack';
+  action?:
+    | 'second_wind'
+    | 'sneak_attack'
+    | 'action_surge'
+    | 'rage'
+    | 'frenzy'
+    | 'cunning_dash'
+    | 'cunning_disengage'
+    | 'cunning_hide'
+    | 'divine_sense'
+    | 'lay_on_hands'
+    | 'primeval_awareness'
+    | 'ki_patient_defense'
+    | 'ki_step_of_wind'
+    | 'channel_divinity'
+    | 'bardic_inspiration'
+    | 'font_of_magic'
+    | 'wild_shape';
   title: string;
   requiresAction?: boolean;
   requiresBonusAction?: boolean;
   disabled?: boolean;
+  unavailableReason?: string;
 };
 
 interface CombatNodeSurfaceProps {
@@ -115,7 +133,26 @@ interface CombatNodeSurfaceProps {
     origin: { x: number; y: number },
     distanceFt: number
   ) => void | Promise<void>;
-  onUseClassFeature: (action: 'second_wind') => void | Promise<void>;
+  onUseClassFeature: (
+    action:
+      | 'second_wind'
+      | 'action_surge'
+      | 'rage'
+      | 'frenzy'
+      | 'cunning_dash'
+      | 'cunning_disengage'
+      | 'cunning_hide'
+      | 'divine_sense'
+      | 'lay_on_hands'
+      | 'primeval_awareness'
+      | 'ki_patient_defense'
+      | 'ki_step_of_wind'
+      | 'channel_divinity'
+      | 'bardic_inspiration'
+      | 'font_of_magic'
+      | 'wild_shape',
+    targetParticipantId?: string
+  ) => void | Promise<void>;
   onCastSpell: (
     spellId: string,
     payload: {
@@ -172,9 +209,18 @@ const mvpSpellLabels = [
   'Thunderwave',
   'Entangle',
   'Cure Wounds',
+  'Guiding Bolt',
+  'Inflict Wounds',
+  'Healing Word',
+  'Command',
   'Shield',
   'Sleep',
+  'Hold Person',
+  'Web',
+  'Misty Step',
+  'Scorching Ray',
   'Fireball',
+  'Dispel Magic',
 ];
 
 const gmCombatConditionOptions: CombatConditionOption[] = [
@@ -205,9 +251,18 @@ const mvpSpellIdsByLabel: Record<string, string> = {
   Thunderwave: 'spell.thunderwave',
   Entangle: 'spell.entangle',
   'Cure Wounds': 'spell.cure_wounds',
+  'Guiding Bolt': 'spell.guiding_bolt',
+  'Inflict Wounds': 'spell.inflict_wounds',
+  'Healing Word': 'spell.healing_word',
+  Command: 'spell.command',
   Shield: 'spell.shield',
   Sleep: 'spell.sleep',
+  'Hold Person': 'spell.hold_person',
+  Web: 'spell.web',
+  'Misty Step': 'spell.misty_step',
+  'Scorching Ray': 'spell.scorching_ray',
   Fireball: 'spell.fireball',
+  'Dispel Magic': 'spell.dispel_magic',
 };
 
 const mvpSpellRangeFtById: Record<string, number> = {
@@ -224,11 +279,20 @@ const mvpSpellRangeFtById: Record<string, number> = {
   'spell.thunderwave': 15,
   'spell.entangle': 90,
   'spell.cure_wounds': 5,
+  'spell.guiding_bolt': 120,
+  'spell.inflict_wounds': 5,
+  'spell.healing_word': 60,
+  'spell.command': 60,
   'spell.sleep': 90,
+  'spell.hold_person': 60,
+  'spell.web': 60,
+  'spell.misty_step': 30,
+  'spell.scorching_ray': 120,
   'spell.fireball': 150,
+  'spell.dispel_magic': 120,
 };
 
-const mvpSpellLevelById: Record<string, 0 | 1 | 3> = {
+const mvpSpellLevelById: Record<string, 0 | 1 | 2 | 3> = {
   'spell.chill_touch': 0,
   'spell.fire_bolt': 0,
   'spell.ray_of_frost': 0,
@@ -242,9 +306,18 @@ const mvpSpellLevelById: Record<string, 0 | 1 | 3> = {
   'spell.thunderwave': 1,
   'spell.entangle': 1,
   'spell.cure_wounds': 1,
+  'spell.guiding_bolt': 1,
+  'spell.inflict_wounds': 1,
+  'spell.healing_word': 1,
+  'spell.command': 1,
   'spell.shield': 1,
   'spell.sleep': 1,
+  'spell.hold_person': 2,
+  'spell.web': 2,
+  'spell.misty_step': 2,
+  'spell.scorching_ray': 2,
   'spell.fireball': 3,
+  'spell.dispel_magic': 3,
 };
 
 const preparedSpellClassKeys = new Set(['cleric', 'druid', 'paladin', 'wizard']);
@@ -253,6 +326,7 @@ const spellFilterOptions: Array<{ id: SpellFilter; label: string }> = [
   { id: 'all', label: '전체' },
   { id: 'cantrip', label: '소마법' },
   { id: 'level1', label: '1레벨 마법' },
+  { id: 'level2', label: '2레벨 마법' },
   { id: 'level3', label: '3레벨 마법' },
 ];
 
@@ -269,6 +343,24 @@ const combatActionIconNames: Partial<Record<string, GameIconName>> = {
   넘어짐: 'game-icons:falling',
   화상: 'game-icons:burning-round-shot',
   'Second Wind': 'game-icons:health-increase',
+  Rage: 'game-icons:muscle-up',
+  Frenzy: 'game-icons:axe-swing',
+  'Bardic Inspiration': 'game-icons:sing',
+  'Channel Divinity': 'game-icons:holy-symbol',
+  'Preserve Life': 'game-icons:holy-symbol',
+  'Wild Shape': 'game-icons:wolf-head',
+  Ki: 'game-icons:monk-face',
+  'Patient Defense': 'game-icons:dodge',
+  'Step of the Wind': 'game-icons:wind-slap',
+  'Divine Sense': 'game-icons:divine-sight',
+  'Lay on Hands': 'game-icons:healing',
+  'Primeval Awareness': 'game-icons:forest',
+  'Action Surge': 'game-icons:winged-sword',
+  'Sneak Attack': 'game-icons:sharp-smile',
+  'Cunning Dash': 'game-icons:sprint',
+  'Cunning Disengage': 'game-icons:dodging',
+  'Cunning Hide': 'game-icons:hidden',
+  'Create Spell Slot': 'game-icons:magic-swirl',
   'Chill Touch': 'game-icons:ice-bolt',
   'Fire Bolt': 'game-icons:fireball',
   'Ray of Frost': 'game-icons:ice-bolt',
@@ -351,6 +443,10 @@ function normalizeClassKey(value: string | null | undefined) {
   return (value ?? '').trim().toLowerCase().replace(/\s+/g, '-');
 }
 
+function hasCharacterFeature(character: SessionCharacterResponseDto, featureId: string) {
+  return character.features.some((feature) => feature === featureId);
+}
+
 function getClassAbilityButtons(
   character: SessionCharacterResponseDto | null,
   participantConditions: string[] | undefined
@@ -360,7 +456,72 @@ function getClassAbilityButtons(
   const classKey = normalizeClassKey(character.className);
   const buttons: CombatAbilityButton[] = [];
 
-  if (classKey.includes('fighter')) {
+  if (classKey.includes('barbarian') && hasCharacterFeature(character, 'class.barbarian.feature.rage')) {
+    buttons.push({
+      key: 'rage',
+      label: 'Rage',
+      action: 'rage',
+      title: 'Bonus Action으로 격노를 시작합니다. 피해 저항 태그와 자원 소모가 서버에 기록됩니다.',
+      requiresBonusAction: true,
+      disabled:
+        (participantConditions ?? []).includes('rage') ||
+        (participantConditions ?? []).includes('condition.rage'),
+    });
+  }
+
+  if (
+    classKey.includes('barbarian') &&
+    hasCharacterFeature(character, 'class.barbarian.subclass_feature.frenzy')
+  ) {
+    buttons.push({
+      key: 'frenzy',
+      label: 'Frenzy',
+      action: 'frenzy',
+      title: 'Rage 중 Frenzy를 선언해 이후 턴에 보너스 행동 근접 공격을 사용할 수 있게 합니다.',
+      disabled:
+        !(participantConditions ?? []).includes('rage') ||
+        (participantConditions ?? []).includes('frenzy'),
+    });
+  }
+
+  if (classKey.includes('bard') && hasCharacterFeature(character, 'class.bard.feature.bardic_inspiration')) {
+    buttons.push({
+      key: 'bardic_inspiration',
+      label: 'Bardic Inspiration',
+      action: 'bardic_inspiration',
+      title: 'Bonus Action으로 아군에게 d6를 부여합니다. 다음 공격 굴림에 자동 적용됩니다.',
+      requiresBonusAction: true,
+    });
+  }
+
+  if (
+    classKey.includes('cleric') &&
+    hasCharacterFeature(character, 'class.cleric.feature.channel_divinity')
+  ) {
+    buttons.push({
+      key: 'cleric_channel_divinity',
+      label: 'Preserve Life',
+      action: 'channel_divinity',
+      title: 'Channel Divinity를 소모해 자신을 최대 HP 절반까지 회복합니다.',
+      requiresAction: true,
+      disabled: (participantConditions ?? []).includes(
+        'resource:channel_divinity_expended'
+      ),
+    });
+  }
+
+  if (classKey.includes('druid') && hasCharacterFeature(character, 'class.druid.feature.wild_shape')) {
+    buttons.push({
+      key: 'wild_shape',
+      label: 'Wild Shape',
+      action: 'wild_shape',
+      title: 'Action으로 늑대 형태가 되어 형태 HP 11, 이동 40ft, 물기 공격을 얻습니다.',
+      requiresAction: true,
+      disabled: (participantConditions ?? []).includes('wild_shape:wolf'),
+    });
+  }
+
+  if (classKey.includes('fighter') && hasCharacterFeature(character, 'class.fighter.feature.second_wind')) {
     buttons.push({
       key: 'second_wind',
       label: 'Second Wind',
@@ -371,15 +532,117 @@ function getClassAbilityButtons(
     });
   }
 
-  if (classKey.includes('rogue')) {
+  if (classKey.includes('fighter') && hasCharacterFeature(character, 'class.fighter.feature.action_surge')) {
+    buttons.push({
+      key: 'action_surge',
+      label: 'Action Surge',
+      action: 'action_surge',
+      title: '추가 Action을 얻습니다. 같은 턴에 한 번만 사용할 수 있습니다.',
+      disabled:
+        (participantConditions ?? []).includes('resource:action_surge_expended') ||
+        (participantConditions ?? []).includes('action_surge:additional_action_granted'),
+    });
+  }
+
+  if (classKey.includes('monk') && hasCharacterFeature(character, 'class.monk.feature.ki')) {
+    buttons.push(
+      {
+        key: 'ki_patient_defense',
+        label: 'Patient Defense',
+        action: 'ki_patient_defense',
+        title: 'Ki 1점을 소모하고 Bonus Action으로 Dodge를 사용합니다.',
+        requiresBonusAction: true,
+      },
+      {
+        key: 'ki_step_of_wind',
+        label: 'Step of the Wind',
+        action: 'ki_step_of_wind',
+        title: 'Ki 1점을 소모하고 Bonus Action으로 Disengage를 사용합니다.',
+        requiresBonusAction: true,
+      }
+    );
+  }
+
+  if (classKey.includes('paladin') && hasCharacterFeature(character, 'class.paladin.feature.divine_sense')) {
+    buttons.push({
+      key: 'divine_sense',
+      label: 'Divine Sense',
+      action: 'divine_sense',
+      title: 'Action으로 60ft 안의 celestial/fiend/undead 존재를 감지합니다.',
+      requiresAction: true,
+      disabled: (participantConditions ?? []).includes('resource:divine_sense_expended'),
+    });
+  }
+
+  if (classKey.includes('paladin') && hasCharacterFeature(character, 'class.paladin.feature.lay_on_hands')) {
+    buttons.push({
+      key: 'lay_on_hands',
+      label: 'Lay on Hands',
+      action: 'lay_on_hands',
+      title: 'Action으로 남은 Lay on Hands 회복 풀을 자신에게 사용합니다.',
+      requiresAction: true,
+      disabled: (participantConditions ?? []).includes('resource:lay_on_hands_expended'),
+    });
+  }
+
+  if (classKey.includes('ranger') && hasCharacterFeature(character, 'class.ranger.feature.primeval_awareness')) {
+    buttons.push({
+      key: 'primeval_awareness',
+      label: 'Primeval Awareness',
+      action: 'primeval_awareness',
+      title: 'Action과 1레벨 주문 슬롯을 소모해 주변의 특정 생물 유형을 감지합니다.',
+      requiresAction: true,
+    });
+  }
+
+  if (classKey.includes('rogue') && hasCharacterFeature(character, 'class.rogue.feature.sneak_attack')) {
     buttons.push({
       key: 'sneak_attack',
-      label: '암습',
+      label: 'Sneak Attack',
       action: 'sneak_attack',
       title:
         'Action을 사용해 이점이 있는 finesse 또는 원거리 무기 공격을 합니다. 명중하면 턴당 한 번 추가 피해를 줍니다.',
       requiresAction: true,
       disabled: participantConditions?.includes('resource:sneak_attack_expended'),
+    });
+  }
+
+  if (classKey.includes('rogue') && hasCharacterFeature(character, 'class.rogue.feature.cunning_action')) {
+    buttons.push(
+      {
+        key: 'cunning_dash',
+        label: 'Cunning Dash',
+        action: 'cunning_dash',
+        title: 'Bonus Action으로 Dash를 선언합니다.',
+        requiresBonusAction: true,
+      },
+      {
+        key: 'cunning_disengage',
+        label: 'Cunning Disengage',
+        action: 'cunning_disengage',
+        title: 'Bonus Action으로 Disengage를 선언합니다.',
+        requiresBonusAction: true,
+      },
+      {
+        key: 'cunning_hide',
+        label: 'Cunning Hide',
+        action: 'cunning_hide',
+        title: 'Bonus Action으로 Hide를 선언합니다.',
+        requiresBonusAction: true,
+      }
+    );
+  }
+
+  if (
+    classKey.includes('sorcerer') &&
+    hasCharacterFeature(character, 'class.sorcerer.feature.font_of_magic')
+  ) {
+    buttons.push({
+      key: 'font_of_magic',
+      label: 'Create Spell Slot',
+      action: 'font_of_magic',
+      title: '소서리 포인트 2점과 Bonus Action을 사용해 1레벨 주문 슬롯 하나를 회복합니다.',
+      requiresBonusAction: true,
     });
   }
 
@@ -470,6 +733,30 @@ function getSpellTargetingHint(spellId: string) {
   }
   if (spellId === 'spell.bane') {
     return '30ft 안의 적 토큰을 선택하세요. 매력 내성 실패 시 공격 굴림과 내성 굴림에서 매번 1d4를 뺍니다.';
+  }
+  if (spellId === 'spell.guiding_bolt') {
+    return '120ft 안의 적 토큰을 선택하세요. 명중하면 다음 공격이 이점을 얻습니다.';
+  }
+  if (spellId === 'spell.inflict_wounds') {
+    return '접촉 가능한 적 토큰을 선택하세요.';
+  }
+  if (spellId === 'spell.healing_word') {
+    return '60ft 안의 아군 또는 자기 토큰을 선택하세요. Bonus Action을 사용합니다.';
+  }
+  if (spellId === 'spell.command' || spellId === 'spell.hold_person') {
+    return '60ft 안의 적 토큰을 선택하세요. 대상은 지혜 내성을 굴립니다.';
+  }
+  if (spellId === 'spell.web') {
+    return '60ft 안의 시작 타일을 선택하세요. 20ft cube가 험지가 되고 대상이 구속될 수 있습니다.';
+  }
+  if (spellId === 'spell.misty_step') {
+    return '30ft 안의 빈 타일을 선택하세요. Bonus Action으로 그 지점으로 순간이동합니다.';
+  }
+  if (spellId === 'spell.scorching_ray') {
+    return '120ft 안의 적 토큰을 선택하세요. 광선 공격 굴림을 처리합니다.';
+  }
+  if (spellId === 'spell.dispel_magic') {
+    return '120ft 안에서 해제할 주문 효과가 걸린 토큰을 선택하세요.';
   }
   return '사거리 안의 타일 또는 대상을 선택하세요.';
 }
@@ -854,6 +1141,8 @@ export function CombatNodeSurface({
   const [selectedMapSelection, setSelectedMapSelection] = useState<BattleMapSelection | null>(null);
   const [isAttackTargeting, setAttackTargeting] = useState(false);
   const [isSneakAttackTargeting, setSneakAttackTargeting] = useState(false);
+  const [isBardicInspirationTargeting, setBardicInspirationTargeting] =
+    useState(false);
   const [targetingSpellId, setTargetingSpellId] = useState<string | null>(null);
   const [gmHpValue, setGmHpValue] = useState(0);
   const [spellSlotLevelBySpellId, setSpellSlotLevelBySpellId] = useState<Record<string, number>>({});
@@ -870,6 +1159,7 @@ export function CombatNodeSurface({
         const spellLevel = getSpellLevel(label);
         if (spellFilter === 'cantrip') return spellLevel === 0;
         if (spellFilter === 'level1') return spellLevel === 1;
+        if (spellFilter === 'level2') return spellLevel === 2;
         if (spellFilter === 'level3') return spellLevel === 3;
         return true;
       }),
@@ -1060,6 +1350,9 @@ export function CombatNodeSurface({
   const canUseAction = Boolean(
     canControlActiveActor && activeActionResources?.actionAvailable && !isCombatBusy
   );
+  const canUseBonusAction = Boolean(
+    canControlActiveActor && activeActionResources?.bonusActionAvailable && !isCombatBusy
+  );
   const canUseSneakAttack = Boolean(
     canUsePlayerCharacterActions &&
     myActionResources?.actionAvailable &&
@@ -1140,7 +1433,7 @@ export function CombatNodeSurface({
   };
   const isMonsterTargetedAction = (monsterAction: CombatMonsterAction) =>
     monsterAction.targetKind
-      ? monsterAction.targetKind === 'single_target'
+      ? monsterAction.targetKind === 'single_target' || monsterAction.targetKind === 'area'
       : monsterAction.attackKind !== 'special' || monsterAction.specialType === 'multiattack';
   const isMonsterSelfAction = (monsterAction: CombatMonsterAction) =>
     monsterAction.targetKind
@@ -1518,6 +1811,7 @@ export function CombatNodeSurface({
   function runEquippedWeaponAttack(targetParticipantId: string) {
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
+    setBardicInspirationTargeting(false);
     setTargetingSpellId(null);
     setTargetingMonsterActionId(null);
     void onAttackWithEquippedWeapon(targetParticipantId);
@@ -1526,6 +1820,7 @@ export function CombatNodeSurface({
   function runOffhandWeaponAttack(targetParticipantId: string) {
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
+    setBardicInspirationTargeting(false);
     setTargetingSpellId(null);
     setTargetingMonsterActionId(null);
     void onAttackWithOffhandWeapon(targetParticipantId);
@@ -1534,6 +1829,7 @@ export function CombatNodeSurface({
   function runSneakAttack(targetParticipantId: string) {
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
+    setBardicInspirationTargeting(false);
     setTargetingSpellId(null);
     setTargetingMonsterActionId(null);
     void onSneakAttack(targetParticipantId);
@@ -1546,6 +1842,7 @@ export function CombatNodeSurface({
   ) {
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
+    setBardicInspirationTargeting(false);
     setTargetingSpellId(null);
     setTargetingMonsterActionId(null);
     void onMonsterAction?.(targetParticipantId ?? null, actionType, actionId ?? null);
@@ -1560,6 +1857,7 @@ export function CombatNodeSurface({
     }
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
+    setBardicInspirationTargeting(false);
     setTargetingMonsterActionId(null);
     setTargetingSpellId((current) => (current === spellId ? null : spellId));
   }
@@ -1580,6 +1878,13 @@ export function CombatNodeSurface({
       spellId === 'spell.sacred_flame' ||
       spellId === 'spell.magic_missile' ||
       spellId === 'spell.cure_wounds' ||
+      spellId === 'spell.guiding_bolt' ||
+      spellId === 'spell.inflict_wounds' ||
+      spellId === 'spell.healing_word' ||
+      spellId === 'spell.command' ||
+      spellId === 'spell.hold_person' ||
+      spellId === 'spell.scorching_ray' ||
+      spellId === 'spell.dispel_magic' ||
       spellId === 'spell.bless' ||
       spellId === 'spell.bane'
     ) {
@@ -1588,11 +1893,15 @@ export function CombatNodeSurface({
       if (!participant?.isAlive) return;
       if (
         spellId !== 'spell.cure_wounds' &&
+        spellId !== 'spell.healing_word' &&
+        spellId !== 'spell.dispel_magic' &&
         spellId !== 'spell.bless' &&
         !participant.isHostile
       ) return;
       if (
-        (spellId === 'spell.cure_wounds' || spellId === 'spell.bless') &&
+        (spellId === 'spell.cure_wounds' ||
+          spellId === 'spell.healing_word' ||
+          spellId === 'spell.bless') &&
         participant.isHostile
       ) return;
       if (!isParticipantSpellTargetInRange(participant, spellId)) return;
@@ -1608,7 +1917,9 @@ export function CombatNodeSurface({
       spellId === 'spell.fireball' ||
       spellId === 'spell.burning_hands' ||
       spellId === 'spell.thunderwave' ||
-      spellId === 'spell.entangle'
+      spellId === 'spell.entangle' ||
+      spellId === 'spell.web' ||
+      spellId === 'spell.misty_step'
     ) {
       const point = selection?.point ?? null;
       if (!point || !isPointSpellTargetInRange(point, spellId)) return;
@@ -1643,6 +1954,23 @@ export function CombatNodeSurface({
         setSelectedMapTokenId(null);
       }
       castTargetingSpell(targetingSpellId, selection);
+      return;
+    }
+    if (isBardicInspirationTargeting) {
+      if (selection?.kind !== 'token') return;
+      const participant = getParticipantByTokenId(selection.token.id);
+      if (
+        !participant?.isAlive ||
+        participant.isHostile ||
+        participant.sessionEntityId === myCombatParticipant?.sessionEntityId
+      ) {
+        return;
+      }
+      setBardicInspirationTargeting(false);
+      void onUseClassFeature(
+        'bardic_inspiration',
+        participant.sessionEntityId
+      );
       return;
     }
     if (selection?.kind !== 'token') {
@@ -2058,9 +2386,12 @@ export function CombatNodeSurface({
                           : isSlottedSpell
                             ? 0
                             : Number.POSITIVE_INFINITY;
+                      const usesBonusAction =
+                        spellId === 'spell.healing_word' ||
+                        spellId === 'spell.misty_step';
                       const disabled =
                         !canUsePlayerCharacterActions ||
-                        !canUseAction ||
+                        (usesBonusAction ? !canUseBonusAction : !canUseAction) ||
                         isCombatBusy ||
                         spellId === 'spell.shield' ||
                         (isSlottedSpell && spellSlotRemaining <= 0);
@@ -2130,6 +2461,8 @@ export function CombatNodeSurface({
                     (!ability.requiresBonusAction || myActionResources?.bonusActionAvailable)
                   );
                   const isSneakAttack = ability.action === 'sneak_attack';
+                  const isBardicInspiration =
+                    ability.action === 'bardic_inspiration';
                   const canUseSneakFeature = isSneakAttack
                     ? Boolean(
                         canUseFeature &&
@@ -2141,10 +2474,16 @@ export function CombatNodeSurface({
                     <button
                       type="button"
                       key={ability.key}
-                      className={`combat-action-button has-action-icon${isSneakAttackTargeting && isSneakAttack ? ' targeting' : ''}`}
+                      className={`combat-action-button has-action-icon${
+                        (isSneakAttackTargeting && isSneakAttack) ||
+                        (isBardicInspirationTargeting && isBardicInspiration)
+                          ? ' targeting'
+                          : ''
+                      }`}
                       disabled={!canUseSneakFeature}
                       title={
-                        ability.disabled ||
+                        ability.unavailableReason ??
+                        (ability.disabled ||
                         (isSneakAttack && !myActionResources?.sneakAttackAvailable)
                           ? '이미 사용한 능력입니다.'
                           : isSneakAttack && !isSneakAttackWeaponEquipped
@@ -2155,9 +2494,10 @@ export function CombatNodeSurface({
                                   selectedTargetParticipant &&
                                   !isSelectedTargetSneakAttackEligible
                                 ? '선택한 대상은 현재 암습 조건을 만족하지 않습니다.'
-                                : ability.title
+                                : ability.title)
                       }
                       onClick={() => {
+                        if (!ability.action) return;
                         if (isSneakAttack) {
                           if (canUseSneakAttack && selectedTargetParticipant) {
                             runSneakAttack(selectedTargetParticipant.sessionEntityId);
@@ -2170,7 +2510,34 @@ export function CombatNodeSurface({
                           }
                           return;
                         }
+                        if (isBardicInspiration) {
+                          setAttackTargeting(false);
+                          setSneakAttackTargeting(false);
+                          setTargetingSpellId(null);
+                          setBardicInspirationTargeting((current) => !current);
+                          return;
+                        }
                         if (ability.action === 'second_wind') {
+                          void onUseClassFeature(ability.action);
+                          return;
+                        }
+                        if (
+                          ability.action === 'action_surge' ||
+                          ability.action === 'rage' ||
+                          ability.action === 'frenzy' ||
+                          ability.action === 'cunning_dash' ||
+                          ability.action === 'cunning_disengage' ||
+                          ability.action === 'cunning_hide' ||
+                          ability.action === 'divine_sense' ||
+                          ability.action === 'lay_on_hands' ||
+                          ability.action === 'primeval_awareness' ||
+                          ability.action === 'ki_patient_defense' ||
+                          ability.action === 'ki_step_of_wind' ||
+                          ability.action === 'channel_divinity' ||
+                          ability.action === 'bardic_inspiration' ||
+                          ability.action === 'font_of_magic' ||
+                          ability.action === 'wild_shape'
+                        ) {
                           void onUseClassFeature(ability.action);
                         }
                       }}

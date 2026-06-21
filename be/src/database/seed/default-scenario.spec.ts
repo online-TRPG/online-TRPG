@@ -11,6 +11,9 @@ import { DiceService } from "../../modules/rules/dice.service";
 import { MapPositionService } from "../../modules/rules/map-position.service";
 import { RuleEngineService } from "../../modules/rules/rule-engine.service";
 import {
+  P1_ONESHOT_BOSS_NODE_ID,
+  P1_ONESHOT_SCENARIO_ID,
+  P1_ONESHOT_START_NODE_ID,
   RULE_RUNTIME_SMOKE_SCENARIO_ID,
   RULE_RUNTIME_SMOKE_START_NODE_ID,
   seedDefaultScenario,
@@ -249,6 +252,71 @@ describe("default scenario seed", () => {
 
     expect(commandTargetIds.length).toBeGreaterThan(0);
     expect(commandTargetIds.every((targetId) => tokenIds.has(targetId))).toBe(true);
+  });
+
+  it("seeds the P1 user-facing oneshot with level 3 flow, maps, and representative monsters", async () => {
+    const { scenarioUpserts, scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
+
+    expect(scenarioUpserts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          where: { id: P1_ONESHOT_SCENARIO_ID },
+          update: expect.objectContaining({
+            startLevel: 3,
+            recommendedEndLevel: 3,
+            startNodeId: P1_ONESHOT_START_NODE_ID,
+          }),
+        }),
+      ]),
+    );
+
+    const p1Nodes = scenarioNodeUpserts
+      .map((args) => args.create)
+      .filter((node): node is Record<string, unknown> => node?.scenarioId === P1_ONESHOT_SCENARIO_ID);
+
+    expect(p1Nodes.map((node) => node.id)).toEqual([
+      P1_ONESHOT_START_NODE_ID,
+      "node_p1_ember_market",
+      "node_p1_ember_ambush",
+      "node_p1_ember_rest",
+      P1_ONESHOT_BOSS_NODE_ID,
+      "node_p1_ember_end",
+    ]);
+
+    const combatMonsterIds = new Set(
+      p1Nodes.flatMap((node) => {
+        const options = JSON.parse(String(node.checkOptionsJson ?? "{}")) as {
+          vttMap?: { tokens?: Array<{ monster?: { id?: string } }> };
+        };
+        return options.vttMap?.tokens?.map((token) => token.monster?.id).filter(Boolean) ?? [];
+      }),
+    );
+
+    expect(combatMonsterIds).toEqual(
+      new Set([
+        "monster.orc",
+        "monster.skeleton",
+        "monster.wolf",
+        "monster.dragon_whelp",
+        "monster.cultist",
+        "monster.giant_spider",
+      ]),
+    );
+
+    const restNode = p1Nodes.find((node) => node.id === "node_p1_ember_rest");
+    const bossNode = p1Nodes.find((node) => node.id === P1_ONESHOT_BOSS_NODE_ID);
+    const restMeta = JSON.parse(String(restNode?.nodeMetaJson ?? "{}")) as {
+      p1Scenario?: { verifies?: string[] };
+    };
+    const bossMeta = JSON.parse(String(bossNode?.nodeMetaJson ?? "{}")) as {
+      p1Scenario?: { usefulSpells?: string[]; verifies?: string[] };
+    };
+
+    expect(restMeta.p1Scenario?.verifies).toEqual(expect.arrayContaining(["short-rest"]));
+    expect(bossMeta.p1Scenario?.usefulSpells).toEqual(
+      expect.arrayContaining(["spell.web", "spell.hold_person", "spell.dispel_magic"]),
+    );
+    expect(bossMeta.p1Scenario?.verifies).toEqual(expect.arrayContaining(["recharge", "human-gm-override"]));
   });
 
   it("uses a single suggestedCommands smoke metadata field for executable smoke commands", async () => {

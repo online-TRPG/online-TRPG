@@ -183,6 +183,23 @@ describe("CommandParserService", () => {
     });
   });
 
+  it.each([
+    ["divine_sense", "class.paladin.feature.divine_sense"],
+    ["lay_on_hands", "class.paladin.feature.lay_on_hands"],
+    ["primeval_awareness", "class.ranger.feature.primeval_awareness"],
+    ["ki", "class.monk.feature.ki"],
+    ["channel_divinity", "class.cleric.feature.channel_divinity"],
+    ["bardic_inspiration", "class.bard.feature.bardic_inspiration"],
+    ["font_of_magic", "class.sorcerer.feature.font_of_magic"],
+    ["wild_shape", "class.druid.feature.wild_shape"],
+  ])("parses the P1 class feature command %s", (command, featureId) => {
+    expect(service.parse(`/feature ${command}`)).toEqual({
+      type: "use_class_feature",
+      featureId,
+      option: null,
+    });
+  });
+
   it("parses rest commands", () => {
     expect(service.parse("/rest short")).toEqual({
       type: "rest",

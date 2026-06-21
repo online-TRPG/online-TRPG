@@ -28,8 +28,16 @@ export type ExecutableMonsterAction = {
 
 const MONSTER_ACTION_PREFERENCES: Record<string, string[]> = {
   "monster.giant_rat": ["action.bite"],
-  "monster.giant_spider": ["action.bite"],
+  "monster.giant_spider": ["action.web", "action.bite"],
   "monster.goblin": ["action.scimitar", "action.shortbow", "monster.goblin.ability.nimble_escape"],
+  "monster.orc": ["action.greataxe", "action.javelin"],
+  "monster.wolf": ["action.bite"],
+  "monster.skeleton": ["action.shortbow", "action.shortsword"],
+  "monster.zombie": ["action.slam"],
+  "monster.brown_bear": ["monster.brown_bear.ability.multiattack", "action.claws", "action.bite"],
+  "monster.dragon_whelp": ["action.fire_breath", "action.bite"],
+  "monster.cultist": ["action.scimitar"],
+  "monster.ogre": ["action.greatclub", "action.javelin"],
 };
 
 @Injectable()
@@ -89,7 +97,14 @@ export class MonsterAbilityService {
     const actionId = this.readStringTag(entry.runtimeEffect.tags, "srd_action_id:") ?? entry.id;
     const attackKind = this.resolveAttackKind(entry);
     const monsterId = entry.levelRequirement.monsterId ?? null;
-    const isSpecial = !attackKind && entry.cost.type !== "none";
+    const isLifecyclePassive = entry.runtimeEffect.tags.some(
+      (tag) =>
+        tag.startsWith("aura:") ||
+        tag.startsWith("trigger:on_turn_start") ||
+        tag.startsWith("trigger:on_turn_end"),
+    );
+    const isSpecial =
+      !attackKind && (entry.cost.type !== "none" || isLifecyclePassive);
 
     if (!monsterId || (!attackKind && !isSpecial) || (attackKind && attackBonus === null)) {
       return null;
@@ -129,6 +144,11 @@ export class MonsterAbilityService {
     if (entry.runtimeEffect.tags.includes("attack:ranged_weapon")) {
       return "ranged_weapon";
     }
+    if (entry.runtimeEffect.tags.includes("attack:melee_or_ranged_weapon")) {
+      return entry.targeting.type === "creature" && (entry.targeting.rangeFt ?? 0) > 5
+        ? "ranged_weapon"
+        : "melee_weapon";
+    }
     return null;
   }
 
@@ -159,6 +179,14 @@ export class MonsterAbilityService {
     if (entry.runtimeEffect.tags.some((tag) => tag.startsWith("multiattack:"))) {
       return "multiattack";
     }
+    if (
+      entry.targeting.type === "area" &&
+      entry.damage &&
+      entry.save &&
+      entry.runtimeEffect.tags.some((tag) => tag.startsWith("area:"))
+    ) {
+      return "area_attack";
+    }
     return null;
   }
 
@@ -166,6 +194,13 @@ export class MonsterAbilityService {
     return [
       ...this.readPrefixedTags(entry.runtimeEffect.tags, "option:"),
       ...this.readPrefixedTags(entry.runtimeEffect.tags, "effect:"),
+      ...entry.runtimeEffect.tags.filter(
+        (tag) =>
+          tag.startsWith("area:") ||
+          tag === "half_damage_on_success" ||
+          tag.startsWith("aura:") ||
+          tag.startsWith("trigger:"),
+      ),
       ...entry.runtimeEffect.tags.filter((tag) => tag.startsWith("multiattack:")),
     ];
   }

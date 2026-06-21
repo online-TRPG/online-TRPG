@@ -602,6 +602,21 @@ export class CommandParserService {
       cunning_action: "class.rogue.feature.cunning_action",
       cunningaction: "class.rogue.feature.cunning_action",
       frenzy: "class.barbarian.subclass_feature.frenzy",
+      divine_sense: "class.paladin.feature.divine_sense",
+      divinesense: "class.paladin.feature.divine_sense",
+      lay_on_hands: "class.paladin.feature.lay_on_hands",
+      layonhands: "class.paladin.feature.lay_on_hands",
+      primeval_awareness: "class.ranger.feature.primeval_awareness",
+      primevalawareness: "class.ranger.feature.primeval_awareness",
+      ki: "class.monk.feature.ki",
+      channel_divinity: "class.cleric.feature.channel_divinity",
+      channeldivinity: "class.cleric.feature.channel_divinity",
+      bardic_inspiration: "class.bard.feature.bardic_inspiration",
+      bardicinspiration: "class.bard.feature.bardic_inspiration",
+      font_of_magic: "class.sorcerer.feature.font_of_magic",
+      fontofmagic: "class.sorcerer.feature.font_of_magic",
+      wild_shape: "class.druid.feature.wild_shape",
+      wildshape: "class.druid.feature.wild_shape",
     };
 
     return featureIds[normalized] ?? normalized;

@@ -69,6 +69,7 @@ const createCharacter = (
       id: overrides.character?.id ?? "character-1",
       name: characterName,
       className: overrides.character?.className ?? "fighter",
+      subclassName: overrides.character?.subclassName ?? null,
       level: overrides.character?.level ?? 1,
       maxHp: overrides.character?.maxHp ?? 10,
       abilitiesJson:
@@ -2617,6 +2618,257 @@ describe("ActionRuleService", () => {
     expect(result.narration).toBe("Frenzy는 Rage 상태에서만 사용할 수 있습니다.");
   });
 
+  it("uses Lay on Hands as a self heal and records its long-rest resource", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "paladin",
+      characterId: "paladin-character",
+      currentHp: 4,
+      character: { className: "paladin", level: 3, maxHp: 20 },
+    });
+
+    const result = service.resolveAction("/feature lay_on_hands", actor, [actor], {
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "paladin",
+        currentHp: 19,
+        conditions: ["resource:lay_on_hands_expended"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+  });
+
+  it("spends a level 1 slot for Primeval Awareness", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "ranger",
+      characterId: "ranger-character",
+      character: { className: "ranger", level: 3 },
+    });
+
+    const result = service.resolveAction(
+      "/feature primeval_awareness",
+      actor,
+      [actor],
+      {
+        spellSlots: { "1": 2 },
+        turnState: {
+          actionUsed: false,
+          bonusActionUsed: false,
+          reactionUsed: false,
+          additionalActionGranted: false,
+          sneakAttackUsed: false,
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SPELL_SLOT", slotLevel: 1 },
+    ]);
+  });
+
+  it("spends monk Ki on Patient Defense and records the spent point", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "monk",
+      characterId: "monk-character",
+      character: { className: "monk", level: 2 },
+    });
+
+    const result = service.resolveAction(
+      "/feature ki patient_defense",
+      actor,
+      [actor],
+      {
+        turnState: {
+          actionUsed: false,
+          bonusActionUsed: false,
+          reactionUsed: false,
+          additionalActionGranted: false,
+          sneakAttackUsed: false,
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "monk",
+        conditions: ["resource:ki_spent:1", "combat:dodge"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_BONUS_ACTION" }]);
+  });
+
+  it("uses Life Cleric Channel Divinity to heal up to half HP", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "cleric",
+      characterId: "cleric-character",
+      currentHp: 2,
+      character: {
+        className: "cleric",
+        subclassName: "life",
+        level: 2,
+        maxHp: 18,
+      },
+    });
+
+    const result = service.resolveAction(
+      "/feature channel_divinity",
+      actor,
+      [actor],
+      {
+        turnState: {
+          actionUsed: false,
+          bonusActionUsed: false,
+          reactionUsed: false,
+          additionalActionGranted: false,
+          sneakAttackUsed: false,
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "cleric",
+        currentHp: 9,
+        conditions: ["resource:channel_divinity_expended"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+  });
+
+  it("grants Bardic Inspiration to an ally and spends one use", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "bard",
+      characterId: "bard-character",
+      character: {
+        className: "bard",
+        level: 2,
+        abilitiesJson: JSON.stringify({ cha: 16 }),
+      },
+    });
+    const ally = createCharacter({
+      id: "ally",
+      characterId: "ally-character",
+      character: { className: "fighter", level: 2 },
+    });
+
+    const result = service.resolveAction(
+      "/feature bardic_inspiration ally",
+      actor,
+      [actor, ally],
+      {
+        turnState: {
+          actionUsed: false,
+          bonusActionUsed: false,
+          reactionUsed: false,
+          additionalActionGranted: false,
+          sneakAttackUsed: false,
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "bard",
+        conditions: ["resource:bardic_inspiration_spent:1"],
+      },
+      {
+        sessionCharacterId: "ally",
+        conditions: ["bardic_inspiration:1d6"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_BONUS_ACTION" }]);
+  });
+
+  it("converts sorcery points into a level 1 spell slot", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "sorcerer",
+      characterId: "sorcerer-character",
+      character: { className: "sorcerer", level: 2 },
+    });
+
+    const result = service.resolveAction(
+      "/feature font_of_magic",
+      actor,
+      [actor],
+      {
+        spellSlots: { "1": 1 },
+        spellSlotMaximums: { "1": 3 },
+        turnState: {
+          actionUsed: false,
+          bonusActionUsed: false,
+          reactionUsed: false,
+          additionalActionGranted: false,
+          sneakAttackUsed: false,
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "sorcerer",
+        conditions: ["resource:sorcery_points_spent:2"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_BONUS_ACTION" },
+      { type: "RESTORE_SPELL_SLOT", slotLevel: 1, amount: 1 },
+    ]);
+  });
+
+  it("uses Wild Shape to enter wolf form with form HP", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "druid",
+      characterId: "druid-character",
+      character: { className: "druid", level: 2 },
+    });
+
+    const result = service.resolveAction("/feature wild_shape", actor, [actor], {
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "druid",
+        tempHp: 11,
+        conditions: [
+          "resource:wild_shape_spent:1",
+          "wild_shape:wolf",
+          "movement_speed_override:40",
+        ],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+  });
+
   it("recovers short rest resources without changing HP", () => {
     const service = createService([]);
     const actor = createCharacter({
@@ -2643,6 +2895,7 @@ describe("ActionRuleService", () => {
     expect(result.runtimeEffects).toEqual([
       {
         type: "RECOVER_SHORT_REST",
+        secondWindAvailable: true,
         actionSurgeUses: 1,
       },
     ]);
@@ -2700,6 +2953,7 @@ describe("ActionRuleService", () => {
     expect(result.runtimeEffects).toEqual([
       {
         type: "RECOVER_SHORT_REST",
+        secondWindAvailable: true,
         actionSurgeUses: 1,
         hitDiceSpent: 3,
       },
@@ -2752,6 +3006,7 @@ describe("ActionRuleService", () => {
     expect(result.runtimeEffects).toEqual([
       {
         type: "RECOVER_SHORT_REST",
+        secondWindAvailable: false,
         actionSurgeUses: 1,
       },
     ]);
@@ -2760,6 +3015,37 @@ describe("ActionRuleService", () => {
         actionSurgeUses: 1,
       },
     });
+  });
+
+  it("uses Arcane Recovery once to restore the highest affordable slot", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "wizard",
+      characterId: "wizard-character",
+      character: {
+        className: "wizard",
+        level: 3,
+      },
+    });
+
+    const result = service.resolveAction("/rest short", actor, [actor], {
+      spellSlots: { "1": 2, "2": 0 },
+      spellSlotMaximums: { "1": 4, "2": 2 },
+    });
+
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "wizard",
+        conditions: ["resource:arcane_recovery_expended"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      expect.objectContaining({
+        type: "RECOVER_SHORT_REST",
+        recoverSpellSlotLevel: 2,
+        spellRecoveryFeatureId: "class.wizard.feature.arcane_recovery",
+      }),
+    ]);
   });
 
   it("recovers long rest HP, class resources, and clears Rage tags", () => {
@@ -2805,6 +3091,7 @@ describe("ActionRuleService", () => {
     expect(result.runtimeEffects).toEqual([
       {
         type: "RECOVER_LONG_REST",
+        secondWindAvailable: false,
         actionSurgeUses: 0,
         hitDiceSpent: 0,
         rageUses: 4,
@@ -2880,6 +3167,7 @@ describe("ActionRuleService", () => {
     expect(result.runtimeEffects).toEqual([
       {
         type: "RECOVER_LONG_REST",
+        secondWindAvailable: false,
         actionSurgeUses: 0,
         rageUses: 3,
         reduceExhaustionBy: 0,

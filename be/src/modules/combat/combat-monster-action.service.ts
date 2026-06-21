@@ -31,12 +31,24 @@ export class CombatMonsterActionService {
     participant: MonsterActionParticipant,
     token: VttMapStateDto["tokens"][number] | null,
     preferredActionId?: string | null,
+    flags: Record<string, unknown> = {},
   ): SrdEngineExecutableMonsterAction {
     const monsterId = token?.monster?.id ?? this.inferMvpMonsterId(participant.nameSnapshot);
-    const action =
+    let action =
       this.monsterAbilities.chooseAction(monsterId, preferredActionId) ??
       this.srdEngine.chooseMvpMonsterAction(monsterId, preferredActionId) ??
       this.buildFallbackMonsterAction(monsterId, participant.nameSnapshot);
+    if (
+      !preferredActionId &&
+      action &&
+      this.resolveMonsterActionUnavailableReason(participant, action, flags)
+    ) {
+      action = this.listExecutableActionsForParticipant(participant, token).find(
+        (candidate) =>
+          candidate.costType !== "none" &&
+          !this.resolveMonsterActionUnavailableReason(participant, candidate, flags),
+      ) ?? action;
+    }
     if (!action) {
       throw unprocessable("COMBAT_422", "실행 가능한 몬스터 행동이 없습니다.", {
         reason: "EXECUTABLE_MONSTER_ACTION_NOT_FOUND",
@@ -76,6 +88,9 @@ export class CombatMonsterActionService {
 
     return actions
       .filter((action) => {
+        if (action.costType === "none") {
+          return false;
+        }
         if (!action.actionId || seenActionIds.has(action.actionId)) {
           return false;
         }

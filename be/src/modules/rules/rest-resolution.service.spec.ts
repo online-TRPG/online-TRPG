@@ -16,6 +16,7 @@ describe("RestResolutionService", () => {
           actionSurgeUses: 0,
         },
         resourceMaximums: {
+          secondWindAvailable: true,
           actionSurgeUses: 1,
         },
         spellSlots: { "1": 0 },
@@ -156,6 +157,7 @@ describe("RestResolutionService", () => {
           exhaustionLevel: 2,
         },
         resourceMaximums: {
+          secondWindAvailable: true,
           actionSurgeUses: 1,
           rageUses: 3,
         },
@@ -205,6 +207,30 @@ describe("RestResolutionService", () => {
         exhaustionLevel: 1,
       },
       spellSlots: { "1": 0 },
+      recoveredTags: [],
+    });
+  });
+
+  it("does not grant Second Wind on rest when the actor lacks that class resource", () => {
+    expect(
+      service.resolveRest({
+        restType: "short",
+        currentHp: 10,
+        maxHp: 12,
+        resource: {
+          secondWindAvailable: false,
+          actionSurgeUses: 0,
+        },
+        resourceMaximums: {
+          secondWindAvailable: false,
+          actionSurgeUses: 0,
+        },
+      }),
+    ).toMatchObject({
+      resource: {
+        secondWindAvailable: false,
+        actionSurgeUses: 0,
+      },
       recoveredTags: [],
     });
   });

@@ -3495,6 +3495,124 @@ describe("CombatService lifecycle", () => {
     );
   });
 
+  it("resolves each upcast Scorching Ray as a separate spell attack", async () => {
+    const { service, prisma, sessionsService, actionEconomy } = createService();
+    const caster = createParticipant({
+      id: "participant-1",
+      tokenId: "token-1",
+      sessionCharacterId: "session-character-1",
+      nameSnapshot: "Wizard",
+    });
+    const target = createParticipant({
+      id: "monster-1",
+      tokenId: "token-2",
+      sessionCharacterId: null,
+      entityType: PrismaCombatEntityType.MONSTER,
+      nameSnapshot: "Ogre",
+      currentHp: 40,
+      maxHp: 40,
+      isHostile: true,
+    });
+    const combat = {
+      id: "combat-1",
+      sessionId: "session-1",
+      status: PrismaCombatStatus.ACTIVE,
+      roundNo: 1,
+      turnNo: 1,
+      currentParticipantId: caster.id,
+      participants: [caster, target],
+    };
+    const map = {
+      id: "map-1",
+      gridType: "square" as const,
+      gridSize: 50,
+      width: 500,
+      height: 500,
+      tokens: [
+        { id: "token-1", sessionCharacterId: "session-character-1", x: 0, y: 0, size: 50, hidden: false },
+        { id: "token-2", x: 100, y: 0, size: 50, hidden: false },
+      ],
+      fogRects: [],
+      updatedAt: "2026-06-21T00:00:00.000Z",
+    };
+    sessionsService.getSessionEntityOrThrow.mockResolvedValue({
+      id: "session-1",
+      hostUserId: "host-user",
+    });
+    sessionsService.getGameStateEntityOrThrow.mockResolvedValue({
+      sessionScenario: { id: "session-scenario-1" },
+      state: {
+        flagsJson: JSON.stringify({
+          spellSlotsBySessionCharacterId: {
+            "session-character-1": { "3": 1 },
+          },
+        }),
+        currentNodeId: null,
+      },
+    });
+    sessionsService.getVttMapForUser.mockResolvedValue(map);
+    prisma.combat.findFirst.mockResolvedValue(combat);
+    prisma.sessionCharacter.findUnique.mockResolvedValue({
+      id: "session-character-1",
+      userId: "user-1",
+      character: {
+        ownerUserId: "user-1",
+        className: "Wizard",
+        spellsJson: JSON.stringify({ spells: ["spell.scorching_ray"] }),
+        abilitiesJson: JSON.stringify({ int: 16 }),
+        proficiencyBonus: 3,
+        level: 5,
+      },
+    });
+    const resolveAttack = jest.spyOn(service, "resolveAttack").mockResolvedValue({
+      combat: {
+        combatId: "combat-1",
+        status: "ACTIVE",
+      },
+      message: "Scorching Ray 명중",
+      attackTotal: 18,
+      damageTotal: 7,
+      turnLogId: "ray-log",
+    } as never);
+
+    const result = await service.castSpell("user-1", "session-1", {
+      spellId: "spell.scorching_ray",
+      slotLevel: 3,
+      targetParticipantIds: ["monster-1"],
+    });
+
+    expect(actionEconomy.spendAction).toHaveBeenCalledTimes(1);
+    expect(resolveAttack).toHaveBeenCalledTimes(4);
+    expect(resolveAttack).toHaveBeenNthCalledWith(
+      1,
+      "user-1",
+      "session-1",
+      expect.objectContaining({
+        targetParticipantId: "monster-1",
+        damageDice: "2d6",
+      }),
+      expect.objectContaining({
+        actionCost: "none",
+        spellId: "spell.scorching_ray",
+        auditMetadata: {
+          baseSpellLevel: 2,
+          slotLevel: 3,
+          rayIndex: 1,
+          rayCount: 4,
+        },
+        shieldContinuation: expect.objectContaining({
+          type: "scorching_ray",
+          remainingTargetParticipantIds: [
+            "monster-1",
+            "monster-1",
+            "monster-1",
+          ],
+        }),
+      }),
+    );
+    expect(result.damageTotal).toBe(28);
+  });
+
   it("upcasts combat Magic Missile with the requested spell slot level", async () => {
     const { service, prisma, sessionsService, diceService, actionEconomy, realtimeEvents, turnLogsService } = createService();
     const caster = createParticipant({
