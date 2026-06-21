@@ -12,6 +12,7 @@ import {
   VttMapStateDto,
 } from "@trpg/shared-types";
 import { conflict, unprocessable } from "../../common/exceptions/domain-error";
+import type { AoeDirection } from "../rules/aoe-targeting.service";
 import type { ConditionInstance } from "../rules/condition-runtime.service";
 import type { SavingThrowAbility } from "../rules/rule-engine.types";
 import type { TerrainEffectTrigger } from "../rules/terrain-effect.service";
@@ -375,7 +376,22 @@ export class CombatTurnService {
 
     const map = await runtime.sessionsService.getVttMapForUser(runtime.getGmRuntimeUserId(session), session.id);
     const token = runtime.combatTargeting.findParticipantToken(map, attacker);
-    const action = runtime.combatMonsterActions.resolveMonsterActionForParticipant(attacker, token, dto.actionId);
+    const { state } = await runtime.sessionsService.getGameStateEntityOrThrow(session.id);
+    let flags: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(state.flagsJson ?? "{}") as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        flags = parsed as Record<string, unknown>;
+      }
+    } catch {
+      flags = {};
+    }
+    const action = runtime.combatMonsterActions.resolveMonsterActionForParticipant(
+      attacker,
+      token,
+      dto.actionId,
+      flags,
+    );
     if (action.attackKind === "special") {
       return runtime.resolveMonsterSpecialAction({
         userId,
@@ -1001,6 +1017,16 @@ export class CombatTurnService {
     },
   ): Promise<CombatActionResultDto> {
     await runtime.ensureActorCanAct(params.userId, params.session.id, params.combat, params.actor);
+    await runtime.combatMonsterResources.assertMonsterRechargeActionAvailable(
+      params.session.id,
+      params.actor,
+      params.action,
+    );
+    await runtime.combatMonsterResources.assertMonsterLimitedUseActionAvailable(
+      params.session.id,
+      params.actor,
+      params.action,
+    );
     const costType = "costType" in params.action && typeof params.action.costType === "string" ? params.action.costType : "action";
     if (costType === "bonus_action") {
       await runtime.spendCurrentBonusActionIfNeeded(params.combat, params.actor);
@@ -1020,6 +1046,12 @@ export class CombatTurnService {
         effectTags,
         targetParticipantId: params.targetParticipantId ?? null,
         autoEndTurn: params.autoEndTurn,
+      });
+    }
+    if (specialType === "area_attack") {
+      return this.resolveMonsterAreaSaveAction(runtime, {
+        ...params,
+        effectTags,
       });
     }
     const condition = specialType === "mobility" && effectTags.includes("disengage") ? COMBAT_CONDITION_DISENGAGE : null;
@@ -1087,6 +1119,244 @@ export class CombatTurnService {
       damageTotal: null,
       turnLogId: turnLog.turnLogId,
     };
+  }
+
+  private async resolveMonsterAreaSaveAction(
+    runtime: CombatTurnRuntime,
+    params: {
+      userId: string;
+      session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
+      combat: NonNullable<CombatWithParticipants>;
+      actor: CombatParticipantEntity;
+      action: SrdEngineExecutableMonsterAction;
+      targetParticipantId?: string | null;
+      autoEndTurn: boolean;
+      effectTags: string[];
+    },
+  ): Promise<CombatActionResultDto> {
+    const saveAbility = runtime.toSavingThrowAbility(params.action.save?.ability);
+    const saveDc = runtime.resolveMonsterActionSaveDc(params.action);
+    const shape = params.effectTags.includes("area:cone")
+      ? "cone"
+      : params.effectTags.includes("area:line")
+        ? "line"
+        : params.effectTags.includes("area:sphere")
+          ? "sphere"
+          : params.effectTags.includes("area:cube")
+            ? "cube"
+            : null;
+    const sizeFt =
+      typeof params.action.rangeFt?.normal === "number" && params.action.rangeFt.normal > 0
+        ? params.action.rangeFt.normal
+        : typeof params.action.reachFt === "number" && params.action.reachFt > 0
+          ? params.action.reachFt
+          : 15;
+
+    if (!saveAbility || saveDc === null || !params.action.damageDice || !shape) {
+      throw unprocessable("COMBAT_422", "몬스터 범위 행동 구성이 올바르지 않습니다.", {
+        reason: "MONSTER_AREA_ACTION_INVALID",
+        actionId: params.action.actionId,
+      });
+    }
+
+    const map = await runtime.sessionsService.getVttMapForUser(
+      runtime.getGmRuntimeUserId(params.session),
+      params.session.id,
+    );
+    const actorToken = runtime.combatTargeting.findParticipantToken(map, params.actor);
+    const anchor =
+      (params.targetParticipantId
+        ? runtime.findCombatParticipantOrThrow(params.combat, params.targetParticipantId)
+        : null) ??
+      params.combat.participants.find(
+        (participant) =>
+          participant.isAlive && participant.isHostile !== params.actor.isHostile,
+      );
+    const anchorToken = anchor
+      ? runtime.combatTargeting.findParticipantToken(map, anchor)
+      : null;
+    if (!actorToken || !anchor || !anchorToken) {
+      throw unprocessable("COMBAT_422", "몬스터 범위 행동의 방향 기준 대상을 찾을 수 없습니다.", {
+        reason: "MONSTER_AREA_TARGET_NOT_FOUND",
+        actionId: params.action.actionId,
+      });
+    }
+
+    const origin = runtime.combatCover.toAoeGridCell(
+      runtime.combatCover.toCoverGridPoint(map, actorToken),
+    );
+    const direction = this.resolveAoeDirection(actorToken, anchorToken);
+    const targeting = runtime.aoeTargeting.resolveTargets({
+      shape,
+      origin,
+      sizeFt,
+      direction,
+      grid: {
+        columns: Math.ceil(map.width / map.gridSize),
+        rows: Math.ceil(map.height / map.gridSize),
+      },
+      tokens: map.tokens.map((token) => ({
+        id: token.id,
+        ...runtime.combatCover.toAoeGridCell(
+          runtime.combatCover.toCoverGridPoint(map, token),
+        ),
+        hidden: token.hidden,
+      })),
+    });
+    const affected = params.combat.participants.filter(
+      (participant) =>
+        participant.id !== params.actor.id &&
+        participant.isAlive &&
+        participant.isHostile !== params.actor.isHostile &&
+        participant.tokenId &&
+        targeting.tokenIds.includes(participant.tokenId),
+    );
+    if (!affected.length) {
+      throw unprocessable("COMBAT_422", "몬스터 범위 행동 안에 유효한 대상이 없습니다.", {
+        reason: "MONSTER_AREA_HAS_NO_TARGETS",
+        actionId: params.action.actionId,
+      });
+    }
+
+    await runtime.combatMonsterResources.assertMonsterRechargeActionAvailable(
+      params.session.id,
+      params.actor,
+      params.action,
+    );
+    await runtime.combatMonsterResources.assertMonsterLimitedUseActionAvailable(
+      params.session.id,
+      params.actor,
+      params.action,
+    );
+    await runtime.combatMonsterResources.recordMonsterRechargeActionExpended(
+      params.session.id,
+      params.combat,
+      params.actor,
+      params.action,
+    );
+    await runtime.combatMonsterResources.recordMonsterLimitedUseActionExpended(
+      params.session.id,
+      params.combat,
+      params.actor,
+      params.action,
+    );
+
+    const targets = await Promise.all(
+      affected.map(async (participant) => {
+        const targetToken = runtime.combatTargeting.findParticipantToken(map, participant);
+        const cover = runtime.combatCover.resolveAoeCover(
+          map,
+          { x: actorToken.x, y: actorToken.y },
+          targetToken,
+          saveAbility === "dex",
+        );
+        return runtime.toCombatAoeDamageTarget(participant, map, saveAbility, cover);
+      }),
+    );
+    const damageType = params.action.damageType ?? "untyped";
+    const resolution = runtime.aoeDamage.resolveDamage({
+      sourceId: params.action.actionId,
+      damageDice: params.action.damageDice,
+      damageType,
+      save: {
+        ability: saveAbility,
+        dc: saveDc,
+        halfDamageOnSuccess: params.effectTags.includes("half_damage_on_success"),
+      },
+      targets,
+    });
+    const applied: string[] = [];
+    for (const targetResult of resolution.targetResults) {
+      const target = affected.find(
+        (participant) => participant.id === targetResult.targetId,
+      );
+      if (!target) {
+        continue;
+      }
+      await runtime.finalizeCombatDamage(params.combat, target, targetResult.finalDamage);
+      applied.push(`${target.nameSnapshot} ${targetResult.finalDamage}`);
+    }
+
+    const { sessionScenario } = await runtime.sessionsService.getGameStateEntityOrThrow(
+      params.session.id,
+    );
+    let updated = await runtime.getActiveCombatEntity(params.session.id);
+    const response = runtime.isCombatResolved(updated)
+      ? await runtime.completeCombatIfResolved(params.session.id, updated)
+      : await (async () => {
+          if (
+            params.autoEndTurn &&
+            updated.status === CombatStatus.ACTIVE &&
+            updated.currentParticipantId === params.actor.id
+          ) {
+            await runtime.advanceCurrentTurn(params.session.id, updated);
+            updated = await runtime.getActiveCombatEntity(params.session.id);
+          }
+          return runtime.mapCombat(updated);
+        })();
+    const message = `${params.actor.nameSnapshot} ${params.action.label}: ${applied.join(", ")} ${damageType} 피해`;
+    const turnLog = await runtime.turnLogsService.createTurnLog({
+      sessionId: params.session.id,
+      sessionScenarioId: sessionScenario.id,
+      actorUserId: params.userId,
+      sessionCharacterId: params.actor.sessionCharacterId ?? null,
+      rawInput: null,
+      structuredAction: {
+        type: "monster_area_attack",
+        actionId: params.action.actionId,
+        monsterId: params.action.monsterId,
+        label: params.action.label,
+        shape,
+        sizeFt,
+        direction,
+        save: params.action.save ?? null,
+        recharge: params.action.recharge ?? null,
+        usage: params.action.usage ?? null,
+        affectedTargetIds: affected.map((participant) => participant.id),
+        targetResults: resolution.targetResults,
+      },
+      diceResult: { ...resolution.damageRoll },
+      outcome: ActionOutcome.SUCCESS,
+      narration: message,
+    });
+    runtime.realtimeEvents.emitDiceRolled(params.session.id, resolution.damageRoll);
+    resolution.targetResults.forEach((target) => {
+      target.modifierRolls.forEach((roll) =>
+        runtime.realtimeEvents.emitDiceRolled(params.session.id, roll),
+      );
+      runtime.realtimeEvents.emitDiceRolled(params.session.id, target.saveRoll);
+    });
+    runtime.realtimeEvents.emitTurnLogCreated(params.session.id, turnLog);
+    runtime.realtimeEvents.emitCombatUpdated(params.session.id, response);
+    runtime.realtimeEvents.emitSessionSnapshot(
+      params.session.id,
+      await runtime.sessionsService.buildSnapshot(params.session.id),
+    );
+
+    return {
+      combat: response,
+      message: params.autoEndTurn ? `${message} / 턴 종료` : message,
+      attackTotal: null,
+      damageTotal: resolution.targetResults.reduce(
+        (total, target) => total + target.finalDamage,
+        0,
+      ),
+      turnLogId: turnLog.turnLogId,
+    };
+  }
+
+  private resolveAoeDirection(
+    source: VttMapStateDto["tokens"][number],
+    target: VttMapStateDto["tokens"][number],
+  ): AoeDirection {
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const horizontal = dx > 0 ? "east" : dx < 0 ? "west" : "";
+    const vertical = dy > 0 ? "south" : dy < 0 ? "north" : "";
+    if (horizontal && vertical) {
+      return `${vertical}_${horizontal}` as AoeDirection;
+    }
+    return (horizontal || vertical || "north") as AoeDirection;
   }
 
   async resolveMonsterMultiattackAction(

@@ -1224,6 +1224,41 @@ describe("ActionProcessorService rest runtime effects", () => {
     expect(result).toMatchObject({ hitDiceSpent: 3 });
   });
 
+  it("does not initialize Second Wind for non-fighter class resources", () => {
+    const { runtimeService } = createService(null);
+
+    const result = (
+      runtimeService as unknown as {
+        resolveInitialResourceDefaults: (actor: {
+          character: {
+            className: string;
+            level: number;
+            featuresJson: string;
+          };
+        }) => {
+          secondWindAvailable: boolean;
+          actionSurgeUses: number;
+          rageUses: number;
+        };
+      }
+    ).resolveInitialResourceDefaults({
+      character: {
+        className: "rogue",
+        level: 3,
+        featuresJson: JSON.stringify([
+          "class.rogue.feature.expertise",
+          "class.rogue.feature.sneak_attack",
+        ]),
+      },
+    });
+
+    expect(result).toEqual({
+      secondWindAvailable: false,
+      actionSurgeUses: 0,
+      rageUses: 0,
+    });
+  });
+
   it("recovers long-rest spell slots by clearing the spent slot override", async () => {
     const { service, prisma } = createService(
       JSON.stringify({
@@ -1245,6 +1280,33 @@ describe("ActionProcessorService rest runtime effects", () => {
             "session-character-2": { "1": 1 },
           },
           unrelatedFlag: true,
+        }),
+      },
+    });
+  });
+
+  it("restores one requested spell slot for class recovery features", async () => {
+    const { service, prisma } = createService(
+      JSON.stringify({
+        spellSlotsBySessionCharacterId: {
+          "session-character-1": { "1": 1, "2": 0 },
+        },
+      }),
+    );
+
+    await service.recoverOneSpellSlot(
+      "session-scenario-1",
+      "session-character-1",
+      2,
+    );
+
+    expect(prisma.gameState.update).toHaveBeenCalledWith({
+      where: { sessionScenarioId: "session-scenario-1" },
+      data: {
+        flagsJson: JSON.stringify({
+          spellSlotsBySessionCharacterId: {
+            "session-character-1": { "1": 1, "2": 1 },
+          },
         }),
       },
     });

@@ -172,6 +172,7 @@ describe("RuleCatalogService", () => {
       "subclass.bard.lore.feature.cutting_words",
       "subclass.cleric.life.feature.bonus_proficiency",
       "subclass.cleric.life.feature.disciple_of_life",
+      "subclass.cleric.life.feature.preserve_life",
       "subclass.druid.land.feature.bonus_cantrip",
       "subclass.druid.land.feature.natural_recovery",
       "subclass.fighter.champion.feature.improved_critical",
@@ -437,6 +438,40 @@ describe("RuleCatalogService", () => {
       passiveTags: [],
     },
     {
+      classKey: "ranger",
+      featureIds: [
+        "class.ranger.feature.favored_enemy",
+        "class.ranger.feature.natural_explorer",
+      ],
+      actionFeatureIds: [],
+      resourceIds: [],
+      passiveTags: [
+        "selection:favored_enemy",
+        "tracking:advantage",
+        "language:choice_one",
+        "selection:favored_terrain",
+        "exploration:expertise:favored_terrain",
+      ],
+    },
+    {
+      classKey: "rogue",
+      featureIds: [
+        "class.rogue.feature.expertise",
+        "class.rogue.feature.sneak_attack",
+        "class.rogue.feature.thieves_cant",
+      ],
+      actionFeatureIds: [],
+      resourceIds: [],
+      passiveTags: [
+        "skill:expertise",
+        "selection:two_proficiencies",
+        "trigger:once_per_turn",
+        "damage:extra:1d6",
+        "scaling:rogue_level",
+        "language:thieves_cant",
+      ],
+    },
+    {
       classKey: "sorcerer",
       featureIds: [
         "class.sorcerer.feature.sorcerous_origin",
@@ -494,6 +529,96 @@ describe("RuleCatalogService", () => {
     });
   });
 
+  it("covers all P1 SRD classes with level 1 through 3 class features", () => {
+    const expectedFeatureIdsByClass: Record<string, string[]> = {
+      barbarian: [
+        "class.barbarian.feature.rage",
+        "class.barbarian.feature.unarmored_defense",
+        "class.barbarian.feature.danger_sense",
+        "class.barbarian.feature.reckless_attack",
+        "class.barbarian.feature.primal_path",
+      ],
+      bard: [
+        "class.bard.feature.bardic_inspiration",
+        "class.bard.feature.spellcasting",
+        "class.bard.feature.jack_of_all_trades",
+        "class.bard.feature.song_of_rest",
+        "class.bard.feature.bard_college",
+        "class.bard.feature.expertise",
+      ],
+      cleric: [
+        "class.cleric.feature.divine_domain",
+        "class.cleric.feature.spellcasting",
+        "class.cleric.feature.channel_divinity",
+      ],
+      druid: [
+        "class.druid.feature.druidic",
+        "class.druid.feature.spellcasting",
+        "class.druid.feature.druid_circle",
+        "class.druid.feature.wild_shape",
+      ],
+      fighter: [
+        "class.fighter.feature.fighting_style",
+        "class.fighter.feature.second_wind",
+        "class.fighter.feature.action_surge",
+        "class.fighter.feature.martial_archetype",
+      ],
+      monk: [
+        "class.monk.feature.martial_arts",
+        "class.monk.feature.unarmored_defense",
+        "class.monk.feature.ki",
+        "class.monk.feature.unarmored_movement",
+        "class.monk.feature.deflect_missiles",
+        "class.monk.feature.monastic_tradition",
+      ],
+      paladin: [
+        "class.paladin.feature.divine_sense",
+        "class.paladin.feature.lay_on_hands",
+        "class.paladin.feature.divine_smite",
+        "class.paladin.feature.fighting_style",
+        "class.paladin.feature.spellcasting",
+        "class.paladin.feature.divine_health",
+        "class.paladin.feature.sacred_oath",
+      ],
+      ranger: [
+        "class.ranger.feature.favored_enemy",
+        "class.ranger.feature.natural_explorer",
+        "class.ranger.feature.fighting_style",
+        "class.ranger.feature.spellcasting",
+        "class.ranger.feature.primeval_awareness",
+        "class.ranger.feature.ranger_archetype",
+      ],
+      rogue: [
+        "class.rogue.feature.expertise",
+        "class.rogue.feature.sneak_attack",
+        "class.rogue.feature.thieves_cant",
+        "class.rogue.feature.cunning_action",
+        "class.rogue.feature.roguish_archetype",
+      ],
+      sorcerer: [
+        "class.sorcerer.feature.sorcerous_origin",
+        "class.sorcerer.feature.spellcasting",
+        "class.sorcerer.feature.font_of_magic",
+        "class.sorcerer.feature.metamagic",
+      ],
+      warlock: [
+        "class.warlock.feature.otherworldly_patron",
+        "class.warlock.feature.pact_magic",
+        "class.warlock.feature.eldritch_invocations",
+        "class.warlock.feature.pact_boon",
+      ],
+      wizard: [
+        "class.wizard.feature.arcane_recovery",
+        "class.wizard.feature.spellcasting",
+        "class.wizard.feature.arcane_tradition",
+      ],
+    };
+
+    for (const [classKey, expectedFeatureIds] of Object.entries(expectedFeatureIdsByClass)) {
+      expect(service.getClassFeatureSnapshot(classKey, 3).featureIds).toEqual(expectedFeatureIds);
+    }
+  });
+
   it("keeps condition definitions in the same catalog id surface", () => {
     const conditions = service.listEntries("condition_definitions").map((entry) => entry.id);
 
@@ -533,12 +658,21 @@ describe("RuleCatalogService", () => {
       "spell.detect_magic",
       "spell.magic_missile",
       "spell.cure_wounds",
+      "spell.guiding_bolt",
+      "spell.inflict_wounds",
+      "spell.healing_word",
+      "spell.command",
       "spell.shield",
       "spell.sleep",
       "spell.burning_hands",
       "spell.thunderwave",
       "spell.entangle",
+      "spell.hold_person",
+      "spell.web",
+      "spell.misty_step",
+      "spell.scorching_ray",
       "spell.fireball",
+      "spell.dispel_magic",
     ]);
 
     expect(service.getEntry("spell.ray_of_frost")).toMatchObject({
@@ -613,8 +747,23 @@ describe("RuleCatalogService", () => {
       "monster.goblin.ability.scimitar",
       "monster.goblin.ability.shortbow",
       "monster.goblin.ability.nimble_escape",
+      "monster.orc.ability.greataxe",
+      "monster.orc.ability.javelin",
+      "monster.wolf.ability.bite",
+      "monster.skeleton.ability.shortsword",
+      "monster.skeleton.ability.shortbow",
+      "monster.zombie.ability.slam",
+      "monster.zombie.ability.undead_fortitude",
       "monster.giant_rat.ability.bite",
+      "monster.giant_spider.ability.web",
       "monster.giant_spider.ability.bite",
+      "monster.dragon_whelp.ability.bite",
+      "monster.dragon_whelp.ability.fire_breath",
+      "monster.dragon_whelp.ability.dark_blessing",
+      "monster.cultist.ability.scimitar",
+      "monster.cultist.ability.dark_devotion",
+      "monster.ogre.ability.greatclub",
+      "monster.ogre.ability.javelin",
     ]);
 
     expect(service.listMonsterAbilities("brown bear").map((entry) => entry.id)).toEqual([
@@ -628,6 +777,32 @@ describe("RuleCatalogService", () => {
       "monster.goblin.ability.scimitar",
       "monster.goblin.ability.shortbow",
     ]);
+
+    expect(service.listMonsterAbilities("dragon whelp").map((entry) => entry.id)).toEqual([
+      "monster.dragon_whelp.ability.bite",
+      "monster.dragon_whelp.ability.dark_blessing",
+      "monster.dragon_whelp.ability.fire_breath",
+    ]);
+
+    expect(service.listMonsterAbilities("giant spider").map((entry) => entry.id)).toEqual([
+      "monster.giant_spider.ability.bite",
+      "monster.giant_spider.ability.web",
+    ]);
+
+    expect(
+      [
+        "monster.goblin",
+        "monster.orc",
+        "monster.wolf",
+        "monster.skeleton",
+        "monster.zombie",
+        "monster.giant_spider",
+        "monster.brown_bear",
+        "monster.dragon_whelp",
+        "monster.cultist",
+        "monster.ogre",
+      ].every((monsterId) => service.listMonsterAbilities(monsterId).length > 0),
+    ).toBe(true);
 
     expect(service.getEntry("monster.goblin.ability.scimitar")).toMatchObject({
       id: "monster.goblin.ability.scimitar",

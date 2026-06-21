@@ -77,6 +77,8 @@ import {
   type PendingMonsterMultiattackContinuation,
   type PendingOpportunityAttackContinuation,
   type PendingOpportunityAttackReaction,
+  type PendingScorchingRayContinuation,
+  type PendingShieldContinuation,
   type PendingShieldReaction,
 } from "./combat-reaction.service";
 import { CombatSpellService } from "./combat-spell.service";
@@ -134,7 +136,15 @@ type ForcedMovementEffectResult = {
   message: string;
 };
 
-const RAGE_CONDITION_TAGS = ["rage", "condition.rage", "resistance:bludgeoning", "resistance:piercing", "resistance:slashing"];
+const RAGE_CONDITION_TAGS = [
+  "rage",
+  "condition.rage",
+  "frenzy",
+  "condition.frenzy",
+  "resistance:bludgeoning",
+  "resistance:piercing",
+  "resistance:slashing",
+];
 
 const DEFAULT_MONSTER_AC = 10;
 const DEFAULT_MONSTER_HP = 1;
@@ -289,7 +299,10 @@ export class CombatService {
       combatMonsterResources: this.combatMonsterResources,
       combatReactions: this.combatReactions,
       combatTargeting: this.combatTargeting,
+      combatCover: this.combatCover,
       combatTerrain: this.combatTerrain,
+      aoeDamage: this.aoeDamage,
+      aoeTargeting: this.aoeTargeting,
       terrainEffects: this.terrainEffects,
       serverAutoMonsterTurnSessions: this.serverAutoMonsterTurnSessions,
       serverAutoMonsterTurnScheduledSessions: this.serverAutoMonsterTurnScheduledSessions,
@@ -301,6 +314,7 @@ export class CombatService {
       resolveMonsterSpecialAction: this.resolveMonsterSpecialAction.bind(this),
       resolveAttack: this.resolveAttack.bind(this),
       resolveParticipantSavingThrowProfile: this.resolveParticipantSavingThrowProfile.bind(this),
+      toCombatAoeDamageTarget: this.toCombatAoeDamageTarget.bind(this),
       selectNaturalD20: this.selectNaturalD20.bind(this),
       ensureActorCanAct: this.ensureActorCanAct.bind(this),
       spendCurrentActionIfNeeded: this.spendCurrentActionIfNeeded.bind(this),
@@ -1340,7 +1354,7 @@ export class CombatService {
       };
       onHitCondition?: ConditionInstance;
       auditMetadata?: Record<string, unknown>;
-      shieldContinuation?: PendingMonsterMultiattackContinuation | null;
+      shieldContinuation?: PendingShieldContinuation | null;
       spellId?: string | null;
       skipActorPermissionCheck?: boolean;
     } = {},
@@ -1864,6 +1878,27 @@ export class CombatService {
       throw notFound("COMBAT_404", "캐릭터 전투 참여자를 찾을 수 없습니다.", {
         reason: "SESSION_CHARACTER_NOT_FOUND",
       });
+    }
+    const activeConditions = this.parseConditions(
+      sessionCharacter.conditionsJson ?? "[]",
+    );
+    if (activeConditions.includes("wild_shape:wolf")) {
+      if (slot === "offhand") {
+        throw conflict("COMBAT_409", "Wild Shape 형태에서는 보조 손 공격을 사용할 수 없습니다.", {
+          reason: "WILD_SHAPE_OFFHAND_UNAVAILABLE",
+        });
+      }
+      return {
+        weaponId: "wild_shape:wolf:bite",
+        name: "Wolf Bite",
+        attackBonus: 4,
+        damageDice: "2d4",
+        damageBonus: 2,
+        rangeFt: 5,
+        properties: ["melee", "natural_weapon"],
+        attackKind: "melee_weapon_attack",
+        isLightMeleeWeapon: false,
+      };
     }
 
     const buildBasicAttackProfile = (): EquippedWeaponProfile => {
@@ -2450,7 +2485,7 @@ export class CombatService {
     damageBonus?: number;
     spellId?: string | null;
     conditionRollModifiers?: PendingShieldReaction["conditionRollModifiers"];
-    continuation?: PendingMonsterMultiattackContinuation | null;
+    continuation?: PendingShieldContinuation | null;
   }): Promise<PendingShieldReaction> {
     const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
       where: { id: params.target.sessionCharacterId ?? "" },
@@ -2569,13 +2604,21 @@ export class CombatService {
     this.realtimeEvents.emitCombatUpdated(sessionId, response);
     this.realtimeEvents.emitSessionSnapshot(sessionId, await this.sessionsService.buildSnapshot(sessionId));
     const map = await this.sessionsService.getVttMapForUser(this.getGmRuntimeUserId(session), sessionId);
-    if (pending.continuation) {
-      const continuationResult = await this.resolvePendingMonsterMultiattackContinuation({
-        session,
-        pending,
-        map,
-        prefixMessage: message,
-      });
+    if (pending.continuation && response.status === CombatStatus.ACTIVE) {
+      const continuationResult =
+        pending.continuation.type === "scorching_ray"
+          ? await this.resolvePendingScorchingRayContinuation({
+              session,
+              pending,
+              map,
+              prefixMessage: message,
+            })
+          : await this.resolvePendingMonsterMultiattackContinuation({
+              session,
+              pending,
+              map,
+              prefixMessage: message,
+            });
       const continuationPrompts = continuationResult.pendingReactions ?? (continuationResult.pendingReaction ? [continuationResult.pendingReaction] : []);
       const combinedPrompts = [...pendingReactions, ...continuationPrompts];
       return {
@@ -2593,6 +2636,96 @@ export class CombatService {
     };
   }
 
+  private async resolvePendingScorchingRayContinuation(params: {
+    session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
+    pending: PendingShieldReaction;
+    map: VttMapStateDto;
+    prefixMessage: string;
+  }): Promise<CombatMoveResultDto> {
+    const continuation = params.pending.continuation;
+    if (!continuation || continuation.type !== "scorching_ray") {
+      return {
+        combat: await this.mapCombat(await this.getActiveCombatEntity(params.session.id)),
+        map: params.map,
+        message: params.prefixMessage,
+        pendingReaction: null,
+      };
+    }
+
+    const results: CombatActionResultDto[] = [];
+    for (
+      let index = 0;
+      index < continuation.remainingTargetParticipantIds.length;
+      index += 1
+    ) {
+      const combat = await this.getActiveCombatEntity(params.session.id);
+      if (this.isCombatResolved(combat)) {
+        break;
+      }
+      const actor = this.findCombatParticipantOrThrow(
+        combat,
+        continuation.actorParticipantId,
+      );
+      const targetId = continuation.remainingTargetParticipantIds[index];
+      const target = combat.participants.find(
+        (participant) => participant.id === targetId && participant.isAlive,
+      );
+      if (!actor.isAlive || !target) {
+        continue;
+      }
+      const remainingTargetParticipantIds =
+        continuation.remainingTargetParticipantIds.slice(index + 1);
+      const nextContinuation: PendingScorchingRayContinuation | null =
+        remainingTargetParticipantIds.length
+          ? {
+              ...continuation,
+              remainingTargetParticipantIds,
+            }
+          : null;
+      const result = await this.resolveAttack(
+        continuation.userId,
+        params.session.id,
+        {
+          attackerParticipantId: actor.id,
+          targetParticipantId: target.id,
+          attackBonus: continuation.attackBonus,
+          damageDice: continuation.damageDice,
+          damageBonus: 0,
+        },
+        {
+          messagePrefix: "Scorching Ray",
+          spellId: "spell.scorching_ray",
+          actionCost: "none",
+          shieldContinuation: nextContinuation,
+        },
+      );
+      results.push(result);
+      if (await this.combatReactions.hasPendingCombatReaction(params.session.id)) {
+        return {
+          combat: result.combat,
+          map: params.map,
+          message: `${params.prefixMessage} / ${result.message}`,
+          pendingReaction: result.pendingReaction ?? null,
+          pendingReactions:
+            result.pendingReactions ??
+            (result.pendingReaction ? [result.pendingReaction] : []),
+        };
+      }
+    }
+
+    const latest = await this.getActiveCombatEntity(params.session.id);
+    const response = await this.completeCombatIfResolved(params.session.id, latest);
+    return {
+      combat: response,
+      map: params.map,
+      message: `${params.prefixMessage}${
+        results.length ? ` / ${results.map((result) => result.message).join(" / ")}` : ""
+      }`,
+      pendingReaction: null,
+      pendingReactions: [],
+    };
+  }
+
   private async resolvePendingMonsterMultiattackContinuation(params: {
     session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
     pending: PendingShieldReaction;
@@ -2600,7 +2733,7 @@ export class CombatService {
     prefixMessage: string;
   }): Promise<CombatMoveResultDto> {
     const continuation = params.pending.continuation;
-    if (!continuation) {
+    if (!continuation || continuation.type !== "monster_multiattack") {
       const response = await this.mapCombat(await this.getActiveCombatEntity(params.session.id));
       return {
         combat: response,
@@ -3240,11 +3373,31 @@ export class CombatService {
           reason: "SESSION_CHARACTER_NOT_FOUND",
         });
       }
-      const nextHp = this.clampNumber(sessionCharacter.currentHp + delta, 0, sessionCharacter.character.maxHp);
+      const incomingDamage = delta < 0 ? Math.abs(delta) : 0;
+      const absorbedByTempHp = Math.min(
+        Math.max(sessionCharacter.tempHp ?? 0, 0),
+        incomingDamage,
+      );
+      const nextTempHp =
+        delta < 0
+          ? Math.max((sessionCharacter.tempHp ?? 0) - absorbedByTempHp, 0)
+          : sessionCharacter.tempHp ?? 0;
+      const hpDelta =
+        delta < 0 ? -(incomingDamage - absorbedByTempHp) : delta;
+      const nextHp = this.clampNumber(
+        sessionCharacter.currentHp + hpDelta,
+        0,
+        sessionCharacter.character.maxHp,
+      );
       await this.prisma.$transaction([
         this.prisma.sessionCharacter.update({
           where: { id: sessionCharacter.id },
-          data: { currentHp: nextHp },
+          data: {
+            currentHp: nextHp,
+            ...((sessionCharacter.tempHp ?? 0) > 0
+              ? { tempHp: nextTempHp }
+              : {}),
+          },
         }),
         this.prisma.combatParticipant.update({
           where: { id: participant.id },
@@ -3260,6 +3413,20 @@ export class CombatService {
       }
       participant.currentHp = nextHp;
       participant.isAlive = nextHp > 0;
+      if (
+        incomingDamage > 0 &&
+        (sessionCharacter.tempHp ?? 0) > 0 &&
+        nextTempHp === 0
+      ) {
+        await this.combatConditions.removeCombatCondition(
+          participant,
+          "wild_shape:wolf",
+        );
+        await this.combatConditions.removeCombatCondition(
+          participant,
+          "movement_speed_override:40",
+        );
+      }
       if (delta < 0 && nextHp > 0) {
         await this.combatConditions.wakeSleepingCombatParticipant(participant);
       }
@@ -3368,6 +3535,12 @@ export class CombatService {
 
   private applyMovementSpeedPenalties(baseSpeedFt: number, conditionsJson: string): number {
     const conditions = this.parseConditions(conditionsJson);
+    const speedOverride = conditions
+      .map((tag) => /^movement_speed_override:(\d+)$/.exec(tag)?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .find((value) => Number.isFinite(value) && value > 0);
+    const effectiveBaseSpeedFt = speedOverride ?? baseSpeedFt;
     if (
       conditions.includes("condition:restrained") ||
       conditions.includes("speed:zero")
@@ -3379,7 +3552,7 @@ export class CombatService {
       .map((tag) => Number(tag.slice("movement_speed_penalty:".length)))
       .filter((value) => Number.isFinite(value) && value > 0)
       .reduce((total, value) => total + value, 0);
-    return Math.max(0, baseSpeedFt - penaltyFt);
+    return Math.max(0, effectiveBaseSpeedFt - penaltyFt);
   }
 
   private async resolveStealthModifier(participant: CombatParticipantEntity): Promise<number> {

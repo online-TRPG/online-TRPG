@@ -172,16 +172,35 @@ const implementedCantrips = [
   { id: 'spell.fire_bolt', label: 'Fire Bolt / 화염 화살' },
   { id: 'spell.light', label: 'Light / 빛' },
   { id: 'spell.ray_of_frost', label: 'Ray of Frost / 서리 광선' },
+  { id: 'spell.sacred_flame', label: 'Sacred Flame / 신성한 불꽃' },
 ];
 
 const implementedLevel1Spells = [
-  { id: 'spell.magic_missile', label: 'Magic Missile / 마법 화살' },
+  { id: 'spell.bane', label: 'Bane / 파멸' },
+  { id: 'spell.bless', label: 'Bless / 축복' },
+  { id: 'spell.burning_hands', label: 'Burning Hands / 타오르는 손길' },
+  { id: 'spell.command', label: 'Command / 명령' },
   { id: 'spell.cure_wounds', label: 'Cure Wounds / 상처 치료' },
+  { id: 'spell.detect_magic', label: 'Detect Magic / 마법 탐지' },
+  { id: 'spell.entangle', label: 'Entangle / 휘감기' },
+  { id: 'spell.guiding_bolt', label: 'Guiding Bolt / 인도하는 화살' },
+  { id: 'spell.healing_word', label: 'Healing Word / 치유의 언어' },
+  { id: 'spell.inflict_wounds', label: 'Inflict Wounds / 상처 가하기' },
+  { id: 'spell.magic_missile', label: 'Magic Missile / 마법 화살' },
   { id: 'spell.shield', label: 'Shield / 방패' },
   { id: 'spell.sleep', label: 'Sleep / 수면' },
+  { id: 'spell.thunderwave', label: 'Thunderwave / 천둥파' },
+];
+
+const implementedLevel2Spells = [
+  { id: 'spell.hold_person', label: 'Hold Person / 인간형 포박' },
+  { id: 'spell.misty_step', label: 'Misty Step / 안개 걸음' },
+  { id: 'spell.scorching_ray', label: 'Scorching Ray / 작열 광선' },
+  { id: 'spell.web', label: 'Web / 거미줄' },
 ];
 
 const implementedLevel3Spells = [
+  { id: 'spell.dispel_magic', label: 'Dispel Magic / 마법 해제' },
   { id: 'spell.fireball', label: 'Fireball / 화염구' },
 ];
 
@@ -189,6 +208,8 @@ const implementedSpellClasses = new Set([
   'bard',
   'cleric',
   'druid',
+  'paladin',
+  'ranger',
   'sorcerer',
   'warlock',
   'wizard',
@@ -231,17 +252,45 @@ function getImplementedSpellOptions(
 ) {
   const classKey = normalizeClassValue(className ?? '').toLowerCase();
   if (!implementedSpellClasses.has(classKey)) return [];
-  if (kind === 'cantrip') return implementedCantrips;
-  return level >= 5
-    ? [...implementedLevel1Spells, ...implementedLevel3Spells]
-    : implementedLevel1Spells;
+  if (kind === 'cantrip') {
+    return classKey === 'paladin' || classKey === 'ranger' ? [] : implementedCantrips;
+  }
+  const maxSpellLevel = getMaximumImplementedSpellLevel(classKey, level);
+  return [
+    ...implementedLevel1Spells,
+    ...(maxSpellLevel >= 2 ? implementedLevel2Spells : []),
+    ...(maxSpellLevel >= 3 ? implementedLevel3Spells : []),
+  ];
+}
+
+function getMaximumImplementedSpellLevel(classKey: string, level: number) {
+  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
+  if (['bard', 'cleric', 'druid', 'sorcerer', 'wizard'].includes(classKey)) {
+    if (normalizedLevel >= 5) return 3;
+    if (normalizedLevel >= 3) return 2;
+    return 1;
+  }
+  if (classKey === 'warlock') {
+    if (normalizedLevel >= 5) return 3;
+    if (normalizedLevel >= 3) return 2;
+    return 1;
+  }
+  if (classKey === 'paladin' || classKey === 'ranger') {
+    if (normalizedLevel >= 9) return 3;
+    if (normalizedLevel >= 5) return 2;
+    if (normalizedLevel >= 2) return 1;
+  }
+  return 0;
 }
 
 function getImplementedSpellLabel(spellId: string) {
   return (
-    [...implementedCantrips, ...implementedLevel1Spells, ...implementedLevel3Spells].find(
-      (spell) => spell.id === spellId
-    )?.label ?? spellId
+    [
+      ...implementedCantrips,
+      ...implementedLevel1Spells,
+      ...implementedLevel2Spells,
+      ...implementedLevel3Spells,
+    ].find((spell) => spell.id === spellId)?.label ?? spellId
   );
 }
 
@@ -745,9 +794,22 @@ type StartingEquipmentConcreteChoice =
   (typeof startingEquipmentConcreteChoiceOptions)[keyof typeof startingEquipmentConcreteChoiceOptions];
 
 const classFeatureIdsByClassKey: Record<string, string[]> = {
+  barbarian: ['class.barbarian.feature.rage', 'class.barbarian.feature.unarmored_defense'],
+  bard: ['class.bard.feature.spellcasting', 'class.bard.feature.bardic_inspiration'],
+  cleric: ['class.cleric.feature.spellcasting', 'class.cleric.feature.divine_domain'],
+  druid: ['class.druid.feature.druidic', 'class.druid.feature.spellcasting'],
   fighter: ['class.fighter.feature.second_wind', 'class.fighter.feature.fighting_style'],
-  ranger: ['class.ranger.feature.favored_enemy'],
-  rogue: ['class.rogue.feature.expertise', 'class.rogue.feature.sneak_attack'],
+  monk: ['class.monk.feature.unarmored_defense', 'class.monk.feature.martial_arts'],
+  paladin: ['class.paladin.feature.divine_sense', 'class.paladin.feature.lay_on_hands'],
+  ranger: ['class.ranger.feature.favored_enemy', 'class.ranger.feature.natural_explorer'],
+  rogue: [
+    'class.rogue.feature.expertise',
+    'class.rogue.feature.sneak_attack',
+    'class.rogue.feature.thieves_cant',
+  ],
+  sorcerer: ['class.sorcerer.feature.spellcasting', 'class.sorcerer.feature.sorcerous_origin'],
+  warlock: ['class.warlock.feature.otherworldly_patron', 'class.warlock.feature.pact_magic'],
+  wizard: ['class.wizard.feature.spellcasting', 'class.wizard.feature.arcane_recovery'],
 };
 const managedClassFeatureIds = new Set(Object.values(classFeatureIdsByClassKey).flat());
 

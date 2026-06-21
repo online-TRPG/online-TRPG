@@ -60,12 +60,18 @@ export function isDefaultProvidedScenario(
   return scenario.id === DEFAULT_PROVIDED_SCENARIO_ID;
 }
 
+function isProvidedScenario(
+  scenario: Pick<Scenario, "id" | "title"> & { sourceType?: string | null }
+): boolean {
+  return scenario.sourceType === "SYSTEM" || isDefaultProvidedScenario(scenario);
+}
+
 export function splitScenariosBySource<T extends Pick<Scenario, "id" | "title"> & { sourceType?: string | null }>(
   scenarios: T[]
 ): { provided: T[]; custom: T[] } {
   return prioritizePreferredScenario(scenarios).reduce<{ provided: T[]; custom: T[] }>(
     (groups, scenario) => {
-      if (isDefaultProvidedScenario(scenario)) {
+      if (isProvidedScenario(scenario)) {
         groups.provided.push(scenario);
       } else {
         groups.custom.push(scenario);
@@ -132,7 +138,7 @@ export function buildSessionScenarioOptions(scenarios: Scenario[]): SessionScena
       findSessionVisualByTitle(scenario.title) ?? sessionVisualPresets[index % sessionVisualPresets.length];
     return {
       key: `scenario:${scenario.id}`,
-      group: isDefaultProvidedScenario(scenario) ? "provided" as const : "custom" as const,
+      group: isProvidedScenario(scenario) ? "provided" as const : "custom" as const,
       title: scenario.title,
       image: scenario.thumbnailUrl ?? fallbackPreset.image,
       theme: fallbackPreset.theme,

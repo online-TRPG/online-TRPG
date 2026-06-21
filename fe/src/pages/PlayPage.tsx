@@ -3963,10 +3963,77 @@ export function PlayPage({
     await onSendAction(`/item throw ${itemId} 1 ${point.x} ${point.y}`);
   }
 
-  async function handleCombatClassFeature(action: 'second_wind') {
+  async function handleCombatClassFeature(
+    action:
+      | 'second_wind'
+      | 'action_surge'
+      | 'rage'
+      | 'frenzy'
+      | 'cunning_dash'
+      | 'cunning_disengage'
+      | 'cunning_hide'
+      | 'divine_sense'
+      | 'lay_on_hands'
+      | 'primeval_awareness'
+      | 'ki_patient_defense'
+      | 'ki_step_of_wind'
+      | 'channel_divinity'
+      | 'bardic_inspiration'
+      | 'font_of_magic'
+      | 'wild_shape',
+    targetParticipantId?: string
+  ) {
     if (!session || isCombatBusy) return;
     if (action === 'second_wind') {
       await runCombatRequest(() => useSecondWindCombatAction(user, session.id));
+      return;
+    }
+    if (action === 'action_surge') {
+      await onSendAction('/feature action_surge');
+      return;
+    }
+    if (action === 'rage') {
+      await onSendAction('/feature rage');
+      return;
+    }
+    if (action === 'frenzy') {
+      await onSendAction('/feature frenzy');
+      return;
+    }
+    if (action.startsWith('cunning_')) {
+      await onSendAction(`/feature cunning_action ${action.slice('cunning_'.length)}`);
+      return;
+    }
+    if (
+      action === 'divine_sense' ||
+      action === 'lay_on_hands' ||
+      action === 'primeval_awareness'
+    ) {
+      await onSendAction(`/feature ${action}`);
+      return;
+    }
+    if (action === 'ki_patient_defense' || action === 'ki_step_of_wind') {
+      await onSendAction(
+        `/feature ki ${
+          action === 'ki_patient_defense' ? 'patient_defense' : 'step_of_the_wind'
+        }`
+      );
+      return;
+    }
+    if (action === 'channel_divinity') {
+      await onSendAction('/feature channel_divinity');
+      return;
+    }
+    if (action === 'bardic_inspiration' && targetParticipantId) {
+      await onSendAction(`/feature bardic_inspiration ${targetParticipantId}`);
+      return;
+    }
+    if (action === 'font_of_magic') {
+      await onSendAction('/feature font_of_magic');
+      return;
+    }
+    if (action === 'wild_shape') {
+      await onSendAction('/feature wild_shape');
     }
   }
 

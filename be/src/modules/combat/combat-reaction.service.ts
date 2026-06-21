@@ -45,6 +45,19 @@ export type PendingMonsterMultiattackContinuation = {
   remainingActions: SrdEngineExecutableMonsterAction[];
 };
 
+export type PendingScorchingRayContinuation = {
+  type: "scorching_ray";
+  userId: string;
+  actorParticipantId: string;
+  remainingTargetParticipantIds: string[];
+  attackBonus: number;
+  damageDice: string;
+};
+
+export type PendingShieldContinuation =
+  | PendingMonsterMultiattackContinuation
+  | PendingScorchingRayContinuation;
+
 export type PendingShieldReaction = {
   id: string;
   type: "shield";
@@ -63,12 +76,12 @@ export type PendingShieldReaction = {
   damageBonus?: number;
   spellId?: string | null;
   conditionRollModifiers?: Array<{
-    source: "spell.bless" | "spell.bane";
+    source: "spell.bless" | "spell.bane" | "bardic_inspiration";
     value: number;
     roll: DiceRollResponseDto;
   }>;
   createdAt: string;
-  continuation?: PendingMonsterMultiattackContinuation | null;
+  continuation?: PendingShieldContinuation | null;
 };
 
 export type PendingCombatReaction = PendingOpportunityAttackReaction | PendingShieldReaction;

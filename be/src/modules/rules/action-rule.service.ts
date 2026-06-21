@@ -37,6 +37,14 @@ const EXPERTISE_FEATURE_ID = "class.rogue.feature.expertise";
 const FAVORED_ENEMY_FEATURE_ID = "class.ranger.feature.favored_enemy";
 const CUNNING_ACTION_FEATURE_ID = "class.rogue.feature.cunning_action";
 const FRENZY_FEATURE_ID = "class.barbarian.subclass_feature.frenzy";
+const DIVINE_SENSE_FEATURE_ID = "class.paladin.feature.divine_sense";
+const LAY_ON_HANDS_FEATURE_ID = "class.paladin.feature.lay_on_hands";
+const PRIMEVAL_AWARENESS_FEATURE_ID = "class.ranger.feature.primeval_awareness";
+const KI_FEATURE_ID = "class.monk.feature.ki";
+const CHANNEL_DIVINITY_FEATURE_ID = "class.cleric.feature.channel_divinity";
+const BARDIC_INSPIRATION_FEATURE_ID = "class.bard.feature.bardic_inspiration";
+const FONT_OF_MAGIC_FEATURE_ID = "class.sorcerer.feature.font_of_magic";
+const WILD_SHAPE_FEATURE_ID = "class.druid.feature.wild_shape";
 const FIGHTING_STYLE_DATA_FEATURE_ID = "feature.fighter.fighting_style";
 const SNEAK_ATTACK_DATA_FEATURE_ID = "feature.rogue.sneak_attack";
 const EXPERTISE_DATA_FEATURE_ID = "feature.rogue.expertise";
@@ -51,6 +59,9 @@ const FAVORED_ENEMY_HUMANOID_TAG_PREFIX = "favored_enemy_humanoid:";
 const RAGE_EXPENDED_TAG = "resource:rage_expended";
 const RAGE_ACTIVE_TAG = "rage";
 const RAGE_RESISTANCE_TAGS = ["resistance:bludgeoning", "resistance:piercing", "resistance:slashing"];
+const DIVINE_SENSE_EXPENDED_TAG = "resource:divine_sense_expended";
+const LAY_ON_HANDS_EXPENDED_TAG = "resource:lay_on_hands_expended";
+const CHANNEL_DIVINITY_EXPENDED_TAG = "resource:channel_divinity_expended";
 const HIT_DIE_AVERAGE_BY_CLASS: Readonly<Record<string, number>> = {
   barbarian: 7,
   bard: 5,
@@ -179,12 +190,21 @@ export type ActionRuntimeEffect =
   | { type: "SPEND_SECOND_WIND" }
   | { type: "SPEND_ACTION_SURGE_USE" }
   | { type: "SPEND_SPELL_SLOT"; slotLevel: number }
+  | { type: "RESTORE_SPELL_SLOT"; slotLevel: number; amount: number }
   | { type: "STORE_READY_ACTION"; pending: PendingReadyAction }
   | { type: "START_RAGE" }
   | { type: "START_FRENZY" }
-  | { type: "RECOVER_SHORT_REST"; actionSurgeUses: number; hitDiceSpent?: number }
+  | {
+      type: "RECOVER_SHORT_REST";
+      secondWindAvailable: boolean;
+      actionSurgeUses: number;
+      hitDiceSpent?: number;
+      recoverSpellSlotLevel?: number;
+      spellRecoveryFeatureId?: string;
+    }
   | {
       type: "RECOVER_LONG_REST";
+      secondWindAvailable: boolean;
       actionSurgeUses: number;
       rageUses: number;
       reduceExhaustionBy: number;
@@ -344,7 +364,12 @@ export class ActionRuleService {
       case "cast_area_spell":
         return this.resolveCastAreaSpell(command, actor, sessionCharacters, runtimeContext);
       case "use_class_feature":
-        return this.resolveClassFeature(command, actor, runtimeContext);
+        return this.resolveClassFeature(
+          command,
+          actor,
+          sessionCharacters,
+          runtimeContext,
+        );
       case "rest":
         return this.resolveRest(command, actor, runtimeContext);
       case "inventory":
@@ -645,6 +670,7 @@ export class ActionRuleService {
   private resolveClassFeature(
     command: Extract<ParsedCommand, { type: "use_class_feature" }>,
     actor: SessionCharacterForRules,
+    sessionCharacters: SessionCharacterForRules[],
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
     switch (command.featureId) {
@@ -670,6 +696,27 @@ export class ActionRuleService {
         return this.resolveCunningAction(command, actor, runtimeContext);
       case FRENZY_FEATURE_ID:
         return this.resolveFrenzy(actor, runtimeContext);
+      case DIVINE_SENSE_FEATURE_ID:
+        return this.resolveDivineSense(actor, runtimeContext);
+      case LAY_ON_HANDS_FEATURE_ID:
+        return this.resolveLayOnHands(actor, runtimeContext);
+      case PRIMEVAL_AWARENESS_FEATURE_ID:
+        return this.resolvePrimevalAwareness(actor, runtimeContext);
+      case KI_FEATURE_ID:
+        return this.resolveKi(command, actor, runtimeContext);
+      case CHANNEL_DIVINITY_FEATURE_ID:
+        return this.resolveChannelDivinity(actor, runtimeContext);
+      case BARDIC_INSPIRATION_FEATURE_ID:
+        return this.resolveBardicInspiration(
+          command,
+          actor,
+          sessionCharacters,
+          runtimeContext,
+        );
+      case FONT_OF_MAGIC_FEATURE_ID:
+        return this.resolveFontOfMagic(actor, runtimeContext);
+      case WILD_SHAPE_FEATURE_ID:
+        return this.resolveWildShape(actor, runtimeContext);
       default:
         throw forbidden("ACTION_403", "실행할 수 없는 직업 기능입니다.", {
           reason: "UNSUPPORTED_CLASS_FEATURE",
@@ -1258,6 +1305,7 @@ export class ActionRuleService {
 
   private resolveFrenzy(actor: SessionCharacterForRules, runtimeContext: RuleRuntimeContext): ActionResolution {
     const rageActive = runtimeContext.resource?.rageActive ?? this.hasCondition(actor, RAGE_ACTIVE_TAG);
+    const currentConditions = this.getConditions(actor);
     const ruleResult = this.ruleEngine.applyFrenzy({
       rageActivationAccepted: rageActive,
       bonusActionAvailableOnFollowingTurns: true,
@@ -1274,8 +1322,414 @@ export class ActionRuleService {
       diceResult: null,
       outcome: ruleResult.accepted ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
       narration: ruleResult.accepted ? "Frenzy 상태가 적용되었습니다." : this.createClassFeatureRejectedNarration(ruleResult.rejectedReason),
-      stateChanges: [],
+      stateChanges: ruleResult.accepted
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              conditions: this.addConditions(currentConditions, ["frenzy"]),
+            },
+          ]
+        : [],
       runtimeEffects: ruleResult.accepted ? [{ type: "START_FRENZY" }] : [],
+    };
+  }
+
+  private resolveDivineSense(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const available =
+      this.isClass(actor, "paladin") &&
+      actor.character.level >= 1 &&
+      this.hasActionAvailable(runtimeContext) &&
+      !this.hasCondition(actor, DIVINE_SENSE_EXPENDED_TAG);
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: DIVINE_SENSE_FEATURE_ID,
+        rangeFt: 60,
+        detectedCreatureTypes: ["celestial", "fiend", "undead"],
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? "Divine Sense를 사용했습니다. 60ft 안의 celestial, fiend, undead 존재를 감지합니다."
+        : "Divine Sense를 사용할 수 없습니다.",
+      stateChanges: available
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              conditions: this.addConditions(currentConditions, [
+                DIVINE_SENSE_EXPENDED_TAG,
+                "sense:divine:60",
+              ]),
+            },
+          ]
+        : [],
+      runtimeEffects: available ? [{ type: "SPEND_ACTION" }] : [],
+    };
+  }
+
+  private resolveLayOnHands(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const healingPool = Math.max(actor.character.level * 5, 0);
+    const healing = Math.min(
+      healingPool,
+      Math.max(actor.character.maxHp - actor.currentHp, 0),
+    );
+    const available =
+      this.isClass(actor, "paladin") &&
+      actor.character.level >= 1 &&
+      this.hasActionAvailable(runtimeContext) &&
+      !this.hasCondition(actor, LAY_ON_HANDS_EXPENDED_TAG) &&
+      healing > 0;
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: LAY_ON_HANDS_FEATURE_ID,
+        healingPool,
+        healingApplied: available ? healing : 0,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? `Lay on Hands로 자신을 ${healing} 회복했습니다.`
+        : "Lay on Hands를 사용할 수 없거나 회복할 HP가 없습니다.",
+      stateChanges: available
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              currentHp: actor.currentHp + healing,
+              conditions: this.addConditions(currentConditions, [
+                LAY_ON_HANDS_EXPENDED_TAG,
+              ]),
+            },
+          ]
+        : [],
+      runtimeEffects: available ? [{ type: "SPEND_ACTION" }] : [],
+    };
+  }
+
+  private resolvePrimevalAwareness(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const hasSlot = (runtimeContext.spellSlots?.["1"] ?? 0) > 0;
+    const available =
+      this.isClass(actor, "ranger") &&
+      actor.character.level >= 3 &&
+      this.hasActionAvailable(runtimeContext) &&
+      hasSlot;
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: PRIMEVAL_AWARENESS_FEATURE_ID,
+        slotLevel: 1,
+        detectedCreatureTypes: [
+          "aberration",
+          "celestial",
+          "dragon",
+          "elemental",
+          "fey",
+          "fiend",
+          "undead",
+        ],
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? "Primeval Awareness를 사용했습니다. 주변에 특정 초자연 생물 유형이 존재하는지 감지합니다."
+        : "Primeval Awareness를 사용하려면 행동과 1레벨 주문 슬롯이 필요합니다.",
+      stateChanges: [],
+      runtimeEffects: available
+        ? [{ type: "SPEND_ACTION" }, { type: "SPEND_SPELL_SLOT", slotLevel: 1 }]
+        : [],
+    };
+  }
+
+  private resolveKi(
+    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const option = this.normalizeRuleToken(command.option ?? "");
+    const currentConditions = this.getConditions(actor);
+    const spent = currentConditions
+      .map((condition) => /^resource:ki_spent:(\d+)$/.exec(condition)?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .reduce((maximum, value) => Math.max(maximum, value), 0);
+    const available =
+      this.isClass(actor, "monk") &&
+      actor.character.level >= 2 &&
+      spent < actor.character.level &&
+      this.hasBonusActionAvailable(runtimeContext) &&
+      ["patient_defense", "step_of_the_wind"].includes(option);
+    const nextConditions = this.addConditions(
+      currentConditions.filter(
+        (condition) => !condition.startsWith("resource:ki_spent:"),
+      ),
+      [
+        `resource:ki_spent:${spent + 1}`,
+        ...(option === "patient_defense"
+          ? ["combat:dodge"]
+          : ["combat:disengage"]),
+      ],
+    );
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: KI_FEATURE_ID,
+        option,
+        kiSpent: available ? spent + 1 : spent,
+        kiMaximum: actor.character.level,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? `Ki를 사용해 ${option === "patient_defense" ? "Patient Defense" : "Step of the Wind"}를 적용했습니다.`
+        : "Ki를 사용할 수 없습니다.",
+      stateChanges: available
+        ? [{ sessionCharacterId: actor.id, conditions: nextConditions }]
+        : [],
+      runtimeEffects: available ? [{ type: "SPEND_BONUS_ACTION" }] : [],
+    };
+  }
+
+  private resolveChannelDivinity(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const subclass = this.normalizeRuleToken(actor.character.subclassName ?? "");
+    const maximumAfterHealing = Math.floor(actor.character.maxHp / 2);
+    const healingPool = Math.max(actor.character.level * 5, 0);
+    const healing = Math.min(
+      healingPool,
+      Math.max(maximumAfterHealing - actor.currentHp, 0),
+    );
+    const available =
+      this.isClass(actor, "cleric") &&
+      actor.character.level >= 2 &&
+      subclass === "life" &&
+      this.hasActionAvailable(runtimeContext) &&
+      !this.hasCondition(actor, CHANNEL_DIVINITY_EXPENDED_TAG) &&
+      healing > 0;
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: CHANNEL_DIVINITY_FEATURE_ID,
+        option: "preserve_life",
+        healingPool,
+        healingApplied: available ? healing : 0,
+        maximumAfterHealing,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? `Channel Divinity: Preserve Life로 자신을 ${healing} 회복했습니다.`
+        : "Preserve Life를 사용할 수 없거나 현재 HP가 절반 이상입니다.",
+      stateChanges: available
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              currentHp: actor.currentHp + healing,
+              conditions: this.addConditions(currentConditions, [
+                CHANNEL_DIVINITY_EXPENDED_TAG,
+              ]),
+            },
+          ]
+        : [],
+      runtimeEffects: available ? [{ type: "SPEND_ACTION" }] : [],
+    };
+  }
+
+  private resolveBardicInspiration(
+    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
+    actor: SessionCharacterForRules,
+    sessionCharacters: SessionCharacterForRules[],
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const targetId = command.option?.trim() ?? "";
+    const target = sessionCharacters.find(
+      (candidate) =>
+        candidate.id === targetId ||
+        candidate.combatParticipantId === targetId ||
+        candidate.tokenId === targetId,
+    );
+    const currentConditions = this.getConditions(actor);
+    const spent = currentConditions
+      .map(
+        (condition) =>
+          /^resource:bardic_inspiration_spent:(\d+)$/.exec(condition)?.[1],
+      )
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .reduce((maximum, value) => Math.max(maximum, value), 0);
+    const maximumUses = Math.max(this.resolveAbilityModifier(actor, "cha"), 1);
+    const available =
+      this.isClass(actor, "bard") &&
+      actor.character.level >= 1 &&
+      Boolean(target && target.id !== actor.id) &&
+      spent < maximumUses &&
+      this.hasBonusActionAvailable(runtimeContext);
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: BARDIC_INSPIRATION_FEATURE_ID,
+        targetId: target?.id ?? targetId,
+        die: "1d6",
+        usesSpent: available ? spent + 1 : spent,
+        maximumUses,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? `${target?.character.name ?? "대상"}에게 Bardic Inspiration d6를 부여했습니다.`
+        : "Bardic Inspiration을 사용할 수 없거나 유효한 아군 대상이 없습니다.",
+      stateChanges:
+        available && target
+          ? [
+              {
+                sessionCharacterId: actor.id,
+                conditions: this.addConditions(
+                  currentConditions.filter(
+                    (condition) =>
+                      !condition.startsWith(
+                        "resource:bardic_inspiration_spent:",
+                      ),
+                  ),
+                  [`resource:bardic_inspiration_spent:${spent + 1}`],
+                ),
+              },
+              {
+                sessionCharacterId: target.id,
+                conditions: this.addConditions(this.getConditions(target), [
+                  "bardic_inspiration:1d6",
+                ]),
+              },
+            ]
+          : [],
+      runtimeEffects: available ? [{ type: "SPEND_BONUS_ACTION" }] : [],
+    };
+  }
+
+  private resolveFontOfMagic(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const spent = currentConditions
+      .map(
+        (condition) =>
+          /^resource:sorcery_points_spent:(\d+)$/.exec(condition)?.[1],
+      )
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .reduce((maximum, value) => Math.max(maximum, value), 0);
+    const maximumPoints = Math.max(actor.character.level, 0);
+    const slotCurrent = runtimeContext.spellSlots?.["1"] ?? 0;
+    const slotMaximum = runtimeContext.spellSlotMaximums?.["1"] ?? 0;
+    const available =
+      this.isClass(actor, "sorcerer") &&
+      actor.character.level >= 2 &&
+      spent + 2 <= maximumPoints &&
+      slotCurrent < slotMaximum &&
+      this.hasBonusActionAvailable(runtimeContext);
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: FONT_OF_MAGIC_FEATURE_ID,
+        option: "create_level_1_spell_slot",
+        sorceryPointsSpent: available ? spent + 2 : spent,
+        sorceryPointsMaximum: maximumPoints,
+        restoredSlotLevel: 1,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? "Font of Magic으로 소서리 포인트 2점을 소모해 1레벨 주문 슬롯 하나를 회복했습니다."
+        : "Font of Magic을 사용할 수 없거나 회복할 1레벨 슬롯이 없습니다.",
+      stateChanges: available
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              conditions: this.addConditions(
+                currentConditions.filter(
+                  (condition) =>
+                    !condition.startsWith("resource:sorcery_points_spent:"),
+                ),
+                [`resource:sorcery_points_spent:${spent + 2}`],
+              ),
+            },
+          ]
+        : [],
+      runtimeEffects: available
+        ? [
+            { type: "SPEND_BONUS_ACTION" },
+            { type: "RESTORE_SPELL_SLOT", slotLevel: 1, amount: 1 },
+          ]
+        : [],
+    };
+  }
+
+  private resolveWildShape(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const spent = currentConditions
+      .map(
+        (condition) =>
+          /^resource:wild_shape_spent:(\d+)$/.exec(condition)?.[1],
+      )
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .reduce((maximum, value) => Math.max(maximum, value), 0);
+    const available =
+      this.isClass(actor, "druid") &&
+      actor.character.level >= 2 &&
+      spent < 2 &&
+      !this.hasCondition(actor, "wild_shape:wolf") &&
+      this.hasActionAvailable(runtimeContext);
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: WILD_SHAPE_FEATURE_ID,
+        form: "wolf",
+        formHitPoints: 11,
+        usesSpent: available ? spent + 1 : spent,
+        maximumUses: 2,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? "Wild Shape로 늑대 형태가 되었습니다. 형태 HP 11, 이동 40ft, 물기 공격을 사용합니다."
+        : "Wild Shape를 사용할 수 없습니다.",
+      stateChanges: available
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              tempHp: Math.max(actor.tempHp, 11),
+              conditions: this.addConditions(
+                currentConditions.filter(
+                  (condition) =>
+                    !condition.startsWith("resource:wild_shape_spent:"),
+                ),
+                [
+                  `resource:wild_shape_spent:${spent + 1}`,
+                  "wild_shape:wolf",
+                  "movement_speed_override:40",
+                ],
+              ),
+            },
+          ]
+        : [],
+      runtimeEffects: available ? [{ type: "SPEND_ACTION" }] : [],
     };
   }
 
@@ -1307,6 +1761,7 @@ export class ActionRuleService {
       conditions: this.getConditions(actor),
       resource: runtimeContext.resource,
       resourceMaximums: {
+        secondWindAvailable: this.hasFighterSecondWind(actor),
         actionSurgeUses: this.resolveActionSurgeUses(actor),
         rageUses: this.resolveRageUses(actor),
       },
@@ -1327,6 +1782,10 @@ export class ActionRuleService {
   }
 
   private resolveShortRest(actor: SessionCharacterForRules, rest: RestResolution, runtimeContext: RuleRuntimeContext): ActionResolution {
+    const spellRecovery = this.resolveShortRestSpellRecovery(actor, runtimeContext);
+    const nextConditions = spellRecovery
+      ? this.addConditions(rest.conditions as string[], [spellRecovery.expendedTag])
+      : rest.conditions;
     return {
       structuredAction: {
         type: "rest",
@@ -1336,6 +1795,7 @@ export class ActionRuleService {
           secondWindAvailable: rest.resource.secondWindAvailable,
           actionSurgeUses: rest.resource.actionSurgeUses,
           hitDiceSpent: rest.resource.hitDiceSpent,
+          spellRecovery,
         },
         recoveredTags: rest.recoveredTags,
       },
@@ -1346,17 +1806,71 @@ export class ActionRuleService {
         {
           sessionCharacterId: actor.id,
           ...(rest.hp.currentHp === actor.currentHp ? {} : { currentHp: rest.hp.currentHp }),
-          conditions: rest.conditions,
+          conditions: nextConditions,
         },
       ],
       runtimeEffects: [
         {
           type: "RECOVER_SHORT_REST",
+          secondWindAvailable: rest.resource.secondWindAvailable,
           actionSurgeUses: rest.resource.actionSurgeUses,
           ...(rest.recoveredTags.some((tag) => tag.startsWith("hit_dice:spent:")) ? { hitDiceSpent: rest.resource.hitDiceSpent } : {}),
+          ...(spellRecovery
+            ? {
+                recoverSpellSlotLevel: spellRecovery.slotLevel,
+                spellRecoveryFeatureId: spellRecovery.featureId,
+              }
+            : {}),
         },
       ],
     };
+  }
+
+  private resolveShortRestSpellRecovery(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): {
+    featureId: string;
+    expendedTag: string;
+    slotLevel: number;
+  } | null {
+    const isWizard = this.isClass(actor, "wizard");
+    const isLandDruid =
+      this.isClass(actor, "druid") &&
+      this.normalizeRuleToken(actor.character.subclassName ?? "") === "land";
+    if (!isWizard && !isLandDruid) {
+      return null;
+    }
+    const featureId = isWizard
+      ? "class.wizard.feature.arcane_recovery"
+      : "subclass.druid.land.feature.natural_recovery";
+    const expendedTag = isWizard
+      ? "resource:arcane_recovery_expended"
+      : "resource:natural_recovery_expended";
+    if (this.hasCondition(actor, expendedTag)) {
+      return null;
+    }
+    const recoveryBudget = Math.max(Math.ceil(actor.character.level / 2), 1);
+    const current = runtimeContext.spellSlots ?? {};
+    const maximums = runtimeContext.spellSlotMaximums ?? {};
+    const slotLevel = Object.keys(maximums)
+      .map(Number)
+      .filter(
+        (level) =>
+          Number.isInteger(level) &&
+          level > 0 &&
+          level <= recoveryBudget &&
+          (current[String(level)] ?? maximums[String(level)] ?? 0) <
+            (maximums[String(level)] ?? 0),
+      )
+      .sort((left, right) => right - left)[0];
+    return slotLevel
+      ? {
+          featureId,
+          expendedTag,
+          slotLevel,
+        }
+      : null;
   }
 
   private resolveLongRest(actor: SessionCharacterForRules, rest: RestResolution, runtimeContext: RuleRuntimeContext): ActionResolution {
@@ -1390,6 +1904,7 @@ export class ActionRuleService {
       runtimeEffects: [
         {
           type: "RECOVER_LONG_REST",
+          secondWindAvailable: rest.resource.secondWindAvailable,
           actionSurgeUses: rest.resource.actionSurgeUses,
           rageUses: rest.resource.rageUses,
           reduceExhaustionBy: Math.max(currentExhaustionLevel - rest.resource.exhaustionLevel, 0),
@@ -1402,7 +1917,7 @@ export class ActionRuleService {
   private buildRestResult(actor: SessionCharacterForRules, rest: RestResolution, runtimeContext: RuleRuntimeContext): Record<string, unknown> {
     const beforeConditions = this.getConditions(actor);
     const beforeResource = runtimeContext.resource ?? {
-      secondWindAvailable: true,
+      secondWindAvailable: this.hasFighterSecondWind(actor),
       actionSurgeUses: 0,
       rageUses: 0,
       rageActive: false,
@@ -2054,6 +2569,10 @@ export class ActionRuleService {
 
   private hasFighterActionSurge(actor: SessionCharacterForRules): boolean {
     return this.hasFeatureTag(actor, ACTION_SURGE_FEATURE_ID) || this.isClass(actor, "fighter");
+  }
+
+  private hasFighterSecondWind(actor: SessionCharacterForRules): boolean {
+    return this.hasFeatureTag(actor, SECOND_WIND_FEATURE_ID) || this.isClass(actor, "fighter");
   }
 
   private hasBarbarianRage(actor: SessionCharacterForRules): boolean {

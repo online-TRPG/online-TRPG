@@ -21,6 +21,7 @@ export type RestResolutionInput = {
   conditions?: unknown[];
   resource?: RestResourceState | null;
   resourceMaximums?: {
+    secondWindAvailable?: boolean;
     actionSurgeUses?: number;
     rageUses?: number;
   };
@@ -56,21 +57,6 @@ export type RestResolution = {
   spellSlots: Record<string, number>;
   recoveredTags: string[];
 };
-
-const SHORT_REST_RECOVERED_TAGS = [
-  "resource:second_wind_expended",
-  "resource:action_surge_expended",
-  "action_surge:additional_action_granted",
-];
-
-const LONG_REST_RECOVERED_TAGS = [
-  ...SHORT_REST_RECOVERED_TAGS,
-  "resource:rage_expended",
-  "rage",
-  "resistance:bludgeoning",
-  "resistance:piercing",
-  "resistance:slashing",
-];
 
 @Injectable()
 export class RestResolutionService {
@@ -113,6 +99,29 @@ export class RestResolutionService {
     resource: RestResolution["resource"],
   ): RestResolution {
     const hitDice = this.resolveShortRestHitDice(input, resource);
+    const recoveredResource = {
+      ...resource,
+      secondWindAvailable: input.resourceMaximums?.secondWindAvailable ?? resource.secondWindAvailable,
+      actionSurgeUses: input.resourceMaximums?.actionSurgeUses ?? resource.actionSurgeUses,
+      hitDiceSpent: hitDice.hitDiceSpent,
+    };
+    const recoveredTags = [
+      ...(recoveredResource.secondWindAvailable ? ["resource:second_wind_expended"] : []),
+      ...(recoveredResource.actionSurgeUses > 0
+        ? ["resource:action_surge_expended", "action_surge:additional_action_granted"]
+        : []),
+      ...(hitDice.spent > 0 ? [`hit_dice:spent:${hitDice.spent}`] : []),
+      ...(this.hasConditionPrefix(input.conditions, "resource:ki_spent:")
+        ? ["resource:ki_spent"]
+        : []),
+      ...(this.hasConditionTag(input.conditions, "resource:channel_divinity_expended")
+        ? ["resource:channel_divinity_expended"]
+        : []),
+      ...(this.hasConditionPrefix(input.conditions, "resource:wild_shape_spent:")
+        ? ["resource:wild_shape_spent"]
+        : []),
+    ];
+
     return {
       restType: "short",
       accepted: true,
@@ -122,18 +131,10 @@ export class RestResolutionService {
         maxHp: input.maxHp,
         tempHp: input.tempHp ?? 0,
       },
-      conditions: this.removeRecoveredConditions(input.conditions ?? [], "short", SHORT_REST_RECOVERED_TAGS),
-      resource: {
-        ...resource,
-        secondWindAvailable: true,
-        actionSurgeUses: input.resourceMaximums?.actionSurgeUses ?? resource.actionSurgeUses,
-        hitDiceSpent: hitDice.hitDiceSpent,
-      },
+      conditions: this.removeRecoveredConditions(input.conditions ?? [], "short", recoveredTags),
+      resource: recoveredResource,
       spellSlots: { ...(input.spellSlots ?? {}) },
-      recoveredTags: [
-        ...SHORT_REST_RECOVERED_TAGS,
-        ...(hitDice.spent > 0 ? [`hit_dice:spent:${hitDice.spent}`] : []),
-      ],
+      recoveredTags,
     };
   }
 
@@ -142,6 +143,77 @@ export class RestResolutionService {
     resource: RestResolution["resource"],
   ): RestResolution {
     const hitDice = this.resolveLongRestHitDice(input, resource);
+    const recoveredResource = {
+      ...resource,
+      secondWindAvailable: input.resourceMaximums?.secondWindAvailable ?? resource.secondWindAvailable,
+      actionSurgeUses: input.resourceMaximums?.actionSurgeUses ?? resource.actionSurgeUses,
+      rageUses: input.resourceMaximums?.rageUses ?? resource.rageUses,
+      rageActive: false,
+      frenzyActive: false,
+      exhaustionLevel: Math.max(resource.exhaustionLevel - 1, 0),
+      hitDiceSpent: hitDice.hitDiceSpent,
+    };
+    const recoveredTags = [
+      ...(recoveredResource.secondWindAvailable ? ["resource:second_wind_expended"] : []),
+      ...(recoveredResource.actionSurgeUses > 0
+        ? ["resource:action_surge_expended", "action_surge:additional_action_granted"]
+        : []),
+      ...(recoveredResource.rageUses > 0
+        ? [
+            "resource:rage_expended",
+            "rage",
+            "frenzy",
+            "resistance:bludgeoning",
+            "resistance:piercing",
+            "resistance:slashing",
+          ]
+        : []),
+      "spell_slots:all",
+      ...(this.hasConditionTag(input.conditions, "resource:divine_sense_expended")
+        ? ["resource:divine_sense_expended"]
+        : []),
+      ...(this.hasConditionTag(input.conditions, "resource:lay_on_hands_expended")
+        ? ["resource:lay_on_hands_expended"]
+        : []),
+      ...(this.hasConditionTag(input.conditions, "sense:divine:60")
+        ? ["sense:divine:60"]
+        : []),
+      ...(this.hasConditionPrefix(input.conditions, "resource:ki_spent:")
+        ? ["resource:ki_spent"]
+        : []),
+      ...(this.hasConditionTag(input.conditions, "resource:channel_divinity_expended")
+        ? ["resource:channel_divinity_expended"]
+        : []),
+      ...(this.hasConditionTag(input.conditions, "resource:arcane_recovery_expended")
+        ? ["resource:arcane_recovery_expended"]
+        : []),
+      ...(this.hasConditionTag(input.conditions, "resource:natural_recovery_expended")
+        ? ["resource:natural_recovery_expended"]
+        : []),
+      ...(this.hasConditionPrefix(
+        input.conditions,
+        "resource:bardic_inspiration_spent:",
+      )
+        ? ["resource:bardic_inspiration_spent"]
+        : []),
+      ...(this.hasConditionTag(input.conditions, "bardic_inspiration:1d6")
+        ? ["bardic_inspiration:1d6"]
+        : []),
+      ...(this.hasConditionPrefix(
+        input.conditions,
+        "resource:sorcery_points_spent:",
+      )
+        ? ["resource:sorcery_points_spent"]
+        : []),
+      ...(this.hasConditionPrefix(input.conditions, "resource:wild_shape_spent:")
+        ? ["resource:wild_shape_spent"]
+        : []),
+      ...(this.hasConditionTag(input.conditions, "wild_shape:wolf")
+        ? ["wild_shape:wolf", "movement_speed_override:40"]
+        : []),
+      ...(hitDice.recovered > 0 ? [`hit_dice:recovered:${hitDice.recovered}`] : []),
+    ];
+
     return {
       restType: "long",
       accepted: true,
@@ -151,29 +223,16 @@ export class RestResolutionService {
         maxHp: input.maxHp,
         tempHp: 0,
       },
-      conditions: this.removeRecoveredConditions(input.conditions ?? [], "long", LONG_REST_RECOVERED_TAGS),
-      resource: {
-        ...resource,
-        secondWindAvailable: true,
-        actionSurgeUses: input.resourceMaximums?.actionSurgeUses ?? resource.actionSurgeUses,
-        rageUses: input.resourceMaximums?.rageUses ?? resource.rageUses,
-        rageActive: false,
-        frenzyActive: false,
-        exhaustionLevel: Math.max(resource.exhaustionLevel - 1, 0),
-        hitDiceSpent: hitDice.hitDiceSpent,
-      },
+      conditions: this.removeRecoveredConditions(input.conditions ?? [], "long", recoveredTags),
+      resource: recoveredResource,
       spellSlots: { ...(input.spellSlotMaximums ?? input.spellSlots ?? {}) },
-      recoveredTags: [
-        ...LONG_REST_RECOVERED_TAGS,
-        "spell_slots:all",
-        ...(hitDice.recovered > 0 ? [`hit_dice:recovered:${hitDice.recovered}`] : []),
-      ],
+      recoveredTags,
     };
   }
 
   private normalizeResource(resource: RestResourceState | null | undefined): RestResolution["resource"] {
     return {
-      secondWindAvailable: resource?.secondWindAvailable ?? true,
+      secondWindAvailable: resource?.secondWindAvailable ?? false,
       actionSurgeUses: this.nonNegativeInteger(resource?.actionSurgeUses ?? 0, "actionSurgeUses"),
       rageUses: this.nonNegativeInteger(resource?.rageUses ?? 0, "rageUses"),
       rageActive: resource?.rageActive ?? false,
@@ -248,6 +307,30 @@ export class RestResolutionService {
     const recovered = new Set(recoveredTags);
     return conditions.filter((condition) => {
       if (typeof condition === "string") {
+        if (
+          recovered.has("resource:ki_spent") &&
+          condition.startsWith("resource:ki_spent:")
+        ) {
+          return false;
+        }
+        if (
+          recovered.has("resource:bardic_inspiration_spent") &&
+          condition.startsWith("resource:bardic_inspiration_spent:")
+        ) {
+          return false;
+        }
+        if (
+          recovered.has("resource:sorcery_points_spent") &&
+          condition.startsWith("resource:sorcery_points_spent:")
+        ) {
+          return false;
+        }
+        if (
+          recovered.has("resource:wild_shape_spent") &&
+          condition.startsWith("resource:wild_shape_spent:")
+        ) {
+          return false;
+        }
         return !recovered.has(condition);
       }
       if (!condition || typeof condition !== "object") {
@@ -272,6 +355,48 @@ export class RestResolutionService {
     if (!Number.isInteger(value) || value < 0) {
       throw new Error(`${field} must be a non-negative integer.`);
     }
+  }
+
+  private hasConditionTag(
+    conditions: unknown[] | undefined,
+    expected: string,
+  ): boolean {
+    return (conditions ?? []).some((condition) => {
+      if (typeof condition === "string") {
+        return condition === expected;
+      }
+      if (!condition || typeof condition !== "object") {
+        return false;
+      }
+      const record = condition as Record<string, unknown>;
+      return (
+        record.conditionId === expected ||
+        (Array.isArray(record.tags) && record.tags.includes(expected))
+      );
+    });
+  }
+
+  private hasConditionPrefix(
+    conditions: unknown[] | undefined,
+    prefix: string,
+  ): boolean {
+    return (conditions ?? []).some((condition) => {
+      if (typeof condition === "string") {
+        return condition.startsWith(prefix);
+      }
+      if (!condition || typeof condition !== "object") {
+        return false;
+      }
+      const record = condition as Record<string, unknown>;
+      return (
+        (typeof record.conditionId === "string" &&
+          record.conditionId.startsWith(prefix)) ||
+        (Array.isArray(record.tags) &&
+          record.tags.some(
+            (tag) => typeof tag === "string" && tag.startsWith(prefix),
+          ))
+      );
+    });
   }
 
   private nonNegativeInteger(value: number, field: string): number {

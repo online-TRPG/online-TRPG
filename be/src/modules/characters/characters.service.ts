@@ -77,15 +77,26 @@ const MVP_STARTING_CANTRIP_IDS = new Set([
 const MVP_STARTING_SLOT_SPELL_IDS = new Set([
   "spell.bane",
   "spell.bless",
+  "spell.burning_hands",
+  "spell.command",
   "spell.cure_wounds",
   "spell.detect_magic",
   "spell.entangle",
+  "spell.guiding_bolt",
+  "spell.healing_word",
+  "spell.inflict_wounds",
   "spell.magic_missile",
   "spell.shield",
   "spell.sleep",
   "spell.thunderwave",
 ]);
-const MVP_STARTING_LEVEL5_SLOT_SPELL_IDS = new Set(["spell.fireball"]);
+const MVP_STARTING_LEVEL3_SLOT_SPELL_IDS = new Set([
+  "spell.hold_person",
+  "spell.misty_step",
+  "spell.scorching_ray",
+  "spell.web",
+]);
+const MVP_STARTING_LEVEL5_SLOT_SPELL_IDS = new Set(["spell.dispel_magic", "spell.fireball"]);
 const MVP_STARTING_SLOT_SPELL_SELECTION_COUNT = 4;
 
 @Injectable()
@@ -688,7 +699,8 @@ export class CharactersService {
       abilities: AbilityScoresDto;
     },
   ): string {
-    const spells = this.parseSpellsJson(spellsJson);
+    const parsedSpells = this.parseSpellsJson(spellsJson);
+    const spells = parsedSpells ?? this.createEmptyLevelUpSpellState(params.className, params.level);
     if (!spells) {
       throw new BadRequestException({
         code: "LEVEL_UP_SPELLS_NOT_AVAILABLE",
@@ -696,7 +708,7 @@ export class CharactersService {
       });
     }
 
-    const knownSpellPool = this.getMvpStartingSlotSpellPool(params.level);
+    const knownSpellPool = this.getMvpStartingSlotSpellPool(params.className, params.level);
     const cantripPool = MVP_STARTING_CANTRIP_IDS;
     const currentCantrips = spells.cantrips
       .map((spell) => this.normalizeSpellId(spell))
@@ -814,6 +826,22 @@ export class CharactersService {
       spells: nextKnownSpells,
       preparedSpells,
     });
+  }
+
+  private createEmptyLevelUpSpellState(
+    className: string,
+    level: number,
+  ): StartingSpellsDto | null {
+    const progression = getSpellcastingProgression(className, level);
+    if (!progression) {
+      return null;
+    }
+
+    return {
+      cantrips: [],
+      spells: [],
+      ...(this.isPreparedSpellcaster(className) ? { preparedSpells: [] } : {}),
+    };
   }
 
   private normalizeUniqueSpellSelection(spells: string[] | undefined): string[] {
@@ -1743,7 +1771,7 @@ export class CharactersService {
       spellcastingProgression !== null;
     const mvpSlotSpellSelectionCount = Math.min(
       MVP_STARTING_SLOT_SPELL_SELECTION_COUNT,
-      this.getMvpStartingSlotSpellPool(level).size,
+      this.getMvpStartingSlotSpellPool(className, level).size,
     );
     const needSpells = usesDynamicPreparedPool
       ? mvpSlotSpellSelectionCount
@@ -1751,12 +1779,12 @@ export class CharactersService {
           spellcastingProgression?.spellsKnown !== undefined
         ? Math.min(
             spellcastingProgression.spellsKnown,
-            this.getMvpStartingSlotSpellPool(level).size,
+            this.getMvpStartingSlotSpellPool(className, level).size,
           )
         : classKey === "wizard"
           ? Math.min(
               Math.max(klass.startingSpellCount, mvpSlotSpellSelectionCount),
-              this.getMvpStartingSlotSpellPool(level).size,
+              this.getMvpStartingSlotSpellPool(className, level).size,
             )
           : klass.startingSpellCount;
 
@@ -1797,7 +1825,7 @@ export class CharactersService {
     this.assertUniqueStartingSpellIds(cantrips, "캔트립");
     this.assertUniqueStartingSpellIds(spells, "주문");
     this.assertMvpStartingSpellPool(cantrips, "캔트립", MVP_STARTING_CANTRIP_IDS);
-    this.assertMvpStartingSpellPool(spells, "주문", this.getMvpStartingSlotSpellPool(level));
+    this.assertMvpStartingSpellPool(spells, "주문", this.getMvpStartingSlotSpellPool(className, level));
     const knownSpellIds = new Set(spells.map((spell) => this.normalizeSpellId(spell)));
     const preparedSpells = startingSpells.preparedSpells
       ? Array.from(
@@ -2157,11 +2185,34 @@ export class CharactersService {
     }
   }
 
-  private getMvpStartingSlotSpellPool(level: number): Set<string> {
+  private getMvpStartingSlotSpellPool(className: string, level: number): Set<string> {
+    const maxSpellLevel = this.getMaximumSlotSpellLevelForClassLevel(className, level);
     return new Set([
       ...MVP_STARTING_SLOT_SPELL_IDS,
-      ...(level >= 5 ? MVP_STARTING_LEVEL5_SLOT_SPELL_IDS : []),
+      ...(maxSpellLevel >= 2 ? MVP_STARTING_LEVEL3_SLOT_SPELL_IDS : []),
+      ...(maxSpellLevel >= 3 ? MVP_STARTING_LEVEL5_SLOT_SPELL_IDS : []),
     ]);
+  }
+
+  private getMaximumSlotSpellLevelForClassLevel(className: string, level: number): number {
+    const classKey = normalizeSpellcastingClassKey(className);
+    const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
+    if (["bard", "cleric", "druid", "sorcerer", "wizard"].includes(classKey)) {
+      if (normalizedLevel >= 5) return 3;
+      if (normalizedLevel >= 3) return 2;
+      return 1;
+    }
+    if (classKey === "warlock") {
+      if (normalizedLevel >= 5) return 3;
+      if (normalizedLevel >= 3) return 2;
+      return 1;
+    }
+    if (classKey === "paladin" || classKey === "ranger") {
+      if (normalizedLevel >= 9) return 3;
+      if (normalizedLevel >= 5) return 2;
+      if (normalizedLevel >= 2) return 1;
+    }
+    return 0;
   }
 
   private async resolveCharacterFeatureSnapshot(params: {

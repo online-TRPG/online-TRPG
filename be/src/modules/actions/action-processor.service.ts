@@ -138,6 +138,7 @@ type InventoryContainerDbClient = Pick<
 >;
 
 const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
+const SECOND_WIND_FEATURE_ID = "class.fighter.feature.second_wind";
 const RAGE_FEATURE_ID = "class.barbarian.feature.rage";
 const MONSTER_LIMITED_USE_EXPENDED_FLAG = "monsterLimitedUseExpended";
 
@@ -690,6 +691,15 @@ export class ActionProcessorService {
           effect.slotLevel,
         );
         return;
+      case "RESTORE_SPELL_SLOT":
+        for (let index = 0; index < effect.amount; index += 1) {
+          await this.recoverOneSpellSlot(
+            params.sessionScenarioId,
+            params.sessionCharacterId,
+            effect.slotLevel,
+          );
+        }
+        return;
       case "STORE_READY_ACTION":
         await this.storePendingReadyAction(params.sessionScenarioId, effect.pending);
         return;
@@ -709,15 +719,28 @@ export class ActionProcessorService {
         // 휴식은 캐릭터 HP 변경과 별도로 class resource row도 회복해야 해서 runtime effect로 처리한다.
         await this.characterResources.recoverShortRest({
           sessionCharacterId: params.sessionCharacterId,
+          secondWindAvailable: effect.secondWindAvailable,
           actionSurgeUses: effect.actionSurgeUses,
           hitDiceSpent: effect.hitDiceSpent,
         });
         await this.recoverShortRestMonsterLimitedUses(params.sessionScenarioId);
+        await this.recoverShortRestPactMagicSlots(
+          params.sessionScenarioId,
+          params.sessionCharacterId,
+        );
+        if (effect.recoverSpellSlotLevel) {
+          await this.recoverOneSpellSlot(
+            params.sessionScenarioId,
+            params.sessionCharacterId,
+            effect.recoverSpellSlotLevel,
+          );
+        }
         return;
       case "RECOVER_LONG_REST":
         // Long Rest는 Rage/Frenzy 같은 지속 자원까지 종료하므로 전용 회복 메서드에 위임한다.
         await this.characterResources.recoverLongRest({
           sessionCharacterId: params.sessionCharacterId,
+          secondWindAvailable: effect.secondWindAvailable,
           actionSurgeUses: effect.actionSurgeUses,
           rageUses: effect.rageUses,
           reduceExhaustionBy: effect.reduceExhaustionBy,
@@ -1366,12 +1389,15 @@ export class ActionProcessorService {
     const hasActionSurge =
       featureIds.has(ACTION_SURGE_FEATURE_ID) ||
       (className.includes("fighter") && actor.character.level >= 2);
+    const hasSecondWind =
+      featureIds.has(SECOND_WIND_FEATURE_ID) ||
+      className.includes("fighter");
     const hasRage =
       featureIds.has(RAGE_FEATURE_ID) ||
       className.includes("barbarian");
 
     return {
-      secondWindAvailable: true,
+      secondWindAvailable: hasSecondWind,
       actionSurgeUses: hasActionSurge ? this.resolveActionSurgeUses(actor.character.level) : 0,
       rageUses: hasRage ? this.resolveRageUses(actor.character.level) : 0,
     };
@@ -1535,6 +1561,101 @@ export class ActionProcessorService {
         flagsJson: JSON.stringify({
           ...flags,
           [MONSTER_LIMITED_USE_EXPENDED_FLAG]: limitedUseRecovery.value,
+        }),
+      },
+    });
+  }
+
+  private async recoverShortRestPactMagicSlots(
+    sessionScenarioId: string,
+    sessionCharacterId: string,
+  ): Promise<void> {
+    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+      where: { id: sessionCharacterId },
+      include: {
+        character: {
+          select: {
+            className: true,
+          },
+        },
+      },
+    });
+    if (!sessionCharacter?.character.className.toLowerCase().includes("warlock")) {
+      return;
+    }
+
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const spellSlotsBySessionCharacterId = this.parseJson<Record<string, Record<string, number>>>(
+      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
+      {},
+    );
+    if (
+      !Object.prototype.hasOwnProperty.call(
+        spellSlotsBySessionCharacterId,
+        sessionCharacterId,
+      )
+    ) {
+      return;
+    }
+
+    const {
+      [sessionCharacterId]: _recovered,
+      ...remainingSpellSlotsBySessionCharacterId
+    } = spellSlotsBySessionCharacterId;
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          spellSlotsBySessionCharacterId: remainingSpellSlotsBySessionCharacterId,
+        }),
+      },
+    });
+  }
+
+  private async recoverOneSpellSlot(
+    sessionScenarioId: string,
+    sessionCharacterId: string,
+    slotLevel: number,
+  ): Promise<void> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const byCharacter = this.parseJson<Record<string, Record<string, number>>>(
+      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
+      {},
+    );
+    const maximum = await this.resolveSpellSlotMaximum(
+      sessionCharacterId,
+      slotLevel,
+    );
+    if (maximum < 1) {
+      return;
+    }
+    const key = String(slotLevel);
+    const current = byCharacter[sessionCharacterId] ?? {};
+    const remaining = Math.max(0, Math.floor(current[key] ?? maximum));
+    if (remaining >= maximum) {
+      return;
+    }
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          spellSlotsBySessionCharacterId: {
+            ...byCharacter,
+            [sessionCharacterId]: {
+              ...current,
+              [key]: Math.min(remaining + 1, maximum),
+            },
+          },
         }),
       },
     });

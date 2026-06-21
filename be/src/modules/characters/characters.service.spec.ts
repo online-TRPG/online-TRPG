@@ -865,6 +865,61 @@ describe("CharactersService level up", () => {
     expect(result.spells?.preparedSpells).toEqual(["spell.fireball"]);
   });
 
+  it("initializes spell state when a level-up grants ranger spellcasting", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d10",
+      koName: "레인저",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    const existing = {
+      ...baseCharacter,
+      className: "ranger",
+      subclassName: null,
+      level: 1,
+      spellsJson: null,
+      sessionCharacters: [],
+    };
+    const updated = {
+      ...existing,
+      level: 3,
+      subclassName: "hunter",
+      maxHp: 28,
+      spellsJson: JSON.stringify({
+        cantrips: [],
+        spells: ["spell.cure_wounds", "spell.entangle"],
+      }),
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    };
+
+    prisma.character.findUnique.mockResolvedValue(existing);
+    prisma.character.update.mockResolvedValue(updated);
+
+    const result = await service.levelUpCharacter("user-1", "character-1", {
+      targetLevel: 3,
+      subclassName: "hunter",
+      knownSpells: ["spell.cure_wounds", "spell.entangle"],
+    });
+
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          level: 3,
+          subclassName: "hunter",
+          spellsJson: JSON.stringify({
+            cantrips: [],
+            spells: ["spell.cure_wounds", "spell.entangle"],
+          }),
+        }),
+      }),
+    );
+    expect(result.spells?.spells).toEqual(["spell.cure_wounds", "spell.entangle"]);
+  });
+
   it("does not create an empty prepared-spell list when a known caster learns a spell", async () => {
     const { service, prisma } = createService();
     const existing = {

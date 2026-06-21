@@ -104,13 +104,16 @@ export class CharacterResourceService {
 
   async recoverShortRest(params: {
     sessionCharacterId: string;
+    secondWindAvailable?: boolean;
     actionSurgeUses?: number;
     hitDiceSpent?: number;
   }): Promise<SessionCharacterResource> {
     await this.getOrCreateResource(params.sessionCharacterId);
 
     return this.updateResource(params.sessionCharacterId, {
-      secondWindAvailable: true,
+      ...(params.secondWindAvailable === undefined
+        ? {}
+        : { secondWindAvailable: params.secondWindAvailable }),
       ...(params.actionSurgeUses === undefined
         ? {}
         : { actionSurgeUses: params.actionSurgeUses }),
@@ -120,6 +123,7 @@ export class CharacterResourceService {
 
   async recoverLongRest(params: {
     sessionCharacterId: string;
+    secondWindAvailable?: boolean;
     actionSurgeUses?: number;
     rageUses?: number;
     reduceExhaustionBy?: number;
@@ -129,7 +133,9 @@ export class CharacterResourceService {
     const reduceExhaustionBy = params.reduceExhaustionBy ?? 1;
 
     return this.updateResource(params.sessionCharacterId, {
-      secondWindAvailable: true,
+      ...(params.secondWindAvailable === undefined
+        ? {}
+        : { secondWindAvailable: params.secondWindAvailable }),
       ...(params.actionSurgeUses === undefined
         ? {}
         : { actionSurgeUses: params.actionSurgeUses }),
