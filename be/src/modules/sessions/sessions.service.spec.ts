@@ -10,6 +10,42 @@ import { BadRequestException, ConflictException, ForbiddenException } from "@nes
 import { SessionsService } from "./sessions.service";
 import { getRestApprovalExpiresAt } from "../actions/rest-approval-policy";
 
+describe("SessionsService P3 revision snapshot metadata", () => {
+  it("records the selected scenario revision metadata into session state flags", () => {
+    const service = new SessionsService({} as never, {} as never, {} as never, {} as never);
+    const flag = (service as never as {
+      buildP3ScenarioRevisionSnapshotFlag: (scenario: {
+        id: string;
+        sourceType: string;
+        baseScenarioId: string | null;
+        attribution: string | null;
+        updatedAt: Date;
+      }) => Record<string, unknown>;
+    }).buildP3ScenarioRevisionSnapshotFlag({
+      id: "scenario_draft_rev_1",
+      sourceType: "CLONED",
+      baseScenarioId: "scenario_draft",
+      attribution:
+        'Original\nP3_REVISION_META:{"revisionNumber":1,"changelog":"Initial","publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}',
+      updatedAt: new Date("2026-06-22T01:00:00.000Z"),
+    });
+
+    expect(flag).toEqual(
+      expect.objectContaining({
+        scenarioId: "scenario_draft_rev_1",
+        baseScenarioId: "scenario_draft",
+        sourceType: "CLONED",
+        revisionNumber: 1,
+        publishStatus: "public",
+        publishedAt: "2026-06-22T00:00:00.000Z",
+        publishedByUserId: "creator-1",
+        scenarioUpdatedAt: "2026-06-22T01:00:00.000Z",
+      }),
+    );
+    expect(flag.snapshotCreatedAt).toEqual(expect.any(String));
+  });
+});
+
 describe("HumanGmMessageDto validation", () => {
   it("keeps private GM notes through whitelist validation", async () => {
     const dto = plainToInstance(HumanGmMessageDto, {

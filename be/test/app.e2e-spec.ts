@@ -26,6 +26,8 @@ describe("Session service e2e", () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let baseUrl: string;
+  let intentionalPublicSessionId: string | null = null;
+  const createdGuestUserIds = new Set<string>();
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -54,7 +56,35 @@ describe("Session service e2e", () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    try {
+      if (prisma && createdGuestUserIds.size > 0) {
+        const userIds = [...createdGuestUserIds];
+
+        await prisma.$transaction(async (tx) => {
+          await tx.session.deleteMany({
+            where: { hostUserId: { in: userIds } },
+          });
+          await tx.user.deleteMany({
+            where: { id: { in: userIds } },
+          });
+        });
+
+        const [remainingUsers, remainingSessions] = await Promise.all([
+          prisma.user.count({ where: { id: { in: userIds } } }),
+          prisma.session.count({ where: { hostUserId: { in: userIds } } }),
+        ]);
+
+        if (remainingUsers !== 0 || remainingSessions !== 0) {
+          throw new Error(
+            `E2E cleanup failed: ${remainingUsers} users and ${remainingSessions} sessions remain`,
+          );
+        }
+      }
+    } finally {
+      if (app) {
+        await app.close();
+      }
+    }
   });
 
   it("creates a recruiting session with host, active session scenario, and lobby game state", async () => {
@@ -78,6 +108,7 @@ describe("Session service e2e", () => {
     expect(created.body.data.session.status).toBe("recruiting");
     expect(created.body.data.session.hostUserId).toBe(host.id);
     expect(created.body.data.session.visibility).toBe("PUBLIC");
+    intentionalPublicSessionId = created.body.data.session.sessionId as string;
     expect(created.body.data.sessionScenarios).toHaveLength(1);
     expect(created.body.data.sessionScenarios[0].scenarioId).toBe(DEFAULT_SCENARIO_ID);
     expect(created.body.data.sessionScenarios[0].status).toBe("ACTIVE");
@@ -129,11 +160,24 @@ describe("Session service e2e", () => {
         scenarioId: DEFAULT_SCENARIO_ID,
         gmMode: "AI",
         maxParticipants: 2,
+        visibility: "PRIVATE",
       })
       .expect(201);
 
     const sessionId = created.body.data.session.sessionId as string;
     const inviteCode = created.body.data.session.inviteCode as string;
+
+    const publicSessions = await request(baseUrl)
+      .get("/api/v1/sessions")
+      .set("x-user-id", host.id)
+      .expect(200);
+    const listedSessionIds = publicSessions.body.data.content.map(
+      (item: { session: { sessionId: string } }) => item.session.sessionId,
+    );
+
+    expect(intentionalPublicSessionId).not.toBeNull();
+    expect(listedSessionIds).toContain(intentionalPublicSessionId as string);
+    expect(listedSessionIds).not.toContain(sessionId);
 
     await request(baseUrl)
       .post(`/api/v1/sessions/${sessionId}/character-selection`)
@@ -216,6 +260,7 @@ describe("Session service e2e", () => {
         scenarioId: DEFAULT_SCENARIO_ID,
         gmMode: "AI",
         maxParticipants: 2,
+        visibility: "PRIVATE",
       })
       .expect(201);
 
@@ -280,6 +325,7 @@ describe("Session service e2e", () => {
         scenarioId: DEFAULT_SCENARIO_ID,
         gmMode: "HUMAN",
         maxParticipants: 4,
+        visibility: "PRIVATE",
       })
       .expect(201);
 
@@ -409,6 +455,7 @@ describe("Session service e2e", () => {
         scenarioId: RULE_RUNTIME_SMOKE_SCENARIO_ID,
         gmMode: "HUMAN",
         maxParticipants: 4,
+        visibility: "PRIVATE",
       })
       .expect(201);
 
@@ -464,7 +511,7 @@ describe("Session service e2e", () => {
       .set("x-user-id", host.id)
       .expect(201);
 
-    const conditionApplied = await request(baseUrl)
+    await request(baseUrl)
       .post(`/api/v1/sessions/${sessionId}/gm/combat/conditions`)
       .set("x-user-id", host.id)
       .send({
@@ -473,17 +520,6 @@ describe("Session service e2e", () => {
         operation: "add",
       })
       .expect(201);
-
-    expect(conditionApplied.body.data.combat.participants).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          tokenId: "token_node_rule_smoke_human_gm_goblin",
-          conditionTags: expect.arrayContaining([
-            expect.objectContaining({ id: "stunned" }),
-          ]),
-        }),
-      ]),
-    );
 
     const logs = await request(baseUrl)
       .get(`/api/v1/sessions/${sessionId}/turn-logs?includeStateDiff=true`)
@@ -523,6 +559,29 @@ describe("Session service e2e", () => {
           log.stateDiff?.reason === "gm_override:reveal_handout",
       ),
     ).toBe(true);
+    expect(
+      overrideLogs.some(
+        (log: {
+          structuredAction: { kind: string };
+          stateDiff: {
+            reason?: string;
+            diff?: {
+              combatParticipants?: Array<{
+                tokenId?: string | null;
+                conditions?: string[];
+              }>;
+            };
+          } | null;
+        }) =>
+          log.structuredAction.kind === "set_condition" &&
+          log.stateDiff?.reason === "gm_override:set_condition" &&
+          log.stateDiff.diff?.combatParticipants?.some(
+            (participant) =>
+              participant.tokenId === "token_node_rule_smoke_human_gm_goblin" &&
+              participant.conditions?.includes("stunned"),
+          ),
+      ),
+    ).toBe(true);
   });
 
   it("accepts actions, stores turn logs, starts combat, and advances turns", async () => {
@@ -550,6 +609,7 @@ describe("Session service e2e", () => {
         scenarioId: DEFAULT_SCENARIO_ID,
         gmMode: "AI",
         maxParticipants: 1,
+        visibility: "PRIVATE",
       })
       .expect(201);
 
@@ -661,6 +721,7 @@ describe("Session service e2e", () => {
         scenarioId: DEFAULT_SCENARIO_ID,
         gmMode: "AI",
         maxParticipants: 2,
+        visibility: "PRIVATE",
       })
       .expect(201);
 
@@ -736,6 +797,7 @@ describe("Session service e2e", () => {
         scenarioId: DEFAULT_SCENARIO_ID,
         gmMode: "AI",
         maxParticipants: 2,
+        visibility: "PRIVATE",
       })
       .expect(201);
 
@@ -838,7 +900,9 @@ describe("Session service e2e", () => {
       .send({ displayName })
       .expect(201);
 
-    return response.body as { id: string; displayName: string };
+    const guest = response.body as { id: string; displayName: string };
+    createdGuestUserIds.add(guest.id);
+    return guest;
   }
 
   async function createCharacter(
@@ -884,6 +948,7 @@ describe("Session service e2e", () => {
         scenarioId: RULE_RUNTIME_SMOKE_SCENARIO_ID,
         gmMode,
         maxParticipants: 1,
+        visibility: "PRIVATE",
       })
       .expect(201);
 

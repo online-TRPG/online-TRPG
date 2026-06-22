@@ -2,7 +2,10 @@ import { Injectable } from "@nestjs/common";
 import { ActionOutcome, DiceAdvantageState, DiceRollResponseDto } from "@trpg/shared-types";
 import { AoeDamageService, AoeDamageTarget } from "./aoe-damage.service";
 import { ParsedCommand } from "./command-parser.service";
-import { ConditionRuntimeService } from "./condition-runtime.service";
+import {
+  ConditionInstance,
+  ConditionRuntimeService,
+} from "./condition-runtime.service";
 import { DiceService } from "./dice.service";
 import { RuleCatalogService } from "./rule-catalog.service";
 import { RuleCatalogEntry } from "./rule-catalog.types";
@@ -237,7 +240,42 @@ export class ActionSpellRuleService {
       });
     }
 
-    if (command.spellId === FIRE_BOLT_SPELL_ID || command.spellId === RAY_OF_FROST_SPELL_ID) {
+    if (
+      spellDefinition?.damage &&
+      ["healing", "temporary_hp"].includes(spellDefinition.damage.type)
+    ) {
+      return this.resolveGenericHealingSpell({
+        command,
+        actor,
+        target,
+        spellDefinition,
+        spellLevel,
+        slotLevel,
+        spellScaling,
+      });
+    }
+
+    if (spellDefinition?.save && spellDefinition.damage) {
+      return this.resolveSavingThrowDamageSpell({
+        command,
+        actor,
+        target,
+        spellDefinition,
+        spellLevel,
+        slotLevel,
+        spellScaling,
+        spellDamageType,
+        spellDamageDice,
+      });
+    }
+
+    if (
+      command.spellId !== CHILL_TOUCH_SPELL_ID &&
+      spellDefinition?.damage &&
+      spellDefinition.runtimeEffect.tags.some((tag) =>
+        tag.startsWith("spell_attack:"),
+      )
+    ) {
       return this.resolveSpellAttackDamage({
         command,
         actor,
@@ -249,6 +287,18 @@ export class ActionSpellRuleService {
         spellScaling,
         spellDamageType,
         spellDamageDice,
+      });
+    }
+
+    if (spellDefinition && !spellDefinition.damage) {
+      return this.resolveGenericEffectSpell({
+        command,
+        actor,
+        target,
+        spellDefinition,
+        spellLevel,
+        slotLevel,
+        spellScaling,
       });
     }
 
@@ -394,7 +444,7 @@ export class ActionSpellRuleService {
     }
 
     const spellDefinition = this.resolveSpellDefinition(command.spellId);
-    if (!spellDefinition || spellDefinition.targeting.type !== "area" || !spellDefinition.damage || !spellDefinition.save) {
+    if (!spellDefinition || spellDefinition.targeting.type !== "area") {
       return {
         structuredAction: {
           type: "cast_area_spell",
@@ -449,12 +499,35 @@ export class ActionSpellRuleService {
       };
     }
 
+    if (!spellDefinition.damage || !spellDefinition.save) {
+      return this.resolveGenericAreaEffectSpell({
+        command,
+        actor,
+        targets: command.targetIds.map((targetId) =>
+          this.requireTarget(targetId, sessionCharacters),
+        ),
+        spellDefinition,
+        spellLevel,
+        slotLevel,
+        spellScaling,
+      });
+    }
+
     const targets = command.targetIds.map((targetId) => this.requireTarget(targetId, sessionCharacters));
     const saveAbility = spellDefinition.save.ability;
     const aoeInput = this.aoeDamage.createInputFromSpell({
       spellDefinition,
       saveDc: command.saveDc,
       damageDice: spellScaling?.damageDice ?? spellDefinition.damage.dice,
+      damageBonus: this.resolveElementalAffinityDamageBonus(
+        actor,
+        spellDefinition.damage.type,
+      ),
+      halfDamageOnSuccess:
+        spellDefinition.runtimeEffect.tags.includes(
+          "half_damage_on_success",
+        ) ||
+        (spellLevel === 0 && this.hasPotentCantrip(actor)),
       targets: targets.map((target) => this.toAoeDamageTarget(target, saveAbility)),
     });
     const aoeResolution = this.aoeDamage.resolveDamage(aoeInput);
@@ -509,10 +582,15 @@ export class ActionSpellRuleService {
       diceResult: aoeResolution.damageRoll,
       outcome: ActionOutcome.SUCCESS,
       narration: `${command.spellId} 광역 주문을 처리했습니다.`,
-      stateChanges: aoeResolution.stateChanges.map((stateChange) => {
-        const concentrationCheck = concentrationByTargetId.get(stateChange.sessionCharacterId);
-        return concentrationCheck && !concentrationCheck.concentrationMaintained ? { ...stateChange, conditions: concentrationCheck.conditions } : stateChange;
-      }),
+      stateChanges: this.withSpellConcentration(
+        aoeResolution.stateChanges.map((stateChange) => {
+          const concentrationCheck = concentrationByTargetId.get(stateChange.sessionCharacterId);
+          return concentrationCheck && !concentrationCheck.concentrationMaintained ? { ...stateChange, conditions: concentrationCheck.conditions } : stateChange;
+        }),
+        actor,
+        spellDefinition,
+        targets.map((target) => target.id),
+      ),
       runtimeEffects: this.spellRuntimeEffects(slotLevel),
     };
   }
@@ -565,8 +643,13 @@ export class ActionSpellRuleService {
 
     if (attackRuleResult.produced.hit && params.spellDamageDice) {
       damageRoll = this.diceService.roll(params.spellDamageDice);
+      const elementalAffinityBonus =
+        this.resolveElementalAffinityDamageBonus(
+          params.actor,
+          params.spellDamageType,
+        );
       const damageRuleResult = this.ruleEngine.applyDamageModifiers({
-        baseDamage: damageRoll.total,
+        baseDamage: damageRoll.total + elementalAffinityBonus,
         damageType: params.spellDamageType,
         ...this.resolveDamageProfile(params.target),
       });
@@ -607,6 +690,11 @@ export class ActionSpellRuleService {
         damageType: params.spellDamageType,
         damageDice: params.spellDamageDice,
         damageRoll: damageRoll ? { ...damageRoll } : null,
+        elementalAffinityBonus:
+          this.resolveElementalAffinityDamageBonus(
+            params.actor,
+            params.spellDamageType,
+          ),
         finalDamage,
         ruleResults,
       },
@@ -1001,6 +1089,602 @@ export class ActionSpellRuleService {
       .sort((left, right) => right - left)[0];
     const scaledDice = matchingThreshold === undefined ? null : table[String(matchingThreshold)];
     return typeof scaledDice === "string" ? scaledDice : spellDefinition.damage.dice;
+  }
+
+  private resolveSavingThrowDamageSpell(params: {
+    command: Extract<ParsedCommand, { type: "cast_spell" }>;
+    actor: SessionCharacterForRules;
+    target: SessionCharacterForRules;
+    spellDefinition: RuleCatalogEntry;
+    spellLevel: number;
+    slotLevel: number;
+    spellScaling: SpellScalingResult | null;
+    spellDamageType: string;
+    spellDamageDice: string | null;
+  }): ActionResolution {
+    const maxRangeFt = this.resolveSpellRangeFt(params.spellDefinition);
+    if (
+      maxRangeFt !== null &&
+      params.command.targetDistanceFt > maxRangeFt
+    ) {
+      return {
+        structuredAction: {
+          type: "cast_spell",
+          spellId: params.command.spellId,
+          slotLevel: params.slotLevel,
+          target: params.target.id,
+          targetDistanceFt: params.command.targetDistanceFt,
+          rejectedReason: "target_out_of_range",
+        },
+        diceResult: null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: this.createSpellRejectedNarration("target_out_of_range"),
+        stateChanges: [],
+        runtimeEffects: [],
+      };
+    }
+
+    const damageBonus = this.resolveElementalAffinityDamageBonus(
+      params.actor,
+      params.spellDamageType,
+    );
+    const halfDamageOnSuccess =
+      params.spellDefinition.runtimeEffect.tags.includes(
+        "half_damage_on_success",
+      ) ||
+      (params.spellLevel === 0 && this.hasPotentCantrip(params.actor));
+    const resolution = this.aoeDamage.resolveDamage({
+      sourceId: params.command.spellId,
+      damageDice:
+        params.spellScaling?.damageDice ??
+        params.spellDamageDice ??
+        params.spellDefinition.damage?.dice ??
+        "1d6",
+      damageType: params.spellDamageType,
+      damageBonus,
+      save: {
+        ability: params.spellDefinition.save!.ability,
+        dc: this.resolveSpellSaveDc(params.actor),
+        halfDamageOnSuccess,
+      },
+      targets: [
+        this.toAoeDamageTarget(
+          params.target,
+          params.spellDefinition.save!.ability,
+        ),
+      ],
+    });
+    const targetResult = resolution.targetResults[0];
+
+    return {
+      structuredAction: {
+        type: "cast_spell",
+        spellId: params.command.spellId,
+        slotLevel: params.slotLevel,
+        target: params.target.id,
+        targetDistanceFt: params.command.targetDistanceFt,
+        spellDefinition: this.toStructuredSpellDefinition(
+          params.spellDefinition,
+          params.spellLevel,
+        ),
+        spellScaling: params.spellScaling,
+        damageType: params.spellDamageType,
+        damageDice: resolution.damageDice,
+        damageRoll: resolution.damageRoll,
+        elementalAffinityBonus: damageBonus,
+        potentCantripApplied:
+          params.spellLevel === 0 &&
+          this.hasPotentCantrip(params.actor),
+        savingThrow: targetResult?.savingThrow ?? null,
+        finalDamage: targetResult?.finalDamage ?? 0,
+      },
+      diceResult: targetResult?.saveRoll ?? null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: `${params.command.spellId} 내성 주문을 처리했습니다.`,
+      stateChanges: this.withSpellConcentration(
+        resolution.stateChanges,
+        params.actor,
+        params.spellDefinition,
+        [params.target.id],
+      ),
+      runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
+    };
+  }
+
+  private resolveGenericHealingSpell(params: {
+    command: Extract<ParsedCommand, { type: "cast_spell" }>;
+    actor: SessionCharacterForRules;
+    target: SessionCharacterForRules;
+    spellDefinition: RuleCatalogEntry;
+    spellLevel: number;
+    slotLevel: number;
+    spellScaling: SpellScalingResult | null;
+  }): ActionResolution {
+    const effectiveTarget =
+      params.spellDefinition.targeting.type === "self"
+        ? params.actor
+        : params.target;
+    const maxRangeFt = this.resolveSpellRangeFt(params.spellDefinition);
+    if (
+      maxRangeFt !== null &&
+      params.command.targetDistanceFt > maxRangeFt
+    ) {
+      return {
+        structuredAction: {
+          type: "cast_spell",
+          spellId: params.command.spellId,
+          rejectedReason: "target_out_of_range",
+        },
+        diceResult: null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: this.createSpellRejectedNarration("target_out_of_range"),
+        stateChanges: [],
+        runtimeEffects: [],
+      };
+    }
+    const diceExpression =
+      params.spellScaling?.damageDice ??
+      params.spellDefinition.damage?.dice ??
+      "1d4";
+    const roll = this.diceService.roll(diceExpression);
+    const abilityModifier = this.resolveSpellcastingAbilityModifier(
+      params.actor,
+    );
+    const isTemporaryHp =
+      params.spellDefinition.damage?.type === "temporary_hp";
+    const flatUpcastPerLevel =
+      params.spellDefinition.scaling?.table?.mode === "flat_bonus" &&
+      typeof params.spellDefinition.scaling.table.perSlotAbove === "number"
+        ? params.spellDefinition.scaling.table.perSlotAbove
+        : 0;
+    const amount = Math.max(
+      roll.total +
+        (isTemporaryHp ? 0 : abilityModifier) +
+        Math.max(params.slotLevel - params.spellLevel, 0) *
+          flatUpcastPerLevel,
+      0,
+    );
+    const nextHp = Math.min(
+      effectiveTarget.character.maxHp,
+      effectiveTarget.currentHp + amount,
+    );
+
+    return {
+      structuredAction: {
+        type: "cast_spell",
+        spellId: params.command.spellId,
+        slotLevel: params.slotLevel,
+        target: effectiveTarget.id,
+        spellDefinition: this.toStructuredSpellDefinition(
+          params.spellDefinition,
+          params.spellLevel,
+        ),
+        amount,
+        effect: isTemporaryHp ? "temporary_hp" : "healing",
+      },
+      diceResult: roll,
+      outcome: ActionOutcome.SUCCESS,
+      narration: isTemporaryHp
+        ? `${effectiveTarget.character.name}에게 임시 HP ${amount}을 부여했습니다.`
+        : `${effectiveTarget.character.name}의 HP를 ${nextHp - effectiveTarget.currentHp} 회복했습니다.`,
+      stateChanges: [
+        {
+          sessionCharacterId: effectiveTarget.id,
+          ...(isTemporaryHp
+            ? { tempHp: Math.max(effectiveTarget.tempHp, amount) }
+            : { currentHp: nextHp, markDead: false }),
+        },
+      ],
+      runtimeEffects: this.spellRuntimeEffectsForDefinition(
+        params.slotLevel,
+        params.spellDefinition,
+      ),
+    };
+  }
+
+  private resolveGenericEffectSpell(params: {
+    command: Extract<ParsedCommand, { type: "cast_spell" }>;
+    actor: SessionCharacterForRules;
+    target: SessionCharacterForRules;
+    spellDefinition: RuleCatalogEntry;
+    spellLevel: number;
+    slotLevel: number;
+    spellScaling: SpellScalingResult | null;
+  }): ActionResolution {
+    const target =
+      params.spellDefinition.targeting.type === "self"
+        ? params.actor
+        : params.target;
+    const maxRangeFt = this.resolveSpellRangeFt(params.spellDefinition);
+    if (
+      maxRangeFt !== null &&
+      params.command.targetDistanceFt > maxRangeFt
+    ) {
+      return {
+        structuredAction: {
+          type: "cast_spell",
+          spellId: params.command.spellId,
+          rejectedReason: "target_out_of_range",
+        },
+        diceResult: null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: this.createSpellRejectedNarration("target_out_of_range"),
+        stateChanges: [],
+        runtimeEffects: [],
+      };
+    }
+
+    const saveResult = params.spellDefinition.save
+      ? this.resolveGenericSpellSave(
+          params.actor,
+          target,
+          params.spellDefinition.save.ability,
+          this.resolveSpellSaveDc(params.actor),
+        )
+      : null;
+    const applied = !saveResult || !saveResult.ruleResult.produced.success;
+    const nextConditions = applied
+      ? this.conditionRuntime.applyCondition(
+          this.conditionRuntime.parseConditionsJson(target.conditionsJson),
+          this.createSpellCondition(
+            params.spellDefinition,
+            this.resolveSpellSaveDc(params.actor),
+          ),
+        )
+      : this.conditionRuntime.parseConditionsJson(target.conditionsJson);
+    const temporaryHpBase = Number(
+      params.spellDefinition.runtimeEffect.tags
+        .find((tag) => /^temporary_hp:\d+$/.test(tag))
+        ?.slice("temporary_hp:".length),
+    );
+    const temporaryHp =
+      applied && Number.isFinite(temporaryHpBase)
+        ? temporaryHpBase +
+          Math.max(params.slotLevel - params.spellLevel, 0) * 5
+        : null;
+
+    return {
+      structuredAction: {
+        type: "cast_spell",
+        spellId: params.command.spellId,
+        slotLevel: params.slotLevel,
+        target: target.id,
+        spellDefinition: this.toStructuredSpellDefinition(
+          params.spellDefinition,
+          params.spellLevel,
+        ),
+        spellScaling: params.spellScaling,
+        effectTags: params.spellDefinition.runtimeEffect.tags,
+        applied,
+        savingThrow: saveResult?.ruleResult.produced ?? null,
+      },
+      diceResult: saveResult?.diceResult ?? null,
+      outcome:
+        saveResult?.ruleResult.produced.success === true
+          ? ActionOutcome.FAILURE
+          : ActionOutcome.SUCCESS,
+      narration: applied
+        ? `${params.command.spellId} 효과를 적용했습니다.`
+        : `${target.character.name}이(가) 주문 내성에 성공했습니다.`,
+      stateChanges: this.withSpellConcentration(
+        applied
+          ? [{
+              sessionCharacterId: target.id,
+              conditions: nextConditions,
+              ...(temporaryHp !== null
+                ? { tempHp: Math.max(target.tempHp, temporaryHp) }
+                : {}),
+            }]
+          : [],
+        params.actor,
+        params.spellDefinition,
+        [target.id],
+      ),
+      runtimeEffects: this.spellRuntimeEffectsForDefinition(
+        params.slotLevel,
+        params.spellDefinition,
+      ),
+    };
+  }
+
+  private resolveGenericAreaEffectSpell(params: {
+    command: Extract<ParsedCommand, { type: "cast_area_spell" }>;
+    actor: SessionCharacterForRules;
+    targets: SessionCharacterForRules[];
+    spellDefinition: RuleCatalogEntry;
+    spellLevel: number;
+    slotLevel: number;
+    spellScaling: SpellScalingResult | null;
+  }): ActionResolution {
+    const results = params.targets.map((target) => {
+      const saveResult = params.spellDefinition.save
+        ? this.resolveGenericSpellSave(
+            params.actor,
+            target,
+            params.spellDefinition.save.ability,
+            params.command.saveDc,
+          )
+        : null;
+      const applied = !saveResult || !saveResult.ruleResult.produced.success;
+      return {
+        target,
+        saveResult,
+        applied,
+        conditions: applied
+          ? this.conditionRuntime.applyCondition(
+              this.conditionRuntime.parseConditionsJson(
+                target.conditionsJson,
+              ),
+              this.createSpellCondition(
+                params.spellDefinition,
+                params.command.saveDc,
+              ),
+            )
+          : null,
+      };
+    });
+
+    return {
+      structuredAction: {
+        type: "cast_area_spell",
+        spellId: params.command.spellId,
+        slotLevel: params.slotLevel,
+        targetIds: params.targets.map((target) => target.id),
+        spellDefinition: this.toStructuredSpellDefinition(
+          params.spellDefinition,
+          params.spellLevel,
+        ),
+        spellScaling: params.spellScaling,
+        effectTags: params.spellDefinition.runtimeEffect.tags,
+        targetResults: results.map((result) => ({
+          targetId: result.target.id,
+          applied: result.applied,
+          savingThrow: result.saveResult?.ruleResult.produced ?? null,
+        })),
+      },
+      diceResult:
+        results.find((result) => result.saveResult)?.saveResult?.diceResult ??
+        null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: `${params.command.spellId} 범위 효과를 적용했습니다.`,
+      stateChanges: this.withSpellConcentration(
+        results.flatMap((result) =>
+          result.applied && result.conditions
+            ? [
+                {
+                  sessionCharacterId: result.target.id,
+                  conditions: result.conditions,
+                },
+              ]
+            : [],
+        ),
+        params.actor,
+        params.spellDefinition,
+        params.targets.map((target) => target.id),
+      ),
+      runtimeEffects: this.spellRuntimeEffectsForDefinition(
+        params.slotLevel,
+        params.spellDefinition,
+      ),
+    };
+  }
+
+  private resolveGenericSpellSave(
+    actor: SessionCharacterForRules,
+    target: SessionCharacterForRules,
+    ability: SavingThrowAbility,
+    dc: number,
+  ): {
+    diceResult: DiceRollResponseDto;
+    ruleResult: RuleHookResult<ReturnType<RuleEngineService["resolveSavingThrow"]>["produced"]>;
+  } {
+    const profile = this.toAoeDamageTarget(target, ability) as AoeDamageTarget;
+    const abilityModifier = profile.abilityModifiers[ability] ?? 0;
+    const proficient = profile.proficientSaves?.includes(ability) ?? false;
+    const modifier =
+      abilityModifier +
+      (proficient ? profile.proficiencyBonus ?? 0 : 0);
+    const diceResult = this.diceService.roll(
+      `1d20${modifier >= 0 ? "+" : ""}${modifier}`,
+    );
+    const ruleResult = this.ruleEngine.resolveSavingThrow({
+      ability,
+      naturalD20: this.selectNaturalD20(diceResult),
+      difficultyClass: dc,
+      abilityModifier,
+      proficiencyBonus: profile.proficiencyBonus,
+      proficient,
+      bonusModifiers: profile.bonusModifiers,
+    });
+    void actor;
+    return { diceResult, ruleResult };
+  }
+
+  private createSpellCondition(
+    spellDefinition: RuleCatalogEntry,
+    saveDc: number,
+  ) {
+    const duration = spellDefinition.duration;
+    const conditionDuration =
+      !duration || duration.unit === "instant"
+        ? { type: "rounds" as const, remaining: 1 }
+        : duration.unit === "permanent"
+          ? { type: "permanent" as const }
+          : {
+              type: "rounds" as const,
+              remaining: Math.max(
+                duration.unit === "round"
+                  ? duration.amount ?? 1
+                  : duration.unit === "minute"
+                    ? (duration.amount ?? 1) * 10
+                    : duration.unit === "hour"
+                      ? (duration.amount ?? 1) * 600
+                      : (duration.amount ?? 1) * 14_400,
+                1,
+              ),
+            };
+    return this.conditionRuntime.createCondition({
+      conditionId: `condition.${spellDefinition.id}`,
+      sourceId: spellDefinition.id,
+      duration: conditionDuration,
+      saveEnds: spellDefinition.runtimeEffect.tags.includes("save_ends")
+        ? {
+            ability: spellDefinition.save?.ability ?? "wis",
+            dc: saveDc,
+          }
+        : null,
+      stackPolicy: "replace",
+      tags: spellDefinition.runtimeEffect.tags,
+    });
+  }
+
+  private withSpellConcentration(
+    stateChanges: CharacterStatePatch[],
+    actor: SessionCharacterForRules,
+    spellDefinition: RuleCatalogEntry,
+    targetIds: string[],
+  ): CharacterStatePatch[] {
+    if (!spellDefinition.concentration) {
+      return stateChanges;
+    }
+    const duration = spellDefinition.duration;
+    const durationRounds =
+      !duration || duration.unit === "instant"
+        ? 1
+        : duration.unit === "round"
+          ? duration.amount ?? 1
+          : duration.unit === "minute"
+            ? (duration.amount ?? 1) * 10
+            : duration.unit === "hour"
+              ? (duration.amount ?? 1) * 600
+              : (duration.amount ?? 1) * 14_400;
+    const actorPatch = stateChanges.find(
+      (patch) => patch.sessionCharacterId === actor.id,
+    );
+    const baseConditions: ConditionInstance[] =
+      actorPatch?.conditions
+        ? this.conditionRuntime.parseConditionsJson(
+            JSON.stringify(actorPatch.conditions),
+          )
+        : this.conditionRuntime.parseConditionsJson(actor.conditionsJson);
+    const withoutPreviousConcentration = baseConditions.filter(
+      (condition) =>
+        condition.conditionId !== "condition.concentration" &&
+        !condition.tags.includes("concentration"),
+    );
+    const concentration = this.conditionRuntime.createCondition({
+      conditionId: "condition.concentration",
+      sourceId: spellDefinition.id,
+      duration: { type: "rounds", remaining: Math.max(durationRounds, 1) },
+      stackPolicy: "replace",
+      tags: [
+        "concentration",
+        `concentration:spell:${spellDefinition.id}`,
+        ...targetIds.map((targetId) => `concentration:target:${targetId}`),
+        `concentration:effect:${spellDefinition.id}`,
+      ],
+    });
+    if (actorPatch) {
+      actorPatch.conditions = [
+        ...withoutPreviousConcentration,
+        concentration,
+      ];
+      return stateChanges;
+    }
+    return [
+      ...stateChanges,
+      {
+        sessionCharacterId: actor.id,
+        conditions: [...withoutPreviousConcentration, concentration],
+      },
+    ];
+  }
+
+  private spellRuntimeEffectsForDefinition(
+    slotLevel: number,
+    spellDefinition: RuleCatalogEntry,
+  ): ActionRuntimeEffect[] {
+    const spendCost: ActionRuntimeEffect =
+      spellDefinition.cost.type === "bonus_action"
+        ? { type: "SPEND_BONUS_ACTION" }
+        : spellDefinition.cost.type === "reaction"
+          ? { type: "SPEND_REACTION" }
+          : { type: "SPEND_ACTION" };
+    return [
+      spendCost,
+      ...(slotLevel > 0
+        ? [{ type: "SPEND_SPELL_SLOT", slotLevel } as const]
+        : []),
+    ];
+  }
+
+  private resolveElementalAffinityDamageBonus(
+    actor: SessionCharacterForRules,
+    damageType: string,
+  ): number {
+    if (
+      !this.normalizeRuleToken(actor.character.className).includes(
+        "sorcerer",
+      ) ||
+      actor.character.level < 6
+    ) {
+      return 0;
+    }
+    const featureIds = this.parseJson<string[]>(
+      actor.character.featuresJson,
+      [],
+    );
+    const runtimeTags = this.ruleCatalog.resolveRuntimeTags(featureIds);
+    if (
+      !runtimeTags.includes("trigger:spell_damage_matching_ancestry") ||
+      !runtimeTags.includes(
+        `resistance:${this.normalizeRuleToken(damageType)}`,
+      )
+    ) {
+      return 0;
+    }
+    const abilities = this.parseJson<Record<string, number>>(
+      actor.character.abilitiesJson,
+      {},
+    );
+    return Math.max(Math.floor(((abilities.cha ?? 10) - 10) / 2), 0);
+  }
+
+  private hasPotentCantrip(actor: SessionCharacterForRules): boolean {
+    if (
+      !this.normalizeRuleToken(actor.character.className).includes("wizard") ||
+      actor.character.level < 6
+    ) {
+      return false;
+    }
+    const featureIds = this.parseJson<string[]>(
+      actor.character.featuresJson,
+      [],
+    );
+    return this.ruleCatalog
+      .resolveRuntimeTags(featureIds)
+      .includes("damage:half_on_success");
+  }
+
+  private resolveSpellSaveDc(actor: SessionCharacterForRules): number {
+    const className = this.normalizeRuleToken(actor.character.className);
+    const ability =
+      className.includes("wizard")
+        ? "int"
+        : className.includes("cleric") ||
+            className.includes("druid") ||
+            className.includes("ranger")
+          ? "wis"
+          : "cha";
+    const abilities = this.parseJson<Record<string, number>>(
+      actor.character.abilitiesJson,
+      {},
+    );
+    return (
+      8 +
+      actor.character.proficiencyBonus +
+      Math.floor(((abilities[ability] ?? 10) - 10) / 2)
+    );
   }
 
   private resolveSpellScaling(spellDefinition: RuleCatalogEntry | null, slotLevel: number): SpellScalingResult | null {

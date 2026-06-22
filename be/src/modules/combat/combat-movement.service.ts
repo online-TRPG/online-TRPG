@@ -65,6 +65,9 @@ export class CombatMovementService {
     map: VttMapStateDto,
     token: VttMapStateDto["tokens"][number],
     path: Array<{ x: number; y: number }>,
+    options: {
+      ignoreNonmagicalDifficultTerrain?: boolean;
+    } = {},
   ): number {
     let costFt = 0;
     for (let index = 1; index < path.length; index += 1) {
@@ -73,7 +76,11 @@ export class CombatMovementService {
         { ...token, ...path[index - 1] },
         { ...token, ...path[index] },
       );
-      const multiplier = this.resolveMovementCostMultiplierAtPoint(map, path[index]);
+      const multiplier = this.resolveMovementCostMultiplierAtPoint(
+        map,
+        path[index],
+        options,
+      );
       costFt += segmentDistanceFt * multiplier;
     }
     return costFt;
@@ -82,8 +89,18 @@ export class CombatMovementService {
   resolveMovementCostMultiplierAtPoint(
     map: VttMapStateDto,
     point: { x: number; y: number },
+    options: {
+      ignoreNonmagicalDifficultTerrain?: boolean;
+    } = {},
   ): number {
-    const terrainEffectIds = this.resolveTerrainEffectIdsAtPoint(map, point);
+    const terrainEffectIds = this.resolveTerrainEffectIdsAtPoint(
+      map,
+      point,
+    ).filter(
+      (terrainEffectId) =>
+        !options.ignoreNonmagicalDifficultTerrain ||
+        terrainEffectId !== "terrain.difficult",
+    );
     if (!terrainEffectIds.length) {
       return 1;
     }

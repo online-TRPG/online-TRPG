@@ -128,8 +128,15 @@ function createEmptyAbilityScoreIncreases(): Record<AbilityKey, number> {
   return { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
 }
 
-function getCrossedAsiLevels(currentLevel: number, targetLevel: number): number[] {
-  return ASI_LEVELS.filter((level) => level > currentLevel && level <= targetLevel);
+function getCrossedAsiLevels(
+  classKey: string,
+  currentLevel: number,
+  targetLevel: number
+): number[] {
+  const classSpecificLevels = classKey === 'fighter' ? [6] : [];
+  return [...ASI_LEVELS, ...classSpecificLevels]
+    .filter((level) => level > currentLevel && level <= targetLevel)
+    .sort((left, right) => left - right);
 }
 
 interface InventoryDraftItem {
@@ -178,6 +185,16 @@ const implementedCantrips = [
   { id: 'spell.mage_hand', label: 'Mage Hand / 마법사의 손' },
   { id: 'spell.minor_illusion', label: 'Minor Illusion / 하급 환영' },
   { id: 'spell.shocking_grasp', label: 'Shocking Grasp / 전격의 손길' },
+  { id: 'spell.blade_ward', label: 'Blade Ward / 칼날 방호' },
+  { id: 'spell.dancing_lights', label: 'Dancing Lights / 춤추는 빛' },
+  { id: 'spell.eldritch_blast', label: 'Eldritch Blast / 섬뜩한 방출' },
+  { id: 'spell.friends', label: 'Friends / 친구' },
+  { id: 'spell.mending', label: 'Mending / 수선' },
+  { id: 'spell.message', label: 'Message / 전언' },
+  { id: 'spell.poison_spray', label: 'Poison Spray / 독 분사' },
+  { id: 'spell.produce_flame', label: 'Produce Flame / 불꽃 생성' },
+  { id: 'spell.resistance', label: 'Resistance / 저항' },
+  { id: 'spell.spare_the_dying', label: 'Spare the Dying / 빈사 안정화' },
 ];
 
 const implementedLevel1Spells = [
@@ -203,6 +220,18 @@ const implementedLevel1Spells = [
   { id: 'spell.heroism', label: 'Heroism / 영웅심' },
   { id: 'spell.hunters_mark', label: "Hunter's Mark / 사냥꾼의 표식" },
   { id: 'spell.longstrider', label: 'Longstrider / 활보' },
+  { id: 'spell.alarm', label: 'Alarm / 경보' },
+  { id: 'spell.animal_friendship', label: 'Animal Friendship / 동물 친화' },
+  { id: 'spell.armor_of_agathys', label: 'Armor of Agathys / 아가티스의 갑옷' },
+  { id: 'spell.color_spray', label: 'Color Spray / 색채 분사' },
+  { id: 'spell.comprehend_languages', label: 'Comprehend Languages / 언어 이해' },
+  { id: 'spell.create_or_destroy_water', label: 'Create or Destroy Water / 물 생성·파괴' },
+  { id: 'spell.expeditious_retreat', label: 'Expeditious Retreat / 신속 후퇴' },
+  { id: 'spell.false_life', label: 'False Life / 거짓 생명' },
+  { id: 'spell.find_familiar', label: 'Find Familiar / 사역마 찾기' },
+  { id: 'spell.goodberry', label: 'Goodberry / 굿베리' },
+  { id: 'spell.jump', label: 'Jump / 도약' },
+  { id: 'spell.mage_armor', label: 'Mage Armor / 마법 갑옷' },
 ];
 
 const implementedLevel2Spells = [
@@ -217,6 +246,18 @@ const implementedLevel2Spells = [
   { id: 'spell.lesser_restoration', label: 'Lesser Restoration / 하급 회복' },
   { id: 'spell.moonbeam', label: 'Moonbeam / 달빛 광선' },
   { id: 'spell.spiritual_weapon', label: 'Spiritual Weapon / 영체 무기' },
+  { id: 'spell.alter_self', label: 'Alter Self / 자기 변형' },
+  { id: 'spell.blur', label: 'Blur / 흐릿함' },
+  { id: 'spell.darkvision', label: 'Darkvision / 암시야' },
+  { id: 'spell.enhance_ability', label: 'Enhance Ability / 능력 강화' },
+  { id: 'spell.enlarge_reduce', label: 'Enlarge/Reduce / 확대·축소' },
+  { id: 'spell.flaming_sphere', label: 'Flaming Sphere / 화염 구체' },
+  { id: 'spell.gust_of_wind', label: 'Gust of Wind / 돌풍' },
+  { id: 'spell.heat_metal', label: 'Heat Metal / 금속 가열' },
+  { id: 'spell.levitate', label: 'Levitate / 공중 부양' },
+  { id: 'spell.locate_object', label: 'Locate Object / 물체 탐지' },
+  { id: 'spell.mirror_image', label: 'Mirror Image / 거울상' },
+  { id: 'spell.spider_climb', label: 'Spider Climb / 거미 등반' },
 ];
 
 const implementedLevel3Spells = [
@@ -227,6 +268,25 @@ const implementedLevel3Spells = [
   { id: 'spell.haste', label: 'Haste / 가속' },
   { id: 'spell.lightning_bolt', label: 'Lightning Bolt / 번개 화살' },
   { id: 'spell.revivify', label: 'Revivify / 소생' },
+  { id: 'spell.call_lightning', label: 'Call Lightning / 번개 소환' },
+  { id: 'spell.fear', label: 'Fear / 공포' },
+  { id: 'spell.gaseous_form', label: 'Gaseous Form / 기체 형태' },
+  { id: 'spell.plant_growth', label: 'Plant Growth / 식물 성장' },
+  { id: 'spell.protection_from_energy', label: 'Protection from Energy / 에너지 보호' },
+  { id: 'spell.sleet_storm', label: 'Sleet Storm / 진눈깨비 폭풍' },
+  { id: 'spell.slow', label: 'Slow / 둔화' },
+  { id: 'spell.water_walk', label: 'Water Walk / 수면 보행' },
+];
+
+const implementedLevel4Spells = [
+  { id: 'spell.blight', label: 'Blight / 황폐화' },
+  { id: 'spell.death_ward', label: 'Death Ward / 죽음 방호' },
+  { id: 'spell.dimension_door', label: 'Dimension Door / 차원문' },
+  { id: 'spell.freedom_of_movement', label: 'Freedom of Movement / 이동의 자유' },
+  { id: 'spell.ice_storm', label: 'Ice Storm / 얼음 폭풍' },
+  { id: 'spell.locate_creature', label: 'Locate Creature / 생물 탐지' },
+  { id: 'spell.phantasmal_killer', label: 'Phantasmal Killer / 환영 살인자' },
+  { id: 'spell.wall_of_fire', label: 'Wall of Fire / 화염 장벽' },
 ];
 
 const implementedSpellClasses = new Set([
@@ -285,17 +345,20 @@ function getImplementedSpellOptions(
     ...implementedLevel1Spells,
     ...(maxSpellLevel >= 2 ? implementedLevel2Spells : []),
     ...(maxSpellLevel >= 3 ? implementedLevel3Spells : []),
+    ...(maxSpellLevel >= 4 ? implementedLevel4Spells : []),
   ];
 }
 
 function getMaximumImplementedSpellLevel(classKey: string, level: number) {
   const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
   if (['bard', 'cleric', 'druid', 'sorcerer', 'wizard'].includes(classKey)) {
+    if (normalizedLevel >= 7) return 4;
     if (normalizedLevel >= 5) return 3;
     if (normalizedLevel >= 3) return 2;
     return 1;
   }
   if (classKey === 'warlock') {
+    if (normalizedLevel >= 7) return 4;
     if (normalizedLevel >= 5) return 3;
     if (normalizedLevel >= 3) return 2;
     return 1;
@@ -315,6 +378,7 @@ function getImplementedSpellLabel(spellId: string) {
       ...implementedLevel1Spells,
       ...implementedLevel2Spells,
       ...implementedLevel3Spells,
+      ...implementedLevel4Spells,
     ].find((spell) => spell.id === spellId)?.label ?? spellId
   );
 }
@@ -1753,7 +1817,11 @@ export function CharacterPage({
     [selectedCharacter]
   );
   const crossedAsiLevels = selectedCharacter
-    ? getCrossedAsiLevels(selectedCharacter.level, levelUpDraft.targetLevel)
+    ? getCrossedAsiLevels(
+        selectedCharacterClassKey,
+        selectedCharacter.level,
+        levelUpDraft.targetLevel
+      )
     : [];
   const requiredAsiPoints = crossedAsiLevels.length * 2;
   const allocatedAsiPoints = (Object.values(levelUpDraft.abilityScoreIncreases) as number[]).reduce(

@@ -28,6 +28,7 @@ import {
   ScenarioNodeInputDto,
   ScenarioNodeImageUploadResponseDto,
   ScenarioSummaryResponseDto,
+  PublishScenarioDto,
   ScenarioLicense,
   ScenarioNodeType,
   UploadScenarioAssetDto,
@@ -44,12 +45,17 @@ import {
 
 @Injectable()
 export class ScenariosService {
+  private static readonly REVISION_METADATA_MARKER = "P3_REVISION_META:";
+
   constructor(private readonly prisma: PrismaService) {}
 
   async listScenarios(query?: ScenarioQueryDto): Promise<ScenarioSummaryResponseDto[]> {
     const scenarios = await this.prisma.scenario.findMany({
       where: {
-        id: { in: PROVIDED_SCENARIO_IDS },
+        OR: [
+          { id: { in: PROVIDED_SCENARIO_IDS } },
+          { sourceType: PrismaScenarioSourceType.CLONED },
+        ],
         title: query?.search
           ? {
               contains: query.search,
@@ -59,7 +65,15 @@ export class ScenariosService {
       orderBy: { createdAt: 'asc' },
     });
 
-    return scenarios.map(mapScenarioSummary);
+    return scenarios
+      .filter((scenario) => {
+        if (isProvidedScenarioId(scenario.id)) {
+          return true;
+        }
+        const metadata = this.parseScenarioRevisionMetadata(scenario.attribution);
+        return scenario.sourceType === PrismaScenarioSourceType.CLONED && metadata.status === "public";
+      })
+      .map(mapScenarioSummary);
   }
 
   async listMyScenarios(
@@ -236,6 +250,137 @@ export class ScenariosService {
     return this.getScenario(id, userId);
   }
 
+  async publishScenario(
+    userId: string,
+    id: string,
+    dto: PublishScenarioDto,
+  ): Promise<ScenarioResponseDto> {
+    const draft = await this.getEditableScenarioEntity(userId, id);
+    const validationReport = this.buildScenarioValidationReport(draft);
+    this.assertScenarioPublishable(validationReport);
+
+    const revisionNumber =
+      (await this.prisma.scenario.count({
+        where: {
+          baseScenarioId: draft.id,
+          sourceType: PrismaScenarioSourceType.CLONED,
+        },
+      })) + 1;
+    const publishedScenarioId = `${draft.id}_rev_${revisionNumber}_${randomUUID()}`;
+    const changelog = this.nullableTrim(dto.changelog);
+    const publishedAt = new Date();
+    const attribution = this.appendScenarioRevisionMetadata(
+      draft.attribution,
+      {
+        revisionNumber,
+        changelog,
+        publishedAt: publishedAt.toISOString(),
+        publishedByUserId: userId,
+        status: dto.visibility ?? "public",
+        validationReport,
+      },
+    );
+
+    const published = await this.prisma.scenario.create({
+      data: {
+        id: publishedScenarioId,
+        title: draft.title,
+        description: draft.description,
+        createdByUserId: userId,
+        sourceType: PrismaScenarioSourceType.CLONED,
+        baseScenarioId: draft.id,
+        thumbnailUrl: draft.thumbnailUrl,
+        ruleSetId: draft.ruleSetId,
+        difficulty: draft.difficulty,
+        startLevel: draft.startLevel,
+        recommendedEndLevel: draft.recommendedEndLevel,
+        license: draft.license,
+        attribution,
+        startNodeId: draft.startNodeId
+          ? `${publishedScenarioId}_${draft.startNodeId}`
+          : null,
+        npcsJson: draft.npcsJson,
+        nodes: {
+          create: draft.nodes.map((node) => ({
+            id: `${publishedScenarioId}_${node.id}`,
+            nodeType: node.nodeType,
+            title: node.title,
+            sceneText: node.sceneText,
+            imageUrl: node.imageUrl,
+            checkOptionsJson: this.rewriteScenarioCheckOptionsNodeReferences(
+              node.checkOptionsJson,
+              draft.id,
+              publishedScenarioId,
+            ),
+            transitionsJson: this.rewriteScenarioNodeIdReferences(
+              node.transitionsJson,
+              draft.id,
+              publishedScenarioId,
+            ),
+            cluesJson: node.cluesJson,
+            nodeMetaJson: node.nodeMetaJson,
+            fallbackNodeId: node.fallbackNodeId
+              ? `${publishedScenarioId}_${node.fallbackNodeId}`
+              : null,
+          })),
+        },
+      },
+      include: {
+        nodes: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    return mapScenario(published);
+  }
+
+  async unpublishScenarioRevision(
+    userId: string,
+    id: string,
+  ): Promise<ScenarioResponseDto> {
+    const revision = await this.prisma.scenario.findUnique({
+      where: { id },
+      include: {
+        nodes: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    if (!revision) {
+      throw new NotFoundException(`Scenario ${id} was not found.`);
+    }
+    if (revision.createdByUserId !== userId) {
+      throw new ForbiddenException('직접 발행한 revision만 공개 취소할 수 있습니다.');
+    }
+    if (revision.sourceType !== PrismaScenarioSourceType.CLONED || !revision.baseScenarioId) {
+      throw new BadRequestException('공개 취소는 발행된 revision에만 사용할 수 있습니다.');
+    }
+    const metadata = this.parseScenarioRevisionMetadata(revision.attribution);
+    const updated = await this.prisma.scenario.update({
+      where: { id },
+      data: {
+        attribution: this.appendScenarioRevisionMetadata(
+          metadata.attribution,
+          {
+            revisionNumber: metadata.revisionNumber,
+            changelog: metadata.changelog,
+            publishedAt: metadata.publishedAt ?? revision.createdAt.toISOString(),
+            publishedByUserId: metadata.publishedByUserId ?? userId,
+            status: "unpublished",
+            validationReport: metadata.validationReport,
+          },
+        ),
+      },
+      include: {
+        nodes: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    return mapScenario(updated);
+  }
+
   async deleteScenario(userId: string, id: string): Promise<void> {
     await this.getEditableScenarioEntity(userId, id);
 
@@ -407,6 +552,9 @@ export class ScenariosService {
     if (scenario.createdByUserId !== userId) {
       throw new ForbiddenException('직접 만든 시나리오만 수정하거나 삭제할 수 있습니다.');
     }
+    if (scenario.sourceType === PrismaScenarioSourceType.CLONED) {
+      throw new ForbiddenException('발행된 revision은 직접 수정할 수 없습니다. 원본 draft를 수정한 뒤 새 revision으로 발행하세요.');
+    }
 
     return scenario;
   }
@@ -417,13 +565,228 @@ export class ScenariosService {
   ): void {
     const isDefaultProvidedScenario = isProvidedScenarioId(scenario.id);
     const isOwnScenario = Boolean(viewerUserId && scenario.createdByUserId === viewerUserId);
+    const revision = this.parseScenarioRevisionMetadata(scenario.attribution);
+    const isPublishedRevision =
+      scenario.sourceType === PrismaScenarioSourceType.CLONED &&
+      (revision.status === 'public' || revision.status === 'link');
 
-    if (isDefaultProvidedScenario || isOwnScenario) {
+    if (isDefaultProvidedScenario || isOwnScenario || isPublishedRevision) {
       return;
     }
 
     // 다른 사용자가 만든 시나리오는 존재 여부도 노출하지 않도록 404로 숨깁니다.
     throw new NotFoundException(`Scenario ${scenario.id} was not found.`);
+  }
+
+  private buildScenarioValidationReport(
+    scenario: Awaited<ReturnType<ScenariosService['getEditableScenarioEntity']>>,
+  ): {
+    status: 'valid' | 'invalid';
+    checkedAt: string;
+    issueCount: number;
+    issues: Array<{ code: string; message: string; nodeId?: string | null }>;
+    nodeCounts: Record<'story' | 'exploration' | 'combat' | 'other', number>;
+  } {
+    const issues: Array<{ code: string; message: string; nodeId?: string | null }> = [];
+    if (!scenario.nodes.length) {
+      issues.push({ code: 'NO_NODES', message: '발행하려면 최소 1개 이상의 시나리오 노드가 필요합니다.' });
+    }
+    const nodeIds = new Set(scenario.nodes.map((node) => node.id));
+    const startNodeId = scenario.startNodeId ?? scenario.nodes[0]?.id ?? null;
+    if (!startNodeId || !nodeIds.has(startNodeId)) {
+      issues.push({ code: 'INVALID_START_NODE', message: '발행하려면 유효한 시작 노드가 필요합니다.', nodeId: startNodeId });
+    }
+    const brokenTransitions = scenario.nodes.flatMap((node) => {
+      const transitions = this.parseJson<Record<string, unknown>[]>(node.transitionsJson, []);
+      return transitions
+        .map((transition) => transition.nextNodeId)
+        .filter((nextNodeId): nextNodeId is string => typeof nextNodeId === 'string')
+        .filter((nextNodeId) => !nodeIds.has(nextNodeId))
+        .map((nextNodeId) => ({ sourceNodeId: node.id, nextNodeId }));
+    });
+    for (const transition of brokenTransitions) {
+      issues.push({
+        code: 'BROKEN_TRANSITION',
+        message: `발행할 수 없는 전환 대상이 있습니다: ${transition.nextNodeId}`,
+        nodeId: transition.sourceNodeId,
+      });
+    }
+    const brokenFallbacks = scenario.nodes
+      .filter((node) => node.fallbackNodeId && !nodeIds.has(node.fallbackNodeId))
+      .map((node) => ({ sourceNodeId: node.id, fallbackNodeId: node.fallbackNodeId }));
+    for (const fallback of brokenFallbacks) {
+      issues.push({
+        code: 'BROKEN_FALLBACK',
+        message: `발행할 수 없는 fallback 노드가 있습니다: ${fallback.fallbackNodeId}`,
+        nodeId: fallback.sourceNodeId,
+      });
+    }
+    const nodeCounts = scenario.nodes.reduce<Record<'story' | 'exploration' | 'combat' | 'other', number>>(
+      (counts, node) => {
+        if (node.nodeType === 'story' || node.nodeType === 'exploration' || node.nodeType === 'combat') {
+          counts[node.nodeType] += 1;
+        } else {
+          counts.other += 1;
+        }
+        return counts;
+      },
+      { story: 0, exploration: 0, combat: 0, other: 0 },
+    );
+    return {
+      status: issues.length ? 'invalid' : 'valid',
+      checkedAt: new Date().toISOString(),
+      issueCount: issues.length,
+      issues,
+      nodeCounts,
+    };
+  }
+
+  private assertScenarioPublishable(
+    validationReport: ReturnType<ScenariosService['buildScenarioValidationReport']>,
+  ): void {
+    if (validationReport.status === 'valid') {
+      return;
+    }
+    throw new BadRequestException(validationReport.issues[0]?.message ?? '시나리오 검증을 통과하지 못했습니다.');
+  }
+
+  private rewriteScenarioNodeIdReferences(
+    transitionsJson: string,
+    sourceScenarioId: string,
+    publishedScenarioId: string,
+  ): string {
+    const transitions = this.parseJson<Record<string, unknown>[]>(transitionsJson, []);
+    return JSON.stringify(
+      transitions.map((transition) => {
+        const nextNodeId = transition.nextNodeId;
+        if (typeof nextNodeId !== 'string') {
+          return transition;
+        }
+        const localNodeId = nextNodeId.startsWith(`${sourceScenarioId}_`)
+          ? nextNodeId.slice(sourceScenarioId.length + 1)
+          : nextNodeId;
+        return {
+          ...transition,
+          nextNodeId: `${publishedScenarioId}_${localNodeId}`,
+        };
+      }),
+    );
+  }
+
+  private rewriteScenarioCheckOptionsNodeReferences(
+    checkOptionsJson: string,
+    sourceScenarioId: string,
+    publishedScenarioId: string,
+  ): string {
+    const parsed = this.parseJson<unknown>(checkOptionsJson, null);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return checkOptionsJson;
+    }
+
+    const config = parsed as Record<string, unknown>;
+    const vttMap = config.vttMap;
+    if (!vttMap || typeof vttMap !== 'object' || Array.isArray(vttMap)) {
+      return checkOptionsJson;
+    }
+
+    const mapRecord = vttMap as Record<string, unknown>;
+    const scenarioNodeId = mapRecord.scenarioNodeId;
+    if (typeof scenarioNodeId !== 'string') {
+      return checkOptionsJson;
+    }
+
+    const localNodeId = scenarioNodeId.startsWith(`${sourceScenarioId}_`)
+      ? scenarioNodeId.slice(sourceScenarioId.length + 1)
+      : scenarioNodeId;
+
+    return JSON.stringify({
+      ...config,
+      vttMap: {
+        ...mapRecord,
+        scenarioNodeId: `${publishedScenarioId}_${localNodeId}`,
+      },
+    });
+  }
+
+  private appendScenarioRevisionMetadata(
+    attribution: string | null | undefined,
+    metadata: {
+      revisionNumber: number | null;
+      changelog: string | null;
+      publishedAt: string;
+      publishedByUserId: string;
+      status: 'public' | 'link' | 'private' | 'unpublished';
+      validationReport?: Record<string, unknown> | null;
+    },
+  ): string | null {
+    const publicAttribution = this.parseScenarioRevisionMetadata(attribution).attribution;
+    const encoded = JSON.stringify(metadata);
+    return [publicAttribution, `${ScenariosService.REVISION_METADATA_MARKER}${encoded}`]
+      .filter((part): part is string => Boolean(part))
+      .join('\n');
+  }
+
+  private parseScenarioRevisionMetadata(attribution: string | null | undefined): {
+    attribution: string | null;
+    revisionNumber: number | null;
+    changelog: string | null;
+    validationReport: Record<string, unknown> | null;
+    publishedAt: string | null;
+    publishedByUserId: string | null;
+    status: 'draft' | 'public' | 'link' | 'private' | 'unpublished';
+  } {
+    const raw = attribution ?? '';
+    const markerIndex = raw.indexOf(ScenariosService.REVISION_METADATA_MARKER);
+    if (markerIndex < 0) {
+      return {
+        attribution: raw.trim() || null,
+        revisionNumber: null,
+        changelog: null,
+        validationReport: null,
+        publishedAt: null,
+        publishedByUserId: null,
+        status: 'draft',
+      };
+    }
+    const publicAttribution = raw.slice(0, markerIndex).trim() || null;
+    const metadataText = raw
+      .slice(markerIndex + ScenariosService.REVISION_METADATA_MARKER.length)
+      .trim();
+    try {
+      const metadata = JSON.parse(metadataText) as Record<string, unknown>;
+      const status = metadata.status;
+      return {
+        attribution: publicAttribution,
+        revisionNumber:
+          typeof metadata.revisionNumber === 'number' && Number.isInteger(metadata.revisionNumber)
+            ? metadata.revisionNumber
+            : null,
+        changelog: typeof metadata.changelog === 'string' ? metadata.changelog : null,
+        validationReport:
+          metadata.validationReport &&
+          typeof metadata.validationReport === 'object' &&
+          !Array.isArray(metadata.validationReport)
+            ? (metadata.validationReport as Record<string, unknown>)
+            : null,
+        publishedAt: typeof metadata.publishedAt === 'string' ? metadata.publishedAt : null,
+        publishedByUserId:
+          typeof metadata.publishedByUserId === 'string' ? metadata.publishedByUserId : null,
+        status:
+          status === 'public' || status === 'link' || status === 'private' || status === 'unpublished'
+            ? status
+            : 'draft',
+      };
+    } catch {
+      return {
+        attribution: publicAttribution,
+        revisionNumber: null,
+        changelog: null,
+        validationReport: null,
+        publishedAt: null,
+        publishedByUserId: null,
+        status: 'draft',
+      };
+    }
   }
 
   async getScenarioNodeEntityById(scenarioId: string, nodeId: string): Promise<ScenarioNode> {

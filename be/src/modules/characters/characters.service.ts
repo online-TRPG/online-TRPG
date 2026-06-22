@@ -68,64 +68,6 @@ const LOCKED_SESSION_STATUSES: ReadonlySet<PrismaSessionStatus> = new Set([
   PrismaSessionStatus.PAUSED,
 ]);
 
-const MVP_STARTING_CANTRIP_IDS = new Set([
-  "spell.chill_touch",
-  "spell.fire_bolt",
-  "spell.light",
-  "spell.ray_of_frost",
-  "spell.sacred_flame",
-  "spell.acid_splash",
-  "spell.guidance",
-  "spell.mage_hand",
-  "spell.minor_illusion",
-  "spell.shocking_grasp",
-]);
-const MVP_STARTING_SLOT_SPELL_IDS = new Set([
-  "spell.bane",
-  "spell.bless",
-  "spell.burning_hands",
-  "spell.command",
-  "spell.cure_wounds",
-  "spell.detect_magic",
-  "spell.entangle",
-  "spell.guiding_bolt",
-  "spell.healing_word",
-  "spell.inflict_wounds",
-  "spell.magic_missile",
-  "spell.shield",
-  "spell.sleep",
-  "spell.thunderwave",
-  "spell.charm_person",
-  "spell.faerie_fire",
-  "spell.feather_fall",
-  "spell.fog_cloud",
-  "spell.grease",
-  "spell.heroism",
-  "spell.hunters_mark",
-  "spell.longstrider",
-]);
-const MVP_STARTING_LEVEL3_SLOT_SPELL_IDS = new Set([
-  "spell.hold_person",
-  "spell.misty_step",
-  "spell.scorching_ray",
-  "spell.web",
-  "spell.aid",
-  "spell.blindness_deafness",
-  "spell.darkness",
-  "spell.invisibility",
-  "spell.lesser_restoration",
-  "spell.moonbeam",
-  "spell.spiritual_weapon",
-]);
-const MVP_STARTING_LEVEL5_SLOT_SPELL_IDS = new Set([
-  "spell.dispel_magic",
-  "spell.fireball",
-  "spell.counterspell",
-  "spell.fly",
-  "spell.haste",
-  "spell.lightning_bolt",
-  "spell.revivify",
-]);
 const MVP_STARTING_SLOT_SPELL_SELECTION_COUNT = 4;
 
 @Injectable()
@@ -767,7 +709,7 @@ export class CharactersService {
     }
 
     const knownSpellPool = this.getMvpStartingSlotSpellPool(params.className, params.level);
-    const cantripPool = MVP_STARTING_CANTRIP_IDS;
+    const cantripPool = this.getExecutableCantripIds();
     const currentCantrips = spells.cantrips
       .map((spell) => this.normalizeSpellId(spell))
       .filter(Boolean);
@@ -985,7 +927,10 @@ export class CharactersService {
         learnLimit: learnedAllowance + params.forgottenCantrips.length,
       });
     }
-    if (params.nextCantrips.length > Math.min(targetLimit, MVP_STARTING_CANTRIP_IDS.size)) {
+    if (
+      params.nextCantrips.length >
+      Math.min(targetLimit, this.getExecutableCantripIds().size)
+    ) {
       throw new BadRequestException({
         code: "LEVEL_UP_CANTRIP_LIMIT_EXCEEDED",
         message: "목표 레벨의 캔트립 습득 상한을 초과했습니다.",
@@ -1822,7 +1767,10 @@ export class CharactersService {
     const progressionCantripCount = getCantripsKnownLimit(className, level);
     const needCantrips = progressionCantripCount === null
       ? klass.startingCantripCount
-      : Math.min(progressionCantripCount, MVP_STARTING_CANTRIP_IDS.size);
+      : Math.min(
+          progressionCantripCount,
+          this.getExecutableCantripIds().size,
+        );
     const classKey = normalizeSpellcastingClassKey(className);
     const spellcastingProgression = getSpellcastingProgression(className, level);
     const usesDynamicPreparedPool =
@@ -1884,7 +1832,11 @@ export class CharactersService {
     }
     this.assertUniqueStartingSpellIds(cantrips, "캔트립");
     this.assertUniqueStartingSpellIds(spells, "주문");
-    this.assertMvpStartingSpellPool(cantrips, "캔트립", MVP_STARTING_CANTRIP_IDS);
+    this.assertMvpStartingSpellPool(
+      cantrips,
+      "캔트립",
+      this.getExecutableCantripIds(),
+    );
     this.assertMvpStartingSpellPool(spells, "주문", this.getMvpStartingSlotSpellPool(className, level));
     const knownSpellIds = new Set(spells.map((spell) => this.normalizeSpellId(spell)));
     const preparedSpells = startingSpells.preparedSpells
@@ -2247,22 +2199,47 @@ export class CharactersService {
 
   private getMvpStartingSlotSpellPool(className: string, level: number): Set<string> {
     const maxSpellLevel = this.getMaximumSlotSpellLevelForClassLevel(className, level);
-    return new Set([
-      ...MVP_STARTING_SLOT_SPELL_IDS,
-      ...(maxSpellLevel >= 2 ? MVP_STARTING_LEVEL3_SLOT_SPELL_IDS : []),
-      ...(maxSpellLevel >= 3 ? MVP_STARTING_LEVEL5_SLOT_SPELL_IDS : []),
-    ]);
+    return new Set(
+      this.ruleCatalogService
+        .listEntries("spell_definitions")
+        .filter((entry) => {
+          const spellLevel = this.getCatalogSpellLevel(entry);
+          return spellLevel > 0 && spellLevel <= maxSpellLevel;
+        })
+        .map((entry) => entry.id),
+    );
+  }
+
+  private getExecutableCantripIds(): Set<string> {
+    return new Set(
+      this.ruleCatalogService
+        .listEntries("spell_definitions")
+        .filter((entry) => this.getCatalogSpellLevel(entry) === 0)
+        .map((entry) => entry.id),
+    );
+  }
+
+  private getCatalogSpellLevel(
+    entry: ReturnType<RuleCatalogService["listEntries"]>[number],
+  ): number {
+    const tag = entry.runtimeEffect.tags.find((value) =>
+      value.startsWith("spell_level:"),
+    );
+    const level = Number(tag?.slice("spell_level:".length));
+    return Number.isInteger(level) && level >= 0 ? level : -1;
   }
 
   private getMaximumSlotSpellLevelForClassLevel(className: string, level: number): number {
     const classKey = normalizeSpellcastingClassKey(className);
     const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
     if (["bard", "cleric", "druid", "sorcerer", "wizard"].includes(classKey)) {
+      if (normalizedLevel >= 7) return 4;
       if (normalizedLevel >= 5) return 3;
       if (normalizedLevel >= 3) return 2;
       return 1;
     }
     if (classKey === "warlock") {
+      if (normalizedLevel >= 7) return 4;
       if (normalizedLevel >= 5) return 3;
       if (normalizedLevel >= 3) return 2;
       return 1;

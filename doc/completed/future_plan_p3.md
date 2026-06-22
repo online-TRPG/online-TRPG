@@ -1,12 +1,22 @@
 # SRD 5e P3 8레벨 캠페인·콘텐츠 배포 확장 계획
 
 작성일: 2026-06-22
+완료일: 2026-06-23
+
+구현 상태: **완료**
+
+검증 기록:
+
+- `npm run test:p3-regression`: 통과 확인.
+- `npm run test:e2e`: 통과 확인.
+- `npm run build`: 통과 확인.
+- P3 검증 시나리오와 AI/HUMAN GM 플레이 검증: 완료 확인.
 
 ## 1. 문서 목적
 
 P2는 5레벨 플레이, 주문 50개, 몬스터 25종, 지형·오브젝트 상호작용과 시나리오 제작 UI MVP를 완료했다.
 
-P3는 [`future_plan.md`](future_plan.md)의 장기 목표를 유지하면서 단편 제작 도구를 실제 공유 가능한 캠페인 제작 흐름으로 확장한다. 완료된 P2 기록은 [`completed/future_plan_p2.md`](completed/future_plan_p2.md)에 보관한다.
+P3는 [`../future_plan.md`](../future_plan.md)의 장기 목표를 유지하면서 단편 제작 도구를 실제 공유 가능한 캠페인 제작 흐름으로 확장한다. 완료된 P2 기록은 [`future_plan_p2.md`](future_plan_p2.md)에 보관한다.
 
 P3 범위는 다음 여섯 가지로 고정한다.
 
@@ -40,7 +50,7 @@ P3 범위는 다음 여섯 가지로 고정한다.
 
 - E2E가 개발·운영 DB를 가리키면 실행 전에 실패한다.
 - E2E 종료 후 테스트 사용자와 테스트 세션이 0개다.
-- P2 기능 회귀 명령이 P3 CI 기준에 포함된다.
+- P2 기능 회귀 명령과 P3 콘텐츠·아이템·시나리오 revision 회귀 spec이 `npm run test:p3-regression` 기준선에 포함된다.
 
 ## 4. P3-1. 직업 12개와 서브클래스 6~8레벨
 
@@ -227,35 +237,51 @@ P3-6 8레벨 검증 모험
 
 ## 11. P3 완료 체크리스트
 
-- [ ] E2E가 격리된 테스트 DB에서만 실행되고 종료 후 테스트 데이터가 남지 않는다.
-- [ ] 12개 직업과 대표 서브클래스가 8레벨까지 성장 가능하다.
-- [ ] 8레벨 ASI, 4레벨 주문 슬롯, 직업 자원 진행이 동작한다.
-- [ ] 실행 가능 주문이 정확히 100개다.
-- [ ] 대표 몬스터가 누적 50종이다.
-- [ ] 실행 가능 아이템이 누적 50개다.
-- [ ] 시나리오 draft·validation·publish·revision 흐름이 동작한다.
-- [ ] 발행 revision과 실행 중 세션 snapshot이 격리된다.
-- [ ] P3 검증 모험을 AI GM과 HUMAN GM에서 완주했다.
-- [ ] 재접속과 공개/비공개 정보 분리를 확인했다.
-- [ ] 전체 빌드와 관련 회귀 spec을 사용자가 실행해 통과를 확인했다.
+- [x] E2E가 격리된 테스트 DB에서만 실행되고 종료 후 테스트 데이터가 남지 않는다.
+- [x] 12개 직업과 대표 서브클래스가 8레벨까지 성장 가능하다.
+- [x] 8레벨 ASI, 4레벨 주문 슬롯, 직업 자원 진행이 동작한다.
+- [x] 실행 가능 주문이 정확히 100개다.
+- [x] 대표 몬스터가 누적 50종이다.
+- [x] 실행 가능 아이템이 누적 50개다.
+- [x] 시나리오 draft·validation·publish·revision 흐름이 동작한다.
+- [x] 발행 revision과 실행 중 세션 snapshot이 격리된다.
+- [x] P3 검증 모험을 AI GM과 HUMAN GM에서 완주했다.
+- [x] 재접속과 공개/비공개 정보 분리를 확인했다.
+- [x] 전체 빌드와 관련 회귀 spec을 사용자가 실행해 통과를 확인했다.
 
 ## 12. 사용자 실행 검증
 
 프로젝트 지침에 따라 테스트는 사용자가 직접 실행한다. 구현 단계별 관련 spec을 안내하고, P3 종료 시 최소 아래 범주를 확인한다.
+상세 절차는 [`../examples/P3_VALIDATION_RUNBOOK.md`](../examples/P3_VALIDATION_RUNBOOK.md)를 기준으로 한다.
 
 ```powershell
-npm run test:quiet -w @trpg/be -- rule-catalog.service.spec.ts --runInBand
-npm run test:quiet -w @trpg/be -- characters.service.spec.ts --runInBand
-npm run test:quiet -w @trpg/be -- level-up.service.spec.ts --runInBand
-npm run test:quiet -w @trpg/be -- action-rule.service.spec.ts --runInBand
-npm run test:quiet -w @trpg/be -- action-economy.service.spec.ts --runInBand
-npm run test:quiet -w @trpg/be -- monster-ability.service.spec.ts --runInBand
-npm run test:quiet -w @trpg/be -- combat.service.spec.ts --runInBand
-npm run test:quiet -w @trpg/be -- default-scenario.spec.ts --runInBand
+npm run test:p3-regression
+npm run test:e2e
 npm run build
 ```
 
-## 13. P3 이후
+세부 회귀 기준선은 다음을 포함한다.
+
+- `content-manifest.spec.ts`: 주문 100개, 몬스터 50종, 아이템 50개 manifest 수량 고정.
+- `p3-item-manifest.spec.ts`: P3 아이템 20/15/15 분포와 대표 실행 정의 고정.
+- `rule-catalog.service.spec.ts`, `level-up.service.spec.ts`, `characters.service.spec.ts`: 12개 직업 8레벨·4레벨 슬롯·자원 진행 고정.
+- `monster-ability.service.spec.ts`, `combat.service.spec.ts`, `aoe-damage.service.spec.ts`: P3 몬스터/전투/광역·지형 resolver 회귀 고정.
+- `actions.service.spec.ts`, `item-interaction.service.spec.ts`: 아이템 사용, 투척, 충전형 마법 아이템 실행 회귀 고정.
+- `scenarios.service.spec.ts`, `sessions.service.spec.ts`, `provided-scenario.constants.spec.ts`, `default-scenario.spec.ts`: draft/publish/revision/공개취소, 실행 세션 revision snapshot metadata, P3 검증 모험 seed 고정.
+- `test:e2e`: 격리된 E2E DB 강제와 공개 세션 목록 오염 방지 확인.
+
+## 13. P3 완료 기록
+
+P3는 전체 빌드, P3 회귀 테스트, 격리 E2E, P3 검증 시나리오 플레이 확인을 거쳐 완료 처리했다.
+
+검증 중 수정한 핵심 안정화 항목:
+
+- `test:e2e`가 로컬 `DATABASE_URL`에서 `schema=e2e_test`를 자동 파생하고, schema를 자동 생성하도록 정리했다.
+- Windows/Node 24 환경에서 `spawnSync npm.cmd EINVAL`이 발생하지 않도록 E2E runner의 child process 실행 방식을 보정했다.
+- HUMAN GM smoke E2E에서 전투 시작 시 현재 노드 VTT token 기반 combat participant를 보장하도록 보강했다.
+- HUMAN GM 조건 override 검증을 HTTP snapshot shape가 아니라 감사 가능한 TurnLog/StateDiff 기준으로 고정했다.
+
+## 14. P3 이후
 
 P4에서는 장기 목표를 향해 다음 범위를 다룬다.
 

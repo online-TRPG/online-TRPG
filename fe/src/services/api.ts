@@ -43,6 +43,7 @@ import type {
   ClassDefinitionResponseDto,
   ItemResponseDto,
   PlayerScenarioViewDto,
+  PublishScenarioDto,
   RaceResponseDto,
   RuleCatalogReferenceDto,
   ScenarioResponseDto,
@@ -502,6 +503,10 @@ function isProvidedScenarioForSelection(scenario: Scenario): boolean {
   return scenario.sourceType === 'SYSTEM' || scenario.id === DEFAULT_SCENARIO_ID;
 }
 
+function isPublicScenarioRevisionForSelection(scenario: Scenario): boolean {
+  return Boolean(scenario.baseScenarioId) && scenario.publishStatus === 'public';
+}
+
 export async function listAvailableScenarios(
   user: StoredUser,
   accessToken?: string | null
@@ -510,10 +515,14 @@ export async function listAvailableScenarios(
     listScenarios(),
     listMyScenarios(user, accessToken),
   ]);
-  const providedScenarios = allScenarios.filter(isProvidedScenarioForSelection);
+  const publicPlayableScenarios = allScenarios.filter(
+    (scenario) =>
+      isProvidedScenarioForSelection(scenario) ||
+      isPublicScenarioRevisionForSelection(scenario),
+  );
   const seenScenarioIds = new Set<string>();
 
-  return [...providedScenarios, ...myScenarios].filter((scenario) => {
+  return [...publicPlayableScenarios, ...myScenarios].filter((scenario) => {
     if (seenScenarioIds.has(scenario.id)) return false;
     seenScenarioIds.add(scenario.id);
     return true;
@@ -601,6 +610,32 @@ export function updateScenario(
     user,
     accessToken,
     body: payload,
+  });
+}
+
+export function publishScenario(
+  user: StoredUser,
+  scenarioId: string,
+  payload: PublishScenarioDto = {},
+  accessToken?: string | null
+): Promise<ScenarioDetail> {
+  return requestJson<ScenarioResponseDto>(`/scenarios/${scenarioId}/publish`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function unpublishScenarioRevision(
+  user: StoredUser,
+  scenarioId: string,
+  accessToken?: string | null
+): Promise<ScenarioDetail> {
+  return requestJson<ScenarioResponseDto>(`/scenarios/${scenarioId}/unpublish`, {
+    method: 'POST',
+    user,
+    accessToken,
   });
 }
 

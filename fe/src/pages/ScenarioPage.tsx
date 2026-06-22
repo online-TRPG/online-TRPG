@@ -18,7 +18,13 @@ import scrollHorizontalImage from "../components/scroll_horizontal.webp";
 import searchbarFrameImage from "../components/searchbar_gold_frame.webp";
 import sidePanelImage from "../components/Side_Panel.webp";
 import { Icon } from "../components/Icon";
-import { createScenario, deleteScenario, getScenario, listMyScenarios } from "../services/api";
+import {
+  createScenario,
+  deleteScenario,
+  getScenario,
+  listMyScenarios,
+  unpublishScenarioRevision,
+} from "../services/api";
 import type { Scenario, StoredUser } from "../types/session";
 import type { CreateScenarioDto } from "@trpg/shared-types";
 import "./CharacterPage.css";
@@ -67,6 +73,34 @@ function formatScenarioUpdatedAt(value: string | null | undefined): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${month}/${day}`;
+}
+
+function formatPublishStatus(scenario: Scenario): string {
+  if (scenario.publishStatus === "public") return `공개 revision ${scenario.revisionNumber ?? ""}`.trim();
+  if (scenario.publishStatus === "link") return `링크 공개 revision ${scenario.revisionNumber ?? ""}`.trim();
+  if (scenario.publishStatus === "private") return `비공개 revision ${scenario.revisionNumber ?? ""}`.trim();
+  if (scenario.publishStatus === "unpublished") return `공개 취소 revision ${scenario.revisionNumber ?? ""}`.trim();
+  return "draft";
+}
+
+function formatValidationReport(scenario: Scenario): string {
+  const report = scenario.validationReport;
+  if (!report || typeof report !== "object") {
+    return scenario.baseScenarioId ? "검증 기록 없음" : "-";
+  }
+
+  const status = typeof report.status === "string" ? report.status : "unknown";
+  const issueCount =
+    typeof report.issueCount === "number" && Number.isFinite(report.issueCount)
+      ? report.issueCount
+      : null;
+  const checkedAt =
+    typeof report.checkedAt === "string" ? formatScenarioUpdatedAt(report.checkedAt) : null;
+
+  const statusLabel = status === "valid" ? "통과" : status === "invalid" ? "오류" : status;
+  const issueLabel = issueCount === null ? "" : ` · 이슈 ${issueCount}개`;
+  const checkedLabel = checkedAt ? ` · ${checkedAt}` : "";
+  return `${statusLabel}${issueLabel}${checkedLabel}`;
 }
 
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
@@ -215,7 +249,30 @@ export function ScenarioPage({
     }
   }
 
+  async function handleUnpublishSelected() {
+    if (!selectedScenario) return;
+    const confirmed = window.confirm(`${selectedScenario.title} revision을 공개 취소할까요? 기존 세션 snapshot은 유지됩니다.`);
+    if (!confirmed) return;
+
+    setLocalBusy(true);
+    setLocalError(null);
+    try {
+      await unpublishScenarioRevision(user, selectedScenario.id, accessToken);
+      const next = await listMyScenarios(user, accessToken, searchTerm);
+      setScenarios(next);
+      setSelectedScenarioId(next.some((scenario) => scenario.id === selectedScenario.id) ? selectedScenario.id : next[0]?.id ?? null);
+    } catch (caught) {
+      setLocalError(caught instanceof Error ? caught.message : "시나리오 공개 취소에 실패했습니다.");
+    } finally {
+      setLocalBusy(false);
+    }
+  }
+
   const disabled = busy || localBusy;
+  const selectedIsRevision = Boolean(selectedScenario?.baseScenarioId);
+  const selectedCanUnpublish =
+    selectedIsRevision &&
+    selectedScenario?.publishStatus !== "unpublished";
 
   return (
     <main
@@ -246,10 +303,18 @@ export function ScenarioPage({
             <button
               type="button"
               className="scenario-rail-action"
-              disabled={!selectedScenario || disabled}
+              disabled={!selectedScenario || selectedIsRevision || disabled}
               onClick={() => selectedScenario && onOpenEdit(selectedScenario.id)}
             >
               시나리오 수정
+            </button>
+            <button
+              type="button"
+              className="scenario-rail-action"
+              disabled={!selectedCanUnpublish || disabled}
+              onClick={() => void handleUnpublishSelected()}
+            >
+              공개 취소
             </button>
             <button
               type="button"
@@ -290,6 +355,7 @@ export function ScenarioPage({
                   onClick={() => setSelectedScenarioId(scenario.id)}
                 >
                   <strong>{scenario.title}</strong>
+                  <span>{formatPublishStatus(scenario)}</span>
                   <span className="scenario-library-updated-at">
                     마지막 업데이트 날짜 : {formatScenarioUpdatedAt(scenario.updatedAt)}
                   </span>
@@ -336,6 +402,26 @@ export function ScenarioPage({
                     <div>
                       <dt>라이선스</dt>
                       <dd>{selectedScenario.license}</dd>
+                    </div>
+                    <div>
+                      <dt>발행 상태</dt>
+                      <dd>{formatPublishStatus(selectedScenario)}</dd>
+                    </div>
+                    <div>
+                      <dt>원본 draft</dt>
+                      <dd>{selectedScenario.baseScenarioId ?? "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>발행일</dt>
+                      <dd>{selectedScenario.publishedAt ? formatScenarioUpdatedAt(selectedScenario.publishedAt) : "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>변경 내역</dt>
+                      <dd>{selectedScenario.changelog ?? "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>검증 리포트</dt>
+                      <dd>{formatValidationReport(selectedScenario)}</dd>
                     </div>
                     <div>
                       <dt>출처</dt>

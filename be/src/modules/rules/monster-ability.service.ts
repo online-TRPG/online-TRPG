@@ -53,6 +53,30 @@ const MONSTER_ACTION_PREFERENCES: Record<string, string[]> = {
   "monster.harpy": ["action.luring_song", "monster.harpy.ability.multiattack"],
   "monster.giant_scorpion": ["monster.giant_scorpion.ability.multiattack", "action.sting", "action.claw"],
   "monster.young_red_dragon": ["action.fire_breath", "monster.young_red_dragon.ability.multiattack"],
+  "monster.black_bear": ["monster.black_bear.ability.multiattack"],
+  "monster.lion": ["monster.lion.ability.multiattack"],
+  "monster.tiger": ["monster.tiger.ability.multiattack"],
+  "monster.troll": ["monster.troll.ability.multiattack"],
+  "monster.hill_giant": ["action.rock", "action.greatclub"],
+  "monster.giant_eagle": ["monster.giant_eagle.ability.multiattack"],
+  "monster.giant_owl": ["action.talons"],
+  "monster.manticore": ["action.tail_spike", "monster.manticore.ability.multiattack"],
+  "monster.griffon": ["monster.griffon.ability.multiattack"],
+  "monster.merrow": ["action.harpoon", "monster.merrow.ability.multiattack"],
+  "monster.acolyte": ["action.sacred_flame", "action.club"],
+  "monster.mage": ["action.fireball", "action.arcane_bolt"],
+  "monster.priest": ["action.radiant_bolt", "action.mace"],
+  "monster.cult_fanatic": ["action.hold_person", "action.dagger"],
+  "monster.mummy": ["action.dreadful_glare", "action.rotting_fist"],
+  "monster.specter": ["action.life_drain"],
+  "monster.ghost": ["action.horrifying_visage", "action.withering_touch"],
+  "monster.stone_golem": ["action.slow", "monster.stone_golem.ability.multiattack"],
+  "monster.water_elemental": ["action.whelm", "monster.water_elemental.ability.multiattack"],
+  "monster.swarm_of_insects": ["action.bites"],
+  "monster.quasit": ["action.scare", "action.claws"],
+  "monster.basilisk": ["action.petrifying_gaze", "action.bite"],
+  "monster.wyvern": ["monster.wyvern.ability.multiattack"],
+  "monster.young_blue_dragon": ["action.lightning_breath", "monster.young_blue_dragon.ability.multiattack"],
 };
 
 @Injectable()
@@ -215,6 +239,9 @@ export class MonsterAbilityService {
 
   private resolveEffectTags(entry: RuleCatalogEntry): string[] {
     return [
+      ...(entry.targeting.type === "area"
+        ? [`area_size:${entry.targeting.sizeFt}`]
+        : []),
       ...this.readPrefixedTags(entry.runtimeEffect.tags, "option:"),
       ...this.readPrefixedTags(entry.runtimeEffect.tags, "effect:"),
       ...entry.runtimeEffect.tags.filter(
