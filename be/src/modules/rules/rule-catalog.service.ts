@@ -29,6 +29,19 @@ const RACE_PARENT_KEYS: Record<string, string> = {
   "rock-gnome": "gnome",
 };
 
+const DRACONIC_ANCESTRY_DAMAGE_TYPES: Record<string, string> = {
+  black: "acid",
+  blue: "lightning",
+  brass: "fire",
+  bronze: "lightning",
+  copper: "acid",
+  gold: "fire",
+  green: "poison",
+  red: "fire",
+  silver: "cold",
+  white: "cold",
+};
+
 const RACE_TRAIT_DEFINITIONS: RuleCatalogEntry[] = [
   raceTrait("human", "ability_score_increase", [
     "fixed:ability:str:+1",
@@ -145,17 +158,32 @@ const RACE_TRAIT_DEFINITIONS: RuleCatalogEntry[] = [
     "hide:behind_larger_creature",
   ]),
 
-  raceTrait("dragonborn", "base_traits", [
-    "fixed:ability:str:+2",
-    "fixed:ability:cha:+1",
-    "fixed:size:medium",
-    "fixed:speed:30",
-    "language:common",
-    "language:draconic",
-    "selection:draconic_ancestry",
-    "action:breath_weapon",
-    "resistance:ancestry_damage_type",
-  ]),
+  raceTrait(
+    "dragonborn",
+    "base_traits",
+    [
+      "fixed:ability:str:+2",
+      "fixed:ability:cha:+1",
+      "fixed:size:medium",
+      "fixed:speed:30",
+      "language:common",
+      "language:draconic",
+      "selection:draconic_ancestry",
+      "action:breath_weapon",
+      "resistance:ancestry_damage_type",
+    ],
+    {
+      trigger: "action",
+      cost: { type: "action" },
+      targeting: { type: "area", shape: "cone", sizeFt: 15 },
+      save: { ability: "dex", dcSource: "class_feature_dc" },
+      damage: { dice: "2d6", type: "ancestry", scaling: "character_level" },
+      scaling: {
+        mode: "character_level",
+        table: { "1": "2d6", "6": "3d6", "11": "4d6", "16": "5d6" },
+      },
+    },
+  ),
 
   raceTrait("tiefling", "base_traits", [
     "fixed:ability:int:+1",
@@ -208,6 +236,14 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
   subclassFeature("druid", "land", 2, "natural_recovery", {
     type: "subclass_feature",
     tags: ["rest:short", "recover:spell_slots:half_druid_level"],
+  }),
+  subclassFeature("druid", "land", 3, "circle_spells_level_3", {
+    type: "subclass_feature",
+    tags: ["spellcasting:circle_spells", "spell_level:2"],
+  }),
+  subclassFeature("druid", "land", 5, "circle_spells_level_5", {
+    type: "subclass_feature",
+    tags: ["spellcasting:circle_spells", "spell_level:3"],
   }),
   subclassFeature("fighter", "champion", 3, "improved_critical", {
     type: "subclass_feature",
@@ -520,6 +556,81 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     type: "resolver_pending",
     tags: ["subclass:choice_required"],
   }),
+
+  ...[
+    "barbarian",
+    "bard",
+    "cleric",
+    "druid",
+    "fighter",
+    "monk",
+    "paladin",
+    "ranger",
+    "rogue",
+    "sorcerer",
+    "warlock",
+    "wizard",
+  ].map((classKey) =>
+    classFeature(classKey, 4, "ability_score_improvement", {
+      type: "resolver_pending",
+      tags: ["selection:ability_score_improvement", "ability_points:2"],
+    }),
+  ),
+
+  classFeature("barbarian", 5, "extra_attack", {
+    type: "grant_passive",
+    tags: ["attack_action:attacks:2"],
+  }),
+  classFeature("barbarian", 5, "fast_movement", {
+    type: "modify_stat",
+    tags: ["speed_bonus:unarmored:10"],
+  }),
+  classFeature("bard", 5, "bardic_inspiration_d8", {
+    type: "modify_stat",
+    tags: ["bardic_inspiration:die:1d8"],
+  }),
+  classFeature("bard", 5, "font_of_inspiration", {
+    type: "grant_passive",
+    tags: ["resource:bardic_inspiration", "rest:short"],
+    resourceId: "resource.bard.bardic_inspiration",
+  }),
+  classFeature("cleric", 5, "destroy_undead", {
+    type: "grant_passive",
+    tags: ["channel_divinity:turn_undead", "destroy_undead:cr:0.5"],
+  }),
+  classFeature("druid", 4, "wild_shape_improvement", {
+    type: "modify_stat",
+    tags: ["wild_shape:max_cr:0.5", "wild_shape:swim_speed_allowed"],
+  }),
+  classFeature("fighter", 5, "extra_attack", {
+    type: "grant_passive",
+    tags: ["attack_action:attacks:2"],
+  }),
+  classFeature("monk", 5, "extra_attack", {
+    type: "grant_passive",
+    tags: ["attack_action:attacks:2"],
+  }),
+  classFeature("monk", 5, "stunning_strike", {
+    type: "grant_action",
+    tags: ["trigger:on_melee_hit", "resource:ki", "save:con", "condition:stunned"],
+    resourceId: "resource.monk.ki",
+  }, { type: "resource", resourceId: "resource.monk.ki", amount: 1 }, { type: "creature", rangeFt: 5 }, "on_hit"),
+  classFeature("monk", 5, "martial_arts_d6", {
+    type: "modify_stat",
+    tags: ["unarmed:martial_arts_die:1d6"],
+  }),
+  classFeature("paladin", 5, "extra_attack", {
+    type: "grant_passive",
+    tags: ["attack_action:attacks:2"],
+  }),
+  classFeature("ranger", 5, "extra_attack", {
+    type: "grant_passive",
+    tags: ["attack_action:attacks:2"],
+  }),
+  classFeature("rogue", 5, "uncanny_dodge", {
+    type: "grant_action",
+    tags: ["action:reaction", "trigger:attacker_seen", "damage:half"],
+  }, { type: "reaction" }, SELF_TARGETING),
 ];
 
 const CONDITION_DEFINITIONS: RuleCatalogEntry[] = [
@@ -531,6 +642,8 @@ const CONDITION_DEFINITIONS: RuleCatalogEntry[] = [
   condition("condition.incapacitated", ["condition:incapacitated", "action_blocked", "reaction_blocked"]),
   condition("condition.burning", ["condition:burning", "damage_over_time:fire"]),
   condition("condition.stunned", ["condition:stunned", "incapacitated", "movement_blocked"]),
+  condition("condition.charmed", ["condition:charmed", "attack_blocked:charmer", "social_advantage:charmer"]),
+  condition("condition.grappled", ["condition:grappled", "speed:zero", "escape_check"]),
 ];
 
 const TERRAIN_EFFECT_DEFINITIONS: RuleCatalogEntry[] = [
@@ -827,6 +940,242 @@ const SPELL_DEFINITIONS: RuleCatalogEntry[] = [
     hookId: "hook.spell.cast_dispel_magic",
     scaling: { mode: "slot_level", table: { mode: "dispel_spell_level", base: 3, perSlotAbove: 1 } },
   }),
+  spell("spell.acid_splash", {
+    level: 0,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 60 },
+    save: { ability: "dex", dcSource: "spell_save_dc" },
+    damage: { dice: "1d6", type: "acid", scaling: "character_level" },
+    duration: { unit: "instant", amount: null },
+    tags: ["save:dex", "damage:acid", "no_damage_on_success", "target_count:2", "targets_adjacent"],
+    hookId: "hook.spell.cast_acid_splash",
+    scaling: { mode: "character_level", table: { 5: "2d6", 11: "3d6", 17: "4d6" } },
+  }),
+  spell("spell.guidance", {
+    level: 0,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "minute", amount: 1 },
+    concentration: true,
+    tags: ["roll_bonus:ability_check:1d4"],
+    hookId: "hook.spell.cast_guidance",
+  }),
+  spell("spell.mage_hand", {
+    level: 0,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 30 },
+    duration: { unit: "minute", amount: 1 },
+    tags: ["utility:remote_object_interaction", "weight_limit_lb:10"],
+    hookId: "hook.spell.cast_mage_hand",
+  }),
+  spell("spell.minor_illusion", {
+    level: 0,
+    cost: { type: "action" },
+    targeting: { type: "area", shape: "cube", sizeFt: 5 },
+    duration: { unit: "minute", amount: 1 },
+    tags: ["utility:illusion", "range:30", "investigation:disbelieve"],
+    hookId: "hook.spell.cast_minor_illusion",
+  }),
+  spell("spell.shocking_grasp", {
+    level: 0,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d8", type: "lightning", scaling: "character_level" },
+    duration: { unit: "round", amount: 1 },
+    tags: ["spell_attack:melee", "damage:lightning", "reaction:block", "advantage:metal_armor"],
+    hookId: "hook.spell.cast_shocking_grasp",
+    scaling: { mode: "character_level", table: { 5: "2d8", 11: "3d8", 17: "4d8" } },
+  }),
+  spell("spell.charm_person", {
+    level: 1,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 30 },
+    save: { ability: "wis", dcSource: "spell_save_dc" },
+    duration: { unit: "hour", amount: 1 },
+    tags: ["save:wis", "condition:charmed", "target:humanoid"],
+    hookId: "hook.spell.cast_charm_person",
+    scaling: { mode: "slot_level", table: { mode: "target_count", count: 1, perSlotAbove: 1 } },
+  }),
+  spell("spell.faerie_fire", {
+    level: 1,
+    cost: { type: "action" },
+    targeting: { type: "area", shape: "cube", sizeFt: 20 },
+    save: { ability: "dex", dcSource: "spell_save_dc" },
+    duration: { unit: "minute", amount: 1 },
+    concentration: true,
+    tags: ["range:60", "save:dex", "condition:faerie_fire", "advantage:incoming_attack", "light:dim"],
+    hookId: "hook.spell.cast_faerie_fire",
+  }),
+  spell("spell.feather_fall", {
+    level: 1,
+    cost: { type: "reaction" },
+    targeting: { type: "creature", rangeFt: 60 },
+    duration: { unit: "minute", amount: 1 },
+    tags: ["target_count:5", "falling_speed:60", "immunity:fall_damage"],
+    hookId: "hook.spell.cast_feather_fall",
+  }),
+  spell("spell.fog_cloud", {
+    level: 1,
+    cost: { type: "action" },
+    targeting: { type: "area", shape: "sphere", sizeFt: 20 },
+    duration: { unit: "hour", amount: 1 },
+    concentration: true,
+    tags: ["range:120", "terrain:terrain.obscurement", "heavily_obscured"],
+    hookId: "hook.spell.cast_fog_cloud",
+    scaling: { mode: "slot_level", table: { mode: "area_size", feet: 20, perSlotAbove: 20 } },
+  }),
+  spell("spell.grease", {
+    level: 1,
+    cost: { type: "action" },
+    targeting: { type: "area", shape: "cube", sizeFt: 10 },
+    save: { ability: "dex", dcSource: "spell_save_dc" },
+    duration: { unit: "minute", amount: 1 },
+    tags: ["range:60", "terrain:terrain.slippery", "save:dex", "condition:prone"],
+    hookId: "hook.spell.cast_grease",
+  }),
+  spell("spell.heroism", {
+    level: 1,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "minute", amount: 1 },
+    concentration: true,
+    tags: ["immunity:frightened", "temporary_hp:spellcasting_modifier:turn_start"],
+    hookId: "hook.spell.cast_heroism",
+    scaling: { mode: "slot_level", table: { mode: "target_count", count: 1, perSlotAbove: 1 } },
+  }),
+  spell("spell.hunters_mark", {
+    level: 1,
+    cost: { type: "bonus_action" },
+    targeting: { type: "creature", rangeFt: 90 },
+    duration: { unit: "hour", amount: 1 },
+    concentration: true,
+    tags: ["condition:hunters_mark", "damage:extra:1d6", "trigger:weapon_hit", "tracking:advantage"],
+    hookId: "hook.spell.cast_hunters_mark",
+  }),
+  spell("spell.longstrider", {
+    level: 1,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "hour", amount: 1 },
+    tags: ["movement_speed_bonus:10"],
+    hookId: "hook.spell.cast_longstrider",
+    scaling: { mode: "slot_level", table: { mode: "target_count", count: 1, perSlotAbove: 1 } },
+  }),
+  spell("spell.aid", {
+    level: 2,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 30 },
+    duration: { unit: "hour", amount: 8 },
+    tags: ["target_count:3", "max_hp_bonus:5", "healing:5"],
+    hookId: "hook.spell.cast_aid",
+    scaling: { mode: "slot_level", table: { mode: "flat_bonus", amount: 5, perSlotAbove: 5 } },
+  }),
+  spell("spell.blindness_deafness", {
+    level: 2,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 30 },
+    save: { ability: "con", dcSource: "spell_save_dc" },
+    duration: { unit: "minute", amount: 1 },
+    tags: ["save:con", "condition:blinded_or_deafened"],
+    hookId: "hook.spell.cast_blindness_deafness",
+    scaling: { mode: "slot_level", table: { mode: "target_count", count: 1, perSlotAbove: 1 } },
+  }),
+  spell("spell.darkness", {
+    level: 2,
+    cost: { type: "action" },
+    targeting: { type: "area", shape: "sphere", sizeFt: 15 },
+    duration: { unit: "minute", amount: 10 },
+    concentration: true,
+    tags: ["range:60", "terrain:terrain.obscurement", "darkness:magical", "heavily_obscured"],
+    hookId: "hook.spell.cast_darkness",
+  }),
+  spell("spell.invisibility", {
+    level: 2,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "hour", amount: 1 },
+    concentration: true,
+    tags: ["condition:invisible", "ends_on_attack_or_spell"],
+    hookId: "hook.spell.cast_invisibility",
+    scaling: { mode: "slot_level", table: { mode: "target_count", count: 1, perSlotAbove: 1 } },
+  }),
+  spell("spell.lesser_restoration", {
+    level: 2,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "instant", amount: null },
+    tags: ["remove:blinded", "remove:deafened", "remove:paralyzed", "remove:poisoned"],
+    hookId: "hook.spell.cast_lesser_restoration",
+  }),
+  spell("spell.moonbeam", {
+    level: 2,
+    cost: { type: "action" },
+    targeting: { type: "area", shape: "sphere", sizeFt: 5 },
+    save: { ability: "con", dcSource: "spell_save_dc" },
+    damage: { dice: "2d10", type: "radiant", scaling: "slot_level" },
+    duration: { unit: "minute", amount: 1 },
+    concentration: true,
+    tags: ["range:120", "save:con", "damage:radiant", "half_damage_on_success", "trigger:on_turn_start"],
+    hookId: "hook.spell.cast_moonbeam",
+    scaling: { mode: "slot_level", table: { mode: "damage_dice", dice: "1d10", perSlotAbove: 1 } },
+  }),
+  spell("spell.spiritual_weapon", {
+    level: 2,
+    cost: { type: "bonus_action" },
+    targeting: { type: "creature", rangeFt: 60 },
+    damage: { dice: "1d8", type: "force", scaling: "slot_level" },
+    duration: { unit: "minute", amount: 1 },
+    tags: ["spell_attack:melee", "summon:spiritual_weapon", "repeat:bonus_action_attack"],
+    hookId: "hook.spell.cast_spiritual_weapon",
+    scaling: { mode: "slot_level", table: { mode: "damage_dice_every_two_slots", dice: "1d8" } },
+  }),
+  spell("spell.counterspell", {
+    level: 3,
+    cost: { type: "reaction" },
+    targeting: { type: "creature", rangeFt: 60 },
+    duration: { unit: "instant", amount: null },
+    tags: ["reaction:creature_casts_spell", "interrupt:spell", "ability_check:spellcasting_ability"],
+    hookId: "hook.spell.cast_counterspell",
+    scaling: { mode: "slot_level", table: { mode: "counter_spell_level", base: 3, perSlotAbove: 1 } },
+  }),
+  spell("spell.fly", {
+    level: 3,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "minute", amount: 10 },
+    concentration: true,
+    tags: ["movement:flying_speed:60"],
+    hookId: "hook.spell.cast_fly",
+    scaling: { mode: "slot_level", table: { mode: "target_count", count: 1, perSlotAbove: 1 } },
+  }),
+  spell("spell.haste", {
+    level: 3,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 30 },
+    duration: { unit: "minute", amount: 1 },
+    concentration: true,
+    tags: ["armor_class:+2", "advantage:save:dex", "movement_speed_multiplier:2", "grant:haste_action"],
+    hookId: "hook.spell.cast_haste",
+  }),
+  spell("spell.lightning_bolt", {
+    level: 3,
+    cost: { type: "action" },
+    targeting: { type: "area", shape: "line", sizeFt: 100 },
+    save: { ability: "dex", dcSource: "spell_save_dc" },
+    damage: { dice: "8d6", type: "lightning", scaling: "slot_level" },
+    duration: { unit: "instant", amount: null },
+    tags: ["area:line", "save:dex", "damage:lightning", "half_damage_on_success"],
+    hookId: "hook.spell.cast_lightning_bolt",
+    scaling: { mode: "slot_level", table: { mode: "damage_dice", dice: "1d6", perSlotAbove: 1 } },
+  }),
+  spell("spell.revivify", {
+    level: 3,
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "instant", amount: null },
+    tags: ["revive:hp:1", "death_window:minute:1", "component:diamond:300gp"],
+    hookId: "hook.spell.cast_revivify",
+  }),
 ];
 
 const MONSTER_ABILITY_DEFINITIONS: RuleCatalogEntry[] = [
@@ -1025,6 +1374,352 @@ const MONSTER_ABILITY_DEFINITIONS: RuleCatalogEntry[] = [
     tags: ["attack:melee_or_ranged_weapon", "attack_bonus:+6", "range_long:120", "srd_action_id:action.javelin"],
     hookId: "hook.monster.attack",
   }),
+  monsterAbility("monster.kobold.ability.dagger", {
+    monsterId: "monster.kobold",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d4+2", type: "piercing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+4", "pack_tactics", "srd_action_id:action.dagger"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.kobold.ability.sling", {
+    monsterId: "monster.kobold",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 30 },
+    damage: { dice: "1d4+2", type: "bludgeoning" },
+    tags: ["attack:ranged_weapon", "attack_bonus:+4", "range_long:120", "pack_tactics", "srd_action_id:action.sling"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.bandit.ability.scimitar", {
+    monsterId: "monster.bandit",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d6+1", type: "slashing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+3", "srd_action_id:action.scimitar"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.bandit.ability.light_crossbow", {
+    monsterId: "monster.bandit",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 80 },
+    damage: { dice: "1d8+1", type: "piercing" },
+    tags: ["attack:ranged_weapon", "attack_bonus:+3", "range_long:320", "srd_action_id:action.light_crossbow"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.bugbear.ability.morningstar", {
+    monsterId: "monster.bugbear",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 10 },
+    damage: { dice: "2d8+2", type: "piercing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+4", "reach:long_limbed", "damage:surprise:2d6", "srd_action_id:action.morningstar"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.bugbear.ability.javelin", {
+    monsterId: "monster.bugbear",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 30 },
+    damage: { dice: "1d6+2", type: "piercing" },
+    tags: ["attack:ranged_weapon", "attack_bonus:+4", "range_long:120", "srd_action_id:action.javelin"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.hobgoblin.ability.longsword", {
+    monsterId: "monster.hobgoblin",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d8+1", type: "slashing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+3", "damage:martial_advantage:2d6", "srd_action_id:action.longsword"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.hobgoblin.ability.longbow", {
+    monsterId: "monster.hobgoblin",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 150 },
+    damage: { dice: "1d8+1", type: "piercing" },
+    tags: ["attack:ranged_weapon", "attack_bonus:+3", "range_long:600", "damage:martial_advantage:2d6", "srd_action_id:action.longbow"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.dire_wolf.ability.bite", {
+    monsterId: "monster.dire_wolf",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    save: { ability: "str", dcSource: "fixed", fixedDc: 13 },
+    damage: { dice: "2d6+3", type: "piercing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+5", "pack_tactics", "condition:prone", "srd_action_id:action.bite"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.ghoul.ability.bite", {
+    monsterId: "monster.ghoul",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "2d6+2", type: "piercing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+2", "srd_action_id:action.bite"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.ghoul.ability.claws", {
+    monsterId: "monster.ghoul",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    save: { ability: "con", dcSource: "fixed", fixedDc: 10 },
+    damage: { dice: "2d4+2", type: "slashing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+4", "condition:paralyzed", "srd_action_id:action.claws"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.ghoul.ability.undead_defenses", {
+    monsterId: "monster.ghoul",
+    cost: { type: "none" },
+    targeting: SELF_TARGETING,
+    tags: ["immunity:poison", "immunity:condition:charmed", "immunity:condition:poisoned", "passive:undead_defenses"],
+    hookId: "hook.monster.passive",
+  }),
+  monsterAbility("monster.wight.ability.multiattack", {
+    monsterId: "monster.wight",
+    cost: { type: "action" },
+    targeting: SELF_TARGETING,
+    tags: ["multiattack:action.longsword:2"],
+    hookId: "hook.monster.multiattack",
+  }),
+  monsterAbility("monster.wight.ability.longsword", {
+    monsterId: "monster.wight",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "2d8+2", type: "slashing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+4", "damage:necrotic_component:1d8", "srd_action_id:action.longsword"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.wight.ability.longbow", {
+    monsterId: "monster.wight",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 150 },
+    damage: { dice: "1d8+2", type: "piercing" },
+    tags: ["attack:ranged_weapon", "attack_bonus:+4", "range_long:600", "srd_action_id:action.longbow"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.wight.ability.life_drain", {
+    monsterId: "monster.wight",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    save: { ability: "con", dcSource: "fixed", fixedDc: 13 },
+    damage: { dice: "1d6+2", type: "necrotic" },
+    tags: ["attack:melee_weapon", "attack_bonus:+4", "effect:max_hp_reduction:damage", "srd_action_id:action.life_drain"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.wight.ability.undead_defenses", {
+    monsterId: "monster.wight",
+    cost: { type: "none" },
+    targeting: SELF_TARGETING,
+    tags: ["resistance:necrotic", "resistance:bludgeoning", "resistance:piercing", "resistance:slashing", "immunity:poison", "immunity:condition:poisoned", "passive:undead_defenses"],
+    hookId: "hook.monster.passive",
+  }),
+  monsterAbility("monster.mimic.ability.pseudopod", {
+    monsterId: "monster.mimic",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d8+3", type: "bludgeoning" },
+    tags: ["attack:melee_weapon", "attack_bonus:+5", "condition:grappled", "effect:escape_dc:13", "srd_action_id:action.pseudopod"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.mimic.ability.bite", {
+    monsterId: "monster.mimic",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "2d8+3", type: "piercing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+5", "damage:acid_component:1d8", "srd_action_id:action.bite"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.mimic.ability.false_appearance", {
+    monsterId: "monster.mimic",
+    cost: { type: "none" },
+    targeting: SELF_TARGETING,
+    tags: ["immunity:acid", "immunity:condition:prone", "passive:false_appearance", "effect:hidden_until_moved"],
+    hookId: "hook.monster.passive",
+  }),
+  monsterAbility("monster.gelatinous_cube.ability.pseudopod", {
+    monsterId: "monster.gelatinous_cube",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "3d6", type: "acid" },
+    tags: ["attack:melee_weapon", "attack_bonus:+4", "srd_action_id:action.pseudopod"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.gelatinous_cube.ability.engulf", {
+    monsterId: "monster.gelatinous_cube",
+    cost: { type: "action" },
+    targeting: { type: "area", shape: "cube", sizeFt: 10 },
+    save: { ability: "dex", dcSource: "fixed", fixedDc: 12 },
+    damage: { dice: "3d6", type: "acid" },
+    duration: { unit: "minute", amount: 1 },
+    tags: ["area:cube", "condition:restrained", "condition:engulfed", "trigger:on_turn_start", "effect:damage_over_time:6d6:acid", "srd_action_id:action.engulf"],
+    hookId: "hook.monster.area_attack",
+  }),
+  monsterAbility("monster.gelatinous_cube.ability.ooze_defenses", {
+    monsterId: "monster.gelatinous_cube",
+    cost: { type: "none" },
+    targeting: SELF_TARGETING,
+    tags: ["immunity:condition:blinded", "immunity:condition:charmed", "immunity:condition:deafened", "immunity:condition:frightened", "immunity:condition:prone", "passive:ooze_defenses"],
+    hookId: "hook.monster.passive",
+  }),
+  monsterAbility("monster.swarm_of_rats.ability.bites", {
+    monsterId: "monster.swarm_of_rats",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "2d6", type: "piercing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+2", "swarm:half_hp_damage:1d6", "srd_action_id:action.bites"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.swarm_of_rats.ability.swarm_defenses", {
+    monsterId: "monster.swarm_of_rats",
+    cost: { type: "none" },
+    targeting: SELF_TARGETING,
+    tags: ["resistance:bludgeoning", "resistance:piercing", "resistance:slashing", "immunity:condition:charmed", "immunity:condition:frightened", "immunity:condition:grappled", "immunity:condition:prone", "immunity:condition:restrained", "passive:swarm"],
+    hookId: "hook.monster.passive",
+  }),
+  monsterAbility("monster.animated_armor.ability.multiattack", {
+    monsterId: "monster.animated_armor",
+    cost: { type: "action" },
+    targeting: SELF_TARGETING,
+    tags: ["multiattack:action.slam:2"],
+    hookId: "hook.monster.multiattack",
+  }),
+  monsterAbility("monster.animated_armor.ability.slam", {
+    monsterId: "monster.animated_armor",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d6+2", type: "bludgeoning" },
+    tags: ["attack:melee_weapon", "attack_bonus:+4", "srd_action_id:action.slam"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.animated_armor.ability.construct_defenses", {
+    monsterId: "monster.animated_armor",
+    cost: { type: "none" },
+    targeting: SELF_TARGETING,
+    tags: ["immunity:poison", "immunity:psychic", "immunity:condition:poisoned", "passive:construct_defenses"],
+    hookId: "hook.monster.passive",
+  }),
+  monsterAbility("monster.gargoyle.ability.multiattack", {
+    monsterId: "monster.gargoyle",
+    cost: { type: "action" },
+    targeting: SELF_TARGETING,
+    tags: ["multiattack:action.bite:1", "multiattack:action.claws:1"],
+    hookId: "hook.monster.multiattack",
+  }),
+  monsterAbility("monster.gargoyle.ability.bite", {
+    monsterId: "monster.gargoyle",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d6+2", type: "piercing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+4", "srd_action_id:action.bite"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.gargoyle.ability.claws", {
+    monsterId: "monster.gargoyle",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d6+2", type: "slashing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+4", "srd_action_id:action.claws"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.gargoyle.ability.stone_resistance", {
+    monsterId: "monster.gargoyle",
+    cost: { type: "none" },
+    targeting: SELF_TARGETING,
+    tags: ["resistance:bludgeoning", "resistance:piercing", "resistance:slashing", "immunity:poison", "passive:stone_body"],
+    hookId: "hook.monster.passive",
+  }),
+  monsterAbility("monster.harpy.ability.multiattack", {
+    monsterId: "monster.harpy",
+    cost: { type: "action" },
+    targeting: SELF_TARGETING,
+    tags: ["multiattack:action.claws:1", "multiattack:action.club:1"],
+    hookId: "hook.monster.multiattack",
+  }),
+  monsterAbility("monster.harpy.ability.claws", {
+    monsterId: "monster.harpy",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "2d4+1", type: "slashing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+3", "srd_action_id:action.claws"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.harpy.ability.club", {
+    monsterId: "monster.harpy",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d4+1", type: "bludgeoning" },
+    tags: ["attack:melee_weapon", "attack_bonus:+3", "srd_action_id:action.club"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.harpy.ability.luring_song", {
+    monsterId: "monster.harpy",
+    cost: { type: "action" },
+    targeting: { type: "area", shape: "sphere", sizeFt: 300 },
+    save: { ability: "wis", dcSource: "fixed", fixedDc: 11 },
+    duration: { unit: "minute", amount: 1 },
+    tags: ["area:sphere", "condition:charmed", "condition:incapacitated", "aura:luring_song", "trigger:on_turn_start", "srd_action_id:action.luring_song"],
+    hookId: "hook.monster.area_effect",
+  }),
+  monsterAbility("monster.giant_scorpion.ability.multiattack", {
+    monsterId: "monster.giant_scorpion",
+    cost: { type: "action" },
+    targeting: SELF_TARGETING,
+    tags: ["multiattack:action.claw:2", "multiattack:action.sting:1"],
+    hookId: "hook.monster.multiattack",
+  }),
+  monsterAbility("monster.giant_scorpion.ability.claw", {
+    monsterId: "monster.giant_scorpion",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "1d8+2", type: "bludgeoning" },
+    tags: ["attack:melee_weapon", "attack_bonus:+4", "condition:grappled", "effect:escape_dc:12", "srd_action_id:action.claw"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.giant_scorpion.ability.sting", {
+    monsterId: "monster.giant_scorpion",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    save: { ability: "con", dcSource: "fixed", fixedDc: 12 },
+    damage: { dice: "1d10+2", type: "piercing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+4", "condition:poisoned", "effect:poison_damage:4d10", "srd_action_id:action.sting"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.young_red_dragon.ability.multiattack", {
+    monsterId: "monster.young_red_dragon",
+    cost: { type: "action" },
+    targeting: SELF_TARGETING,
+    tags: ["multiattack:action.bite:1", "multiattack:action.claw:2"],
+    hookId: "hook.monster.multiattack",
+  }),
+  monsterAbility("monster.young_red_dragon.ability.bite", {
+    monsterId: "monster.young_red_dragon",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 10 },
+    damage: { dice: "2d10+6", type: "piercing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+10", "damage:fire_component:1d6", "srd_action_id:action.bite"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.young_red_dragon.ability.claw", {
+    monsterId: "monster.young_red_dragon",
+    cost: { type: "action" },
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "2d6+6", type: "slashing" },
+    tags: ["attack:melee_weapon", "attack_bonus:+10", "srd_action_id:action.claw"],
+    hookId: "hook.monster.attack",
+  }),
+  monsterAbility("monster.young_red_dragon.ability.fire_breath", {
+    monsterId: "monster.young_red_dragon",
+    cost: { type: "action" },
+    targeting: { type: "area", shape: "cone", sizeFt: 30 },
+    save: { ability: "dex", dcSource: "fixed", fixedDc: 17 },
+    damage: { dice: "16d6", type: "fire" },
+    tags: ["recharge:5-6", "area:cone", "save:dex", "half_damage_on_success", "movement:fly:80", "srd_action_id:action.fire_breath"],
+    hookId: "hook.monster.area_attack",
+  }),
+  monsterAbility("monster.young_red_dragon.ability.dragon_defenses", {
+    monsterId: "monster.young_red_dragon",
+    cost: { type: "none" },
+    targeting: SELF_TARGETING,
+    tags: ["immunity:fire", "movement:fly:80", "passive:dragon_defenses"],
+    hookId: "hook.monster.passive",
+  }),
 ];
 
 @Injectable()
@@ -1054,6 +1749,32 @@ export class RuleCatalogService {
 
   getEntry(id: string): RuleCatalogEntry | null {
     return this.entries.get(id) ?? null;
+  }
+
+  resolveRuntimeTags(featureIds: Iterable<string>): string[] {
+    const tags = new Set<string>();
+    for (const featureId of featureIds) {
+      const normalizedId = featureId.trim();
+      if (!normalizedId) {
+        continue;
+      }
+      const entry = this.getEntry(normalizedId);
+      if (!entry) {
+        tags.add(normalizedId);
+        const ancestry = normalizedId.startsWith("draconic_ancestry:")
+          ? normalizedId.slice("draconic_ancestry:".length)
+          : null;
+        const damageType = ancestry
+          ? DRACONIC_ANCESTRY_DAMAGE_TYPES[ancestry]
+          : null;
+        if (damageType) {
+          tags.add(`resistance:${damageType}`);
+        }
+        continue;
+      }
+      entry.runtimeEffect.tags.forEach((tag) => tags.add(tag));
+    }
+    return Array.from(tags);
   }
 
   getCharacterFeatureSnapshot(params: {
@@ -1191,6 +1912,16 @@ export class RuleCatalogService {
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
+  resolveMonsterRuntimeTags(monsterId: string): string[] {
+    return Array.from(
+      new Set(
+        this.listMonsterAbilities(monsterId)
+          .filter((entry) => entry.cost.type === "none")
+          .flatMap((entry) => entry.runtimeEffect.tags),
+      ),
+    );
+  }
+
   private normalizeClassKey(classKey: string): string {
     const normalized = classKey.trim().toLowerCase().replace(/_/g, "-");
     if (!normalized) {
@@ -1302,7 +2033,17 @@ function toClassFeatureEntry(seed: ClassFeatureSeed): RuleCatalogEntry {
   };
 }
 
-function raceTrait(raceKey: string, traitKey: string, tags: string[]): RuleCatalogEntry {
+function raceTrait(
+  raceKey: string,
+  traitKey: string,
+  tags: string[],
+  options: Partial<
+    Pick<
+      RuleCatalogEntry,
+      "trigger" | "cost" | "targeting" | "save" | "damage" | "duration" | "scaling"
+    >
+  > = {},
+): RuleCatalogEntry {
   return {
     id: `race.${raceKey}.trait.${traitKey}`,
     kind: "race_traits",
@@ -1310,14 +2051,14 @@ function raceTrait(raceKey: string, traitKey: string, tags: string[]): RuleCatal
     levelRequirement: {
       raceKey,
     },
-    trigger: "character_creation",
-    cost: NO_COST,
-    targeting: SELF_TARGETING,
-    save: null,
-    damage: null,
-    duration: null,
+    trigger: options.trigger ?? "character_creation",
+    cost: options.cost ?? NO_COST,
+    targeting: options.targeting ?? SELF_TARGETING,
+    save: options.save ?? null,
+    damage: options.damage ?? null,
+    duration: options.duration ?? null,
     concentration: false,
-    scaling: null,
+    scaling: options.scaling ?? null,
     runtimeEffect: {
       type: "race_trait",
       tags,

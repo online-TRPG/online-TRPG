@@ -255,7 +255,38 @@ export function BattleMapStructureInspector({
               />
               {labels.visibleToPlayers}
             </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={objectCell.canBreak === true}
+                onChange={(event) => onUpdate(kind, cell.id, { canBreak: event.target.checked } as Partial<ObjectCell>)}
+              />
+              {labels.canBreak}
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={objectCell.broken === true}
+                onChange={(event) => onUpdate(kind, cell.id, { broken: event.target.checked } as Partial<ObjectCell>)}
+              />
+              파괴됨
+            </label>
           </div>
+          <label>
+            {labels.breakDc}
+            <input
+              type="number"
+              min={1}
+              max={40}
+              disabled={!objectCell.canBreak}
+              value={objectCell.breakCheckDc ?? ''}
+              onChange={(event) =>
+                onUpdate(kind, cell.id, {
+                  breakCheckDc: event.target.value ? Number(event.target.value) : null,
+                } as Partial<ObjectCell>)
+              }
+            />
+          </label>
           <label>
             {labels.linkedClues}
             <select

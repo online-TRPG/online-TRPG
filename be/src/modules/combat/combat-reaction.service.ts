@@ -1,5 +1,9 @@
 import { Injectable } from "@nestjs/common";
-import type { DiceRollResponseDto, VttMapStateDto } from "@trpg/shared-types";
+import type {
+  CastCombatSpellDto,
+  DiceRollResponseDto,
+  VttMapStateDto,
+} from "@trpg/shared-types";
 import { notFound } from "../../common/exceptions/domain-error";
 import { PrismaService } from "../../database/prisma.service";
 import type { CoverModifierProduced } from "../rules/rule-engine.types";
@@ -84,7 +88,28 @@ export type PendingShieldReaction = {
   continuation?: PendingShieldContinuation | null;
 };
 
-export type PendingCombatReaction = PendingOpportunityAttackReaction | PendingShieldReaction;
+export type PendingCounterspellReaction = {
+  id: string;
+  type: "counterspell";
+  sessionId: string;
+  combatId: string;
+  roundNo: number;
+  turnNo: number;
+  reactorParticipantId: string;
+  reactorUserId: string;
+  casterParticipantId: string;
+  casterUserId: string;
+  spellId: string;
+  spellLevel: number;
+  actionCost: "action" | "bonus_action" | "reaction";
+  castDto: CastCombatSpellDto;
+  createdAt: string;
+};
+
+export type PendingCombatReaction =
+  | PendingOpportunityAttackReaction
+  | PendingShieldReaction
+  | PendingCounterspellReaction;
 
 @Injectable()
 export class CombatReactionService {

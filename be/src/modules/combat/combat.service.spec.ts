@@ -149,12 +149,22 @@ describe("CombatService lifecycle", () => {
       getAvailableActions: jest.fn(),
     };
     const actionEconomy = {
-      getOrCreateTurnState: jest.fn(),
+      getOrCreateTurnState: jest.fn().mockResolvedValue({
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        attackActionWeaponId: null,
+        attackActionWeaponIsLightMelee: false,
+        sneakAttackUsed: false,
+        movementFtSpent: 0,
+      }),
       spendAction: jest.fn(),
       spendBonusAction: jest.fn(),
       spendReaction: jest.fn(),
       spendSneakAttack: jest.fn(),
       recordAttackAction: jest.fn(),
+      grantAdditionalAction: jest.fn(),
       grantMovement: jest.fn(),
     };
     const characterResources = {

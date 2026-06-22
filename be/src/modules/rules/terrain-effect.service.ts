@@ -7,7 +7,8 @@ export type TerrainEffectDefinitionId =
   | "terrain.elevation"
   | "terrain.slippery"
   | "terrain.burning"
-  | "terrain.poison_cloud";
+  | "terrain.poison_cloud"
+  | "terrain.moonbeam";
 
 export type TerrainEffectId = "terrain.combined" | TerrainEffectDefinitionId;
 export type TerrainEffectTrigger = "on_enter" | "on_turn_start" | "on_turn_end" | "on_exit";
@@ -144,6 +145,27 @@ const TERRAIN_EFFECTS: Record<TerrainEffectDefinitionId, TerrainEffectResolution
       "damage:poison",
       "condition:poisoned",
       "condition_ends:on_exit",
+    ],
+  },
+  "terrain.moonbeam": {
+    terrainEffectId: "terrain.moonbeam",
+    movementCostMultiplier: 1,
+    blocksLineOfSight: false,
+    lightlyObscured: false,
+    heavilyObscured: false,
+    elevationDeltaFt: 0,
+    saveDc: 13,
+    damage: { dice: "2d10", type: "radiant" },
+    damagePackets: [
+      { sourceEffectId: "terrain.moonbeam", dice: "2d10", type: "radiant" },
+    ],
+    conditionTags: [],
+    runtimeTags: [
+      "trigger:on_enter",
+      "trigger:on_turn_start",
+      "save:con",
+      "damage:radiant",
+      "half_damage_on_success",
     ],
   },
 };

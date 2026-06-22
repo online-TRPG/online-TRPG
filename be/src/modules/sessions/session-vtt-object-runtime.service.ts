@@ -609,6 +609,43 @@ export class SessionVttObjectRuntimeRunner {
     });
   }
 
+  async breakVttObjectAtPoint(params: { sessionId: string; sessionScenarioId: string; nodeId: string; mapPoint: { x: number; y: number } }): Promise<{
+    status: MainCommandStatus;
+    message: string;
+    checkOptions?: MainCommandCheckOptionDto[];
+    checkEffect?: Record<string, unknown>;
+  } | null> {
+    return this.updateVttObjectAtPoint(params, (cell) => {
+      const objectName = cell.name?.trim() || "오브젝트";
+
+      if (cell.broken) {
+        return { cell, status: MainCommandStatus.MESSAGE, message: `${objectName}은 이미 파괴되어 있습니다.` };
+      }
+      if (!cell.canBreak) {
+        return {
+          cell,
+          status: MainCommandStatus.IMPOSSIBLE,
+          message: `${objectName}은 현재 방식으로 부수기 어렵습니다.`,
+        };
+      }
+      if (cell.breakCheckDc) {
+        return {
+          cell,
+          status: MainCommandStatus.CHECK_REQUIRED,
+          message: `${objectName}을 부수려면 DC ${cell.breakCheckDc} 판정이 필요합니다.`,
+          checkOptions: [{ ability: "str", dc: cell.breakCheckDc, reason: "오브젝트 파괴" }],
+          checkEffect: this.buildVttObjectCheckEffect(cell, params),
+        };
+      }
+
+      return {
+        cell: { ...cell, broken: true },
+        status: MainCommandStatus.RESOLVED,
+        message: `${objectName}을 부쉈습니다.`,
+      };
+    });
+  }
+
   async applyVttDoorCheckSuccess(params: {
     sessionId: string;
     sessionScenarioId: string;
@@ -646,6 +683,32 @@ export class SessionVttObjectRuntimeRunner {
       result ?? {
         status: MainCommandStatus.IMPOSSIBLE,
         message: "판정 대상 문을 현재 맵에서 찾을 수 없습니다.",
+      }
+    );
+  }
+
+  async applyVttObjectBreakSuccess(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    objectId: string;
+    nodeId: string;
+  }): Promise<{ status: MainCommandStatus; message: string }> {
+    const result = await this.updateVttObjectById(params, (cell) => {
+      const objectName = cell.name?.trim() || "오브젝트";
+      if (cell.broken) {
+        return { cell, status: MainCommandStatus.MESSAGE, message: `${objectName}은 이미 파괴되어 있습니다.` };
+      }
+      return {
+        cell: { ...cell, broken: true },
+        status: MainCommandStatus.RESOLVED,
+        message: `판정에 성공해 ${objectName}을 부쉈습니다.`,
+      };
+    });
+
+    return (
+      result ?? {
+        status: MainCommandStatus.IMPOSSIBLE,
+        message: "판정 대상 오브젝트를 현재 맵에서 찾을 수 없습니다.",
       }
     );
   }
@@ -1517,6 +1580,144 @@ export class SessionVttObjectRuntimeRunner {
     return { status: result.status, message: result.message };
   }
 
+  private async updateVttObjectAtPoint(
+    params: {
+      sessionId: string;
+      sessionScenarioId: string;
+      nodeId: string;
+      mapPoint: { x: number; y: number };
+    },
+    updateObject: (cell: NonNullable<VttMapStateDto["objectCells"]>[number]) => {
+      cell: NonNullable<VttMapStateDto["objectCells"]>[number];
+      status: MainCommandStatus;
+      message: string;
+      checkOptions?: MainCommandCheckOptionDto[];
+      checkEffect?: Record<string, unknown>;
+    },
+  ): Promise<{
+    status: MainCommandStatus;
+    message: string;
+    checkOptions?: MainCommandCheckOptionDto[];
+    checkEffect?: Record<string, unknown>;
+  } | null> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: params.sessionScenarioId },
+      select: { currentNodeId: true, flagsJson: true },
+    });
+    if (!state) {
+      throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
+    }
+    if (state.currentNodeId && params.nodeId !== state.currentNodeId) {
+      return null;
+    }
+
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
+    const objectCells = map.objectCells ?? [];
+    const objectIndex = objectCells.findIndex((cell) => this.isPointInVttCell(params.mapPoint, cell));
+    if (objectIndex < 0 || objectCells[objectIndex].visibleToPlayers === false) {
+      return null;
+    }
+
+    const result = updateObject(objectCells[objectIndex]);
+    if (result.cell !== objectCells[objectIndex]) {
+      const nextMap = this.normalizeVttMap(
+        {
+          ...map,
+          objectCells: objectCells.map((cell, index) => (index === objectIndex ? result.cell : cell)),
+        },
+        state.currentNodeId ?? null,
+      );
+      await this.prisma.gameState.update({
+        where: { sessionScenarioId: params.sessionScenarioId },
+        data: {
+          version: { increment: 1 },
+          flagsJson: JSON.stringify({
+            ...flags,
+            vttMap: nextMap,
+          }),
+        },
+      });
+
+      const session = await this.getSessionEntityOrThrow(params.sessionId);
+      this.realtimeEvents.emitVttMapUpdated(session.id, {
+        hostUserId: session.hostUserId,
+        hostMap: nextMap,
+        playerMap: this.redactVttMapForPlayer(nextMap),
+      });
+    }
+
+    return {
+      status: result.status,
+      message: result.message,
+      checkOptions: result.checkOptions,
+      checkEffect: result.checkEffect,
+    };
+  }
+
+  private async updateVttObjectById(
+    params: {
+      sessionId: string;
+      sessionScenarioId: string;
+      nodeId: string;
+      objectId: string;
+    },
+    updateObject: (cell: NonNullable<VttMapStateDto["objectCells"]>[number]) => {
+      cell: NonNullable<VttMapStateDto["objectCells"]>[number];
+      status: MainCommandStatus;
+      message: string;
+    },
+  ): Promise<{ status: MainCommandStatus; message: string } | null> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: params.sessionScenarioId },
+      select: { currentNodeId: true, flagsJson: true },
+    });
+    if (!state) {
+      throw new NotFoundException(`Game state for session scenario ${params.sessionScenarioId} was not found.`);
+    }
+    if (state.currentNodeId && params.nodeId !== state.currentNodeId) {
+      return null;
+    }
+
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const map = await this.getVttMapBaseline(params.sessionId, params.sessionScenarioId, state);
+    const objectCells = map.objectCells ?? [];
+    const objectIndex = objectCells.findIndex((cell) => cell.id === params.objectId);
+    if (objectIndex < 0) {
+      return null;
+    }
+
+    const result = updateObject(objectCells[objectIndex]);
+    if (result.cell !== objectCells[objectIndex]) {
+      const nextMap = this.normalizeVttMap(
+        {
+          ...map,
+          objectCells: objectCells.map((cell, index) => (index === objectIndex ? result.cell : cell)),
+        },
+        state.currentNodeId ?? null,
+      );
+      await this.prisma.gameState.update({
+        where: { sessionScenarioId: params.sessionScenarioId },
+        data: {
+          version: { increment: 1 },
+          flagsJson: JSON.stringify({
+            ...flags,
+            vttMap: nextMap,
+          }),
+        },
+      });
+
+      const session = await this.getSessionEntityOrThrow(params.sessionId);
+      this.realtimeEvents.emitVttMapUpdated(session.id, {
+        hostUserId: session.hostUserId,
+        hostMap: nextMap,
+        playerMap: this.redactVttMapForPlayer(nextMap),
+      });
+    }
+
+    return { status: result.status, message: result.message };
+  }
+
   private async updateVttHazardById(
     params: {
       sessionId: string;
@@ -1603,6 +1804,19 @@ export class SessionVttObjectRuntimeRunner {
       type: "vttHazard",
       hazardId: cell.id,
       effect,
+      nodeId: params.nodeId,
+      mapPoint: params.mapPoint,
+    };
+  }
+
+  private buildVttObjectCheckEffect(
+    cell: NonNullable<VttMapStateDto["objectCells"]>[number],
+    params: { nodeId: string; mapPoint: { x: number; y: number } },
+  ): Record<string, unknown> {
+    return {
+      type: "vttObject",
+      objectId: cell.id,
+      effect: "broken",
       nodeId: params.nodeId,
       mapPoint: params.mapPoint,
     };

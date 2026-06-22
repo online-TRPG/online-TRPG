@@ -8,6 +8,20 @@ type MapPoint = { x: number; y: number };
 export class VttMapObjectRuntimeService {
   constructor(private readonly sessionsService: SessionsService) {}
 
+  breakAtPoint(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    nodeId: string;
+    mapPoint: MapPoint;
+  }): Promise<{
+    status: MainCommandStatus;
+    message: string;
+    checkOptions?: MainCommandCheckOptionDto[];
+    checkEffect?: Record<string, unknown>;
+  } | null> {
+    return this.sessionsService.breakVttObjectAtPoint(params);
+  }
+
   async investigateAtPoint(params: {
     sessionId: string;
     sessionScenarioId: string;

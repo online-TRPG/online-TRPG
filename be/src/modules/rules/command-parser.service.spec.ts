@@ -200,6 +200,14 @@ describe("CommandParserService", () => {
     });
   });
 
+  it("parses the dragonborn breath race feature command", () => {
+    expect(service.parse("/feature breath_weapon target")).toEqual({
+      type: "use_class_feature",
+      featureId: "race.dragonborn.trait.base_traits",
+      option: "target",
+    });
+  });
+
   it("parses rest commands", () => {
     expect(service.parse("/rest short")).toEqual({
       type: "rest",

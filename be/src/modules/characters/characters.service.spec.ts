@@ -111,8 +111,14 @@ describe("CharactersService level up", () => {
         ],
       }),
       listSubclassFeatures: jest.fn().mockReturnValue([
-        { id: "subclass.fighter.champion.feature.improved_critical" },
+        {
+          id: "subclass.fighter.champion.feature.improved_critical",
+          kind: "subclass_features",
+          levelRequirement: { minClassLevel: 3 },
+          runtimeEffect: { tags: ["critical_range:19_20"] },
+        },
       ]),
+      listClassFeaturesForLevel: jest.fn().mockReturnValue([]),
     };
 
     return {
@@ -129,9 +135,120 @@ describe("CharactersService level up", () => {
       sessionsService,
       realtimeEvents,
       catalogService,
+      racesService,
       ruleCatalogService,
     };
   };
+
+  it("uses seeded race speed and hill dwarf HP bonus during creation", async () => {
+    const { service, prisma, racesService } = createService();
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+    racesService.findByKey.mockResolvedValue({
+      id: "race-hill-dwarf",
+      key: "hill-dwarf",
+      koName: "언덕 드워프",
+      size: "Medium",
+      baseSpeed: 25,
+      abilityIncreasesJson: JSON.stringify({
+        str: 0,
+        dex: 0,
+        con: 2,
+        int: 0,
+        wis: 1,
+        cha: 0,
+      }),
+      languagesJson: JSON.stringify(["Common", "Dwarvish"]),
+      parentRaceId: "race-dwarf",
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+    });
+    prisma.character.create.mockResolvedValue({
+      ...baseCharacter,
+      ancestry: "hill-dwarf",
+      abilitiesJson: JSON.stringify({
+        str: 15,
+        dex: 14,
+        con: 15,
+        int: 12,
+        wis: 11,
+        cha: 8,
+      }),
+      maxHp: 13,
+      speed: 25,
+      sessionCharacters: [],
+    });
+
+    await service.createCharacter("user-1", {
+      name: "Hill Dwarf Fighter",
+      ancestry: "hill-dwarf",
+      className: "fighter",
+      abilities: {
+        str: 15,
+        dex: 14,
+        con: 15,
+        int: 12,
+        wis: 11,
+        cha: 8,
+      },
+      proficientSkills: [],
+      startingEquipmentSelection: [],
+    });
+
+    expect(prisma.character.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          maxHp: 13,
+          speed: 25,
+        }),
+      }),
+    );
+  });
+
+  it("requires a valid draconic ancestry selection for dragonborn creation", async () => {
+    const { service, prisma, racesService } = createService();
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+    racesService.findByKey.mockResolvedValue({
+      id: "race-dragonborn",
+      key: "dragonborn",
+      koName: "드래곤본",
+      size: "Medium",
+      baseSpeed: 30,
+      abilityIncreasesJson: JSON.stringify({
+        str: 2,
+        dex: 0,
+        con: 0,
+        int: 0,
+        wis: 0,
+        cha: 1,
+      }),
+      languagesJson: JSON.stringify(["Common", "Draconic"]),
+      parentRaceId: null,
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+    });
+
+    await expect(
+      service.createCharacter("user-1", {
+        name: "Dragonborn Fighter",
+        ancestry: "dragonborn",
+        className: "fighter",
+        abilities: {
+          str: 17,
+          dex: 14,
+          con: 13,
+          int: 12,
+          wis: 10,
+          cha: 9,
+        },
+        proficientSkills: [],
+        startingEquipmentSelection: [],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "CHARACTER_DRACONIC_ANCESTRY_REQUIRED",
+      }),
+    });
+  });
 
   it("rejects blank starting spell selections after trimming", async () => {
     const { service, prisma, catalogService } = createService();

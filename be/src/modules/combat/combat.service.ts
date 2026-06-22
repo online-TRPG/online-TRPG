@@ -74,6 +74,7 @@ import { CombatMonsterActionService } from "./combat-monster-action.service";
 import { CombatMonsterResourceService } from "./combat-monster-resource.service";
 import {
   CombatReactionService,
+  type PendingCounterspellReaction,
   type PendingMonsterMultiattackContinuation,
   type PendingOpportunityAttackContinuation,
   type PendingOpportunityAttackReaction,
@@ -250,6 +251,8 @@ export class CombatService {
       parseConditions: this.parseConditions.bind(this),
       resolveAttack: this.resolveAttack.bind(this),
       spendCurrentActionIfNeeded: this.spendCurrentActionIfNeeded.bind(this),
+      spendCurrentAttackActionIfNeeded:
+        this.spendCurrentAttackActionIfNeeded.bind(this),
       toCombatAoeDamageTarget: this.toCombatAoeDamageTarget.bind(this),
       clampNumber: this.clampNumber.bind(this),
       ensureActorCanAct: this.ensureActorCanAct.bind(this),
@@ -260,6 +263,8 @@ export class CombatService {
       resolveParticipantArmorClass: this.resolveParticipantArmorClass.bind(this),
       spendCurrentBonusActionIfNeeded: this.spendCurrentBonusActionIfNeeded.bind(this),
       selectNaturalD20: this.selectNaturalD20.bind(this),
+      rollCombatD20WithRacialLuck:
+        this.rollCombatD20WithRacialLuck.bind(this),
       canPromptShieldReaction: this.canPromptShieldReaction.bind(this),
       storePendingShieldReaction: this.storePendingShieldReaction.bind(this),
       resolveReadyActionsForParticipantEvent: this.resolveReadyActionsForParticipantEvent.bind(this),
@@ -504,7 +509,16 @@ export class CombatService {
                 maxHp: row.kind === "player" ? row.candidate.character.maxHp : monsterStats?.maxHp,
                 armorClass: row.kind === "player" ? row.candidate.character.armorClass : monsterStats?.armorClass,
                 speedFt: row.kind === "player" ? row.candidate.character.speed : this.combatStats.resolveMonsterSpeedFt(row.token),
-                conditionsJson: row.kind === "player" ? row.candidate.conditionsJson : JSON.stringify([]),
+                conditionsJson:
+                  row.kind === "player"
+                    ? row.candidate.conditionsJson
+                    : JSON.stringify(
+                        row.token.monster?.id
+                          ? this.ruleCatalog.resolveMonsterRuntimeTags(
+                              row.token.monster.id,
+                            )
+                          : [],
+                      ),
                 initiative: row.initiative,
                 turnOrder: index + 1,
                 isAlive: row.kind === "player" ? row.candidate.currentHp > 0 : (monsterStats?.currentHp ?? 0) > 0,
@@ -1140,6 +1154,14 @@ export class CombatService {
       return result;
     }
     const pending = await this.combatReactions.consumePendingCombatReaction(session.id, dto.reactionId);
+    if (pending.type === "counterspell") {
+      return this.resolvePendingCounterspellReaction(
+        userId,
+        session.id,
+        pending,
+        true,
+      );
+    }
     if (pending.type === "shield") {
       return this.resolvePendingShieldReaction(userId, session.id, pending, true);
     }
@@ -1208,6 +1230,14 @@ export class CombatService {
       return result;
     }
     const pending = await this.combatReactions.consumePendingCombatReaction(session.id, dto.reactionId);
+    if (pending.type === "counterspell") {
+      return this.resolvePendingCounterspellReaction(
+        userId,
+        session.id,
+        pending,
+        false,
+      );
+    }
     if (pending.type === "shield") {
       return this.resolvePendingShieldReaction(userId, session.id, pending, false);
     }
@@ -1356,6 +1386,7 @@ export class CombatService {
       auditMetadata?: Record<string, unknown>;
       shieldContinuation?: PendingShieldContinuation | null;
       spellId?: string | null;
+      damageType?: string | null;
       skipActorPermissionCheck?: boolean;
     } = {},
   ): Promise<CombatActionResultDto> {
@@ -1746,6 +1777,7 @@ export class CombatService {
         character: {
           select: {
             abilitiesJson: true,
+            featuresJson: true,
             proficiencyBonus: true,
           },
         },
@@ -1814,6 +1846,7 @@ export class CombatService {
         character: {
           select: {
             abilitiesJson: true,
+            featuresJson: true,
             proficiencyBonus: true,
           },
         },
@@ -2312,7 +2345,13 @@ export class CombatService {
         turnNo: params.combat.turnNo,
         sessionCharacterId: candidate.sessionCharacterId,
       });
-      if (!turnState.reactionUsed) {
+      const reactorConditions = this.combatConditions.combatConditionTags(
+        await this.combatConditions.readCombatConditionEntries(candidate),
+      );
+      if (
+        !turnState.reactionUsed &&
+        !reactorConditions.includes("reaction:block")
+      ) {
         reactors.push(candidate);
       }
     }
@@ -2400,13 +2439,21 @@ export class CombatService {
         character: {
           select: {
             abilitiesJson: true,
+            featuresJson: true,
             proficiencyBonus: true,
           },
         },
       },
     });
     const abilities = this.parseJson<Record<string, number>>(sessionCharacter?.character.abilitiesJson ?? "{}", {});
-    const proficientSaves = damageTags.flatMap((tag) => {
+    const featureIds = this.parseJsonArray<string>(
+      sessionCharacter?.character.featuresJson ?? "[]",
+    );
+    const runtimeTags = Array.from(new Set([
+      ...damageTags,
+      ...this.ruleCatalog.resolveRuntimeTags(featureIds),
+    ]));
+    const proficientSaves = runtimeTags.flatMap((tag) => {
       const ability = tag.startsWith("save_proficiency:") ? tag.slice("save_proficiency:".length) : null;
       return this.isSavingThrowAbility(ability) ? [ability] : [];
     });
@@ -2421,9 +2468,9 @@ export class CombatService {
       proficientSaves,
       bonusModifiers,
       modifierRolls,
-      immunities: this.getDamageTypesByPrefix(damageTags, "immunity"),
-      resistances: this.getDamageTypesByPrefix(damageTags, "resistance"),
-      vulnerabilities: this.getDamageTypesByPrefix(damageTags, "vulnerability"),
+      immunities: this.getDamageTypesByPrefix(runtimeTags, "immunity"),
+      resistances: this.getDamageTypesByPrefix(runtimeTags, "resistance"),
+      vulnerabilities: this.getDamageTypesByPrefix(runtimeTags, "vulnerability"),
     };
   }
 
@@ -2456,6 +2503,10 @@ export class CombatService {
 
   private async canPromptShieldReaction(sessionId: string, combat: NonNullable<CombatWithParticipants>, target: CombatParticipantEntity): Promise<boolean> {
     if (!target.sessionCharacterId) return false;
+    const targetConditions = this.combatConditions.combatConditionTags(
+      await this.combatConditions.readCombatConditionEntries(target),
+    );
+    if (targetConditions.includes("reaction:block")) return false;
     const sessionCharacter = await this.combatSpells.getSessionCharacterForSpell(target.sessionCharacterId);
     try {
       this.combatSpells.assertMvpSpellKnown(sessionCharacter, "spell.shield");
@@ -2519,6 +2570,126 @@ export class CombatService {
     }
     await this.combatReactions.storePendingCombatReaction(params.sessionId, pending);
     return pending;
+  }
+
+  private async resolvePendingCounterspellReaction(
+    userId: string,
+    sessionId: string,
+    pending: PendingCounterspellReaction,
+    accepted: boolean,
+  ): Promise<CombatMoveResultDto> {
+    const session = await this.sessionsService.getSessionEntityOrThrow(sessionId);
+    if (pending.reactorUserId !== userId) {
+      await this.ensureHost(userId, sessionId);
+    }
+    if (!accepted) {
+      const result = await this.combatActions.castSpell(
+        this.createCombatActionRuntime(),
+        pending.casterUserId,
+        sessionId,
+        pending.castDto,
+        { skipCounterspellPrompt: true },
+      );
+      return {
+        combat: result.combat,
+        map: await this.sessionsService.getVttMapForUser(
+          this.getGmRuntimeUserId(session),
+          sessionId,
+        ),
+        message: `Counterspell을 사용하지 않았습니다. ${result.message}`,
+        pendingReaction: result.pendingReaction ?? null,
+        pendingReactions: result.pendingReactions ?? [],
+      };
+    }
+
+    const combat = await this.getActiveCombatEntity(sessionId);
+    const reactor = this.findCombatParticipantOrThrow(
+      combat,
+      pending.reactorParticipantId,
+    );
+    const caster = this.findCombatParticipantOrThrow(
+      combat,
+      pending.casterParticipantId,
+    );
+    await this.actionEconomy.spendReaction({
+      combatId: combat.id,
+      combatParticipantId: reactor.id,
+      roundNo: combat.roundNo,
+      turnNo: combat.turnNo,
+      sessionCharacterId: reactor.sessionCharacterId,
+    });
+    if (!reactor.sessionCharacterId) {
+      throw conflict("COMBAT_409", "Counterspell 사용 캐릭터를 찾을 수 없습니다.", {
+        reason: "COUNTERSPELL_REACTOR_NOT_CHARACTER",
+      });
+    }
+    await this.combatSpells.spendSpellSlot(
+      sessionId,
+      reactor.sessionCharacterId,
+      3,
+    );
+    const casterTurnKey = {
+      combatId: combat.id,
+      combatParticipantId: caster.id,
+      roundNo: combat.roundNo,
+      turnNo: combat.turnNo,
+      sessionCharacterId: caster.sessionCharacterId,
+    };
+    if (pending.actionCost === "bonus_action") {
+      await this.actionEconomy.spendBonusAction(casterTurnKey);
+    } else if (pending.actionCost === "reaction") {
+      await this.actionEconomy.spendReaction(casterTurnKey);
+    } else {
+      await this.actionEconomy.spendAction(casterTurnKey);
+    }
+    if (pending.spellLevel > 0 && caster.sessionCharacterId) {
+      await this.combatSpells.spendSpellSlot(
+        sessionId,
+        caster.sessionCharacterId,
+        pending.spellLevel,
+      );
+    }
+    const message = `Counterspell: ${reactor.nameSnapshot}이(가) ${caster.nameSnapshot}의 ${pending.spellId} 시전을 무효화했습니다.`;
+    const { sessionScenario } =
+      await this.sessionsService.getGameStateEntityOrThrow(sessionId);
+    const turnLog = await this.turnLogsService.createTurnLog({
+      sessionId,
+      sessionScenarioId: sessionScenario.id,
+      actorUserId: userId,
+      sessionCharacterId: reactor.sessionCharacterId,
+      rawInput: null,
+      structuredAction: {
+        type: "counterspell",
+        reactorParticipantId: reactor.id,
+        casterParticipantId: caster.id,
+        counteredSpellId: pending.spellId,
+        counteredSpellLevel: pending.spellLevel,
+        counterspellSlotLevel: 3,
+      },
+      diceResult: null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: message,
+    });
+    const response = await this.mapCombat(
+      await this.getActiveCombatEntity(sessionId),
+    );
+    const map = await this.sessionsService.getVttMapForUser(
+      this.getGmRuntimeUserId(session),
+      sessionId,
+    );
+    this.realtimeEvents.emitTurnLogCreated(sessionId, turnLog);
+    this.realtimeEvents.emitCombatUpdated(sessionId, response);
+    this.realtimeEvents.emitSessionSnapshot(
+      sessionId,
+      await this.sessionsService.buildSnapshot(sessionId),
+    );
+    return {
+      combat: response,
+      map,
+      message,
+      pendingReaction: null,
+      pendingReactions: [],
+    };
   }
 
   private async resolvePendingShieldReaction(
@@ -3366,7 +3537,14 @@ export class CombatService {
     if (participant.sessionCharacterId) {
       const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
         where: { id: participant.sessionCharacterId },
-        include: { character: { select: { maxHp: true } } },
+        include: {
+          character: {
+            select: {
+              maxHp: true,
+              featuresJson: true,
+            },
+          },
+        },
       });
       if (!sessionCharacter) {
         throw notFound("COMBAT_404", "캐릭터 전투 참여자를 찾을 수 없습니다.", {
@@ -3384,11 +3562,37 @@ export class CombatService {
           : sessionCharacter.tempHp ?? 0;
       const hpDelta =
         delta < 0 ? -(incomingDamage - absorbedByTempHp) : delta;
-      const nextHp = this.clampNumber(
+      const featureIds = this.parseJsonArray<string>(
+        sessionCharacter.character.featuresJson,
+      );
+      const runtimeTags = this.ruleCatalog.resolveRuntimeTags(featureIds);
+      const currentConditions = this.parseJsonArray<unknown>(
+        sessionCharacter.conditionsJson,
+      );
+      const conditionTags =
+        this.combatConditions.combatConditionTags(currentConditions);
+      const maxHpBonus = conditionTags
+        .map((tag) => /^max_hp_bonus:(\d+)$/.exec(tag)?.[1])
+        .filter((value): value is string => Boolean(value))
+        .map(Number)
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .reduce((maximum, value) => Math.max(maximum, value), 0);
+      let nextHp = this.clampNumber(
         sessionCharacter.currentHp + hpDelta,
         0,
-        sessionCharacter.character.maxHp,
+        sessionCharacter.character.maxHp + maxHpBonus,
       );
+      const relentlessEnduranceTriggered =
+        incomingDamage > 0 &&
+        nextHp === 0 &&
+        sessionCharacter.currentHp > 0 &&
+        runtimeTags.includes("feature:relentless_endurance") &&
+        !currentConditions.some(
+          (condition) => condition === "resource:relentless_endurance_expended",
+        );
+      if (relentlessEnduranceTriggered) {
+        nextHp = 1;
+      }
       await this.prisma.$transaction([
         this.prisma.sessionCharacter.update({
           where: { id: sessionCharacter.id },
@@ -3396,6 +3600,14 @@ export class CombatService {
             currentHp: nextHp,
             ...((sessionCharacter.tempHp ?? 0) > 0
               ? { tempHp: nextTempHp }
+              : {}),
+            ...(relentlessEnduranceTriggered
+              ? {
+                  conditionsJson: JSON.stringify([
+                    ...currentConditions,
+                    "resource:relentless_endurance_expended",
+                  ]),
+                }
               : {}),
           },
         }),
@@ -3450,6 +3662,39 @@ export class CombatService {
     }
   }
 
+  private async rollCombatD20WithRacialLuck(
+    participant: CombatParticipantEntity,
+    expression: string,
+    advantageState: DiceAdvantageState,
+  ): Promise<DiceRollResponseDto> {
+    const firstRoll = this.diceService.roll(expression, advantageState);
+    if (
+      !participant.sessionCharacterId ||
+      this.selectNaturalD20(firstRoll.rolls, advantageState) !== 1
+    ) {
+      return firstRoll;
+    }
+    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+      where: { id: participant.sessionCharacterId },
+      include: {
+        character: {
+          select: { featuresJson: true },
+        },
+      },
+    });
+    const featureIds = this.parseJsonArray<string>(
+      sessionCharacter?.character.featuresJson ?? "[]",
+    );
+    if (
+      !this.ruleCatalog
+        .resolveRuntimeTags(featureIds)
+        .includes("reroll:d20:natural_1")
+    ) {
+      return firstRoll;
+    }
+    return this.diceService.roll(expression, advantageState);
+  }
+
   private resolveAttackAdvantageState(params: {
     attackerConditions: string[];
     targetConditions: string[];
@@ -3459,11 +3704,15 @@ export class CombatService {
   }): DiceAdvantageState {
     const hasAdvantage =
       params.attackerConditions.includes(COMBAT_CONDITION_HIDDEN) ||
+      params.attackerConditions.includes("condition:invisible") ||
+      params.targetConditions.includes("advantage:incoming_attack") ||
       params.targetConditions.includes("condition:restrained") ||
       params.targetConditions.some((condition) => COMBAT_INCAPACITATING_CONDITION_TAGS.has(condition)) ||
       params.allyWithin5FtOfTarget;
     const hasDisadvantage =
       params.attackerConditions.includes("condition:restrained") ||
+      params.attackerConditions.includes("condition:blinded") ||
+      params.targetConditions.includes("condition:invisible") ||
       params.targetConditions.includes(COMBAT_CONDITION_DODGE) ||
       params.targetHeavilyObscured === true ||
       params.forceDisadvantage === true;
@@ -3519,11 +3768,22 @@ export class CombatService {
       where: { id: participant.sessionCharacterId },
       select: {
         conditionsJson: true,
-        character: { select: { speed: true } },
+        character: { select: { speed: true, featuresJson: true } },
       },
     });
+    const featureTags = this.ruleCatalog.resolveRuntimeTags(
+      this.parseJsonArray<string>(
+        sessionCharacter?.character.featuresJson ?? "[]",
+      ),
+    );
+    const speedBonus =
+      featureTags.includes("speed_bonus:unarmored:10") ||
+      featureTags.includes("speed_bonus:unarmored")
+        ? 10
+        : 0;
     return this.applyMovementSpeedPenalties(
-      sessionCharacter?.character.speed ?? participant.speedFt ?? 30,
+      (sessionCharacter?.character.speed ?? participant.speedFt ?? 30) +
+        speedBonus,
       sessionCharacter?.conditionsJson ?? participant.conditionsJson ?? "[]",
     );
   }
@@ -3540,7 +3800,16 @@ export class CombatService {
       .filter((value): value is string => Boolean(value))
       .map(Number)
       .find((value) => Number.isFinite(value) && value > 0);
-    const effectiveBaseSpeedFt = speedOverride ?? baseSpeedFt;
+    const speedBonus = conditions
+      .map((tag) => /^movement_speed_bonus:(\d+)$/.exec(tag)?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .reduce((total, value) => total + value, 0);
+    const speedMultiplier = conditions.includes("movement_speed_multiplier:2")
+      ? 2
+      : 1;
+    const effectiveBaseSpeedFt = (speedOverride ?? baseSpeedFt) + speedBonus;
     if (
       conditions.includes("condition:restrained") ||
       conditions.includes("speed:zero")
@@ -3552,7 +3821,7 @@ export class CombatService {
       .map((tag) => Number(tag.slice("movement_speed_penalty:".length)))
       .filter((value) => Number.isFinite(value) && value > 0)
       .reduce((total, value) => total + value, 0);
-    return Math.max(0, effectiveBaseSpeedFt - penaltyFt);
+    return Math.max(0, effectiveBaseSpeedFt * speedMultiplier - penaltyFt);
   }
 
   private async resolveStealthModifier(participant: CombatParticipantEntity): Promise<number> {
@@ -3595,7 +3864,13 @@ export class CombatService {
   }
 
   private resolveParticipantArmorClass(participant: CombatParticipantEntity): number {
-    return participant.armorClass ?? DEFAULT_MONSTER_AC;
+    const armorClassBonus = this.parseConditions(participant.conditionsJson ?? "[]")
+      .map((tag) => /^armor_class:\+(\d+)$/.exec(tag)?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .reduce((total, value) => total + value, 0);
+    return (participant.armorClass ?? DEFAULT_MONSTER_AC) + armorClassBonus;
   }
 
   private isParticipantInHeavilyObscuredTerrain(map: VttMapStateDto, participant: CombatParticipantEntity): boolean {
@@ -4009,18 +4284,124 @@ export class CombatService {
     return actor;
   }
 
-  private async spendCurrentActionIfNeeded(combat: NonNullable<CombatWithParticipants>, attacker: CombatParticipantEntity): Promise<void> {
+  private async spendCurrentActionIfNeeded(
+    combat: NonNullable<CombatWithParticipants>,
+    attacker: CombatParticipantEntity,
+    allowHasteAction = false,
+  ): Promise<void> {
     if (combat.currentParticipantId !== attacker.id) {
       return;
     }
 
-    await this.actionEconomy.spendAction({
+    const key = {
       combatId: combat.id,
       combatParticipantId: attacker.id,
       roundNo: combat.roundNo,
       turnNo: combat.turnNo,
       sessionCharacterId: attacker.sessionCharacterId,
+    };
+    const state = await this.actionEconomy.getOrCreateTurnState(key);
+    const hasteMarker = `haste_action:used:${combat.roundNo}:${combat.turnNo}`;
+    const conditions = this.parseConditions(attacker.conditionsJson ?? "[]");
+    if (
+      state.actionUsed &&
+      !state.additionalActionGranted &&
+      allowHasteAction &&
+      conditions.includes("grant:haste_action") &&
+      !conditions.includes(hasteMarker)
+    ) {
+      await this.actionEconomy.grantAdditionalAction(key);
+      await this.combatConditions.addCombatCondition(attacker, hasteMarker);
+    }
+    await this.actionEconomy.spendAction(key);
+  }
+
+  private async spendCurrentAttackActionIfNeeded(
+    combat: NonNullable<CombatWithParticipants>,
+    attacker: CombatParticipantEntity,
+  ): Promise<void> {
+    if (combat.currentParticipantId !== attacker.id) {
+      return;
+    }
+    const key = {
+      combatId: combat.id,
+      combatParticipantId: attacker.id,
+      roundNo: combat.roundNo,
+      turnNo: combat.turnNo,
+      sessionCharacterId: attacker.sessionCharacterId,
+    };
+    if (!attacker.sessionCharacterId) {
+      await this.actionEconomy.spendAction(key);
+      return;
+    }
+    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+      where: { id: attacker.sessionCharacterId },
+      include: {
+        character: {
+          select: { featuresJson: true },
+        },
+      },
     });
+    const featureIds = this.parseJsonArray<string>(
+      sessionCharacter?.character.featuresJson ?? "[]",
+    );
+    const hasExtraAttack = featureIds.some((featureId) =>
+      featureId.endsWith(".feature.extra_attack"),
+    );
+    if (!hasExtraAttack) {
+      await this.actionEconomy.spendAction(key);
+      return;
+    }
+
+    const conditionTags = this.combatConditions.combatConditionTags(
+      await this.combatConditions.readCombatConditionEntries(attacker),
+    );
+    const markerPrefix = `${combat.roundNo}:${combat.turnNo}`;
+    const actionPrefix = `attack_action:started:${markerPrefix}:`;
+    const attackPrefix = `attack_action:attack:${markerPrefix}:`;
+    const startedCount = conditionTags.filter((tag) =>
+      tag.startsWith(actionPrefix),
+    ).length;
+    const attackCount = conditionTags.filter((tag) =>
+      tag.startsWith(attackPrefix),
+    ).length;
+    let nextStartedCount = startedCount;
+    const hasteMarker = `haste_action:used:${combat.roundNo}:${combat.turnNo}`;
+    const turnState = await this.actionEconomy.getOrCreateTurnState(key);
+
+    if (
+      turnState.actionUsed &&
+      !turnState.additionalActionGranted &&
+      conditionTags.includes("grant:haste_action") &&
+      !conditionTags.includes(hasteMarker) &&
+      (startedCount === 0 || attackCount >= startedCount * 2)
+    ) {
+      await this.actionEconomy.grantAdditionalAction(key);
+      await this.actionEconomy.spendAction(key);
+      await this.combatConditions.addCombatCondition(attacker, hasteMarker);
+      return;
+    }
+
+    if (startedCount === 0) {
+      await this.actionEconomy.spendAction(key);
+      nextStartedCount = 1;
+      await this.combatConditions.addCombatCondition(
+        attacker,
+        `${actionPrefix}${nextStartedCount}`,
+      );
+    } else if (attackCount >= startedCount * 2) {
+      await this.actionEconomy.spendAction(key);
+      nextStartedCount = startedCount + 1;
+      await this.combatConditions.addCombatCondition(
+        attacker,
+        `${actionPrefix}${nextStartedCount}`,
+      );
+    }
+
+    await this.combatConditions.addCombatCondition(
+      attacker,
+      `${attackPrefix}${attackCount + 1}`,
+    );
   }
 
   private async spendCurrentBonusActionIfNeeded(combat: NonNullable<CombatWithParticipants>, attacker: CombatParticipantEntity): Promise<void> {

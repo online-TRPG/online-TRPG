@@ -52,6 +52,7 @@ type SessionCharacterForMapping = {
     maxHp: number;
     armorClass: number;
     speed: number;
+    featuresJson: string | null;
   };
 };
 
@@ -95,6 +96,7 @@ export class CombatMapperService {
                 maxHp: true,
                 armorClass: true,
                 speed: true,
+                featuresJson: true,
               },
             },
           },
@@ -154,21 +156,69 @@ export class CombatMapperService {
           ? sessionCharacterById.get(participant.sessionCharacterId)
           : null;
         const currentHp = sessionCharacter?.currentHp ?? participant.currentHp ?? null;
-        const maxHp = sessionCharacter?.character.maxHp ?? participant.maxHp ?? null;
-        const armorClass = sessionCharacter?.character.armorClass ?? participant.armorClass ?? null;
         const conditionsJson =
           sessionCharacter?.conditionsJson ?? participant.conditionsJson ?? "[]";
         const conditionEntries = this.parseConditionEntries(conditionsJson);
+        const conditionTags =
+          this.combatConditions.combatConditionTags(conditionEntries);
+        const maxHpBonus = conditionTags
+          .map((tag) => /^max_hp_bonus:(\d+)$/.exec(tag)?.[1])
+          .filter((value): value is string => Boolean(value))
+          .map(Number)
+          .filter((value) => Number.isFinite(value) && value > 0)
+          .reduce((maximum, value) => Math.max(maximum, value), 0);
+        const armorClassBonus = conditionTags
+          .map((tag) => /^armor_class:\+(\d+)$/.exec(tag)?.[1])
+          .filter((value): value is string => Boolean(value))
+          .map(Number)
+          .filter((value) => Number.isFinite(value) && value > 0)
+          .reduce((total, value) => total + value, 0);
+        const baseMaxHp = sessionCharacter?.character.maxHp ?? participant.maxHp ?? null;
+        const baseArmorClass =
+          sessionCharacter?.character.armorClass ?? participant.armorClass ?? null;
+        const maxHp = baseMaxHp === null ? null : baseMaxHp + maxHpBonus;
+        const armorClass =
+          baseArmorClass === null ? null : baseArmorClass + armorClassBonus;
         const conditionInstances = this.conditionRuntime.parseConditionsJson(
           JSON.stringify(conditionEntries),
         );
         const concentrationState =
           this.concentrationRuntime.readActiveConcentration(conditionInstances);
-        const movementFtTotal = this.applyMovementSpeedPenalties(
-          sessionCharacter?.character.speed ?? participant.speedFt ?? 30,
+        const featureIds = this.parseStringArray(
+          sessionCharacter?.character.featuresJson,
+        );
+        const hasFastMovement = featureIds.includes(
+          "class.barbarian.feature.fast_movement",
+        );
+        const hasUnarmoredMovement = featureIds.includes(
+          "class.monk.feature.unarmored_movement",
+        );
+        const movementFtTotal = this.applyMovementSpeedModifiers(
+          (sessionCharacter?.character.speed ?? participant.speedFt ?? 30) +
+            (hasFastMovement || hasUnarmoredMovement ? 10 : 0),
           conditionsJson,
         );
         const turnState = turnStateByParticipantId.get(participant.id) ?? null;
+        const hasExtraAttack = featureIds.some((featureId) =>
+          featureId.endsWith(".feature.extra_attack"),
+        );
+        const attackMarkerPrefix = `attack_action:attack:${combat.roundNo}:${combat.turnNo}:`;
+        const actionMarkerPrefix = `attack_action:started:${combat.roundNo}:${combat.turnNo}:`;
+        const attackCount = conditionTags.filter((tag) =>
+          tag.startsWith(attackMarkerPrefix),
+        ).length;
+        const attackActionCount = conditionTags.filter((tag) =>
+          tag.startsWith(actionMarkerPrefix),
+        ).length;
+        const extraAttackAvailable =
+          hasExtraAttack &&
+          attackActionCount > 0 &&
+          attackCount < attackActionCount * 2;
+        const hasteActionAvailable =
+          conditionTags.includes("grant:haste_action") &&
+          !conditionTags.includes(
+            `haste_action:used:${combat.roundNo}:${combat.turnNo}`,
+          );
         const spellSlots = this.combatSpells.resolveCombatSpellSlotResources(
           sessionCharacter?.character ?? null,
           participant.sessionCharacterId
@@ -194,7 +244,11 @@ export class CombatMapperService {
             participant.isAlive &&
             participant.id !== combat.currentParticipantId &&
             participant.turnOrder < currentTurnOrder,
-          conditions: this.combatConditions.combatConditionTags(conditionEntries),
+          conditions: conditionTags.filter(
+            (tag) =>
+              !tag.startsWith("attack_action:") &&
+              !tag.startsWith("haste_action:used:"),
+          ),
           concentration: concentrationState
             ? {
                 spellId: concentrationState.spellId,
@@ -206,10 +260,14 @@ export class CombatMapperService {
               }
             : null,
           actionResources: {
-            actionAvailable: !turnState?.actionUsed || Boolean(turnState?.additionalActionGranted),
+            actionAvailable:
+              !turnState?.actionUsed ||
+              Boolean(turnState?.additionalActionGranted),
             bonusActionAvailable: !Boolean(turnState?.bonusActionUsed),
             reactionAvailable: !Boolean(turnState?.reactionUsed),
             additionalActionAvailable: Boolean(turnState?.additionalActionGranted),
+            extraAttackAvailable,
+            hasteActionAvailable,
             twoWeaponAttackAvailable: Boolean(
               turnState?.attackActionWeaponIsLightMelee && !turnState?.bonusActionUsed,
             ),
@@ -230,8 +288,23 @@ export class CombatMapperService {
     };
   }
 
-  private applyMovementSpeedPenalties(baseSpeedFt: number, conditionsJson: string): number {
+  private applyMovementSpeedModifiers(baseSpeedFt: number, conditionsJson: string): number {
     const conditions = this.parseConditions(conditionsJson);
+    const speedOverride = conditions
+      .map((tag) => /^movement_speed_override:(\d+)$/.exec(tag)?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .find((value) => Number.isFinite(value) && value > 0);
+    const speedBonus = conditions
+      .map((tag) => /^movement_speed_bonus:(\d+)$/.exec(tag)?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .reduce((total, value) => total + value, 0);
+    const speedMultiplier = conditions.includes("movement_speed_multiplier:2")
+      ? 2
+      : 1;
+    const effectiveBaseSpeedFt = (speedOverride ?? baseSpeedFt) + speedBonus;
     if (
       conditions.includes("condition:restrained") ||
       conditions.includes("speed:zero")
@@ -243,7 +316,7 @@ export class CombatMapperService {
       .map((tag) => Number(tag.slice("movement_speed_penalty:".length)))
       .filter((value) => Number.isFinite(value) && value > 0)
       .reduce((total, value) => total + value, 0);
-    return Math.max(0, baseSpeedFt - penaltyFt);
+    return Math.max(0, effectiveBaseSpeedFt * speedMultiplier - penaltyFt);
   }
 
   private parseConditions(value: string): string[] {
@@ -262,6 +335,13 @@ export class CombatMapperService {
     } catch {
       return [];
     }
+  }
+
+  private parseStringArray(value: string | null | undefined): string[] {
+    const parsed = this.parseJson<unknown>(value, []);
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === "string")
+      : [];
   }
 
   private parseJson<T>(value: string | null | undefined, fallback: T): T {

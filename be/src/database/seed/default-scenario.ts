@@ -8,6 +8,8 @@ export const RULE_RUNTIME_SMOKE_SCENARIO_ID = "scenario_rule_runtime_smoke";
 export const RULE_RUNTIME_SMOKE_START_NODE_ID = "node_rule_smoke_rest";
 export const P1_ONESHOT_SCENARIO_ID = "scenario_p1_ember_ruins";
 export const P1_ONESHOT_START_NODE_ID = "node_p1_ember_hook";
+export const P2_VALIDATION_SCENARIO_ID = "scenario_p2_storm_vault";
+export const P2_VALIDATION_START_NODE_ID = "node_p2_storm_hook";
 
 const TEAM_SCENARIO_TITLE = "ㅁㄴㅇㅇㄹ";
 const NODE_SCREEN_TEST_STORY_NODE_ID = "node_screen_test_story";
@@ -22,6 +24,10 @@ export const P1_ONESHOT_AMBUSH_NODE_ID = "node_p1_ember_ambush";
 export const P1_ONESHOT_REST_NODE_ID = "node_p1_ember_rest";
 export const P1_ONESHOT_BOSS_NODE_ID = "node_p1_ember_boss";
 export const P1_ONESHOT_END_NODE_ID = "node_p1_ember_end";
+const P2_APPROACH_NODE_ID = "node_p2_storm_approach";
+const P2_GALLERY_NODE_ID = "node_p2_storm_gallery";
+const P2_VAULT_NODE_ID = "node_p2_storm_vault";
+const P2_END_NODE_ID = "node_p2_storm_end";
 
 // 서버를 처음 실행했을 때 바로 세션을 만들고 흐름을 검증할 수 있도록
 // 가장 작은 형태의 기본 시나리오를 코드로 함께 넣어둔다.
@@ -82,6 +88,21 @@ const p1OneshotScenario = {
   startNodeId: P1_ONESHOT_START_NODE_ID,
   startLevel: 3,
   recommendedEndLevel: 3,
+};
+
+const p2ValidationScenario = {
+  id: P2_VALIDATION_SCENARIO_ID,
+  title: "폭풍 금고의 마지막 비행",
+  description:
+    "5레벨 캐릭터로 45~60분 동안 종족 특성, Extra Attack, 3레벨 주문, 지형·오브젝트, 비행과 지속 지역 효과를 검증하는 P2 오리지널 단편입니다.",
+  thumbnailUrl: null,
+  ruleSetId: "dnd5e",
+  difficulty: "hard",
+  license: ScenarioLicense.ORIGINAL,
+  attribution: "Original P2 validation scenario seed for Online TRPG.",
+  startNodeId: P2_VALIDATION_START_NODE_ID,
+  startLevel: 5,
+  recommendedEndLevel: 5,
 };
 
 // 화면 레이아웃 확인이 목적이라 DB 마이그레이션 없이 시드만으로 기본 맵을 주입한다.
@@ -395,6 +416,191 @@ function createP1OneshotMap(
     terrainCells: [
       { id: `terrain_${nodeId}_burning_1`, x: 448, y: 192, width: 64, height: 128, terrainEffectId: "terrain.burning" },
       { id: `terrain_${nodeId}_web_1`, x: 576, y: 320, width: 128, height: 128, terrainEffectId: "terrain.difficult" },
+    ],
+  };
+}
+
+function createP2ValidationMap(nodeId: string, phase: "approach" | "gallery" | "vault") {
+  const base = {
+    id: `map_${nodeId}`,
+    scenarioNodeId: nodeId,
+    imageUrl: null,
+    gridType: "square",
+    gridSize: 64,
+    width: 1024,
+    height: 704,
+    fogRects: [],
+    startingPositions: [
+      { id: `start_${nodeId}_1`, label: "1", x: 128, y: 512 },
+      { id: `start_${nodeId}_2`, label: "2", x: 192, y: 512 },
+      { id: `start_${nodeId}_3`, label: "3", x: 128, y: 576 },
+      { id: `start_${nodeId}_4`, label: "4", x: 192, y: 576 },
+    ],
+    updatedAt: "2026-06-22T00:00:00.000Z",
+  };
+
+  if (phase === "approach") {
+    return {
+      ...base,
+      tokens: [
+        {
+          id: `token_${nodeId}_harpy`,
+          name: "Storm Harpy",
+          x: 704,
+          y: 192,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.harpy", nameEn: "Harpy", nameKo: "하피" },
+        },
+        {
+          id: `token_${nodeId}_gargoyle`,
+          name: "Vault Gargoyle",
+          x: 640,
+          y: 384,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.gargoyle", nameEn: "Gargoyle", nameKo: "가고일" },
+        },
+      ],
+      terrainCells: [
+        { id: `terrain_${nodeId}_elevation`, x: 576, y: 128, width: 256, height: 128, terrainEffectId: "terrain.elevation" },
+        { id: `terrain_${nodeId}_slippery`, x: 384, y: 320, width: 192, height: 128, terrainEffectId: "terrain.slippery" },
+      ],
+      doorCells: [
+        {
+          id: `door_${nodeId}_gate`,
+          name: "폭풍 금고 철문",
+          x: 832,
+          y: 256,
+          width: 64,
+          height: 128,
+          state: "locked",
+          keyItemId: "equipment.crowbar",
+          canBreak: true,
+          breakCheckDc: 15,
+        },
+      ],
+      objectCells: [
+        {
+          id: `object_${nodeId}_winch`,
+          name: "녹슨 승강기 윈치",
+          description: "파괴하면 고지대로 이어지는 쇠사슬 통로가 낮아집니다.",
+          x: 448,
+          y: 192,
+          width: 64,
+          height: 64,
+          visibleToPlayers: true,
+          canBreak: true,
+          broken: false,
+          breakCheckDc: 14,
+        },
+      ],
+    };
+  }
+
+  if (phase === "gallery") {
+    return {
+      ...base,
+      tokens: [
+        {
+          id: `token_${nodeId}_mimic`,
+          name: "Reliquary Mimic",
+          x: 576,
+          y: 320,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.mimic", nameEn: "Mimic", nameKo: "미믹" },
+        },
+        {
+          id: `token_${nodeId}_cube`,
+          name: "Storm Gelatinous Cube",
+          x: 704,
+          y: 320,
+          size: 128,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.gelatinous_cube", nameEn: "Gelatinous Cube", nameKo: "젤라틴 큐브" },
+        },
+      ],
+      terrainCells: [
+        { id: `terrain_${nodeId}_poison`, x: 448, y: 192, width: 192, height: 128, terrainEffectId: "terrain.poison_cloud" },
+        { id: `terrain_${nodeId}_obscured`, x: 704, y: 192, width: 128, height: 192, terrainEffectId: "terrain.obscurement" },
+      ],
+      objectCells: [
+        {
+          id: `object_${nodeId}_locker`,
+          name: "번개 문양 보관함",
+          description: "조사하면 금고 열쇠와 회복 물자를 찾을 수 있습니다.",
+          x: 320,
+          y: 256,
+          width: 64,
+          height: 64,
+          visibleToPlayers: true,
+          hiddenItemIds: ["equipment.crowbar"],
+          hiddenClueIds: ["clue_p2_vault_key"],
+          revealChecks: [{ contentId: "clue_p2_vault_key", skill: "investigation", dc: 14 }],
+        },
+      ],
+    };
+  }
+
+  return {
+    ...base,
+    tokens: [
+      {
+        id: `token_${nodeId}_dragon`,
+        name: "Young Red Dragon",
+        x: 704,
+        y: 192,
+        size: 128,
+        hidden: false,
+        isHostile: true,
+        monster: { id: "monster.young_red_dragon", nameEn: "Young Red Dragon", nameKo: "어린 레드 드래곤" },
+      },
+      {
+        id: `token_${nodeId}_scorpion`,
+        name: "Vault Giant Scorpion",
+        x: 640,
+        y: 448,
+        size: 128,
+        hidden: false,
+        isHostile: true,
+        monster: { id: "monster.giant_scorpion", nameEn: "Giant Scorpion", nameKo: "거대 전갈" },
+      },
+    ],
+    terrainCells: [
+      { id: `terrain_${nodeId}_burning`, x: 448, y: 192, width: 128, height: 256, terrainEffectId: "terrain.burning" },
+      { id: `terrain_${nodeId}_elevation`, x: 640, y: 128, width: 256, height: 128, terrainEffectId: "terrain.elevation" },
+      { id: `terrain_${nodeId}_difficult`, x: 576, y: 384, width: 192, height: 128, terrainEffectId: "terrain.difficult" },
+    ],
+    objectCells: [
+      {
+        id: `object_${nodeId}_orb`,
+        name: "폭풍 제어 구체",
+        description: "집어 들거나 던져 비행 장치의 흐름을 바꿀 수 있는 핵심 물체입니다.",
+        x: 384,
+        y: 320,
+        width: 64,
+        height: 64,
+        visibleToPlayers: true,
+        hiddenItemIds: ["equipment.rope"],
+      },
+      {
+        id: `object_${nodeId}_pillar`,
+        name: "금이 간 지지 기둥",
+        description: "부수면 전장의 엄폐와 이동 경로가 달라집니다.",
+        x: 576,
+        y: 256,
+        width: 64,
+        height: 128,
+        visibleToPlayers: true,
+        canBreak: true,
+        broken: false,
+        breakCheckDc: 16,
+      },
     ],
   };
 }
@@ -1220,9 +1426,151 @@ const scenarioNodes = [
       },
     }),
   },
+  {
+    id: P2_VALIDATION_START_NODE_ID,
+    scenarioId: P2_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "폭풍이 멎지 않는 항구",
+    sceneText:
+      "항구 위 폐금고에서 붉은 용의 그림자가 날아오르고 있습니다. 파티는 5레벨 능력을 정비한 뒤 절벽 승강장, 유물 회랑, 금고 심장부를 차례로 돌파해야 합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p2_hook_arcana", type: "skill_check", label: "폭풍 장치 분석", skill: "arcana", dc: 14 },
+        { id: "p2_hook_history", type: "skill_check", label: "폐금고 구조 기억", skill: "history", dc: 13 },
+      ],
+      vttMap: null,
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P2_APPROACH_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p2_briefing",
+        title: "금고 공략",
+        text: "비행과 고저차, 지속 지역 효과, 오브젝트 파괴가 모두 유용합니다. 3레벨 주문과 Extra Attack을 적극적으로 사용하세요.",
+        handoutText: "5레벨 능력과 3레벨 주문을 준비하십시오.",
+        revealPolicy: { mode: "AUTO_REVEAL" },
+      },
+    ]),
+    fallbackNodeId: P2_APPROACH_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "AI/HUMAN GM 공통 검증 시작점입니다. 종족 저항과 5레벨 자원을 확인한 뒤 이동하세요.",
+      ruleRefs: {
+        spellIds: ["spell.fly", "spell.haste", "spell.counterspell"],
+        conditionIds: ["condition.charmed"],
+        terrainEffectIds: ["terrain.elevation"],
+      },
+    }),
+  },
+  {
+    id: P2_APPROACH_NODE_ID,
+    scenarioId: P2_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "절벽 승강장의 노래",
+    sceneText:
+      "미끄러운 승강장 위에서 하피가 정신을 홀리고, 가고일이 높은 난간을 지킵니다. 윈치를 부수거나 철문을 열어 고지대로 진입할 수 있습니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p2_approach_athletics", type: "skill_check", label: "윈치 강제 작동", skill: "athletics", dc: 14 },
+        { id: "p2_approach_perception", type: "skill_check", label: "하피 노래의 근원 파악", skill: "perception", dc: 14 },
+      ],
+      vttMap: createP2ValidationMap(P2_APPROACH_NODE_ID, "approach"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P2_GALLERY_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P2_GALLERY_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "Fly 또는 원거리 공격, charm 저항, 고도 엄폐, slippery terrain, 문/오브젝트 파괴를 확인합니다.",
+      ruleRefs: {
+        spellIds: ["spell.fly", "spell.lightning_bolt"],
+        conditionIds: ["condition.charmed"],
+        terrainEffectIds: ["terrain.elevation", "terrain.slippery"],
+      },
+    }),
+  },
+  {
+    id: P2_GALLERY_NODE_ID,
+    scenarioId: P2_VALIDATION_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "삼켜지는 유물 회랑",
+    sceneText:
+      "독 안개와 짙은 시야 방해 사이에 보관함이 놓여 있습니다. 상자로 위장한 미믹과 회랑을 가득 메운 젤라틴 큐브를 상대하면서 보관함을 조사해야 합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p2_gallery_investigation", type: "skill_check", label: "보관함 조사", skill: "investigation", dc: 14 },
+        { id: "p2_gallery_survival", type: "skill_check", label: "독 안개 안전 경로", skill: "survival", dc: 14 },
+      ],
+      vttMap: createP2ValidationMap(P2_GALLERY_NODE_ID, "gallery"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P2_VAULT_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p2_vault_key",
+        title: "폭풍 금고 열쇠",
+        text: "보관함 안쪽 문양은 심장부 제어 구체를 용의 숨결 반대편으로 옮기라고 지시합니다.",
+        handoutText: "제어 구체를 용의 숨결 반대편으로 옮기십시오.",
+        revealPolicy: { mode: "PLAYER_ACTION" },
+      },
+    ]),
+    fallbackNodeId: P2_VAULT_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "컨테이너 조사, 숨은 아이템 이동, poison cloud, obscurement, grapple/restrain과 지속 피해를 확인합니다.",
+      ruleRefs: {
+        spellIds: ["spell.lesser_restoration", "spell.moonbeam", "spell.invisibility"],
+        conditionIds: ["condition.grappled", "condition.restrained"],
+        terrainEffectIds: ["terrain.poison_cloud", "terrain.obscurement"],
+      },
+    }),
+  },
+  {
+    id: P2_VAULT_NODE_ID,
+    scenarioId: P2_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "금고 심장부의 붉은 날개",
+    sceneText:
+      "어린 레드 드래곤이 높은 단상에서 불꽃 숨결을 준비하고, 거대 전갈이 아래 통로를 봉쇄합니다. 제어 구체를 옮기거나 던지고, 기둥을 부수며 지속 지역 주문으로 전장을 나누십시오.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p2_vault_arcana", type: "skill_check", label: "제어 구체 활성화", skill: "arcana", dc: 15 },
+        { id: "p2_vault_athletics", type: "skill_check", label: "지지 기둥 붕괴", skill: "athletics", dc: 16 },
+      ],
+      vttMap: createP2ValidationMap(P2_VAULT_NODE_ID, "vault"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P2_END_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P2_END_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "Young Red Dragon 비행/재충전 AoE, Giant Scorpion multiattack/grapple/poison, Extra Attack, 3레벨 주문을 확인합니다.",
+      ruleRefs: {
+        spellIds: ["spell.haste", "spell.lightning_bolt", "spell.moonbeam", "spell.fly", "spell.revivify"],
+        conditionIds: ["condition.grappled", "condition.poisoned"],
+        terrainEffectIds: ["terrain.burning", "terrain.elevation", "terrain.difficult"],
+      },
+    }),
+  },
+  {
+    id: P2_END_NODE_ID,
+    scenarioId: P2_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "폭풍 너머의 새벽",
+    sceneText:
+      "제어 구체가 안정되며 금고 위 폭풍이 갈라집니다. 항구에는 새벽빛이 돌아오고 파티는 5레벨 원정의 전리품과 함께 귀환합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: null,
+    nodeMetaJson: JSON.stringify({
+      isEndingNode: true,
+      endBehavior: "SESSION_COMPLETE",
+      gmNotes: "완주, 재접속 상태 복원, 공개/비공개 정보 분리를 마지막으로 확인합니다.",
+    }),
+  },
 ];
 
-const scenarios = [defaultScenario, nodeScreenTestScenario, ruleRuntimeSmokeScenario, p1OneshotScenario];
+const scenarios = [defaultScenario, nodeScreenTestScenario, ruleRuntimeSmokeScenario, p1OneshotScenario, p2ValidationScenario];
 
 type SourceScenarioNode = {
   id: string;

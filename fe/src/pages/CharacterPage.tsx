@@ -173,6 +173,11 @@ const implementedCantrips = [
   { id: 'spell.light', label: 'Light / 빛' },
   { id: 'spell.ray_of_frost', label: 'Ray of Frost / 서리 광선' },
   { id: 'spell.sacred_flame', label: 'Sacred Flame / 신성한 불꽃' },
+  { id: 'spell.acid_splash', label: 'Acid Splash / 산성 물보라' },
+  { id: 'spell.guidance', label: 'Guidance / 인도' },
+  { id: 'spell.mage_hand', label: 'Mage Hand / 마법사의 손' },
+  { id: 'spell.minor_illusion', label: 'Minor Illusion / 하급 환영' },
+  { id: 'spell.shocking_grasp', label: 'Shocking Grasp / 전격의 손길' },
 ];
 
 const implementedLevel1Spells = [
@@ -190,6 +195,14 @@ const implementedLevel1Spells = [
   { id: 'spell.shield', label: 'Shield / 방패' },
   { id: 'spell.sleep', label: 'Sleep / 수면' },
   { id: 'spell.thunderwave', label: 'Thunderwave / 천둥파' },
+  { id: 'spell.charm_person', label: 'Charm Person / 인간형 매혹' },
+  { id: 'spell.faerie_fire', label: 'Faerie Fire / 요정의 불꽃' },
+  { id: 'spell.feather_fall', label: 'Feather Fall / 깃털 낙하' },
+  { id: 'spell.fog_cloud', label: 'Fog Cloud / 안개 구름' },
+  { id: 'spell.grease', label: 'Grease / 기름칠' },
+  { id: 'spell.heroism', label: 'Heroism / 영웅심' },
+  { id: 'spell.hunters_mark', label: "Hunter's Mark / 사냥꾼의 표식" },
+  { id: 'spell.longstrider', label: 'Longstrider / 활보' },
 ];
 
 const implementedLevel2Spells = [
@@ -197,11 +210,23 @@ const implementedLevel2Spells = [
   { id: 'spell.misty_step', label: 'Misty Step / 안개 걸음' },
   { id: 'spell.scorching_ray', label: 'Scorching Ray / 작열 광선' },
   { id: 'spell.web', label: 'Web / 거미줄' },
+  { id: 'spell.aid', label: 'Aid / 원조' },
+  { id: 'spell.blindness_deafness', label: 'Blindness/Deafness / 실명·청각상실' },
+  { id: 'spell.darkness', label: 'Darkness / 어둠' },
+  { id: 'spell.invisibility', label: 'Invisibility / 투명화' },
+  { id: 'spell.lesser_restoration', label: 'Lesser Restoration / 하급 회복' },
+  { id: 'spell.moonbeam', label: 'Moonbeam / 달빛 광선' },
+  { id: 'spell.spiritual_weapon', label: 'Spiritual Weapon / 영체 무기' },
 ];
 
 const implementedLevel3Spells = [
   { id: 'spell.dispel_magic', label: 'Dispel Magic / 마법 해제' },
   { id: 'spell.fireball', label: 'Fireball / 화염구' },
+  { id: 'spell.counterspell', label: 'Counterspell / 주문 무효화' },
+  { id: 'spell.fly', label: 'Fly / 비행' },
+  { id: 'spell.haste', label: 'Haste / 가속' },
+  { id: 'spell.lightning_bolt', label: 'Lightning Bolt / 번개 화살' },
+  { id: 'spell.revivify', label: 'Revivify / 소생' },
 ];
 
 const implementedSpellClasses = new Set([
@@ -737,6 +762,19 @@ const favoredHumanoidOptions = [
   { value: 'orcs', label: '오크' },
 ];
 
+const draconicAncestryOptions = [
+  { value: 'black', label: 'Black / 산성' },
+  { value: 'blue', label: 'Blue / 번개' },
+  { value: 'brass', label: 'Brass / 화염' },
+  { value: 'bronze', label: 'Bronze / 번개' },
+  { value: 'copper', label: 'Copper / 산성' },
+  { value: 'gold', label: 'Gold / 화염' },
+  { value: 'green', label: 'Green / 독' },
+  { value: 'red', label: 'Red / 화염' },
+  { value: 'silver', label: 'Silver / 냉기' },
+  { value: 'white', label: 'White / 냉기' },
+];
+
 const startingEquipmentConcreteChoiceOptions = {
   simpleWeapon: {
     label: '단순 무기',
@@ -1150,6 +1188,16 @@ function hasRequiredClassFeatureChoices(className: string, features: string[] | 
   }
   if (classKey === 'rogue') {
     return getFeatureValues(features, 'expertise:').length === 2;
+  }
+  return true;
+}
+
+function hasRequiredRaceFeatureChoices(
+  ancestry: string,
+  features: string[] | undefined
+) {
+  if (ancestry.trim().toLowerCase().replace(/_/g, '-') === 'dragonborn') {
+    return Boolean(getFeatureValue(features, 'draconic_ancestry:'));
   }
   return true;
 }
@@ -1960,10 +2008,11 @@ export function CharacterPage({
     if (
       isFeaturesStep &&
       classDefinitions.length > 0 &&
-      !hasRequiredClassFeatureChoices(formState.className, formState.features)
+      (!hasRequiredClassFeatureChoices(formState.className, formState.features) ||
+        !hasRequiredRaceFeatureChoices(formState.ancestry, formState.features))
     ) {
       setFormValidationError(
-        '선택한 직업의 1레벨 기능 선택을 완료해야 다음 장으로 넘어갈 수 있습니다.'
+        '선택한 종족과 직업의 기능 선택을 완료해야 다음 장으로 넘어갈 수 있습니다.'
       );
       return;
     }
@@ -1980,9 +2029,12 @@ export function CharacterPage({
       return;
     }
 
-    if (!hasRequiredClassFeatureChoices(formState.className, formState.features)) {
+    if (
+      !hasRequiredClassFeatureChoices(formState.className, formState.features) ||
+      !hasRequiredRaceFeatureChoices(formState.ancestry, formState.features)
+    ) {
       setFormValidationError(
-        '선택한 직업의 1레벨 기능 선택을 완료해야 캐릭터를 생성할 수 있습니다.'
+        '선택한 종족과 직업의 기능 선택을 완료해야 캐릭터를 생성할 수 있습니다.'
       );
       return;
     }
@@ -3070,6 +3122,14 @@ export function CharacterPage({
                                 return {
                                   ...current,
                                   ancestry: nextAncestry,
+                                  features:
+                                    nextAncestry.toLowerCase() === 'dragonborn'
+                                      ? current.features
+                                      : replaceFeatureTags(
+                                          current.features,
+                                          ['draconic_ancestry:'],
+                                          []
+                                        ),
                                   abilities: clampAbilitiesToPointBuyRange(
                                     nextAbilities,
                                     nextBonus
@@ -3422,7 +3482,15 @@ export function CharacterPage({
                   {isFeaturesStep
                     ? (() => {
                         const classKey = normalizeClassValue(formState.className).toLowerCase();
+                        const ancestryKey = formState.ancestry
+                          .trim()
+                          .toLowerCase()
+                          .replace(/_/g, '-');
                         const features = formState.features ?? [];
+                        const draconicAncestry = getFeatureValue(
+                          features,
+                          'draconic_ancestry:'
+                        );
                         const fightingStyle = getFeatureValue(features, 'fighting_style:');
                         const selectedFightingStyle = fightingStyleOptions.find(
                           (option) => option.value === fightingStyle
@@ -3435,7 +3503,10 @@ export function CharacterPage({
                           'thieves_tools',
                         ];
 
-                        if (!['fighter', 'ranger', 'rogue'].includes(classKey)) {
+                        if (
+                          ancestryKey !== 'dragonborn' &&
+                          !['fighter', 'ranger', 'rogue'].includes(classKey)
+                        ) {
                           return null;
                         }
 
@@ -3443,10 +3514,47 @@ export function CharacterPage({
                           <section className="character-form-section">
                             <div className="section-heading compact">
                               <div>
-                                <span className="eyebrow">직업 기능</span>
+                                <span className="eyebrow">종족/직업 기능</span>
                                 <h2>1레벨 선택</h2>
                               </div>
                             </div>
+
+                            {ancestryKey === 'dragonborn' ? (
+                              <div>
+                                <label htmlFor="character-draconic-ancestry">
+                                  Draconic Ancestry
+                                </label>
+                                <select
+                                  id="character-draconic-ancestry"
+                                  value={draconicAncestry}
+                                  required
+                                  onChange={(event) =>
+                                    setFormState((current) => ({
+                                      ...current,
+                                      features: replaceFeatureTags(
+                                        current.features,
+                                        ['draconic_ancestry:'],
+                                        event.target.value
+                                          ? [`draconic_ancestry:${event.target.value}`]
+                                          : []
+                                      ),
+                                    }))
+                                  }
+                                >
+                                  <option value="" disabled>
+                                    용 혈통 선택
+                                  </option>
+                                  {draconicAncestryOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <p className="field-help">
+                                  선택한 혈통이 브레스 피해 유형과 피해 저항을 함께 결정합니다.
+                                </p>
+                              </div>
+                            ) : null}
 
                             {classKey === 'fighter' ? (
                               <div>

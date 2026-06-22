@@ -838,6 +838,7 @@ export class HumanGmRuntimeService {
             bonusActionAvailable: participant.id === combat.currentParticipantId,
             reactionAvailable: true,
             additionalActionAvailable: false,
+            extraAttackAvailable: false,
             twoWeaponAttackAvailable: false,
             sneakAttackAvailable: true,
             movementFtTotal: 30,

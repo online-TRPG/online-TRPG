@@ -17,7 +17,7 @@
 4. 룰 smoke 시나리오를 두 GM 모드에서 실제로 처음부터 끝까지 완주한다.
 5. 위 경로가 안정화된 뒤 실행 가능한 주문·직업·몬스터·콘텐츠 범위를 넓힌다.
 
-MVP의 상위 완료 기준은 [`structure/QUALITY_MVP_ACCEPTANCE.md`](structure/QUALITY_MVP_ACCEPTANCE.md)를 따른다. 이 문서는 그중 SRD 5e 룰 런타임과 플레이 표면을 구체화한다.
+MVP의 상위 완료 기준은 [`../structure/QUALITY_MVP_ACCEPTANCE.md`](../structure/QUALITY_MVP_ACCEPTANCE.md)를 따른다. 이 문서는 그중 SRD 5e 룰 런타임과 플레이 표면을 구체화한다.
 
 ## 2. 상태 표기와 판정 원칙
 
@@ -661,7 +661,7 @@ P0 이후에 진행한다.
 
 단, P0 smoke에서 사용하는 룰과 콘텐츠는 예외 없이 실행 가능하고 감사 가능해야 한다.
 
-위 항목은 **P0의 비목표**일 뿐이며, 장기 로드맵에서 제거된 범위가 아니다. 장기 목표의 전체 범위와 우선 승격 대상은 [`future_plan.md`](future_plan.md)를 따른다.
+위 항목은 **P0의 비목표**일 뿐이며, 장기 로드맵에서 제거된 범위가 아니다. 장기 목표의 전체 범위와 우선 승격 대상은 [`../future_plan.md`](../future_plan.md)를 따른다.
 
 ## 9. 구현 순서와 의존성
 
@@ -876,11 +876,11 @@ npm run test:e2e -w @trpg/be
 
 ## 12. 관련 문서
 
-- [`structure/QUALITY_MVP_ACCEPTANCE.md`](structure/QUALITY_MVP_ACCEPTANCE.md)
-- [`structure/RULESET_SRD5E_MVP.md`](structure/RULESET_SRD5E_MVP.md)
-- [`structure/RUNTIME_SESSION_TURN_FLOW.md`](structure/RUNTIME_SESSION_TURN_FLOW.md)
-- [`rules/ARCHITECTURE_RULES.md`](rules/ARCHITECTURE_RULES.md)
-- [`rules/AI_RUNTIME_RULES.md`](rules/AI_RUNTIME_RULES.md)
-- [`rules/CONTENT_LICENSE_RULES.md`](rules/CONTENT_LICENSE_RULES.md)
-- [`dev-notes/2026-05-23-srd5e-rule-runtime-progress.md`](dev-notes/2026-05-23-srd5e-rule-runtime-progress.md)
-- [`dev-notes/2026-05-31-human-gm-session-play-progress.md`](dev-notes/2026-05-31-human-gm-session-play-progress.md)
+- [`../structure/QUALITY_MVP_ACCEPTANCE.md`](../structure/QUALITY_MVP_ACCEPTANCE.md)
+- [`../structure/RULESET_SRD5E_MVP.md`](../structure/RULESET_SRD5E_MVP.md)
+- [`../structure/RUNTIME_SESSION_TURN_FLOW.md`](../structure/RUNTIME_SESSION_TURN_FLOW.md)
+- [`../rules/ARCHITECTURE_RULES.md`](../rules/ARCHITECTURE_RULES.md)
+- [`../rules/AI_RUNTIME_RULES.md`](../rules/AI_RUNTIME_RULES.md)
+- [`../rules/CONTENT_LICENSE_RULES.md`](../rules/CONTENT_LICENSE_RULES.md)
+- [`../dev-notes/2026-05-23-srd5e-rule-runtime-progress.md`](../dev-notes/2026-05-23-srd5e-rule-runtime-progress.md)
+- [`../dev-notes/2026-05-31-human-gm-session-play-progress.md`](../dev-notes/2026-05-31-human-gm-session-play-progress.md)
