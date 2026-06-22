@@ -250,6 +250,58 @@ export class GrantHumanGmInventoryItemDto {
   quantity?: number;
 }
 
+export class RemoveHumanGmInventoryItemDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  sessionCharacterId!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  itemId!: string;
+
+  @ApiPropertyOptional({ default: 1, minimum: 1, maximum: 99 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  quantity?: number;
+}
+
+export class SetHumanGmDifficultyClassDto {
+  @ApiProperty({ description: "Trap, check, save, or scene target id." })
+  @IsString()
+  @IsNotEmpty()
+  targetId!: string;
+
+  @ApiProperty({ minimum: 1, maximum: 40 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(40)
+  dc!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  label?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: "Optional ability or save id such as dexterity or wisdom." })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  ability?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  privateNote?: string | null;
+}
+
 export class SessionScenarioResponseDto {
   @ApiProperty()
   id!: string;
@@ -540,6 +592,7 @@ export class RevealSessionContentDto {
   @ApiPropertyOptional({ default: "clue" })
   @IsOptional()
   @IsString()
+  @IsIn(["clue", "item", "event"])
   @MaxLength(40)
   contentKind?: string;
 
@@ -590,6 +643,152 @@ export class SessionRevealResponseDto {
   reason!: string | null;
 }
 
+export class PendingRestApprovalDto {
+  @ApiProperty()
+  actionId!: string;
+
+  @ApiProperty({ enum: ["short", "long"], nullable: true })
+  restType!: "short" | "long" | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  hitDiceToSpend!: number | null;
+
+  @ApiProperty()
+  requesterUserId!: string;
+
+  @ApiProperty()
+  requesterDisplayName!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  sessionCharacterId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  characterName!: string | null;
+
+  @ApiProperty()
+  requestedAt!: string;
+
+  @ApiProperty()
+  expiresAt!: string;
+}
+
+export class HumanGmPrivateNoteDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  turnLogId!: string;
+
+  @ApiProperty()
+  kind!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  targetId!: string | null;
+
+  @ApiProperty()
+  note!: string;
+
+  @ApiProperty()
+  gmUserId!: string;
+
+  @ApiProperty()
+  createdAt!: string;
+}
+
+export class HumanGmAiAssistSuggestionDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  assistType!: string;
+
+  @ApiProperty()
+  content!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  suggestedActionId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  targetId!: string | null;
+
+  @ApiProperty({ enum: ["PENDING", "ACCEPTED"] })
+  status!: "PENDING" | "ACCEPTED";
+
+  @ApiProperty()
+  createdByUserId!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  acceptedByUserId!: string | null;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  acceptedAt!: string | null;
+}
+
+export class CreateHumanGmAiAssistSuggestionDto {
+  @ApiProperty({ enum: ["scene_text", "npc_dialogue", "node_move", "combat", "rules", "other"] })
+  @IsIn(["scene_text", "npc_dialogue", "node_move", "combat", "rules", "other"])
+  assistType!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  content!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  suggestedActionId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  targetId?: string | null;
+}
+
+export class AcceptHumanGmAiAssistSuggestionDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  suggestionId!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  publicNarration?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  privateNote?: string | null;
+}
+
+export class ReportHumanGmAiAssistApplicationFailureDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  suggestionId!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  failureReason!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  failedOperation?: string | null;
+}
+
 export class SessionSnapshotDto {
   @ApiProperty({ type: SessionResponseDto })
   session!: SessionResponseDto;
@@ -605,6 +804,9 @@ export class SessionSnapshotDto {
 
   @ApiProperty({ type: GameStateResponseDto })
   state!: GameStateResponseDto;
+
+  @ApiPropertyOptional({ type: [PendingRestApprovalDto] })
+  pendingRestApprovals?: PendingRestApprovalDto[];
 }
 
 export class SessionListItemResponseDto {
@@ -673,6 +875,44 @@ export class HumanGmMessageDto {
   @Type(() => Boolean)
   @IsBoolean()
   asNpc?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  privateNote?: string | null;
+}
+
+export class ApplyHumanGmCombatConditionDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  targetId!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  conditionId!: string;
+
+  @ApiPropertyOptional({ enum: ["add", "remove"], default: "add" })
+  @IsOptional()
+  @IsIn(["add", "remove"])
+  operation?: "add" | "remove";
+}
+
+export class AdjustHumanGmCombatHpDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  targetId!: string;
+
+  @ApiProperty()
+  @Type(() => Number)
+  @IsInt()
+  currentHp!: number;
 }
 
 export class UpdateSessionNodeDto {
@@ -1080,6 +1320,12 @@ export class VttTerrainCellDto {
   @IsString()
   @MaxLength(500)
   description?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  terrainEffectId?: string | null;
 }
 
 export class VttWallCellDto extends VttTerrainCellDto {}
@@ -1247,6 +1493,25 @@ export class VttObjectCellDto extends VttTerrainCellDto {
   @Type(() => Boolean)
   @IsBoolean()
   visibleToPlayers?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  canBreak?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  broken?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(40)
+  breakCheckDc?: number | null;
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
@@ -1486,12 +1751,13 @@ export class CreateVttMapPingDto {
 }
 
 export class VttMapInteractionDto {
-  @ApiProperty({ enum: ["open_door", "close_door", "break_door", "investigate_object", "disarm_hazard", "detect_hazard", "trigger_object"] })
-  @IsIn(["open_door", "close_door", "break_door", "investigate_object", "disarm_hazard", "detect_hazard", "trigger_object"])
+  @ApiProperty({ enum: ["open_door", "close_door", "break_door", "break_object", "investigate_object", "disarm_hazard", "detect_hazard", "trigger_object"] })
+  @IsIn(["open_door", "close_door", "break_door", "break_object", "investigate_object", "disarm_hazard", "detect_hazard", "trigger_object"])
   kind!:
     | "open_door"
     | "close_door"
     | "break_door"
+    | "break_object"
     | "investigate_object"
     | "disarm_hazard"
     | "detect_hazard"

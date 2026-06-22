@@ -164,6 +164,33 @@ describe("InventoryRuntimeService", () => {
           ({ where, include }: { where: { id: string }; include?: Record<string, unknown> }) =>
             Promise.resolve(attachIncludes(entries.get(where.id) ?? null, include)),
         ),
+        findFirst: jest.fn(
+          ({
+            where,
+            include,
+          }: {
+            where: {
+              sessionCharacterId?: string;
+              itemDefinitionId?: string;
+              containerEntryId?: string | null;
+            };
+            include?: Record<string, unknown>;
+          }) =>
+            Promise.resolve(
+              attachIncludes(
+                Array.from(entries.values()).find(
+                  (entry) =>
+                    (!where.sessionCharacterId ||
+                      entry.sessionCharacterId === where.sessionCharacterId) &&
+                    (!where.itemDefinitionId ||
+                      entry.itemDefinitionId === where.itemDefinitionId) &&
+                    (where.containerEntryId === undefined ||
+                      entry.containerEntryId === where.containerEntryId),
+                ) ?? null,
+                include,
+              ),
+            ),
+        ),
         findMany: jest.fn(
           ({
             where,
@@ -200,7 +227,7 @@ describe("InventoryRuntimeService", () => {
             throw new Error(`Entry ${where.id} was not found.`);
           }
 
-          const quantityPatch = data.quantity as { decrement?: number } | undefined;
+          const quantityPatch = data.quantity as { decrement?: number; increment?: number } | undefined;
           const next = {
             ...current,
             ...(data.containerEntryId !== undefined
@@ -208,6 +235,8 @@ describe("InventoryRuntimeService", () => {
               : {}),
             ...(quantityPatch?.decrement
               ? { quantity: current.quantity - quantityPatch.decrement }
+              : quantityPatch?.increment
+                ? { quantity: current.quantity + quantityPatch.increment }
               : {}),
           };
           entries.set(next.id, next);
@@ -267,6 +296,36 @@ describe("InventoryRuntimeService", () => {
       currentWeightLb: 3,
       currentVolumeCuFt: 0.30000000000000004,
       integrity: "INTACT",
+    });
+  });
+
+  it("merges added items into an existing stack in the same container", async () => {
+    const { service, entries, containerStates } = createService();
+    entries.set(
+      "potion-stack",
+      createEntry({
+        id: "potion-stack",
+        itemDefinitionId: "item.potion",
+        quantity: 2,
+        containerEntryId: "bag-entry",
+      }),
+    );
+    await service.recalculateContainerState("bag-entry");
+
+    const entry = await service.addItem({
+      sessionCharacterId: "session-character-1",
+      itemDefinitionId: "item.potion",
+      quantity: 3,
+      containerEntryId: "bag-entry",
+    });
+
+    expect(entry).toMatchObject({ id: "potion-stack", quantity: 5 });
+    expect(
+      Array.from(entries.values()).filter((row) => row.itemDefinitionId === "item.potion"),
+    ).toHaveLength(1);
+    expect(containerStates.get("bag-entry")).toMatchObject({
+      currentWeightLb: 5,
+      currentVolumeCuFt: 0.5,
     });
   });
 

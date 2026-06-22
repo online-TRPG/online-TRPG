@@ -13,7 +13,11 @@ describe("provided scenario constants", () => {
       "scenario_goblin_cave",
       "scenario_node_screen_test",
       "scenario_rule_runtime_smoke",
+      "scenario_p1_ember_ruins",
+      "scenario_p2_storm_vault",
     ]);
+    expect(isProvidedScenarioId("scenario_p1_ember_ruins")).toBe(true);
+    expect(isProvidedScenarioId("scenario_p2_storm_vault")).toBe(true);
     expect(isProvidedScenarioId("scenario_rule_runtime_smoke")).toBe(true);
     expect(isProvidedScenarioId("scenario_user_private")).toBe(false);
   });

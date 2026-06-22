@@ -111,6 +111,55 @@ describe("GmOverrideService", () => {
     });
   });
 
+  it("requires target and state patch for DC overrides", () => {
+    expect(
+      service.resolveOverride({
+        kind: "set_dc",
+        sessionId: "session-1",
+        sessionScenarioId: "scenario-1",
+        gmUserId: "gm-1",
+        publicNarration: "The trap DC is set.",
+        statePatch: { difficultyClassOverride: { dc: 16 } },
+      }),
+    ).toEqual({ accepted: false, rejectedReason: "missing_target" });
+
+    expect(
+      service.resolveOverride({
+        kind: "set_dc",
+        sessionId: "session-1",
+        sessionScenarioId: "scenario-1",
+        gmUserId: "gm-1",
+        targetId: "trap:needle",
+        publicNarration: "The trap DC is set.",
+      }),
+    ).toEqual({ accepted: false, rejectedReason: "missing_state_patch" });
+
+    expect(
+      service.resolveOverride({
+        kind: "set_dc",
+        sessionId: "session-1",
+        sessionScenarioId: "scenario-1",
+        gmUserId: "gm-1",
+        targetId: "trap:needle",
+        publicNarration: "The trap DC is set.",
+        statePatch: { difficultyClassOverride: { targetId: "trap:needle", dc: 16 } },
+      }),
+    ).toMatchObject({
+      accepted: true,
+      turnLog: {
+        rawInput: "gm:set_dc",
+        structuredAction: {
+          kind: "set_dc",
+          targetId: "trap:needle",
+        },
+      },
+      stateDiff: {
+        reason: "gm_override:set_dc",
+        diff: { difficultyClassOverride: { targetId: "trap:needle", dc: 16 } },
+      },
+    });
+  });
+
   it("requires state patch but no target for combat start overrides", () => {
     expect(
       service.resolveOverride({

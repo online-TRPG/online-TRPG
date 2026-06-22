@@ -1,8 +1,12 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import type {
+  AiHumanGmAssistSuggestionRequestDto,
   InventoryItemDto,
   ItemResponseDto,
+  CreateHumanGmAiAssistSuggestionDto,
+  HumanGmAiAssistSuggestionDto,
   PlayerScenarioNodeDto,
+  RestActionDto,
   SessionCharacterResponseDto,
   SubmitMainCommandDto,
   VttMapInteractionDto,
@@ -19,6 +23,7 @@ import { getCharacterClassLabel } from '../utils/characterVisuals';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { InventoryEquipmentStatus } from './InventoryEquipmentStatus';
 import { InventoryItemInfo } from './InventoryItemInfo';
+import { HumanGmAiAssistPanel } from './HumanGmAiAssistPanel';
 import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import './ExplorationNodeSurface.css';
@@ -51,6 +56,7 @@ type ExplorationActionButton = {
     | 'close_door'
     | 'unlock_door'
     | 'break_door'
+    | 'break_object'
     | 'investigate_object'
     | 'disarm_hazard';
   disabled?: boolean;
@@ -91,11 +97,42 @@ interface ExplorationNodeSurfaceProps {
   ) => Promise<VttMapInteractionResponseDto | null>;
   onUseInventoryItem: (item: InventoryItemDto) => void;
   onEquipInventoryItem?: (item: InventoryItemDto) => void;
+  onDropInventoryItem?: (item: InventoryItemDto, point: { x: number; y: number }) => void | Promise<void>;
+  onPickupMapObject?: (
+    objectId: string,
+    itemDefinitionId: string,
+    quantity: number,
+    point: { x: number; y: number }
+  ) => void | Promise<void>;
   onSelectInventoryItem?: (item: InventoryItemDto | null) => void;
   onMapSelectionChange?: (selection: BattleMapSelection | null) => void;
   onRequestMainCommand?: (request: ExplorationMainCommandRequest) => void;
+  onRequestRest?: (
+    restType: RestActionDto['restType'],
+    characterId?: string,
+    hitDiceToSpend?: number,
+  ) => Promise<void> | void;
   gmNodeMoveOptions?: ExplorationNodeMoveOption[];
   onGmNodeMove?: (nodeId: string) => Promise<void> | void;
+  onGmMessage?: (payload: {
+    content: string;
+    speakerName?: string | null;
+    asNpc?: boolean;
+    privateNote?: string | null;
+  }) => Promise<void> | void;
+  isGmMessagePending?: boolean;
+  gmAiAssistSuggestions?: HumanGmAiAssistSuggestionDto[];
+  onGmAiAssistCreate?: (
+    payload: CreateHumanGmAiAssistSuggestionDto
+  ) => Promise<void> | void;
+  onGmAiAssistGenerate?: (
+    payload: AiHumanGmAssistSuggestionRequestDto
+  ) => Promise<void> | void;
+  onGmAiAssistAccept?: (
+    suggestion: HumanGmAiAssistSuggestionDto
+  ) => Promise<void> | void;
+  isGmAiAssistPending?: boolean;
+  recentGmAiAssistLogs?: string[];
   gmItemCatalog?: ItemResponseDto[];
   isGmItemCatalogLoading?: boolean;
   gmItemCatalogError?: string | null;
@@ -363,6 +400,40 @@ function getSelectionMapPoint(selection: BattleMapSelection | null) {
   return {
     x: Math.round(selection.point.x),
     y: Math.round(selection.point.y),
+  };
+}
+
+function getSelectionGridPoint(
+  selection: BattleMapSelection | null,
+  map: VttMapStateDto | null
+) {
+  if (!selection || !map) return null;
+  return {
+    x: Math.floor(Math.min(Math.max(selection.point.x, 0), Math.max(0, map.width - 1)) / map.gridSize),
+    y: Math.floor(Math.min(Math.max(selection.point.y, 0), Math.max(0, map.height - 1)) / map.gridSize),
+  };
+}
+
+function getMapObjectItemPayload(
+  selection: BattleMapSelection | null,
+  map: VttMapStateDto | null
+) {
+  if (!selection || selection.kind !== 'object') return null;
+  const objectCell = selection.cell as NonNullable<VttMapStateDto['objectCells']>[number];
+  const itemDefinitionId = objectCell.hiddenItemIds?.[0]?.trim();
+  if (!itemDefinitionId) return null;
+  const gridPoint = getSelectionGridPoint(selection, map);
+  if (!gridPoint) return null;
+  const escapedItemDefinitionId = itemDefinitionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = objectCell.description?.match(
+    new RegExp(`(?:^|\\s)${escapedItemDefinitionId}\\s+x(\\d+)(?:\\s|$)`)
+  );
+  const quantity = Number(match?.[1]);
+  return {
+    objectId: objectCell.id,
+    itemDefinitionId,
+    quantity: Number.isInteger(quantity) && quantity > 0 ? quantity : 1,
+    point: gridPoint,
   };
 }
 
@@ -709,6 +780,7 @@ function getContextActions(selection: BattleMapSelection | null, isGmView = fals
   }
 
   if (selection.kind === 'object') {
+    const objectCell = selection.cell as NonNullable<VttMapStateDto['objectCells']>[number];
     const canDisarmHazard = isGmView
       ? isArmedHazardSelection(selection)
       : isDetectedArmedHazardSelection(selection);
@@ -728,11 +800,22 @@ function getContextActions(selection: BattleMapSelection | null, isGmView = fals
           iconName: getExplorationActionIconName('조사'),
         }
       : command('조사', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}을 조사합니다.`);
+    const breakActions: ExplorationActionButton[] =
+      objectCell.canBreak && !objectCell.broken
+        ? [
+            {
+              label: '부수기',
+              localAction: 'break_object',
+              iconName: getExplorationActionIconName('부수기'),
+            },
+          ]
+        : [];
 
     return [
       ...positionActions,
       ...hazardActions,
       investigateAction,
+      ...breakActions,
     ];
   }
 
@@ -758,11 +841,22 @@ export function ExplorationNodeSurface({
   onMapInteractionRequest,
   onUseInventoryItem,
   onEquipInventoryItem,
+  onDropInventoryItem,
+  onPickupMapObject,
   onSelectInventoryItem,
   onMapSelectionChange,
   onRequestMainCommand,
+  onRequestRest,
   gmNodeMoveOptions = [],
   onGmNodeMove,
+  onGmMessage,
+  isGmMessagePending = false,
+  gmAiAssistSuggestions = [],
+  onGmAiAssistCreate,
+  onGmAiAssistGenerate,
+  onGmAiAssistAccept,
+  isGmAiAssistPending = false,
+  recentGmAiAssistLogs = [],
   gmItemCatalog = [],
   isGmItemCatalogLoading = false,
   gmItemCatalogError = null,
@@ -778,6 +872,11 @@ export function ExplorationNodeSurface({
   const [gmItemQuery, setGmItemQuery] = useState('');
   const [gmItemQuantity, setGmItemQuantity] = useState(1);
   const [selectedGmCatalogItemId, setSelectedGmCatalogItemId] = useState('');
+  const [gmMessageContent, setGmMessageContent] = useState('');
+  const [gmMessageSpeaker, setGmMessageSpeaker] = useState('');
+  const [gmMessagePrivateNote, setGmMessagePrivateNote] = useState('');
+  const [isGmNpcMessage, setGmNpcMessage] = useState(false);
+  const [shortRestHitDiceToSpend, setShortRestHitDiceToSpend] = useState(0);
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
   const selectedMapCharacter =
     characters.find((character) => character.id === selectedMapCharacterId) ?? null;
@@ -786,6 +885,15 @@ export function ExplorationNodeSurface({
       ? (characters.find((character) => character.id === mapSelection.token.sessionCharacterId) ?? null)
       : null;
   const displayedCharacter = isGmView ? selectedTokenCharacter : myCharacter;
+  const restTargetCharacterId = displayedCharacter?.id;
+  const restHitDiceMaximum = Math.max(
+    displayedCharacter?.hitDiceRemaining ?? displayedCharacter?.level ?? 0,
+    0,
+  );
+  const clampedShortRestHitDiceToSpend = Math.min(
+    Math.max(shortRestHitDiceToSpend, 0),
+    restHitDiceMaximum,
+  );
   const displayedInventory = isGmView ? (displayedCharacter?.inventory ?? []) : inventory;
   const canUseDisplayedInventory = !isGmView || displayedCharacter?.id === myCharacter?.id;
   const gmSelectedNonCharacterToken =
@@ -831,6 +939,8 @@ export function ExplorationNodeSurface({
     () => getContextActions(mapSelection, isGmView),
     [mapSelection, isGmView]
   );
+  const selectedMapGridPoint = getSelectionGridPoint(mapSelection, map);
+  const selectedObjectItemPayload = getMapObjectItemPayload(mapSelection, map);
   const inventoryPanelStyle = {
     '--exploration-inventory-item-count': Math.max(displayedInventory.length, 1),
   } as CSSProperties;
@@ -858,6 +968,12 @@ export function ExplorationNodeSurface({
   }, [displayedInventory.length, isInventoryExpanded, shouldShowActorAndInventory]);
 
   useEffect(() => {
+    if (shortRestHitDiceToSpend > restHitDiceMaximum) {
+      setShortRestHitDiceToSpend(restHitDiceMaximum);
+    }
+  }, [restHitDiceMaximum, shortRestHitDiceToSpend]);
+
+  useEffect(() => {
     if (!displayedCharacter || !isGmView) {
       setGmItemPickerOpen(false);
       setSelectedGmCatalogItemId('');
@@ -881,6 +997,22 @@ export function ExplorationNodeSurface({
     setGmItemQuery('');
     setGmItemQuantity(1);
     setSelectedGmCatalogItemId('');
+  }
+
+  async function handleGmMessageSubmit() {
+    const content = gmMessageContent.trim();
+    if (!content || !onGmMessage || isGmMessagePending) {
+      return;
+    }
+
+    await onGmMessage({
+      content,
+      speakerName: gmMessageSpeaker.trim() || null,
+      asNpc: isGmNpcMessage,
+      privateNote: gmMessagePrivateNote.trim() || null,
+    });
+    setGmMessageContent('');
+    setGmMessagePrivateNote('');
   }
 
   function getControlledToken() {
@@ -968,6 +1100,18 @@ export function ExplorationNodeSurface({
       return;
     }
 
+    if (isGmView && mapSelection.kind === 'object' && action === 'break_object') {
+      onMapChange({
+        ...map,
+        objectCells: (map.objectCells ?? []).map((cell) =>
+          cell.id === mapSelection.cell.id ? { ...cell, broken: true } : cell
+        ),
+        updatedAt: new Date().toISOString(),
+      });
+      setMapActionFeedback('선택한 오브젝트를 파괴 상태로 변경했습니다.');
+      return;
+    }
+
     if (
       isGmView &&
       (mapSelection.kind === 'door' || mapSelection.kind === 'object') &&
@@ -981,6 +1125,7 @@ export function ExplorationNodeSurface({
       action === 'open_door' ||
       action === 'close_door' ||
       action === 'break_door' ||
+      action === 'break_object' ||
       action === 'investigate_object' ||
       action === 'disarm_hazard'
     ) {
@@ -1270,6 +1415,48 @@ export function ExplorationNodeSurface({
               </div>
               </div>
 
+              <div className="exploration-gm-card exploration-gm-message">
+              <span className="exploration-node-eyebrow">장면/NPC 전송</span>
+              <label className="exploration-gm-message-mode">
+                <input
+                  type="checkbox"
+                  checked={isGmNpcMessage}
+                  onChange={(event) => setGmNpcMessage(event.target.checked)}
+                />
+                NPC 대사로 전송
+              </label>
+              {isGmNpcMessage ? (
+                <input
+                  className="exploration-gm-input"
+                  value={gmMessageSpeaker}
+                  placeholder="화자 이름"
+                  onChange={(event) => setGmMessageSpeaker(event.target.value)}
+                />
+              ) : null}
+              <textarea
+                className="exploration-gm-textarea"
+                value={gmMessageContent}
+                placeholder={isGmNpcMessage ? 'NPC 대사를 입력하세요.' : '플레이어에게 공개할 장면 묘사를 입력하세요.'}
+                rows={3}
+                maxLength={2000}
+                onChange={(event) => setGmMessageContent(event.target.value)}
+              />
+              <input
+                className="exploration-gm-input"
+                value={gmMessagePrivateNote}
+                placeholder="비공개 GM 메모"
+                maxLength={1000}
+                onChange={(event) => setGmMessagePrivateNote(event.target.value)}
+              />
+              <button
+                type="button"
+                disabled={isBusy || isGmMessagePending || !onGmMessage || !gmMessageContent.trim()}
+                onClick={() => void handleGmMessageSubmit()}
+              >
+                {isGmMessagePending ? '전송 중' : '전송'}
+              </button>
+              </div>
+
               <div className="exploration-gm-card exploration-gm-controls">
               <span className="exploration-node-eyebrow">GM 조작</span>
               <div className="exploration-gm-button-grid">
@@ -1336,6 +1523,20 @@ export function ExplorationNodeSurface({
                 <p className="exploration-gm-empty-text">현재 노드에서 바로 이동 가능한 노드가 없습니다.</p>
               )}
               </div>
+
+              <HumanGmAiAssistPanel
+                className="exploration-gm-card exploration-gm-ai-assist"
+                nodeId={node?.id}
+                suggestions={gmAiAssistSuggestions}
+                nodeMoveOptions={gmNodeMoveOptions}
+                onCreate={onGmAiAssistCreate}
+                onGenerate={onGmAiAssistGenerate}
+                onAccept={onGmAiAssistAccept}
+                isBusy={isBusy}
+                isPending={isGmAiAssistPending}
+                sceneSummary={node?.sceneText ?? node?.title ?? scenarioTitle}
+                recentLogs={recentGmAiAssistLogs}
+              />
             </div>
           </aside>
         ) : null}
@@ -1434,6 +1635,62 @@ export function ExplorationNodeSurface({
           <span className="exploration-frame-corner bottom-right" aria-hidden="true" />
           <span className="exploration-node-eyebrow">선택 대상 행동</span>
           <div className="exploration-action-list">
+            {onRequestRest ? (
+              <>
+                <button
+                  type="button"
+                  className="exploration-action-button has-action-icon"
+                  disabled={isBusy || !restTargetCharacterId}
+                  onClick={() =>
+                    void onRequestRest(
+                      'short',
+                      restTargetCharacterId,
+                      clampedShortRestHitDiceToSpend,
+                    )
+                  }
+                >
+                  <GameIcon
+                    name="game-icons:campfire"
+                    size={36}
+                    className="exploration-action-button-icon"
+                  />
+                  <span className="exploration-action-button-label">짧은 휴식</span>
+                </button>
+                <label className="exploration-hit-dice-control">
+                  <span>HD {restHitDiceMaximum}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={restHitDiceMaximum}
+                    step={1}
+                    value={clampedShortRestHitDiceToSpend}
+                    disabled={isBusy || !restTargetCharacterId}
+                    aria-label="짧은 휴식 히트 다이스 사용 수"
+                    onChange={(event) => {
+                      const nextValue = Number(event.target.value);
+                      setShortRestHitDiceToSpend(
+                        Number.isInteger(nextValue)
+                          ? Math.min(Math.max(nextValue, 0), restHitDiceMaximum)
+                          : 0,
+                      );
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="exploration-action-button has-action-icon"
+                  disabled={isBusy || !restTargetCharacterId}
+                  onClick={() => void onRequestRest('long', restTargetCharacterId)}
+                >
+                  <GameIcon
+                    name="game-icons:bed"
+                    size={36}
+                    className="exploration-action-button-icon"
+                  />
+                  <span className="exploration-action-button-label">긴 휴식</span>
+                </button>
+              </>
+            ) : null}
             {contextActions.map((action) => {
               const hasIcon = Boolean(action.iconName);
 
@@ -1471,6 +1728,33 @@ export function ExplorationNodeSurface({
                 </button>
               );
             })}
+            {selectedObjectItemPayload ? (
+              <button
+                type="button"
+                className="exploration-action-button has-action-icon"
+                disabled={isBusy || isGmView || !onPickupMapObject || !canUseDisplayedInventory}
+                title={
+                  isGmView
+                    ? 'GM 화면에서는 맵 오브젝트를 조회만 합니다.'
+                    : `${selectionDisplay.target} 줍기`
+                }
+                onClick={() =>
+                  void onPickupMapObject?.(
+                    selectedObjectItemPayload.objectId,
+                    selectedObjectItemPayload.itemDefinitionId,
+                    1,
+                    selectedObjectItemPayload.point
+                  )
+                }
+              >
+                <GameIcon
+                  name="game-icons:hand"
+                  size={36}
+                  className="exploration-action-button-icon"
+                />
+                <span className="exploration-action-button-label">줍기</span>
+              </button>
+            ) : null}
           </div>
           {mapActionFeedback ? (
             <p className="exploration-map-action-feedback">{mapActionFeedback}</p>
@@ -1595,45 +1879,98 @@ export function ExplorationNodeSurface({
                       </div>
                       <span className="exploration-inventory-quantity">x{item.quantity}</span>
                       {isWeapon || isArmor || isShield ? (
-                        <button
-                          type="button"
-                          disabled={isArmor || isBusy || !onEquipInventoryItem || !canUseDisplayedInventory}
-                          title={
-                            !canUseDisplayedInventory
-                              ? 'GM 화면에서는 선택 캐릭터의 인벤토리를 조회만 합니다.'
-                              : isArmor
-                                ? '몸통 방어구는 현재 캐릭터 AC에 반영되어 있습니다.'
-                                : isEquipped
-                                  ? `${item.name} 착용 해제`
-                                  : `${item.name} 착용`
-                          }
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onEquipInventoryItem?.(equipmentActionItem);
-                          }}
-                          onKeyDown={(event) => event.stopPropagation()}
-                        >
-                          {isEquipped ? '해제' : '착용'}
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            disabled={isArmor || isBusy || !onEquipInventoryItem || !canUseDisplayedInventory}
+                            title={
+                              !canUseDisplayedInventory
+                                ? 'GM 화면에서는 선택 캐릭터의 인벤토리를 조회만 합니다.'
+                                : isArmor
+                                  ? '몸통 방어구는 현재 캐릭터 AC에 반영되어 있습니다.'
+                                  : isEquipped
+                                    ? `${item.name} 착용 해제`
+                                    : `${item.name} 착용`
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onEquipInventoryItem?.(equipmentActionItem);
+                            }}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
+                            {isEquipped ? '해제' : '착용'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={
+                              isBusy ||
+                              !canUseDisplayedInventory ||
+                              !onDropInventoryItem ||
+                              !selectedMapGridPoint ||
+                              equipmentDisplayState === 'equipped'
+                            }
+                            title={
+                              equipmentDisplayState === 'equipped'
+                                ? '착용 중인 아이템은 해제 후 내려놓을 수 있습니다.'
+                                : !selectedMapGridPoint
+                                  ? '내려놓을 맵 타일을 먼저 선택하세요.'
+                                  : `${item.name} 내려놓기`
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (selectedMapGridPoint) {
+                                void onDropInventoryItem?.(item, selectedMapGridPoint);
+                              }
+                            }}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
+                            내려놓기
+                          </button>
+                        </>
                       ) : (
-                        <button
-                          type="button"
-                          disabled={!canUse || isBusy || !canUseDisplayedInventory}
-                          title={
-                            !canUseDisplayedInventory
-                              ? 'GM 화면에서는 선택 캐릭터의 인벤토리를 조회만 합니다.'
-                              : canUse
-                                ? `${item.name} 사용`
-                                : '현재 바로 사용할 수 없는 아이템입니다.'
-                          }
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onUseInventoryItem(item);
-                          }}
-                          onKeyDown={(event) => event.stopPropagation()}
-                        >
-                          사용
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            disabled={!canUse || isBusy || !canUseDisplayedInventory}
+                            title={
+                              !canUseDisplayedInventory
+                                ? 'GM 화면에서는 선택 캐릭터의 인벤토리를 조회만 합니다.'
+                                : canUse
+                                  ? `${item.name} 사용`
+                                  : '현재 바로 사용할 수 없는 아이템입니다.'
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onUseInventoryItem(item);
+                            }}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
+                            사용
+                          </button>
+                          <button
+                            type="button"
+                            disabled={
+                              isBusy ||
+                              !canUseDisplayedInventory ||
+                              !onDropInventoryItem ||
+                              !selectedMapGridPoint
+                            }
+                            title={
+                              !selectedMapGridPoint
+                                ? '내려놓을 맵 타일을 먼저 선택하세요.'
+                                : `${item.name} 내려놓기`
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (selectedMapGridPoint) {
+                                void onDropInventoryItem?.(item, selectedMapGridPoint);
+                              }
+                            }}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
+                            내려놓기
+                          </button>
+                        </>
                       )}
                     </article>
                   );

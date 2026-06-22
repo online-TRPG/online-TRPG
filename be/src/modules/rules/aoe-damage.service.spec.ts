@@ -132,6 +132,39 @@ describe("AoeDamageService", () => {
     });
   });
 
+  it("preserves rolled condition modifiers used by saving throws", () => {
+    const blessRoll = dice("1d4", [3]);
+    const service = createService([
+      dice("1d8", [6]),
+      dice("1d20", [9]),
+    ]);
+
+    const result = service.resolveDamage({
+      sourceId: "spell.sacred_flame",
+      damageDice: "1d8",
+      damageType: "radiant",
+      save: { ability: "dex", dc: 13, halfDamageOnSuccess: false },
+      targets: [
+        {
+          id: "blessed-target",
+          currentHp: 10,
+          abilityModifiers: { dex: 1 },
+          bonusModifiers: [{ source: "spell.bless", value: 3 }],
+          modifierRolls: [blessRoll],
+        },
+      ],
+    });
+
+    expect(result.targetResults[0]).toMatchObject({
+      modifierRolls: [blessRoll],
+      savingThrow: {
+        success: true,
+        savingThrowTotal: 13,
+      },
+      finalDamage: 0,
+    });
+  });
+
   it("creates AoE damage input from a catalog area spell", () => {
     const service = createService([]);
     const catalog = new RuleCatalogService();

@@ -1,6 +1,8 @@
-import { Layer, Rect } from 'react-konva';
+import { Fragment } from 'react';
+import { Layer, Rect, Text } from 'react-konva';
 import type { ComponentProps } from 'react';
 import type { VttMapStateDto } from '@trpg/shared-types';
+import { getTerrainEffectVisual } from './battleMapTerrainEffects';
 
 type MapStructureKind = 'terrain' | 'wall' | 'door' | 'object';
 type MapStructureSelection = { kind: MapStructureKind; id: string };
@@ -45,23 +47,40 @@ export function BattleMapEditorStructureLayer({
 }: BattleMapEditorStructureLayerProps) {
   return (
     <Layer>
-      {terrainCells.map((cell) => (
-        <Rect
-          key={cell.id}
-          x={cell.x}
-          y={cell.y}
-          width={cell.width}
-          height={cell.height}
-          fill="rgba(86, 96, 106, 0.48)"
-          stroke={selectedMapStructure?.id === cell.id ? '#ffffff' : '#8c99a4'}
-          strokeWidth={selectedMapStructure?.id === cell.id ? 3 : 1}
-          dash={[8, 5]}
-          onClick={(event) => {
-            event.cancelBubble = true;
-            onSelectStructure('terrain', cell);
-          }}
-        />
-      ))}
+      {terrainCells.map((cell) => {
+        const visual = getTerrainEffectVisual(cell);
+        const isSelected = selectedMapStructure?.id === cell.id;
+        return (
+          <Fragment key={cell.id}>
+            <Rect
+              x={cell.x}
+              y={cell.y}
+              width={cell.width}
+              height={cell.height}
+              fill={visual.fill}
+              stroke={isSelected ? '#ffffff' : visual.stroke}
+              strokeWidth={isSelected ? 3 : 1}
+              dash={visual.dash}
+              onClick={(event) => {
+                event.cancelBubble = true;
+                onSelectStructure('terrain', cell);
+              }}
+            />
+            {visual.label ? (
+              <Text
+                key={`${cell.id}:effect-label`}
+                x={cell.x + 5}
+                y={cell.y + 5}
+                text={visual.label}
+                fontSize={Math.max(10, Math.min(14, map.gridSize / 4))}
+                fontStyle="bold"
+                fill="rgba(255, 255, 255, 0.88)"
+                listening={false}
+              />
+            ) : null}
+          </Fragment>
+        );
+      })}
       {wallCells.map((cell) => (
         <Rect
           key={cell.id}

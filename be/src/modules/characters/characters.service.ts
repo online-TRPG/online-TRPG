@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import {
   CharacterAvatarType as PrismaCharacterAvatarType,
+  Race,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
@@ -16,8 +17,13 @@ import {
   CharacterInventoryResponseDto,
   CharacterResponseDto,
   CreateCharacterDto,
+  getCantripsKnownLimit,
+  getKnownSpellsLimit,
+  getSpellcastingProgression,
   InventoryItemDto,
+  LevelUpCharacterDto,
   normalizeSkillToKo,
+  normalizeSpellcastingClassKey,
   POINT_BUY_COST,
   POINT_BUY_MAX_BASE,
   POINT_BUY_MIN_BASE,
@@ -28,6 +34,7 @@ import {
   StartingSpellsDto,
   UpdateCharacterDto,
   UpdateCharacterEquipmentDto,
+  UpdatePreparedSpellsDto,
 } from "@trpg/shared-types";
 import { mapCharacter, mapSessionCharacter } from "../../common/mappers/domain.mapper";
 import { isDefaultProvidedScenarioId } from "../scenarios/provided-scenario.constants";
@@ -36,6 +43,7 @@ import { CatalogService } from "../catalog/catalog.service";
 import { RacesService } from "../races/races.service";
 import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { LevelUpService } from "../rules/level-up.service";
+import type { HitDie } from "../rules/level-up.service";
 import { RuleCatalogService } from "../rules/rule-catalog.service";
 import { SessionsService } from "../sessions/sessions.service";
 
@@ -51,12 +59,74 @@ const defaultAbilityScores = {
 // 능력치 범위: D&D 5e 공식 상한 20 + 매직 아이템/주문 보정 여유로 30. Point Buy(8~15)는 별도로 검사.
 const ABILITY_SCORE_MIN = 1;
 const ABILITY_SCORE_MAX = 30;
+const ASI_ABILITY_SCORE_MAX = 20;
+const ABILITY_KEYS = ["str", "dex", "con", "int", "wis", "cha"] as const;
 
 // PATCH 류를 막는 세션 상태. RECRUITING/COMPLETED/DISBANDED 는 수정 허용.
 const LOCKED_SESSION_STATUSES: ReadonlySet<PrismaSessionStatus> = new Set([
   PrismaSessionStatus.PLAYING,
   PrismaSessionStatus.PAUSED,
 ]);
+
+const MVP_STARTING_CANTRIP_IDS = new Set([
+  "spell.chill_touch",
+  "spell.fire_bolt",
+  "spell.light",
+  "spell.ray_of_frost",
+  "spell.sacred_flame",
+  "spell.acid_splash",
+  "spell.guidance",
+  "spell.mage_hand",
+  "spell.minor_illusion",
+  "spell.shocking_grasp",
+]);
+const MVP_STARTING_SLOT_SPELL_IDS = new Set([
+  "spell.bane",
+  "spell.bless",
+  "spell.burning_hands",
+  "spell.command",
+  "spell.cure_wounds",
+  "spell.detect_magic",
+  "spell.entangle",
+  "spell.guiding_bolt",
+  "spell.healing_word",
+  "spell.inflict_wounds",
+  "spell.magic_missile",
+  "spell.shield",
+  "spell.sleep",
+  "spell.thunderwave",
+  "spell.charm_person",
+  "spell.faerie_fire",
+  "spell.feather_fall",
+  "spell.fog_cloud",
+  "spell.grease",
+  "spell.heroism",
+  "spell.hunters_mark",
+  "spell.longstrider",
+]);
+const MVP_STARTING_LEVEL3_SLOT_SPELL_IDS = new Set([
+  "spell.hold_person",
+  "spell.misty_step",
+  "spell.scorching_ray",
+  "spell.web",
+  "spell.aid",
+  "spell.blindness_deafness",
+  "spell.darkness",
+  "spell.invisibility",
+  "spell.lesser_restoration",
+  "spell.moonbeam",
+  "spell.spiritual_weapon",
+]);
+const MVP_STARTING_LEVEL5_SLOT_SPELL_IDS = new Set([
+  "spell.dispel_magic",
+  "spell.fireball",
+  "spell.counterspell",
+  "spell.fly",
+  "spell.haste",
+  "spell.lightning_bolt",
+  "spell.revivify",
+]);
+const MVP_STARTING_SLOT_SPELL_SELECTION_COUNT = 4;
 
 @Injectable()
 export class CharactersService {
@@ -78,7 +148,8 @@ export class CharactersService {
     const ancestry = dto.ancestry.trim();
     const abilities = dto.abilities ?? defaultAbilityScores;
     this.validateAbilitiesRange(abilities);
-    await this.validatePointBuyForAncestry(ancestry, abilities);
+    const race = await this.findRaceForAncestry(ancestry);
+    await this.validatePointBuyForAncestry(ancestry, abilities, race);
     const className = dto.className.trim();
     const normalizedProficientSkills = dto.proficientSkills
       ? await this.validateProficientSkills(className, dto.proficientSkills)
@@ -94,13 +165,20 @@ export class CharactersService {
     const offhandWeaponId =
       dto.offhandWeaponId ?? this.resolveDefaultOffhandEquipmentId(inventory, equippedWeaponId);
     await this.validateEquipmentLoadout(inventory, equippedWeaponId, offhandWeaponId);
-    const spellsJsonValue = await this.resolveStartingSpells(className, dto.startingSpells);
+    const spellsJsonValue = await this.resolveStartingSpells(
+      className,
+      level,
+      abilities,
+      dto.startingSpells,
+    );
+    const racialMaxHpBonus = race?.key === "hill-dwarf" ? level : 0;
     const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
       className,
       level,
       abilities,
       dto.proficiencyBonus,
       dto.maxHp,
+      racialMaxHpBonus,
     );
     const armorClass = this.resolveArmorClass(
       className,
@@ -109,11 +187,19 @@ export class CharactersService {
       dto.armorClass,
       offhandWeaponId,
     );
+    const subclassName = this.assertValidSubclassSelection({
+      className,
+      subclassName: dto.subclassName,
+      level,
+      requiredCode: "CHARACTER_SUBCLASS_REQUIRED",
+      invalidCode: "CHARACTER_INVALID_SUBCLASS",
+    });
 
     const features = await this.resolveCharacterFeatureSnapshot({
       ancestry,
+      raceKey: race?.key ?? null,
       className,
-      subclassName: dto.subclassName?.trim() ?? null,
+      subclassName,
       level,
       requestedFeatures: dto.features ?? [],
     });
@@ -125,7 +211,7 @@ export class CharactersService {
         name: dto.name.trim(),
         ancestry,
         className,
-        subclassName: dto.subclassName?.trim() ?? null,
+        subclassName,
         level,
         bio: dto.bio?.trim() ?? null,
         abilitiesJson: JSON.stringify(abilities),
@@ -134,7 +220,7 @@ export class CharactersService {
         proficientSkillsJson: JSON.stringify(normalizedProficientSkills),
         maxHp,
         armorClass,
-        speed: dto.speed ?? 30,
+        speed: dto.speed ?? race?.baseSpeed ?? 30,
         inventoryJson: JSON.stringify(inventory),
         spellsJson: spellsJsonValue,
         equippedWeaponId,
@@ -187,6 +273,7 @@ export class CharactersService {
     const finalAbilities: AbilityScoresDto =
       dto.abilities ?? (JSON.parse(existing.abilitiesJson) as AbilityScoresDto);
     const finalAncestry = dto.ancestry?.trim() ?? existing.ancestry;
+    const finalRace = await this.findRaceForAncestry(finalAncestry);
     const finalClassName = dto.className?.trim() ?? existing.className;
     const finalLevel = dto.level ?? existing.level;
     const finalInventory: InventoryItemDto[] =
@@ -196,9 +283,9 @@ export class CharactersService {
     const finalOffhandWeaponId =
       dto.offhandWeaponId === undefined ? existing.offhandWeaponId : dto.offhandWeaponId;
 
-    if (dto.abilities !== undefined) {
+    if (dto.abilities !== undefined || dto.ancestry !== undefined) {
       this.validateAbilitiesRange(finalAbilities);
-      await this.validatePointBuyForAncestry(finalAncestry, finalAbilities);
+      await this.validatePointBuyForAncestry(finalAncestry, finalAbilities, finalRace);
     }
     const normalizedUpdateProficientSkills =
       dto.proficientSkills !== undefined
@@ -217,6 +304,7 @@ export class CharactersService {
     // - 안 보냈으면 공식값으로 자동 갱신 (legacy 행이 새 abilities/level 과 어긋나지 않게).
     const needsLevelStats =
       dto.abilities !== undefined ||
+      dto.ancestry !== undefined ||
       dto.level !== undefined ||
       dto.className !== undefined ||
       dto.maxHp !== undefined ||
@@ -228,15 +316,24 @@ export class CharactersService {
           finalAbilities,
           dto.proficiencyBonus,
           dto.maxHp,
+          finalRace?.key === "hill-dwarf" ? finalLevel : 0,
         )
       : null;
 
     const finalSubclassName =
       dto.subclassName === undefined ? existing.subclassName : dto.subclassName?.trim() ?? null;
-    const finalFeatures = await this.resolveCharacterFeatureSnapshot({
-      ancestry: finalAncestry,
+    const validatedSubclassName = this.assertValidSubclassSelection({
       className: finalClassName,
       subclassName: finalSubclassName,
+      level: finalLevel,
+      requiredCode: "CHARACTER_SUBCLASS_REQUIRED",
+      invalidCode: "CHARACTER_INVALID_SUBCLASS",
+    });
+    const finalFeatures = await this.resolveCharacterFeatureSnapshot({
+      ancestry: finalAncestry,
+      raceKey: finalRace?.key ?? null,
+      className: finalClassName,
+      subclassName: validatedSubclassName,
       level: finalLevel,
       requestedFeatures: dto.features ?? this.parseStringArrayJson(existing.featuresJson),
     });
@@ -247,7 +344,7 @@ export class CharactersService {
         name: dto.name?.trim() ?? existing.name,
         ancestry: finalAncestry,
         className: finalClassName,
-        subclassName: finalSubclassName,
+        subclassName: validatedSubclassName,
         level: finalLevel,
         bio: dto.bio === undefined ? existing.bio : dto.bio.trim(),
         abilitiesJson: JSON.stringify(finalAbilities),
@@ -267,7 +364,11 @@ export class CharactersService {
             existing.armorClass,
             finalOffhandWeaponId,
           ),
-        speed: dto.speed ?? existing.speed,
+        speed:
+          dto.speed ??
+          (dto.ancestry !== undefined
+            ? finalRace?.baseSpeed ?? existing.speed
+            : existing.speed),
         inventoryJson: JSON.stringify(finalInventory),
         equippedWeaponId: finalEquippedWeaponId,
         offhandWeaponId: finalOffhandWeaponId,
@@ -321,6 +422,694 @@ export class CharactersService {
     }
 
     return mapCharacter(updated);
+  }
+
+  async levelUpCharacter(
+    userId: string,
+    characterId: string,
+    dto: LevelUpCharacterDto,
+  ): Promise<CharacterResponseDto> {
+    const existing = await this.getOwnedCharacterOrThrow(userId, characterId);
+    const activeAssignments = existing.sessionCharacters.filter((assignment) =>
+      LOCKED_SESSION_STATUSES.has(assignment.session.status),
+    );
+    if (activeAssignments.length && !dto.applyToActiveSessions) {
+      throw new ConflictException({
+        code: "LEVEL_UP_REQUIRES_SESSION_APPLY_CONFIRMATION",
+        message: "진행 중인 세션에 참여 중인 캐릭터는 세션 snapshot 반영 여부를 명시해야 합니다.",
+        sessionIds: activeAssignments.map((assignment) => assignment.sessionId),
+      });
+    }
+
+    const abilities = JSON.parse(existing.abilitiesJson) as AbilityScoresDto;
+    const race = await this.findRaceForAncestry(existing.ancestry);
+    const klass = await this.catalogService.findClassByKey(existing.className.toLowerCase());
+    if (!klass) {
+      throw new BadRequestException("시드된 클래스가 아닌 캐릭터는 레벨업 계산을 적용할 수 없습니다.");
+    }
+
+    let resolution;
+    try {
+      resolution = this.levelUpService.resolveLevelUp({
+        classKey: existing.className,
+        currentLevel: existing.level,
+        targetLevel: dto.targetLevel,
+        hitDie: klass.hitDie as HitDie,
+        constitutionScore: abilities.con,
+        currentMaxHp: existing.maxHp,
+        hpMode: dto.hpMode ?? "average",
+        rolledHpByLevel: dto.rolledHpByLevel ?? {},
+        subclassChoiceLevel: this.ruleCatalogService.getSubclassChoiceLevel(
+          existing.className,
+        ),
+        classFeatures: this.ruleCatalogService.listClassFeaturesForLevel(
+          existing.className,
+          dto.targetLevel,
+        ),
+        subclassFeatures: existing.subclassName
+          ? this.ruleCatalogService.listSubclassFeatures(
+              existing.className,
+              existing.subclassName,
+              dto.targetLevel,
+            )
+          : [],
+      });
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : "레벨업 입력값이 유효하지 않습니다.",
+      );
+    }
+
+    const selectedSubclassName = this.assertValidSubclassSelection({
+      className: existing.className,
+      subclassName: dto.subclassName?.trim() || existing.subclassName,
+      level: resolution.toLevel,
+      requiredCode: "LEVEL_UP_SUBCLASS_REQUIRED",
+      invalidCode: "LEVEL_UP_INVALID_SUBCLASS",
+    });
+
+    const finalAbilities = this.resolveLevelUpAbilityScores(
+      abilities,
+      dto.abilityScoreIncreases,
+      resolution.asiOrFeatChoiceRequiredAtLevels,
+    );
+    const finalFeatures = await this.resolveCharacterFeatureSnapshot({
+      ancestry: existing.ancestry,
+      raceKey: race?.key ?? null,
+      className: existing.className,
+      subclassName: selectedSubclassName,
+      level: resolution.toLevel,
+      requestedFeatures: this.parseStringArrayJson(existing.featuresJson),
+    });
+    const nextSpellsJson =
+      dto.knownSpells === undefined &&
+      dto.preparedSpells === undefined &&
+      dto.cantrips === undefined &&
+      dto.forgottenSpells === undefined &&
+      dto.forgottenCantrips === undefined
+        ? undefined
+        : this.resolveLevelUpSpellsJson(existing.spellsJson, {
+            knownSpells: dto.knownSpells,
+            preparedSpells: dto.preparedSpells,
+            cantrips: dto.cantrips,
+            forgottenSpells: dto.forgottenSpells,
+            forgottenCantrips: dto.forgottenCantrips,
+            currentLevel: existing.level,
+            level: resolution.toLevel,
+            className: existing.className,
+            abilities: finalAbilities,
+          });
+    const constitutionModifierDelta =
+      this.getAbilityModifier(finalAbilities.con) - this.getAbilityModifier(abilities.con);
+    const racialLevelUpHpBonus =
+      race?.key === "hill-dwarf" ? resolution.toLevel - resolution.fromLevel : 0;
+    const finalMaxHp =
+      resolution.maxHpAfter +
+      constitutionModifierDelta * resolution.toLevel +
+      racialLevelUpHpBonus;
+    const inventory = this.parseInventoryItemsJson(existing.inventoryJson);
+    const previousCalculatedArmorClass = this.resolveArmorClass(
+      existing.className,
+      abilities,
+      inventory,
+      existing.armorClass,
+      existing.offhandWeaponId ?? null,
+    );
+    const normalizedClassName = existing.className.trim().toLowerCase();
+    const canRecalculateArmorClass =
+      inventory.some((item) => this.isArmorInventoryItem(item)) ||
+      normalizedClassName.includes("barbarian") ||
+      normalizedClassName.includes("monk") ||
+      existing.armorClass === previousCalculatedArmorClass;
+    const recalculatedArmorClass = this.resolveArmorClass(
+      existing.className,
+      finalAbilities,
+      inventory,
+      existing.armorClass,
+      existing.offhandWeaponId ?? null,
+    );
+    const finalArmorClass = canRecalculateArmorClass
+      ? recalculatedArmorClass
+      : existing.armorClass;
+    const hpDelta = Math.max(0, finalMaxHp - existing.maxHp);
+
+    const updated = await this.prisma.character.update({
+      where: { id: characterId },
+      data: {
+        level: resolution.toLevel,
+        subclassName: selectedSubclassName ?? null,
+        abilitiesJson: JSON.stringify(finalAbilities),
+        proficiencyBonus: resolution.proficiencyBonusAfter,
+        maxHp: finalMaxHp,
+        armorClass: finalArmorClass,
+        featuresJson: JSON.stringify(finalFeatures),
+        ...(nextSpellsJson !== undefined ? { spellsJson: nextSpellsJson } : {}),
+      },
+      include: {
+        sessionCharacters: {
+          include: { session: true },
+        },
+      },
+    });
+
+    if (dto.applyToActiveSessions) {
+      for (const assignment of activeAssignments) {
+        const currentHp =
+          typeof assignment.currentHp === "number" ? assignment.currentHp : existing.maxHp;
+        await this.prisma.sessionCharacter.update({
+          where: { id: assignment.id },
+          data: { currentHp: Math.min(finalMaxHp, currentHp + hpDelta) },
+        });
+        const updatedSessionCharacter = await this.prisma.sessionCharacter.findUniqueOrThrow({
+          where: { id: assignment.id },
+          include: {
+            character: true,
+            resource: true,
+            inventoryEntries: {
+              include: { itemDefinition: true },
+              orderBy: { createdAt: "asc" },
+            },
+          },
+        });
+        this.realtimeEvents.emitCharacterUpdated(
+          assignment.sessionId,
+          mapSessionCharacter(updatedSessionCharacter),
+        );
+        this.realtimeEvents.emitSessionSnapshot(
+          assignment.sessionId,
+          await this.sessionsService.buildSnapshot(assignment.sessionId),
+        );
+      }
+    }
+
+    return mapCharacter(updated);
+  }
+
+  private resolveLevelUpAbilityScores(
+    current: AbilityScoresDto,
+    requested: LevelUpCharacterDto["abilityScoreIncreases"],
+    asiLevels: number[],
+  ): AbilityScoresDto {
+    const requiredPoints = asiLevels.length * 2;
+    const increases = requested ?? {};
+    let allocatedPoints = 0;
+    const next = { ...current };
+
+    for (const ability of ABILITY_KEYS) {
+      const increase = increases[ability] ?? 0;
+      if (!Number.isInteger(increase) || increase < 0) {
+        throw new BadRequestException({
+          code: "LEVEL_UP_INVALID_ASI",
+          message: "능력치 상승치는 0 이상의 정수여야 합니다.",
+          ability,
+          increase,
+        });
+      }
+      allocatedPoints += increase;
+      const nextScore = current[ability] + increase;
+      if (nextScore > ASI_ABILITY_SCORE_MAX) {
+        throw new BadRequestException({
+          code: "LEVEL_UP_INVALID_ASI",
+          message: `ASI로 올린 능력치는 ${ASI_ABILITY_SCORE_MAX}을 넘을 수 없습니다.`,
+          ability,
+          currentScore: current[ability],
+          increase,
+          maximum: ASI_ABILITY_SCORE_MAX,
+        });
+      }
+      next[ability] = nextScore;
+    }
+
+    if (allocatedPoints !== requiredPoints) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_ASI_REQUIRED",
+        message: requiredPoints
+          ? `이번 레벨업에는 능력치 상승 ${requiredPoints}점을 모두 배분해야 합니다.`
+          : "이번 레벨업 구간에는 능력치 상승점을 배분할 수 없습니다.",
+        levels: asiLevels,
+        requiredPoints,
+        allocatedPoints,
+      });
+    }
+
+    return next;
+  }
+
+  async updatePreparedSpells(
+    userId: string,
+    characterId: string,
+    dto: UpdatePreparedSpellsDto,
+  ): Promise<CharacterResponseDto> {
+    const existing = await this.getOwnedCharacterOrThrow(userId, characterId);
+    const spellsJson = this.resolvePreparedSpellsJson(existing.spellsJson, dto.preparedSpells, {
+      className: existing.className,
+      level: existing.level,
+      abilities: JSON.parse(existing.abilitiesJson) as AbilityScoresDto,
+    });
+
+    const updated = await this.prisma.character.update({
+      where: { id: characterId },
+      data: {
+        spellsJson,
+      },
+      include: {
+        sessionCharacters: {
+          include: { session: true },
+        },
+      },
+    });
+
+    for (const assignment of updated.sessionCharacters) {
+      if (
+        assignment.session.status === PrismaSessionStatus.COMPLETED ||
+        assignment.session.status === PrismaSessionStatus.DISBANDED
+      ) {
+        continue;
+      }
+      const updatedSessionCharacter = await this.prisma.sessionCharacter.findUniqueOrThrow({
+        where: { id: assignment.id },
+        include: {
+          character: true,
+          resource: true,
+          inventoryEntries: {
+            include: { itemDefinition: true },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      });
+      this.realtimeEvents.emitCharacterUpdated(
+        assignment.sessionId,
+        mapSessionCharacter(updatedSessionCharacter),
+      );
+      this.realtimeEvents.emitSessionSnapshot(
+        assignment.sessionId,
+        await this.sessionsService.buildSnapshot(assignment.sessionId),
+      );
+    }
+
+    return mapCharacter(updated);
+  }
+
+  private resolvePreparedSpellsJson(
+    spellsJson: string | null,
+    requestedPreparedSpells: string[],
+    character: { className: string; level: number; abilities: AbilityScoresDto },
+  ): string {
+    const spells = this.parseSpellsJson(spellsJson);
+    if (!spells) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELLS_NOT_AVAILABLE",
+        message: "주문을 가진 캐릭터만 준비 주문을 갱신할 수 있습니다.",
+      });
+    }
+
+    const knownSpellIds = new Set(spells.spells.map((spell) => this.normalizeSpellId(spell)));
+    const preparedSpells = Array.from(
+      new Set(requestedPreparedSpells.map((spell) => this.normalizeSpellId(spell)).filter(Boolean)),
+    );
+    const unknownPreparedSpell = preparedSpells.find((spell) => !knownSpellIds.has(spell));
+    if (unknownPreparedSpell) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELL_NOT_KNOWN",
+        message: "알고 있거나 주문책에 있는 슬롯 주문만 준비할 수 있습니다.",
+        spellId: unknownPreparedSpell,
+      });
+    }
+    this.assertPreparedSpellLimit(character, preparedSpells);
+
+    return JSON.stringify({
+      ...spells,
+      preparedSpells,
+    });
+  }
+
+  private resolveLevelUpSpellsJson(
+    spellsJson: string | null,
+    params: {
+      knownSpells?: string[];
+      preparedSpells?: string[];
+      cantrips?: string[];
+      forgottenSpells?: string[];
+      forgottenCantrips?: string[];
+      currentLevel: number;
+      level: number;
+      className: string;
+      abilities: AbilityScoresDto;
+    },
+  ): string {
+    const parsedSpells = this.parseSpellsJson(spellsJson);
+    const spells = parsedSpells ?? this.createEmptyLevelUpSpellState(params.className, params.level);
+    if (!spells) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_SPELLS_NOT_AVAILABLE",
+        message: "주문을 가진 캐릭터만 레벨업 주문을 갱신할 수 있습니다.",
+      });
+    }
+
+    const knownSpellPool = this.getMvpStartingSlotSpellPool(params.className, params.level);
+    const cantripPool = MVP_STARTING_CANTRIP_IDS;
+    const currentCantrips = spells.cantrips
+      .map((spell) => this.normalizeSpellId(spell))
+      .filter(Boolean);
+    const currentKnownSpells = spells.spells
+      .map((spell) => this.normalizeSpellId(spell))
+      .filter(Boolean);
+    const requestedCantrips = this.normalizeUniqueSpellSelection(params.cantrips);
+    const requestedKnownSpells = (params.knownSpells ?? [])
+      .map((spell) => this.normalizeSpellId(spell))
+      .filter(Boolean);
+    const forgottenCantrips = this.normalizeUniqueSpellSelection(params.forgottenCantrips);
+    const forgottenKnownSpells = this.normalizeUniqueSpellSelection(params.forgottenSpells);
+    this.assertForgottenSpellsExist(currentCantrips, forgottenCantrips, "LEVEL_UP_CANTRIP_NOT_KNOWN");
+    this.assertForgottenSpellsExist(currentKnownSpells, forgottenKnownSpells, "LEVEL_UP_SPELL_NOT_KNOWN");
+    this.assertNewSpellSelections(
+      currentCantrips,
+      requestedCantrips,
+      forgottenCantrips,
+      "LEVEL_UP_CANTRIP_ALREADY_KNOWN",
+    );
+    this.assertNewSpellSelections(
+      currentKnownSpells,
+      requestedKnownSpells,
+      forgottenKnownSpells,
+      "LEVEL_UP_SPELL_ALREADY_KNOWN",
+    );
+    const nextCantrips = Array.from(new Set([
+      ...currentCantrips.filter((spell) => !forgottenCantrips.includes(spell)),
+      ...requestedCantrips,
+    ]));
+    const nextKnownSpells = Array.from(new Set([
+      ...currentKnownSpells.filter((spell) => !forgottenKnownSpells.includes(spell)),
+      ...requestedKnownSpells,
+    ]));
+    const unsupportedCantrip = requestedCantrips.find((spell) => !cantripPool.has(spell));
+    if (unsupportedCantrip) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_CANTRIP_NOT_AVAILABLE",
+        message: "현재 MVP 실행 캔트립 풀에 있는 주문만 습득할 수 있습니다.",
+        spellId: unsupportedCantrip,
+      });
+    }
+    const unsupportedKnownSpell = requestedKnownSpells.find((spell) => !knownSpellPool.has(spell));
+    if (unsupportedKnownSpell) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_SPELL_NOT_AVAILABLE",
+        message: "현재 MVP 실행 주문 풀에 있는 슬롯 주문만 레벨업으로 습득할 수 있습니다.",
+        spellId: unsupportedKnownSpell,
+      });
+    }
+    this.assertLevelUpCantripProgression({
+      className: params.className,
+      currentLevel: params.currentLevel,
+      targetLevel: params.level,
+      currentCantrips,
+      requestedCantrips,
+      forgottenCantrips,
+      nextCantrips,
+    });
+    this.assertLevelUpKnownSpellProgression({
+      className: params.className,
+      currentLevel: params.currentLevel,
+      targetLevel: params.level,
+      currentKnownSpells,
+      requestedKnownSpells,
+      forgottenKnownSpells,
+      nextKnownSpells,
+      availableSpellCount: knownSpellPool.size,
+    });
+
+    if (!this.isPreparedSpellcaster(params.className)) {
+      if (params.preparedSpells !== undefined) {
+        throw new BadRequestException({
+          code: "PREPARED_SPELLS_NOT_SUPPORTED",
+          message: "이 직업은 준비 주문 모델을 사용하지 않습니다.",
+          className: params.className,
+        });
+      }
+      const knownCasterSpells = { ...spells };
+      delete knownCasterSpells.preparedSpells;
+      return JSON.stringify({
+        ...knownCasterSpells,
+        cantrips: nextCantrips,
+        spells: nextKnownSpells,
+      });
+    }
+
+    const preparedSpells =
+      params.preparedSpells === undefined
+        ? (spells.preparedSpells ?? [])
+        : Array.from(
+            new Set(
+              params.preparedSpells.map((spell) => this.normalizeSpellId(spell)).filter(Boolean),
+            ),
+          );
+    const nextKnownSet = new Set(nextKnownSpells);
+    const unknownPreparedSpell = preparedSpells.find((spell) => !nextKnownSet.has(spell));
+    if (unknownPreparedSpell) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELL_NOT_KNOWN",
+        message: "알고 있거나 주문책에 있는 슬롯 주문만 준비할 수 있습니다.",
+        spellId: unknownPreparedSpell,
+      });
+    }
+    this.assertPreparedSpellLimit({
+      className: params.className,
+      level: params.level,
+      abilities: params.abilities,
+    }, preparedSpells);
+
+    return JSON.stringify({
+      ...spells,
+      cantrips: nextCantrips,
+      spells: nextKnownSpells,
+      preparedSpells,
+    });
+  }
+
+  private createEmptyLevelUpSpellState(
+    className: string,
+    level: number,
+  ): StartingSpellsDto | null {
+    const progression = getSpellcastingProgression(className, level);
+    if (!progression) {
+      return null;
+    }
+
+    return {
+      cantrips: [],
+      spells: [],
+      ...(this.isPreparedSpellcaster(className) ? { preparedSpells: [] } : {}),
+    };
+  }
+
+  private normalizeUniqueSpellSelection(spells: string[] | undefined): string[] {
+    return Array.from(
+      new Set((spells ?? []).map((spell) => this.normalizeSpellId(spell)).filter(Boolean)),
+    );
+  }
+
+  private assertForgottenSpellsExist(
+    currentSpells: string[],
+    forgottenSpells: string[],
+    code: string,
+  ): void {
+    const current = new Set(currentSpells);
+    const unknown = forgottenSpells.find((spell) => !current.has(spell));
+    if (unknown) {
+      throw new BadRequestException({
+        code,
+        message: "현재 알고 있는 주문만 교체 대상으로 지정할 수 있습니다.",
+        spellId: unknown,
+      });
+    }
+  }
+
+  private assertNewSpellSelections(
+    currentSpells: string[],
+    requestedSpells: string[],
+    forgottenSpells: string[],
+    code: string,
+  ): void {
+    const current = new Set(currentSpells);
+    const forgotten = new Set(forgottenSpells);
+    const duplicate = requestedSpells.find((spell) => current.has(spell) || forgotten.has(spell));
+    if (duplicate) {
+      throw new BadRequestException({
+        code,
+        message: "새로 습득할 주문은 현재 주문 또는 교체 대상과 중복될 수 없습니다.",
+        spellId: duplicate,
+      });
+    }
+  }
+
+  private assertLevelUpCantripProgression(params: {
+    className: string;
+    currentLevel: number;
+    targetLevel: number;
+    currentCantrips: string[];
+    requestedCantrips: string[];
+    forgottenCantrips: string[];
+    nextCantrips: string[];
+  }): void {
+    const currentLimit = getCantripsKnownLimit(params.className, params.currentLevel) ?? 0;
+    const targetLimit = getCantripsKnownLimit(params.className, params.targetLevel);
+    if (targetLimit === null) {
+      if (params.requestedCantrips.length || params.forgottenCantrips.length) {
+        throw new BadRequestException({
+          code: "LEVEL_UP_CANTRIPS_NOT_SUPPORTED",
+          message: "이 직업은 현재 레벨에서 캔트립 성장 모델을 사용하지 않습니다.",
+        });
+      }
+      return;
+    }
+
+    const levelDelta = params.targetLevel - params.currentLevel;
+    const learnedAllowance = Math.max(0, targetLimit - currentLimit);
+    if (params.forgottenCantrips.length > levelDelta) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_CANTRIP_REPLACEMENT_LIMIT_EXCEEDED",
+        message: "한 레벨당 캔트립 하나까지만 교체할 수 있습니다.",
+        replacementLimit: levelDelta,
+      });
+    }
+    if (params.requestedCantrips.length < params.forgottenCantrips.length) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_CANTRIP_REPLACEMENT_INCOMPLETE",
+        message: "교체 대상으로 뺀 캔트립 수만큼 새 캔트립을 선택해야 합니다.",
+      });
+    }
+    if (params.requestedCantrips.length > learnedAllowance + params.forgottenCantrips.length) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_CANTRIP_LEARN_LIMIT_EXCEEDED",
+        message: "이번 레벨업에서 습득하거나 교체할 수 있는 캔트립 수를 초과했습니다.",
+        learnLimit: learnedAllowance + params.forgottenCantrips.length,
+      });
+    }
+    if (params.nextCantrips.length > Math.min(targetLimit, MVP_STARTING_CANTRIP_IDS.size)) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_CANTRIP_LIMIT_EXCEEDED",
+        message: "목표 레벨의 캔트립 습득 상한을 초과했습니다.",
+      });
+    }
+  }
+
+  private assertLevelUpKnownSpellProgression(params: {
+    className: string;
+    currentLevel: number;
+    targetLevel: number;
+    currentKnownSpells: string[];
+    requestedKnownSpells: string[];
+    forgottenKnownSpells: string[];
+    nextKnownSpells: string[];
+    availableSpellCount: number;
+  }): void {
+    const classKey = normalizeSpellcastingClassKey(params.className);
+    const levelDelta = params.targetLevel - params.currentLevel;
+    if (classKey === "wizard") {
+      if (params.forgottenKnownSpells.length) {
+        throw new BadRequestException({
+          code: "LEVEL_UP_WIZARD_SPELL_REPLACEMENT_NOT_SUPPORTED",
+          message: "위저드 주문책 주문은 레벨업으로 제거하지 않습니다.",
+        });
+      }
+      if (params.requestedKnownSpells.length > levelDelta * 2) {
+        throw new BadRequestException({
+          code: "LEVEL_UP_SPELL_LEARN_LIMIT_EXCEEDED",
+          message: "위저드는 레벨당 주문책 주문 두 개를 추가할 수 있습니다.",
+          learnLimit: levelDelta * 2,
+        });
+      }
+      return;
+    }
+
+    const currentLimit = getKnownSpellsLimit(params.className, params.currentLevel) ?? 0;
+    const targetLimit = getKnownSpellsLimit(params.className, params.targetLevel);
+    if (targetLimit === null) {
+      if (params.forgottenKnownSpells.length) {
+        throw new BadRequestException({
+          code: "LEVEL_UP_SPELL_REPLACEMENT_NOT_SUPPORTED",
+          message: "이 직업은 known spell 교체 모델을 사용하지 않습니다.",
+        });
+      }
+      return;
+    }
+
+    const learnedAllowance = Math.max(0, targetLimit - currentLimit);
+    if (params.forgottenKnownSpells.length > levelDelta) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_SPELL_REPLACEMENT_LIMIT_EXCEEDED",
+        message: "한 레벨당 알고 있는 슬롯 주문 하나까지만 교체할 수 있습니다.",
+        replacementLimit: levelDelta,
+      });
+    }
+    if (params.requestedKnownSpells.length < params.forgottenKnownSpells.length) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_SPELL_REPLACEMENT_INCOMPLETE",
+        message: "교체 대상으로 뺀 슬롯 주문 수만큼 새 주문을 선택해야 합니다.",
+      });
+    }
+    if (params.requestedKnownSpells.length > learnedAllowance + params.forgottenKnownSpells.length) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_SPELL_LEARN_LIMIT_EXCEEDED",
+        message: "이번 레벨업에서 습득하거나 교체할 수 있는 슬롯 주문 수를 초과했습니다.",
+        learnLimit: learnedAllowance + params.forgottenKnownSpells.length,
+      });
+    }
+    if (params.nextKnownSpells.length > Math.min(targetLimit, params.availableSpellCount)) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_KNOWN_SPELL_LIMIT_EXCEEDED",
+        message: "목표 레벨의 알고 있는 주문 수 상한을 초과했습니다.",
+      });
+    }
+  }
+
+  private assertPreparedSpellLimit(
+    character: { className: string; level: number; abilities: AbilityScoresDto },
+    preparedSpells: string[],
+  ): void {
+    const limit = this.resolvePreparedSpellLimit(character);
+    if (limit === null) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELLS_NOT_SUPPORTED",
+        message: "이 직업은 준비 주문 모델을 사용하지 않습니다.",
+        className: character.className,
+      });
+    }
+    if (preparedSpells.length <= limit) {
+      return;
+    }
+
+    throw new BadRequestException({
+      code: "PREPARED_SPELL_LIMIT_EXCEEDED",
+      message: "준비 가능한 주문 수를 초과했습니다.",
+      preparedCount: preparedSpells.length,
+      preparedLimit: limit,
+    });
+  }
+
+  private resolvePreparedSpellLimit(
+    character: { className: string; level: number; abilities: AbilityScoresDto },
+  ): number | null {
+    const className = character.className.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    const level = Math.max(1, Math.min(20, Math.floor(character.level)));
+    if (className.includes("wizard")) {
+      return Math.max(1, level + this.getAbilityModifier(character.abilities.int));
+    }
+    if (className.includes("cleric") || className.includes("druid")) {
+      return Math.max(1, level + this.getAbilityModifier(character.abilities.wis));
+    }
+    if (className.includes("paladin")) {
+      return Math.max(1, Math.floor(level / 2) + this.getAbilityModifier(character.abilities.cha));
+    }
+    return null;
+  }
+
+  private isPreparedSpellcaster(className: string): boolean {
+    const normalized = className.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return normalized === "wizard" ||
+      normalized === "cleric" ||
+      normalized === "druid" ||
+      normalized === "paladin";
   }
 
   async deleteCharacter(userId: string, characterId: string): Promise<void> {
@@ -411,6 +1200,7 @@ export class CharactersService {
     dto: UpdateCharacterEquipmentDto,
   ): Promise<CharacterResponseDto> {
     const character = await this.getOwnedCharacterOrThrow(userId, characterId);
+    await this.assertCharacterNotLocked(characterId);
 
     const inventory = JSON.parse(character.inventoryJson) as InventoryItemDto[];
     const finalLoadout = await this.resolveNextEquipmentLoadout({
@@ -550,8 +1340,9 @@ export class CharactersService {
   private async validatePointBuyForAncestry(
     ancestry: string,
     abilities: AbilityScoresDto,
+    resolvedRace?: Race | null,
   ): Promise<void> {
-    const race = await this.findRaceForAncestry(ancestry);
+    const race = resolvedRace ?? await this.findRaceForAncestry(ancestry);
     if (!race) {
       return;
     }
@@ -973,12 +1764,13 @@ export class CharactersService {
     abilities: AbilityScoresDto,
     dtoProf: number | undefined,
     dtoMaxHp: number | undefined,
+    maxHpBonus = 0,
   ): Promise<{ proficiencyBonus: number; maxHp: number }> {
     const klass = await this.catalogService.findClassByKey(className.toLowerCase());
     if (!klass) {
       return {
         proficiencyBonus: dtoProf ?? 2,
-        maxHp: dtoMaxHp ?? 10,
+        maxHp: dtoMaxHp ?? 10 + maxHpBonus,
       };
     }
 
@@ -999,7 +1791,7 @@ export class CharactersService {
       );
     }
     const expectedProf = stats.proficiencyBonus;
-    const expectedMaxHp = stats.maxHp;
+    const expectedMaxHp = stats.maxHp + maxHpBonus;
 
     if (dtoProf !== undefined && dtoProf !== expectedProf) {
       throw new BadRequestException(
@@ -1015,18 +1807,46 @@ export class CharactersService {
     return { proficiencyBonus: expectedProf, maxHp: expectedMaxHp };
   }
 
-  // className 이 ClassDefinition 시드에 있고 startingCantripCount/startingSpellCount > 0 면 시작 주문 강제.
-  // - cantrips.length === startingCantripCount, spells.length === startingSpellCount
+  // ClassDefinition과 SRD spellcasting progression을 함께 사용해 시작 주문 수를 결정한다.
+  // 준비형 직업은 주문시전이 열린 레벨부터 현재 MVP 슬롯 주문 풀을 known 목록으로 사용한다.
   // 반환값: spellsJson 에 저장할 문자열(또는 null = 마법 없는 클래스/legacy)
   private async resolveStartingSpells(
     className: string,
+    level: number,
+    abilities: AbilityScoresDto,
     startingSpells: StartingSpellsDto | undefined,
   ): Promise<string | null> {
     const klass = await this.catalogService.findClassByKey(className.toLowerCase());
     if (!klass) return null;
 
-    const needCantrips = klass.startingCantripCount;
-    const needSpells = klass.startingSpellCount;
+    const progressionCantripCount = getCantripsKnownLimit(className, level);
+    const needCantrips = progressionCantripCount === null
+      ? klass.startingCantripCount
+      : Math.min(progressionCantripCount, MVP_STARTING_CANTRIP_IDS.size);
+    const classKey = normalizeSpellcastingClassKey(className);
+    const spellcastingProgression = getSpellcastingProgression(className, level);
+    const usesDynamicPreparedPool =
+      this.isPreparedSpellcaster(className) &&
+      classKey !== "wizard" &&
+      spellcastingProgression !== null;
+    const mvpSlotSpellSelectionCount = Math.min(
+      MVP_STARTING_SLOT_SPELL_SELECTION_COUNT,
+      this.getMvpStartingSlotSpellPool(className, level).size,
+    );
+    const needSpells = usesDynamicPreparedPool
+      ? mvpSlotSpellSelectionCount
+      : spellcastingProgression?.spellsKnown !== null &&
+          spellcastingProgression?.spellsKnown !== undefined
+        ? Math.min(
+            spellcastingProgression.spellsKnown,
+            this.getMvpStartingSlotSpellPool(className, level).size,
+          )
+        : classKey === "wizard"
+          ? Math.min(
+              Math.max(klass.startingSpellCount, mvpSlotSpellSelectionCount),
+              this.getMvpStartingSlotSpellPool(className, level).size,
+            )
+          : klass.startingSpellCount;
 
     if (needCantrips === 0 && needSpells === 0) {
       return null;
@@ -1050,9 +1870,48 @@ export class CharactersService {
       );
     }
 
+    const cantrips = startingSpells.cantrips.map((s) => s.trim()).filter((s) => s.length > 0);
+    const spells = startingSpells.spells.map((s) => s.trim()).filter((s) => s.length > 0);
+    if (cantrips.length !== needCantrips) {
+      throw new BadRequestException(
+        `시작 주문: 비어 있지 않은 캔트립 ${cantrips.length}개가 ${klass.koName} 요구치 ${needCantrips}개와 일치하지 않습니다.`,
+      );
+    }
+    if (spells.length !== needSpells) {
+      throw new BadRequestException(
+        `시작 주문: 비어 있지 않은 주문 ${spells.length}개가 ${klass.koName} 요구치 ${needSpells}개와 일치하지 않습니다.`,
+      );
+    }
+    this.assertUniqueStartingSpellIds(cantrips, "캔트립");
+    this.assertUniqueStartingSpellIds(spells, "주문");
+    this.assertMvpStartingSpellPool(cantrips, "캔트립", MVP_STARTING_CANTRIP_IDS);
+    this.assertMvpStartingSpellPool(spells, "주문", this.getMvpStartingSlotSpellPool(className, level));
+    const knownSpellIds = new Set(spells.map((spell) => this.normalizeSpellId(spell)));
+    const preparedSpells = startingSpells.preparedSpells
+      ? Array.from(
+          new Set(
+            startingSpells.preparedSpells
+              .map((spell) => this.normalizeSpellId(spell))
+              .filter(Boolean),
+          ),
+        )
+      : undefined;
+    const unknownPreparedSpell = preparedSpells?.find((spell) => !knownSpellIds.has(spell));
+    if (unknownPreparedSpell) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELL_NOT_KNOWN",
+        message: "알고 있거나 주문책에 있는 슬롯 주문만 준비할 수 있습니다.",
+        spellId: unknownPreparedSpell,
+      });
+    }
+    if (preparedSpells) {
+      this.assertPreparedSpellLimit({ className, level, abilities }, preparedSpells);
+    }
+
     return JSON.stringify({
-      cantrips: startingSpells.cantrips.map((s) => s.trim()).filter((s) => s.length > 0),
-      spells: startingSpells.spells.map((s) => s.trim()).filter((s) => s.length > 0),
+      cantrips,
+      spells,
+      ...(preparedSpells ? { preparedSpells } : {}),
     });
   }
 
@@ -1346,14 +2205,86 @@ export class CharactersService {
     }
   }
 
+  private parseSpellsJson(value: string | null | undefined): StartingSpellsDto | null {
+    if (!value) return null;
+    try {
+      const parsed = JSON.parse(value) as Partial<StartingSpellsDto> | null;
+      if (!parsed || !Array.isArray(parsed.cantrips) || !Array.isArray(parsed.spells)) {
+        return null;
+      }
+      return {
+        cantrips: parsed.cantrips.filter((spell): spell is string => typeof spell === "string"),
+        spells: parsed.spells.filter((spell): spell is string => typeof spell === "string"),
+        preparedSpells: Array.isArray(parsed.preparedSpells)
+          ? parsed.preparedSpells.filter((spell): spell is string => typeof spell === "string")
+          : undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private normalizeSpellId(spellId: string): string {
+    const normalized = spellId.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return normalized.startsWith("spell.") ? normalized : `spell.${normalized}`;
+  }
+
+  private assertUniqueStartingSpellIds(spellIds: string[], label: string): void {
+    const normalized = spellIds.map((spellId) => this.normalizeSpellId(spellId));
+    if (new Set(normalized).size !== normalized.length) {
+      throw new BadRequestException(`시작 주문: ${label} 선택에 중복이 있습니다.`);
+    }
+  }
+
+  private assertMvpStartingSpellPool(spellIds: string[], label: string, allowedSpellIds: Set<string>): void {
+    const unsupportedSpellId = spellIds
+      .map((spellId) => this.normalizeSpellId(spellId))
+      .find((spellId) => !allowedSpellIds.has(spellId));
+    if (unsupportedSpellId) {
+      throw new BadRequestException(`시작 주문: ${label} ${unsupportedSpellId}은(는) 현재 MVP 실행 주문 풀이 아닙니다.`);
+    }
+  }
+
+  private getMvpStartingSlotSpellPool(className: string, level: number): Set<string> {
+    const maxSpellLevel = this.getMaximumSlotSpellLevelForClassLevel(className, level);
+    return new Set([
+      ...MVP_STARTING_SLOT_SPELL_IDS,
+      ...(maxSpellLevel >= 2 ? MVP_STARTING_LEVEL3_SLOT_SPELL_IDS : []),
+      ...(maxSpellLevel >= 3 ? MVP_STARTING_LEVEL5_SLOT_SPELL_IDS : []),
+    ]);
+  }
+
+  private getMaximumSlotSpellLevelForClassLevel(className: string, level: number): number {
+    const classKey = normalizeSpellcastingClassKey(className);
+    const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
+    if (["bard", "cleric", "druid", "sorcerer", "wizard"].includes(classKey)) {
+      if (normalizedLevel >= 5) return 3;
+      if (normalizedLevel >= 3) return 2;
+      return 1;
+    }
+    if (classKey === "warlock") {
+      if (normalizedLevel >= 5) return 3;
+      if (normalizedLevel >= 3) return 2;
+      return 1;
+    }
+    if (classKey === "paladin" || classKey === "ranger") {
+      if (normalizedLevel >= 9) return 3;
+      if (normalizedLevel >= 5) return 2;
+      if (normalizedLevel >= 2) return 1;
+    }
+    return 0;
+  }
+
   private async resolveCharacterFeatureSnapshot(params: {
     ancestry: string;
+    raceKey?: string | null;
     className: string;
     subclassName?: string | null;
     level: number;
     requestedFeatures: string[];
   }): Promise<string[]> {
-    const raceKey = await this.resolveRaceTraitFeatureKey(params.ancestry);
+    const raceKey = params.raceKey ?? await this.resolveRaceTraitFeatureKey(params.ancestry);
+    this.assertRaceFeatureSelections(raceKey, params.requestedFeatures);
     return this.ruleCatalogService.getCharacterFeatureSnapshot({
       raceKey,
       classKey: params.className,
@@ -1361,6 +2292,84 @@ export class CharactersService {
       classLevel: params.level,
       requestedFeatureIds: params.requestedFeatures,
     }).featureIds;
+  }
+
+  private assertRaceFeatureSelections(
+    raceKey: string | null,
+    requestedFeatures: string[],
+  ): void {
+    const normalizedFeatures = requestedFeatures.map((feature) =>
+      feature.trim().toLowerCase(),
+    );
+    if (raceKey !== "dragonborn") {
+      if (
+        normalizedFeatures.some((feature) =>
+          feature.startsWith("draconic_ancestry:"),
+        )
+      ) {
+        throw new BadRequestException({
+          code: "CHARACTER_INVALID_RACE_FEATURE",
+          message: "드래곤본이 아닌 종족은 용 혈통을 선택할 수 없습니다.",
+        });
+      }
+      return;
+    }
+    const ancestry = normalizedFeatures
+      .find((feature) => feature.startsWith("draconic_ancestry:"))
+      ?.slice("draconic_ancestry:".length);
+    const allowed = new Set([
+      "black",
+      "blue",
+      "brass",
+      "bronze",
+      "copper",
+      "gold",
+      "green",
+      "red",
+      "silver",
+      "white",
+    ]);
+    if (!ancestry || !allowed.has(ancestry)) {
+      throw new BadRequestException({
+        code: "CHARACTER_DRACONIC_ANCESTRY_REQUIRED",
+        message: "드래곤본은 용 혈통을 선택해야 합니다.",
+      });
+    }
+  }
+
+  private assertValidSubclassSelection(params: {
+    className: string;
+    subclassName?: string | null;
+    level: number;
+    requiredCode: string;
+    invalidCode: string;
+  }): string | null {
+    const subclassName = params.subclassName?.trim() || null;
+    const choiceLevel = this.ruleCatalogService.getSubclassChoiceLevel(params.className);
+    if (choiceLevel !== null && params.level >= choiceLevel && !subclassName) {
+      throw new BadRequestException({
+        code: params.requiredCode,
+        message: `${params.className} ${params.level}레벨에는 서브클래스 선택이 필요합니다.`,
+        levels: [choiceLevel],
+      });
+    }
+    if (!subclassName) {
+      return null;
+    }
+
+    const subclassFeatures = this.ruleCatalogService.listSubclassFeatures(
+      params.className,
+      subclassName,
+      params.level,
+    );
+    if (!subclassFeatures.length) {
+      throw new BadRequestException({
+        code: params.invalidCode,
+        message: `${params.className} ${params.level}레벨에서 사용할 수 없는 서브클래스입니다.`,
+        subclassName,
+      });
+    }
+    return subclassName;
   }
 
   private async resolveRaceTraitFeatureKey(ancestry: string): Promise<string | null> {

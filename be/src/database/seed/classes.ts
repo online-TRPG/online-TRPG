@@ -44,11 +44,14 @@ const skillSelections: Record<string, { choices: string[]; count: number }> = {
   wizard: { choices: ["비전학", "역사", "통찰", "조사", "의학", "종교"], count: 2 },
 };
 
-// 1레벨 시점 시작 캔트립/주문 수 (룰북 ai/translated/classes/*.md 추출)
-// druid/cleric/paladin은 준비 주문이 매일 동적이라 startingSpellCount=0
+// 1레벨 시점 시작 캔트립/주문 수.
+// 현재 캐릭터 생성은 실행 가능한 MVP 주문 풀만 선택지로 노출하므로,
+// 공식 개수가 MVP 풀보다 큰 직업은 MVP에서 고를 수 있는 개수로 제한한다.
+// druid/cleric/paladin은 준비 주문이 매일 동적이라 startingSpellCount=0으로 저장한다.
+// 캐릭터 생성 runtime은 spellcasting progression이 열린 레벨에서 MVP 슬롯 주문 풀을 known 목록으로 확장한다.
 const spellCounts: Record<string, { cantrips: number; spells: number }> = {
   barbarian: { cantrips: 0, spells: 0 },
-  bard: { cantrips: 2, spells: 4 },
+  bard: { cantrips: 2, spells: 3 },
   cleric: { cantrips: 3, spells: 0 },
   druid: { cantrips: 2, spells: 0 },
   fighter: { cantrips: 0, spells: 0 },
@@ -56,9 +59,9 @@ const spellCounts: Record<string, { cantrips: number; spells: number }> = {
   paladin: { cantrips: 0, spells: 0 },
   ranger: { cantrips: 0, spells: 0 },
   rogue: { cantrips: 0, spells: 0 },
-  sorcerer: { cantrips: 4, spells: 2 },
+  sorcerer: { cantrips: 3, spells: 2 },
   warlock: { cantrips: 2, spells: 2 },
-  wizard: { cantrips: 3, spells: 6 },
+  wizard: { cantrips: 3, spells: 3 },
 };
 
 const classSeeds: ClassDefinitionSeed[] = [

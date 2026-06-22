@@ -18,15 +18,20 @@ import type {
 } from 'react';
 import type {
   ActionOutcome,
+  AiHumanGmAssistSuggestionRequestDto,
   ClassDefinitionResponseDto,
   CombatActionResultDto,
+  CombatMoveResultDto,
   CombatReactionPromptDto,
   CombatResponseDto,
+  CreateHumanGmAiAssistSuggestionDto,
+  HumanGmAiAssistSuggestionDto,
   ItemResponseDto,
   InventoryItemDto,
   MainCommandResponseDto,
   PlayerScenarioClueDto,
   RaceResponseDto,
+  RestActionDto,
   ResolveMainCommandCheckDto,
   SubmitMainCommandDto,
   VttMapInteractionDto,
@@ -67,16 +72,24 @@ import {
 } from '../features/sessionPlay/utils/characterVisuals';
 import type { CharacterPayload } from '../hooks/useSession';
 import {
+  acceptHumanGmAiAssistSuggestion,
   endCombat,
   endCombatTurn,
   acceptCombatReaction,
+  applyHumanGmCombatCondition,
+  adjustHumanGmCombatHp,
   resolveCombatActorAction,
   castCombatSpell,
+  createHumanGmAiAssistSuggestion,
+  createHumanGmMessage,
   createVttMapPing,
   dashCombatAction,
   declineCombatReaction,
   dodgeCombatAction,
+  forceMoveCombatParticipant,
   getCombat,
+  getHumanGmAiAssistSuggestions,
+  generateHumanGmAiAssistSuggestion,
   getHumanGmNodeMoveOptions,
   getPlayerScenario,
   getVttMap,
@@ -85,6 +98,7 @@ import {
   listItems,
   moveCombatParticipant,
   moveSessionToken,
+  reportHumanGmAiAssistApplicationFailure,
   resolveEquippedWeaponAttack,
   resolveOffhandWeaponAttack,
   resolveSneakAttackCombatAction,
@@ -125,6 +139,10 @@ type PendingOptimisticTokenMove = {
   tokenId: string;
   optimisticUpdatedAt: string;
   previousMap: VttMapStateDto;
+};
+
+type PendingCombatReactionPrompt = {
+  reaction: CombatReactionPromptDto;
 };
 
 function shouldLogMapMovePerf() {
@@ -187,6 +205,21 @@ function applyOptimisticTokenMove(
     ),
     updatedAt: optimisticUpdatedAt,
   };
+}
+
+function getCombatReactionTypeLabel(type: CombatReactionPromptDto['type']) {
+  switch (type) {
+    case 'opportunity_attack':
+      return '기회공격';
+    case 'shield':
+      return 'Shield 반응';
+    case 'ready_action':
+      return '준비행동';
+    case 'counterspell':
+      return 'Counterspell 반응';
+    default:
+      return '반응';
+  }
 }
 const sessionTabDescriptions: Record<
   (typeof sessionTabs)[number],
@@ -976,6 +1009,15 @@ interface PlayPageProps {
   onResolveMainCommandCheck: (
     payload: ResolveMainCommandCheckDto,
   ) => Promise<MainCommandResponseDto | null>;
+  onRequestRest: (
+    restType: RestActionDto['restType'],
+    characterId?: string,
+    hitDiceToSpend?: number,
+  ) => Promise<void> | void;
+  onApproveRestRequest: (actionId: string) => Promise<boolean> | boolean;
+  onRejectRestRequest: (actionId: string) => Promise<boolean> | boolean;
+  onCancelRestRequest: (actionId: string) => Promise<boolean> | boolean;
+  onSendAction: (rawText: string) => Promise<void> | void;
   onAction: (label: string) => void;
   onLoadOlderTurnLogs: () => void;
   onCombatActionLog: (message: string, turnLogId?: string | null) => void;
@@ -1021,6 +1063,22 @@ const QUICK_CREATE_CLASS_PRESET_BY_KEY = new Map<string, string>([
   ['rogue', 'preset_rogue'],
   ['fighter', 'preset_warrior'],
 ]);
+const QUICK_CREATE_SUBCLASS_BY_CLASS_KEY: Readonly<
+  Record<string, { choiceLevel: number; subclassName: string }>
+> = {
+  barbarian: { choiceLevel: 3, subclassName: 'berserker' },
+  bard: { choiceLevel: 3, subclassName: 'lore' },
+  cleric: { choiceLevel: 1, subclassName: 'life' },
+  druid: { choiceLevel: 2, subclassName: 'land' },
+  fighter: { choiceLevel: 3, subclassName: 'champion' },
+  monk: { choiceLevel: 3, subclassName: 'open_hand' },
+  paladin: { choiceLevel: 3, subclassName: 'devotion' },
+  ranger: { choiceLevel: 3, subclassName: 'hunter' },
+  rogue: { choiceLevel: 3, subclassName: 'thief' },
+  sorcerer: { choiceLevel: 1, subclassName: 'draconic_bloodline' },
+  warlock: { choiceLevel: 1, subclassName: 'fiend' },
+  wizard: { choiceLevel: 2, subclassName: 'evocation' },
+};
 const QUICK_CREATE_CLASS_COMBAT_DEFAULTS: Readonly<
   Record<string, { armorClass: number; speed: number }>
 > = {
@@ -1029,6 +1087,48 @@ const QUICK_CREATE_CLASS_COMBAT_DEFAULTS: Readonly<
   rogue: { armorClass: 14, speed: 36 },
   wizard: { armorClass: 12, speed: 30 },
 };
+const QUICK_CREATE_MVP_CANTRIPS = [
+  'spell.chill_touch',
+  'spell.fire_bolt',
+  'spell.light',
+  'spell.ray_of_frost',
+];
+const QUICK_CREATE_MVP_LEVEL1_SPELLS = [
+  'spell.magic_missile',
+  'spell.burning_hands',
+  'spell.cure_wounds',
+  'spell.shield',
+  'spell.sleep',
+];
+const QUICK_CREATE_MVP_LEVEL5_SLOT_SPELLS_BY_CLASS: Readonly<Record<string, string[]>> = {
+  sorcerer: ['spell.fireball'],
+  wizard: ['spell.fireball'],
+};
+
+function getQuickCreateAbilityModifier(score: number | null | undefined) {
+  return Math.floor(((score ?? 10) - 10) / 2);
+}
+
+function getQuickCreatePreparedSpellAbilityKey(classKey: string | null | undefined) {
+  const normalized = (classKey ?? '').trim().toLowerCase();
+  if (normalized === 'wizard') return 'int' as const;
+  if (normalized === 'cleric' || normalized === 'druid') return 'wis' as const;
+  if (normalized === 'paladin') return 'cha' as const;
+  return null;
+}
+
+function getQuickCreatePreparedSpellLimit(
+  classKey: string | null | undefined,
+  level: number,
+  abilities: QuickCreateAbilities,
+) {
+  const abilityKey = getQuickCreatePreparedSpellAbilityKey(classKey);
+  if (!abilityKey) return null;
+  const normalizedClassKey = (classKey ?? '').trim().toLowerCase();
+  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
+  const levelBase = normalizedClassKey === 'paladin' ? Math.floor(normalizedLevel / 2) : normalizedLevel;
+  return Math.max(1, levelBase + getQuickCreateAbilityModifier(abilities[abilityKey]));
+}
 
 // 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
 const defaultCharacter: QuickCreateFormState = {
@@ -1084,6 +1184,51 @@ function getDefaultStartingEquipmentItemSelections(
     });
   });
   return selections;
+}
+
+function getDefaultQuickCreateStartingSpells(
+  klass: ClassDefinitionResponseDto,
+  level: number,
+  abilities: QuickCreateAbilities,
+) {
+  const progression =
+    klass.spellcastingProgression?.find((entry) => entry.classLevel === level) ?? null;
+  const level5Spells = level >= 5
+    ? (QUICK_CREATE_MVP_LEVEL5_SLOT_SPELLS_BY_CLASS[klass.key] ?? [])
+    : [];
+  const slotSpells = Array.from(
+    new Set([
+      ...QUICK_CREATE_MVP_LEVEL1_SPELLS.slice(0, Math.max(0, klass.startingSpellCount - level5Spells.length)),
+      ...level5Spells,
+      ...QUICK_CREATE_MVP_LEVEL1_SPELLS,
+    ]),
+  );
+  const preparedSpellLimit = getQuickCreatePreparedSpellLimit(klass.key, level, abilities);
+  const cantripCount = Math.min(
+    progression?.cantripsKnown ?? klass.startingCantripCount,
+    QUICK_CREATE_MVP_CANTRIPS.length,
+  );
+  const slotSpellCount = Math.min(
+    preparedSpellLimit !== null && klass.key !== 'wizard' && progression
+      ? slotSpells.length
+      : (progression?.spellsKnown ??
+          (klass.key === 'wizard'
+            ? Math.max(klass.startingSpellCount, QUICK_CREATE_MVP_LEVEL1_SPELLS.length)
+            : klass.startingSpellCount)),
+    slotSpells.length,
+  );
+  if (cantripCount <= 0 && slotSpellCount <= 0) {
+    return undefined;
+  }
+  const selectedSlotSpells = slotSpells.slice(0, slotSpellCount);
+
+  return {
+    cantrips: QUICK_CREATE_MVP_CANTRIPS.slice(0, cantripCount),
+    spells: selectedSlotSpells,
+    ...(preparedSpellLimit !== null
+      ? { preparedSpells: selectedSlotSpells.slice(0, preparedSpellLimit) }
+      : {}),
+  };
 }
 
 function getQuickCreatePointBuyBase(classKey: string): QuickCreateAbilities {
@@ -1531,6 +1676,75 @@ function isCombatActionResultDto(value: unknown): value is CombatActionResultDto
   );
 }
 
+function isCombatReactionPromptDto(value: unknown): value is CombatReactionPromptDto {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    typeof (value as { id?: unknown }).id === 'string' &&
+    ['opportunity_attack', 'shield', 'ready_action', 'counterspell'].includes(
+      String((value as { type?: unknown }).type)
+    ) &&
+    typeof (value as { reactorParticipantId?: unknown }).reactorParticipantId === 'string' &&
+    typeof (value as { message?: unknown }).message === 'string'
+  );
+}
+
+function getCombatReactionPrompts(result: {
+  pendingReaction?: CombatReactionPromptDto | null;
+  pendingReactions?: CombatReactionPromptDto[] | null;
+}): CombatReactionPromptDto[] {
+  const prompts = [
+    ...(Array.isArray(result.pendingReactions) ? result.pendingReactions : []),
+    result.pendingReaction,
+  ].filter(isCombatReactionPromptDto);
+  const seen = new Set<string>();
+  return prompts.filter((prompt) => {
+    if (seen.has(prompt.id)) return false;
+    seen.add(prompt.id);
+    return true;
+  });
+}
+
+function formatCombatMoveResultMessage(result: CombatMoveResultDto): string {
+  const baseMessage = result.message?.trim() || '전투 이동을 처리했습니다.';
+  const movementDistanceFt =
+    typeof result.movementDistanceFt === 'number' ? result.movementDistanceFt : null;
+  const movementCostFt = typeof result.movementCostFt === 'number' ? result.movementCostFt : null;
+
+  if (
+    movementDistanceFt !== null &&
+    movementCostFt !== null &&
+    movementCostFt !== movementDistanceFt &&
+    !/소모\s*\d+\s*ft/i.test(baseMessage)
+  ) {
+    return `${baseMessage} / 이동 소모 ${movementCostFt}ft`;
+  }
+
+  return baseMessage;
+}
+
+function formatCombatActionResultMessage(result: CombatActionResultDto): string {
+  const baseMessage = result.message?.trim() || '전투 행동을 처리했습니다.';
+  const details: string[] = [];
+
+  if (
+    typeof result.attackTotal === 'number' &&
+    !/(명중|공격|attack)\s*(굴림|총합|total)?\s*\d+/i.test(baseMessage)
+  ) {
+    details.push(`명중 ${result.attackTotal}`);
+  }
+
+  if (
+    typeof result.damageTotal === 'number' &&
+    result.damageTotal > 0 &&
+    !/(피해|damage)\s*\d+/i.test(baseMessage)
+  ) {
+    details.push(`피해 ${result.damageTotal}`);
+  }
+
+  return details.length ? `${baseMessage} / ${details.join(' / ')}` : baseMessage;
+}
+
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function PlayPage({
   user,
@@ -1554,6 +1768,11 @@ export function PlayPage({
   onNavigateToCharacters,
   onMainCommand,
   onResolveMainCommandCheck,
+  onRequestRest,
+  onApproveRestRequest,
+  onRejectRestRequest,
+  onCancelRestRequest,
+  onSendAction,
   onAction,
   onLoadOlderTurnLogs,
   onCombatActionLog,
@@ -1597,6 +1816,9 @@ export function PlayPage({
     Chat: 0,
   });
   const [revealedClueToast, setRevealedClueToast] = useState<PlayerScenarioClueDto | null>(null);
+  const [resolvedRestRequestIds, setResolvedRestRequestIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   function clearMainCommandSelectionFields() {
     setSelectedMainTargetId('');
@@ -1621,6 +1843,51 @@ export function PlayPage({
     onLeaveSession();
   }
 
+  const requestCombatReactionDecision = useCallback((reaction: CombatReactionPromptDto) => {
+    if (pendingCombatReactionDecisionRef.current?.id === reaction.id) {
+      return pendingCombatReactionDecisionRef.current.promise;
+    }
+    pendingCombatReactionResolverRef.current?.(false);
+    const promise = new Promise<boolean>((resolve) => {
+      pendingCombatReactionResolverRef.current = resolve;
+      setPendingCombatReaction({ reaction });
+    });
+    pendingCombatReactionDecisionRef.current = { id: reaction.id, promise };
+    return promise;
+  }, []);
+
+  function resolvePendingCombatReaction(accepted: boolean) {
+    const resolver = pendingCombatReactionResolverRef.current;
+    pendingCombatReactionResolverRef.current = null;
+    pendingCombatReactionDecisionRef.current = null;
+    setPendingCombatReaction(null);
+    resolver?.(accepted);
+  }
+
+  function isCombatReactionForCurrentUser(
+    reaction: CombatReactionPromptDto,
+    combatView: CombatResponseDto | null = combat
+  ) {
+    return Boolean(
+      combatView?.participants.some(
+        (candidate) =>
+          candidate.sessionEntityId === reaction.reactorParticipantId &&
+          candidate.sessionCharacterId &&
+          sessionCharacters.some(
+            (character) => character.id === candidate.sessionCharacterId && character.userId === user.id
+          )
+      )
+    );
+  }
+
+  function claimCombatReactionHandling(reactionId: string) {
+    if (claimedCombatReactionIdsRef.current.has(reactionId)) {
+      return false;
+    }
+    claimedCombatReactionIdsRef.current.add(reactionId);
+    return true;
+  }
+
   const [inventoryUseFeedback, setInventoryUseFeedback] = useState<string | null>(null);
   const [isInventoryUsePending, setInventoryUsePending] = useState(false);
   const [formState, setFormState] = useState<QuickCreateFormState>(defaultCharacter);
@@ -1637,12 +1904,18 @@ export function PlayPage({
   const [combat, setCombat] = useState<CombatResponseDto | null>(null);
   const [combatError, setCombatError] = useState<string | null>(null);
   const [isCombatBusy, setCombatBusy] = useState(false);
+  const [pendingCombatReaction, setPendingCombatReaction] =
+    useState<PendingCombatReactionPrompt | null>(null);
   const [isGmNodeMovePending, setGmNodeMovePending] = useState(false);
   const [gmNodeMoveOptions, setGmNodeMoveOptions] = useState<ExplorationNodeMoveOption[]>([]);
   const [gmItemCatalog, setGmItemCatalog] = useState<ItemResponseDto[]>([]);
   const [isGmItemCatalogLoading, setGmItemCatalogLoading] = useState(false);
   const [gmItemCatalogError, setGmItemCatalogError] = useState<string | null>(null);
   const [isGmInventoryGrantPending, setGmInventoryGrantPending] = useState(false);
+  const [isGmMessagePending, setGmMessagePending] = useState(false);
+  const [gmAiAssistSuggestions, setGmAiAssistSuggestions] =
+    useState<HumanGmAiAssistSuggestionDto[]>([]);
+  const [isGmAiAssistPending, setGmAiAssistPending] = useState(false);
   const [isCombatChecked, setCombatChecked] = useState(false);
   const [scenarioLoadError, setScenarioLoadError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
@@ -1654,6 +1927,9 @@ export function PlayPage({
   const scenarioDescriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const latestConfirmedMapRef = useRef<VttMapStateDto | null>(null);
   const pendingOptimisticTokenMoveRef = useRef<PendingOptimisticTokenMove | null>(null);
+  const pendingCombatReactionResolverRef = useRef<((accepted: boolean) => void) | null>(null);
+  const pendingCombatReactionDecisionRef = useRef<{ id: string; promise: Promise<boolean> } | null>(null);
+  const claimedCombatReactionIdsRef = useRef<Set<string>>(new Set());
   const mapSaveRef = useRef<{
     isSaving: boolean;
     pending: VttMapStateDto | null;
@@ -1709,6 +1985,36 @@ export function PlayPage({
       allPlayersReady &&
       playerParticipants.length > 0
   );
+
+  async function handleApproveRestRequest(actionId: string) {
+    const resolved = await onApproveRestRequest(actionId);
+    if (!resolved) return;
+    setResolvedRestRequestIds((current) => {
+      const next = new Set(current);
+      next.add(actionId);
+      return next;
+    });
+  }
+
+  async function handleRejectRestRequest(actionId: string) {
+    const resolved = await onRejectRestRequest(actionId);
+    if (!resolved) return;
+    setResolvedRestRequestIds((current) => {
+      const next = new Set(current);
+      next.add(actionId);
+      return next;
+    });
+  }
+
+  async function handleCancelRestRequest(actionId: string) {
+    const resolved = await onCancelRestRequest(actionId);
+    if (!resolved) return;
+    setResolvedRestRequestIds((current) => {
+      const next = new Set(current);
+      next.add(actionId);
+      return next;
+    });
+  }
   const activeScenario =
     snapshot?.sessionScenarios.find((item) => item.status === 'ACTIVE') ??
     snapshot?.sessionScenarios[0];
@@ -1790,6 +2096,29 @@ export function PlayPage({
     };
   }, [canUseHumanGmView, currentNode?.id, session?.id, snapshot?.state.version, user]);
   useEffect(() => {
+    if (!session?.id || !canUseHumanGmView) {
+      setGmAiAssistSuggestions([]);
+      return;
+    }
+
+    let ignore = false;
+    getHumanGmAiAssistSuggestions(user, session.id)
+      .then((suggestions) => {
+        if (!ignore) {
+          setGmAiAssistSuggestions(suggestions);
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setGmAiAssistSuggestions([]);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [canUseHumanGmView, session?.id, snapshot?.state.version, user]);
+  useEffect(() => {
     if (!canUseHumanGmView || gmItemCatalog.length) {
       return;
     }
@@ -1822,6 +2151,13 @@ export function PlayPage({
   }, [canUseHumanGmView, gmItemCatalog.length]);
   const currentSceneDescriptionText =
     currentNode?.sceneText?.trim() || '현재 장면 설명이 아직 준비되지 않았습니다.';
+  const recentGmAiAssistLogs = useMemo(
+    () =>
+      logs
+        .slice(-5)
+        .map((log) => [log.title, log.message].filter(Boolean).join(': ').slice(0, 220)),
+    [logs]
+  );
   const currentPublicClueIdSignature = useMemo(
     () => (currentNode?.publicClues ?? []).map((clue) => clue.id).sort().join('|'),
     [currentNode?.publicClues]
@@ -2616,6 +2952,95 @@ export function PlayPage({
     user.displayName,
     vttMap?.tokens,
   ]);
+  const pendingRestApprovals = useMemo(
+    () => {
+      const seenActionIds = new Set<string>();
+      const resolvedActionIds = new Set<string>();
+      for (const log of logs) {
+        const approval = log.metadata?.restApproval;
+        if (approval?.actionId && approval.status !== 'gm_required') {
+          resolvedActionIds.add(approval.actionId);
+        }
+      }
+      const logApprovals = logs
+        .map((log) => {
+          const restApproval = log.metadata?.restApproval;
+          if (
+            !restApproval?.actionId ||
+            restApproval.status !== 'gm_required' ||
+            (restApproval.expiresAt &&
+              new Date(restApproval.expiresAt).getTime() <= Date.now()) ||
+            resolvedRestRequestIds.has(restApproval.actionId) ||
+            resolvedActionIds.has(restApproval.actionId) ||
+            seenActionIds.has(restApproval.actionId)
+          ) {
+            return null;
+          }
+          seenActionIds.add(restApproval.actionId);
+          return {
+            actionId: restApproval.actionId,
+            restType: restApproval.restType,
+            requester: log.title,
+            message: stripScopePrefix(log.message),
+            expiresAt: restApproval.expiresAt ?? null,
+          };
+        })
+        .filter(
+          (approval): approval is {
+            actionId: string;
+            restType: 'short' | 'long' | null;
+            requester: string;
+            message: string;
+            expiresAt: string | null;
+          } => approval !== null
+        );
+
+      const snapshotApprovals = (snapshot?.pendingRestApprovals ?? [])
+        .map((approval) => {
+          if (
+            !approval.actionId ||
+            resolvedRestRequestIds.has(approval.actionId) ||
+            resolvedActionIds.has(approval.actionId) ||
+            seenActionIds.has(approval.actionId)
+          ) {
+            return null;
+          }
+          seenActionIds.add(approval.actionId);
+          const restLabel = approval.restType === 'long' ? '긴 휴식' : '짧은 휴식';
+          const characterLabel = approval.characterName
+            ? `${approval.characterName}의 `
+            : '';
+          return {
+            actionId: approval.actionId,
+            restType: approval.restType,
+            requester: approval.requesterDisplayName,
+            message: `${characterLabel}${restLabel} 요청이 GM 승인 대기 상태입니다.`,
+            expiresAt: approval.expiresAt,
+          };
+        })
+        .filter(
+          (approval): approval is {
+            actionId: string;
+            restType: 'short' | 'long' | null;
+            requester: string;
+            message: string;
+            expiresAt: string;
+          } => approval !== null
+        );
+
+      return [...logApprovals, ...snapshotApprovals];
+    },
+    [resolvedRestRequestIds, logs, snapshot?.pendingRestApprovals]
+  );
+  const visibleRestApproval = canUseHumanGmView ? pendingRestApprovals[0] ?? null : null;
+  const visibleOwnRestRequest = !canUseHumanGmView
+    ? (snapshot?.pendingRestApprovals ?? []).find(
+        (approval) =>
+          approval.requesterUserId === user.id &&
+          new Date(approval.expiresAt).getTime() > Date.now() &&
+          !resolvedRestRequestIds.has(approval.actionId),
+      ) ?? null
+    : null;
   const latestRenderedLogId = renderedRows[renderedRows.length - 1]?.id ?? null;
   const storyRpUtterances = useMemo<StoryRpUtterance[]>(() => {
     const now = Date.now();
@@ -2766,6 +3191,12 @@ export function PlayPage({
       name: formState.name.trim(),
       ancestry: selectedQuickCreateRace?.koName ?? formState.ancestryKey,
       className: toStoredClassName(selectedQuickCreateClass.key),
+      subclassName:
+        quickCreateLevel >=
+        (QUICK_CREATE_SUBCLASS_BY_CLASS_KEY[selectedQuickCreateClass.key]?.choiceLevel ??
+          Number.POSITIVE_INFINITY)
+          ? QUICK_CREATE_SUBCLASS_BY_CLASS_KEY[selectedQuickCreateClass.key]?.subclassName ?? null
+          : null,
       avatarType: quickCreatePresetId ? 'PRESET' : 'DEFAULT',
       avatarPresetId: quickCreatePresetId,
       avatarUrl: null,
@@ -2785,14 +3216,11 @@ export function PlayPage({
       ).fill(0),
       startingEquipmentItemSelections:
         getDefaultStartingEquipmentItemSelections(selectedQuickCreateClass),
-      startingSpells:
-        selectedQuickCreateClass.startingCantripCount > 0 ||
-          selectedQuickCreateClass.startingSpellCount > 0
-          ? {
-            cantrips: new Array(selectedQuickCreateClass.startingCantripCount).fill(''),
-            spells: new Array(selectedQuickCreateClass.startingSpellCount).fill(''),
-          }
-          : undefined,
+      startingSpells: getDefaultQuickCreateStartingSpells(
+        selectedQuickCreateClass,
+        quickCreateLevel,
+        quickCreateAbilities,
+      ),
       assignToSession: true,
     };
 
@@ -3285,16 +3713,344 @@ export function PlayPage({
     await runCombatRequest(() => hideCombatAction(user, session.id));
   }
 
-  async function handleCombatClassFeature(action: 'second_wind') {
+  async function executeGmMessage(payload: {
+    content: string;
+    speakerName?: string | null;
+    asNpc?: boolean;
+    privateNote?: string | null;
+  }) {
+    if (!session || !canUseHumanGmView) {
+      throw new Error('HUMAN GM 메시지를 실행할 수 없는 세션 상태입니다.');
+    }
+
+    const nextSnapshot = await createHumanGmMessage(user, session.id, {
+      content: payload.content,
+      speakerName: payload.speakerName?.trim() || undefined,
+      asNpc: payload.asNpc,
+      privateNote: payload.privateNote?.trim() || null,
+    });
+    const nextMap = nextSnapshot.state.flags?.vttMap as VttMapStateDto | undefined;
+    if (nextMap && typeof nextMap === 'object') {
+      latestConfirmedMapRef.current = nextMap;
+      setVttMap(nextMap);
+    }
+    onAction(payload.asNpc ? 'GM NPC 대사' : 'GM 장면 묘사');
+  }
+
+  async function handleGmMessage(payload: {
+    content: string;
+    speakerName?: string | null;
+    asNpc?: boolean;
+    privateNote?: string | null;
+  }) {
+    if (!session || !canUseHumanGmView || isGmMessagePending) return;
+
+    setGmMessagePending(true);
+    setScenarioLoadError(null);
+    try {
+      await executeGmMessage(payload);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'GM 메시지 전송에 실패했습니다.';
+      setScenarioLoadError(message);
+      onCombatActionLog(message);
+    } finally {
+      setGmMessagePending(false);
+    }
+  }
+
+  async function handleGmAiAssistCreate(payload: CreateHumanGmAiAssistSuggestionDto) {
+    if (!session || !canUseHumanGmView || isGmAiAssistPending) return;
+
+    setGmAiAssistPending(true);
+    setScenarioLoadError(null);
+    try {
+      const suggestion = await createHumanGmAiAssistSuggestion(user, session.id, payload);
+      setGmAiAssistSuggestions((current) => [
+        suggestion,
+        ...current.filter((candidate) => candidate.id !== suggestion.id),
+      ]);
+      onAction('GM AI 보조 제안 등록');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'AI 보조 제안 등록에 실패했습니다.';
+      setScenarioLoadError(message);
+      onCombatActionLog(message);
+    } finally {
+      setGmAiAssistPending(false);
+    }
+  }
+
+  async function handleGmAiAssistGenerate(payload: AiHumanGmAssistSuggestionRequestDto) {
+    if (!session || !canUseHumanGmView || isGmAiAssistPending) return;
+
+    setGmAiAssistPending(true);
+    setScenarioLoadError(null);
+    try {
+      const suggestion = await generateHumanGmAiAssistSuggestion(user, session.id, payload);
+      setGmAiAssistSuggestions((current) => [
+        suggestion,
+        ...current.filter((candidate) => candidate.id !== suggestion.id),
+      ]);
+      onAction('GM AI 보조 제안 생성');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'AI 보조 제안 생성에 실패했습니다.';
+      setScenarioLoadError(message);
+      onCombatActionLog(message);
+    } finally {
+      setGmAiAssistPending(false);
+    }
+  }
+
+  async function handleGmAiAssistAccept(suggestion: HumanGmAiAssistSuggestionDto) {
+    if (!session || !canUseHumanGmView || isGmAiAssistPending) return;
+
+    let acceptanceRecorded = false;
+    setGmAiAssistPending(true);
+    setScenarioLoadError(null);
+    try {
+      await acceptHumanGmAiAssistSuggestion(user, session.id, {
+        suggestionId: suggestion.id,
+        publicNarration: 'GM이 AI 보조 제안을 승인했습니다.',
+      });
+      acceptanceRecorded = true;
+      setGmAiAssistSuggestions((current) =>
+        current.map((candidate) =>
+          candidate.id === suggestion.id
+            ? {
+                ...candidate,
+                status: 'ACCEPTED',
+                acceptedByUserId: user.id,
+                acceptedAt: new Date().toISOString(),
+              }
+            : candidate
+        )
+      );
+
+      if (suggestion.assistType === 'scene_text') {
+        await executeGmMessage({ content: suggestion.content });
+      } else if (suggestion.assistType === 'npc_dialogue') {
+        await executeGmMessage({
+          content: suggestion.content,
+          speakerName: suggestion.targetId,
+          asNpc: true,
+        });
+      } else if (suggestion.assistType === 'node_move') {
+        const nodeId = suggestion.suggestedActionId ?? suggestion.targetId;
+        if (!nodeId) {
+          throw new Error('승인된 장면 이동 제안에 대상 노드가 없습니다.');
+        }
+        await executeGmNodeMove(nodeId);
+      }
+      onAction('GM AI 보조 제안 승인');
+    } catch (caught) {
+      const cause = caught instanceof Error ? caught.message : '알 수 없는 오류';
+      const message = acceptanceRecorded
+        ? `AI 보조 제안 승인은 기록됐지만 적용에 실패했습니다: ${cause}`
+        : `AI 보조 제안 승인에 실패했습니다: ${cause}`;
+      if (acceptanceRecorded) {
+        try {
+          await reportHumanGmAiAssistApplicationFailure(user, session.id, {
+            suggestionId: suggestion.id,
+            failedOperation: suggestion.assistType,
+            failureReason: cause.slice(0, 500),
+          });
+        } catch (auditError) {
+          console.warn('Failed to audit GM AI assist application failure.', auditError);
+        }
+      }
+      setScenarioLoadError(message);
+      onCombatActionLog(message);
+    } finally {
+      setGmAiAssistPending(false);
+    }
+  }
+
+  async function handleReadyCombatAction(targetParticipantId: string) {
+    if (!session || isCombatBusy) return;
+    await onSendAction(`/ready enter attack ${targetParticipantId} 30`);
+  }
+
+  async function handleApplyCombatCondition(
+    targetTokenOrParticipantId: string,
+    conditionId: string,
+    operation: 'add' | 'remove'
+  ) {
+    if (!session || isCombatBusy) return;
+    if (!canUseHumanGmView) {
+      await onSendAction(`/condition ${operation} ${targetTokenOrParticipantId} ${conditionId}`);
+      return;
+    }
+
+    setCombatBusy(true);
+    setCombatError(null);
+    try {
+      const nextSnapshot = await applyHumanGmCombatCondition(user, session.id, {
+        targetId: targetTokenOrParticipantId,
+        conditionId,
+        operation,
+      });
+      const nextMap = nextSnapshot.state.flags?.vttMap as VttMapStateDto | undefined;
+      if (nextMap && typeof nextMap === 'object') {
+        latestConfirmedMapRef.current = nextMap;
+        setVttMap(nextMap);
+      }
+      const refreshedCombat = await getCombat(user, session.id);
+      setCombat(refreshedCombat);
+      onCombatActionLog('GM 상태 조정 완료');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'GM 상태 조정에 실패했습니다.';
+      setCombatError(message);
+      onCombatActionLog(message);
+    } finally {
+      setCombatBusy(false);
+    }
+  }
+
+  async function handleAdjustCombatHp(
+    targetTokenOrParticipantId: string,
+    currentHp: number
+  ) {
+    if (!session || !canUseHumanGmView || isCombatBusy) return;
+
+    setCombatBusy(true);
+    setCombatError(null);
+    try {
+      const nextSnapshot = await adjustHumanGmCombatHp(user, session.id, {
+        targetId: targetTokenOrParticipantId,
+        currentHp,
+      });
+      const nextMap = nextSnapshot.state.flags?.vttMap as VttMapStateDto | undefined;
+      if (nextMap && typeof nextMap === 'object') {
+        latestConfirmedMapRef.current = nextMap;
+        setVttMap(nextMap);
+      }
+      const refreshedCombat = await getCombat(user, session.id);
+      setCombat(refreshedCombat);
+      onCombatActionLog('GM HP 조정 완료');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'GM HP 조정에 실패했습니다.';
+      setCombatError(message);
+      onCombatActionLog(message);
+    } finally {
+      setCombatBusy(false);
+    }
+  }
+
+  async function handleDropInventoryItem(
+    item: InventoryItemDto,
+    point: { x: number; y: number }
+  ) {
+    if (!session || busy || isInventoryUsePending) return;
+    const itemId = item.id || item.itemDefinitionId;
+    if (!itemId) return;
+    await onSendAction(`/item drop ${itemId} 1 ${point.x} ${point.y}`);
+  }
+
+  async function handlePickupMapObject(
+    objectId: string,
+    itemDefinitionId: string,
+    quantity: number,
+    point: { x: number; y: number }
+  ) {
+    if (!session || busy || isInventoryUsePending) return;
+    await onSendAction(`/item pickup ${objectId} ${itemDefinitionId} ${quantity} ${point.x} ${point.y}`);
+  }
+
+  async function handleThrowInventoryItem(
+    item: InventoryItemDto,
+    point: { x: number; y: number }
+  ) {
+    if (!session || isCombatBusy) return;
+    const itemId = item.id || item.itemDefinitionId;
+    if (!itemId) return;
+    await onSendAction(`/item throw ${itemId} 1 ${point.x} ${point.y}`);
+  }
+
+  async function handleCombatClassFeature(
+    action:
+      | 'second_wind'
+      | 'action_surge'
+      | 'rage'
+      | 'frenzy'
+      | 'cunning_dash'
+      | 'cunning_disengage'
+      | 'cunning_hide'
+      | 'divine_sense'
+      | 'lay_on_hands'
+      | 'primeval_awareness'
+      | 'ki_patient_defense'
+      | 'ki_step_of_wind'
+      | 'channel_divinity'
+      | 'bardic_inspiration'
+      | 'font_of_magic'
+      | 'wild_shape'
+      | 'dragonborn_breath',
+    targetParticipantId?: string
+  ) {
     if (!session || isCombatBusy) return;
     if (action === 'second_wind') {
       await runCombatRequest(() => useSecondWindCombatAction(user, session.id));
+      return;
+    }
+    if (action === 'action_surge') {
+      await onSendAction('/feature action_surge');
+      return;
+    }
+    if (action === 'rage') {
+      await onSendAction('/feature rage');
+      return;
+    }
+    if (action === 'frenzy') {
+      await onSendAction('/feature frenzy');
+      return;
+    }
+    if (action.startsWith('cunning_')) {
+      await onSendAction(`/feature cunning_action ${action.slice('cunning_'.length)}`);
+      return;
+    }
+    if (
+      action === 'divine_sense' ||
+      action === 'lay_on_hands' ||
+      action === 'primeval_awareness'
+    ) {
+      await onSendAction(`/feature ${action}`);
+      return;
+    }
+    if (action === 'ki_patient_defense' || action === 'ki_step_of_wind') {
+      await onSendAction(
+        `/feature ki ${
+          action === 'ki_patient_defense' ? 'patient_defense' : 'step_of_the_wind'
+        }`
+      );
+      return;
+    }
+    if (action === 'channel_divinity') {
+      await onSendAction('/feature channel_divinity');
+      return;
+    }
+    if (action === 'bardic_inspiration' && targetParticipantId) {
+      await onSendAction(`/feature bardic_inspiration ${targetParticipantId}`);
+      return;
+    }
+    if (action === 'font_of_magic') {
+      await onSendAction('/feature font_of_magic');
+      return;
+    }
+    if (action === 'wild_shape') {
+      await onSendAction('/feature wild_shape');
+      return;
+    }
+    if (action === 'dragonborn_breath' && targetParticipantId) {
+      await onSendAction(`/feature breath_weapon ${targetParticipantId}`);
     }
   }
 
   async function handleCastCombatSpell(
     spellId: string,
-    payload: { targetParticipantIds?: string[]; point?: { x: number; y: number } | null }
+    payload: {
+      targetParticipantIds?: string[];
+      point?: { x: number; y: number } | null;
+      slotLevel?: number;
+    }
   ) {
     if (!session || isCombatBusy) return;
     await runCombatRequest(async () => {
@@ -3347,16 +4103,22 @@ export function PlayPage({
         movementMode,
       });
 
-      if (result.pendingReaction) {
-        const isMine = combat.participants.some(
-          (candidate) =>
-            candidate.sessionEntityId === result.pendingReaction?.reactorParticipantId &&
-            candidate.sessionCharacterId &&
-            sessionCharacters.some(
-              (character) => character.id === candidate.sessionCharacterId && character.userId === user.id
-            )
+      const pendingPrompts = getCombatReactionPrompts(result);
+      if (pendingPrompts.length) {
+        const promptToHandle = pendingPrompts.find(
+          (prompt) =>
+            isCombatReactionForCurrentUser(prompt, result.combat) &&
+            claimCombatReactionHandling(prompt.id)
         );
-        if (!isMine) {
+        if (!promptToHandle) {
+          if (pendingPrompts.every((prompt) => prompt.type === 'ready_action')) {
+            setCombat(result.combat);
+            setVttMapIfChanged(result.map, 'combat-move-ready-pending');
+            pendingOptimisticTokenMoveRef.current = null;
+            logMapMovePerf('combat move request', requestStartedAt, `token=${token.id}`);
+            onCombatActionLog(formatCombatMoveResultMessage(result));
+            return result.map;
+          }
           const pendingMove = pendingOptimisticTokenMoveRef.current;
           if (pendingMove?.tokenId === token.id && pendingMove.optimisticUpdatedAt === optimisticUpdatedAt) {
             setVttMap((current) =>
@@ -3366,16 +4128,17 @@ export function PlayPage({
           }
           return null;
         }
-        const accepted = window.confirm(result.pendingReaction.message);
+        const accepted = await requestCombatReactionDecision(promptToHandle);
         result = accepted
-          ? await acceptCombatReaction(user, session.id, { reactionId: result.pendingReaction.id })
-          : await declineCombatReaction(user, session.id, { reactionId: result.pendingReaction.id });
+          ? await acceptCombatReaction(user, session.id, { reactionId: promptToHandle.id })
+          : await declineCombatReaction(user, session.id, { reactionId: promptToHandle.id });
       }
 
       setCombat(result.combat);
       setVttMapIfChanged(result.map, 'combat-move');
       pendingOptimisticTokenMoveRef.current = null;
       logMapMovePerf('combat move request', requestStartedAt, `token=${token.id}`);
+      onCombatActionLog(formatCombatMoveResultMessage(result));
       return result.map;
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '전투 이동에 실패했습니다.';
@@ -3394,21 +4157,71 @@ export function PlayPage({
     }
   }
 
+  async function handleForceMoveCombatParticipant(
+    participantId: string,
+    mode: 'push' | 'pull' | 'slide',
+    origin: { x: number; y: number },
+    distanceFt: number
+  ) {
+    if (!session || !combat || isCombatBusy) return;
+
+    setCombatBusy(true);
+    setCombatError(null);
+    setMapLoadError(null);
+
+    try {
+      let result = await forceMoveCombatParticipant(user, session.id, {
+        participantId,
+        mode,
+        origin,
+        distanceFt,
+      });
+      setCombat(result.combat);
+      setVttMapIfChanged(result.map, 'combat-force-move');
+      onCombatActionLog(formatCombatMoveResultMessage(result));
+      const promptToHandle = getCombatReactionPrompts(result).find(
+        (prompt) =>
+          isCombatReactionForCurrentUser(prompt, result.combat) &&
+          claimCombatReactionHandling(prompt.id)
+      );
+      if (promptToHandle) {
+        const accepted = await requestCombatReactionDecision(promptToHandle);
+        result = accepted
+          ? await acceptCombatReaction(user, session.id, { reactionId: promptToHandle.id })
+          : await declineCombatReaction(user, session.id, { reactionId: promptToHandle.id });
+        setCombat(result.combat);
+        setVttMapIfChanged(result.map, 'combat-force-move-reaction');
+        onCombatActionLog(formatCombatMoveResultMessage(result));
+      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '강제 이동 처리에 실패했습니다.';
+      setCombatError(message);
+      setMapLoadError(message);
+    } finally {
+      setCombatBusy(false);
+    }
+  }
+
   useEffect(() => {
     function handleReactionPrompt(event: Event) {
       if (!session) return;
       const reaction = (event as CustomEvent<CombatReactionPromptDto>).detail;
       if (
         !reaction ||
-        !['opportunity_attack', 'shield', 'ready_action'].includes(reaction.type)
+        !['opportunity_attack', 'shield', 'ready_action', 'counterspell'].includes(reaction.type)
       ) return;
-      const accepted = window.confirm(reaction.message);
-      const request = accepted ? acceptCombatReaction : declineCombatReaction;
-      void request(user, session.id, { reactionId: reaction.id })
+      if (!isCombatReactionForCurrentUser(reaction)) return;
+      if (!claimCombatReactionHandling(reaction.id)) return;
+      void requestCombatReactionDecision(reaction)
+        .then((accepted) => {
+          const request = accepted ? acceptCombatReaction : declineCombatReaction;
+          return request(user, session.id, { reactionId: reaction.id });
+        })
         .then((result) => {
           setCombat(result.combat);
           setVttMap(result.map);
           latestConfirmedMapRef.current = result.map;
+          onCombatActionLog(formatCombatMoveResultMessage(result));
         })
         .catch((caught) => {
           const message = caught instanceof Error ? caught.message : '반응 처리에 실패했습니다.';
@@ -3418,7 +4231,47 @@ export function PlayPage({
 
     window.addEventListener('trpg:combat-reaction-prompt', handleReactionPrompt);
     return () => window.removeEventListener('trpg:combat-reaction-prompt', handleReactionPrompt);
-  }, [session, user]);
+  }, [
+    combat,
+    onCombatActionLog,
+    requestCombatReactionDecision,
+    session,
+    sessionCharacters,
+    user,
+  ]);
+
+  useEffect(() => {
+    if (!session || !combat) return;
+    const reaction = getCombatReactionPrompts(combat).find(
+      (candidate) =>
+        isCombatReactionForCurrentUser(candidate, combat) &&
+        claimCombatReactionHandling(candidate.id)
+    );
+    if (!reaction) return;
+
+    void requestCombatReactionDecision(reaction)
+      .then((accepted) => {
+        const request = accepted ? acceptCombatReaction : declineCombatReaction;
+        return request(user, session.id, { reactionId: reaction.id });
+      })
+      .then((result) => {
+        setCombat(result.combat);
+        setVttMap(result.map);
+        latestConfirmedMapRef.current = result.map;
+        onCombatActionLog(formatCombatMoveResultMessage(result));
+      })
+      .catch((caught) => {
+        const message = caught instanceof Error ? caught.message : '반응 처리에 실패했습니다.';
+        setCombatError(message);
+      });
+  }, [
+    combat,
+    onCombatActionLog,
+    requestCombatReactionDecision,
+    session,
+    sessionCharacters,
+    user,
+  ]);
 
   function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -3609,29 +4462,37 @@ export function PlayPage({
     }
   }
 
+  async function executeGmNodeMove(nodeId: string) {
+    if (!session || !canUseHumanGmView) {
+      throw new Error('HUMAN GM 노드 이동을 실행할 수 없는 세션 상태입니다.');
+    }
+
+    const nextSnapshot = await updateHumanGmSessionNode(user, session.id, nodeId);
+    const nextMap = nextSnapshot.state.flags?.vttMap as VttMapStateDto | undefined;
+    if (nextMap && typeof nextMap === 'object') {
+      latestConfirmedMapRef.current = nextMap;
+      setVttMap(nextMap);
+    } else {
+      const savedMap = await getVttMap(user, session.id);
+      latestConfirmedMapRef.current = savedMap;
+      setVttMap(savedMap);
+    }
+    const nextPlayerScenario = await getPlayerScenario(user, session.id);
+    setPlayerScenario(nextPlayerScenario);
+    setCombat(null);
+    setCombatChecked(false);
+    setCombatError(null);
+    setSelectedExplorationMapSelection(null);
+    onAction('GM 노드 이동');
+  }
+
   async function handleGmNodeMove(nodeId: string) {
     if (!session || !canUseHumanGmView || isGmNodeMovePending) return;
     setGmNodeMovePending(true);
     setMapLoadError(null);
     setScenarioLoadError(null);
     try {
-      const nextSnapshot = await updateHumanGmSessionNode(user, session.id, nodeId);
-      const nextMap = nextSnapshot.state.flags?.vttMap as VttMapStateDto | undefined;
-      if (nextMap && typeof nextMap === 'object') {
-        latestConfirmedMapRef.current = nextMap;
-        setVttMap(nextMap);
-      } else {
-        const savedMap = await getVttMap(user, session.id);
-        latestConfirmedMapRef.current = savedMap;
-        setVttMap(savedMap);
-      }
-      const nextPlayerScenario = await getPlayerScenario(user, session.id);
-      setPlayerScenario(nextPlayerScenario);
-      setCombat(null);
-      setCombatChecked(false);
-      setCombatError(null);
-      setSelectedExplorationMapSelection(null);
-      onAction('GM 노드 이동');
+      await executeGmNodeMove(nodeId);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '노드 이동에 실패했습니다.';
       setScenarioLoadError(message);
@@ -3662,7 +4523,48 @@ export function PlayPage({
       setCombat(nextCombat);
       logCombatRequestSucceeded(session.id, nextCombat);
       if (isCombatActionResultDto(result)) {
-        onCombatActionLog(result.message, result.turnLogId);
+        if (result.map) {
+          setVttMapIfChanged(result.map, 'combat-action');
+          latestConfirmedMapRef.current = result.map;
+        }
+        onCombatActionLog(formatCombatActionResultMessage(result), result.turnLogId);
+        const promptToHandle = getCombatReactionPrompts(result).find(
+          (prompt) =>
+            isCombatReactionForCurrentUser(prompt, nextCombat) &&
+            claimCombatReactionHandling(prompt.id)
+        );
+        if (promptToHandle) {
+          const accepted = await requestCombatReactionDecision(promptToHandle);
+          const reactionResult = accepted
+            ? await acceptCombatReaction(user, session.id, { reactionId: promptToHandle.id })
+            : await declineCombatReaction(user, session.id, { reactionId: promptToHandle.id });
+          setCombat(reactionResult.combat);
+          setVttMapIfChanged(reactionResult.map, 'combat-action-reaction');
+          latestConfirmedMapRef.current = reactionResult.map;
+          onCombatActionLog(formatCombatMoveResultMessage(reactionResult));
+        }
+      }
+      if (result && typeof result === 'object' && !isCombatActionResultDto(result)) {
+        const promptToHandle = getCombatReactionPrompts(
+          result as {
+            pendingReaction?: CombatReactionPromptDto | null;
+            pendingReactions?: CombatReactionPromptDto[] | null;
+          }
+        ).find(
+          (prompt) =>
+            isCombatReactionForCurrentUser(prompt, nextCombat) &&
+            claimCombatReactionHandling(prompt.id)
+        );
+        if (promptToHandle) {
+          const accepted = await requestCombatReactionDecision(promptToHandle);
+          const reactionResult = accepted
+            ? await acceptCombatReaction(user, session.id, { reactionId: promptToHandle.id })
+            : await declineCombatReaction(user, session.id, { reactionId: promptToHandle.id });
+          setCombat(reactionResult.combat);
+          setVttMapIfChanged(reactionResult.map, 'combat-turn-reaction');
+          latestConfirmedMapRef.current = reactionResult.map;
+          onCombatActionLog(formatCombatMoveResultMessage(reactionResult));
+        }
       }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '전투 처리에 실패했습니다.';
@@ -4085,6 +4987,18 @@ export function PlayPage({
                   getCharacterColorStyle={(character) =>
                     buildStoryPartyColorStyle(getCharacterTokenColor(character))
                   }
+                  isBusy={busy}
+                  onRequestRest={onRequestRest}
+                  gmNodeMoveOptions={gmNodeMoveOptions}
+                  onGmNodeMove={handleGmNodeMove}
+                  onGmMessage={handleGmMessage}
+                  isGmMessagePending={isGmMessagePending}
+                  gmAiAssistSuggestions={gmAiAssistSuggestions}
+                  onGmAiAssistCreate={handleGmAiAssistCreate}
+                  onGmAiAssistGenerate={handleGmAiAssistGenerate}
+                  onGmAiAssistAccept={handleGmAiAssistAccept}
+                  isGmAiAssistPending={isGmAiAssistPending}
+                  recentGmAiAssistLogs={recentGmAiAssistLogs}
                 />
               ) : isExplorationNode ? (
                 <ExplorationNodeSurface
@@ -4108,11 +5022,22 @@ export function PlayPage({
                   onMapInteractionRequest={handleMapInteractionRequest}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onEquipInventoryItem={handleEquipInventoryItem}
+                  onDropInventoryItem={handleDropInventoryItem}
+                  onPickupMapObject={handlePickupMapObject}
                   onSelectInventoryItem={handleSelectExplorationInventoryItem}
                   onMapSelectionChange={handleExplorationMapSelection}
                   onRequestMainCommand={handleExplorationMainCommandRequest}
+                  onRequestRest={onRequestRest}
                   gmNodeMoveOptions={gmNodeMoveOptions}
                   onGmNodeMove={handleGmNodeMove}
+                  onGmMessage={handleGmMessage}
+                  isGmMessagePending={isGmMessagePending}
+                  gmAiAssistSuggestions={gmAiAssistSuggestions}
+                  onGmAiAssistCreate={handleGmAiAssistCreate}
+                  onGmAiAssistGenerate={handleGmAiAssistGenerate}
+                  onGmAiAssistAccept={handleGmAiAssistAccept}
+                  isGmAiAssistPending={isGmAiAssistPending}
+                  recentGmAiAssistLogs={recentGmAiAssistLogs}
                   gmItemCatalog={gmItemCatalog}
                   isGmItemCatalogLoading={isGmItemCatalogLoading}
                   gmItemCatalogError={gmItemCatalogError}
@@ -4143,6 +5068,8 @@ export function PlayPage({
                   onTokenMoveRequest={handleCombatTokenMoveRequest}
                   onUseInventoryItem={handleUseExplorationInventoryItem}
                   onEquipInventoryItem={handleEquipInventoryItem}
+                  onThrowInventoryItem={handleThrowInventoryItem}
+                  onPickupMapObject={handlePickupMapObject}
                   onAttackWithEquippedWeapon={handleEquippedWeaponAttack}
                   onMonsterAction={handleMonsterCombatAction}
                   onAttackWithOffhandWeapon={handleOffhandWeaponAttack}
@@ -4150,8 +5077,19 @@ export function PlayPage({
                   onDash={handleDashCombatAction}
                   onDodge={handleDodgeCombatAction}
                   onHide={handleHideCombatAction}
+                  onReadyAction={handleReadyCombatAction}
+                  onApplyCondition={handleApplyCombatCondition}
+                  onAdjustHp={handleAdjustCombatHp}
+                  onForceMoveParticipant={handleForceMoveCombatParticipant}
                   onUseClassFeature={handleCombatClassFeature}
                   onCastSpell={handleCastCombatSpell}
+                  gmNodeMoveOptions={gmNodeMoveOptions}
+                  gmAiAssistSuggestions={gmAiAssistSuggestions}
+                  onGmAiAssistCreate={handleGmAiAssistCreate}
+                  onGmAiAssistGenerate={handleGmAiAssistGenerate}
+                  onGmAiAssistAccept={handleGmAiAssistAccept}
+                  isGmAiAssistPending={isGmAiAssistPending}
+                  recentGmAiAssistLogs={recentGmAiAssistLogs}
                   onEndCombat={handleEndCombat}
                   onEndTurn={handleEndCombatTurn}
                 />
@@ -4170,6 +5108,29 @@ export function PlayPage({
                   <h1>메인화면</h1>
                 </div>
               )}
+              {pendingCombatReaction ? (
+                <section className="session-combat-reaction-banner" aria-label="전투 반응 대기">
+                  <div>
+                    <span className="session-combat-reaction-eyebrow">
+                      {getCombatReactionTypeLabel(pendingCombatReaction.reaction.type)}
+                    </span>
+                    <strong>{pendingCombatReaction.reaction.reactorName} 반응 선택</strong>
+                    <p>{pendingCombatReaction.reaction.message}</p>
+                  </div>
+                  <div className="session-combat-reaction-actions">
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => resolvePendingCombatReaction(false)}
+                    >
+                      포기
+                    </button>
+                    <button type="button" onClick={() => resolvePendingCombatReaction(true)}>
+                      사용
+                    </button>
+                  </div>
+                </section>
+              ) : null}
               {mapLoadError ? <p className="panel-error">{mapLoadError}</p> : null}
             </section>
           ) : null}
@@ -4530,6 +5491,52 @@ export function PlayPage({
             )}
           </div>
 
+          {visibleRestApproval ? (
+            <section className="session-rest-approval-banner" aria-label="휴식 승인 대기">
+              <div>
+                <span className="session-rest-approval-eyebrow">GM 승인 대기</span>
+                <strong>
+                  {visibleRestApproval.restType === 'long' ? '긴 휴식' : '짧은 휴식'} 요청
+                </strong>
+                <p>{visibleRestApproval.requester}: {visibleRestApproval.message}</p>
+              </div>
+              <div className="session-rest-approval-actions">
+                <button
+                  type="button"
+                  onClick={() => void handleApproveRestRequest(visibleRestApproval.actionId)}
+                >
+                  승인
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => void handleRejectRestRequest(visibleRestApproval.actionId)}
+                >
+                  거절
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          {visibleOwnRestRequest ? (
+            <section className="session-rest-approval-banner" aria-label="휴식 승인 대기">
+              <div>
+                <span className="session-rest-approval-eyebrow">GM 승인 대기</span>
+                <strong>
+                  {visibleOwnRestRequest.restType === 'long' ? '긴 휴식' : '짧은 휴식'} 요청
+                </strong>
+                <p>GM이 결정하기 전까지 요청을 취소할 수 있습니다.</p>
+              </div>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => void handleCancelRestRequest(visibleOwnRestRequest.actionId)}
+              >
+                요청 취소
+              </button>
+            </section>
+          ) : null}
+
           {activeTab === 'Main' || activeTab === 'Chat' ? (
             <>
               <div className="session-log-area">
@@ -4551,6 +5558,13 @@ export function PlayPage({
                             );
                       const isDragonProfile = chatProfileImage === dragonPeekImage;
                       const chatAvatarLabel = getAvatarLabel(log.senderLabel, user.displayName);
+                      const restApproval = log.metadata?.restApproval;
+                      const canApproveRestRequest = Boolean(
+                        isGmUser &&
+                          restApproval?.actionId &&
+                          restApproval.status === 'gm_required' &&
+                          !resolvedRestRequestIds.has(restApproval.actionId)
+                      );
 
                       return (
                         <Fragment key={log.id}>
@@ -4595,6 +5609,24 @@ export function PlayPage({
                                   <span className="chat-thread-spinner" aria-hidden="true" />
                                 ) : null}
                                 <span>{log.message}</span>
+                                {canApproveRestRequest && restApproval ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="chat-thread-inline-action"
+                                      onClick={() => void handleApproveRestRequest(restApproval.actionId)}
+                                    >
+                                      휴식 승인
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="chat-thread-inline-action"
+                                      onClick={() => void handleRejectRestRequest(restApproval.actionId)}
+                                    >
+                                      휴식 거절
+                                    </button>
+                                  </>
+                                ) : null}
                               </div>
                               {log.rowClass !== 'notice' ? (
                                 <span className="chat-thread-time">{log.time}</span>

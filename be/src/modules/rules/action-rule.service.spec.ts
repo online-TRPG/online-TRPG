@@ -69,6 +69,7 @@ const createCharacter = (
       id: overrides.character?.id ?? "character-1",
       name: characterName,
       className: overrides.character?.className ?? "fighter",
+      subclassName: overrides.character?.subclassName ?? null,
       level: overrides.character?.level ?? 1,
       maxHp: overrides.character?.maxHp ?? 10,
       abilitiesJson:
@@ -79,6 +80,7 @@ const createCharacter = (
       proficientSkillsJson: overrides.character?.proficientSkillsJson ?? "[]",
       armorClass: overrides.character?.armorClass ?? 10,
       speed: overrides.character?.speed ?? 30,
+      spellsJson: overrides.character?.spellsJson ?? null,
       inventoryJson: overrides.character?.inventoryJson ?? "[]",
       equippedWeaponId: overrides.character?.equippedWeaponId ?? null,
     },
@@ -200,6 +202,155 @@ describe("ActionRuleService", () => {
     expect(structuredAction.finalDamage).toBe(3);
     expect(result.stateChanges).toEqual([
       { sessionCharacterId: "target", currentHp: 7, markDead: false },
+    ]);
+  });
+
+  it("adds Guidance to the next ability check and consumes the effect", () => {
+    const service = createService([
+      createDiceResult([10], 0),
+      {
+        expression: "1d4",
+        rolls: [3],
+        modifier: 0,
+        total: 3,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      conditionsJson: JSON.stringify([
+        {
+          conditionId: "condition.spell.guidance",
+          sourceId: "spell.guidance:caster",
+          duration: { type: "rounds", remaining: 10 },
+          saveEnds: null,
+          stackPolicy: "replace",
+          appliedAtRound: 1,
+          expiresAtTurn: null,
+          tags: ["roll_bonus:ability_check:1d4"],
+        },
+      ]),
+    });
+
+    const result = service.resolveAction(
+      "/check perception 12",
+      actor,
+      [actor],
+      { turnState: { actionUsed: false, bonusActionUsed: false, reactionUsed: false, additionalActionGranted: false, sneakAttackUsed: false } },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.diceResult).toMatchObject({
+      expression: "1d20+0+1d4",
+      total: 13,
+    });
+    expect(result.structuredAction).toMatchObject({ guidanceBonus: 3 });
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: actor.id, conditions: [] },
+    ]);
+  });
+
+  it("rerolls a selected natural 1 for a halfling attack", () => {
+    const service = createService([
+      createDiceResult([1], 2),
+      createDiceResult([15], 2),
+      {
+        expression: "1d6",
+        rolls: [4],
+        modifier: 0,
+        total: 4,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "halfling",
+      character: {
+        id: "halfling-character",
+        featuresJson: JSON.stringify(["race.halfling.trait.base_traits"]),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      currentHp: 10,
+      character: { id: "target-character", name: "Target", armorClass: 12 },
+    });
+
+    const result = service.resolveAction("/attack target", actor, [actor, target]);
+
+    expect(result.diceResult).toMatchObject({ rolls: [15], total: 17 });
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 6, markDead: false },
+    ]);
+  });
+
+  it("resolves condition command targets by VTT token id aliases", () => {
+    const service = createService([]);
+    const actor = createCharacter({ id: "actor", characterId: "actor-character" });
+    const target = {
+      ...createCharacter({
+        id: "target",
+        characterId: "target-character",
+        conditionsJson: "[]",
+        character: { id: "target-character", name: "Smoke Goblin" },
+      }),
+      tokenId: "token_node_rule_smoke_condition_goblin",
+    } as TestSessionCharacter & { tokenId: string };
+
+    const result = service.resolveAction(
+      "/condition add token_node_rule_smoke_condition_goblin stunned",
+      actor,
+      [actor, target],
+    );
+
+    expect(result.structuredAction).toMatchObject({
+      type: "condition",
+      operation: "add",
+      target: "target",
+      condition: "stunned",
+    });
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", conditions: ["stunned"] },
+    ]);
+  });
+
+  it("resolves condition command targets to combat participant state patches", () => {
+    const service = createService([]);
+    const actor = createCharacter({ id: "actor", characterId: "actor-character" });
+    const target = {
+      ...createCharacter({
+        id: "combat-participant:monster-participant-1",
+        userId: "combat-participant:monster-participant-1",
+        characterId: "combat-participant:monster-participant-1",
+        conditionsJson: "[]",
+        character: {
+          id: "combat-participant:monster-participant-1",
+          name: "Smoke Goblin",
+          className: "monster",
+        },
+        user: null,
+      }),
+      tokenId: "token_node_rule_smoke_condition_goblin",
+      combatParticipantId: "monster-participant-1",
+      isCombatParticipantOnly: true,
+    } as TestSessionCharacter & {
+      tokenId: string;
+      combatParticipantId: string;
+      isCombatParticipantOnly: boolean;
+    };
+
+    const result = service.resolveAction(
+      "/condition add token_node_rule_smoke_condition_goblin stunned",
+      actor,
+      [actor, target],
+    );
+
+    expect(result.structuredAction).toMatchObject({
+      type: "condition",
+      target: "combat-participant:monster-participant-1",
+      condition: "stunned",
+    });
+    expect(result.stateChanges).toEqual([
+      { combatParticipantId: "monster-participant-1", conditions: ["stunned"] },
     ]);
   });
 
@@ -352,6 +503,64 @@ describe("ActionRuleService", () => {
         appliedDamageModifiers: ["resistance:fire"],
       },
     });
+  });
+
+  it("applies racial damage resistance from catalog feature ids", () => {
+    const service = createService([]);
+    const target = createCharacter({
+      id: "tiefling",
+      currentHp: 10,
+      character: {
+        id: "tiefling-character",
+        name: "Tiefling",
+        featuresJson: JSON.stringify(["race.tiefling.trait.base_traits"]),
+      },
+    });
+
+    const result = service.resolveAction("/damage tiefling 9 fire", target, [target]);
+
+    expect(result.structuredAction).toMatchObject({
+      finalDamage: 4,
+      ruleResults: [
+        expect.objectContaining({
+          produced: expect.objectContaining({
+            appliedDamageModifiers: ["resistance:fire"],
+          }),
+        }),
+      ],
+    });
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "tiefling", currentHp: 6, tempHp: 0, markDead: false },
+    ]);
+  });
+
+  it("keeps a half-orc at 1 HP with Relentless Endurance once per long rest", () => {
+    const service = createService([]);
+    const target = createCharacter({
+      id: "half-orc",
+      currentHp: 8,
+      character: {
+        id: "half-orc-character",
+        name: "Half-Orc",
+        featuresJson: JSON.stringify(["race.half-orc.trait.base_traits"]),
+      },
+    });
+
+    const result = service.resolveAction("/damage half-orc 20 force", target, [target]);
+
+    expect(result.structuredAction).toMatchObject({
+      finalDamage: 20,
+      relentlessEnduranceTriggered: true,
+    });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "half-orc",
+        currentHp: 1,
+        tempHp: 0,
+        markDead: false,
+        conditions: ["resource:relentless_endurance_expended"],
+      },
+    ]);
   });
 
   it("projects structured condition tags into damage modifiers", () => {
@@ -547,6 +756,173 @@ describe("ActionRuleService", () => {
     ]);
   });
 
+  it("uses dwarf poison save advantage from the race catalog", () => {
+    const service = createService([
+      createDiceResult([5, 15], 2, DiceAdvantageState.ADVANTAGE),
+    ]);
+    const target = createCharacter({
+      id: "dwarf",
+      character: {
+        id: "dwarf-character",
+        name: "Dwarf",
+        abilitiesJson: JSON.stringify({ con: 14 }),
+        featuresJson: JSON.stringify(["race.dwarf.trait.base_traits"]),
+      },
+    });
+
+    const result = service.resolveAction("/save dwarf con 13 poisoned", target, [target]);
+
+    expect(result.diceResult).toMatchObject({
+      advantageState: DiceAdvantageState.ADVANTAGE,
+      rolls: [5, 15],
+      total: 17,
+    });
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+  });
+
+  it.each([
+    ["elf", "race.elf.trait.base_traits", "wis", "charmed"],
+    ["half-elf", "race.half-elf.trait.base_traits", "wis", "charmed"],
+    ["gnome", "race.gnome.trait.base_traits", "wis", "magic"],
+  ])(
+    "uses %s racial save advantage from catalog runtime tags",
+    (id, featureId, ability, condition) => {
+      const service = createService([
+        createDiceResult([4, 14], 0, DiceAdvantageState.ADVANTAGE),
+      ]);
+      const target = createCharacter({
+        id,
+        character: {
+          id: `${id}-character`,
+          name: id,
+          abilitiesJson: JSON.stringify({ [ability]: 10 }),
+          featuresJson: JSON.stringify([featureId]),
+        },
+      });
+
+      const result = service.resolveAction(
+        `/save ${id} ${ability} 12 ${condition}`,
+        target,
+        [target],
+      );
+
+      expect(result.diceResult).toMatchObject({
+        advantageState: DiceAdvantageState.ADVANTAGE,
+        total: 14,
+      });
+      expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    },
+  );
+
+  it("resolves dragonborn breath as a save-based area race feature", () => {
+    const service = createService([
+      {
+        expression: "2d6",
+        rolls: [3, 4],
+        modifier: 0,
+        total: 7,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      createDiceResult([5], 0),
+      createDiceResult([6], 0),
+    ]);
+    const actor = createCharacter({
+      id: "dragonborn",
+      character: {
+        id: "dragonborn-character",
+        name: "Dragonborn",
+        abilitiesJson: JSON.stringify({ con: 14 }),
+        proficiencyBonus: 2,
+        featuresJson: JSON.stringify([
+          "race.dragonborn.trait.base_traits",
+          "draconic_ancestry:red",
+        ]),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      currentHp: 10,
+      character: {
+        id: "target-character",
+        name: "Target",
+        abilitiesJson: JSON.stringify({ dex: 10 }),
+      },
+    });
+    const secondTarget = createCharacter({
+      id: "target-two",
+      currentHp: 10,
+      character: {
+        id: "target-two-character",
+        name: "Target Two",
+        abilitiesJson: JSON.stringify({ dex: 10 }),
+      },
+    });
+
+    const result = service.resolveAction(
+      "/feature breath_weapon target",
+      actor,
+      [actor, target, secondTarget],
+      {
+        map: {
+          gridType: "square",
+          gridSize: 50,
+          tokens: [
+            {
+              sessionCharacterId: "dragonborn",
+              x: 0,
+              y: 0,
+              size: 50,
+              hidden: false,
+              isHostile: false,
+            },
+            {
+              sessionCharacterId: "target",
+              x: 50,
+              y: 0,
+              size: 50,
+              hidden: false,
+              isHostile: true,
+            },
+            {
+              sessionCharacterId: "target-two",
+              x: 100,
+              y: 50,
+              size: 50,
+              hidden: false,
+              isHostile: true,
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.structuredAction).toMatchObject({
+      type: "use_race_feature",
+      featureId: "race.dragonborn.trait.base_traits",
+      damageType: "fire",
+      damageDice: "2d6",
+      saveDc: 12,
+      targetIds: ["target", "target-two"],
+    });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "dragonborn",
+        conditions: ["resource:dragonborn_breath_expended"],
+      },
+      {
+        sessionCharacterId: "target",
+        currentHp: 3,
+        markDead: false,
+      },
+      {
+        sessionCharacterId: "target-two",
+        currentHp: 3,
+        markDead: false,
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+  });
+
   it("keeps save-end conditions when the saving throw fails", () => {
     const service = createService([createDiceResult([4], 2)]);
     const target = createCharacter({
@@ -627,6 +1003,7 @@ describe("ActionRuleService", () => {
     });
     expect(structuredAction.result.distanceFt).toBe(5);
     expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
       { type: "REMOVE_ITEM", itemId: "entry-dagger", quantity: 1 },
       {
         type: "CREATE_MAP_OBJECT",
@@ -637,6 +1014,49 @@ describe("ActionRuleService", () => {
         point: { x: 1, y: 0 },
       },
     ]);
+  });
+
+  it("rejects item drop commands when no action is available", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        inventoryJson: JSON.stringify([
+          {
+            id: "entry-dagger",
+            itemDefinitionId: "equipment.dagger",
+            name: "Dagger",
+            quantity: 2,
+          },
+        ]),
+      },
+    });
+
+    const result = service.resolveAction("/item drop entry-dagger 1 1 0", actor, [actor], {
+      map: {
+        gridType: "square",
+        gridSize: 50,
+        tokens: [
+          { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+        ],
+      },
+      turnState: {
+        actionUsed: true,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.structuredAction).toMatchObject({
+      type: "item_interaction",
+      operation: "drop",
+      itemId: "entry-dagger",
+    });
+    expect(result.runtimeEffects).toEqual([]);
   });
 
   it("resolves item pickup commands into inventory addition and map object removal metadata", () => {
@@ -690,9 +1110,59 @@ describe("ActionRuleService", () => {
       distanceFt: 5,
     });
     expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
       { type: "ADD_ITEM", itemDefinitionId: "equipment.rope", quantity: 1 },
       { type: "REMOVE_MAP_OBJECT", objectId: "object-rope" },
     ]);
+  });
+
+  it("rejects item pickup commands when no action is available", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+    });
+
+    const result = service.resolveAction(
+      "/item pickup object-rope equipment.rope 1 1 0",
+      actor,
+      [actor],
+      {
+        map: {
+          gridType: "square",
+          gridSize: 50,
+          tokens: [
+            { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+          ],
+          objectCells: [
+            {
+              id: "object-rope",
+              x: 50,
+              y: 0,
+              width: 50,
+              height: 50,
+              description: "equipment.rope x1",
+              hiddenItemIds: ["equipment.rope"],
+            },
+          ],
+        },
+        turnState: {
+          actionUsed: true,
+          bonusActionUsed: false,
+          reactionUsed: false,
+          additionalActionGranted: false,
+          sneakAttackUsed: false,
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.structuredAction).toMatchObject({
+      type: "item_interaction",
+      operation: "pickup",
+      itemDefinitionId: "equipment.rope",
+    });
+    expect(result.runtimeEffects).toEqual([]);
   });
 
   it("rejects item pickup when the VTT map object is missing", () => {
@@ -762,6 +1232,7 @@ describe("ActionRuleService", () => {
 
     expect(result.outcome).toBe(ActionOutcome.SUCCESS);
     expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
       { type: "ADD_ITEM", itemDefinitionId: "equipment.rope", quantity: 2 },
       {
         type: "UPDATE_MAP_OBJECT_QUANTITY",
@@ -798,6 +1269,48 @@ describe("ActionRuleService", () => {
               width: 50,
               height: 50,
               description: "equipment.rope x5",
+              hiddenItemIds: ["equipment.rope"],
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.structuredAction).toMatchObject({
+      type: "item_interaction",
+      operation: "pickup",
+      rejectedReason: "insufficient_map_object_quantity",
+    });
+    expect(result.runtimeEffects).toEqual([]);
+  });
+
+  it("treats item map objects without an explicit stack quantity as a single item", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+    });
+
+    const result = service.resolveAction(
+      "/item pickup object-rope equipment.rope 2 1 0",
+      actor,
+      [actor],
+      {
+        map: {
+          gridType: "square",
+          gridSize: 50,
+          tokens: [
+            { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+          ],
+          objectCells: [
+            {
+              id: "object-rope",
+              x: 50,
+              y: 0,
+              width: 50,
+              height: 50,
+              description: "Coiled rope",
               hiddenItemIds: ["equipment.rope"],
             },
           ],
@@ -876,6 +1389,200 @@ describe("ActionRuleService", () => {
         name: "Dagger",
         quantity: 1,
         point: { x: 4, y: 0 },
+      },
+      { type: "SPEND_ACTION" },
+    ]);
+  });
+
+  it("rejects item throw commands when no action is available", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        abilitiesJson: JSON.stringify({ str: 12, dex: 16 }),
+        proficiencyBonus: 2,
+        inventoryJson: JSON.stringify([
+          {
+            id: "entry-dagger",
+            itemDefinitionId: "equipment.dagger",
+            name: "Dagger",
+            quantity: 1,
+            damageDice: "1d4",
+            damageType: "piercing",
+            properties: ["finesse", "light", "thrown", "proficient"],
+          },
+        ]),
+      },
+    });
+
+    const result = service.resolveAction("/item throw entry-dagger 1 4 0", actor, [actor], {
+      map: {
+        gridType: "square",
+        gridSize: 50,
+        tokens: [
+          { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+        ],
+      },
+      turnState: {
+        actionUsed: true,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.structuredAction).toMatchObject({
+      type: "item_interaction",
+      operation: "throw",
+      itemId: "entry-dagger",
+    });
+    expect(result.runtimeEffects).toEqual([]);
+  });
+
+  it("resolves thrown item hits into attack damage without creating a miss object", () => {
+    const service = createService([
+      createDiceResult([14], 5),
+      {
+        expression: "1d4",
+        rolls: [3],
+        modifier: 0,
+        total: 3,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        abilitiesJson: JSON.stringify({ str: 12, dex: 16 }),
+        proficiencyBonus: 2,
+        inventoryJson: JSON.stringify([
+          {
+            id: "entry-dagger",
+            itemDefinitionId: "equipment.dagger",
+            name: "Dagger",
+            quantity: 1,
+            damageDice: "1d4",
+            damageType: "piercing",
+            properties: ["finesse", "light", "thrown", "proficient"],
+          },
+        ]),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 10,
+      character: { id: "target-character", name: "Target", armorClass: 12 },
+    });
+
+    const result = service.resolveAction("/item throw entry-dagger 1 4 0", actor, [actor, target], {
+      map: {
+        gridType: "square",
+        gridSize: 50,
+        tokens: [
+          { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+          { sessionCharacterId: "target", x: 200, y: 0, size: 50, hidden: false, isHostile: true },
+        ],
+      },
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+    const structuredAction = result.structuredAction as {
+      target: string;
+      targetArmorClass: number;
+      finalDamage: number;
+      damageRoll: DiceRollResponseDto | null;
+    };
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.diceResult).toMatchObject({ total: 19 });
+    expect(structuredAction).toMatchObject({
+      target: "target",
+      targetArmorClass: 12,
+      finalDamage: 3,
+      damageRoll: expect.objectContaining({ expression: "1d4", total: 3 }),
+    });
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 7, markDead: false },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "REMOVE_ITEM", itemId: "entry-dagger", quantity: 1 },
+      { type: "SPEND_ACTION" },
+    ]);
+  });
+
+  it("creates a thrown item miss object near the target when the attack misses a token", () => {
+    const service = createService([createDiceResult([3], 5)]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        abilitiesJson: JSON.stringify({ str: 12, dex: 16 }),
+        proficiencyBonus: 2,
+        inventoryJson: JSON.stringify([
+          {
+            id: "entry-dagger",
+            itemDefinitionId: "equipment.dagger",
+            name: "Dagger",
+            quantity: 1,
+            damageDice: "1d4",
+            damageType: "piercing",
+            properties: ["finesse", "light", "thrown", "proficient"],
+          },
+        ]),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 10,
+      character: { id: "target-character", name: "Target", armorClass: 16 },
+    });
+
+    const result = service.resolveAction("/item throw entry-dagger 1 4 0", actor, [actor, target], {
+      map: {
+        gridType: "square",
+        gridSize: 50,
+        tokens: [
+          { sessionCharacterId: "actor", x: 0, y: 0, size: 50, hidden: false, isHostile: false },
+          { sessionCharacterId: "target", x: 200, y: 0, size: 50, hidden: false, isHostile: true },
+        ],
+      },
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.FAILURE);
+    expect(result.stateChanges).toEqual([]);
+    expect(result.structuredAction).toMatchObject({
+      type: "item_interaction",
+      operation: "throw",
+      target: "target",
+      landingPoint: { x: 4, y: 1 },
+    });
+    expect(result.runtimeEffects).toEqual([
+      { type: "REMOVE_ITEM", itemId: "entry-dagger", quantity: 1 },
+      {
+        type: "CREATE_MAP_OBJECT",
+        objectId: "object:thrown:entry-dagger:4:1",
+        itemDefinitionId: "equipment.dagger",
+        name: "Dagger",
+        quantity: 1,
+        point: { x: 4, y: 1 },
       },
       { type: "SPEND_ACTION" },
     ]);
@@ -1031,6 +1738,60 @@ describe("ActionRuleService", () => {
     ]);
   });
 
+  it("applies Ray of Frost movement penalty through catalog attack spell data", () => {
+    const service = createService([
+      createDiceResult([18], 3),
+      {
+        expression: "2d8",
+        rolls: [6, 5],
+        modifier: 0,
+        total: 11,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "wizard",
+        level: 5,
+        proficiencyBonus: 3,
+        spellsJson: JSON.stringify({ cantrips: ["spell.ray_of_frost"] }),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 20,
+      character: { id: "target-character", name: "Target", armorClass: 12 },
+    });
+
+    const result = service.resolveAction("/cast ray_of_frost target 60", actor, [actor, target]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.structuredAction).toMatchObject({
+      spellId: "spell.ray_of_frost",
+      damageType: "cold",
+      damageDice: "2d8",
+      finalDamage: 11,
+    });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "target",
+        currentHp: 9,
+        markDead: false,
+        conditions: [
+          expect.objectContaining({
+            conditionId: "condition.spell.ray_of_frost",
+            sourceId: "spell.ray_of_frost",
+            duration: { type: "rounds", remaining: 1 },
+            tags: ["movement_speed_penalty:10"],
+          }),
+        ],
+      },
+    ]);
+  });
+
   it("rejects catalog attack spells when the target is out of range", () => {
     const service = createService([]);
     const actor = createCharacter({
@@ -1166,6 +1927,55 @@ describe("ActionRuleService", () => {
     ]);
   });
 
+  it("rejects area spells that are known but not prepared", () => {
+    const service = createService([
+      {
+        expression: "8d6",
+        rolls: [6, 5, 4, 4, 3, 3, 2, 2],
+        modifier: 0,
+        total: 29,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      createDiceResult([8], 1),
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "wizard",
+        level: 5,
+        spellsJson: JSON.stringify({
+          cantrips: [],
+          spells: ["spell.fireball"],
+          preparedSpells: [],
+        }),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 20,
+      character: {
+        id: "target-character",
+        name: "Target",
+        abilitiesJson: JSON.stringify({ dex: 12 }),
+      },
+    });
+
+    const result = service.resolveAction("/cast_area fireball 15 target", actor, [actor, target]);
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.diceResult).toBeNull();
+    expect(result.stateChanges).toEqual([]);
+    expect(result.runtimeEffects).toEqual([]);
+    expect(result.structuredAction).toMatchObject({
+      type: "cast_area_spell",
+      spellId: "spell.fireball",
+      targetIds: ["target"],
+      rejectedReason: "spell_not_prepared",
+    });
+  });
+
   it("resolves concentration checks for area spell damage", () => {
     const service = createService([
       {
@@ -1251,9 +2061,13 @@ describe("ActionRuleService", () => {
           concentrationMaintained: boolean;
           removedConditions: unknown[];
           concentrationState: {
+            casterId: string;
             spellId: string | null;
             targetIds: string[];
             effectIds: string[];
+            startedAtRound: number;
+            endsAtRound: number | null;
+            endsAtTurn: number | null;
           };
         }>;
       };
@@ -1270,11 +2084,18 @@ describe("ActionRuleService", () => {
           advantageState: DiceAdvantageState.NORMAL,
         },
         concentrationMaintained: false,
-        removedConditions: [concentration, linked],
+        removedConditions: [
+          { ...concentration, appliedAtRound: 0 },
+          { ...linked, appliedAtRound: 0 },
+        ],
         concentrationState: {
+          casterId: "",
           spellId: "spell.hold_person",
           targetIds: ["target-1"],
           effectIds: ["effect-hold-1"],
+          startedAtRound: 0,
+          endsAtRound: null,
+          endsAtTurn: null,
         },
       },
     ]);
@@ -1283,7 +2104,7 @@ describe("ActionRuleService", () => {
         sessionCharacterId: "target",
         currentHp: 10,
         markDead: false,
-        conditions: [unrelated],
+        conditions: [{ ...unrelated, appliedAtRound: 0 }],
       },
     ]);
   });
@@ -1345,6 +2166,207 @@ describe("ActionRuleService", () => {
       { type: "SPEND_ACTION" },
       { type: "SPEND_SPELL_SLOT", slotLevel: 3 },
     ]);
+  });
+
+  it("executes cure wounds as a catalog-driven touch healing spell", () => {
+    const service = createService([
+      {
+        expression: "2d8+3",
+        rolls: [6, 5],
+        modifier: 3,
+        total: 14,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "cleric",
+        level: 3,
+        abilitiesJson: JSON.stringify({ wis: 16 }),
+        spellsJson: JSON.stringify({
+          spells: ["spell.cure_wounds"],
+          preparedSpells: ["spell.cure_wounds"],
+        }),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 4,
+      character: { id: "target-character", name: "Target", maxHp: 18, armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/cast cure_wounds target 5 2", actor, [actor, target]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.diceResult).toMatchObject({ expression: "2d8+3", total: 14 });
+    expect(result.structuredAction).toMatchObject({
+      type: "cast_spell",
+      spellId: "spell.cure_wounds",
+      slotLevel: 2,
+      target: "target",
+      spellDefinition: {
+        id: "spell.cure_wounds",
+        level: 1,
+      },
+      spellScaling: {
+        baseSpellLevel: 1,
+        slotLevel: 2,
+        damageDice: "2d8",
+      },
+      healingDice: "2d8+3",
+      finalHealing: 14,
+    });
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 18 },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SPELL_SLOT", slotLevel: 2 },
+    ]);
+  });
+
+  it("rejects a known leveled spell that is not prepared", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "wizard",
+        level: 5,
+        spellsJson: JSON.stringify({
+          cantrips: ["spell.fire_bolt"],
+          spells: ["spell.magic_missile", "spell.sleep"],
+          preparedSpells: ["spell.sleep"],
+        }),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 30,
+      character: { id: "target-character", name: "Target", armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/cast magic_missile target 120 1", actor, [actor, target]);
+
+    expect(result.outcome).toBe(ActionOutcome.IMPOSSIBLE);
+    expect(result.diceResult).toBeNull();
+    expect(result.stateChanges).toEqual([]);
+    expect(result.runtimeEffects).toEqual([]);
+    expect(result.structuredAction).toMatchObject({
+      type: "cast_spell",
+      spellId: "spell.magic_missile",
+      rejectedReason: "spell_not_prepared",
+    });
+  });
+
+  it("executes sleep as a catalog-driven hit point pool condition spell", () => {
+    const service = createService([
+      {
+        expression: "9d8",
+        rolls: [4, 4, 4, 4, 4, 4, 4, 4, 3],
+        modifier: 0,
+        total: 35,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: { className: "wizard", level: 5 },
+    });
+    const weakerTarget = createCharacter({
+      id: "weaker",
+      characterId: "weaker-character",
+      currentHp: 12,
+      character: { id: "weaker-character", name: "Weaker", armorClass: 10 },
+    });
+    const strongerTarget = createCharacter({
+      id: "stronger",
+      characterId: "stronger-character",
+      currentHp: 28,
+      character: { id: "stronger-character", name: "Stronger", armorClass: 10 },
+    });
+
+    const result = service.resolveAction(
+      "/cast sleep weaker,stronger 90 3",
+      actor,
+      [actor, strongerTarget, weakerTarget],
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.diceResult).toMatchObject({ expression: "9d8", total: 35 });
+    expect(result.structuredAction).toMatchObject({
+      type: "cast_spell",
+      spellId: "spell.sleep",
+      slotLevel: 3,
+      spellScaling: {
+        baseSpellLevel: 1,
+        slotLevel: 3,
+        damageDice: "9d8",
+      },
+      sleepPoolTotal: 35,
+      sleptTargetIds: ["weaker"],
+    });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "weaker",
+        conditions: [
+          expect.objectContaining({
+            conditionId: "combat:sleep",
+            sourceId: "spell.sleep",
+            tags: expect.arrayContaining(["combat:unconscious", "condition:incapacitated"]),
+          }),
+        ],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SPELL_SLOT", slotLevel: 3 },
+    ]);
+  });
+
+  it("executes light as a catalog-driven utility condition spell", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      conditionsJson: "[]",
+      character: { className: "wizard", level: 5 },
+    });
+
+    const result = service.resolveAction("/cast light actor 5 0", actor, [actor]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.diceResult).toBeNull();
+    expect(result.structuredAction).toMatchObject({
+      type: "cast_spell",
+      spellId: "spell.light",
+      slotLevel: 0,
+      target: "actor",
+      spellDefinition: {
+        id: "spell.light",
+        level: 0,
+      },
+      lightRadiusFt: 40,
+    });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "actor",
+        conditions: [
+          expect.objectContaining({
+            conditionId: "condition.spell.light",
+            sourceId: "spell.light",
+            duration: { type: "permanent" },
+            tags: expect.arrayContaining(["effect:bright_light", "utility:illumination", "light_radius:40"]),
+          }),
+        ],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
   });
 
   it("rejects invalid spell slot levels without throwing", () => {
@@ -1899,6 +2921,291 @@ describe("ActionRuleService", () => {
     expect(result.narration).toBe("Frenzy는 Rage 상태에서만 사용할 수 있습니다.");
   });
 
+  it("uses Lay on Hands as a self heal and records its long-rest resource", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "paladin",
+      characterId: "paladin-character",
+      currentHp: 4,
+      character: { className: "paladin", level: 3, maxHp: 20 },
+    });
+
+    const result = service.resolveAction("/feature lay_on_hands", actor, [actor], {
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "paladin",
+        currentHp: 19,
+        conditions: ["resource:lay_on_hands_expended"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+  });
+
+  it("spends a level 1 slot for Primeval Awareness", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "ranger",
+      characterId: "ranger-character",
+      character: { className: "ranger", level: 3 },
+    });
+
+    const result = service.resolveAction(
+      "/feature primeval_awareness",
+      actor,
+      [actor],
+      {
+        spellSlots: { "1": 2 },
+        turnState: {
+          actionUsed: false,
+          bonusActionUsed: false,
+          reactionUsed: false,
+          additionalActionGranted: false,
+          sneakAttackUsed: false,
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SPELL_SLOT", slotLevel: 1 },
+    ]);
+  });
+
+  it("spends monk Ki on Patient Defense and records the spent point", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "monk",
+      characterId: "monk-character",
+      character: { className: "monk", level: 2 },
+    });
+
+    const result = service.resolveAction(
+      "/feature ki patient_defense",
+      actor,
+      [actor],
+      {
+        turnState: {
+          actionUsed: false,
+          bonusActionUsed: false,
+          reactionUsed: false,
+          additionalActionGranted: false,
+          sneakAttackUsed: false,
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "monk",
+        conditions: ["resource:ki_spent:1", "combat:dodge"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_BONUS_ACTION" }]);
+  });
+
+  it("uses Life Cleric Channel Divinity to heal up to half HP", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "cleric",
+      characterId: "cleric-character",
+      currentHp: 2,
+      character: {
+        className: "cleric",
+        subclassName: "life",
+        level: 2,
+        maxHp: 18,
+      },
+    });
+
+    const result = service.resolveAction(
+      "/feature channel_divinity",
+      actor,
+      [actor],
+      {
+        turnState: {
+          actionUsed: false,
+          bonusActionUsed: false,
+          reactionUsed: false,
+          additionalActionGranted: false,
+          sneakAttackUsed: false,
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "cleric",
+        currentHp: 9,
+        conditions: ["resource:channel_divinity_expended"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+  });
+
+  it("grants Bardic Inspiration to an ally and spends one use", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "bard",
+      characterId: "bard-character",
+      character: {
+        className: "bard",
+        level: 2,
+        abilitiesJson: JSON.stringify({ cha: 16 }),
+      },
+    });
+    const ally = createCharacter({
+      id: "ally",
+      characterId: "ally-character",
+      character: { className: "fighter", level: 2 },
+    });
+
+    const result = service.resolveAction(
+      "/feature bardic_inspiration ally",
+      actor,
+      [actor, ally],
+      {
+        turnState: {
+          actionUsed: false,
+          bonusActionUsed: false,
+          reactionUsed: false,
+          additionalActionGranted: false,
+          sneakAttackUsed: false,
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "bard",
+        conditions: ["resource:bardic_inspiration_spent:1"],
+      },
+      {
+        sessionCharacterId: "ally",
+        conditions: ["bardic_inspiration:1d6"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_BONUS_ACTION" }]);
+  });
+
+  it("upgrades Bardic Inspiration to d8 at level 5", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "bard",
+      character: {
+        className: "bard",
+        level: 5,
+        abilitiesJson: JSON.stringify({ cha: 16 }),
+      },
+    });
+    const ally = createCharacter({
+      id: "ally",
+      character: { className: "fighter", level: 5 },
+    });
+
+    const result = service.resolveAction(
+      "/feature bardic_inspiration ally",
+      actor,
+      [actor, ally],
+    );
+
+    expect(result.structuredAction).toMatchObject({ die: "1d8" });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "bard",
+        conditions: ["resource:bardic_inspiration_spent:1"],
+      },
+      {
+        sessionCharacterId: "ally",
+        conditions: ["bardic_inspiration:1d8"],
+      },
+    ]);
+  });
+
+  it("converts sorcery points into a level 1 spell slot", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "sorcerer",
+      characterId: "sorcerer-character",
+      character: { className: "sorcerer", level: 2 },
+    });
+
+    const result = service.resolveAction(
+      "/feature font_of_magic",
+      actor,
+      [actor],
+      {
+        spellSlots: { "1": 1 },
+        spellSlotMaximums: { "1": 3 },
+        turnState: {
+          actionUsed: false,
+          bonusActionUsed: false,
+          reactionUsed: false,
+          additionalActionGranted: false,
+          sneakAttackUsed: false,
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "sorcerer",
+        conditions: ["resource:sorcery_points_spent:2"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_BONUS_ACTION" },
+      { type: "RESTORE_SPELL_SLOT", slotLevel: 1, amount: 1 },
+    ]);
+  });
+
+  it("uses Wild Shape to enter wolf form with form HP", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "druid",
+      characterId: "druid-character",
+      character: { className: "druid", level: 2 },
+    });
+
+    const result = service.resolveAction("/feature wild_shape", actor, [actor], {
+      turnState: {
+        actionUsed: false,
+        bonusActionUsed: false,
+        reactionUsed: false,
+        additionalActionGranted: false,
+        sneakAttackUsed: false,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "druid",
+        tempHp: 11,
+        conditions: [
+          "resource:wild_shape_spent:1",
+          "wild_shape:wolf",
+          "movement_speed_override:40",
+        ],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+  });
+
   it("recovers short rest resources without changing HP", () => {
     const service = createService([]);
     const actor = createCharacter({
@@ -1925,6 +3232,7 @@ describe("ActionRuleService", () => {
     expect(result.runtimeEffects).toEqual([
       {
         type: "RECOVER_SHORT_REST",
+        secondWindAvailable: true,
         actionSurgeUses: 1,
       },
     ]);
@@ -1940,6 +3248,81 @@ describe("ActionRuleService", () => {
         "resource:action_surge_expended",
         "action_surge:additional_action_granted",
       ],
+    });
+  });
+
+  it("spends hit dice to heal during short rest", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      currentHp: 5,
+      character: {
+        className: "fighter",
+        level: 4,
+        maxHp: 24,
+        abilitiesJson: JSON.stringify({ con: 14 }),
+      },
+    });
+
+    const result = service.resolveAction("/rest short 2", actor, [actor], {
+      spellSlots: { "1": 1 },
+      spellSlotMaximums: { "1": 4 },
+      resource: {
+        secondWindAvailable: false,
+        actionSurgeUses: 0,
+        rageUses: 0,
+        rageActive: false,
+        frenzyActive: false,
+        exhaustionLevel: 0,
+        hitDiceSpent: 1,
+      },
+    });
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "actor",
+        currentHp: 21,
+        conditions: [],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      {
+        type: "RECOVER_SHORT_REST",
+        secondWindAvailable: true,
+        actionSurgeUses: 1,
+        hitDiceSpent: 3,
+      },
+    ]);
+    expect(result.structuredAction).toMatchObject({
+      type: "rest",
+      restType: "short",
+      recoveredResources: {
+        hitDiceSpent: 3,
+      },
+      restResult: {
+        hp: {
+          before: 5,
+          after: 21,
+          recovered: 16,
+        },
+        resources: {
+          before: expect.objectContaining({
+            secondWindAvailable: false,
+            hitDiceSpent: 1,
+          }),
+          after: expect.objectContaining({
+            secondWindAvailable: true,
+            hitDiceSpent: 3,
+          }),
+        },
+        spellSlots: {
+          before: { "1": 1 },
+          after: { "1": 1 },
+        },
+      },
+      recoveredTags: expect.arrayContaining(["hit_dice:spent:2"]),
     });
   });
 
@@ -1960,6 +3343,7 @@ describe("ActionRuleService", () => {
     expect(result.runtimeEffects).toEqual([
       {
         type: "RECOVER_SHORT_REST",
+        secondWindAvailable: false,
         actionSurgeUses: 1,
       },
     ]);
@@ -1968,6 +3352,37 @@ describe("ActionRuleService", () => {
         actionSurgeUses: 1,
       },
     });
+  });
+
+  it("uses Arcane Recovery once to restore the highest affordable slot", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "wizard",
+      characterId: "wizard-character",
+      character: {
+        className: "wizard",
+        level: 3,
+      },
+    });
+
+    const result = service.resolveAction("/rest short", actor, [actor], {
+      spellSlots: { "1": 2, "2": 0 },
+      spellSlotMaximums: { "1": 4, "2": 2 },
+    });
+
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "wizard",
+        conditions: ["resource:arcane_recovery_expended"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      expect.objectContaining({
+        type: "RECOVER_SHORT_REST",
+        recoverSpellSlotLevel: 2,
+        spellRecoveryFeatureId: "class.wizard.feature.arcane_recovery",
+      }),
+    ]);
   });
 
   it("recovers long rest HP, class resources, and clears Rage tags", () => {
@@ -1986,7 +3401,19 @@ describe("ActionRuleService", () => {
       character: { className: "barbarian", level: 6, maxHp: 50 },
     });
 
-    const result = service.resolveAction("/rest long", actor, [actor]);
+    const result = service.resolveAction("/rest long", actor, [actor], {
+      spellSlots: { "1": 0, "2": 1 },
+      spellSlotMaximums: { "1": 4, "2": 3 },
+      resource: {
+        secondWindAvailable: true,
+        actionSurgeUses: 0,
+        rageUses: 1,
+        rageActive: true,
+        frenzyActive: false,
+        exhaustionLevel: 1,
+        hitDiceSpent: 2,
+      },
+    });
 
     expect(result.outcome).toBe(ActionOutcome.SUCCESS);
     expect(result.stateChanges).toEqual([
@@ -2001,7 +3428,9 @@ describe("ActionRuleService", () => {
     expect(result.runtimeEffects).toEqual([
       {
         type: "RECOVER_LONG_REST",
+        secondWindAvailable: false,
         actionSurgeUses: 0,
+        hitDiceSpent: 0,
         rageUses: 4,
         reduceExhaustionBy: 1,
       },
@@ -2009,6 +3438,44 @@ describe("ActionRuleService", () => {
     expect(result.structuredAction).toMatchObject({
       type: "rest",
       restType: "long",
+      restResult: {
+        hp: {
+          before: 3,
+          after: 50,
+          recovered: 47,
+        },
+        tempHp: {
+          before: 4,
+          after: 0,
+        },
+        conditions: {
+          beforeCount: 4,
+          afterCount: 1,
+          removed: [
+            "resource:rage_expended",
+            "rage",
+            "resistance:slashing",
+          ],
+        },
+        resources: {
+          before: expect.objectContaining({
+            rageUses: 1,
+            rageActive: true,
+            exhaustionLevel: 1,
+            hitDiceSpent: 2,
+          }),
+          after: expect.objectContaining({
+            rageUses: 4,
+            rageActive: false,
+            exhaustionLevel: 0,
+            hitDiceSpent: 0,
+          }),
+        },
+        spellSlots: {
+          before: { "1": 0, "2": 1 },
+          after: { "1": 4, "2": 3 },
+        },
+      },
       recoveredTags: expect.arrayContaining([
         "resource:rage_expended",
         "rage",
@@ -2037,9 +3504,10 @@ describe("ActionRuleService", () => {
     expect(result.runtimeEffects).toEqual([
       {
         type: "RECOVER_LONG_REST",
+        secondWindAvailable: false,
         actionSurgeUses: 0,
         rageUses: 3,
-        reduceExhaustionBy: 1,
+        reduceExhaustionBy: 0,
       },
     ]);
   });

@@ -25,6 +25,7 @@ interface BattleMapStructureInspectorProps {
     close: string;
     name: string;
     description: string;
+    terrainEffect: string;
     width: string;
     height: string;
     doorState: string;
@@ -83,6 +84,17 @@ const objectRevealSkillOptions = [
   { value: 'acrobatics', label: '곡예' },
 ] as const;
 
+const terrainEffectOptions = [
+  { value: '', label: '없음' },
+  { value: 'terrain.difficult', label: '험지' },
+  { value: 'terrain.hazardous', label: '위험 지형' },
+  { value: 'terrain.obscurement', label: '시야 방해' },
+  { value: 'terrain.elevation', label: '고저차' },
+  { value: 'terrain.slippery', label: '미끄러운 지형' },
+  { value: 'terrain.burning', label: '불타는 지형' },
+  { value: 'terrain.poison_cloud', label: '독구름' },
+] as const;
+
 function clamp(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.min(Math.max(value, min), max);
@@ -107,6 +119,7 @@ export function BattleMapStructureInspector({
   onUpdateObjectEvent,
   onDeleteObjectEvent,
 }: BattleMapStructureInspectorProps) {
+  const terrainCell = kind === 'terrain' ? (cell as TerrainCell) : null;
   const doorCell = kind === 'door' ? (cell as DoorCell) : null;
   const objectCell = kind === 'object' ? (cell as ObjectCell) : null;
 
@@ -131,6 +144,25 @@ export function BattleMapStructureInspector({
           onChange={(event) => onUpdate(kind, cell.id, { description: event.target.value || null })}
         />
       </label>
+      {terrainCell ? (
+        <label>
+          {labels.terrainEffect}
+          <select
+            value={terrainCell.terrainEffectId ?? ''}
+            onChange={(event) =>
+              onUpdate(kind, cell.id, {
+                terrainEffectId: event.target.value || null,
+              } as Partial<TerrainCell>)
+            }
+          >
+            {terrainEffectOptions.map((option) => (
+              <option key={option.value || 'none'} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <div className="vtt-field-row">
         <label>
           X
@@ -223,7 +255,38 @@ export function BattleMapStructureInspector({
               />
               {labels.visibleToPlayers}
             </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={objectCell.canBreak === true}
+                onChange={(event) => onUpdate(kind, cell.id, { canBreak: event.target.checked } as Partial<ObjectCell>)}
+              />
+              {labels.canBreak}
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={objectCell.broken === true}
+                onChange={(event) => onUpdate(kind, cell.id, { broken: event.target.checked } as Partial<ObjectCell>)}
+              />
+              파괴됨
+            </label>
           </div>
+          <label>
+            {labels.breakDc}
+            <input
+              type="number"
+              min={1}
+              max={40}
+              disabled={!objectCell.canBreak}
+              value={objectCell.breakCheckDc ?? ''}
+              onChange={(event) =>
+                onUpdate(kind, cell.id, {
+                  breakCheckDc: event.target.value ? Number(event.target.value) : null,
+                } as Partial<ObjectCell>)
+              }
+            />
+          </label>
           <label>
             {labels.linkedClues}
             <select

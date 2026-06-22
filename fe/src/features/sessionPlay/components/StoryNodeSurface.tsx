@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type {
+  AiHumanGmAssistSuggestionRequestDto,
+  CreateHumanGmAiAssistSuggestionDto,
+  HumanGmAiAssistSuggestionDto,
   PlayerScenarioNodeDto,
+  RestActionDto,
   SessionCharacterResponseDto,
 } from '@trpg/shared-types';
 import {
@@ -11,6 +15,7 @@ import {
 import quillImage from '../../../components/quill.webp';
 import storyNodeBadge from '../../../components/node_badge_story.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
+import { HumanGmAiAssistPanel } from './HumanGmAiAssistPanel';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import './StoryNodeSurface.css';
 
@@ -24,6 +29,33 @@ interface StoryNodeSurfaceProps {
   rpUtterances?: StoryRpUtterance[];
   onRpUtteranceClick?: () => void;
   getCharacterColorStyle?: (character: SessionCharacterResponseDto) => CSSProperties;
+  isBusy?: boolean;
+  onRequestRest?: (
+    restType: RestActionDto['restType'],
+    characterId?: string,
+    hitDiceToSpend?: number
+  ) => Promise<void> | void;
+  gmNodeMoveOptions?: StoryNodeMoveOption[];
+  onGmNodeMove?: (nodeId: string) => Promise<void> | void;
+  onGmMessage?: (payload: {
+    content: string;
+    speakerName?: string | null;
+    asNpc?: boolean;
+    privateNote?: string | null;
+  }) => Promise<void> | void;
+  isGmMessagePending?: boolean;
+  gmAiAssistSuggestions?: HumanGmAiAssistSuggestionDto[];
+  onGmAiAssistCreate?: (
+    payload: CreateHumanGmAiAssistSuggestionDto
+  ) => Promise<void> | void;
+  onGmAiAssistGenerate?: (
+    payload: AiHumanGmAssistSuggestionRequestDto
+  ) => Promise<void> | void;
+  onGmAiAssistAccept?: (
+    suggestion: HumanGmAiAssistSuggestionDto
+  ) => Promise<void> | void;
+  isGmAiAssistPending?: boolean;
+  recentGmAiAssistLogs?: string[];
 }
 
 export interface StoryRpUtterance {
@@ -35,6 +67,16 @@ export interface StoryRpUtterance {
 
 type VisibleStoryRpUtterance = StoryRpUtterance & {
   isFading: boolean;
+};
+
+export type StoryNodeMoveOption = {
+  nodeId: string;
+  title: string;
+  nodeType: string;
+  label?: string | null;
+  condition?: string | null;
+  note?: string | null;
+  isFallback?: boolean;
 };
 
 type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
@@ -146,7 +188,24 @@ export function StoryNodeSurface({
   rpUtterances = [],
   onRpUtteranceClick,
   getCharacterColorStyle,
+  isBusy = false,
+  onRequestRest,
+  gmNodeMoveOptions = [],
+  onGmNodeMove,
+  onGmMessage,
+  isGmMessagePending = false,
+  gmAiAssistSuggestions = [],
+  onGmAiAssistCreate,
+  onGmAiAssistGenerate,
+  onGmAiAssistAccept,
+  isGmAiAssistPending = false,
+  recentGmAiAssistLogs = [],
 }: StoryNodeSurfaceProps) {
+  const [shortRestHitDiceToSpend, setShortRestHitDiceToSpend] = useState(0);
+  const [isGmNpcMessage, setGmNpcMessage] = useState(false);
+  const [gmMessageSpeaker, setGmMessageSpeaker] = useState('');
+  const [gmMessageContent, setGmMessageContent] = useState('');
+  const [gmMessagePrivateNote, setGmMessagePrivateNote] = useState('');
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [speechBubbles, setSpeechBubbles] = useState<VisibleStoryRpUtterance[]>([]);
   const [highlightedCharacterIds, setHighlightedCharacterIds] = useState<Set<string>>(
@@ -165,6 +224,19 @@ export function StoryNodeSurface({
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const selectedCharacter =
     characters.find((character) => character.id === selectedCharacterId) ?? null;
+  const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
+  const restTargetCharacter = (isGmView ? selectedCharacter : myCharacter) ?? myCharacter;
+  const restTargetCharacterId = restTargetCharacter?.id;
+  const restHitDiceMaximum = Math.max(
+    restTargetCharacter?.hitDiceRemaining ?? restTargetCharacter?.level ?? 0,
+    0
+  );
+  const clampedShortRestHitDiceToSpend = Math.min(
+    Math.max(shortRestHitDiceToSpend, 0),
+    restHitDiceMaximum
+  );
+  const shouldShowGmControls =
+    isGmView && Boolean(onGmMessage || onGmNodeMove || onGmAiAssistCreate || onGmAiAssistAccept);
   const speechBubbleByCharacterId = useMemo(() => {
     const next = new Map<string, VisibleStoryRpUtterance>();
     speechBubbles.forEach((bubble) => {
@@ -239,6 +311,12 @@ export function StoryNodeSurface({
   }, [characters, selectedCharacterId]);
 
   useEffect(() => {
+    if (shortRestHitDiceToSpend > restHitDiceMaximum) {
+      setShortRestHitDiceToSpend(restHitDiceMaximum);
+    }
+  }, [restHitDiceMaximum, shortRestHitDiceToSpend]);
+
+  useEffect(() => {
     if (!selectedCharacter) return;
 
     function handleKeyDown(event: KeyboardEvent) {
@@ -250,6 +328,22 @@ export function StoryNodeSurface({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedCharacter]);
+
+  async function handleGmMessageSubmit() {
+    const content = gmMessageContent.trim();
+    if (!content || !onGmMessage || isGmMessagePending) {
+      return;
+    }
+
+    await onGmMessage({
+      content,
+      speakerName: gmMessageSpeaker.trim() || null,
+      asNpc: isGmNpcMessage,
+      privateNote: gmMessagePrivateNote.trim() || null,
+    });
+    setGmMessageContent('');
+    setGmMessagePrivateNote('');
+  }
 
   return (
     <div className="story-node-surface">
@@ -298,6 +392,142 @@ export function StoryNodeSurface({
           </section>
         </section>
       </div>
+
+      {onRequestRest ? (
+        <section className="story-rest-actions" aria-label="휴식 행동">
+          <span className="story-rest-actions-label">
+            휴식 대상 {restTargetCharacter?.name ?? '캐릭터 미선택'}
+          </span>
+          <button
+            type="button"
+            className="story-rest-action-button"
+            disabled={isBusy || !restTargetCharacterId}
+            onClick={() =>
+              void onRequestRest('short', restTargetCharacterId, clampedShortRestHitDiceToSpend)
+            }
+          >
+            짧은 휴식
+          </button>
+          <label className="story-rest-hit-dice-control">
+            <span>HD {restHitDiceMaximum}</span>
+            <input
+              type="number"
+              min={0}
+              max={restHitDiceMaximum}
+              step={1}
+              value={clampedShortRestHitDiceToSpend}
+              disabled={isBusy || !restTargetCharacterId}
+              aria-label="스토리 노드 짧은 휴식 히트 다이스 사용 수"
+              onChange={(event) => {
+                const nextValue = Number(event.target.value);
+                setShortRestHitDiceToSpend(
+                  Number.isInteger(nextValue)
+                    ? Math.min(Math.max(nextValue, 0), restHitDiceMaximum)
+                    : 0
+                );
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="story-rest-action-button"
+            disabled={isBusy || !restTargetCharacterId}
+            onClick={() => void onRequestRest('long', restTargetCharacterId)}
+          >
+            긴 휴식
+          </button>
+        </section>
+      ) : null}
+
+      {shouldShowGmControls ? (
+        <aside className="story-gm-panel" aria-label="HUMAN GM 조작">
+          <section className="story-gm-card story-gm-message">
+            <span className="story-node-eyebrow">장면/NPC 전송</span>
+            <label className="story-gm-message-mode">
+              <input
+                type="checkbox"
+                checked={isGmNpcMessage}
+                onChange={(event) => setGmNpcMessage(event.target.checked)}
+              />
+              NPC 대사로 전송
+            </label>
+            {isGmNpcMessage ? (
+              <input
+                className="story-gm-input"
+                value={gmMessageSpeaker}
+                placeholder="화자 이름"
+                onChange={(event) => setGmMessageSpeaker(event.target.value)}
+              />
+            ) : null}
+            <textarea
+              className="story-gm-textarea"
+              value={gmMessageContent}
+              placeholder={
+                isGmNpcMessage
+                  ? 'NPC 대사를 입력하세요.'
+                  : '플레이어에게 공개할 장면 묘사를 입력하세요.'
+              }
+              rows={3}
+              maxLength={2000}
+              onChange={(event) => setGmMessageContent(event.target.value)}
+            />
+            <input
+              className="story-gm-input"
+              value={gmMessagePrivateNote}
+              placeholder="비공개 GM 메모"
+              maxLength={1000}
+              onChange={(event) => setGmMessagePrivateNote(event.target.value)}
+            />
+            <button
+              type="button"
+              disabled={isBusy || isGmMessagePending || !onGmMessage || !gmMessageContent.trim()}
+              onClick={() => void handleGmMessageSubmit()}
+            >
+              {isGmMessagePending ? '전송 중' : '전송'}
+            </button>
+          </section>
+
+          <section className="story-gm-card story-gm-node-move">
+            <span className="story-node-eyebrow">장면 이동</span>
+            {gmNodeMoveOptions.length ? (
+              <div className="story-gm-node-list">
+                {gmNodeMoveOptions.map((option) => (
+                  <button
+                    type="button"
+                    key={`${option.nodeId}-${option.label ?? option.condition ?? option.title}`}
+                    disabled={isBusy || !onGmNodeMove}
+                    onClick={() => void onGmNodeMove?.(option.nodeId)}
+                  >
+                    <strong>{option.label?.trim() || option.title}</strong>
+                    <span>
+                      {option.title}
+                      {option.isFallback ? ' · 기본 이동' : ''}
+                      {option.nodeType ? ` · ${option.nodeType}` : ''}
+                    </span>
+                    {option.condition ? <small>{option.condition}</small> : null}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="story-gm-empty-text">현재 노드에서 바로 이동 가능한 노드가 없습니다.</p>
+            )}
+          </section>
+
+          <HumanGmAiAssistPanel
+            className="story-gm-card story-gm-ai-assist"
+            nodeId={node?.id}
+            suggestions={gmAiAssistSuggestions}
+            nodeMoveOptions={gmNodeMoveOptions}
+            onCreate={onGmAiAssistCreate}
+            onGenerate={onGmAiAssistGenerate}
+            onAccept={onGmAiAssistAccept}
+            isBusy={isBusy}
+            isPending={isGmAiAssistPending}
+            sceneSummary={node?.sceneText ?? node?.title ?? scenarioTitle}
+            recentLogs={recentGmAiAssistLogs}
+          />
+        </aside>
+      ) : null}
 
       <section className="story-party-strip" aria-label="파티 캐릭터">
         <div className="story-party-list">

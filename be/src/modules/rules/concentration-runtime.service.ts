@@ -74,6 +74,14 @@ export class ConcentrationRuntimeService {
     );
   }
 
+  readActiveConcentration(
+    conditions: ConditionInstance[],
+  ): ConcentrationState | null {
+    const active =
+      conditions.find((condition) => this.isConcentrationCondition(condition)) ?? null;
+    return active ? this.toConcentrationState(active) : null;
+  }
+
   resolveDamageCheck(
     input: ConcentrationCheckRuntimeInput,
   ): ConcentrationCheckRuntimeResolution {

@@ -385,6 +385,207 @@
   word-break: keep-all;
 }
 
+.story-rest-actions {
+  margin: 0 12px;
+  min-height: 44px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(216, 182, 113, 0.88);
+  background:
+    linear-gradient(180deg, rgba(244, 234, 213, 0.96), rgba(226, 209, 179, 0.94));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 248, 226, 0.45),
+    0 3px 8px rgba(30, 18, 8, 0.42);
+}
+
+.story-rest-actions-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: #334253;
+  font-size: 12px;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.story-rest-action-button,
+.story-rest-hit-dice-control {
+  min-height: 28px;
+  border: 1px solid #8a6020;
+  background: #fdfaf3;
+  color: #25364b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.story-rest-action-button {
+  padding: 0 12px;
+}
+
+.story-rest-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.story-rest-hit-dice-control {
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.story-rest-hit-dice-control input {
+  width: 44px;
+  min-height: 22px;
+  border: 1px solid rgba(138, 96, 32, 0.5);
+  background: #ffffff;
+  color: #25364b;
+  font-weight: 900;
+}
+
+.story-gm-panel {
+  margin: 0 12px;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(220px, 0.9fr);
+  gap: 8px;
+}
+
+.story-gm-card {
+  min-width: 0;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(216, 182, 113, 0.82);
+  background:
+    linear-gradient(180deg, rgba(32, 24, 17, 0.94), rgba(17, 15, 13, 0.96));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 236, 184, 0.12),
+    0 3px 8px rgba(30, 18, 8, 0.42);
+  color: #ead9b0;
+}
+
+.story-gm-card .story-node-eyebrow {
+  color: #d9bd76;
+}
+
+.story-gm-message-mode {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #cbbd9b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.story-gm-input,
+.story-gm-textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(201, 146, 42, 0.38);
+  border-radius: 0;
+  background: rgba(8, 10, 13, 0.62);
+  color: #ead9b0;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.story-gm-input {
+  min-height: 34px;
+  padding: 0 9px;
+}
+
+.story-gm-textarea {
+  resize: vertical;
+  min-height: 78px;
+  padding: 8px 9px;
+}
+
+.story-gm-input::placeholder,
+.story-gm-textarea::placeholder {
+  color: #8c8068;
+}
+
+.story-gm-message > button,
+.story-gm-node-list button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #6f5631;
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 240, 194, 0.07), rgba(255, 240, 194, 0) 45%),
+    linear-gradient(145deg, #1b1c1e, #0e1114);
+  color: #d9bd76;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.story-gm-message > button:hover:not(:disabled),
+.story-gm-node-list button:hover:not(:disabled) {
+  border-color: #c9963d;
+  color: #ffe2a0;
+}
+
+.story-gm-message > button:disabled,
+.story-gm-node-list button:disabled {
+  border-color: #4e4c47;
+  color: #7e7769;
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.story-gm-node-list {
+  min-height: 0;
+  max-height: 172px;
+  overflow-y: auto;
+  display: grid;
+  gap: 7px;
+}
+
+.story-gm-node-list button {
+  height: auto;
+  min-height: 48px;
+  padding: 8px 9px;
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.story-gm-node-list strong,
+.story-gm-node-list span,
+.story-gm-node-list small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.story-gm-node-list strong {
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.story-gm-node-list span,
+.story-gm-node-list small,
+.story-gm-empty-text {
+  color: #b8aa8e;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.story-gm-empty-text {
+  margin: 0;
+}
+
+.story-gm-ai-assist {
+  grid-column: 1 / -1;
+}
+
 .story-party-strip {
   margin-top: 6px;
   margin-inline: 12px;
@@ -1260,6 +1461,35 @@
   color: #173b67;
   font-size: 13px;
   font-weight: 900;
+}
+
+@media (max-width: 760px) {
+  .story-rest-actions {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .story-rest-actions-label {
+    flex-basis: 100%;
+  }
+
+  .story-rest-action-button,
+  .story-rest-hit-dice-control {
+    flex: 1 1 120px;
+    justify-content: center;
+  }
+
+  .story-gm-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .story-gm-ai-assist {
+    grid-column: auto;
+  }
+
+  .story-gm-node-list {
+    max-height: 150px;
+  }
 }
 
 .story-character-inventory-item button {

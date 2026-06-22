@@ -11,9 +11,11 @@ import {
   CharacterInventoryResponseDto,
   CharacterResponseDto,
   CreateCharacterDto,
+  LevelUpCharacterDto,
   SessionCharacterResponseDto,
   UpdateCharacterDto,
   UpdateCharacterEquipmentDto,
+  UpdatePreparedSpellsDto,
 } from "@trpg/shared-types";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
 import { CharactersService } from "./characters.service";
@@ -58,6 +60,28 @@ export class CharactersController {
     @Body() dto: UpdateCharacterDto,
   ): Promise<CharacterResponseDto> {
     return this.charactersService.updateCharacter(userId, characterId, dto);
+  }
+
+  @Post("characters/:id/level-up")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: CharacterResponseDto })
+  levelUpCharacter(
+    @CurrentUserId() userId: string,
+    @Param("id") characterId: string,
+    @Body() dto: LevelUpCharacterDto,
+  ): Promise<CharacterResponseDto> {
+    return this.charactersService.levelUpCharacter(userId, characterId, dto);
+  }
+
+  @Patch("characters/:id/prepared-spells")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: CharacterResponseDto })
+  updatePreparedSpells(
+    @CurrentUserId() userId: string,
+    @Param("id") characterId: string,
+    @Body() dto: UpdatePreparedSpellsDto,
+  ): Promise<CharacterResponseDto> {
+    return this.charactersService.updatePreparedSpells(userId, characterId, dto);
   }
 
   @Delete("characters/:id")

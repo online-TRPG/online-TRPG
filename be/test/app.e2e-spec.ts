@@ -7,8 +7,18 @@ import { HttpExceptionFilter } from "../src/common/filters/http-exception.filter
 import { PrismaService } from "../src/database/prisma.service";
 import {
   DEFAULT_SCENARIO_ID,
+  RULE_RUNTIME_SMOKE_SCENARIO_ID,
   seedDefaultScenario,
 } from "../src/database/seed/default-scenario";
+
+const RULE_RUNTIME_SMOKE_NODE_SEQUENCE = [
+  { id: "node_rule_smoke_rest", screenType: "STORY", phase: "dialogue" },
+  { id: "node_rule_smoke_trap_save", screenType: "EXPLORATION", phase: "exploration" },
+  { id: "node_rule_smoke_cover_combat", screenType: "COMBAT", phase: "combat" },
+  { id: "node_rule_smoke_aoe", screenType: "COMBAT", phase: "combat" },
+  { id: "node_rule_smoke_condition", screenType: "COMBAT", phase: "combat" },
+  { id: "node_rule_smoke_human_gm", screenType: "STORY", phase: "dialogue" },
+] as const;
 
 describe("Session service e2e", () => {
   jest.setTimeout(30_000);
@@ -37,41 +47,13 @@ describe("Session service e2e", () => {
     await app.listen(0);
 
     prisma = app.get(PrismaService);
+    await seedDefaultScenario(prisma);
+
     const address = app.getHttpServer().address();
     baseUrl = `http://127.0.0.1:${address.port}`;
   });
 
-  beforeEach(async () => {
-    await prisma.stateDiff.deleteMany();
-    await prisma.diceRollLog.deleteMany();
-    await prisma.turnLog.deleteMany();
-    await prisma.playerAction.deleteMany();
-    await prisma.combatParticipant.deleteMany();
-    await prisma.combat.deleteMany();
-    await prisma.gameState.deleteMany();
-    await prisma.sessionCharacter.deleteMany();
-    await prisma.sessionParticipant.deleteMany();
-    await prisma.sessionScenario.deleteMany();
-    await prisma.session.deleteMany();
-    await prisma.character.deleteMany();
-    await prisma.user.deleteMany();
-    await seedDefaultScenario(prisma);
-  });
-
   afterAll(async () => {
-    await prisma.stateDiff.deleteMany();
-    await prisma.diceRollLog.deleteMany();
-    await prisma.turnLog.deleteMany();
-    await prisma.playerAction.deleteMany();
-    await prisma.combatParticipant.deleteMany();
-    await prisma.combat.deleteMany();
-    await prisma.gameState.deleteMany();
-    await prisma.sessionCharacter.deleteMany();
-    await prisma.sessionParticipant.deleteMany();
-    await prisma.sessionScenario.deleteMany();
-    await prisma.session.deleteMany();
-    await prisma.character.deleteMany();
-    await prisma.user.deleteMany();
     await app.close();
   });
 
@@ -279,12 +261,12 @@ describe("Session service e2e", () => {
       .set("x-user-id", host.id)
       .expect(204);
 
-    const disbanded = await request(baseUrl)
-      .get(`/api/v1/sessions/${sessionId}`)
-      .set("x-user-id", host.id)
-      .expect(200);
+    const disbanded = await prisma.session.findUniqueOrThrow({
+      where: { id: sessionId },
+      select: { status: true },
+    });
 
-    expect(disbanded.body.data.session.status).toBe("disbanded");
+    expect(disbanded.status).toBe("DISBANDED");
   });
 
   it("allows a human-gm host to write GM messages, move nodes, and toggle combat", async () => {
@@ -377,6 +359,170 @@ describe("Session service e2e", () => {
       .expect(201);
 
     expect(combatEnded.body.data.state.phase).toBe("exploration");
+  });
+
+  it("lets an AI GM session complete the rule runtime smoke scenario graph", async () => {
+    const { host, sessionId, sessionCharacterId } = await createStartedSmokeSession("AI");
+
+    for (let index = 0; index < RULE_RUNTIME_SMOKE_NODE_SEQUENCE.length - 1; index += 1) {
+      const current = RULE_RUNTIME_SMOKE_NODE_SEQUENCE[index];
+      const next = RULE_RUNTIME_SMOKE_NODE_SEQUENCE[index + 1];
+
+      const response = await request(baseUrl)
+        .post(`/api/v1/sessions/${sessionId}/actions/main-command`)
+        .set("x-user-id", host.id)
+        .send({
+          commandId: "REQUEST_SCENE_TRANSITION",
+          screenType: current.screenType,
+          category: "MOVEMENT",
+          intent: "REQUEST_SCENE_TRANSITION",
+          actorId: sessionCharacterId,
+          playerText: `${next.id}로 이동한다`,
+          nodeId: current.id,
+        })
+        .expect(201);
+
+      expect(response.body.data.status).toBe("RESOLVED");
+      expect(response.body.data.statePatch.currentNodeId).toBe(next.id);
+      expect(response.body.data.statePatch.phase.toLowerCase()).toBe(next.phase);
+    }
+
+    const playerScenario = await request(baseUrl)
+      .get(`/api/v1/sessions/${sessionId}/player-scenario`)
+      .set("x-user-id", host.id)
+      .expect(200);
+
+    expect(playerScenario.body.data.currentNodeId).toBe("node_rule_smoke_human_gm");
+    expect(playerScenario.body.data.visitedNodes.map((node: { id: string }) => node.id)).toEqual(
+      RULE_RUNTIME_SMOKE_NODE_SEQUENCE.map((node) => node.id),
+    );
+  });
+
+  it("lets a HUMAN GM complete the rule runtime smoke scenario with auditable overrides", async () => {
+    const host = await createGuest("Smoke Human GM");
+
+    const created = await request(baseUrl)
+      .post("/api/v1/sessions")
+      .set("x-user-id", host.id)
+      .send({
+        title: "Human GM Smoke",
+        scenarioId: RULE_RUNTIME_SMOKE_SCENARIO_ID,
+        gmMode: "HUMAN",
+        maxParticipants: 4,
+      })
+      .expect(201);
+
+    const sessionId = created.body.data.session.sessionId as string;
+
+    for (let index = 0; index < RULE_RUNTIME_SMOKE_NODE_SEQUENCE.length - 1; index += 1) {
+      const next = RULE_RUNTIME_SMOKE_NODE_SEQUENCE[index + 1];
+
+      await request(baseUrl)
+        .get(`/api/v1/sessions/${sessionId}/gm/node-options`)
+        .set("x-user-id", host.id)
+        .expect(200)
+        .expect((response) => {
+          expect(response.body.data.map((option: { nodeId: string }) => option.nodeId)).toContain(
+            next.id,
+          );
+        });
+
+      const moved = await request(baseUrl)
+        .patch(`/api/v1/sessions/${sessionId}/gm/node`)
+        .set("x-user-id", host.id)
+        .send({ nodeId: next.id })
+        .expect(200);
+
+      expect(moved.body.data.state.currentNodeId).toBe(next.id);
+      expect(moved.body.data.state.phase).toBe(next.phase);
+    }
+
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/gm/messages`)
+      .set("x-user-id", host.id)
+      .send({
+        content: "The final chamber responds to the party's choices.",
+        asNpc: false,
+        privateNote: "Track this as the smoke override audit note.",
+      })
+      .expect(201);
+
+    const revealed = await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/gm/reveals`)
+      .set("x-user-id", host.id)
+      .send({
+        contentId: "clue_rule_smoke_gm_override",
+        reason: "smoke_override_complete",
+      })
+      .expect(201);
+
+    expect(revealed.body.data.contentId).toBe("clue_rule_smoke_gm_override");
+    expect(revealed.body.data.revealedBy).toBe("human_gm");
+
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/gm/combat/start`)
+      .set("x-user-id", host.id)
+      .expect(201);
+
+    const conditionApplied = await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/gm/combat/conditions`)
+      .set("x-user-id", host.id)
+      .send({
+        targetId: "token_node_rule_smoke_human_gm_goblin",
+        conditionId: "stunned",
+        operation: "add",
+      })
+      .expect(201);
+
+    expect(conditionApplied.body.data.combat.participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tokenId: "token_node_rule_smoke_human_gm_goblin",
+          conditionTags: expect.arrayContaining([
+            expect.objectContaining({ id: "stunned" }),
+          ]),
+        }),
+      ]),
+    );
+
+    const logs = await request(baseUrl)
+      .get(`/api/v1/sessions/${sessionId}/turn-logs?includeStateDiff=true`)
+      .set("x-user-id", host.id)
+      .expect(200);
+
+    const overrideLogs = logs.body.data.turnLogs.filter(
+      (log: { structuredAction: { type?: string } | null }) =>
+        log.structuredAction?.type === "gm_override",
+    );
+    const overrideKinds = overrideLogs.map(
+      (log: { structuredAction: { kind: string } }) => log.structuredAction.kind,
+    );
+
+    expect(overrideKinds).toEqual(
+      expect.arrayContaining(["node_move", "scene_text", "reveal_handout", "set_condition"]),
+    );
+    expect(
+      overrideLogs.some(
+        (log: { structuredAction: { kind: string; hasPrivateNote?: boolean; metadata?: object } }) =>
+          log.structuredAction.kind === "scene_text" &&
+          log.structuredAction.hasPrivateNote === true &&
+          !Object.prototype.hasOwnProperty.call(log.structuredAction.metadata ?? {}, "privateNote"),
+      ),
+    ).toBe(true);
+    expect(
+      overrideLogs.some(
+        (log: { structuredAction: { kind: string }; stateDiff: { reason?: string } | null }) =>
+          log.structuredAction.kind === "node_move" &&
+          log.stateDiff?.reason === "gm_override:node_move",
+      ),
+    ).toBe(true);
+    expect(
+      overrideLogs.some(
+        (log: { structuredAction: { kind: string }; stateDiff: { reason?: string } | null }) =>
+          log.structuredAction.kind === "reveal_handout" &&
+          log.stateDiff?.reason === "gm_override:reveal_handout",
+      ),
+    ).toBe(true);
   });
 
   it("accepts actions, stores turn logs, starts combat, and advances turns", async () => {
@@ -699,12 +845,71 @@ describe("Session service e2e", () => {
     userId: string,
     payload: Record<string, unknown>,
   ) {
+    const requestPayload = {
+      ...payload,
+      ancestry: `Legacy ${String(payload.ancestry ?? "Human")}`,
+      className: `Legacy ${String(payload.className ?? "Fighter")}`,
+    };
+
     const response = await request(baseUrl)
       .post("/api/v1/characters")
       .set("x-user-id", userId)
-      .send(payload)
+      .send(requestPayload)
       .expect(201);
 
     return response.body as { id: string };
+  }
+
+  async function createStartedSmokeSession(gmMode: "AI" | "HUMAN") {
+    const host = await createGuest(`${gmMode} Smoke Host`);
+    const character = await createCharacter(host.id, {
+      name: `${gmMode} Smoke Hero`,
+      ancestry: "Human",
+      className: "Wizard",
+      abilities: {
+        str: 8,
+        dex: 14,
+        con: 14,
+        int: 16,
+        wis: 12,
+        cha: 10,
+      },
+    });
+
+    const created = await request(baseUrl)
+      .post("/api/v1/sessions")
+      .set("x-user-id", host.id)
+      .send({
+        title: `${gmMode} Rule Runtime Smoke`,
+        scenarioId: RULE_RUNTIME_SMOKE_SCENARIO_ID,
+        gmMode,
+        maxParticipants: 1,
+      })
+      .expect(201);
+
+    const sessionId = created.body.data.session.sessionId as string;
+
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/character-selection`)
+      .set("x-user-id", host.id)
+      .send({ characterId: character.id })
+      .expect(200);
+
+    await request(baseUrl)
+      .patch(`/api/v1/sessions/${sessionId}/participants/me/ready`)
+      .set("x-user-id", host.id)
+      .send({ isReady: true })
+      .expect(200);
+
+    const started = await request(baseUrl)
+      .post(`/api/v1/sessions/${sessionId}/start`)
+      .set("x-user-id", host.id)
+      .expect(201);
+
+    return {
+      host,
+      sessionId,
+      sessionCharacterId: started.body.data.sessionCharacters[0].id as string,
+    };
   }
 });

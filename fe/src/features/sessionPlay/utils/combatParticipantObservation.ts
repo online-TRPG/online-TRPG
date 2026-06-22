@@ -60,9 +60,18 @@ const conditionRules: ConditionRule[] = [
 const stackableConditionKeys = ['exhaustion'];
 
 export function describeCombatParticipantObservation(
-  participant: Pick<CombatParticipant, 'currentHp' | 'maxHp' | 'isAlive' | 'conditions'>
+  participant: Pick<
+    CombatParticipant,
+    'currentHp' | 'maxHp' | 'isAlive' | 'conditions' | 'concentration'
+  >
 ): CombatParticipantObservation {
-  const conditionTexts = describeConditions(participant.conditions ?? []);
+  const concentrationTexts = participant.concentration
+    ? ['정신을 집중해 주문을 유지하고 있다']
+    : [];
+  const conditionTexts = [
+    ...concentrationTexts,
+    ...describeConditions(participant.conditions ?? []),
+  ].slice(0, 3);
   return {
     healthText: describeHealth(participant.currentHp, participant.maxHp, participant.isAlive),
     conditionText: conditionTexts.length

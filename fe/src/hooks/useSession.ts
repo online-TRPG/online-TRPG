@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
+  ActionAcceptedResponseDto,
   ActionAcceptedEventDto,
   ActionInputType,
   ActionScope,
@@ -7,14 +8,19 @@ import type {
   MainCommandResponseDto,
   ResolveMainCommandCheckDto,
   StateDiffResponseDto,
+  RestActionDto,
+  LevelUpCharacterDto,
   SubmitMainCommandDto,
   SystemMessageEventDto,
   SubmitActionDto,
   TurnLogResponseDto,
+  UpdatePreparedSpellsDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
 import type { Socket } from 'socket.io-client';
 import {
+  approveRestAction as apiApproveRestAction,
+  cancelRestAction as apiCancelRestAction,
   cloneCharacter as apiCloneCharacter,
   createCharacter as apiCreateCharacter,
   createSession as apiCreateSession,
@@ -27,13 +33,17 @@ import {
   listMyCharacters as apiListMyCharacters,
   listMySessions as apiListMySessions,
   listSessions,
+  levelUpCharacter as apiLevelUpCharacter,
   selectSessionCharacter as apiSelectSessionCharacter,
   startSession as apiStartSession,
   resolveMainCommandCheck as apiResolveMainCommandCheck,
+  rejectRestAction as apiRejectRestAction,
   submitMainCommand as apiSubmitMainCommand,
+  submitRestAction as apiSubmitRestAction,
   submitAction as apiSubmitAction,
   updateCharacter as apiUpdateCharacter,
   updateHumanGm as apiUpdateHumanGm,
+  updatePreparedSpells as apiUpdatePreparedSpells,
   updateReadyState as apiUpdateReadyState,
 } from '../services/api';
 import { connectSessionSocket, sendRealtimeChatMessage } from '../services/realtime';
@@ -78,13 +88,14 @@ export interface CharacterPayload {
   name: string;
   ancestry: string;
   className: string;
+  subclassName?: string | null;
   avatarType?: 'DEFAULT' | 'PRESET' | 'UPLOAD';
   avatarPresetId?: string | null;
   avatarUrl?: string | null;
   scenarioId?: string | null;
   startingEquipmentSelection?: number[];
   startingEquipmentItemSelections?: Record<string, string>;
-  startingSpells?: { cantrips: string[]; spells: string[] };
+  startingSpells?: { cantrips: string[]; spells: string[]; preparedSpells?: string[] };
   level?: number;
   abilities?: {
     str: number;
@@ -129,6 +140,8 @@ export interface UseSessionReturn {
   createCharacter: (payload: CharacterPayload) => Promise<boolean>;
   cloneCharacter: (characterId: string) => Promise<void>;
   updateCharacter: (characterId: string, payload: CharacterPayload) => Promise<boolean>;
+  levelUpCharacter: (characterId: string, payload: LevelUpCharacterDto) => Promise<boolean>;
+  updatePreparedSpells: (characterId: string, payload: UpdatePreparedSpellsDto) => Promise<boolean>;
   deleteCharacter: (characterId: string) => Promise<void>;
   selectCharacter: (characterId: string | null) => Promise<void>;
   setReadyState: (isReady: boolean) => Promise<void>;
@@ -139,6 +152,14 @@ export interface UseSessionReturn {
   resolveMainCommandCheck: (
     payload: ResolveMainCommandCheckDto
   ) => Promise<MainCommandResponseDto | null>;
+  requestRest: (
+    restType: RestActionDto['restType'],
+    characterId?: string,
+    hitDiceToSpend?: number,
+  ) => Promise<void>;
+  approveRestRequest: (actionId: string) => Promise<boolean>;
+  rejectRestRequest: (actionId: string) => Promise<boolean>;
+  cancelRestRequest: (actionId: string) => Promise<boolean>;
   sendAction: (rawText: string) => Promise<void>;
   sendChatMessage: (content: string, scope?: 'CHAT' | 'MAIN') => Promise<void>;
   loadOlderTurnLogs: () => Promise<void>;
@@ -312,6 +333,86 @@ function getTurnLogMainCommandMetadata(turnLog: TurnLogResponseDto): LogEntry['m
         : {}),
     },
   };
+}
+
+function getTurnLogRestApprovalMetadata(turnLog: TurnLogResponseDto): LogEntry['metadata'] | undefined {
+  const structuredAction = turnLog.structuredAction;
+
+  if (
+    !structuredAction ||
+    typeof structuredAction !== 'object' ||
+    (structuredAction as { type?: unknown }).type !== 'rest' ||
+    (structuredAction as { approvalStatus?: unknown }).approvalStatus !== 'gm_required' ||
+    turnLog.actionQueueStatus !== 'REJECTED' ||
+    !turnLog.playerActionId
+  ) {
+    return undefined;
+  }
+
+  const restAction = structuredAction as {
+    restType?: unknown;
+    approvalStatus?: unknown;
+    approvalExpiresAt?: unknown;
+  };
+  return {
+    restApproval: {
+      actionId: turnLog.playerActionId,
+      restType:
+        restAction.restType === 'short' || restAction.restType === 'long'
+          ? restAction.restType
+          : null,
+      status: typeof restAction.approvalStatus === 'string' ? restAction.approvalStatus : null,
+      expiresAt:
+        typeof restAction.approvalExpiresAt === 'string'
+          ? restAction.approvalExpiresAt
+          : null,
+    },
+  };
+}
+
+function getRestApprovalMetadataFromResponse(
+  response: ActionAcceptedResponseDto
+): LogEntry['metadata'] | undefined {
+  const restApproval = response.restApproval;
+
+  if (!restApproval?.actionId) {
+    return undefined;
+  }
+
+  return {
+    restApproval: {
+      actionId: restApproval.actionId,
+      restType: restApproval.restType,
+      status: restApproval.status,
+      hitDiceToSpend: restApproval.hitDiceToSpend ?? null,
+      expiresAt: restApproval.expiresAt ?? null,
+    },
+  };
+}
+
+function formatRestApprovalRequestMessage(
+  restApproval: NonNullable<ActionAcceptedResponseDto['restApproval']>
+) {
+  const label = restApproval.restType === 'long' ? '긴 휴식' : '짧은 휴식';
+  const hitDiceSuffix =
+    restApproval.restType === 'short' && restApproval.hitDiceToSpend
+      ? ` · 히트 다이스 ${restApproval.hitDiceToSpend}개`
+      : '';
+
+  return `[MAIN]${label} 요청이 GM 승인 대기 상태입니다.${hitDiceSuffix}`;
+}
+
+function isLongRestAccepted(response: ActionAcceptedResponseDto, requestedRestType?: RestActionDto['restType']) {
+  return response.restApproval?.restType === 'long' || requestedRestType === 'long';
+}
+
+function getTurnLogMetadata(turnLog: TurnLogResponseDto): LogEntry['metadata'] | undefined {
+  const metadata = {
+    ...getTurnLogMainCommandMetadata(turnLog),
+    ...getTurnLogRestApprovalMetadata(turnLog),
+  };
+
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
 function isMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
@@ -849,7 +950,7 @@ export function useSession(
         formatTurnLogMessage(turnLog),
         `turn-log:${turnLog.turnLogId}`,
         turnLog.createdAt,
-        getTurnLogMainCommandMetadata(turnLog)
+        getTurnLogMetadata(turnLog)
       );
     },
     [appendLog, appendPlayerRawInputLog, removeLog, removePendingMainCommandLog]
@@ -889,7 +990,7 @@ export function useSession(
         formatTurnLogMessage(turnLog),
         `turn-log:${turnLog.turnLogId}`,
         turnLog.createdAt,
-        getTurnLogMainCommandMetadata(turnLog)
+        getTurnLogMetadata(turnLog)
       );
       appendPlayerRawInputLog(turnLog, appendOlderLog);
     },
@@ -1343,6 +1444,7 @@ export function useSession(
           name: payload.name,
           ancestry: payload.ancestry,
           className: payload.className,
+          subclassName: payload.subclassName,
           avatarType: payload.avatarType,
           avatarPresetId: payload.avatarPresetId,
           avatarUrl: payload.avatarUrl,
@@ -1363,6 +1465,56 @@ export function useSession(
       appendLog('rest', '캐릭터 수정', `${payload.name} 캐릭터를 수정했습니다.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '캐릭터 수정에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
+    return succeeded;
+  }
+
+  async function levelUpCharacter(
+    characterId: string,
+    payload: LevelUpCharacterDto
+  ): Promise<boolean> {
+    if (!user) return false;
+    setError(null);
+    setBusy(true);
+    let succeeded = false;
+
+    try {
+      const updated = await apiLevelUpCharacter(user, characterId, payload, accessToken);
+      await refreshMyCharacters();
+      if (snapshot) {
+        await syncSession(snapshot.session.id);
+      }
+      succeeded = true;
+      appendLog('rest', '레벨업', `${updated.name} 캐릭터가 ${updated.level}레벨이 되었습니다.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '캐릭터 레벨업에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
+    return succeeded;
+  }
+
+  async function updatePreparedSpells(
+    characterId: string,
+    payload: UpdatePreparedSpellsDto
+  ): Promise<boolean> {
+    if (!user) return false;
+    setError(null);
+    setBusy(true);
+    let succeeded = false;
+
+    try {
+      const updated = await apiUpdatePreparedSpells(user, characterId, payload, accessToken);
+      await refreshMyCharacters();
+      if (snapshot) {
+        await syncSession(snapshot.session.id);
+      }
+      succeeded = true;
+      appendLog('rest', '준비 주문', `${updated.name} 캐릭터의 준비 주문을 갱신했습니다.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '준비 주문 갱신에 실패했습니다.');
     } finally {
       setBusy(false);
     }
@@ -1545,6 +1697,163 @@ export function useSession(
     }
   }
 
+  async function requestRest(
+    restType: RestActionDto['restType'],
+    characterId?: string,
+    hitDiceToSpend?: number,
+  ) {
+    if (!user || !snapshot) return;
+
+    const myParticipant = snapshot.participants.find(
+      (participant) => participant.userId === user.id
+    );
+    const selectedCharacterId =
+      characterId ?? myParticipant?.sessionCharacterId ?? myParticipant?.characterId ?? null;
+
+    if (!selectedCharacterId) {
+      const message = '휴식하려면 먼저 캐릭터를 선택해야 합니다.';
+      setError(message);
+      appendLog('socket', '휴식 요청 실패', message);
+      return;
+    }
+
+    setError(null);
+    setBusy(true);
+
+    try {
+      const response = await apiSubmitRestAction(
+        user,
+        snapshot.session.id,
+        {
+          characterId: selectedCharacterId,
+          restType,
+          ...(restType === 'short' && hitDiceToSpend && hitDiceToSpend > 0
+            ? { hitDiceToSpend }
+            : {}),
+        },
+        accessToken,
+      );
+      const restApprovalMetadata = getRestApprovalMetadataFromResponse(response);
+      if (response.restApproval?.status === 'gm_required' && restApprovalMetadata) {
+        appendLog(
+          'action',
+          user.displayName,
+          formatRestApprovalRequestMessage(response.restApproval),
+          `rest-approval:${response.restApproval.actionId}`,
+          undefined,
+          restApprovalMetadata
+        );
+      }
+      await syncSession(snapshot.session.id);
+      if (isLongRestAccepted(response, restType) && response.restApproval?.status !== 'gm_required') {
+        appendLog(
+          'rest',
+          '준비 주문 안내',
+          '긴 휴식이 처리되었습니다. 준비 주문을 쓰는 캐릭터는 캐릭터 화면에서 준비 주문을 다시 조정할 수 있습니다.',
+          `long-rest-prepared-spells:${response.playerActionId}`
+        );
+      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '휴식 요청에 실패했습니다.';
+      setError(message);
+      appendLog('socket', '휴식 요청 실패', message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function approveRestRequest(actionId: string) {
+    if (!user || !snapshot) return false;
+
+    setError(null);
+    setBusy(true);
+
+    try {
+      const response = await apiApproveRestAction(user, snapshot.session.id, actionId, accessToken);
+      await syncSession(snapshot.session.id);
+      appendLog(
+        'rest',
+        '휴식 승인',
+        'GM이 휴식 요청을 승인했습니다.',
+        `rest-approval:${actionId}:approved`,
+        undefined,
+        getRestApprovalMetadataFromResponse(response)
+      );
+      if (isLongRestAccepted(response)) {
+        appendLog(
+          'rest',
+          '준비 주문 안내',
+          '긴 휴식이 승인되었습니다. 준비 주문을 쓰는 캐릭터는 캐릭터 화면에서 준비 주문을 다시 조정할 수 있습니다.',
+          `long-rest-prepared-spells:${response.playerActionId}`
+        );
+      }
+      return true;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '휴식 요청 승인에 실패했습니다.';
+      setError(message);
+      appendLog('socket', '휴식 승인 실패', message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rejectRestRequest(actionId: string) {
+    if (!user || !snapshot) return false;
+
+    setError(null);
+    setBusy(true);
+
+    try {
+      const response = await apiRejectRestAction(user, snapshot.session.id, actionId, accessToken);
+      await syncSession(snapshot.session.id);
+      appendLog(
+        'rest',
+        '휴식 거절',
+        'GM이 휴식 요청을 거절했습니다.',
+        `rest-approval:${actionId}:rejected`,
+        undefined,
+        getRestApprovalMetadataFromResponse(response)
+      );
+      return true;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '휴식 요청 거절에 실패했습니다.';
+      setError(message);
+      appendLog('socket', '휴식 거절 실패', message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelRestRequest(actionId: string) {
+    if (!user || !snapshot) return false;
+
+    setError(null);
+    setBusy(true);
+
+    try {
+      const response = await apiCancelRestAction(user, snapshot.session.id, actionId, accessToken);
+      await syncSession(snapshot.session.id);
+      appendLog(
+        'rest',
+        '휴식 요청 취소',
+        '휴식 요청을 취소했습니다.',
+        `rest-approval:${actionId}:cancelled`,
+        undefined,
+        getRestApprovalMetadataFromResponse(response)
+      );
+      return true;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '휴식 요청 취소에 실패했습니다.';
+      setError(message);
+      appendLog('socket', '휴식 요청 취소 실패', message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function sendMainCommand(
     payload: SubmitMainCommandDto
   ): Promise<MainCommandResponseDto | null> {
@@ -1717,6 +2026,8 @@ export function useSession(
     createCharacter,
     cloneCharacter,
     updateCharacter,
+    levelUpCharacter,
+    updatePreparedSpells,
     deleteCharacter,
     selectCharacter,
     setReadyState,
@@ -1725,6 +2036,10 @@ export function useSession(
     leaveSession,
     sendMainCommand,
     resolveMainCommandCheck,
+    requestRest,
+    approveRestRequest,
+    rejectRestRequest,
+    cancelRestRequest,
     sendAction,
     sendChatMessage,
     loadOlderTurnLogs,

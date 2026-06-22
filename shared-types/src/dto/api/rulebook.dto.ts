@@ -44,3 +44,31 @@ export class RulebookDocumentResponseDto extends RulebookDocumentSummaryDto {
   @ApiProperty()
   content!: string;
 }
+
+export class RuleCatalogReferenceDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty({
+    enum: [
+      "race_traits",
+      "class_features",
+      "subclass_features",
+      "spell_definitions",
+      "condition_definitions",
+      "monster_abilities",
+      "terrain_effects",
+    ],
+  })
+  kind!:
+    | "race_traits"
+    | "class_features"
+    | "subclass_features"
+    | "spell_definitions"
+    | "condition_definitions"
+    | "monster_abilities"
+    | "terrain_effects";
+
+  @ApiProperty()
+  executable!: boolean;
+}

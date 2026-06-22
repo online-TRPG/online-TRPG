@@ -22,6 +22,7 @@ export type AoeDamageTarget = {
   proficientSaves?: SavingThrowAbility[];
   advantageState?: RuleAdvantageState;
   bonusModifiers?: SavingThrowModifier[];
+  modifierRolls?: DiceRollResponseDto[];
   immunities?: string[];
   resistances?: string[];
   vulnerabilities?: string[];
@@ -51,6 +52,7 @@ export type AoeDamageTargetResult = {
   targetId: string;
   saveRoll: DiceRollResponseDto;
   savingThrow: SavingThrowProduced;
+  modifierRolls: DiceRollResponseDto[];
   baseDamage: number;
   finalDamage: number;
   currentHp: number;
@@ -175,6 +177,7 @@ export class AoeDamageService {
       targetId: target.id,
       saveRoll,
       savingThrow: saveResult.produced,
+      modifierRolls: target.modifierRolls ?? [],
       baseDamage,
       finalDamage,
       currentHp: target.currentHp,

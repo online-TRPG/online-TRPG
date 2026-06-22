@@ -1,4 +1,5 @@
 export * from "./constants/enums";
+export * from "./constants/spellcasting-progression";
 export * from "./constants/skills";
 export * from "./dto/api/ai.dto";
 export * from "./dto/api/characters.dto";

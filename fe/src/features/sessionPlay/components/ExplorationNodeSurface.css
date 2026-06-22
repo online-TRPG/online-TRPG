@@ -717,6 +717,71 @@
   overflow-wrap: anywhere;
 }
 
+.exploration-gm-message-mode {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #cbbd9b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.exploration-gm-input,
+.exploration-gm-textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(201, 146, 42, 0.38);
+  border-radius: 0;
+  background: rgba(8, 10, 13, 0.62);
+  color: #ead9b0;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.exploration-gm-input {
+  min-height: 34px;
+  padding: 0 9px;
+}
+
+.exploration-gm-textarea {
+  resize: vertical;
+  min-height: 84px;
+  padding: 8px 9px;
+}
+
+.exploration-gm-input::placeholder,
+.exploration-gm-textarea::placeholder {
+  color: #8c8068;
+}
+
+.exploration-gm-message > button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #6f5631;
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 240, 194, 0.07), rgba(255, 240, 194, 0) 45%),
+    linear-gradient(145deg, #1b1c1e, #0e1114);
+  color: #d9bd76;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.exploration-gm-message > button:hover:not(:disabled) {
+  border-color: #c9963d;
+  color: #ffe2a0;
+}
+
+.exploration-gm-message > button:disabled {
+  border-color: #4e4c47;
+  color: #7e7769;
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
 .exploration-gm-button-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1137,6 +1202,35 @@
   text-overflow: ellipsis;
 }
 
+.exploration-hit-dice-control {
+  width: 58px;
+  min-height: 66px;
+  padding: 7px 6px 8px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid #c9922a;
+  background: #fdfaf3;
+  color: #3e2a10;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.exploration-hit-dice-control input {
+  width: 42px;
+  height: 24px;
+  min-width: 0;
+  padding: 0 4px;
+  border: 1px solid #c9922a;
+  background: rgba(255, 255, 255, 0.72);
+  color: #3e2a10;
+  font: inherit;
+  text-align: center;
+}
+
 .exploration-action-list button:hover:not(:disabled) {
   border-color: #a87020;
   background: #f4e8d3;
@@ -1152,6 +1246,13 @@
 .exploration-action-list button:disabled .exploration-action-button-icon {
   color: #a89070;
   filter: none;
+}
+
+.exploration-hit-dice-control:has(input:disabled) {
+  border-color: #d1c5a8;
+  background: #f0ebdf;
+  color: #a89070;
+  opacity: 0.68;
 }
 
 /* 맵 액션 피드백 메시지 */
@@ -1220,6 +1321,29 @@
   word-break: keep-all;
   overflow-wrap: normal;
   white-space: nowrap;
+}
+
+.exploration-hit-dice-control {
+  border-color: #6f5631;
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 240, 194, 0.06), rgba(255, 240, 194, 0) 38%),
+    linear-gradient(145deg, #1b1c1e, #0e1114);
+  color: #d9c694;
+}
+
+.exploration-hit-dice-control input {
+  border-color: rgba(206, 164, 86, 0.55);
+  background: rgba(10, 11, 12, 0.82);
+  color: #ffe2a0;
+}
+
+.exploration-hit-dice-control:has(input:disabled) {
+  border-color: #4e4c47;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 42%),
+    linear-gradient(145deg, #18191a, #101113);
+  color: #7e7769;
 }
 
 .exploration-action-list button:hover:not(:disabled) {
