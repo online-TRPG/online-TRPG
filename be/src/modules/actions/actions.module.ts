@@ -7,11 +7,12 @@ import { TurnLogsModule } from "../turn-logs/turn-logs.module";
 import { ActionProcessorService } from "./action-processor.service";
 import { ActionsController } from "./actions.controller";
 import { ActionsService } from "./actions.service";
+import { MainCommandIntentHandlersService } from "./main-command-intent-handlers.service";
 import { MainCommandsService } from "./main-commands.service";
 
 @Module({
   imports: [SessionsModule, RulesModule, TurnLogsModule, RealtimeCoreModule, AiModule],
   controllers: [ActionsController],
-  providers: [ActionsService, ActionProcessorService, MainCommandsService],
+  providers: [ActionsService, ActionProcessorService, MainCommandsService, MainCommandIntentHandlersService],
 })
 export class ActionsModule {}

@@ -11,6 +11,8 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsIn,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -69,6 +71,44 @@ export class AbilityScoresDto {
   cha!: number;
 }
 
+export class LevelUpAbilityScoreIncreasesDto {
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  str?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  dex?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  con?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  int?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  wis?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  cha?: number;
+}
+
 export class StartingSpellsDto {
   @ApiProperty({ type: [String], example: ["light", "ray-of-frost", "fire-bolt"] })
   @IsArray()
@@ -79,6 +119,16 @@ export class StartingSpellsDto {
   @IsArray()
   @IsString({ each: true })
   spells!: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "하루 동안 준비된 슬롯 주문. 없으면 legacy 호환을 위해 spells 전체를 준비된 것으로 취급합니다.",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  preparedSpells?: string[];
+
 }
 
 export class InventoryItemDto {
@@ -444,6 +494,94 @@ export class UpdateCharacterDto {
   avatarUrl?: string | null;
 }
 
+export class LevelUpCharacterDto {
+  @ApiProperty({ minimum: 2, maximum: 20 })
+  @IsInt()
+  @Min(2)
+  @Max(20)
+  targetLevel!: number;
+
+  @ApiPropertyOptional({ enum: ["average", "rolled"], default: "average" })
+  @IsOptional()
+  @IsString()
+  @IsIn(["average", "rolled"])
+  hpMode?: "average" | "rolled";
+
+  @ApiPropertyOptional({ type: Object })
+  @IsOptional()
+  @IsObject()
+  rolledHpByLevel?: Record<number, number>;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  applyToActiveSessions?: boolean;
+
+  @ApiPropertyOptional({
+    description: "레벨업 중 서브클래스 선택이 필요한 경우 선택한 SRD subclass key입니다.",
+    example: "champion",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  subclassName?: string | null;
+
+  @ApiPropertyOptional({
+    type: LevelUpAbilityScoreIncreasesDto,
+    description: "4, 8, 12, 16, 19레벨 ASI에서 배분할 능력치 상승치입니다. ASI마다 총 2점을 배분합니다.",
+  })
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => LevelUpAbilityScoreIncreasesDto)
+  abilityScoreIncreases?: LevelUpAbilityScoreIncreasesDto;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "레벨업과 함께 갱신할 준비 주문 목록입니다. 알고 있는 슬롯 주문만 허용됩니다.",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  preparedSpells?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "레벨업으로 새로 습득하거나 주문책에 추가할 MVP 슬롯 주문 목록입니다.",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  knownSpells?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "레벨업으로 새로 습득할 캔트립 목록입니다.",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  cantrips?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "known caster가 이번 레벨업에서 교체할 기존 슬롯 주문 목록입니다.",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  forgottenSpells?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "이번 레벨업에서 교체할 기존 캔트립 목록입니다.",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  forgottenCantrips?: string[];
+}
+
 export class UpdateCharacterEquipmentDto {
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
@@ -454,6 +592,13 @@ export class UpdateCharacterEquipmentDto {
   @IsOptional()
   @IsString()
   offhandWeaponId?: string | null;
+}
+
+export class UpdatePreparedSpellsDto {
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @IsString({ each: true })
+  preparedSpells!: string[];
 }
 
 export class CharacterInventoryResponseDto {
@@ -594,6 +739,15 @@ export class SessionCharacterResponseDto {
 
   @ApiProperty()
   level!: number;
+
+  @ApiProperty()
+  hitDiceTotal!: number;
+
+  @ApiProperty()
+  hitDiceSpent!: number;
+
+  @ApiProperty()
+  hitDiceRemaining!: number;
 
   @ApiProperty({ type: AbilityScoresDto })
   abilities!: AbilityScoresDto;

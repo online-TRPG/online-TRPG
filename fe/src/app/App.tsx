@@ -579,6 +579,12 @@ export function App() {
             onCreateCharacter={(payload) => session.createCharacter(payload)}
             onCloneCharacter={(characterId) => session.cloneCharacter(characterId)}
             onUpdateCharacter={(characterId, payload) => session.updateCharacter(characterId, payload)}
+            onLevelUpCharacter={(characterId, payload) =>
+              session.levelUpCharacter(characterId, payload)
+            }
+            onUpdatePreparedSpells={(characterId, payload) =>
+              session.updatePreparedSpells(characterId, payload)
+            }
             onDeleteCharacter={(characterId) => session.deleteCharacter(characterId)}
             autoOpenCreate={characterPageState?.characterCreateReturn?.autoOpenCreate === true}
             sessionReturnTitle={characterPageState?.characterCreateReturn?.sessionTitle ?? null}
@@ -785,6 +791,13 @@ export function App() {
             }}
             onMainCommand={(payload) => session.sendMainCommand(payload)}
             onResolveMainCommandCheck={(payload) => session.resolveMainCommandCheck(payload)}
+            onRequestRest={(restType, characterId, hitDiceToSpend) =>
+              void session.requestRest(restType, characterId, hitDiceToSpend)
+            }
+            onApproveRestRequest={(actionId) => session.approveRestRequest(actionId)}
+            onRejectRestRequest={(actionId) => session.rejectRestRequest(actionId)}
+            onCancelRestRequest={(actionId) => session.cancelRestRequest(actionId)}
+            onSendAction={(rawText) => void session.sendAction(rawText)}
             onAction={handleSessionMessage}
             onLoadOlderTurnLogs={() => void session.loadOlderTurnLogs()}
             onCombatActionLog={(message, turnLogId) =>

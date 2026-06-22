@@ -15,7 +15,14 @@ export type ParsedCommand =
   | {
       type: "ready";
       trigger: {
-        type: "creature_enters_range" | "creature_leaves_range" | "ally_attacked" | "enemy_casts_spell" | "manual";
+        type:
+          | "creature_enters_range"
+          | "creature_leaves_range"
+          | "ally_attacked"
+          | "enemy_casts_spell"
+          | "turn_start"
+          | "turn_end"
+          | "manual";
         targetParticipantId?: string | null;
         rangeFt?: number | null;
         tags?: string[];
@@ -44,7 +51,7 @@ export type ParsedCommand =
       slotLevel: number | null;
     }
   | { type: "use_class_feature"; featureId: string; option: string | null }
-  | { type: "rest"; restType: "short" | "long" }
+  | { type: "rest"; restType: "short" | "long"; hitDiceToSpend?: number }
   | {
       type: "inventory";
       operation: "add" | "remove";
@@ -200,9 +207,11 @@ export class CommandParserService {
 
   private parseCastSpell(args: string[]): ParsedCommand {
     const spellToken = args[0];
-    const target = args[1];
+    const spellId = spellToken ? this.normalizeSpellId(spellToken) : null;
+    const selfTargeted = spellId === "spell.detect_magic";
+    const target = args[1] ?? (selfTargeted ? "self" : null);
 
-    if (!spellToken || !target) {
+    if (!spellId || !target) {
       throw badRequest("ACTION_400", "잘못된 명령입니다.", {
         reason: "CAST_SPELL_AND_TARGET_REQUIRED",
       });
@@ -210,11 +219,11 @@ export class CommandParserService {
 
     return {
       type: "cast_spell",
-      spellId: this.normalizeSpellId(spellToken),
+      spellId,
       target,
       targetDistanceFt: this.parseOptionalPositiveInteger(
         args[2],
-        90,
+        selfTargeted ? 0 : 90,
         "INVALID_TARGET_DISTANCE",
       ),
       slotLevel: args[3]
@@ -280,7 +289,14 @@ export class CommandParserService {
   private parseRest(args: string[]): ParsedCommand {
     const restType = args[0]?.toLowerCase().replace(/-/g, "_");
     if (restType === "short" || restType === "short_rest") {
-      return { type: "rest", restType: "short" };
+      const hitDiceToSpend = this.parseOptionalPositiveInteger(
+        args[1],
+        0,
+        "INVALID_HIT_DICE_TO_SPEND",
+      );
+      return hitDiceToSpend > 0
+        ? { type: "rest", restType: "short", hitDiceToSpend }
+        : { type: "rest", restType: "short" };
     }
 
     if (restType === "long" || restType === "long_rest") {
@@ -454,9 +470,9 @@ export class CommandParserService {
 
   private normalizeReadyTriggerType(
     value: string,
-  ): "creature_enters_range" | "creature_leaves_range" | "ally_attacked" | "enemy_casts_spell" | "manual" {
+  ): Extract<ParsedCommand, { type: "ready" }>["trigger"]["type"] {
     const normalized = value.toLowerCase().replace(/-/g, "_");
-    const aliases: Record<string, "creature_enters_range" | "creature_leaves_range" | "ally_attacked" | "enemy_casts_spell" | "manual"> = {
+    const aliases: Record<string, Extract<ParsedCommand, { type: "ready" }>["trigger"]["type"]> = {
       enter: "creature_enters_range",
       enters: "creature_enters_range",
       creature_enters: "creature_enters_range",
@@ -470,6 +486,12 @@ export class CommandParserService {
       enemy_casts: "enemy_casts_spell",
       enemy_casts_spell: "enemy_casts_spell",
       spell: "enemy_casts_spell",
+      start: "turn_start",
+      turn_start: "turn_start",
+      starts_turn: "turn_start",
+      end: "turn_end",
+      turn_end: "turn_end",
+      ends_turn: "turn_end",
       manual: "manual",
     };
     const triggerType = aliases[normalized];
@@ -580,6 +602,25 @@ export class CommandParserService {
       cunning_action: "class.rogue.feature.cunning_action",
       cunningaction: "class.rogue.feature.cunning_action",
       frenzy: "class.barbarian.subclass_feature.frenzy",
+      divine_sense: "class.paladin.feature.divine_sense",
+      divinesense: "class.paladin.feature.divine_sense",
+      lay_on_hands: "class.paladin.feature.lay_on_hands",
+      layonhands: "class.paladin.feature.lay_on_hands",
+      primeval_awareness: "class.ranger.feature.primeval_awareness",
+      primevalawareness: "class.ranger.feature.primeval_awareness",
+      ki: "class.monk.feature.ki",
+      channel_divinity: "class.cleric.feature.channel_divinity",
+      channeldivinity: "class.cleric.feature.channel_divinity",
+      bardic_inspiration: "class.bard.feature.bardic_inspiration",
+      bardicinspiration: "class.bard.feature.bardic_inspiration",
+      font_of_magic: "class.sorcerer.feature.font_of_magic",
+      fontofmagic: "class.sorcerer.feature.font_of_magic",
+      wild_shape: "class.druid.feature.wild_shape",
+      wildshape: "class.druid.feature.wild_shape",
+      breath_weapon: "race.dragonborn.trait.base_traits",
+      breathweapon: "race.dragonborn.trait.base_traits",
+      dragon_breath: "race.dragonborn.trait.base_traits",
+      dragonbreath: "race.dragonborn.trait.base_traits",
     };
 
     return featureIds[normalized] ?? normalized;

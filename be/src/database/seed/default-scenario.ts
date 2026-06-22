@@ -6,6 +6,10 @@ export const NODE_SCREEN_TEST_SCENARIO_ID = "scenario_node_screen_test";
 export const NODE_SCREEN_TEST_START_NODE_ID = "node_screen_test_combat";
 export const RULE_RUNTIME_SMOKE_SCENARIO_ID = "scenario_rule_runtime_smoke";
 export const RULE_RUNTIME_SMOKE_START_NODE_ID = "node_rule_smoke_rest";
+export const P1_ONESHOT_SCENARIO_ID = "scenario_p1_ember_ruins";
+export const P1_ONESHOT_START_NODE_ID = "node_p1_ember_hook";
+export const P2_VALIDATION_SCENARIO_ID = "scenario_p2_storm_vault";
+export const P2_VALIDATION_START_NODE_ID = "node_p2_storm_hook";
 
 const TEAM_SCENARIO_TITLE = "ㅁㄴㅇㅇㄹ";
 const NODE_SCREEN_TEST_STORY_NODE_ID = "node_screen_test_story";
@@ -15,6 +19,15 @@ const RULE_RUNTIME_COVER_NODE_ID = "node_rule_smoke_cover_combat";
 const RULE_RUNTIME_AOE_NODE_ID = "node_rule_smoke_aoe";
 const RULE_RUNTIME_CONDITION_NODE_ID = "node_rule_smoke_condition";
 const RULE_RUNTIME_HUMAN_GM_NODE_ID = "node_rule_smoke_human_gm";
+export const P1_ONESHOT_MARKET_NODE_ID = "node_p1_ember_market";
+export const P1_ONESHOT_AMBUSH_NODE_ID = "node_p1_ember_ambush";
+export const P1_ONESHOT_REST_NODE_ID = "node_p1_ember_rest";
+export const P1_ONESHOT_BOSS_NODE_ID = "node_p1_ember_boss";
+export const P1_ONESHOT_END_NODE_ID = "node_p1_ember_end";
+const P2_APPROACH_NODE_ID = "node_p2_storm_approach";
+const P2_GALLERY_NODE_ID = "node_p2_storm_gallery";
+const P2_VAULT_NODE_ID = "node_p2_storm_vault";
+const P2_END_NODE_ID = "node_p2_storm_end";
 
 // 서버를 처음 실행했을 때 바로 세션을 만들고 흐름을 검증할 수 있도록
 // 가장 작은 형태의 기본 시나리오를 코드로 함께 넣어둔다.
@@ -28,6 +41,8 @@ const defaultScenario = {
   license: ScenarioLicense.ORIGINAL,
   attribution: "모두의 TRPG 기본 제공 시나리오.",
   startNodeId: DEFAULT_START_NODE_ID,
+  startLevel: 1,
+  recommendedEndLevel: null,
 };
 
 const nodeScreenTestScenario = {
@@ -41,6 +56,8 @@ const nodeScreenTestScenario = {
   license: ScenarioLicense.ORIGINAL,
   attribution: "Original scenario seed for session node UI verification.",
   startNodeId: NODE_SCREEN_TEST_START_NODE_ID,
+  startLevel: 1,
+  recommendedEndLevel: null,
 };
 
 const ruleRuntimeSmokeScenario = {
@@ -54,6 +71,38 @@ const ruleRuntimeSmokeScenario = {
   license: ScenarioLicense.ORIGINAL,
   attribution: "Original scenario seed for SRD 5e executable rule smoke testing.",
   startNodeId: RULE_RUNTIME_SMOKE_START_NODE_ID,
+  startLevel: 1,
+  recommendedEndLevel: null,
+};
+
+const p1OneshotScenario = {
+  id: P1_ONESHOT_SCENARIO_ID,
+  title: "잿불 폐허의 종소리",
+  description:
+    "3레벨 캐릭터로 30~45분 안에 완료하는 P1 사용자용 오리지널 짧은 모험입니다. 탐색, 함정, 휴식, 대표 몬스터 전투, 보스전을 자연스럽게 검증합니다.",
+  thumbnailUrl: null,
+  ruleSetId: "dnd5e",
+  difficulty: "normal",
+  license: ScenarioLicense.ORIGINAL,
+  attribution: "Original P1 playable scenario seed for Online TRPG.",
+  startNodeId: P1_ONESHOT_START_NODE_ID,
+  startLevel: 3,
+  recommendedEndLevel: 3,
+};
+
+const p2ValidationScenario = {
+  id: P2_VALIDATION_SCENARIO_ID,
+  title: "폭풍 금고의 마지막 비행",
+  description:
+    "5레벨 캐릭터로 45~60분 동안 종족 특성, Extra Attack, 3레벨 주문, 지형·오브젝트, 비행과 지속 지역 효과를 검증하는 P2 오리지널 단편입니다.",
+  thumbnailUrl: null,
+  ruleSetId: "dnd5e",
+  difficulty: "hard",
+  license: ScenarioLicense.ORIGINAL,
+  attribution: "Original P2 validation scenario seed for Online TRPG.",
+  startNodeId: P2_VALIDATION_START_NODE_ID,
+  startLevel: 5,
+  recommendedEndLevel: 5,
 };
 
 // 화면 레이아웃 확인이 목적이라 DB 마이그레이션 없이 시드만으로 기본 맵을 주입한다.
@@ -101,9 +150,21 @@ function createRuleRuntimeSmokeMap(nodeId: string) {
     gridSize: 64,
     width: 768,
     height: 512,
+    fogRects: [],
     tokens: [
       {
+        id: `token_${nodeId}_actor`,
+        sessionCharacterId: "smoke-actor",
+        name: "Smoke Actor",
+        x: 128,
+        y: 256,
+        size: 64,
+        hidden: false,
+        isHostile: false,
+      },
+      {
         id: `token_${nodeId}_goblin`,
+        sessionCharacterId: `token_${nodeId}_goblin`,
         name: "Smoke Goblin",
         x: 448,
         y: 192,
@@ -118,6 +179,7 @@ function createRuleRuntimeSmokeMap(nodeId: string) {
       },
       {
         id: `token_${nodeId}_rat`,
+        sessionCharacterId: `token_${nodeId}_rat`,
         name: "Smoke Giant Rat",
         x: 576,
         y: 256,
@@ -131,17 +193,45 @@ function createRuleRuntimeSmokeMap(nodeId: string) {
         },
       },
       {
-        id: `token_${nodeId}_cover`,
-        name: "Half Cover Crate",
-        x: 320,
-        y: 192,
+        id: `token_${nodeId}_spider`,
+        sessionCharacterId: `token_${nodeId}_spider`,
+        name: "Smoke Giant Spider",
+        x: 576,
+        y: 128,
         size: 64,
         hidden: false,
-        isHostile: false,
-        coverLevel: "half",
+        isHostile: true,
+        monster: {
+          id: "monster.giant_spider",
+          nameEn: "Giant Spider",
+          nameKo: "거대 거미",
+        },
       },
     ],
-    terrain: [
+    objectCells: [
+      {
+        id: `object_${nodeId}_cover_crate`,
+        name: "Half Cover Crate",
+        description: "A waist-high crate that grants half cover against ranged attacks.",
+        x: 320,
+        y: 192,
+        width: 64,
+        height: 64,
+        visibleToPlayers: true,
+      },
+      {
+        id: `object_${nodeId}_rope`,
+        name: "Smoke Rope",
+        description: "equipment.rope x1",
+        x: 192,
+        y: 256,
+        width: 64,
+        height: 64,
+        visibleToPlayers: true,
+        hiddenItemIds: ["equipment.rope"],
+      },
+    ],
+    terrainCells: [
       { id: `terrain_${nodeId}_burning`, x: 384, y: 256, terrainEffectId: "terrain.burning" },
       { id: `terrain_${nodeId}_poison`, x: 448, y: 256, terrainEffectId: "terrain.poison_cloud" },
     ],
@@ -152,6 +242,366 @@ function createRuleRuntimeSmokeMap(nodeId: string) {
       { id: `start_${nodeId}_4`, label: "4", x: 192, y: 320 },
     ],
     updatedAt: "2026-05-24T00:00:00.000Z",
+  };
+}
+
+function createP1OneshotMap(
+  nodeId: string,
+  phase: "market" | "ambush" | "rest" | "boss",
+) {
+  const base = {
+    id: `map_${nodeId}`,
+    scenarioNodeId: nodeId,
+    imageUrl: null,
+    gridType: "square",
+    gridSize: 64,
+    width: 960,
+    height: 640,
+    fogRects: [],
+    startingPositions: [
+      { id: `start_${nodeId}_1`, label: "1", x: 128, y: 448 },
+      { id: `start_${nodeId}_2`, label: "2", x: 192, y: 448 },
+      { id: `start_${nodeId}_3`, label: "3", x: 128, y: 512 },
+      { id: `start_${nodeId}_4`, label: "4", x: 192, y: 512 },
+    ],
+    updatedAt: "2026-06-21T00:00:00.000Z",
+  };
+
+  if (phase === "market") {
+    return {
+      ...base,
+      tokens: [],
+      objectCells: [
+        {
+          id: `object_${nodeId}_bell_cart`,
+          name: "금 간 종을 실은 수레",
+          description: "조사하면 잿불 폐허에서 들려오는 종소리와 같은 진동을 느낄 수 있습니다.",
+          x: 384,
+          y: 256,
+          width: 128,
+          height: 64,
+          visibleToPlayers: true,
+          revealChecks: [{ id: "check_bell_cart_arcana", skill: "arcana", dc: 13 }],
+          hiddenClueIds: ["clue_p1_bell_resonance"],
+        },
+      ],
+      terrainCells: [
+        { id: `terrain_${nodeId}_crowd`, x: 256, y: 192, width: 192, height: 128, terrainEffectId: "terrain.difficult" },
+      ],
+    };
+  }
+
+  if (phase === "ambush") {
+    return {
+      ...base,
+      tokens: [
+        {
+          id: `token_${nodeId}_orc`,
+          name: "Ember Brand Orc",
+          x: 640,
+          y: 320,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.orc", nameEn: "Orc", nameKo: "오크" },
+        },
+        {
+          id: `token_${nodeId}_skeleton`,
+          name: "Ash Skeleton",
+          x: 704,
+          y: 192,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.skeleton", nameEn: "Skeleton", nameKo: "스켈레톤" },
+        },
+        {
+          id: `token_${nodeId}_wolf`,
+          name: "Cinder Wolf",
+          x: 576,
+          y: 384,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.wolf", nameEn: "Wolf", nameKo: "늑대" },
+        },
+      ],
+      objectCells: [
+        {
+          id: `object_${nodeId}_supply_cache`,
+          name: "버려진 보급 상자",
+          description: "열면 rope를 회수할 수 있습니다.",
+          x: 320,
+          y: 320,
+          width: 64,
+          height: 64,
+          visibleToPlayers: true,
+          hiddenItemIds: ["equipment.rope"],
+        },
+      ],
+      terrainCells: [
+        { id: `terrain_${nodeId}_rubble`, x: 448, y: 256, width: 128, height: 128, terrainEffectId: "terrain.difficult" },
+      ],
+    };
+  }
+
+  if (phase === "rest") {
+    return {
+      ...base,
+      tokens: [],
+      objectCells: [
+        {
+          id: `object_${nodeId}_safe_brazier`,
+          name: "꺼져가는 화로",
+          description: "짧은 휴식을 취하고 주문과 직업 자원을 재정비하기 좋은 장소입니다.",
+          x: 448,
+          y: 256,
+          width: 64,
+          height: 64,
+          visibleToPlayers: true,
+        },
+      ],
+      terrainCells: [],
+    };
+  }
+
+  return {
+    ...base,
+    tokens: [
+      {
+        id: `token_${nodeId}_dragon`,
+        name: "Ember Whelp",
+        x: 672,
+        y: 256,
+        size: 64,
+        hidden: false,
+        isHostile: true,
+        monster: { id: "monster.dragon_whelp", nameEn: "Dragon Whelp", nameKo: "드래곤 웰프" },
+      },
+      {
+        id: `token_${nodeId}_cultist`,
+        name: "Bell Cultist",
+        x: 608,
+        y: 384,
+        size: 64,
+        hidden: false,
+        isHostile: true,
+        monster: { id: "monster.cultist", nameEn: "Cultist", nameKo: "광신도" },
+      },
+      {
+        id: `token_${nodeId}_spider`,
+        name: "Bell Web Spider",
+        x: 768,
+        y: 384,
+        size: 64,
+        hidden: false,
+        isHostile: true,
+        monster: { id: "monster.giant_spider", nameEn: "Giant Spider", nameKo: "거대 거미" },
+      },
+    ],
+    objectCells: [
+      {
+        id: `object_${nodeId}_ember_bell`,
+        name: "잿불 종",
+        description: "종을 멈추면 폐허의 불꽃 숨결이 잦아듭니다.",
+        x: 672,
+        y: 128,
+        width: 128,
+        height: 64,
+        visibleToPlayers: true,
+        revealChecks: [{ id: "check_ember_bell_religion", skill: "religion", dc: 14 }],
+        hiddenClueIds: ["clue_p1_bell_weakness"],
+      },
+    ],
+    terrainCells: [
+      { id: `terrain_${nodeId}_burning_1`, x: 448, y: 192, width: 64, height: 128, terrainEffectId: "terrain.burning" },
+      { id: `terrain_${nodeId}_web_1`, x: 576, y: 320, width: 128, height: 128, terrainEffectId: "terrain.difficult" },
+    ],
+  };
+}
+
+function createP2ValidationMap(nodeId: string, phase: "approach" | "gallery" | "vault") {
+  const base = {
+    id: `map_${nodeId}`,
+    scenarioNodeId: nodeId,
+    imageUrl: null,
+    gridType: "square",
+    gridSize: 64,
+    width: 1024,
+    height: 704,
+    fogRects: [],
+    startingPositions: [
+      { id: `start_${nodeId}_1`, label: "1", x: 128, y: 512 },
+      { id: `start_${nodeId}_2`, label: "2", x: 192, y: 512 },
+      { id: `start_${nodeId}_3`, label: "3", x: 128, y: 576 },
+      { id: `start_${nodeId}_4`, label: "4", x: 192, y: 576 },
+    ],
+    updatedAt: "2026-06-22T00:00:00.000Z",
+  };
+
+  if (phase === "approach") {
+    return {
+      ...base,
+      tokens: [
+        {
+          id: `token_${nodeId}_harpy`,
+          name: "Storm Harpy",
+          x: 704,
+          y: 192,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.harpy", nameEn: "Harpy", nameKo: "하피" },
+        },
+        {
+          id: `token_${nodeId}_gargoyle`,
+          name: "Vault Gargoyle",
+          x: 640,
+          y: 384,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.gargoyle", nameEn: "Gargoyle", nameKo: "가고일" },
+        },
+      ],
+      terrainCells: [
+        { id: `terrain_${nodeId}_elevation`, x: 576, y: 128, width: 256, height: 128, terrainEffectId: "terrain.elevation" },
+        { id: `terrain_${nodeId}_slippery`, x: 384, y: 320, width: 192, height: 128, terrainEffectId: "terrain.slippery" },
+      ],
+      doorCells: [
+        {
+          id: `door_${nodeId}_gate`,
+          name: "폭풍 금고 철문",
+          x: 832,
+          y: 256,
+          width: 64,
+          height: 128,
+          state: "locked",
+          keyItemId: "equipment.crowbar",
+          canBreak: true,
+          breakCheckDc: 15,
+        },
+      ],
+      objectCells: [
+        {
+          id: `object_${nodeId}_winch`,
+          name: "녹슨 승강기 윈치",
+          description: "파괴하면 고지대로 이어지는 쇠사슬 통로가 낮아집니다.",
+          x: 448,
+          y: 192,
+          width: 64,
+          height: 64,
+          visibleToPlayers: true,
+          canBreak: true,
+          broken: false,
+          breakCheckDc: 14,
+        },
+      ],
+    };
+  }
+
+  if (phase === "gallery") {
+    return {
+      ...base,
+      tokens: [
+        {
+          id: `token_${nodeId}_mimic`,
+          name: "Reliquary Mimic",
+          x: 576,
+          y: 320,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.mimic", nameEn: "Mimic", nameKo: "미믹" },
+        },
+        {
+          id: `token_${nodeId}_cube`,
+          name: "Storm Gelatinous Cube",
+          x: 704,
+          y: 320,
+          size: 128,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.gelatinous_cube", nameEn: "Gelatinous Cube", nameKo: "젤라틴 큐브" },
+        },
+      ],
+      terrainCells: [
+        { id: `terrain_${nodeId}_poison`, x: 448, y: 192, width: 192, height: 128, terrainEffectId: "terrain.poison_cloud" },
+        { id: `terrain_${nodeId}_obscured`, x: 704, y: 192, width: 128, height: 192, terrainEffectId: "terrain.obscurement" },
+      ],
+      objectCells: [
+        {
+          id: `object_${nodeId}_locker`,
+          name: "번개 문양 보관함",
+          description: "조사하면 금고 열쇠와 회복 물자를 찾을 수 있습니다.",
+          x: 320,
+          y: 256,
+          width: 64,
+          height: 64,
+          visibleToPlayers: true,
+          hiddenItemIds: ["equipment.crowbar"],
+          hiddenClueIds: ["clue_p2_vault_key"],
+          revealChecks: [{ contentId: "clue_p2_vault_key", skill: "investigation", dc: 14 }],
+        },
+      ],
+    };
+  }
+
+  return {
+    ...base,
+    tokens: [
+      {
+        id: `token_${nodeId}_dragon`,
+        name: "Young Red Dragon",
+        x: 704,
+        y: 192,
+        size: 128,
+        hidden: false,
+        isHostile: true,
+        monster: { id: "monster.young_red_dragon", nameEn: "Young Red Dragon", nameKo: "어린 레드 드래곤" },
+      },
+      {
+        id: `token_${nodeId}_scorpion`,
+        name: "Vault Giant Scorpion",
+        x: 640,
+        y: 448,
+        size: 128,
+        hidden: false,
+        isHostile: true,
+        monster: { id: "monster.giant_scorpion", nameEn: "Giant Scorpion", nameKo: "거대 전갈" },
+      },
+    ],
+    terrainCells: [
+      { id: `terrain_${nodeId}_burning`, x: 448, y: 192, width: 128, height: 256, terrainEffectId: "terrain.burning" },
+      { id: `terrain_${nodeId}_elevation`, x: 640, y: 128, width: 256, height: 128, terrainEffectId: "terrain.elevation" },
+      { id: `terrain_${nodeId}_difficult`, x: 576, y: 384, width: 192, height: 128, terrainEffectId: "terrain.difficult" },
+    ],
+    objectCells: [
+      {
+        id: `object_${nodeId}_orb`,
+        name: "폭풍 제어 구체",
+        description: "집어 들거나 던져 비행 장치의 흐름을 바꿀 수 있는 핵심 물체입니다.",
+        x: 384,
+        y: 320,
+        width: 64,
+        height: 64,
+        visibleToPlayers: true,
+        hiddenItemIds: ["equipment.rope"],
+      },
+      {
+        id: `object_${nodeId}_pillar`,
+        name: "금이 간 지지 기둥",
+        description: "부수면 전장의 엄폐와 이동 경로가 달라집니다.",
+        x: 576,
+        y: 256,
+        width: 64,
+        height: 128,
+        visibleToPlayers: true,
+        canBreak: true,
+        broken: false,
+        breakCheckDc: 16,
+      },
+    ],
   };
 }
 
@@ -223,7 +673,7 @@ const scenarioNodes = [
     imageUrl: null,
     checkOptionsJson: JSON.stringify({
       checks: [],
-      vttMap: null,
+      vttMap: createRuleRuntimeSmokeMap(RULE_RUNTIME_SMOKE_START_NODE_ID),
     }),
     transitionsJson: JSON.stringify([
       { condition: "default", nextNodeId: RULE_RUNTIME_TRAP_NODE_ID },
@@ -232,8 +682,9 @@ const scenarioNodes = [
     fallbackNodeId: RULE_RUNTIME_TRAP_NODE_ID,
     nodeMetaJson: JSON.stringify({
       smokeTest: {
-        commands: ["/rest short", "/rest long"],
-        verifies: ["rest-resolution", "condition-until-rest-expiry"],
+        gmModes: ["AI", "HUMAN"],
+        suggestedCommands: ["/rest short", "/rest long", "/cast cure_wounds token_node_rule_smoke_rest_actor 5 2"],
+        verifies: ["rest-resolution", "condition-until-rest-expiry", "spell-healing"],
       },
     }),
   },
@@ -272,8 +723,12 @@ const scenarioNodes = [
     fallbackNodeId: RULE_RUNTIME_COVER_NODE_ID,
     nodeMetaJson: JSON.stringify({
       smokeTest: {
+        gmModes: ["AI", "HUMAN"],
         verifies: ["saving-throw", "condition-runtime", "terrain-poison-cloud"],
-        suggestedCommands: ["/check investigation 13", "/condition add target poisoned"],
+        suggestedCommands: [
+          "/check investigation 13",
+          "/condition add token_node_rule_smoke_trap_save_goblin poisoned",
+        ],
       },
     }),
   },
@@ -304,8 +759,9 @@ const scenarioNodes = [
     fallbackNodeId: RULE_RUNTIME_AOE_NODE_ID,
     nodeMetaJson: JSON.stringify({
       smokeTest: {
+        gmModes: ["AI", "HUMAN"],
         verifies: ["cover-position", "monster-ability", "terrain-effect"],
-        suggestedCommands: ["/attack token_rule_smoke_cover_combat_goblin"],
+        suggestedCommands: ["/attack token_node_rule_smoke_cover_combat_goblin"],
       },
     }),
   },
@@ -328,8 +784,50 @@ const scenarioNodes = [
     fallbackNodeId: RULE_RUNTIME_CONDITION_NODE_ID,
     nodeMetaJson: JSON.stringify({
       smokeTest: {
+        gmModes: ["AI", "HUMAN"],
         verifies: ["aoe-targeting", "aoe-damage", "spell-scaling"],
-        suggestedCommands: ["/cast_area fireball 15 target-1,target-2 4"],
+        suggestedCommands: [
+          "/cast_area fireball 15 token_node_rule_smoke_aoe_goblin,token_node_rule_smoke_aoe_rat 4",
+        ],
+        apiActions: [
+          {
+            kind: "cast_burning_hands",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/spells/cast",
+            payload: {
+              spellId: "spell.burning_hands",
+              slotLevel: 1,
+              point: { x: 256, y: 192 },
+            },
+            expects: ["area:cone", "saving_throw:dex", "half_damage_on_success"],
+          },
+          {
+            kind: "cast_thunderwave",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/spells/cast",
+            payload: {
+              spellId: "spell.thunderwave",
+              slotLevel: 1,
+              point: { x: 256, y: 192 },
+            },
+            expects: ["area:cube", "saving_throw:con", "forced_movement:push:10"],
+          },
+          {
+            kind: "cast_entangle",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/spells/cast",
+            payload: {
+              spellId: "spell.entangle",
+              slotLevel: 1,
+              point: { x: 256, y: 192 },
+            },
+            expects: [
+              "terrain:terrain.difficult",
+              "condition.restrained",
+              "concentration-linked-cleanup",
+            ],
+          },
+        ],
       },
     }),
   },
@@ -360,8 +858,82 @@ const scenarioNodes = [
     fallbackNodeId: RULE_RUNTIME_HUMAN_GM_NODE_ID,
     nodeMetaJson: JSON.stringify({
       smokeTest: {
-        verifies: ["condition-lifecycle", "concentration-runtime", "forced-movement"],
-        suggestedCommands: ["/condition add target stunned"],
+        gmModes: ["AI", "HUMAN"],
+        verifies: [
+          "condition-lifecycle",
+          "concentration-runtime",
+          "forced-movement",
+          "ready-action-trigger",
+          "spell-condition-rider",
+          "monster-save-condition-rider",
+        ],
+        suggestedCommands: [
+          "/condition add token_node_rule_smoke_condition_goblin stunned",
+          "/cast ray_of_frost token_node_rule_smoke_condition_goblin 60",
+          "/cast detect_magic",
+          "/item pickup object_node_rule_smoke_condition_rope equipment.rope 1 3 4",
+          "/item drop entry-smoke-dagger 1 3 4",
+          "/item throw entry-smoke-dagger 1 4 4",
+        ],
+        apiActions: [
+          {
+            kind: "cast_bless",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/spells/cast",
+            payload: {
+              spellId: "spell.bless",
+              slotLevel: 1,
+              targetParticipantIds: ["combat:node_rule_smoke_condition:actor"],
+            },
+            expects: ["attack_roll:+1d4", "saving_throw:+1d4", "concentration"],
+          },
+          {
+            kind: "cast_bane",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/spells/cast",
+            payload: {
+              spellId: "spell.bane",
+              slotLevel: 1,
+              targetParticipantIds: ["combat:node_rule_smoke_condition:goblin"],
+            },
+            expects: ["saving_throw:cha", "attack_roll:-1d4", "saving_throw:-1d4"],
+          },
+          {
+            kind: "cast_detect_magic",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/spells/cast",
+            payload: {
+              spellId: "spell.detect_magic",
+              slotLevel: 1,
+            },
+            expects: ["detect:magic:30", "concentration", "private-content-not-revealed"],
+          },
+          {
+            kind: "force_move",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/force-move",
+            payload: {
+              participantId: "combat:node_rule_smoke_condition:goblin",
+              mode: "push",
+              origin: { x: 128, y: 256 },
+              distanceFt: 10,
+            },
+            expects: ["forced_movement", "terrain_effect", "ready_action_prompt"],
+          },
+          {
+            kind: "monster_actor_action",
+            method: "POST",
+            endpoint: "/sessions/:sessionId/combat/actor-action",
+            payload: {
+              actionType: "attack",
+              actionId: "action.bite",
+              targetParticipantId: "combat:node_rule_smoke_condition:actor",
+              autoEndTurn: false,
+            },
+            actorParticipantId: "combat:node_rule_smoke_condition:spider",
+            expects: ["saving_throw:con:dc11", "condition.poisoned", "combat_snapshot_refresh"],
+          },
+        ],
       },
     }),
   },
@@ -375,7 +947,7 @@ const scenarioNodes = [
     imageUrl: null,
     checkOptionsJson: JSON.stringify({
       checks: [],
-      vttMap: null,
+      vttMap: createRuleRuntimeSmokeMap(RULE_RUNTIME_HUMAN_GM_NODE_ID),
     }),
     transitionsJson: JSON.stringify([]),
     cluesJson: JSON.stringify([
@@ -390,7 +962,42 @@ const scenarioNodes = [
     fallbackNodeId: null,
     nodeMetaJson: JSON.stringify({
       smokeTest: {
+        gmModes: ["AI", "HUMAN"],
         verifies: ["human-gm-override", "turn-log", "state-diff", "ai-assist-accept"],
+        manualActions: [
+          {
+            kind: "scene_text",
+            publicNarration: "GM override smoke: the final chamber description is recorded.",
+          },
+          {
+            kind: "reveal_handout",
+            targetId: "clue_rule_smoke_gm_override",
+            publicNarration: "GM override smoke: reveal the HUMAN GM handout.",
+            statePatch: {
+              contentId: "clue_rule_smoke_gm_override",
+              contentKind: "clue",
+              scope: "party",
+              recipientId: null,
+            },
+          },
+          {
+            kind: "adjust_hp",
+            targetId: "token_node_rule_smoke_human_gm_goblin",
+            publicNarration: "GM override smoke: adjust a visible target HP total.",
+            statePatch: {
+              targetType: "combatParticipant",
+              currentHp: 3,
+            },
+          },
+          {
+            kind: "ai_assist_accept",
+            publicNarration: "GM override smoke: accept an AI assist suggestion as the HUMAN GM.",
+            metadata: {
+              assistType: "scene_text",
+              suggestionId: "rule-smoke-ai-assist",
+            },
+          },
+        ],
       },
     }),
   },
@@ -620,9 +1227,350 @@ const scenarioNodes = [
       ],
     }),
   },
+  {
+    id: P1_ONESHOT_START_NODE_ID,
+    scenarioId: P1_ONESHOT_SCENARIO_ID,
+    nodeType: "story",
+    title: "종소리가 사라진 마을",
+    sceneText:
+      "해 질 녘, 시장 광장에 금 간 청동 종이 실려 옵니다. 종은 아무도 치지 않았는데 낮게 울리고, 근처 아이들은 잿빛 꿈을 꾸었다고 말합니다. 의뢰인은 종소리의 근원인 잿불 폐허를 조사해 달라고 부탁합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p1_hook_history", type: "skill_check", label: "폐허 전승 떠올리기", skill: "history", dc: 12 },
+        { id: "p1_hook_arcana", type: "skill_check", label: "종의 마력 진동 읽기", skill: "arcana", dc: 13 },
+      ],
+      vttMap: null,
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P1_ONESHOT_MARKET_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p1_hook",
+        title: "잿불 폐허",
+        text: "폐허 아래에는 오래된 소환 종이 있고, 불꽃 숨결을 가진 작은 용이 그 소리에 이끌린다는 전승이 있습니다.",
+        handoutText: "잿불 폐허: 소환 종, 작은 용, 불꽃 숨결.",
+        revealPolicy: { mode: "AUTO_REVEAL" },
+      },
+    ]),
+    fallbackNodeId: P1_ONESHOT_MARKET_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p1Scenario: {
+        expectedDurationMinutes: [30, 45],
+        recommendedLevel: 3,
+        usefulClasses: ["cleric", "fighter", "rogue", "wizard", "ranger", "bard"],
+        usefulSpells: ["spell.detect_magic", "spell.bless", "spell.healing_word", "spell.web", "spell.misty_step"],
+      },
+    }),
+  },
+  {
+    id: P1_ONESHOT_MARKET_NODE_ID,
+    scenarioId: P1_ONESHOT_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "금 간 종의 단서",
+    sceneText:
+      "광장에는 불안한 주민들과 종을 실은 수레가 남아 있습니다. 종 표면에는 용 발톱 모양의 그을음과 거미줄 같은 은빛 실금이 엉켜 있습니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p1_market_investigation", type: "skill_check", label: "종 표면 조사", skill: "investigation", dc: 12 },
+        { id: "p1_market_persuasion", type: "skill_check", label: "목격자 안심시키기", skill: "persuasion", dc: 11 },
+        { id: "p1_market_survival", type: "skill_check", label: "폐허로 이어지는 흔적 찾기", skill: "survival", dc: 12 },
+      ],
+      vttMap: createP1OneshotMap(P1_ONESHOT_MARKET_NODE_ID, "market"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P1_ONESHOT_AMBUSH_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p1_bell_resonance",
+        title: "종의 공명",
+        text: "Detect Magic 또는 Arcana 판정으로 종이 폐허 안쪽의 더 큰 종과 공명한다는 사실을 알 수 있습니다.",
+        handoutText: "작은 종은 폐허의 본체와 공명합니다. 본체를 멈추면 울림도 멎습니다.",
+        revealPolicy: { mode: "PLAYER_ACTION" },
+      },
+    ]),
+    fallbackNodeId: P1_ONESHOT_AMBUSH_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p1Scenario: {
+        verifies: ["exploration-checks", "object-reveal", "spell.detect_magic"],
+        gmAdvice: "실패해도 폐허 위치는 알려주고, 성공하면 보스방 종 약점을 미리 암시하세요.",
+      },
+    }),
+  },
+  {
+    id: P1_ONESHOT_AMBUSH_NODE_ID,
+    scenarioId: P1_ONESHOT_SCENARIO_ID,
+    nodeType: "combat",
+    title: "무너진 회랑의 매복",
+    sceneText:
+      "폐허 입구 회랑에서 잿불 표식을 한 오크가 길을 막고, 무너진 벽 뒤의 스켈레톤이 활을 겨눕니다. 검게 그을린 늑대가 낮게 으르렁거리며 달려듭니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p1_ambush_perception", type: "skill_check", label: "매복 눈치채기", skill: "perception", dc: 13 },
+        { id: "p1_ambush_athletics", type: "skill_check", label: "잔해를 넘어 유리한 위치 잡기", skill: "athletics", dc: 12 },
+      ],
+      vttMap: createP1OneshotMap(P1_ONESHOT_AMBUSH_NODE_ID, "ambush"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P1_ONESHOT_REST_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p1_orc_brand",
+        title: "잿불 표식",
+        text: "오크의 목걸이는 광신도가 만든 부적입니다. 보스방의 종과 같은 문양이 새겨져 있습니다.",
+        handoutText: "잿불 표식: 광신도와 종의 연결고리.",
+        revealPolicy: { mode: "AUTO_REVEAL" },
+      },
+    ]),
+    fallbackNodeId: P1_ONESHOT_REST_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p1Scenario: {
+        monsters: ["monster.orc", "monster.skeleton", "monster.wolf"],
+        usefulSpells: ["spell.bless", "spell.command", "spell.guiding_bolt", "spell.healing_word"],
+        verifies: ["monster-actions", "save-rider-prone", "cover-and-difficult-terrain"],
+      },
+    }),
+  },
+  {
+    id: P1_ONESHOT_REST_NODE_ID,
+    scenarioId: P1_ONESHOT_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "꺼져가는 화로",
+    sceneText:
+      "회랑 너머 작은 제단방에는 꺼져가는 화로가 있습니다. 이곳은 잠시 숨을 고르기에 안전해 보입니다. 재 속에는 아직 따뜻한 청동 조각이 남아 있습니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p1_rest_medicine", type: "skill_check", label: "부상자 돌보기", skill: "medicine", dc: 11 },
+        { id: "p1_rest_religion", type: "skill_check", label: "제단의 의미 해석", skill: "religion", dc: 13 },
+      ],
+      vttMap: createP1OneshotMap(P1_ONESHOT_REST_NODE_ID, "rest"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P1_ONESHOT_BOSS_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p1_short_rest",
+        title: "짧은 휴식 기회",
+        text: "파티는 여기서 short rest를 취할 수 있습니다. Fighter, Warlock, Monk, Wizard 자원 회복을 확인하기 좋습니다.",
+        handoutText: "안전한 제단방: 짧은 휴식 가능.",
+        revealPolicy: { mode: "AUTO_REVEAL" },
+      },
+    ]),
+    fallbackNodeId: P1_ONESHOT_BOSS_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p1Scenario: {
+        suggestedPlayerActions: ["짧은 휴식", "치유 주문 사용", "준비 주문 재확인"],
+        verifies: ["short-rest", "class-resource-recovery", "inventory-pickup"],
+      },
+    }),
+  },
+  {
+    id: P1_ONESHOT_BOSS_NODE_ID,
+    scenarioId: P1_ONESHOT_SCENARIO_ID,
+    nodeType: "combat",
+    title: "잿불 종의 방",
+    sceneText:
+      "거대한 금 간 종 아래에서 작은 드래곤이 불씨를 토해냅니다. 광신도가 종을 울리며 주문을 외우고, 거대 거미가 은빛 줄을 늘어뜨려 퇴로를 막습니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p1_boss_religion", type: "skill_check", label: "종 의식 방해", skill: "religion", dc: 14 },
+        { id: "p1_boss_acrobatics", type: "skill_check", label: "거미줄 사이로 이동", skill: "acrobatics", dc: 13 },
+        { id: "p1_boss_arcana", type: "skill_check", label: "숨결 재충전 징후 읽기", skill: "arcana", dc: 14 },
+      ],
+      vttMap: createP1OneshotMap(P1_ONESHOT_BOSS_NODE_ID, "boss"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P1_ONESHOT_END_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p1_bell_weakness",
+        title: "종의 약점",
+        text: "종을 침묵시키면 드래곤 웰프의 불꽃 숨결 재충전이 불안정해집니다. HUMAN GM은 이 단서를 이용해 난이도를 낮출 수 있습니다.",
+        handoutText: "종 약점: 의식 방해 성공 시 보스전 압박 완화.",
+        gmNotes: "HUMAN GM이라면 성공 판정 후 드래곤 웰프의 fire_breath 사용을 한 라운드 미루거나 cultist를 후퇴시켜도 됩니다.",
+        revealPolicy: { mode: "PLAYER_ACTION" },
+      },
+    ]),
+    fallbackNodeId: P1_ONESHOT_END_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p1Scenario: {
+        monsters: ["monster.dragon_whelp", "monster.cultist", "monster.giant_spider"],
+        usefulSpells: ["spell.web", "spell.hold_person", "spell.scorching_ray", "spell.dispel_magic", "spell.misty_step"],
+        verifies: ["recharge", "web-restrained", "spell-control", "human-gm-override", "ai-gm-fallback"],
+      },
+    }),
+  },
+  {
+    id: P1_ONESHOT_END_NODE_ID,
+    scenarioId: P1_ONESHOT_SCENARIO_ID,
+    nodeType: "story",
+    title: "종이 멎은 뒤",
+    sceneText:
+      "잿불 종이 갈라지며 마지막 울림을 토합니다. 폐허의 열기는 식고, 마을로 돌아가는 길 위로 새벽빛이 번집니다. 의뢰인은 파티에게 감사하며 작은 청동 종 조각을 보상으로 건넵니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p1_reward",
+        title: "청동 종 조각",
+        text: "보상: 청동 종 조각과 마을의 감사. 다음 모험에서 마법 감지나 협상 단서로 사용할 수 있습니다.",
+        handoutText: "보상: 청동 종 조각.",
+        revealPolicy: { mode: "AUTO_REVEAL" },
+      },
+    ]),
+    fallbackNodeId: null,
+    nodeMetaJson: JSON.stringify({
+      p1Scenario: {
+        ending: true,
+        verifies: ["scenario-completion", "reward-handout"],
+      },
+    }),
+  },
+  {
+    id: P2_VALIDATION_START_NODE_ID,
+    scenarioId: P2_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "폭풍이 멎지 않는 항구",
+    sceneText:
+      "항구 위 폐금고에서 붉은 용의 그림자가 날아오르고 있습니다. 파티는 5레벨 능력을 정비한 뒤 절벽 승강장, 유물 회랑, 금고 심장부를 차례로 돌파해야 합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p2_hook_arcana", type: "skill_check", label: "폭풍 장치 분석", skill: "arcana", dc: 14 },
+        { id: "p2_hook_history", type: "skill_check", label: "폐금고 구조 기억", skill: "history", dc: 13 },
+      ],
+      vttMap: null,
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P2_APPROACH_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p2_briefing",
+        title: "금고 공략",
+        text: "비행과 고저차, 지속 지역 효과, 오브젝트 파괴가 모두 유용합니다. 3레벨 주문과 Extra Attack을 적극적으로 사용하세요.",
+        handoutText: "5레벨 능력과 3레벨 주문을 준비하십시오.",
+        revealPolicy: { mode: "AUTO_REVEAL" },
+      },
+    ]),
+    fallbackNodeId: P2_APPROACH_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "AI/HUMAN GM 공통 검증 시작점입니다. 종족 저항과 5레벨 자원을 확인한 뒤 이동하세요.",
+      ruleRefs: {
+        spellIds: ["spell.fly", "spell.haste", "spell.counterspell"],
+        conditionIds: ["condition.charmed"],
+        terrainEffectIds: ["terrain.elevation"],
+      },
+    }),
+  },
+  {
+    id: P2_APPROACH_NODE_ID,
+    scenarioId: P2_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "절벽 승강장의 노래",
+    sceneText:
+      "미끄러운 승강장 위에서 하피가 정신을 홀리고, 가고일이 높은 난간을 지킵니다. 윈치를 부수거나 철문을 열어 고지대로 진입할 수 있습니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p2_approach_athletics", type: "skill_check", label: "윈치 강제 작동", skill: "athletics", dc: 14 },
+        { id: "p2_approach_perception", type: "skill_check", label: "하피 노래의 근원 파악", skill: "perception", dc: 14 },
+      ],
+      vttMap: createP2ValidationMap(P2_APPROACH_NODE_ID, "approach"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P2_GALLERY_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P2_GALLERY_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "Fly 또는 원거리 공격, charm 저항, 고도 엄폐, slippery terrain, 문/오브젝트 파괴를 확인합니다.",
+      ruleRefs: {
+        spellIds: ["spell.fly", "spell.lightning_bolt"],
+        conditionIds: ["condition.charmed"],
+        terrainEffectIds: ["terrain.elevation", "terrain.slippery"],
+      },
+    }),
+  },
+  {
+    id: P2_GALLERY_NODE_ID,
+    scenarioId: P2_VALIDATION_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "삼켜지는 유물 회랑",
+    sceneText:
+      "독 안개와 짙은 시야 방해 사이에 보관함이 놓여 있습니다. 상자로 위장한 미믹과 회랑을 가득 메운 젤라틴 큐브를 상대하면서 보관함을 조사해야 합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p2_gallery_investigation", type: "skill_check", label: "보관함 조사", skill: "investigation", dc: 14 },
+        { id: "p2_gallery_survival", type: "skill_check", label: "독 안개 안전 경로", skill: "survival", dc: 14 },
+      ],
+      vttMap: createP2ValidationMap(P2_GALLERY_NODE_ID, "gallery"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P2_VAULT_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p2_vault_key",
+        title: "폭풍 금고 열쇠",
+        text: "보관함 안쪽 문양은 심장부 제어 구체를 용의 숨결 반대편으로 옮기라고 지시합니다.",
+        handoutText: "제어 구체를 용의 숨결 반대편으로 옮기십시오.",
+        revealPolicy: { mode: "PLAYER_ACTION" },
+      },
+    ]),
+    fallbackNodeId: P2_VAULT_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "컨테이너 조사, 숨은 아이템 이동, poison cloud, obscurement, grapple/restrain과 지속 피해를 확인합니다.",
+      ruleRefs: {
+        spellIds: ["spell.lesser_restoration", "spell.moonbeam", "spell.invisibility"],
+        conditionIds: ["condition.grappled", "condition.restrained"],
+        terrainEffectIds: ["terrain.poison_cloud", "terrain.obscurement"],
+      },
+    }),
+  },
+  {
+    id: P2_VAULT_NODE_ID,
+    scenarioId: P2_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "금고 심장부의 붉은 날개",
+    sceneText:
+      "어린 레드 드래곤이 높은 단상에서 불꽃 숨결을 준비하고, 거대 전갈이 아래 통로를 봉쇄합니다. 제어 구체를 옮기거나 던지고, 기둥을 부수며 지속 지역 주문으로 전장을 나누십시오.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p2_vault_arcana", type: "skill_check", label: "제어 구체 활성화", skill: "arcana", dc: 15 },
+        { id: "p2_vault_athletics", type: "skill_check", label: "지지 기둥 붕괴", skill: "athletics", dc: 16 },
+      ],
+      vttMap: createP2ValidationMap(P2_VAULT_NODE_ID, "vault"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P2_END_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P2_END_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "Young Red Dragon 비행/재충전 AoE, Giant Scorpion multiattack/grapple/poison, Extra Attack, 3레벨 주문을 확인합니다.",
+      ruleRefs: {
+        spellIds: ["spell.haste", "spell.lightning_bolt", "spell.moonbeam", "spell.fly", "spell.revivify"],
+        conditionIds: ["condition.grappled", "condition.poisoned"],
+        terrainEffectIds: ["terrain.burning", "terrain.elevation", "terrain.difficult"],
+      },
+    }),
+  },
+  {
+    id: P2_END_NODE_ID,
+    scenarioId: P2_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "폭풍 너머의 새벽",
+    sceneText:
+      "제어 구체가 안정되며 금고 위 폭풍이 갈라집니다. 항구에는 새벽빛이 돌아오고 파티는 5레벨 원정의 전리품과 함께 귀환합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: null,
+    nodeMetaJson: JSON.stringify({
+      isEndingNode: true,
+      endBehavior: "SESSION_COMPLETE",
+      gmNotes: "완주, 재접속 상태 복원, 공개/비공개 정보 분리를 마지막으로 확인합니다.",
+    }),
+  },
 ];
 
-const scenarios = [defaultScenario, nodeScreenTestScenario, ruleRuntimeSmokeScenario];
+const scenarios = [defaultScenario, nodeScreenTestScenario, ruleRuntimeSmokeScenario, p1OneshotScenario, p2ValidationScenario];
 
 type SourceScenarioNode = {
   id: string;
@@ -871,6 +1819,8 @@ export async function seedDefaultScenario(prisma: PrismaClient): Promise<void> {
         license: scenario.license,
         attribution: scenario.attribution,
         startNodeId: scenario.startNodeId,
+        startLevel: scenario.startLevel,
+        recommendedEndLevel: scenario.recommendedEndLevel,
       },
       create: scenario,
     });

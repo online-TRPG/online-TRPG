@@ -18,11 +18,41 @@ export type ExecutableMonsterAction = {
   confidence: "high" | "medium" | "low" | "none";
   catalogEntryId: string;
   costType: RuleCatalogEntry["cost"]["type"];
+  specialType: string | null;
+  usage: string | null;
+  recharge: string | null;
+  save: { ability: string; dcSource: string | null; fixedDc?: number | null } | null;
+  conditionRiders: string[];
+  effectTags: string[];
 };
 
 const MONSTER_ACTION_PREFERENCES: Record<string, string[]> = {
   "monster.giant_rat": ["action.bite"],
+  "monster.giant_spider": ["action.web", "action.bite"],
   "monster.goblin": ["action.scimitar", "action.shortbow", "monster.goblin.ability.nimble_escape"],
+  "monster.orc": ["action.greataxe", "action.javelin"],
+  "monster.wolf": ["action.bite"],
+  "monster.skeleton": ["action.shortbow", "action.shortsword"],
+  "monster.zombie": ["action.slam"],
+  "monster.brown_bear": ["monster.brown_bear.ability.multiattack", "action.claws", "action.bite"],
+  "monster.dragon_whelp": ["action.fire_breath", "action.bite"],
+  "monster.cultist": ["action.scimitar"],
+  "monster.ogre": ["action.greatclub", "action.javelin"],
+  "monster.kobold": ["action.dagger", "action.sling"],
+  "monster.bandit": ["action.scimitar", "action.light_crossbow"],
+  "monster.bugbear": ["action.morningstar", "action.javelin"],
+  "monster.hobgoblin": ["action.longsword", "action.longbow"],
+  "monster.dire_wolf": ["action.bite"],
+  "monster.ghoul": ["action.claws", "action.bite"],
+  "monster.wight": ["monster.wight.ability.multiattack", "action.life_drain", "action.longbow"],
+  "monster.mimic": ["action.pseudopod", "action.bite"],
+  "monster.gelatinous_cube": ["action.engulf", "action.pseudopod"],
+  "monster.swarm_of_rats": ["action.bites"],
+  "monster.animated_armor": ["monster.animated_armor.ability.multiattack", "action.slam"],
+  "monster.gargoyle": ["monster.gargoyle.ability.multiattack", "action.bite", "action.claws"],
+  "monster.harpy": ["action.luring_song", "monster.harpy.ability.multiattack"],
+  "monster.giant_scorpion": ["monster.giant_scorpion.ability.multiattack", "action.sting", "action.claw"],
+  "monster.young_red_dragon": ["action.fire_breath", "monster.young_red_dragon.ability.multiattack"],
 };
 
 @Injectable()
@@ -82,8 +112,16 @@ export class MonsterAbilityService {
     const actionId = this.readStringTag(entry.runtimeEffect.tags, "srd_action_id:") ?? entry.id;
     const attackKind = this.resolveAttackKind(entry);
     const monsterId = entry.levelRequirement.monsterId ?? null;
+    const isLifecyclePassive = entry.runtimeEffect.tags.some(
+      (tag) =>
+        tag.startsWith("aura:") ||
+        tag.startsWith("trigger:on_turn_start") ||
+        tag.startsWith("trigger:on_turn_end"),
+    );
+    const isSpecial =
+      !attackKind && (entry.cost.type !== "none" || isLifecyclePassive);
 
-    if (!monsterId || !attackKind || attackBonus === null) {
+    if (!monsterId || (!attackKind && !isSpecial) || (attackKind && attackBonus === null)) {
       return null;
     }
 
@@ -91,8 +129,8 @@ export class MonsterAbilityService {
       monsterId,
       actionId,
       label: this.createLabel(entry.id),
-      attackKind,
-      attackBonus,
+      attackKind: attackKind ?? "special",
+      attackBonus: attackBonus ?? 0,
       damageDice: entry.damage?.dice ?? "",
       damageType: entry.damage?.type ?? null,
       reachFt: this.resolveReachFt(entry),
@@ -100,6 +138,17 @@ export class MonsterAbilityService {
       confidence: entry.damage ? "high" : "medium",
       catalogEntryId: entry.id,
       costType: entry.cost.type,
+      specialType: this.resolveSpecialType(entry),
+      usage: this.readStringTag(entry.runtimeEffect.tags, "usage:"),
+      recharge: this.readStringTag(entry.runtimeEffect.tags, "recharge:"),
+      save: entry.save
+        ? { ability: entry.save.ability, dcSource: entry.save.dcSource ?? null, fixedDc: entry.save.fixedDc ?? null }
+        : null,
+      conditionRiders: this.readPrefixedTags(entry.runtimeEffect.tags, "condition:")
+        .map((conditionId) =>
+          conditionId.startsWith("condition.") ? conditionId : `condition.${conditionId}`,
+        ),
+      effectTags: this.resolveEffectTags(entry),
     };
   }
 
@@ -109,6 +158,11 @@ export class MonsterAbilityService {
     }
     if (entry.runtimeEffect.tags.includes("attack:ranged_weapon")) {
       return "ranged_weapon";
+    }
+    if (entry.runtimeEffect.tags.includes("attack:melee_or_ranged_weapon")) {
+      return entry.targeting.type === "creature" && (entry.targeting.rangeFt ?? 0) > 5
+        ? "ranged_weapon"
+        : "melee_weapon";
     }
     return null;
   }
@@ -128,6 +182,57 @@ export class MonsterAbilityService {
       normal: entry.targeting.rangeFt,
       long: this.readPositiveIntegerTag(entry.runtimeEffect.tags, "range_long:"),
     };
+  }
+
+  private resolveSpecialType(entry: RuleCatalogEntry): string | null {
+    if (entry.runtimeEffect.tags.some((tag) => tag.startsWith("mobility:"))) {
+      return "mobility";
+    }
+    if (
+      entry.targeting.type === "area" &&
+      entry.save &&
+      !entry.damage &&
+      entry.runtimeEffect.tags.some((tag) => tag.startsWith("condition:"))
+    ) {
+      return "area_control";
+    }
+    if (entry.runtimeEffect.tags.some((tag) => tag.startsWith("aura:"))) {
+      return "aura";
+    }
+    if (entry.runtimeEffect.tags.some((tag) => tag.startsWith("multiattack:"))) {
+      return "multiattack";
+    }
+    if (
+      entry.targeting.type === "area" &&
+      entry.damage &&
+      entry.save &&
+      entry.runtimeEffect.tags.some((tag) => tag.startsWith("area:"))
+    ) {
+      return "area_attack";
+    }
+    return null;
+  }
+
+  private resolveEffectTags(entry: RuleCatalogEntry): string[] {
+    return [
+      ...this.readPrefixedTags(entry.runtimeEffect.tags, "option:"),
+      ...this.readPrefixedTags(entry.runtimeEffect.tags, "effect:"),
+      ...entry.runtimeEffect.tags.filter(
+        (tag) =>
+          tag.startsWith("area:") ||
+          tag === "half_damage_on_success" ||
+          tag.startsWith("aura:") ||
+          tag.startsWith("trigger:"),
+      ),
+      ...entry.runtimeEffect.tags.filter((tag) => tag.startsWith("multiattack:")),
+    ];
+  }
+
+  private readPrefixedTags(tags: string[], prefix: string): string[] {
+    return tags
+      .filter((tag) => tag.startsWith(prefix))
+      .map((tag) => tag.slice(prefix.length))
+      .filter(Boolean);
   }
 
   private readStringTag(tags: string[], prefix: string): string | null {

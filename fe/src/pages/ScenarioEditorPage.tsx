@@ -17,6 +17,7 @@ import {
   deleteScenarioAsset as deleteScenarioAssetRequest,
   getScenario,
   listScenarioAssets,
+  listRuleCatalog,
   updateScenario,
   uploadScenarioAsset,
 } from '../services/api';
@@ -28,6 +29,7 @@ import type {
   ScenarioAssetResponseDto,
   ScenarioLicense,
   ScenarioNodeType,
+  RuleCatalogReferenceDto,
   SrdMonsterReferenceDto,
   UpdateScenarioDto,
   VttMapStateDto,
@@ -121,6 +123,12 @@ type NpcForm = {
   imageUrl: string;
 };
 
+type ScenarioRuleRefs = {
+  spellIds: string[];
+  conditionIds: string[];
+  terrainEffectIds: string[];
+};
+
 // 에디터 내부에서 쓰는 노드 폼 상태입니다. 스토리/탐색/전투 타입과 연결/판정 가이드/단서를 포함합니다.
 type NodeForm = {
   id: string;
@@ -133,6 +141,8 @@ type NodeForm = {
   links: LinkForm[];
   clues: ClueForm[];
   npcIds: string[];
+  gmNotes: string;
+  ruleRefs: ScenarioRuleRefs;
   isEndingNode: boolean;
 };
 
@@ -218,6 +228,8 @@ function createBlankNode(title = '새 장면'): NodeForm {
     links: [],
     clues: [],
     npcIds: [],
+    gmNotes: '',
+    ruleRefs: { spellIds: [], conditionIds: [], terrainEffectIds: [] },
     isEndingNode: false,
   };
 }
@@ -620,6 +632,25 @@ function mapNodeIsEnding(nodeMeta: Record<string, unknown> | null): boolean {
   return nodeMeta.isEndingNode === true || nodeMeta.endBehavior === 'SESSION_COMPLETE';
 }
 
+function mapNodeGmNotes(nodeMeta: Record<string, unknown> | null): string {
+  return nodeMeta && typeof nodeMeta.gmNotes === 'string' ? nodeMeta.gmNotes : '';
+}
+
+function mapNodeRuleRefs(nodeMeta: Record<string, unknown> | null): ScenarioRuleRefs {
+  const ruleRefs =
+    nodeMeta?.ruleRefs && typeof nodeMeta.ruleRefs === 'object'
+      ? (nodeMeta.ruleRefs as Record<string, unknown>)
+      : {};
+  const ids = (value: unknown) =>
+    Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+
+  return {
+    spellIds: ids(ruleRefs.spellIds),
+    conditionIds: ids(ruleRefs.conditionIds),
+    terrainEffectIds: ids(ruleRefs.terrainEffectIds),
+  };
+}
+
 // API에서 받은 시나리오 상세 데이터를 에디터 폼 상태로 변환합니다.
 function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
   const nodes = scenario.nodes.length
@@ -634,6 +665,8 @@ function formFromScenario(scenario: ScenarioDetail): ScenarioFormState {
           links: node.transitions.map(mapLink),
           clues: node.clues.map(mapClue),
           npcIds: mapNodeNpcIds(node.nodeMeta),
+          gmNotes: mapNodeGmNotes(node.nodeMeta),
+          ruleRefs: mapNodeRuleRefs(node.nodeMeta),
           isEndingNode: mapNodeIsEnding(node.nodeMeta),
         }))
     : [createBlankNode('첫 장면')];
@@ -752,6 +785,16 @@ function buildNodeMetaFromFeaturedNpcs(
     meta.isEndingNode = true;
     meta.endBehavior = 'SESSION_COMPLETE';
   }
+  if (node.gmNotes.trim()) {
+    meta.gmNotes = node.gmNotes.trim();
+  }
+  if (
+    node.ruleRefs.spellIds.length ||
+    node.ruleRefs.conditionIds.length ||
+    node.ruleRefs.terrainEffectIds.length
+  ) {
+    meta.ruleRefs = node.ruleRefs;
+  }
 
   return Object.keys(meta).length ? meta : null;
 }
@@ -847,6 +890,57 @@ function getRequiredScenarioMessage(payload: CreateScenarioDto & UpdateScenarioD
   }
 
   return null;
+}
+
+function validateScenarioForm(form: ScenarioFormState, catalog: RuleCatalogReferenceDto[]): string[] {
+  const issues: string[] = [];
+  const nodeIds = new Set(form.nodes.map((node) => node.id));
+  const catalogIds = new Set(catalog.map((entry) => entry.id));
+  const startNodeId = resolveScenarioStartNodeId(form.nodes, form.startNodeId);
+  if (!startNodeId || !nodeIds.has(startNodeId)) {
+    issues.push('시작 노드가 올바르게 지정되지 않았습니다.');
+  }
+
+  const reachable = new Set<string>();
+  const queue = startNodeId ? [startNodeId] : [];
+  while (queue.length) {
+    const nodeId = queue.shift()!;
+    if (reachable.has(nodeId)) continue;
+    reachable.add(nodeId);
+    const node = form.nodes.find((candidate) => candidate.id === nodeId);
+    node?.links.forEach((link) => {
+      if (link.nextNodeId && nodeIds.has(link.nextNodeId)) queue.push(link.nextNodeId);
+    });
+  }
+
+  form.nodes.forEach((node) => {
+    if (!reachable.has(node.id)) issues.push(`도달할 수 없는 노드: ${node.title || node.id}`);
+    if (!node.isEndingNode && node.links.every((link) => !link.nextNodeId)) {
+      issues.push(`종료 표시나 다음 연결이 없는 노드: ${node.title || node.id}`);
+    }
+    node.links.forEach((link) => {
+      if (link.nextNodeId && !nodeIds.has(link.nextNodeId)) {
+        issues.push(`${node.title || node.id}의 연결 대상이 존재하지 않습니다: ${link.nextNodeId}`);
+      }
+    });
+    [
+      ...node.ruleRefs.spellIds,
+      ...node.ruleRefs.conditionIds,
+      ...node.ruleRefs.terrainEffectIds,
+    ].forEach((id) => {
+      if (catalog.length && !catalogIds.has(id)) {
+        issues.push(`${node.title || node.id}에서 찾을 수 없는 룰 참조: ${id}`);
+      }
+    });
+    if (
+      node.nodeType === ('combat' as ScenarioNodeType) &&
+      !(node.vttMap?.tokens ?? []).some((token) => token.monster || token.isHostile)
+    ) {
+      issues.push(`전투 노드에 적 몬스터가 없습니다: ${node.title || node.id}`);
+    }
+  });
+
+  return Array.from(new Set(issues));
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -1078,6 +1172,8 @@ export function ScenarioEditorPage({
   const [error, setError] = useState<string | null>(null);
   const [monsterCatalog, setMonsterCatalog] = useState<SrdMonsterReferenceDto[]>([]);
   const [monsterCatalogError, setMonsterCatalogError] = useState<string | null>(null);
+  const [ruleCatalog, setRuleCatalog] = useState<RuleCatalogReferenceDto[]>([]);
+  const [ruleCatalogError, setRuleCatalogError] = useState<string | null>(null);
   const [itemOptions, setItemOptions] = useState<BattleMapOption[]>([]);
   const [itemCatalogError, setItemCatalogError] = useState<string | null>(null);
   const [mapAssets, setMapAssets] = useState<ScenarioAsset[]>([]);
@@ -1107,6 +1203,8 @@ export function ScenarioEditorPage({
     if (form.ruleSetId !== 'dnd5e') {
       setMonsterCatalog([]);
       setMonsterCatalogError('현재는 dnd5e 5.1 SRD 몬스터만 지원합니다.');
+      setRuleCatalog([]);
+      setRuleCatalogError('현재는 dnd5e 룰 카탈로그만 지원합니다.');
       setItemOptions([]);
       setItemCatalogError('현재는 dnd5e 5.1 SRD 아이템만 지원합니다.');
       return;
@@ -1114,6 +1212,7 @@ export function ScenarioEditorPage({
 
     let ignore = false;
     setMonsterCatalogError(null);
+    setRuleCatalogError(null);
     setItemCatalogError(null);
 
     loadMonsterCatalog()
@@ -1127,6 +1226,20 @@ export function ScenarioEditorPage({
           setMonsterCatalog([]);
           setMonsterCatalogError(
             caught instanceof Error ? caught.message : 'SRD 몬스터 목록을 불러오지 못했습니다.'
+          );
+        }
+      });
+    listRuleCatalog()
+      .then((entries) => {
+        if (!ignore) {
+          setRuleCatalog(entries.filter((entry) => entry.executable));
+        }
+      })
+      .catch((caught) => {
+        if (!ignore) {
+          setRuleCatalog([]);
+          setRuleCatalogError(
+            caught instanceof Error ? caught.message : '룰 카탈로그를 불러오지 못했습니다.'
           );
         }
       });
@@ -1413,6 +1526,10 @@ export function ScenarioEditorPage({
   const effectiveStartNodeId = useMemo(
     () => resolveScenarioStartNodeId(form.nodes, form.startNodeId || form.nodes[0]?.id),
     [form.nodes, form.startNodeId]
+  );
+  const validationIssues = useMemo(
+    () => validateScenarioForm(form, ruleCatalog),
+    [form, ruleCatalog],
   );
 
   const orderedNodes = useMemo(
@@ -1899,6 +2016,26 @@ export function ScenarioEditorPage({
         </section>
       ) : null}
 
+      <section className="session-form-card">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">Validation</span>
+            <h2>시나리오 검증</h2>
+          </div>
+          <strong>{validationIssues.length ? `${validationIssues.length}개 확인 필요` : '통과'}</strong>
+        </div>
+        {ruleCatalogError ? <p className="panel-error">{ruleCatalogError}</p> : null}
+        {validationIssues.length ? (
+          <ul>
+            {validationIssues.map((issue) => (
+              <li key={issue}>{issue}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="helper-copy">시작 노드, 연결, 룰 참조, 전투 배치를 확인했습니다.</p>
+        )}
+      </section>
+
       <form id={formId} className="scenario-editor-form" onSubmit={submit}>
         <div className="scenario-editor-layout">
           {/* 좌측 노드 목록: 장면 추가/삭제/선택을 담당합니다. */}
@@ -1974,6 +2111,8 @@ export function ScenarioEditorPage({
                 uploadTokenAsset={handleTokenAssetUpload}
                 monsterCatalog={monsterCatalog}
                 monsterCatalogError={monsterCatalogError}
+                ruleCatalog={ruleCatalog}
+                ruleCatalogError={ruleCatalogError}
                 itemOptions={itemOptions}
                 itemCatalogError={itemCatalogError}
                 updateNode={updateNode}
@@ -2049,6 +2188,8 @@ function NodeDetailEditor({
   uploadTokenAsset,
   monsterCatalog,
   monsterCatalogError,
+  ruleCatalog,
+  ruleCatalogError,
   itemOptions,
   itemCatalogError,
   updateNode,
@@ -2079,6 +2220,8 @@ function NodeDetailEditor({
   uploadTokenAsset: (file: File | null) => Promise<ScenarioAsset | null>;
   monsterCatalog: SrdMonsterReferenceDto[];
   monsterCatalogError: string | null;
+  ruleCatalog: RuleCatalogReferenceDto[];
+  ruleCatalogError: string | null;
   itemOptions: BattleMapOption[];
   itemCatalogError: string | null;
   updateNode: (nodeId: string, updater: (node: NodeForm) => NodeForm) => void;
@@ -2623,6 +2766,54 @@ function NodeDetailEditor({
           rows={10}
           required
         />
+
+        <section className="scenario-node-panel">
+          <span className="eyebrow">GM private notes</span>
+          <textarea
+            value={node.gmNotes}
+            onChange={(event) =>
+              updateNode(node.id, (current) => ({ ...current, gmNotes: event.target.value }))
+            }
+            rows={4}
+            placeholder="플레이어에게 공개되지 않는 진행 메모"
+          />
+        </section>
+
+        <section className="scenario-node-panel">
+          <span className="eyebrow">Rule catalog references</span>
+          {ruleCatalogError ? <p className="panel-error">{ruleCatalogError}</p> : null}
+          <div className="scenario-info-grid">
+            {([
+              ['spellIds', '주문', 'spell_definitions'],
+              ['conditionIds', '상태', 'condition_definitions'],
+              ['terrainEffectIds', '지형 효과', 'terrain_effects'],
+            ] as const).map(([field, label, kind]) => (
+              <label key={field}>
+                {label}
+                <select
+                  multiple
+                  size={6}
+                  value={node.ruleRefs[field]}
+                  onChange={(event) => {
+                    const values = Array.from(event.target.selectedOptions, (option) => option.value);
+                    updateNode(node.id, (current) => ({
+                      ...current,
+                      ruleRefs: { ...current.ruleRefs, [field]: values },
+                    }));
+                  }}
+                >
+                  {ruleCatalog
+                    .filter((entry) => entry.kind === kind)
+                    .map((entry) => (
+                      <option key={entry.id} value={entry.id}>
+                        {entry.id}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            ))}
+          </div>
+        </section>
 
         <div className="scenario-node-grid">
           <article className="scenario-node-panel">

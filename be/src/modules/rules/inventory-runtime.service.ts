@@ -50,14 +50,25 @@ export class InventoryRuntimeService {
     }
 
     const entry = await this.prisma.$transaction(async (tx) => {
-      const entry = await tx.inventoryEntry.create({
-        data: {
-          sessionCharacterId: params.sessionCharacterId,
-          itemDefinitionId: itemDefinition.id,
-          quantity,
-          containerEntryId: params.containerEntryId ?? null,
+      const data = {
+        sessionCharacterId: params.sessionCharacterId,
+        itemDefinitionId: itemDefinition.id,
+        quantity,
+        containerEntryId: params.containerEntryId ?? null,
+      };
+      const existingEntry = await tx.inventoryEntry.findFirst({
+        where: {
+          sessionCharacterId: data.sessionCharacterId,
+          itemDefinitionId: data.itemDefinitionId,
+          containerEntryId: data.containerEntryId,
         },
       });
+      const entry = existingEntry
+        ? await tx.inventoryEntry.update({
+            where: { id: existingEntry.id },
+            data: { quantity: { increment: quantity } },
+          })
+        : await tx.inventoryEntry.create({ data });
 
       if (params.containerEntryId) {
         await this.recalculateContainerStateWithClient(tx, params.containerEntryId);

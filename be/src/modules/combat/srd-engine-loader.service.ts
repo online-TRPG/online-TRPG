@@ -9,7 +9,31 @@ import {
 
 const MVP_MONSTER_ACTION_PREFERENCES: Record<string, string[]> = {
   "monster.giant_rat": ["action.bite"],
+  "monster.giant_spider": ["action.web", "action.bite"],
   "monster.goblin": ["action.scimitar"],
+  "monster.orc": ["action.greataxe", "action.javelin"],
+  "monster.wolf": ["action.bite"],
+  "monster.skeleton": ["action.shortbow", "action.shortsword"],
+  "monster.zombie": ["action.slam"],
+  "monster.brown_bear": ["action.multiattack", "action.claws", "action.bite"],
+  "monster.dragon_whelp": ["action.fire_breath", "action.bite"],
+  "monster.cultist": ["action.scimitar"],
+  "monster.ogre": ["action.greatclub", "action.javelin"],
+  "monster.kobold": ["action.dagger", "action.sling"],
+  "monster.bandit": ["action.scimitar", "action.light_crossbow"],
+  "monster.bugbear": ["action.morningstar", "action.javelin"],
+  "monster.hobgoblin": ["action.longsword", "action.longbow"],
+  "monster.dire_wolf": ["action.bite"],
+  "monster.ghoul": ["action.claws", "action.bite"],
+  "monster.wight": ["action.life_drain", "action.longsword", "action.longbow"],
+  "monster.mimic": ["action.pseudopod", "action.bite"],
+  "monster.gelatinous_cube": ["action.pseudopod"],
+  "monster.swarm_of_rats": ["action.bites"],
+  "monster.animated_armor": ["action.slam"],
+  "monster.gargoyle": ["action.bite", "action.claws"],
+  "monster.harpy": ["action.claws", "action.club"],
+  "monster.giant_scorpion": ["action.claw", "action.sting"],
+  "monster.young_red_dragon": ["action.fire_breath", "action.bite", "action.claw"],
 };
 
 @Injectable()

@@ -13,6 +13,7 @@ export class CharacterResourceService {
       secondWindAvailable?: boolean;
       actionSurgeUses?: number;
       rageUses?: number;
+      hitDiceSpent?: number;
     } = {},
   ): Promise<SessionCharacterResource> {
     return this.prisma.sessionCharacterResource.upsert({
@@ -103,33 +104,43 @@ export class CharacterResourceService {
 
   async recoverShortRest(params: {
     sessionCharacterId: string;
+    secondWindAvailable?: boolean;
     actionSurgeUses?: number;
+    hitDiceSpent?: number;
   }): Promise<SessionCharacterResource> {
     await this.getOrCreateResource(params.sessionCharacterId);
 
     return this.updateResource(params.sessionCharacterId, {
-      secondWindAvailable: true,
+      ...(params.secondWindAvailable === undefined
+        ? {}
+        : { secondWindAvailable: params.secondWindAvailable }),
       ...(params.actionSurgeUses === undefined
         ? {}
         : { actionSurgeUses: params.actionSurgeUses }),
+      ...(params.hitDiceSpent === undefined ? {} : { hitDiceSpent: params.hitDiceSpent }),
     });
   }
 
   async recoverLongRest(params: {
     sessionCharacterId: string;
+    secondWindAvailable?: boolean;
     actionSurgeUses?: number;
     rageUses?: number;
     reduceExhaustionBy?: number;
+    hitDiceSpent?: number;
   }): Promise<SessionCharacterResource> {
     const resource = await this.getOrCreateResource(params.sessionCharacterId);
     const reduceExhaustionBy = params.reduceExhaustionBy ?? 1;
 
     return this.updateResource(params.sessionCharacterId, {
-      secondWindAvailable: true,
+      ...(params.secondWindAvailable === undefined
+        ? {}
+        : { secondWindAvailable: params.secondWindAvailable }),
       ...(params.actionSurgeUses === undefined
         ? {}
         : { actionSurgeUses: params.actionSurgeUses }),
       ...(params.rageUses === undefined ? {} : { rageUses: params.rageUses }),
+      ...(params.hitDiceSpent === undefined ? {} : { hitDiceSpent: params.hitDiceSpent }),
       rageActive: false,
       rageEndsAtRound: null,
       rageEndsAtTurn: null,

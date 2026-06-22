@@ -11,6 +11,7 @@ import {
 import {
   AiHintRequestDto,
   AiHintResponseDto,
+  AiHumanGmAssistSuggestionRequestDto,
   AiNarrationRequestDto,
   AiNarrationResponseDto,
   AiNpcDialogueRequestDto,
@@ -22,6 +23,7 @@ import {
   AiTraceListResponseDto,
   AiTraceResponseDto,
   AiTraceStatus,
+  HumanGmAiAssistSuggestionDto,
 } from "@trpg/shared-types";
 import { randomUUID } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service";
@@ -165,6 +167,33 @@ export class AiService {
       fallback: result.response.fallback ?? result.isBeFallback,
       fallbackReason: result.response.fallbackReason ?? null,
     };
+  }
+
+  async generateHumanGmAssistSuggestion(
+    userId: string,
+    sessionId: string,
+    dto: AiHumanGmAssistSuggestionRequestDto,
+  ): Promise<HumanGmAiAssistSuggestionDto> {
+    const question = this.buildHumanGmAssistPrompt(dto);
+    const result = await this.runHint(
+      userId,
+      sessionId,
+      {
+        hintLevel: "NORMAL",
+        question,
+        sceneSummary: dto.sceneSummary,
+        recentLogs: dto.recentLogs,
+      },
+      { emitSystemMessage: false },
+    );
+    const content = this.formatHumanGmAssistContent(result.parsed.content, result.parsed.suggestions);
+
+    return this.sessionsService.createHumanGmAiAssistSuggestion(userId, sessionId, {
+      assistType: dto.assistType,
+      content,
+      suggestedActionId: dto.suggestedActionId,
+      targetId: dto.targetId,
+    });
   }
 
   async runSummary(
@@ -481,6 +510,31 @@ export class AiService {
       fallback: true,
       fallbackReason: reason,
     };
+  }
+
+  private buildHumanGmAssistPrompt(dto: AiHumanGmAssistSuggestionRequestDto): string {
+    const typeLabel = dto.assistType.replace(/_/g, " ");
+    return [
+      `HUMAN GM assist type: ${typeLabel}.`,
+      `GM request: ${dto.prompt}`,
+      dto.targetId ? `Target id/name: ${dto.targetId}` : null,
+      dto.suggestedActionId ? `Suggested action id: ${dto.suggestedActionId}` : null,
+      "Return a concise Korean suggestion that the GM can review before applying. Do not reveal hidden facts or mutate state.",
+    ].filter(Boolean).join("\n");
+  }
+
+  private formatHumanGmAssistContent(content: string, suggestions?: string[]): string {
+    const suggestionLines = (suggestions ?? [])
+      .map((suggestion) => suggestion.trim())
+      .filter(Boolean)
+      .slice(0, 3);
+    const trimmedContent = content.trim();
+    if (!suggestionLines.length) {
+      return trimmedContent.slice(0, 2000);
+    }
+    return [trimmedContent, ...suggestionLines.map((suggestion) => `- ${suggestion}`)]
+      .join("\n")
+      .slice(0, 2000);
   }
 
   private defaultDirectorResponse(reason: string): DirectorResponsePayload {

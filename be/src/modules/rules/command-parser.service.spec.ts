@@ -82,6 +82,25 @@ describe("CommandParserService", () => {
     });
   });
 
+  it("parses self-target utility spells without a target token", () => {
+    expect(service.parse("/cast detect_magic")).toEqual({
+      type: "cast_spell",
+      spellId: "spell.detect_magic",
+      target: "self",
+      targetDistanceFt: 0,
+      slotLevel: null,
+    });
+  });
+
+  it("parses condition commands with VTT token targets", () => {
+    expect(service.parse("/condition add token_node_rule_smoke_condition_goblin stunned")).toEqual({
+      type: "condition",
+      operation: "add",
+      target: "token_node_rule_smoke_condition_goblin",
+      condition: "stunned",
+    });
+  });
+
   it("parses ready action commands", () => {
     expect(service.parse("/ready enter attack monster-1 30")).toEqual({
       type: "ready",
@@ -110,6 +129,34 @@ describe("CommandParserService", () => {
         targetPoint: { x: 100, y: 0 },
       },
     });
+
+    expect(service.parse("/ready turn_start attack monster-1")).toEqual({
+      type: "ready",
+      trigger: {
+        type: "turn_start",
+        targetParticipantId: "monster-1",
+        rangeFt: null,
+        tags: ["targeted"],
+      },
+      heldAction: {
+        type: "attack",
+        targetParticipantId: "monster-1",
+      },
+    });
+
+    expect(service.parse("/ready turn-end attack monster-1")).toEqual({
+      type: "ready",
+      trigger: {
+        type: "turn_end",
+        targetParticipantId: "monster-1",
+        rangeFt: null,
+        tags: ["targeted"],
+      },
+      heldAction: {
+        type: "attack",
+        targetParticipantId: "monster-1",
+      },
+    });
   });
 
   it("parses class feature commands", () => {
@@ -136,10 +183,40 @@ describe("CommandParserService", () => {
     });
   });
 
+  it.each([
+    ["divine_sense", "class.paladin.feature.divine_sense"],
+    ["lay_on_hands", "class.paladin.feature.lay_on_hands"],
+    ["primeval_awareness", "class.ranger.feature.primeval_awareness"],
+    ["ki", "class.monk.feature.ki"],
+    ["channel_divinity", "class.cleric.feature.channel_divinity"],
+    ["bardic_inspiration", "class.bard.feature.bardic_inspiration"],
+    ["font_of_magic", "class.sorcerer.feature.font_of_magic"],
+    ["wild_shape", "class.druid.feature.wild_shape"],
+  ])("parses the P1 class feature command %s", (command, featureId) => {
+    expect(service.parse(`/feature ${command}`)).toEqual({
+      type: "use_class_feature",
+      featureId,
+      option: null,
+    });
+  });
+
+  it("parses the dragonborn breath race feature command", () => {
+    expect(service.parse("/feature breath_weapon target")).toEqual({
+      type: "use_class_feature",
+      featureId: "race.dragonborn.trait.base_traits",
+      option: "target",
+    });
+  });
+
   it("parses rest commands", () => {
     expect(service.parse("/rest short")).toEqual({
       type: "rest",
       restType: "short",
+    });
+    expect(service.parse("/rest short 2")).toEqual({
+      type: "rest",
+      restType: "short",
+      hitDiceToSpend: 2,
     });
     expect(service.parse("/rest long_rest")).toEqual({
       type: "rest",

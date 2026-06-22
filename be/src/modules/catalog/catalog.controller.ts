@@ -3,6 +3,7 @@ import { ApiOkResponse, ApiTags } from "@nestjs/swagger";
 import {
   ClassDefinitionResponseDto,
   ItemResponseDto,
+  RuleCatalogReferenceDto,
 } from "@trpg/shared-types";
 import { CatalogService } from "./catalog.service";
 
@@ -21,5 +22,11 @@ export class CatalogController {
   @ApiOkResponse({ type: [ClassDefinitionResponseDto] })
   listClasses(): Promise<ClassDefinitionResponseDto[]> {
     return this.catalogService.listClasses();
+  }
+
+  @Get("rule-catalog")
+  @ApiOkResponse({ type: [RuleCatalogReferenceDto] })
+  listRuleCatalog(): RuleCatalogReferenceDto[] {
+    return this.catalogService.listRuleCatalog();
   }
 }

@@ -21,18 +21,27 @@ import {
   ApiTags,
 } from "@nestjs/swagger";
 import {
+  ApplyHumanGmCombatConditionDto,
+  AdjustHumanGmCombatHpDto,
+  AcceptHumanGmAiAssistSuggestionDto,
   CreateSessionDto,
+  CreateHumanGmAiAssistSuggestionDto,
   CreateVttMapPingDto,
   GameStateResponseDto,
   GrantHumanGmInventoryItemDto,
   HumanGmMessageDto,
+  HumanGmAiAssistSuggestionDto,
   HumanGmNodeMoveOptionDto,
+  HumanGmPrivateNoteDto,
   JoinSessionDto,
   MoveSessionTokenDto,
   ParticipantStatusResponseDto,
   PlayerScenarioViewDto,
+  ReportHumanGmAiAssistApplicationFailureDto,
   RevealSessionContentDto,
+  RemoveHumanGmInventoryItemDto,
   SelectSessionCharacterDto,
+  SetHumanGmDifficultyClassDto,
   SessionRevealResponseDto,
   SessionDetailResponseDto,
   SessionInviteResponseDto,
@@ -183,17 +192,16 @@ export class SessionsController {
     );
   }
 
-  @Delete(":id")
+  @Delete(":id/leave")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiNoContentResponse()
-  @HttpCode(200)
-  async deleteSession(
+  @HttpCode(204)
+  async leaveSession(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<ApiResponse<null>> {
-    await this.sessionsService.deleteSession(userId, sessionId);
-    return apiResponse("SESSION_200", "Session deleted.", null);
+  ): Promise<void> {
+    await this.sessionsService.leaveSession(userId, sessionId);
   }
 
   @Post(":id/join")
@@ -211,16 +219,17 @@ export class SessionsController {
     );
   }
 
-  @Delete(":id/leave")
+  @Delete(":id")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
   @ApiNoContentResponse()
-  @HttpCode(204)
-  async leaveSession(
+  @HttpCode(200)
+  async deleteSession(
     @CurrentUserId() userId: string,
     @Param("id") sessionId: string,
-  ): Promise<void> {
-    await this.sessionsService.leaveSession(userId, sessionId);
+  ): Promise<ApiResponse<null>> {
+    await this.sessionsService.deleteSession(userId, sessionId);
+    return apiResponse("SESSION_200", "Session deleted.", null);
   }
 
   @Get(":id/participants")
@@ -506,6 +515,148 @@ export class SessionsController {
       "SESSION_200",
       "GM inventory item granted.",
       await this.sessionsService.grantHumanGmInventoryItem(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/gm/inventory/remove")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async removeHumanGmInventoryItem(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: RemoveHumanGmInventoryItemDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM inventory item removed.",
+      await this.sessionsService.removeHumanGmInventoryItem(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/gm/dc")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async setHumanGmDifficultyClass(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: SetHumanGmDifficultyClassDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM difficulty class overridden.",
+      await this.sessionsService.setHumanGmDifficultyClass(userId, sessionId, dto),
+    );
+  }
+
+  @Get(":id/gm/private-notes")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: [HumanGmPrivateNoteDto] })
+  async listHumanGmPrivateNotes(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<ApiResponse<HumanGmPrivateNoteDto[]>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM private notes listed.",
+      await this.sessionsService.listHumanGmPrivateNotes(userId, sessionId),
+    );
+  }
+
+  @Post(":id/gm/ai-assist/suggestions")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: HumanGmAiAssistSuggestionDto })
+  async createHumanGmAiAssistSuggestion(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: CreateHumanGmAiAssistSuggestionDto,
+  ): Promise<ApiResponse<HumanGmAiAssistSuggestionDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM AI assist suggestion created.",
+      await this.sessionsService.createHumanGmAiAssistSuggestion(userId, sessionId, dto),
+    );
+  }
+
+  @Get(":id/gm/ai-assist/suggestions")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: [HumanGmAiAssistSuggestionDto] })
+  async listHumanGmAiAssistSuggestions(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<ApiResponse<HumanGmAiAssistSuggestionDto[]>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM AI assist suggestions listed.",
+      await this.sessionsService.listHumanGmAiAssistSuggestions(userId, sessionId),
+    );
+  }
+
+  @Post(":id/gm/ai-assist/accept")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async acceptHumanGmAiAssistSuggestion(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: AcceptHumanGmAiAssistSuggestionDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM AI assist suggestion accepted.",
+      await this.sessionsService.acceptHumanGmAiAssistSuggestion(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/gm/ai-assist/apply-failure")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async reportHumanGmAiAssistApplicationFailure(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: ReportHumanGmAiAssistApplicationFailureDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM AI assist application failure recorded.",
+      await this.sessionsService.reportHumanGmAiAssistApplicationFailure(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/gm/combat/conditions")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async applyHumanGmCombatCondition(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: ApplyHumanGmCombatConditionDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM combat condition applied.",
+      await this.sessionsService.applyHumanGmCombatCondition(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/gm/combat/hp")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async adjustHumanGmCombatHp(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: AdjustHumanGmCombatHpDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM combat hit points adjusted.",
+      await this.sessionsService.adjustHumanGmCombatHp(userId, sessionId, dto),
     );
   }
 

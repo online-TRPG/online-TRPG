@@ -10,6 +10,8 @@ export type ReadyActionTriggerType =
   | "creature_leaves_range"
   | "ally_attacked"
   | "enemy_casts_spell"
+  | "turn_start"
+  | "turn_end"
   | "manual";
 
 export type ReadyActionTrigger = {
@@ -240,7 +242,9 @@ export class ReadyActionService {
 
   private isValidTrigger(trigger: ReadyActionTrigger): boolean {
     return Boolean(trigger.type) &&
-      ["creature_enters_range", "creature_leaves_range", "ally_attacked", "enemy_casts_spell", "manual"].includes(trigger.type);
+      ["creature_enters_range", "creature_leaves_range", "ally_attacked", "enemy_casts_spell", "turn_start", "turn_end", "manual"].includes(
+        trigger.type,
+      );
   }
 
   private isValidHeldAction(action: ReadyHeldAction): boolean {

@@ -728,6 +728,7 @@ model SessionCharacterResource {
   rageEndsAtTurn      Int?
   frenzyActive        Boolean          @default(false)
   exhaustionLevel     Int              @default(0)
+  hitDiceSpent        Int              @default(0)
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
   sessionCharacter    SessionCharacter @relation(fields: [sessionCharacterId], references: [id], onDelete: Cascade)

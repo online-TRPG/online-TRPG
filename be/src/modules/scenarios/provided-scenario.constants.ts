@@ -6,6 +6,8 @@ export const PROVIDED_SCENARIO_IDS = [
   "scenario_goblin_cave",
   "scenario_node_screen_test",
   "scenario_rule_runtime_smoke",
+  "scenario_p1_ember_ruins",
+  "scenario_p2_storm_vault",
 ];
 
 export function isDefaultProvidedScenarioId(scenarioId: string | null | undefined): boolean {

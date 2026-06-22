@@ -6,9 +6,11 @@
     "build": "nest build",
     "start": "node dist/main.js",
     "start:dev": "npm run prisma:generate && npm run build -w @trpg/shared-types && cross-env PORT=8080 nest start --watch",
-    "test": "npm run build -w @trpg/shared-types && jest --config jest.config.ts",
+    "test": "npm run --silent build -w @trpg/shared-types && jest --config jest.quiet.config.ts --silent",
+    "test:quiet": "npm run --silent build -w @trpg/shared-types && jest --config jest.quiet.config.ts --silent",
+    "test:log": "node ../scripts/run-be-test-log.mjs",
     "test:server-db": "npm run build -w @trpg/shared-types && cross-env RUN_SERVER_DB_TESTS=1 jest --config jest.config.ts --runInBand test/server-scenario-db.spec.ts",
-    "test:e2e": "npm run build -w @trpg/shared-types && prisma db push --force-reset --schema prisma/schema.prisma && jest --config ./test/jest-e2e.json --runInBand",
+    "test:e2e": "npm run build -w @trpg/shared-types && tsx test/e2e-db-safety.ts && prisma db push --schema prisma/schema.prisma --skip-generate && jest --config ./test/jest-e2e.json --runInBand",
     "prisma:generate": "prisma generate --schema prisma/schema.prisma",
     "prisma:push": "prisma db push --schema prisma/schema.prisma",
     "seed": "prisma db seed"

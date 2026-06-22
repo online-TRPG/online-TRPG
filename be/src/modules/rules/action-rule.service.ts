@@ -1,42 +1,24 @@
 import { Injectable } from "@nestjs/common";
-import {
-  ActionOutcome,
-  AvailableActionDto,
-  DiceAdvantageState,
-  DiceRollResponseDto,
-  GamePhase,
-} from "@trpg/shared-types";
+import { ActionOutcome, AvailableActionDto, DiceAdvantageState, DiceRollResponseDto, GamePhase } from "@trpg/shared-types";
 import { forbidden } from "../../common/exceptions/domain-error";
 import { AoeDamageService, AoeDamageTarget } from "./aoe-damage.service";
+import {
+  AoeTargetingService,
+  type AoeDirection,
+} from "./aoe-targeting.service";
 import { CommandParserService, ParsedCommand } from "./command-parser.service";
 import { ConcentrationRuntimeService } from "./concentration-runtime.service";
 import { ConditionRuntimeService } from "./condition-runtime.service";
 import { DiceService } from "./dice.service";
-import {
-  ItemInteractionEntry,
-  ItemInteractionPoint,
-  ItemInteractionService,
-} from "./item-interaction.service";
+import { ItemInteractionEntry, ItemInteractionPoint, ItemInteractionService } from "./item-interaction.service";
 import { RestResolution, RestResolutionService } from "./rest-resolution.service";
 import { RuleCatalogService } from "./rule-catalog.service";
 import { RuleCatalogEntry } from "./rule-catalog.types";
 import { RuleEngineService } from "./rule-engine.service";
-import {
-  SpellScalingResult,
-  SpellScalingRule,
-  SpellScalingService,
-} from "./spell-scaling.service";
-import {
-  CriticalThresholdModifierProduced,
-  RuleAdvantageState,
-  RuleHookResult,
-  SavingThrowAbility,
-} from "./rule-engine.types";
-import {
-  MapPositionService,
-  RuleMapRuntimeContext,
-  RuleMapRuntimeObjectCell,
-} from "./map-position.service";
+import { SpellScalingResult, SpellScalingRule, SpellScalingService } from "./spell-scaling.service";
+import { ActionSpellRuleService } from "./action-spell-rule.service";
+import { CriticalThresholdModifierProduced, RuleAdvantageState, RuleHookResult, SavingThrowAbility } from "./rule-engine.types";
+import { MapPositionService, RuleMapRuntimeContext, RuleMapRuntimeObjectCell } from "./map-position.service";
 import { ReadyActionService } from "./ready-action.service";
 import type { PendingReadyAction } from "./ready-action.service";
 
@@ -45,7 +27,11 @@ const DEFAULT_WEAPON_DAMAGE_TYPE = "slashing";
 const DEFAULT_DIRECT_DAMAGE_TYPE = "untyped";
 const CHILL_TOUCH_SPELL_ID = "spell.chill_touch";
 const FIRE_BOLT_SPELL_ID = "spell.fire_bolt";
+const RAY_OF_FROST_SPELL_ID = "spell.ray_of_frost";
 const MAGIC_MISSILE_SPELL_ID = "spell.magic_missile";
+const CURE_WOUNDS_SPELL_ID = "spell.cure_wounds";
+const SLEEP_SPELL_ID = "spell.sleep";
+const LIGHT_SPELL_ID = "spell.light";
 const SECOND_WIND_FEATURE_ID = "class.fighter.feature.second_wind";
 const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
 const FIGHTING_STYLE_FEATURE_ID = "class.fighter.feature.fighting_style";
@@ -55,6 +41,16 @@ const EXPERTISE_FEATURE_ID = "class.rogue.feature.expertise";
 const FAVORED_ENEMY_FEATURE_ID = "class.ranger.feature.favored_enemy";
 const CUNNING_ACTION_FEATURE_ID = "class.rogue.feature.cunning_action";
 const FRENZY_FEATURE_ID = "class.barbarian.subclass_feature.frenzy";
+const DIVINE_SENSE_FEATURE_ID = "class.paladin.feature.divine_sense";
+const LAY_ON_HANDS_FEATURE_ID = "class.paladin.feature.lay_on_hands";
+const PRIMEVAL_AWARENESS_FEATURE_ID = "class.ranger.feature.primeval_awareness";
+const KI_FEATURE_ID = "class.monk.feature.ki";
+const CHANNEL_DIVINITY_FEATURE_ID = "class.cleric.feature.channel_divinity";
+const BARDIC_INSPIRATION_FEATURE_ID = "class.bard.feature.bardic_inspiration";
+const FONT_OF_MAGIC_FEATURE_ID = "class.sorcerer.feature.font_of_magic";
+const WILD_SHAPE_FEATURE_ID = "class.druid.feature.wild_shape";
+const DRAGONBORN_BREATH_FEATURE_ID = "race.dragonborn.trait.base_traits";
+const DRAGONBORN_BREATH_EXPENDED_TAG = "resource:dragonborn_breath_expended";
 const FIGHTING_STYLE_DATA_FEATURE_ID = "feature.fighter.fighting_style";
 const SNEAK_ATTACK_DATA_FEATURE_ID = "feature.rogue.sneak_attack";
 const EXPERTISE_DATA_FEATURE_ID = "feature.rogue.expertise";
@@ -68,15 +64,31 @@ const FAVORED_ENEMY_TAG_PREFIX = "favored_enemy:";
 const FAVORED_ENEMY_HUMANOID_TAG_PREFIX = "favored_enemy_humanoid:";
 const RAGE_EXPENDED_TAG = "resource:rage_expended";
 const RAGE_ACTIVE_TAG = "rage";
-const RAGE_RESISTANCE_TAGS = [
-  "resistance:bludgeoning",
-  "resistance:piercing",
-  "resistance:slashing",
-];
-type SessionCharacterForRules = {
+const RAGE_RESISTANCE_TAGS = ["resistance:bludgeoning", "resistance:piercing", "resistance:slashing"];
+const DIVINE_SENSE_EXPENDED_TAG = "resource:divine_sense_expended";
+const LAY_ON_HANDS_EXPENDED_TAG = "resource:lay_on_hands_expended";
+const CHANNEL_DIVINITY_EXPENDED_TAG = "resource:channel_divinity_expended";
+const HIT_DIE_AVERAGE_BY_CLASS: Readonly<Record<string, number>> = {
+  barbarian: 7,
+  bard: 5,
+  cleric: 5,
+  druid: 5,
+  fighter: 6,
+  monk: 5,
+  paladin: 6,
+  ranger: 6,
+  rogue: 5,
+  sorcerer: 4,
+  warlock: 5,
+  wizard: 4,
+};
+export type SessionCharacterForRules = {
   id: string;
   userId: string;
   characterId: string;
+  tokenId?: string | null;
+  combatParticipantId?: string | null;
+  isCombatParticipantOnly?: boolean;
   currentHp: number;
   tempHp: number;
   conditionsJson: string;
@@ -95,6 +107,7 @@ type SessionCharacterForRules = {
     proficientSkillsJson: string;
     armorClass: number;
     speed: number;
+    spellsJson?: string | null;
     inventoryJson?: string | null;
     equippedWeaponId?: string | null;
   };
@@ -137,7 +150,8 @@ type EquippedWeaponProfile = {
 };
 
 export type CharacterStatePatch = {
-  sessionCharacterId: string;
+  sessionCharacterId?: string;
+  combatParticipantId?: string;
   currentHp?: number;
   tempHp?: number;
   conditions?: unknown[];
@@ -147,6 +161,8 @@ export type CharacterStatePatch = {
 export type RuleRuntimeContext = {
   hasActiveCombat?: boolean;
   map?: RuleMapRuntimeContext | null;
+  spellSlots?: Record<string, number>;
+  spellSlotMaximums?: Record<string, number>;
   resource?: {
     secondWindAvailable: boolean;
     actionSurgeUses: number;
@@ -154,6 +170,7 @@ export type RuleRuntimeContext = {
     rageActive: boolean;
     frenzyActive: boolean;
     exhaustionLevel: number;
+    hitDiceSpent?: number;
   } | null;
   turnState?: {
     actionUsed: boolean;
@@ -179,15 +196,25 @@ export type ActionRuntimeEffect =
   | { type: "SPEND_SECOND_WIND" }
   | { type: "SPEND_ACTION_SURGE_USE" }
   | { type: "SPEND_SPELL_SLOT"; slotLevel: number }
+  | { type: "RESTORE_SPELL_SLOT"; slotLevel: number; amount: number }
   | { type: "STORE_READY_ACTION"; pending: PendingReadyAction }
   | { type: "START_RAGE" }
   | { type: "START_FRENZY" }
-  | { type: "RECOVER_SHORT_REST"; actionSurgeUses: number }
+  | {
+      type: "RECOVER_SHORT_REST";
+      secondWindAvailable: boolean;
+      actionSurgeUses: number;
+      hitDiceSpent?: number;
+      recoverSpellSlotLevel?: number;
+      spellRecoveryFeatureId?: string;
+    }
   | {
       type: "RECOVER_LONG_REST";
+      secondWindAvailable: boolean;
       actionSurgeUses: number;
       rageUses: number;
       reduceExhaustionBy: number;
+      hitDiceSpent?: number;
     }
   | {
       type: "ADD_ITEM";
@@ -236,14 +263,28 @@ export class ActionRuleService {
     private readonly spellScaling: SpellScalingService = new SpellScalingService(),
     private readonly readyActions: ReadyActionService = new ReadyActionService(),
     private readonly concentrationRuntime: ConcentrationRuntimeService = new ConcentrationRuntimeService(),
+    private readonly actionSpellRules: ActionSpellRuleService = new ActionSpellRuleService(diceService, ruleEngine),
+    private readonly aoeTargeting: AoeTargetingService = new AoeTargetingService(),
   ) {}
 
-  getAvailableActions(params: {
-    phase: GamePhase;
-    isCurrentTurn: boolean;
-    hasActiveCombat: boolean;
-    isAlive: boolean;
-  }): AvailableActionDto[] {
+  private createActionSpellRuleRuntime() {
+    return {
+      createActionUnavailableResolution: this.createActionUnavailableResolution.bind(this),
+      createTargetStatePatch: this.createTargetStatePatch.bind(this),
+      hasActionAvailable: this.hasActionAvailable.bind(this),
+      hasCondition: this.hasCondition.bind(this),
+      normalizeRuleToken: this.normalizeRuleToken.bind(this),
+      parseJson: this.parseJson.bind(this),
+      requireTarget: this.requireTarget.bind(this),
+      resolveConcentrationDamageCheck: this.resolveConcentrationDamageCheck.bind(this),
+      resolveDamageProfile: this.resolveDamageProfile.bind(this),
+      resolveSpellTargetList: this.resolveSpellTargetList.bind(this),
+      selectNaturalD20: this.selectNaturalD20.bind(this),
+      toAoeDamageTarget: this.toAoeDamageTarget.bind(this),
+    };
+  }
+
+  getAvailableActions(params: { phase: GamePhase; isCurrentTurn: boolean; hasActiveCombat: boolean; isAlive: boolean }): AvailableActionDto[] {
     if (!params.isAlive) {
       return [
         {
@@ -330,13 +371,18 @@ export class ActionRuleService {
       case "cast_area_spell":
         return this.resolveCastAreaSpell(command, actor, sessionCharacters, runtimeContext);
       case "use_class_feature":
-        return this.resolveClassFeature(command, actor, runtimeContext);
+        return this.resolveClassFeature(
+          command,
+          actor,
+          sessionCharacters,
+          runtimeContext,
+        );
       case "rest":
         return this.resolveRest(command, actor, runtimeContext);
       case "inventory":
         return this.resolveInventory(command);
       case "item_interaction":
-        return this.resolveItemInteraction(command, actor, runtimeContext);
+        return this.resolveItemInteraction(command, actor, sessionCharacters, runtimeContext);
       case "damage":
         return this.resolveDamage(command, sessionCharacters);
       case "heal":
@@ -376,34 +422,64 @@ export class ActionRuleService {
 
     const modifier = this.getCheckModifier(actor, command.checkName);
     const expression = modifier >= 0 ? `1d20+${modifier}` : `1d20${modifier}`;
-    const diceResult = this.diceService.roll(expression, DiceAdvantageState.NORMAL);
-    const success = diceResult.total >= command.dc;
+    const diceResult = this.rollD20WithRacialLuck(
+      actor,
+      expression,
+      DiceAdvantageState.NORMAL,
+    );
+    const hasGuidance = this.getFeatureTags(actor).includes(
+      "roll_bonus:ability_check:1d4",
+    );
+    const guidanceRoll = hasGuidance ? this.diceService.roll("1d4") : null;
+    const resolvedDiceResult = guidanceRoll
+      ? {
+          ...diceResult,
+          expression: `${diceResult.expression}+1d4`,
+          total: diceResult.total + guidanceRoll.total,
+        }
+      : diceResult;
+    const success = resolvedDiceResult.total >= command.dc;
+    const stateChanges = hasGuidance
+      ? [
+          this.createTargetStatePatch(actor, {
+            conditions: this.parseJson<unknown[]>(
+              actor.conditionsJson,
+              [],
+            ).filter(
+              (entry) =>
+                !this.conditionRuntime
+                  .toConditionTags(JSON.stringify([entry]))
+                  .includes("roll_bonus:ability_check:1d4"),
+            ),
+          }),
+        ]
+      : [];
 
     return {
       structuredAction: {
         type: "skill_check",
         checkName: command.checkName,
         dc: command.dc,
+        guidanceBonus: guidanceRoll?.total ?? 0,
       },
-      diceResult,
+      diceResult: resolvedDiceResult,
       outcome: success ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
       narration: success ? "판정에 성공했습니다." : "판정에 실패했습니다.",
-      stateChanges: [],
+      stateChanges,
       runtimeEffects: [{ type: "SPEND_ACTION" }],
     };
   }
 
-  private resolveSave(
-    command: Extract<ParsedCommand, { type: "save" }>,
-    sessionCharacters: SessionCharacterForRules[],
-  ): ActionResolution {
+  private resolveSave(command: Extract<ParsedCommand, { type: "save" }>, sessionCharacters: SessionCharacterForRules[]): ActionResolution {
     const target = this.requireTarget(command.target, sessionCharacters);
     const saveProficient = this.resolveSaveProficiencies(target).includes(command.ability);
     const abilityModifier = this.resolveAbilityModifier(target, command.ability);
     const saveModifier = abilityModifier + (saveProficient ? target.character.proficiencyBonus : 0);
-    const diceResult = this.diceService.roll(
+    const advantageState = this.resolveRacialSaveAdvantage(target, command.ability, command.condition);
+    const diceResult = this.rollD20WithRacialLuck(
+      target,
       `1d20${saveModifier >= 0 ? "+" : ""}${saveModifier}`,
-      DiceAdvantageState.NORMAL,
+      advantageState,
     );
     const ruleResult = this.ruleEngine.resolveSavingThrow({
       ability: command.ability,
@@ -428,11 +504,7 @@ export class ActionRuleService {
       if (expiredConditions.length > 0) {
         stateChanges.push({
           sessionCharacterId: target.id,
-          conditions: this.mergeConditionResolutionEntries(
-            currentConditionEntries,
-            parsedConditions,
-            saveEndResolution.conditions,
-          ),
+          conditions: this.mergeConditionResolutionEntries(currentConditionEntries, parsedConditions, saveEndResolution.conditions),
         });
       }
     }
@@ -469,15 +541,17 @@ export class ActionRuleService {
 
     const target = command.target
       ? this.findTarget(command.target, sessionCharacters)
-      : sessionCharacters.find((candidate) => candidate.id !== actor.id) ?? null;
+      : (sessionCharacters.find((candidate) => candidate.id !== actor.id) ?? null);
     const weaponProfile = this.resolveEquippedWeaponProfile(actor);
-    const modifier =
-      actor.character.proficiencyBonus +
-      this.resolveFightingStyleAttackBonus(actor, weaponProfile);
+    const modifier = actor.character.proficiencyBonus + this.resolveFightingStyleAttackBonus(actor, weaponProfile);
     const targetArmorClass = target?.character.armorClass ?? command.dc;
     const proneRuleContext = this.resolveAttackProneContext(actor, target, runtimeContext);
     const attackAdvantageState = this.toDiceAdvantageState(proneRuleContext.advantageState);
-    const attackRoll = this.diceService.roll(`1d20+${modifier}`, attackAdvantageState);
+    const attackRoll = this.rollD20WithRacialLuck(
+      actor,
+      `1d20+${modifier}`,
+      attackAdvantageState,
+    );
     const naturalD20 = this.selectNaturalD20(attackRoll);
     const criticalThresholdRuleResult = this.resolveChampionCriticalThreshold(actor, naturalD20);
     const attackRuleResult = this.ruleEngine.resolveAttackRoll({
@@ -500,8 +574,7 @@ export class ActionRuleService {
 
     if (success && target) {
       damageRoll = this.diceService.roll(weaponProfile.damageDice);
-      const baseWeaponDamage =
-        damageRoll.total + this.resolveFightingStyleDamageBonus(actor, weaponProfile);
+      const baseWeaponDamage = damageRoll.total + this.resolveFightingStyleDamageBonus(actor, weaponProfile);
       const damageRuleResult = this.ruleEngine.applyDamageModifiers({
         baseDamage: baseWeaponDamage,
         damageType: weaponProfile.damageType,
@@ -619,10 +692,7 @@ export class ActionRuleService {
       outcome: ActionOutcome.NO_ROLL,
       narration: "준비행동을 설정했습니다.",
       stateChanges: [],
-      runtimeEffects: [
-        { type: "SPEND_ACTION" },
-        { type: "STORE_READY_ACTION", pending: resolution.pending },
-      ],
+      runtimeEffects: [{ type: "SPEND_ACTION" }, { type: "STORE_READY_ACTION", pending: resolution.pending }],
     };
   }
 
@@ -632,171 +702,7 @@ export class ActionRuleService {
     sessionCharacters: SessionCharacterForRules[],
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
-    if (!this.hasActionAvailable(runtimeContext)) {
-      return this.createActionUnavailableResolution("cast_spell", {
-        spellId: command.spellId,
-        target: command.target,
-        targetDistanceFt: command.targetDistanceFt,
-      });
-    }
-
-    const spellDefinition = this.resolveSpellDefinition(command.spellId);
-    const spellDamageType = spellDefinition?.damage?.type ?? "untyped";
-    const spellDamageDice = this.resolveSpellDamageDice(spellDefinition, actor.character.level);
-    const spellLevel = spellDefinition ? this.resolveSpellLevel(spellDefinition) : 0;
-    const slotLevel = command.slotLevel ?? spellLevel;
-    let spellScaling: SpellScalingResult | null = null;
-    try {
-      if (command.slotLevel !== null && spellLevel === 0 && command.slotLevel !== 0) {
-        throw new Error("Cantrips do not use spell slot upcasting.");
-      }
-      spellScaling = this.resolveSpellScaling(spellDefinition, slotLevel);
-    } catch (error) {
-      return {
-        structuredAction: {
-          type: "cast_spell",
-          spellId: command.spellId,
-          slotLevel,
-          target: command.target,
-          targetDistanceFt: command.targetDistanceFt,
-          spellScaling: null,
-          rejectedReason: "invalid_spell_slot_level",
-          errorMessage: error instanceof Error ? error.message : "Invalid spell slot level.",
-        },
-        diceResult: null,
-        outcome: ActionOutcome.IMPOSSIBLE,
-        narration: this.createSpellRejectedNarration("invalid_spell_slot_level"),
-        stateChanges: [],
-      };
-    }
-    const target = this.requireTarget(command.target, sessionCharacters);
-    const targetArmorClass = target.character.armorClass;
-
-    if (command.spellId === MAGIC_MISSILE_SPELL_ID) {
-      return this.resolveMagicMissile({
-        command,
-        target,
-        spellDefinition,
-        spellLevel,
-        slotLevel,
-        spellScaling,
-        spellDamageType,
-      });
-    }
-
-    if (command.spellId === FIRE_BOLT_SPELL_ID) {
-      return this.resolveSpellAttackDamage({
-        command,
-        actor,
-        target,
-        targetArmorClass,
-        spellDefinition,
-        spellLevel,
-        slotLevel,
-        spellScaling,
-        spellDamageType,
-        spellDamageDice,
-      });
-    }
-
-    const precheckResult = this.ruleEngine.resolveChillTouch({
-      spellChillTouch: command.spellId === CHILL_TOUCH_SPELL_ID,
-      casterKnownCantrips: this.resolveKnownCantrips(command.spellId),
-      actionAvailable: true,
-      targetDistanceFt: command.targetDistanceFt,
-      componentAvailability: this.resolveDefaultComponentAvailability(),
-      spellAttackRollResult: null,
-      targetIsUndead: this.hasCondition(target, "undead"),
-    });
-
-    if (!precheckResult.accepted && precheckResult.rejectedReason !== "spell_attack_roll_required") {
-      return {
-        structuredAction: {
-          type: "cast_spell",
-          spellId: command.spellId,
-          slotLevel,
-          target: target.id,
-          targetDistanceFt: command.targetDistanceFt,
-          targetArmorClass,
-          spellScaling,
-          ruleResults: [precheckResult],
-        },
-        diceResult: null,
-        outcome: ActionOutcome.IMPOSSIBLE,
-        narration: this.createSpellRejectedNarration(precheckResult.rejectedReason),
-        stateChanges: [],
-      };
-    }
-
-    const modifier = actor.character.proficiencyBonus;
-    const attackRoll = this.diceService.roll(`1d20+${modifier}`, DiceAdvantageState.NORMAL);
-    const attackRuleResult = this.ruleEngine.resolveAttackRoll({
-      naturalD20: this.selectNaturalD20(attackRoll),
-      attackBonus: modifier,
-      targetArmorClass,
-      advantageState: "normal",
-    });
-    const spellRuleResult = this.ruleEngine.resolveChillTouch({
-      spellChillTouch: command.spellId === CHILL_TOUCH_SPELL_ID,
-      casterKnownCantrips: this.resolveKnownCantrips(command.spellId),
-      actionAvailable: true,
-      targetDistanceFt: command.targetDistanceFt,
-      componentAvailability: this.resolveDefaultComponentAvailability(),
-      spellAttackRollResult: attackRuleResult.produced,
-      targetIsUndead: this.hasCondition(target, "undead"),
-    });
-    const ruleResults: RuleHookResult<unknown>[] = [attackRuleResult, spellRuleResult];
-    const stateChanges: CharacterStatePatch[] = [];
-    let damageRoll: DiceRollResponseDto | null = null;
-    let finalDamage = 0;
-
-    if (spellRuleResult.accepted && spellRuleResult.produced["damagePacket.necrotic"]) {
-      damageRoll = this.diceService.roll(spellDamageDice ?? "1d8");
-      const damageRuleResult = this.ruleEngine.applyDamageModifiers({
-        baseDamage: damageRoll.total,
-        damageType: spellDamageType,
-        ...this.resolveDamageProfile(target),
-      });
-      ruleResults.push(damageRuleResult);
-      finalDamage = damageRuleResult.produced.finalDamage;
-      const nextHp = Math.max(target.currentHp - finalDamage, 0);
-      stateChanges.push({
-        sessionCharacterId: target.id,
-        currentHp: nextHp,
-        markDead: nextHp <= 0,
-      });
-    }
-
-    return {
-      structuredAction: {
-        type: "cast_spell",
-        spellId: command.spellId,
-        slotLevel,
-        target: target.id,
-        targetDistanceFt: command.targetDistanceFt,
-        targetArmorClass,
-        spellDefinition: spellDefinition
-          ? {
-              id: spellDefinition.id,
-              level: spellLevel,
-              damage: spellDefinition.damage,
-              targeting: spellDefinition.targeting,
-              scaling: spellDefinition.scaling,
-            }
-          : null,
-        spellScaling,
-        damageType: spellDamageType,
-        damageDice: spellDamageDice,
-        damageRoll: damageRoll ? { ...damageRoll } : null,
-        finalDamage,
-        ruleResults,
-      },
-      diceResult: attackRoll,
-      outcome: this.resolveSpellOutcome(spellRuleResult.accepted, attackRuleResult.produced.hit),
-      narration: this.createChillTouchNarration(spellRuleResult.accepted, attackRuleResult.produced.hit),
-      stateChanges,
-      runtimeEffects: spellRuleResult.accepted ? this.spellRuntimeEffects(slotLevel) : [],
-    };
+    return this.actionSpellRules.resolveCastSpell(this.createActionSpellRuleRuntime(), command, actor, sessionCharacters, runtimeContext);
   }
 
   private resolveCastAreaSpell(
@@ -805,299 +711,13 @@ export class ActionRuleService {
     sessionCharacters: SessionCharacterForRules[],
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
-    if (!this.hasActionAvailable(runtimeContext)) {
-      return this.createActionUnavailableResolution("cast_area_spell", {
-        spellId: command.spellId,
-        targetIds: command.targetIds,
-      });
-    }
-
-    const spellDefinition = this.resolveSpellDefinition(command.spellId);
-    if (
-      !spellDefinition ||
-      spellDefinition.targeting.type !== "area" ||
-      !spellDefinition.damage ||
-      !spellDefinition.save
-    ) {
-      return {
-        structuredAction: {
-          type: "cast_area_spell",
-          spellId: command.spellId,
-          targetIds: command.targetIds,
-          rejectedReason: "unsupported_area_spell",
-        },
-        diceResult: null,
-        outcome: ActionOutcome.IMPOSSIBLE,
-        narration: this.createSpellRejectedNarration("unsupported_spell"),
-        stateChanges: [],
-      };
-    }
-
-    const spellLevel = this.resolveSpellLevel(spellDefinition);
-    const slotLevel = command.slotLevel ?? spellLevel;
-    let spellScaling: SpellScalingResult | null = null;
-    try {
-      spellScaling = this.resolveSpellScaling(spellDefinition, slotLevel);
-    } catch (error) {
-      return {
-        structuredAction: {
-          type: "cast_area_spell",
-          spellId: command.spellId,
-          slotLevel,
-          targetIds: command.targetIds,
-          spellScaling: null,
-          rejectedReason: "invalid_spell_slot_level",
-          errorMessage: error instanceof Error ? error.message : "Invalid spell slot level.",
-        },
-        diceResult: null,
-        outcome: ActionOutcome.IMPOSSIBLE,
-        narration: this.createSpellRejectedNarration("invalid_spell_slot_level"),
-        stateChanges: [],
-      };
-    }
-
-    const targets = command.targetIds.map((targetId) =>
-      this.requireTarget(targetId, sessionCharacters),
-    );
-    const saveAbility = spellDefinition.save.ability;
-    const aoeInput = this.aoeDamage.createInputFromSpell({
-      spellDefinition,
-      saveDc: command.saveDc,
-      damageDice: spellScaling?.damageDice ?? spellDefinition.damage.dice,
-      targets: targets.map((target) => this.toAoeDamageTarget(target, saveAbility)),
-    });
-    const aoeResolution = this.aoeDamage.resolveDamage(aoeInput);
-    const concentrationChecks = aoeResolution.targetResults.flatMap((targetResult) => {
-      if (targetResult.finalDamage <= 0) {
-        return [];
-      }
-      const target = targets.find((candidate) => candidate.id === targetResult.targetId);
-      if (!target) {
-        return [];
-      }
-      const concentrationCheck = this.resolveConcentrationDamageCheck(target, targetResult.finalDamage);
-      return concentrationCheck
-        ? [
-            {
-              targetId: target.id,
-              diceResult: concentrationCheck.diceResult,
-              concentrationMaintained: concentrationCheck.concentrationMaintained,
-              removedConditions: concentrationCheck.removedConditions,
-              concentrationState: concentrationCheck.concentrationState,
-              conditions: concentrationCheck.conditions,
-            },
-          ]
-        : [];
-    });
-    const concentrationByTargetId = new Map(
-      concentrationChecks.map((check) => [check.targetId, check]),
-    );
-
-    return {
-      structuredAction: {
-        type: "cast_area_spell",
-        spellId: command.spellId,
-        slotLevel,
-        saveDc: command.saveDc,
-        targetIds: command.targetIds,
-        spellDefinition: this.toStructuredSpellDefinition(spellDefinition, spellLevel),
-        spellScaling,
-        targeting: spellDefinition.targeting,
-        aoe: {
-          sourceId: aoeResolution.sourceId,
-          damageDice: aoeResolution.damageDice,
-          damageType: aoeResolution.damageType,
-          targetResults: aoeResolution.targetResults,
-          concentrationChecks: concentrationChecks.map((check) => ({
-            targetId: check.targetId,
-            diceResult: check.diceResult,
-            concentrationMaintained: check.concentrationMaintained,
-            removedConditions: check.removedConditions,
-            concentrationState: check.concentrationState,
-          })),
-        },
-      },
-      diceResult: aoeResolution.damageRoll,
-      outcome: ActionOutcome.SUCCESS,
-      narration: `${command.spellId} 광역 주문을 처리했습니다.`,
-      stateChanges: aoeResolution.stateChanges.map((stateChange) => {
-        const concentrationCheck = concentrationByTargetId.get(stateChange.sessionCharacterId);
-        return concentrationCheck && !concentrationCheck.concentrationMaintained
-          ? { ...stateChange, conditions: concentrationCheck.conditions }
-          : stateChange;
-      }),
-      runtimeEffects: this.spellRuntimeEffects(slotLevel),
-    };
-  }
-
-  private resolveSpellAttackDamage(params: {
-    command: Extract<ParsedCommand, { type: "cast_spell" }>;
-    actor: SessionCharacterForRules;
-    target: SessionCharacterForRules;
-    targetArmorClass: number;
-    spellDefinition: RuleCatalogEntry | null;
-    spellLevel: number;
-    slotLevel: number;
-    spellScaling: SpellScalingResult | null;
-    spellDamageType: string;
-    spellDamageDice: string | null;
-  }): ActionResolution {
-    const maxRangeFt = this.resolveSpellRangeFt(params.spellDefinition);
-    if (maxRangeFt !== null && params.command.targetDistanceFt > maxRangeFt) {
-      return {
-        structuredAction: {
-          type: "cast_spell",
-          spellId: params.command.spellId,
-          slotLevel: params.slotLevel,
-          target: params.target.id,
-          targetDistanceFt: params.command.targetDistanceFt,
-          targetArmorClass: params.targetArmorClass,
-          spellDefinition: this.toStructuredSpellDefinition(params.spellDefinition, params.spellLevel),
-          spellScaling: params.spellScaling,
-          rejectedReason: "target_out_of_range",
-        },
-        diceResult: null,
-        outcome: ActionOutcome.IMPOSSIBLE,
-        narration: this.createSpellRejectedNarration("target_out_of_range"),
-        stateChanges: [],
-      };
-    }
-
-    const modifier = params.actor.character.proficiencyBonus;
-    const attackRoll = this.diceService.roll(`1d20+${modifier}`, DiceAdvantageState.NORMAL);
-    const attackRuleResult = this.ruleEngine.resolveAttackRoll({
-      naturalD20: this.selectNaturalD20(attackRoll),
-      attackBonus: modifier,
-      targetArmorClass: params.targetArmorClass,
-      advantageState: "normal",
-    });
-    const ruleResults: RuleHookResult<unknown>[] = [attackRuleResult];
-    const stateChanges: CharacterStatePatch[] = [];
-    let damageRoll: DiceRollResponseDto | null = null;
-    let finalDamage = 0;
-
-    if (attackRuleResult.produced.hit && params.spellDamageDice) {
-      damageRoll = this.diceService.roll(params.spellDamageDice);
-      const damageRuleResult = this.ruleEngine.applyDamageModifiers({
-        baseDamage: damageRoll.total,
-        damageType: params.spellDamageType,
-        ...this.resolveDamageProfile(params.target),
-      });
-      ruleResults.push(damageRuleResult);
-      finalDamage = damageRuleResult.produced.finalDamage;
-      const nextHp = Math.max(params.target.currentHp - finalDamage, 0);
-      stateChanges.push({
-        sessionCharacterId: params.target.id,
-        currentHp: nextHp,
-        markDead: nextHp <= 0,
-      });
-    }
-
-    return {
-      structuredAction: {
-        type: "cast_spell",
-        spellId: params.command.spellId,
-        slotLevel: params.slotLevel,
-        target: params.target.id,
-        targetDistanceFt: params.command.targetDistanceFt,
-        targetArmorClass: params.targetArmorClass,
-        spellDefinition: this.toStructuredSpellDefinition(params.spellDefinition, params.spellLevel),
-        spellScaling: params.spellScaling,
-        damageType: params.spellDamageType,
-        damageDice: params.spellDamageDice,
-        damageRoll: damageRoll ? { ...damageRoll } : null,
-        finalDamage,
-        ruleResults,
-      },
-      diceResult: attackRoll,
-      outcome: attackRuleResult.produced.hit ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
-      narration: this.createSpellAttackNarration(params.command.spellId, attackRuleResult.produced.hit),
-      stateChanges,
-      runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
-    };
-  }
-
-  private resolveMagicMissile(params: {
-    command: Extract<ParsedCommand, { type: "cast_spell" }>;
-    target: SessionCharacterForRules;
-    spellDefinition: RuleCatalogEntry | null;
-    spellLevel: number;
-    slotLevel: number;
-    spellScaling: SpellScalingResult | null;
-    spellDamageType: string;
-  }): ActionResolution {
-    const missileCount = params.spellScaling?.targetCount ?? 3;
-    const damageDice = `${missileCount}d4+${missileCount}`;
-    const damageRoll = this.diceService.roll(damageDice);
-    const damageRuleResult = this.ruleEngine.applyDamageModifiers({
-      baseDamage: damageRoll.total,
-      damageType: params.spellDamageType,
-      ...this.resolveDamageProfile(params.target),
-    });
-    const finalDamage = damageRuleResult.produced.finalDamage;
-    const nextHp = Math.max(params.target.currentHp - finalDamage, 0);
-    const concentrationCheck =
-      finalDamage > 0 ? this.resolveConcentrationDamageCheck(params.target, finalDamage) : null;
-
-    return {
-      structuredAction: {
-        type: "cast_spell",
-        spellId: params.command.spellId,
-        slotLevel: params.slotLevel,
-        target: params.target.id,
-        targetDistanceFt: params.command.targetDistanceFt,
-        spellDefinition: params.spellDefinition
-          ? {
-              id: params.spellDefinition.id,
-              level: params.spellLevel,
-              damage: params.spellDefinition.damage,
-              targeting: params.spellDefinition.targeting,
-              scaling: params.spellDefinition.scaling,
-            }
-          : null,
-        spellScaling: params.spellScaling,
-        missileCount,
-        damageType: params.spellDamageType,
-        damageDice,
-        damageRoll: { ...damageRoll },
-        finalDamage,
-        concentrationCheck: concentrationCheck
-          ? {
-              diceResult: concentrationCheck.diceResult,
-              concentrationMaintained: concentrationCheck.concentrationMaintained,
-              removedConditions: concentrationCheck.removedConditions,
-              concentrationState: concentrationCheck.concentrationState,
-            }
-          : null,
-        ruleResults: [damageRuleResult],
-      },
-      diceResult: damageRoll,
-      outcome: ActionOutcome.SUCCESS,
-      narration: "Magic Missile이 자동으로 명중했습니다.",
-      stateChanges: [
-        {
-          sessionCharacterId: params.target.id,
-          currentHp: nextHp,
-          markDead: nextHp <= 0,
-          ...(concentrationCheck && !concentrationCheck.concentrationMaintained
-            ? { conditions: concentrationCheck.conditions }
-            : {}),
-        },
-      ],
-      runtimeEffects: this.spellRuntimeEffects(params.slotLevel),
-    };
-  }
-
-  private spellRuntimeEffects(slotLevel: number): ActionRuntimeEffect[] {
-    return [
-      { type: "SPEND_ACTION" },
-      ...(slotLevel > 0 ? [{ type: "SPEND_SPELL_SLOT", slotLevel } as const] : []),
-    ];
+    return this.actionSpellRules.resolveCastAreaSpell(this.createActionSpellRuleRuntime(), command, actor, sessionCharacters, runtimeContext);
   }
 
   private resolveClassFeature(
     command: Extract<ParsedCommand, { type: "use_class_feature" }>,
     actor: SessionCharacterForRules,
+    sessionCharacters: SessionCharacterForRules[],
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
     switch (command.featureId) {
@@ -1123,12 +743,158 @@ export class ActionRuleService {
         return this.resolveCunningAction(command, actor, runtimeContext);
       case FRENZY_FEATURE_ID:
         return this.resolveFrenzy(actor, runtimeContext);
+      case DIVINE_SENSE_FEATURE_ID:
+        return this.resolveDivineSense(actor, runtimeContext);
+      case LAY_ON_HANDS_FEATURE_ID:
+        return this.resolveLayOnHands(actor, runtimeContext);
+      case PRIMEVAL_AWARENESS_FEATURE_ID:
+        return this.resolvePrimevalAwareness(actor, runtimeContext);
+      case KI_FEATURE_ID:
+        return this.resolveKi(command, actor, runtimeContext);
+      case CHANNEL_DIVINITY_FEATURE_ID:
+        return this.resolveChannelDivinity(actor, runtimeContext);
+      case BARDIC_INSPIRATION_FEATURE_ID:
+        return this.resolveBardicInspiration(
+          command,
+          actor,
+          sessionCharacters,
+          runtimeContext,
+        );
+      case FONT_OF_MAGIC_FEATURE_ID:
+        return this.resolveFontOfMagic(actor, runtimeContext);
+      case WILD_SHAPE_FEATURE_ID:
+        return this.resolveWildShape(actor, runtimeContext);
+      case DRAGONBORN_BREATH_FEATURE_ID:
+        return this.resolveDragonbornBreath(
+          command,
+          actor,
+          sessionCharacters,
+          runtimeContext,
+        );
       default:
         throw forbidden("ACTION_403", "실행할 수 없는 직업 기능입니다.", {
           reason: "UNSUPPORTED_CLASS_FEATURE",
           featureId: command.featureId,
         });
     }
+  }
+
+  private resolveDragonbornBreath(
+    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
+    actor: SessionCharacterForRules,
+    sessionCharacters: SessionCharacterForRules[],
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    if (!this.hasFeatureTag(actor, "action:breath_weapon")) {
+      throw forbidden("ACTION_403", "드래곤본만 브레스 무기를 사용할 수 있습니다.", {
+        reason: "DRAGONBORN_BREATH_NOT_AVAILABLE",
+      });
+    }
+    if (!this.hasActionAvailable(runtimeContext)) {
+      return this.createActionUnavailableResolution("race_feature", {
+        featureId: DRAGONBORN_BREATH_FEATURE_ID,
+      });
+    }
+    if (this.hasCondition(actor, DRAGONBORN_BREATH_EXPENDED_TAG)) {
+      return {
+        structuredAction: {
+          type: "use_race_feature",
+          featureId: DRAGONBORN_BREATH_FEATURE_ID,
+          rejectedReason: "BREATH_WEAPON_EXPENDED",
+        },
+        diceResult: null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: "브레스 무기는 휴식 전까지 다시 사용할 수 없습니다.",
+        stateChanges: [],
+      };
+    }
+
+    const optionTokens = (command.option ?? "")
+      .split(/[\s,]+/)
+      .map((token) => token.trim())
+      .filter(Boolean);
+    const damageTypes = new Set([
+      "acid",
+      "cold",
+      "fire",
+      "lightning",
+      "poison",
+    ]);
+    const requestedDamageType = optionTokens.find((token) =>
+      damageTypes.has(this.normalizeRuleToken(token)),
+    );
+    const damageType =
+      this.resolveDraconicAncestryDamageType(actor) ??
+      (requestedDamageType
+        ? this.normalizeRuleToken(requestedDamageType)
+        : "fire");
+    const targetTokens = optionTokens.filter((token) => token !== requestedDamageType);
+    const selectedTargets = targetTokens
+      .map((token) => this.findTarget(token, sessionCharacters))
+      .filter(
+        (target): target is SessionCharacterForRules =>
+          Boolean(target && target.id !== actor.id),
+      );
+    const uniqueSelectedTargets = Array.from(
+      new Map(selectedTargets.map((target) => [target.id, target])).values(),
+    );
+    if (!uniqueSelectedTargets.length) {
+      throw forbidden("ACTION_403", "브레스 무기의 대상을 한 명 이상 지정해야 합니다.", {
+        reason: "DRAGONBORN_BREATH_TARGET_REQUIRED",
+      });
+    }
+    const uniqueTargets = this.resolveDragonbornBreathTargets(
+      actor,
+      uniqueSelectedTargets[0],
+      sessionCharacters,
+      runtimeContext.map,
+    );
+
+    const constitutionModifier = this.resolveAbilityModifier(actor, "con");
+    const saveDc = 8 + actor.character.proficiencyBonus + constitutionModifier;
+    const damageDice =
+      actor.character.level >= 16
+        ? "5d6"
+        : actor.character.level >= 11
+          ? "4d6"
+          : actor.character.level >= 6
+            ? "3d6"
+            : "2d6";
+    const resolution = this.aoeDamage.resolveDamage({
+      sourceId: DRAGONBORN_BREATH_FEATURE_ID,
+      damageDice,
+      damageType,
+      save: {
+        ability: "dex",
+        dc: saveDc,
+        halfDamageOnSuccess: true,
+      },
+      targets: uniqueTargets.map((target) => this.toAoeDamageTarget(target, "dex")),
+    });
+    const actorConditions = this.addConditionEntry(
+      this.parseJson<unknown[]>(actor.conditionsJson, []),
+      DRAGONBORN_BREATH_EXPENDED_TAG,
+    );
+
+    return {
+      structuredAction: {
+        type: "use_race_feature",
+        featureId: DRAGONBORN_BREATH_FEATURE_ID,
+        damageType,
+        damageDice,
+        saveDc,
+        targetIds: uniqueTargets.map((target) => target.id),
+        targetResults: resolution.targetResults,
+      },
+      diceResult: resolution.damageRoll,
+      outcome: ActionOutcome.SUCCESS,
+      narration: `${actor.character.name}이(가) ${damageType} 브레스를 내뿜었습니다.`,
+      stateChanges: [
+        this.createTargetStatePatch(actor, { conditions: actorConditions }),
+        ...resolution.stateChanges,
+      ],
+      runtimeEffects: [{ type: "SPEND_ACTION" }],
+    };
   }
 
   private resolveInventory(command: Extract<ParsedCommand, { type: "inventory" }>): ActionResolution {
@@ -1156,10 +922,7 @@ export class ActionRuleService {
       },
       diceResult: null,
       outcome: ActionOutcome.SUCCESS,
-      narration:
-        command.operation === "add"
-          ? "아이템을 인벤토리에 추가했습니다."
-          : "아이템을 인벤토리에서 제거했습니다.",
+      narration: command.operation === "add" ? "아이템을 인벤토리에 추가했습니다." : "아이템을 인벤토리에서 제거했습니다.",
       stateChanges: [],
       runtimeEffects: [effect],
     };
@@ -1168,6 +931,7 @@ export class ActionRuleService {
   private resolveItemInteraction(
     command: Extract<ParsedCommand, { type: "item_interaction" }>,
     actor: SessionCharacterForRules,
+    sessionCharacters: SessionCharacterForRules[],
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
     const actorPoint = this.resolveActorGridPoint(actor, runtimeContext);
@@ -1194,8 +958,15 @@ export class ActionRuleService {
       if (result.type !== "pickup") {
         throw new Error("Unexpected pickup item interaction resolution.");
       }
-      const remainingQuantity =
-        pickupObject.quantity !== null ? pickupObject.quantity - result.quantity : 0;
+      if (!this.hasActionAvailable(runtimeContext)) {
+        return this.createActionUnavailableResolution("item_interaction", {
+          operation: "pickup",
+          objectId: command.objectId,
+          itemDefinitionId: command.itemDefinitionId,
+          quantity: command.quantity,
+        });
+      }
+      const remainingQuantity = pickupObject.quantity !== null ? pickupObject.quantity - result.quantity : 0;
 
       return {
         structuredAction: {
@@ -1212,6 +983,7 @@ export class ActionRuleService {
         narration: "아이템을 주웠습니다.",
         stateChanges: [],
         runtimeEffects: [
+          { type: "SPEND_ACTION" },
           {
             type: "ADD_ITEM",
             itemDefinitionId: result.itemDefinitionId,
@@ -1246,6 +1018,13 @@ export class ActionRuleService {
       if (result.type !== "drop") {
         throw new Error("Unexpected drop item interaction resolution.");
       }
+      if (!this.hasActionAvailable(runtimeContext)) {
+        return this.createActionUnavailableResolution("item_interaction", {
+          operation: "drop",
+          itemId: command.itemId,
+          quantity: command.quantity,
+        });
+      }
 
       return {
         structuredAction: {
@@ -1261,6 +1040,7 @@ export class ActionRuleService {
         narration: `${item.name}을(를) 바닥에 내려놓았습니다.`,
         stateChanges: [],
         runtimeEffects: [
+          { type: "SPEND_ACTION" },
           {
             type: "REMOVE_ITEM",
             itemId: result.entryId,
@@ -1295,6 +1075,87 @@ export class ActionRuleService {
     if (result.type !== "throw") {
       throw new Error("Unexpected throw item interaction resolution.");
     }
+    if (!this.hasActionAvailable(runtimeContext)) {
+      return this.createActionUnavailableResolution("item_interaction", {
+        operation: "throw",
+        itemId: command.itemId,
+        quantity: command.quantity,
+      });
+    }
+    const thrownTarget = this.findTargetAtGridPoint(command.point, actor.id, sessionCharacters, runtimeContext.map);
+    if (thrownTarget) {
+      const attackAdvantageState = result.attack.inNormalRange ? DiceAdvantageState.NORMAL : DiceAdvantageState.DISADVANTAGE;
+      const attackRoll = this.diceService.roll(`1d20${result.attack.attackBonus >= 0 ? "+" : ""}${result.attack.attackBonus}`, attackAdvantageState);
+      const attackRuleResult = this.ruleEngine.resolveAttackRoll({
+        naturalD20: this.selectNaturalD20(attackRoll),
+        attackBonus: result.attack.attackBonus,
+        targetArmorClass: thrownTarget.character.armorClass,
+        advantageState: result.attack.inNormalRange ? "normal" : "disadvantage",
+      });
+      const runtimeEffects: ActionRuntimeEffect[] = [
+        {
+          type: "REMOVE_ITEM",
+          itemId: result.entryId,
+          quantity: result.removeQuantity,
+        },
+      ];
+      const stateChanges: CharacterStatePatch[] = [];
+      let damageRoll: DiceRollResponseDto | null = null;
+      let finalDamage = 0;
+      const ruleResults: RuleHookResult<unknown>[] = [attackRuleResult];
+      let landingPoint: ItemInteractionPoint | null = null;
+
+      if (attackRuleResult.produced.hit) {
+        damageRoll = this.diceService.roll(result.attack.damageDice);
+        const damageRuleResult = this.ruleEngine.applyDamageModifiers({
+          baseDamage: damageRoll.total,
+          damageType: result.attack.damageType,
+          ...this.resolveDamageProfile(thrownTarget),
+        });
+        ruleResults.push(damageRuleResult);
+        finalDamage = damageRuleResult.produced.finalDamage;
+        const nextHp = Math.max(thrownTarget.currentHp - finalDamage, 0);
+        stateChanges.push({
+          sessionCharacterId: thrownTarget.id,
+          currentHp: nextHp,
+          markDead: nextHp <= 0,
+        });
+      } else {
+        landingPoint = this.resolveThrownMissLandingPoint(command.point, attackRoll);
+        runtimeEffects.push({
+          type: "CREATE_MAP_OBJECT",
+          objectId: this.createThrownItemObjectId(result.entryId, landingPoint),
+          itemDefinitionId: result.missObject.itemDefinitionId,
+          name: result.missObject.name,
+          quantity: result.missObject.quantity,
+          point: landingPoint,
+        });
+      }
+      runtimeEffects.push({ type: "SPEND_ACTION" });
+
+      return {
+        structuredAction: {
+          type: "item_interaction",
+          operation: "throw",
+          itemId: command.itemId,
+          quantity: command.quantity,
+          actorPoint,
+          target: thrownTarget.id,
+          targetArmorClass: thrownTarget.character.armorClass,
+          damageType: result.attack.damageType,
+          damageRoll: damageRoll ? { ...damageRoll } : null,
+          finalDamage,
+          landingPoint,
+          result,
+          ruleResults,
+        },
+        diceResult: attackRoll,
+        outcome: attackRuleResult.produced.hit ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
+        narration: attackRuleResult.produced.hit ? `${item.name}이(가) 명중했습니다.` : `${item.name}이(가) 빗나갔습니다.`,
+        stateChanges,
+        runtimeEffects,
+      };
+    }
 
     return {
       structuredAction: {
@@ -1328,17 +1189,11 @@ export class ActionRuleService {
     };
   }
 
-  private resolveSecondWind(
-    actor: SessionCharacterForRules,
-    runtimeContext: RuleRuntimeContext,
-  ): ActionResolution {
+  private resolveSecondWind(actor: SessionCharacterForRules, runtimeContext: RuleRuntimeContext): ActionResolution {
     const currentConditions = this.getConditions(actor);
-    const secondWindAvailable =
-      runtimeContext.resource?.secondWindAvailable ??
-      !this.hasCondition(actor, SECOND_WIND_EXPENDED_TAG);
+    const secondWindAvailable = runtimeContext.resource?.secondWindAvailable ?? !this.hasCondition(actor, SECOND_WIND_EXPENDED_TAG);
     const bonusActionAvailable = this.hasBonusActionAvailable(runtimeContext);
-    const canRollHealing =
-      this.isClass(actor, "fighter") && secondWindAvailable && bonusActionAvailable;
+    const canRollHealing = this.isClass(actor, "fighter") && secondWindAvailable && bonusActionAvailable;
     const healingRoll = canRollHealing ? this.diceService.roll("1d10") : null;
     const ruleResult = this.ruleEngine.applySecondWind({
       fighterLevel: this.isClass(actor, "fighter") ? actor.character.level : 0,
@@ -1385,21 +1240,14 @@ export class ActionRuleService {
     };
   }
 
-  private resolveActionSurge(
-    actor: SessionCharacterForRules,
-    runtimeContext: RuleRuntimeContext,
-  ): ActionResolution {
+  private resolveActionSurge(actor: SessionCharacterForRules, runtimeContext: RuleRuntimeContext): ActionResolution {
     const currentConditions = this.getConditions(actor);
-    const actionSurgeAvailableUses =
-      runtimeContext.resource?.actionSurgeUses ??
-      (this.hasCondition(actor, ACTION_SURGE_EXPENDED_TAG) ? 0 : 1);
+    const actionSurgeAvailableUses = runtimeContext.resource?.actionSurgeUses ?? (this.hasCondition(actor, ACTION_SURGE_EXPENDED_TAG) ? 0 : 1);
     const ruleResult = this.ruleEngine.applyActionSurge({
       fighterLevel: this.isClass(actor, "fighter") ? actor.character.level : 0,
       actionSurgeAvailableUses,
       turnActionState: {
-        actionSurgeUsedThisTurn:
-          runtimeContext.turnState?.additionalActionGranted ??
-          this.hasCondition(actor, ACTION_SURGE_GRANTED_TAG),
+        actionSurgeUsedThisTurn: runtimeContext.turnState?.additionalActionGranted ?? this.hasCondition(actor, ACTION_SURGE_GRANTED_TAG),
       },
     });
 
@@ -1411,30 +1259,20 @@ export class ActionRuleService {
       },
       diceResult: null,
       outcome: ruleResult.accepted ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
-      narration: ruleResult.accepted
-        ? "Action Surge로 추가 행동을 얻었습니다."
-        : this.createClassFeatureRejectedNarration(ruleResult.rejectedReason),
+      narration: ruleResult.accepted ? "Action Surge로 추가 행동을 얻었습니다." : this.createClassFeatureRejectedNarration(ruleResult.rejectedReason),
       stateChanges: ruleResult.accepted
         ? [
             {
               sessionCharacterId: actor.id,
-              conditions: this.addConditions(currentConditions, [
-                ACTION_SURGE_EXPENDED_TAG,
-                ACTION_SURGE_GRANTED_TAG,
-              ]),
+              conditions: this.addConditions(currentConditions, [ACTION_SURGE_EXPENDED_TAG, ACTION_SURGE_GRANTED_TAG]),
             },
           ]
         : [],
-      runtimeEffects: ruleResult.accepted
-        ? [{ type: "SPEND_ACTION_SURGE_USE" }, { type: "GRANT_ADDITIONAL_ACTION" }]
-        : [],
+      runtimeEffects: ruleResult.accepted ? [{ type: "SPEND_ACTION_SURGE_USE" }, { type: "GRANT_ADDITIONAL_ACTION" }] : [],
     };
   }
 
-  private resolveFightingStyle(
-    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
-    actor: SessionCharacterForRules,
-  ): ActionResolution {
+  private resolveFightingStyle(command: Extract<ParsedCommand, { type: "use_class_feature" }>, actor: SessionCharacterForRules): ActionResolution {
     const selectedStyle = command.option ?? "";
     const currentConditions = this.getConditions(actor);
     const ruleResult = this.ruleEngine.applyFightingStyle({
@@ -1458,9 +1296,7 @@ export class ActionRuleService {
         ? [
             {
               sessionCharacterId: actor.id,
-              conditions: this.addConditions(currentConditions, [
-                `${FIGHTING_STYLE_TAG_PREFIX}${ruleResult.produced.selectedStyle}`,
-              ]),
+              conditions: this.addConditions(currentConditions, [`${FIGHTING_STYLE_TAG_PREFIX}${ruleResult.produced.selectedStyle}`]),
             },
           ]
         : [],
@@ -1481,10 +1317,7 @@ export class ActionRuleService {
     };
   }
 
-  private resolveExpertise(
-    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
-    actor: SessionCharacterForRules,
-  ): ActionResolution {
+  private resolveExpertise(command: Extract<ParsedCommand, { type: "use_class_feature" }>, actor: SessionCharacterForRules): ActionResolution {
     const selections = this.parseFeatureOptionTokens(command.option);
     const currentConditions = this.getConditions(actor);
     const proficientSkills = this.parseJson<string[]>(actor.character.proficientSkillsJson, []);
@@ -1492,8 +1325,7 @@ export class ActionRuleService {
       rogueLevel: this.isClass(actor, "rogue") ? actor.character.level : 0,
       selections,
       proficientSkills,
-      hasThievesToolsProficiency:
-        this.isClass(actor, "rogue") || this.hasFeatureTag(actor, "tool:thieves_tools"),
+      hasThievesToolsProficiency: this.isClass(actor, "rogue") || this.hasFeatureTag(actor, "tool:thieves_tools"),
     });
 
     return {
@@ -1514,9 +1346,7 @@ export class ActionRuleService {
               sessionCharacterId: actor.id,
               conditions: this.addConditions(
                 currentConditions,
-                ruleResult.produced.expertiseSelections.map(
-                  (selection) => `${EXPERTISE_TAG_PREFIX}${selection}`,
-                ),
+                ruleResult.produced.expertiseSelections.map((selection) => `${EXPERTISE_TAG_PREFIX}${selection}`),
               ),
             },
           ]
@@ -1524,13 +1354,8 @@ export class ActionRuleService {
     };
   }
 
-  private resolveFavoredEnemy(
-    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
-    actor: SessionCharacterForRules,
-  ): ActionResolution {
-    const [selectedEnemy = "", ...humanoidRaceSelections] = this.parseFeatureOptionTokens(
-      command.option,
-    );
+  private resolveFavoredEnemy(command: Extract<ParsedCommand, { type: "use_class_feature" }>, actor: SessionCharacterForRules): ActionResolution {
+    const [selectedEnemy = "", ...humanoidRaceSelections] = this.parseFeatureOptionTokens(command.option);
     const currentConditions = this.getConditions(actor);
     const ruleResult = this.ruleEngine.applyFavoredEnemy({
       rangerLevel: this.isClass(actor, "ranger") ? actor.character.level : 0,
@@ -1556,9 +1381,7 @@ export class ActionRuleService {
               sessionCharacterId: actor.id,
               conditions: this.addConditions(currentConditions, [
                 `${FAVORED_ENEMY_TAG_PREFIX}${ruleResult.produced.selectedEnemy}`,
-                ...ruleResult.produced.humanoidRaceSelections.map(
-                  (race) => `${FAVORED_ENEMY_HUMANOID_TAG_PREFIX}${race}`,
-                ),
+                ...ruleResult.produced.humanoidRaceSelections.map((race) => `${FAVORED_ENEMY_HUMANOID_TAG_PREFIX}${race}`),
               ]),
             },
           ]
@@ -1566,10 +1389,7 @@ export class ActionRuleService {
     };
   }
 
-  private resolveRage(
-    actor: SessionCharacterForRules,
-    runtimeContext: RuleRuntimeContext,
-  ): ActionResolution {
+  private resolveRage(actor: SessionCharacterForRules, runtimeContext: RuleRuntimeContext): ActionResolution {
     const currentConditions = this.getConditions(actor);
     const rageAvailableUses = runtimeContext.resource
       ? runtimeContext.resource.rageActive
@@ -1655,12 +1475,9 @@ export class ActionRuleService {
     };
   }
 
-  private resolveFrenzy(
-    actor: SessionCharacterForRules,
-    runtimeContext: RuleRuntimeContext,
-  ): ActionResolution {
-    const rageActive =
-      runtimeContext.resource?.rageActive ?? this.hasCondition(actor, RAGE_ACTIVE_TAG);
+  private resolveFrenzy(actor: SessionCharacterForRules, runtimeContext: RuleRuntimeContext): ActionResolution {
+    const rageActive = runtimeContext.resource?.rageActive ?? this.hasCondition(actor, RAGE_ACTIVE_TAG);
+    const currentConditions = this.getConditions(actor);
     const ruleResult = this.ruleEngine.applyFrenzy({
       rageActivationAccepted: rageActive,
       bonusActionAvailableOnFollowingTurns: true,
@@ -1676,11 +1493,416 @@ export class ActionRuleService {
       },
       diceResult: null,
       outcome: ruleResult.accepted ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
-      narration: ruleResult.accepted
-        ? "Frenzy 상태가 적용되었습니다."
-        : this.createClassFeatureRejectedNarration(ruleResult.rejectedReason),
-      stateChanges: [],
+      narration: ruleResult.accepted ? "Frenzy 상태가 적용되었습니다." : this.createClassFeatureRejectedNarration(ruleResult.rejectedReason),
+      stateChanges: ruleResult.accepted
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              conditions: this.addConditions(currentConditions, ["frenzy"]),
+            },
+          ]
+        : [],
       runtimeEffects: ruleResult.accepted ? [{ type: "START_FRENZY" }] : [],
+    };
+  }
+
+  private resolveDivineSense(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const available =
+      this.isClass(actor, "paladin") &&
+      actor.character.level >= 1 &&
+      this.hasActionAvailable(runtimeContext) &&
+      !this.hasCondition(actor, DIVINE_SENSE_EXPENDED_TAG);
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: DIVINE_SENSE_FEATURE_ID,
+        rangeFt: 60,
+        detectedCreatureTypes: ["celestial", "fiend", "undead"],
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? "Divine Sense를 사용했습니다. 60ft 안의 celestial, fiend, undead 존재를 감지합니다."
+        : "Divine Sense를 사용할 수 없습니다.",
+      stateChanges: available
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              conditions: this.addConditions(currentConditions, [
+                DIVINE_SENSE_EXPENDED_TAG,
+                "sense:divine:60",
+              ]),
+            },
+          ]
+        : [],
+      runtimeEffects: available ? [{ type: "SPEND_ACTION" }] : [],
+    };
+  }
+
+  private resolveLayOnHands(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const healingPool = Math.max(actor.character.level * 5, 0);
+    const healing = Math.min(
+      healingPool,
+      Math.max(actor.character.maxHp - actor.currentHp, 0),
+    );
+    const available =
+      this.isClass(actor, "paladin") &&
+      actor.character.level >= 1 &&
+      this.hasActionAvailable(runtimeContext) &&
+      !this.hasCondition(actor, LAY_ON_HANDS_EXPENDED_TAG) &&
+      healing > 0;
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: LAY_ON_HANDS_FEATURE_ID,
+        healingPool,
+        healingApplied: available ? healing : 0,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? `Lay on Hands로 자신을 ${healing} 회복했습니다.`
+        : "Lay on Hands를 사용할 수 없거나 회복할 HP가 없습니다.",
+      stateChanges: available
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              currentHp: actor.currentHp + healing,
+              conditions: this.addConditions(currentConditions, [
+                LAY_ON_HANDS_EXPENDED_TAG,
+              ]),
+            },
+          ]
+        : [],
+      runtimeEffects: available ? [{ type: "SPEND_ACTION" }] : [],
+    };
+  }
+
+  private resolvePrimevalAwareness(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const hasSlot = (runtimeContext.spellSlots?.["1"] ?? 0) > 0;
+    const available =
+      this.isClass(actor, "ranger") &&
+      actor.character.level >= 3 &&
+      this.hasActionAvailable(runtimeContext) &&
+      hasSlot;
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: PRIMEVAL_AWARENESS_FEATURE_ID,
+        slotLevel: 1,
+        detectedCreatureTypes: [
+          "aberration",
+          "celestial",
+          "dragon",
+          "elemental",
+          "fey",
+          "fiend",
+          "undead",
+        ],
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? "Primeval Awareness를 사용했습니다. 주변에 특정 초자연 생물 유형이 존재하는지 감지합니다."
+        : "Primeval Awareness를 사용하려면 행동과 1레벨 주문 슬롯이 필요합니다.",
+      stateChanges: [],
+      runtimeEffects: available
+        ? [{ type: "SPEND_ACTION" }, { type: "SPEND_SPELL_SLOT", slotLevel: 1 }]
+        : [],
+    };
+  }
+
+  private resolveKi(
+    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const option = this.normalizeRuleToken(command.option ?? "");
+    const currentConditions = this.getConditions(actor);
+    const spent = currentConditions
+      .map((condition) => /^resource:ki_spent:(\d+)$/.exec(condition)?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .reduce((maximum, value) => Math.max(maximum, value), 0);
+    const available =
+      this.isClass(actor, "monk") &&
+      actor.character.level >= 2 &&
+      spent < actor.character.level &&
+      this.hasBonusActionAvailable(runtimeContext) &&
+      ["patient_defense", "step_of_the_wind"].includes(option);
+    const nextConditions = this.addConditions(
+      currentConditions.filter(
+        (condition) => !condition.startsWith("resource:ki_spent:"),
+      ),
+      [
+        `resource:ki_spent:${spent + 1}`,
+        ...(option === "patient_defense"
+          ? ["combat:dodge"]
+          : ["combat:disengage"]),
+      ],
+    );
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: KI_FEATURE_ID,
+        option,
+        kiSpent: available ? spent + 1 : spent,
+        kiMaximum: actor.character.level,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? `Ki를 사용해 ${option === "patient_defense" ? "Patient Defense" : "Step of the Wind"}를 적용했습니다.`
+        : "Ki를 사용할 수 없습니다.",
+      stateChanges: available
+        ? [{ sessionCharacterId: actor.id, conditions: nextConditions }]
+        : [],
+      runtimeEffects: available ? [{ type: "SPEND_BONUS_ACTION" }] : [],
+    };
+  }
+
+  private resolveChannelDivinity(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const subclass = this.normalizeRuleToken(actor.character.subclassName ?? "");
+    const maximumAfterHealing = Math.floor(actor.character.maxHp / 2);
+    const healingPool = Math.max(actor.character.level * 5, 0);
+    const healing = Math.min(
+      healingPool,
+      Math.max(maximumAfterHealing - actor.currentHp, 0),
+    );
+    const available =
+      this.isClass(actor, "cleric") &&
+      actor.character.level >= 2 &&
+      subclass === "life" &&
+      this.hasActionAvailable(runtimeContext) &&
+      !this.hasCondition(actor, CHANNEL_DIVINITY_EXPENDED_TAG) &&
+      healing > 0;
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: CHANNEL_DIVINITY_FEATURE_ID,
+        option: "preserve_life",
+        healingPool,
+        healingApplied: available ? healing : 0,
+        maximumAfterHealing,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? `Channel Divinity: Preserve Life로 자신을 ${healing} 회복했습니다.`
+        : "Preserve Life를 사용할 수 없거나 현재 HP가 절반 이상입니다.",
+      stateChanges: available
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              currentHp: actor.currentHp + healing,
+              conditions: this.addConditions(currentConditions, [
+                CHANNEL_DIVINITY_EXPENDED_TAG,
+              ]),
+            },
+          ]
+        : [],
+      runtimeEffects: available ? [{ type: "SPEND_ACTION" }] : [],
+    };
+  }
+
+  private resolveBardicInspiration(
+    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
+    actor: SessionCharacterForRules,
+    sessionCharacters: SessionCharacterForRules[],
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const targetId = command.option?.trim() ?? "";
+    const target = sessionCharacters.find(
+      (candidate) =>
+        candidate.id === targetId ||
+        candidate.combatParticipantId === targetId ||
+        candidate.tokenId === targetId,
+    );
+    const currentConditions = this.getConditions(actor);
+    const spent = currentConditions
+      .map(
+        (condition) =>
+          /^resource:bardic_inspiration_spent:(\d+)$/.exec(condition)?.[1],
+      )
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .reduce((maximum, value) => Math.max(maximum, value), 0);
+    const maximumUses = Math.max(this.resolveAbilityModifier(actor, "cha"), 1);
+    const inspirationDie = actor.character.level >= 5 ? "1d8" : "1d6";
+    const available =
+      this.isClass(actor, "bard") &&
+      actor.character.level >= 1 &&
+      Boolean(target && target.id !== actor.id) &&
+      spent < maximumUses &&
+      this.hasBonusActionAvailable(runtimeContext);
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: BARDIC_INSPIRATION_FEATURE_ID,
+        targetId: target?.id ?? targetId,
+        die: inspirationDie,
+        usesSpent: available ? spent + 1 : spent,
+        maximumUses,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? `${target?.character.name ?? "대상"}에게 Bardic Inspiration ${inspirationDie}를 부여했습니다.`
+        : "Bardic Inspiration을 사용할 수 없거나 유효한 아군 대상이 없습니다.",
+      stateChanges:
+        available && target
+          ? [
+              {
+                sessionCharacterId: actor.id,
+                conditions: this.addConditions(
+                  currentConditions.filter(
+                    (condition) =>
+                      !condition.startsWith(
+                        "resource:bardic_inspiration_spent:",
+                      ),
+                  ),
+                  [`resource:bardic_inspiration_spent:${spent + 1}`],
+                ),
+              },
+              {
+                sessionCharacterId: target.id,
+                conditions: this.addConditions(this.getConditions(target), [
+                  `bardic_inspiration:${inspirationDie}`,
+                ]),
+              },
+            ]
+          : [],
+      runtimeEffects: available ? [{ type: "SPEND_BONUS_ACTION" }] : [],
+    };
+  }
+
+  private resolveFontOfMagic(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const spent = currentConditions
+      .map(
+        (condition) =>
+          /^resource:sorcery_points_spent:(\d+)$/.exec(condition)?.[1],
+      )
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .reduce((maximum, value) => Math.max(maximum, value), 0);
+    const maximumPoints = Math.max(actor.character.level, 0);
+    const slotCurrent = runtimeContext.spellSlots?.["1"] ?? 0;
+    const slotMaximum = runtimeContext.spellSlotMaximums?.["1"] ?? 0;
+    const available =
+      this.isClass(actor, "sorcerer") &&
+      actor.character.level >= 2 &&
+      spent + 2 <= maximumPoints &&
+      slotCurrent < slotMaximum &&
+      this.hasBonusActionAvailable(runtimeContext);
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: FONT_OF_MAGIC_FEATURE_ID,
+        option: "create_level_1_spell_slot",
+        sorceryPointsSpent: available ? spent + 2 : spent,
+        sorceryPointsMaximum: maximumPoints,
+        restoredSlotLevel: 1,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? "Font of Magic으로 소서리 포인트 2점을 소모해 1레벨 주문 슬롯 하나를 회복했습니다."
+        : "Font of Magic을 사용할 수 없거나 회복할 1레벨 슬롯이 없습니다.",
+      stateChanges: available
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              conditions: this.addConditions(
+                currentConditions.filter(
+                  (condition) =>
+                    !condition.startsWith("resource:sorcery_points_spent:"),
+                ),
+                [`resource:sorcery_points_spent:${spent + 2}`],
+              ),
+            },
+          ]
+        : [],
+      runtimeEffects: available
+        ? [
+            { type: "SPEND_BONUS_ACTION" },
+            { type: "RESTORE_SPELL_SLOT", slotLevel: 1, amount: 1 },
+          ]
+        : [],
+    };
+  }
+
+  private resolveWildShape(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const spent = currentConditions
+      .map(
+        (condition) =>
+          /^resource:wild_shape_spent:(\d+)$/.exec(condition)?.[1],
+      )
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .reduce((maximum, value) => Math.max(maximum, value), 0);
+    const available =
+      this.isClass(actor, "druid") &&
+      actor.character.level >= 2 &&
+      spent < 2 &&
+      !this.hasCondition(actor, "wild_shape:wolf") &&
+      this.hasActionAvailable(runtimeContext);
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: WILD_SHAPE_FEATURE_ID,
+        form: "wolf",
+        formHitPoints: 11,
+        usesSpent: available ? spent + 1 : spent,
+        maximumUses: 2,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? "Wild Shape로 늑대 형태가 되었습니다. 형태 HP 11, 이동 40ft, 물기 공격을 사용합니다."
+        : "Wild Shape를 사용할 수 없습니다.",
+      stateChanges: available
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              tempHp: Math.max(actor.tempHp, 11),
+              conditions: this.addConditions(
+                currentConditions.filter(
+                  (condition) =>
+                    !condition.startsWith("resource:wild_shape_spent:"),
+                ),
+                [
+                  `resource:wild_shape_spent:${spent + 1}`,
+                  "wild_shape:wolf",
+                  "movement_speed_override:40",
+                ],
+              ),
+            },
+          ]
+        : [],
+      runtimeEffects: available ? [{ type: "SPEND_ACTION" }] : [],
     };
   }
 
@@ -1712,29 +1934,43 @@ export class ActionRuleService {
       conditions: this.getConditions(actor),
       resource: runtimeContext.resource,
       resourceMaximums: {
+        secondWindAvailable: this.hasFighterSecondWind(actor),
         actionSurgeUses: this.resolveActionSurgeUses(actor),
         rageUses: this.resolveRageUses(actor),
       },
+      hitDiceToSpend: command.hitDiceToSpend,
+      totalHitDice: actor.character.level,
+      hitDiceSpent: runtimeContext.resource?.hitDiceSpent,
+      hitDieAverage: this.resolveHitDieAverage(actor),
+      constitutionModifier: this.resolveAbilityModifier(actor, "con"),
+      spellSlots: runtimeContext.spellSlots,
+      spellSlotMaximums: runtimeContext.spellSlotMaximums,
+      recoverBardicInspirationOnShortRest:
+        this.isClass(actor, "bard") && actor.character.level >= 5,
     });
 
     if (command.restType === "short") {
-      return this.resolveShortRest(actor, restResolution);
+      return this.resolveShortRest(actor, restResolution, runtimeContext);
     }
 
     return this.resolveLongRest(actor, restResolution, runtimeContext);
   }
 
-  private resolveShortRest(
-    actor: SessionCharacterForRules,
-    rest: RestResolution,
-  ): ActionResolution {
+  private resolveShortRest(actor: SessionCharacterForRules, rest: RestResolution, runtimeContext: RuleRuntimeContext): ActionResolution {
+    const spellRecovery = this.resolveShortRestSpellRecovery(actor, runtimeContext);
+    const nextConditions = spellRecovery
+      ? this.addConditions(rest.conditions as string[], [spellRecovery.expendedTag])
+      : rest.conditions;
     return {
       structuredAction: {
         type: "rest",
         restType: "short",
+        restResult: this.buildRestResult(actor, rest, runtimeContext),
         recoveredResources: {
           secondWindAvailable: rest.resource.secondWindAvailable,
           actionSurgeUses: rest.resource.actionSurgeUses,
+          hitDiceSpent: rest.resource.hitDiceSpent,
+          spellRecovery,
         },
         recoveredTags: rest.recoveredTags,
       },
@@ -1744,33 +1980,87 @@ export class ActionRuleService {
       stateChanges: [
         {
           sessionCharacterId: actor.id,
-          conditions: rest.conditions,
+          ...(rest.hp.currentHp === actor.currentHp ? {} : { currentHp: rest.hp.currentHp }),
+          conditions: nextConditions,
         },
       ],
       runtimeEffects: [
         {
           type: "RECOVER_SHORT_REST",
+          secondWindAvailable: rest.resource.secondWindAvailable,
           actionSurgeUses: rest.resource.actionSurgeUses,
+          ...(rest.recoveredTags.some((tag) => tag.startsWith("hit_dice:spent:")) ? { hitDiceSpent: rest.resource.hitDiceSpent } : {}),
+          ...(spellRecovery
+            ? {
+                recoverSpellSlotLevel: spellRecovery.slotLevel,
+                spellRecoveryFeatureId: spellRecovery.featureId,
+              }
+            : {}),
         },
       ],
     };
   }
 
-  private resolveLongRest(
+  private resolveShortRestSpellRecovery(
     actor: SessionCharacterForRules,
-    rest: RestResolution,
     runtimeContext: RuleRuntimeContext,
-  ): ActionResolution {
-    const currentExhaustionLevel = runtimeContext.resource?.exhaustionLevel ?? 1;
+  ): {
+    featureId: string;
+    expendedTag: string;
+    slotLevel: number;
+  } | null {
+    const isWizard = this.isClass(actor, "wizard");
+    const isLandDruid =
+      this.isClass(actor, "druid") &&
+      this.normalizeRuleToken(actor.character.subclassName ?? "") === "land";
+    if (!isWizard && !isLandDruid) {
+      return null;
+    }
+    const featureId = isWizard
+      ? "class.wizard.feature.arcane_recovery"
+      : "subclass.druid.land.feature.natural_recovery";
+    const expendedTag = isWizard
+      ? "resource:arcane_recovery_expended"
+      : "resource:natural_recovery_expended";
+    if (this.hasCondition(actor, expendedTag)) {
+      return null;
+    }
+    const recoveryBudget = Math.max(Math.ceil(actor.character.level / 2), 1);
+    const current = runtimeContext.spellSlots ?? {};
+    const maximums = runtimeContext.spellSlotMaximums ?? {};
+    const slotLevel = Object.keys(maximums)
+      .map(Number)
+      .filter(
+        (level) =>
+          Number.isInteger(level) &&
+          level > 0 &&
+          level <= recoveryBudget &&
+          (current[String(level)] ?? maximums[String(level)] ?? 0) <
+            (maximums[String(level)] ?? 0),
+      )
+      .sort((left, right) => right - left)[0];
+    return slotLevel
+      ? {
+          featureId,
+          expendedTag,
+          slotLevel,
+        }
+      : null;
+  }
+
+  private resolveLongRest(actor: SessionCharacterForRules, rest: RestResolution, runtimeContext: RuleRuntimeContext): ActionResolution {
+    const currentExhaustionLevel = runtimeContext.resource?.exhaustionLevel ?? 0;
     return {
       structuredAction: {
         type: "rest",
         restType: "long",
+        restResult: this.buildRestResult(actor, rest, runtimeContext),
         recoveredResources: {
           secondWindAvailable: rest.resource.secondWindAvailable,
           actionSurgeUses: rest.resource.actionSurgeUses,
           rageUses: rest.resource.rageUses,
           reduceExhaustionBy: Math.max(currentExhaustionLevel - rest.resource.exhaustionLevel, 0),
+          hitDiceSpent: rest.resource.hitDiceSpent,
         },
         recoveredTags: rest.recoveredTags,
       },
@@ -1789,18 +2079,88 @@ export class ActionRuleService {
       runtimeEffects: [
         {
           type: "RECOVER_LONG_REST",
+          secondWindAvailable: rest.resource.secondWindAvailable,
           actionSurgeUses: rest.resource.actionSurgeUses,
           rageUses: rest.resource.rageUses,
           reduceExhaustionBy: Math.max(currentExhaustionLevel - rest.resource.exhaustionLevel, 0),
+          ...(rest.recoveredTags.some((tag) => tag.startsWith("hit_dice:recovered:")) ? { hitDiceSpent: rest.resource.hitDiceSpent } : {}),
         },
       ],
     };
   }
 
-  private resolveDamage(
-    command: Extract<ParsedCommand, { type: "damage" }>,
-    sessionCharacters: SessionCharacterForRules[],
-  ): ActionResolution {
+  private buildRestResult(actor: SessionCharacterForRules, rest: RestResolution, runtimeContext: RuleRuntimeContext): Record<string, unknown> {
+    const beforeConditions = this.getConditions(actor);
+    const beforeResource = runtimeContext.resource ?? {
+      secondWindAvailable: this.hasFighterSecondWind(actor),
+      actionSurgeUses: 0,
+      rageUses: 0,
+      rageActive: false,
+      frenzyActive: false,
+      exhaustionLevel: 0,
+      hitDiceSpent: 0,
+    };
+
+    return {
+      hp: {
+        before: actor.currentHp,
+        after: rest.hp.currentHp,
+        recovered: Math.max(rest.hp.currentHp - actor.currentHp, 0),
+      },
+      tempHp: {
+        before: actor.tempHp ?? 0,
+        after: rest.hp.tempHp,
+      },
+      conditions: {
+        beforeCount: beforeConditions.length,
+        afterCount: rest.conditions.length,
+        removed: this.describeRemovedConditions(beforeConditions, rest.conditions),
+      },
+      resources: {
+        before: beforeResource,
+        after: rest.resource,
+      },
+      spellSlots: {
+        before: runtimeContext.spellSlots ?? {},
+        after: rest.spellSlots,
+      },
+      recoveredTags: rest.recoveredTags,
+    };
+  }
+
+  private describeRemovedConditions(before: unknown[], after: unknown[]): string[] {
+    const remaining = new Map<string, number>();
+    for (const condition of after) {
+      const key = JSON.stringify(condition);
+      remaining.set(key, (remaining.get(key) ?? 0) + 1);
+    }
+
+    const removed: string[] = [];
+    for (const condition of before) {
+      const key = JSON.stringify(condition);
+      const count = remaining.get(key) ?? 0;
+      if (count > 0) {
+        remaining.set(key, count - 1);
+        continue;
+      }
+      if (typeof condition === "string") {
+        removed.push(condition);
+        continue;
+      }
+      if (condition && typeof condition === "object") {
+        const record = condition as Record<string, unknown>;
+        removed.push(String(record.conditionId ?? record.sourceId ?? "condition"));
+      }
+    }
+    return removed;
+  }
+
+  private resolveHitDieAverage(actor: SessionCharacterForRules): number {
+    const normalizedClassName = actor.character.className.trim().toLowerCase();
+    return HIT_DIE_AVERAGE_BY_CLASS[normalizedClassName] ?? 4;
+  }
+
+  private resolveDamage(command: Extract<ParsedCommand, { type: "damage" }>, sessionCharacters: SessionCharacterForRules[]): ActionResolution {
     const target = this.requireTarget(command.target, sessionCharacters);
     const damageType = command.damageType ?? DEFAULT_DIRECT_DAMAGE_TYPE;
     const damageRuleResult = this.ruleEngine.applyDamageModifiers({
@@ -1811,9 +2171,21 @@ export class ActionRuleService {
     const finalDamage = damageRuleResult.produced.finalDamage;
     const remainingTempHp = Math.max(target.tempHp - finalDamage, 0);
     const overflowDamage = Math.max(finalDamage - target.tempHp, 0);
-    const nextHp = Math.max(target.currentHp - overflowDamage, 0);
-    const concentrationCheck =
-      finalDamage > 0 ? this.resolveConcentrationDamageCheck(target, finalDamage) : null;
+    let nextHp = Math.max(target.currentHp - overflowDamage, 0);
+    let relentlessEnduranceConditions: unknown[] | null = null;
+    const relentlessEnduranceTriggered =
+      nextHp === 0 &&
+      target.currentHp > 0 &&
+      this.hasFeatureTag(target, "feature:relentless_endurance") &&
+      !this.hasCondition(target, "resource:relentless_endurance_expended");
+    if (relentlessEnduranceTriggered) {
+      nextHp = 1;
+      relentlessEnduranceConditions = this.addConditionEntry(
+        this.parseJson<unknown[]>(target.conditionsJson, []),
+        "resource:relentless_endurance_expended",
+      );
+    }
+    const concentrationCheck = finalDamage > 0 ? this.resolveConcentrationDamageCheck(target, finalDamage) : null;
     const ruleResults: RuleHookResult<unknown>[] = [damageRuleResult];
     if (concentrationCheck?.ruleResult) {
       ruleResults.push(concentrationCheck.ruleResult);
@@ -1825,7 +2197,14 @@ export class ActionRuleService {
       markDead: nextHp <= 0,
     };
     if (concentrationCheck && !concentrationCheck.concentrationMaintained) {
-      stateChange.conditions = concentrationCheck.conditions;
+      stateChange.conditions = relentlessEnduranceTriggered
+        ? this.addConditionEntry(
+            concentrationCheck.conditions,
+            "resource:relentless_endurance_expended",
+          )
+        : concentrationCheck.conditions;
+    } else if (relentlessEnduranceConditions) {
+      stateChange.conditions = relentlessEnduranceConditions;
     }
 
     return {
@@ -1835,6 +2214,7 @@ export class ActionRuleService {
         amount: command.amount,
         damageType,
         finalDamage,
+        relentlessEnduranceTriggered,
         concentrationCheck: concentrationCheck
           ? {
               concentrationMaintained: concentrationCheck.concentrationMaintained,
@@ -1846,7 +2226,9 @@ export class ActionRuleService {
       },
       diceResult: concentrationCheck?.diceResult ?? null,
       outcome: ActionOutcome.SUCCESS,
-      narration: `${target.character.name}에게 ${finalDamage} 피해를 적용했습니다.`,
+      narration: relentlessEnduranceTriggered
+        ? `${target.character.name}에게 ${finalDamage} 피해를 적용했지만 끈질긴 인내로 HP 1을 유지했습니다.`
+        : `${target.character.name}에게 ${finalDamage} 피해를 적용했습니다.`,
       stateChanges: [stateChange],
     };
   }
@@ -1863,19 +2245,13 @@ export class ActionRuleService {
     concentrationMaintained: boolean;
   } | null {
     const conditions = this.conditionRuntime.parseConditionsJson(target.conditionsJson);
-    const hasConcentration = conditions.some(
-      (condition) =>
-        condition.conditionId === "condition.concentration" ||
-        condition.tags.includes("concentration"),
-    );
+    const hasConcentration = conditions.some((condition) => condition.conditionId === "condition.concentration" || condition.tags.includes("concentration"));
     if (!hasConcentration) {
       return null;
     }
 
     const saveProficient = this.resolveSaveProficiencies(target).includes("con");
-    const saveModifier =
-      this.resolveAbilityModifier(target, "con") +
-      (saveProficient ? target.character.proficiencyBonus : 0);
+    const saveModifier = this.resolveAbilityModifier(target, "con") + (saveProficient ? target.character.proficiencyBonus : 0);
     const diceResult = this.diceService.roll(`1d20${saveModifier >= 0 ? "+" : ""}${saveModifier}`);
     const result = this.concentrationRuntime.resolveDamageCheck({
       conditions,
@@ -1896,10 +2272,7 @@ export class ActionRuleService {
     };
   }
 
-  private resolveHeal(
-    command: Extract<ParsedCommand, { type: "heal" }>,
-    sessionCharacters: SessionCharacterForRules[],
-  ): ActionResolution {
+  private resolveHeal(command: Extract<ParsedCommand, { type: "heal" }>, sessionCharacters: SessionCharacterForRules[]): ActionResolution {
     const target = this.requireTarget(command.target, sessionCharacters);
     const nextHp = Math.min(target.currentHp + command.amount, target.character.maxHp);
 
@@ -1912,10 +2285,7 @@ export class ActionRuleService {
     };
   }
 
-  private resolveCondition(
-    command: Extract<ParsedCommand, { type: "condition" }>,
-    sessionCharacters: SessionCharacterForRules[],
-  ): ActionResolution {
+  private resolveCondition(command: Extract<ParsedCommand, { type: "condition" }>, sessionCharacters: SessionCharacterForRules[]): ActionResolution {
     const target = this.requireTarget(command.target, sessionCharacters);
     const currentConditionEntries = this.parseJson<unknown[]>(target.conditionsJson, []);
     const nextConditions =
@@ -1933,7 +2303,7 @@ export class ActionRuleService {
       diceResult: null,
       outcome: ActionOutcome.SUCCESS,
       narration: `${target.character.name}의 상태를 갱신했습니다.`,
-      stateChanges: [{ sessionCharacterId: target.id, conditions: nextConditions }],
+      stateChanges: [this.createTargetStatePatch(target, { conditions: nextConditions })],
     };
   }
 
@@ -1944,13 +2314,9 @@ export class ActionRuleService {
     const abilityKey = this.resolveAbilityKey(checkName);
     const abilityScore = abilities[abilityKey] ?? 10;
     const abilityModifier = Math.floor((abilityScore - 10) / 2);
-    const hasProficiency = proficientSkills
-      .map((skill) => this.normalizeRuleToken(skill))
-      .includes(normalizedCheckName);
+    const hasProficiency = proficientSkills.map((skill) => this.normalizeRuleToken(skill)).includes(normalizedCheckName);
     const hasExpertise = this.hasFeatureTag(actor, `${EXPERTISE_TAG_PREFIX}${normalizedCheckName}`);
-    const proficiency = hasProficiency
-      ? actor.character.proficiencyBonus * (hasExpertise ? 2 : 1)
-      : 0;
+    const proficiency = hasProficiency ? actor.character.proficiencyBonus * (hasExpertise ? 2 : 1) : 0;
     return abilityModifier + proficiency;
   }
 
@@ -1967,10 +2333,7 @@ export class ActionRuleService {
     return !runtimeContext.turnState?.bonusActionUsed;
   }
 
-  private createActionUnavailableResolution(
-    type: string,
-    payload: Record<string, unknown>,
-  ): ActionResolution {
+  private createActionUnavailableResolution(type: string, payload: Record<string, unknown>): ActionResolution {
     return {
       structuredAction: {
         type,
@@ -2003,10 +2366,7 @@ export class ActionRuleService {
     return skillToAbility[normalized] ?? normalized.slice(0, 3);
   }
 
-  private requireTarget(
-    targetToken: string,
-    sessionCharacters: SessionCharacterForRules[],
-  ): SessionCharacterForRules {
+  private requireTarget(targetToken: string, sessionCharacters: SessionCharacterForRules[]): SessionCharacterForRules {
     const target = this.findTarget(targetToken, sessionCharacters);
     if (!target) {
       throw forbidden("ACTION_403", "대상을 찾을 수 없습니다.", {
@@ -2017,18 +2377,18 @@ export class ActionRuleService {
     return target;
   }
 
-  private findTarget(
-    targetToken: string,
-    sessionCharacters: SessionCharacterForRules[],
-  ): SessionCharacterForRules | null {
+  private resolveSpellTargetList(targetToken: string, sessionCharacters: SessionCharacterForRules[]): SessionCharacterForRules[] {
+    const targets = targetToken
+      .split(",")
+      .map((token) => token.trim())
+      .filter(Boolean)
+      .map((token) => this.requireTarget(token, sessionCharacters));
+    return Array.from(new Map(targets.map((target) => [target.id, target])).values());
+  }
+
+  private findTarget(targetToken: string, sessionCharacters: SessionCharacterForRules[]): SessionCharacterForRules | null {
     const normalized = this.normalizeTargetToken(targetToken);
-    return (
-      sessionCharacters.find((candidate) =>
-        this.getTargetAliases(candidate).some(
-          (alias) => this.normalizeTargetToken(alias) === normalized,
-        ),
-      ) ?? null
-    );
+    return sessionCharacters.find((candidate) => this.getTargetAliases(candidate).some((alias) => this.normalizeTargetToken(alias) === normalized)) ?? null;
   }
 
   private getTargetAliases(candidate: SessionCharacterForRules): string[] {
@@ -2038,20 +2398,30 @@ export class ActionRuleService {
       candidate.characterId,
       candidate.character.id,
       candidate.character.name,
+      candidate.tokenId,
+      candidate.combatParticipantId,
       candidate.user?.id,
       candidate.user?.displayName,
       candidate.user?.profile?.nickname,
     ].filter((alias): alias is string => Boolean(alias?.trim()));
   }
 
+  private createTargetStatePatch(
+    target: SessionCharacterForRules,
+    change: Omit<CharacterStatePatch, "sessionCharacterId" | "combatParticipantId">,
+  ): CharacterStatePatch {
+    return {
+      ...change,
+      sessionCharacterId: target.isCombatParticipantOnly ? undefined : target.id,
+      combatParticipantId: target.combatParticipantId ?? undefined,
+    };
+  }
+
   private normalizeTargetToken(value: string): string {
     return value.trim().toLowerCase();
   }
 
-  private resolveChampionCriticalThreshold(
-    actor: SessionCharacterForRules,
-    naturalD20: number,
-  ): RuleHookResult<CriticalThresholdModifierProduced> | null {
+  private resolveChampionCriticalThreshold(actor: SessionCharacterForRules, naturalD20: number): RuleHookResult<CriticalThresholdModifierProduced> | null {
     const subclassFeatureIds = this.resolveChampionSubclassFeatureIds(actor);
     if (!subclassFeatureIds.length) {
       return null;
@@ -2066,14 +2436,10 @@ export class ActionRuleService {
   }
 
   private resolveChampionSubclassFeatureIds(actor: SessionCharacterForRules): string[] {
-    const conditions = this.getConditions(actor).map((condition) =>
-      this.normalizeRuleToken(condition),
-    );
+    const conditions = this.getConditions(actor).map((condition) => this.normalizeRuleToken(condition));
     const className = this.normalizeRuleToken(actor.character.className);
     const subclassName = this.normalizeRuleToken(actor.character.subclassName ?? "");
-    const characterFeatures = this.parseJson<string[]>(actor.character.featuresJson, []).map(
-      (feature) => this.normalizeRuleToken(feature),
-    );
+    const characterFeatures = this.parseJson<string[]>(actor.character.featuresJson, []).map((feature) => this.normalizeRuleToken(feature));
     const featureIds: string[] = [];
 
     if (
@@ -2103,24 +2469,13 @@ export class ActionRuleService {
   private resolveEquippedWeaponProfile(actor: SessionCharacterForRules): EquippedWeaponProfile {
     const equippedWeaponId = actor.character.equippedWeaponId;
     // 새 InventoryEntry 테이블을 우선 사용하되, 기존 JSON 인벤토리 데이터도 계속 동작하게 fallback을 둔다.
-    const normalizedEntryWeapon = this.resolveInventoryEntryWeaponProfile(
-      actor.inventoryEntries ?? [],
-      equippedWeaponId,
-    );
+    const normalizedEntryWeapon = this.resolveInventoryEntryWeaponProfile(actor.inventoryEntries ?? [], equippedWeaponId);
     if (normalizedEntryWeapon) {
       return normalizedEntryWeapon;
     }
 
-    const inventory = this.parseJson<InventoryItemForRules[]>(
-      actor.inventorySnapshotJson ?? actor.character.inventoryJson,
-      [],
-    );
-    const equippedWeapon = equippedWeaponId
-      ? inventory.find(
-          (item) =>
-            item.id === equippedWeaponId || item.itemDefinitionId === equippedWeaponId,
-        )
-      : null;
+    const inventory = this.parseJson<InventoryItemForRules[]>(actor.inventorySnapshotJson ?? actor.character.inventoryJson, []);
+    const equippedWeapon = equippedWeaponId ? inventory.find((item) => item.id === equippedWeaponId || item.itemDefinitionId === equippedWeaponId) : null;
     const properties = equippedWeapon?.properties ?? [];
     const normalizedProperties = properties.map((property) => this.normalizeRuleToken(property));
 
@@ -2128,34 +2483,20 @@ export class ActionRuleService {
       damageDice: equippedWeapon?.damageDice ?? "1d6",
       damageType: equippedWeapon?.damageType ?? DEFAULT_WEAPON_DAMAGE_TYPE,
       properties,
-      attackKind: normalizedProperties.includes("ranged")
-        ? "ranged_weapon_attack"
-        : "melee_weapon_attack",
+      attackKind: normalizedProperties.includes("ranged") ? "ranged_weapon_attack" : "melee_weapon_attack",
     };
   }
 
-  private resolveFightingStyleAttackBonus(
-    actor: SessionCharacterForRules,
-    weaponProfile: EquippedWeaponProfile,
-  ): number {
-    if (
-      weaponProfile.attackKind === "ranged_weapon_attack" &&
-      this.hasFeatureTag(actor, `${FIGHTING_STYLE_TAG_PREFIX}archery`)
-    ) {
+  private resolveFightingStyleAttackBonus(actor: SessionCharacterForRules, weaponProfile: EquippedWeaponProfile): number {
+    if (weaponProfile.attackKind === "ranged_weapon_attack" && this.hasFeatureTag(actor, `${FIGHTING_STYLE_TAG_PREFIX}archery`)) {
       return 2;
     }
 
     return 0;
   }
 
-  private resolveFightingStyleDamageBonus(
-    actor: SessionCharacterForRules,
-    weaponProfile: EquippedWeaponProfile,
-  ): number {
-    if (
-      weaponProfile.attackKind === "melee_weapon_attack" &&
-      this.hasFeatureTag(actor, `${FIGHTING_STYLE_TAG_PREFIX}dueling`)
-    ) {
+  private resolveFightingStyleDamageBonus(actor: SessionCharacterForRules, weaponProfile: EquippedWeaponProfile): number {
+    if (weaponProfile.attackKind === "melee_weapon_attack" && this.hasFeatureTag(actor, `${FIGHTING_STYLE_TAG_PREFIX}dueling`)) {
       return 2;
     }
 
@@ -2170,11 +2511,7 @@ export class ActionRuleService {
       return null;
     }
 
-    const equippedEntry =
-      inventoryEntries.find(
-        (entry) =>
-          entry.id === equippedWeaponId || entry.itemDefinitionId === equippedWeaponId,
-      ) ?? null;
+    const equippedEntry = inventoryEntries.find((entry) => entry.id === equippedWeaponId || entry.itemDefinitionId === equippedWeaponId) ?? null;
     if (!equippedEntry || !this.isWeaponItemDefinition(equippedEntry.itemDefinition)) {
       return null;
     }
@@ -2186,21 +2523,13 @@ export class ActionRuleService {
       damageDice: equippedEntry.itemDefinition.damageDice ?? "1d6",
       damageType: equippedEntry.itemDefinition.damageType ?? DEFAULT_WEAPON_DAMAGE_TYPE,
       properties,
-      attackKind: normalizedProperties.includes("ranged")
-        ? "ranged_weapon_attack"
-        : "melee_weapon_attack",
+      attackKind: normalizedProperties.includes("ranged") ? "ranged_weapon_attack" : "melee_weapon_attack",
     };
   }
 
-  private requireInventoryItemForInteraction(
-    actor: SessionCharacterForRules,
-    itemId: string,
-  ): ItemInteractionEntry {
+  private requireInventoryItemForInteraction(actor: SessionCharacterForRules, itemId: string): ItemInteractionEntry {
     const normalizedItemId = this.normalizeRuleToken(itemId);
-    const inventory = this.parseJson<InventoryItemForRules[]>(
-      actor.inventorySnapshotJson ?? actor.character.inventoryJson,
-      [],
-    );
+    const inventory = this.parseJson<InventoryItemForRules[]>(actor.inventorySnapshotJson ?? actor.character.inventoryJson, []);
     const item = inventory.find((candidate) =>
       [candidate.id, candidate.itemDefinitionId]
         .filter((value): value is string => Boolean(value))
@@ -2226,10 +2555,7 @@ export class ActionRuleService {
     };
   }
 
-  private resolveActorGridPoint(
-    actor: SessionCharacterForRules,
-    runtimeContext: RuleRuntimeContext,
-  ): ItemInteractionPoint | null {
+  private resolveActorGridPoint(actor: SessionCharacterForRules, runtimeContext: RuleRuntimeContext): ItemInteractionPoint | null {
     const map = runtimeContext.map;
     if (!map) {
       return null;
@@ -2246,12 +2572,57 @@ export class ActionRuleService {
     };
   }
 
+  private findTargetAtGridPoint(
+    point: ItemInteractionPoint,
+    actorSessionCharacterId: string,
+    sessionCharacters: SessionCharacterForRules[],
+    map: RuleMapRuntimeContext | null | undefined,
+  ): SessionCharacterForRules | null {
+    if (!map) {
+      return null;
+    }
+
+    const token = map.tokens.find((candidate) => {
+      if (!candidate.sessionCharacterId || candidate.sessionCharacterId === actorSessionCharacterId || candidate.hidden) {
+        return false;
+      }
+      return Math.floor(candidate.x / map.gridSize) === point.x && Math.floor(candidate.y / map.gridSize) === point.y;
+    });
+    if (!token?.sessionCharacterId) {
+      return null;
+    }
+
+    return sessionCharacters.find((candidate) => candidate.id === token.sessionCharacterId) ?? null;
+  }
+
   private createDroppedItemObjectId(entryId: string, point: ItemInteractionPoint): string {
     return `object:item:${entryId}:${point.x}:${point.y}`;
   }
 
   private createThrownItemObjectId(entryId: string, point: ItemInteractionPoint): string {
     return `object:thrown:${entryId}:${point.x}:${point.y}`;
+  }
+
+  private resolveThrownMissLandingPoint(
+    targetPoint: ItemInteractionPoint,
+    attackRoll: DiceRollResponseDto,
+  ): ItemInteractionPoint {
+    const naturalD20 = this.selectNaturalD20(attackRoll);
+    const missOffsets = [
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+      { x: -1, y: 1 },
+      { x: -1, y: 0 },
+      { x: -1, y: -1 },
+      { x: 0, y: -1 },
+      { x: 1, y: -1 },
+    ];
+    const offset = missOffsets[(naturalD20 - 1) % missOffsets.length] ?? { x: 1, y: 0 };
+    return {
+      x: targetPoint.x + offset.x,
+      y: targetPoint.y + offset.y,
+    };
   }
 
   private resolvePickupMapObject(
@@ -2271,10 +2642,7 @@ export class ActionRuleService {
       return { objectCell: null, quantity: null, rejectedReason: "map_object_not_found" };
     }
 
-    if (
-      objectCell.hiddenItemIds.length > 0 &&
-      !objectCell.hiddenItemIds.includes(command.itemDefinitionId)
-    ) {
+    if (objectCell.hiddenItemIds.length > 0 && !objectCell.hiddenItemIds.includes(command.itemDefinitionId)) {
       return { objectCell, quantity: null, rejectedReason: "map_object_item_mismatch" };
     }
 
@@ -2286,18 +2654,15 @@ export class ActionRuleService {
       return { objectCell, quantity: null, rejectedReason: "map_object_position_mismatch" };
     }
 
-    const quantity = this.resolveMapObjectQuantity(objectCell, command.itemDefinitionId);
-    if (quantity !== null && command.quantity > quantity) {
+    const quantity = this.resolveMapObjectQuantity(objectCell, command.itemDefinitionId) ?? 1;
+    if (command.quantity > quantity) {
       return { objectCell, quantity, rejectedReason: "insufficient_map_object_quantity" };
     }
 
     return { objectCell, quantity, rejectedReason: null };
   }
 
-  private resolveMapObjectQuantity(
-    objectCell: RuleMapRuntimeObjectCell,
-    itemDefinitionId: string,
-  ): number | null {
+  private resolveMapObjectQuantity(objectCell: RuleMapRuntimeObjectCell, itemDefinitionId: string): number | null {
     const description = objectCell.description?.trim();
     if (!description) {
       return null;
@@ -2342,10 +2707,7 @@ export class ActionRuleService {
   }
 
   private isWeaponItemDefinition(itemDefinition: InventoryEntryForRules["itemDefinition"]): boolean {
-    return (
-      this.normalizeRuleToken(itemDefinition.itemType) === "weapon" ||
-      Boolean(itemDefinition.damageDice)
-    );
+    return this.normalizeRuleToken(itemDefinition.itemType) === "weapon" || Boolean(itemDefinition.damageDice);
   }
 
   private isClass(actor: SessionCharacterForRules, className: string): boolean {
@@ -2365,9 +2727,11 @@ export class ActionRuleService {
   }
 
   private getFeatureTags(actor: SessionCharacterForRules): string[] {
+    const featureIds = this.parseJson<string[]>(actor.character.featuresJson, []);
     return [
       ...this.getConditions(actor),
-      ...this.parseJson<string[]>(actor.character.featuresJson, []),
+      ...featureIds,
+      ...this.ruleCatalog.resolveRuntimeTags(featureIds),
     ].map((tag) => this.normalizeRuleToken(tag));
   }
 
@@ -2410,6 +2774,10 @@ export class ActionRuleService {
     return this.hasFeatureTag(actor, ACTION_SURGE_FEATURE_ID) || this.isClass(actor, "fighter");
   }
 
+  private hasFighterSecondWind(actor: SessionCharacterForRules): boolean {
+    return this.hasFeatureTag(actor, SECOND_WIND_FEATURE_ID) || this.isClass(actor, "fighter");
+  }
+
   private hasBarbarianRage(actor: SessionCharacterForRules): boolean {
     return this.hasFeatureTag(actor, RAGE_FEATURE_ID) || this.isClass(actor, "barbarian");
   }
@@ -2423,12 +2791,8 @@ export class ActionRuleService {
   }
 
   private removeConditions(currentConditions: string[], removedConditions: string[]): string[] {
-    const normalizedRemoved = new Set(
-      removedConditions.map((condition) => this.normalizeRuleToken(condition)),
-    );
-    return currentConditions.filter(
-      (condition) => !normalizedRemoved.has(this.normalizeRuleToken(condition)),
-    );
+    const normalizedRemoved = new Set(removedConditions.map((condition) => this.normalizeRuleToken(condition)));
+    return currentConditions.filter((condition) => !normalizedRemoved.has(this.normalizeRuleToken(condition)));
   }
 
   private resolveArmorCategory(actor: SessionCharacterForRules): "none" | "light" | "medium" | "heavy" {
@@ -2567,7 +2931,7 @@ export class ActionRuleService {
     targetResistances: string[];
     targetVulnerabilities: string[];
   } {
-    const conditions = this.getConditions(target);
+    const conditions = this.getFeatureTags(target);
 
     return {
       // DB 스키마를 늘리지 않는 MVP 단계라서 임시 룰 태그를 conditionsJson에서 읽는다.
@@ -2578,10 +2942,7 @@ export class ActionRuleService {
     };
   }
 
-  private toAoeDamageTarget(
-    target: SessionCharacterForRules,
-    saveAbility: SavingThrowAbility,
-  ): AoeDamageTarget {
+  private toAoeDamageTarget(target: SessionCharacterForRules, saveAbility: SavingThrowAbility): AoeDamageTarget {
     const damageProfile = this.resolveDamageProfile(target);
     const saveProficiencies = this.resolveSaveProficiencies(target);
 
@@ -2599,10 +2960,7 @@ export class ActionRuleService {
     };
   }
 
-  private resolveAbilityModifier(
-    character: SessionCharacterForRules,
-    ability: SavingThrowAbility,
-  ): number {
+  private resolveAbilityModifier(character: SessionCharacterForRules, ability: SavingThrowAbility): number {
     const abilities = this.parseJson<Record<string, number>>(character.character.abilitiesJson, {});
     const score = abilities[ability] ?? 10;
     return this.abilityModifierFromScore(score);
@@ -2612,14 +2970,128 @@ export class ActionRuleService {
     return Math.floor((score - 10) / 2);
   }
 
+  private rollD20WithRacialLuck(
+    actor: SessionCharacterForRules,
+    expression: string,
+    advantageState: DiceAdvantageState,
+  ): DiceRollResponseDto {
+    const firstRoll = this.diceService.roll(expression, advantageState);
+    if (
+      this.selectNaturalD20(firstRoll) !== 1 ||
+      !this.hasFeatureTag(actor, "reroll:d20:natural_1")
+    ) {
+      return firstRoll;
+    }
+    return this.diceService.roll(expression, advantageState);
+  }
+
+  private resolveDraconicAncestryDamageType(
+    actor: SessionCharacterForRules,
+  ): string | null {
+    const ancestry = this.parseJson<string[]>(
+      actor.character.featuresJson,
+      [],
+    )
+      .map((feature) => this.normalizeRuleToken(feature))
+      .find((feature) => feature.startsWith("draconic_ancestry:"))
+      ?.slice("draconic_ancestry:".length);
+    if (!ancestry) {
+      return null;
+    }
+    const damageTypes: Record<string, string> = {
+      black: "acid",
+      blue: "lightning",
+      brass: "fire",
+      bronze: "lightning",
+      copper: "acid",
+      gold: "fire",
+      green: "poison",
+      red: "fire",
+      silver: "cold",
+      white: "cold",
+    };
+    return damageTypes[ancestry] ?? null;
+  }
+
+  private resolveDragonbornBreathTargets(
+    actor: SessionCharacterForRules,
+    anchor: SessionCharacterForRules,
+    sessionCharacters: SessionCharacterForRules[],
+    map: RuleMapRuntimeContext | null | undefined,
+  ): SessionCharacterForRules[] {
+    if (!map || map.gridType !== "square") {
+      return [anchor];
+    }
+    const actorToken = map.tokens.find(
+      (token) => token.sessionCharacterId === actor.id,
+    );
+    const anchorToken = map.tokens.find(
+      (token) => token.sessionCharacterId === anchor.id,
+    );
+    if (!actorToken || !anchorToken) {
+      return [anchor];
+    }
+    const toCell = (token: typeof actorToken) => ({
+      column: Math.floor(token.x / map.gridSize),
+      row: Math.floor(token.y / map.gridSize),
+    });
+    const actorCell = toCell(actorToken);
+    const anchorCell = toCell(anchorToken);
+    const direction = this.resolveAoeDirection(
+      anchorCell.column - actorCell.column,
+      anchorCell.row - actorCell.row,
+    );
+    const tokenCells = map.tokens
+      .filter((token) => token.sessionCharacterId)
+      .map((token) => ({
+        id: token.sessionCharacterId as string,
+        ...toCell(token),
+        hidden: token.hidden,
+      }));
+    const columns =
+      Math.max(actorCell.column, ...tokenCells.map((token) => token.column)) + 2;
+    const rows =
+      Math.max(actorCell.row, ...tokenCells.map((token) => token.row)) + 2;
+    const affectedIds = new Set(
+      this.aoeTargeting.resolveTargets({
+        shape: "cone",
+        origin: actorCell,
+        sizeFt: 15,
+        grid: { columns, rows },
+        direction,
+        tokens: tokenCells,
+      }).tokenIds,
+    );
+    return sessionCharacters.filter((candidate) => {
+      if (candidate.id === actor.id || !affectedIds.has(candidate.id)) {
+        return false;
+      }
+      const token = map.tokens.find(
+        (entry) => entry.sessionCharacterId === candidate.id,
+      );
+      return Boolean(token && token.isHostile !== actorToken.isHostile);
+    });
+  }
+
+  private resolveAoeDirection(dx: number, dy: number): AoeDirection {
+    const horizontal = Math.sign(dx);
+    const vertical = Math.sign(dy);
+    if (horizontal > 0 && vertical < 0) return "north_east";
+    if (horizontal > 0 && vertical > 0) return "south_east";
+    if (horizontal < 0 && vertical < 0) return "north_west";
+    if (horizontal < 0 && vertical > 0) return "south_west";
+    if (horizontal > 0) return "east";
+    if (horizontal < 0) return "west";
+    if (vertical < 0) return "north";
+    return "south";
+  }
+
   private resolveSaveProficiencies(character: SessionCharacterForRules): SavingThrowAbility[] {
-    const conditions = this.getConditions(character);
+    const conditions = this.getFeatureTags(character);
     const saveAbilities = new Set<SavingThrowAbility>();
     for (const condition of conditions) {
       const normalized = this.normalizeRuleToken(condition);
-      const ability = normalized.startsWith("save_proficiency:")
-        ? normalized.slice("save_proficiency:".length)
-        : null;
+      const ability = normalized.startsWith("save_proficiency:") ? normalized.slice("save_proficiency:".length) : null;
       if (this.isSavingThrowAbility(ability)) {
         saveAbilities.add(ability);
       }
@@ -2627,15 +3099,43 @@ export class ActionRuleService {
     return Array.from(saveAbilities);
   }
 
+  private resolveRacialSaveAdvantage(
+    character: SessionCharacterForRules,
+    ability: SavingThrowAbility,
+    condition?: string | null,
+  ): DiceAdvantageState {
+    const tags = new Set(this.getFeatureTags(character));
+    const normalizedCondition = this.normalizeRuleToken(condition ?? "")
+      .replace(/^condition[.:]/, "");
+    if (
+      (normalizedCondition === "poison" || normalizedCondition === "poisoned") &&
+      tags.has("advantage:save:poison")
+    ) {
+      return DiceAdvantageState.ADVANTAGE;
+    }
+    if (
+      (normalizedCondition === "charm" || normalizedCondition === "charmed") &&
+      tags.has("advantage:save:charmed")
+    ) {
+      return DiceAdvantageState.ADVANTAGE;
+    }
+    if (
+      (normalizedCondition === "fear" || normalizedCondition === "frightened") &&
+      tags.has("advantage:save:frightened")
+    ) {
+      return DiceAdvantageState.ADVANTAGE;
+    }
+    if (
+      normalizedCondition.includes("magic") &&
+      tags.has(`advantage:save:${ability}_magic`)
+    ) {
+      return DiceAdvantageState.ADVANTAGE;
+    }
+    return DiceAdvantageState.NORMAL;
+  }
+
   private isSavingThrowAbility(value: string | null): value is SavingThrowAbility {
-    return (
-      value === "str" ||
-      value === "dex" ||
-      value === "con" ||
-      value === "int" ||
-      value === "wis" ||
-      value === "cha"
-    );
+    return value === "str" || value === "dex" || value === "con" || value === "int" || value === "wis" || value === "cha";
   }
 
   private getDamageTypesByPrefix(conditions: string[], prefix: string): string[] {
@@ -2651,10 +3151,7 @@ export class ActionRuleService {
     const normalizedName = this.normalizeRuleToken(conditionName);
     return this.getConditions(character).some((condition) => {
       const normalizedCondition = this.normalizeRuleToken(condition);
-      return (
-        normalizedCondition === normalizedName ||
-        normalizedCondition === `condition.${normalizedName}`
-      );
+      return normalizedCondition === normalizedName || normalizedCondition === `condition.${normalizedName}`;
     });
   }
 
@@ -2672,11 +3169,7 @@ export class ActionRuleService {
 
   private addConditionEntry(currentEntries: unknown[], condition: string): unknown[] {
     const normalized = this.normalizeRuleToken(condition);
-    if (
-      currentEntries.some((entry) =>
-        typeof entry === "string" && this.normalizeRuleToken(entry) === normalized,
-      )
-    ) {
+    if (currentEntries.some((entry) => typeof entry === "string" && this.normalizeRuleToken(entry) === normalized)) {
       return currentEntries;
     }
     return [...currentEntries, condition];
@@ -2702,8 +3195,20 @@ export class ActionRuleService {
     remainingConditions: unknown[],
   ): unknown[] {
     const remainingByKey = new Map(
-      this.conditionRuntime
-        .parseConditionsJson(JSON.stringify(remainingConditions))
+      remainingConditions
+        .filter(
+          (
+            condition,
+          ): condition is {
+            conditionId: string;
+            sourceId: string | null;
+            appliedAtRound: number | null;
+          } =>
+            Boolean(condition) &&
+            typeof condition === "object" &&
+            !Array.isArray(condition) &&
+            typeof (condition as { conditionId?: unknown }).conditionId === "string",
+        )
         .map((condition) => [this.conditionEntryKey(condition), condition]),
     );
 
@@ -2720,20 +3225,13 @@ export class ActionRuleService {
     });
   }
 
-  private conditionEntryKey(condition: {
-    conditionId: string;
-    sourceId: string | null;
-    appliedAtRound: number | null;
-  }): string {
+  private conditionEntryKey(condition: { conditionId: string; sourceId: string | null; appliedAtRound: number | null }): string {
     return `${condition.conditionId}:${condition.sourceId ?? ""}:${condition.appliedAtRound ?? ""}`;
   }
 
   private conditionNameMatches(conditionId: string, normalizedConditionName: string): boolean {
     const normalizedConditionId = this.normalizeRuleToken(conditionId);
-    return (
-      normalizedConditionId === normalizedConditionName ||
-      normalizedConditionId === `condition.${normalizedConditionName}`
-    );
+    return normalizedConditionId === normalizedConditionName || normalizedConditionId === `condition.${normalizedConditionName}`;
   }
 
   private selectNaturalD20(diceResult: DiceRollResponseDto): number {
@@ -2775,11 +3273,7 @@ export class ActionRuleService {
     return value.trim().toLowerCase();
   }
 
-  private createAttackNarration(result: {
-    hit: boolean;
-    criticalHit: boolean;
-    criticalMiss: boolean;
-  }): string {
+  private createAttackNarration(result: { hit: boolean; criticalHit: boolean; criticalMiss: boolean }): string {
     if (result.criticalHit) {
       return "공격이 치명타로 명중했습니다.";
     }
@@ -2787,194 +3281,6 @@ export class ActionRuleService {
       return "공격이 대실패했습니다.";
     }
     return result.hit ? "공격이 명중했습니다." : "공격이 빗나갔습니다.";
-  }
-
-  private resolveKnownCantrips(spellId: string): string[] {
-    // 아직 캐릭터별 주문 목록 모델이 없어서, MVP에서는 실행 경로가 붙은 cantrip만
-    // "시전자가 알고 있는 cantrip"으로 간주한다. 주문 목록 테이블이 생기면 여기만 바꾸면 된다.
-    return [CHILL_TOUCH_SPELL_ID, FIRE_BOLT_SPELL_ID].includes(spellId) ? [spellId] : [];
-  }
-
-  private resolveSpellDefinition(spellId: string): RuleCatalogEntry | null {
-    const entry = this.ruleCatalog.getEntry(spellId);
-    return entry?.kind === "spell_definitions" ? entry : null;
-  }
-
-  private toStructuredSpellDefinition(
-    spellDefinition: RuleCatalogEntry | null,
-    spellLevel: number,
-  ): {
-    id: string;
-    level: number;
-    damage: RuleCatalogEntry["damage"];
-    targeting: RuleCatalogEntry["targeting"];
-    scaling: RuleCatalogEntry["scaling"];
-  } | null {
-    return spellDefinition
-      ? {
-          id: spellDefinition.id,
-          level: spellLevel,
-          damage: spellDefinition.damage,
-          targeting: spellDefinition.targeting,
-          scaling: spellDefinition.scaling,
-        }
-      : null;
-  }
-
-  private resolveSpellRangeFt(spellDefinition: RuleCatalogEntry | null): number | null {
-    if (!spellDefinition || spellDefinition.targeting.type !== "creature") {
-      return null;
-    }
-    return spellDefinition.targeting.rangeFt;
-  }
-
-  private resolveSpellLevel(spellDefinition: RuleCatalogEntry): number {
-    const tag = spellDefinition.runtimeEffect.tags.find((value) => value.startsWith("spell_level:"));
-    const level = Number(tag?.slice("spell_level:".length));
-    return Number.isInteger(level) && level >= 0 ? level : 0;
-  }
-
-  private resolveSpellDamageDice(
-    spellDefinition: RuleCatalogEntry | null,
-    characterLevel: number,
-  ): string | null {
-    if (!spellDefinition?.damage) {
-      return null;
-    }
-    if (spellDefinition.scaling?.mode !== "character_level") {
-      return spellDefinition.damage.dice;
-    }
-
-    const table = spellDefinition.scaling.table ?? {};
-    const matchingThreshold = Object.keys(table)
-      .map((key) => Number(key))
-      .filter((level) => Number.isInteger(level) && level <= characterLevel)
-      .sort((left, right) => right - left)[0];
-    const scaledDice =
-      matchingThreshold === undefined ? null : table[String(matchingThreshold)];
-    return typeof scaledDice === "string" ? scaledDice : spellDefinition.damage.dice;
-  }
-
-  private resolveSpellScaling(
-    spellDefinition: RuleCatalogEntry | null,
-    slotLevel: number,
-  ): SpellScalingResult | null {
-    if (!spellDefinition) {
-      return null;
-    }
-
-    const baseSpellLevel = this.resolveSpellLevel(spellDefinition);
-    if (spellDefinition.scaling?.mode !== "slot_level") {
-      return this.spellScaling.resolveUpcast({
-        spellId: spellDefinition.id,
-        baseSpellLevel,
-        slotLevel: baseSpellLevel,
-        baseDamageDice: spellDefinition.damage?.dice ?? null,
-      });
-    }
-
-    return this.spellScaling.resolveUpcast({
-      spellId: spellDefinition.id,
-      baseSpellLevel,
-      slotLevel,
-      baseDamageDice: spellDefinition.damage?.dice ?? null,
-      baseTargetCount: this.resolveBaseTargetCount(spellDefinition),
-      scalingRules: this.toSpellScalingRules(spellDefinition),
-    });
-  }
-
-  private resolveBaseTargetCount(spellDefinition: RuleCatalogEntry): number | null {
-    const missileTag = spellDefinition.runtimeEffect.tags.find((tag) => tag.startsWith("missile_count:"));
-    const missileCount = Number(missileTag?.slice("missile_count:".length));
-    if (Number.isInteger(missileCount) && missileCount > 0) {
-      return missileCount;
-    }
-
-    return spellDefinition.targeting.type === "creature" ? 1 : null;
-  }
-
-  private toSpellScalingRules(spellDefinition: RuleCatalogEntry): SpellScalingRule[] {
-    const table = spellDefinition.scaling?.table;
-    if (!table || typeof table !== "object" || Array.isArray(table)) {
-      return [];
-    }
-
-    const mode = table.mode;
-    switch (mode) {
-      case "damage_dice":
-        return typeof table.dice === "string"
-          ? [{ mode, dice: table.dice, perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove) }]
-          : [];
-      case "target_count":
-      case "summon_count":
-        return typeof table.count === "number"
-          ? [{ mode, count: table.count, perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove) }]
-          : [];
-      case "duration":
-        return typeof table.unit === "string" && typeof table.amountPerSlotAbove === "number"
-          ? [{
-              mode,
-              unit: table.unit as "round" | "minute" | "hour" | "day",
-              amountPerSlotAbove: table.amountPerSlotAbove,
-              perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove),
-            }]
-          : [];
-      default:
-        return [];
-    }
-  }
-
-  private toOptionalPositiveInteger(value: unknown): number | undefined {
-    return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
-  }
-
-  private resolveDefaultComponentAvailability(): {
-    verbal: boolean;
-    somatic: boolean;
-    material: boolean | null;
-  } {
-    // 침묵, 구속, 양손 점유 같은 component 차단 상태는 아직 모델링되어 있지 않다.
-    // 그래서 현재 action 흐름에서는 기본적으로 V/S component가 가능하다고 보고 훅 검증에 넘긴다.
-    return { verbal: true, somatic: true, material: null };
-  }
-
-  private resolveSpellOutcome(accepted: boolean, hit: boolean): ActionOutcome {
-    if (!accepted) {
-      return ActionOutcome.IMPOSSIBLE;
-    }
-    return hit ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE;
-  }
-
-  private createChillTouchNarration(accepted: boolean, hit: boolean): string {
-    if (!accepted) {
-      return "주문을 시전할 수 없습니다.";
-    }
-    return hit ? "Chill Touch가 명중했습니다." : "Chill Touch가 빗나갔습니다.";
-  }
-
-  private createSpellAttackNarration(spellId: string, hit: boolean): string {
-    const spellName = spellId === FIRE_BOLT_SPELL_ID ? "Fire Bolt" : spellId;
-    return hit ? `${spellName}가 명중했습니다.` : `${spellName}가 빗나갔습니다.`;
-  }
-
-  private createSpellRejectedNarration(reason: string | null): string {
-    switch (reason) {
-      case "target_out_of_range":
-        return "대상이 주문 사거리 밖에 있습니다.";
-      case "unsupported_spell":
-        return "지원하지 않는 주문입니다.";
-      case "invalid_spell_slot_level":
-        return "주문 슬롯 레벨이 유효하지 않습니다.";
-      case "cantrip_not_known":
-        return "시전자가 알지 못하는 cantrip입니다.";
-      case "action_unavailable":
-        return "이번 턴에 주문 시전에 사용할 행동이 없습니다.";
-      case "missing_verbal_component":
-      case "missing_somatic_component":
-        return "주문 구성요소 조건을 만족하지 못했습니다.";
-      default:
-        return "주문을 시전할 수 없습니다.";
-    }
   }
 
   private parseJson<T>(value: string | null | undefined, fallback: T): T {

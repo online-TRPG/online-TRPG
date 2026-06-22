@@ -28,12 +28,13 @@ import { CharacterResourceService } from "../rules/character-resource.service";
 import { InventoryRuntimeService } from "../rules/inventory-runtime.service";
 import { MapPositionService } from "../rules/map-position.service";
 import { PENDING_READY_ACTIONS_FLAG } from "../rules/ready-action.service";
+import { RuleEngineService } from "../rules/rule-engine.service";
+import { BagOfHoldingIntegrity } from "../rules/rule-engine.types";
 import { SpellSlotService } from "../rules/spell-slot.service";
 import { StateDiffService } from "../rules/state-diff.service";
-import { MapRuntimeService } from "../sessions/map-runtime.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { TurnLogsService } from "../turn-logs/turn-logs.service";
-import { badRequest, notFound } from "../../common/exceptions/domain-error";
+import { badRequest, conflict, notFound } from "../../common/exceptions/domain-error";
 
 type RuntimeTurnStateKey = {
   combatId: string;
@@ -52,6 +53,65 @@ type RuntimeActor = {
   };
 };
 
+type RuleTargetCharacter = {
+  id: string;
+  userId: string;
+  characterId: string;
+  tokenId?: string | null;
+  combatParticipantId?: string | null;
+  isCombatParticipantOnly?: boolean;
+  currentHp: number;
+  tempHp: number;
+  conditionsJson: string;
+  inventorySnapshotJson?: string | null;
+  inventoryEntries?: Array<{
+    id: string;
+    itemDefinitionId: string;
+    itemDefinition: {
+      id: string;
+      itemType: string;
+      damageDice?: string | null;
+      damageType?: string | null;
+      propertiesJson?: string | null;
+    };
+  }>;
+  character: {
+    id: string;
+    name: string;
+    className: string;
+    subclassName?: string | null;
+    level: number;
+    maxHp: number;
+    abilitiesJson: string;
+    proficiencyBonus: number;
+    featuresJson?: string | null;
+    proficientSkillsJson: string;
+    armorClass: number;
+    speed: number;
+    spellsJson?: string | null;
+    inventoryJson?: string | null;
+    equippedWeaponId?: string | null;
+  };
+  user?: {
+    id: string;
+    displayName: string;
+    profile?: { nickname: string } | null;
+  } | null;
+};
+
+type RuntimeCombatParticipant = {
+  id: string;
+  sessionCharacterId: string | null;
+  tokenId: string | null;
+  nameSnapshot: string;
+  currentHp: number | null;
+  maxHp: number | null;
+  armorClass: number | null;
+  speedFt: number | null;
+  conditionsJson: string | null;
+  isHostile: boolean;
+};
+
 type RuntimeEffectParams = {
   sessionId: string;
   sessionScenarioId: string;
@@ -68,12 +128,25 @@ type InventoryMapRuntimeEffect = Extract<
   | { type: "REMOVE_MAP_OBJECT" }
 >;
 
+type InventoryMapAtomicRuntimeEffect =
+  | InventoryMapRuntimeEffect
+  | Extract<ActionRuntimeEffect, { type: "SPEND_ACTION" }>;
+
+type InventoryContainerDbClient = Pick<
+  Prisma.TransactionClient,
+  "containerState" | "inventoryEntry"
+>;
+
 const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
+const SECOND_WIND_FEATURE_ID = "class.fighter.feature.second_wind";
 const RAGE_FEATURE_ID = "class.barbarian.feature.rage";
+const MONSTER_LIMITED_USE_EXPENDED_FLAG = "monsterLimitedUseExpended";
 
 @Injectable()
 export class ActionProcessorService {
   private readonly logger = new Logger(ActionProcessorService.name);
+  private readonly processingSessionIds = new Set<string>();
+  private readonly processAgainSessionIds = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -87,25 +160,63 @@ export class ActionProcessorService {
     private readonly characterResources: CharacterResourceService,
     private readonly inventoryRuntime: InventoryRuntimeService,
     private readonly mapPositions: MapPositionService,
-    private readonly mapRuntime: MapRuntimeService,
     private readonly spellSlots: SpellSlotService = new SpellSlotService(),
+    private readonly ruleEngine: RuleEngineService = new RuleEngineService(),
   ) {}
 
   async processNext(sessionId: string): Promise<void> {
+    if (this.processingSessionIds.has(sessionId)) {
+      this.processAgainSessionIds.add(sessionId);
+      return;
+    }
+    this.processingSessionIds.add(sessionId);
+
+    try {
+      while (true) {
+        const action = await this.claimNextPendingAction(sessionId);
+        if (!action) {
+          if (this.processAgainSessionIds.delete(sessionId)) {
+            continue;
+          }
+          return;
+        }
+        await this.processClaimedAction(action);
+      }
+    } finally {
+      this.processingSessionIds.delete(sessionId);
+      if (this.processAgainSessionIds.delete(sessionId)) {
+        await this.processNext(sessionId);
+      }
+    }
+  }
+
+  private async claimNextPendingAction(sessionId: string) {
     const action = await this.prisma.playerAction.findFirst({
       where: { sessionId, queueStatus: PrismaActionQueueStatus.PENDING },
       orderBy: { createdAt: "asc" },
     });
 
     if (!action) {
-      return;
+      return null;
     }
 
-    await this.prisma.playerAction.update({
-      where: { id: action.id },
+    const claimed = await this.prisma.playerAction.updateMany({
+      where: {
+        id: action.id,
+        queueStatus: PrismaActionQueueStatus.PENDING,
+      },
       data: { queueStatus: PrismaActionQueueStatus.PROCESSING },
     });
+    return claimed.count === 1 ? action : null;
+  }
 
+  private async processClaimedAction(action: {
+    id: string;
+    sessionId: string;
+    userId: string;
+    sessionCharacterId: string | null;
+    rawText: string;
+  }): Promise<void> {
     try {
       const turnLog = await this.processAction(action.id);
       await this.prisma.playerAction.update({
@@ -126,6 +237,15 @@ export class ActionProcessorService {
           processedAt: new Date(),
         },
       });
+
+      const correctedTurnLog = await this.turnLogsService.markLatestPlayerActionFailed(
+        action.id,
+        errorMessage,
+      );
+      if (correctedTurnLog) {
+        this.realtimeEvents.emitTurnLogCreated(action.sessionId, correctedTurnLog);
+        return;
+      }
 
       const failureTurnLog = await this.createFailureTurnLog(action, errorMessage);
       if (failureTurnLog) {
@@ -220,6 +340,7 @@ export class ActionProcessorService {
     }
 
     const runtime = await this.buildRuntime(session.id, sessionScenario.id, actor, state);
+    const ruleTargets = this.createRuleTargets(sessionCharacters, runtime.combatParticipants);
 
     // BE → AI Interpreter (AI-SERVER-001). 자연어 → 구조화 action 후보를 AiTrace 로 영속.
     // Phase 1: 결과를 룰 판정에 사용하지 않음 (actionRules 시그니처 변경 동반이라 별 PR).
@@ -230,7 +351,7 @@ export class ActionProcessorService {
         rawText: action.rawText,
         actorCharacterId: actor.character.id,
         sceneSummary: `${session.title} - ${actor.character.name}의 행동`,
-        availableTargets: sessionCharacters.map((c) => c.character.name),
+        availableTargets: ruleTargets.map((c) => c.character.name),
       });
     } catch (error) {
       this.logger.warn(
@@ -241,7 +362,7 @@ export class ActionProcessorService {
     const resolution = this.actionRules.resolveAction(
       action.rawText,
       actor,
-      sessionCharacters,
+      ruleTargets,
       runtime.context,
     );
     const runtimeEffectParams = {
@@ -337,12 +458,18 @@ export class ActionProcessorService {
   ): Promise<{
     context: RuleRuntimeContext;
     turnStateKey: RuntimeTurnStateKey | null;
+    combatParticipants: RuntimeCombatParticipant[];
   }> {
     const vttMap = await this.sessionsService.getVttMapBaseline(sessionId, sessionScenarioId, state);
     const map = this.mapPositions.createRuntimeMap(vttMap);
     const resource = await this.characterResources.getOrCreateResource(
       actor.id,
       this.resolveInitialResourceDefaults(actor),
+    );
+    const spellSlotState = this.resolveRuntimeSpellSlotState(
+      state.flagsJson,
+      actor.id,
+      actor.character,
     );
     const combat = await this.prisma.combat.findFirst({
       where: {
@@ -364,6 +491,8 @@ export class ActionProcessorService {
         context: {
           map,
           hasActiveCombat: Boolean(combat),
+          spellSlots: spellSlotState.current,
+          spellSlotMaximums: spellSlotState.maximums,
           resource: this.toRuntimeResource(resource),
           turnState: null,
           combat: combat
@@ -376,6 +505,7 @@ export class ActionProcessorService {
             : null,
         },
         turnStateKey: null,
+        combatParticipants: combat?.participants ?? [],
       };
     }
 
@@ -392,6 +522,8 @@ export class ActionProcessorService {
       context: {
         map,
         hasActiveCombat: true,
+        spellSlots: spellSlotState.current,
+        spellSlotMaximums: spellSlotState.maximums,
         resource: this.toRuntimeResource(resource),
         turnState: {
           actionUsed: turnState.actionUsed,
@@ -408,7 +540,62 @@ export class ActionProcessorService {
         },
       },
       turnStateKey,
+      combatParticipants: combat.participants,
     };
+  }
+
+  private createRuleTargets(
+    sessionCharacters: RuleTargetCharacter[],
+    combatParticipants: RuntimeCombatParticipant[],
+  ): RuleTargetCharacter[] {
+    const participantBySessionCharacterId = new Map(
+      combatParticipants
+        .filter((participant) => participant.sessionCharacterId)
+        .map((participant) => [participant.sessionCharacterId as string, participant]),
+    );
+    const sessionTargets = sessionCharacters.map((sessionCharacter) => {
+      const participant = participantBySessionCharacterId.get(sessionCharacter.id);
+      return {
+        ...sessionCharacter,
+        tokenId: participant?.tokenId ?? sessionCharacter.tokenId,
+        combatParticipantId: participant?.id ?? sessionCharacter.combatParticipantId,
+      };
+    });
+    const participantOnlyTargets = combatParticipants
+      .filter((participant) => !participant.sessionCharacterId)
+      .map((participant): RuleTargetCharacter => ({
+        id: `combat-participant:${participant.id}`,
+        userId: `combat-participant:${participant.id}`,
+        characterId: `combat-participant:${participant.id}`,
+        tokenId: participant.tokenId,
+        combatParticipantId: participant.id,
+        isCombatParticipantOnly: true,
+        currentHp: participant.currentHp ?? 0,
+        tempHp: 0,
+        conditionsJson: participant.conditionsJson ?? "[]",
+        inventorySnapshotJson: null,
+        inventoryEntries: [],
+        user: null,
+        character: {
+          id: `combat-participant:${participant.id}`,
+          name: participant.nameSnapshot,
+          className: participant.isHostile ? "monster" : "npc",
+          subclassName: null,
+          level: 1,
+          maxHp: participant.maxHp ?? participant.currentHp ?? 1,
+          abilitiesJson: "{}",
+          proficiencyBonus: 2,
+          featuresJson: "[]",
+          proficientSkillsJson: "[]",
+          armorClass: participant.armorClass ?? 10,
+          speed: participant.speedFt ?? 30,
+          spellsJson: null,
+          inventoryJson: "[]",
+          equippedWeaponId: null,
+        },
+      }));
+
+    return [...sessionTargets, ...participantOnlyTargets];
   }
 
   private async applyRuntimeEffects(
@@ -416,12 +603,13 @@ export class ActionProcessorService {
     params: RuntimeEffectParams,
   ): Promise<boolean> {
     let changed = false;
-    let effects = (resolution.runtimeEffects ?? []).filter((effect) => !this.isEarlyRuntimeEffect(effect));
+    const allEffects = resolution.runtimeEffects ?? [];
+    let effects = allEffects.filter((effect) => !this.isEarlyRuntimeEffect(effect));
     if (this.hasInventoryMapRuntimeEffects(effects)) {
       await this.applyInventoryMapRuntimeEffectsAtomically(
         params,
-        effects.filter((effect): effect is InventoryMapRuntimeEffect =>
-          this.isInventoryMapRuntimeEffect(effect),
+        allEffects.filter((effect): effect is InventoryMapAtomicRuntimeEffect =>
+          this.isInventoryMapAtomicRuntimeEffect(effect),
         ),
       );
       effects = effects.filter((effect) => !this.isInventoryMapRuntimeEffect(effect));
@@ -440,8 +628,13 @@ export class ActionProcessorService {
     params: RuntimeEffectParams,
   ): Promise<boolean> {
     let changed = false;
-    for (const effect of resolution.runtimeEffects ?? []) {
+    const effects = resolution.runtimeEffects ?? [];
+    const deferActionSpend = this.hasInventoryMapRuntimeEffects(effects);
+    for (const effect of effects) {
       if (!this.isEarlyRuntimeEffect(effect)) {
+        continue;
+      }
+      if (deferActionSpend && effect.type === "SPEND_ACTION") {
         continue;
       }
       await this.applyRuntimeEffect(effect, params);
@@ -498,6 +691,15 @@ export class ActionProcessorService {
           effect.slotLevel,
         );
         return;
+      case "RESTORE_SPELL_SLOT":
+        for (let index = 0; index < effect.amount; index += 1) {
+          await this.recoverOneSpellSlot(
+            params.sessionScenarioId,
+            params.sessionCharacterId,
+            effect.slotLevel,
+          );
+        }
+        return;
       case "STORE_READY_ACTION":
         await this.storePendingReadyAction(params.sessionScenarioId, effect.pending);
         return;
@@ -517,16 +719,32 @@ export class ActionProcessorService {
         // 휴식은 캐릭터 HP 변경과 별도로 class resource row도 회복해야 해서 runtime effect로 처리한다.
         await this.characterResources.recoverShortRest({
           sessionCharacterId: params.sessionCharacterId,
+          secondWindAvailable: effect.secondWindAvailable,
           actionSurgeUses: effect.actionSurgeUses,
+          hitDiceSpent: effect.hitDiceSpent,
         });
+        await this.recoverShortRestMonsterLimitedUses(params.sessionScenarioId);
+        await this.recoverShortRestPactMagicSlots(
+          params.sessionScenarioId,
+          params.sessionCharacterId,
+        );
+        if (effect.recoverSpellSlotLevel) {
+          await this.recoverOneSpellSlot(
+            params.sessionScenarioId,
+            params.sessionCharacterId,
+            effect.recoverSpellSlotLevel,
+          );
+        }
         return;
       case "RECOVER_LONG_REST":
         // Long Rest는 Rage/Frenzy 같은 지속 자원까지 종료하므로 전용 회복 메서드에 위임한다.
         await this.characterResources.recoverLongRest({
           sessionCharacterId: params.sessionCharacterId,
+          secondWindAvailable: effect.secondWindAvailable,
           actionSurgeUses: effect.actionSurgeUses,
           rageUses: effect.rageUses,
           reduceExhaustionBy: effect.reduceExhaustionBy,
+          hitDiceSpent: effect.hitDiceSpent,
         });
         await this.recoverLongRestSpellSlots(params.sessionScenarioId, params.sessionCharacterId);
         return;
@@ -546,13 +764,12 @@ export class ActionProcessorService {
         });
         return;
       case "CREATE_MAP_OBJECT":
-        await this.createMapObjectFromRuntimeEffect(params.sessionId, effect);
-        return;
       case "UPDATE_MAP_OBJECT_QUANTITY":
-        await this.updateMapObjectQuantityFromRuntimeEffect(params.sessionId, effect);
-        return;
       case "REMOVE_MAP_OBJECT":
-        await this.removeMapObjectFromRuntimeEffect(params.sessionId, effect.objectId);
+        throw conflict("VTT_409", "맵 오브젝트 변경은 인벤토리 변경과 같은 원자적 경로로만 처리할 수 있습니다.", {
+          reason: "MAP_EFFECT_REQUIRES_ATOMIC_INVENTORY_PAIR",
+          effectType: effect.type,
+        });
         return;
     }
   }
@@ -561,7 +778,8 @@ export class ActionProcessorService {
     resolution: ActionResolution,
     params: RuntimeEffectParams,
   ): Promise<void> {
-    for (const effect of resolution.runtimeEffects ?? []) {
+    const effects = resolution.runtimeEffects ?? [];
+    for (const effect of effects) {
       if (effect.type === "SPEND_SPELL_SLOT") {
         await this.assertSpellSlotAvailable(
           params.sessionScenarioId,
@@ -570,6 +788,120 @@ export class ActionProcessorService {
         );
       }
     }
+    const laterEffects = effects.filter((effect) => !this.isEarlyRuntimeEffect(effect));
+    this.assertNoUnpairedMapRuntimeEffects(laterEffects);
+    await this.assertInventoryRuntimeEffectsApplicable(
+      params.sessionCharacterId,
+      laterEffects.filter((effect) => this.isInventoryRuntimeEffect(effect)),
+    );
+    if (!this.hasInventoryMapRuntimeEffects(laterEffects)) {
+      return;
+    }
+    const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(
+      params.sessionId,
+    );
+    const baselineMap = await this.sessionsService.getVttMapBaseline(
+      params.sessionId,
+      sessionScenario.id,
+      state,
+    );
+    this.assertMapRuntimeEffectsApplicable(
+      baselineMap,
+      laterEffects.filter((effect): effect is InventoryMapRuntimeEffect =>
+        this.isInventoryMapRuntimeEffect(effect),
+      ),
+    );
+  }
+
+  private async assertInventoryRuntimeEffectsApplicable(
+    sessionCharacterId: string,
+    effects: ActionRuntimeEffect[],
+  ): Promise<void> {
+    for (const effect of effects) {
+      if (effect.type === "ADD_ITEM") {
+        await this.assertInventoryItemDefinitionAvailable(sessionCharacterId, effect);
+      } else if (effect.type === "REMOVE_ITEM") {
+        await this.assertInventoryEntryRemovable(sessionCharacterId, effect);
+      }
+    }
+  }
+
+  private async assertInventoryItemDefinitionAvailable(
+    sessionCharacterId: string,
+    effect: Extract<ActionRuntimeEffect, { type: "ADD_ITEM" }>,
+  ): Promise<void> {
+    const itemDefinition = await this.prisma.itemDefinition.findFirst({
+      where: {
+        OR: [
+          { id: effect.itemDefinitionId },
+          { name: { equals: effect.itemDefinitionId, mode: "insensitive" } },
+        ],
+      },
+    });
+    if (!itemDefinition) {
+      throw notFound("INVENTORY_404", "아이템 정의를 찾을 수 없습니다.", {
+        reason: "ITEM_DEFINITION_NOT_FOUND",
+        itemDefinitionId: effect.itemDefinitionId,
+      });
+    }
+    if (effect.containerEntryId) {
+      await this.validateContainerMutationWithClient(this.prisma, {
+        containerEntryId: effect.containerEntryId,
+        sessionCharacterId,
+        addedWeightLb: this.calculateItemWeight(
+          itemDefinition,
+          this.normalizeInventoryQuantity(effect.quantity),
+        ),
+        addedVolumeCuFt: this.calculateItemVolume(
+          itemDefinition,
+          this.normalizeInventoryQuantity(effect.quantity),
+        ),
+      });
+    }
+  }
+
+  private async assertInventoryEntryRemovable(
+    sessionCharacterId: string,
+    effect: Extract<ActionRuntimeEffect, { type: "REMOVE_ITEM" }>,
+  ): Promise<void> {
+    const quantity = this.normalizeInventoryQuantity(effect.quantity);
+    const entry = await this.prisma.inventoryEntry.findFirst({
+      where: {
+        sessionCharacterId,
+        OR: [
+          { id: effect.itemId },
+          { itemDefinitionId: effect.itemId },
+          {
+            itemDefinition: {
+              is: {
+                OR: [
+                  { id: effect.itemId },
+                  { name: { equals: effect.itemId, mode: "insensitive" } },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!entry) {
+      throw notFound("INVENTORY_404", "인벤토리 아이템을 찾을 수 없습니다.", {
+        reason: "INVENTORY_ENTRY_NOT_FOUND",
+        itemId: effect.itemId,
+      });
+    }
+    if (quantity < entry.quantity) {
+      return;
+    }
+    const containedCount = await this.prisma.inventoryEntry.count({
+      where: { containerEntryId: entry.id },
+    });
+    if (containedCount > 0) {
+      throw badRequest("INVENTORY_400", "내용물이 있는 컨테이너는 삭제할 수 없습니다.", {
+        reason: "CONTAINER_NOT_EMPTY",
+      });
+    }
   }
 
   private hasInventoryMapRuntimeEffects(effects: ActionRuntimeEffect[]): boolean {
@@ -577,8 +909,29 @@ export class ActionProcessorService {
       effects.some((effect) => this.isMapRuntimeEffect(effect));
   }
 
+  private assertNoUnpairedMapRuntimeEffects(effects: ActionRuntimeEffect[]): void {
+    if (this.hasInventoryMapRuntimeEffects(effects)) {
+      return;
+    }
+    const mapOnlyEffect = effects.find((effect) => this.isMapRuntimeEffect(effect));
+    if (!mapOnlyEffect) {
+      return;
+    }
+
+    throw conflict("VTT_409", "맵 오브젝트 변경은 인벤토리 변경과 같은 원자적 경로로만 처리할 수 있습니다.", {
+      reason: "MAP_EFFECT_REQUIRES_ATOMIC_INVENTORY_PAIR",
+      effectType: mapOnlyEffect.type,
+    });
+  }
+
   private isInventoryMapRuntimeEffect(effect: ActionRuntimeEffect): effect is InventoryMapRuntimeEffect {
     return this.isInventoryRuntimeEffect(effect) || this.isMapRuntimeEffect(effect);
+  }
+
+  private isInventoryMapAtomicRuntimeEffect(
+    effect: ActionRuntimeEffect,
+  ): effect is InventoryMapAtomicRuntimeEffect {
+    return effect.type === "SPEND_ACTION" || this.isInventoryMapRuntimeEffect(effect);
   }
 
   private isInventoryRuntimeEffect(effect: ActionRuntimeEffect): boolean {
@@ -600,7 +953,7 @@ export class ActionProcessorService {
 
   private async applyInventoryMapRuntimeEffectsAtomically(
     params: RuntimeEffectParams,
-    effects: InventoryMapRuntimeEffect[],
+    effects: InventoryMapAtomicRuntimeEffect[],
   ): Promise<void> {
     const session = await this.sessionsService.getSessionEntityOrThrow(params.sessionId);
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(params.sessionId);
@@ -609,19 +962,10 @@ export class ActionProcessorService {
       sessionScenario.id,
       state,
     );
+    this.assertMapRuntimeEffectsApplicable(baselineMap, effects);
     const nextMap = this.applyMapRuntimeEffectsToMap(baselineMap, effects);
 
     const savedMap = await this.prisma.$transaction(async (tx) => {
-      for (const effect of effects) {
-        if (effect.type === "ADD_ITEM") {
-          await this.addInventoryItemWithClient(tx, params.sessionCharacterId, effect);
-        } else if (effect.type === "REMOVE_ITEM") {
-          await this.removeInventoryItemWithClient(tx, params.sessionCharacterId, effect);
-        }
-      }
-
-      await this.syncSessionInventorySnapshotWithClient(tx, params.sessionCharacterId);
-
       const currentState = await tx.gameState.findUnique({
         where: { sessionScenarioId: params.sessionScenarioId },
         select: { currentNodeId: true, flagsJson: true },
@@ -631,8 +975,11 @@ export class ActionProcessorService {
         nextMap,
         currentState?.currentNodeId ?? state.currentNodeId ?? null,
       );
-      await tx.gameState.update({
-        where: { sessionScenarioId: params.sessionScenarioId },
+      const updatedState = await tx.gameState.updateMany({
+        where: {
+          sessionScenarioId: params.sessionScenarioId,
+          version: state.version,
+        },
         data: {
           version: { increment: 1 },
           flagsJson: JSON.stringify({
@@ -641,6 +988,26 @@ export class ActionProcessorService {
           }),
         },
       });
+      if (updatedState.count !== 1) {
+        throw conflict("VTT_409", "다른 요청이 맵 상태를 먼저 변경했습니다.", {
+          reason: "MAP_STATE_VERSION_CONFLICT",
+          expectedVersion: state.version,
+        });
+      }
+
+      for (const effect of effects) {
+        if (effect.type === "SPEND_ACTION") {
+          if (params.turnStateKey) {
+            await this.actionEconomy.spendAction(params.turnStateKey, tx);
+          }
+        } else if (effect.type === "ADD_ITEM") {
+          await this.addInventoryItemWithClient(tx, params.sessionCharacterId, effect);
+        } else if (effect.type === "REMOVE_ITEM") {
+          await this.removeInventoryItemWithClient(tx, params.sessionCharacterId, effect);
+        }
+      }
+
+      await this.syncSessionInventorySnapshotWithClient(tx, params.sessionCharacterId);
       return normalizedMap;
     });
 
@@ -653,7 +1020,7 @@ export class ActionProcessorService {
 
   private applyMapRuntimeEffectsToMap(
     map: VttMapStateDto,
-    effects: InventoryMapRuntimeEffect[],
+    effects: InventoryMapAtomicRuntimeEffect[],
   ): VttMapStateDto {
     const gridSize = map.gridSize || 50;
     let objectCells = [...(map.objectCells ?? [])];
@@ -676,7 +1043,11 @@ export class ActionProcessorService {
       } else if (effect.type === "UPDATE_MAP_OBJECT_QUANTITY") {
         objectCells = objectCells.map((cell) =>
           cell.id === effect.objectId
-            ? { ...cell, description: `${effect.itemDefinitionId} x${effect.quantity}` }
+            ? {
+                ...cell,
+                description: `${effect.itemDefinitionId} x${effect.quantity}`,
+                hiddenItemIds: [effect.itemDefinitionId],
+              }
             : cell,
         );
       } else if (effect.type === "REMOVE_MAP_OBJECT") {
@@ -689,6 +1060,63 @@ export class ActionProcessorService {
       objectCells,
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  private assertMapRuntimeEffectsApplicable(
+    map: VttMapStateDto,
+    effects: InventoryMapAtomicRuntimeEffect[],
+  ): void {
+    const existingObjectIds = new Set((map.objectCells ?? []).map((cell) => cell.id));
+    const objectIds = new Set(existingObjectIds);
+    for (const effect of effects) {
+      this.assertMapRuntimeEffectPayloadApplicable(effect);
+      if (
+        (effect.type === "UPDATE_MAP_OBJECT_QUANTITY" || effect.type === "REMOVE_MAP_OBJECT") &&
+        !objectIds.has(effect.objectId)
+      ) {
+        throw conflict("VTT_409", "맵 오브젝트가 이미 사라졌습니다.", {
+          reason: "MAP_OBJECT_NOT_FOUND",
+          objectId: effect.objectId,
+        });
+      }
+      if (effect.type === "CREATE_MAP_OBJECT") {
+        if (existingObjectIds.has(effect.objectId) || objectIds.has(effect.objectId)) {
+          throw conflict("VTT_409", "같은 id의 맵 오브젝트가 이미 있습니다.", {
+            reason: "MAP_OBJECT_ALREADY_EXISTS",
+            objectId: effect.objectId,
+          });
+        }
+        objectIds.add(effect.objectId);
+      }
+      if (effect.type === "REMOVE_MAP_OBJECT") {
+        objectIds.delete(effect.objectId);
+      }
+    }
+  }
+
+  private assertMapRuntimeEffectPayloadApplicable(effect: InventoryMapAtomicRuntimeEffect): void {
+    if (effect.type === "CREATE_MAP_OBJECT") {
+      this.assertPositiveMapObjectQuantity(effect.quantity);
+      if (!Number.isInteger(effect.point.x) || !Number.isInteger(effect.point.y)) {
+        throw badRequest("VTT_400", "맵 오브젝트 좌표가 올바르지 않습니다.", {
+          reason: "INVALID_MAP_OBJECT_POINT",
+          objectId: effect.objectId,
+        });
+      }
+    }
+
+    if (effect.type === "UPDATE_MAP_OBJECT_QUANTITY") {
+      this.assertPositiveMapObjectQuantity(effect.quantity);
+    }
+  }
+
+  private assertPositiveMapObjectQuantity(quantity: number): void {
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      throw badRequest("VTT_400", "맵 오브젝트 수량이 올바르지 않습니다.", {
+        reason: "INVALID_MAP_OBJECT_QUANTITY",
+        quantity,
+      });
+    }
   }
 
   private async addInventoryItemWithClient(
@@ -711,14 +1139,44 @@ export class ActionProcessorService {
       });
     }
 
-    await tx.inventoryEntry.create({
-      data: {
+    if (effect.containerEntryId) {
+      await this.validateContainerMutationWithClient(tx, {
+        containerEntryId: effect.containerEntryId,
         sessionCharacterId,
-        itemDefinitionId: itemDefinition.id,
-        quantity,
-        containerEntryId: effect.containerEntryId ?? null,
+        addedWeightLb: this.calculateItemWeight(itemDefinition, quantity),
+        addedVolumeCuFt: this.calculateItemVolume(itemDefinition, quantity),
+      });
+    }
+
+    const data = {
+      sessionCharacterId,
+      itemDefinitionId: itemDefinition.id,
+      quantity,
+      containerEntryId: effect.containerEntryId ?? null,
+    };
+    const existingEntry = await tx.inventoryEntry.findFirst({
+      where: {
+        sessionCharacterId: data.sessionCharacterId,
+        itemDefinitionId: data.itemDefinitionId,
+        containerEntryId: data.containerEntryId,
       },
     });
+    if (existingEntry) {
+      await tx.inventoryEntry.update({
+        where: { id: existingEntry.id },
+        data: { quantity: { increment: quantity } },
+      });
+      if (effect.containerEntryId) {
+        await this.recalculateContainerStateWithClient(tx, effect.containerEntryId);
+      }
+      return;
+    }
+
+    await tx.inventoryEntry.create({ data });
+
+    if (effect.containerEntryId) {
+      await this.recalculateContainerStateWithClient(tx, effect.containerEntryId);
+    }
   }
 
   private async removeInventoryItemWithClient(
@@ -763,6 +1221,9 @@ export class ActionProcessorService {
         });
       }
       await tx.inventoryEntry.delete({ where: { id: entry.id } });
+      if (entry.containerEntryId) {
+        await this.recalculateContainerStateWithClient(tx, entry.containerEntryId);
+      }
       return;
     }
 
@@ -770,6 +1231,106 @@ export class ActionProcessorService {
       where: { id: entry.id },
       data: { quantity: { decrement: quantity } },
     });
+    if (entry.containerEntryId) {
+      await this.recalculateContainerStateWithClient(tx, entry.containerEntryId);
+    }
+  }
+
+  private async validateContainerMutationWithClient(
+    tx: InventoryContainerDbClient,
+    params: {
+      containerEntryId: string;
+      sessionCharacterId: string;
+      addedWeightLb: number;
+      addedVolumeCuFt: number;
+    },
+  ): Promise<void> {
+    const container = await tx.inventoryEntry.findUnique({
+      where: { id: params.containerEntryId },
+      include: { containerState: true },
+    });
+    if (!container) {
+      throw notFound("INVENTORY_404", "컨테이너를 찾을 수 없습니다.", {
+        reason: "CONTAINER_NOT_FOUND",
+      });
+    }
+    if (container.sessionCharacterId !== params.sessionCharacterId) {
+      throw badRequest("INVENTORY_400", "다른 캐릭터의 컨테이너로 아이템을 이동할 수 없습니다.", {
+        reason: "CONTAINER_OWNER_MISMATCH",
+      });
+    }
+    if (!container.containerState) {
+      throw badRequest("INVENTORY_400", "컨테이너 상태 정보가 없습니다.", {
+        reason: "CONTAINER_STATE_NOT_FOUND",
+      });
+    }
+
+    const ruleResult = this.ruleEngine.validateBagOfHoldingCapacity({
+      itemCurrentWeightLb: container.containerState.currentWeightLb,
+      itemCurrentVolumeCuFt: container.containerState.currentVolumeCuFt,
+      addedWeightLb: params.addedWeightLb,
+      addedVolumeCuFt: params.addedVolumeCuFt,
+      containerIntegrity: this.toRuleIntegrity(container.containerState.integrity),
+    });
+
+    if (!ruleResult.accepted) {
+      await tx.containerState.update({
+        where: { inventoryEntryId: params.containerEntryId },
+        data: { integrity: "OVERLOADED" },
+      });
+      throw badRequest("INVENTORY_400", "컨테이너 용량을 초과했습니다.", {
+        reason: ruleResult.rejectedReason ?? "BAG_OF_HOLDING_CAPACITY_REJECTED",
+        capacityViolation: ruleResult.produced.capacityViolation,
+        containerDestroyed: ruleResult.produced.containerDestroyed,
+      });
+    }
+  }
+
+  private async recalculateContainerStateWithClient(
+    tx: InventoryContainerDbClient,
+    containerEntryId: string,
+  ): Promise<void> {
+    const containedEntries = await tx.inventoryEntry.findMany({
+      where: { containerEntryId },
+      include: { itemDefinition: true },
+    });
+    const currentWeightLb = containedEntries.reduce(
+      (sum, entry) => sum + this.calculateItemWeight(entry.itemDefinition, entry.quantity),
+      0,
+    );
+    const currentVolumeCuFt = containedEntries.reduce(
+      (sum, entry) => sum + this.calculateItemVolume(entry.itemDefinition, entry.quantity),
+      0,
+    );
+
+    await tx.containerState.update({
+      where: { inventoryEntryId: containerEntryId },
+      data: {
+        currentWeightLb,
+        currentVolumeCuFt,
+      },
+    });
+  }
+
+  private calculateItemWeight(
+    itemDefinition: { weightLb?: number | null },
+    quantity: number,
+  ): number {
+    return (itemDefinition.weightLb ?? 0) * quantity;
+  }
+
+  private calculateItemVolume(
+    itemDefinition: { volumeCuFt?: number | null },
+    quantity: number,
+  ): number {
+    return (itemDefinition.volumeCuFt ?? 0) * quantity;
+  }
+
+  private toRuleIntegrity(value: string): BagOfHoldingIntegrity {
+    const normalized = value.trim().toLowerCase();
+    return ["intact", "pierced", "torn", "overloaded"].includes(normalized)
+      ? (normalized as BagOfHoldingIntegrity)
+      : "intact";
   }
 
   private async syncSessionInventorySnapshotWithClient(
@@ -828,12 +1389,15 @@ export class ActionProcessorService {
     const hasActionSurge =
       featureIds.has(ACTION_SURGE_FEATURE_ID) ||
       (className.includes("fighter") && actor.character.level >= 2);
+    const hasSecondWind =
+      featureIds.has(SECOND_WIND_FEATURE_ID) ||
+      className.includes("fighter");
     const hasRage =
       featureIds.has(RAGE_FEATURE_ID) ||
       className.includes("barbarian");
 
     return {
-      secondWindAvailable: true,
+      secondWindAvailable: hasSecondWind,
       actionSurgeUses: hasActionSurge ? this.resolveActionSurgeUses(actor.character.level) : 0,
       rageUses: hasRage ? this.resolveRageUses(actor.character.level) : 0,
     };
@@ -891,89 +1455,6 @@ export class ActionProcessorService {
     }
   }
 
-  private async createMapObjectFromRuntimeEffect(
-    sessionId: string,
-    effect: Extract<ActionRuntimeEffect, { type: "CREATE_MAP_OBJECT" }>,
-  ): Promise<void> {
-    const map = await this.getCurrentVttMap(sessionId);
-    if (!map) {
-      return;
-    }
-
-    const gridSize = map.gridSize || 50;
-    const objectCells = (map.objectCells ?? []).filter((cell) => cell.id !== effect.objectId);
-    await this.mapRuntime.saveSystemVttMap(sessionId, {
-      ...map,
-      objectCells: [
-        ...objectCells,
-        {
-          id: effect.objectId,
-          x: effect.point.x * gridSize,
-          y: effect.point.y * gridSize,
-          width: gridSize,
-          height: gridSize,
-          name: effect.name,
-          description: `${effect.itemDefinitionId} x${effect.quantity}`,
-          visibleToPlayers: true,
-          hiddenItemIds: [effect.itemDefinitionId],
-        },
-      ],
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  private async removeMapObjectFromRuntimeEffect(
-    sessionId: string,
-    objectId: string,
-  ): Promise<void> {
-    const map = await this.getCurrentVttMap(sessionId);
-    if (!map) {
-      return;
-    }
-
-    const objectCells = (map.objectCells ?? []).filter((cell) => cell.id !== objectId);
-    if (objectCells.length === (map.objectCells ?? []).length) {
-      return;
-    }
-
-    await this.mapRuntime.saveSystemVttMap(sessionId, {
-      ...map,
-      objectCells,
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  private async updateMapObjectQuantityFromRuntimeEffect(
-    sessionId: string,
-    effect: Extract<ActionRuntimeEffect, { type: "UPDATE_MAP_OBJECT_QUANTITY" }>,
-  ): Promise<void> {
-    const map = await this.getCurrentVttMap(sessionId);
-    const objectCells = map.objectCells ?? [];
-    const objectIndex = objectCells.findIndex((cell) => cell.id === effect.objectId);
-    if (objectIndex < 0) {
-      return;
-    }
-
-    await this.mapRuntime.saveSystemVttMap(sessionId, {
-      ...map,
-      objectCells: objectCells.map((cell, index) =>
-        index === objectIndex
-          ? {
-              ...cell,
-              description: `${effect.itemDefinitionId} x${effect.quantity}`,
-            }
-          : cell,
-      ),
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  private async getCurrentVttMap(sessionId: string): Promise<VttMapStateDto> {
-    const { sessionScenario, state } =
-      await this.sessionsService.getGameStateEntityOrThrow(sessionId);
-    return this.sessionsService.getVttMapBaseline(sessionId, sessionScenario.id, state);
-  }
-
   private async storePendingReadyAction(
     sessionScenarioId: string,
     pending: Extract<ActionRuntimeEffect, { type: "STORE_READY_ACTION" }>["pending"],
@@ -1017,8 +1498,20 @@ export class ActionProcessorService {
       JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
       {},
     );
+    const hasSpellSlotsFlag = Object.prototype.hasOwnProperty.call(
+      flags,
+      "spellSlotsBySessionCharacterId",
+    );
+    const limitedUseRecovery = this.clearRestBoundMonsterLimitedUses(
+      flags[MONSTER_LIMITED_USE_EXPENDED_FLAG],
+      "long",
+    );
+    const hasSpellSlotOverride = Object.prototype.hasOwnProperty.call(
+      spellSlotsBySessionCharacterId,
+      sessionCharacterId,
+    );
 
-    if (!Object.prototype.hasOwnProperty.call(spellSlotsBySessionCharacterId, sessionCharacterId)) {
+    if (!hasSpellSlotOverride && !limitedUseRecovery.changed) {
       return;
     }
 
@@ -1032,10 +1525,192 @@ export class ActionProcessorService {
       data: {
         flagsJson: JSON.stringify({
           ...flags,
+          ...(limitedUseRecovery.hasFlag || limitedUseRecovery.changed
+            ? { [MONSTER_LIMITED_USE_EXPENDED_FLAG]: limitedUseRecovery.value }
+            : {}),
+          ...(hasSpellSlotOverride || hasSpellSlotsFlag
+            ? {
+                spellSlotsBySessionCharacterId: hasSpellSlotOverride
+                  ? remainingSpellSlotsBySessionCharacterId
+                  : spellSlotsBySessionCharacterId,
+              }
+            : {}),
+        }),
+      },
+    });
+  }
+
+  private async recoverShortRestMonsterLimitedUses(sessionScenarioId: string): Promise<void> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const limitedUseRecovery = this.clearRestBoundMonsterLimitedUses(
+      flags[MONSTER_LIMITED_USE_EXPENDED_FLAG],
+      "short",
+    );
+
+    if (!limitedUseRecovery.changed) {
+      return;
+    }
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          [MONSTER_LIMITED_USE_EXPENDED_FLAG]: limitedUseRecovery.value,
+        }),
+      },
+    });
+  }
+
+  private async recoverShortRestPactMagicSlots(
+    sessionScenarioId: string,
+    sessionCharacterId: string,
+  ): Promise<void> {
+    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+      where: { id: sessionCharacterId },
+      include: {
+        character: {
+          select: {
+            className: true,
+          },
+        },
+      },
+    });
+    if (!sessionCharacter?.character.className.toLowerCase().includes("warlock")) {
+      return;
+    }
+
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const spellSlotsBySessionCharacterId = this.parseJson<Record<string, Record<string, number>>>(
+      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
+      {},
+    );
+    if (
+      !Object.prototype.hasOwnProperty.call(
+        spellSlotsBySessionCharacterId,
+        sessionCharacterId,
+      )
+    ) {
+      return;
+    }
+
+    const {
+      [sessionCharacterId]: _recovered,
+      ...remainingSpellSlotsBySessionCharacterId
+    } = spellSlotsBySessionCharacterId;
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
           spellSlotsBySessionCharacterId: remainingSpellSlotsBySessionCharacterId,
         }),
       },
     });
+  }
+
+  private async recoverOneSpellSlot(
+    sessionScenarioId: string,
+    sessionCharacterId: string,
+    slotLevel: number,
+  ): Promise<void> {
+    const state = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId },
+      select: { flagsJson: true },
+    });
+    const flags = this.parseJson<Record<string, unknown>>(state?.flagsJson, {});
+    const byCharacter = this.parseJson<Record<string, Record<string, number>>>(
+      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
+      {},
+    );
+    const maximum = await this.resolveSpellSlotMaximum(
+      sessionCharacterId,
+      slotLevel,
+    );
+    if (maximum < 1) {
+      return;
+    }
+    const key = String(slotLevel);
+    const current = byCharacter[sessionCharacterId] ?? {};
+    const remaining = Math.max(0, Math.floor(current[key] ?? maximum));
+    if (remaining >= maximum) {
+      return;
+    }
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          spellSlotsBySessionCharacterId: {
+            ...byCharacter,
+            [sessionCharacterId]: {
+              ...current,
+              [key]: Math.min(remaining + 1, maximum),
+            },
+          },
+        }),
+      },
+    });
+  }
+
+  private clearRestBoundMonsterLimitedUses(value: unknown, restKind: "short" | "long"): {
+    value: Record<string, Record<string, unknown>>;
+    changed: boolean;
+    hasFlag: boolean;
+  } {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return { value: {}, changed: false, hasFlag: false };
+    }
+
+    let changed = false;
+    const remaining: Record<string, Record<string, unknown>> = {};
+    for (const [participantId, actions] of Object.entries(value)) {
+      if (!actions || typeof actions !== "object" || Array.isArray(actions)) {
+        changed = true;
+        continue;
+      }
+
+      const remainingActions: Record<string, unknown> = {};
+      for (const [actionId, entry] of Object.entries(actions)) {
+        if (this.isRestBoundMonsterLimitedUse(entry, restKind)) {
+          changed = true;
+          continue;
+        }
+        remainingActions[actionId] = entry;
+      }
+
+      if (Object.keys(remainingActions).length > 0) {
+        remaining[participantId] = remainingActions;
+      } else {
+        changed = true;
+      }
+    }
+
+    return { value: remaining, changed, hasFlag: true };
+  }
+
+  private isRestBoundMonsterLimitedUse(entry: unknown, restKind: "short" | "long"): boolean {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return false;
+    }
+    const usage = (entry as { usage?: unknown }).usage;
+    if (typeof usage !== "string") {
+      return false;
+    }
+    const match = usage.trim().match(/^\d+\s*\/\s*(day|rest)$/i);
+    if (!match) {
+      return false;
+    }
+    const scope = match[1]?.toLowerCase();
+    return scope === "rest" || (restKind === "long" && scope === "day");
   }
 
   private async spendSpellSlot(
@@ -1147,6 +1822,36 @@ export class ActionProcessorService {
     );
   }
 
+  private resolveRuntimeSpellSlotState(
+    flagsJson: string | null,
+    sessionCharacterId: string,
+    character: { className: string; level: number },
+  ): {
+    current: Record<string, number>;
+    maximums: Record<string, number>;
+  } {
+    const flags = this.parseJson<Record<string, unknown>>(flagsJson, {});
+    const byCharacter = this.parseJson<Record<string, Record<string, number>>>(
+      JSON.stringify(flags.spellSlotsBySessionCharacterId ?? {}),
+      {},
+    );
+    const overrides = byCharacter[sessionCharacterId] ?? {};
+    const maximums: Record<string, number> = {};
+    const current: Record<string, number> = {};
+
+    for (let slotLevel = 1; slotLevel <= 9; slotLevel += 1) {
+      const maximum = this.spellSlots.resolveMaximumForCharacter(character, slotLevel);
+      if (maximum < 1) {
+        continue;
+      }
+      const key = String(slotLevel);
+      maximums[key] = maximum;
+      current[key] = Math.max(0, Math.floor(overrides[key] ?? maximum));
+    }
+
+    return { current, maximums };
+  }
+
   private parseJson<T>(value: string | null | undefined, fallback: T): T {
     if (!value) {
       return fallback;
@@ -1165,6 +1870,7 @@ export class ActionProcessorService {
     rageActive: boolean;
     frenzyActive: boolean;
     exhaustionLevel: number;
+    hitDiceSpent: number;
   }): NonNullable<RuleRuntimeContext["resource"]> {
     return {
       secondWindAvailable: resource.secondWindAvailable,
@@ -1173,6 +1879,7 @@ export class ActionProcessorService {
       rageActive: resource.rageActive,
       frenzyActive: resource.frenzyActive,
       exhaustionLevel: resource.exhaustionLevel,
+      hitDiceSpent: resource.hitDiceSpent,
     };
   }
 

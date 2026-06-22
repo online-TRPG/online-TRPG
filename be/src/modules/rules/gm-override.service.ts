@@ -63,6 +63,7 @@ export type GmOverrideResolution = {
 const TARGET_REQUIRED_KINDS = new Set<GmOverrideKind>([
   "node_move",
   "monster_control",
+  "set_dc",
   "adjust_hp",
   "set_condition",
   "adjust_item",
@@ -74,6 +75,7 @@ const STATE_PATCH_REQUIRED_KINDS = new Set<GmOverrideKind>([
   "combat_start",
   "combat_end",
   "monster_control",
+  "set_dc",
   "adjust_hp",
   "set_condition",
   "adjust_item",

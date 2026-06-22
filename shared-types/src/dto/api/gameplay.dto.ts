@@ -72,6 +72,19 @@ export class ActionAcceptedResponseDto {
 
   @ApiProperty()
   baseStateVersion!: number;
+
+  @ApiPropertyOptional({
+    type: Object,
+    nullable: true,
+    description: "Structured HUMAN GM rest approval status when the accepted action is waiting for or came from rest approval.",
+  })
+  restApproval?: {
+    actionId: string;
+    restType: "short" | "long" | null;
+    status: "gm_required" | "approved" | "rejected" | "cancelled" | "expired";
+    hitDiceToSpend?: number | null;
+    expiresAt?: string | null;
+  } | null;
 }
 
 export class UseInventoryItemDto {
@@ -107,6 +120,39 @@ export class UseInventoryItemResponseDto {
 
   @ApiProperty({ type: SessionCharacterResponseDto })
   character!: SessionCharacterResponseDto;
+}
+
+export class RestActionDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  characterId!: string;
+
+  @ApiProperty({ enum: ["short", "long"] })
+  @IsString()
+  @IsIn(["short", "long"])
+  restType!: "short" | "long";
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  hitDiceToSpend?: number;
+}
+
+export class RestTargetDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  characterId!: string;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  hitDiceToSpend?: number;
 }
 
 export class MainCommandPointDto {
@@ -334,6 +380,9 @@ export class TurnLogResponseDto {
   @ApiPropertyOptional({ nullable: true })
   actionCreatedAt!: string | null;
 
+  @ApiPropertyOptional({ enum: ActionQueueStatus, nullable: true })
+  actionQueueStatus!: ActionQueueStatus | null;
+
   @ApiPropertyOptional({ nullable: true })
   rawInput!: string | null;
 
@@ -382,6 +431,14 @@ export class StartCombatDto {
   autoRollInitiative?: boolean;
 }
 
+export class CombatSpellSlotResourceDto {
+  @ApiProperty()
+  total!: number;
+
+  @ApiProperty()
+  remaining!: number;
+}
+
 export class CombatActionResourcesDto {
   @ApiProperty()
   actionAvailable!: boolean;
@@ -394,6 +451,12 @@ export class CombatActionResourcesDto {
 
   @ApiProperty()
   additionalActionAvailable!: boolean;
+
+  @ApiProperty()
+  extraAttackAvailable!: boolean;
+
+  @ApiPropertyOptional()
+  hasteActionAvailable?: boolean;
 
   @ApiProperty()
   twoWeaponAttackAvailable!: boolean;
@@ -412,6 +475,9 @@ export class CombatActionResourcesDto {
 
   @ApiProperty()
   spellSlotLevel1Remaining!: number;
+
+  @ApiPropertyOptional({ type: Object })
+  spellSlots?: Record<string, CombatSpellSlotResourceDto>;
 }
 
 export class CombatMonsterActionOptionDto {
@@ -444,6 +510,59 @@ export class CombatMonsterActionOptionDto {
 
   @ApiPropertyOptional({ nullable: true })
   costType?: string | null;
+
+  @ApiPropertyOptional({ enum: ["none", "self", "single_target", "area"], nullable: true })
+  targetKind?: "none" | "self" | "single_target" | "area" | null;
+
+  @ApiPropertyOptional({ enum: ["attack", "save", "special"], nullable: true })
+  resolutionKind?: "attack" | "save" | "special" | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  specialType?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  usage?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  recharge?: string | null;
+
+  @ApiPropertyOptional({ type: Object, nullable: true })
+  save?: { ability: string; dcSource: string | null; fixedDc?: number | null } | null;
+
+  @ApiPropertyOptional({ type: [String] })
+  conditionRiders?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  effectTags?: string[];
+
+  @ApiPropertyOptional({ type: [Object] })
+  childActions?: Array<{ actionId: string; count: number }>;
+
+  @ApiPropertyOptional()
+  available?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  unavailableReason?: string | null;
+}
+
+export class CombatConcentrationStateDto {
+  @ApiProperty()
+  spellId!: string;
+
+  @ApiProperty({ type: [String] })
+  targetIds!: string[];
+
+  @ApiProperty({ type: [String] })
+  effectIds!: string[];
+
+  @ApiProperty()
+  startedAtRound!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  endsAtRound!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  endsAtTurn!: number | null;
 }
 
 export class CombatParticipantResponseDto {
@@ -489,6 +608,9 @@ export class CombatParticipantResponseDto {
   @ApiProperty({ type: [String] })
   conditions!: string[];
 
+  @ApiPropertyOptional({ type: CombatConcentrationStateDto, nullable: true })
+  concentration!: CombatConcentrationStateDto | null;
+
   @ApiProperty({ type: CombatActionResourcesDto })
   actionResources!: CombatActionResourcesDto;
 
@@ -520,6 +642,9 @@ export class CombatResponseDto {
 
   @ApiProperty({ type: [CombatParticipantResponseDto] })
   participants!: CombatParticipantResponseDto[];
+
+  @ApiPropertyOptional({ type: () => [CombatReactionPromptDto] })
+  pendingReactions?: CombatReactionPromptDto[];
 }
 
 export class AvailableActionDto {
@@ -558,6 +683,60 @@ export class EndTurnDto {
   force?: boolean;
 }
 
+export class CombatTerrainDamagePacketDto {
+  @ApiProperty()
+  sourceEffectId!: string;
+
+  @ApiProperty()
+  damageType!: string;
+
+  @ApiProperty()
+  expression!: string;
+
+  @ApiProperty()
+  total!: number;
+}
+
+export class CombatTerrainEffectResultDto {
+  @ApiProperty({ enum: ["on_enter", "on_turn_start", "on_turn_end", "on_exit"] })
+  trigger!: "on_enter" | "on_turn_start" | "on_turn_end" | "on_exit";
+
+  @ApiProperty()
+  damageTotal!: number;
+
+  @ApiProperty({ type: [CombatTerrainDamagePacketDto] })
+  damagePackets!: CombatTerrainDamagePacketDto[];
+
+  @ApiProperty({ type: [String] })
+  appliedConditionTags!: string[];
+
+  @ApiProperty({ type: [String] })
+  removedConditionTags!: string[];
+
+  @ApiPropertyOptional({ nullable: true })
+  concentrationMaintained!: boolean | null;
+}
+
+export class CombatMonsterLifecycleEffectDto {
+  @ApiProperty()
+  actorParticipantId!: string;
+
+  @ApiProperty()
+  actorName!: string;
+
+  @ApiProperty()
+  actionId!: string;
+
+  @ApiProperty()
+  label!: string;
+
+  @ApiProperty({ enum: ["aura", "turn_start", "turn_end"] })
+  hook!: "aura" | "turn_start" | "turn_end";
+
+  @ApiProperty({ type: [String] })
+  effectTags!: string[];
+}
+
 export class TurnAdvanceResponseDto {
   @ApiProperty()
   combatId!: string;
@@ -573,6 +752,21 @@ export class TurnAdvanceResponseDto {
 
   @ApiProperty()
   turnNo!: number;
+
+  @ApiPropertyOptional()
+  message?: string;
+
+  @ApiPropertyOptional({ type: CombatTerrainEffectResultDto, nullable: true })
+  terrainEffects?: CombatTerrainEffectResultDto | null;
+
+  @ApiPropertyOptional({ type: CombatTerrainEffectResultDto, nullable: true })
+  turnEndTerrainEffects?: CombatTerrainEffectResultDto | null;
+
+  @ApiPropertyOptional({ type: [CombatMonsterLifecycleEffectDto] })
+  monsterLifecycleEffects?: CombatMonsterLifecycleEffectDto[];
+
+  @ApiPropertyOptional({ type: () => [CombatReactionPromptDto] })
+  pendingReactions?: CombatReactionPromptDto[];
 }
 
 export class ApplyCombatDamageDto {
@@ -712,7 +906,7 @@ export class CombatReactionPromptDto {
   id!: string;
 
   @ApiProperty()
-  type!: "opportunity_attack" | "shield" | "ready_action";
+  type!: "opportunity_attack" | "shield" | "ready_action" | "counterspell";
 
   @ApiProperty()
   reactorParticipantId!: string;
@@ -750,11 +944,17 @@ export class CombatMoveResultDto {
   @ApiPropertyOptional({ type: CombatReactionPromptDto, nullable: true })
   pendingReaction!: CombatReactionPromptDto | null;
 
+  @ApiPropertyOptional({ type: [CombatReactionPromptDto] })
+  pendingReactions?: CombatReactionPromptDto[];
+
   @ApiPropertyOptional()
   movementDistanceFt?: number;
 
   @ApiPropertyOptional()
   movementCostFt?: number;
+
+  @ApiPropertyOptional({ type: CombatTerrainEffectResultDto, nullable: true })
+  terrainEffects?: CombatTerrainEffectResultDto | null;
 }
 
 export class AutoMonsterTurnDto {
@@ -816,6 +1016,12 @@ export class CombatActionResultDto {
 
   @ApiPropertyOptional({ type: Object, nullable: true })
   map?: VttMapStateDto | null;
+
+  @ApiPropertyOptional({ type: CombatReactionPromptDto, nullable: true })
+  pendingReaction?: CombatReactionPromptDto | null;
+
+  @ApiPropertyOptional({ type: [CombatReactionPromptDto] })
+  pendingReactions?: CombatReactionPromptDto[];
 }
 
 export class StateDiffResponseDto {
