@@ -93,6 +93,20 @@ describe("LevelUpService", () => {
     });
   });
 
+  it("includes the fighter-specific level 6 ability score improvement", () => {
+    expect(
+      service.resolveLevelUp({
+        classKey: "fighter",
+        currentLevel: 5,
+        targetLevel: 8,
+        hitDie: "d10",
+        constitutionScore: 14,
+      }),
+    ).toMatchObject({
+      asiOrFeatChoiceRequiredAtLevels: [6, 8],
+    });
+  });
+
   it("rejects non-increasing level changes", () => {
     expect(() =>
       service.resolveLevelUp({

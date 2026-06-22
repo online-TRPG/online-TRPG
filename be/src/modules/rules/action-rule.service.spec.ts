@@ -2369,6 +2369,171 @@ describe("ActionRuleService", () => {
     expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
   });
 
+  it("executes a P3 catalog spell attack with cantrip scaling", () => {
+    const service = createService([
+      createDiceResult([16], 3),
+      {
+        expression: "2d10",
+        rolls: [6, 7],
+        modifier: 0,
+        total: 13,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "warlock",
+        level: 5,
+        proficiencyBonus: 3,
+        spellsJson: JSON.stringify({
+          cantrips: ["spell.eldritch_blast"],
+        }),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 30,
+      character: {
+        id: "target-character",
+        name: "Target",
+        armorClass: 12,
+      },
+    });
+
+    const result = service.resolveAction(
+      "/cast eldritch_blast target 120 0",
+      actor,
+      [actor, target],
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.structuredAction).toMatchObject({
+      type: "cast_spell",
+      spellId: "spell.eldritch_blast",
+      damageDice: "2d10",
+      finalDamage: 13,
+    });
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 17, markDead: false },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+  });
+
+  it("grants P3 temporary hit points without adding a spellcasting modifier", () => {
+    const service = createService([
+      {
+        expression: "1d4+4",
+        rolls: [3],
+        modifier: 4,
+        total: 7,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "wizard",
+        level: 7,
+        abilitiesJson: JSON.stringify({ int: 18 }),
+        spellsJson: JSON.stringify({
+          spells: ["spell.false_life"],
+          preparedSpells: ["spell.false_life"],
+        }),
+      },
+    });
+
+    const result = service.resolveAction(
+      "/cast false_life actor 0 2",
+      actor,
+      [actor],
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.structuredAction).toMatchObject({
+      spellId: "spell.false_life",
+      amount: 12,
+      effect: "temporary_hp",
+    });
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "actor", tempHp: 12 },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SPELL_SLOT", slotLevel: 2 },
+    ]);
+  });
+
+  it("applies a P3 save-ended area debuff through the shared resolver", () => {
+    const service = createService([createDiceResult([4], 0)]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "wizard",
+        level: 7,
+        spellsJson: JSON.stringify({
+          spells: ["spell.slow"],
+          preparedSpells: ["spell.slow"],
+        }),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      conditionsJson: "[]",
+      character: {
+        id: "target-character",
+        name: "Target",
+      },
+    });
+
+    const result = service.resolveAction(
+      "/cast_area slow 14 target 3",
+      actor,
+      [actor, target],
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "target",
+        conditions: [
+          expect.objectContaining({
+            conditionId: "condition.spell.slow",
+            saveEnds: { ability: "wis", dc: 14 },
+            tags: expect.arrayContaining([
+              "armor_class:-2",
+              "speed_multiplier:0.5",
+              "action_limit:one",
+            ]),
+          }),
+        ],
+      },
+      {
+        sessionCharacterId: "actor",
+        conditions: [
+          expect.objectContaining({
+            conditionId: "condition.concentration",
+            sourceId: "spell.slow",
+            tags: expect.arrayContaining([
+              "concentration",
+              "concentration:spell:spell.slow",
+              "concentration:target:target",
+            ]),
+          }),
+        ],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SPELL_SLOT", slotLevel: 3 },
+    ]);
+  });
+
   it("rejects invalid spell slot levels without throwing", () => {
     const service = createService([]);
     const actor = createCharacter({
@@ -2597,6 +2762,473 @@ describe("ActionRuleService", () => {
         ],
       },
     ]);
+  });
+
+  it("suppresses charmed and frightened conditions when a Berserker enters Mindless Rage", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "berserker",
+      characterId: "berserker-character",
+      conditionsJson: JSON.stringify([
+        "condition.charmed",
+        "condition.frightened",
+        "condition.poisoned",
+      ]),
+      character: {
+        className: "barbarian",
+        subclassName: "berserker",
+        level: 6,
+        featuresJson: JSON.stringify([
+          "subclass.barbarian.berserker.feature.mindless_rage",
+        ]),
+      },
+    });
+
+    const result = service.resolveAction("/feature rage", actor, [actor]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "berserker",
+        conditions: [
+          "condition.poisoned",
+          "resource:rage_expended",
+          "rage",
+          "resistance:bludgeoning",
+          "resistance:piercing",
+          "resistance:slashing",
+        ],
+      },
+    ]);
+  });
+
+  it("uses Stillness of Mind to end charmed and frightened conditions", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "monk",
+      characterId: "monk-character",
+      conditionsJson: JSON.stringify([
+        "condition.charmed",
+        "condition.frightened",
+        "condition.poisoned",
+      ]),
+      character: { className: "monk", level: 7 },
+    });
+
+    const result = service.resolveAction(
+      "/feature stillness_of_mind",
+      actor,
+      [actor],
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "monk",
+        conditions: ["condition.poisoned"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+  });
+
+  it("uses Wholeness of Body once per long rest", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "open-hand-monk",
+      characterId: "open-hand-monk-character",
+      currentHp: 10,
+      character: {
+        className: "monk",
+        subclassName: "open_hand",
+        level: 6,
+        maxHp: 40,
+      },
+    });
+
+    const result = service.resolveAction(
+      "/feature wholeness_of_body",
+      actor,
+      [actor],
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "open-hand-monk",
+        currentHp: 28,
+        conditions: ["resource:wholeness_of_body_expended"],
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
+  });
+
+  it("applies Countercharm to allies within 30 feet", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "bard",
+      characterId: "bard-character",
+      character: { className: "bard", level: 6 },
+    });
+    const ally = createCharacter({
+      id: "ally",
+      characterId: "ally-character",
+    });
+
+    const result = service.resolveAction(
+      "/feature countercharm",
+      actor,
+      [actor, ally],
+      {
+        map: {
+          gridType: "square",
+          gridSize: 50,
+          tokens: [
+            {
+              sessionCharacterId: "bard",
+              x: 0,
+              y: 0,
+              size: 50,
+              hidden: false,
+              isHostile: false,
+            },
+            {
+              sessionCharacterId: "ally",
+              x: 100,
+              y: 0,
+              size: 50,
+              hidden: false,
+              isHostile: false,
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toHaveLength(2);
+    expect(result.stateChanges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sessionCharacterId: "bard" }),
+        expect.objectContaining({ sessionCharacterId: "ally" }),
+      ]),
+    );
+  });
+
+  it("adds Aura of Protection to a nearby ally saving throw", () => {
+    const service = createService([
+      createDiceResult([10], 3),
+    ]);
+    const paladin = createCharacter({
+      id: "paladin",
+      characterId: "paladin-character",
+      character: {
+        className: "paladin",
+        level: 6,
+        abilitiesJson: JSON.stringify({
+          str: 10,
+          dex: 10,
+          con: 10,
+          int: 10,
+          wis: 10,
+          cha: 16,
+        }),
+        featuresJson: JSON.stringify([
+          "class.paladin.feature.aura_of_protection",
+        ]),
+      },
+    });
+    const ally = createCharacter({
+      id: "ally",
+      characterId: "ally-character",
+    });
+
+    const result = service.resolveAction(
+      "/save ally wis 13",
+      ally,
+      [paladin, ally],
+      {
+        map: {
+          gridType: "square",
+          gridSize: 50,
+          tokens: [
+            {
+              sessionCharacterId: "paladin",
+              x: 0,
+              y: 0,
+              size: 50,
+              hidden: false,
+              isHostile: false,
+            },
+            {
+              sessionCharacterId: "ally",
+              x: 50,
+              y: 0,
+              size: 50,
+              hidden: false,
+              isHostile: false,
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.structuredAction).toMatchObject({
+      auraOfProtectionBonus: 3,
+    });
+  });
+
+  it("uses Dark One's Own Luck on the next ability check", () => {
+    const prepareService = createService([]);
+    const actor = createCharacter({
+      id: "fiend-warlock",
+      characterId: "fiend-warlock-character",
+      character: {
+        className: "warlock",
+        subclassName: "fiend",
+        level: 6,
+      },
+    });
+    const prepared = prepareService.resolveAction(
+      "/feature dark_ones_own_luck",
+      actor,
+      [actor],
+    );
+    const preparedConditions = prepared.stateChanges[0].conditions as string[];
+    const checkService = createService([
+      createDiceResult([7], 0),
+      {
+        expression: "1d10",
+        rolls: [8],
+        modifier: 0,
+        total: 8,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+
+    const result = checkService.resolveAction(
+      "/check arcana 15",
+      {
+        ...actor,
+        conditionsJson: JSON.stringify(preparedConditions),
+      },
+      [actor],
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.structuredAction).toMatchObject({
+      darkOnesOwnLuckBonus: 8,
+    });
+    expect(result.stateChanges[0].conditions).toEqual([
+      "resource:dark_ones_own_luck_expended",
+    ]);
+  });
+
+  it("grants a level 6 cleric two Channel Divinity uses", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "life-cleric",
+      characterId: "life-cleric-character",
+      currentHp: 5,
+      character: {
+        className: "cleric",
+        subclassName: "life",
+        level: 6,
+        maxHp: 40,
+      },
+    });
+
+    const first = service.resolveAction(
+      "/feature channel_divinity",
+      actor,
+      [actor],
+    );
+    const firstConditions = first.stateChanges[0].conditions as string[];
+    const second = service.resolveAction(
+      "/feature channel_divinity",
+      {
+        ...actor,
+        currentHp: 10,
+        conditionsJson: JSON.stringify(firstConditions),
+      },
+      [actor],
+    );
+
+    expect(first.structuredAction).toMatchObject({
+      usesSpent: 1,
+      maximumUses: 2,
+    });
+    expect(second.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(second.structuredAction).toMatchObject({
+      usesSpent: 2,
+      maximumUses: 2,
+    });
+  });
+
+  it("allows an 8th-level druid to Wild Shape into a CR 1 form", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "druid",
+      characterId: "druid-character",
+      character: { className: "druid", level: 8 },
+    });
+
+    const result = service.resolveAction(
+      "/feature wild_shape brown_bear",
+      actor,
+      [actor],
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.structuredAction).toMatchObject({
+      form: "brown_bear",
+      formHitPoints: 34,
+    });
+  });
+
+  it("applies Elemental Affinity to matching spell damage", () => {
+    const service = createService([
+      createDiceResult([18], 3),
+      {
+        expression: "2d10",
+        rolls: [6, 4],
+        modifier: 0,
+        total: 10,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "sorcerer",
+      characterId: "sorcerer-character",
+      character: {
+        className: "sorcerer",
+        subclassName: "draconic_bloodline",
+        level: 6,
+        proficiencyBonus: 3,
+        abilitiesJson: JSON.stringify({
+          str: 8,
+          dex: 14,
+          con: 14,
+          int: 10,
+          wis: 10,
+          cha: 18,
+        }),
+        featuresJson: JSON.stringify([
+          "subclass.sorcerer.draconic_bloodline.feature.elemental_affinity",
+          "draconic_ancestry:red",
+        ]),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 30,
+      character: { armorClass: 10 },
+    });
+
+    const result = service.resolveAction(
+      "/cast fire_bolt target 60",
+      actor,
+      [actor, target],
+    );
+
+    expect(result.structuredAction).toMatchObject({
+      elementalAffinityBonus: 4,
+      finalDamage: 14,
+    });
+  });
+
+  it("applies Potent Cantrip damage when the target succeeds on its save", () => {
+    const service = createService([
+      {
+        expression: "2d6",
+        rolls: [4, 4],
+        modifier: 0,
+        total: 8,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      createDiceResult([18], 0),
+    ]);
+    const actor = createCharacter({
+      id: "wizard",
+      characterId: "wizard-character",
+      character: {
+        className: "wizard",
+        subclassName: "evocation",
+        level: 6,
+        proficiencyBonus: 3,
+        abilitiesJson: JSON.stringify({
+          str: 8,
+          dex: 14,
+          con: 14,
+          int: 18,
+          wis: 10,
+          cha: 10,
+        }),
+        featuresJson: JSON.stringify([
+          "subclass.wizard.evocation.feature.potent_cantrip",
+        ]),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 20,
+    });
+
+    const result = service.resolveAction(
+      "/cast acid_splash target 30",
+      actor,
+      [actor, target],
+    );
+
+    expect(result.structuredAction).toMatchObject({
+      potentCantripApplied: true,
+      finalDamage: 4,
+    });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "target",
+        currentHp: 16,
+        markDead: false,
+      },
+    ]);
+  });
+
+  it("adds Remarkable Athlete to an untrained Strength check", () => {
+    const service = createService([
+      createDiceResult([10], 5),
+    ]);
+    const actor = createCharacter({
+      id: "champion",
+      characterId: "champion-character",
+      character: {
+        className: "fighter",
+        subclassName: "champion",
+        level: 7,
+        proficiencyBonus: 3,
+        abilitiesJson: JSON.stringify({
+          str: 16,
+          dex: 10,
+          con: 14,
+          int: 10,
+          wis: 10,
+          cha: 10,
+        }),
+        featuresJson: JSON.stringify([
+          "subclass.fighter.champion.feature.remarkable_athlete",
+        ]),
+        proficientSkillsJson: JSON.stringify([]),
+      },
+    });
+
+    const result = service.resolveAction("/check athletics 15", actor, [actor]);
+
+    expect(result.diceResult).toMatchObject({
+      expression: "1d20+5",
+      total: 15,
+    });
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
   });
 
   it("connects cunning action to the runtime bonus action effect", () => {

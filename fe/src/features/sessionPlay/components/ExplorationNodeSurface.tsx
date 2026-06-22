@@ -20,6 +20,7 @@ import { GameIcon } from '../../../components/GameIcon';
 import type { GameIconName } from '../../../components/GameIcon';
 import explorationNodeBadge from '../../../components/node_badge_exploration.webp';
 import { getCharacterClassLabel } from '../utils/characterVisuals';
+import { isDirectlyUsableP3Item } from '../utils/executableItems';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { InventoryEquipmentStatus } from './InventoryEquipmentStatus';
 import { InventoryItemInfo } from './InventoryItemInfo';
@@ -196,7 +197,8 @@ function isQuickUsableItem(item: InventoryItemDto) {
   const isPack = item.itemType === 'pack' || key.includes('꾸러미');
   return (
     item.quantity > 0 &&
-    (key.includes('consumable') ||
+    (isDirectlyUsableP3Item(item.itemDefinitionId) ||
+      key.includes('consumable') ||
       key.includes('potion') ||
       key.includes('포션') ||
       key.includes('healing') ||

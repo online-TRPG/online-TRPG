@@ -97,6 +97,17 @@ export class UseInventoryItemDto {
   @IsOptional()
   @IsString()
   targetSessionCharacterId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  targetParticipantId?: string | null;
+
+  @ApiPropertyOptional({ type: () => CombatMapPointDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CombatMapPointDto)
+  point?: CombatMapPointDto | null;
 }
 
 export class UseInventoryItemResponseDto {

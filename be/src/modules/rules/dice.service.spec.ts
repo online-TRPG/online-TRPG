@@ -47,6 +47,17 @@ describe("DiceService", () => {
     expect(result.advantageState).toBe(DiceAdvantageState.ADVANTAGE);
   });
 
+  it("rolls compound damage expressions used by multi-type spells", () => {
+    const { service } = createService();
+    const result = service.roll("2d8+4d6");
+
+    expect(result.expression).toBe("2d8+4d6");
+    expect(result.rolls).toHaveLength(6);
+    expect(result.total).toBe(
+      result.rolls.reduce((sum, roll) => sum + roll, 0),
+    );
+  });
+
   it("rejects unsupported dice", () => {
     const { service } = createService();
     expect(() => service.roll("1d3")).toThrow("지원하지 않는 주사위입니다.");

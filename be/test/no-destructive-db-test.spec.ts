@@ -51,14 +51,19 @@ describe("database safety guards", () => {
       scripts?: Record<string, string>;
     };
     const e2eScript = packageJson.scripts?.["test:e2e"] ?? "";
-    const guardIndex = e2eScript.indexOf("test/e2e-db-safety.ts");
-    const schemaPushIndex = e2eScript.indexOf("prisma db push");
-    const jestIndex = e2eScript.indexOf("jest --config ./test/jest-e2e.json");
+    const runnerText = readFileSync(join(backendRoot, "test", "run-e2e.ts"), "utf8");
+    const guardIndex = runnerText.indexOf("resolveSafeE2eDatabaseUrl");
+    const schemaCreateIndex = runnerText.indexOf("ensureSchemaExists");
+    const schemaPushIndex = runnerText.indexOf('"push"');
+    const jestIndex = runnerText.indexOf('"./test/jest-e2e.json"');
 
+    expect(e2eScript).toContain("tsx test/run-e2e.ts");
     expect(guardIndex).toBeGreaterThanOrEqual(0);
+    expect(schemaCreateIndex).toBeGreaterThanOrEqual(0);
     expect(schemaPushIndex).toBeGreaterThanOrEqual(0);
     expect(jestIndex).toBeGreaterThanOrEqual(0);
-    expect(guardIndex).toBeLessThan(schemaPushIndex);
-    expect(guardIndex).toBeLessThan(jestIndex);
+    expect(guardIndex).toBeLessThan(schemaCreateIndex);
+    expect(schemaCreateIndex).toBeLessThan(schemaPushIndex);
+    expect(schemaPushIndex).toBeLessThan(jestIndex);
   });
 });

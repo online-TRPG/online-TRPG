@@ -4,6 +4,7 @@ import {
 } from "@prisma/client";
 import { CharactersService } from "./characters.service";
 import { LevelUpService } from "../rules/level-up.service";
+import { RuleCatalogService } from "../rules/rule-catalog.service";
 
 const baseCharacter = {
   id: "character-1",
@@ -36,6 +37,7 @@ const baseCharacter = {
 
 describe("CharactersService level up", () => {
   const createService = () => {
+    const actualRuleCatalogService = new RuleCatalogService();
     const prisma = {
       character: {
         findUnique: jest.fn(),
@@ -119,6 +121,9 @@ describe("CharactersService level up", () => {
         },
       ]),
       listClassFeaturesForLevel: jest.fn().mockReturnValue([]),
+      listEntries: jest.fn((kind?: Parameters<RuleCatalogService["listEntries"]>[0]) =>
+        actualRuleCatalogService.listEntries(kind),
+      ),
     };
 
     return {
@@ -347,7 +352,7 @@ describe("CharactersService level up", () => {
             "spell.magic_missile",
             "spell.shield",
             "spell.detect_magic",
-            "spell.cure_wounds",
+            "spell.wish",
           ],
         },
       }),
@@ -819,7 +824,7 @@ describe("CharactersService level up", () => {
     const updated = {
       ...existing,
       level: 8,
-      abilitiesJson: JSON.stringify({ str: 15, dex: 14, con: 16, int: 10, wis: 10, cha: 10 }),
+      abilitiesJson: JSON.stringify({ str: 17, dex: 14, con: 16, int: 10, wis: 10, cha: 10 }),
       maxHp: 76,
       armorClass: 12,
       updatedAt: new Date("2026-06-02T00:00:00.000Z"),
@@ -841,14 +846,14 @@ describe("CharactersService level up", () => {
     const result = await service.levelUpCharacter("user-1", "character-1", {
       targetLevel: 8,
       applyToActiveSessions: true,
-      abilityScoreIncreases: { dex: 2, con: 2 },
+      abilityScoreIncreases: { str: 2, dex: 2, con: 2 },
     });
 
     expect(prisma.character.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           abilitiesJson: JSON.stringify({
-            str: 15,
+            str: 17,
             dex: 14,
             con: 16,
             int: 10,

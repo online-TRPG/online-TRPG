@@ -3898,7 +3898,7 @@ describe("CombatService lifecycle", () => {
     sessionsService.buildSnapshot.mockResolvedValue({ sessionId: "session-1" });
     prisma.combat.findFirst.mockResolvedValue(combat);
     prisma.sessionCharacter.findUnique
-      .mockResolvedValueOnce({
+      .mockImplementation(({ where }: { where: { id: string } }) => Promise.resolve(where.id === "session-character-1" ? {
         id: "session-character-1",
         userId: "user-1",
         character: {
@@ -3912,12 +3912,16 @@ describe("CombatService lifecycle", () => {
           proficiencyBonus: 3,
           level: 3,
         },
-      })
-      .mockResolvedValueOnce({
+      } : where.id === "session-character-2" ? {
         id: "session-character-2",
         currentHp: 4,
-        character: { maxHp: 18 },
-      });
+        tempHp: 0,
+        conditionsJson: "[]",
+        character: {
+          maxHp: 18,
+          featuresJson: "[]",
+        },
+      } : null));
     diceService.roll.mockReturnValueOnce({
       expression: "2d8+3",
       rolls: [6, 5],

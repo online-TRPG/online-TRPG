@@ -8,6 +8,7 @@ import {
   IsNotEmpty,
   IsObject,
   IsOptional,
+  IsIn,
   IsString,
   Max,
   MaxLength,
@@ -94,6 +95,27 @@ export class ScenarioSummaryResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   startNodeId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  baseScenarioId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1 })
+  revisionNumber?: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  changelog?: string | null;
+
+  @ApiPropertyOptional({ type: Object, nullable: true })
+  validationReport?: Record<string, unknown> | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  publishedAt?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  publishedByUserId?: string | null;
+
+  @ApiPropertyOptional({ enum: ["draft", "public", "link", "private", "unpublished"] })
+  publishStatus?: "draft" | "public" | "link" | "private" | "unpublished";
 
   @ApiProperty()
   createdAt!: string;
@@ -450,4 +472,24 @@ export class UpdateScenarioDto {
   @IsArray()
   @IsObject({ each: true })
   npcs?: Record<string, unknown>[];
+}
+
+export class PublishScenarioDto {
+  @ApiPropertyOptional({
+    nullable: true,
+    description: "Revision change summary shown to the creator. Stored in the published copy attribution metadata for the MVP.",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  changelog?: string | null;
+
+  @ApiPropertyOptional({
+    enum: ["public", "link", "private"],
+    default: "public",
+    description: "Publication visibility for the revision. public appears in the scenario list, link is accessible by id, private is owner-only.",
+  })
+  @IsOptional()
+  @IsIn(["public", "link", "private"])
+  visibility?: "public" | "link" | "private";
 }

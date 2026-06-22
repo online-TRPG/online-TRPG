@@ -25,6 +25,7 @@ import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import { getCharacterImage } from '../utils/characterVisuals';
 import { describeCombatParticipantObservation } from '../utils/combatParticipantObservation';
+import { isDirectlyUsableP3Item } from '../utils/executableItems';
 import { MONSTER_TOKEN_COLOR, NPC_TOKEN_COLOR } from '../../../utils/sessionTokenColors';
 import type { SessionTokenColor } from '../../../utils/sessionTokenColors';
 import './CombatNodeSurface.css';
@@ -33,7 +34,7 @@ type CombatActionTab = 'basic' | 'ability' | 'spell';
 type CombatMovementMode = 'normal' | 'jump';
 type ForcedMovementMode = 'push' | 'pull' | 'slide';
 type CombatActorActionType = 'attack' | 'dash' | 'dodge' | 'hide';
-type SpellFilter = 'all' | 'cantrip' | 'level1' | 'level2' | 'level3';
+type SpellFilter = 'all' | 'cantrip' | 'level1' | 'level2' | 'level3' | 'level4';
 type CombatResourceIconKind = 'action' | 'bonus' | 'reaction';
 type CombatParticipant = CombatResponseDto['participants'][number];
 type CombatMonsterAction = NonNullable<CombatParticipant['monsterActions']>[number];
@@ -95,7 +96,12 @@ interface CombatNodeSurfaceProps {
     path: Array<{ x: number; y: number }>,
     movementMode?: CombatMovementMode
   ) => Promise<VttMapStateDto | null>;
-  onUseInventoryItem: (item: InventoryItemDto) => void;
+  onUseInventoryItem: (
+    item: InventoryItemDto,
+    targetSessionCharacterId?: string | null,
+    targetParticipantId?: string | null,
+    point?: { x: number; y: number } | null
+  ) => void;
   onEquipInventoryItem: (item: InventoryItemDto) => void;
   onThrowInventoryItem: (
     item: InventoryItemDto,
@@ -197,6 +203,73 @@ const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: strin
   },
 ];
 
+type P3CombatSpellMetadata = {
+  id: string;
+  label: string;
+  level: 0 | 1 | 2 | 3 | 4;
+  rangeFt: number;
+  targeting: 'self' | 'token' | 'point';
+  targetDisposition?: 'ally' | 'enemy' | 'any';
+  allowDefeated?: boolean;
+};
+
+const p3CombatSpellMetadata: P3CombatSpellMetadata[] = [
+  { id: 'spell.blade_ward', label: 'Blade Ward', level: 0, rangeFt: 0, targeting: 'self' },
+  { id: 'spell.dancing_lights', label: 'Dancing Lights', level: 0, rangeFt: 120, targeting: 'point' },
+  { id: 'spell.eldritch_blast', label: 'Eldritch Blast', level: 0, rangeFt: 120, targeting: 'token', targetDisposition: 'enemy' },
+  { id: 'spell.friends', label: 'Friends', level: 0, rangeFt: 0, targeting: 'self' },
+  { id: 'spell.mending', label: 'Mending', level: 0, rangeFt: 5, targeting: 'token', targetDisposition: 'any' },
+  { id: 'spell.message', label: 'Message', level: 0, rangeFt: 120, targeting: 'token', targetDisposition: 'any' },
+  { id: 'spell.poison_spray', label: 'Poison Spray', level: 0, rangeFt: 10, targeting: 'token', targetDisposition: 'enemy' },
+  { id: 'spell.produce_flame', label: 'Produce Flame', level: 0, rangeFt: 30, targeting: 'token', targetDisposition: 'enemy' },
+  { id: 'spell.resistance', label: 'Resistance', level: 0, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
+  { id: 'spell.spare_the_dying', label: 'Spare the Dying', level: 0, rangeFt: 5, targeting: 'token', targetDisposition: 'ally', allowDefeated: true },
+  { id: 'spell.alarm', label: 'Alarm', level: 1, rangeFt: 30, targeting: 'point' },
+  { id: 'spell.animal_friendship', label: 'Animal Friendship', level: 1, rangeFt: 30, targeting: 'token', targetDisposition: 'any' },
+  { id: 'spell.armor_of_agathys', label: 'Armor of Agathys', level: 1, rangeFt: 0, targeting: 'self' },
+  { id: 'spell.color_spray', label: 'Color Spray', level: 1, rangeFt: 15, targeting: 'point' },
+  { id: 'spell.comprehend_languages', label: 'Comprehend Languages', level: 1, rangeFt: 0, targeting: 'self' },
+  { id: 'spell.create_or_destroy_water', label: 'Create or Destroy Water', level: 1, rangeFt: 30, targeting: 'point' },
+  { id: 'spell.expeditious_retreat', label: 'Expeditious Retreat', level: 1, rangeFt: 0, targeting: 'self' },
+  { id: 'spell.false_life', label: 'False Life', level: 1, rangeFt: 0, targeting: 'self' },
+  { id: 'spell.find_familiar', label: 'Find Familiar', level: 1, rangeFt: 5, targeting: 'point' },
+  { id: 'spell.goodberry', label: 'Goodberry', level: 1, rangeFt: 0, targeting: 'self' },
+  { id: 'spell.jump', label: 'Jump', level: 1, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
+  { id: 'spell.mage_armor', label: 'Mage Armor', level: 1, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
+  { id: 'spell.alter_self', label: 'Alter Self', level: 2, rangeFt: 0, targeting: 'self' },
+  { id: 'spell.blur', label: 'Blur', level: 2, rangeFt: 0, targeting: 'self' },
+  { id: 'spell.darkvision', label: 'Darkvision', level: 2, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
+  { id: 'spell.enhance_ability', label: 'Enhance Ability', level: 2, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
+  { id: 'spell.enlarge_reduce', label: 'Enlarge/Reduce', level: 2, rangeFt: 30, targeting: 'token', targetDisposition: 'any' },
+  { id: 'spell.flaming_sphere', label: 'Flaming Sphere', level: 2, rangeFt: 60, targeting: 'point' },
+  { id: 'spell.gust_of_wind', label: 'Gust of Wind', level: 2, rangeFt: 60, targeting: 'point' },
+  { id: 'spell.heat_metal', label: 'Heat Metal', level: 2, rangeFt: 60, targeting: 'token', targetDisposition: 'enemy' },
+  { id: 'spell.levitate', label: 'Levitate', level: 2, rangeFt: 60, targeting: 'token', targetDisposition: 'any' },
+  { id: 'spell.locate_object', label: 'Locate Object', level: 2, rangeFt: 0, targeting: 'self' },
+  { id: 'spell.mirror_image', label: 'Mirror Image', level: 2, rangeFt: 0, targeting: 'self' },
+  { id: 'spell.spider_climb', label: 'Spider Climb', level: 2, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
+  { id: 'spell.call_lightning', label: 'Call Lightning', level: 3, rangeFt: 120, targeting: 'point' },
+  { id: 'spell.fear', label: 'Fear', level: 3, rangeFt: 30, targeting: 'point' },
+  { id: 'spell.gaseous_form', label: 'Gaseous Form', level: 3, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
+  { id: 'spell.plant_growth', label: 'Plant Growth', level: 3, rangeFt: 150, targeting: 'point' },
+  { id: 'spell.protection_from_energy', label: 'Protection from Energy', level: 3, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
+  { id: 'spell.sleet_storm', label: 'Sleet Storm', level: 3, rangeFt: 150, targeting: 'point' },
+  { id: 'spell.slow', label: 'Slow', level: 3, rangeFt: 120, targeting: 'point' },
+  { id: 'spell.water_walk', label: 'Water Walk', level: 3, rangeFt: 30, targeting: 'token', targetDisposition: 'ally' },
+  { id: 'spell.blight', label: 'Blight', level: 4, rangeFt: 30, targeting: 'token', targetDisposition: 'enemy' },
+  { id: 'spell.death_ward', label: 'Death Ward', level: 4, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
+  { id: 'spell.dimension_door', label: 'Dimension Door', level: 4, rangeFt: 500, targeting: 'point' },
+  { id: 'spell.freedom_of_movement', label: 'Freedom of Movement', level: 4, rangeFt: 5, targeting: 'token', targetDisposition: 'ally' },
+  { id: 'spell.ice_storm', label: 'Ice Storm', level: 4, rangeFt: 300, targeting: 'point' },
+  { id: 'spell.locate_creature', label: 'Locate Creature', level: 4, rangeFt: 0, targeting: 'self' },
+  { id: 'spell.phantasmal_killer', label: 'Phantasmal Killer', level: 4, rangeFt: 120, targeting: 'token', targetDisposition: 'enemy' },
+  { id: 'spell.wall_of_fire', label: 'Wall of Fire', level: 4, rangeFt: 120, targeting: 'point' },
+];
+
+const p3CombatSpellMetadataById = new Map(
+  p3CombatSpellMetadata.map((spell) => [spell.id, spell] as const)
+);
+
 const mvpSpellLabels = [
   'Acid Splash',
   'Guidance',
@@ -248,6 +321,7 @@ const mvpSpellLabels = [
   'Haste',
   'Lightning Bolt',
   'Revivify',
+  ...p3CombatSpellMetadata.map((spell) => spell.label),
 ];
 
 const gmCombatConditionOptions: CombatConditionOption[] = [
@@ -315,6 +389,7 @@ const mvpSpellIdsByLabel: Record<string, string> = {
   Haste: 'spell.haste',
   'Lightning Bolt': 'spell.lightning_bolt',
   Revivify: 'spell.revivify',
+  ...Object.fromEntries(p3CombatSpellMetadata.map((spell) => [spell.label, spell.id])),
 };
 
 const mvpSpellRangeFtById: Record<string, number> = {
@@ -367,9 +442,10 @@ const mvpSpellRangeFtById: Record<string, number> = {
   'spell.haste': 30,
   'spell.lightning_bolt': 100,
   'spell.revivify': 5,
+  ...Object.fromEntries(p3CombatSpellMetadata.map((spell) => [spell.id, spell.rangeFt])),
 };
 
-const mvpSpellLevelById: Record<string, 0 | 1 | 2 | 3> = {
+const mvpSpellLevelById: Record<string, 0 | 1 | 2 | 3 | 4> = {
   'spell.acid_splash': 0,
   'spell.guidance': 0,
   'spell.mage_hand': 0,
@@ -420,6 +496,7 @@ const mvpSpellLevelById: Record<string, 0 | 1 | 2 | 3> = {
   'spell.haste': 3,
   'spell.lightning_bolt': 3,
   'spell.revivify': 3,
+  ...Object.fromEntries(p3CombatSpellMetadata.map((spell) => [spell.id, spell.level])),
 };
 
 const preparedSpellClassKeys = new Set(['cleric', 'druid', 'paladin', 'wizard']);
@@ -430,6 +507,7 @@ const spellFilterOptions: Array<{ id: SpellFilter; label: string }> = [
   { id: 'level1', label: '1레벨 마법' },
   { id: 'level2', label: '2레벨 마법' },
   { id: 'level3', label: '3레벨 마법' },
+  { id: 'level4', label: '4레벨 마법' },
 ];
 
 const combatActionIconNames: Partial<Record<string, GameIconName>> = {
@@ -914,6 +992,19 @@ function getSpellTargetingHint(spellId: string) {
   if (spellId === 'spell.counterspell') {
     return 'Counterspell은 적이 주문을 시전할 때 반응 팝업으로 사용합니다.';
   }
+  const p3Spell = p3CombatSpellMetadataById.get(spellId);
+  if (p3Spell?.targeting === 'token') {
+    if (p3Spell.targetDisposition === 'ally') {
+      return `${p3Spell.rangeFt}ft 안의 아군 또는 자기 토큰을 선택하세요.`;
+    }
+    if (p3Spell.targetDisposition === 'enemy') {
+      return `${p3Spell.rangeFt}ft 안의 적 토큰을 선택하세요.`;
+    }
+    return `${p3Spell.rangeFt}ft 안의 대상 토큰을 선택하세요.`;
+  }
+  if (p3Spell?.targeting === 'point') {
+    return `${p3Spell.rangeFt}ft 안의 효과 지점 또는 이동 목적지를 선택하세요.`;
+  }
   return '사거리 안의 타일 또는 대상을 선택하세요.';
 }
 
@@ -957,7 +1048,8 @@ function isQuickUsableItem(item: InventoryItemDto) {
   const isPack = item.itemType === 'pack' || key.includes('꾸러미');
   return (
     item.quantity > 0 &&
-    (key.includes('consumable') ||
+    (isDirectlyUsableP3Item(item.itemDefinitionId) ||
+      key.includes('consumable') ||
       key.includes('potion') ||
       key.includes('포션') ||
       key.includes('healing') ||
@@ -1319,6 +1411,7 @@ export function CombatNodeSurface({
         if (spellFilter === 'level1') return spellLevel === 1;
         if (spellFilter === 'level2') return spellLevel === 2;
         if (spellFilter === 'level3') return spellLevel === 3;
+        if (spellFilter === 'level4') return spellLevel === 4;
         return true;
       }),
     [knownMvpSpellActions, spellFilter]
@@ -2029,7 +2122,8 @@ export function CombatNodeSurface({
 
   function startSpellTargeting(spellId: string) {
     if (!spellId || spellId === 'spell.shield') return;
-    if (spellId === 'spell.detect_magic') {
+    const p3Spell = p3CombatSpellMetadataById.get(spellId);
+    if (spellId === 'spell.detect_magic' || p3Spell?.targeting === 'self') {
       setTargetingSpellId(null);
       void onCastSpell(spellId, buildSpellCastPayload(spellId));
       return;
@@ -2051,6 +2145,28 @@ export function CombatNodeSurface({
   }
 
   function castTargetingSpell(spellId: string, selection: BattleMapSelection | null) {
+    const p3Spell = p3CombatSpellMetadataById.get(spellId);
+    if (p3Spell?.targeting === 'token') {
+      if (selection?.kind !== 'token') return;
+      const participant = getParticipantByTokenId(selection.token.id);
+      if (!participant || (!p3Spell.allowDefeated && !participant.isAlive)) return;
+      if (p3Spell.targetDisposition === 'ally' && participant.isHostile) return;
+      if (p3Spell.targetDisposition === 'enemy' && !participant.isHostile) return;
+      if (!isParticipantSpellTargetInRange(participant, spellId)) return;
+      setTargetingSpellId(null);
+      void onCastSpell(spellId, {
+        targetParticipantIds: [participant.sessionEntityId],
+        ...buildSpellCastPayload(spellId),
+      });
+      return;
+    }
+    if (p3Spell?.targeting === 'point') {
+      const point = selection?.point ?? null;
+      if (!point || !isPointSpellTargetInRange(point, spellId)) return;
+      setTargetingSpellId(null);
+      void onCastSpell(spellId, { point, ...buildSpellCastPayload(spellId) });
+      return;
+    }
     if (
       spellId === 'spell.chill_touch' ||
       spellId === 'spell.acid_splash' ||
@@ -3373,7 +3489,14 @@ export function CombatNodeSurface({
                                   ? `${item.name} 사용`
                                   : '현재 바로 사용할 수 없는 아이템입니다.'
                               }
-                              onClick={() => onUseInventoryItem(item)}
+                              onClick={() =>
+                                onUseInventoryItem(
+                                  item,
+                                  selectedTargetParticipant?.sessionCharacterId ?? null,
+                                  selectedTargetParticipant?.sessionEntityId ?? null,
+                                  selectedMapSelection?.point ?? null
+                                )
+                              }
                             >
                               사용
                             </button>

@@ -185,6 +185,58 @@ describe("MonsterAbilityService", () => {
     });
   });
 
+  it("covers the P3 monster roster and exposes representative complex actions", () => {
+    const p3MonsterIds = [
+      "monster.black_bear",
+      "monster.lion",
+      "monster.tiger",
+      "monster.troll",
+      "monster.hill_giant",
+      "monster.giant_eagle",
+      "monster.giant_owl",
+      "monster.manticore",
+      "monster.griffon",
+      "monster.merrow",
+      "monster.acolyte",
+      "monster.mage",
+      "monster.priest",
+      "monster.cult_fanatic",
+      "monster.mummy",
+      "monster.specter",
+      "monster.ghost",
+      "monster.stone_golem",
+      "monster.water_elemental",
+      "monster.swarm_of_insects",
+      "monster.quasit",
+      "monster.basilisk",
+      "monster.wyvern",
+      "monster.young_blue_dragon",
+    ];
+
+    for (const monsterId of p3MonsterIds) {
+      expect(service.listExecutableActions(monsterId).length).toBeGreaterThan(0);
+      expect(service.chooseAction(monsterId)).toMatchObject({ monsterId });
+    }
+
+    expect(service.chooseAction("monster.mage")).toMatchObject({
+      actionId: "action.fireball",
+      specialType: "area_attack",
+      usage: "3/day",
+    });
+    expect(service.chooseAction("monster.stone_golem")).toMatchObject({
+      actionId: "action.slow",
+      specialType: "area_control",
+      recharge: "5-6",
+      conditionRiders: ["condition.slowed"],
+    });
+    expect(service.chooseAction("monster.young_blue_dragon")).toMatchObject({
+      actionId: "action.lightning_breath",
+      specialType: "area_attack",
+      recharge: "5-6",
+      damageDice: "10d10",
+    });
+  });
+
   it("projects P1 recharge, save rider, and ranged/melee thrown metadata", () => {
     expect(service.chooseAction("monster.dragon_whelp")).toMatchObject({
       actionId: "action.fire_breath",

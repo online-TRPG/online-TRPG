@@ -27,6 +27,7 @@ import { ActionEconomyService } from "../rules/action-economy.service";
 import { CharacterResourceService } from "../rules/character-resource.service";
 import { InventoryRuntimeService } from "../rules/inventory-runtime.service";
 import { MapPositionService } from "../rules/map-position.service";
+import { getExecutableItemDefinition } from "../rules/p3-item-manifest";
 import { PENDING_READY_ACTIONS_FLAG } from "../rules/ready-action.service";
 import { RuleEngineService } from "../rules/rule-engine.service";
 import { BagOfHoldingIntegrity } from "../rules/rule-engine.types";
@@ -747,6 +748,10 @@ export class ActionProcessorService {
           hitDiceSpent: effect.hitDiceSpent,
         });
         await this.recoverLongRestSpellSlots(params.sessionScenarioId, params.sessionCharacterId);
+        await this.recoverLongRestItemCharges(
+          params.sessionScenarioId,
+          params.sessionCharacterId,
+        );
         return;
       case "ADD_ITEM":
         await this.inventoryRuntime.addItem({
@@ -1850,6 +1855,69 @@ export class ActionProcessorService {
     }
 
     return { current, maximums };
+  }
+
+  private async recoverLongRestItemCharges(
+    sessionScenarioId: string,
+    sessionCharacterId: string,
+  ): Promise<void> {
+    const [state, entries] = await Promise.all([
+      this.prisma.gameState.findUnique({
+        where: { sessionScenarioId },
+        select: { flagsJson: true },
+      }),
+      this.prisma.inventoryEntry.findMany({
+        where: { sessionCharacterId },
+        select: { id: true, itemDefinitionId: true },
+      }),
+    ]);
+    if (!state) {
+      return;
+    }
+    const flags = this.parseJson<Record<string, unknown>>(
+      state.flagsJson,
+      {},
+    );
+    const rawRuntime =
+      flags.p3ItemRuntime &&
+      typeof flags.p3ItemRuntime === "object" &&
+      !Array.isArray(flags.p3ItemRuntime)
+        ? (flags.p3ItemRuntime as Record<string, unknown>)
+        : {};
+    const currentCharges =
+      rawRuntime.chargesByItemEntryId &&
+      typeof rawRuntime.chargesByItemEntryId === "object" &&
+      !Array.isArray(rawRuntime.chargesByItemEntryId)
+        ? {
+            ...(rawRuntime.chargesByItemEntryId as Record<string, unknown>),
+          }
+        : {};
+    let changed = false;
+    for (const entry of entries) {
+      const definition = getExecutableItemDefinition(
+        entry.itemDefinitionId,
+      );
+      if (!definition?.maxCharges) {
+        continue;
+      }
+      currentCharges[entry.id] = definition.maxCharges;
+      changed = true;
+    }
+    if (!changed) {
+      return;
+    }
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId },
+      data: {
+        flagsJson: JSON.stringify({
+          ...flags,
+          p3ItemRuntime: {
+            ...rawRuntime,
+            chargesByItemEntryId: currentCharges,
+          },
+        }),
+      },
+    });
   }
 
   private parseJson<T>(value: string | null | undefined, fallback: T): T {

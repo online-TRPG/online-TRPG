@@ -319,7 +319,11 @@ export class SessionsService {
           version: 1,
           currentNodeId: startNodeId,
           phase: PrismaGamePhase.LOBBY,
-          flagsJson: JSON.stringify({}),
+          flagsJson: JSON.stringify({
+            p3ScenarioRevisionSnapshot: this.buildP3ScenarioRevisionSnapshotFlag(
+              scenario,
+            ),
+          }),
         },
       });
 
@@ -4124,6 +4128,70 @@ export class SessionsService {
         fallbackNodeId: node.fallbackNodeId,
       })),
     });
+  }
+
+  private buildP3ScenarioRevisionSnapshotFlag(scenario: {
+    id: string;
+    sourceType: string;
+    baseScenarioId: string | null;
+    attribution: string | null;
+    updatedAt: Date;
+  }): Record<string, unknown> {
+    const metadata = this.parseP3ScenarioRevisionMetadata(scenario.attribution);
+    return {
+      scenarioId: scenario.id,
+      baseScenarioId: scenario.baseScenarioId,
+      sourceType: scenario.sourceType,
+      revisionNumber: metadata.revisionNumber,
+      publishStatus: metadata.status,
+      publishedAt: metadata.publishedAt,
+      publishedByUserId: metadata.publishedByUserId,
+      scenarioUpdatedAt: scenario.updatedAt.toISOString(),
+      snapshotCreatedAt: new Date().toISOString(),
+    };
+  }
+
+  private parseP3ScenarioRevisionMetadata(attribution: string | null | undefined): {
+    revisionNumber: number | null;
+    publishedAt: string | null;
+    publishedByUserId: string | null;
+    status: "draft" | "public" | "link" | "private" | "unpublished";
+  } {
+    const raw = attribution ?? "";
+    const marker = "P3_REVISION_META:";
+    const markerIndex = raw.indexOf(marker);
+    if (markerIndex < 0) {
+      return {
+        revisionNumber: null,
+        publishedAt: null,
+        publishedByUserId: null,
+        status: "draft",
+      };
+    }
+    try {
+      const metadata = JSON.parse(raw.slice(markerIndex + marker.length).trim()) as Record<string, unknown>;
+      const status = metadata.status;
+      return {
+        revisionNumber:
+          typeof metadata.revisionNumber === "number" && Number.isInteger(metadata.revisionNumber)
+            ? metadata.revisionNumber
+            : null,
+        publishedAt: typeof metadata.publishedAt === "string" ? metadata.publishedAt : null,
+        publishedByUserId:
+          typeof metadata.publishedByUserId === "string" ? metadata.publishedByUserId : null,
+        status:
+          status === "public" || status === "link" || status === "private" || status === "unpublished"
+            ? status
+            : "draft",
+      };
+    } catch {
+      return {
+        revisionNumber: null,
+        publishedAt: null,
+        publishedByUserId: null,
+        status: "draft",
+      };
+    }
   }
 
   private async recordCurrentNodeCluesByPolicy(

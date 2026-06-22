@@ -13,6 +13,7 @@ import {
   ScenarioAssetResponseDto,
   ScenarioQueryDto,
   ScenarioNodeImageUploadResponseDto,
+  PublishScenarioDto,
   ScenarioResponseDto,
   ScenarioSummaryResponseDto,
   UploadScenarioAssetDto,
@@ -85,6 +86,29 @@ export class ScenariosController {
     @Body() dto: UpdateScenarioDto,
   ): Promise<ScenarioResponseDto> {
     return this.scenariosService.updateScenario(userId, id, dto);
+  }
+
+  @Post(":id/publish")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: ScenarioResponseDto })
+  publishScenario(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Body() dto: PublishScenarioDto,
+  ): Promise<ScenarioResponseDto> {
+    return this.scenariosService.publishScenario(userId, id, dto);
+  }
+
+  @Post(":id/unpublish")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: ScenarioResponseDto })
+  unpublishScenarioRevision(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+  ): Promise<ScenarioResponseDto> {
+    return this.scenariosService.unpublishScenarioRevision(userId, id);
   }
 
   @Get(":id/assets")

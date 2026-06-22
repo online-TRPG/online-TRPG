@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import {
+  CombatEntityType as PrismaCombatEntityType,
   CombatStatus as PrismaCombatStatus,
   GamePhase as PrismaGamePhase,
   ParticipantRole as PrismaParticipantRole,
@@ -671,9 +672,17 @@ export class HumanGmRuntimeService {
   }
 
   async startCombat(runtime: HumanGmRuntime, userId: string, sessionId: string): Promise<SessionSnapshotDto> {
-    await runtime.transitionHumanGmCombat(userId, sessionId, PrismaGamePhase.COMBAT);
-    const resolvedSessionId = (await runtime.getSessionEntityOrThrow(sessionId)).id;
+    const session = await runtime.getHumanGmSessionForOperator(userId, sessionId);
+    const resolvedSessionId = session.id;
     const activeScenario = await runtime.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
+    const { state } = await runtime.getGameStateEntityOrThrow(resolvedSessionId);
+    await runtime.transitionHumanGmCombat(userId, resolvedSessionId, PrismaGamePhase.COMBAT);
+    await this.ensureHumanGmActiveCombatFromCurrentNode(
+      runtime,
+      resolvedSessionId,
+      activeScenario.id,
+      state.currentNodeId,
+    );
     const gmTurnLog = await runtime.createHumanGmOverrideTurnLog({
       kind: "combat_start",
       sessionId: resolvedSessionId,
@@ -715,6 +724,104 @@ export class HumanGmRuntimeService {
     }
     runtime.realtimeEvents.emitSessionSnapshot(resolvedSessionId, snapshot);
     return snapshot;
+  }
+
+  private async ensureHumanGmActiveCombatFromCurrentNode(
+    runtime: HumanGmRuntime,
+    sessionId: string,
+    sessionScenarioId: string,
+    currentNodeId: string | null,
+  ): Promise<void> {
+    if (!currentNodeId) {
+      return;
+    }
+
+    const currentNode = await runtime.getSessionScenarioNodeEntityOrThrow(
+      sessionScenarioId,
+      currentNodeId,
+    );
+    const map = runtime.extractVttMapFromCheckOptions(
+      currentNode.checkOptionsJson,
+    );
+    const tokens = (map?.tokens ?? []).filter((token) => token.hidden !== true);
+    if (!tokens.length) {
+      return;
+    }
+
+    await runtime.prisma.$transaction(async (tx) => {
+      let combat = await tx.combat.findFirst({
+        where: {
+          sessionId,
+          status: PrismaCombatStatus.ACTIVE,
+        },
+        include: { participants: true },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (!combat) {
+        combat = await tx.combat.create({
+          data: {
+            sessionId,
+            sessionScenarioId,
+            status: PrismaCombatStatus.ACTIVE,
+            roundNo: 1,
+            turnNo: 1,
+          },
+          include: { participants: true },
+        });
+      }
+
+      const existingTokenIds = new Set(
+        combat.participants
+          .map((participant) => participant.tokenId)
+          .filter((tokenId): tokenId is string => Boolean(tokenId)),
+      );
+      let nextTurnOrder =
+        Math.max(0, ...combat.participants.map((participant) => participant.turnOrder)) + 1;
+      const createdParticipants: Array<{ id: string }> = [];
+
+      for (const token of tokens) {
+        if (existingTokenIds.has(token.id)) {
+          continue;
+        }
+        const isMonster = Boolean(token.monster) || token.isHostile === true;
+        const maxHp = isMonster ? 7 : 10;
+        createdParticipants.push(
+          await tx.combatParticipant.create({
+            data: {
+              combatId: combat.id,
+              entityType: isMonster
+                ? PrismaCombatEntityType.MONSTER
+                : PrismaCombatEntityType.PLAYER_CHARACTER,
+              sessionCharacterId: isMonster ? null : (token.sessionCharacterId ?? null),
+              tokenId: token.id,
+              nameSnapshot: token.name,
+              currentHp: maxHp,
+              maxHp,
+              armorClass: isMonster ? 12 : 10,
+              speedFt: 30,
+              conditionsJson: "[]",
+              initiative: Math.max(1, 20 - nextTurnOrder),
+              turnOrder: nextTurnOrder,
+              isAlive: true,
+              isHostile: token.isHostile === true,
+            },
+          }),
+        );
+        nextTurnOrder += 1;
+      }
+
+      if (!combat.currentParticipantId) {
+        const firstParticipantId =
+          combat.participants[0]?.id ?? createdParticipants[0]?.id ?? null;
+        if (firstParticipantId) {
+          await tx.combat.update({
+            where: { id: combat.id },
+            data: { currentParticipantId: firstParticipantId },
+          });
+        }
+      }
+    });
   }
 
   private addHumanGmCondition(currentConditions: unknown[], conditionId: string): unknown[] {
