@@ -74,7 +74,13 @@ export class CombatActionService {
     };
   }
 
-  async castSpell(runtime: CombatActionRuntime, userId: string, sessionId: string, dto: CastCombatSpellDto): Promise<CombatActionResultDto> {
+  async castSpell(
+    runtime: CombatActionRuntime,
+    userId: string,
+    sessionId: string,
+    dto: CastCombatSpellDto,
+    options: { skipCounterspellPrompt?: boolean } = {},
+  ): Promise<CombatActionResultDto> {
     const session = await runtime.sessionsService.getSessionEntityOrThrow(sessionId);
     await runtime.sessionsService.ensureMembership(userId, session.id);
     const { sessionScenario } = await runtime.sessionsService.getGameStateEntityOrThrow(session.id);
@@ -109,11 +115,99 @@ export class CombatActionService {
         reason: "CASTER_TOKEN_NOT_FOUND",
       });
     }
+    const isSpiritualWeaponRepeat =
+      spellId === "spell.spiritual_weapon" &&
+      runtime
+        .parseConditions(caster.conditionsJson ?? "[]")
+        .includes("summon:spiritual_weapon");
+    if (
+      !options.skipCounterspellPrompt &&
+      spellId !== "spell.counterspell" &&
+      !isSpiritualWeaponRepeat
+    ) {
+      const attemptedSpellLevel =
+        runtime.combatSpells.resolveCombatSpellSlotLevel(
+          spellId,
+          dto.slotLevel,
+        );
+      const attemptedActionCost =
+        spellDefinition?.cost.type === "bonus_action" ||
+        spellDefinition?.cost.type === "reaction"
+          ? spellDefinition.cost.type
+          : "action";
+      const casterTurnState = await runtime.actionEconomy.getOrCreateTurnState({
+        combatId: combat.id,
+        combatParticipantId: caster.id,
+        roundNo: combat.roundNo,
+        turnNo: combat.turnNo,
+        sessionCharacterId: caster.sessionCharacterId,
+      });
+      if (
+        (attemptedActionCost === "action" &&
+          casterTurnState.actionUsed &&
+          !casterTurnState.additionalActionGranted) ||
+        (attemptedActionCost === "bonus_action" &&
+          casterTurnState.bonusActionUsed) ||
+        (attemptedActionCost === "reaction" && casterTurnState.reactionUsed)
+      ) {
+        throw conflict("COMBAT_409", "주문 시전에 필요한 행동 자원이 없습니다.", {
+          reason: "SPELL_ACTION_COST_UNAVAILABLE",
+          actionCost: attemptedActionCost,
+        });
+      }
+      if (attemptedSpellLevel > 0) {
+        await runtime.combatSpells.assertSpellSlotAvailable(
+          session.id,
+          caster.sessionCharacterId,
+          attemptedSpellLevel,
+          runtime.combatSpells.resolveSpellSlotMaximumForCharacter(
+            casterSessionCharacter,
+            attemptedSpellLevel,
+          ),
+        );
+      }
+      const counterspellPrompt = await this.tryPromptCounterspell(runtime, {
+        sessionId: session.id,
+        combat,
+        caster,
+        casterToken,
+        casterUserId: userId,
+        spellId,
+        spellLevel: attemptedSpellLevel,
+        actionCost: attemptedActionCost,
+        castDto: dto,
+        map,
+      });
+      if (counterspellPrompt) {
+        return {
+          combat: await runtime.mapCombat(combat),
+          message: "Counterspell 반응을 기다리는 중입니다.",
+          attackTotal: null,
+          damageTotal: null,
+          turnLogId: null,
+          pendingReaction: counterspellPrompt,
+          pendingReactions: [counterspellPrompt],
+        };
+      }
+    }
 
-    if (spellId === "spell.fire_bolt" || spellId === "spell.chill_touch" || spellId === "spell.ray_of_frost") {
+    if (
+      spellId === "spell.fire_bolt" ||
+      spellId === "spell.chill_touch" ||
+      spellId === "spell.ray_of_frost" ||
+      spellId === "spell.shocking_grasp"
+    ) {
       runtime.combatSpells.resolveCombatSpellSlotLevel(spellId, dto.slotLevel);
       const target = runtime.findCombatParticipantOrThrow(combat, dto.targetParticipantIds?.[0] ?? "");
-      runtime.combatTargeting.assertSpellTargetInRange(map, casterToken, target, runtime.combatSpells.resolveCombatSpellRangeFt(spellDefinition, 120));
+      runtime.combatTargeting.assertSpellTargetInRange(
+        map,
+        casterToken,
+        target,
+        runtime.combatSpells.resolveCombatSpellRangeFt(
+          spellDefinition,
+          spellId === "spell.shocking_grasp" ? 5 : 120,
+        ),
+      );
       const spellAttackBonus = runtime.combatSpells.resolveSpellAttackBonusForCharacter(casterSessionCharacter);
       return runtime.resolveAttack(
         userId,
@@ -129,17 +223,34 @@ export class CombatActionService {
           damageBonus: 0,
         },
         {
-          messagePrefix: spellId === "spell.chill_touch" ? "Chill Touch" : spellId === "spell.ray_of_frost" ? "Ray of Frost" : "Fire Bolt",
+          messagePrefix: this.resolveSpellDisplayName(spellId),
           spellId,
-          ...(spellId === "spell.ray_of_frost"
+          damageType:
+            runtime.combatSpells.resolveCombatSpellDamageType(
+              spellDefinition,
+              spellId === "spell.shocking_grasp"
+                ? "lightning"
+                : spellId === "spell.chill_touch"
+                  ? "necrotic"
+                  : spellId === "spell.ray_of_frost"
+                    ? "cold"
+                    : "fire",
+            ),
+          ...(spellId === "spell.ray_of_frost" || spellId === "spell.shocking_grasp"
             ? {
                 onHitCondition: runtime.conditionRuntime.createCondition({
-                  conditionId: "condition.spell.ray_of_frost",
+                  conditionId:
+                    spellId === "spell.ray_of_frost"
+                      ? "condition.spell.ray_of_frost"
+                      : "condition.spell.shocking_grasp",
                   sourceId: spellId,
                   duration: { type: "rounds", remaining: 1 },
                   stackPolicy: "replace",
                   appliedAtRound: combat.roundNo,
-                  tags: ["movement_speed_penalty:10"],
+                  tags:
+                    spellId === "spell.ray_of_frost"
+                      ? ["movement_speed_penalty:10"]
+                      : ["reaction:block"],
                 }),
               }
             : {}),
@@ -311,6 +422,10 @@ export class CombatActionService {
         {
           messagePrefix: this.resolveSpellDisplayName(spellId),
           spellId,
+          damageType: runtime.combatSpells.resolveCombatSpellDamageType(
+            spellDefinition,
+            spellId === "spell.inflict_wounds" ? "necrotic" : "radiant",
+          ),
           actionCost: "none",
           auditMetadata: {
             baseSpellLevel: runtime.combatSpells.resolveCombatBaseSpellLevel(spellId),
@@ -328,6 +443,91 @@ export class CombatActionService {
                 }),
               }
             : {}),
+        },
+      );
+    }
+
+    if (spellId === "spell.spiritual_weapon") {
+      spellScaling =
+        runtime.combatSpells.resolveCombatSpellScalingFromCatalog(
+          spellDefinition,
+          slotLevel,
+        );
+      const target = runtime.findCombatParticipantOrThrow(
+        combat,
+        dto.targetParticipantIds?.[0] ?? "",
+      );
+      runtime.combatTargeting.assertSpellTargetInRange(
+        map,
+        casterToken,
+        target,
+        runtime.combatSpells.resolveCombatSpellRangeFt(spellDefinition, 60),
+      );
+      runtime.combatTargeting.assertSpellTargetLineOfEffect(map, casterToken, target);
+      const spiritualWeaponActive = runtime
+        .parseConditions(caster.conditionsJson ?? "[]")
+        .includes("summon:spiritual_weapon");
+      if (!spiritualWeaponActive) {
+        await runtime.combatSpells.assertSpellSlotAvailable(
+          session.id,
+          caster.sessionCharacterId,
+          slotLevel,
+          spellSlotMaximum,
+        );
+      }
+      await runtime.spendCurrentBonusActionIfNeeded(combat, caster);
+      if (!spiritualWeaponActive) {
+        await runtime.combatSpells.spendSpellSlotWithMaximum(
+          session.id,
+          caster.sessionCharacterId,
+          slotLevel,
+          spellSlotMaximum,
+        );
+        await runtime.combatConditions.addCombatConditionInstance(
+          caster,
+          runtime.conditionRuntime.createCondition({
+            conditionId: "condition.spell.spiritual_weapon",
+            sourceId: spellId,
+            duration: { type: "rounds", remaining: 10 },
+            stackPolicy: "replace",
+            appliedAtRound: combat.roundNo,
+            tags: ["summon:spiritual_weapon"],
+          }),
+        );
+      }
+      const damageModifier =
+        runtime.combatSpells.resolveSpellcastingAbilityModifierForCharacter(
+          casterSessionCharacter,
+        );
+      return runtime.resolveAttack(
+        userId,
+        session.id,
+        {
+          attackerParticipantId: caster.id,
+          targetParticipantId: target.id,
+          attackBonus:
+            runtime.combatSpells.resolveSpellAttackBonusForCharacter(
+              casterSessionCharacter,
+            ),
+          damageDice:
+            spellScaling.damageDice ??
+            runtime.combatSpells.resolveCombatSpellBaseDamageDice(
+              spellDefinition,
+            ) ??
+            "1d8",
+          damageBonus: damageModifier,
+        },
+        {
+          messagePrefix: "Spiritual Weapon",
+          spellId,
+          damageType: "force",
+          actionCost: "none",
+          auditMetadata: {
+            baseSpellLevel: 2,
+            slotLevel,
+            repeatableWithBonusAction: true,
+            spiritualWeaponActive,
+          },
         },
       );
     }
@@ -483,6 +683,294 @@ export class CombatActionService {
       message = detectedCount > 0
         ? `Detect Magic: 30ft 안에서 마법 효과 ${detectedCount}개를 감지했습니다.`
         : "Detect Magic: 30ft 안에서 감지된 마법 효과가 없습니다.";
+    } else if (
+      spellId === "spell.fog_cloud" ||
+      spellId === "spell.darkness" ||
+      spellId === "spell.grease"
+    ) {
+      spellScaling =
+        runtime.combatSpells.resolveCombatSpellScalingFromCatalog(
+          spellDefinition,
+          slotLevel,
+        );
+      const point = dto.point ?? runtime.combatTargeting.requireTargetPoint(map, casterToken);
+      runtime.combatTargeting.assertPointInRange(
+        map,
+        casterToken,
+        point,
+        runtime.combatSpells.resolveCombatSpellRangeFt(
+          spellDefinition,
+          spellId === "spell.fog_cloud" ? 120 : 60,
+        ),
+      );
+      const areaTargeting = runtime.combatSpells.resolveCombatAreaTargeting(
+        spellDefinition,
+        spellId,
+      );
+      const areaSizeFt =
+        spellId === "spell.fog_cloud"
+          ? 20 + Math.max(0, slotLevel - 1) * 20
+          : areaTargeting.sizeFt;
+      const aoeOrigin = runtime.combatCover.toAoeGridCell(
+        runtime.combatMovement.mapPointToGridPoint(map, point),
+      );
+      const targeting = runtime.aoeTargeting.resolveTargets({
+        shape: areaTargeting.shape,
+        origin: aoeOrigin,
+        sizeFt: areaSizeFt,
+        grid: {
+          columns: Math.ceil(map.width / map.gridSize),
+          rows: Math.ceil(map.height / map.gridSize),
+        },
+        tokens: map.tokens.map((token) => ({
+          id: token.id,
+          ...runtime.combatCover.toAoeGridCell(
+            runtime.combatCover.toCoverGridPoint(map, token),
+          ),
+          hidden: token.hidden,
+        })),
+      });
+      await runtime.combatSpells.assertSpellSlotAvailable(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      await runtime.spendCurrentActionIfNeeded(combat, caster);
+      await runtime.combatSpells.spendSpellSlotWithMaximum(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      const terrainCellId = `${spellId.replace(".", "-")}:${caster.id}:${Date.now()}`;
+      const terrainSizePx = (areaSizeFt / 5) * map.gridSize;
+      responseMap = await runtime.mapRuntimeService.saveSystemVttMap(session.id, {
+        ...map,
+        terrainCells: [
+          ...(map.terrainCells ?? []),
+          {
+            id: terrainCellId,
+            x: runtime.clampNumber(
+              Math.floor(point.x - terrainSizePx / 2),
+              0,
+              Math.max(0, map.width - terrainSizePx),
+            ),
+            y: runtime.clampNumber(
+              Math.floor(point.y - terrainSizePx / 2),
+              0,
+              Math.max(0, map.height - terrainSizePx),
+            ),
+            width: terrainSizePx,
+            height: terrainSizePx,
+            name: this.resolveSpellDisplayName(spellId),
+            description: `${this.resolveSpellDisplayName(spellId)} 주문의 지속 지역`,
+            terrainEffectId:
+              spellId === "spell.grease"
+                ? "terrain.slippery"
+                : "terrain.obscurement",
+          },
+        ],
+        updatedAt: new Date().toISOString(),
+      });
+      const affected: string[] = [];
+      if (spellId === "spell.grease") {
+        const saveAbility = runtime.combatSpells.resolveCombatSpellSaveAbility(
+          spellDefinition,
+          "dex",
+        );
+        const saveDc =
+          runtime.combatSpells.resolveCombatSpellSaveDcForCharacter(
+            casterSessionCharacter,
+          );
+        const targets = combat.participants.filter(
+          (participant) =>
+            participant.id !== caster.id &&
+            participant.tokenId &&
+            targeting.tokenIds.includes(participant.tokenId),
+        );
+        for (const target of targets) {
+          const saveTarget = await runtime.toCombatAoeDamageTarget(
+            target,
+            map,
+            saveAbility,
+          );
+          const saveRoll = runtime.diceService.roll(
+            "1d20",
+            DiceAdvantageState.NORMAL,
+          );
+          const saveResult = runtime.ruleEngine.resolveSavingThrow({
+            ability: saveAbility,
+            naturalD20: runtime.selectNaturalD20(
+              saveRoll.rolls,
+              DiceAdvantageState.NORMAL,
+            ),
+            difficultyClass: saveDc,
+            abilityModifier: saveTarget.abilityModifiers[saveAbility] ?? 0,
+            proficiencyBonus: saveTarget.proficiencyBonus,
+            proficient:
+              saveTarget.proficientSaves?.includes(saveAbility) ?? false,
+            bonusModifiers: saveTarget.bonusModifiers,
+          });
+          diceResults.push(...(saveTarget.modifierRolls ?? []), saveRoll);
+          if (!saveResult.produced.success) {
+            await runtime.combatConditions.addCombatConditionInstance(
+              target,
+              runtime.conditionRuntime.createCondition({
+                conditionId: "condition.prone",
+                sourceId: terrainCellId,
+                duration: { type: "rounds", remaining: 1 },
+                stackPolicy: "replace",
+                appliedAtRound: combat.roundNo,
+                tags: ["condition:prone"],
+              }),
+            );
+            affected.push(target.nameSnapshot);
+          }
+        }
+      } else {
+        await runtime.startCombatConcentration(combat, caster, {
+          spellId,
+          targetIds: [],
+          effectIds: [terrainCellId],
+          durationRounds: spellId === "spell.darkness" ? 100 : 600,
+        });
+      }
+      message =
+        spellId === "spell.grease"
+          ? `Grease: 미끄러운 지역을 만들고 ${affected.length ? `${affected.join(", ")}을(를) 넘어뜨렸습니다.` : "즉시 넘어진 대상은 없습니다."}`
+          : `${this.resolveSpellDisplayName(spellId)}: 시야를 가리는 지속 지역을 생성했습니다.`;
+    } else if (
+      spellId === "spell.minor_illusion" ||
+      spellId === "spell.mage_hand"
+    ) {
+      const point = dto.point ?? runtime.combatTargeting.requireTargetPoint(map, casterToken);
+      runtime.combatTargeting.assertPointInRange(
+        map,
+        casterToken,
+        point,
+        runtime.combatSpells.resolveCombatSpellRangeFt(spellDefinition, 30),
+      );
+      await runtime.spendCurrentActionIfNeeded(combat, caster);
+      await runtime.combatConditions.addCombatConditionInstance(
+        caster,
+        runtime.conditionRuntime.createCondition({
+          conditionId: `condition.${spellId}`,
+          sourceId: spellId,
+          duration: { type: "rounds", remaining: 10 },
+          stackPolicy: "replace",
+          appliedAtRound: combat.roundNo,
+          tags: [
+            spellId === "spell.mage_hand"
+              ? "utility:remote_object_interaction"
+              : "utility:illusion",
+            `effect_point:${Math.floor(point.x)}:${Math.floor(point.y)}`,
+          ],
+        }),
+      );
+      message = `${this.resolveSpellDisplayName(spellId)}: 선택한 위치에 효과를 생성했습니다.`;
+    } else if (spellId === "spell.faerie_fire") {
+      const point = dto.point ?? runtime.combatTargeting.requireTargetPoint(map, casterToken);
+      runtime.combatTargeting.assertPointInRange(map, casterToken, point, 60);
+      const areaTargeting = runtime.combatSpells.resolveCombatAreaTargeting(
+        spellDefinition,
+        spellId,
+      );
+      const aoeOrigin = runtime.combatCover.toAoeGridCell(
+        runtime.combatMovement.mapPointToGridPoint(map, point),
+      );
+      const targeting = runtime.aoeTargeting.resolveTargets({
+        shape: areaTargeting.shape,
+        origin: aoeOrigin,
+        sizeFt: areaTargeting.sizeFt,
+        grid: {
+          columns: Math.ceil(map.width / map.gridSize),
+          rows: Math.ceil(map.height / map.gridSize),
+        },
+        tokens: map.tokens.map((token) => ({
+          id: token.id,
+          ...runtime.combatCover.toAoeGridCell(
+            runtime.combatCover.toCoverGridPoint(map, token),
+          ),
+          hidden: token.hidden,
+        })),
+      });
+      const targets = combat.participants.filter(
+        (participant) =>
+          participant.id !== caster.id &&
+          participant.tokenId &&
+          targeting.tokenIds.includes(participant.tokenId),
+      );
+      await runtime.combatSpells.assertSpellSlotAvailable(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      await runtime.spendCurrentActionIfNeeded(combat, caster);
+      await runtime.combatSpells.spendSpellSlotWithMaximum(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      const saveAbility = runtime.combatSpells.resolveCombatSpellSaveAbility(
+        spellDefinition,
+        "dex",
+      );
+      const saveDc =
+        runtime.combatSpells.resolveCombatSpellSaveDcForCharacter(
+          casterSessionCharacter,
+        );
+      const effectId = `${spellId}:${caster.id}:${Date.now()}`;
+      const affected: string[] = [];
+      for (const target of targets) {
+        const saveTarget = await runtime.toCombatAoeDamageTarget(
+          target,
+          map,
+          saveAbility,
+        );
+        const saveRoll = runtime.diceService.roll(
+          "1d20",
+          DiceAdvantageState.NORMAL,
+        );
+        const saveResult = runtime.ruleEngine.resolveSavingThrow({
+          ability: saveAbility,
+          naturalD20: runtime.selectNaturalD20(
+            saveRoll.rolls,
+            DiceAdvantageState.NORMAL,
+          ),
+          difficultyClass: saveDc,
+          abilityModifier: saveTarget.abilityModifiers[saveAbility] ?? 0,
+          proficiencyBonus: saveTarget.proficiencyBonus,
+          proficient: saveTarget.proficientSaves?.includes(saveAbility) ?? false,
+          bonusModifiers: saveTarget.bonusModifiers,
+        });
+        diceResults.push(...(saveTarget.modifierRolls ?? []), saveRoll);
+        if (!saveResult.produced.success) {
+          await runtime.combatConditions.addCombatConditionInstance(
+            target,
+            runtime.conditionRuntime.createCondition({
+              conditionId: "condition.spell.faerie_fire",
+              sourceId: effectId,
+              duration: { type: "rounds", remaining: 10 },
+              stackPolicy: "replace",
+              appliedAtRound: combat.roundNo,
+              tags: ["condition:faerie_fire", "advantage:incoming_attack"],
+            }),
+          );
+          affected.push(target.nameSnapshot);
+        }
+      }
+      await runtime.startCombatConcentration(combat, caster, {
+        spellId,
+        targetIds: targets.map((target) => target.id),
+        effectIds: [effectId],
+        durationRounds: 10,
+      });
+      message = affected.length
+        ? `Faerie Fire: ${affected.join(", ")}에게 윤곽광을 적용했습니다.`
+        : "Faerie Fire: 모든 대상이 내성에 성공했습니다.";
     } else if (spellId === "spell.entangle" || spellId === "spell.web") {
       const point = dto.point ?? runtime.combatTargeting.requireTargetPoint(map, casterToken);
       runtime.combatTargeting.assertPointInRange(
@@ -597,50 +1085,79 @@ export class CombatActionService {
       message = restrained.length
         ? `${this.resolveSpellDisplayName(spellId)}: 험지를 생성하고 ${restrained.join(", ")}을(를) 구속했습니다.`
         : `${this.resolveSpellDisplayName(spellId)}: 험지를 생성했지만 구속된 대상은 없습니다.`;
-    } else if (spellId === "spell.sacred_flame") {
-      const target = runtime.findCombatParticipantOrThrow(combat, dto.targetParticipantIds?.[0] ?? "");
-      runtime.combatTargeting.assertSpellTargetInRange(
-        map,
-        casterToken,
-        target,
-        runtime.combatSpells.resolveCombatSpellRangeFt(spellDefinition, 60),
-      );
-      runtime.combatTargeting.assertSpellTargetLineOfEffect(map, casterToken, target);
+    } else if (spellId === "spell.sacred_flame" || spellId === "spell.acid_splash") {
+      const targets = Array.from(new Set(dto.targetParticipantIds ?? []))
+        .filter(Boolean)
+        .slice(0, spellId === "spell.acid_splash" ? 2 : 1)
+        .map((targetId) => runtime.findCombatParticipantOrThrow(combat, targetId));
+      if (!targets.length) {
+        throw conflict("COMBAT_409", `${this.resolveSpellDisplayName(spellId)} 대상이 필요합니다.`, {
+          reason: "SPELL_TARGET_REQUIRED",
+        });
+      }
+      targets.forEach((target) => {
+        runtime.combatTargeting.assertSpellTargetInRange(
+          map,
+          casterToken,
+          target,
+          runtime.combatSpells.resolveCombatSpellRangeFt(spellDefinition, 60),
+        );
+        runtime.combatTargeting.assertSpellTargetLineOfEffect(map, casterToken, target);
+      });
       const saveAbility = runtime.combatSpells.resolveCombatSpellSaveAbility(spellDefinition, "dex");
       const saveDc = runtime.combatSpells.resolveCombatSpellSaveDcForCharacter(casterSessionCharacter);
-      const saveTarget = await runtime.toCombatAoeDamageTarget(target, map, saveAbility);
+      const saveTargets = await Promise.all(
+        targets.map((target) => runtime.toCombatAoeDamageTarget(target, map, saveAbility)),
+      );
       await runtime.spendCurrentActionIfNeeded(combat, caster);
       const resolution = runtime.aoeDamage.resolveDamage({
         sourceId: spellId,
         damageDice: runtime.combatSpells.resolveCantripDamageDice(
-          runtime.combatSpells.resolveCombatSpellBaseDamageDice(spellDefinition) ?? "1d8",
+          runtime.combatSpells.resolveCombatSpellBaseDamageDice(spellDefinition) ??
+            (spellId === "spell.acid_splash" ? "1d6" : "1d8"),
           runtime.combatSpells.resolveCharacterLevelForCharacter(casterSessionCharacter),
         ),
-        damageType: runtime.combatSpells.resolveCombatSpellDamageType(spellDefinition, "radiant"),
+        damageType: runtime.combatSpells.resolveCombatSpellDamageType(
+          spellDefinition,
+          spellId === "spell.acid_splash" ? "acid" : "radiant",
+        ),
         save: {
           ability: saveAbility,
           dc: saveDc,
           halfDamageOnSuccess: false,
         },
-        targets: [saveTarget],
+        targets: saveTargets,
       });
-      const targetResult = resolution.targetResults[0];
       diceResults.push(
         resolution.damageRoll,
-        ...targetResult.modifierRolls,
-        targetResult.saveRoll,
+        ...resolution.targetResults.flatMap((targetResult) => [
+          ...targetResult.modifierRolls,
+          targetResult.saveRoll,
+        ]),
       );
-      const { concentrationCheck } = await runtime.finalizeCombatDamage(combat, target, targetResult.finalDamage);
-      if (concentrationCheck) {
-        concentrationChecks.push({
-          targetParticipantId: target.id,
-          ...concentrationCheck,
-        });
+      const applied: string[] = [];
+      for (const targetResult of resolution.targetResults) {
+        const target = targets.find((candidate) => candidate.id === targetResult.targetId);
+        if (!target) continue;
+        const { concentrationCheck } = await runtime.finalizeCombatDamage(
+          combat,
+          target,
+          targetResult.finalDamage,
+        );
+        if (concentrationCheck) {
+          concentrationChecks.push({
+            targetParticipantId: target.id,
+            ...concentrationCheck,
+          });
+        }
+        damageTotal = (damageTotal ?? 0) + targetResult.finalDamage;
+        applied.push(
+          targetResult.savingThrow.success
+            ? `${target.nameSnapshot} 내성 성공`
+            : `${target.nameSnapshot} ${targetResult.finalDamage}`,
+        );
       }
-      damageTotal = targetResult.finalDamage;
-      message = targetResult.savingThrow.success
-        ? `Sacred Flame: ${target.nameSnapshot}이(가) 민첩 내성에 성공했습니다.`
-        : `Sacred Flame: ${target.nameSnapshot}에게 ${targetResult.finalDamage} 광휘 피해`;
+      message = `${this.resolveSpellDisplayName(spellId)}: ${applied.join(", ")}`;
     } else if (spellId === "spell.magic_missile") {
       spellScaling = runtime.combatSpells.resolveCombatSpellScalingFromCatalog(spellDefinition, slotLevel);
       const targets = (dto.targetParticipantIds?.length ? dto.targetParticipantIds : [dto.targetParticipantIds?.[0]])
@@ -704,7 +1221,328 @@ export class CombatActionService {
       await runtime.applyHitPointDelta(combat, target, healingRoll.total);
       damageTotal = healingRoll.total;
       message = `${this.resolveSpellDisplayName(spellId)}: ${target.nameSnapshot} ${healingRoll.total} 회복`;
-    } else if (spellId === "spell.command" || spellId === "spell.hold_person") {
+    } else if (spellId === "spell.revivify") {
+      const target = runtime.findCombatParticipantOrThrow(
+        combat,
+        dto.targetParticipantIds?.[0] ?? "",
+      );
+      if (target.isAlive || (target.currentHp ?? 0) > 0) {
+        throw conflict("COMBAT_409", "Revivify는 쓰러진 대상에게만 사용할 수 있습니다.", {
+          reason: "REVIVIFY_TARGET_NOT_DEFEATED",
+        });
+      }
+      runtime.combatTargeting.assertSpellTargetInRange(map, casterToken, target, 5);
+      await runtime.combatSpells.assertSpellSlotAvailable(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      await runtime.spendCurrentActionIfNeeded(combat, caster);
+      await runtime.combatSpells.spendSpellSlotWithMaximum(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      await runtime.applyHitPointDelta(combat, target, 1);
+      const revivedTokenId = target.tokenId;
+      if (revivedTokenId) {
+        responseMap = await runtime.mapRuntimeService.saveSystemVttMap(session.id, {
+          ...map,
+          tokens: map.tokens.map((token) =>
+            token.id === revivedTokenId ? { ...token, hidden: false } : token,
+          ),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      message = `Revivify: ${target.nameSnapshot}이(가) HP 1로 전투에 복귀했습니다.`;
+    } else if (spellId === "spell.feather_fall") {
+      const targets = Array.from(new Set(dto.targetParticipantIds ?? []))
+        .filter(Boolean)
+        .slice(0, 5)
+        .map((targetId) => runtime.findCombatParticipantOrThrow(combat, targetId));
+      if (!targets.length) {
+        throw conflict("COMBAT_409", "Feather Fall 대상이 필요합니다.", {
+          reason: "SPELL_TARGET_REQUIRED",
+        });
+      }
+      targets.forEach((target) => {
+        runtime.combatTargeting.assertSpellTargetInRange(map, casterToken, target, 60);
+        runtime.combatTargeting.assertSpellTargetLineOfEffect(map, casterToken, target);
+      });
+      await runtime.combatSpells.assertSpellSlotAvailable(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      await runtime.actionEconomy.spendReaction({
+        combatId: combat.id,
+        combatParticipantId: caster.id,
+        roundNo: combat.roundNo,
+        turnNo: combat.turnNo,
+        sessionCharacterId: caster.sessionCharacterId,
+      });
+      await runtime.combatSpells.spendSpellSlotWithMaximum(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      for (const target of targets) {
+        await runtime.combatConditions.addCombatConditionInstance(
+          target,
+          runtime.conditionRuntime.createCondition({
+            conditionId: "condition.spell.feather_fall",
+            sourceId: spellId,
+            duration: { type: "rounds", remaining: 10 },
+            stackPolicy: "replace",
+            appliedAtRound: combat.roundNo,
+            tags: ["falling_speed:60", "immunity:fall_damage"],
+          }),
+        );
+      }
+      message = `Feather Fall: ${targets.map((target) => target.nameSnapshot).join(", ")}의 추락 속도를 낮췄습니다.`;
+    } else if (
+      spellId === "spell.guidance" ||
+      spellId === "spell.heroism" ||
+      spellId === "spell.longstrider" ||
+      spellId === "spell.invisibility" ||
+      spellId === "spell.fly" ||
+      spellId === "spell.haste"
+    ) {
+      spellScaling = runtime.combatSpells.resolveCombatSpellScalingFromCatalog(
+        spellDefinition,
+        slotLevel,
+      );
+      const maximumTargets = spellScaling.targetCount ?? 1;
+      const targets = Array.from(new Set(dto.targetParticipantIds ?? []))
+        .filter(Boolean)
+        .slice(0, maximumTargets)
+        .map((targetId) => runtime.findCombatParticipantOrThrow(combat, targetId));
+      if (!targets.length) {
+        throw conflict("COMBAT_409", `${this.resolveSpellDisplayName(spellId)} 대상이 필요합니다.`, {
+          reason: "SPELL_TARGET_REQUIRED",
+        });
+      }
+      targets.forEach((target) => {
+        runtime.combatTargeting.assertSpellTargetInRange(
+          map,
+          casterToken,
+          target,
+          runtime.combatSpells.resolveCombatSpellRangeFt(
+            spellDefinition,
+            spellId === "spell.haste" ? 30 : 5,
+          ),
+        );
+        runtime.combatTargeting.assertSpellTargetLineOfEffect(map, casterToken, target);
+      });
+      if (slotLevel > 0) {
+        await runtime.combatSpells.assertSpellSlotAvailable(
+          session.id,
+          caster.sessionCharacterId,
+          slotLevel,
+          spellSlotMaximum,
+        );
+      }
+      await runtime.spendCurrentActionIfNeeded(combat, caster);
+      if (slotLevel > 0) {
+        await runtime.combatSpells.spendSpellSlotWithMaximum(
+          session.id,
+          caster.sessionCharacterId,
+          slotLevel,
+          spellSlotMaximum,
+        );
+      }
+      const effectId = `${spellId}:${caster.id}:${Date.now()}`;
+      const effect = this.resolveTargetBuffSpellEffect(
+        spellId,
+        runtime.combatSpells.resolveSpellcastingAbilityModifierForCharacter(
+          casterSessionCharacter,
+        ),
+      );
+      for (const target of targets) {
+        await runtime.combatConditions.addCombatConditionInstance(
+          target,
+          runtime.conditionRuntime.createCondition({
+            conditionId: `condition.${spellId}`,
+            sourceId: effectId,
+            duration: { type: "rounds", remaining: effect.durationRounds },
+            stackPolicy: "replace",
+            appliedAtRound: combat.roundNo,
+            tags: effect.tags,
+          }),
+        );
+      }
+      if (effect.concentration) {
+        await runtime.startCombatConcentration(combat, caster, {
+          spellId,
+          targetIds: targets.map((target) => target.id),
+          effectIds: [effectId],
+          durationRounds: effect.durationRounds,
+        });
+      }
+      message = `${this.resolveSpellDisplayName(spellId)}: ${targets
+        .map((target) => target.nameSnapshot)
+        .join(", ")}에게 적용했습니다.`;
+    } else if (spellId === "spell.hunters_mark") {
+      const target = runtime.findCombatParticipantOrThrow(
+        combat,
+        dto.targetParticipantIds?.[0] ?? "",
+      );
+      runtime.combatTargeting.assertSpellTargetInRange(
+        map,
+        casterToken,
+        target,
+        runtime.combatSpells.resolveCombatSpellRangeFt(spellDefinition, 90),
+      );
+      runtime.combatTargeting.assertSpellTargetLineOfEffect(map, casterToken, target);
+      await runtime.combatSpells.assertSpellSlotAvailable(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      await runtime.spendCurrentBonusActionIfNeeded(combat, caster);
+      await runtime.combatSpells.spendSpellSlotWithMaximum(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      const effectId = `${spellId}:${caster.id}`;
+      for (const participant of combat.participants) {
+        const entries = await runtime.combatConditions.readCombatConditionEntries(participant);
+        const next = entries.filter((entry) => {
+          if (!entry || typeof entry !== "object" || Array.isArray(entry)) return true;
+          const candidate = entry as { conditionId?: unknown; sourceId?: unknown };
+          return !(
+            candidate.conditionId === "condition.spell.hunters_mark" &&
+            candidate.sourceId === effectId
+          );
+        });
+        if (next.length !== entries.length) {
+          await runtime.combatConditions.writeCombatConditionEntries(participant, next);
+        }
+      }
+      await runtime.combatConditions.addCombatConditionInstance(
+        target,
+        runtime.conditionRuntime.createCondition({
+          conditionId: "condition.spell.hunters_mark",
+          sourceId: effectId,
+          duration: { type: "rounds", remaining: 600 },
+          stackPolicy: "replace",
+          appliedAtRound: combat.roundNo,
+          tags: ["condition:hunters_mark", `marked_by:${caster.id}`],
+        }),
+      );
+      await runtime.startCombatConcentration(combat, caster, {
+        spellId,
+        targetIds: [target.id],
+        effectIds: [effectId],
+        durationRounds: 600,
+      });
+      message = `Hunter's Mark: ${target.nameSnapshot}을(를) 추적 대상으로 지정했습니다.`;
+    } else if (spellId === "spell.aid") {
+      spellScaling = runtime.combatSpells.resolveCombatSpellScalingFromCatalog(
+        spellDefinition,
+        slotLevel,
+      );
+      const hitPointBonus = Math.max(5, 5 + Math.max(0, slotLevel - 2) * 5);
+      const targets = Array.from(new Set(dto.targetParticipantIds ?? []))
+        .filter(Boolean)
+        .slice(0, 3)
+        .map((targetId) => runtime.findCombatParticipantOrThrow(combat, targetId));
+      if (!targets.length) {
+        throw conflict("COMBAT_409", "Aid 대상이 필요합니다.", {
+          reason: "SPELL_TARGET_REQUIRED",
+        });
+      }
+      targets.forEach((target) => {
+        runtime.combatTargeting.assertSpellTargetInRange(map, casterToken, target, 30);
+        runtime.combatTargeting.assertSpellTargetLineOfEffect(map, casterToken, target);
+      });
+      await runtime.combatSpells.assertSpellSlotAvailable(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      await runtime.spendCurrentActionIfNeeded(combat, caster);
+      await runtime.combatSpells.spendSpellSlotWithMaximum(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      const effectId = `${spellId}:${caster.id}:${Date.now()}`;
+      for (const target of targets) {
+        await runtime.combatConditions.addCombatConditionInstance(
+          target,
+          runtime.conditionRuntime.createCondition({
+            conditionId: "condition.spell.aid",
+            sourceId: effectId,
+            duration: { type: "rounds", remaining: 4800 },
+            stackPolicy: "replace",
+            appliedAtRound: combat.roundNo,
+            tags: [`max_hp_bonus:${hitPointBonus}`],
+          }),
+        );
+        await runtime.applyHitPointDelta(combat, target, hitPointBonus);
+      }
+      damageTotal = hitPointBonus * targets.length;
+      message = `Aid: ${targets.map((target) => target.nameSnapshot).join(", ")}의 최대 HP와 현재 HP가 ${hitPointBonus} 증가했습니다.`;
+    } else if (spellId === "spell.lesser_restoration") {
+      const target = runtime.findCombatParticipantOrThrow(
+        combat,
+        dto.targetParticipantIds?.[0] ?? "",
+      );
+      runtime.combatTargeting.assertSpellTargetInRange(map, casterToken, target, 5);
+      runtime.combatTargeting.assertSpellTargetLineOfEffect(map, casterToken, target);
+      await runtime.combatSpells.assertSpellSlotAvailable(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      await runtime.spendCurrentActionIfNeeded(combat, caster);
+      await runtime.combatSpells.spendSpellSlotWithMaximum(
+        session.id,
+        caster.sessionCharacterId,
+        slotLevel,
+        spellSlotMaximum,
+      );
+      const removableTags = new Set([
+        "condition:blinded",
+        "condition:deafened",
+        "condition:paralyzed",
+        "condition:poisoned",
+        "condition.blinded",
+        "condition.deafened",
+        "condition.paralyzed",
+        "condition.poisoned",
+      ]);
+      const currentEntries = await runtime.combatConditions.readCombatConditionEntries(target);
+      const removed = currentEntries.filter((entry) =>
+        runtime.combatConditions.conditionEntryTags(entry).some((tag) =>
+          removableTags.has(tag),
+        ),
+      );
+      const removedSet = new Set(removed);
+      await runtime.combatConditions.writeCombatConditionEntries(
+        target,
+        currentEntries.filter((entry) => !removedSet.has(entry)),
+      );
+      message = removed.length
+        ? `Lesser Restoration: ${target.nameSnapshot}의 상태 ${removed.length}개를 제거했습니다.`
+        : `Lesser Restoration: ${target.nameSnapshot}에게 제거할 상태가 없습니다.`;
+    } else if (
+      spellId === "spell.command" ||
+      spellId === "spell.hold_person" ||
+      spellId === "spell.charm_person" ||
+      spellId === "spell.blindness_deafness"
+    ) {
       spellScaling = runtime.combatSpells.resolveCombatSpellScalingFromCatalog(spellDefinition, slotLevel);
       const maximumTargets = spellScaling.targetCount ?? 1;
       const targets = Array.from(new Set(dto.targetParticipantIds ?? []))
@@ -753,15 +1591,32 @@ export class CombatActionService {
             conditionId:
               spellId === "spell.hold_person"
                 ? "condition.spell.hold_person"
-                : "condition.spell.command",
+                : spellId === "spell.charm_person"
+                  ? "condition.spell.charm_person"
+                  : spellId === "spell.blindness_deafness"
+                    ? "condition.spell.blindness_deafness"
+                    : "condition.spell.command",
             sourceId: spellId,
-            duration: { type: "rounds", remaining: spellId === "spell.hold_person" ? 10 : 1 },
+            duration: {
+              type: "rounds",
+              remaining:
+                spellId === "spell.charm_person"
+                  ? 600
+                  : spellId === "spell.hold_person" ||
+                      spellId === "spell.blindness_deafness"
+                    ? 10
+                    : 1,
+            },
             stackPolicy: "replace",
             appliedAtRound: combat.roundNo,
             tags:
               spellId === "spell.hold_person"
                 ? ["condition:paralyzed", "condition:incapacitated"]
-                : ["condition:commanded", "action:limited_by_command"],
+                : spellId === "spell.charm_person"
+                  ? ["condition:charmed"]
+                  : spellId === "spell.blindness_deafness"
+                    ? ["condition:blinded"]
+                    : ["condition:commanded", "action:limited_by_command"],
           }),
         );
         affected.push(target.nameSnapshot);
@@ -820,7 +1675,9 @@ export class CombatActionService {
     } else if (
       spellId === "spell.fireball" ||
       spellId === "spell.burning_hands" ||
-      spellId === "spell.thunderwave"
+      spellId === "spell.thunderwave" ||
+      spellId === "spell.lightning_bolt" ||
+      spellId === "spell.moonbeam"
     ) {
       spellScaling = runtime.combatSpells.resolveCombatSpellScalingFromCatalog(spellDefinition, slotLevel);
       const areaTargeting = runtime.combatSpells.resolveCombatAreaTargeting(spellDefinition, spellId);
@@ -829,15 +1686,23 @@ export class CombatActionService {
       const point = dto.point ?? runtime.combatTargeting.requireTargetPoint(map, casterToken);
       const spellRangeFt = runtime.combatSpells.resolveCombatSpellRangeFt(
         spellDefinition,
-        spellId === "spell.fireball" ? 150 : 15,
+        spellId === "spell.fireball"
+          ? 150
+          : spellId === "spell.lightning_bolt"
+            ? 100
+            : spellId === "spell.moonbeam"
+              ? 120
+              : 15,
       );
       runtime.combatTargeting.assertPointInRange(map, casterToken, point, spellRangeFt);
       const aoeOrigin =
-        spellId === "spell.burning_hands"
+        spellId === "spell.burning_hands" ||
+        spellId === "spell.lightning_bolt"
           ? runtime.combatCover.toAoeGridCell(runtime.combatCover.toCoverGridPoint(map, casterToken))
           : runtime.combatCover.toAoeGridCell(runtime.combatMovement.mapPointToGridPoint(map, point));
       const aoeDirection =
-        spellId === "spell.burning_hands"
+        spellId === "spell.burning_hands" ||
+        spellId === "spell.lightning_bolt"
           ? this.resolveAoeDirection(casterToken, point)
           : undefined;
       const targetTokenIds = runtime.aoeTargeting.resolveTargets({
@@ -863,7 +1728,9 @@ export class CombatActionService {
           target,
           cover: runtime.combatCover.resolveAoeCover(
             map,
-            spellId === "spell.fireball" ? point : { x: casterToken.x, y: casterToken.y },
+            spellId === "spell.fireball" || spellId === "spell.moonbeam"
+              ? point
+              : { x: casterToken.x, y: casterToken.y },
             runtime.combatTargeting.findParticipantToken(map, target),
             saveAbility === "dex",
           ),
@@ -889,7 +1756,9 @@ export class CombatActionService {
             ? "3d6"
             : spellId === "spell.thunderwave"
               ? "2d8"
-              : "8d6"),
+              : spellId === "spell.moonbeam"
+                ? "2d10"
+                : "8d6"),
         damageType,
         save: {
           ability: saveAbility,
@@ -935,6 +1804,41 @@ export class CombatActionService {
           responseMap = movement.responseMap;
           applied[applied.length - 1] += `, ${movement.resolution.distanceMovedFt}ft 밀려남`;
         }
+      }
+      if (spellId === "spell.moonbeam") {
+        const terrainCellId = `${spellId.replace(".", "-")}:${caster.id}:${Date.now()}`;
+        const terrainSizePx = Math.max(map.gridSize, (areaTargeting.sizeFt / 5) * map.gridSize);
+        responseMap = await runtime.mapRuntimeService.saveSystemVttMap(session.id, {
+          ...map,
+          terrainCells: [
+            ...(map.terrainCells ?? []),
+            {
+              id: terrainCellId,
+              x: runtime.clampNumber(
+                Math.floor(point.x - terrainSizePx / 2),
+                0,
+                Math.max(0, map.width - terrainSizePx),
+              ),
+              y: runtime.clampNumber(
+                Math.floor(point.y - terrainSizePx / 2),
+                0,
+                Math.max(0, map.height - terrainSizePx),
+              ),
+              width: terrainSizePx,
+              height: terrainSizePx,
+              name: "Moonbeam",
+              description: "Moonbeam의 지속 광휘 피해 지역",
+              terrainEffectId: "terrain.moonbeam",
+            },
+          ],
+          updatedAt: new Date().toISOString(),
+        });
+        await runtime.startCombatConcentration(combat, caster, {
+          spellId,
+          targetIds: targets.map((target) => target.id),
+          effectIds: [terrainCellId],
+          durationRounds: 10,
+        });
       }
       message = `${this.resolveSpellDisplayName(spellId)}: ${applied.join(", ")} ${this.resolveDamageTypeLabel(damageType)} 피해`;
     } else if (spellId === "spell.misty_step") {
@@ -1016,6 +1920,18 @@ export class CombatActionService {
       });
     }
 
+    if (
+      spellId !== "spell.invisibility" &&
+      runtime
+        .parseConditions(caster.conditionsJson ?? "[]")
+        .includes("condition:invisible")
+    ) {
+      await runtime.combatConditions.removeCombatCondition(
+        caster,
+        "condition.spell.invisibility",
+      );
+    }
+
     const updated = await runtime.getActiveCombatEntity(session.id);
     const readySpellCastTriggers = await runtime.resolveReadyActionsForParticipantEvent({
       sessionId: session.id,
@@ -1026,26 +1942,7 @@ export class CombatActionService {
     });
     const response = await runtime.completeCombatIfResolved(session.id, updated);
     const readyActionMessage = readySpellCastTriggers.count > 0 ? ` / 준비행동 ${readySpellCastTriggers.count}개가 발동 대기 중입니다.` : "";
-    const turnLogDiceResult =
-      (spellId === "spell.cure_wounds" ||
-        spellId === "spell.healing_word" ||
-        spellId === "spell.bane" ||
-        spellId === "spell.bless" ||
-        spellId === "spell.command" ||
-        spellId === "spell.detect_magic" ||
-        spellId === "spell.dispel_magic" ||
-        spellId === "spell.entangle" ||
-        spellId === "spell.hold_person" ||
-        spellId === "spell.misty_step" ||
-        spellId === "spell.sacred_flame" ||
-        spellId === "spell.sleep" ||
-        spellId === "spell.web" ||
-        spellId === "spell.fireball" ||
-        spellId === "spell.burning_hands" ||
-        spellId === "spell.thunderwave") &&
-      diceResults[0]
-        ? { ...diceResults[0] }
-        : null;
+    const turnLogDiceResult = diceResults[0] ? { ...diceResults[0] } : null;
     const turnLog = await runtime.turnLogsService.createTurnLog({
       sessionId: session.id,
       sessionScenarioId: sessionScenario.id,
@@ -1063,14 +1960,20 @@ export class CombatActionService {
         aoe:
           spellId === "spell.fireball" ||
           spellId === "spell.burning_hands" ||
-          spellId === "spell.thunderwave"
+          spellId === "spell.thunderwave" ||
+          spellId === "spell.lightning_bolt" ||
+          spellId === "spell.moonbeam" ||
+          spellId === "spell.faerie_fire" ||
+          spellId === "spell.grease"
             ? {
                 shape: runtime.combatSpells.resolveCombatAreaTargeting(spellDefinition, spellId).shape,
                 sizeFt: runtime.combatSpells.resolveCombatAreaTargeting(spellDefinition, spellId).sizeFt,
                 saveAbility: runtime.combatSpells.resolveCombatSpellSaveAbility(spellDefinition, "dex"),
                 damageType: runtime.combatSpells.resolveCombatSpellDamageType(spellDefinition, "fire"),
                 direction:
-                  spellId === "spell.burning_hands" && dto.point
+                  (spellId === "spell.burning_hands" ||
+                    spellId === "spell.lightning_bolt") &&
+                  dto.point
                     ? this.resolveAoeDirection(casterToken, dto.point)
                     : null,
               }
@@ -1122,8 +2025,215 @@ export class CombatActionService {
     return (horizontal || vertical || "east") as AoeDirection;
   }
 
+  private async tryPromptCounterspell(
+    runtime: CombatActionRuntime,
+    params: {
+      sessionId: string;
+      combat: CombatWithParticipants;
+      caster: CombatParticipantEntity;
+      casterToken: NonNullable<
+        ReturnType<CombatActionRuntime["combatTargeting"]["findParticipantToken"]>
+      >;
+      casterUserId: string;
+      spellId: string;
+      spellLevel: number;
+      actionCost: "action" | "bonus_action" | "reaction";
+      castDto: CastCombatSpellDto;
+      map: VttMapStateDto;
+    },
+  ): Promise<{
+    id: string;
+    type: "counterspell";
+    reactorParticipantId: string;
+    reactorName: string;
+    moverParticipantId: string;
+    moverName: string;
+    message: string;
+  } | null> {
+    for (const reactor of params.combat.participants) {
+      if (
+        reactor.id === params.caster.id ||
+        reactor.isHostile === params.caster.isHostile ||
+        !reactor.isAlive ||
+        !reactor.sessionCharacterId ||
+        runtime
+          .parseConditions(reactor.conditionsJson ?? "[]")
+          .some(
+            (condition) =>
+              condition === "condition:incapacitated" ||
+              condition === "condition:stunned" ||
+              condition === "reaction:block",
+          )
+      ) {
+        continue;
+      }
+      const reactorToken = runtime.combatTargeting.findParticipantToken(
+        params.map,
+        reactor,
+      );
+      if (
+        !reactorToken ||
+        runtime.combatMovement.getTokenGridDistanceFt(
+          params.map,
+          reactorToken,
+          params.casterToken,
+        ) > 60
+      ) {
+        continue;
+      }
+      const reactorSessionCharacter =
+        await runtime.combatSpells.getSessionCharacterForSpell(
+          reactor.sessionCharacterId,
+        );
+      try {
+        runtime.combatSpells.assertMvpSpellKnown(
+          reactorSessionCharacter,
+          "spell.counterspell",
+        );
+      } catch {
+        continue;
+      }
+      const turnState = await runtime.actionEconomy.getOrCreateTurnState({
+        combatId: params.combat.id,
+        combatParticipantId: reactor.id,
+        roundNo: params.combat.roundNo,
+        turnNo: params.combat.turnNo,
+        sessionCharacterId: reactor.sessionCharacterId,
+      });
+      if (
+        turnState.reactionUsed ||
+        (await runtime.combatSpells.getRemainingSpellSlots(
+          params.sessionId,
+          reactor.sessionCharacterId,
+          3,
+        )) <= 0
+      ) {
+        continue;
+      }
+      const reactorUserId =
+        reactorSessionCharacter.userId ||
+        reactorSessionCharacter.character.ownerUserId;
+      if (!reactorUserId) {
+        continue;
+      }
+      const pending = {
+        id: `reaction:counterspell:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+        type: "counterspell" as const,
+        sessionId: params.sessionId,
+        combatId: params.combat.id,
+        roundNo: params.combat.roundNo,
+        turnNo: params.combat.turnNo,
+        reactorParticipantId: reactor.id,
+        reactorUserId,
+        casterParticipantId: params.caster.id,
+        casterUserId: params.casterUserId,
+        spellId: params.spellId,
+        spellLevel: params.spellLevel,
+        actionCost: params.actionCost,
+        castDto: params.castDto,
+        createdAt: new Date().toISOString(),
+      };
+      await runtime.combatReactions.storePendingCombatReaction(
+        params.sessionId,
+        pending,
+      );
+      const prompt = {
+        id: pending.id,
+        type: pending.type,
+        reactorParticipantId: reactor.id,
+        reactorName: reactor.nameSnapshot,
+        moverParticipantId: params.caster.id,
+        moverName: params.caster.nameSnapshot,
+        message: `${params.caster.nameSnapshot}이(가) ${this.resolveSpellDisplayName(params.spellId)}을(를) 시전합니다. Counterspell로 무효화할까요?`,
+      };
+      runtime.realtimeEvents.emitCombatReactionPrompt(
+        params.sessionId,
+        reactorUserId,
+        prompt,
+      );
+      return prompt;
+    }
+    return null;
+  }
+
+  private resolveTargetBuffSpellEffect(
+    spellId: string,
+    spellcastingAbilityModifier: number,
+  ): {
+    tags: string[];
+    durationRounds: number;
+    concentration: boolean;
+  } {
+    switch (spellId) {
+      case "spell.guidance":
+        return {
+          tags: ["roll_bonus:ability_check:1d4"],
+          durationRounds: 10,
+          concentration: true,
+        };
+      case "spell.heroism":
+        return {
+          tags: [
+            "immunity:frightened",
+            `temporary_hp:turn_start:${Math.max(1, spellcastingAbilityModifier)}`,
+          ],
+          durationRounds: 10,
+          concentration: true,
+        };
+      case "spell.longstrider":
+        return {
+          tags: ["movement_speed_bonus:10"],
+          durationRounds: 600,
+          concentration: false,
+        };
+      case "spell.invisibility":
+        return {
+          tags: ["condition:invisible", "ends_on_attack_or_spell"],
+          durationRounds: 600,
+          concentration: true,
+        };
+      case "spell.fly":
+        return {
+          tags: ["movement:flying_speed:60", "movement_speed_override:60"],
+          durationRounds: 100,
+          concentration: true,
+        };
+      case "spell.haste":
+        return {
+          tags: [
+            "armor_class:+2",
+            "advantage:save:dex",
+            "movement_speed_multiplier:2",
+            "grant:haste_action",
+          ],
+          durationRounds: 10,
+          concentration: true,
+        };
+      default:
+        return { tags: [], durationRounds: 1, concentration: false };
+    }
+  }
+
   private resolveSpellDisplayName(spellId: string): string {
     switch (spellId) {
+      case "spell.acid_splash":
+        return "Acid Splash";
+      case "spell.guidance":
+        return "Guidance";
+      case "spell.mage_hand":
+        return "Mage Hand";
+      case "spell.minor_illusion":
+        return "Minor Illusion";
+      case "spell.shocking_grasp":
+        return "Shocking Grasp";
+      case "spell.chill_touch":
+        return "Chill Touch";
+      case "spell.fire_bolt":
+        return "Fire Bolt";
+      case "spell.ray_of_frost":
+        return "Ray of Frost";
+      case "spell.sacred_flame":
+        return "Sacred Flame";
       case "spell.command":
         return "Command";
       case "spell.cure_wounds":
@@ -1150,6 +2260,46 @@ export class CombatActionService {
         return "Thunderwave";
       case "spell.fireball":
         return "Fireball";
+      case "spell.charm_person":
+        return "Charm Person";
+      case "spell.faerie_fire":
+        return "Faerie Fire";
+      case "spell.feather_fall":
+        return "Feather Fall";
+      case "spell.fog_cloud":
+        return "Fog Cloud";
+      case "spell.grease":
+        return "Grease";
+      case "spell.heroism":
+        return "Heroism";
+      case "spell.hunters_mark":
+        return "Hunter's Mark";
+      case "spell.longstrider":
+        return "Longstrider";
+      case "spell.aid":
+        return "Aid";
+      case "spell.blindness_deafness":
+        return "Blindness/Deafness";
+      case "spell.darkness":
+        return "Darkness";
+      case "spell.invisibility":
+        return "Invisibility";
+      case "spell.lesser_restoration":
+        return "Lesser Restoration";
+      case "spell.moonbeam":
+        return "Moonbeam";
+      case "spell.spiritual_weapon":
+        return "Spiritual Weapon";
+      case "spell.counterspell":
+        return "Counterspell";
+      case "spell.fly":
+        return "Fly";
+      case "spell.haste":
+        return "Haste";
+      case "spell.lightning_bolt":
+        return "Lightning Bolt";
+      case "spell.revivify":
+        return "Revivify";
       default:
         return spellId;
     }
@@ -1159,6 +2309,8 @@ export class CombatActionService {
     switch (damageType) {
       case "fire":
         return "화염";
+      case "acid":
+        return "산성";
       case "cold":
         return "냉기";
       case "force":
@@ -1167,6 +2319,8 @@ export class CombatActionService {
         return "사령";
       case "radiant":
         return "광휘";
+      case "lightning":
+        return "번개";
       case "thunder":
         return "천둥";
       default:
@@ -1195,6 +2349,7 @@ export class CombatActionService {
       auditMetadata?: Record<string, unknown>;
       shieldContinuation?: PendingShieldContinuation | null;
       spellId?: string | null;
+      damageType?: string | null;
       skipActorPermissionCheck?: boolean;
     } = {},
   ): Promise<CombatActionResultDto> {
@@ -1249,8 +2404,15 @@ export class CombatActionService {
       const roll = runtime.diceService.roll("1d4");
       conditionModifierRolls.push({ source: "spell.bane", roll, value: -roll.total });
     }
-    if (attackerConditions.includes("bardic_inspiration:1d6")) {
-      const roll = runtime.diceService.roll("1d6");
+    const bardicInspirationDie = attackerConditions.includes(
+      "bardic_inspiration:1d8",
+    )
+      ? "1d8"
+      : attackerConditions.includes("bardic_inspiration:1d6")
+        ? "1d6"
+        : null;
+    if (bardicInspirationDie) {
+      const roll = runtime.diceService.roll(bardicInspirationDie);
       conditionModifierRolls.push({
         source: "bardic_inspiration",
         roll,
@@ -1293,7 +2455,11 @@ export class CombatActionService {
     } else if (options.actionCost === "none") {
       // Multiattack pays the action cost once before resolving child attacks.
     } else {
-      await runtime.spendCurrentActionIfNeeded(combat, attacker);
+      if (options.attackAction) {
+        await runtime.spendCurrentAttackActionIfNeeded(combat, attacker);
+      } else {
+        await runtime.spendCurrentActionIfNeeded(combat, attacker);
+      }
       if (options.attackAction && combat.currentParticipantId === attacker.id) {
         await runtime.actionEconomy.recordAttackAction({
           combatId: combat.id,
@@ -1308,15 +2474,16 @@ export class CombatActionService {
     }
 
     const totalAttackBonus = attackBonus + conditionAttackModifier;
-    const attackRoll = runtime.diceService.roll(
+    const attackRoll = await runtime.rollCombatD20WithRacialLuck(
+      attacker,
       `1d20${totalAttackBonus >= 0 ? "+" : ""}${totalAttackBonus}`,
       attackAdvantageState,
     );
     const naturalD20 = runtime.selectNaturalD20(attackRoll.rolls, attackAdvantageState);
-    if (attackerConditions.includes("bardic_inspiration:1d6")) {
+    if (bardicInspirationDie) {
       await runtime.combatConditions.removeCombatCondition(
         attacker,
-        "bardic_inspiration:1d6",
+        `bardic_inspiration:${bardicInspirationDie}`,
       );
     }
     const criticalHit = naturalD20 === 20;
@@ -1363,8 +2530,52 @@ export class CombatActionService {
     const fixedDamageTotal = hit && options.fixedDamageTotal !== undefined ? Math.max(0, Math.floor(options.fixedDamageTotal)) : null;
     const damageRoll =
       hit && fixedDamageTotal === null ? runtime.diceService.roll(runtime.buildDamageExpression(dto.damageDice, dto.damageBonus, criticalHit)) : null;
-    const baseDamageTotal = fixedDamageTotal ?? damageRoll?.total ?? null;
+    const rolledDamageTotal = fixedDamageTotal ?? damageRoll?.total ?? null;
+    const damageModifierResult =
+      rolledDamageTotal !== null && options.damageType
+        ? runtime.ruleEngine.applyDamageModifiers({
+            baseDamage: rolledDamageTotal,
+            damageType: options.damageType,
+            targetImmunities: targetConditions
+              .filter((condition) => condition.startsWith("immunity:"))
+              .map((condition) => condition.slice("immunity:".length)),
+            targetResistances: targetConditions
+              .filter((condition) => condition.startsWith("resistance:"))
+              .map((condition) => condition.slice("resistance:".length)),
+            targetVulnerabilities: targetConditions
+              .filter((condition) => condition.startsWith("vulnerability:"))
+              .map((condition) => condition.slice("vulnerability:".length)),
+          })
+        : null;
+    const baseDamageTotal =
+      damageModifierResult?.produced.finalDamage ?? rolledDamageTotal;
     let damageTotal = baseDamageTotal;
+    let huntersMarkDamage = 0;
+    if (hit && damageTotal !== null && options.attackAction) {
+      const targetConditionEntries =
+        await runtime.combatConditions.readCombatConditionEntries(target);
+      const markedByAttacker = targetConditionEntries.some((entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return false;
+        }
+        const condition = entry as {
+          conditionId?: unknown;
+          sourceId?: unknown;
+        };
+        return (
+          condition.conditionId === "condition.spell.hunters_mark" &&
+          condition.sourceId === `spell.hunters_mark:${attacker.id}`
+        );
+      });
+      if (markedByAttacker) {
+        const huntersMarkRoll = runtime.diceService.roll(
+          criticalHit ? "2d6" : "1d6",
+        );
+        huntersMarkDamage = huntersMarkRoll.total;
+        damageTotal += huntersMarkDamage;
+        runtime.realtimeEvents.emitDiceRolled(session.id, huntersMarkRoll);
+      }
+    }
     let sneakAttackDamage = 0;
     if (hit && baseDamageTotal !== null && options.sneakAttack) {
       const sneakAttackRoll = runtime.diceService.roll(`${Math.max(Math.ceil(options.sneakAttack.rogueLevel / 2), 1)}d6`);
@@ -1380,7 +2591,9 @@ export class CombatActionService {
       });
       if (sneakAttackResult.accepted && sneakAttackResult.produced.damagePacket) {
         sneakAttackDamage = sneakAttackResult.produced.sneakAttackDamage;
-        damageTotal = sneakAttackResult.produced.damagePacket.totalDamage;
+        damageTotal =
+          sneakAttackResult.produced.damagePacket.totalDamage +
+          huntersMarkDamage;
         runtime.realtimeEvents.emitDiceRolled(session.id, sneakAttackRoll);
       }
     }
@@ -1400,6 +2613,12 @@ export class CombatActionService {
     }
     if (attackerConditions.includes(COMBAT_CONDITION_HIDDEN)) {
       await runtime.combatConditions.removeCombatCondition(attacker, COMBAT_CONDITION_HIDDEN);
+    }
+    if (attackerConditions.includes("condition:invisible")) {
+      await runtime.combatConditions.removeCombatCondition(
+        attacker,
+        "condition.spell.invisibility",
+      );
     }
 
     const updated = await runtime.getActiveCombatEntity(session.id);
@@ -1421,7 +2640,7 @@ export class CombatActionService {
     });
     const response = await runtime.completeCombatIfResolved(session.id, updated);
     const baseMessage = hit
-      ? `${attacker.nameSnapshot} 공격 명중: ${target.nameSnapshot}에게 ${damageTotal ?? 0} 피해${sneakAttackDamage > 0 ? ` (암습 +${sneakAttackDamage})` : ""}`
+      ? `${attacker.nameSnapshot} 공격 명중: ${target.nameSnapshot}에게 ${damageTotal ?? 0} 피해${huntersMarkDamage > 0 ? ` (Hunter's Mark +${huntersMarkDamage})` : ""}${sneakAttackDamage > 0 ? ` (암습 +${sneakAttackDamage})` : ""}`
       : `${attacker.nameSnapshot} 공격 빗나감: ${attackRoll.total} vs AC ${targetArmorClass}`;
     const message = options.messagePrefix ? `${options.messagePrefix}: ${baseMessage}` : baseMessage;
     const turnLog = await runtime.turnLogsService.createTurnLog({
@@ -1443,6 +2662,9 @@ export class CombatActionService {
         criticalMiss,
         advantageState: attackAdvantageState,
         damageTotal,
+        damageType: options.damageType ?? null,
+        damageModifiers:
+          damageModifierResult?.produced.appliedDamageModifiers ?? [],
         appliedCondition: hit && options.onHitCondition ? options.onHitCondition : null,
         concentrationCheck: concentrationCheck
           ? {
@@ -1882,7 +3104,7 @@ export class CombatActionService {
     actor: CombatParticipantEntity,
   ): Promise<CombatActionResultDto> {
     await runtime.ensureActorCanAct(userId, session.id, combat, actor);
-    await runtime.spendCurrentActionIfNeeded(combat, actor);
+    await runtime.spendCurrentActionIfNeeded(combat, actor, true);
     const speedFt = await runtime.resolveParticipantSpeedFt(actor);
     await runtime.actionEconomy.grantMovement({
       combatId: combat.id,
@@ -1971,7 +3193,7 @@ export class CombatActionService {
     actor: CombatParticipantEntity,
   ): Promise<CombatActionResultDto> {
     await runtime.ensureActorCanAct(userId, session.id, combat, actor);
-    await runtime.spendCurrentActionIfNeeded(combat, actor);
+    await runtime.spendCurrentActionIfNeeded(combat, actor, true);
     const stealthModifier = await runtime.resolveStealthModifier(actor);
     const expression = stealthModifier >= 0 ? `1d20+${stealthModifier}` : `1d20${stealthModifier}`;
     const diceResult = runtime.diceService.roll(expression);

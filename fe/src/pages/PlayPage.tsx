@@ -215,6 +215,8 @@ function getCombatReactionTypeLabel(type: CombatReactionPromptDto['type']) {
       return 'Shield 반응';
     case 'ready_action':
       return '준비행동';
+    case 'counterspell':
+      return 'Counterspell 반응';
     default:
       return '반응';
   }
@@ -1679,7 +1681,7 @@ function isCombatReactionPromptDto(value: unknown): value is CombatReactionPromp
     value &&
     typeof value === 'object' &&
     typeof (value as { id?: unknown }).id === 'string' &&
-    ['opportunity_attack', 'shield', 'ready_action'].includes(
+    ['opportunity_attack', 'shield', 'ready_action', 'counterspell'].includes(
       String((value as { type?: unknown }).type)
     ) &&
     typeof (value as { reactorParticipantId?: unknown }).reactorParticipantId === 'string' &&
@@ -3980,7 +3982,8 @@ export function PlayPage({
       | 'channel_divinity'
       | 'bardic_inspiration'
       | 'font_of_magic'
-      | 'wild_shape',
+      | 'wild_shape'
+      | 'dragonborn_breath',
     targetParticipantId?: string
   ) {
     if (!session || isCombatBusy) return;
@@ -4034,6 +4037,10 @@ export function PlayPage({
     }
     if (action === 'wild_shape') {
       await onSendAction('/feature wild_shape');
+      return;
+    }
+    if (action === 'dragonborn_breath' && targetParticipantId) {
+      await onSendAction(`/feature breath_weapon ${targetParticipantId}`);
     }
   }
 
@@ -4201,7 +4208,7 @@ export function PlayPage({
       const reaction = (event as CustomEvent<CombatReactionPromptDto>).detail;
       if (
         !reaction ||
-        !['opportunity_attack', 'shield', 'ready_action'].includes(reaction.type)
+        !['opportunity_attack', 'shield', 'ready_action', 'counterspell'].includes(reaction.type)
       ) return;
       if (!isCombatReactionForCurrentUser(reaction)) return;
       if (!claimCombatReactionHandling(reaction.id)) return;

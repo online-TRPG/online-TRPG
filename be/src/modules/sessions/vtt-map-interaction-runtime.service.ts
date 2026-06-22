@@ -90,6 +90,13 @@ export class VttMapInteractionRuntimeService {
         nodeId: state.currentNodeId,
         mapPoint,
       });
+    } else if (dto.kind === "break_object") {
+      result = await this.objectRuntime.breakAtPoint({
+        sessionId: resolvedSessionId,
+        sessionScenarioId: sessionScenario.id,
+        nodeId: state.currentNodeId,
+        mapPoint,
+      });
     } else if (dto.kind === "investigate_object") {
       result = await this.objectRuntime.investigateAtPoint({
         sessionId: resolvedSessionId,

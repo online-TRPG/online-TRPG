@@ -9,9 +9,11 @@
 | `README.md` | 문서 지도 |
 | `PENDING_WORK_ITEMS.md` | 완료 보관 문서에서 남긴 후속 작업 목록 |
 | `future_plan.md` | SRD 5e 룰/콘텐츠 확장 로드맵 |
-| `future_plan_p2.md` | P2 5레벨 플레이 확장 실행 계획 |
+| `future_plan_p3.md` | P3 8레벨 캠페인·콘텐츠 배포 확장 실행 계획 |
 | `completed/future_plan_mvp.md` | 완료된 End-to-End Playable MVP 로드맵 기록 |
 | `completed/future_plan_p1.md` | 완료된 P1 플레이 가능 룰 범위 확대 기록 |
+| `completed/future_plan_p2.md` | 완료된 P2 5레벨 플레이 확장 기록 |
+| `completed/p2_validation_guide.md` | P2 사용자 검증 절차와 완료 기록 |
 
 ## 구조 문서
 

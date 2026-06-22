@@ -147,6 +147,13 @@ describe("RuleCatalogService", () => {
         ],
       },
     });
+    expect(service.getEntry("race.dragonborn.trait.base_traits")).toMatchObject({
+      trigger: "action",
+      cost: { type: "action" },
+      targeting: { type: "area", shape: "cone", sizeFt: 15 },
+      save: { ability: "dex", dcSource: "class_feature_dc" },
+      damage: { dice: "2d6", type: "ancestry", scaling: "character_level" },
+    });
   });
 
   it("resolves inherited parent race traits for subraces", () => {
@@ -165,6 +172,25 @@ describe("RuleCatalogService", () => {
     );
   });
 
+  it("expands catalog feature ids into runtime tags while preserving custom tags", () => {
+    expect(
+      service.resolveRuntimeTags([
+        "race.tiefling.trait.base_traits",
+        "draconic_ancestry:red",
+        "custom:campaign_feature",
+      ]),
+    ).toEqual(
+      expect.arrayContaining([
+        "vision:darkvision:60",
+        "resistance:fire",
+        "spellcasting:infernal_legacy",
+        "draconic_ancestry:red",
+        "resistance:fire",
+        "custom:campaign_feature",
+      ]),
+    );
+  });
+
   it("catalogs representative SRD subclass features", () => {
     expect(service.listEntries("subclass_features").map((entry) => entry.id)).toEqual([
       "subclass.barbarian.berserker.feature.frenzy",
@@ -175,6 +201,8 @@ describe("RuleCatalogService", () => {
       "subclass.cleric.life.feature.preserve_life",
       "subclass.druid.land.feature.bonus_cantrip",
       "subclass.druid.land.feature.natural_recovery",
+      "subclass.druid.land.feature.circle_spells_level_3",
+      "subclass.druid.land.feature.circle_spells_level_5",
       "subclass.fighter.champion.feature.improved_critical",
       "subclass.monk.open_hand.feature.open_hand_technique",
       "subclass.paladin.devotion.feature.sacred_weapon",
@@ -619,6 +647,49 @@ describe("RuleCatalogService", () => {
     }
   });
 
+  it("covers all P2 classes through level 5 with ASI and representative level 5 features", () => {
+    const classKeys = [
+      "barbarian",
+      "bard",
+      "cleric",
+      "druid",
+      "fighter",
+      "monk",
+      "paladin",
+      "ranger",
+      "rogue",
+      "sorcerer",
+      "warlock",
+      "wizard",
+    ];
+
+    for (const classKey of classKeys) {
+      expect(
+        service.getClassFeatureSnapshot(classKey, 5).featureIds,
+      ).toContain(`class.${classKey}.feature.ability_score_improvement`);
+    }
+    for (const classKey of [
+      "barbarian",
+      "fighter",
+      "monk",
+      "paladin",
+      "ranger",
+    ]) {
+      expect(
+        service.getClassFeatureSnapshot(classKey, 5).featureIds,
+      ).toContain(`class.${classKey}.feature.extra_attack`);
+    }
+    expect(service.getClassFeatureSnapshot("bard", 5).featureIds).toEqual(
+      expect.arrayContaining([
+        "class.bard.feature.bardic_inspiration_d8",
+        "class.bard.feature.font_of_inspiration",
+      ]),
+    );
+    expect(service.getClassFeatureSnapshot("rogue", 5).featureIds).toContain(
+      "class.rogue.feature.uncanny_dodge",
+    );
+  });
+
   it("keeps condition definitions in the same catalog id surface", () => {
     const conditions = service.listEntries("condition_definitions").map((entry) => entry.id);
 
@@ -631,6 +702,8 @@ describe("RuleCatalogService", () => {
       "condition.incapacitated",
       "condition.burning",
       "condition.stunned",
+      "condition.charmed",
+      "condition.grappled",
     ]);
   });
 
@@ -673,7 +746,33 @@ describe("RuleCatalogService", () => {
       "spell.scorching_ray",
       "spell.fireball",
       "spell.dispel_magic",
+      "spell.acid_splash",
+      "spell.guidance",
+      "spell.mage_hand",
+      "spell.minor_illusion",
+      "spell.shocking_grasp",
+      "spell.charm_person",
+      "spell.faerie_fire",
+      "spell.feather_fall",
+      "spell.fog_cloud",
+      "spell.grease",
+      "spell.heroism",
+      "spell.hunters_mark",
+      "spell.longstrider",
+      "spell.aid",
+      "spell.blindness_deafness",
+      "spell.darkness",
+      "spell.invisibility",
+      "spell.lesser_restoration",
+      "spell.moonbeam",
+      "spell.spiritual_weapon",
+      "spell.counterspell",
+      "spell.fly",
+      "spell.haste",
+      "spell.lightning_bolt",
+      "spell.revivify",
     ]);
+    expect(service.listEntries("spell_definitions")).toHaveLength(50);
 
     expect(service.getEntry("spell.ray_of_frost")).toMatchObject({
       targeting: { type: "creature", rangeFt: 60 },
@@ -737,10 +836,42 @@ describe("RuleCatalogService", () => {
         hookId: "hook.spell.cast_burning_hands",
       },
     });
+
+    expect(service.getEntry("spell.counterspell")).toMatchObject({
+      trigger: "reaction",
+      cost: { type: "reaction" },
+      targeting: { type: "creature", rangeFt: 60 },
+      runtimeEffect: {
+        type: "spell",
+        tags: expect.arrayContaining([
+          "spell_level:3",
+          "interrupt:spell",
+          "reaction:creature_casts_spell",
+        ]),
+        hookId: "hook.spell.cast_counterspell",
+      },
+    });
+
+    expect(service.getEntry("spell.moonbeam")).toMatchObject({
+      concentration: true,
+      save: { ability: "con", dcSource: "spell_save_dc" },
+      damage: { dice: "2d10", type: "radiant", scaling: "slot_level" },
+      runtimeEffect: {
+        tags: expect.arrayContaining([
+          "spell_level:2",
+          "trigger:on_turn_start",
+          "damage:radiant",
+        ]),
+      },
+    });
   });
 
   it("promotes MVP monster actions into catalog ability entries", () => {
-    expect(service.listEntries("monster_abilities").map((entry) => entry.id)).toEqual([
+    const monsterAbilityIds = service
+      .listEntries("monster_abilities")
+      .map((entry) => entry.id);
+    expect(monsterAbilityIds).toHaveLength(67);
+    expect(monsterAbilityIds).toEqual(expect.arrayContaining([
       "monster.brown_bear.ability.multiattack",
       "monster.brown_bear.ability.bite",
       "monster.brown_bear.ability.claws",
@@ -764,7 +895,22 @@ describe("RuleCatalogService", () => {
       "monster.cultist.ability.dark_devotion",
       "monster.ogre.ability.greatclub",
       "monster.ogre.ability.javelin",
-    ]);
+      "monster.kobold.ability.dagger",
+      "monster.bandit.ability.light_crossbow",
+      "monster.bugbear.ability.morningstar",
+      "monster.hobgoblin.ability.longsword",
+      "monster.dire_wolf.ability.bite",
+      "monster.ghoul.ability.claws",
+      "monster.wight.ability.life_drain",
+      "monster.mimic.ability.pseudopod",
+      "monster.gelatinous_cube.ability.engulf",
+      "monster.swarm_of_rats.ability.bites",
+      "monster.animated_armor.ability.multiattack",
+      "monster.gargoyle.ability.stone_resistance",
+      "monster.harpy.ability.luring_song",
+      "monster.giant_scorpion.ability.sting",
+      "monster.young_red_dragon.ability.fire_breath",
+    ]));
 
     expect(service.listMonsterAbilities("brown bear").map((entry) => entry.id)).toEqual([
       "monster.brown_bear.ability.bite",
@@ -818,5 +964,22 @@ describe("RuleCatalogService", () => {
         hookId: "hook.monster.attack",
       },
     });
+
+    expect(
+      service.resolveMonsterRuntimeTags("monster.swarm_of_rats"),
+    ).toEqual(
+      expect.arrayContaining([
+        "resistance:bludgeoning",
+        "resistance:piercing",
+        "resistance:slashing",
+        "immunity:condition:grappled",
+        "passive:swarm",
+      ]),
+    );
+    expect(
+      service.resolveMonsterRuntimeTags("monster.young_red_dragon"),
+    ).toEqual(
+      expect.arrayContaining(["immunity:fire", "movement:fly:80"]),
+    );
   });
 });

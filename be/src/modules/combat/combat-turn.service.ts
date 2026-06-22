@@ -92,6 +92,18 @@ export class CombatTurnService {
       await runtime.combatConditions.removeCombatCondition(next, COMBAT_CONDITION_DODGE);
     }
     await runtime.combatConditions.removeCombatCondition(current, COMBAT_CONDITION_DISENGAGE);
+    const internalActionMarkers = runtime.combatConditions
+      .combatConditionTags(
+        await runtime.combatConditions.readCombatConditionEntries(current),
+      )
+      .filter(
+        (tag) =>
+          tag.startsWith("attack_action:") ||
+          tag.startsWith("haste_action:used:"),
+      );
+    for (const tag of internalActionMarkers) {
+      await runtime.combatConditions.removeCombatCondition(current, tag);
+    }
     await Promise.all(
       updated.participants
         .filter((participant) => participant.isAlive)
@@ -136,6 +148,12 @@ export class CombatTurnService {
         updated.turnNo,
       );
     const expiredConditionCount = await runtime.combatConditions.resolveTurnEndConditions(current, updated.roundNo, updated.turnNo);
+    const heroismTempHpGranted = next
+      ? await this.applyHeroismTurnStartTempHp(runtime, next)
+      : 0;
+    const monsterConditionDamage = next
+      ? await this.applyMonsterConditionTurnStartDamage(runtime, updated, next)
+      : { total: 0, rolls: [] as DiceRollResponseDto[] };
     const turnStartTerrainApplication = next
       ? await runtime.applyTurnStartTerrainEffects(sessionId, updated, next)
       : {
@@ -169,6 +187,12 @@ export class CombatTurnService {
         runtime.combatTerrain.describeLifecycle("턴 시작", turnStartTerrainApplication),
         this.describeMonsterRecharge(monsterRecharge),
         this.describeMonsterLifecycleEffects(monsterLifecycleEffects),
+        heroismTempHpGranted > 0
+          ? `Heroism으로 임시 HP ${heroismTempHpGranted}을(를) 갱신했습니다.`
+          : null,
+        monsterConditionDamage.total > 0
+          ? `몬스터 지속 효과로 ${monsterConditionDamage.total} 피해를 받았습니다.`
+          : null,
         expiredConcentrationEffectCount > 0
           ? `집중 효과 ${expiredConcentrationEffectCount}개가 종료되었습니다.`
           : null,
@@ -242,6 +266,9 @@ export class CombatTurnService {
     for (const damage of turnStartTerrainApplication.damageRolls) {
       runtime.realtimeEvents.emitDiceRolled(sessionId, damage.roll);
     }
+    for (const roll of monsterConditionDamage.rolls) {
+      runtime.realtimeEvents.emitDiceRolled(sessionId, roll);
+    }
     if (turnStartTerrainApplication.concentrationCheck) {
       turnStartTerrainApplication.concentrationCheck.modifierRolls?.forEach((roll) =>
         runtime.realtimeEvents.emitDiceRolled(sessionId, roll),
@@ -253,7 +280,9 @@ export class CombatTurnService {
     }
     const latestCombatAfterTerrainEffects = await runtime.getActiveCombatEntity(sessionId);
     const combatAfterTerrainEffects =
-      turnEndTerrainApplication.damageTotal > 0 || turnStartTerrainApplication.damageTotal > 0
+      turnEndTerrainApplication.damageTotal > 0 ||
+      turnStartTerrainApplication.damageTotal > 0 ||
+      monsterConditionDamage.total > 0
         ? await runtime.completeCombatIfResolved(sessionId, latestCombatAfterTerrainEffects)
         : await runtime.mapCombat(latestCombatAfterTerrainEffects);
     runtime.realtimeEvents.emitCombatUpdated(sessionId, combatAfterTerrainEffects);
@@ -262,6 +291,8 @@ export class CombatTurnService {
       expiredReadyActionCount > 0 ||
       readyActionPrompts.length > 0 ||
       expiredConditionCount > 0 ||
+      heroismTempHpGranted > 0 ||
+      monsterConditionDamage.total > 0 ||
       monsterRecharge.rechargedCount > 0 ||
       monsterLifecycleEffects.length > 0 ||
       turnEndTerrainApplication.damageRoll ||
@@ -283,6 +314,89 @@ export class CombatTurnService {
       await runtime.runServerAutoMonsterTurns(sessionId);
     }
     return response;
+  }
+
+  private async applyHeroismTurnStartTempHp(
+    runtime: CombatTurnRuntime,
+    participant: CombatParticipantEntity,
+  ): Promise<number> {
+    if (!participant.sessionCharacterId) {
+      return 0;
+    }
+    const conditionTags = runtime.combatConditions.combatConditionTags(
+      await runtime.combatConditions.readCombatConditionEntries(participant),
+    );
+    const amount = conditionTags
+      .map((tag) => /^temporary_hp:turn_start:(\d+)$/.exec(tag)?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .reduce((maximum, value) => Math.max(maximum, value), 0);
+    if (amount <= 0) {
+      return 0;
+    }
+    const sessionCharacter = await runtime.prisma.sessionCharacter.findUnique({
+      where: { id: participant.sessionCharacterId },
+      select: { tempHp: true },
+    });
+    if (!sessionCharacter || sessionCharacter.tempHp >= amount) {
+      return 0;
+    }
+    await runtime.prisma.sessionCharacter.update({
+      where: { id: participant.sessionCharacterId },
+      data: { tempHp: amount },
+    });
+    return amount;
+  }
+
+  private async applyMonsterConditionTurnStartDamage(
+    runtime: CombatTurnRuntime,
+    combat: NonNullable<CombatWithParticipants>,
+    participant: CombatParticipantEntity,
+  ): Promise<{ total: number; rolls: DiceRollResponseDto[] }> {
+    const conditions = runtime.conditionRuntime.parseConditionsJson(
+      JSON.stringify(
+        await runtime.combatConditions.readCombatConditionEntries(participant),
+      ),
+    );
+    const packets = conditions.flatMap((condition) =>
+      condition.tags.flatMap((tag) => {
+        const match = /^damage_over_time:([^:]+):([^:]+)$/.exec(tag);
+        return match
+          ? [{ expression: match[1], damageType: match[2] }]
+          : [];
+      }),
+    );
+    const rolls: DiceRollResponseDto[] = [];
+    let total = 0;
+    const session = await runtime.sessionsService.getSessionEntityOrThrow(
+      combat.sessionId,
+    );
+    const map = await runtime.sessionsService.getVttMapForUser(
+      runtime.getGmRuntimeUserId(session),
+      combat.sessionId,
+    );
+    for (const packet of packets) {
+      const roll = runtime.diceService.roll(packet.expression);
+      rolls.push(roll);
+      const targetProfile = await runtime.toCombatAoeDamageTarget(
+        participant,
+        map,
+        "con",
+      );
+      const modified = runtime.ruleEngine.applyDamageModifiers({
+        baseDamage: roll.total,
+        damageType: packet.damageType,
+        targetImmunities: targetProfile.immunities,
+        targetResistances: targetProfile.resistances,
+        targetVulnerabilities: targetProfile.vulnerabilities,
+      });
+      total += modified.produced.finalDamage;
+    }
+    if (total > 0) {
+      await runtime.finalizeCombatDamage(combat, participant, total);
+    }
+    return { total, rolls };
   }
 
   private async resolveMonsterLifecycleEffects(
@@ -813,6 +927,7 @@ export class CombatTurnService {
       },
       {
         actionCost: params.actionCost ?? "action",
+        damageType: params.action.damageType ?? null,
         forceDisadvantage: rangeCheck.longRangeDisadvantage,
         auditMetadata: {
           source: "monster_action",
@@ -924,7 +1039,16 @@ export class CombatTurnService {
     }
 
     const appliedConditionTags: string[] = [];
+    const targetTags = runtime.combatConditions.combatConditionTags(
+      await runtime.combatConditions.readCombatConditionEntries(target),
+    );
     for (const conditionId of conditionRiders) {
+      const normalizedCondition = conditionId.replace(/^condition[.:]/, "");
+      if (
+        targetTags.includes(`immunity:condition:${normalizedCondition}`)
+      ) {
+        continue;
+      }
       appliedConditionTags.push(conditionId);
       await runtime.combatConditions.addCombatConditionInstance(
         target,
@@ -933,7 +1057,11 @@ export class CombatTurnService {
           sourceId: action.actionId,
           saveEnds: runtime.resolveMonsterActionSaveEnds(action),
           appliedAtRound: combat.roundNo,
-          tags: ["monster_action", `monster_action:${action.actionId}`],
+          tags: [
+            "monster_action",
+            `monster_action:${action.actionId}`,
+            ...(action.effectTags ?? []),
+          ],
         }),
       );
     }
@@ -1054,6 +1182,12 @@ export class CombatTurnService {
         effectTags,
       });
     }
+    if (specialType === "area_control") {
+      return this.resolveMonsterAreaControlAction(runtime, {
+        ...params,
+        effectTags,
+      });
+    }
     const condition = specialType === "mobility" && effectTags.includes("disengage") ? COMBAT_CONDITION_DISENGAGE : null;
     if (!condition) {
       throw unprocessable("COMBAT_422", "지원하지 않는 몬스터 특수 행동입니다.", {
@@ -1117,6 +1251,177 @@ export class CombatTurnService {
       message: params.autoEndTurn ? `${message} / 턴 종료` : message,
       attackTotal: null,
       damageTotal: null,
+      turnLogId: turnLog.turnLogId,
+    };
+  }
+
+  private async resolveMonsterAreaControlAction(
+    runtime: CombatTurnRuntime,
+    params: {
+      userId: string;
+      session: Awaited<ReturnType<SessionsService["getSessionEntityOrThrow"]>>;
+      combat: NonNullable<CombatWithParticipants>;
+      actor: CombatParticipantEntity;
+      action: SrdEngineExecutableMonsterAction;
+      targetParticipantId?: string | null;
+      autoEndTurn: boolean;
+      effectTags: string[];
+    },
+  ): Promise<CombatActionResultDto> {
+    const saveAbility = runtime.toSavingThrowAbility(params.action.save?.ability);
+    const saveDc = runtime.resolveMonsterActionSaveDc(params.action);
+    const conditionRiders = params.action.conditionRiders ?? [];
+    if (!saveAbility || saveDc === null) {
+      throw unprocessable("COMBAT_422", "몬스터 범위 제어 행동의 내성 정보가 없습니다.", {
+        reason: "MONSTER_AREA_CONTROL_INVALID",
+        actionId: params.action.actionId,
+      });
+    }
+    const map = await runtime.sessionsService.getVttMapForUser(
+      runtime.getGmRuntimeUserId(params.session),
+      params.session.id,
+    );
+    const actorToken = runtime.combatTargeting.findParticipantToken(map, params.actor);
+    if (!actorToken) {
+      throw unprocessable("COMBAT_422", "몬스터 범위 제어 행동의 토큰을 찾을 수 없습니다.", {
+        reason: "MONSTER_AREA_ACTOR_TOKEN_NOT_FOUND",
+      });
+    }
+    const rangeFt =
+      typeof params.action.rangeFt?.normal === "number"
+        ? params.action.rangeFt.normal
+        : typeof params.action.reachFt === "number"
+          ? params.action.reachFt
+          : 300;
+    const targets = params.combat.participants.filter((participant) => {
+      if (
+        participant.id === params.actor.id ||
+        !participant.isAlive ||
+        participant.isHostile === params.actor.isHostile
+      ) {
+        return false;
+      }
+      const token = runtime.combatTargeting.findParticipantToken(map, participant);
+      return Boolean(
+        token &&
+          runtime.combatMovement.getTokenGridDistanceFt(
+            map,
+            actorToken,
+            token,
+          ) <= rangeFt,
+      );
+    });
+    if (!targets.length) {
+      throw unprocessable("COMBAT_422", "몬스터 범위 제어 행동 안에 대상이 없습니다.", {
+        reason: "MONSTER_AREA_CONTROL_HAS_NO_TARGETS",
+      });
+    }
+    await runtime.spendCurrentActionIfNeeded(params.combat, params.actor);
+    const applied: string[] = [];
+    const saveRolls: DiceRollResponseDto[] = [];
+    for (const target of targets) {
+      const profile = await runtime.resolveParticipantSavingThrowProfile(
+        target,
+        saveAbility,
+      );
+      const saveRoll = runtime.diceService.roll(
+        `1d20${profile.saveModifier >= 0 ? "+" : ""}${profile.saveModifier}`,
+      );
+      saveRolls.push(...profile.modifierRolls, saveRoll);
+      const saveResult = runtime.ruleEngine.resolveSavingThrow({
+        ability: saveAbility,
+        naturalD20: runtime.selectNaturalD20(
+          saveRoll.rolls,
+          DiceAdvantageState.NORMAL,
+        ),
+        difficultyClass: saveDc,
+        abilityModifier: profile.abilityModifier,
+        proficiencyBonus: profile.proficiencyBonus,
+        proficient: profile.proficient,
+        bonusModifiers: profile.conditionModifiers,
+      });
+      if (saveResult.produced.success) {
+        continue;
+      }
+      const targetTags = runtime.combatConditions.combatConditionTags(
+        await runtime.combatConditions.readCombatConditionEntries(target),
+      );
+      for (const conditionId of conditionRiders) {
+        const normalizedCondition = conditionId.replace(/^condition[.:]/, "");
+        if (
+          targetTags.includes(`immunity:condition:${normalizedCondition}`)
+        ) {
+          continue;
+        }
+        await runtime.combatConditions.addCombatConditionInstance(
+          target,
+          runtime.conditionRuntime.createCondition({
+            conditionId,
+            sourceId: params.action.actionId,
+            duration: { type: "rounds", remaining: 10 },
+            saveEnds: runtime.resolveMonsterActionSaveEnds(params.action),
+            stackPolicy: "replace",
+            appliedAtRound: params.combat.roundNo,
+            tags: [
+              "monster_action",
+              `monster_action:${params.action.actionId}`,
+              ...params.effectTags,
+            ],
+          }),
+        );
+      }
+      applied.push(target.nameSnapshot);
+    }
+    let updated = await runtime.getActiveCombatEntity(params.session.id);
+    if (
+      params.autoEndTurn &&
+      updated.status === CombatStatus.ACTIVE &&
+      updated.currentParticipantId === params.actor.id
+    ) {
+      await runtime.advanceCurrentTurn(params.session.id, updated);
+      updated = await runtime.getActiveCombatEntity(params.session.id);
+    }
+    const response = await runtime.mapCombat(updated);
+    const message = `${params.actor.nameSnapshot} ${params.action.label}: ${
+      applied.length
+        ? `${applied.join(", ")}에게 ${conditionRiders.join(", ")} 적용`
+        : "모든 대상이 내성에 성공"
+    }`;
+    const { sessionScenario } =
+      await runtime.sessionsService.getGameStateEntityOrThrow(params.session.id);
+    const turnLog = await runtime.turnLogsService.createTurnLog({
+      sessionId: params.session.id,
+      sessionScenarioId: sessionScenario.id,
+      actorUserId: params.userId,
+      sessionCharacterId: params.actor.sessionCharacterId ?? null,
+      rawInput: null,
+      structuredAction: {
+        type: "monster_area_control",
+        monsterId: params.action.monsterId,
+        actionId: params.action.actionId,
+        save: params.action.save,
+        targetIds: targets.map((target) => target.id),
+        affectedTargetNames: applied,
+        conditionRiders,
+      },
+      diceResult: saveRolls[0] ? { ...saveRolls[0] } : null,
+      outcome: applied.length ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
+      narration: message,
+    });
+    saveRolls.forEach((roll) =>
+      runtime.realtimeEvents.emitDiceRolled(params.session.id, roll),
+    );
+    runtime.realtimeEvents.emitTurnLogCreated(params.session.id, turnLog);
+    runtime.realtimeEvents.emitCombatUpdated(params.session.id, response);
+    runtime.realtimeEvents.emitSessionSnapshot(
+      params.session.id,
+      await runtime.sessionsService.buildSnapshot(params.session.id),
+    );
+    return {
+      combat: response,
+      message: params.autoEndTurn ? `${message} / 턴 종료` : message,
+      attackTotal: null,
+      damageTotal: 0,
       turnLogId: turnLog.turnLogId,
     };
   }
@@ -1266,6 +1571,7 @@ export class CombatTurnService {
       targets,
     });
     const applied: string[] = [];
+    const appliedConditions: string[] = [];
     for (const targetResult of resolution.targetResults) {
       const target = affected.find(
         (participant) => participant.id === targetResult.targetId,
@@ -1274,6 +1580,36 @@ export class CombatTurnService {
         continue;
       }
       await runtime.finalizeCombatDamage(params.combat, target, targetResult.finalDamage);
+      if (!targetResult.savingThrow.success) {
+        const targetTags = runtime.combatConditions.combatConditionTags(
+          await runtime.combatConditions.readCombatConditionEntries(target),
+        );
+        for (const conditionId of params.action.conditionRiders ?? []) {
+          const normalizedCondition = conditionId.replace(/^condition[.:]/, "");
+          if (
+            targetTags.includes(`immunity:condition:${normalizedCondition}`)
+          ) {
+            continue;
+          }
+          await runtime.combatConditions.addCombatConditionInstance(
+            target,
+            runtime.conditionRuntime.createCondition({
+              conditionId,
+              sourceId: params.action.actionId,
+              duration: { type: "rounds", remaining: 10 },
+              saveEnds: runtime.resolveMonsterActionSaveEnds(params.action),
+              stackPolicy: "replace",
+              appliedAtRound: params.combat.roundNo,
+              tags: [
+                "monster_action",
+                `monster_action:${params.action.actionId}`,
+                ...params.effectTags,
+              ],
+            }),
+          );
+          appliedConditions.push(`${target.nameSnapshot}:${conditionId}`);
+        }
+      }
       applied.push(`${target.nameSnapshot} ${targetResult.finalDamage}`);
     }
 
@@ -1294,7 +1630,7 @@ export class CombatTurnService {
           }
           return runtime.mapCombat(updated);
         })();
-    const message = `${params.actor.nameSnapshot} ${params.action.label}: ${applied.join(", ")} ${damageType} 피해`;
+    const message = `${params.actor.nameSnapshot} ${params.action.label}: ${applied.join(", ")} ${damageType} 피해${appliedConditions.length ? ` / ${appliedConditions.join(", ")} 적용` : ""}`;
     const turnLog = await runtime.turnLogsService.createTurnLog({
       sessionId: params.session.id,
       sessionScenarioId: sessionScenario.id,
@@ -1314,6 +1650,7 @@ export class CombatTurnService {
         usage: params.action.usage ?? null,
         affectedTargetIds: affected.map((participant) => participant.id),
         targetResults: resolution.targetResults,
+        appliedConditions,
       },
       diceResult: { ...resolution.damageRoll },
       outcome: ActionOutcome.SUCCESS,

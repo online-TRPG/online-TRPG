@@ -14,6 +14,8 @@ import {
   P1_ONESHOT_BOSS_NODE_ID,
   P1_ONESHOT_SCENARIO_ID,
   P1_ONESHOT_START_NODE_ID,
+  P2_VALIDATION_SCENARIO_ID,
+  P2_VALIDATION_START_NODE_ID,
   RULE_RUNTIME_SMOKE_SCENARIO_ID,
   RULE_RUNTIME_SMOKE_START_NODE_ID,
   seedDefaultScenario,
@@ -796,5 +798,53 @@ describe("default scenario seed", () => {
     expect(tokenIds.has(String(manualActions.find((action) => action.kind === "adjust_hp")?.targetId))).toBe(
       true,
     );
+  });
+
+  it("seeds the P2 level 5 validation scenario with catalog references, terrain, objects, and five monster kinds", async () => {
+    const { scenarioUpserts, scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
+
+    expect(scenarioUpserts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          where: { id: P2_VALIDATION_SCENARIO_ID },
+          create: expect.objectContaining({
+            startNodeId: P2_VALIDATION_START_NODE_ID,
+            startLevel: 5,
+            recommendedEndLevel: 5,
+          }),
+        }),
+      ]),
+    );
+
+    const p2Nodes = scenarioNodeUpserts
+      .map((args) => args.create)
+      .filter((node): node is Record<string, unknown> => node?.scenarioId === P2_VALIDATION_SCENARIO_ID);
+    const terrainIds = new Set<string>();
+    const monsterIds = new Set<string>();
+    const objectActions = new Set<string>();
+
+    for (const node of p2Nodes) {
+      const options = JSON.parse(String(node.checkOptionsJson ?? "{}")) as {
+        vttMap?: {
+          tokens?: Array<{ monster?: { id?: string } | null }>;
+          terrainCells?: Array<{ terrainEffectId?: string }>;
+          doorCells?: Array<{ canBreak?: boolean }>;
+          objectCells?: Array<{ canBreak?: boolean; hiddenItemIds?: string[] }>;
+        } | null;
+      };
+      options.vttMap?.tokens?.forEach((token) => {
+        if (token.monster?.id) monsterIds.add(token.monster.id);
+      });
+      options.vttMap?.terrainCells?.forEach((cell) => {
+        if (cell.terrainEffectId) terrainIds.add(cell.terrainEffectId);
+      });
+      if (options.vttMap?.doorCells?.length) objectActions.add("door");
+      if (options.vttMap?.objectCells?.some((cell) => cell.canBreak)) objectActions.add("break");
+      if (options.vttMap?.objectCells?.some((cell) => cell.hiddenItemIds?.length)) objectActions.add("investigate");
+    }
+
+    expect(monsterIds.size).toBeGreaterThanOrEqual(5);
+    expect(terrainIds.size).toBeGreaterThanOrEqual(3);
+    expect(objectActions).toEqual(new Set(["door", "break", "investigate"]));
   });
 });

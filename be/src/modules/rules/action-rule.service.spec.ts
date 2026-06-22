@@ -205,6 +205,84 @@ describe("ActionRuleService", () => {
     ]);
   });
 
+  it("adds Guidance to the next ability check and consumes the effect", () => {
+    const service = createService([
+      createDiceResult([10], 0),
+      {
+        expression: "1d4",
+        rolls: [3],
+        modifier: 0,
+        total: 3,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      conditionsJson: JSON.stringify([
+        {
+          conditionId: "condition.spell.guidance",
+          sourceId: "spell.guidance:caster",
+          duration: { type: "rounds", remaining: 10 },
+          saveEnds: null,
+          stackPolicy: "replace",
+          appliedAtRound: 1,
+          expiresAtTurn: null,
+          tags: ["roll_bonus:ability_check:1d4"],
+        },
+      ]),
+    });
+
+    const result = service.resolveAction(
+      "/check perception 12",
+      actor,
+      [actor],
+      { turnState: { actionUsed: false, bonusActionUsed: false, reactionUsed: false, additionalActionGranted: false, sneakAttackUsed: false } },
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.diceResult).toMatchObject({
+      expression: "1d20+0+1d4",
+      total: 13,
+    });
+    expect(result.structuredAction).toMatchObject({ guidanceBonus: 3 });
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: actor.id, conditions: [] },
+    ]);
+  });
+
+  it("rerolls a selected natural 1 for a halfling attack", () => {
+    const service = createService([
+      createDiceResult([1], 2),
+      createDiceResult([15], 2),
+      {
+        expression: "1d6",
+        rolls: [4],
+        modifier: 0,
+        total: 4,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+    ]);
+    const actor = createCharacter({
+      id: "halfling",
+      character: {
+        id: "halfling-character",
+        featuresJson: JSON.stringify(["race.halfling.trait.base_traits"]),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      currentHp: 10,
+      character: { id: "target-character", name: "Target", armorClass: 12 },
+    });
+
+    const result = service.resolveAction("/attack target", actor, [actor, target]);
+
+    expect(result.diceResult).toMatchObject({ rolls: [15], total: 17 });
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "target", currentHp: 6, markDead: false },
+    ]);
+  });
+
   it("resolves condition command targets by VTT token id aliases", () => {
     const service = createService([]);
     const actor = createCharacter({ id: "actor", characterId: "actor-character" });
@@ -427,6 +505,64 @@ describe("ActionRuleService", () => {
     });
   });
 
+  it("applies racial damage resistance from catalog feature ids", () => {
+    const service = createService([]);
+    const target = createCharacter({
+      id: "tiefling",
+      currentHp: 10,
+      character: {
+        id: "tiefling-character",
+        name: "Tiefling",
+        featuresJson: JSON.stringify(["race.tiefling.trait.base_traits"]),
+      },
+    });
+
+    const result = service.resolveAction("/damage tiefling 9 fire", target, [target]);
+
+    expect(result.structuredAction).toMatchObject({
+      finalDamage: 4,
+      ruleResults: [
+        expect.objectContaining({
+          produced: expect.objectContaining({
+            appliedDamageModifiers: ["resistance:fire"],
+          }),
+        }),
+      ],
+    });
+    expect(result.stateChanges).toEqual([
+      { sessionCharacterId: "tiefling", currentHp: 6, tempHp: 0, markDead: false },
+    ]);
+  });
+
+  it("keeps a half-orc at 1 HP with Relentless Endurance once per long rest", () => {
+    const service = createService([]);
+    const target = createCharacter({
+      id: "half-orc",
+      currentHp: 8,
+      character: {
+        id: "half-orc-character",
+        name: "Half-Orc",
+        featuresJson: JSON.stringify(["race.half-orc.trait.base_traits"]),
+      },
+    });
+
+    const result = service.resolveAction("/damage half-orc 20 force", target, [target]);
+
+    expect(result.structuredAction).toMatchObject({
+      finalDamage: 20,
+      relentlessEnduranceTriggered: true,
+    });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "half-orc",
+        currentHp: 1,
+        tempHp: 0,
+        markDead: false,
+        conditions: ["resource:relentless_endurance_expended"],
+      },
+    ]);
+  });
+
   it("projects structured condition tags into damage modifiers", () => {
     const service = createService([]);
     const target = createCharacter({
@@ -618,6 +754,173 @@ describe("ActionRuleService", () => {
         ],
       },
     ]);
+  });
+
+  it("uses dwarf poison save advantage from the race catalog", () => {
+    const service = createService([
+      createDiceResult([5, 15], 2, DiceAdvantageState.ADVANTAGE),
+    ]);
+    const target = createCharacter({
+      id: "dwarf",
+      character: {
+        id: "dwarf-character",
+        name: "Dwarf",
+        abilitiesJson: JSON.stringify({ con: 14 }),
+        featuresJson: JSON.stringify(["race.dwarf.trait.base_traits"]),
+      },
+    });
+
+    const result = service.resolveAction("/save dwarf con 13 poisoned", target, [target]);
+
+    expect(result.diceResult).toMatchObject({
+      advantageState: DiceAdvantageState.ADVANTAGE,
+      rolls: [5, 15],
+      total: 17,
+    });
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+  });
+
+  it.each([
+    ["elf", "race.elf.trait.base_traits", "wis", "charmed"],
+    ["half-elf", "race.half-elf.trait.base_traits", "wis", "charmed"],
+    ["gnome", "race.gnome.trait.base_traits", "wis", "magic"],
+  ])(
+    "uses %s racial save advantage from catalog runtime tags",
+    (id, featureId, ability, condition) => {
+      const service = createService([
+        createDiceResult([4, 14], 0, DiceAdvantageState.ADVANTAGE),
+      ]);
+      const target = createCharacter({
+        id,
+        character: {
+          id: `${id}-character`,
+          name: id,
+          abilitiesJson: JSON.stringify({ [ability]: 10 }),
+          featuresJson: JSON.stringify([featureId]),
+        },
+      });
+
+      const result = service.resolveAction(
+        `/save ${id} ${ability} 12 ${condition}`,
+        target,
+        [target],
+      );
+
+      expect(result.diceResult).toMatchObject({
+        advantageState: DiceAdvantageState.ADVANTAGE,
+        total: 14,
+      });
+      expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    },
+  );
+
+  it("resolves dragonborn breath as a save-based area race feature", () => {
+    const service = createService([
+      {
+        expression: "2d6",
+        rolls: [3, 4],
+        modifier: 0,
+        total: 7,
+        advantageState: DiceAdvantageState.NORMAL,
+      },
+      createDiceResult([5], 0),
+      createDiceResult([6], 0),
+    ]);
+    const actor = createCharacter({
+      id: "dragonborn",
+      character: {
+        id: "dragonborn-character",
+        name: "Dragonborn",
+        abilitiesJson: JSON.stringify({ con: 14 }),
+        proficiencyBonus: 2,
+        featuresJson: JSON.stringify([
+          "race.dragonborn.trait.base_traits",
+          "draconic_ancestry:red",
+        ]),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      currentHp: 10,
+      character: {
+        id: "target-character",
+        name: "Target",
+        abilitiesJson: JSON.stringify({ dex: 10 }),
+      },
+    });
+    const secondTarget = createCharacter({
+      id: "target-two",
+      currentHp: 10,
+      character: {
+        id: "target-two-character",
+        name: "Target Two",
+        abilitiesJson: JSON.stringify({ dex: 10 }),
+      },
+    });
+
+    const result = service.resolveAction(
+      "/feature breath_weapon target",
+      actor,
+      [actor, target, secondTarget],
+      {
+        map: {
+          gridType: "square",
+          gridSize: 50,
+          tokens: [
+            {
+              sessionCharacterId: "dragonborn",
+              x: 0,
+              y: 0,
+              size: 50,
+              hidden: false,
+              isHostile: false,
+            },
+            {
+              sessionCharacterId: "target",
+              x: 50,
+              y: 0,
+              size: 50,
+              hidden: false,
+              isHostile: true,
+            },
+            {
+              sessionCharacterId: "target-two",
+              x: 100,
+              y: 50,
+              size: 50,
+              hidden: false,
+              isHostile: true,
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.structuredAction).toMatchObject({
+      type: "use_race_feature",
+      featureId: "race.dragonborn.trait.base_traits",
+      damageType: "fire",
+      damageDice: "2d6",
+      saveDc: 12,
+      targetIds: ["target", "target-two"],
+    });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "dragonborn",
+        conditions: ["resource:dragonborn_breath_expended"],
+      },
+      {
+        sessionCharacterId: "target",
+        currentHp: 3,
+        markDead: false,
+      },
+      {
+        sessionCharacterId: "target-two",
+        currentHp: 3,
+        markDead: false,
+      },
+    ]);
+    expect(result.runtimeEffects).toEqual([{ type: "SPEND_ACTION" }]);
   });
 
   it("keeps save-end conditions when the saving throw fails", () => {
@@ -2796,6 +3099,40 @@ describe("ActionRuleService", () => {
       },
     ]);
     expect(result.runtimeEffects).toEqual([{ type: "SPEND_BONUS_ACTION" }]);
+  });
+
+  it("upgrades Bardic Inspiration to d8 at level 5", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "bard",
+      character: {
+        className: "bard",
+        level: 5,
+        abilitiesJson: JSON.stringify({ cha: 16 }),
+      },
+    });
+    const ally = createCharacter({
+      id: "ally",
+      character: { className: "fighter", level: 5 },
+    });
+
+    const result = service.resolveAction(
+      "/feature bardic_inspiration ally",
+      actor,
+      [actor, ally],
+    );
+
+    expect(result.structuredAction).toMatchObject({ die: "1d8" });
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "bard",
+        conditions: ["resource:bardic_inspiration_spent:1"],
+      },
+      {
+        sessionCharacterId: "ally",
+        conditions: ["bardic_inspiration:1d8"],
+      },
+    ]);
   });
 
   it("converts sorcery points into a level 1 spell slot", () => {

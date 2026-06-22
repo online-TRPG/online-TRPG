@@ -62,7 +62,8 @@ type CombatAbilityButton = {
     | 'channel_divinity'
     | 'bardic_inspiration'
     | 'font_of_magic'
-    | 'wild_shape';
+    | 'wild_shape'
+    | 'dragonborn_breath';
   title: string;
   requiresAction?: boolean;
   requiresBonusAction?: boolean;
@@ -150,7 +151,8 @@ interface CombatNodeSurfaceProps {
       | 'channel_divinity'
       | 'bardic_inspiration'
       | 'font_of_magic'
-      | 'wild_shape',
+      | 'wild_shape'
+      | 'dragonborn_breath',
     targetParticipantId?: string
   ) => void | Promise<void>;
   onCastSpell: (
@@ -196,6 +198,11 @@ const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: strin
 ];
 
 const mvpSpellLabels = [
+  'Acid Splash',
+  'Guidance',
+  'Mage Hand',
+  'Minor Illusion',
+  'Shocking Grasp',
   'Chill Touch',
   'Fire Bolt',
   'Ray of Frost',
@@ -221,6 +228,26 @@ const mvpSpellLabels = [
   'Scorching Ray',
   'Fireball',
   'Dispel Magic',
+  'Charm Person',
+  'Faerie Fire',
+  'Feather Fall',
+  'Fog Cloud',
+  'Grease',
+  'Heroism',
+  "Hunter's Mark",
+  'Longstrider',
+  'Aid',
+  'Blindness/Deafness',
+  'Darkness',
+  'Invisibility',
+  'Lesser Restoration',
+  'Moonbeam',
+  'Spiritual Weapon',
+  'Counterspell',
+  'Fly',
+  'Haste',
+  'Lightning Bolt',
+  'Revivify',
 ];
 
 const gmCombatConditionOptions: CombatConditionOption[] = [
@@ -238,6 +265,11 @@ const gmForcedMovementOptions: Array<{ mode: ForcedMovementMode; label: string }
 const gmForcedMovementDistanceOptions = [5, 10, 15, 20, 30];
 
 const mvpSpellIdsByLabel: Record<string, string> = {
+  'Acid Splash': 'spell.acid_splash',
+  Guidance: 'spell.guidance',
+  'Mage Hand': 'spell.mage_hand',
+  'Minor Illusion': 'spell.minor_illusion',
+  'Shocking Grasp': 'spell.shocking_grasp',
   'Chill Touch': 'spell.chill_touch',
   'Fire Bolt': 'spell.fire_bolt',
   'Ray of Frost': 'spell.ray_of_frost',
@@ -263,9 +295,34 @@ const mvpSpellIdsByLabel: Record<string, string> = {
   'Scorching Ray': 'spell.scorching_ray',
   Fireball: 'spell.fireball',
   'Dispel Magic': 'spell.dispel_magic',
+  'Charm Person': 'spell.charm_person',
+  'Faerie Fire': 'spell.faerie_fire',
+  'Feather Fall': 'spell.feather_fall',
+  'Fog Cloud': 'spell.fog_cloud',
+  Grease: 'spell.grease',
+  Heroism: 'spell.heroism',
+  "Hunter's Mark": 'spell.hunters_mark',
+  Longstrider: 'spell.longstrider',
+  Aid: 'spell.aid',
+  'Blindness/Deafness': 'spell.blindness_deafness',
+  Darkness: 'spell.darkness',
+  Invisibility: 'spell.invisibility',
+  'Lesser Restoration': 'spell.lesser_restoration',
+  Moonbeam: 'spell.moonbeam',
+  'Spiritual Weapon': 'spell.spiritual_weapon',
+  Counterspell: 'spell.counterspell',
+  Fly: 'spell.fly',
+  Haste: 'spell.haste',
+  'Lightning Bolt': 'spell.lightning_bolt',
+  Revivify: 'spell.revivify',
 };
 
 const mvpSpellRangeFtById: Record<string, number> = {
+  'spell.acid_splash': 60,
+  'spell.guidance': 5,
+  'spell.mage_hand': 30,
+  'spell.minor_illusion': 30,
+  'spell.shocking_grasp': 5,
   'spell.chill_touch': 120,
   'spell.fire_bolt': 120,
   'spell.ray_of_frost': 60,
@@ -290,9 +347,34 @@ const mvpSpellRangeFtById: Record<string, number> = {
   'spell.scorching_ray': 120,
   'spell.fireball': 150,
   'spell.dispel_magic': 120,
+  'spell.charm_person': 30,
+  'spell.faerie_fire': 60,
+  'spell.feather_fall': 60,
+  'spell.fog_cloud': 120,
+  'spell.grease': 60,
+  'spell.heroism': 5,
+  'spell.hunters_mark': 90,
+  'spell.longstrider': 5,
+  'spell.aid': 30,
+  'spell.blindness_deafness': 30,
+  'spell.darkness': 60,
+  'spell.invisibility': 5,
+  'spell.lesser_restoration': 5,
+  'spell.moonbeam': 120,
+  'spell.spiritual_weapon': 60,
+  'spell.counterspell': 60,
+  'spell.fly': 5,
+  'spell.haste': 30,
+  'spell.lightning_bolt': 100,
+  'spell.revivify': 5,
 };
 
 const mvpSpellLevelById: Record<string, 0 | 1 | 2 | 3> = {
+  'spell.acid_splash': 0,
+  'spell.guidance': 0,
+  'spell.mage_hand': 0,
+  'spell.minor_illusion': 0,
+  'spell.shocking_grasp': 0,
   'spell.chill_touch': 0,
   'spell.fire_bolt': 0,
   'spell.ray_of_frost': 0,
@@ -318,6 +400,26 @@ const mvpSpellLevelById: Record<string, 0 | 1 | 2 | 3> = {
   'spell.scorching_ray': 2,
   'spell.fireball': 3,
   'spell.dispel_magic': 3,
+  'spell.charm_person': 1,
+  'spell.faerie_fire': 1,
+  'spell.feather_fall': 1,
+  'spell.fog_cloud': 1,
+  'spell.grease': 1,
+  'spell.heroism': 1,
+  'spell.hunters_mark': 1,
+  'spell.longstrider': 1,
+  'spell.aid': 2,
+  'spell.blindness_deafness': 2,
+  'spell.darkness': 2,
+  'spell.invisibility': 2,
+  'spell.lesser_restoration': 2,
+  'spell.moonbeam': 2,
+  'spell.spiritual_weapon': 2,
+  'spell.counterspell': 3,
+  'spell.fly': 3,
+  'spell.haste': 3,
+  'spell.lightning_bolt': 3,
+  'spell.revivify': 3,
 };
 
 const preparedSpellClassKeys = new Set(['cleric', 'druid', 'paladin', 'wizard']);
@@ -455,6 +557,19 @@ function getClassAbilityButtons(
 
   const classKey = normalizeClassKey(character.className);
   const buttons: CombatAbilityButton[] = [];
+
+  if (hasCharacterFeature(character, 'race.dragonborn.trait.base_traits')) {
+    buttons.push({
+      key: 'dragonborn_breath',
+      label: 'Breath Weapon',
+      action: 'dragonborn_breath',
+      title: 'Action으로 적을 지정해 15ft 원뿔 브레스를 사용합니다. 대상은 DEX 내성을 굴립니다.',
+      requiresAction: true,
+      disabled: (participantConditions ?? []).includes(
+        'resource:dragonborn_breath_expended'
+      ),
+    });
+  }
 
   if (classKey.includes('barbarian') && hasCharacterFeature(character, 'class.barbarian.feature.rage')) {
     buttons.push({
@@ -692,6 +807,8 @@ function getSpellLevel(label: string) {
 
 function getSpellTargetingHint(spellId: string) {
   if (
+    spellId === 'spell.acid_splash' ||
+    spellId === 'spell.shocking_grasp' ||
     spellId === 'spell.chill_touch' ||
     spellId === 'spell.fire_bolt' ||
     spellId === 'spell.ray_of_frost'
@@ -757,6 +874,45 @@ function getSpellTargetingHint(spellId: string) {
   }
   if (spellId === 'spell.dispel_magic') {
     return '120ft 안에서 해제할 주문 효과가 걸린 토큰을 선택하세요.';
+  }
+  if (
+    spellId === 'spell.faerie_fire' ||
+    spellId === 'spell.fog_cloud' ||
+    spellId === 'spell.grease' ||
+    spellId === 'spell.darkness' ||
+    spellId === 'spell.moonbeam' ||
+    spellId === 'spell.minor_illusion' ||
+    spellId === 'spell.mage_hand' ||
+    spellId === 'spell.lightning_bolt'
+  ) {
+    return '사거리 안의 효과 중심 또는 방향 타일을 선택하세요.';
+  }
+  if (
+    spellId === 'spell.guidance' ||
+    spellId === 'spell.feather_fall' ||
+    spellId === 'spell.heroism' ||
+    spellId === 'spell.longstrider' ||
+    spellId === 'spell.aid' ||
+    spellId === 'spell.invisibility' ||
+    spellId === 'spell.lesser_restoration' ||
+    spellId === 'spell.fly' ||
+    spellId === 'spell.haste'
+  ) {
+    return '사거리 안의 아군 또는 자기 토큰을 선택하세요.';
+  }
+  if (
+    spellId === 'spell.charm_person' ||
+    spellId === 'spell.hunters_mark' ||
+    spellId === 'spell.blindness_deafness' ||
+    spellId === 'spell.spiritual_weapon'
+  ) {
+    return '사거리 안의 적 토큰을 선택하세요.';
+  }
+  if (spellId === 'spell.revivify') {
+    return '접촉 가능한 쓰러진 아군 토큰을 선택하세요.';
+  }
+  if (spellId === 'spell.counterspell') {
+    return 'Counterspell은 적이 주문을 시전할 때 반응 팝업으로 사용합니다.';
   }
   return '사거리 안의 타일 또는 대상을 선택하세요.';
 }
@@ -1143,6 +1299,8 @@ export function CombatNodeSurface({
   const [isSneakAttackTargeting, setSneakAttackTargeting] = useState(false);
   const [isBardicInspirationTargeting, setBardicInspirationTargeting] =
     useState(false);
+  const [isDragonbornBreathTargeting, setDragonbornBreathTargeting] =
+    useState(false);
   const [targetingSpellId, setTargetingSpellId] = useState<string | null>(null);
   const [gmHpValue, setGmHpValue] = useState(0);
   const [spellSlotLevelBySpellId, setSpellSlotLevelBySpellId] = useState<Record<string, number>>({});
@@ -1338,24 +1496,39 @@ export function CombatNodeSurface({
   }, [offhandAttackRangeFt, map, myCombatParticipant, selectedTargetParticipant]);
   const canAttackWithEquippedWeapon = Boolean(
     canUsePlayerCharacterActions &&
-    myActionResources?.actionAvailable &&
+    (myActionResources?.actionAvailable ||
+      myActionResources?.extraAttackAvailable ||
+      myActionResources?.hasteActionAvailable) &&
     selectedTargetParticipant?.isHostile &&
     selectedTargetParticipant.isAlive &&
     isSelectedTargetInRange &&
     !isCombatBusy
   );
   const canStartAttackTargeting = Boolean(
-    canUsePlayerCharacterActions && myActionResources?.actionAvailable && myCombatParticipant && !isCombatBusy
+    canUsePlayerCharacterActions &&
+      (myActionResources?.actionAvailable ||
+        myActionResources?.extraAttackAvailable ||
+        myActionResources?.hasteActionAvailable) &&
+      myCombatParticipant &&
+      !isCombatBusy
   );
   const canUseAction = Boolean(
     canControlActiveActor && activeActionResources?.actionAvailable && !isCombatBusy
+  );
+  const canUseHasteAction = Boolean(
+    canControlActiveActor &&
+      (activeActionResources?.actionAvailable ||
+        activeActionResources?.hasteActionAvailable) &&
+      !isCombatBusy
   );
   const canUseBonusAction = Boolean(
     canControlActiveActor && activeActionResources?.bonusActionAvailable && !isCombatBusy
   );
   const canUseSneakAttack = Boolean(
     canUsePlayerCharacterActions &&
-    myActionResources?.actionAvailable &&
+    (myActionResources?.actionAvailable ||
+      myActionResources?.extraAttackAvailable ||
+      myActionResources?.hasteActionAvailable) &&
     myActionResources?.sneakAttackAvailable &&
     selectedTargetParticipant &&
     isSelectedTargetSneakAttackEligible &&
@@ -1363,7 +1536,9 @@ export function CombatNodeSurface({
   );
   const canStartSneakAttackTargeting = Boolean(
     canUsePlayerCharacterActions &&
-    myActionResources?.actionAvailable &&
+    (myActionResources?.actionAvailable ||
+      myActionResources?.extraAttackAvailable ||
+      myActionResources?.hasteActionAvailable) &&
     myActionResources?.sneakAttackAvailable &&
     isSneakAttackWeaponEquipped &&
     myCombatParticipant &&
@@ -1812,6 +1987,7 @@ export function CombatNodeSurface({
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
     setBardicInspirationTargeting(false);
+    setDragonbornBreathTargeting(false);
     setTargetingSpellId(null);
     setTargetingMonsterActionId(null);
     void onAttackWithEquippedWeapon(targetParticipantId);
@@ -1821,6 +1997,7 @@ export function CombatNodeSurface({
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
     setBardicInspirationTargeting(false);
+    setDragonbornBreathTargeting(false);
     setTargetingSpellId(null);
     setTargetingMonsterActionId(null);
     void onAttackWithOffhandWeapon(targetParticipantId);
@@ -1830,6 +2007,7 @@ export function CombatNodeSurface({
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
     setBardicInspirationTargeting(false);
+    setDragonbornBreathTargeting(false);
     setTargetingSpellId(null);
     setTargetingMonsterActionId(null);
     void onSneakAttack(targetParticipantId);
@@ -1843,6 +2021,7 @@ export function CombatNodeSurface({
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
     setBardicInspirationTargeting(false);
+    setDragonbornBreathTargeting(false);
     setTargetingSpellId(null);
     setTargetingMonsterActionId(null);
     void onMonsterAction?.(targetParticipantId ?? null, actionType, actionId ?? null);
@@ -1858,6 +2037,7 @@ export function CombatNodeSurface({
     setAttackTargeting(false);
     setSneakAttackTargeting(false);
     setBardicInspirationTargeting(false);
+    setDragonbornBreathTargeting(false);
     setTargetingMonsterActionId(null);
     setTargetingSpellId((current) => (current === spellId ? null : spellId));
   }
@@ -1873,6 +2053,8 @@ export function CombatNodeSurface({
   function castTargetingSpell(spellId: string, selection: BattleMapSelection | null) {
     if (
       spellId === 'spell.chill_touch' ||
+      spellId === 'spell.acid_splash' ||
+      spellId === 'spell.shocking_grasp' ||
       spellId === 'spell.fire_bolt' ||
       spellId === 'spell.ray_of_frost' ||
       spellId === 'spell.sacred_flame' ||
@@ -1887,21 +2069,55 @@ export function CombatNodeSurface({
       spellId === 'spell.dispel_magic' ||
       spellId === 'spell.bless' ||
       spellId === 'spell.bane'
+      || spellId === 'spell.guidance'
+      || spellId === 'spell.feather_fall'
+      || spellId === 'spell.heroism'
+      || spellId === 'spell.longstrider'
+      || spellId === 'spell.aid'
+      || spellId === 'spell.invisibility'
+      || spellId === 'spell.lesser_restoration'
+      || spellId === 'spell.fly'
+      || spellId === 'spell.haste'
+      || spellId === 'spell.charm_person'
+      || spellId === 'spell.hunters_mark'
+      || spellId === 'spell.blindness_deafness'
+      || spellId === 'spell.spiritual_weapon'
+      || spellId === 'spell.revivify'
     ) {
       if (selection?.kind !== 'token') return;
       const participant = getParticipantByTokenId(selection.token.id);
-      if (!participant?.isAlive) return;
+      if (!participant || (spellId !== 'spell.revivify' && !participant.isAlive)) return;
       if (
         spellId !== 'spell.cure_wounds' &&
         spellId !== 'spell.healing_word' &&
         spellId !== 'spell.dispel_magic' &&
         spellId !== 'spell.bless' &&
+        spellId !== 'spell.guidance' &&
+        spellId !== 'spell.feather_fall' &&
+        spellId !== 'spell.heroism' &&
+        spellId !== 'spell.longstrider' &&
+        spellId !== 'spell.aid' &&
+        spellId !== 'spell.invisibility' &&
+        spellId !== 'spell.lesser_restoration' &&
+        spellId !== 'spell.fly' &&
+        spellId !== 'spell.haste' &&
+        spellId !== 'spell.revivify' &&
         !participant.isHostile
       ) return;
       if (
         (spellId === 'spell.cure_wounds' ||
           spellId === 'spell.healing_word' ||
-          spellId === 'spell.bless') &&
+          spellId === 'spell.bless' ||
+          spellId === 'spell.guidance' ||
+          spellId === 'spell.feather_fall' ||
+          spellId === 'spell.heroism' ||
+          spellId === 'spell.longstrider' ||
+          spellId === 'spell.aid' ||
+          spellId === 'spell.invisibility' ||
+          spellId === 'spell.lesser_restoration' ||
+          spellId === 'spell.fly' ||
+          spellId === 'spell.haste' ||
+          spellId === 'spell.revivify') &&
         participant.isHostile
       ) return;
       if (!isParticipantSpellTargetInRange(participant, spellId)) return;
@@ -1919,7 +2135,15 @@ export function CombatNodeSurface({
       spellId === 'spell.thunderwave' ||
       spellId === 'spell.entangle' ||
       spellId === 'spell.web' ||
-      spellId === 'spell.misty_step'
+      spellId === 'spell.misty_step' ||
+      spellId === 'spell.faerie_fire' ||
+      spellId === 'spell.fog_cloud' ||
+      spellId === 'spell.grease' ||
+      spellId === 'spell.darkness' ||
+      spellId === 'spell.moonbeam' ||
+      spellId === 'spell.minor_illusion' ||
+      spellId === 'spell.mage_hand' ||
+      spellId === 'spell.lightning_bolt'
     ) {
       const point = selection?.point ?? null;
       if (!point || !isPointSpellTargetInRange(point, spellId)) return;
@@ -1969,6 +2193,19 @@ export function CombatNodeSurface({
       setBardicInspirationTargeting(false);
       void onUseClassFeature(
         'bardic_inspiration',
+        participant.sessionEntityId
+      );
+      return;
+    }
+    if (isDragonbornBreathTargeting) {
+      if (selection?.kind !== 'token') return;
+      const participant = getParticipantByTokenId(selection.token.id);
+      if (!participant?.isAlive || !participant.isHostile) {
+        return;
+      }
+      setDragonbornBreathTargeting(false);
+      void onUseClassFeature(
+        'dragonborn_breath',
         participant.sessionEntityId
       );
       return;
@@ -2388,12 +2625,18 @@ export function CombatNodeSurface({
                             : Number.POSITIVE_INFINITY;
                       const usesBonusAction =
                         spellId === 'spell.healing_word' ||
-                        spellId === 'spell.misty_step';
+                        spellId === 'spell.misty_step' ||
+                        spellId === 'spell.hunters_mark' ||
+                        spellId === 'spell.spiritual_weapon';
+                      const usesReaction =
+                        spellId === 'spell.shield' ||
+                        spellId === 'spell.feather_fall' ||
+                        spellId === 'spell.counterspell';
                       const disabled =
                         !canUsePlayerCharacterActions ||
                         (usesBonusAction ? !canUseBonusAction : !canUseAction) ||
                         isCombatBusy ||
-                        spellId === 'spell.shield' ||
+                        usesReaction ||
                         (isSlottedSpell && spellSlotRemaining <= 0);
                       return (
                         <div className="combat-spell-action-wrap" key={action}>
@@ -2402,8 +2645,8 @@ export function CombatNodeSurface({
                             className={`combat-action-button has-action-icon${targetingSpellId === spellId ? ' targeting' : ''}`}
                             disabled={disabled}
                             title={
-                              spellId === 'spell.shield'
-                                ? 'Shield는 공격받을 때 반응 팝업으로 사용합니다.'
+                              usesReaction
+                                ? `${action}은(는) 조건이 충족될 때 반응 팝업으로 사용합니다.`
                                 : isSlottedSpell && spellSlotRemaining <= 0
                                   ? `사용 가능한 ${spellLevel}레벨 주문 슬롯이 없습니다.`
                                   : targetingSpellId === spellId
@@ -2461,8 +2704,10 @@ export function CombatNodeSurface({
                     (!ability.requiresBonusAction || myActionResources?.bonusActionAvailable)
                   );
                   const isSneakAttack = ability.action === 'sneak_attack';
-                  const isBardicInspiration =
-                    ability.action === 'bardic_inspiration';
+                   const isBardicInspiration =
+                     ability.action === 'bardic_inspiration';
+                   const isDragonbornBreath =
+                     ability.action === 'dragonborn_breath';
                   const canUseSneakFeature = isSneakAttack
                     ? Boolean(
                         canUseFeature &&
@@ -2475,8 +2720,9 @@ export function CombatNodeSurface({
                       type="button"
                       key={ability.key}
                       className={`combat-action-button has-action-icon${
-                        (isSneakAttackTargeting && isSneakAttack) ||
-                        (isBardicInspirationTargeting && isBardicInspiration)
+                         (isSneakAttackTargeting && isSneakAttack) ||
+                         (isBardicInspirationTargeting && isBardicInspiration) ||
+                         (isDragonbornBreathTargeting && isDragonbornBreath)
                           ? ' targeting'
                           : ''
                       }`}
@@ -2517,6 +2763,14 @@ export function CombatNodeSurface({
                           setBardicInspirationTargeting((current) => !current);
                           return;
                         }
+                        if (isDragonbornBreath) {
+                          setAttackTargeting(false);
+                          setSneakAttackTargeting(false);
+                          setBardicInspirationTargeting(false);
+                          setTargetingSpellId(null);
+                          setDragonbornBreathTargeting((current) => !current);
+                          return;
+                        }
                         if (ability.action === 'second_wind') {
                           void onUseClassFeature(ability.action);
                           return;
@@ -2536,7 +2790,8 @@ export function CombatNodeSurface({
                           ability.action === 'channel_divinity' ||
                           ability.action === 'bardic_inspiration' ||
                           ability.action === 'font_of_magic' ||
-                          ability.action === 'wild_shape'
+                          ability.action === 'wild_shape' ||
+                          ability.action === 'dragonborn_breath'
                         ) {
                           void onUseClassFeature(ability.action);
                         }
@@ -2821,7 +3076,7 @@ export function CombatNodeSurface({
                       type="button"
                       key={action}
                       className="combat-action-button has-action-icon"
-                      disabled={!canUseAction}
+                      disabled={!canUseHasteAction}
                       title="행동을 소모해 이번 턴 이동 가능 거리를 기본 이동속도만큼 늘립니다."
                       onClick={() => {
                         if (isGmView && activeCombatActor?.isHostile) {
@@ -2886,7 +3141,7 @@ export function CombatNodeSurface({
                       type="button"
                       key={action}
                       className="combat-action-button has-action-icon"
-                      disabled={!canUseAction}
+                      disabled={!canUseHasteAction}
                       title="행동을 소모하고 민첩(은신) 판정에 성공하면 다음 공격 굴림에 이점을 얻습니다."
                       onClick={() => {
                         if (isGmView && activeCombatActor?.isHostile) {

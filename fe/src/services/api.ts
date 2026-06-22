@@ -44,6 +44,7 @@ import type {
   ItemResponseDto,
   PlayerScenarioViewDto,
   RaceResponseDto,
+  RuleCatalogReferenceDto,
   ScenarioResponseDto,
   SessionDetailResponseDto,
   SessionSnapshotDto,
@@ -529,6 +530,10 @@ export function listClassDefinitions(): Promise<ClassDefinitionResponseDto[]> {
 
 export function listItems(): Promise<ItemResponseDto[]> {
   return requestJson<ItemResponseDto[]>('/items');
+}
+
+export function listRuleCatalog(): Promise<RuleCatalogReferenceDto[]> {
+  return requestJson<RuleCatalogReferenceDto[]>('/rule-catalog');
 }
 
 export function getScenario(

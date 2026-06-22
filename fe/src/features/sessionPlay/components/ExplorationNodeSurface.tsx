@@ -56,6 +56,7 @@ type ExplorationActionButton = {
     | 'close_door'
     | 'unlock_door'
     | 'break_door'
+    | 'break_object'
     | 'investigate_object'
     | 'disarm_hazard';
   disabled?: boolean;
@@ -779,6 +780,7 @@ function getContextActions(selection: BattleMapSelection | null, isGmView = fals
   }
 
   if (selection.kind === 'object') {
+    const objectCell = selection.cell as NonNullable<VttMapStateDto['objectCells']>[number];
     const canDisarmHazard = isGmView
       ? isArmedHazardSelection(selection)
       : isDetectedArmedHazardSelection(selection);
@@ -798,11 +800,22 @@ function getContextActions(selection: BattleMapSelection | null, isGmView = fals
           iconName: getExplorationActionIconName('조사'),
         }
       : command('조사', ExplorationMainCommandIntent.INVESTIGATE_OBJECT, selection, `${targetLabel}을 조사합니다.`);
+    const breakActions: ExplorationActionButton[] =
+      objectCell.canBreak && !objectCell.broken
+        ? [
+            {
+              label: '부수기',
+              localAction: 'break_object',
+              iconName: getExplorationActionIconName('부수기'),
+            },
+          ]
+        : [];
 
     return [
       ...positionActions,
       ...hazardActions,
       investigateAction,
+      ...breakActions,
     ];
   }
 
@@ -1087,6 +1100,18 @@ export function ExplorationNodeSurface({
       return;
     }
 
+    if (isGmView && mapSelection.kind === 'object' && action === 'break_object') {
+      onMapChange({
+        ...map,
+        objectCells: (map.objectCells ?? []).map((cell) =>
+          cell.id === mapSelection.cell.id ? { ...cell, broken: true } : cell
+        ),
+        updatedAt: new Date().toISOString(),
+      });
+      setMapActionFeedback('선택한 오브젝트를 파괴 상태로 변경했습니다.');
+      return;
+    }
+
     if (
       isGmView &&
       (mapSelection.kind === 'door' || mapSelection.kind === 'object') &&
@@ -1100,6 +1125,7 @@ export function ExplorationNodeSurface({
       action === 'open_door' ||
       action === 'close_door' ||
       action === 'break_door' ||
+      action === 'break_object' ||
       action === 'investigate_object' ||
       action === 'disarm_hazard'
     ) {

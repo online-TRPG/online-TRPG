@@ -38,6 +38,21 @@ const MONSTER_ACTION_PREFERENCES: Record<string, string[]> = {
   "monster.dragon_whelp": ["action.fire_breath", "action.bite"],
   "monster.cultist": ["action.scimitar"],
   "monster.ogre": ["action.greatclub", "action.javelin"],
+  "monster.kobold": ["action.dagger", "action.sling"],
+  "monster.bandit": ["action.scimitar", "action.light_crossbow"],
+  "monster.bugbear": ["action.morningstar", "action.javelin"],
+  "monster.hobgoblin": ["action.longsword", "action.longbow"],
+  "monster.dire_wolf": ["action.bite"],
+  "monster.ghoul": ["action.claws", "action.bite"],
+  "monster.wight": ["monster.wight.ability.multiattack", "action.life_drain", "action.longbow"],
+  "monster.mimic": ["action.pseudopod", "action.bite"],
+  "monster.gelatinous_cube": ["action.engulf", "action.pseudopod"],
+  "monster.swarm_of_rats": ["action.bites"],
+  "monster.animated_armor": ["monster.animated_armor.ability.multiattack", "action.slam"],
+  "monster.gargoyle": ["monster.gargoyle.ability.multiattack", "action.bite", "action.claws"],
+  "monster.harpy": ["action.luring_song", "monster.harpy.ability.multiattack"],
+  "monster.giant_scorpion": ["monster.giant_scorpion.ability.multiattack", "action.sting", "action.claw"],
+  "monster.young_red_dragon": ["action.fire_breath", "monster.young_red_dragon.ability.multiattack"],
 };
 
 @Injectable()
@@ -172,6 +187,14 @@ export class MonsterAbilityService {
   private resolveSpecialType(entry: RuleCatalogEntry): string | null {
     if (entry.runtimeEffect.tags.some((tag) => tag.startsWith("mobility:"))) {
       return "mobility";
+    }
+    if (
+      entry.targeting.type === "area" &&
+      entry.save &&
+      !entry.damage &&
+      entry.runtimeEffect.tags.some((tag) => tag.startsWith("condition:"))
+    ) {
+      return "area_control";
     }
     if (entry.runtimeEffect.tags.some((tag) => tag.startsWith("aura:"))) {
       return "aura";

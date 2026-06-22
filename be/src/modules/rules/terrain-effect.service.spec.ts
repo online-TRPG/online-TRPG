@@ -101,6 +101,25 @@ describe("TerrainEffectService", () => {
     expect(poisonCloud && service.supportsTrigger(poisonCloud, "on_exit")).toBe(true);
   });
 
+  it("resolves Moonbeam as a persistent radiant spell terrain", () => {
+    expect(service.resolveEffect("terrain.moonbeam")).toMatchObject({
+      damage: { dice: "2d10", type: "radiant" },
+      damagePackets: [
+        {
+          sourceEffectId: "terrain.moonbeam",
+          dice: "2d10",
+          type: "radiant",
+        },
+      ],
+      runtimeTags: expect.arrayContaining([
+        "trigger:on_enter",
+        "trigger:on_turn_start",
+        "save:con",
+        "half_damage_on_success",
+      ]),
+    });
+  });
+
   it("lists the roadmap terrain effects", () => {
     expect(service.listEffects().map((effect) => effect.terrainEffectId)).toEqual([
       "terrain.difficult",
@@ -110,6 +129,7 @@ describe("TerrainEffectService", () => {
       "terrain.slippery",
       "terrain.burning",
       "terrain.poison_cloud",
+      "terrain.moonbeam",
     ]);
   });
 });

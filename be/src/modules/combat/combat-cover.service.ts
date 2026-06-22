@@ -121,7 +121,9 @@ export class CombatCoverService {
       ...(map.doorCells ?? [])
         .filter((door) => door.state !== "open" && door.state !== "broken")
         .flatMap((cell) => this.cellCoverBlockers(map, cell, "full", true)),
-      ...(map.objectCells ?? []).flatMap((cell) => this.cellCoverBlockers(map, cell, "half", false)),
+      ...(map.objectCells ?? [])
+        .filter((cell) => cell.broken !== true)
+        .flatMap((cell) => this.cellCoverBlockers(map, cell, "half", false)),
     ];
   }
 

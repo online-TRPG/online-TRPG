@@ -145,6 +145,7 @@ describe("RestResolutionService", () => {
         conditions: [
           "rage",
           "resistance:slashing",
+          "resource:relentless_endurance_expended",
           "condition.prone",
           { conditionId: "condition.burning", tags: ["resource:rage_expended"] },
         ],
@@ -208,6 +209,21 @@ describe("RestResolutionService", () => {
       },
       spellSlots: { "1": 0 },
       recoveredTags: [],
+    });
+  });
+
+  it("recovers level 5 bardic inspiration uses on a short rest when enabled", () => {
+    expect(
+      service.resolveRest({
+        restType: "short",
+        currentHp: 10,
+        maxHp: 10,
+        conditions: ["resource:bardic_inspiration_spent:3"],
+        recoverBardicInspirationOnShortRest: true,
+      }),
+    ).toMatchObject({
+      conditions: [],
+      recoveredTags: ["resource:bardic_inspiration_spent"],
     });
   });
 

@@ -453,6 +453,12 @@ export class CombatActionResourcesDto {
   additionalActionAvailable!: boolean;
 
   @ApiProperty()
+  extraAttackAvailable!: boolean;
+
+  @ApiPropertyOptional()
+  hasteActionAvailable?: boolean;
+
+  @ApiProperty()
   twoWeaponAttackAvailable!: boolean;
 
   @ApiProperty()
@@ -900,7 +906,7 @@ export class CombatReactionPromptDto {
   id!: string;
 
   @ApiProperty()
-  type!: "opportunity_attack" | "shield" | "ready_action";
+  type!: "opportunity_attack" | "shield" | "ready_action" | "counterspell";
 
   @ApiProperty()
   reactorParticipantId!: string;

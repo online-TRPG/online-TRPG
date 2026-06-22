@@ -617,6 +617,10 @@ export class CommandParserService {
       fontofmagic: "class.sorcerer.feature.font_of_magic",
       wild_shape: "class.druid.feature.wild_shape",
       wildshape: "class.druid.feature.wild_shape",
+      breath_weapon: "race.dragonborn.trait.base_traits",
+      breathweapon: "race.dragonborn.trait.base_traits",
+      dragon_breath: "race.dragonborn.trait.base_traits",
+      dragonbreath: "race.dragonborn.trait.base_traits",
     };
 
     return featureIds[normalized] ?? normalized;

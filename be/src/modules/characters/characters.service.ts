@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import {
   CharacterAvatarType as PrismaCharacterAvatarType,
+  Race,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
@@ -73,6 +74,11 @@ const MVP_STARTING_CANTRIP_IDS = new Set([
   "spell.light",
   "spell.ray_of_frost",
   "spell.sacred_flame",
+  "spell.acid_splash",
+  "spell.guidance",
+  "spell.mage_hand",
+  "spell.minor_illusion",
+  "spell.shocking_grasp",
 ]);
 const MVP_STARTING_SLOT_SPELL_IDS = new Set([
   "spell.bane",
@@ -89,14 +95,37 @@ const MVP_STARTING_SLOT_SPELL_IDS = new Set([
   "spell.shield",
   "spell.sleep",
   "spell.thunderwave",
+  "spell.charm_person",
+  "spell.faerie_fire",
+  "spell.feather_fall",
+  "spell.fog_cloud",
+  "spell.grease",
+  "spell.heroism",
+  "spell.hunters_mark",
+  "spell.longstrider",
 ]);
 const MVP_STARTING_LEVEL3_SLOT_SPELL_IDS = new Set([
   "spell.hold_person",
   "spell.misty_step",
   "spell.scorching_ray",
   "spell.web",
+  "spell.aid",
+  "spell.blindness_deafness",
+  "spell.darkness",
+  "spell.invisibility",
+  "spell.lesser_restoration",
+  "spell.moonbeam",
+  "spell.spiritual_weapon",
 ]);
-const MVP_STARTING_LEVEL5_SLOT_SPELL_IDS = new Set(["spell.dispel_magic", "spell.fireball"]);
+const MVP_STARTING_LEVEL5_SLOT_SPELL_IDS = new Set([
+  "spell.dispel_magic",
+  "spell.fireball",
+  "spell.counterspell",
+  "spell.fly",
+  "spell.haste",
+  "spell.lightning_bolt",
+  "spell.revivify",
+]);
 const MVP_STARTING_SLOT_SPELL_SELECTION_COUNT = 4;
 
 @Injectable()
@@ -119,7 +148,8 @@ export class CharactersService {
     const ancestry = dto.ancestry.trim();
     const abilities = dto.abilities ?? defaultAbilityScores;
     this.validateAbilitiesRange(abilities);
-    await this.validatePointBuyForAncestry(ancestry, abilities);
+    const race = await this.findRaceForAncestry(ancestry);
+    await this.validatePointBuyForAncestry(ancestry, abilities, race);
     const className = dto.className.trim();
     const normalizedProficientSkills = dto.proficientSkills
       ? await this.validateProficientSkills(className, dto.proficientSkills)
@@ -141,12 +171,14 @@ export class CharactersService {
       abilities,
       dto.startingSpells,
     );
+    const racialMaxHpBonus = race?.key === "hill-dwarf" ? level : 0;
     const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
       className,
       level,
       abilities,
       dto.proficiencyBonus,
       dto.maxHp,
+      racialMaxHpBonus,
     );
     const armorClass = this.resolveArmorClass(
       className,
@@ -165,6 +197,7 @@ export class CharactersService {
 
     const features = await this.resolveCharacterFeatureSnapshot({
       ancestry,
+      raceKey: race?.key ?? null,
       className,
       subclassName,
       level,
@@ -187,7 +220,7 @@ export class CharactersService {
         proficientSkillsJson: JSON.stringify(normalizedProficientSkills),
         maxHp,
         armorClass,
-        speed: dto.speed ?? 30,
+        speed: dto.speed ?? race?.baseSpeed ?? 30,
         inventoryJson: JSON.stringify(inventory),
         spellsJson: spellsJsonValue,
         equippedWeaponId,
@@ -240,6 +273,7 @@ export class CharactersService {
     const finalAbilities: AbilityScoresDto =
       dto.abilities ?? (JSON.parse(existing.abilitiesJson) as AbilityScoresDto);
     const finalAncestry = dto.ancestry?.trim() ?? existing.ancestry;
+    const finalRace = await this.findRaceForAncestry(finalAncestry);
     const finalClassName = dto.className?.trim() ?? existing.className;
     const finalLevel = dto.level ?? existing.level;
     const finalInventory: InventoryItemDto[] =
@@ -249,9 +283,9 @@ export class CharactersService {
     const finalOffhandWeaponId =
       dto.offhandWeaponId === undefined ? existing.offhandWeaponId : dto.offhandWeaponId;
 
-    if (dto.abilities !== undefined) {
+    if (dto.abilities !== undefined || dto.ancestry !== undefined) {
       this.validateAbilitiesRange(finalAbilities);
-      await this.validatePointBuyForAncestry(finalAncestry, finalAbilities);
+      await this.validatePointBuyForAncestry(finalAncestry, finalAbilities, finalRace);
     }
     const normalizedUpdateProficientSkills =
       dto.proficientSkills !== undefined
@@ -270,6 +304,7 @@ export class CharactersService {
     // - 안 보냈으면 공식값으로 자동 갱신 (legacy 행이 새 abilities/level 과 어긋나지 않게).
     const needsLevelStats =
       dto.abilities !== undefined ||
+      dto.ancestry !== undefined ||
       dto.level !== undefined ||
       dto.className !== undefined ||
       dto.maxHp !== undefined ||
@@ -281,6 +316,7 @@ export class CharactersService {
           finalAbilities,
           dto.proficiencyBonus,
           dto.maxHp,
+          finalRace?.key === "hill-dwarf" ? finalLevel : 0,
         )
       : null;
 
@@ -295,6 +331,7 @@ export class CharactersService {
     });
     const finalFeatures = await this.resolveCharacterFeatureSnapshot({
       ancestry: finalAncestry,
+      raceKey: finalRace?.key ?? null,
       className: finalClassName,
       subclassName: validatedSubclassName,
       level: finalLevel,
@@ -327,7 +364,11 @@ export class CharactersService {
             existing.armorClass,
             finalOffhandWeaponId,
           ),
-        speed: dto.speed ?? existing.speed,
+        speed:
+          dto.speed ??
+          (dto.ancestry !== undefined
+            ? finalRace?.baseSpeed ?? existing.speed
+            : existing.speed),
         inventoryJson: JSON.stringify(finalInventory),
         equippedWeaponId: finalEquippedWeaponId,
         offhandWeaponId: finalOffhandWeaponId,
@@ -401,6 +442,7 @@ export class CharactersService {
     }
 
     const abilities = JSON.parse(existing.abilitiesJson) as AbilityScoresDto;
+    const race = await this.findRaceForAncestry(existing.ancestry);
     const klass = await this.catalogService.findClassByKey(existing.className.toLowerCase());
     if (!klass) {
       throw new BadRequestException("시드된 클래스가 아닌 캐릭터는 레벨업 계산을 적용할 수 없습니다.");
@@ -420,6 +462,17 @@ export class CharactersService {
         subclassChoiceLevel: this.ruleCatalogService.getSubclassChoiceLevel(
           existing.className,
         ),
+        classFeatures: this.ruleCatalogService.listClassFeaturesForLevel(
+          existing.className,
+          dto.targetLevel,
+        ),
+        subclassFeatures: existing.subclassName
+          ? this.ruleCatalogService.listSubclassFeatures(
+              existing.className,
+              existing.subclassName,
+              dto.targetLevel,
+            )
+          : [],
       });
     } catch (error) {
       throw new BadRequestException(
@@ -442,6 +495,7 @@ export class CharactersService {
     );
     const finalFeatures = await this.resolveCharacterFeatureSnapshot({
       ancestry: existing.ancestry,
+      raceKey: race?.key ?? null,
       className: existing.className,
       subclassName: selectedSubclassName,
       level: resolution.toLevel,
@@ -467,8 +521,12 @@ export class CharactersService {
           });
     const constitutionModifierDelta =
       this.getAbilityModifier(finalAbilities.con) - this.getAbilityModifier(abilities.con);
+    const racialLevelUpHpBonus =
+      race?.key === "hill-dwarf" ? resolution.toLevel - resolution.fromLevel : 0;
     const finalMaxHp =
-      resolution.maxHpAfter + constitutionModifierDelta * resolution.toLevel;
+      resolution.maxHpAfter +
+      constitutionModifierDelta * resolution.toLevel +
+      racialLevelUpHpBonus;
     const inventory = this.parseInventoryItemsJson(existing.inventoryJson);
     const previousCalculatedArmorClass = this.resolveArmorClass(
       existing.className,
@@ -1282,8 +1340,9 @@ export class CharactersService {
   private async validatePointBuyForAncestry(
     ancestry: string,
     abilities: AbilityScoresDto,
+    resolvedRace?: Race | null,
   ): Promise<void> {
-    const race = await this.findRaceForAncestry(ancestry);
+    const race = resolvedRace ?? await this.findRaceForAncestry(ancestry);
     if (!race) {
       return;
     }
@@ -1705,12 +1764,13 @@ export class CharactersService {
     abilities: AbilityScoresDto,
     dtoProf: number | undefined,
     dtoMaxHp: number | undefined,
+    maxHpBonus = 0,
   ): Promise<{ proficiencyBonus: number; maxHp: number }> {
     const klass = await this.catalogService.findClassByKey(className.toLowerCase());
     if (!klass) {
       return {
         proficiencyBonus: dtoProf ?? 2,
-        maxHp: dtoMaxHp ?? 10,
+        maxHp: dtoMaxHp ?? 10 + maxHpBonus,
       };
     }
 
@@ -1731,7 +1791,7 @@ export class CharactersService {
       );
     }
     const expectedProf = stats.proficiencyBonus;
-    const expectedMaxHp = stats.maxHp;
+    const expectedMaxHp = stats.maxHp + maxHpBonus;
 
     if (dtoProf !== undefined && dtoProf !== expectedProf) {
       throw new BadRequestException(
@@ -2217,12 +2277,14 @@ export class CharactersService {
 
   private async resolveCharacterFeatureSnapshot(params: {
     ancestry: string;
+    raceKey?: string | null;
     className: string;
     subclassName?: string | null;
     level: number;
     requestedFeatures: string[];
   }): Promise<string[]> {
-    const raceKey = await this.resolveRaceTraitFeatureKey(params.ancestry);
+    const raceKey = params.raceKey ?? await this.resolveRaceTraitFeatureKey(params.ancestry);
+    this.assertRaceFeatureSelections(raceKey, params.requestedFeatures);
     return this.ruleCatalogService.getCharacterFeatureSnapshot({
       raceKey,
       classKey: params.className,
@@ -2230,6 +2292,49 @@ export class CharactersService {
       classLevel: params.level,
       requestedFeatureIds: params.requestedFeatures,
     }).featureIds;
+  }
+
+  private assertRaceFeatureSelections(
+    raceKey: string | null,
+    requestedFeatures: string[],
+  ): void {
+    const normalizedFeatures = requestedFeatures.map((feature) =>
+      feature.trim().toLowerCase(),
+    );
+    if (raceKey !== "dragonborn") {
+      if (
+        normalizedFeatures.some((feature) =>
+          feature.startsWith("draconic_ancestry:"),
+        )
+      ) {
+        throw new BadRequestException({
+          code: "CHARACTER_INVALID_RACE_FEATURE",
+          message: "드래곤본이 아닌 종족은 용 혈통을 선택할 수 없습니다.",
+        });
+      }
+      return;
+    }
+    const ancestry = normalizedFeatures
+      .find((feature) => feature.startsWith("draconic_ancestry:"))
+      ?.slice("draconic_ancestry:".length);
+    const allowed = new Set([
+      "black",
+      "blue",
+      "brass",
+      "bronze",
+      "copper",
+      "gold",
+      "green",
+      "red",
+      "silver",
+      "white",
+    ]);
+    if (!ancestry || !allowed.has(ancestry)) {
+      throw new BadRequestException({
+        code: "CHARACTER_DRACONIC_ANCESTRY_REQUIRED",
+        message: "드래곤본은 용 혈통을 선택해야 합니다.",
+      });
+    }
   }
 
   private assertValidSubclassSelection(params: {

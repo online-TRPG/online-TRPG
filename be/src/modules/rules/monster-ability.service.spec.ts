@@ -142,6 +142,49 @@ describe("MonsterAbilityService", () => {
     }
   });
 
+  it("covers all P2 representative monsters with executable catalog actions", () => {
+    const p2MonsterIds = [
+      "monster.kobold",
+      "monster.bandit",
+      "monster.bugbear",
+      "monster.hobgoblin",
+      "monster.dire_wolf",
+      "monster.ghoul",
+      "monster.wight",
+      "monster.mimic",
+      "monster.gelatinous_cube",
+      "monster.swarm_of_rats",
+      "monster.animated_armor",
+      "monster.gargoyle",
+      "monster.harpy",
+      "monster.giant_scorpion",
+      "monster.young_red_dragon",
+    ];
+
+    for (const monsterId of p2MonsterIds) {
+      expect(service.listExecutableActions(monsterId).length).toBeGreaterThan(0);
+      expect(service.chooseAction(monsterId)).toMatchObject({ monsterId });
+    }
+
+    expect(service.chooseAction("monster.dire_wolf")).toMatchObject({
+      save: { ability: "str", fixedDc: 13 },
+      conditionRiders: ["condition.prone"],
+    });
+    expect(service.chooseAction("monster.giant_scorpion")).toMatchObject({
+      specialType: "multiattack",
+      effectTags: expect.arrayContaining([
+        "multiattack:action.claw:2",
+        "multiattack:action.sting:1",
+      ]),
+    });
+    expect(service.chooseAction("monster.young_red_dragon")).toMatchObject({
+      actionId: "action.fire_breath",
+      specialType: "area_attack",
+      recharge: "5-6",
+      damageDice: "16d6",
+    });
+  });
+
   it("projects P1 recharge, save rider, and ranged/melee thrown metadata", () => {
     expect(service.chooseAction("monster.dragon_whelp")).toMatchObject({
       actionId: "action.fire_breath",

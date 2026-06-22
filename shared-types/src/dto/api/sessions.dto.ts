@@ -1494,6 +1494,25 @@ export class VttObjectCellDto extends VttTerrainCellDto {
   @IsBoolean()
   visibleToPlayers?: boolean;
 
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  canBreak?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  broken?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(40)
+  breakCheckDc?: number | null;
+
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
@@ -1732,12 +1751,13 @@ export class CreateVttMapPingDto {
 }
 
 export class VttMapInteractionDto {
-  @ApiProperty({ enum: ["open_door", "close_door", "break_door", "investigate_object", "disarm_hazard", "detect_hazard", "trigger_object"] })
-  @IsIn(["open_door", "close_door", "break_door", "investigate_object", "disarm_hazard", "detect_hazard", "trigger_object"])
+  @ApiProperty({ enum: ["open_door", "close_door", "break_door", "break_object", "investigate_object", "disarm_hazard", "detect_hazard", "trigger_object"] })
+  @IsIn(["open_door", "close_door", "break_door", "break_object", "investigate_object", "disarm_hazard", "detect_hazard", "trigger_object"])
   kind!:
     | "open_door"
     | "close_door"
     | "break_door"
+    | "break_object"
     | "investigate_object"
     | "disarm_hazard"
     | "detect_hazard"

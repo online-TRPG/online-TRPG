@@ -2,6 +2,10 @@ import { Injectable } from "@nestjs/common";
 import { ActionOutcome, AvailableActionDto, DiceAdvantageState, DiceRollResponseDto, GamePhase } from "@trpg/shared-types";
 import { forbidden } from "../../common/exceptions/domain-error";
 import { AoeDamageService, AoeDamageTarget } from "./aoe-damage.service";
+import {
+  AoeTargetingService,
+  type AoeDirection,
+} from "./aoe-targeting.service";
 import { CommandParserService, ParsedCommand } from "./command-parser.service";
 import { ConcentrationRuntimeService } from "./concentration-runtime.service";
 import { ConditionRuntimeService } from "./condition-runtime.service";
@@ -45,6 +49,8 @@ const CHANNEL_DIVINITY_FEATURE_ID = "class.cleric.feature.channel_divinity";
 const BARDIC_INSPIRATION_FEATURE_ID = "class.bard.feature.bardic_inspiration";
 const FONT_OF_MAGIC_FEATURE_ID = "class.sorcerer.feature.font_of_magic";
 const WILD_SHAPE_FEATURE_ID = "class.druid.feature.wild_shape";
+const DRAGONBORN_BREATH_FEATURE_ID = "race.dragonborn.trait.base_traits";
+const DRAGONBORN_BREATH_EXPENDED_TAG = "resource:dragonborn_breath_expended";
 const FIGHTING_STYLE_DATA_FEATURE_ID = "feature.fighter.fighting_style";
 const SNEAK_ATTACK_DATA_FEATURE_ID = "feature.rogue.sneak_attack";
 const EXPERTISE_DATA_FEATURE_ID = "feature.rogue.expertise";
@@ -258,6 +264,7 @@ export class ActionRuleService {
     private readonly readyActions: ReadyActionService = new ReadyActionService(),
     private readonly concentrationRuntime: ConcentrationRuntimeService = new ConcentrationRuntimeService(),
     private readonly actionSpellRules: ActionSpellRuleService = new ActionSpellRuleService(diceService, ruleEngine),
+    private readonly aoeTargeting: AoeTargetingService = new AoeTargetingService(),
   ) {}
 
   private createActionSpellRuleRuntime() {
@@ -415,19 +422,50 @@ export class ActionRuleService {
 
     const modifier = this.getCheckModifier(actor, command.checkName);
     const expression = modifier >= 0 ? `1d20+${modifier}` : `1d20${modifier}`;
-    const diceResult = this.diceService.roll(expression, DiceAdvantageState.NORMAL);
-    const success = diceResult.total >= command.dc;
+    const diceResult = this.rollD20WithRacialLuck(
+      actor,
+      expression,
+      DiceAdvantageState.NORMAL,
+    );
+    const hasGuidance = this.getFeatureTags(actor).includes(
+      "roll_bonus:ability_check:1d4",
+    );
+    const guidanceRoll = hasGuidance ? this.diceService.roll("1d4") : null;
+    const resolvedDiceResult = guidanceRoll
+      ? {
+          ...diceResult,
+          expression: `${diceResult.expression}+1d4`,
+          total: diceResult.total + guidanceRoll.total,
+        }
+      : diceResult;
+    const success = resolvedDiceResult.total >= command.dc;
+    const stateChanges = hasGuidance
+      ? [
+          this.createTargetStatePatch(actor, {
+            conditions: this.parseJson<unknown[]>(
+              actor.conditionsJson,
+              [],
+            ).filter(
+              (entry) =>
+                !this.conditionRuntime
+                  .toConditionTags(JSON.stringify([entry]))
+                  .includes("roll_bonus:ability_check:1d4"),
+            ),
+          }),
+        ]
+      : [];
 
     return {
       structuredAction: {
         type: "skill_check",
         checkName: command.checkName,
         dc: command.dc,
+        guidanceBonus: guidanceRoll?.total ?? 0,
       },
-      diceResult,
+      diceResult: resolvedDiceResult,
       outcome: success ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
       narration: success ? "판정에 성공했습니다." : "판정에 실패했습니다.",
-      stateChanges: [],
+      stateChanges,
       runtimeEffects: [{ type: "SPEND_ACTION" }],
     };
   }
@@ -437,7 +475,12 @@ export class ActionRuleService {
     const saveProficient = this.resolveSaveProficiencies(target).includes(command.ability);
     const abilityModifier = this.resolveAbilityModifier(target, command.ability);
     const saveModifier = abilityModifier + (saveProficient ? target.character.proficiencyBonus : 0);
-    const diceResult = this.diceService.roll(`1d20${saveModifier >= 0 ? "+" : ""}${saveModifier}`, DiceAdvantageState.NORMAL);
+    const advantageState = this.resolveRacialSaveAdvantage(target, command.ability, command.condition);
+    const diceResult = this.rollD20WithRacialLuck(
+      target,
+      `1d20${saveModifier >= 0 ? "+" : ""}${saveModifier}`,
+      advantageState,
+    );
     const ruleResult = this.ruleEngine.resolveSavingThrow({
       ability: command.ability,
       naturalD20: this.selectNaturalD20(diceResult),
@@ -504,7 +547,11 @@ export class ActionRuleService {
     const targetArmorClass = target?.character.armorClass ?? command.dc;
     const proneRuleContext = this.resolveAttackProneContext(actor, target, runtimeContext);
     const attackAdvantageState = this.toDiceAdvantageState(proneRuleContext.advantageState);
-    const attackRoll = this.diceService.roll(`1d20+${modifier}`, attackAdvantageState);
+    const attackRoll = this.rollD20WithRacialLuck(
+      actor,
+      `1d20+${modifier}`,
+      attackAdvantageState,
+    );
     const naturalD20 = this.selectNaturalD20(attackRoll);
     const criticalThresholdRuleResult = this.resolveChampionCriticalThreshold(actor, naturalD20);
     const attackRuleResult = this.ruleEngine.resolveAttackRoll({
@@ -717,12 +764,137 @@ export class ActionRuleService {
         return this.resolveFontOfMagic(actor, runtimeContext);
       case WILD_SHAPE_FEATURE_ID:
         return this.resolveWildShape(actor, runtimeContext);
+      case DRAGONBORN_BREATH_FEATURE_ID:
+        return this.resolveDragonbornBreath(
+          command,
+          actor,
+          sessionCharacters,
+          runtimeContext,
+        );
       default:
         throw forbidden("ACTION_403", "실행할 수 없는 직업 기능입니다.", {
           reason: "UNSUPPORTED_CLASS_FEATURE",
           featureId: command.featureId,
         });
     }
+  }
+
+  private resolveDragonbornBreath(
+    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
+    actor: SessionCharacterForRules,
+    sessionCharacters: SessionCharacterForRules[],
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    if (!this.hasFeatureTag(actor, "action:breath_weapon")) {
+      throw forbidden("ACTION_403", "드래곤본만 브레스 무기를 사용할 수 있습니다.", {
+        reason: "DRAGONBORN_BREATH_NOT_AVAILABLE",
+      });
+    }
+    if (!this.hasActionAvailable(runtimeContext)) {
+      return this.createActionUnavailableResolution("race_feature", {
+        featureId: DRAGONBORN_BREATH_FEATURE_ID,
+      });
+    }
+    if (this.hasCondition(actor, DRAGONBORN_BREATH_EXPENDED_TAG)) {
+      return {
+        structuredAction: {
+          type: "use_race_feature",
+          featureId: DRAGONBORN_BREATH_FEATURE_ID,
+          rejectedReason: "BREATH_WEAPON_EXPENDED",
+        },
+        diceResult: null,
+        outcome: ActionOutcome.IMPOSSIBLE,
+        narration: "브레스 무기는 휴식 전까지 다시 사용할 수 없습니다.",
+        stateChanges: [],
+      };
+    }
+
+    const optionTokens = (command.option ?? "")
+      .split(/[\s,]+/)
+      .map((token) => token.trim())
+      .filter(Boolean);
+    const damageTypes = new Set([
+      "acid",
+      "cold",
+      "fire",
+      "lightning",
+      "poison",
+    ]);
+    const requestedDamageType = optionTokens.find((token) =>
+      damageTypes.has(this.normalizeRuleToken(token)),
+    );
+    const damageType =
+      this.resolveDraconicAncestryDamageType(actor) ??
+      (requestedDamageType
+        ? this.normalizeRuleToken(requestedDamageType)
+        : "fire");
+    const targetTokens = optionTokens.filter((token) => token !== requestedDamageType);
+    const selectedTargets = targetTokens
+      .map((token) => this.findTarget(token, sessionCharacters))
+      .filter(
+        (target): target is SessionCharacterForRules =>
+          Boolean(target && target.id !== actor.id),
+      );
+    const uniqueSelectedTargets = Array.from(
+      new Map(selectedTargets.map((target) => [target.id, target])).values(),
+    );
+    if (!uniqueSelectedTargets.length) {
+      throw forbidden("ACTION_403", "브레스 무기의 대상을 한 명 이상 지정해야 합니다.", {
+        reason: "DRAGONBORN_BREATH_TARGET_REQUIRED",
+      });
+    }
+    const uniqueTargets = this.resolveDragonbornBreathTargets(
+      actor,
+      uniqueSelectedTargets[0],
+      sessionCharacters,
+      runtimeContext.map,
+    );
+
+    const constitutionModifier = this.resolveAbilityModifier(actor, "con");
+    const saveDc = 8 + actor.character.proficiencyBonus + constitutionModifier;
+    const damageDice =
+      actor.character.level >= 16
+        ? "5d6"
+        : actor.character.level >= 11
+          ? "4d6"
+          : actor.character.level >= 6
+            ? "3d6"
+            : "2d6";
+    const resolution = this.aoeDamage.resolveDamage({
+      sourceId: DRAGONBORN_BREATH_FEATURE_ID,
+      damageDice,
+      damageType,
+      save: {
+        ability: "dex",
+        dc: saveDc,
+        halfDamageOnSuccess: true,
+      },
+      targets: uniqueTargets.map((target) => this.toAoeDamageTarget(target, "dex")),
+    });
+    const actorConditions = this.addConditionEntry(
+      this.parseJson<unknown[]>(actor.conditionsJson, []),
+      DRAGONBORN_BREATH_EXPENDED_TAG,
+    );
+
+    return {
+      structuredAction: {
+        type: "use_race_feature",
+        featureId: DRAGONBORN_BREATH_FEATURE_ID,
+        damageType,
+        damageDice,
+        saveDc,
+        targetIds: uniqueTargets.map((target) => target.id),
+        targetResults: resolution.targetResults,
+      },
+      diceResult: resolution.damageRoll,
+      outcome: ActionOutcome.SUCCESS,
+      narration: `${actor.character.name}이(가) ${damageType} 브레스를 내뿜었습니다.`,
+      stateChanges: [
+        this.createTargetStatePatch(actor, { conditions: actorConditions }),
+        ...resolution.stateChanges,
+      ],
+      runtimeEffects: [{ type: "SPEND_ACTION" }],
+    };
   }
 
   private resolveInventory(command: Extract<ParsedCommand, { type: "inventory" }>): ActionResolution {
@@ -1571,6 +1743,7 @@ export class ActionRuleService {
       .map(Number)
       .reduce((maximum, value) => Math.max(maximum, value), 0);
     const maximumUses = Math.max(this.resolveAbilityModifier(actor, "cha"), 1);
+    const inspirationDie = actor.character.level >= 5 ? "1d8" : "1d6";
     const available =
       this.isClass(actor, "bard") &&
       actor.character.level >= 1 &&
@@ -1582,14 +1755,14 @@ export class ActionRuleService {
         type: "use_class_feature",
         featureId: BARDIC_INSPIRATION_FEATURE_ID,
         targetId: target?.id ?? targetId,
-        die: "1d6",
+        die: inspirationDie,
         usesSpent: available ? spent + 1 : spent,
         maximumUses,
       },
       diceResult: null,
       outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
       narration: available
-        ? `${target?.character.name ?? "대상"}에게 Bardic Inspiration d6를 부여했습니다.`
+        ? `${target?.character.name ?? "대상"}에게 Bardic Inspiration ${inspirationDie}를 부여했습니다.`
         : "Bardic Inspiration을 사용할 수 없거나 유효한 아군 대상이 없습니다.",
       stateChanges:
         available && target
@@ -1609,7 +1782,7 @@ export class ActionRuleService {
               {
                 sessionCharacterId: target.id,
                 conditions: this.addConditions(this.getConditions(target), [
-                  "bardic_inspiration:1d6",
+                  `bardic_inspiration:${inspirationDie}`,
                 ]),
               },
             ]
@@ -1772,6 +1945,8 @@ export class ActionRuleService {
       constitutionModifier: this.resolveAbilityModifier(actor, "con"),
       spellSlots: runtimeContext.spellSlots,
       spellSlotMaximums: runtimeContext.spellSlotMaximums,
+      recoverBardicInspirationOnShortRest:
+        this.isClass(actor, "bard") && actor.character.level >= 5,
     });
 
     if (command.restType === "short") {
@@ -1996,7 +2171,20 @@ export class ActionRuleService {
     const finalDamage = damageRuleResult.produced.finalDamage;
     const remainingTempHp = Math.max(target.tempHp - finalDamage, 0);
     const overflowDamage = Math.max(finalDamage - target.tempHp, 0);
-    const nextHp = Math.max(target.currentHp - overflowDamage, 0);
+    let nextHp = Math.max(target.currentHp - overflowDamage, 0);
+    let relentlessEnduranceConditions: unknown[] | null = null;
+    const relentlessEnduranceTriggered =
+      nextHp === 0 &&
+      target.currentHp > 0 &&
+      this.hasFeatureTag(target, "feature:relentless_endurance") &&
+      !this.hasCondition(target, "resource:relentless_endurance_expended");
+    if (relentlessEnduranceTriggered) {
+      nextHp = 1;
+      relentlessEnduranceConditions = this.addConditionEntry(
+        this.parseJson<unknown[]>(target.conditionsJson, []),
+        "resource:relentless_endurance_expended",
+      );
+    }
     const concentrationCheck = finalDamage > 0 ? this.resolveConcentrationDamageCheck(target, finalDamage) : null;
     const ruleResults: RuleHookResult<unknown>[] = [damageRuleResult];
     if (concentrationCheck?.ruleResult) {
@@ -2009,7 +2197,14 @@ export class ActionRuleService {
       markDead: nextHp <= 0,
     };
     if (concentrationCheck && !concentrationCheck.concentrationMaintained) {
-      stateChange.conditions = concentrationCheck.conditions;
+      stateChange.conditions = relentlessEnduranceTriggered
+        ? this.addConditionEntry(
+            concentrationCheck.conditions,
+            "resource:relentless_endurance_expended",
+          )
+        : concentrationCheck.conditions;
+    } else if (relentlessEnduranceConditions) {
+      stateChange.conditions = relentlessEnduranceConditions;
     }
 
     return {
@@ -2019,6 +2214,7 @@ export class ActionRuleService {
         amount: command.amount,
         damageType,
         finalDamage,
+        relentlessEnduranceTriggered,
         concentrationCheck: concentrationCheck
           ? {
               concentrationMaintained: concentrationCheck.concentrationMaintained,
@@ -2030,7 +2226,9 @@ export class ActionRuleService {
       },
       diceResult: concentrationCheck?.diceResult ?? null,
       outcome: ActionOutcome.SUCCESS,
-      narration: `${target.character.name}에게 ${finalDamage} 피해를 적용했습니다.`,
+      narration: relentlessEnduranceTriggered
+        ? `${target.character.name}에게 ${finalDamage} 피해를 적용했지만 끈질긴 인내로 HP 1을 유지했습니다.`
+        : `${target.character.name}에게 ${finalDamage} 피해를 적용했습니다.`,
       stateChanges: [stateChange],
     };
   }
@@ -2529,7 +2727,12 @@ export class ActionRuleService {
   }
 
   private getFeatureTags(actor: SessionCharacterForRules): string[] {
-    return [...this.getConditions(actor), ...this.parseJson<string[]>(actor.character.featuresJson, [])].map((tag) => this.normalizeRuleToken(tag));
+    const featureIds = this.parseJson<string[]>(actor.character.featuresJson, []);
+    return [
+      ...this.getConditions(actor),
+      ...featureIds,
+      ...this.ruleCatalog.resolveRuntimeTags(featureIds),
+    ].map((tag) => this.normalizeRuleToken(tag));
   }
 
   private resolveActionSurgeUses(actor: SessionCharacterForRules): number {
@@ -2728,7 +2931,7 @@ export class ActionRuleService {
     targetResistances: string[];
     targetVulnerabilities: string[];
   } {
-    const conditions = this.getConditions(target);
+    const conditions = this.getFeatureTags(target);
 
     return {
       // DB 스키마를 늘리지 않는 MVP 단계라서 임시 룰 태그를 conditionsJson에서 읽는다.
@@ -2767,8 +2970,124 @@ export class ActionRuleService {
     return Math.floor((score - 10) / 2);
   }
 
+  private rollD20WithRacialLuck(
+    actor: SessionCharacterForRules,
+    expression: string,
+    advantageState: DiceAdvantageState,
+  ): DiceRollResponseDto {
+    const firstRoll = this.diceService.roll(expression, advantageState);
+    if (
+      this.selectNaturalD20(firstRoll) !== 1 ||
+      !this.hasFeatureTag(actor, "reroll:d20:natural_1")
+    ) {
+      return firstRoll;
+    }
+    return this.diceService.roll(expression, advantageState);
+  }
+
+  private resolveDraconicAncestryDamageType(
+    actor: SessionCharacterForRules,
+  ): string | null {
+    const ancestry = this.parseJson<string[]>(
+      actor.character.featuresJson,
+      [],
+    )
+      .map((feature) => this.normalizeRuleToken(feature))
+      .find((feature) => feature.startsWith("draconic_ancestry:"))
+      ?.slice("draconic_ancestry:".length);
+    if (!ancestry) {
+      return null;
+    }
+    const damageTypes: Record<string, string> = {
+      black: "acid",
+      blue: "lightning",
+      brass: "fire",
+      bronze: "lightning",
+      copper: "acid",
+      gold: "fire",
+      green: "poison",
+      red: "fire",
+      silver: "cold",
+      white: "cold",
+    };
+    return damageTypes[ancestry] ?? null;
+  }
+
+  private resolveDragonbornBreathTargets(
+    actor: SessionCharacterForRules,
+    anchor: SessionCharacterForRules,
+    sessionCharacters: SessionCharacterForRules[],
+    map: RuleMapRuntimeContext | null | undefined,
+  ): SessionCharacterForRules[] {
+    if (!map || map.gridType !== "square") {
+      return [anchor];
+    }
+    const actorToken = map.tokens.find(
+      (token) => token.sessionCharacterId === actor.id,
+    );
+    const anchorToken = map.tokens.find(
+      (token) => token.sessionCharacterId === anchor.id,
+    );
+    if (!actorToken || !anchorToken) {
+      return [anchor];
+    }
+    const toCell = (token: typeof actorToken) => ({
+      column: Math.floor(token.x / map.gridSize),
+      row: Math.floor(token.y / map.gridSize),
+    });
+    const actorCell = toCell(actorToken);
+    const anchorCell = toCell(anchorToken);
+    const direction = this.resolveAoeDirection(
+      anchorCell.column - actorCell.column,
+      anchorCell.row - actorCell.row,
+    );
+    const tokenCells = map.tokens
+      .filter((token) => token.sessionCharacterId)
+      .map((token) => ({
+        id: token.sessionCharacterId as string,
+        ...toCell(token),
+        hidden: token.hidden,
+      }));
+    const columns =
+      Math.max(actorCell.column, ...tokenCells.map((token) => token.column)) + 2;
+    const rows =
+      Math.max(actorCell.row, ...tokenCells.map((token) => token.row)) + 2;
+    const affectedIds = new Set(
+      this.aoeTargeting.resolveTargets({
+        shape: "cone",
+        origin: actorCell,
+        sizeFt: 15,
+        grid: { columns, rows },
+        direction,
+        tokens: tokenCells,
+      }).tokenIds,
+    );
+    return sessionCharacters.filter((candidate) => {
+      if (candidate.id === actor.id || !affectedIds.has(candidate.id)) {
+        return false;
+      }
+      const token = map.tokens.find(
+        (entry) => entry.sessionCharacterId === candidate.id,
+      );
+      return Boolean(token && token.isHostile !== actorToken.isHostile);
+    });
+  }
+
+  private resolveAoeDirection(dx: number, dy: number): AoeDirection {
+    const horizontal = Math.sign(dx);
+    const vertical = Math.sign(dy);
+    if (horizontal > 0 && vertical < 0) return "north_east";
+    if (horizontal > 0 && vertical > 0) return "south_east";
+    if (horizontal < 0 && vertical < 0) return "north_west";
+    if (horizontal < 0 && vertical > 0) return "south_west";
+    if (horizontal > 0) return "east";
+    if (horizontal < 0) return "west";
+    if (vertical < 0) return "north";
+    return "south";
+  }
+
   private resolveSaveProficiencies(character: SessionCharacterForRules): SavingThrowAbility[] {
-    const conditions = this.getConditions(character);
+    const conditions = this.getFeatureTags(character);
     const saveAbilities = new Set<SavingThrowAbility>();
     for (const condition of conditions) {
       const normalized = this.normalizeRuleToken(condition);
@@ -2778,6 +3097,41 @@ export class ActionRuleService {
       }
     }
     return Array.from(saveAbilities);
+  }
+
+  private resolveRacialSaveAdvantage(
+    character: SessionCharacterForRules,
+    ability: SavingThrowAbility,
+    condition?: string | null,
+  ): DiceAdvantageState {
+    const tags = new Set(this.getFeatureTags(character));
+    const normalizedCondition = this.normalizeRuleToken(condition ?? "")
+      .replace(/^condition[.:]/, "");
+    if (
+      (normalizedCondition === "poison" || normalizedCondition === "poisoned") &&
+      tags.has("advantage:save:poison")
+    ) {
+      return DiceAdvantageState.ADVANTAGE;
+    }
+    if (
+      (normalizedCondition === "charm" || normalizedCondition === "charmed") &&
+      tags.has("advantage:save:charmed")
+    ) {
+      return DiceAdvantageState.ADVANTAGE;
+    }
+    if (
+      (normalizedCondition === "fear" || normalizedCondition === "frightened") &&
+      tags.has("advantage:save:frightened")
+    ) {
+      return DiceAdvantageState.ADVANTAGE;
+    }
+    if (
+      normalizedCondition.includes("magic") &&
+      tags.has(`advantage:save:${ability}_magic`)
+    ) {
+      return DiceAdvantageState.ADVANTAGE;
+    }
+    return DiceAdvantageState.NORMAL;
   }
 
   private isSavingThrowAbility(value: string | null): value is SavingThrowAbility {

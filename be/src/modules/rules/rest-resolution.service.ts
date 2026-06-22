@@ -32,6 +32,7 @@ export type RestResolutionInput = {
   constitutionModifier?: number;
   spellSlots?: Record<string, number>;
   spellSlotMaximums?: Record<string, number>;
+  recoverBardicInspirationOnShortRest?: boolean;
   inCombat?: boolean;
 };
 
@@ -120,6 +121,13 @@ export class RestResolutionService {
       ...(this.hasConditionPrefix(input.conditions, "resource:wild_shape_spent:")
         ? ["resource:wild_shape_spent"]
         : []),
+      ...(this.hasConditionTag(input.conditions, "resource:dragonborn_breath_expended")
+        ? ["resource:dragonborn_breath_expended"]
+        : []),
+      ...(input.recoverBardicInspirationOnShortRest &&
+      this.hasConditionPrefix(input.conditions, "resource:bardic_inspiration_spent:")
+        ? ["resource:bardic_inspiration_spent"]
+        : []),
     ];
 
     return {
@@ -190,6 +198,12 @@ export class RestResolutionService {
       ...(this.hasConditionTag(input.conditions, "resource:natural_recovery_expended")
         ? ["resource:natural_recovery_expended"]
         : []),
+      ...(this.hasConditionTag(input.conditions, "resource:relentless_endurance_expended")
+        ? ["resource:relentless_endurance_expended"]
+        : []),
+      ...(this.hasConditionTag(input.conditions, "resource:dragonborn_breath_expended")
+        ? ["resource:dragonborn_breath_expended"]
+        : []),
       ...(this.hasConditionPrefix(
         input.conditions,
         "resource:bardic_inspiration_spent:",
@@ -198,6 +212,9 @@ export class RestResolutionService {
         : []),
       ...(this.hasConditionTag(input.conditions, "bardic_inspiration:1d6")
         ? ["bardic_inspiration:1d6"]
+        : []),
+      ...(this.hasConditionTag(input.conditions, "bardic_inspiration:1d8")
+        ? ["bardic_inspiration:1d8"]
         : []),
       ...(this.hasConditionPrefix(
         input.conditions,

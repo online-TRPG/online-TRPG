@@ -2089,6 +2089,15 @@ export class SessionsService {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).breakVttDoorAtPoint(params);
   }
 
+  async breakVttObjectAtPoint(params: { sessionId: string; sessionScenarioId: string; nodeId: string; mapPoint: { x: number; y: number } }): Promise<{
+    status: MainCommandStatus;
+    message: string;
+    checkOptions?: MainCommandCheckOptionDto[];
+    checkEffect?: Record<string, unknown>;
+  } | null> {
+    return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).breakVttObjectAtPoint(params);
+  }
+
   async applyVttDoorCheckSuccess(params: {
     sessionId: string;
     sessionScenarioId: string;
@@ -2097,6 +2106,15 @@ export class SessionsService {
     effect: "open" | "broken";
   }): Promise<{ status: MainCommandStatus; message: string }> {
     return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).applyVttDoorCheckSuccess(params);
+  }
+
+  async applyVttObjectBreakSuccess(params: {
+    sessionId: string;
+    sessionScenarioId: string;
+    objectId: string;
+    nodeId: string;
+  }): Promise<{ status: MainCommandStatus; message: string }> {
+    return this.sessionVttObjectRuntime.create(this.createSessionVttObjectRuntime()).applyVttObjectBreakSuccess(params);
   }
 
   async disarmVttHazardAtPoint(params: { sessionId: string; sessionScenarioId: string; nodeId: string; mapPoint: { x: number; y: number } }): Promise<{
@@ -3892,6 +3910,9 @@ export class SessionsService {
         ...normalizedShape.bounds,
         shapeCells: normalizedShape.shapeCells,
         visibleToPlayers: cell.visibleToPlayers !== false,
+        canBreak: cell.canBreak === true,
+        broken: cell.broken === true,
+        breakCheckDc: typeof cell.breakCheckDc === "number" && Number.isFinite(cell.breakCheckDc) ? this.clampNumber(cell.breakCheckDc, 1, 40) : null,
         hiddenClueIds: Array.isArray(cell.hiddenClueIds) ? cell.hiddenClueIds.filter((id) => typeof id === "string").slice(0, 30) : [],
         hiddenItemIds: Array.isArray(cell.hiddenItemIds) ? cell.hiddenItemIds.filter((id) => typeof id === "string").slice(0, 30) : [],
         hiddenEventIds: Array.isArray(cell.hiddenEventIds) ? cell.hiddenEventIds.filter((id) => typeof id === "string").slice(0, 30) : [],

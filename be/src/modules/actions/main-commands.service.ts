@@ -165,6 +165,14 @@ type VttHazardCheckEffect = {
   mapPoint: { x: number; y: number };
 };
 
+type VttObjectCheckEffect = {
+  type: "vttObject";
+  objectId: string;
+  effect: "broken";
+  nodeId: string;
+  mapPoint: { x: number; y: number };
+};
+
 type MainCommandCheckEffect = {
   type: "mainCommandCheck";
   requestId: string;
@@ -585,6 +593,7 @@ export class MainCommandsService {
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(session.id);
     const effect = this.parseVttDoorCheckEffect(dto.effect);
     const hazardEffect = this.parseVttHazardCheckEffect(dto.effect);
+    const objectEffect = this.parseVttObjectCheckEffect(dto.effect);
 
     if (effect) {
       if (state.currentNodeId && effect.nodeId !== state.currentNodeId) {
@@ -678,6 +687,53 @@ export class MainCommandsService {
         status: result.status,
         message: result.message,
         data: { effect: hazardEffect },
+      };
+    }
+
+    if (objectEffect) {
+      if (state.currentNodeId && objectEffect.nodeId !== state.currentNodeId) {
+        return {
+          requestId: dto.requestId ?? randomUUID(),
+          status: MainCommandStatus.IMPOSSIBLE,
+          message: "현재 노드와 다른 오브젝트 판정 결과는 반영할 수 없습니다.",
+        };
+      }
+
+      const result =
+        dto.outcome === ActionOutcome.SUCCESS
+          ? await this.sessionsService.applyVttObjectBreakSuccess({
+              sessionId: session.id,
+              sessionScenarioId: sessionScenario.id,
+              nodeId: objectEffect.nodeId,
+              objectId: objectEffect.objectId,
+            })
+          : {
+              status: MainCommandStatus.MESSAGE,
+              message: "판정에 실패해 오브젝트는 부서지지 않았습니다.",
+            };
+
+      const turnLog = await this.turnLogsService.createTurnLog({
+        sessionId: session.id,
+        sessionScenarioId: sessionScenario.id,
+        actorUserId: userId,
+        sessionCharacterId: dto.actorId ?? null,
+        rawInput: null,
+        structuredAction: {
+          type: "main_command_check_result",
+          requestId: dto.requestId ?? null,
+          outcome: dto.outcome,
+          effect: objectEffect,
+        },
+        outcome: dto.outcome,
+        narration: result.message,
+      });
+      this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
+
+      return {
+        requestId: dto.requestId ?? randomUUID(),
+        status: result.status,
+        message: result.message,
+        data: { effect: objectEffect },
       };
     }
 
@@ -2883,6 +2939,35 @@ export class MainCommandsService {
     return {
       type,
       hazardId,
+      effect,
+      nodeId,
+      mapPoint: { x: point.x, y: point.y },
+    };
+  }
+
+  private parseVttObjectCheckEffect(value: Record<string, unknown>): VttObjectCheckEffect | null {
+    const type = value.type;
+    const objectId = value.objectId;
+    const effect = value.effect;
+    const nodeId = value.nodeId;
+    const mapPoint = value.mapPoint;
+    if (
+      type !== "vttObject" ||
+      typeof objectId !== "string" ||
+      typeof nodeId !== "string" ||
+      effect !== "broken" ||
+      !mapPoint ||
+      typeof mapPoint !== "object"
+    ) {
+      return null;
+    }
+    const point = mapPoint as Record<string, unknown>;
+    if (typeof point.x !== "number" || typeof point.y !== "number") {
+      return null;
+    }
+    return {
+      type,
+      objectId,
       effect,
       nodeId,
       mapPoint: { x: point.x, y: point.y },
