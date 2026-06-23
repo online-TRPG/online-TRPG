@@ -118,6 +118,12 @@ export class RestResolutionService {
       ...(this.hasConditionTag(input.conditions, "resource:channel_divinity_expended")
         ? ["resource:channel_divinity_expended"]
         : []),
+      ...(this.hasConditionPrefix(
+        input.conditions,
+        "resource:channel_divinity_spent:",
+      )
+        ? ["resource:channel_divinity_spent"]
+        : []),
       ...(this.hasConditionPrefix(input.conditions, "resource:wild_shape_spent:")
         ? ["resource:wild_shape_spent"]
         : []),
@@ -127,6 +133,15 @@ export class RestResolutionService {
       ...(input.recoverBardicInspirationOnShortRest &&
       this.hasConditionPrefix(input.conditions, "resource:bardic_inspiration_spent:")
         ? ["resource:bardic_inspiration_spent"]
+        : []),
+      ...(this.hasConditionTag(
+        input.conditions,
+        "resource:dark_ones_own_luck_expended",
+      )
+        ? [
+            "resource:dark_ones_own_luck_expended",
+            "dark_ones_own_luck:1d10",
+          ]
         : []),
     ];
 
@@ -192,6 +207,12 @@ export class RestResolutionService {
       ...(this.hasConditionTag(input.conditions, "resource:channel_divinity_expended")
         ? ["resource:channel_divinity_expended"]
         : []),
+      ...(this.hasConditionPrefix(
+        input.conditions,
+        "resource:channel_divinity_spent:",
+      )
+        ? ["resource:channel_divinity_spent"]
+        : []),
       ...(this.hasConditionTag(input.conditions, "resource:arcane_recovery_expended")
         ? ["resource:arcane_recovery_expended"]
         : []),
@@ -203,6 +224,21 @@ export class RestResolutionService {
         : []),
       ...(this.hasConditionTag(input.conditions, "resource:dragonborn_breath_expended")
         ? ["resource:dragonborn_breath_expended"]
+        : []),
+      ...(this.hasConditionTag(
+        input.conditions,
+        "resource:wholeness_of_body_expended",
+      )
+        ? ["resource:wholeness_of_body_expended"]
+        : []),
+      ...(this.hasConditionTag(
+        input.conditions,
+        "resource:dark_ones_own_luck_expended",
+      )
+        ? [
+            "resource:dark_ones_own_luck_expended",
+            "dark_ones_own_luck:1d10",
+          ]
         : []),
       ...(this.hasConditionPrefix(
         input.conditions,
@@ -225,8 +261,8 @@ export class RestResolutionService {
       ...(this.hasConditionPrefix(input.conditions, "resource:wild_shape_spent:")
         ? ["resource:wild_shape_spent"]
         : []),
-      ...(this.hasConditionTag(input.conditions, "wild_shape:wolf")
-        ? ["wild_shape:wolf", "movement_speed_override:40"]
+      ...(this.hasConditionPrefix(input.conditions, "wild_shape:")
+        ? ["wild_shape", "movement_speed_override", "movement_mode:swim:60"]
         : []),
       ...(hitDice.recovered > 0 ? [`hit_dice:recovered:${hitDice.recovered}`] : []),
     ];
@@ -331,6 +367,12 @@ export class RestResolutionService {
           return false;
         }
         if (
+          recovered.has("resource:channel_divinity_spent") &&
+          condition.startsWith("resource:channel_divinity_spent:")
+        ) {
+          return false;
+        }
+        if (
           recovered.has("resource:bardic_inspiration_spent") &&
           condition.startsWith("resource:bardic_inspiration_spent:")
         ) {
@@ -345,6 +387,18 @@ export class RestResolutionService {
         if (
           recovered.has("resource:wild_shape_spent") &&
           condition.startsWith("resource:wild_shape_spent:")
+        ) {
+          return false;
+        }
+        if (
+          recovered.has("wild_shape") &&
+          condition.startsWith("wild_shape:")
+        ) {
+          return false;
+        }
+        if (
+          recovered.has("movement_speed_override") &&
+          condition.startsWith("movement_speed_override:")
         ) {
           return false;
         }

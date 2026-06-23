@@ -147,6 +147,8 @@ export class CombatTurnService {
         updated.roundNo,
         updated.turnNo,
       );
+    const conditionSaveEnds =
+      await this.resolveConditionSaveEndsAtTurnEnd(runtime, current);
     const expiredConditionCount = await runtime.combatConditions.resolveTurnEndConditions(current, updated.roundNo, updated.turnNo);
     const heroismTempHpGranted = next
       ? await this.applyHeroismTurnStartTempHp(runtime, next)
@@ -193,6 +195,9 @@ export class CombatTurnService {
         monsterConditionDamage.total > 0
           ? `몬스터 지속 효과로 ${monsterConditionDamage.total} 피해를 받았습니다.`
           : null,
+        conditionSaveEnds.removedConditionIds.length > 0
+          ? `내성 성공으로 ${conditionSaveEnds.removedConditionIds.join(", ")} 효과가 종료되었습니다.`
+          : null,
         expiredConcentrationEffectCount > 0
           ? `집중 효과 ${expiredConcentrationEffectCount}개가 종료되었습니다.`
           : null,
@@ -236,13 +241,17 @@ export class CombatTurnService {
             diceRolls: monsterRecharge.diceRolls,
           },
           monsterLifecycleEffects: response.monsterLifecycleEffects ?? [],
+          conditionSaveEnds: {
+            removedConditionIds: conditionSaveEnds.removedConditionIds,
+            rolls: conditionSaveEnds.rolls,
+          },
           readyActionTriggers: readyActionPrompts.map((prompt) => ({
             id: prompt.id,
             reactorParticipantId: prompt.reactorParticipantId,
             eventParticipantId: prompt.moverParticipantId,
           })),
         },
-        diceResult: (turnEndTerrainApplication.damageRoll ?? turnStartTerrainApplication.damageRoll ?? monsterRecharge.diceRolls[0] ?? null) as unknown as Record<string, unknown> | null,
+        diceResult: (turnEndTerrainApplication.damageRoll ?? turnStartTerrainApplication.damageRoll ?? conditionSaveEnds.rolls[0] ?? monsterRecharge.diceRolls[0] ?? null) as unknown as Record<string, unknown> | null,
         stateDiff: null,
         outcome: ActionOutcome.NO_ROLL,
         narration: response.message,
@@ -269,6 +278,9 @@ export class CombatTurnService {
     for (const roll of monsterConditionDamage.rolls) {
       runtime.realtimeEvents.emitDiceRolled(sessionId, roll);
     }
+    for (const roll of conditionSaveEnds.rolls) {
+      runtime.realtimeEvents.emitDiceRolled(sessionId, roll);
+    }
     if (turnStartTerrainApplication.concentrationCheck) {
       turnStartTerrainApplication.concentrationCheck.modifierRolls?.forEach((roll) =>
         runtime.realtimeEvents.emitDiceRolled(sessionId, roll),
@@ -291,6 +303,7 @@ export class CombatTurnService {
       expiredReadyActionCount > 0 ||
       readyActionPrompts.length > 0 ||
       expiredConditionCount > 0 ||
+      conditionSaveEnds.removedConditionIds.length > 0 ||
       heroismTempHpGranted > 0 ||
       monsterConditionDamage.total > 0 ||
       monsterRecharge.rechargedCount > 0 ||
@@ -314,6 +327,64 @@ export class CombatTurnService {
       await runtime.runServerAutoMonsterTurns(sessionId);
     }
     return response;
+  }
+
+  private async resolveConditionSaveEndsAtTurnEnd(
+    runtime: CombatTurnRuntime,
+    participant: CombatParticipantEntity,
+  ): Promise<{
+    removedConditionIds: string[];
+    rolls: DiceRollResponseDto[];
+  }> {
+    const current =
+      await runtime.combatConditions.readCombatConditionEntries(participant);
+    const parsed = runtime.conditionRuntime.parseConditionsJson(
+      JSON.stringify(current),
+    );
+    const removedIndexes = new Set<number>();
+    const removedConditionIds: string[] = [];
+    const rolls: DiceRollResponseDto[] = [];
+
+    for (const [index, condition] of parsed.entries()) {
+      if (!condition.saveEnds) {
+        continue;
+      }
+      const profile = await runtime.resolveParticipantSavingThrowProfile(
+        participant,
+        condition.saveEnds.ability,
+      );
+      const saveRoll = runtime.diceService.roll(
+        `1d20${profile.saveModifier >= 0 ? "+" : ""}${profile.saveModifier}`,
+      );
+      const saveResult = runtime.ruleEngine.resolveSavingThrow({
+        ability: condition.saveEnds.ability,
+        naturalD20: runtime.selectNaturalD20(
+          saveRoll.rolls,
+          DiceAdvantageState.NORMAL,
+        ),
+        difficultyClass: condition.saveEnds.dc,
+        abilityModifier: profile.abilityModifier,
+        proficiencyBonus: profile.proficiencyBonus,
+        proficient: profile.proficient,
+        bonusModifiers: profile.conditionModifiers,
+      });
+      rolls.push(...profile.modifierRolls, saveRoll);
+      if (saveResult.produced.success) {
+        removedIndexes.add(index);
+        removedConditionIds.push(condition.conditionId);
+      }
+    }
+
+    if (removedIndexes.size > 0) {
+      await runtime.combatConditions.writeCombatConditionEntries(
+        participant,
+        current.filter((_, index) => !removedIndexes.has(index)),
+      );
+    }
+    return {
+      removedConditionIds: Array.from(new Set(removedConditionIds)),
+      rolls,
+    };
   }
 
   private async applyHeroismTurnStartTempHp(
@@ -1288,11 +1359,12 @@ export class CombatTurnService {
       });
     }
     const rangeFt =
-      typeof params.action.rangeFt?.normal === "number"
+      this.resolveMonsterAreaSizeFt(params.effectTags) ??
+      (typeof params.action.rangeFt?.normal === "number"
         ? params.action.rangeFt.normal
         : typeof params.action.reachFt === "number"
           ? params.action.reachFt
-          : 300;
+          : 300);
     const targets = params.combat.participants.filter((participant) => {
       if (
         participant.id === params.actor.id ||
@@ -1316,7 +1388,6 @@ export class CombatTurnService {
         reason: "MONSTER_AREA_CONTROL_HAS_NO_TARGETS",
       });
     }
-    await runtime.spendCurrentActionIfNeeded(params.combat, params.actor);
     const applied: string[] = [];
     const saveRolls: DiceRollResponseDto[] = [];
     for (const target of targets) {
@@ -1451,11 +1522,12 @@ export class CombatTurnService {
             ? "cube"
             : null;
     const sizeFt =
-      typeof params.action.rangeFt?.normal === "number" && params.action.rangeFt.normal > 0
+      this.resolveMonsterAreaSizeFt(params.effectTags) ??
+      (typeof params.action.rangeFt?.normal === "number" && params.action.rangeFt.normal > 0
         ? params.action.rangeFt.normal
         : typeof params.action.reachFt === "number" && params.action.reachFt > 0
           ? params.action.reachFt
-          : 15;
+          : 15);
 
     if (!saveAbility || saveDc === null || !params.action.damageDice || !shape) {
       throw unprocessable("COMBAT_422", "몬스터 범위 행동 구성이 올바르지 않습니다.", {
@@ -1694,6 +1766,15 @@ export class CombatTurnService {
       return `${vertical}_${horizontal}` as AoeDirection;
     }
     return (horizontal || vertical || "north") as AoeDirection;
+  }
+
+  private resolveMonsterAreaSizeFt(effectTags: string[]): number | null {
+    const value = Number(
+      effectTags
+        .find((tag) => tag.startsWith("area_size:"))
+        ?.slice("area_size:".length),
+    );
+    return Number.isFinite(value) && value > 0 ? value : null;
   }
 
   async resolveMonsterMultiattackAction(

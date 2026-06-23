@@ -10,6 +10,10 @@ export const P1_ONESHOT_SCENARIO_ID = "scenario_p1_ember_ruins";
 export const P1_ONESHOT_START_NODE_ID = "node_p1_ember_hook";
 export const P2_VALIDATION_SCENARIO_ID = "scenario_p2_storm_vault";
 export const P2_VALIDATION_START_NODE_ID = "node_p2_storm_hook";
+export const P3_VALIDATION_SCENARIO_ID = "scenario_p3_skybreaker_archive";
+export const P3_VALIDATION_START_NODE_ID = "node_p3_archive_hook";
+export const P4_VALIDATION_SCENARIO_ID = "scenario_p4_storm_crown_campaign";
+export const P4_VALIDATION_START_NODE_ID = "node_p4_crown_hook";
 
 const TEAM_SCENARIO_TITLE = "ㅁㄴㅇㅇㄹ";
 const NODE_SCREEN_TEST_STORY_NODE_ID = "node_screen_test_story";
@@ -28,6 +32,17 @@ const P2_APPROACH_NODE_ID = "node_p2_storm_approach";
 const P2_GALLERY_NODE_ID = "node_p2_storm_gallery";
 const P2_VAULT_NODE_ID = "node_p2_storm_vault";
 const P2_END_NODE_ID = "node_p2_storm_end";
+const P3_ARCHIVE_NODE_ID = "node_p3_archive_stacks";
+const P3_AVIARY_NODE_ID = "node_p3_archive_aviary";
+const P3_FOUNDRY_NODE_ID = "node_p3_archive_foundry";
+const P3_BOSS_NODE_ID = "node_p3_archive_blue_eye";
+const P3_END_NODE_ID = "node_p3_archive_end";
+const P4_SHOP_NODE_ID = "node_p4_crown_market";
+const P4_EXPLORATION_NODE_ID = "node_p4_crown_observatory";
+const P4_COMBAT_NODE_ID = "node_p4_crown_siege";
+const P4_DOWNTIME_NODE_ID = "node_p4_crown_downtime";
+const P4_BOSS_NODE_ID = "node_p4_crown_lich_gate";
+const P4_END_NODE_ID = "node_p4_crown_end";
 
 // 서버를 처음 실행했을 때 바로 세션을 만들고 흐름을 검증할 수 있도록
 // 가장 작은 형태의 기본 시나리오를 코드로 함께 넣어둔다.
@@ -103,6 +118,36 @@ const p2ValidationScenario = {
   startNodeId: P2_VALIDATION_START_NODE_ID,
   startLevel: 5,
   recommendedEndLevel: 5,
+};
+
+const p3ValidationScenario = {
+  id: P3_VALIDATION_SCENARIO_ID,
+  title: "하늘파괴자의 기록고",
+  description:
+    "8레벨 캐릭터로 90~120분 동안 P3 직업 기능, 4레벨 주문, P3 몬스터, 실행 가능 아이템, 발행 revision snapshot을 검증하는 오리지널 중편입니다.",
+  thumbnailUrl: null,
+  ruleSetId: "dnd5e",
+  difficulty: "deadly",
+  license: ScenarioLicense.ORIGINAL,
+  attribution: "Original P3 validation scenario seed for Online TRPG.",
+  startNodeId: P3_VALIDATION_START_NODE_ID,
+  startLevel: 8,
+  recommendedEndLevel: 8,
+};
+
+const p4ValidationScenario = {
+  id: P4_VALIDATION_SCENARIO_ID,
+  title: "폭풍왕관의 계승자",
+  description:
+    "12레벨 캐릭터로 180~240분 동안 P4 9~12레벨 성장, 5~6레벨 주문, 몬스터 100종 확장, 상점·보상·제작·감정·수리·조율·충전 회복, 협업 review/publish 정책과 revision snapshot 격리를 검증하는 오리지널 캠페인 챕터입니다.",
+  thumbnailUrl: null,
+  ruleSetId: "dnd5e",
+  difficulty: "deadly",
+  license: ScenarioLicense.ORIGINAL,
+  attribution: "Original P4 validation campaign seed for Online TRPG.",
+  startNodeId: P4_VALIDATION_START_NODE_ID,
+  startLevel: 12,
+  recommendedEndLevel: 12,
 };
 
 // 화면 레이아웃 확인이 목적이라 DB 마이그레이션 없이 시드만으로 기본 맵을 주입한다.
@@ -600,6 +645,509 @@ function createP2ValidationMap(nodeId: string, phase: "approach" | "gallery" | "
         canBreak: true,
         broken: false,
         breakCheckDc: 16,
+      },
+    ],
+  };
+}
+
+function createP3ValidationMap(
+  nodeId: string,
+  phase: "archive" | "aviary" | "foundry" | "boss",
+) {
+  const base = {
+    id: `map_${nodeId}`,
+    scenarioNodeId: nodeId,
+    imageUrl: null,
+    gridType: "square",
+    gridSize: 64,
+    width: 1152,
+    height: 768,
+    fogRects: [],
+    startingPositions: [
+      { id: `start_${nodeId}_1`, label: "1", x: 128, y: 576 },
+      { id: `start_${nodeId}_2`, label: "2", x: 192, y: 576 },
+      { id: `start_${nodeId}_3`, label: "3", x: 128, y: 640 },
+      { id: `start_${nodeId}_4`, label: "4", x: 192, y: 640 },
+    ],
+    updatedAt: "2026-06-22T00:00:00.000Z",
+  };
+
+  if (phase === "archive") {
+    return {
+      ...base,
+      tokens: [
+        {
+          id: `token_${nodeId}_mage`,
+          name: "Archive Mage",
+          x: 704,
+          y: 256,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.mage", nameEn: "Mage", nameKo: "마법사" },
+        },
+        {
+          id: `token_${nodeId}_priest`,
+          name: "Bound Priest",
+          x: 768,
+          y: 384,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.priest", nameEn: "Priest", nameKo: "사제" },
+        },
+      ],
+      terrainCells: [
+        { id: `terrain_${nodeId}_obscured`, x: 512, y: 192, width: 192, height: 192, terrainEffectId: "terrain.obscurement" },
+        { id: `terrain_${nodeId}_difficult`, x: 384, y: 320, width: 256, height: 128, terrainEffectId: "terrain.difficult" },
+      ],
+      objectCells: [
+        {
+          id: `object_${nodeId}_index`,
+          name: "하늘파괴자 색인대",
+          description: "조사하면 boss revision 격리 검증 지시와 4레벨 주문 단서를 찾을 수 있습니다.",
+          x: 320,
+          y: 256,
+          width: 128,
+          height: 64,
+          visibleToPlayers: true,
+          hiddenClueIds: ["clue_p3_revision_index"],
+          hiddenItemIds: ["magic_item.wand_of_web", "equipment.potion_of_healing"],
+          revealChecks: [{ contentId: "clue_p3_revision_index", skill: "investigation", dc: 15 }],
+        },
+      ],
+    };
+  }
+
+  if (phase === "aviary") {
+    return {
+      ...base,
+      tokens: [
+        {
+          id: `token_${nodeId}_wyvern`,
+          name: "Skybreaker Wyvern",
+          x: 704,
+          y: 192,
+          size: 128,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.wyvern", nameEn: "Wyvern", nameKo: "와이번" },
+        },
+        {
+          id: `token_${nodeId}_manticore`,
+          name: "Needle Manticore",
+          x: 832,
+          y: 448,
+          size: 128,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.manticore", nameEn: "Manticore", nameKo: "맨티코어" },
+        },
+        {
+          id: `token_${nodeId}_eagle`,
+          name: "Giant Eagle Sentinel",
+          x: 576,
+          y: 384,
+          size: 128,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.giant_eagle", nameEn: "Giant Eagle", nameKo: "거대 독수리" },
+        },
+      ],
+      terrainCells: [
+        { id: `terrain_${nodeId}_elevation`, x: 640, y: 128, width: 256, height: 256, terrainEffectId: "terrain.elevation" },
+      ],
+      objectCells: [
+        {
+          id: `object_${nodeId}_ballista`,
+          name: "부서진 발리스타",
+          description: "수리하거나 부수면 비행 몬스터의 고도 우위를 줄일 수 있습니다.",
+          x: 384,
+          y: 192,
+          width: 128,
+          height: 64,
+          visibleToPlayers: true,
+          canBreak: true,
+          broken: false,
+          breakCheckDc: 16,
+          hiddenItemIds: ["equipment.화살", "magic_item.potion_of_flying"],
+        },
+      ],
+    };
+  }
+
+  if (phase === "foundry") {
+    return {
+      ...base,
+      tokens: [
+        {
+          id: `token_${nodeId}_troll`,
+          name: "Runic Troll",
+          x: 704,
+          y: 384,
+          size: 128,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.troll", nameEn: "Troll", nameKo: "트롤" },
+        },
+        {
+          id: `token_${nodeId}_basilisk`,
+          name: "Glass Basilisk",
+          x: 832,
+          y: 256,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.basilisk", nameEn: "Basilisk", nameKo: "바실리스크" },
+        },
+        {
+          id: `token_${nodeId}_elemental`,
+          name: "Water Elemental Coolant",
+          x: 576,
+          y: 256,
+          size: 128,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.water_elemental", nameEn: "Water Elemental", nameKo: "물 정령" },
+        },
+      ],
+      terrainCells: [
+        { id: `terrain_${nodeId}_burning`, x: 448, y: 192, width: 192, height: 256, terrainEffectId: "terrain.burning" },
+        { id: `terrain_${nodeId}_wall`, x: 704, y: 192, width: 64, height: 320, terrainEffectId: "terrain.wall_of_fire" },
+      ],
+      objectCells: [
+        {
+          id: `object_${nodeId}_forge_core`,
+          name: "용광로 심장",
+          description: "장치를 정지시키면 Wall of Fire와 burning terrain을 줄일 수 있습니다.",
+          x: 384,
+          y: 384,
+          width: 128,
+          height: 128,
+          visibleToPlayers: true,
+          canBreak: true,
+          broken: false,
+          breakCheckDc: 17,
+          hiddenItemIds: ["magic_item.wand_of_fireballs", "magic_item.rope_of_climbing"],
+        },
+      ],
+    };
+  }
+
+  return {
+    ...base,
+    tokens: [
+      {
+        id: `token_${nodeId}_dragon`,
+        name: "Young Blue Dragon, the Skybreaker Eye",
+        x: 704,
+        y: 192,
+        size: 128,
+        hidden: false,
+        isHostile: true,
+        monster: { id: "monster.young_blue_dragon", nameEn: "Young Blue Dragon", nameKo: "어린 블루 드래곤" },
+      },
+      {
+        id: `token_${nodeId}_golem`,
+        name: "Archive Stone Golem",
+        x: 576,
+        y: 384,
+        size: 128,
+        hidden: false,
+        isHostile: true,
+        monster: { id: "monster.stone_golem", nameEn: "Stone Golem", nameKo: "스톤 골렘" },
+      },
+    ],
+    terrainCells: [
+      { id: `terrain_${nodeId}_elevation`, x: 640, y: 128, width: 256, height: 128, terrainEffectId: "terrain.elevation" },
+      { id: `terrain_${nodeId}_flame`, x: 448, y: 384, width: 192, height: 128, terrainEffectId: "terrain.flaming_sphere" },
+      { id: `terrain_${nodeId}_difficult`, x: 704, y: 384, width: 192, height: 192, terrainEffectId: "terrain.difficult" },
+    ],
+    objectCells: [
+      {
+        id: `object_${nodeId}_revision_crystal`,
+        name: "Revision Crystal",
+        description: "revision 1 세션에서 보이는 문구입니다. draft/revision 2에서 바꿔도 기존 세션이 바뀌지 않아야 합니다.",
+        x: 320,
+        y: 320,
+        width: 128,
+        height: 128,
+        visibleToPlayers: true,
+        hiddenItemIds: ["magic_item.necklace_of_fireballs", "magic_item.cloak_of_protection"],
+      },
+    ],
+  };
+}
+
+function createP4ValidationMap(
+  nodeId: string,
+  phase: "market" | "observatory" | "siege" | "downtime" | "boss",
+) {
+  const base = {
+    id: `map_${nodeId}`,
+    scenarioNodeId: nodeId,
+    imageUrl: null,
+    gridType: "square",
+    gridSize: 64,
+    width: 1280,
+    height: 832,
+    fogRects: [],
+    startingPositions: [
+      { id: `start_${nodeId}_1`, label: "1", x: 128, y: 640 },
+      { id: `start_${nodeId}_2`, label: "2", x: 192, y: 640 },
+      { id: `start_${nodeId}_3`, label: "3", x: 256, y: 640 },
+      { id: `start_${nodeId}_4`, label: "4", x: 320, y: 640 },
+    ],
+    updatedAt: "2026-06-23T00:00:00.000Z",
+  };
+
+  if (phase === "market") {
+    return {
+      ...base,
+      tokens: [
+        {
+          id: `token_${nodeId}_archmage_vendor`,
+          name: "Storm Crown Archmage Broker",
+          x: 768,
+          y: 256,
+          size: 64,
+          hidden: false,
+          isHostile: false,
+          monster: { id: "monster.archmage", nameEn: "Archmage", nameKo: "대마법사" },
+        },
+      ],
+      objectCells: [
+        {
+          id: `object_${nodeId}_shop_counter`,
+          name: "폭풍왕관 상점 진열대",
+          description: "P4 경제 MVP 검증용 상점입니다. healing potion 구매, necklace 판매, protection ring 감정·조율, wand charge 회복을 확인합니다.",
+          x: 512,
+          y: 320,
+          width: 192,
+          height: 64,
+          visibleToPlayers: true,
+          hiddenItemIds: ["equipment.potion_of_healing", "magic_item.cloak_of_protection", "magic_item.ring_of_protection"],
+        },
+        {
+          id: `object_${nodeId}_party_stash`,
+          name: "파티 공동 보관함",
+          description: "party stash 분배와 재접속 후 복원을 확인합니다.",
+          x: 384,
+          y: 448,
+          width: 128,
+          height: 64,
+          visibleToPlayers: true,
+          hiddenItemIds: ["magic_item.necklace_of_fireballs", "equipment.방패"],
+        },
+      ],
+    };
+  }
+
+  if (phase === "observatory") {
+    return {
+      ...base,
+      tokens: [
+        {
+          id: `token_${nodeId}_medusa`,
+          name: "Mirror Medusa",
+          x: 832,
+          y: 256,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.medusa", nameEn: "Medusa", nameKo: "메두사" },
+        },
+        {
+          id: `token_${nodeId}_phase_spider`,
+          name: "Phase Spider Surveyor",
+          x: 704,
+          y: 384,
+          size: 64,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.phase_spider", nameEn: "Phase Spider", nameKo: "위상 거미" },
+        },
+        {
+          id: `token_${nodeId}_roper`,
+          name: "Telescope Roper",
+          x: 896,
+          y: 448,
+          size: 128,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.roper", nameEn: "Roper", nameKo: "로퍼" },
+        },
+      ],
+      terrainCells: [
+        { id: `terrain_${nodeId}_elevation`, x: 640, y: 128, width: 256, height: 256, terrainEffectId: "terrain.elevation" },
+        { id: `terrain_${nodeId}_obscurement`, x: 448, y: 256, width: 192, height: 192, terrainEffectId: "terrain.obscurement" },
+      ],
+      objectCells: [
+        {
+          id: `object_${nodeId}_telescope`,
+          name: "차원 망원경",
+          description: "True Seeing, Scrying, Teleportation Circle, Find the Path 같은 P4 탐색 주문을 검증합니다.",
+          x: 384,
+          y: 192,
+          width: 128,
+          height: 128,
+          visibleToPlayers: true,
+          hiddenClueIds: ["clue_p4_observatory_sigil"],
+          revealChecks: [{ contentId: "clue_p4_observatory_sigil", skill: "arcana", dc: 16 }],
+        },
+      ],
+    };
+  }
+
+  if (phase === "siege") {
+    return {
+      ...base,
+      tokens: [
+        {
+          id: `token_${nodeId}_fire_giant`,
+          name: "Fire Giant Siege Captain",
+          x: 832,
+          y: 192,
+          size: 128,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.fire_giant", nameEn: "Fire Giant", nameKo: "파이어 자이언트" },
+        },
+        {
+          id: `token_${nodeId}_chimera`,
+          name: "Crown Chimera",
+          x: 640,
+          y: 256,
+          size: 128,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.chimera", nameEn: "Chimera", nameKo: "키메라" },
+        },
+        {
+          id: `token_${nodeId}_air_elemental`,
+          name: "Storm Air Elemental",
+          x: 896,
+          y: 448,
+          size: 128,
+          hidden: false,
+          isHostile: true,
+          monster: { id: "monster.air_elemental", nameEn: "Air Elemental", nameKo: "공기 정령" },
+        },
+      ],
+      terrainCells: [
+        { id: `terrain_${nodeId}_burning`, x: 512, y: 256, width: 192, height: 192, terrainEffectId: "terrain.burning" },
+        { id: `terrain_${nodeId}_wall`, x: 704, y: 128, width: 64, height: 384, terrainEffectId: "terrain.wall_of_fire" },
+        { id: `terrain_${nodeId}_difficult`, x: 384, y: 384, width: 256, height: 128, terrainEffectId: "terrain.difficult" },
+      ],
+      objectCells: [
+        {
+          id: `object_${nodeId}_broken_gate`,
+          name: "무너진 왕관문",
+          description: "Wall of Force, Wall of Stone, Disintegrate, Telekinesis로 공성 지형을 조작합니다.",
+          x: 448,
+          y: 192,
+          width: 128,
+          height: 192,
+          visibleToPlayers: true,
+          canBreak: true,
+          broken: false,
+          breakCheckDc: 19,
+        },
+      ],
+    };
+  }
+
+  if (phase === "downtime") {
+    return {
+      ...base,
+      tokens: [
+        {
+          id: `token_${nodeId}_knight`,
+          name: "Crown Knight Quartermaster",
+          x: 768,
+          y: 320,
+          size: 64,
+          hidden: false,
+          isHostile: false,
+          monster: { id: "monster.knight", nameEn: "Knight", nameKo: "기사" },
+        },
+      ],
+      objectCells: [
+        {
+          id: `object_${nodeId}_workbench`,
+          name: "폭풍 열쇠 제작대",
+          description: "재료 소모, tool proficiency, 8시간 제작 진행, 수리와 감정 결과를 확인합니다.",
+          x: 448,
+          y: 320,
+          width: 192,
+          height: 128,
+          visibleToPlayers: true,
+          hiddenItemIds: ["magic_item.immovable_rod", "equipment.crowbar"],
+        },
+      ],
+    };
+  }
+
+  return {
+    ...base,
+    tokens: [
+      {
+        id: `token_${nodeId}_lich`,
+        name: "Lich Regent of the Storm Crown",
+        x: 768,
+        y: 192,
+        size: 64,
+        hidden: false,
+        isHostile: true,
+        monster: { id: "monster.lich", nameEn: "Lich", nameKo: "리치" },
+      },
+      {
+        id: `token_${nodeId}_young_black_dragon`,
+        name: "Black Dragon Heir",
+        x: 896,
+        y: 320,
+        size: 128,
+        hidden: false,
+        isHostile: true,
+        monster: { id: "monster.young_black_dragon", nameEn: "Young Black Dragon", nameKo: "어린 블랙 드래곤" },
+      },
+      {
+        id: `token_${nodeId}_purple_worm`,
+        name: "Crown Vault Purple Worm",
+        x: 576,
+        y: 384,
+        size: 192,
+        hidden: false,
+        isHostile: true,
+        monster: { id: "monster.purple_worm", nameEn: "Purple Worm", nameKo: "퍼플 웜" },
+      },
+      {
+        id: `token_${nodeId}_vampire`,
+        name: "Vampire Diplomat",
+        x: 960,
+        y: 512,
+        size: 64,
+        hidden: false,
+        isHostile: true,
+        monster: { id: "monster.vampire", nameEn: "Vampire", nameKo: "뱀파이어" },
+      },
+    ],
+    terrainCells: [
+      { id: `terrain_${nodeId}_poison`, x: 448, y: 256, width: 256, height: 192, terrainEffectId: "terrain.poison_cloud" },
+      { id: `terrain_${nodeId}_ice`, x: 768, y: 384, width: 256, height: 128, terrainEffectId: "terrain.slippery" },
+      { id: `terrain_${nodeId}_elevation`, x: 704, y: 128, width: 256, height: 128, terrainEffectId: "terrain.elevation" },
+    ],
+    objectCells: [
+      {
+        id: `object_${nodeId}_revision_crown`,
+        name: "Revision 1 폭풍왕관",
+        description: "revision 2 발행 후에도 revision 1 세션에서는 이 문구와 보상 테이블이 바뀌지 않아야 합니다.",
+        x: 320,
+        y: 320,
+        width: 128,
+        height: 128,
+        visibleToPlayers: true,
+        hiddenItemIds: ["magic_item.wand_of_fireballs", "magic_item.ring_of_protection"],
       },
     ],
   };
@@ -1568,9 +2116,437 @@ const scenarioNodes = [
       gmNotes: "완주, 재접속 상태 복원, 공개/비공개 정보 분리를 마지막으로 확인합니다.",
     }),
   },
+  {
+    id: P3_VALIDATION_START_NODE_ID,
+    scenarioId: P3_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "번개가 기록을 삼키는 밤",
+    sceneText:
+      "하늘파괴자의 기록고가 구름 위로 떠오르며 도시 위에 푸른 번개를 끌어모읍니다. 파티는 8레벨 능력, 4레벨 주문, 조율 아이템을 정비하고 기록고의 draft와 발행 revision이 분리되는지 검증해야 합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p3_hook_arcana", type: "skill_check", label: "번개 결계 해석", skill: "arcana", dc: 16 },
+        { id: "p3_hook_history", type: "skill_check", label: "하늘파괴자 기록 조사", skill: "history", dc: 15 },
+      ],
+      vttMap: null,
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P3_ARCHIVE_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p3_briefing",
+        title: "P3 검증 지시",
+        text: "4레벨 주문, P3 마법 아이템, 비행/벽/지속 지역, 8레벨 직업 기능을 모두 사용해 보십시오.",
+        handoutText: "권장 레벨 8. 주문 10개 이상, P3 몬스터 8종 이상, 아이템 6종 이상을 의도적으로 검증하십시오.",
+        revealPolicy: { mode: "AUTO_REVEAL" },
+      },
+    ]),
+    fallbackNodeId: P3_ARCHIVE_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "AI/HUMAN GM 양쪽에서 시작 자원, 8레벨 ASI, 4레벨 슬롯, 아이템 조율 상태를 확인합니다.",
+      ruleRefs: {
+        spellIds: ["spell.dimension_door", "spell.death_ward", "spell.freedom_of_movement", "spell.locate_creature"],
+        itemIds: ["magic_item.cloak_of_protection", "magic_item.ring_of_protection", "magic_item.potion_of_flying"],
+      },
+    }),
+  },
+  {
+    id: P3_ARCHIVE_NODE_ID,
+    scenarioId: P3_VALIDATION_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "살아 있는 색인 서가",
+    sceneText:
+      "끝없는 서가가 스스로 이동하며 길을 바꿉니다. 마법사와 사제가 색인대 뒤에 숨어 주문을 준비하고, 파티는 숨겨진 wand와 회복 물자를 찾아야 합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p3_archive_investigation", type: "skill_check", label: "색인대 조사", skill: "investigation", dc: 15 },
+        { id: "p3_archive_arcana", type: "skill_check", label: "움직이는 서가 정지", skill: "arcana", dc: 16 },
+      ],
+      vttMap: createP3ValidationMap(P3_ARCHIVE_NODE_ID, "archive"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P3_AVIARY_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p3_revision_index",
+        title: "Revision Index",
+        text: "발행 revision 1의 색인에는 '푸른 눈은 북쪽 단상에 있다'고 적혀 있습니다. revision 2에서 문구를 바꿔 snapshot 격리를 검증하십시오.",
+        handoutText: "revision 1 세션의 색인 문구가 draft 수정 후에도 유지되어야 합니다.",
+        revealPolicy: { mode: "PLAYER_ACTION" },
+      },
+    ]),
+    fallbackNodeId: P3_AVIARY_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "Mage/Priest 주문사용, Web wand, 조사/아이템 획득, obscurement/difficult terrain을 확인합니다.",
+      ruleRefs: {
+        spellIds: ["spell.web", "spell.blight", "spell.slow", "spell.protection_from_energy"],
+        monsterIds: ["monster.mage", "monster.priest"],
+        itemIds: ["magic_item.wand_of_web", "equipment.potion_of_healing"],
+      },
+    }),
+  },
+  {
+    id: P3_AVIARY_NODE_ID,
+    scenarioId: P3_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "구름 새장의 사냥꾼들",
+    sceneText:
+      "와이번, 맨티코어, 거대 독수리가 열린 하늘 우리에서 급강하합니다. 비행, 원거리, 고도, Dimension Door, Ice Storm, Potion of Flying을 실전에서 확인하십시오.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p3_aviary_athletics", type: "skill_check", label: "발리스타 고정", skill: "athletics", dc: 16 },
+        { id: "p3_aviary_perception", type: "skill_check", label: "급강하 경로 예측", skill: "perception", dc: 15 },
+      ],
+      vttMap: createP3ValidationMap(P3_AVIARY_NODE_ID, "aviary"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P3_FOUNDRY_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P3_FOUNDRY_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "P3 비행 몬스터 3종, 비행 이동, 고도 지형, 4레벨/광역 주문, 소모품 사용을 확인합니다.",
+      ruleRefs: {
+        spellIds: ["spell.dimension_door", "spell.ice_storm", "spell.call_lightning", "spell.gaseous_form"],
+        monsterIds: ["monster.wyvern", "monster.manticore", "monster.giant_eagle"],
+        itemIds: ["magic_item.potion_of_flying", "equipment.화살"],
+      },
+    }),
+  },
+  {
+    id: P3_FOUNDRY_NODE_ID,
+    scenarioId: P3_VALIDATION_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "유리와 용광로의 심장",
+    sceneText:
+      "기록고의 동력실은 불타는 벽과 냉각수 정령, 룬 트롤, 유리 바실리스크가 뒤엉킨 위험 구역입니다. 용광로 심장을 부수거나 장치를 끄고 마법 아이템을 회수하십시오.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p3_foundry_arcana", type: "skill_check", label: "용광로 심장 정지", skill: "arcana", dc: 17 },
+        { id: "p3_foundry_athletics", type: "skill_check", label: "냉각 밸브 강제 개방", skill: "athletics", dc: 16 },
+      ],
+      vttMap: createP3ValidationMap(P3_FOUNDRY_NODE_ID, "foundry"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P3_BOSS_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p3_forge_core",
+        title: "번개 심장 약점",
+        text: "푸른 눈의 보스는 Wall of Fire를 끊고 Freedom of Movement를 유지하면 접근이 쉬워집니다.",
+        handoutText: "지속 지역과 이동 제한을 해제해 최종 단상에 접근하십시오.",
+        revealPolicy: { mode: "PLAYER_ACTION" },
+      },
+    ]),
+    fallbackNodeId: P3_BOSS_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "Troll 재생, Basilisk petrify, Water Elemental control, Wall of Fire, Wand of Fireballs, Rope of Climbing을 확인합니다.",
+      ruleRefs: {
+        spellIds: ["spell.wall_of_fire", "spell.freedom_of_movement", "spell.flaming_sphere", "spell.heat_metal"],
+        monsterIds: ["monster.troll", "monster.basilisk", "monster.water_elemental"],
+        itemIds: ["magic_item.wand_of_fireballs", "magic_item.rope_of_climbing"],
+      },
+    }),
+  },
+  {
+    id: P3_BOSS_NODE_ID,
+    scenarioId: P3_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "푸른 눈의 최종 revision",
+    sceneText:
+      "어린 블루 드래곤이 기록고의 최종 revision crystal 위에서 번개 숨결을 모읍니다. 스톤 골렘이 단상을 지키고, 파티는 Necklace of Fireballs와 4레벨 주문으로 전장을 나눠야 합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p3_boss_arcana", type: "skill_check", label: "Revision Crystal 안정화", skill: "arcana", dc: 18 },
+        { id: "p3_boss_religion", type: "skill_check", label: "죽음 방호 의식 유지", skill: "religion", dc: 16 },
+      ],
+      vttMap: createP3ValidationMap(P3_BOSS_NODE_ID, "boss"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P3_END_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P3_END_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "Young Blue Dragon 보스 행동, Stone Golem 둔화, 8레벨 class feature, Death Ward, Fireball item, snapshot 문구 격리를 확인합니다.",
+      ruleRefs: {
+        spellIds: ["spell.death_ward", "spell.phantasmal_killer", "spell.blight", "spell.dimension_door", "spell.ice_storm"],
+        monsterIds: ["monster.young_blue_dragon", "monster.stone_golem"],
+        itemIds: ["magic_item.necklace_of_fireballs", "magic_item.cloak_of_protection"],
+      },
+    }),
+  },
+  {
+    id: P3_END_NODE_ID,
+    scenarioId: P3_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "고정된 발행본의 새벽",
+    sceneText:
+      "Revision Crystal이 안정되며 기록고는 도시 위에서 멈춥니다. draft를 수정하고 revision 2를 발행한 뒤에도 이 세션의 revision 1 문구와 노드 snapshot이 바뀌지 않는지 확인하십시오.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: null,
+    nodeMetaJson: JSON.stringify({
+      isEndingNode: true,
+      endBehavior: "SESSION_COMPLETE",
+      gmNotes: "AI GM/HUMAN GM 완주, 재접속 복원, revision 2 발행 후 revision 1 세션 불변성을 최종 확인합니다.",
+      p3Scenario: {
+        validatesRevisionSnapshot: true,
+        expectedDurationMinutes: [90, 120],
+      },
+    }),
+  },
+  {
+    id: P4_VALIDATION_START_NODE_ID,
+    scenarioId: P4_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "폭풍왕관 계승 의뢰",
+    sceneText:
+      "12레벨 원정대는 하늘파괴자 기록고에서 발견한 왕관 조각을 들고 폭풍왕관의 계승식을 막기 위해 소집됩니다. GM은 시작 전에 8레벨 캐릭터를 12레벨로 성장시키거나 12레벨 캐릭터를 생성해 P4 성장 스냅샷을 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p4_hook_history", type: "skill_check", label: "왕관 계승사 확인", skill: "history", dc: 16 },
+        { id: "p4_hook_arcana", type: "skill_check", label: "폭풍왕관 마법 분석", skill: "arcana", dc: 17 },
+      ],
+      vttMap: null,
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P4_SHOP_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p4_campaign_brief",
+        title: "P4 검증 지시",
+        text: "12레벨 성장, 5~6레벨 주문, P4 몬스터 12종 이상, 경제 기능 5종 이상, 협업 review/publish/revision 격리를 순서대로 확인하십시오.",
+        handoutText: "권장 레벨 12. AI GM과 HUMAN GM 모두 주요 경로 완주가 필요합니다.",
+      },
+    ]),
+    fallbackNodeId: P4_SHOP_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "P4 검증 캠페인 시작. 8→12 레벨업 preview, ASI, 5~6레벨 슬롯, 자원 회복을 먼저 확인합니다.",
+      p4Scenario: {
+        expectedDurationMinutes: [180, 240],
+        gmModes: ["AI", "HUMAN"],
+        verifies: ["level-12-progression", "asi-12", "slot-level-5-6", "resource-snapshot"],
+        requiredUserChecks: ["test:p4-regression", "test:e2e", "build"],
+      },
+    }),
+  },
+  {
+    id: P4_SHOP_NODE_ID,
+    scenarioId: P4_VALIDATION_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "왕관시장과 공동 보관함",
+    sceneText:
+      "왕관시장에는 대마법사 중개인과 파티 공동 보관함이 있습니다. 치유 물약 구매, 보석 판매, 미확인 반지 감정·조율, 마법봉 충전 회복, 찌그러진 방패 수리를 수행해 경제 감사 로그를 남깁니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p4_shop_persuasion", type: "skill_check", label: "상점 가격 협상", skill: "persuasion", dc: 16 },
+        { id: "p4_shop_insight", type: "skill_check", label: "저주받은 물건 식별", skill: "insight", dc: 15 },
+      ],
+      vttMap: createP4ValidationMap(P4_SHOP_NODE_ID, "market"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P4_EXPLORATION_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p4_market_economy",
+        title: "경제 검증 장부",
+        text: "상점 구매·판매, party stash 분배, 감정, 조율, charge 회복, 수리, 보상 지급이 stateDiff와 TurnLog에 남아야 합니다.",
+      },
+    ]),
+    fallbackNodeId: P4_EXPLORATION_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "경제 MVP 검증 노드. EconomyRuntimeService의 purchase/sell/identify/attune/recover charges/repair/reward/distribute 흐름을 UI 또는 API로 확인합니다.",
+      p4Scenario: {
+        gmModes: ["AI", "HUMAN"],
+        verifies: ["shop_purchase", "shop_sale", "party_stash", "identify_item", "attune_item", "recover_item_charges", "repair_item"],
+        economyActions: [
+          { kind: "purchase", shopId: "shop-storm-crown", itemDefinitionId: "equipment.potion_of_healing", quantity: 2 },
+          { kind: "sell", shopId: "shop-storm-crown", itemDefinitionId: "magic_item.necklace_of_fireballs", quantity: 1 },
+          { kind: "identify", itemDefinitionId: "magic_item.ring_of_protection", costGp: 25 },
+          { kind: "attune", itemDefinitionId: "magic_item.ring_of_protection" },
+          { kind: "recover_charges", itemDefinitionId: "magic_item.wand_of_web", chargesRecovered: 4, maximumCharges: 7 },
+          { kind: "repair", itemDefinitionId: "equipment.방패", costGp: 5 },
+        ],
+      },
+    }),
+  },
+  {
+    id: P4_EXPLORATION_NODE_ID,
+    scenarioId: P4_VALIDATION_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "차원 관측소",
+    sceneText:
+      "차원 관측소의 거울돔은 True Seeing, Scrying, Teleportation Circle, Find the Path 같은 P4 탐색 주문을 요구합니다. 메두사의 석화 시선과 위상 거미의 차원 이동도 함께 검증합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p4_observatory_arcana", type: "skill_check", label: "차원 좌표 해독", skill: "arcana", dc: 18 },
+        { id: "p4_observatory_perception", type: "skill_check", label: "거울 시선 피하기", skill: "perception", dc: 16 },
+      ],
+      vttMap: createP4ValidationMap(P4_EXPLORATION_NODE_ID, "observatory"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P4_COMBAT_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p4_observatory_sigil",
+        title: "계승식 전송진",
+        text: "Teleportation Circle과 Word of Recall 검증에 사용할 sigil sequence입니다.",
+      },
+    ]),
+    fallbackNodeId: P4_COMBAT_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "P4 탐색/정보 주문, 차원 이동, petrified lifecycle을 확인합니다.",
+      p4Scenario: {
+        gmModes: ["AI", "HUMAN"],
+        verifies: ["p4_spells_exploration", "petrified_lifecycle", "teleport_map_transition"],
+        usefulSpells: ["spell.true_seeing", "spell.scrying", "spell.teleportation_circle", "spell.find_the_path", "spell.greater_restoration"],
+        monsterIds: ["monster.medusa", "monster.phase_spider", "monster.roper"],
+      },
+    }),
+  },
+  {
+    id: P4_COMBAT_NODE_ID,
+    scenarioId: P4_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "폭풍문 공성전",
+    sceneText:
+      "파이어 자이언트, 키메라, 공기 정령이 폭풍문을 지키고 있습니다. Cone of Cold, Chain Lightning, Wall of Force, Wall of Stone, Disintegrate, Heal 등을 전투 중 사용합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p4_siege_athletics", type: "skill_check", label: "무너진 왕관문 밀어내기", skill: "athletics", dc: 18 },
+        { id: "p4_siege_arcana", type: "skill_check", label: "벽 주문 구조 분석", skill: "arcana", dc: 17 },
+      ],
+      vttMap: createP4ValidationMap(P4_COMBAT_NODE_ID, "siege"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P4_DOWNTIME_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P4_DOWNTIME_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "P4 전투 주문 10개 이상과 P4 몬스터 특수행동/recharge/terrain interaction을 확인합니다.",
+      p4Scenario: {
+        gmModes: ["AI", "HUMAN"],
+        verifies: ["p4_spells_combat", "p4_monster_recharge", "terrain_lifecycle", "human_gm_monster_actions"],
+        usefulSpells: [
+          "spell.cone_of_cold",
+          "spell.chain_lightning",
+          "spell.wall_of_force",
+          "spell.wall_of_stone",
+          "spell.disintegrate",
+          "spell.heal",
+          "spell.sunbeam",
+          "spell.cloudkill",
+          "spell.mass_cure_wounds",
+          "spell.hold_monster",
+        ],
+        monsterIds: ["monster.fire_giant", "monster.chimera", "monster.air_elemental"],
+      },
+    }),
+  },
+  {
+    id: P4_DOWNTIME_NODE_ID,
+    scenarioId: P4_VALIDATION_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "폭풍 열쇠 제작과 재정비",
+    sceneText:
+      "전투 후 원정대는 제작대에서 폭풍 열쇠를 만듭니다. 보석과 수리 재료를 소모하고, 도구 숙련과 8시간 작업 진행을 기록하며, 완성된 열쇠를 party stash에서 분배합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p4_craft_tinker", type: "skill_check", label: "폭풍 열쇠 제작", skill: "arcana", dc: 17 },
+        { id: "p4_craft_repair", type: "skill_check", label: "방패 수리", skill: "athletics", dc: 14 },
+      ],
+      vttMap: createP4ValidationMap(P4_DOWNTIME_NODE_ID, "downtime"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P4_BOSS_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p4_crafting_log",
+        title: "제작 감사 로그",
+        text: "재료, 비용, 도구 숙련, 작업 시간이 모두 기록되어야 하며 완료 결과가 party stash에 추가되어야 합니다.",
+      },
+    ]),
+    fallbackNodeId: P4_BOSS_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "경제 MVP의 crafting 시작/진행/완료와 reward 지급 후 분배를 검증합니다.",
+      p4Scenario: {
+        gmModes: ["AI", "HUMAN"],
+        verifies: ["crafting_started", "crafting_progressed", "reward_granted", "stash_distributed"],
+        craftingRecipe: {
+          recipeId: "recipe-storm-crown-key",
+          outputItemDefinitionId: "magic_item.immovable_rod",
+          requiredMaterials: ["magic_item.necklace_of_fireballs", "equipment.crowbar"],
+          requiredToolProficiencies: ["tool:tinker"],
+          laborHours: 8,
+          costGp: 10,
+        },
+      },
+    }),
+  },
+  {
+    id: P4_BOSS_NODE_ID,
+    scenarioId: P4_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "리치의 계승문",
+    sceneText:
+      "폭풍왕관의 계승문에서 리치, 블랙 드래곤, 퍼플 웜, 뱀파이어가 마지막 의식을 진행합니다. 6레벨 주문과 복합 몬스터 행동, charm/paralyze/swallow/poison cloud lifecycle을 검증합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({
+      checks: [
+        { id: "p4_boss_religion", type: "skill_check", label: "리치 의식 역전", skill: "religion", dc: 18 },
+        { id: "p4_boss_arcana", type: "skill_check", label: "왕관문 차단", skill: "arcana", dc: 19 },
+      ],
+      vttMap: createP4ValidationMap(P4_BOSS_NODE_ID, "boss"),
+    }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P4_END_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P4_END_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      gmNotes: "P4 보스급 복합 행동, 상태 lifecycle, 6레벨 주문, HUMAN GM override를 확인합니다.",
+      p4Scenario: {
+        gmModes: ["AI", "HUMAN"],
+        verifies: ["boss_complex_actions", "condition_lifecycle", "spell_level_6", "manual_override"],
+        usefulSpells: ["spell.globe_of_invulnerability", "spell.flesh_to_stone", "spell.harm", "spell.heal", "spell.word_of_recall", "spell.mass_suggestion"],
+        monsterIds: ["monster.lich", "monster.young_black_dragon", "monster.purple_worm", "monster.vampire"],
+      },
+    }),
+  },
+  {
+    id: P4_END_NODE_ID,
+    scenarioId: P4_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "계승식 이후의 두 번째 발행",
+    sceneText:
+      "폭풍왕관은 봉인되었습니다. GM은 revision 1 세션 snapshot을 보존한 뒤 draft를 수정해 revision 2를 발행하고, 기존 세션의 왕관 문구·보상·맵 상태가 바뀌지 않는지 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: null,
+    nodeMetaJson: JSON.stringify({
+      isEndingNode: true,
+      endBehavior: "SESSION_COMPLETE",
+      gmNotes: "AI GM/HUMAN GM 완주, 경제/아이템 복원, 협업 review 승인, revision 2 발행 후 revision 1 세션 불변성을 최종 확인합니다.",
+      p4Scenario: {
+        gmModes: ["AI", "HUMAN"],
+        validatesRevisionSnapshot: true,
+        validatesCollaborationPolicy: true,
+        expectedDurationMinutes: [180, 240],
+      },
+    }),
+  },
 ];
 
-const scenarios = [defaultScenario, nodeScreenTestScenario, ruleRuntimeSmokeScenario, p1OneshotScenario, p2ValidationScenario];
+const scenarios = [
+  defaultScenario,
+  nodeScreenTestScenario,
+  ruleRuntimeSmokeScenario,
+  p1OneshotScenario,
+  p2ValidationScenario,
+  p3ValidationScenario,
+  p4ValidationScenario,
+];
 
 type SourceScenarioNode = {
   id: string;

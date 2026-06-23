@@ -13,6 +13,7 @@ type SpellSessionCharacter = {
   character: {
     abilitiesJson: string | null;
     className: string;
+    featuresJson?: string | null;
     level: number;
     proficiencyBonus: number;
   };
@@ -53,58 +54,12 @@ export class CombatSpellService {
     },
     spellId: string,
   ): void {
-    const allowed = new Set([
-      "spell.bane",
-      "spell.bless",
-      "spell.chill_touch",
-      "spell.burning_hands",
-      "spell.command",
-      "spell.cure_wounds",
-      "spell.detect_magic",
-      "spell.dispel_magic",
-      "spell.fire_bolt",
-      "spell.entangle",
-      "spell.guiding_bolt",
-      "spell.healing_word",
-      "spell.hold_person",
-      "spell.inflict_wounds",
-      "spell.ray_of_frost",
-      "spell.sacred_flame",
-      "spell.fireball",
-      "spell.light",
-      "spell.magic_missile",
-      "spell.misty_step",
-      "spell.scorching_ray",
-      "spell.shield",
-      "spell.sleep",
-      "spell.thunderwave",
-      "spell.web",
-      "spell.acid_splash",
-      "spell.guidance",
-      "spell.mage_hand",
-      "spell.minor_illusion",
-      "spell.shocking_grasp",
-      "spell.charm_person",
-      "spell.faerie_fire",
-      "spell.feather_fall",
-      "spell.fog_cloud",
-      "spell.grease",
-      "spell.heroism",
-      "spell.hunters_mark",
-      "spell.longstrider",
-      "spell.aid",
-      "spell.blindness_deafness",
-      "spell.darkness",
-      "spell.invisibility",
-      "spell.lesser_restoration",
-      "spell.moonbeam",
-      "spell.spiritual_weapon",
-      "spell.counterspell",
-      "spell.fly",
-      "spell.haste",
-      "spell.lightning_bolt",
-      "spell.revivify",
-    ]);
+    const allowed = new Set(
+      this.ruleCatalog
+        .listEntries("spell_definitions")
+        .filter((entry) => entry.runtimeEffect.type !== "resolver_pending")
+        .map((entry) => entry.id),
+    );
     if (!allowed.has(spellId)) {
       throw conflict("COMBAT_409", "MVP 범위 밖의 주문입니다.", { reason: "SPELL_NOT_MVP", spellId });
     }
@@ -253,7 +208,7 @@ export class CombatSpellService {
   }
 
   resolveCombatSpellHalfDamageOnSuccess(spellDefinition: RuleCatalogEntry | null): boolean {
-    return spellDefinition?.runtimeEffect.tags.includes("half_damage_on_success") ?? true;
+    return spellDefinition?.runtimeEffect.tags.includes("half_damage_on_success") ?? false;
   }
 
   resolveCombatLightRadiusFt(spellDefinition: RuleCatalogEntry | null): number {
@@ -353,6 +308,57 @@ export class CombatSpellService {
 
   resolveCharacterLevelForCharacter(sessionCharacter: SpellSessionCharacter): number {
     return sessionCharacter.character.level;
+  }
+
+  resolveElementalAffinityDamageBonusForCharacter(
+    sessionCharacter: SpellSessionCharacter,
+    damageType: string,
+  ): number {
+    if (
+      !sessionCharacter.character.className
+        .trim()
+        .toLowerCase()
+        .includes("sorcerer") ||
+      sessionCharacter.character.level < 6
+    ) {
+      return 0;
+    }
+    const featureIds = this.parseJson<string[]>(
+      sessionCharacter.character.featuresJson,
+      [],
+    );
+    const runtimeTags = this.ruleCatalog.resolveRuntimeTags(featureIds);
+    if (
+      !runtimeTags.includes("trigger:spell_damage_matching_ancestry") ||
+      !runtimeTags.includes(`resistance:${damageType.trim().toLowerCase()}`)
+    ) {
+      return 0;
+    }
+    return Math.max(
+      this.resolveSpellcastingAbilityModifierForCharacter(sessionCharacter),
+      0,
+    );
+  }
+
+  hasPotentCantripForCharacter(
+    sessionCharacter: SpellSessionCharacter,
+  ): boolean {
+    if (
+      !sessionCharacter.character.className
+        .trim()
+        .toLowerCase()
+        .includes("wizard") ||
+      sessionCharacter.character.level < 6
+    ) {
+      return false;
+    }
+    const featureIds = this.parseJson<string[]>(
+      sessionCharacter.character.featuresJson,
+      [],
+    );
+    return this.ruleCatalog
+      .resolveRuntimeTags(featureIds)
+      .includes("damage:half_on_success");
   }
 
   resolveCantripDamageDice(baseDice: string, level: number): string {
@@ -508,6 +514,10 @@ export class CombatSpellService {
       case "summon_count":
         return typeof table.count === "number"
           ? [{ mode, count: table.count, perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove) }]
+          : [];
+      case "flat_bonus":
+        return typeof table.amount === "number"
+          ? [{ mode, amount: table.amount, perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove) }]
           : [];
       case "duration":
         return typeof table.unit === "string" && typeof table.amountPerSlotAbove === "number"

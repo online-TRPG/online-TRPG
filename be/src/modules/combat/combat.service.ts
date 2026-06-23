@@ -254,6 +254,8 @@ export class CombatService {
       spendCurrentAttackActionIfNeeded:
         this.spendCurrentAttackActionIfNeeded.bind(this),
       toCombatAoeDamageTarget: this.toCombatAoeDamageTarget.bind(this),
+      resolveParticipantSavingThrowProfile:
+        this.resolveParticipantSavingThrowProfile.bind(this),
       clampNumber: this.clampNumber.bind(this),
       ensureActorCanAct: this.ensureActorCanAct.bind(this),
       ensureReactionActorCanAct: this.ensureReactionActorCanAct.bind(this),
@@ -460,12 +462,23 @@ export class CombatService {
       })),
     });
 
-    const playerInitiativeRows = candidates.map((candidate) => ({
-      kind: "player" as const,
-      candidate,
-      initiative: this.rollInitiative(this.combatStats.resolveCharacterDexterityModifier(candidate.character.abilitiesJson), dto.autoRollInitiative),
-      tieBreaker: Math.random(),
-    }));
+    const playerInitiativeRows = candidates.map((candidate) => {
+      const featureTags = this.ruleCatalog.resolveRuntimeTags(
+        this.parseJsonArray<string>(candidate.character.featuresJson ?? "[]"),
+      );
+      return {
+        kind: "player" as const,
+        candidate,
+        initiative: this.rollInitiative(
+          this.combatStats.resolveCharacterDexterityModifier(
+            candidate.character.abilitiesJson,
+          ),
+          dto.autoRollInitiative,
+          featureTags.includes("initiative:advantage"),
+        ),
+        tieBreaker: Math.random(),
+      };
+    });
     const monsterInitiativeRows = monsterTokens.map((token) => ({
       kind: "monster" as const,
       token,
@@ -996,7 +1009,18 @@ export class CombatService {
     const movementCostFt =
       movementMode === "jump"
         ? movementDistanceFt + COMBAT_JUMP_EXTRA_MOVEMENT_FT
-        : this.combatMovement.calculateTerrainAdjustedMovementCostFt(params.map, params.moverToken, movementPath);
+        : this.combatMovement.calculateTerrainAdjustedMovementCostFt(
+            params.map,
+            params.moverToken,
+            movementPath,
+            {
+              ignoreNonmagicalDifficultTerrain:
+                await this.participantHasRuntimeTag(
+                  params.mover,
+                  "movement:ignore_nonmagical_difficult_terrain",
+                ),
+            },
+          );
     await this.assertMovementAvailable(params.combat, params.mover, movementCostFt);
     if (params.reactionCost) {
       await this.actionEconomy.spendReaction({
@@ -1711,10 +1735,20 @@ export class CombatService {
       combat.sessionId,
     );
     const terrainCells = (map.terrainCells ?? []).filter((cell) => !linkedIds.has(cell.id));
-    if (terrainCells.length !== (map.terrainCells ?? []).length) {
+    const lightSources = (map.lightSources ?? []).filter(
+      (source) => !linkedIds.has(source.id),
+    );
+    const tokens = map.tokens.filter((token) => !linkedIds.has(token.id));
+    if (
+      terrainCells.length !== (map.terrainCells ?? []).length ||
+      lightSources.length !== (map.lightSources ?? []).length ||
+      tokens.length !== map.tokens.length
+    ) {
       await this.mapRuntimeService.saveSystemVttMap(combat.sessionId, {
         ...map,
         terrainCells,
+        lightSources,
+        tokens,
         updatedAt: new Date().toISOString(),
       });
     }
@@ -1793,7 +1827,16 @@ export class CombatService {
       await this.combatConditions.readCombatConditionEntries(participant),
     );
     const modifierRolls: DiceRollResponseDto[] = [];
+    const fixedSavingThrowBonuses = conditionTags
+      .map((tag) => /^saving_throw_bonus:\+(\d+)$/.exec(tag)?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+      .filter((value) => Number.isFinite(value) && value > 0);
     const conditionModifiers = [
+      ...fixedSavingThrowBonuses.map((value, index) => ({
+        source: `item.saving_throw_bonus.${index + 1}`,
+        value,
+      })),
       ...(conditionTags.includes("roll_bonus:saving_throw:1d4")
         ? [{
             source: "spell.bless",
@@ -2430,6 +2473,7 @@ export class CombatService {
         immunities: this.getDamageTypesByPrefix(damageTags, "immunity"),
         resistances: this.getDamageTypesByPrefix(damageTags, "resistance"),
         vulnerabilities: this.getDamageTypesByPrefix(damageTags, "vulnerability"),
+        runtimeTags: damageTags,
       };
     }
 
@@ -2471,6 +2515,7 @@ export class CombatService {
       immunities: this.getDamageTypesByPrefix(runtimeTags, "immunity"),
       resistances: this.getDamageTypesByPrefix(runtimeTags, "resistance"),
       vulnerabilities: this.getDamageTypesByPrefix(runtimeTags, "vulnerability"),
+      runtimeTags,
     };
   }
 
@@ -3788,9 +3833,45 @@ export class CombatService {
     );
   }
 
-  private rollInitiative(dexterityModifier: number, autoRollInitiative: boolean | undefined): number {
-    const baseRoll = autoRollInitiative === false ? 10 : this.diceService.roll("1d20").total;
+  private rollInitiative(
+    dexterityModifier: number,
+    autoRollInitiative: boolean | undefined,
+    advantage = false,
+  ): number {
+    const baseRoll =
+      autoRollInitiative === false
+        ? 10
+        : this.diceService.roll(
+            "1d20",
+            advantage
+              ? DiceAdvantageState.ADVANTAGE
+              : DiceAdvantageState.NORMAL,
+          ).total;
     return baseRoll + dexterityModifier;
+  }
+
+  private async participantHasRuntimeTag(
+    participant: CombatParticipantEntity,
+    expectedTag: string,
+  ): Promise<boolean> {
+    if (!participant.sessionCharacterId) {
+      return false;
+    }
+    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+      where: { id: participant.sessionCharacterId },
+      select: {
+        character: {
+          select: { featuresJson: true },
+        },
+      },
+    });
+    return this.ruleCatalog
+      .resolveRuntimeTags(
+        this.parseJsonArray<string>(
+          sessionCharacter?.character.featuresJson ?? "[]",
+        ),
+      )
+      .includes(expectedTag);
   }
 
   private applyMovementSpeedPenalties(baseSpeedFt: number, conditionsJson: string): number {

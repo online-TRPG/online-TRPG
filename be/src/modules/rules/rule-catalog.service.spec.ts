@@ -194,28 +194,51 @@ describe("RuleCatalogService", () => {
   it("catalogs representative SRD subclass features", () => {
     expect(service.listEntries("subclass_features").map((entry) => entry.id)).toEqual([
       "subclass.barbarian.berserker.feature.frenzy",
+      "subclass.barbarian.berserker.feature.mindless_rage",
+      "subclass.barbarian.berserker.feature.intimidating_presence",
       "subclass.bard.lore.feature.bonus_proficiencies",
       "subclass.bard.lore.feature.cutting_words",
+      "subclass.bard.lore.feature.additional_magical_secrets",
       "subclass.cleric.life.feature.bonus_proficiency",
       "subclass.cleric.life.feature.disciple_of_life",
       "subclass.cleric.life.feature.preserve_life",
+      "subclass.cleric.life.feature.blessed_healer",
+      "subclass.cleric.life.feature.divine_strike",
+      "subclass.cleric.life.feature.domain_spells_level_9",
       "subclass.druid.land.feature.bonus_cantrip",
       "subclass.druid.land.feature.natural_recovery",
       "subclass.druid.land.feature.circle_spells_level_3",
       "subclass.druid.land.feature.circle_spells_level_5",
+      "subclass.druid.land.feature.lands_stride",
+      "subclass.druid.land.feature.circle_spells_level_9",
+      "subclass.druid.land.feature.natures_ward",
       "subclass.fighter.champion.feature.improved_critical",
+      "subclass.fighter.champion.feature.remarkable_athlete",
+      "subclass.fighter.champion.feature.additional_fighting_style",
       "subclass.monk.open_hand.feature.open_hand_technique",
+      "subclass.monk.open_hand.feature.wholeness_of_body",
+      "subclass.monk.open_hand.feature.tranquility",
       "subclass.paladin.devotion.feature.sacred_weapon",
       "subclass.paladin.devotion.feature.turn_the_unholy",
+      "subclass.paladin.devotion.feature.aura_of_devotion",
+      "subclass.paladin.devotion.feature.oath_spells_level_9",
       "subclass.ranger.hunter.feature.hunters_prey",
+      "subclass.ranger.hunter.feature.defensive_tactics",
+      "subclass.ranger.hunter.feature.multiattack",
       "subclass.rogue.thief.feature.fast_hands",
       "subclass.rogue.thief.feature.second_story_work",
+      "subclass.rogue.thief.feature.supreme_sneak",
       "subclass.sorcerer.draconic_bloodline.feature.dragon_ancestor",
       "subclass.sorcerer.draconic_bloodline.feature.draconic_resilience",
+      "subclass.sorcerer.draconic_bloodline.feature.elemental_affinity",
       "subclass.warlock.fiend.feature.expanded_spell_list",
       "subclass.warlock.fiend.feature.dark_ones_blessing",
+      "subclass.warlock.fiend.feature.dark_ones_own_luck",
+      "subclass.warlock.fiend.feature.fiendish_resilience",
       "subclass.wizard.evocation.feature.evocation_savant",
       "subclass.wizard.evocation.feature.sculpt_spells",
+      "subclass.wizard.evocation.feature.potent_cantrip",
+      "subclass.wizard.evocation.feature.empowered_evocation",
     ]);
 
     expect(service.getEntry("subclass.fighter.champion.feature.improved_critical")).toMatchObject({
@@ -690,6 +713,168 @@ describe("RuleCatalogService", () => {
     );
   });
 
+  it("catalogs every P3 class through level 8, including fighter's extra level 6 ASI", () => {
+    const expectedFeatureIdsByClass: Record<string, string[]> = {
+      barbarian: ["class.barbarian.feature.feral_instinct"],
+      bard: ["class.bard.feature.countercharm"],
+      cleric: [
+        "class.cleric.feature.channel_divinity_uses_2",
+        "class.cleric.feature.destroy_undead_cr_1",
+      ],
+      druid: ["class.druid.feature.wild_shape_improvement_cr_1"],
+      fighter: ["class.fighter.feature.ability_score_improvement_6"],
+      monk: [
+        "class.monk.feature.ki_empowered_strikes",
+        "class.monk.feature.evasion",
+        "class.monk.feature.stillness_of_mind",
+      ],
+      paladin: ["class.paladin.feature.aura_of_protection"],
+      ranger: [
+        "class.ranger.feature.favored_enemy_improvement",
+        "class.ranger.feature.natural_explorer_improvement",
+        "class.ranger.feature.lands_stride",
+      ],
+      rogue: [
+        "class.rogue.feature.expertise_improvement",
+        "class.rogue.feature.evasion",
+      ],
+      sorcerer: [],
+      warlock: [],
+      wizard: [],
+    };
+
+    for (const [classKey, expectedFeatureIds] of Object.entries(expectedFeatureIdsByClass)) {
+      const featureIds = service.getClassFeatureSnapshot(classKey, 8).featureIds;
+      expect(featureIds).toContain(`class.${classKey}.feature.ability_score_improvement_8`);
+      expect(featureIds).toEqual(expect.arrayContaining(expectedFeatureIds));
+    }
+  });
+
+  it("catalogs the representative subclass features gained from levels 6 through 8", () => {
+    const expectedSubclassFeatures = [
+      ["barbarian", "berserker", "subclass.barbarian.berserker.feature.mindless_rage"],
+      ["bard", "lore", "subclass.bard.lore.feature.additional_magical_secrets"],
+      ["cleric", "life", "subclass.cleric.life.feature.blessed_healer"],
+      ["cleric", "life", "subclass.cleric.life.feature.divine_strike"],
+      ["druid", "land", "subclass.druid.land.feature.lands_stride"],
+      ["fighter", "champion", "subclass.fighter.champion.feature.remarkable_athlete"],
+      ["monk", "open_hand", "subclass.monk.open_hand.feature.wholeness_of_body"],
+      ["paladin", "devotion", "subclass.paladin.devotion.feature.aura_of_devotion"],
+      ["ranger", "hunter", "subclass.ranger.hunter.feature.defensive_tactics"],
+      ["sorcerer", "draconic_bloodline", "subclass.sorcerer.draconic_bloodline.feature.elemental_affinity"],
+      ["warlock", "fiend", "subclass.warlock.fiend.feature.dark_ones_own_luck"],
+      ["wizard", "evocation", "subclass.wizard.evocation.feature.potent_cantrip"],
+    ] as const;
+
+    for (const [classKey, subclassKey, featureId] of expectedSubclassFeatures) {
+      expect(
+        service.listSubclassFeatures(classKey, subclassKey, 8).map((entry) => entry.id),
+      ).toContain(featureId);
+    }
+  });
+
+  it("catalogs every P4 class through level 12 with ASI and representative 9-12 features", () => {
+    const expectedFeatureIdsByClass: Record<string, string[]> = {
+      barbarian: [
+        "class.barbarian.feature.brutal_critical",
+        "class.barbarian.feature.rage_damage_3",
+        "class.barbarian.feature.relentless_rage",
+      ],
+      bard: [
+        "class.bard.feature.song_of_rest_d8",
+        "class.bard.feature.bardic_inspiration_d10",
+        "class.bard.feature.expertise_10",
+        "class.bard.feature.magical_secrets",
+      ],
+      cleric: [
+        "class.cleric.feature.divine_intervention",
+        "class.cleric.feature.destroy_undead_cr_2",
+      ],
+      druid: ["class.druid.feature.wild_shape_uses_stable"],
+      fighter: [
+        "class.fighter.feature.indomitable",
+        "class.fighter.feature.extra_attack_2",
+      ],
+      monk: [
+        "class.monk.feature.unarmored_movement_improvement",
+        "class.monk.feature.purity_of_body",
+        "class.monk.feature.martial_arts_d8",
+      ],
+      paladin: [
+        "class.paladin.feature.aura_of_courage",
+        "class.paladin.feature.improved_divine_smite",
+      ],
+      ranger: ["class.ranger.feature.hide_in_plain_sight"],
+      rogue: ["class.rogue.feature.reliable_talent"],
+      sorcerer: [
+        "class.sorcerer.feature.metamagic_improvement",
+        "class.sorcerer.feature.sorcery_points_10",
+      ],
+      warlock: ["class.warlock.feature.mystic_arcanum_6"],
+      wizard: ["class.wizard.feature.arcane_tradition_feature_10"],
+    };
+
+    for (const [classKey, expectedFeatureIds] of Object.entries(expectedFeatureIdsByClass)) {
+      const featureIds = service.getClassFeatureSnapshot(classKey, 12).featureIds;
+      expect(featureIds).toContain(`class.${classKey}.feature.ability_score_improvement_12`);
+      expect(featureIds).toEqual(expect.arrayContaining(expectedFeatureIds));
+    }
+  });
+
+  it.each([
+    ["barbarian", "berserker"],
+    ["bard", "lore"],
+    ["cleric", "life"],
+    ["druid", "land"],
+    ["fighter", "champion"],
+    ["monk", "open_hand"],
+    ["paladin", "devotion"],
+    ["ranger", "hunter"],
+    ["rogue", "thief"],
+    ["sorcerer", "draconic_bloodline"],
+    ["warlock", "fiend"],
+    ["wizard", "evocation"],
+  ] as const)("keeps P4 9-12 %s/%s progression backed by non-pending runtime metadata", (classKey, subclassKey) => {
+    const entries = [
+      ...service.listClassFeaturesForLevel(classKey, 12),
+      ...service.listSubclassFeatures(classKey, subclassKey, 12),
+    ].filter((entry) => {
+      const level = entry.levelRequirement.minClassLevel ?? 1;
+      return level >= 9 && level <= 12;
+    });
+
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          runtimeEffect: expect.not.objectContaining({ type: "resolver_pending" }),
+        }),
+      ]),
+    );
+  });
+
+  it("catalogs the representative subclass features gained from levels 9 through 12 when SRD grants them", () => {
+    const expectedSubclassFeatures = [
+      ["barbarian", "berserker", "subclass.barbarian.berserker.feature.intimidating_presence"],
+      ["cleric", "life", "subclass.cleric.life.feature.domain_spells_level_9"],
+      ["druid", "land", "subclass.druid.land.feature.circle_spells_level_9"],
+      ["druid", "land", "subclass.druid.land.feature.natures_ward"],
+      ["fighter", "champion", "subclass.fighter.champion.feature.additional_fighting_style"],
+      ["monk", "open_hand", "subclass.monk.open_hand.feature.tranquility"],
+      ["paladin", "devotion", "subclass.paladin.devotion.feature.oath_spells_level_9"],
+      ["ranger", "hunter", "subclass.ranger.hunter.feature.multiattack"],
+      ["rogue", "thief", "subclass.rogue.thief.feature.supreme_sneak"],
+      ["warlock", "fiend", "subclass.warlock.fiend.feature.fiendish_resilience"],
+      ["wizard", "evocation", "subclass.wizard.evocation.feature.empowered_evocation"],
+    ] as const;
+
+    for (const [classKey, subclassKey, featureId] of expectedSubclassFeatures) {
+      expect(
+        service.listSubclassFeatures(classKey, subclassKey, 12).map((entry) => entry.id),
+      ).toContain(featureId);
+    }
+  });
+
   it("keeps condition definitions in the same catalog id surface", () => {
     const conditions = service.listEntries("condition_definitions").map((entry) => entry.id);
 
@@ -716,11 +901,14 @@ describe("RuleCatalogService", () => {
       "terrain.slippery",
       "terrain.burning",
       "terrain.poison_cloud",
+      "terrain.flaming_sphere",
+      "terrain.wall_of_fire",
     ]);
   });
 
   it("promotes MVP combat spells into executable catalog entries", () => {
-    expect(service.listEntries("spell_definitions").map((entry) => entry.id)).toEqual([
+    expect(service.listEntries("spell_definitions").map((entry) => entry.id)).toEqual(
+      expect.arrayContaining([
       "spell.bless",
       "spell.bane",
       "spell.chill_touch",
@@ -771,8 +959,17 @@ describe("RuleCatalogService", () => {
       "spell.haste",
       "spell.lightning_bolt",
       "spell.revivify",
-    ]);
-    expect(service.listEntries("spell_definitions")).toHaveLength(50);
+      "spell.blade_ward",
+      "spell.eldritch_blast",
+      "spell.false_life",
+      "spell.flaming_sphere",
+      "spell.call_lightning",
+      "spell.blight",
+      "spell.dimension_door",
+      "spell.wall_of_fire",
+    ]),
+    );
+    expect(service.listEntries("spell_definitions")).toHaveLength(150);
 
     expect(service.getEntry("spell.ray_of_frost")).toMatchObject({
       targeting: { type: "creature", rangeFt: 60 },
@@ -795,6 +992,16 @@ describe("RuleCatalogService", () => {
         type: "spell",
         tags: ["spell_level:1", "hit_point_pool:5d8", "condition:unconscious", "area:sphere", "range:90"],
         hookId: "hook.spell.cast_sleep",
+      },
+    });
+
+    expect(service.getEntry("spell.wall_of_fire")).toMatchObject({
+      targeting: { type: "area", shape: "line", sizeFt: 60 },
+      damage: { dice: "5d8", type: "fire", scaling: "slot_level" },
+      concentration: true,
+      runtimeEffect: {
+        tags: expect.arrayContaining(["spell_level:4", "trigger:on_enter"]),
+        hookId: "hook.spell.cast_wall_of_fire",
       },
     });
 
@@ -864,13 +1071,42 @@ describe("RuleCatalogService", () => {
         ]),
       },
     });
+
+    expect(service.getEntry("spell.disintegrate")).toMatchObject({
+      kind: "spell_definitions",
+      targeting: { type: "creature", rangeFt: 60 },
+      save: { ability: "dex", dcSource: "spell_save_dc" },
+      damage: { dice: "10d6+40", type: "force", scaling: "slot_level" },
+      runtimeEffect: {
+        type: "spell",
+        tags: expect.arrayContaining([
+          "spell_level:6",
+          "p4_content",
+          "destroy_if_zero_hp",
+        ]),
+        hookId: "hook.spell.cast_disintegrate",
+      },
+    });
+
+    expect(service.getEntry("spell.mass_cure_wounds")).toMatchObject({
+      kind: "spell_definitions",
+      targeting: { type: "area", shape: "sphere", sizeFt: 30 },
+      damage: { dice: "3d8", type: "healing", scaling: "slot_level" },
+      runtimeEffect: {
+        tags: expect.arrayContaining([
+          "spell_level:5",
+          "p4_content",
+          "healing:multi_target:6",
+        ]),
+      },
+    });
   });
 
   it("promotes MVP monster actions into catalog ability entries", () => {
     const monsterAbilityIds = service
       .listEntries("monster_abilities")
       .map((entry) => entry.id);
-    expect(monsterAbilityIds).toHaveLength(67);
+    expect(monsterAbilityIds).toHaveLength(189);
     expect(monsterAbilityIds).toEqual(expect.arrayContaining([
       "monster.brown_bear.ability.multiattack",
       "monster.brown_bear.ability.bite",
@@ -910,6 +1146,18 @@ describe("RuleCatalogService", () => {
       "monster.harpy.ability.luring_song",
       "monster.giant_scorpion.ability.sting",
       "monster.young_red_dragon.ability.fire_breath",
+      "monster.troll.ability.regeneration",
+      "monster.mage.ability.fireball",
+      "monster.ghost.ability.possession",
+      "monster.stone_golem.ability.slow",
+      "monster.water_elemental.ability.whelm",
+      "monster.basilisk.ability.petrifying_gaze",
+      "monster.wyvern.ability.multiattack",
+      "monster.young_blue_dragon.ability.lightning_breath",
+      "monster.chimera.ability.fire_breath",
+      "monster.lich.ability.paralyzing_touch",
+      "monster.purple_worm.ability.swallow",
+      "monster.archmage.ability.spell_burst",
     ]));
 
     expect(service.listMonsterAbilities("brown bear").map((entry) => entry.id)).toEqual([
@@ -980,6 +1228,16 @@ describe("RuleCatalogService", () => {
       service.resolveMonsterRuntimeTags("monster.young_red_dragon"),
     ).toEqual(
       expect.arrayContaining(["immunity:fire", "movement:fly:80"]),
+    );
+    expect(
+      service.resolveMonsterRuntimeTags("monster.medusa"),
+    ).toEqual(
+      expect.arrayContaining(["p4_content", "condition:petrified", "avert_eyes"]),
+    );
+    expect(
+      service.resolveMonsterRuntimeTags("monster.hydra"),
+    ).toEqual(
+      expect.arrayContaining(["p4_content", "head_regrowth", "multiattack:heads"]),
     );
   });
 });

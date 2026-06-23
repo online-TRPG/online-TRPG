@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { getExecutableItemDefinition } from "./p3-item-manifest";
 
 export type ItemInteractionPoint = {
   x: number;
@@ -177,9 +178,26 @@ export class ItemInteractionService {
     }
 
     const distanceFt = this.distanceFt(input.actorPoint, input.targetPoint);
-    const thrown = this.hasProperty(input.item, "thrown");
-    const normalRangeFt = thrown ? this.resolveThrownNormalRange(input.item) : IMPROVISED_THROW_NORMAL_RANGE_FT;
-    const longRangeFt = thrown ? this.resolveThrownLongRange(input.item, normalRangeFt) : IMPROVISED_THROW_LONG_RANGE_FT;
+    const executableDefinition = getExecutableItemDefinition(
+      input.item.itemDefinitionId,
+    );
+    const executableThrownEffect =
+      executableDefinition?.effect.type === "thrown"
+        ? executableDefinition.effect
+        : null;
+    const thrown =
+      Boolean(executableThrownEffect) ||
+      this.hasProperty(input.item, "thrown");
+    const normalRangeFt = executableThrownEffect
+      ? executableThrownEffect.rangeFt
+      : thrown
+        ? this.resolveThrownNormalRange(input.item)
+        : IMPROVISED_THROW_NORMAL_RANGE_FT;
+    const longRangeFt = executableThrownEffect
+      ? Math.max(executableDefinition?.rangeFt ?? normalRangeFt, normalRangeFt)
+      : thrown
+        ? this.resolveThrownLongRange(input.item, normalRangeFt)
+        : IMPROVISED_THROW_LONG_RANGE_FT;
     if (distanceFt > longRangeFt) {
       return { accepted: false, rejectedReason: "out_of_throw_range", distanceFt };
     }
@@ -203,8 +221,14 @@ export class ItemInteractionService {
         longRangeFt,
         inNormalRange: distanceFt <= normalRangeFt,
         inLongRange: distanceFt <= longRangeFt,
-        damageDice: input.item.damageDice ?? "1d4",
-        damageType: input.item.damageType ?? "bludgeoning",
+        damageDice:
+          executableThrownEffect?.damageDice ??
+          input.item.damageDice ??
+          "1d4",
+        damageType:
+          executableThrownEffect?.damageType ??
+          input.item.damageType ??
+          "bludgeoning",
       },
       missObject: {
         itemDefinitionId: input.item.itemDefinitionId,

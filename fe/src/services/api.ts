@@ -4,6 +4,7 @@ import type {
   AdjustHumanGmCombatHpDto,
   AcceptHumanGmAiAssistSuggestionDto,
   AiHumanGmAssistSuggestionRequestDto,
+  ApplySessionEconomyActionDto,
   ApplyCombatDamageDto,
   AutoMonsterTurnDto,
   AuthTokenResponseDto,
@@ -16,6 +17,7 @@ import type {
   CombatReactionResponseDto,
   CombatResponseDto,
   CreateHumanGmAiAssistSuggestionDto,
+  CreateScenarioReviewDto,
   CreateScenarioDto,
   CreateVttMapPingDto,
   EquippedWeaponAttackDto,
@@ -36,16 +38,20 @@ import type {
   ResolveMainCommandCheckDto,
   RemoveHumanGmInventoryItemDto,
   ReportHumanGmAiAssistApplicationFailureDto,
+  ReportScenarioDto,
   RestActionDto,
   SetHumanGmDifficultyClassDto,
   ScenarioAssetKind,
   ScenarioAssetResponseDto,
+  ScenarioCollaborationStateResponseDto,
   ClassDefinitionResponseDto,
   ItemResponseDto,
   PlayerScenarioViewDto,
+  PublishScenarioDto,
   RaceResponseDto,
   RuleCatalogReferenceDto,
   ScenarioResponseDto,
+  ScenarioModerationReportResponseDto,
   SessionDetailResponseDto,
   SessionSnapshotDto,
   SubmitMainCommandDto,
@@ -63,6 +69,7 @@ import type {
   UseInventoryItemResponseDto,
   UploadScenarioAssetDto,
   UploadScenarioNodeImageDto,
+  UpsertScenarioCollaboratorDto,
   UserResponseDto,
   VttMapInteractionDto,
   VttMapInteractionResponseDto,
@@ -502,6 +509,10 @@ function isProvidedScenarioForSelection(scenario: Scenario): boolean {
   return scenario.sourceType === 'SYSTEM' || scenario.id === DEFAULT_SCENARIO_ID;
 }
 
+function isPublicScenarioRevisionForSelection(scenario: Scenario): boolean {
+  return Boolean(scenario.baseScenarioId) && scenario.publishStatus === 'public';
+}
+
 export async function listAvailableScenarios(
   user: StoredUser,
   accessToken?: string | null
@@ -510,10 +521,14 @@ export async function listAvailableScenarios(
     listScenarios(),
     listMyScenarios(user, accessToken),
   ]);
-  const providedScenarios = allScenarios.filter(isProvidedScenarioForSelection);
+  const publicPlayableScenarios = allScenarios.filter(
+    (scenario) =>
+      isProvidedScenarioForSelection(scenario) ||
+      isPublicScenarioRevisionForSelection(scenario),
+  );
   const seenScenarioIds = new Set<string>();
 
-  return [...providedScenarios, ...myScenarios].filter((scenario) => {
+  return [...publicPlayableScenarios, ...myScenarios].filter((scenario) => {
     if (seenScenarioIds.has(scenario.id)) return false;
     seenScenarioIds.add(scenario.id);
     return true;
@@ -598,6 +613,101 @@ export function updateScenario(
 ): Promise<ScenarioDetail> {
   return requestJson<ScenarioResponseDto>(`/scenarios/${scenarioId}`, {
     method: 'PATCH',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function publishScenario(
+  user: StoredUser,
+  scenarioId: string,
+  payload: PublishScenarioDto = {},
+  accessToken?: string | null
+): Promise<ScenarioDetail> {
+  return requestJson<ScenarioResponseDto>(`/scenarios/${scenarioId}/publish`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function unpublishScenarioRevision(
+  user: StoredUser,
+  scenarioId: string,
+  accessToken?: string | null
+): Promise<ScenarioDetail> {
+  return requestJson<ScenarioResponseDto>(`/scenarios/${scenarioId}/unpublish`, {
+    method: 'POST',
+    user,
+    accessToken,
+  });
+}
+
+export function getScenarioCollaborationState(
+  user: StoredUser,
+  scenarioId: string,
+  accessToken?: string | null
+): Promise<ScenarioCollaborationStateResponseDto> {
+  return requestJson<ScenarioCollaborationStateResponseDto>(`/scenarios/${scenarioId}/collaboration`, {
+    user,
+    accessToken,
+  });
+}
+
+export function upsertScenarioCollaborator(
+  user: StoredUser,
+  scenarioId: string,
+  payload: UpsertScenarioCollaboratorDto,
+  accessToken?: string | null
+): Promise<ScenarioCollaborationStateResponseDto> {
+  return requestJson<ScenarioCollaborationStateResponseDto>(`/scenarios/${scenarioId}/collaborators`, {
+    method: 'PUT',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function removeScenarioCollaborator(
+  user: StoredUser,
+  scenarioId: string,
+  collaboratorUserId: string,
+  accessToken?: string | null
+): Promise<ScenarioCollaborationStateResponseDto> {
+  return requestJson<ScenarioCollaborationStateResponseDto>(
+    `/scenarios/${scenarioId}/collaborators/${encodeURIComponent(collaboratorUserId)}`,
+    {
+      method: 'DELETE',
+      user,
+      accessToken,
+    }
+  );
+}
+
+export function createScenarioReview(
+  user: StoredUser,
+  scenarioId: string,
+  payload: CreateScenarioReviewDto,
+  accessToken?: string | null
+): Promise<ScenarioCollaborationStateResponseDto> {
+  return requestJson<ScenarioCollaborationStateResponseDto>(`/scenarios/${scenarioId}/reviews`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function reportScenario(
+  user: StoredUser,
+  scenarioId: string,
+  payload: ReportScenarioDto,
+  accessToken?: string | null
+): Promise<ScenarioModerationReportResponseDto> {
+  return requestJson<ScenarioModerationReportResponseDto>(`/scenarios/${scenarioId}/report`, {
+    method: 'POST',
     user,
     accessToken,
     body: payload,
@@ -1600,6 +1710,25 @@ export async function grantHumanGmInventoryItem(
 ): Promise<SessionSnapshot> {
   const snapshot = await requestJson<SessionSnapshotDto>(
     `/sessions/${sessionId}/gm/inventory/grant`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+      body: payload,
+    }
+  );
+
+  return normalizeSessionSnapshot(snapshot);
+}
+
+export async function applyHumanGmEconomyAction(
+  user: StoredUser,
+  sessionId: string,
+  payload: ApplySessionEconomyActionDto,
+  accessToken?: string | null
+): Promise<SessionSnapshot> {
+  const snapshot = await requestJson<SessionSnapshotDto>(
+    `/sessions/${sessionId}/gm/economy`,
     {
       method: 'POST',
       user,

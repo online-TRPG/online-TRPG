@@ -132,6 +132,54 @@ describe("AoeDamageService", () => {
     });
   });
 
+  it("applies Evasion to Dexterity saves that normally deal half damage", () => {
+    const service = createService([
+      dice("8d6", [6, 5, 4, 4, 3, 3, 2, 1]),
+      dice("1d20", [15]),
+      dice("1d20", [5]),
+    ]);
+    const evasionTags = [
+      "save:dex:success_no_damage",
+      "save:dex:failure_half_damage",
+    ];
+
+    const result = service.resolveDamage({
+      sourceId: "spell.fireball",
+      damageDice: "8d6",
+      damageType: "fire",
+      save: { ability: "dex", dc: 14, halfDamageOnSuccess: true },
+      targets: [
+        {
+          id: "successful-rogue",
+          currentHp: 30,
+          abilityModifiers: { dex: 3 },
+          runtimeTags: evasionTags,
+        },
+        {
+          id: "failed-monk",
+          currentHp: 30,
+          abilityModifiers: { dex: 3 },
+          runtimeTags: evasionTags,
+        },
+      ],
+    });
+
+    expect(result.targetResults).toEqual([
+      expect.objectContaining({
+        targetId: "successful-rogue",
+        finalDamage: 0,
+        nextHp: 30,
+        savingThrow: expect.objectContaining({ success: true }),
+      }),
+      expect.objectContaining({
+        targetId: "failed-monk",
+        finalDamage: 14,
+        nextHp: 16,
+        savingThrow: expect.objectContaining({ success: false }),
+      }),
+    ]);
+  });
+
   it("preserves rolled condition modifiers used by saving throws", () => {
     const blessRoll = dice("1d4", [3]);
     const service = createService([

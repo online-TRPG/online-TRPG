@@ -462,6 +462,7 @@ export function mapGameState(
 }
 
 export function mapScenarioSummary(scenario: Scenario): ScenarioSummaryResponseDto {
+  const revision = parseScenarioRevisionMetadata(scenario.attribution);
   return {
     id: scenario.id,
     title: scenario.title,
@@ -473,11 +474,80 @@ export function mapScenarioSummary(scenario: Scenario): ScenarioSummaryResponseD
     recommendedEndLevel: scenario.recommendedEndLevel ?? null,
     license: scenarioLicenseMap[scenario.license],
     sourceType: scenarioSourceTypeMap[scenario.sourceType],
-    attribution: scenario.attribution ?? null,
+    attribution: revision.attribution,
     startNodeId: scenario.startNodeId ?? null,
+    baseScenarioId: scenario.baseScenarioId ?? null,
+    revisionNumber: revision.revisionNumber,
+    changelog: revision.changelog,
+    validationReport: revision.validationReport,
+    publishedAt: revision.publishedAt,
+    publishedByUserId: revision.publishedByUserId,
+    publishStatus: revision.publishStatus,
     createdAt: toIsoString(scenario.createdAt),
     updatedAt: toIsoString(scenario.updatedAt),
   };
+}
+
+function parseScenarioRevisionMetadata(attribution: string | null | undefined): {
+  attribution: string | null;
+  revisionNumber: number | null;
+  changelog: string | null;
+  validationReport: Record<string, unknown> | null;
+  publishedAt: string | null;
+  publishedByUserId: string | null;
+  publishStatus: "draft" | "public" | "link" | "private" | "unpublished";
+} {
+  const raw = attribution ?? "";
+  const marker = "P3_REVISION_META:";
+  const markerIndex = raw.indexOf(marker);
+  if (markerIndex < 0) {
+    return {
+      attribution: raw.trim() || null,
+      revisionNumber: null,
+      changelog: null,
+      validationReport: null,
+      publishedAt: null,
+      publishedByUserId: null,
+      publishStatus: "draft",
+    };
+  }
+  const publicAttribution = raw.slice(0, markerIndex).trim() || null;
+  const metadataText = raw.slice(markerIndex + marker.length).trim();
+  try {
+    const metadata = JSON.parse(metadataText) as Record<string, unknown>;
+    const status = metadata.status;
+    return {
+      attribution: publicAttribution,
+      revisionNumber:
+        typeof metadata.revisionNumber === "number" && Number.isInteger(metadata.revisionNumber)
+          ? metadata.revisionNumber
+          : null,
+      changelog: typeof metadata.changelog === "string" ? metadata.changelog : null,
+      validationReport:
+        metadata.validationReport &&
+        typeof metadata.validationReport === "object" &&
+        !Array.isArray(metadata.validationReport)
+          ? (metadata.validationReport as Record<string, unknown>)
+          : null,
+      publishedAt: typeof metadata.publishedAt === "string" ? metadata.publishedAt : null,
+      publishedByUserId:
+        typeof metadata.publishedByUserId === "string" ? metadata.publishedByUserId : null,
+      publishStatus:
+        status === "public" || status === "link" || status === "private" || status === "unpublished"
+          ? status
+          : "draft",
+    };
+  } catch {
+    return {
+      attribution: publicAttribution,
+      revisionNumber: null,
+      changelog: null,
+      validationReport: null,
+      publishedAt: null,
+      publishedByUserId: null,
+      publishStatus: "draft",
+    };
+  }
 }
 
 export function mapScenarioNode(node: ScenarioNode): ScenarioNodeResponseDto {

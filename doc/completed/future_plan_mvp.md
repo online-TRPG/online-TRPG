@@ -2,6 +2,18 @@
 
 작성일: 2026-05-23
 현재 구현 반영일: 2026-06-20
+재감사일: 2026-06-23
+
+재감사 상태: **구현 보강 완료·사용자 검증 대기**
+
+2026-06-23 보강 내용:
+
+- 후속 mutation 실패 시 먼저 소모한 action, bonus action, reaction, spell slot을 처리 전 값으로 복구하는 rollback snapshot을 추가했다.
+- `test:p0-regression`을 추가해 상태, 집중, 엄폐, 강제이동, AoE, 준비행동, inventory, 지형, GM override 전용 spec을 하나의 기준선으로 묶었다.
+- P4 회귀 명령에도 누락됐던 P0 전용 spec을 포함했다.
+- E2E smoke를 AI/HUMAN 모두 2인 참가 세션으로 시작하고, 휴식·HUMAN GM 승인·다른 참가자 재접속 projection을 확인하도록 보강했다.
+- 같은 E2E 프로세스에서 두 번째 AI/HUMAN smoke 세션을 생성·완주해 서버 재시작 없는 연속 실행을 검증하도록 보강했다.
+- `GET /sessions/:sessionId/ai-traces/metrics`를 추가해 latency, timeout, fallback 비율과 P0 임계값 충족 여부를 조회할 수 있게 했다.
 
 ## 1. 문서 목적
 
@@ -437,9 +449,11 @@ P1 이후 목표:
 4. 컨테이너 capacity/state 처리가 원자 pickup transaction과 일반 inventory runtime 양쪽에서 같은 결과를 내는지 사용자 실행 회귀 spec으로 검증한다.
 5. throw 명중 시 map object가 생성되지 않고, 빗나감 시 대상 칸 주변 착지 object가 생성되는지 사용자 실행 회귀 spec으로 검증한다.
 6. 실패 시 inventory, snapshot, map, action cost 중 어느 것도 부분 적용되지 않음을 회귀 spec과 수동 smoke에서 검증한다.
-   - 현재 inventory, snapshot, map, 전투 중 `SPEND_ACTION`은 한 Prisma transaction에 묶이고 `GameState.version` 충돌도 차단한다.
+   - TurnLog, DiceRollLog, StateDiff, 액션 경제, 주문 슬롯, 직업 자원, 휴식 회복, 준비 행동, inventory, snapshot, map, 단서 공개, action queue 완료 상태는 한 Prisma transaction에 묶인다.
+   - map 변경은 같은 transaction의 최신 `GameState.version`을 기준으로 compare-and-swap하고, 충돌 시 전체 action mutation을 rollback한다.
    - action queue는 프로세스 내 세션 단위 직렬화와 DB 조건부 claim을 사용한다.
-   - transaction 이후 실패가 발생하면 기존 action `TurnLog`를 실패로 정정해 성공/실패 로그가 동시에 남지 않게 한다.
+   - transaction 실패 시 성공 TurnLog와 자원 소모가 함께 rollback되고 별도 실패 TurnLog만 기록한다.
+   - transaction 커밋 후 realtime/snapshot 전송 실패는 이미 확정된 action을 `FAILED`로 되돌리지 않고 서버 경고 로그만 남긴다.
    - 다중 backend instance에서 서로 다른 action이 같은 세션에 병렬 실행되지 않도록 분산 세션 lock 또는 단일 queue consumer 정책을 운영 단계에서 추가해야 한다.
 
 완료 기준:
@@ -713,6 +727,14 @@ npm run build -w @trpg/fe
 전체 SRD 생성/동기화까지 포함하려면:
 
 ```powershell
+npm run build
+```
+
+P0 전체 회귀 기준선:
+
+```powershell
+npm run test:p0-regression -w @trpg/be
+npm run test:e2e -w @trpg/be
 npm run build
 ```
 

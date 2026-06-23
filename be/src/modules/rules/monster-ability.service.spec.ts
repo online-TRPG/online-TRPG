@@ -1,4 +1,5 @@
 import { MonsterAbilityService } from "./monster-ability.service";
+import { P4_EXECUTABLE_MONSTER_IDS } from "./p4-monster-definitions";
 
 describe("MonsterAbilityService", () => {
   const service = new MonsterAbilityService();
@@ -182,6 +183,108 @@ describe("MonsterAbilityService", () => {
       specialType: "area_attack",
       recharge: "5-6",
       damageDice: "16d6",
+    });
+  });
+
+  it("covers the P3 monster roster and exposes representative complex actions", () => {
+    const p3MonsterIds = [
+      "monster.black_bear",
+      "monster.lion",
+      "monster.tiger",
+      "monster.troll",
+      "monster.hill_giant",
+      "monster.giant_eagle",
+      "monster.giant_owl",
+      "monster.manticore",
+      "monster.griffon",
+      "monster.merrow",
+      "monster.acolyte",
+      "monster.mage",
+      "monster.priest",
+      "monster.cult_fanatic",
+      "monster.mummy",
+      "monster.specter",
+      "monster.ghost",
+      "monster.stone_golem",
+      "monster.water_elemental",
+      "monster.swarm_of_insects",
+      "monster.quasit",
+      "monster.basilisk",
+      "monster.wyvern",
+      "monster.young_blue_dragon",
+    ];
+
+    for (const monsterId of p3MonsterIds) {
+      expect(service.listExecutableActions(monsterId).length).toBeGreaterThan(0);
+      expect(service.chooseAction(monsterId)).toMatchObject({ monsterId });
+    }
+
+    expect(service.chooseAction("monster.mage")).toMatchObject({
+      actionId: "action.fireball",
+      specialType: "area_attack",
+      usage: "3/day",
+    });
+    expect(service.chooseAction("monster.stone_golem")).toMatchObject({
+      actionId: "action.slow",
+      specialType: "area_control",
+      recharge: "5-6",
+      conditionRiders: ["condition.slowed"],
+    });
+    expect(service.chooseAction("monster.young_blue_dragon")).toMatchObject({
+      actionId: "action.lightning_breath",
+      specialType: "area_attack",
+      recharge: "5-6",
+      damageDice: "10d10",
+    });
+  });
+
+  it("covers the P4 monster roster with executable common action projections", () => {
+    expect(P4_EXECUTABLE_MONSTER_IDS).toHaveLength(50);
+
+    for (const monsterId of P4_EXECUTABLE_MONSTER_IDS) {
+      const actions = service.listExecutableActions(monsterId);
+      expect(actions.length).toBeGreaterThan(0);
+      expect(service.chooseAction(monsterId)).toMatchObject({ monsterId });
+      expect(actions.every((action) => action.catalogEntryId.startsWith(`${monsterId}.ability.`))).toBe(true);
+    }
+  });
+
+  it("projects P4 recharge, condition lifecycle, boss, and spellcaster metadata", () => {
+    expect(service.chooseAction("monster.young_black_dragon")).toMatchObject({
+      actionId: "monster.young_black_dragon.ability.acid_breath",
+      specialType: "area_attack",
+      recharge: "5-6",
+      save: { ability: "dex", dcSource: "fixed", fixedDc: 14 },
+      damageDice: "11d8",
+      damageType: "acid",
+      effectTags: expect.arrayContaining(["area_size:30"]),
+    });
+
+    expect(service.chooseAction("monster.medusa")).toMatchObject({
+      actionId: "monster.medusa.ability.petrifying_gaze",
+      specialType: null,
+      save: { ability: "con", dcSource: "fixed", fixedDc: 14 },
+      conditionRiders: ["condition.petrified"],
+    });
+
+    expect(service.chooseAction("monster.roper")).toMatchObject({
+      actionId: "monster.roper.ability.tendril",
+      save: { ability: "str", dcSource: "fixed", fixedDc: 15 },
+      conditionRiders: ["condition.grappled", "condition.restrained"],
+    });
+
+    expect(service.chooseAction("monster.hydra")).toMatchObject({
+      actionId: "monster.hydra.ability.multiple_heads",
+      costType: "none",
+      specialType: "multiattack",
+      effectTags: expect.arrayContaining(["multiattack:heads"]),
+    });
+
+    expect(service.chooseAction("monster.archmage")).toMatchObject({
+      actionId: "monster.archmage.ability.spell_burst",
+      attackKind: "special",
+      damageDice: "8d6",
+      damageType: "fire_lightning_force",
     });
   });
 

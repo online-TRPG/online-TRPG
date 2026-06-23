@@ -49,6 +49,17 @@ const CHANNEL_DIVINITY_FEATURE_ID = "class.cleric.feature.channel_divinity";
 const BARDIC_INSPIRATION_FEATURE_ID = "class.bard.feature.bardic_inspiration";
 const FONT_OF_MAGIC_FEATURE_ID = "class.sorcerer.feature.font_of_magic";
 const WILD_SHAPE_FEATURE_ID = "class.druid.feature.wild_shape";
+const STILLNESS_OF_MIND_FEATURE_ID = "class.monk.feature.stillness_of_mind";
+const WHOLENESS_OF_BODY_FEATURE_ID =
+  "subclass.monk.open_hand.feature.wholeness_of_body";
+const WHOLENESS_OF_BODY_EXPENDED_TAG =
+  "resource:wholeness_of_body_expended";
+const COUNTERCHARM_FEATURE_ID = "class.bard.feature.countercharm";
+const DARK_ONES_OWN_LUCK_FEATURE_ID =
+  "subclass.warlock.fiend.feature.dark_ones_own_luck";
+const DARK_ONES_OWN_LUCK_EXPENDED_TAG =
+  "resource:dark_ones_own_luck_expended";
+const DARK_ONES_OWN_LUCK_PENDING_TAG = "dark_ones_own_luck:1d10";
 const DRAGONBORN_BREATH_FEATURE_ID = "race.dragonborn.trait.base_traits";
 const DRAGONBORN_BREATH_EXPENDED_TAG = "resource:dragonborn_breath_expended";
 const FIGHTING_STYLE_DATA_FEATURE_ID = "feature.fighter.fighting_style";
@@ -68,6 +79,7 @@ const RAGE_RESISTANCE_TAGS = ["resistance:bludgeoning", "resistance:piercing", "
 const DIVINE_SENSE_EXPENDED_TAG = "resource:divine_sense_expended";
 const LAY_ON_HANDS_EXPENDED_TAG = "resource:lay_on_hands_expended";
 const CHANNEL_DIVINITY_EXPENDED_TAG = "resource:channel_divinity_expended";
+const CHANNEL_DIVINITY_SPENT_PREFIX = "resource:channel_divinity_spent:";
 const HIT_DIE_AVERAGE_BY_CLASS: Readonly<Record<string, number>> = {
   barbarian: 7,
   bard: 5,
@@ -361,7 +373,11 @@ export class ActionRuleService {
       case "check":
         return this.resolveCheck(command, actor, runtimeContext);
       case "save":
-        return this.resolveSave(command, sessionCharacters);
+        return this.resolveSave(
+          command,
+          sessionCharacters,
+          runtimeContext,
+        );
       case "attack":
         return this.resolveAttack(command, actor, sessionCharacters, runtimeContext);
       case "ready":
@@ -431,25 +447,48 @@ export class ActionRuleService {
       "roll_bonus:ability_check:1d4",
     );
     const guidanceRoll = hasGuidance ? this.diceService.roll("1d4") : null;
-    const resolvedDiceResult = guidanceRoll
+    const hasDarkOnesOwnLuck = this.hasCondition(
+      actor,
+      DARK_ONES_OWN_LUCK_PENDING_TAG,
+    );
+    const darkOnesOwnLuckRoll = hasDarkOnesOwnLuck
+      ? this.diceService.roll("1d10")
+      : null;
+    const bonusTotal =
+      (guidanceRoll?.total ?? 0) + (darkOnesOwnLuckRoll?.total ?? 0);
+    const bonusExpression = [
+      ...(guidanceRoll ? ["1d4"] : []),
+      ...(darkOnesOwnLuckRoll ? ["1d10"] : []),
+    ].join("+");
+    const resolvedDiceResult = bonusTotal
       ? {
           ...diceResult,
-          expression: `${diceResult.expression}+1d4`,
-          total: diceResult.total + guidanceRoll.total,
+          expression: `${diceResult.expression}+${bonusExpression}`,
+          total: diceResult.total + bonusTotal,
         }
       : diceResult;
     const success = resolvedDiceResult.total >= command.dc;
-    const stateChanges = hasGuidance
+    const stateChanges = hasGuidance || hasDarkOnesOwnLuck
       ? [
           this.createTargetStatePatch(actor, {
             conditions: this.parseJson<unknown[]>(
               actor.conditionsJson,
               [],
             ).filter(
-              (entry) =>
-                !this.conditionRuntime
-                  .toConditionTags(JSON.stringify([entry]))
-                  .includes("roll_bonus:ability_check:1d4"),
+              (entry) => {
+                const tags = this.conditionRuntime.toConditionTags(
+                  JSON.stringify([entry]),
+                );
+                return (
+                  !tags.includes("roll_bonus:ability_check:1d4") &&
+                  !tags.includes(DARK_ONES_OWN_LUCK_PENDING_TAG) &&
+                  !(
+                    typeof entry === "string" &&
+                    this.normalizeRuleToken(entry) ===
+                      DARK_ONES_OWN_LUCK_PENDING_TAG
+                  )
+                );
+              },
             ),
           }),
         ]
@@ -461,6 +500,7 @@ export class ActionRuleService {
         checkName: command.checkName,
         dc: command.dc,
         guidanceBonus: guidanceRoll?.total ?? 0,
+        darkOnesOwnLuckBonus: darkOnesOwnLuckRoll?.total ?? 0,
       },
       diceResult: resolvedDiceResult,
       outcome: success ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
@@ -470,17 +510,75 @@ export class ActionRuleService {
     };
   }
 
-  private resolveSave(command: Extract<ParsedCommand, { type: "save" }>, sessionCharacters: SessionCharacterForRules[]): ActionResolution {
+  private resolveSave(
+    command: Extract<ParsedCommand, { type: "save" }>,
+    sessionCharacters: SessionCharacterForRules[],
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
     const target = this.requireTarget(command.target, sessionCharacters);
     const saveProficient = this.resolveSaveProficiencies(target).includes(command.ability);
     const abilityModifier = this.resolveAbilityModifier(target, command.ability);
-    const saveModifier = abilityModifier + (saveProficient ? target.character.proficiencyBonus : 0);
-    const advantageState = this.resolveRacialSaveAdvantage(target, command.ability, command.condition);
+    const auraBonus = this.resolveAuraOfProtectionBonus(
+      target,
+      sessionCharacters,
+      runtimeContext,
+    );
+    const hasDarkOnesOwnLuck = this.hasCondition(
+      target,
+      DARK_ONES_OWN_LUCK_PENDING_TAG,
+    );
+    const darkOnesOwnLuckRoll = hasDarkOnesOwnLuck
+      ? this.diceService.roll("1d10")
+      : null;
+    const saveModifier =
+      abilityModifier +
+      (saveProficient ? target.character.proficiencyBonus : 0) +
+      auraBonus;
+    const normalizedCondition = command.condition
+      ? this.normalizeRuleToken(command.condition).replace(/^condition[.:]/, "")
+      : null;
+    const hasConditionAdvantage =
+      normalizedCondition !== null &&
+      this.getFeatureTags(target).includes(
+        `advantage:save:${normalizedCondition}`,
+      );
+    const advantageState = hasConditionAdvantage
+      ? DiceAdvantageState.ADVANTAGE
+      : this.resolveRacialSaveAdvantage(
+          target,
+          command.ability,
+          command.condition,
+        );
     const diceResult = this.rollD20WithRacialLuck(
       target,
       `1d20${saveModifier >= 0 ? "+" : ""}${saveModifier}`,
       advantageState,
     );
+    const resolvedDiceResult = darkOnesOwnLuckRoll
+      ? {
+          ...diceResult,
+          expression: `${diceResult.expression}+1d10`,
+          total: diceResult.total + darkOnesOwnLuckRoll.total,
+        }
+      : diceResult;
+    const bonusModifiers = [
+      ...(auraBonus > 0
+        ? [
+            {
+              source: "class.paladin.feature.aura_of_protection",
+              value: auraBonus,
+            },
+          ]
+        : []),
+      ...(darkOnesOwnLuckRoll
+        ? [
+            {
+              source: DARK_ONES_OWN_LUCK_FEATURE_ID,
+              value: darkOnesOwnLuckRoll.total,
+            },
+          ]
+        : []),
+    ];
     const ruleResult = this.ruleEngine.resolveSavingThrow({
       ability: command.ability,
       naturalD20: this.selectNaturalD20(diceResult),
@@ -488,25 +586,53 @@ export class ActionRuleService {
       abilityModifier,
       proficiencyBonus: target.character.proficiencyBonus,
       proficient: saveProficient,
+      advantageState:
+        advantageState === DiceAdvantageState.ADVANTAGE
+          ? "advantage"
+          : advantageState === DiceAdvantageState.DISADVANTAGE
+            ? "disadvantage"
+            : "normal",
+      bonusModifiers,
     });
     const stateChanges: CharacterStatePatch[] = [];
     let expiredConditions: unknown[] = [];
+    const currentConditionEntries = this.parseJson<unknown[]>(
+      target.conditionsJson,
+      [],
+    );
+    let nextConditionEntries = currentConditionEntries;
 
     if (command.condition) {
-      const currentConditionEntries = this.parseJson<unknown[]>(target.conditionsJson, []);
       const parsedConditions = this.conditionRuntime.parseConditionsJson(target.conditionsJson);
       const saveEndResolution = this.conditionRuntime.resolveSaveEnd(parsedConditions, {
         conditionId: command.condition,
         saveSucceeded: ruleResult.produced.success,
       });
       expiredConditions = saveEndResolution.expiredConditions;
-
-      if (expiredConditions.length > 0) {
-        stateChanges.push({
-          sessionCharacterId: target.id,
-          conditions: this.mergeConditionResolutionEntries(currentConditionEntries, parsedConditions, saveEndResolution.conditions),
-        });
-      }
+      nextConditionEntries = this.mergeConditionResolutionEntries(
+        currentConditionEntries,
+        parsedConditions,
+        saveEndResolution.conditions,
+      );
+    }
+    if (hasDarkOnesOwnLuck) {
+      nextConditionEntries = nextConditionEntries.filter(
+        (entry) =>
+          !(
+            typeof entry === "string" &&
+            this.normalizeRuleToken(entry) ===
+              DARK_ONES_OWN_LUCK_PENDING_TAG
+          ),
+      );
+    }
+    if (
+      JSON.stringify(nextConditionEntries) !==
+      JSON.stringify(currentConditionEntries)
+    ) {
+      stateChanges.push({
+        sessionCharacterId: target.id,
+        conditions: nextConditionEntries,
+      });
     }
 
     return {
@@ -516,14 +642,59 @@ export class ActionRuleService {
         ability: command.ability,
         dc: command.dc,
         condition: command.condition,
+        auraOfProtectionBonus: auraBonus,
+        darkOnesOwnLuckBonus: darkOnesOwnLuckRoll?.total ?? 0,
         expiredConditions,
         ruleResults: [ruleResult],
       },
-      diceResult,
+      diceResult: resolvedDiceResult,
       outcome: ruleResult.produced.success ? ActionOutcome.SUCCESS : ActionOutcome.FAILURE,
       narration: ruleResult.produced.success ? "내성 굴림에 성공했습니다." : "내성 굴림에 실패했습니다.",
       stateChanges,
     };
+  }
+
+  private resolveAuraOfProtectionBonus(
+    target: SessionCharacterForRules,
+    sessionCharacters: SessionCharacterForRules[],
+    runtimeContext: RuleRuntimeContext,
+  ): number {
+    const targetToken = runtimeContext.map?.tokens.find(
+      (token) => token.sessionCharacterId === target.id,
+    );
+    return sessionCharacters
+      .filter(
+        (candidate) =>
+          this.isClass(candidate, "paladin") &&
+          candidate.character.level >= 6 &&
+          this.hasFeatureTag(candidate, "saving_throw_bonus:cha_mod"),
+      )
+      .filter((candidate) => {
+        if (candidate.id === target.id) {
+          return true;
+        }
+        if (!runtimeContext.map || !targetToken) {
+          return false;
+        }
+        const candidateToken = runtimeContext.map.tokens.find(
+          (token) => token.sessionCharacterId === candidate.id,
+        );
+        return Boolean(
+          candidateToken &&
+            !candidateToken.hidden &&
+            candidateToken.isHostile === targetToken.isHostile &&
+            this.mapPositions.isWithinFeet(
+              runtimeContext.map,
+              candidateToken,
+              targetToken,
+              10,
+            ),
+        );
+      })
+      .map((candidate) =>
+        Math.max(this.resolveAbilityModifier(candidate, "cha"), 0),
+      )
+      .reduce((maximum, bonus) => Math.max(maximum, bonus), 0);
   }
 
   private resolveAttack(
@@ -763,7 +934,19 @@ export class ActionRuleService {
       case FONT_OF_MAGIC_FEATURE_ID:
         return this.resolveFontOfMagic(actor, runtimeContext);
       case WILD_SHAPE_FEATURE_ID:
-        return this.resolveWildShape(actor, runtimeContext);
+        return this.resolveWildShape(command, actor, runtimeContext);
+      case STILLNESS_OF_MIND_FEATURE_ID:
+        return this.resolveStillnessOfMind(actor, runtimeContext);
+      case WHOLENESS_OF_BODY_FEATURE_ID:
+        return this.resolveWholenessOfBody(actor, runtimeContext);
+      case COUNTERCHARM_FEATURE_ID:
+        return this.resolveCountercharm(
+          actor,
+          sessionCharacters,
+          runtimeContext,
+        );
+      case DARK_ONES_OWN_LUCK_FEATURE_ID:
+        return this.resolveDarkOnesOwnLuck(actor);
       case DRAGONBORN_BREATH_FEATURE_ID:
         return this.resolveDragonbornBreath(
           command,
@@ -1422,9 +1605,27 @@ export class ActionRuleService {
     }
 
     const rageTags = ruleResult.produced.bludgeoningResistance ? RAGE_RESISTANCE_TAGS : [];
+    const mindlessRageRemovalTags = this.hasFeatureTag(
+      actor,
+      "rage:immunity:charmed",
+    )
+      ? [
+          "charmed",
+          "condition.charmed",
+          "condition:charmed",
+          "frightened",
+          "condition.frightened",
+          "condition:frightened",
+        ]
+      : [];
     const nextConditions = this.removeConditions(
       this.addConditions(currentConditions, [RAGE_EXPENDED_TAG, RAGE_ACTIVE_TAG, ...rageTags]),
-      ruleResult.produced.concentrationEnded ? ["concentration", "condition.concentration"] : [],
+      [
+        ...(ruleResult.produced.concentrationEnded
+          ? ["concentration", "condition.concentration"]
+          : []),
+        ...mindlessRageRemovalTags,
+      ],
     );
 
     return {
@@ -1684,12 +1885,25 @@ export class ActionRuleService {
       healingPool,
       Math.max(maximumAfterHealing - actor.currentHp, 0),
     );
+    const maximumUses = actor.character.level >= 6 ? 2 : 1;
+    const spentUses = Math.max(
+      ...currentConditions
+        .map(
+          (condition) =>
+            new RegExp(`^${CHANNEL_DIVINITY_SPENT_PREFIX}(\\d+)$`).exec(
+              condition,
+            )?.[1],
+        )
+        .filter((value): value is string => Boolean(value))
+        .map(Number),
+      this.hasCondition(actor, CHANNEL_DIVINITY_EXPENDED_TAG) ? 1 : 0,
+    );
     const available =
       this.isClass(actor, "cleric") &&
       actor.character.level >= 2 &&
       subclass === "life" &&
       this.hasActionAvailable(runtimeContext) &&
-      !this.hasCondition(actor, CHANNEL_DIVINITY_EXPENDED_TAG) &&
+      spentUses < maximumUses &&
       healing > 0;
     return {
       structuredAction: {
@@ -1699,6 +1913,8 @@ export class ActionRuleService {
         healingPool,
         healingApplied: available ? healing : 0,
         maximumAfterHealing,
+        usesSpent: available ? spentUses + 1 : spentUses,
+        maximumUses,
       },
       diceResult: null,
       outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
@@ -1710,9 +1926,23 @@ export class ActionRuleService {
             {
               sessionCharacterId: actor.id,
               currentHp: actor.currentHp + healing,
-              conditions: this.addConditions(currentConditions, [
-                CHANNEL_DIVINITY_EXPENDED_TAG,
-              ]),
+              conditions:
+                maximumUses === 1
+                  ? this.addConditions(currentConditions, [
+                      CHANNEL_DIVINITY_EXPENDED_TAG,
+                    ])
+                  : this.addConditions(
+                      currentConditions.filter(
+                        (condition) =>
+                          condition !== CHANNEL_DIVINITY_EXPENDED_TAG &&
+                          !condition.startsWith(
+                            CHANNEL_DIVINITY_SPENT_PREFIX,
+                          ),
+                      ),
+                      [
+                        `${CHANNEL_DIVINITY_SPENT_PREFIX}${spentUses + 1}`,
+                      ],
+                    ),
             },
           ]
         : [],
@@ -1851,6 +2081,7 @@ export class ActionRuleService {
   }
 
   private resolveWildShape(
+    command: Extract<ParsedCommand, { type: "use_class_feature" }>,
     actor: SessionCharacterForRules,
     runtimeContext: RuleRuntimeContext,
   ): ActionResolution {
@@ -1863,40 +2094,73 @@ export class ActionRuleService {
       .filter((value): value is string => Boolean(value))
       .map(Number)
       .reduce((maximum, value) => Math.max(maximum, value), 0);
+    const requestedForm = this.normalizeRuleToken(command.option ?? "wolf");
+    const formProfiles: Record<
+      string,
+      { minimumLevel: number; hitPoints: number; speedFt: number; label: string }
+    > = {
+      wolf: {
+        minimumLevel: 2,
+        hitPoints: 11,
+        speedFt: 40,
+        label: "늑대",
+      },
+      brown_bear: {
+        minimumLevel: 8,
+        hitPoints: 34,
+        speedFt: 40,
+        label: "갈색곰",
+      },
+      giant_octopus: {
+        minimumLevel: 8,
+        hitPoints: 52,
+        speedFt: 10,
+        label: "거대 문어",
+      },
+    };
+    const form = formProfiles[requestedForm];
     const available =
       this.isClass(actor, "druid") &&
       actor.character.level >= 2 &&
+      Boolean(form && actor.character.level >= form.minimumLevel) &&
       spent < 2 &&
-      !this.hasCondition(actor, "wild_shape:wolf") &&
+      !currentConditions.some((condition) =>
+        condition.startsWith("wild_shape:"),
+      ) &&
       this.hasActionAvailable(runtimeContext);
     return {
       structuredAction: {
         type: "use_class_feature",
         featureId: WILD_SHAPE_FEATURE_ID,
-        form: "wolf",
-        formHitPoints: 11,
+        form: requestedForm,
+        formHitPoints: form?.hitPoints ?? null,
         usesSpent: available ? spent + 1 : spent,
         maximumUses: 2,
       },
       diceResult: null,
       outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
       narration: available
-        ? "Wild Shape로 늑대 형태가 되었습니다. 형태 HP 11, 이동 40ft, 물기 공격을 사용합니다."
-        : "Wild Shape를 사용할 수 없습니다.",
+        ? `Wild Shape로 ${form?.label} 형태가 되었습니다. 형태 HP ${form?.hitPoints}, 이동 ${form?.speedFt}ft를 사용합니다.`
+        : "해당 Wild Shape 형태를 현재 레벨에서 사용할 수 없습니다.",
       stateChanges: available
         ? [
             {
               sessionCharacterId: actor.id,
-              tempHp: Math.max(actor.tempHp, 11),
+              tempHp: Math.max(actor.tempHp, form?.hitPoints ?? 0),
               conditions: this.addConditions(
                 currentConditions.filter(
                   (condition) =>
-                    !condition.startsWith("resource:wild_shape_spent:"),
+                    !condition.startsWith("resource:wild_shape_spent:") &&
+                    !condition.startsWith("wild_shape:") &&
+                    !condition.startsWith("movement_speed_override:"),
                 ),
                 [
                   `resource:wild_shape_spent:${spent + 1}`,
-                  "wild_shape:wolf",
-                  "movement_speed_override:40",
+                  `wild_shape:${requestedForm}`,
+                  `movement_speed_override:${form?.speedFt ?? 30}`,
+                  ...(requestedForm === "giant_octopus"
+                    ? ["movement_mode:swim:60"]
+                    : []),
                 ],
               ),
             },
@@ -2317,7 +2581,16 @@ export class ActionRuleService {
     const hasProficiency = proficientSkills.map((skill) => this.normalizeRuleToken(skill)).includes(normalizedCheckName);
     const hasExpertise = this.hasFeatureTag(actor, `${EXPERTISE_TAG_PREFIX}${normalizedCheckName}`);
     const proficiency = hasProficiency ? actor.character.proficiencyBonus * (hasExpertise ? 2 : 1) : 0;
-    return abilityModifier + proficiency;
+    const remarkableAthleteBonus =
+      !hasProficiency &&
+      ["str", "dex", "con"].includes(abilityKey) &&
+      this.hasFeatureTag(
+        actor,
+        `ability_check:half_proficiency:untrained:${abilityKey}`,
+      )
+        ? Math.ceil(actor.character.proficiencyBonus / 2)
+        : 0;
+    return abilityModifier + proficiency + remarkableAthleteBonus;
   }
 
   private hasActionAvailable(runtimeContext: RuleRuntimeContext): boolean {
@@ -2945,6 +3218,7 @@ export class ActionRuleService {
   private toAoeDamageTarget(target: SessionCharacterForRules, saveAbility: SavingThrowAbility): AoeDamageTarget {
     const damageProfile = this.resolveDamageProfile(target);
     const saveProficiencies = this.resolveSaveProficiencies(target);
+    const runtimeTags = this.getFeatureTags(target);
 
     return {
       id: target.id,
@@ -2957,6 +3231,212 @@ export class ActionRuleService {
       immunities: damageProfile.targetImmunities,
       resistances: damageProfile.targetResistances,
       vulnerabilities: damageProfile.targetVulnerabilities,
+      runtimeTags,
+    };
+  }
+
+  private resolveStillnessOfMind(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const currentConditions = this.parseJson<unknown[]>(
+      actor.conditionsJson,
+      [],
+    );
+    const removableConditions = [
+      "charmed",
+      "condition.charmed",
+      "condition:charmed",
+      "frightened",
+      "condition.frightened",
+      "condition:frightened",
+    ];
+    const nextConditions = removableConditions.reduce(
+      (conditions, condition) =>
+        this.removeConditionEntry(conditions, condition),
+      currentConditions,
+    );
+    const removed = nextConditions.length < currentConditions.length;
+    const available =
+      this.isClass(actor, "monk") &&
+      actor.character.level >= 7 &&
+      this.hasActionAvailable(runtimeContext) &&
+      removed;
+
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: STILLNESS_OF_MIND_FEATURE_ID,
+        removedConditions: available
+          ? ["charmed", "frightened"].filter((condition) =>
+              this.hasCondition(actor, condition),
+            )
+          : [],
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? "Stillness of Mind로 매혹과 공포 효과를 끝냈습니다."
+        : "Stillness of Mind로 끝낼 매혹 또는 공포 효과가 없거나 행동을 사용할 수 없습니다.",
+      stateChanges: available
+        ? [{ sessionCharacterId: actor.id, conditions: nextConditions }]
+        : [],
+      runtimeEffects: available ? [{ type: "SPEND_ACTION" }] : [],
+    };
+  }
+
+  private resolveCountercharm(
+    actor: SessionCharacterForRules,
+    sessionCharacters: SessionCharacterForRules[],
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const actorToken = runtimeContext.map?.tokens.find(
+      (token) => token.sessionCharacterId === actor.id,
+    );
+    const targets = sessionCharacters.filter((candidate) => {
+      if (candidate.id === actor.id) {
+        return true;
+      }
+      if (!runtimeContext.map || !actorToken) {
+        return false;
+      }
+      const candidateToken = runtimeContext.map.tokens.find(
+        (token) => token.sessionCharacterId === candidate.id,
+      );
+      return Boolean(
+        candidateToken &&
+          !candidateToken.hidden &&
+          candidateToken.isHostile === actorToken.isHostile &&
+          this.mapPositions.isWithinFeet(
+            runtimeContext.map,
+            actorToken,
+            candidateToken,
+            30,
+          ),
+      );
+    });
+    const available =
+      this.isClass(actor, "bard") &&
+      actor.character.level >= 6 &&
+      this.hasActionAvailable(runtimeContext);
+
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: COUNTERCHARM_FEATURE_ID,
+        targetIds: available ? targets.map((target) => target.id) : [],
+        rangeFt: 30,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? `Countercharm으로 ${targets.length}명의 매혹·공포 내성을 강화했습니다.`
+        : "Countercharm을 사용할 수 없습니다.",
+      stateChanges: available
+        ? targets.map((target) => ({
+            sessionCharacterId: target.id,
+            conditions: this.conditionRuntime.applyCondition(
+              this.conditionRuntime.parseConditionsJson(
+                target.conditionsJson,
+              ),
+              this.conditionRuntime.createCondition({
+                conditionId: "condition.class.countercharm",
+                sourceId: COUNTERCHARM_FEATURE_ID,
+                duration: { type: "rounds", remaining: 1 },
+                stackPolicy: "replace",
+                tags: [
+                  "advantage:save:charmed",
+                  "advantage:save:frightened",
+                ],
+              }),
+            ),
+          }))
+        : [],
+      runtimeEffects: available ? [{ type: "SPEND_ACTION" }] : [],
+    };
+  }
+
+  private resolveDarkOnesOwnLuck(
+    actor: SessionCharacterForRules,
+  ): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const available =
+      this.isClass(actor, "warlock") &&
+      this.normalizeRuleToken(actor.character.subclassName ?? "") ===
+        "fiend" &&
+      actor.character.level >= 6 &&
+      !this.hasCondition(actor, DARK_ONES_OWN_LUCK_EXPENDED_TAG) &&
+      !this.hasCondition(actor, DARK_ONES_OWN_LUCK_PENDING_TAG);
+
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: DARK_ONES_OWN_LUCK_FEATURE_ID,
+        die: "1d10",
+        appliesTo: ["ability_check", "saving_throw"],
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? "Dark One's Own Luck을 준비했습니다. 다음 능력 판정이나 내성 굴림에 1d10을 더합니다."
+        : "Dark One's Own Luck을 사용할 수 없습니다.",
+      stateChanges: available
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              conditions: this.addConditions(currentConditions, [
+                DARK_ONES_OWN_LUCK_EXPENDED_TAG,
+                DARK_ONES_OWN_LUCK_PENDING_TAG,
+              ]),
+            },
+          ]
+        : [],
+      runtimeEffects: [],
+    };
+  }
+
+  private resolveWholenessOfBody(
+    actor: SessionCharacterForRules,
+    runtimeContext: RuleRuntimeContext,
+  ): ActionResolution {
+    const currentConditions = this.getConditions(actor);
+    const healing = Math.min(
+      actor.character.level * 3,
+      Math.max(actor.character.maxHp - actor.currentHp, 0),
+    );
+    const available =
+      this.isClass(actor, "monk") &&
+      this.normalizeRuleToken(actor.character.subclassName ?? "") ===
+        "open_hand" &&
+      actor.character.level >= 6 &&
+      this.hasActionAvailable(runtimeContext) &&
+      !this.hasCondition(actor, WHOLENESS_OF_BODY_EXPENDED_TAG) &&
+      healing > 0;
+
+    return {
+      structuredAction: {
+        type: "use_class_feature",
+        featureId: WHOLENESS_OF_BODY_FEATURE_ID,
+        healingMaximum: actor.character.level * 3,
+        healingApplied: available ? healing : 0,
+      },
+      diceResult: null,
+      outcome: available ? ActionOutcome.SUCCESS : ActionOutcome.IMPOSSIBLE,
+      narration: available
+        ? `Wholeness of Body로 자신을 ${healing} 회복했습니다.`
+        : "Wholeness of Body를 사용할 수 없거나 회복할 HP가 없습니다.",
+      stateChanges: available
+        ? [
+            {
+              sessionCharacterId: actor.id,
+              currentHp: actor.currentHp + healing,
+              conditions: this.addConditions(currentConditions, [
+                WHOLENESS_OF_BODY_EXPENDED_TAG,
+              ]),
+            },
+          ]
+        : [],
+      runtimeEffects: available ? [{ type: "SPEND_ACTION" }] : [],
     };
   }
 
@@ -3221,7 +3701,7 @@ export class ActionRuleService {
       if (!remaining) {
         return [];
       }
-      return [typeof entry === "string" ? entry : remaining];
+      return [entry];
     });
   }
 

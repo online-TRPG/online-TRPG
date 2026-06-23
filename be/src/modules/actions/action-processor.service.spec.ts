@@ -70,7 +70,7 @@ describe("ActionProcessorService session action queue", () => {
       data: { queueStatus: "PROCESSING" },
     });
     expect(processAction).toHaveBeenCalledTimes(1);
-    expect(prisma.playerAction.update).toHaveBeenCalledTimes(1);
+    expect(prisma.playerAction.update).not.toHaveBeenCalled();
     expect(realtimeEvents.emitTurnLogCreated).toHaveBeenCalledTimes(1);
   });
 
@@ -517,6 +517,37 @@ describe("ActionProcessorService inventory/map atomic runtime effects", () => {
             }),
           ],
         }),
+      }),
+    );
+  });
+
+  it("uses the caller transaction and defers map events until the action commits", async () => {
+    const { service, tx, prisma, realtimeEvents } = createService();
+
+    const mapUpdate = await service.applyInventoryMapRuntimeEffectsAtomically(
+      params,
+      [
+        {
+          type: "ADD_ITEM",
+          itemDefinitionId: "equipment.rope",
+          quantity: 1,
+        },
+        {
+          type: "REMOVE_MAP_OBJECT",
+          objectId: "object-rope",
+        },
+      ],
+      tx,
+    );
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.inventoryEntry.update).toHaveBeenCalled();
+    expect(realtimeEvents.emitVttMapUpdated).not.toHaveBeenCalled();
+    expect(mapUpdate).toEqual(
+      expect.objectContaining({
+        hostUserId: "host-user-1",
+        hostMap: expect.any(Object),
+        playerMap: expect.any(Object),
       }),
     );
   });

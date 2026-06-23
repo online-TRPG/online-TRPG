@@ -7,6 +7,10 @@ import { PrismaService } from "../../database/prisma.service";
 export class CharacterResourceService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private getClient(client?: Pick<Prisma.TransactionClient, "sessionCharacterResource">) {
+    return client ?? this.prisma;
+  }
+
   async getOrCreateResource(
     sessionCharacterId: string,
     defaults: {
@@ -15,8 +19,9 @@ export class CharacterResourceService {
       rageUses?: number;
       hitDiceSpent?: number;
     } = {},
+    client?: Pick<Prisma.TransactionClient, "sessionCharacterResource">,
   ): Promise<SessionCharacterResource> {
-    return this.prisma.sessionCharacterResource.upsert({
+    return this.getClient(client).sessionCharacterResource.upsert({
       where: { sessionCharacterId },
       create: {
         sessionCharacterId,
@@ -26,19 +31,25 @@ export class CharacterResourceService {
     });
   }
 
-  async spendSecondWind(sessionCharacterId: string): Promise<SessionCharacterResource> {
-    const resource = await this.getOrCreateResource(sessionCharacterId);
+  async spendSecondWind(
+    sessionCharacterId: string,
+    client?: Pick<Prisma.TransactionClient, "sessionCharacterResource">,
+  ): Promise<SessionCharacterResource> {
+    const resource = await this.getOrCreateResource(sessionCharacterId, {}, client);
     if (!resource.secondWindAvailable) {
       throw badRequest("ACTION_400", "Second Wind를 이미 사용했습니다.", {
         reason: "SECOND_WIND_UNAVAILABLE",
       });
     }
 
-    return this.updateResource(sessionCharacterId, { secondWindAvailable: false });
+    return this.updateResource(sessionCharacterId, { secondWindAvailable: false }, client);
   }
 
-  async spendActionSurgeUse(sessionCharacterId: string): Promise<SessionCharacterResource> {
-    const resource = await this.getOrCreateResource(sessionCharacterId);
+  async spendActionSurgeUse(
+    sessionCharacterId: string,
+    client?: Pick<Prisma.TransactionClient, "sessionCharacterResource">,
+  ): Promise<SessionCharacterResource> {
+    const resource = await this.getOrCreateResource(sessionCharacterId, {}, client);
     if (resource.actionSurgeUses < 1) {
       throw badRequest("ACTION_400", "Action Surge 사용 횟수가 남아있지 않습니다.", {
         reason: "ACTION_SURGE_UNAVAILABLE",
@@ -47,15 +58,15 @@ export class CharacterResourceService {
 
     return this.updateResource(sessionCharacterId, {
       actionSurgeUses: { decrement: 1 },
-    });
+    }, client);
   }
 
   async startRage(params: {
     sessionCharacterId: string;
     rageEndsAtRound?: number | null;
     rageEndsAtTurn?: number | null;
-  }): Promise<SessionCharacterResource> {
-    const resource = await this.getOrCreateResource(params.sessionCharacterId);
+  }, client?: Pick<Prisma.TransactionClient, "sessionCharacterResource">): Promise<SessionCharacterResource> {
+    const resource = await this.getOrCreateResource(params.sessionCharacterId, {}, client);
     if (resource.rageActive) {
       throw badRequest("ACTION_400", "이미 Rage 상태입니다.", {
         reason: "RAGE_ALREADY_ACTIVE",
@@ -72,18 +83,21 @@ export class CharacterResourceService {
       rageActive: true,
       rageEndsAtRound: params.rageEndsAtRound ?? null,
       rageEndsAtTurn: params.rageEndsAtTurn ?? null,
-    });
+    }, client);
   }
 
-  async startFrenzy(sessionCharacterId: string): Promise<SessionCharacterResource> {
-    const resource = await this.getOrCreateResource(sessionCharacterId);
+  async startFrenzy(
+    sessionCharacterId: string,
+    client?: Pick<Prisma.TransactionClient, "sessionCharacterResource">,
+  ): Promise<SessionCharacterResource> {
+    const resource = await this.getOrCreateResource(sessionCharacterId, {}, client);
     if (!resource.rageActive) {
       throw badRequest("ACTION_400", "Frenzy는 Rage 중에만 시작할 수 있습니다.", {
         reason: "FRENZY_REQUIRES_RAGE",
       });
     }
 
-    return this.updateResource(sessionCharacterId, { frenzyActive: true });
+    return this.updateResource(sessionCharacterId, { frenzyActive: true }, client);
   }
 
   async endRage(sessionCharacterId: string): Promise<SessionCharacterResource> {
@@ -107,8 +121,8 @@ export class CharacterResourceService {
     secondWindAvailable?: boolean;
     actionSurgeUses?: number;
     hitDiceSpent?: number;
-  }): Promise<SessionCharacterResource> {
-    await this.getOrCreateResource(params.sessionCharacterId);
+  }, client?: Pick<Prisma.TransactionClient, "sessionCharacterResource">): Promise<SessionCharacterResource> {
+    await this.getOrCreateResource(params.sessionCharacterId, {}, client);
 
     return this.updateResource(params.sessionCharacterId, {
       ...(params.secondWindAvailable === undefined
@@ -118,7 +132,7 @@ export class CharacterResourceService {
         ? {}
         : { actionSurgeUses: params.actionSurgeUses }),
       ...(params.hitDiceSpent === undefined ? {} : { hitDiceSpent: params.hitDiceSpent }),
-    });
+    }, client);
   }
 
   async recoverLongRest(params: {
@@ -128,8 +142,8 @@ export class CharacterResourceService {
     rageUses?: number;
     reduceExhaustionBy?: number;
     hitDiceSpent?: number;
-  }): Promise<SessionCharacterResource> {
-    const resource = await this.getOrCreateResource(params.sessionCharacterId);
+  }, client?: Pick<Prisma.TransactionClient, "sessionCharacterResource">): Promise<SessionCharacterResource> {
+    const resource = await this.getOrCreateResource(params.sessionCharacterId, {}, client);
     const reduceExhaustionBy = params.reduceExhaustionBy ?? 1;
 
     return this.updateResource(params.sessionCharacterId, {
@@ -146,14 +160,15 @@ export class CharacterResourceService {
       rageEndsAtTurn: null,
       frenzyActive: false,
       exhaustionLevel: Math.max(resource.exhaustionLevel - reduceExhaustionBy, 0),
-    });
+    }, client);
   }
 
   private updateResource(
     sessionCharacterId: string,
     data: Prisma.SessionCharacterResourceUpdateInput,
+    client?: Pick<Prisma.TransactionClient, "sessionCharacterResource">,
   ): Promise<SessionCharacterResource> {
-    return this.prisma.sessionCharacterResource.update({
+    return this.getClient(client).sessionCharacterResource.update({
       where: { sessionCharacterId },
       data,
     });
