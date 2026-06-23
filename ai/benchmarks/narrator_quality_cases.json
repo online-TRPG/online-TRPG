@@ -1,0 +1,98 @@
+[
+  {
+    "caseId": "narrator-attack-hit-001",
+    "request": {
+      "rawInput": "고블린을 장검으로 공격한다.",
+      "actionSummary": "장검 공격이 명중해 고블린에게 7 피해를 입혔다.",
+      "diceSummary": "공격 18, 피해 7",
+      "sceneTone": "tense"
+    },
+    "forbiddenPhrases": ["고블린이 죽었다", "보물", "열쇠", "증원군"]
+  },
+  {
+    "caseId": "narrator-attack-miss-001",
+    "request": {
+      "rawInput": "오크에게 화살을 쏜다.",
+      "actionSummary": "화살 공격은 빗나갔고 상태 변화는 없다.",
+      "diceSummary": "공격 9, 빗나감",
+      "sceneTone": "tense"
+    },
+    "forbiddenPhrases": ["오크가 다쳤다", "피를 흘린다", "화살이 명중", "오크가 죽었다"]
+  },
+  {
+    "caseId": "narrator-check-success-001",
+    "request": {
+      "rawInput": "문에 함정이 있는지 조사한다.",
+      "actionSummary": "조사 판정에 성공해 문손잡이 아래의 가느다란 철사를 발견했다.",
+      "diceSummary": "조사 17, 성공",
+      "sceneTone": "mysterious"
+    },
+    "forbiddenPhrases": ["독가스", "폭발", "숨겨진 보물", "비밀 통로"]
+  },
+  {
+    "caseId": "narrator-check-failure-001",
+    "request": {
+      "rawInput": "석상에서 비밀 장치를 찾는다.",
+      "actionSummary": "조사 판정에 실패했고 새로운 단서는 발견하지 못했다.",
+      "diceSummary": "조사 6, 실패",
+      "sceneTone": "mysterious"
+    },
+    "forbiddenPhrases": ["비밀 장치가 있다", "숨겨진 버튼", "문이 열린다", "단서를 발견"]
+  },
+  {
+    "caseId": "narrator-heal-001",
+    "request": {
+      "rawInput": "치유 물약을 마신다.",
+      "actionSummary": "치유 물약 하나를 소비하고 체력을 6 회복했다.",
+      "diceSummary": "회복 6",
+      "sceneTone": "hopeful"
+    },
+    "forbiddenPhrases": ["완전히 회복", "상태 이상이 해제", "물약이 남아 있다", "최대 체력"]
+  },
+  {
+    "caseId": "narrator-move-001",
+    "request": {
+      "rawInput": "무너진 기둥 뒤로 이동한다.",
+      "actionSummary": "캐릭터가 무너진 기둥 뒤 칸으로 20피트 이동했다.",
+      "sceneTone": "tense"
+    },
+    "forbiddenPhrases": ["완전 엄폐", "함정을 발견", "적이 공격", "기둥이 무너진다"]
+  },
+  {
+    "caseId": "narrator-spell-001",
+    "request": {
+      "rawInput": "고블린에게 냉랭한 손길을 시전한다.",
+      "actionSummary": "냉랭한 손길이 명중해 5 사령 피해를 입혔고 다음 턴 시작까지 회복을 막는다.",
+      "diceSummary": "주문 공격 16, 피해 5",
+      "sceneTone": "dark"
+    },
+    "forbiddenPhrases": ["공포 상태", "즉사", "언데드가 된다", "주문 슬롯을 회복"]
+  },
+  {
+    "caseId": "narrator-item-pickup-001",
+    "request": {
+      "rawInput": "바닥의 밧줄을 줍는다.",
+      "actionSummary": "바닥의 밧줄 1개를 인벤토리에 추가했고 맵 오브젝트를 제거했다.",
+      "sceneTone": "neutral"
+    },
+    "forbiddenPhrases": ["밧줄이 마법 물품", "금화", "함정", "추가 아이템"]
+  },
+  {
+    "caseId": "narrator-door-001",
+    "request": {
+      "rawInput": "잠긴 철문을 연다.",
+      "actionSummary": "문 열기를 시도했지만 잠겨 있어 상태가 변하지 않았다.",
+      "sceneTone": "mysterious"
+    },
+    "forbiddenPhrases": ["문이 열린다", "열쇠를 발견", "자물쇠가 부서진다", "문 너머 적"]
+  },
+  {
+    "caseId": "narrator-rest-001",
+    "request": {
+      "rawInput": "짧은 휴식을 한다.",
+      "actionSummary": "짧은 휴식이 승인되어 재기의 숨결과 행동 연쇄 사용 횟수를 회복했다.",
+      "sceneTone": "calm"
+    },
+    "forbiddenPhrases": ["모든 체력 회복", "주문 슬롯 전부 회복", "긴 휴식", "레벨 상승"]
+  }
+]

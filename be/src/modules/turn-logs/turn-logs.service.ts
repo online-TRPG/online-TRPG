@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import {
   ActionOutcome as PrismaActionOutcome,
+  Prisma,
 } from "@prisma/client";
 import {
   ActionQueueStatus,
@@ -10,6 +11,8 @@ import {
 } from "@trpg/shared-types";
 import { PrismaService } from "../../database/prisma.service";
 import { SessionsService } from "../sessions/sessions.service";
+
+type TurnLogDbClient = Pick<Prisma.TransactionClient, "turnLog">;
 
 @Injectable()
 export class TurnLogsService {
@@ -30,9 +33,9 @@ export class TurnLogsService {
     stateDiff?: Record<string, unknown> | null;
     outcome: ActionOutcome;
     narration?: string | null;
-  }): Promise<TurnLogResponseDto> {
-    const turnNumber = await this.getNextTurnNumber(params.sessionId);
-    const created = await this.prisma.turnLog.create({
+  }, client: TurnLogDbClient = this.prisma): Promise<TurnLogResponseDto> {
+    const turnNumber = await this.getNextTurnNumber(params.sessionId, client);
+    const created = await client.turnLog.create({
       data: {
         sessionId: params.sessionId,
         sessionScenarioId: params.sessionScenarioId,
@@ -112,8 +115,12 @@ export class TurnLogsService {
     };
   }
 
-  async attachStateDiff(turnLogId: string, stateDiff: Record<string, unknown>): Promise<void> {
-    await this.prisma.turnLog.update({
+  async attachStateDiff(
+    turnLogId: string,
+    stateDiff: Record<string, unknown>,
+    client: TurnLogDbClient = this.prisma,
+  ): Promise<void> {
+    await client.turnLog.update({
       where: { id: turnLogId },
       data: { stateDiffJson: JSON.stringify(stateDiff) },
     });
@@ -176,8 +183,11 @@ export class TurnLogsService {
     }
   }
 
-  private async getNextTurnNumber(sessionId: string): Promise<number> {
-    const latest = await this.prisma.turnLog.findFirst({
+  private async getNextTurnNumber(
+    sessionId: string,
+    client: TurnLogDbClient = this.prisma,
+  ): Promise<number> {
+    const latest = await client.turnLog.findFirst({
       where: { sessionId },
       orderBy: { turnNumber: "desc" },
       select: { turnNumber: true },

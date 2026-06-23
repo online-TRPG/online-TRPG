@@ -8,7 +8,9 @@ export type TerrainEffectDefinitionId =
   | "terrain.slippery"
   | "terrain.burning"
   | "terrain.poison_cloud"
-  | "terrain.moonbeam";
+  | "terrain.moonbeam"
+  | "terrain.flaming_sphere"
+  | "terrain.wall_of_fire";
 
 export type TerrainEffectId = "terrain.combined" | TerrainEffectDefinitionId;
 export type TerrainEffectTrigger = "on_enter" | "on_turn_start" | "on_turn_end" | "on_exit";
@@ -165,6 +167,58 @@ const TERRAIN_EFFECTS: Record<TerrainEffectDefinitionId, TerrainEffectResolution
       "trigger:on_turn_start",
       "save:con",
       "damage:radiant",
+      "half_damage_on_success",
+    ],
+  },
+  "terrain.flaming_sphere": {
+    terrainEffectId: "terrain.flaming_sphere",
+    movementCostMultiplier: 1,
+    blocksLineOfSight: false,
+    lightlyObscured: true,
+    heavilyObscured: false,
+    elevationDeltaFt: 0,
+    saveDc: 13,
+    damage: { dice: "2d6", type: "fire" },
+    damagePackets: [
+      {
+        sourceEffectId: "terrain.flaming_sphere",
+        dice: "2d6",
+        type: "fire",
+      },
+    ],
+    conditionTags: [],
+    runtimeTags: [
+      "trigger:on_enter",
+      "trigger:on_turn_start",
+      "save:dex",
+      "damage:fire",
+      "damage_over_time:fire:2d6",
+      "half_damage_on_success",
+    ],
+  },
+  "terrain.wall_of_fire": {
+    terrainEffectId: "terrain.wall_of_fire",
+    movementCostMultiplier: 1,
+    blocksLineOfSight: true,
+    lightlyObscured: true,
+    heavilyObscured: false,
+    elevationDeltaFt: 0,
+    saveDc: 13,
+    damage: { dice: "5d8", type: "fire" },
+    damagePackets: [
+      {
+        sourceEffectId: "terrain.wall_of_fire",
+        dice: "5d8",
+        type: "fire",
+      },
+    ],
+    conditionTags: [],
+    runtimeTags: [
+      "trigger:on_enter",
+      "trigger:on_turn_end",
+      "save:dex",
+      "damage:fire",
+      "damage_over_time:fire:5d8",
       "half_damage_on_success",
     ],
   },

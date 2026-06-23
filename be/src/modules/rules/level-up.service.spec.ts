@@ -93,6 +93,97 @@ describe("LevelUpService", () => {
     });
   });
 
+  it("includes the fighter-specific level 6 ability score improvement", () => {
+    expect(
+      service.resolveLevelUp({
+        classKey: "fighter",
+        currentLevel: 5,
+        targetLevel: 8,
+        hitDie: "d10",
+        constitutionScore: 14,
+      }),
+    ).toMatchObject({
+      asiOrFeatChoiceRequiredAtLevels: [6, 8],
+    });
+  });
+
+  it("resolves P4 level 8 to 12 progression with proficiency, ASI, and representative features", () => {
+    const result = service.resolveLevelUp({
+      classKey: "fighter",
+      currentLevel: 8,
+      targetLevel: 12,
+      hitDie: "d10",
+      constitutionScore: 16,
+      currentMaxHp: 76,
+      classFeatures: catalog.listClassFeaturesForLevel("fighter", 12),
+      subclassFeatures: catalog.listSubclassFeatures("fighter", "champion", 12),
+    });
+
+    expect(result).toMatchObject({
+      proficiencyBonusBefore: 3,
+      proficiencyBonusAfter: 4,
+      asiOrFeatChoiceRequiredAtLevels: [12],
+      hpGains: [
+        { level: 9, baseGain: 6, constitutionModifier: 3, totalGain: 9 },
+        { level: 10, baseGain: 6, constitutionModifier: 3, totalGain: 9 },
+        { level: 11, baseGain: 6, constitutionModifier: 3, totalGain: 9 },
+        { level: 12, baseGain: 6, constitutionModifier: 3, totalGain: 9 },
+      ],
+      maxHpAfter: 112,
+    });
+    expect(result.grantedFeatures.map((feature) => feature.featureId)).toEqual([
+      "class.fighter.feature.indomitable",
+      "subclass.fighter.champion.feature.additional_fighting_style",
+      "class.fighter.feature.extra_attack_2",
+      "class.fighter.feature.ability_score_improvement_12",
+    ]);
+  });
+
+  it.each([
+    ["barbarian", "d12", "berserker"],
+    ["bard", "d8", "lore"],
+    ["cleric", "d8", "life"],
+    ["druid", "d8", "land"],
+    ["fighter", "d10", "champion"],
+    ["monk", "d8", "open_hand"],
+    ["paladin", "d10", "devotion"],
+    ["ranger", "d10", "hunter"],
+    ["rogue", "d8", "thief"],
+    ["sorcerer", "d6", "draconic_bloodline"],
+    ["warlock", "d8", "fiend"],
+    ["wizard", "d6", "evocation"],
+  ] as const)("resolves P4 8 to 12 progression for %s", (classKey, hitDie, subclassKey) => {
+    const result = service.resolveLevelUp({
+      classKey,
+      currentLevel: 8,
+      targetLevel: 12,
+      hitDie,
+      constitutionScore: 14,
+      classFeatures: catalog.listClassFeaturesForLevel(classKey, 12),
+      subclassFeatures: catalog.listSubclassFeatures(classKey, subclassKey, 12),
+    });
+
+    expect(result).toMatchObject({
+      classKey,
+      fromLevel: 8,
+      toLevel: 12,
+      proficiencyBonusBefore: 3,
+      proficiencyBonusAfter: 4,
+      asiOrFeatChoiceRequiredAtLevels: [12],
+    });
+    expect(result.hpGains).toHaveLength(4);
+    expect(result.hpGains.map((gain) => gain.level)).toEqual([9, 10, 11, 12]);
+    expect(result.grantedFeatures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          featureId: `class.${classKey}.feature.ability_score_improvement_12`,
+          level: 12,
+        }),
+      ]),
+    );
+    expect(result.grantedFeatures.some((feature) => feature.level >= 9 && feature.level <= 12)).toBe(true);
+  });
+
   it("rejects non-increasing level changes", () => {
     expect(() =>
       service.resolveLevelUp({

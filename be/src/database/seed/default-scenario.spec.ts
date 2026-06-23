@@ -8,6 +8,7 @@ import { ActionRuleService } from "../../modules/rules/action-rule.service";
 import { AoeDamageService } from "../../modules/rules/aoe-damage.service";
 import { CommandParserService } from "../../modules/rules/command-parser.service";
 import { DiceService } from "../../modules/rules/dice.service";
+import { getExecutableItemDefinition } from "../../modules/rules/p3-item-manifest";
 import { MapPositionService } from "../../modules/rules/map-position.service";
 import { RuleEngineService } from "../../modules/rules/rule-engine.service";
 import {
@@ -16,6 +17,8 @@ import {
   P1_ONESHOT_START_NODE_ID,
   P2_VALIDATION_SCENARIO_ID,
   P2_VALIDATION_START_NODE_ID,
+  P4_VALIDATION_SCENARIO_ID,
+  P4_VALIDATION_START_NODE_ID,
   RULE_RUNTIME_SMOKE_SCENARIO_ID,
   RULE_RUNTIME_SMOKE_START_NODE_ID,
   seedDefaultScenario,
@@ -846,5 +849,154 @@ describe("default scenario seed", () => {
     expect(monsterIds.size).toBeGreaterThanOrEqual(5);
     expect(terrainIds.size).toBeGreaterThanOrEqual(3);
     expect(objectActions).toEqual(new Set(["door", "break", "investigate"]));
+  });
+
+  it("seeds the P4 level 12 validation campaign with spells, monsters, economy, and revision checks", async () => {
+    const { scenarioUpserts, scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
+
+    expect(scenarioUpserts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          where: { id: P4_VALIDATION_SCENARIO_ID },
+          create: expect.objectContaining({
+            startNodeId: P4_VALIDATION_START_NODE_ID,
+            startLevel: 12,
+            recommendedEndLevel: 12,
+          }),
+        }),
+      ]),
+    );
+
+    const p4Nodes = scenarioNodeUpserts
+      .map((args) => args.create)
+      .filter((node): node is Record<string, unknown> => node?.scenarioId === P4_VALIDATION_SCENARIO_ID);
+    expect(p4Nodes.map((node) => node.id)).toEqual([
+      P4_VALIDATION_START_NODE_ID,
+      "node_p4_crown_market",
+      "node_p4_crown_observatory",
+      "node_p4_crown_siege",
+      "node_p4_crown_downtime",
+      "node_p4_crown_lich_gate",
+      "node_p4_crown_end",
+    ]);
+
+    const monsterIds = new Set<string>();
+    const spellIds = new Set<string>();
+    const economyChecks = new Set<string>();
+    const verifies = new Set<string>();
+    const nodeTypeCounts = new Map<string, number>();
+    const aiHumanReadyNodeIds = new Set<string>();
+    const itemDefinitionIds = new Set<string>();
+
+    for (const node of p4Nodes) {
+      const nodeType = String(node.nodeType ?? "unknown");
+      nodeTypeCounts.set(nodeType, (nodeTypeCounts.get(nodeType) ?? 0) + 1);
+      const options = JSON.parse(String(node.checkOptionsJson ?? "{}")) as {
+        vttMap?: {
+          tokens?: Array<{ monster?: { id?: string } | null }>;
+          objectCells?: Array<{ hiddenItemIds?: string[]; canBreak?: boolean }>;
+        } | null;
+      };
+      const meta = JSON.parse(String(node.nodeMetaJson ?? "{}")) as {
+        p4Scenario?: {
+          gmModes?: string[];
+          verifies?: string[];
+          usefulSpells?: string[];
+          monsterIds?: string[];
+          economyActions?: Array<{ kind?: string; itemDefinitionId?: string }>;
+          craftingRecipe?: {
+            recipeId?: string;
+            outputItemDefinitionId?: string;
+            requiredMaterials?: string[];
+          };
+          validatesRevisionSnapshot?: boolean;
+          validatesCollaborationPolicy?: boolean;
+        };
+      };
+      options.vttMap?.tokens?.forEach((token) => {
+        if (token.monster?.id) monsterIds.add(token.monster.id);
+      });
+      options.vttMap?.objectCells?.forEach((cell) => {
+        cell.hiddenItemIds?.forEach((itemId) => itemDefinitionIds.add(itemId));
+      });
+      meta.p4Scenario?.monsterIds?.forEach((monsterId) => monsterIds.add(monsterId));
+      meta.p4Scenario?.usefulSpells?.forEach((spellId) => spellIds.add(spellId));
+      meta.p4Scenario?.economyActions?.forEach((action) => {
+        if (action.kind) economyChecks.add(action.kind);
+        if (action.itemDefinitionId) itemDefinitionIds.add(action.itemDefinitionId);
+      });
+      if (meta.p4Scenario?.craftingRecipe?.recipeId) {
+        economyChecks.add("crafting");
+        if (meta.p4Scenario.craftingRecipe.outputItemDefinitionId) {
+          itemDefinitionIds.add(meta.p4Scenario.craftingRecipe.outputItemDefinitionId);
+        }
+        meta.p4Scenario.craftingRecipe.requiredMaterials?.forEach((itemId) => itemDefinitionIds.add(itemId));
+      }
+      meta.p4Scenario?.verifies?.forEach((entry) => verifies.add(entry));
+      if (meta.p4Scenario?.validatesRevisionSnapshot) verifies.add("revision_snapshot");
+      if (meta.p4Scenario?.validatesCollaborationPolicy) verifies.add("collaboration_policy");
+      if (JSON.stringify(meta.p4Scenario?.gmModes) === JSON.stringify(["AI", "HUMAN"])) {
+        aiHumanReadyNodeIds.add(String(node.id));
+      }
+    }
+
+    expect(nodeTypeCounts.get("story")).toBeGreaterThanOrEqual(2);
+    expect(nodeTypeCounts.get("exploration")).toBeGreaterThanOrEqual(3);
+    expect(nodeTypeCounts.get("combat")).toBeGreaterThanOrEqual(2);
+    expect(aiHumanReadyNodeIds).toEqual(new Set(p4Nodes.map((node) => String(node.id))));
+    expect(monsterIds.size).toBeGreaterThanOrEqual(12);
+    expect([...monsterIds]).toEqual(
+      expect.arrayContaining([
+        "monster.archmage",
+        "monster.medusa",
+        "monster.roper",
+        "monster.fire_giant",
+        "monster.chimera",
+        "monster.air_elemental",
+        "monster.lich",
+        "monster.young_black_dragon",
+        "monster.purple_worm",
+        "monster.vampire",
+      ]),
+    );
+    expect(spellIds.size).toBeGreaterThanOrEqual(10);
+    expect([...spellIds]).toEqual(
+      expect.arrayContaining([
+        "spell.cone_of_cold",
+        "spell.chain_lightning",
+        "spell.disintegrate",
+        "spell.heal",
+        "spell.wall_of_force",
+      ]),
+    );
+    expect([...economyChecks]).toEqual(
+      expect.arrayContaining(["purchase", "sell", "identify", "attune", "recover_charges", "repair", "crafting"]),
+    );
+    expect([...itemDefinitionIds]).toEqual(
+      expect.arrayContaining([
+        "equipment.potion_of_healing",
+        "magic_item.necklace_of_fireballs",
+        "magic_item.ring_of_protection",
+        "magic_item.wand_of_web",
+        "equipment.방패",
+        "magic_item.immovable_rod",
+        "equipment.crowbar",
+      ]),
+    );
+    for (const itemDefinitionId of itemDefinitionIds) {
+      expect(getExecutableItemDefinition(itemDefinitionId)).toBeTruthy();
+    }
+    expect([...verifies]).toEqual(
+      expect.arrayContaining([
+        "level-12-progression",
+        "p4_spells_combat",
+        "p4_monster_recharge",
+        "attune_item",
+        "recover_item_charges",
+        "crafting_started",
+        "revision_snapshot",
+        "collaboration_policy",
+      ]),
+    );
   });
 });

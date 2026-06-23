@@ -26,12 +26,14 @@ export type AoeDamageTarget = {
   immunities?: string[];
   resistances?: string[];
   vulnerabilities?: string[];
+  runtimeTags?: string[];
 };
 
 export type AoeDamageInput = {
   sourceId: string;
   damageDice: string;
   damageType: string;
+  damageBonus?: number;
   save: {
     ability: SavingThrowAbility;
     dc: number;
@@ -44,6 +46,7 @@ export type AoeSpellDamageInputParams = {
   spellDefinition: RuleCatalogEntry;
   saveDc?: number;
   damageDice?: string;
+  damageBonus?: number;
   halfDamageOnSuccess?: boolean;
   targets: AoeDamageTarget[];
 };
@@ -133,6 +136,9 @@ export class AoeDamageService {
       sourceId: spell.id,
       damageDice: params.damageDice ?? spell.damage.dice,
       damageType: spell.damage.type,
+      ...(params.damageBonus === undefined
+        ? {}
+        : { damageBonus: params.damageBonus }),
       save,
       targets: params.targets,
     };
@@ -159,9 +165,11 @@ export class AoeDamageService {
       bonusModifiers: target.bonusModifiers,
     });
     const baseDamage = this.resolveBaseDamageAfterSave(
-      rolledDamage,
+      rolledDamage + (input.damageBonus ?? 0),
       saveResult.produced.success,
       input.save.halfDamageOnSuccess,
+      input.save.ability,
+      target.runtimeTags ?? [],
     );
     const damageResult = this.ruleEngine.applyDamageModifiers({
       baseDamage,
@@ -225,7 +233,17 @@ export class AoeDamageService {
     rolledDamage: number,
     saveSucceeded: boolean,
     halfDamageOnSuccess: boolean | undefined,
+    saveAbility: SavingThrowAbility,
+    runtimeTags: string[],
   ): number {
+    const hasEvasion =
+      saveAbility === "dex" &&
+      halfDamageOnSuccess !== false &&
+      runtimeTags.includes("save:dex:success_no_damage") &&
+      runtimeTags.includes("save:dex:failure_half_damage");
+    if (hasEvasion) {
+      return saveSucceeded ? 0 : Math.floor(rolledDamage / 2);
+    }
     if (!saveSucceeded) {
       return rolledDamage;
     }

@@ -1,11 +1,17 @@
 import { Injectable } from "@nestjs/common";
 import {
+  Prisma,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
 } from "@prisma/client";
 import { StateDiffResponseDto } from "@trpg/shared-types";
 import { conflict } from "../../common/exceptions/domain-error";
 import { PrismaService } from "../../database/prisma.service";
 import { CharacterStatePatch } from "./action-rule.service";
+
+type StateDiffDbClient = Pick<
+  Prisma.TransactionClient,
+  "gameState" | "sessionCharacter" | "combatParticipant" | "stateDiff"
+>;
 
 @Injectable()
 export class StateDiffService {
@@ -17,12 +23,13 @@ export class StateDiffService {
     turnLogId: string;
     reason: string;
     changes: CharacterStatePatch[];
-  }): Promise<StateDiffResponseDto | null> {
+  }, client?: StateDiffDbClient): Promise<StateDiffResponseDto | null> {
     if (!params.changes.length) {
       return null;
     }
 
-    const state = await this.prisma.gameState.findUnique({
+    const db = client ?? this.prisma;
+    const state = await db.gameState.findUnique({
       where: { sessionScenarioId: params.sessionScenarioId },
     });
 
@@ -37,7 +44,7 @@ export class StateDiffService {
       characters: params.changes,
     };
 
-    await this.prisma.$transaction(async (tx) => {
+    const apply = async (tx: StateDiffDbClient) => {
       for (const change of params.changes) {
         if (change.sessionCharacterId) {
           await tx.sessionCharacter.update({
@@ -79,7 +86,12 @@ export class StateDiffService {
           diffJson: JSON.stringify(diff),
         },
       });
-    });
+    };
+    if (client) {
+      await apply(client);
+    } else {
+      await this.prisma.$transaction(apply);
+    }
 
     return {
       baseVersion: params.baseVersion,

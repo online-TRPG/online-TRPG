@@ -18,6 +18,7 @@ import {
   getScenario,
   listScenarioAssets,
   listRuleCatalog,
+  publishScenario,
   updateScenario,
   uploadScenarioAsset,
 } from '../services/api';
@@ -833,6 +834,59 @@ function buildScenarioPayload(form: ScenarioFormState): CreateScenarioDto & Upda
   };
 }
 
+function getDirtyScenarioSections(
+  current: CreateScenarioDto & UpdateScenarioDto,
+  savedSnapshot: string | null,
+): string[] {
+  if (!savedSnapshot) return ["새 draft"];
+  let saved: CreateScenarioDto & UpdateScenarioDto;
+  try {
+    saved = JSON.parse(savedSnapshot) as CreateScenarioDto & UpdateScenarioDto;
+  } catch {
+    return ["저장 상태 확인 필요"];
+  }
+
+  const sections: string[] = [];
+  const metadataKeys = [
+    "title",
+    "description",
+    "ruleSetId",
+    "difficulty",
+    "startLevel",
+    "recommendedEndLevel",
+    "license",
+    "attribution",
+    "startNodeId",
+  ] as const;
+  if (metadataKeys.some((key) => JSON.stringify(current[key]) !== JSON.stringify(saved[key]))) {
+    sections.push("기본 정보");
+  }
+  if (JSON.stringify(current.npcs ?? []) !== JSON.stringify(saved.npcs ?? [])) {
+    sections.push("NPC");
+  }
+
+  const savedNodes = new Map((saved.nodes ?? []).map((node) => [node.id ?? "", node]));
+  for (const node of current.nodes ?? []) {
+    const nodeId = node.id ?? "새 노드";
+    const previous = savedNodes.get(nodeId);
+    if (!previous) {
+      sections.push(`${nodeId}: 추가`);
+      continue;
+    }
+    const changed = Object.keys(node).filter(
+      (key) =>
+        JSON.stringify(node[key as keyof typeof node]) !==
+        JSON.stringify(previous[key as keyof typeof previous]),
+    );
+    if (changed.length) sections.push(`${nodeId}: ${changed.join(", ")}`);
+    savedNodes.delete(nodeId);
+  }
+  for (const removedNodeId of savedNodes.keys()) {
+    sections.push(`${removedNodeId}: 삭제`);
+  }
+  return sections;
+}
+
 function syncNpcIntoMap(map: VttMapStateDto | null, npc: NpcForm): VttMapStateDto | null {
   if (!map) {
     return map;
@@ -1186,14 +1240,20 @@ export function ScenarioEditorPage({
   const [tokenAssetsLoading, setTokenAssetsLoading] = useState(false);
   const [tokenAssetsError, setTokenAssetsError] = useState<string | null>(null);
   const [autoSaveStatus, setAutoSaveStatus] = useState('자동 저장 준비 중');
+  const [publishStatus, setPublishStatus] = useState<string | null>(null);
   const autoSaveBusyRef = useRef(false);
   const lastSavedSnapshotRef = useRef<string | null>(null);
   const draftScenarioIdRef = useRef<string | null>(scenarioId ?? null);
+  const draftUpdatedAtRef = useRef<string | null>(null);
   const formRef = useRef(form);
   const busyRef = useRef(busy);
 
   // 생성 직후 임시 draftScenarioId가 생기면 이후 자동 저장은 그 ID를 사용합니다.
   const effectiveScenarioId = draftScenarioId ?? scenarioId ?? null;
+  const dirtySections = useMemo(
+    () => getDirtyScenarioSections(buildScenarioPayload(form), lastSavedSnapshotRef.current),
+    [autoSaveStatus, form],
+  );
 
   useEffect(() => {
     busyRef.current = busy;
@@ -1422,6 +1482,7 @@ export function ScenarioEditorPage({
       const nextForm = createEmptyForm();
       setDraftScenarioId(null);
       draftScenarioIdRef.current = null;
+      draftUpdatedAtRef.current = null;
       lastSavedSnapshotRef.current = JSON.stringify(buildScenarioPayload(nextForm));
       onUnsavedChangesChange?.(false);
       setAutoSaveStatus('자동 저장 대기: 필수 내용을 입력해 주세요.');
@@ -1444,6 +1505,7 @@ export function ScenarioEditorPage({
       .then((scenario) => {
         if (!ignore) {
           const nextForm = formFromScenario(scenario);
+          draftUpdatedAtRef.current = scenario.updatedAt;
           setForm(nextForm);
           lastSavedSnapshotRef.current = JSON.stringify(buildScenarioPayload(nextForm));
           onUnsavedChangesChange?.(false);
@@ -1491,10 +1553,16 @@ export function ScenarioEditorPage({
 
     try {
       const savedScenario = draftScenarioIdRef.current
-        ? await updateScenario(user, draftScenarioIdRef.current, payload, accessToken)
+        ? await updateScenario(
+            user,
+            draftScenarioIdRef.current,
+            { ...payload, expectedUpdatedAt: draftUpdatedAtRef.current ?? undefined },
+            accessToken,
+          )
         : await createScenario(user, payload, accessToken);
 
       draftScenarioIdRef.current = savedScenario.id;
+      draftUpdatedAtRef.current = savedScenario.updatedAt;
       setDraftScenarioId(savedScenario.id);
       lastSavedSnapshotRef.current = snapshot;
       onUnsavedChangesChange?.(false);
@@ -1855,9 +1923,16 @@ export function ScenarioEditorPage({
 
       setBusy(true);
       if (effectiveScenarioId) {
-        await updateScenario(user, effectiveScenarioId, payload, accessToken);
+        const savedScenario = await updateScenario(
+          user,
+          effectiveScenarioId,
+          { ...payload, expectedUpdatedAt: draftUpdatedAtRef.current ?? undefined },
+          accessToken,
+        );
+        draftUpdatedAtRef.current = savedScenario.updatedAt;
       } else {
-        await createScenario(user, payload, accessToken);
+        const savedScenario = await createScenario(user, payload, accessToken);
+        draftUpdatedAtRef.current = savedScenario.updatedAt;
       }
       lastSavedSnapshotRef.current = JSON.stringify(payload);
       onUnsavedChangesChange?.(false);
@@ -1865,6 +1940,55 @@ export function ScenarioEditorPage({
       onDone();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '시나리오 저장에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePublishScenario() {
+    setError(null);
+    setPublishStatus(null);
+
+    if (validationIssues.length) {
+      setPublishStatus('검증 오류를 먼저 해결해야 발행할 수 있습니다.');
+      return;
+    }
+
+    try {
+      setBusy(true);
+      const payload = buildScenarioPayload(form);
+      const savedScenario = effectiveScenarioId
+        ? await updateScenario(
+            user,
+            effectiveScenarioId,
+            { ...payload, expectedUpdatedAt: draftUpdatedAtRef.current ?? undefined },
+            accessToken,
+          )
+        : await createScenario(user, payload, accessToken);
+      draftScenarioIdRef.current = savedScenario.id;
+      draftUpdatedAtRef.current = savedScenario.updatedAt;
+      setDraftScenarioId(savedScenario.id);
+      lastSavedSnapshotRef.current = JSON.stringify(payload);
+      onUnsavedChangesChange?.(false);
+      const changelog =
+        window.prompt('이번 revision의 변경 내역을 입력하세요. 비워도 발행할 수 있습니다.') ??
+        '';
+      const visibilityInput =
+        window.prompt('발행 범위를 입력하세요: public, link, private', 'public') ?? 'public';
+      const visibility =
+        visibilityInput === 'link' || visibilityInput === 'private'
+          ? visibilityInput
+          : 'public';
+      const published = await publishScenario(
+        user,
+        savedScenario.id,
+        { changelog: changelog.trim() || null, visibility },
+        accessToken,
+      );
+      setPublishStatus(`발행 완료: ${published.title} (${published.publishStatus ?? visibility})`);
+      setAutoSaveStatus('저장 및 발행됨');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '시나리오 발행에 실패했습니다.');
     } finally {
       setBusy(false);
     }
@@ -1892,12 +2016,33 @@ export function ScenarioEditorPage({
           >
             기본 정보
           </button>
+          <button
+            type="button"
+            className="ghost"
+            disabled={busy || validationIssues.length > 0}
+            title={
+              validationIssues.length
+                ? '검증 오류를 해결한 뒤 발행할 수 있습니다.'
+                : '현재 draft를 공개 revision으로 발행합니다.'
+            }
+            onClick={() => void handlePublishScenario()}
+          >
+            발행
+          </button>
           <button type="submit" form={formId} className="primary" disabled={busy}>
             {busy ? '저장 중...' : '저장'}
           </button>
           <span className="scenario-autosave-status" role="status" aria-live="polite">
             {autoSaveStatus}
           </span>
+          {dirtySections.length ? (
+            <span
+              className="scenario-autosave-status"
+              title={dirtySections.join("\n")}
+            >
+              변경 section {dirtySections.length}개
+            </span>
+          ) : null}
         </div>
       </section>
 
@@ -2025,6 +2170,7 @@ export function ScenarioEditorPage({
           <strong>{validationIssues.length ? `${validationIssues.length}개 확인 필요` : '통과'}</strong>
         </div>
         {ruleCatalogError ? <p className="panel-error">{ruleCatalogError}</p> : null}
+        {publishStatus ? <p className="helper-copy">{publishStatus}</p> : null}
         {validationIssues.length ? (
           <ul>
             {validationIssues.map((issue) => (

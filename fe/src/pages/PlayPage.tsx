@@ -18,6 +18,7 @@ import type {
 } from 'react';
 import type {
   ActionOutcome,
+  ApplySessionEconomyActionDto,
   AiHumanGmAssistSuggestionRequestDto,
   ClassDefinitionResponseDto,
   CombatActionResultDto,
@@ -66,6 +67,7 @@ import {
   type StoryRpUtterance,
 } from '../features/sessionPlay/components/StoryNodeSurface';
 import { SessionBattleMap } from '../features/sessionPlay/components/SessionBattleMap';
+import { SessionEconomyPanel } from '../features/sessionPlay/components/SessionEconomyPanel';
 import {
   getCharacterClassLabel,
   getCharacterImage,
@@ -77,6 +79,7 @@ import {
   endCombatTurn,
   acceptCombatReaction,
   applyHumanGmCombatCondition,
+  applyHumanGmEconomyAction,
   adjustHumanGmCombatHp,
   resolveCombatActorAction,
   castCombatSpell,
@@ -1104,6 +1107,14 @@ const QUICK_CREATE_MVP_LEVEL5_SLOT_SPELLS_BY_CLASS: Readonly<Record<string, stri
   sorcerer: ['spell.fireball'],
   wizard: ['spell.fireball'],
 };
+const QUICK_CREATE_P3_LEVEL7_SLOT_SPELLS_BY_CLASS: Readonly<Record<string, string[]>> = {
+  bard: ['spell.dimension_door'],
+  cleric: ['spell.death_ward'],
+  druid: ['spell.blight'],
+  sorcerer: ['spell.blight', 'spell.dimension_door'],
+  warlock: ['spell.blight', 'spell.dimension_door'],
+  wizard: ['spell.dimension_door', 'spell.ice_storm'],
+};
 
 function getQuickCreateAbilityModifier(score: number | null | undefined) {
   return Math.floor(((score ?? 10) - 10) / 2);
@@ -1196,10 +1207,17 @@ function getDefaultQuickCreateStartingSpells(
   const level5Spells = level >= 5
     ? (QUICK_CREATE_MVP_LEVEL5_SLOT_SPELLS_BY_CLASS[klass.key] ?? [])
     : [];
+  const level7Spells = level >= 7
+    ? (QUICK_CREATE_P3_LEVEL7_SLOT_SPELLS_BY_CLASS[klass.key] ?? [])
+    : [];
+  const milestoneSpells = [...level7Spells, ...level5Spells];
   const slotSpells = Array.from(
     new Set([
-      ...QUICK_CREATE_MVP_LEVEL1_SPELLS.slice(0, Math.max(0, klass.startingSpellCount - level5Spells.length)),
-      ...level5Spells,
+      ...milestoneSpells,
+      ...QUICK_CREATE_MVP_LEVEL1_SPELLS.slice(
+        0,
+        Math.max(0, klass.startingSpellCount - milestoneSpells.length),
+      ),
       ...QUICK_CREATE_MVP_LEVEL1_SPELLS,
     ]),
   );
@@ -1912,6 +1930,8 @@ export function PlayPage({
   const [isGmItemCatalogLoading, setGmItemCatalogLoading] = useState(false);
   const [gmItemCatalogError, setGmItemCatalogError] = useState<string | null>(null);
   const [isGmInventoryGrantPending, setGmInventoryGrantPending] = useState(false);
+  const [isEconomyPending, setEconomyPending] = useState(false);
+  const [economyFeedback, setEconomyFeedback] = useState<string | null>(null);
   const [isGmMessagePending, setGmMessagePending] = useState(false);
   const [gmAiAssistSuggestions, setGmAiAssistSuggestions] =
     useState<HumanGmAiAssistSuggestionDto[]>([]);
@@ -1977,6 +1997,11 @@ export function PlayPage({
   const canManageStartedSession = Boolean(
     !isRecruiting && (isHumanGmSession ? isGmUser : isHost)
   );
+  const economyState =
+    snapshot?.state.flags?.economy &&
+    typeof snapshot.state.flags.economy === "object"
+      ? snapshot.state.flags.economy
+      : null;
   const canUseHumanGmView = Boolean(!isRecruiting && isHumanGmSession && isGmUser);
   const canShowCharacterSelection = Boolean(session && isRecruiting && !isGmUser);
   const canStartSession = Boolean(
@@ -3558,13 +3583,23 @@ export function PlayPage({
     setPendingMainCommandCheck(null);
   }
 
-  async function handleUseExplorationInventoryItem(item: InventoryItemDto) {
+  async function handleUseExplorationInventoryItem(
+    item: InventoryItemDto,
+    targetSessionCharacterId?: string | null,
+    targetParticipantId?: string | null,
+    point?: { x: number; y: number } | null
+  ) {
     if (busy || isInventoryUsePending || !session) return;
 
     setInventoryUseFeedback(null);
     setInventoryUsePending(true);
     try {
-      const result = await useInventoryItem(user, session.id, { itemId: item.id });
+      const result = await useInventoryItem(user, session.id, {
+        itemId: item.id,
+        ...(targetSessionCharacterId ? { targetSessionCharacterId } : {}),
+        ...(targetParticipantId ? { targetParticipantId } : {}),
+        ...(point ? { point } : {}),
+      });
       setInventoryUseFeedback(result.message);
     } catch (caught) {
       setInventoryUseFeedback(
@@ -3653,6 +3688,21 @@ export function PlayPage({
       );
     } finally {
       setGmInventoryGrantPending(false);
+    }
+  }
+
+  async function handleEconomyAction(payload: ApplySessionEconomyActionDto) {
+    if (!session || !canManageStartedSession || isEconomyPending) return;
+    setEconomyPending(true);
+    setEconomyFeedback(null);
+    try {
+      await applyHumanGmEconomyAction(user, session.id, payload);
+      setEconomyFeedback(`${payload.actionType} 처리가 완료되었습니다.`);
+      onAction(`경제 처리: ${payload.actionType}`);
+    } catch (caught) {
+      setEconomyFeedback(caught instanceof Error ? caught.message : "경제 처리에 실패했습니다.");
+    } finally {
+      setEconomyPending(false);
     }
   }
 
@@ -5108,6 +5158,15 @@ export function PlayPage({
                   <h1>메인화면</h1>
                 </div>
               )}
+              {canManageStartedSession ? (
+                <SessionEconomyPanel
+                  economy={economyState}
+                  characters={sessionCharacters}
+                  isBusy={isEconomyPending}
+                  feedback={economyFeedback}
+                  onApply={handleEconomyAction}
+                />
+              ) : null}
               {pendingCombatReaction ? (
                 <section className="session-combat-reaction-banner" aria-label="전투 반응 대기">
                   <div>

@@ -227,6 +227,30 @@ describe("RestResolutionService", () => {
     });
   });
 
+  it("recovers Wholeness of Body only on a long rest", () => {
+    const conditions = [
+      "resource:wholeness_of_body_expended",
+      "condition.poisoned",
+    ];
+
+    expect(
+      service.resolveRest({
+        restType: "short",
+        currentHp: 10,
+        maxHp: 20,
+        conditions,
+      }).conditions,
+    ).toEqual(conditions);
+    expect(
+      service.resolveRest({
+        restType: "long",
+        currentHp: 10,
+        maxHp: 20,
+        conditions,
+      }).conditions,
+    ).toEqual(["condition.poisoned"]);
+  });
+
   it("does not grant Second Wind on rest when the actor lacks that class resource", () => {
     expect(
       service.resolveRest({

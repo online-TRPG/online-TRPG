@@ -7,6 +7,10 @@ import {
   RuleRuntimeEffect,
   RuleTargeting,
 } from "./rule-catalog.types";
+import { P3_SPELL_DEFINITIONS } from "./p3-spell-definitions";
+import { P3_MONSTER_ABILITY_DEFINITIONS } from "./p3-monster-definitions";
+import { P4_SPELL_DEFINITIONS } from "./p4-spell-definitions";
+import { P4_MONSTER_ABILITY_DEFINITIONS } from "./p4-monster-definitions";
 
 type ClassFeatureSeed = {
   id: string;
@@ -208,6 +212,21 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
       "cost:exhaustion_after_rage",
     ],
   }, { type: "bonus_action" }, SELF_TARGETING),
+  subclassFeature("barbarian", "berserker", 6, "mindless_rage", {
+    type: "subclass_feature",
+    tags: [
+      "rage:immunity:charmed",
+      "rage:immunity:frightened",
+      "rage:suppress_existing:charmed",
+      "rage:suppress_existing:frightened",
+    ],
+    hookId: "hook.subclass.berserker.mindless_rage",
+  }),
+  subclassFeature("barbarian", "berserker", 10, "intimidating_presence", {
+    type: "subclass_feature",
+    tags: ["action:standard", "save:wis", "condition:frightened", "duration:until_end_next_turn"],
+    hookId: "hook.subclass.berserker.intimidating_presence",
+  }, { type: "action" }, { type: "creature", rangeFt: 30 }),
   subclassFeature("bard", "lore", 3, "bonus_proficiencies", {
     type: "subclass_feature",
     tags: ["proficiency:skill:choice_three"],
@@ -217,6 +236,11 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
     tags: ["action:reaction", "resource:bardic_inspiration", "debuff:attack_check_damage_roll"],
     resourceId: "resource.bard.bardic_inspiration",
   }, { type: "reaction" }, { type: "creature", rangeFt: 60 }),
+  subclassFeature("bard", "lore", 6, "additional_magical_secrets", {
+    type: "subclass_feature",
+    tags: ["spellcasting:magical_secrets", "spell_selection:any_class:2"],
+    hookId: "hook.subclass.lore.additional_magical_secrets",
+  }),
   subclassFeature("cleric", "life", 1, "bonus_proficiency", {
     type: "subclass_feature",
     tags: ["proficiency:armor:heavy"],
@@ -228,6 +252,20 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
   subclassFeature("cleric", "life", 2, "preserve_life", {
     type: "subclass_feature",
     tags: ["channel_divinity", "action:standard", "healing_pool:five_times_cleric_level"],
+  }),
+  subclassFeature("cleric", "life", 6, "blessed_healer", {
+    type: "subclass_feature",
+    tags: ["trigger:heal_other_with_spell", "self_healing:spell_level_plus_two"],
+    hookId: "hook.subclass.life.blessed_healer",
+  }),
+  subclassFeature("cleric", "life", 8, "divine_strike", {
+    type: "subclass_feature",
+    tags: ["trigger:once_per_turn_weapon_hit", "damage:extra:1d8", "damage:radiant"],
+    hookId: "hook.subclass.life.divine_strike",
+  }),
+  subclassFeature("cleric", "life", 9, "domain_spells_level_9", {
+    type: "subclass_feature",
+    tags: ["spellcasting:domain_spells", "spell_level:5", "spell:mass_cure_wounds", "spell:raise_dead"],
   }),
   subclassFeature("druid", "land", 2, "bonus_cantrip", {
     type: "subclass_feature",
@@ -245,6 +283,24 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
     type: "subclass_feature",
     tags: ["spellcasting:circle_spells", "spell_level:3"],
   }),
+  subclassFeature("druid", "land", 6, "lands_stride", {
+    type: "subclass_feature",
+    tags: [
+      "movement:ignore_nonmagical_difficult_terrain",
+      "movement:ignore_nonmagical_plants",
+      "advantage:save:magical_plants",
+    ],
+    hookId: "hook.subclass.land.lands_stride",
+  }),
+  subclassFeature("druid", "land", 9, "circle_spells_level_9", {
+    type: "subclass_feature",
+    tags: ["spellcasting:circle_spells", "spell_level:5"],
+  }),
+  subclassFeature("druid", "land", 10, "natures_ward", {
+    type: "subclass_feature",
+    tags: ["immunity:poisoned", "immunity:disease", "immunity:charmed_frightened_by_elemental_fey"],
+    hookId: "hook.subclass.land.natures_ward",
+  }),
   subclassFeature("fighter", "champion", 3, "improved_critical", {
     type: "subclass_feature",
     tags: [
@@ -253,9 +309,34 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
       "attack:weapon",
     ],
   }),
+  subclassFeature("fighter", "champion", 7, "remarkable_athlete", {
+    type: "subclass_feature",
+    tags: [
+      "ability_check:half_proficiency:untrained:str",
+      "ability_check:half_proficiency:untrained:dex",
+      "ability_check:half_proficiency:untrained:con",
+      "jump:running_long_bonus:str_mod",
+    ],
+    hookId: "hook.subclass.champion.remarkable_athlete",
+  }),
+  subclassFeature("fighter", "champion", 10, "additional_fighting_style", {
+    type: "subclass_feature",
+    tags: ["selection:fighting_style:additional"],
+  }),
   subclassFeature("monk", "open_hand", 3, "open_hand_technique", {
     type: "subclass_feature",
     tags: ["flurry_of_blows:rider", "save:dex_prone", "save:str_push_15", "reaction:block"],
+  }),
+  subclassFeature("monk", "open_hand", 6, "wholeness_of_body", {
+    type: "subclass_feature",
+    tags: ["action:standard", "healing:self:three_times_monk_level", "rest:long"],
+    resourceId: "resource.monk.wholeness_of_body",
+    hookId: "hook.subclass.open_hand.wholeness_of_body",
+  }, { type: "action" }, SELF_TARGETING),
+  subclassFeature("monk", "open_hand", 11, "tranquility", {
+    type: "subclass_feature",
+    tags: ["rest:long", "spell:sanctuary:self", "ends:on_attack_or_harmful_spell"],
+    hookId: "hook.subclass.open_hand.tranquility",
   }),
   subclassFeature("paladin", "devotion", 3, "sacred_weapon", {
     type: "subclass_feature",
@@ -267,9 +348,33 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
     tags: ["channel_divinity", "action:standard", "save:wis", "condition:turned", "target:fiend_undead"],
     resourceId: "resource.paladin.channel_divinity",
   }, { type: "action" }, { type: "area", shape: "sphere", sizeFt: 30 }),
+  subclassFeature("paladin", "devotion", 7, "aura_of_devotion", {
+    type: "subclass_feature",
+    tags: ["aura:10", "immunity:charmed", "requires:conscious"],
+    hookId: "hook.subclass.devotion.aura_of_devotion",
+  }),
+  subclassFeature("paladin", "devotion", 9, "oath_spells_level_9", {
+    type: "subclass_feature",
+    tags: ["spellcasting:oath_spells", "spell_level:3", "spell:beacon_of_hope", "spell:dispel_magic"],
+  }),
   subclassFeature("ranger", "hunter", 3, "hunters_prey", {
     type: "subclass_feature",
     tags: ["selection:hunters_prey", "option:colossus_slayer", "option:giant_killer", "option:horde_breaker"],
+  }),
+  subclassFeature("ranger", "hunter", 7, "defensive_tactics", {
+    type: "subclass_feature",
+    tags: [
+      "selection:defensive_tactics",
+      "option:escape_the_horde",
+      "option:multiattack_defense",
+      "option:steel_will",
+    ],
+    hookId: "hook.subclass.hunter.defensive_tactics",
+  }),
+  subclassFeature("ranger", "hunter", 11, "multiattack", {
+    type: "subclass_feature",
+    tags: ["selection:multiattack", "option:volley", "option:whirlwind_attack"],
+    hookId: "hook.subclass.hunter.multiattack",
   }),
   subclassFeature("rogue", "thief", 3, "fast_hands", {
     type: "subclass_feature",
@@ -279,6 +384,11 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
     type: "subclass_feature",
     tags: ["climb_speed:normal", "jump_bonus:dex_mod"],
   }),
+  subclassFeature("rogue", "thief", 9, "supreme_sneak", {
+    type: "subclass_feature",
+    tags: ["advantage:stealth_if_half_speed"],
+    hookId: "hook.subclass.thief.supreme_sneak",
+  }),
   subclassFeature("sorcerer", "draconic_bloodline", 1, "dragon_ancestor", {
     type: "subclass_feature",
     tags: ["selection:dragon_ancestor", "language:draconic"],
@@ -286,6 +396,17 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
   subclassFeature("sorcerer", "draconic_bloodline", 1, "draconic_resilience", {
     type: "subclass_feature",
     tags: ["hp_bonus:per_sorcerer_level:+1", "armor_class:13_plus_dex_unarmored"],
+  }),
+  subclassFeature("sorcerer", "draconic_bloodline", 6, "elemental_affinity", {
+    type: "subclass_feature",
+    tags: [
+      "trigger:spell_damage_matching_ancestry",
+      "damage_bonus:cha_mod:once_per_cast",
+      "resource:sorcery_points:1",
+      "resistance:ancestry_damage_type:1_hour",
+    ],
+    resourceId: "resource.sorcerer.sorcery_points",
+    hookId: "hook.subclass.draconic.elemental_affinity",
   }),
   subclassFeature("warlock", "fiend", 1, "expanded_spell_list", {
     type: "subclass_feature",
@@ -295,6 +416,17 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
     type: "subclass_feature",
     tags: ["trigger:reduce_hostile_to_zero_hp", "temporary_hp:cha_mod_plus_warlock_level"],
   }),
+  subclassFeature("warlock", "fiend", 6, "dark_ones_own_luck", {
+    type: "subclass_feature",
+    tags: ["trigger:ability_check_or_save", "roll_bonus:1d10", "rest:short"],
+    resourceId: "resource.warlock.dark_ones_own_luck",
+    hookId: "hook.subclass.fiend.dark_ones_own_luck",
+  }),
+  subclassFeature("warlock", "fiend", 10, "fiendish_resilience", {
+    type: "subclass_feature",
+    tags: ["rest:short_or_long", "selection:damage_resistance:one_type", "excludes:silvered_magical_weapons"],
+    hookId: "hook.subclass.fiend.fiendish_resilience",
+  }),
   subclassFeature("wizard", "evocation", 2, "evocation_savant", {
     type: "subclass_feature",
     tags: ["spellbook:copy_cost_half", "school:evocation"],
@@ -302,6 +434,16 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
   subclassFeature("wizard", "evocation", 2, "sculpt_spells", {
     type: "subclass_feature",
     tags: ["evocation:protect_allies", "save:auto_success", "damage:none_on_success"],
+  }),
+  subclassFeature("wizard", "evocation", 6, "potent_cantrip", {
+    type: "subclass_feature",
+    tags: ["trigger:cantrip_save_success", "damage:half_on_success"],
+    hookId: "hook.subclass.evocation.potent_cantrip",
+  }),
+  subclassFeature("wizard", "evocation", 10, "empowered_evocation", {
+    type: "subclass_feature",
+    tags: ["trigger:evocation_spell_damage", "damage_bonus:int_mod:once_per_spell"],
+    hookId: "hook.subclass.evocation.empowered_evocation",
   }),
 ];
 
@@ -577,6 +719,63 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     }),
   ),
 
+  ...[
+    "barbarian",
+    "bard",
+    "cleric",
+    "druid",
+    "fighter",
+    "monk",
+    "paladin",
+    "ranger",
+    "rogue",
+    "sorcerer",
+    "warlock",
+    "wizard",
+  ].map((classKey) =>
+    classFeature(classKey, 8, "ability_score_improvement_8", {
+      type: "resolver_pending",
+      tags: [
+        "selection:ability_score_improvement",
+        "ability_points:2",
+        "feature:ability_score_improvement",
+      ],
+    }),
+  ),
+
+  ...[
+    "barbarian",
+    "bard",
+    "cleric",
+    "druid",
+    "fighter",
+    "monk",
+    "paladin",
+    "ranger",
+    "rogue",
+    "sorcerer",
+    "warlock",
+    "wizard",
+  ].map((classKey) =>
+    classFeature(classKey, 12, "ability_score_improvement_12", {
+      type: "resolver_pending",
+      tags: [
+        "selection:ability_score_improvement",
+        "ability_points:2",
+        "feature:ability_score_improvement",
+      ],
+    }),
+  ),
+
+  classFeature("fighter", 6, "ability_score_improvement_6", {
+    type: "resolver_pending",
+    tags: [
+      "selection:ability_score_improvement",
+      "ability_points:2",
+      "feature:ability_score_improvement",
+    ],
+  }),
+
   classFeature("barbarian", 5, "extra_attack", {
     type: "grant_passive",
     tags: ["attack_action:attacks:2"],
@@ -631,6 +830,182 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     type: "grant_action",
     tags: ["action:reaction", "trigger:attacker_seen", "damage:half"],
   }, { type: "reaction" }, SELF_TARGETING),
+  classFeature("barbarian", 7, "feral_instinct", {
+    type: "grant_passive",
+    tags: ["initiative:advantage", "surprised:act_if_rage_first"],
+    hookId: "hook.class.barbarian.feral_instinct",
+  }),
+  classFeature("bard", 6, "countercharm", {
+    type: "grant_action",
+    tags: ["action:standard", "aura:30", "advantage:save:frightened", "advantage:save:charmed"],
+    hookId: "hook.class.bard.countercharm",
+  }, { type: "action" }, SELF_TARGETING),
+  classFeature("cleric", 6, "channel_divinity_uses_2", {
+    type: "modify_stat",
+    tags: ["resource:channel_divinity:max:2", "rest:short"],
+    resourceId: "resource.cleric.channel_divinity",
+  }),
+  classFeature("cleric", 8, "destroy_undead_cr_1", {
+    type: "grant_passive",
+    tags: ["channel_divinity:turn_undead", "destroy_undead:cr:1"],
+  }),
+  classFeature("druid", 8, "wild_shape_improvement_cr_1", {
+    type: "modify_stat",
+    tags: ["wild_shape:max_cr:1", "wild_shape:swim_speed_allowed"],
+  }),
+  classFeature("monk", 6, "ki_empowered_strikes", {
+    type: "grant_passive",
+    tags: ["unarmed_strike:magical_for_resistance"],
+    hookId: "hook.class.monk.ki_empowered_strikes",
+  }),
+  classFeature("monk", 7, "evasion", {
+    type: "grant_passive",
+    tags: ["save:dex:success_no_damage", "save:dex:failure_half_damage"],
+    hookId: "hook.class.evasion",
+  }),
+  classFeature("monk", 7, "stillness_of_mind", {
+    type: "grant_action",
+    tags: ["action:standard", "remove:charmed", "remove:frightened"],
+    hookId: "hook.class.monk.stillness_of_mind",
+  }, { type: "action" }, SELF_TARGETING),
+  classFeature("paladin", 6, "aura_of_protection", {
+    type: "grant_passive",
+    tags: ["aura:10", "saving_throw_bonus:cha_mod", "requires:conscious"],
+    hookId: "hook.class.paladin.aura_of_protection",
+  }),
+  classFeature("ranger", 6, "favored_enemy_improvement", {
+    type: "grant_passive",
+    tags: ["selection:favored_enemy:additional", "language:choice_one"],
+  }),
+  classFeature("ranger", 6, "natural_explorer_improvement", {
+    type: "grant_passive",
+    tags: ["selection:favored_terrain:additional"],
+  }),
+  classFeature("ranger", 8, "lands_stride", {
+    type: "grant_passive",
+    tags: [
+      "movement:ignore_nonmagical_difficult_terrain",
+      "movement:ignore_nonmagical_plants",
+      "advantage:save:magical_plants",
+    ],
+    hookId: "hook.class.ranger.lands_stride",
+  }),
+  classFeature("rogue", 6, "expertise_improvement", {
+    type: "resolver_pending",
+    tags: ["skill:expertise", "selection:two_proficiencies"],
+  }),
+  classFeature("rogue", 7, "evasion", {
+    type: "grant_passive",
+    tags: ["save:dex:success_no_damage", "save:dex:failure_half_damage"],
+    hookId: "hook.class.evasion",
+  }),
+  classFeature("barbarian", 9, "brutal_critical", {
+    type: "grant_passive",
+    tags: ["critical:extra_weapon_damage_die:1"],
+    hookId: "hook.class.barbarian.brutal_critical",
+  }),
+  classFeature("barbarian", 9, "rage_damage_3", {
+    type: "modify_stat",
+    tags: ["rage:damage_bonus:+3"],
+  }),
+  classFeature("barbarian", 11, "relentless_rage", {
+    type: "grant_passive",
+    tags: ["trigger:drop_to_zero_hp", "save:con", "dc:10_scaling_each_use", "remain_at_1_hp"],
+    hookId: "hook.class.barbarian.relentless_rage",
+  }),
+  classFeature("bard", 9, "song_of_rest_d8", {
+    type: "modify_stat",
+    tags: ["song_of_rest:die:1d8"],
+  }),
+  classFeature("bard", 10, "bardic_inspiration_d10", {
+    type: "modify_stat",
+    tags: ["bardic_inspiration:die:1d10"],
+  }),
+  classFeature("bard", 10, "expertise_10", {
+    type: "resolver_pending",
+    tags: ["skill:expertise", "selection:two_proficiencies"],
+  }),
+  classFeature("bard", 10, "magical_secrets", {
+    type: "resolver_pending",
+    tags: ["spellcasting:magical_secrets", "spell_selection:any_class:2"],
+  }),
+  classFeature("cleric", 10, "divine_intervention", {
+    type: "grant_action",
+    tags: ["action:standard", "roll:d100", "success:cleric_level_or_lower", "cooldown:long_rest_or_7_days"],
+    resourceId: "resource.cleric.divine_intervention",
+    hookId: "hook.class.cleric.divine_intervention",
+  }, { type: "action" }, SELF_TARGETING),
+  classFeature("cleric", 11, "destroy_undead_cr_2", {
+    type: "grant_passive",
+    tags: ["channel_divinity:turn_undead", "destroy_undead:cr:2"],
+  }),
+  classFeature("druid", 10, "wild_shape_uses_stable", {
+    type: "modify_stat",
+    tags: ["resource:wild_shape:max:2", "rest:short"],
+    resourceId: "resource.druid.wild_shape",
+  }),
+  classFeature("fighter", 9, "indomitable", {
+    type: "grant_action",
+    tags: ["trigger:failed_saving_throw", "reroll:save", "rest:long"],
+    resourceId: "resource.fighter.indomitable",
+    hookId: "hook.class.fighter.indomitable",
+  }, { type: "reaction" }, SELF_TARGETING, "reaction"),
+  classFeature("fighter", 11, "extra_attack_2", {
+    type: "grant_passive",
+    tags: ["attack_action:attacks:3"],
+  }),
+  classFeature("monk", 9, "unarmored_movement_improvement", {
+    type: "modify_stat",
+    tags: ["movement:vertical_surfaces", "movement:across_liquids", "requires:move_not_end_there"],
+    hookId: "hook.class.monk.unarmored_movement_improvement",
+  }),
+  classFeature("monk", 10, "purity_of_body", {
+    type: "grant_passive",
+    tags: ["immunity:disease", "immunity:poisoned", "immunity:poison_damage"],
+    hookId: "hook.class.monk.purity_of_body",
+  }),
+  classFeature("monk", 11, "martial_arts_d8", {
+    type: "modify_stat",
+    tags: ["unarmed:martial_arts_die:1d8"],
+  }),
+  classFeature("paladin", 10, "aura_of_courage", {
+    type: "grant_passive",
+    tags: ["aura:10", "immunity:frightened", "requires:conscious"],
+    hookId: "hook.class.paladin.aura_of_courage",
+  }),
+  classFeature("paladin", 11, "improved_divine_smite", {
+    type: "grant_passive",
+    tags: ["trigger:melee_weapon_hit", "damage:extra:1d8", "damage:radiant"],
+    hookId: "hook.class.paladin.improved_divine_smite",
+  }),
+  classFeature("ranger", 10, "hide_in_plain_sight", {
+    type: "grant_action",
+    tags: ["downtime:1_minute", "stealth_bonus:+10", "ends:on_move_or_action"],
+    hookId: "hook.class.ranger.hide_in_plain_sight",
+  }, { type: "action" }, SELF_TARGETING),
+  classFeature("rogue", 11, "reliable_talent", {
+    type: "grant_passive",
+    tags: ["ability_check:proficient:min_d20:10"],
+    hookId: "hook.class.rogue.reliable_talent",
+  }),
+  classFeature("sorcerer", 10, "metamagic_improvement", {
+    type: "resolver_pending",
+    tags: ["selection:metamagic:additional"],
+  }),
+  classFeature("sorcerer", 10, "sorcery_points_10", {
+    type: "modify_stat",
+    tags: ["resource:sorcery_points:max:10", "rest:long"],
+    resourceId: "resource.sorcerer.sorcery_points",
+  }),
+  classFeature("warlock", 11, "mystic_arcanum_6", {
+    type: "spellcasting",
+    tags: ["spellcasting:mystic_arcanum", "spell_level:6", "uses:1", "rest:long"],
+    resourceId: "resource.warlock.mystic_arcanum_6",
+  }),
+  classFeature("wizard", 10, "arcane_tradition_feature_10", {
+    type: "resolver_pending",
+    tags: ["subclass:feature_level_10"],
+  }),
 ];
 
 const CONDITION_DEFINITIONS: RuleCatalogEntry[] = [
@@ -668,6 +1043,22 @@ const TERRAIN_EFFECT_DEFINITIONS: RuleCatalogEntry[] = [
     "damage:poison",
     "condition:poisoned",
     "condition_ends:on_exit",
+  ]),
+  terrainEffect("terrain.flaming_sphere", [
+    "trigger:on_enter",
+    "trigger:on_turn_start",
+    "save:dex",
+    "damage:fire",
+    "damage_over_time:fire:2d6",
+    "half_damage_on_success",
+  ]),
+  terrainEffect("terrain.wall_of_fire", [
+    "trigger:on_enter",
+    "trigger:on_turn_end",
+    "save:dex",
+    "damage:fire",
+    "damage_over_time:fire:5d8",
+    "half_damage_on_success",
   ]),
 ];
 
@@ -1734,7 +2125,11 @@ export class RuleCatalogService {
       ...CONDITION_DEFINITIONS,
       ...TERRAIN_EFFECT_DEFINITIONS,
       ...SPELL_DEFINITIONS,
+      ...P3_SPELL_DEFINITIONS,
+      ...P4_SPELL_DEFINITIONS,
       ...MONSTER_ABILITY_DEFINITIONS,
+      ...P3_MONSTER_ABILITY_DEFINITIONS,
+      ...P4_MONSTER_ABILITY_DEFINITIONS,
     ]) {
       if (this.entries.has(entry.id)) {
         throw new Error(`Duplicate rule catalog id: ${entry.id}`);
@@ -1916,7 +2311,6 @@ export class RuleCatalogService {
     return Array.from(
       new Set(
         this.listMonsterAbilities(monsterId)
-          .filter((entry) => entry.cost.type === "none")
           .flatMap((entry) => entry.runtimeEffect.tags),
       ),
     );

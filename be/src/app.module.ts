@@ -22,6 +22,7 @@ import { UsersModule } from "./modules/users/users.module";
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: getRuntimeEnvFilePaths(),
+      ignoreEnvFile: process.env.TRPG_E2E === "1",
     }),
     DatabaseModule,
     UsersModule,

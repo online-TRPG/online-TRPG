@@ -136,7 +136,11 @@ export class LevelUpService {
         targetLevel,
         input.subclassChoiceLevel,
       ),
-      asiOrFeatChoiceRequiredAtLevels: this.resolveAsiLevels(currentLevel, targetLevel),
+      asiOrFeatChoiceRequiredAtLevels: this.resolveAsiLevels(
+        classKey,
+        currentLevel,
+        targetLevel,
+      ),
     };
   }
 
@@ -212,10 +216,14 @@ export class LevelUpService {
     return level > currentLevel && level <= targetLevel ? [level] : [];
   }
 
-  private resolveAsiLevels(currentLevel: number, targetLevel: number): number[] {
+  private resolveAsiLevels(
+    classKey: string,
+    currentLevel: number,
+    targetLevel: number,
+  ): number[] {
     const levels: number[] = [];
     for (let level = currentLevel + 1; level <= targetLevel; level += 1) {
-      if (ASI_OR_FEAT_LEVELS.has(level)) {
+      if (ASI_OR_FEAT_LEVELS.has(level) || (classKey === "fighter" && level === 6)) {
         levels.push(level);
       }
     }

@@ -101,3 +101,55 @@ describe("AiService HUMAN GM assist suggestions", () => {
     );
   });
 });
+
+describe("AiService quality metrics", () => {
+  it("calculates timeout and fallback rates from persisted AiTrace rows", async () => {
+    const prisma = {
+      aiTrace: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            kind: AiTraceKind.INTERPRETER,
+            status: AiTraceStatus.SUCCESS,
+            latencyMs: 100,
+            failureType: null,
+            responseJson: JSON.stringify({ fallback: false }),
+          },
+          {
+            kind: AiTraceKind.INTERPRETER,
+            status: AiTraceStatus.TIMEOUT,
+            latencyMs: 30000,
+            failureType: "timeout",
+            responseJson: null,
+          },
+          {
+            kind: AiTraceKind.NARRATION,
+            status: AiTraceStatus.ERROR,
+            latencyMs: 500,
+            failureType: "be_default_fallback",
+            responseJson: JSON.stringify({ fallback: true }),
+          },
+        ]),
+      },
+    };
+    const sessionsService = {
+      ensureMembership: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new AiService(
+      prisma as never,
+      sessionsService as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(service.getQualityMetrics("user-1", "session-1")).resolves.toMatchObject({
+      totalTraces: 3,
+      interpreterTimeoutRate: 0.5,
+      narratorTimeoutRate: 0,
+      fallbackRate: 0.3333,
+      interpreterTimeoutTargetMet: false,
+      narratorTimeoutTargetMet: true,
+      fallbackTargetMet: false,
+    });
+  });
+});

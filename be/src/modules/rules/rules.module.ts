@@ -13,6 +13,8 @@ import { ConditionRuntimeService } from "./condition-runtime.service";
 import { CoverPositionService } from "./cover-position.service";
 import { DiceController } from "./dice.controller";
 import { DiceService } from "./dice.service";
+import { EconomyStateRuntimeService } from "./economy-state-runtime.service";
+import { EconomyRuntimeService } from "./economy-runtime.service";
 import { ForcedMovementService } from "./forced-movement.service";
 import { GmOverrideService } from "./gm-override.service";
 import { ItemInteractionService } from "./item-interaction.service";
@@ -44,6 +46,8 @@ import { TerrainEffectService } from "./terrain-effect.service";
     ConditionRuntimeService,
     CoverPositionService,
     DiceService,
+    EconomyStateRuntimeService,
+    EconomyRuntimeService,
     ForcedMovementService,
     GmOverrideService,
     ItemInteractionService,
@@ -72,6 +76,8 @@ import { TerrainEffectService } from "./terrain-effect.service";
     ConditionRuntimeService,
     CoverPositionService,
     DiceService,
+    EconomyStateRuntimeService,
+    EconomyRuntimeService,
     ForcedMovementService,
     GmOverrideService,
     ItemInteractionService,

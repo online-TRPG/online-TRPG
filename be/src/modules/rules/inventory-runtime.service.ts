@@ -10,6 +10,7 @@ import { badRequest, notFound } from "../../common/exceptions/domain-error";
 import { PrismaService } from "../../database/prisma.service";
 import { RuleEngineService } from "./rule-engine.service";
 import { BagOfHoldingIntegrity } from "./rule-engine.types";
+import { getExecutableItemDefinition } from "./p3-item-manifest";
 
 type InventoryDbClient = Pick<
   Prisma.TransactionClient,
@@ -69,6 +70,24 @@ export class InventoryRuntimeService {
             data: { quantity: { increment: quantity } },
           })
         : await tx.inventoryEntry.create({ data });
+
+      const containerCapacity = this.resolveContainerCapacity(
+        itemDefinition.id,
+      );
+      if (containerCapacity) {
+        await tx.containerState.upsert({
+          where: { inventoryEntryId: entry.id },
+          update: {
+            maxWeightLb: containerCapacity.maxWeightLb,
+            maxVolumeCuFt: containerCapacity.maxVolumeCuFt,
+          },
+          create: {
+            inventoryEntryId: entry.id,
+            maxWeightLb: containerCapacity.maxWeightLb,
+            maxVolumeCuFt: containerCapacity.maxVolumeCuFt,
+          },
+        });
+      }
 
       if (params.containerEntryId) {
         await this.recalculateContainerStateWithClient(tx, params.containerEntryId);
@@ -385,6 +404,38 @@ export class InventoryRuntimeService {
 
   private calculateItemVolume(itemDefinition: ItemDefinition, quantity: number): number {
     return (itemDefinition.volumeCuFt ?? 0) * quantity;
+  }
+
+  private resolveContainerCapacity(
+    itemDefinitionId: string,
+  ): { maxWeightLb: number; maxVolumeCuFt: number } | null {
+    const definition = getExecutableItemDefinition(itemDefinitionId);
+    if (definition?.effect.type !== "utility") {
+      return null;
+    }
+    const weight = Number(
+      definition.effect.tags
+        .find((tag) => tag.startsWith("container:max_weight_lb:"))
+        ?.slice("container:max_weight_lb:".length) ??
+        definition.effect.tags
+          .find((tag) => tag.startsWith("capacity_lb:"))
+          ?.slice("capacity_lb:".length),
+    );
+    const volume = Number(
+      definition.effect.tags
+        .find((tag) => tag.startsWith("container:max_volume_cuft:"))
+        ?.slice("container:max_volume_cuft:".length),
+    );
+    if (!Number.isFinite(weight) || weight <= 0) {
+      return null;
+    }
+    return {
+      maxWeightLb: weight,
+      maxVolumeCuFt:
+        Number.isFinite(volume) && volume > 0
+          ? volume
+          : Math.max(weight / 10, 1),
+    };
   }
 
   private async updateSessionInventorySnapshot(sessionCharacterId: string): Promise<void> {

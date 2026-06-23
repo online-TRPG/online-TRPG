@@ -50,4 +50,48 @@ describe("CombatMovementService", () => {
 
     expect(distance).toBe(5);
   });
+
+  it("lets Land's Stride ignore nonmagical difficult terrain movement cost", () => {
+    const map = {
+      ...createMap(),
+      terrainCells: [
+        {
+          id: "difficult-ground",
+          terrainEffectId: "terrain.difficult",
+          x: 50,
+          y: 0,
+          width: 50,
+          height: 50,
+        },
+      ],
+    };
+    const token = {
+      id: "ranger",
+      name: "Ranger",
+      x: 0,
+      y: 0,
+      size: 50,
+      hidden: false,
+    };
+    const path = [
+      { x: 0, y: 0 },
+      { x: 50, y: 0 },
+    ];
+
+    expect(
+      service.calculateTerrainAdjustedMovementCostFt(
+        map as never,
+        token as never,
+        path,
+      ),
+    ).toBe(10);
+    expect(
+      service.calculateTerrainAdjustedMovementCostFt(
+        map as never,
+        token as never,
+        path,
+        { ignoreNonmagicalDifficultTerrain: true },
+      ),
+    ).toBe(5);
+  });
 });

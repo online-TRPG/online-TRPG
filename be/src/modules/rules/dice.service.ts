@@ -15,8 +15,7 @@ import { SessionsService } from "../sessions/sessions.service";
 const supportedDice = new Set([4, 6, 8, 10, 12, 20, 100]);
 
 type ParsedDiceExpression = {
-  count: number;
-  sides: number;
+  terms: Array<{ count: number; sides: number }>;
   modifier: number;
 };
 
@@ -35,7 +34,11 @@ export class DiceService {
     const parsed = this.parseExpression(expression);
     const normalizedAdvantage = this.normalizeAdvantage(advantageState);
 
-    if (normalizedAdvantage !== DiceAdvantageState.NORMAL && parsed.sides !== 20) {
+    const advantageTerm = parsed.terms.length === 1 ? parsed.terms[0] : null;
+    if (
+      normalizedAdvantage !== DiceAdvantageState.NORMAL &&
+      (!advantageTerm || advantageTerm.count !== 1 || advantageTerm.sides !== 20)
+    ) {
       throw badRequest("DICE_400", "advantage/disadvantage는 d20 판정에만 사용할 수 있습니다.", {
         reason: "ADVANTAGE_REQUIRES_D20",
       });
@@ -43,8 +46,8 @@ export class DiceService {
 
     const rolls =
       normalizedAdvantage === DiceAdvantageState.NORMAL
-        ? this.rollMany(parsed.count, parsed.sides)
-        : this.rollMany(2, parsed.sides);
+        ? parsed.terms.flatMap((term) => this.rollMany(term.count, term.sides))
+        : this.rollMany(2, 20);
     const selectedRolls =
       normalizedAdvantage === DiceAdvantageState.ADVANTAGE
         ? [Math.max(...rolls)]
@@ -122,30 +125,37 @@ export class DiceService {
 
   private parseExpression(expression: string): ParsedDiceExpression {
     const normalized = expression.replace(/\s+/g, "").toLowerCase();
-    const match = normalized.match(/^(\d*)d(\d+)([+-]\d+)?$/);
+    const match = normalized.match(/^((?:\d*d\d+\+)*\d*d\d+)([+-]\d+)?$/);
     if (!match) {
       throw badRequest("DICE_400", "주사위 수식이 올바르지 않습니다.", {
         reason: "INVALID_DICE_EXPRESSION",
       });
     }
 
-    const count = match[1] ? Number(match[1]) : 1;
-    const sides = Number(match[2]);
-    const modifier = match[3] ? Number(match[3]) : 0;
-
-    if (!Number.isInteger(count) || count < 1 || count > 100) {
+    const terms = match[1].split("+").map((term) => {
+      const termMatch = term.match(/^(\d*)d(\d+)$/);
+      const count = termMatch?.[1] ? Number(termMatch[1]) : 1;
+      const sides = Number(termMatch?.[2]);
+      if (!Number.isInteger(count) || count < 1 || count > 100) {
+        throw badRequest("DICE_400", "주사위 개수가 올바르지 않습니다.", {
+          reason: "INVALID_DICE_COUNT",
+        });
+      }
+      if (!supportedDice.has(sides)) {
+        throw badRequest("DICE_400", "지원하지 않는 주사위입니다.", {
+          reason: "UNSUPPORTED_DICE_SIDES",
+        });
+      }
+      return { count, sides };
+    });
+    const totalDice = terms.reduce((sum, term) => sum + term.count, 0);
+    if (totalDice > 100) {
       throw badRequest("DICE_400", "주사위 개수가 올바르지 않습니다.", {
         reason: "INVALID_DICE_COUNT",
       });
     }
-
-    if (!supportedDice.has(sides)) {
-      throw badRequest("DICE_400", "지원하지 않는 주사위입니다.", {
-        reason: "UNSUPPORTED_DICE_SIDES",
-      });
-    }
-
-    return { count, sides, modifier };
+    const modifier = match[2] ? Number(match[2]) : 0;
+    return { terms, modifier };
   }
 
   private rollMany(count: number, sides: number): number[] {
@@ -159,7 +169,10 @@ export class DiceService {
         : parsed.modifier < 0
           ? String(parsed.modifier)
           : "";
-    return `${parsed.count}d${parsed.sides}${modifier}`;
+    const dice = parsed.terms
+      .map((term) => `${term.count}d${term.sides}`)
+      .join("+");
+    return `${dice}${modifier}`;
   }
 
   private normalizeAdvantage(value: DiceAdvantageState): DiceAdvantageState {

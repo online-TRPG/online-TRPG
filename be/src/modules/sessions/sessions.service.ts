@@ -32,6 +32,7 @@ import {
   CombatStatus,
   ConnectionStatus,
   ActionOutcome,
+  ApplySessionEconomyActionDto,
   CreateHumanGmAiAssistSuggestionDto,
   CreateSessionDto,
   CreateVttMapPingDto,
@@ -97,6 +98,9 @@ import { RealtimeEventsService } from "../realtime/realtime-events.service";
 import { GmOverrideKind, GmOverrideService } from "../rules/gm-override.service";
 import { ConcentrationRuntimeService } from "../rules/concentration-runtime.service";
 import { ConditionRuntimeService } from "../rules/condition-runtime.service";
+import { EconomyRuntimeService, EconomyState } from "../rules/economy-runtime.service";
+import { EconomyStateRuntimeService } from "../rules/economy-state-runtime.service";
+import { getExecutableItemDefinition } from "../rules/p3-item-manifest";
 import { ScenariosService } from "../scenarios/scenarios.service";
 import { UsersService } from "../users/users.service";
 import { getRestApprovalCutoff, getRestApprovalExpiresAt } from "../actions/rest-approval-policy";
@@ -166,6 +170,7 @@ export class SessionsService {
   private readonly gmOverrideService = new GmOverrideService();
   private readonly conditionRuntime = new ConditionRuntimeService();
   private readonly concentrationRuntime = new ConcentrationRuntimeService();
+  private readonly economyRuntime = new EconomyRuntimeService();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -319,7 +324,11 @@ export class SessionsService {
           version: 1,
           currentNodeId: startNodeId,
           phase: PrismaGamePhase.LOBBY,
-          flagsJson: JSON.stringify({}),
+          flagsJson: JSON.stringify({
+            p3ScenarioRevisionSnapshot: this.buildP3ScenarioRevisionSnapshotFlag(
+              scenario,
+            ),
+          }),
         },
       });
 
@@ -1628,6 +1637,259 @@ export class SessionsService {
     return this.humanGmRuntime.removeHumanGmInventoryItem(this.createHumanGmRuntime(), userId, sessionId, dto);
   }
 
+  async applyHumanGmEconomyAction(
+    userId: string,
+    sessionId: string,
+    dto: ApplySessionEconomyActionDto,
+  ): Promise<SessionSnapshotDto> {
+    const session = await this.getGmEconomySessionForOperator(userId, sessionId);
+    if (session.status === PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("Started sessions are required for economy actions.");
+    }
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(session.id);
+    const stateRuntime = new EconomyStateRuntimeService(this.prisma);
+    const gameState = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: activeScenario.id },
+      select: { flagsJson: true },
+    });
+    const baseState = this.ensureEconomyState(stateRuntime.readEconomyStateFromFlags(gameState?.flagsJson));
+    const state = this.prepareEconomyStateForAction(baseState, dto);
+    const result = this.resolveEconomyAction(state, dto);
+    if (!result.accepted) {
+      throw new BadRequestException(`Economy action rejected: ${result.reason}.`);
+    }
+
+    const applied = await stateRuntime.applyResolution({
+      sessionId: session.id,
+      sessionScenarioId: activeScenario.id,
+      resolution: result,
+      actorUserId: userId,
+      sessionCharacterId: dto.sessionCharacterId ?? result.auditEvent.sessionCharacterId ?? null,
+      rawInput: `/economy ${dto.actionType}`,
+      reason: `economy:${dto.actionType}`,
+    });
+
+    if (
+      result.auditEvent.type === "party_stash_distributed" &&
+      result.auditEvent.sessionCharacterId &&
+      result.auditEvent.itemDefinitionId &&
+      result.auditEvent.quantity
+    ) {
+      await this.prisma.$transaction(async (tx) => {
+        await this.grantSessionInventoryItem(tx, {
+          sessionCharacterId: result.auditEvent.sessionCharacterId as string,
+          itemDefinitionId: result.auditEvent.itemDefinitionId as string,
+          quantity: result.auditEvent.quantity as number,
+        });
+        await this.refreshSessionInventorySnapshot(result.auditEvent.sessionCharacterId as string, tx);
+      });
+      const updatedCharacter = await this.prisma.sessionCharacter.findUnique({
+        where: { id: result.auditEvent.sessionCharacterId },
+        include: {
+          character: true,
+          inventoryEntries: {
+            include: { itemDefinition: true },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      });
+      if (updatedCharacter) {
+        this.realtimeEvents.emitCharacterUpdated(session.id, mapSessionCharacter(updatedCharacter));
+      }
+    }
+
+    this.realtimeEvents.emitTurnLogCreated(session.id, applied.turnLog);
+    this.realtimeEvents.emitStateDiffApplied(session.id, applied.stateDiff);
+    const snapshot = await this.buildSnapshot(session.id);
+    this.realtimeEvents.emitSessionSnapshot(session.id, snapshot);
+    return snapshot;
+  }
+
+  private ensureEconomyState(state: EconomyState | null): EconomyState {
+    return state ?? {
+      partyStash: [],
+      walletsBySessionCharacterId: {},
+      shopStatesById: {},
+      craftingProgressById: {},
+    };
+  }
+
+  private prepareEconomyStateForAction(
+    state: EconomyState,
+    dto: ApplySessionEconomyActionDto,
+  ): EconomyState {
+    const next: EconomyState = {
+      partyStash: state.partyStash.map((item) => ({ ...item })),
+      walletsBySessionCharacterId: Object.fromEntries(
+        Object.entries(state.walletsBySessionCharacterId).map(([key, wallet]) => [key, { ...wallet }]),
+      ),
+      shopStatesById: Object.fromEntries(
+        Object.entries(state.shopStatesById).map(([shopId, shop]) => [
+          shopId,
+          { ...shop, inventory: shop.inventory.map((item) => ({ ...item })) },
+        ]),
+      ),
+      craftingProgressById: Object.fromEntries(
+        Object.entries(state.craftingProgressById).map(([key, progress]) => [key, { ...progress }]),
+      ),
+    };
+    const sessionCharacterId = dto.sessionCharacterId?.trim();
+    if (sessionCharacterId && dto.currency && dto.actionType !== "grant_reward") {
+      next.walletsBySessionCharacterId[sessionCharacterId] = {
+        ...(next.walletsBySessionCharacterId[sessionCharacterId] ?? {}),
+        ...this.normalizeEconomyWallet(dto.currency),
+      };
+    }
+    if (dto.actionType === "purchase" && dto.shopId && dto.itemDefinitionId && dto.priceGp !== undefined) {
+      const shopId = dto.shopId.trim();
+      const shop = next.shopStatesById[shopId] ?? { shopId, inventory: [] };
+      const existing = shop.inventory.find((item) => item.itemDefinitionId === dto.itemDefinitionId);
+      if (!existing) {
+        shop.inventory.push({
+          itemDefinitionId: dto.itemDefinitionId,
+          quantity: dto.stockQuantity ?? dto.quantity ?? 1,
+          priceGp: dto.priceGp,
+        });
+      }
+      next.shopStatesById[shopId] = shop;
+    }
+    if (dto.actionType !== "grant_reward") {
+      for (const item of dto.items ?? []) {
+        const existing = next.partyStash.find((candidate) => candidate.itemDefinitionId === item.itemDefinitionId);
+        if (existing) {
+          existing.quantity += item.quantity;
+        } else {
+          next.partyStash.push({ ...item });
+        }
+      }
+    }
+    return next;
+  }
+
+  private resolveEconomyAction(
+    state: EconomyState,
+    dto: ApplySessionEconomyActionDto,
+  ): ReturnType<EconomyRuntimeService["purchaseFromShop"]> {
+    const sessionCharacterId = dto.sessionCharacterId?.trim() || "";
+    const itemDefinitionId = dto.itemDefinitionId?.trim() || "";
+    const shopId = dto.shopId?.trim() || "";
+    switch (dto.actionType) {
+      case "purchase":
+        return this.economyRuntime.purchaseFromShop({
+          state,
+          sessionCharacterId: this.requireEconomyField(sessionCharacterId, "sessionCharacterId"),
+          shopId: this.requireEconomyField(shopId, "shopId"),
+          itemDefinitionId: this.requireEconomyField(itemDefinitionId, "itemDefinitionId"),
+          quantity: dto.quantity ?? 1,
+        });
+      case "sell":
+        return this.economyRuntime.sellToShop({
+          state,
+          sessionCharacterId: this.requireEconomyField(sessionCharacterId, "sessionCharacterId"),
+          shopId: this.requireEconomyField(shopId, "shopId"),
+          itemDefinitionId: this.requireEconomyField(itemDefinitionId, "itemDefinitionId"),
+          quantity: dto.quantity ?? 1,
+          basePriceGp: dto.priceGp ?? 0,
+        });
+      case "grant_reward":
+        return this.economyRuntime.grantReward({
+          state,
+          recipientSessionCharacterIds: sessionCharacterId ? [sessionCharacterId] : Object.keys(state.walletsBySessionCharacterId),
+          reward: {
+            rewardId: dto.rewardId?.trim() || `reward:${Date.now()}`,
+            currency: dto.currency ? this.normalizeEconomyWallet(dto.currency) : undefined,
+            items: dto.items?.map((item) => ({ ...item })),
+            splitCurrency: dto.splitCurrency ?? false,
+          },
+        });
+      case "distribute":
+        return this.economyRuntime.distributeFromPartyStash({
+          state,
+          sessionCharacterId: this.requireEconomyField(sessionCharacterId, "sessionCharacterId"),
+          itemDefinitionId: this.requireEconomyField(itemDefinitionId, "itemDefinitionId"),
+          quantity: dto.quantity ?? 1,
+        });
+      case "start_crafting":
+        return this.economyRuntime.startCrafting({
+          state,
+          sessionCharacterId: this.requireEconomyField(sessionCharacterId, "sessionCharacterId"),
+          craftingId: dto.craftingId?.trim() || `crafting:${Date.now()}`,
+          knownToolProficiencies: dto.knownToolProficiencies ?? [],
+          recipe: {
+            recipeId: this.requireEconomyField(dto.recipeId?.trim() || "", "recipeId"),
+            outputItemDefinitionId: this.requireEconomyField(
+              dto.outputItemDefinitionId?.trim() || itemDefinitionId,
+              "outputItemDefinitionId",
+            ),
+            outputQuantity: dto.outputQuantity ?? dto.quantity ?? 1,
+            requiredMaterials: dto.requiredMaterials?.map((item) => ({ ...item })) ?? [],
+            requiredToolProficiencies: dto.requiredToolProficiencies ?? [],
+            laborHours: dto.laborHours ?? 1,
+            costGp: dto.costGp,
+          },
+        });
+      case "progress_crafting":
+        return this.economyRuntime.progressCrafting({
+          state,
+          craftingId: this.requireEconomyField(dto.craftingId?.trim() || "", "craftingId"),
+          laborHours: dto.laborHours ?? 1,
+        });
+      case "identify":
+        return this.economyRuntime.identifyItem({
+          state,
+          sessionCharacterId: this.requireEconomyField(sessionCharacterId, "sessionCharacterId"),
+          itemDefinitionId: this.requireEconomyField(itemDefinitionId, "itemDefinitionId"),
+          costGp: dto.costGp,
+        });
+      case "repair":
+        return this.economyRuntime.repairItem({
+          state,
+          sessionCharacterId: this.requireEconomyField(sessionCharacterId, "sessionCharacterId"),
+          itemDefinitionId: this.requireEconomyField(itemDefinitionId, "itemDefinitionId"),
+          costGp: dto.costGp,
+        });
+      case "attune":
+        return this.economyRuntime.attuneItem({
+          state,
+          sessionCharacterId: this.requireEconomyField(sessionCharacterId, "sessionCharacterId"),
+          itemDefinitionId: this.requireEconomyField(itemDefinitionId, "itemDefinitionId"),
+          requiresAttunement:
+            dto.requiresAttunement ?? getExecutableItemDefinition(itemDefinitionId)?.requiresAttunement ?? true,
+        });
+      case "recover_charges":
+        return this.economyRuntime.recoverItemCharges({
+          state,
+          sessionCharacterId: this.requireEconomyField(sessionCharacterId, "sessionCharacterId"),
+          itemDefinitionId: this.requireEconomyField(itemDefinitionId, "itemDefinitionId"),
+          chargesRecovered: dto.chargesRecovered ?? 1,
+          maximumCharges: dto.maximumCharges ?? getExecutableItemDefinition(itemDefinitionId)?.maxCharges ?? 1,
+        });
+      default:
+        throw new BadRequestException("Unsupported economy action.");
+    }
+  }
+
+  private normalizeEconomyWallet(wallet: {
+    cp?: number;
+    sp?: number;
+    ep?: number;
+    gp?: number;
+    pp?: number;
+  }): { cp?: number; sp?: number; ep?: number; gp?: number; pp?: number } {
+    return Object.fromEntries(
+      (["cp", "sp", "ep", "gp", "pp"] as const)
+        .map((key) => [key, Math.trunc(Number(wallet[key] ?? 0))] as const)
+        .filter(([, value]) => Number.isFinite(value) && value !== 0),
+    );
+  }
+
+  private requireEconomyField(value: string, fieldName: string): string {
+    if (!value) {
+      throw new BadRequestException(`${fieldName} is required for this economy action.`);
+    }
+    return value;
+  }
+
   async setHumanGmDifficultyClass(userId: string, sessionId: string, dto: SetHumanGmDifficultyClassDto): Promise<SessionSnapshotDto> {
     return this.humanGmRuntime.setHumanGmDifficultyClass(this.createHumanGmRuntime(), userId, sessionId, dto);
   }
@@ -1998,8 +2260,12 @@ export class SessionsService {
     policyModes?: RevealPolicyMode[];
     turnLogId?: string | null;
     revealedBy?: string;
-  }): Promise<number> {
-    return this.sessionReveal.revealCurrentNodeCluesAfterAction(this.createSessionRevealRuntime(), params);
+  }, client?: Prisma.TransactionClient): Promise<number> {
+    return this.sessionReveal.revealCurrentNodeCluesAfterAction(
+      this.createSessionRevealRuntime(),
+      params,
+      client,
+    );
   }
 
   async revealCurrentNodeCluesAfterActionWithDetails(params: {
@@ -2010,8 +2276,12 @@ export class SessionsService {
     policyModes?: RevealPolicyMode[];
     turnLogId?: string | null;
     revealedBy?: string;
-  }): Promise<Array<{ id: string; title: string; text: string | null }>> {
-    return this.sessionReveal.revealCurrentNodeCluesAfterActionWithDetails(this.createSessionRevealRuntime(), params);
+  }, client?: Prisma.TransactionClient): Promise<Array<{ id: string; title: string; text: string | null }>> {
+    return this.sessionReveal.revealCurrentNodeCluesAfterActionWithDetails(
+      this.createSessionRevealRuntime(),
+      params,
+      client,
+    );
   }
 
   async describeVttObjectAtPoint(params: {
@@ -2415,6 +2685,13 @@ export class SessionsService {
       throw new ConflictException("This endpoint is only available for HUMAN GM sessions.");
     }
 
+    this.ensureGmRuntimeOperator(userId, session);
+    await this.ensureJoinedGmRuntimeParticipant(userId, session.id);
+    return session;
+  }
+
+  private async getGmEconomySessionForOperator(userId: string, sessionId: string) {
+    const session = await this.getSessionEntityOrThrow(sessionId);
     this.ensureGmRuntimeOperator(userId, session);
     await this.ensureJoinedGmRuntimeParticipant(userId, session.id);
     return session;
@@ -4124,6 +4401,70 @@ export class SessionsService {
         fallbackNodeId: node.fallbackNodeId,
       })),
     });
+  }
+
+  private buildP3ScenarioRevisionSnapshotFlag(scenario: {
+    id: string;
+    sourceType: string;
+    baseScenarioId: string | null;
+    attribution: string | null;
+    updatedAt: Date;
+  }): Record<string, unknown> {
+    const metadata = this.parseP3ScenarioRevisionMetadata(scenario.attribution);
+    return {
+      scenarioId: scenario.id,
+      baseScenarioId: scenario.baseScenarioId,
+      sourceType: scenario.sourceType,
+      revisionNumber: metadata.revisionNumber,
+      publishStatus: metadata.status,
+      publishedAt: metadata.publishedAt,
+      publishedByUserId: metadata.publishedByUserId,
+      scenarioUpdatedAt: scenario.updatedAt.toISOString(),
+      snapshotCreatedAt: new Date().toISOString(),
+    };
+  }
+
+  private parseP3ScenarioRevisionMetadata(attribution: string | null | undefined): {
+    revisionNumber: number | null;
+    publishedAt: string | null;
+    publishedByUserId: string | null;
+    status: "draft" | "public" | "link" | "private" | "unpublished";
+  } {
+    const raw = attribution ?? "";
+    const marker = "P3_REVISION_META:";
+    const markerIndex = raw.indexOf(marker);
+    if (markerIndex < 0) {
+      return {
+        revisionNumber: null,
+        publishedAt: null,
+        publishedByUserId: null,
+        status: "draft",
+      };
+    }
+    try {
+      const metadata = JSON.parse(raw.slice(markerIndex + marker.length).trim()) as Record<string, unknown>;
+      const status = metadata.status;
+      return {
+        revisionNumber:
+          typeof metadata.revisionNumber === "number" && Number.isInteger(metadata.revisionNumber)
+            ? metadata.revisionNumber
+            : null,
+        publishedAt: typeof metadata.publishedAt === "string" ? metadata.publishedAt : null,
+        publishedByUserId:
+          typeof metadata.publishedByUserId === "string" ? metadata.publishedByUserId : null,
+        status:
+          status === "public" || status === "link" || status === "private" || status === "unpublished"
+            ? status
+            : "draft",
+      };
+    } catch {
+      return {
+        revisionNumber: null,
+        publishedAt: null,
+        publishedByUserId: null,
+        status: "draft",
+      };
+    }
   }
 
   private async recordCurrentNodeCluesByPolicy(

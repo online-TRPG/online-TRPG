@@ -25,4 +25,12 @@ describe("SRD spellcasting progression", () => {
     expect(getKnownSpellsLimit("warlock", 10)).toBe(10);
     expect(getKnownSpellsLimit("cleric", 5)).toBeNull();
   });
+
+  it("exposes P4 9 through 12 known-spell and cantrip progression", () => {
+    expect(getCantripsKnownLimit("bard", 10)).toBe(4);
+    expect(getCantripsKnownLimit("sorcerer", 10)).toBe(6);
+    expect(getKnownSpellsLimit("bard", 12)).toBe(15);
+    expect(getKnownSpellsLimit("sorcerer", 11)).toBe(12);
+    expect(getKnownSpellsLimit("warlock", 11)).toBe(11);
+  });
 });
