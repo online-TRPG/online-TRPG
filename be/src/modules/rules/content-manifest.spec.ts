@@ -2,6 +2,7 @@ import {
   buildExecutableContentManifest,
   P2_EXECUTABLE_MONSTER_IDS,
   P2_EXECUTABLE_SPELL_IDS,
+  P3_BASELINE_MONSTER_IDS,
   P3_CONTENT_TARGETS,
   P4_CONTENT_TARGETS,
 } from "./content-manifest";
@@ -54,6 +55,20 @@ describe("executable content manifest", () => {
       executableMonsters: 50,
       executableItems: 50,
     });
+  });
+
+  it("locks the P3 executable monster milestone at 50 cumulative ids", () => {
+    const p3MonsterIds = [
+      ...P3_BASELINE_MONSTER_IDS,
+      ...P3_EXECUTABLE_MONSTER_IDS,
+    ];
+
+    expect(P3_BASELINE_MONSTER_IDS).toHaveLength(26);
+    expect(P3_EXECUTABLE_MONSTER_IDS).toHaveLength(
+      P3_CONTENT_TARGETS.executableMonsters - P3_BASELINE_MONSTER_IDS.length,
+    );
+    expect(new Set(p3MonsterIds).size).toBe(P3_CONTENT_TARGETS.executableMonsters);
+    expect(manifest.monsterIds).toEqual(expect.arrayContaining(p3MonsterIds));
   });
 
   it("declares the P4 executable content targets without weakening the P3 baseline", () => {
