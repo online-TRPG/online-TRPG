@@ -22,11 +22,20 @@ import {
   createScenario,
   deleteScenario,
   getScenario,
+  getScenarioCollaborationState,
   listMyScenarios,
+  createScenarioReview,
+  removeScenarioCollaborator,
+  reportScenario,
+  upsertScenarioCollaborator,
   unpublishScenarioRevision,
 } from "../services/api";
 import type { Scenario, StoredUser } from "../types/session";
-import type { CreateScenarioDto } from "@trpg/shared-types";
+import type {
+  CreateScenarioDto,
+  ScenarioCollaborationStateResponseDto,
+  UpsertScenarioCollaboratorDto,
+} from "@trpg/shared-types";
 import "./CharacterPage.css";
 import "./ScenarioPage.css";
 
@@ -103,6 +112,43 @@ function formatValidationReport(scenario: Scenario): string {
   return `${statusLabel}${issueLabel}${checkedLabel}`;
 }
 
+function getRevisionDiff(scenario: Scenario): {
+  addedNodeIds: string[];
+  removedNodeIds: string[];
+  changedNodeIds: string[];
+  changedSections: Record<string, string[]>;
+} | null {
+  const report = scenario.validationReport;
+  if (!report || typeof report !== "object") return null;
+  const diff = report.revisionDiff;
+  if (!diff || typeof diff !== "object" || Array.isArray(diff)) return null;
+  const candidate = diff as Record<string, unknown>;
+  return {
+    addedNodeIds: Array.isArray(candidate.addedNodeIds)
+      ? candidate.addedNodeIds.filter((value): value is string => typeof value === "string")
+      : [],
+    removedNodeIds: Array.isArray(candidate.removedNodeIds)
+      ? candidate.removedNodeIds.filter((value): value is string => typeof value === "string")
+      : [],
+    changedNodeIds: Array.isArray(candidate.changedNodeIds)
+      ? candidate.changedNodeIds.filter((value): value is string => typeof value === "string")
+      : [],
+    changedSections:
+      candidate.changedSections &&
+      typeof candidate.changedSections === "object" &&
+      !Array.isArray(candidate.changedSections)
+        ? Object.fromEntries(
+            Object.entries(candidate.changedSections).map(([nodeId, sections]) => [
+              nodeId,
+              Array.isArray(sections)
+                ? sections.filter((value): value is string => typeof value === "string")
+                : [],
+            ]),
+          )
+        : {},
+  };
+}
+
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function ScenarioPage({
   user,
@@ -118,6 +164,17 @@ export function ScenarioPage({
   const [localBusy, setLocalBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [collaborationState, setCollaborationState] =
+    useState<ScenarioCollaborationStateResponseDto | null>(null);
+  const [collaborationBusy, setCollaborationBusy] = useState(false);
+  const [collaborationError, setCollaborationError] = useState<string | null>(null);
+  const [collaboratorUserId, setCollaboratorUserId] = useState("");
+  const [collaboratorRole, setCollaboratorRole] =
+    useState<UpsertScenarioCollaboratorDto["role"]>("editor");
+  const [reviewStatus, setReviewStatus] = useState<"requested" | "approved" | "rejected" | "changes_requested">("approved");
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewerUserId, setReviewerUserId] = useState("");
+  const [moderationFeedback, setModerationFeedback] = useState<string | null>(null);
 
   // 검색어가 바뀌면 짧은 debounce 후 내 시나리오 목록을 다시 불러옵니다.
   useEffect(() => {
@@ -156,6 +213,57 @@ export function ScenarioPage({
     () => scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? null,
     [scenarios, selectedScenarioId],
   );
+  const currentCollaborationRole =
+    collaborationState?.collaborators.find((collaborator) => collaborator.userId === user.id)?.role ??
+    null;
+  const reviewerCollaborators =
+    collaborationState?.collaborators.filter((collaborator) => collaborator.role === "reviewer") ?? [];
+  const revisionDiff = selectedScenario ? getRevisionDiff(selectedScenario) : null;
+
+  useEffect(() => {
+    if (currentCollaborationRole === "reviewer") {
+      setReviewStatus("approved");
+      return;
+    }
+    if (currentCollaborationRole === "owner" || currentCollaborationRole === "editor") {
+      setReviewStatus("requested");
+    }
+  }, [currentCollaborationRole]);
+
+  useEffect(() => {
+    let ignore = false;
+    setCollaborationState(null);
+    setCollaborationError(null);
+    if (!selectedScenario || selectedScenario.baseScenarioId) {
+      return () => {
+        ignore = true;
+      };
+    }
+
+    setCollaborationBusy(true);
+    getScenarioCollaborationState(user, selectedScenario.id, accessToken)
+      .then((next) => {
+        if (!ignore) {
+          setCollaborationState(next);
+        }
+      })
+      .catch((caught) => {
+        if (!ignore) {
+          setCollaborationError(
+            caught instanceof Error ? caught.message : "협업 정보를 불러오지 못했습니다.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!ignore) {
+          setCollaborationBusy(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [accessToken, selectedScenario, user]);
 
   // 선택한 시나리오 삭제 버튼 동작입니다.
   async function handleDeleteSelected() {
@@ -268,6 +376,106 @@ export function ScenarioPage({
     }
   }
 
+  async function handleAddCollaborator() {
+    if (!selectedScenario || selectedScenario.baseScenarioId) return;
+    const trimmedUserId = collaboratorUserId.trim();
+    if (!trimmedUserId) {
+      setCollaborationError("추가할 사용자 ID를 입력해 주세요.");
+      return;
+    }
+
+    setCollaborationBusy(true);
+    setCollaborationError(null);
+    try {
+      const next = await upsertScenarioCollaborator(
+        user,
+        selectedScenario.id,
+        {
+          userId: trimmedUserId,
+          role: collaboratorRole,
+        },
+        accessToken,
+      );
+      setCollaborationState(next);
+      setCollaboratorUserId("");
+    } catch (caught) {
+      setCollaborationError(caught instanceof Error ? caught.message : "collaborator 추가에 실패했습니다.");
+    } finally {
+      setCollaborationBusy(false);
+    }
+  }
+
+  async function handleRemoveCollaborator(collaboratorUserId: string) {
+    if (!selectedScenario || selectedScenario.baseScenarioId) return;
+    if (!window.confirm(`${collaboratorUserId} 사용자를 협업 목록에서 제거할까요?`)) return;
+    setCollaborationBusy(true);
+    setCollaborationError(null);
+    try {
+      const next = await removeScenarioCollaborator(
+        user,
+        selectedScenario.id,
+        collaboratorUserId,
+        accessToken,
+      );
+      setCollaborationState(next);
+    } catch (caught) {
+      setCollaborationError(caught instanceof Error ? caught.message : "collaborator 제거에 실패했습니다.");
+    } finally {
+      setCollaborationBusy(false);
+    }
+  }
+
+  async function handleCreateReview() {
+    if (!selectedScenario || selectedScenario.baseScenarioId) return;
+
+    setCollaborationBusy(true);
+    setCollaborationError(null);
+    try {
+      const next = await createScenarioReview(
+        user,
+        selectedScenario.id,
+        {
+          status: reviewStatus,
+          reviewerUserId: reviewStatus === "requested" ? reviewerUserId || null : null,
+          comment: reviewComment.trim() || null,
+        },
+        accessToken,
+      );
+      setCollaborationState(next);
+      setReviewComment("");
+    } catch (caught) {
+      setCollaborationError(caught instanceof Error ? caught.message : "review 기록에 실패했습니다.");
+    } finally {
+      setCollaborationBusy(false);
+    }
+  }
+
+  async function handleReportSelected() {
+    if (!selectedScenario || !selectedIsRevision) return;
+    const reasonInput = window.prompt(
+      "신고 사유를 입력하세요: private_data, license, unsafe_content, other",
+      "other",
+    );
+    if (!reasonInput) return;
+    const reason =
+      reasonInput === "private_data" ||
+      reasonInput === "license" ||
+      reasonInput === "unsafe_content"
+        ? reasonInput
+        : "other";
+    const comment = window.prompt("신고 내용을 입력하세요.", "") ?? "";
+    setLocalBusy(true);
+    setModerationFeedback(null);
+    try {
+      await reportScenario(user, selectedScenario.id, { reason, comment: comment.trim() || null }, accessToken);
+      setModerationFeedback("신고가 접수되었습니다.");
+    } catch (caught) {
+      setModerationFeedback(caught instanceof Error ? caught.message : "신고 접수에 실패했습니다.");
+    } finally {
+      setLocalBusy(false);
+    }
+  }
+
   const disabled = busy || localBusy;
   const selectedIsRevision = Boolean(selectedScenario?.baseScenarioId);
   const selectedCanUnpublish =
@@ -323,6 +531,14 @@ export function ScenarioPage({
               onClick={() => void handleDeleteSelected()}
             >
               시나리오 삭제
+            </button>
+            <button
+              type="button"
+              className="scenario-rail-action"
+              disabled={!selectedIsRevision || disabled}
+              onClick={() => void handleReportSelected()}
+            >
+              revision 신고
             </button>
           </div>
         </aside>
@@ -424,10 +640,154 @@ export function ScenarioPage({
                       <dd>{formatValidationReport(selectedScenario)}</dd>
                     </div>
                     <div>
+                      <dt>revision diff</dt>
+                      <dd>
+                        {revisionDiff
+                          ? `추가 ${revisionDiff.addedNodeIds.length} · 삭제 ${revisionDiff.removedNodeIds.length} · 변경 ${revisionDiff.changedNodeIds.length}`
+                          : "-"}
+                      </dd>
+                    </div>
+                    <div>
                       <dt>출처</dt>
                       <dd>{selectedScenario.attribution ?? "-"}</dd>
                     </div>
                   </dl>
+                  {revisionDiff ? (
+                    <section className="scenario-revision-diff">
+                      <strong>변경된 section</strong>
+                      {revisionDiff.addedNodeIds.length ? (
+                        <span>추가: {revisionDiff.addedNodeIds.join(", ")}</span>
+                      ) : null}
+                      {revisionDiff.removedNodeIds.length ? (
+                        <span>삭제: {revisionDiff.removedNodeIds.join(", ")}</span>
+                      ) : null}
+                      {Object.entries(revisionDiff.changedSections).map(([nodeId, sections]) => (
+                        <span key={nodeId}>{nodeId}: {sections.join(", ")}</span>
+                      ))}
+                    </section>
+                  ) : null}
+                  {moderationFeedback ? <p>{moderationFeedback}</p> : null}
+                  {!selectedIsRevision ? (
+                    <section className="scenario-collaboration-panel">
+                      <div className="scenario-collaboration-heading">
+                        <span className="eyebrow">P4 collaboration</span>
+                        <h3>협업·리뷰 상태</h3>
+                      </div>
+                      {collaborationBusy ? <p>협업 정보를 확인하는 중입니다...</p> : null}
+                      {collaborationError ? <p className="scenario-collaboration-error">{collaborationError}</p> : null}
+                      {collaborationState ? (
+                        <>
+                          <div className="scenario-collaboration-list">
+                            <strong>권한</strong>
+                            {collaborationState.collaborators.map((collaborator) => (
+                              <span className="scenario-collaborator-row" key={`${collaborator.userId}:${collaborator.role}`}>
+                                <span>{collaborator.userId} · {collaborator.role}</span>
+                                {currentCollaborationRole === "owner" && collaborator.role !== "owner" ? (
+                                  <button
+                                    type="button"
+                                    className="small"
+                                    disabled={disabled || collaborationBusy}
+                                    onClick={() => void handleRemoveCollaborator(collaborator.userId)}
+                                  >
+                                    제거
+                                  </button>
+                                ) : null}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="scenario-collaboration-list">
+                            <strong>리뷰</strong>
+                            {collaborationState.reviews.length ? (
+                              collaborationState.reviews.map((review) => (
+                                <span key={review.reviewId}>
+                                  {review.status} · {review.reviewerUserId}
+                                  {review.comment ? ` · ${review.comment}` : ""}
+                                </span>
+                              ))
+                            ) : (
+                              <span>아직 리뷰 기록이 없습니다.</span>
+                            )}
+                          </div>
+                        </>
+                      ) : null}
+                      <div className="scenario-collaboration-form">
+                        <input
+                          type="text"
+                          value={collaboratorUserId}
+                          onChange={(event) => setCollaboratorUserId(event.target.value)}
+                          placeholder="사용자 ID"
+                          disabled={disabled || collaborationBusy || currentCollaborationRole !== "owner"}
+                        />
+                        <select
+                          value={collaboratorRole}
+                          onChange={(event) =>
+                            setCollaboratorRole(event.target.value as UpsertScenarioCollaboratorDto["role"])
+                          }
+                          disabled={disabled || collaborationBusy || currentCollaborationRole !== "owner"}
+                        >
+                          <option value="editor">editor</option>
+                          <option value="reviewer">reviewer</option>
+                          <option value="viewer">viewer</option>
+                        </select>
+                        <button type="button" className="small" onClick={() => void handleAddCollaborator()} disabled={disabled || collaborationBusy || currentCollaborationRole !== "owner"}>
+                          추가
+                        </button>
+                      </div>
+                      <div className="scenario-collaboration-form scenario-collaboration-form-review">
+                        <select
+                          value={reviewStatus}
+                          onChange={(event) => setReviewStatus(event.target.value as typeof reviewStatus)}
+                          disabled={disabled || collaborationBusy}
+                        >
+                          {currentCollaborationRole === "owner" || currentCollaborationRole === "editor" ? (
+                            <option value="requested">review 요청</option>
+                          ) : null}
+                          {currentCollaborationRole === "reviewer" ? (
+                            <>
+                              <option value="approved">승인</option>
+                              <option value="rejected">반려</option>
+                              <option value="changes_requested">수정 요청</option>
+                            </>
+                          ) : null}
+                        </select>
+                        {reviewStatus === "requested" ? (
+                          <select
+                            value={reviewerUserId}
+                            onChange={(event) => setReviewerUserId(event.target.value)}
+                            disabled={disabled || collaborationBusy}
+                          >
+                            <option value="">reviewer 선택</option>
+                            {reviewerCollaborators.map((collaborator) => (
+                              <option value={collaborator.userId} key={collaborator.userId}>
+                                {collaborator.userId}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
+                        <input
+                          type="text"
+                          value={reviewComment}
+                          onChange={(event) => setReviewComment(event.target.value)}
+                          placeholder="리뷰 코멘트"
+                          disabled={disabled || collaborationBusy}
+                        />
+                        <button
+                          type="button"
+                          className="small"
+                          onClick={() => void handleCreateReview()}
+                          disabled={
+                            disabled ||
+                            collaborationBusy ||
+                            !currentCollaborationRole ||
+                            currentCollaborationRole === "viewer" ||
+                            (reviewStatus === "requested" && !reviewerUserId)
+                          }
+                        >
+                          리뷰 기록
+                        </button>
+                      </div>
+                    </section>
+                  ) : null}
                 </>
               ) : (
                 <article className="scenario-detail-empty">

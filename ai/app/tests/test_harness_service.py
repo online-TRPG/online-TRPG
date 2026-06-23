@@ -644,6 +644,31 @@ def test_interpreter_fallback_routes_what_should_i_do_to_hint():
     assert response.parsed.action.type == "ASK_HINT"
 
 
+def test_interpreter_fallback_routes_explicit_p0_request_intent():
+    service, _fake_client = build_service(
+        TEST_LOG_DIR / "interpreter_explicit_p0_intent_fallback",
+        AlwaysFailingGoogleAiStudioClient(),
+    )
+
+    response = service.run_interpreter(
+        InterpreterHarnessRequest(
+            rawText="도둑 도구로 잠긴 상자를 열어본다.",
+            actorCharacterId="player-1",
+            requestIntent="USE_TOOL",
+            availableTargets=["locked-chest"],
+            availableTargetDetails=[{"id": "locked-chest", "name": "잠긴 상자", "kind": "OBJECT"}],
+            targetId="locked-chest",
+            targetType="OBJECT",
+            itemId="tool.thieves",
+        )
+    )
+
+    assert response.fallback is True
+    assert response.parsed.needsClarification is False
+    assert response.parsed.action.type == "USE_TOOL"
+    assert response.parsed.action.targetId == "locked-chest"
+
+
 def test_director_fallback_returns_scene_based_hint_without_ai_error_text():
     service, _fake_client = build_service(
         TEST_LOG_DIR / "director_scene_hint_fallback",

@@ -1,4 +1,5 @@
 import { MonsterAbilityService } from "./monster-ability.service";
+import { P4_EXECUTABLE_MONSTER_IDS } from "./p4-monster-definitions";
 
 describe("MonsterAbilityService", () => {
   const service = new MonsterAbilityService();
@@ -234,6 +235,56 @@ describe("MonsterAbilityService", () => {
       specialType: "area_attack",
       recharge: "5-6",
       damageDice: "10d10",
+    });
+  });
+
+  it("covers the P4 monster roster with executable common action projections", () => {
+    expect(P4_EXECUTABLE_MONSTER_IDS).toHaveLength(50);
+
+    for (const monsterId of P4_EXECUTABLE_MONSTER_IDS) {
+      const actions = service.listExecutableActions(monsterId);
+      expect(actions.length).toBeGreaterThan(0);
+      expect(service.chooseAction(monsterId)).toMatchObject({ monsterId });
+      expect(actions.every((action) => action.catalogEntryId.startsWith(`${monsterId}.ability.`))).toBe(true);
+    }
+  });
+
+  it("projects P4 recharge, condition lifecycle, boss, and spellcaster metadata", () => {
+    expect(service.chooseAction("monster.young_black_dragon")).toMatchObject({
+      actionId: "monster.young_black_dragon.ability.acid_breath",
+      specialType: "area_attack",
+      recharge: "5-6",
+      save: { ability: "dex", dcSource: "fixed", fixedDc: 14 },
+      damageDice: "11d8",
+      damageType: "acid",
+      effectTags: expect.arrayContaining(["area_size:30"]),
+    });
+
+    expect(service.chooseAction("monster.medusa")).toMatchObject({
+      actionId: "monster.medusa.ability.petrifying_gaze",
+      specialType: null,
+      save: { ability: "con", dcSource: "fixed", fixedDc: 14 },
+      conditionRiders: ["condition.petrified"],
+    });
+
+    expect(service.chooseAction("monster.roper")).toMatchObject({
+      actionId: "monster.roper.ability.tendril",
+      save: { ability: "str", dcSource: "fixed", fixedDc: 15 },
+      conditionRiders: ["condition.grappled", "condition.restrained"],
+    });
+
+    expect(service.chooseAction("monster.hydra")).toMatchObject({
+      actionId: "monster.hydra.ability.multiple_heads",
+      costType: "none",
+      specialType: "multiattack",
+      effectTags: expect.arrayContaining(["multiattack:heads"]),
+    });
+
+    expect(service.chooseAction("monster.archmage")).toMatchObject({
+      actionId: "monster.archmage.ability.spell_burst",
+      attackKind: "special",
+      damageDice: "8d6",
+      damageType: "fire_lightning_force",
     });
   });
 

@@ -131,7 +131,7 @@ Interpreter는 자연어를 `StructuredAction`으로 변환한다.
 - schema 실패: 1회 재시도
 - confidence가 낮음: `freeform`으로 처리하고 확인 질문 생성
 - timeout: fallback으로 "어떤 판정을 원하는지 선택" 응답
-- rate limit 또는 quota 오류: 즉시 fallback으로 전환하고 `FailureLog`에 저장
+- rate limit 또는 quota 오류: 즉시 fallback으로 전환하고 `AiTrace`에 실패 유형과 fallback 응답을 저장
 - 네트워크 오류: 즉시 fallback으로 전환하고 `AiTrace.status`를 `fallback`, `AiTrace.validationStatus`를 `fallback`으로 저장
 
 #### 5단계: 액션 검증
@@ -185,7 +185,7 @@ Narrator는 새 상태, 새 단서, 새 피해량을 만들 수 없다.
 - 갱신된 GameState
 - TurnLog
 - AiTrace
-- FailureLog if needed
+- `AiTrace` error/fallback record if needed
 
 그 뒤 세션 참가자에게 이벤트를 보낸다.
 

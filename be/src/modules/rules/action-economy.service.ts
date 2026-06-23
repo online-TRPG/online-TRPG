@@ -57,31 +57,40 @@ export class ActionEconomyService {
     });
   }
 
-  async spendBonusAction(params: TurnStateKey): Promise<CombatTurnState> {
-    const state = await this.getOrCreateTurnState(params);
+  async spendBonusAction(
+    params: TurnStateKey,
+    client: ActionEconomyClient = this.prisma,
+  ): Promise<CombatTurnState> {
+    const state = await this.getOrCreateTurnState(params, client);
     if (state.bonusActionUsed) {
       throw badRequest("ACTION_400", "사용 가능한 bonus action이 없습니다.", {
         reason: "BONUS_ACTION_ALREADY_USED",
       });
     }
 
-    return this.updateTurnState(params, { bonusActionUsed: true });
+    return this.updateTurnState(params, { bonusActionUsed: true }, client);
   }
 
-  async spendReaction(params: TurnStateKey): Promise<CombatTurnState> {
-    const state = await this.getOrCreateTurnState(params);
+  async spendReaction(
+    params: TurnStateKey,
+    client: ActionEconomyClient = this.prisma,
+  ): Promise<CombatTurnState> {
+    const state = await this.getOrCreateTurnState(params, client);
     if (state.reactionUsed) {
       throw badRequest("ACTION_400", "사용 가능한 reaction이 없습니다.", {
         reason: "REACTION_ALREADY_USED",
       });
     }
 
-    return this.updateTurnState(params, { reactionUsed: true });
+    return this.updateTurnState(params, { reactionUsed: true }, client);
   }
 
-  async grantAdditionalAction(params: TurnStateKey): Promise<CombatTurnState> {
-    await this.getOrCreateTurnState(params);
-    return this.updateTurnState(params, { additionalActionGranted: true });
+  async grantAdditionalAction(
+    params: TurnStateKey,
+    client: ActionEconomyClient = this.prisma,
+  ): Promise<CombatTurnState> {
+    await this.getOrCreateTurnState(params, client);
+    return this.updateTurnState(params, { additionalActionGranted: true }, client);
   }
 
   async recordAttackAction(
@@ -107,15 +116,18 @@ export class ActionEconomyService {
     });
   }
 
-  async spendSneakAttack(params: TurnStateKey): Promise<CombatTurnState> {
-    const state = await this.getOrCreateTurnState(params);
+  async spendSneakAttack(
+    params: TurnStateKey,
+    client: ActionEconomyClient = this.prisma,
+  ): Promise<CombatTurnState> {
+    const state = await this.getOrCreateTurnState(params, client);
     if (state.sneakAttackUsed) {
       throw badRequest("ACTION_400", "Sneak Attack은 한 턴에 한 번만 사용할 수 있습니다.", {
         reason: "SNEAK_ATTACK_ALREADY_USED",
       });
     }
 
-    return this.updateTurnState(params, { sneakAttackUsed: true });
+    return this.updateTurnState(params, { sneakAttackUsed: true }, client);
   }
 
   private updateTurnState(

@@ -302,6 +302,246 @@ export class SetHumanGmDifficultyClassDto {
   privateNote?: string | null;
 }
 
+export class EconomyCurrencyWalletDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  cp?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  sp?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  ep?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  gp?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  pp?: number;
+}
+
+export class EconomyInventoryItemDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  itemDefinitionId!: string;
+
+  @ApiProperty({ minimum: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  identified?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  damaged?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  attunedBySessionCharacterId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  chargesRemaining?: number | null;
+}
+
+export class ApplySessionEconomyActionDto {
+  @ApiProperty({
+    enum: [
+      "purchase",
+      "sell",
+      "grant_reward",
+      "distribute",
+      "start_crafting",
+      "progress_crafting",
+      "identify",
+      "repair",
+      "attune",
+      "recover_charges",
+    ],
+  })
+  @IsIn([
+    "purchase",
+    "sell",
+    "grant_reward",
+    "distribute",
+    "start_crafting",
+    "progress_crafting",
+    "identify",
+    "repair",
+    "attune",
+    "recover_charges",
+  ])
+  actionType!:
+    | "purchase"
+    | "sell"
+    | "grant_reward"
+    | "distribute"
+    | "start_crafting"
+    | "progress_crafting"
+    | "identify"
+    | "repair"
+    | "attune"
+    | "recover_charges";
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  sessionCharacterId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  shopId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  itemDefinitionId?: string | null;
+
+  @ApiPropertyOptional({ minimum: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  quantity?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  priceGp?: number;
+
+  @ApiPropertyOptional({ minimum: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  stockQuantity?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  costGp?: number;
+
+  @ApiPropertyOptional({ type: EconomyCurrencyWalletDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => EconomyCurrencyWalletDto)
+  currency?: EconomyCurrencyWalletDto;
+
+  @ApiPropertyOptional({ type: [EconomyInventoryItemDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EconomyInventoryItemDto)
+  items?: EconomyInventoryItemDto[];
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  splitCurrency?: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  rewardId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  craftingId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  recipeId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  outputItemDefinitionId?: string | null;
+
+  @ApiPropertyOptional({ minimum: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  outputQuantity?: number;
+
+  @ApiPropertyOptional({ type: [EconomyInventoryItemDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EconomyInventoryItemDto)
+  requiredMaterials?: EconomyInventoryItemDto[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  requiredToolProficiencies?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  knownToolProficiencies?: string[];
+
+  @ApiPropertyOptional({ minimum: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  laborHours?: number;
+
+  @ApiPropertyOptional({ minimum: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  chargesRecovered?: number;
+
+  @ApiPropertyOptional({ minimum: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  maximumCharges?: number;
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @IsBoolean()
+  requiresAttunement?: boolean;
+}
+
 export class SessionScenarioResponseDto {
   @ApiProperty()
   id!: string;

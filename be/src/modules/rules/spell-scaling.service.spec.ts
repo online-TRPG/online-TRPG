@@ -65,6 +65,25 @@ describe("SpellScalingService", () => {
     });
   });
 
+  it("scales flat healing or damage totals for P4 fixed-value spells", () => {
+    expect(
+      service.resolveUpcast({
+        spellId: "heal",
+        baseSpellLevel: 6,
+        slotLevel: 8,
+        baseDamageDice: "70",
+        scalingRules: [{ mode: "flat_bonus", amount: 10 }],
+      }),
+    ).toMatchObject({
+      spellId: "spell.heal",
+      baseSpellLevel: 6,
+      slotLevel: 8,
+      slotLevelsAboveBase: 2,
+      damageDice: "90",
+      appliedScaling: [{ mode: "flat_bonus", steps: 2, value: "90" }],
+    });
+  });
+
   it("does not apply scaling when the slot level equals the base level", () => {
     expect(
       service.resolveUpcast({

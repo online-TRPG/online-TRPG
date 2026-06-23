@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query, Req } from "@nestjs/common";
 import {
   ApiCreatedResponse,
   ApiNoContentResponse,
@@ -9,16 +9,21 @@ import {
 } from "@nestjs/swagger";
 import {
   CreateScenarioDto,
+  CreateScenarioReviewDto,
   ScenarioAssetQueryDto,
   ScenarioAssetResponseDto,
+  ScenarioCollaborationStateResponseDto,
   ScenarioQueryDto,
   ScenarioNodeImageUploadResponseDto,
   PublishScenarioDto,
+  ReportScenarioDto,
+  ScenarioModerationReportResponseDto,
   ScenarioResponseDto,
   ScenarioSummaryResponseDto,
   UploadScenarioAssetDto,
   UploadScenarioNodeImageDto,
   UpdateScenarioDto,
+  UpsertScenarioCollaboratorDto,
 } from "@trpg/shared-types";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
 import type { AuthenticatedRequest } from "../../common/auth/authenticated-request";
@@ -109,6 +114,66 @@ export class ScenariosController {
     @Param("id") id: string,
   ): Promise<ScenarioResponseDto> {
     return this.scenariosService.unpublishScenarioRevision(userId, id);
+  }
+
+  @Get(":id/collaboration")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: ScenarioCollaborationStateResponseDto })
+  getScenarioCollaborationState(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+  ): Promise<ScenarioCollaborationStateResponseDto> {
+    return this.scenariosService.getScenarioCollaborationState(userId, id);
+  }
+
+  @Put(":id/collaborators")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: ScenarioCollaborationStateResponseDto })
+  upsertScenarioCollaborator(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Body() dto: UpsertScenarioCollaboratorDto,
+  ): Promise<ScenarioCollaborationStateResponseDto> {
+    return this.scenariosService.upsertScenarioCollaborator(userId, id, dto);
+  }
+
+  @Delete(":id/collaborators/:collaboratorUserId")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiParam({ name: "collaboratorUserId" })
+  @ApiOkResponse({ type: ScenarioCollaborationStateResponseDto })
+  removeScenarioCollaborator(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Param("collaboratorUserId") collaboratorUserId: string,
+  ): Promise<ScenarioCollaborationStateResponseDto> {
+    return this.scenariosService.removeScenarioCollaborator(userId, id, collaboratorUserId);
+  }
+
+  @Post(":id/reviews")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: ScenarioCollaborationStateResponseDto })
+  createScenarioReview(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Body() dto: CreateScenarioReviewDto,
+  ): Promise<ScenarioCollaborationStateResponseDto> {
+    return this.scenariosService.createScenarioReview(userId, id, dto);
+  }
+
+  @Post(":id/report")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: ScenarioModerationReportResponseDto })
+  reportScenario(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Body() dto: ReportScenarioDto,
+  ): Promise<ScenarioModerationReportResponseDto> {
+    return this.scenariosService.reportScenario(userId, id, dto);
   }
 
   @Get(":id/assets")

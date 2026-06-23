@@ -21,6 +21,7 @@ import {
   AiTraceKind,
   AiTraceListQueryDto,
   AiTraceListResponseDto,
+  AiTraceQualityMetricsResponseDto,
   AiTraceResponseDto,
   AiTraceStatus,
   HumanGmAiAssistSuggestionDto,
@@ -383,6 +384,63 @@ export class AiService {
     }));
 
     return { items, size };
+  }
+
+  async getQualityMetrics(
+    userId: string,
+    sessionId: string,
+  ): Promise<AiTraceQualityMetricsResponseDto> {
+    await this.sessionsService.ensureMembership(userId, sessionId);
+    const traces = await this.prisma.aiTrace.findMany({
+      where: { sessionId },
+      select: {
+        kind: true,
+        status: true,
+        latencyMs: true,
+        failureType: true,
+        responseJson: true,
+      },
+    });
+    const rate = (count: number, total: number) =>
+      total > 0 ? Number((count / total).toFixed(4)) : 0;
+    const interpreters = traces.filter((trace) => trace.kind === PrismaAiTraceKind.INTERPRETER);
+    const narrators = traces.filter((trace) => trace.kind === PrismaAiTraceKind.NARRATION);
+    const fallbackCount = traces.filter((trace) => {
+      if (trace.failureType?.includes("fallback")) return true;
+      if (!trace.responseJson) return false;
+      try {
+        return (JSON.parse(trace.responseJson) as { fallback?: unknown }).fallback === true;
+      } catch {
+        return false;
+      }
+    }).length;
+    const interpreterTimeoutRate = rate(
+      interpreters.filter((trace) => trace.status === PrismaAiTraceStatus.TIMEOUT).length,
+      interpreters.length,
+    );
+    const narratorTimeoutRate = rate(
+      narrators.filter((trace) => trace.status === PrismaAiTraceStatus.TIMEOUT).length,
+      narrators.length,
+    );
+    const fallbackRate = rate(fallbackCount, traces.length);
+    return {
+      totalTraces: traces.length,
+      averageLatencyMs: traces.length
+        ? Math.round(traces.reduce((sum, trace) => sum + trace.latencyMs, 0) / traces.length)
+        : 0,
+      interpreterTimeoutRate,
+      narratorTimeoutRate,
+      fallbackRate,
+      interpreterTimeoutTargetMet: interpreterTimeoutRate <= 0.1,
+      narratorTimeoutTargetMet: narratorTimeoutRate <= 0.1,
+      fallbackTargetMet: fallbackRate <= 0.15,
+      offlineEvaluationRequired: [
+        "interpreter_schema_pass_rate",
+        "interpreter_intent_accuracy",
+        "narrator_schema_pass_rate",
+        "narrator_no_new_facts_violation_rate",
+      ],
+    };
   }
 
   private async invokeAi<T extends HarnessResponse>(params: {

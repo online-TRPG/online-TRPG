@@ -1746,6 +1746,8 @@ export class ActionSpellRuleService {
       case "target_count":
       case "summon_count":
         return typeof table.count === "number" ? [{ mode, count: table.count, perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove) }] : [];
+      case "flat_bonus":
+        return typeof table.amount === "number" ? [{ mode, amount: table.amount, perSlotAbove: this.toOptionalPositiveInteger(table.perSlotAbove) }] : [];
       case "duration":
         return typeof table.unit === "string" && typeof table.amountPerSlotAbove === "number"
           ? [

@@ -2808,3 +2808,160 @@ describe("SessionsService legacy VTT map updates", () => {
     ).resolves.toBe(canonicalPlayerMap);
   });
 });
+
+describe("SessionsService P4 economy API", () => {
+  it("applies a GM economy purchase through GameState, TurnLog, StateDiff, and snapshot emission", async () => {
+    const now = new Date("2026-06-23T00:00:00.000Z");
+    const prisma: {
+      sessionParticipant: { findUnique: jest.Mock };
+      session: { findFirst: jest.Mock };
+      sessionScenario: { findFirst: jest.Mock };
+      gameState: { findUnique: jest.Mock; update: jest.Mock };
+      turnLog: { findFirst: jest.Mock; create: jest.Mock };
+      stateDiff: { create: jest.Mock };
+      $transaction: jest.Mock;
+    } = {
+      sessionParticipant: {
+        findUnique: jest.fn().mockResolvedValue({
+          status: "JOINED",
+          role: "HOST",
+        }),
+      },
+      session: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "session-1",
+          publicId: "12345678",
+          status: "PLAYING",
+          hostUserId: "host-user",
+          gmMode: "AI",
+          gmUserId: null,
+        }),
+      },
+      sessionScenario: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "session-scenario-1",
+          sessionId: "session-1",
+          scenarioId: "scenario-p4",
+          sequence: 1,
+          status: "ACTIVE",
+        }),
+      },
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({
+          version: 3,
+          flagsJson: JSON.stringify({
+            economy: {
+              partyStash: [],
+              walletsBySessionCharacterId: {
+                "sc-1": { gp: 120 },
+              },
+              shopStatesById: {
+                "shop-1": {
+                  shopId: "shop-1",
+                  inventory: [
+                    {
+                      itemDefinitionId: "equipment.potion_of_healing",
+                      quantity: 4,
+                      priceGp: 50,
+                    },
+                  ],
+                },
+              },
+              craftingProgressById: {},
+            },
+          }),
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      turnLog: {
+        findFirst: jest.fn().mockResolvedValue({ turnNumber: 4 }),
+        create: jest.fn().mockImplementation(async ({ data }) => ({
+          id: "turn-log-economy-1",
+          turnNumber: data.turnNumber,
+          playerActionId: null,
+          actorUserId: data.actorUserId,
+          sessionCharacterId: data.sessionCharacterId,
+          rawInput: data.rawInput,
+          structuredActionJson: data.structuredActionJson,
+          diceResultJson: null,
+          stateDiffJson: data.stateDiffJson,
+          outcome: data.outcome,
+          narration: data.narration,
+          createdAt: now,
+        })),
+      },
+      stateDiff: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+      $transaction: jest.fn(),
+    };
+    prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => Promise<unknown>) =>
+      callback(prisma),
+    );
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitStateDiffApplied: jest.fn(),
+      emitSessionSnapshot: jest.fn(),
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    jest.spyOn(service, "buildSnapshot").mockResolvedValue({
+      session: { id: "session-1" },
+      sessionScenarios: [],
+      participants: [],
+      sessionCharacters: [],
+      state: {},
+      pendingRestApprovals: [],
+      humanGmAiAssistSuggestions: [],
+    } as never);
+
+    const snapshot = await service.applyHumanGmEconomyAction("host-user", "session-1", {
+      actionType: "purchase",
+      sessionCharacterId: "sc-1",
+      shopId: "shop-1",
+      itemDefinitionId: "equipment.potion_of_healing",
+      quantity: 2,
+    });
+
+    expect(prisma.gameState.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { sessionScenarioId: "session-scenario-1" },
+        data: expect.objectContaining({
+          version: 4,
+          flagsJson: expect.stringContaining("equipment.potion_of_healing"),
+        }),
+      }),
+    );
+    expect(prisma.turnLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorUserId: "host-user",
+          sessionCharacterId: "sc-1",
+          rawInput: "/economy purchase",
+          turnNumber: 5,
+        }),
+      }),
+    );
+    expect(prisma.stateDiff.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sessionScenarioId: "session-scenario-1",
+          reason: "economy:purchase",
+        }),
+      }),
+    );
+    expect(realtimeEvents.emitTurnLogCreated).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ turnLogId: "turn-log-economy-1" }),
+    );
+    expect(realtimeEvents.emitStateDiffApplied).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ nextVersion: 4 }),
+    );
+    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalledWith("session-1", snapshot);
+  });
+});

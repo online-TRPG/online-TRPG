@@ -3,6 +3,7 @@ import { Injectable } from "@nestjs/common";
 export type SpellScalingMode =
   | "damage_dice"
   | "healing_dice"
+  | "flat_bonus"
   | "target_count"
   | "duration"
   | "summon_count";
@@ -13,6 +14,11 @@ export type SpellScalingRule =
   | {
       mode: "damage_dice" | "healing_dice";
       dice: string;
+      perSlotAbove?: number;
+    }
+  | {
+      mode: "flat_bonus";
+      amount: number;
       perSlotAbove?: number;
     }
   | {
@@ -112,6 +118,13 @@ export class SpellScalingService {
             result.appliedScaling.push({ mode: rule.mode, steps, value: healingDice });
           }
           break;
+        case "flat_bonus":
+          {
+            const damageDice = this.addFlatBonus(result.damageDice, rule.amount, steps);
+            result.damageDice = damageDice;
+            result.appliedScaling.push({ mode: rule.mode, steps, value: damageDice });
+          }
+          break;
         case "target_count":
           {
             const targetCount = (result.targetCount ?? 1) + rule.count * steps;
@@ -197,6 +210,18 @@ export class SpellScalingService {
     }
 
     return `${baseDice}+${additionalCount}d${parsed.sides}`;
+  }
+
+  private addFlatBonus(baseValue: string | null, amount: number, steps: number): string {
+    if (!Number.isFinite(amount)) {
+      throw new Error("flat bonus amount must be a finite number.");
+    }
+    const additional = amount * steps;
+    const numericBase = baseValue === null ? 0 : Number(baseValue);
+    if (Number.isFinite(numericBase)) {
+      return String(numericBase + additional);
+    }
+    return additional >= 0 ? `${baseValue}+${additional}` : `${baseValue}${additional}`;
   }
 
   private parseDice(dice: string): { count: number; sides: number } {

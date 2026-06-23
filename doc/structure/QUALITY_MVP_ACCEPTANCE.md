@@ -107,8 +107,16 @@
 - Interpreter intent accuracy: 80% 이상
 - Narrator schema pass rate: 90% 이상
 - Narrator no-new-facts violation rate: 5% 이하
-- rule validator가 차단한 위험 출력은 모두 FailureLog에 남아야 한다.
+- rule validator가 차단한 위험 출력과 provider timeout/fallback은 모두 `AiTrace`의 status, failureType, errorMessage에 남아야 한다.
 - Google AI Studio API 오류, rate limit, quota 오류는 세션 중단 없이 fallback으로 처리되어야 한다.
+
+운영 측정:
+
+- `GET /sessions/:sessionId/ai-traces/metrics`에서 세션별 평균 latency, Interpreter/Narrator timeout rate, 전체 fallback rate와 임계값 충족 여부를 확인한다.
+- schema pass rate, intent accuracy, no-new-facts 위반율은 정답 라벨이 있는 오프라인 평가 데이터셋으로 별도 측정한다.
+- AI 서버를 실행한 뒤 저장소 루트에서 `npm run eval:ai-quality`를 실행한다. 결과는 `ai/runtime_logs/p0_ai_quality_report.json`에 저장되고 기준 미달 시 종료 코드 1을 반환한다.
+- Interpreter 평가는 `ai/benchmarks/interpreter_harness_cases.json`, Narrator 평가는 `ai/benchmarks/narrator_quality_cases.json`을 사용한다.
+- Narrator no-new-facts 자동 판정은 금지 문구 기반의 결정적 검사이므로, 위반 또는 경계 사례는 보고서의 원문을 사람이 추가 검토한다.
 
 ### 라이선스 기준
 

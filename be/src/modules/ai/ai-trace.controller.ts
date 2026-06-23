@@ -8,6 +8,7 @@ import {
 import {
   AiTraceListQueryDto,
   AiTraceListResponseDto,
+  AiTraceQualityMetricsResponseDto,
 } from "@trpg/shared-types";
 import { ApiResponse, apiResponse } from "../../common/api-response";
 import { CurrentUserId } from "../../common/decorators/current-user-id.decorator";
@@ -17,6 +18,22 @@ import { AiService } from "./ai.service";
 @Controller("sessions/:sessionId/ai-traces")
 export class AiTraceController {
   constructor(private readonly aiService: AiService) {}
+
+  @Get("metrics")
+  @ApiSecurity("bearer")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "sessionId" })
+  @ApiOkResponse({ type: AiTraceQualityMetricsResponseDto })
+  async metrics(
+    @CurrentUserId() userId: string,
+    @Param("sessionId") sessionId: string,
+  ): Promise<ApiResponse<AiTraceQualityMetricsResponseDto>> {
+    return apiResponse(
+      "AI_METRICS_200",
+      "AI quality metrics fetched.",
+      await this.aiService.getQualityMetrics(userId, sessionId),
+    );
+  }
 
   @Get()
   @ApiSecurity("bearer")
