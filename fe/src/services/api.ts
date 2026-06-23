@@ -4,6 +4,7 @@ import type {
   AdjustHumanGmCombatHpDto,
   AcceptHumanGmAiAssistSuggestionDto,
   AiHumanGmAssistSuggestionRequestDto,
+  ApplySessionEconomyActionDto,
   ApplyCombatDamageDto,
   AutoMonsterTurnDto,
   AuthTokenResponseDto,
@@ -16,6 +17,7 @@ import type {
   CombatReactionResponseDto,
   CombatResponseDto,
   CreateHumanGmAiAssistSuggestionDto,
+  CreateScenarioReviewDto,
   CreateScenarioDto,
   CreateVttMapPingDto,
   EquippedWeaponAttackDto,
@@ -36,10 +38,12 @@ import type {
   ResolveMainCommandCheckDto,
   RemoveHumanGmInventoryItemDto,
   ReportHumanGmAiAssistApplicationFailureDto,
+  ReportScenarioDto,
   RestActionDto,
   SetHumanGmDifficultyClassDto,
   ScenarioAssetKind,
   ScenarioAssetResponseDto,
+  ScenarioCollaborationStateResponseDto,
   ClassDefinitionResponseDto,
   ItemResponseDto,
   PlayerScenarioViewDto,
@@ -47,6 +51,7 @@ import type {
   RaceResponseDto,
   RuleCatalogReferenceDto,
   ScenarioResponseDto,
+  ScenarioModerationReportResponseDto,
   SessionDetailResponseDto,
   SessionSnapshotDto,
   SubmitMainCommandDto,
@@ -64,6 +69,7 @@ import type {
   UseInventoryItemResponseDto,
   UploadScenarioAssetDto,
   UploadScenarioNodeImageDto,
+  UpsertScenarioCollaboratorDto,
   UserResponseDto,
   VttMapInteractionDto,
   VttMapInteractionResponseDto,
@@ -636,6 +642,75 @@ export function unpublishScenarioRevision(
     method: 'POST',
     user,
     accessToken,
+  });
+}
+
+export function getScenarioCollaborationState(
+  user: StoredUser,
+  scenarioId: string,
+  accessToken?: string | null
+): Promise<ScenarioCollaborationStateResponseDto> {
+  return requestJson<ScenarioCollaborationStateResponseDto>(`/scenarios/${scenarioId}/collaboration`, {
+    user,
+    accessToken,
+  });
+}
+
+export function upsertScenarioCollaborator(
+  user: StoredUser,
+  scenarioId: string,
+  payload: UpsertScenarioCollaboratorDto,
+  accessToken?: string | null
+): Promise<ScenarioCollaborationStateResponseDto> {
+  return requestJson<ScenarioCollaborationStateResponseDto>(`/scenarios/${scenarioId}/collaborators`, {
+    method: 'PUT',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function removeScenarioCollaborator(
+  user: StoredUser,
+  scenarioId: string,
+  collaboratorUserId: string,
+  accessToken?: string | null
+): Promise<ScenarioCollaborationStateResponseDto> {
+  return requestJson<ScenarioCollaborationStateResponseDto>(
+    `/scenarios/${scenarioId}/collaborators/${encodeURIComponent(collaboratorUserId)}`,
+    {
+      method: 'DELETE',
+      user,
+      accessToken,
+    }
+  );
+}
+
+export function createScenarioReview(
+  user: StoredUser,
+  scenarioId: string,
+  payload: CreateScenarioReviewDto,
+  accessToken?: string | null
+): Promise<ScenarioCollaborationStateResponseDto> {
+  return requestJson<ScenarioCollaborationStateResponseDto>(`/scenarios/${scenarioId}/reviews`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function reportScenario(
+  user: StoredUser,
+  scenarioId: string,
+  payload: ReportScenarioDto,
+  accessToken?: string | null
+): Promise<ScenarioModerationReportResponseDto> {
+  return requestJson<ScenarioModerationReportResponseDto>(`/scenarios/${scenarioId}/report`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
   });
 }
 
@@ -1635,6 +1710,25 @@ export async function grantHumanGmInventoryItem(
 ): Promise<SessionSnapshot> {
   const snapshot = await requestJson<SessionSnapshotDto>(
     `/sessions/${sessionId}/gm/inventory/grant`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+      body: payload,
+    }
+  );
+
+  return normalizeSessionSnapshot(snapshot);
+}
+
+export async function applyHumanGmEconomyAction(
+  user: StoredUser,
+  sessionId: string,
+  payload: ApplySessionEconomyActionDto,
+  accessToken?: string | null
+): Promise<SessionSnapshot> {
+  const snapshot = await requestJson<SessionSnapshotDto>(
+    `/sessions/${sessionId}/gm/economy`,
     {
       method: 'POST',
       user,

@@ -137,6 +137,7 @@ type InventoryContainerDbClient = Pick<
   Prisma.TransactionClient,
   "containerState" | "inventoryEntry"
 >;
+type ActionMutationClient = Prisma.TransactionClient;
 
 const ACTION_SURGE_FEATURE_ID = "class.fighter.feature.action_surge";
 const SECOND_WIND_FEATURE_ID = "class.fighter.feature.second_wind";
@@ -220,14 +221,13 @@ export class ActionProcessorService {
   }): Promise<void> {
     try {
       const turnLog = await this.processAction(action.id);
-      await this.prisma.playerAction.update({
-        where: { id: action.id },
-        data: {
-          queueStatus: PrismaActionQueueStatus.COMPLETED,
-          processedAt: new Date(),
-        },
-      });
-      this.realtimeEvents.emitTurnLogCreated(action.sessionId, turnLog);
+      try {
+        this.realtimeEvents.emitTurnLogCreated(action.sessionId, turnLog);
+      } catch (eventError) {
+        this.logger.warn(
+          `Failed to emit committed turn log for action=${action.id}: ${this.toErrorMessage(eventError)}`,
+        );
+      }
     } catch (error) {
       const errorMessage = this.toErrorMessage(error);
       await this.prisma.playerAction.update({
@@ -343,23 +343,8 @@ export class ActionProcessorService {
     const runtime = await this.buildRuntime(session.id, sessionScenario.id, actor, state);
     const ruleTargets = this.createRuleTargets(sessionCharacters, runtime.combatParticipants);
 
-    // BE → AI Interpreter (AI-SERVER-001). 자연어 → 구조화 action 후보를 AiTrace 로 영속.
-    // Phase 1: 결과를 룰 판정에 사용하지 않음 (actionRules 시그니처 변경 동반이라 별 PR).
-    // Phase 2: actionRules.resolveAction 가 interpreter 결과 받아 활용.
-    // 실패해도 진행 — AI 서버 자체에 fallback 있고, 룰은 rawText 로 독립 판정.
-    try {
-      await this.aiService.runInterpreter(session.id, action.userId, {
-        rawText: action.rawText,
-        actorCharacterId: actor.character.id,
-        sceneSummary: `${session.title} - ${actor.character.name}의 행동`,
-        availableTargets: ruleTargets.map((c) => c.character.name),
-      });
-    } catch (error) {
-      this.logger.warn(
-        `Interpreter call failed for action=${action.id}: ${this.toErrorMessage(error)}`,
-      );
-    }
-
+    // 이 queue는 slash command와 자유 RP 기록의 결정적 실행 경로다.
+    // 자연어 룰 해석은 MainCommandsService가 Interpreter 결과를 실제 판정에 사용하는 단일 경로로 처리한다.
     const resolution = this.actionRules.resolveAction(
       action.rawText,
       actor,
@@ -373,82 +358,115 @@ export class ActionProcessorService {
       turnStateKey: runtime.turnStateKey,
     };
     await this.assertRuntimeEffectPreconditions(resolution, runtimeEffectParams);
-    const earlyRuntimeStateChanged = await this.applyEarlyRuntimeEffects(
-      resolution,
-      runtimeEffectParams,
-    );
-    const turnLog = await this.turnLogsService.createTurnLog({
-      sessionId: session.id,
-      sessionScenarioId: sessionScenario.id,
-      playerActionId: action.id,
-      actorUserId: action.userId,
-      sessionCharacterId: actor.id,
-      rawInput: action.rawText,
-      structuredAction: {
-        ...resolution.structuredAction,
-        inputType: this.toSharedInputType(action.inputType),
-        actionScope: this.toSharedActionScope(action.actionScope),
-      },
-      diceResult: resolution.diceResult ? { ...resolution.diceResult } : null,
-      outcome: resolution.outcome,
-      narration: resolution.narration,
-    });
-    const revealCount = state.currentNodeId
-      ? await this.sessionsService.revealCurrentNodeCluesAfterAction({
-          sessionScenarioId: sessionScenario.id,
-          nodeId: state.currentNodeId,
-          actionText: action.rawText,
-          outcome: resolution.outcome,
-          turnLogId: turnLog.turnLogId,
-          revealedBy: "system",
-        })
-      : 0;
+    const mutation = await this.prisma.$transaction(async (tx) => {
+      const earlyRuntimeStateChanged = await this.applyEarlyRuntimeEffects(
+        resolution,
+        runtimeEffectParams,
+        tx,
+      );
+      const turnLog = await this.turnLogsService.createTurnLog({
+        sessionId: session.id,
+        sessionScenarioId: sessionScenario.id,
+        playerActionId: action.id,
+        actorUserId: action.userId,
+        sessionCharacterId: actor.id,
+        rawInput: action.rawText,
+        structuredAction: {
+          ...resolution.structuredAction,
+          inputType: this.toSharedInputType(action.inputType),
+          actionScope: this.toSharedActionScope(action.actionScope),
+        },
+        diceResult: resolution.diceResult ? { ...resolution.diceResult } : null,
+        outcome: resolution.outcome,
+        narration: resolution.narration,
+      }, tx);
 
-    if (resolution.diceResult) {
-      await this.prisma.diceRollLog.create({
+      if (resolution.diceResult) {
+        await tx.diceRollLog.create({
+          data: {
+            sessionId: session.id,
+            userId: action.userId,
+            expression: resolution.diceResult.expression,
+            rollsJson: JSON.stringify(resolution.diceResult.rolls),
+            modifier: resolution.diceResult.modifier,
+            total: resolution.diceResult.total,
+            advantageState: this.toPrismaAdvantage(resolution.diceResult.advantageState),
+            reason: action.rawText,
+            turnLogId: turnLog.turnLogId,
+          },
+        });
+      }
+
+      const stateDiff = await this.stateDiffService.applyCharacterChanges({
+        sessionScenarioId: sessionScenario.id,
+        baseVersion: state.version,
+        turnLogId: turnLog.turnLogId,
+        reason: String(resolution.structuredAction.type ?? "action_result"),
+        changes: resolution.stateChanges,
+      }, tx);
+
+      const runtimeMutation = await this.applyRuntimeEffects(
+        resolution,
+        runtimeEffectParams,
+        tx,
+      );
+      const runtimeStateChanged = earlyRuntimeStateChanged || runtimeMutation.changed;
+
+      if (stateDiff) {
+        await this.turnLogsService.attachStateDiff(turnLog.turnLogId, { ...stateDiff }, tx);
+      }
+      const revealCount = state.currentNodeId
+        ? await this.sessionsService.revealCurrentNodeCluesAfterAction(
+            {
+              sessionScenarioId: sessionScenario.id,
+              nodeId: state.currentNodeId,
+              actionText: action.rawText,
+              outcome: resolution.outcome,
+              turnLogId: turnLog.turnLogId,
+              revealedBy: "system",
+            },
+            tx,
+          )
+        : 0;
+      await tx.playerAction.update({
+        where: { id: action.id },
         data: {
-          sessionId: session.id,
-          userId: action.userId,
-          expression: resolution.diceResult.expression,
-          rollsJson: JSON.stringify(resolution.diceResult.rolls),
-          modifier: resolution.diceResult.modifier,
-          total: resolution.diceResult.total,
-          advantageState: this.toPrismaAdvantage(resolution.diceResult.advantageState),
-          reason: action.rawText,
-          turnLogId: turnLog.turnLogId,
+          queueStatus: PrismaActionQueueStatus.COMPLETED,
+          failureReason: null,
+          processedAt: new Date(),
         },
       });
-      this.realtimeEvents.emitDiceRolled(session.id, resolution.diceResult);
-    }
-
-    const stateDiff = await this.stateDiffService.applyCharacterChanges({
-      sessionScenarioId: sessionScenario.id,
-      baseVersion: state.version,
-      turnLogId: turnLog.turnLogId,
-      reason: String(resolution.structuredAction.type ?? "action_result"),
-      changes: resolution.stateChanges,
+      return {
+        turnLog,
+        stateDiff,
+        runtimeStateChanged,
+        revealCount,
+        mapUpdate: runtimeMutation.mapUpdate,
+      };
     });
 
-    const laterRuntimeStateChanged = await this.applyRuntimeEffects(resolution, runtimeEffectParams);
-    const runtimeStateChanged = earlyRuntimeStateChanged || laterRuntimeStateChanged;
-
-    if (stateDiff) {
-      await this.turnLogsService.attachStateDiff(turnLog.turnLogId, { ...stateDiff });
-      this.realtimeEvents.emitStateDiffApplied(session.id, stateDiff);
-      const latestSnapshot = await this.sessionsService.buildSnapshot(session.id);
-      this.realtimeEvents.emitSessionSnapshot(session.id, latestSnapshot);
-      return {
-        ...turnLog,
-        stateDiff: { ...stateDiff },
-      };
+    try {
+      if (resolution.diceResult) {
+        this.realtimeEvents.emitDiceRolled(session.id, resolution.diceResult);
+      }
+      if (mutation.stateDiff) {
+        this.realtimeEvents.emitStateDiffApplied(session.id, mutation.stateDiff);
+      }
+      if (mutation.mapUpdate) {
+        this.realtimeEvents.emitVttMapUpdated(session.id, mutation.mapUpdate);
+      }
+      if (mutation.stateDiff || mutation.runtimeStateChanged || mutation.revealCount > 0) {
+        const latestSnapshot = await this.sessionsService.buildSnapshot(session.id);
+        this.realtimeEvents.emitSessionSnapshot(session.id, latestSnapshot);
+      }
+    } catch (eventError) {
+      this.logger.warn(
+        `Failed to emit committed action state for action=${action.id}: ${this.toErrorMessage(eventError)}`,
+      );
     }
-
-    if (runtimeStateChanged || revealCount > 0) {
-      const latestSnapshot = await this.sessionsService.buildSnapshot(session.id);
-      this.realtimeEvents.emitSessionSnapshot(session.id, latestSnapshot);
-    }
-
-    return turnLog;
+    return mutation.stateDiff
+      ? { ...mutation.turnLog, stateDiff: { ...mutation.stateDiff } }
+      : mutation.turnLog;
   }
 
   private async buildRuntime(
@@ -602,31 +620,46 @@ export class ActionProcessorService {
   private async applyRuntimeEffects(
     resolution: ActionResolution,
     params: RuntimeEffectParams,
-  ): Promise<boolean> {
+    client: ActionMutationClient = this.prisma,
+  ): Promise<{
+    changed: boolean;
+    mapUpdate: {
+      hostUserId: string;
+      hostMap: VttMapStateDto;
+      playerMap: VttMapStateDto;
+    } | null;
+  }> {
     let changed = false;
+    let mapUpdate: {
+      hostUserId: string;
+      hostMap: VttMapStateDto;
+      playerMap: VttMapStateDto;
+    } | null = null;
     const allEffects = resolution.runtimeEffects ?? [];
     let effects = allEffects.filter((effect) => !this.isEarlyRuntimeEffect(effect));
     if (this.hasInventoryMapRuntimeEffects(effects)) {
-      await this.applyInventoryMapRuntimeEffectsAtomically(
+      mapUpdate = await this.applyInventoryMapRuntimeEffectsAtomically(
         params,
         allEffects.filter((effect): effect is InventoryMapAtomicRuntimeEffect =>
           this.isInventoryMapAtomicRuntimeEffect(effect),
         ),
+        client,
       );
       effects = effects.filter((effect) => !this.isInventoryMapRuntimeEffect(effect));
       changed = true;
     }
 
     for (const effect of effects) {
-      await this.applyRuntimeEffect(effect, params);
+      await this.applyRuntimeEffect(effect, params, client);
       changed = true;
     }
-    return changed;
+    return { changed, mapUpdate };
   }
 
   private async applyEarlyRuntimeEffects(
     resolution: ActionResolution,
     params: RuntimeEffectParams,
+    client: ActionMutationClient = this.prisma,
   ): Promise<boolean> {
     let changed = false;
     const effects = resolution.runtimeEffects ?? [];
@@ -638,7 +671,7 @@ export class ActionProcessorService {
       if (deferActionSpend && effect.type === "SPEND_ACTION") {
         continue;
       }
-      await this.applyRuntimeEffect(effect, params);
+      await this.applyRuntimeEffect(effect, params, client);
       changed = true;
     }
     return changed;
@@ -652,44 +685,46 @@ export class ActionProcessorService {
       sessionCharacterId: string;
       turnStateKey: RuntimeTurnStateKey | null;
     },
+    client: ActionMutationClient,
   ): Promise<void> {
     switch (effect.type) {
       case "SPEND_ACTION":
         if (params.turnStateKey) {
-          await this.actionEconomy.spendAction(params.turnStateKey);
+          await this.actionEconomy.spendAction(params.turnStateKey, client);
         }
         return;
       case "SPEND_BONUS_ACTION":
         if (params.turnStateKey) {
-          await this.actionEconomy.spendBonusAction(params.turnStateKey);
+          await this.actionEconomy.spendBonusAction(params.turnStateKey, client);
         }
         return;
       case "SPEND_REACTION":
         if (params.turnStateKey) {
-          await this.actionEconomy.spendReaction(params.turnStateKey);
+          await this.actionEconomy.spendReaction(params.turnStateKey, client);
         }
         return;
       case "GRANT_ADDITIONAL_ACTION":
         if (params.turnStateKey) {
-          await this.actionEconomy.grantAdditionalAction(params.turnStateKey);
+          await this.actionEconomy.grantAdditionalAction(params.turnStateKey, client);
         }
         return;
       case "SPEND_SNEAK_ATTACK":
         if (params.turnStateKey) {
-          await this.actionEconomy.spendSneakAttack(params.turnStateKey);
+          await this.actionEconomy.spendSneakAttack(params.turnStateKey, client);
         }
         return;
       case "SPEND_SECOND_WIND":
-        await this.characterResources.spendSecondWind(params.sessionCharacterId);
+        await this.characterResources.spendSecondWind(params.sessionCharacterId, client);
         return;
       case "SPEND_ACTION_SURGE_USE":
-        await this.characterResources.spendActionSurgeUse(params.sessionCharacterId);
+        await this.characterResources.spendActionSurgeUse(params.sessionCharacterId, client);
         return;
       case "SPEND_SPELL_SLOT":
         await this.spendSpellSlot(
           params.sessionScenarioId,
           params.sessionCharacterId,
           effect.slotLevel,
+          client,
         );
         return;
       case "RESTORE_SPELL_SLOT":
@@ -698,11 +733,12 @@ export class ActionProcessorService {
             params.sessionScenarioId,
             params.sessionCharacterId,
             effect.slotLevel,
+            client,
           );
         }
         return;
       case "STORE_READY_ACTION":
-        await this.storePendingReadyAction(params.sessionScenarioId, effect.pending);
+        await this.storePendingReadyAction(params.sessionScenarioId, effect.pending, client);
         return;
       case "START_RAGE":
         await this.characterResources.startRage({
@@ -711,10 +747,10 @@ export class ActionProcessorService {
           // 정확한 종료 처리는 이후 턴 lifecycle에서 이 값을 읽어 처리한다.
           rageEndsAtRound: params.turnStateKey ? params.turnStateKey.roundNo + 10 : null,
           rageEndsAtTurn: params.turnStateKey?.turnNo ?? null,
-        });
+        }, client);
         return;
       case "START_FRENZY":
-        await this.characterResources.startFrenzy(params.sessionCharacterId);
+        await this.characterResources.startFrenzy(params.sessionCharacterId, client);
         return;
       case "RECOVER_SHORT_REST":
         // 휴식은 캐릭터 HP 변경과 별도로 class resource row도 회복해야 해서 runtime effect로 처리한다.
@@ -723,17 +759,19 @@ export class ActionProcessorService {
           secondWindAvailable: effect.secondWindAvailable,
           actionSurgeUses: effect.actionSurgeUses,
           hitDiceSpent: effect.hitDiceSpent,
-        });
-        await this.recoverShortRestMonsterLimitedUses(params.sessionScenarioId);
+        }, client);
+        await this.recoverShortRestMonsterLimitedUses(params.sessionScenarioId, client);
         await this.recoverShortRestPactMagicSlots(
           params.sessionScenarioId,
           params.sessionCharacterId,
+          client,
         );
         if (effect.recoverSpellSlotLevel) {
           await this.recoverOneSpellSlot(
             params.sessionScenarioId,
             params.sessionCharacterId,
             effect.recoverSpellSlotLevel,
+            client,
           );
         }
         return;
@@ -746,27 +784,25 @@ export class ActionProcessorService {
           rageUses: effect.rageUses,
           reduceExhaustionBy: effect.reduceExhaustionBy,
           hitDiceSpent: effect.hitDiceSpent,
-        });
-        await this.recoverLongRestSpellSlots(params.sessionScenarioId, params.sessionCharacterId);
+        }, client);
+        await this.recoverLongRestSpellSlots(
+          params.sessionScenarioId,
+          params.sessionCharacterId,
+          client,
+        );
         await this.recoverLongRestItemCharges(
           params.sessionScenarioId,
           params.sessionCharacterId,
+          client,
         );
         return;
       case "ADD_ITEM":
-        await this.inventoryRuntime.addItem({
-          sessionCharacterId: params.sessionCharacterId,
-          itemDefinitionId: effect.itemDefinitionId,
-          quantity: effect.quantity,
-          containerEntryId: effect.containerEntryId ?? null,
-        });
+        await this.addInventoryItemWithClient(client, params.sessionCharacterId, effect);
+        await this.syncSessionInventorySnapshotWithClient(client, params.sessionCharacterId);
         return;
       case "REMOVE_ITEM":
-        await this.inventoryRuntime.removeItemFromCharacter({
-          sessionCharacterId: params.sessionCharacterId,
-          itemId: effect.itemId,
-          quantity: effect.quantity,
-        });
+        await this.removeInventoryItemWithClient(client, params.sessionCharacterId, effect);
+        await this.syncSessionInventorySnapshotWithClient(client, params.sessionCharacterId);
         return;
       case "CREATE_MAP_OBJECT":
       case "UPDATE_MAP_OBJECT_QUANTITY":
@@ -959,7 +995,12 @@ export class ActionProcessorService {
   private async applyInventoryMapRuntimeEffectsAtomically(
     params: RuntimeEffectParams,
     effects: InventoryMapAtomicRuntimeEffect[],
-  ): Promise<void> {
+    client?: ActionMutationClient,
+  ): Promise<{
+    hostUserId: string;
+    hostMap: VttMapStateDto;
+    playerMap: VttMapStateDto;
+  }> {
     const session = await this.sessionsService.getSessionEntityOrThrow(params.sessionId);
     const { sessionScenario, state } = await this.sessionsService.getGameStateEntityOrThrow(params.sessionId);
     const baselineMap = await this.sessionsService.getVttMapBaseline(
@@ -970,12 +1011,16 @@ export class ActionProcessorService {
     this.assertMapRuntimeEffectsApplicable(baselineMap, effects);
     const nextMap = this.applyMapRuntimeEffectsToMap(baselineMap, effects);
 
-    const savedMap = await this.prisma.$transaction(async (tx) => {
+    const mutate = async (tx: ActionMutationClient) => {
       const currentState = await tx.gameState.findUnique({
         where: { sessionScenarioId: params.sessionScenarioId },
-        select: { currentNodeId: true, flagsJson: true },
+        select: { currentNodeId: true, flagsJson: true, version: true },
       });
+      if (!currentState) {
+        throw notFound("STATE_404", "세션 게임 상태를 찾을 수 없습니다.");
+      }
       const flags = this.parseJson<Record<string, unknown>>(currentState?.flagsJson, {});
+      const currentVersion = currentState.version ?? state.version;
       const normalizedMap = this.sessionsService.normalizeVttMap(
         nextMap,
         currentState?.currentNodeId ?? state.currentNodeId ?? null,
@@ -983,7 +1028,7 @@ export class ActionProcessorService {
       const updatedState = await tx.gameState.updateMany({
         where: {
           sessionScenarioId: params.sessionScenarioId,
-          version: state.version,
+          version: currentVersion,
         },
         data: {
           version: { increment: 1 },
@@ -996,7 +1041,7 @@ export class ActionProcessorService {
       if (updatedState.count !== 1) {
         throw conflict("VTT_409", "다른 요청이 맵 상태를 먼저 변경했습니다.", {
           reason: "MAP_STATE_VERSION_CONFLICT",
-          expectedVersion: state.version,
+          expectedVersion: currentVersion,
         });
       }
 
@@ -1014,13 +1059,17 @@ export class ActionProcessorService {
 
       await this.syncSessionInventorySnapshotWithClient(tx, params.sessionCharacterId);
       return normalizedMap;
-    });
-
-    this.realtimeEvents.emitVttMapUpdated(params.sessionId, {
+    };
+    const savedMap = client ? await mutate(client) : await this.prisma.$transaction(mutate);
+    const mapUpdate = {
       hostUserId: session.hostUserId,
       hostMap: savedMap,
       playerMap: this.sessionsService.redactVttMapForPlayer(savedMap),
-    });
+    };
+    if (!client) {
+      this.realtimeEvents.emitVttMapUpdated(params.sessionId, mapUpdate);
+    }
+    return mapUpdate;
   }
 
   private applyMapRuntimeEffectsToMap(
@@ -1463,8 +1512,9 @@ export class ActionProcessorService {
   private async storePendingReadyAction(
     sessionScenarioId: string,
     pending: Extract<ActionRuntimeEffect, { type: "STORE_READY_ACTION" }>["pending"],
+    client: Pick<ActionMutationClient, "gameState"> = this.prisma,
   ): Promise<void> {
-    const state = await this.prisma.gameState.findUnique({
+    const state = await client.gameState.findUnique({
       where: { sessionScenarioId },
       select: { flagsJson: true },
     });
@@ -1479,7 +1529,7 @@ export class ActionProcessorService {
         candidate["id"] !== pending.id,
     );
 
-    await this.prisma.gameState.update({
+    await client.gameState.update({
       where: { sessionScenarioId },
       data: {
         flagsJson: JSON.stringify({
@@ -1493,8 +1543,9 @@ export class ActionProcessorService {
   private async recoverLongRestSpellSlots(
     sessionScenarioId: string,
     sessionCharacterId: string,
+    client: Pick<ActionMutationClient, "gameState"> = this.prisma,
   ): Promise<void> {
-    const state = await this.prisma.gameState.findUnique({
+    const state = await client.gameState.findUnique({
       where: { sessionScenarioId },
       select: { flagsJson: true },
     });
@@ -1525,7 +1576,7 @@ export class ActionProcessorService {
       ...remainingSpellSlotsBySessionCharacterId
     } = spellSlotsBySessionCharacterId;
 
-    await this.prisma.gameState.update({
+    await client.gameState.update({
       where: { sessionScenarioId },
       data: {
         flagsJson: JSON.stringify({
@@ -1545,8 +1596,11 @@ export class ActionProcessorService {
     });
   }
 
-  private async recoverShortRestMonsterLimitedUses(sessionScenarioId: string): Promise<void> {
-    const state = await this.prisma.gameState.findUnique({
+  private async recoverShortRestMonsterLimitedUses(
+    sessionScenarioId: string,
+    client: Pick<ActionMutationClient, "gameState"> = this.prisma,
+  ): Promise<void> {
+    const state = await client.gameState.findUnique({
       where: { sessionScenarioId },
       select: { flagsJson: true },
     });
@@ -1560,7 +1614,7 @@ export class ActionProcessorService {
       return;
     }
 
-    await this.prisma.gameState.update({
+    await client.gameState.update({
       where: { sessionScenarioId },
       data: {
         flagsJson: JSON.stringify({
@@ -1574,8 +1628,9 @@ export class ActionProcessorService {
   private async recoverShortRestPactMagicSlots(
     sessionScenarioId: string,
     sessionCharacterId: string,
+    client: Pick<ActionMutationClient, "sessionCharacter" | "gameState"> = this.prisma,
   ): Promise<void> {
-    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+    const sessionCharacter = await client.sessionCharacter.findUnique({
       where: { id: sessionCharacterId },
       include: {
         character: {
@@ -1589,7 +1644,7 @@ export class ActionProcessorService {
       return;
     }
 
-    const state = await this.prisma.gameState.findUnique({
+    const state = await client.gameState.findUnique({
       where: { sessionScenarioId },
       select: { flagsJson: true },
     });
@@ -1611,7 +1666,7 @@ export class ActionProcessorService {
       [sessionCharacterId]: _recovered,
       ...remainingSpellSlotsBySessionCharacterId
     } = spellSlotsBySessionCharacterId;
-    await this.prisma.gameState.update({
+    await client.gameState.update({
       where: { sessionScenarioId },
       data: {
         flagsJson: JSON.stringify({
@@ -1626,8 +1681,9 @@ export class ActionProcessorService {
     sessionScenarioId: string,
     sessionCharacterId: string,
     slotLevel: number,
+    client: Pick<ActionMutationClient, "gameState" | "sessionCharacter"> = this.prisma,
   ): Promise<void> {
-    const state = await this.prisma.gameState.findUnique({
+    const state = await client.gameState.findUnique({
       where: { sessionScenarioId },
       select: { flagsJson: true },
     });
@@ -1639,6 +1695,7 @@ export class ActionProcessorService {
     const maximum = await this.resolveSpellSlotMaximum(
       sessionCharacterId,
       slotLevel,
+      client,
     );
     if (maximum < 1) {
       return;
@@ -1649,7 +1706,7 @@ export class ActionProcessorService {
     if (remaining >= maximum) {
       return;
     }
-    await this.prisma.gameState.update({
+    await client.gameState.update({
       where: { sessionScenarioId },
       data: {
         flagsJson: JSON.stringify({
@@ -1722,12 +1779,13 @@ export class ActionProcessorService {
     sessionScenarioId: string,
     sessionCharacterId: string,
     slotLevel: number,
+    client: Pick<ActionMutationClient, "gameState" | "sessionCharacter"> = this.prisma,
   ): Promise<void> {
     if (slotLevel < 1) {
       return;
     }
 
-    const state = await this.prisma.gameState.findUnique({
+    const state = await client.gameState.findUnique({
       where: { sessionScenarioId },
       select: { flagsJson: true },
     });
@@ -1740,6 +1798,7 @@ export class ActionProcessorService {
     const maximumSlots = await this.resolveSpellSlotMaximum(
       sessionCharacterId,
       slotLevel,
+      client,
     );
     const currentSlots = spellSlotsBySessionCharacterId[sessionCharacterId] ?? {
       [slotKey]: maximumSlots,
@@ -1752,7 +1811,7 @@ export class ActionProcessorService {
       throw new Error("No spell slot remaining.");
     }
 
-    await this.prisma.gameState.update({
+    await client.gameState.update({
       where: { sessionScenarioId },
       data: {
         flagsJson: JSON.stringify({
@@ -1809,8 +1868,9 @@ export class ActionProcessorService {
   private async resolveSpellSlotMaximum(
     sessionCharacterId: string,
     slotLevel: number,
+    client: Pick<ActionMutationClient, "sessionCharacter"> = this.prisma,
   ): Promise<number> {
-    const sessionCharacter = await this.prisma.sessionCharacter.findUnique({
+    const sessionCharacter = await client.sessionCharacter.findUnique({
       where: { id: sessionCharacterId },
       include: {
         character: {
@@ -1860,13 +1920,14 @@ export class ActionProcessorService {
   private async recoverLongRestItemCharges(
     sessionScenarioId: string,
     sessionCharacterId: string,
+    client: Pick<ActionMutationClient, "gameState" | "inventoryEntry"> = this.prisma,
   ): Promise<void> {
     const [state, entries] = await Promise.all([
-      this.prisma.gameState.findUnique({
+      client.gameState.findUnique({
         where: { sessionScenarioId },
         select: { flagsJson: true },
       }),
-      this.prisma.inventoryEntry.findMany({
+      client.inventoryEntry.findMany({
         where: { sessionCharacterId },
         select: { id: true, itemDefinitionId: true },
       }),
@@ -1906,7 +1967,7 @@ export class ActionProcessorService {
     if (!changed) {
       return;
     }
-    await this.prisma.gameState.update({
+    await client.gameState.update({
       where: { sessionScenarioId },
       data: {
         flagsJson: JSON.stringify({

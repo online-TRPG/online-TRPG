@@ -29,8 +29,13 @@ import {
   ScenarioNodeImageUploadResponseDto,
   ScenarioSummaryResponseDto,
   PublishScenarioDto,
+  ReportScenarioDto,
+  ScenarioModerationReportResponseDto,
+  CreateScenarioReviewDto,
+  ScenarioCollaborationStateResponseDto,
   ScenarioLicense,
   ScenarioNodeType,
+  UpsertScenarioCollaboratorDto,
   UploadScenarioAssetDto,
   UploadScenarioNodeImageDto,
   UpdateScenarioDto,
@@ -42,12 +47,25 @@ import {
   PROVIDED_SCENARIO_IDS,
   isProvidedScenarioId,
 } from './provided-scenario.constants';
+import {
+  ScenarioCollaborationPolicyService,
+  ScenarioCollaborator,
+  ScenarioReviewRecord,
+  ScenarioPolicyDraft,
+  ScenarioPolicyNode,
+  ScenarioPublishVisibility,
+} from './scenario-collaboration-policy.service';
 
 @Injectable()
 export class ScenariosService {
   private static readonly REVISION_METADATA_MARKER = "P3_REVISION_META:";
+  private static readonly COLLABORATION_METADATA_MARKER = "P4_COLLAB_META:";
+  private static readonly MODERATION_REPORT_MARKER = "P4_MODERATION_REPORT:";
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly collaborationPolicy: ScenarioCollaborationPolicyService = new ScenarioCollaborationPolicyService(),
+  ) {}
 
   async listScenarios(query?: ScenarioQueryDto): Promise<ScenarioSummaryResponseDto[]> {
     const scenarios = await this.prisma.scenario.findMany({
@@ -82,7 +100,6 @@ export class ScenariosService {
   ): Promise<ScenarioSummaryResponseDto[]> {
     const scenarios = await this.prisma.scenario.findMany({
       where: {
-        createdByUserId: userId,
         title: query?.search
           ? {
               contains: query.search,
@@ -92,7 +109,21 @@ export class ScenariosService {
       orderBy: { updatedAt: 'desc' },
     });
 
-    return scenarios.map(mapScenarioSummary);
+    return scenarios
+      .filter((scenario) => {
+        if (scenario.createdByUserId === userId) {
+          return true;
+        }
+        if (scenario.sourceType === PrismaScenarioSourceType.CLONED) {
+          return false;
+        }
+        return this.collaborationPolicy.resolvePermission({
+          draft: this.buildScenarioPolicyDraft({ ...scenario, nodes: [] }),
+          userId,
+          action: "view",
+        }).allowed;
+      })
+      .map(mapScenarioSummary);
   }
 
   async getScenario(id: string, viewerUserId?: string | null): Promise<ScenarioResponseDto> {
@@ -111,7 +142,7 @@ export class ScenariosService {
     scenarioId: string,
     query?: ScenarioAssetQueryDto
   ): Promise<ScenarioAssetResponseDto[]> {
-    await this.getEditableScenarioEntity(userId, scenarioId);
+    await this.getEditableScenarioEntity(userId, scenarioId, { access: "edit" });
 
     let assets;
     try {
@@ -175,7 +206,15 @@ export class ScenariosService {
     id: string,
     dto: UpdateScenarioDto
   ): Promise<ScenarioResponseDto> {
-    const existing = await this.getEditableScenarioEntity(userId, id);
+    const existing = await this.getEditableScenarioEntity(userId, id, { access: "edit" });
+    if (
+      dto.expectedUpdatedAt &&
+      new Date(dto.expectedUpdatedAt).getTime() !== existing.updatedAt.getTime()
+    ) {
+      throw new ConflictException(
+        "다른 편집자가 먼저 시나리오를 저장했습니다. 최신 내용을 다시 불러온 뒤 변경 사항을 합쳐 주세요.",
+      );
+    }
     const shouldUpdateStartNode =
       dto.startNodeTitle !== undefined || dto.startSceneText !== undefined;
     const nextNodes = dto.nodes ? this.normalizeNodeInputs(id, dto.nodes) : null;
@@ -256,7 +295,36 @@ export class ScenariosService {
     dto: PublishScenarioDto,
   ): Promise<ScenarioResponseDto> {
     const draft = await this.getEditableScenarioEntity(userId, id);
-    const validationReport = this.buildScenarioValidationReport(draft);
+    const previousRevision = await this.prisma.scenario.findFirst({
+      where: {
+        baseScenarioId: draft.id,
+        sourceType: PrismaScenarioSourceType.CLONED,
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        nodes: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+    const validationReport = this.buildScenarioValidationReport(
+      draft,
+      dto.visibility ?? "public",
+      previousRevision?.nodes.map((node): ScenarioPolicyNode => ({
+        id: node.id.replace(`${previousRevision.id}_`, ""),
+        nodeType: node.nodeType,
+        title: node.title,
+        sceneText: node.sceneText,
+        checkOptions: this.parseJson<unknown>(node.checkOptionsJson, null),
+        nodeMeta: this.parseJson<unknown>(node.nodeMetaJson, null),
+        transitions: this.parseJson<Array<{ nextNodeId?: string | null }>>(node.transitionsJson, [])
+          .map((transition) => ({
+            ...transition,
+            nextNodeId: transition.nextNodeId?.replace(`${previousRevision.id}_`, "") ?? null,
+          })),
+        fallbackNodeId: node.fallbackNodeId?.replace(`${previousRevision.id}_`, "") ?? null,
+      })),
+    );
     this.assertScenarioPublishable(validationReport);
 
     const revisionNumber =
@@ -381,6 +449,148 @@ export class ScenariosService {
     return mapScenario(updated);
   }
 
+  async getScenarioCollaborationState(
+    userId: string,
+    id: string,
+  ): Promise<ScenarioCollaborationStateResponseDto> {
+    const scenario = await this.getScenarioEntityById(id);
+    this.ensureScenarioDraftEditableForCollaboration(scenario);
+    const draft = this.buildScenarioPolicyDraft(scenario);
+    const permission = this.collaborationPolicy.resolvePermission({ draft, userId, action: "view" });
+    if (!permission.allowed) {
+      throw new ForbiddenException("시나리오 협업 정보를 볼 권한이 없습니다.");
+    }
+    return this.mapCollaborationState(draft.collaborators, draft.reviews, draft.ownerUserId);
+  }
+
+  async upsertScenarioCollaborator(
+    userId: string,
+    id: string,
+    dto: UpsertScenarioCollaboratorDto,
+  ): Promise<ScenarioCollaborationStateResponseDto> {
+    const scenario = await this.getScenarioEntityById(id);
+    this.ensureScenarioDraftEditableForCollaboration(scenario);
+    const draft = this.buildScenarioPolicyDraft(scenario);
+    const permission = this.collaborationPolicy.resolvePermission({
+      draft,
+      userId,
+      action: "manage_collaborators",
+    });
+    if (!permission.allowed) {
+      throw new ForbiddenException("collaborator를 관리할 권한이 없습니다.");
+    }
+    const targetUserId = dto.userId.trim();
+    if (!targetUserId || targetUserId === scenario.createdByUserId) {
+      throw new BadRequestException("owner는 collaborator 목록에 추가할 수 없습니다.");
+    }
+    const collaborators = [
+      ...draft.collaborators.filter((collaborator) => collaborator.userId !== targetUserId),
+      { userId: targetUserId, role: dto.role },
+    ].sort((left, right) => left.userId.localeCompare(right.userId));
+    return this.persistScenarioCollaborationState(scenario.id, draft.ownerUserId, collaborators, draft.reviews);
+  }
+
+  async removeScenarioCollaborator(
+    userId: string,
+    id: string,
+    collaboratorUserId: string,
+  ): Promise<ScenarioCollaborationStateResponseDto> {
+    const scenario = await this.getScenarioEntityById(id);
+    this.ensureScenarioDraftEditableForCollaboration(scenario);
+    const draft = this.buildScenarioPolicyDraft(scenario);
+    const permission = this.collaborationPolicy.resolvePermission({
+      draft,
+      userId,
+      action: "manage_collaborators",
+    });
+    if (!permission.allowed) {
+      throw new ForbiddenException("collaborator를 관리할 권한이 없습니다.");
+    }
+    const collaborators = draft.collaborators.filter(
+      (collaborator) => collaborator.userId !== collaboratorUserId,
+    );
+    return this.persistScenarioCollaborationState(scenario.id, draft.ownerUserId, collaborators, draft.reviews);
+  }
+
+  async createScenarioReview(
+    userId: string,
+    id: string,
+    dto: CreateScenarioReviewDto,
+  ): Promise<ScenarioCollaborationStateResponseDto> {
+    const scenario = await this.getScenarioEntityById(id);
+    this.ensureScenarioDraftEditableForCollaboration(scenario);
+    const draft = this.buildScenarioPolicyDraft(scenario);
+    const isRequest = dto.status === "requested";
+    const permission = this.collaborationPolicy.resolvePermission({
+      draft,
+      userId,
+      action: isRequest ? "request_review" : "review",
+    });
+    if (!permission.allowed) {
+      throw new ForbiddenException("review를 기록할 권한이 없습니다.");
+    }
+    const reviewerUserId = isRequest
+      ? (dto.reviewerUserId?.trim() ||
+        draft.collaborators.find((collaborator) => collaborator.role === "reviewer")?.userId)
+      : userId;
+    if (!reviewerUserId) {
+      throw new BadRequestException("review 요청 전에 reviewer collaborator를 지정해 주세요.");
+    }
+    if (
+      isRequest &&
+      !draft.collaborators.some(
+        (collaborator) =>
+          collaborator.userId === reviewerUserId && collaborator.role === "reviewer",
+      )
+    ) {
+      throw new BadRequestException("지정한 사용자는 reviewer collaborator가 아닙니다.");
+    }
+    const now = new Date().toISOString();
+    const review: ScenarioReviewRecord = {
+      reviewId: `review:${randomUUID()}`,
+      requestedByUserId: isRequest
+        ? userId
+        : draft.reviews.at(-1)?.requestedByUserId ?? draft.ownerUserId,
+      reviewerUserId,
+      status: dto.status,
+      comment: dto.comment?.trim() || null,
+      decidedAt: dto.status === "requested" ? null : now,
+    };
+    return this.persistScenarioCollaborationState(
+      scenario.id,
+      draft.ownerUserId,
+      draft.collaborators,
+      [...draft.reviews, review],
+    );
+  }
+
+  async reportScenario(
+    userId: string,
+    id: string,
+    dto: ReportScenarioDto,
+  ): Promise<ScenarioModerationReportResponseDto> {
+    const scenario = await this.getScenarioEntityById(id);
+    const revision = this.parseScenarioRevisionMetadata(scenario.attribution);
+    if (scenario.sourceType !== PrismaScenarioSourceType.CLONED || revision.status === "draft") {
+      throw new BadRequestException("발행된 scenario revision만 신고할 수 있습니다.");
+    }
+    const reportId = `scenario-report:${randomUUID()}`;
+    const moderationEntry = JSON.stringify({
+      reportId,
+      reportedByUserId: userId,
+      reason: dto.reason,
+      comment: dto.comment?.trim() || null,
+      createdAt: new Date().toISOString(),
+    });
+    await this.prisma.scenario.update({
+      where: { id: scenario.id },
+      data: {
+        attribution: `${scenario.attribution ?? ""}\nP4_MODERATION_REPORT:${moderationEntry}`.trim(),
+      },
+    });
+    return { reportId, scenarioId: scenario.id, status: "received" };
+  }
+
   async deleteScenario(userId: string, id: string): Promise<void> {
     await this.getEditableScenarioEntity(userId, id);
 
@@ -452,12 +662,12 @@ export class ScenariosService {
     scenarioId: string,
     dto: UploadScenarioAssetDto
   ): Promise<ScenarioAssetResponseDto> {
-    await this.getEditableScenarioEntity(userId, scenarioId);
+    await this.getEditableScenarioEntity(userId, scenarioId, { access: "edit" });
     return this.createScenarioAsset(userId, scenarioId, dto);
   }
 
   async deleteScenarioAsset(userId: string, scenarioId: string, assetId: string): Promise<void> {
-    await this.getEditableScenarioEntity(userId, scenarioId);
+    await this.getEditableScenarioEntity(userId, scenarioId, { access: "edit" });
 
     let asset;
     try {
@@ -497,7 +707,7 @@ export class ScenariosService {
     nodeId: string,
     dto: UploadScenarioNodeImageDto
   ): Promise<ScenarioNodeImageUploadResponseDto> {
-    await this.getEditableScenarioEntity(userId, scenarioId);
+    await this.getEditableScenarioEntity(userId, scenarioId, { access: "edit" });
     const node = await this.getScenarioNodeEntityById(scenarioId, nodeId);
     const asset = await this.createScenarioAsset(userId, scenarioId, {
       kind: ScenarioAssetKind.SCENE,
@@ -535,7 +745,11 @@ export class ScenariosService {
     return scenario;
   }
 
-  private async getEditableScenarioEntity(userId: string, id: string) {
+  private async getEditableScenarioEntity(
+    userId: string,
+    id: string,
+    options: { access?: "owner" | "edit" } = {},
+  ) {
     const scenario = await this.prisma.scenario.findUnique({
       where: { id },
       include: {
@@ -549,11 +763,23 @@ export class ScenariosService {
       throw new NotFoundException(`Scenario ${id} was not found.`);
     }
 
-    if (scenario.createdByUserId !== userId) {
-      throw new ForbiddenException('직접 만든 시나리오만 수정하거나 삭제할 수 있습니다.');
-    }
     if (scenario.sourceType === PrismaScenarioSourceType.CLONED) {
       throw new ForbiddenException('발행된 revision은 직접 수정할 수 없습니다. 원본 draft를 수정한 뒤 새 revision으로 발행하세요.');
+    }
+    if (options.access === "edit") {
+      const permission = this.collaborationPolicy.resolvePermission({
+        draft: this.buildScenarioPolicyDraft(scenario),
+        userId,
+        action: "edit",
+      });
+      if (!permission.allowed) {
+        throw new ForbiddenException("시나리오 draft를 편집할 권한이 없습니다.");
+      }
+      return scenario;
+    }
+
+    if (scenario.createdByUserId !== userId) {
+      throw new ForbiddenException('직접 만든 시나리오만 수정하거나 삭제할 수 있습니다.');
     }
 
     return scenario;
@@ -569,8 +795,16 @@ export class ScenariosService {
     const isPublishedRevision =
       scenario.sourceType === PrismaScenarioSourceType.CLONED &&
       (revision.status === 'public' || revision.status === 'link');
+    const canViewCollaborativeDraft =
+      Boolean(viewerUserId) &&
+      scenario.sourceType !== PrismaScenarioSourceType.CLONED &&
+      this.collaborationPolicy.resolvePermission({
+        draft: this.buildScenarioPolicyDraft(scenario),
+        userId: viewerUserId as string,
+        action: "view",
+      }).allowed;
 
-    if (isDefaultProvidedScenario || isOwnScenario || isPublishedRevision) {
+    if (isDefaultProvidedScenario || isOwnScenario || isPublishedRevision || canViewCollaborativeDraft) {
       return;
     }
 
@@ -580,12 +814,22 @@ export class ScenariosService {
 
   private buildScenarioValidationReport(
     scenario: Awaited<ReturnType<ScenariosService['getEditableScenarioEntity']>>,
+    visibility: ScenarioPublishVisibility = "private",
+    previousRevisionNodes?: ScenarioPolicyNode[],
   ): {
     status: 'valid' | 'invalid';
     checkedAt: string;
     issueCount: number;
     issues: Array<{ code: string; message: string; nodeId?: string | null }>;
     nodeCounts: Record<'story' | 'exploration' | 'combat' | 'other', number>;
+    p4Policy: {
+      status: 'valid' | 'invalid';
+      issueCount: number;
+      blockerCount: number;
+      warningCount: number;
+      reviewGate: 'enforced_by_policy_service';
+    };
+    revisionDiff: ReturnType<ScenarioCollaborationPolicyService["diffNodes"]> | null;
   } {
     const issues: Array<{ code: string; message: string; nodeId?: string | null }> = [];
     if (!scenario.nodes.length) {
@@ -632,12 +876,34 @@ export class ScenariosService {
       },
       { story: 0, exploration: 0, combat: 0, other: 0 },
     );
+    const policyOwnerUserId = scenario.createdByUserId ?? "";
+    const policyResult = this.collaborationPolicy.evaluatePublishPolicy({
+      draft: this.buildScenarioPolicyDraft(scenario),
+      actorUserId: policyOwnerUserId,
+      visibility,
+      previousRevisionNodes,
+    });
+    for (const issue of policyResult.issues.filter((candidate) => candidate.severity === "blocker")) {
+      issues.push({
+        code: `P4_POLICY_${issue.code}`,
+        message: issue.message,
+        nodeId: issue.nodeId,
+      });
+    }
     return {
       status: issues.length ? 'invalid' : 'valid',
       checkedAt: new Date().toISOString(),
       issueCount: issues.length,
       issues,
       nodeCounts,
+      p4Policy: {
+        status: policyResult.validationReport.status,
+        issueCount: policyResult.validationReport.issueCount,
+        blockerCount: policyResult.validationReport.blockerCount,
+        warningCount: policyResult.validationReport.warningCount,
+        reviewGate: 'enforced_by_policy_service',
+      },
+      revisionDiff: policyResult.diff,
     };
   }
 
@@ -648,6 +914,43 @@ export class ScenariosService {
       return;
     }
     throw new BadRequestException(validationReport.issues[0]?.message ?? '시나리오 검증을 통과하지 못했습니다.');
+  }
+
+  private buildScenarioPolicyDraft(
+    scenario: Awaited<ReturnType<ScenariosService['getEditableScenarioEntity']>>,
+  ): ScenarioPolicyDraft {
+    const ownerUserId = scenario.createdByUserId ?? "";
+    const collaboration = this.parseScenarioCollaborationMetadata(scenario.attribution);
+    return {
+      scenarioId: scenario.id,
+      ownerUserId,
+      license: this.toScenarioPolicyLicense(scenario.license),
+      attribution: this.parseScenarioRevisionMetadata(scenario.attribution).attribution,
+      collaborators: collaboration.collaborators,
+      reviews: collaboration.reviews,
+      nodes: scenario.nodes.map((node): ScenarioPolicyNode => ({
+        id: node.id,
+        nodeType: node.nodeType,
+        title: node.title,
+        sceneText: node.sceneText,
+        checkOptions: this.parseJson<unknown>(node.checkOptionsJson, null),
+        nodeMeta: this.parseJson<unknown>(node.nodeMetaJson, null),
+        transitions: this.parseJson<Array<{ nextNodeId?: string | null }>>(node.transitionsJson, []),
+        fallbackNodeId: node.fallbackNodeId,
+      })),
+    };
+  }
+
+  private toScenarioPolicyLicense(license: PrismaScenarioLicense): ScenarioPolicyDraft["license"] {
+    switch (license) {
+      case PrismaScenarioLicense.CC_BY_4_0:
+        return "CC_BY";
+      case PrismaScenarioLicense.OTHER_FREE:
+        return "OTHER";
+      case PrismaScenarioLicense.ORIGINAL:
+      default:
+        return "ORIGINAL";
+    }
   }
 
   private rewriteScenarioNodeIdReferences(
@@ -708,6 +1011,154 @@ export class ScenariosService {
     });
   }
 
+  private ensureScenarioDraftEditableForCollaboration(
+    scenario: Awaited<ReturnType<ScenariosService['getScenarioEntityById']>>,
+  ): void {
+    if (scenario.sourceType === PrismaScenarioSourceType.CLONED) {
+      throw new ForbiddenException("발행된 revision의 collaborator/review 상태는 수정할 수 없습니다.");
+    }
+  }
+
+  private async persistScenarioCollaborationState(
+    scenarioId: string,
+    ownerUserId: string,
+    collaborators: ScenarioCollaborator[],
+    reviews: ScenarioReviewRecord[],
+  ): Promise<ScenarioCollaborationStateResponseDto> {
+    const scenario = await this.getScenarioEntityById(scenarioId);
+    const updated = await this.prisma.scenario.update({
+      where: { id: scenarioId },
+      data: {
+        attribution: this.appendScenarioCollaborationMetadata(scenario.attribution, {
+          collaborators,
+          reviews,
+        }),
+      },
+      include: {
+        nodes: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    const state = this.parseScenarioCollaborationMetadata(updated.attribution);
+    return this.mapCollaborationState(
+      state.collaborators,
+      state.reviews,
+      ownerUserId,
+    );
+  }
+
+  private mapCollaborationState(
+    collaborators: ScenarioCollaborator[],
+    reviews: ScenarioReviewRecord[],
+    ownerUserId?: string,
+  ): ScenarioCollaborationStateResponseDto {
+    return {
+      collaborators: [
+        ...(ownerUserId ? [{ userId: ownerUserId, role: "owner" as const }] : []),
+        ...collaborators.map((collaborator) => ({
+          userId: collaborator.userId,
+          role: collaborator.role,
+        })),
+      ],
+      reviews: reviews.map((review) => ({
+        reviewId: review.reviewId,
+        requestedByUserId: review.requestedByUserId,
+        reviewerUserId: review.reviewerUserId,
+        status: review.status,
+        comment: review.comment ?? null,
+        decidedAt: review.decidedAt ?? null,
+      })),
+    };
+  }
+
+  private appendScenarioCollaborationMetadata(
+    attribution: string | null | undefined,
+    metadata: {
+      collaborators: ScenarioCollaborator[];
+      reviews: ScenarioReviewRecord[];
+    },
+  ): string | null {
+    const publicAttribution = this.parseScenarioRevisionMetadata(attribution).attribution;
+    const revision = this.parseScenarioRevisionMetadata(attribution);
+    const encoded = JSON.stringify(metadata);
+    const parts = [
+      publicAttribution,
+      `${ScenariosService.COLLABORATION_METADATA_MARKER}${encoded}`,
+      revision.revisionNumber !== null || revision.status !== "draft"
+        ? `${ScenariosService.REVISION_METADATA_MARKER}${JSON.stringify({
+            revisionNumber: revision.revisionNumber,
+            changelog: revision.changelog,
+            publishedAt: revision.publishedAt ?? new Date(0).toISOString(),
+            publishedByUserId: revision.publishedByUserId ?? "",
+            status: revision.status === "draft" ? "private" : revision.status,
+            validationReport: revision.validationReport,
+          })}`
+        : null,
+    ];
+    return parts.filter((part): part is string => Boolean(part)).join("\n") || null;
+  }
+
+  private parseScenarioCollaborationMetadata(attribution: string | null | undefined): {
+    collaborators: ScenarioCollaborator[];
+    reviews: ScenarioReviewRecord[];
+  } {
+    const raw = attribution ?? "";
+    const markerIndex = raw.indexOf(ScenariosService.COLLABORATION_METADATA_MARKER);
+    if (markerIndex < 0) {
+      return { collaborators: [], reviews: [] };
+    }
+    const afterMarker = raw.slice(markerIndex + ScenariosService.COLLABORATION_METADATA_MARKER.length);
+    const nextMarkers = [
+      afterMarker.indexOf(ScenariosService.REVISION_METADATA_MARKER),
+      afterMarker.indexOf(ScenariosService.COLLABORATION_METADATA_MARKER),
+    ].filter((index) => index >= 0);
+    const metadataText = afterMarker.slice(0, nextMarkers.length ? Math.min(...nextMarkers) : undefined).trim();
+    try {
+      const metadata = JSON.parse(metadataText) as {
+        collaborators?: ScenarioCollaborator[];
+        reviews?: ScenarioReviewRecord[];
+      };
+      return {
+        collaborators: Array.isArray(metadata.collaborators)
+          ? metadata.collaborators.filter((collaborator) =>
+              collaborator &&
+              typeof collaborator.userId === "string" &&
+              (collaborator.role === "editor" ||
+                collaborator.role === "reviewer" ||
+                collaborator.role === "viewer"),
+            )
+          : [],
+        reviews: Array.isArray(metadata.reviews)
+          ? metadata.reviews.filter((review) =>
+              review &&
+              typeof review.reviewId === "string" &&
+              typeof review.requestedByUserId === "string" &&
+              typeof review.reviewerUserId === "string" &&
+              (review.status === "none" ||
+                review.status === "requested" ||
+                review.status === "approved" ||
+                review.status === "rejected" ||
+                review.status === "changes_requested"),
+            )
+          : [],
+      };
+    } catch {
+      return { collaborators: [], reviews: [] };
+    }
+  }
+
+  private stripScenarioMetadataMarkers(attribution: string | null | undefined): string | null {
+    const raw = attribution ?? "";
+    const markerIndexes = [
+      raw.indexOf(ScenariosService.REVISION_METADATA_MARKER),
+      raw.indexOf(ScenariosService.COLLABORATION_METADATA_MARKER),
+      raw.indexOf(ScenariosService.MODERATION_REPORT_MARKER),
+    ].filter((index) => index >= 0);
+    const publicAttribution = markerIndexes.length ? raw.slice(0, Math.min(...markerIndexes)) : raw;
+    return publicAttribution.trim() || null;
+  }
+
   private appendScenarioRevisionMetadata(
     attribution: string | null | undefined,
     metadata: {
@@ -719,7 +1170,7 @@ export class ScenariosService {
       validationReport?: Record<string, unknown> | null;
     },
   ): string | null {
-    const publicAttribution = this.parseScenarioRevisionMetadata(attribution).attribution;
+    const publicAttribution = this.stripScenarioMetadataMarkers(attribution);
     const encoded = JSON.stringify(metadata);
     return [publicAttribution, `${ScenariosService.REVISION_METADATA_MARKER}${encoded}`]
       .filter((part): part is string => Boolean(part))
@@ -739,7 +1190,7 @@ export class ScenariosService {
     const markerIndex = raw.indexOf(ScenariosService.REVISION_METADATA_MARKER);
     if (markerIndex < 0) {
       return {
-        attribution: raw.trim() || null,
+        attribution: this.stripScenarioMetadataMarkers(raw),
         revisionNumber: null,
         changelog: null,
         validationReport: null,
@@ -748,9 +1199,11 @@ export class ScenariosService {
         status: 'draft',
       };
     }
-    const publicAttribution = raw.slice(0, markerIndex).trim() || null;
+    const publicAttribution = this.stripScenarioMetadataMarkers(raw.slice(0, markerIndex));
     const metadataText = raw
       .slice(markerIndex + ScenariosService.REVISION_METADATA_MARKER.length)
+      .split(ScenariosService.MODERATION_REPORT_MARKER, 1)[0]
+      .split(ScenariosService.COLLABORATION_METADATA_MARKER, 1)[0]
       .trim();
     try {
       const metadata = JSON.parse(metadataText) as Record<string, unknown>;

@@ -1,12 +1,23 @@
 # SRD 5e P4 12레벨 캠페인 운영·콘텐츠 확장 계획
 
 작성일: 2026-06-23
+완료일: 2026-06-23
+
+구현 상태: **완료**
+
+검증 기록:
+
+- `npm run test:p4-regression`: 통과 확인.
+- `npm run test:e2e`: 통과 확인.
+- `npm run build`: 통과 확인.
+- AI GM/HUMAN GM P4 검증 캠페인: 완료 확인.
+- 경제, 협업·리뷰·발행, 동시 편집 충돌, revision diff와 snapshot 격리: 완료 확인.
 
 ## 1. 문서 목적
 
 P3는 8레벨 플레이, 주문 100개, 몬스터 50종, 아이템 50개, 시나리오 발행·revision MVP, 격리 E2E 검증을 완료했다. 완료된 P3 기록은 [`completed/future_plan_p3.md`](completed/future_plan_p3.md)에 보관한다.
 
-P4는 [`future_plan.md`](future_plan.md)의 장기 목표를 유지하면서 단편·중편 플레이에서 장기 캠페인 운영으로 넘어가는 단계다. 목표는 “중반부 캐릭터 성장과 캠페인 운영 도구를 실제 플레이 가능한 수준으로 묶는 것”이다.
+P4는 [`../future_plan.md`](../future_plan.md)의 장기 목표를 유지하면서 단편·중편 플레이에서 장기 캠페인 운영으로 넘어가는 단계다. 목표는 “중반부 캐릭터 성장과 캠페인 운영 도구를 실제 플레이 가능한 수준으로 묶는 것”이다.
 
 P4 범위는 다음 여섯 가지로 고정한다.
 
@@ -208,21 +219,21 @@ P4-6 12레벨 검증 캠페인
 
 ## 11. P4 완료 체크리스트
 
-- [ ] `test:p4-regression`이 P3 기준선과 P4 신규 spec을 포함한다.
-- [ ] E2E가 격리 DB에서 통과하고 테스트 데이터가 남지 않는다.
-- [ ] 12개 직업과 대표 서브클래스가 12레벨까지 성장 가능하다.
-- [ ] 10/12레벨 ASI, 5~6레벨 주문 슬롯, 직업 자원 진행이 동작한다.
-- [ ] 실행 가능 주문이 정확히 150개다.
-- [ ] 대표 몬스터가 누적 100종이다.
-- [ ] 상점·보상·제작·경제 변화가 서버 권위 상태와 TurnLog/StateDiff로 기록된다.
-- [ ] 시나리오 협업·리뷰·발행 정책이 권한별로 동작한다.
-- [ ] P4 검증 캠페인을 AI GM과 HUMAN GM에서 주요 경로로 완주했다.
-- [ ] 전체 빌드와 관련 회귀 spec을 사용자가 실행해 통과를 확인했다.
+- [x] `test:p4-regression`이 P3 기준선과 P4 신규 spec을 포함한다.
+- [x] E2E가 격리 DB에서 통과하고 테스트 데이터가 남지 않는다.
+- [x] 12개 직업과 대표 서브클래스가 12레벨까지 성장 가능하다.
+- [x] 10/12레벨 ASI, 5~6레벨 주문 슬롯, 직업 자원 진행이 동작한다.
+- [x] 실행 가능 주문이 정확히 150개다.
+- [x] 대표 몬스터가 누적 100종이다.
+- [x] 상점·보상·제작·경제 변화가 서버 권위 상태와 TurnLog/StateDiff로 기록된다.
+- [x] 시나리오 협업·리뷰·발행 정책이 권한별로 동작한다.
+- [x] P4 검증 캠페인을 AI GM과 HUMAN GM에서 주요 경로로 완주했다.
+- [x] 전체 빌드와 관련 회귀 spec을 사용자가 실행해 통과를 확인했다.
 
 ## 12. 사용자 실행 검증
 
 프로젝트 지침에 따라 테스트는 사용자가 직접 실행한다. P4 종료 시 최소 아래 범주를 확인한다.
-상세 절차는 [`examples/P4_VALIDATION_RUNBOOK.md`](examples/P4_VALIDATION_RUNBOOK.md)를 기준으로 한다.
+상세 절차는 [`../examples/P4_VALIDATION_RUNBOOK.md`](../examples/P4_VALIDATION_RUNBOOK.md)를 기준으로 한다.
 
 ```powershell
 npm run test:p4-regression
@@ -239,7 +250,20 @@ npm run build
 - 시나리오 collaborator/review/publish policy spec.
 - P4 검증 캠페인 seed와 AI/HUMAN GM smoke spec.
 
-## 13. P4 이후
+## 13. P4 완료 기록
+
+P4는 전체 빌드, P4 회귀 테스트, 격리 E2E, AI/HUMAN GM 검증 캠페인과 수동 사용자 흐름 검증을 거쳐 완료 처리했다.
+
+완료된 핵심 범위:
+
+- 12개 직업과 대표 서브클래스의 12레벨 성장 및 5~6레벨 주문 슬롯.
+- 실행 가능 주문 150개와 대표 몬스터 100종.
+- 서버 권위 상점·보상·party stash·제작·감정·수리·조율·charge 회복.
+- owner/editor/reviewer/viewer 협업 권한과 review 승인 발행 정책.
+- 동시 편집 충돌 감지, section dirty state, revision diff와 moderation 신고 hook.
+- P4 검증 캠페인의 재접속 복원 및 revision snapshot 격리.
+
+## 14. P4 이후
 
 P5에서는 장기 목표를 향해 다음 범위를 다룬다.
 

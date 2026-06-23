@@ -45,6 +45,49 @@ from app.services.summarizer.service import SummarizerService
 
 
 class AiHarnessService:
+    FALLBACK_DIRECT_REQUEST_INTENTS = {
+        "TALK_TO_NPC",
+        "SOCIAL_PERSUADE",
+        "SOCIAL_INTIMIDATE",
+        "SOCIAL_DECEIVE",
+        "READ_EMOTION",
+        "ASK_SCENE_INFO",
+        "ASK_HINT",
+        "ASK_SUMMARY",
+        "REQUEST_SCENE_TRANSITION",
+        "OBSERVE_AREA",
+        "INSPECT_STORY_OBJECT",
+        "INVESTIGATE_OBJECT",
+        "LISTEN",
+        "DETECT_DANGER",
+        "SPECIAL_MOVE",
+        "INTERACT_OBJECT",
+        "USE_TOOL",
+        "USE_ITEM_EXPLORE",
+        "SPLIT_PARTY_TASK",
+        "COMBAT_MANEUVER",
+        "ENVIRONMENT_USE",
+        "IMPROVISED_ATTACK",
+        "CALLED_SHOT",
+        "READY_ACTION",
+        "REACTION_REQUEST",
+        "COMBAT_TALK",
+        "USE_ITEM_COMBAT",
+        "USE_SPELL_CREATIVELY",
+        "TACTIC_QUERY",
+        "ASK_RULE",
+        "MAP_MOVE",
+        "MAP_ATTACK",
+        "MAP_CAST_SPELL",
+        "MAP_USE_CLASS_FEATURE",
+        "MAP_END_TURN",
+        "GM_ONLY_DAMAGE",
+        "GM_ONLY_HEAL",
+        "GM_ONLY_CONDITION",
+        "GM_ONLY_INVENTORY_MUTATION",
+        "GAME_META_QUESTION",
+    }
+
     def __init__(
         self,
         settings,
@@ -325,7 +368,9 @@ class AiHarnessService:
         )
 
     def _build_interpreter_fallback_output(self, request: InterpreterHarnessRequest) -> InterpreterOutput:
-        fallback_action = self._infer_general_gm_fallback_action(request)
+        fallback_action = self._infer_request_intent_fallback_action(request)
+        if fallback_action is None:
+            fallback_action = self._infer_general_gm_fallback_action(request)
         if fallback_action is not None:
             action_type, target_id = fallback_action
             return InterpreterOutput(
@@ -354,6 +399,15 @@ class AiHarnessService:
             clarificationQuestion="행동을 조금 더 구체적으로 선택해 주세요.",
             safetyNotes=["AI 해석 실패로 템플릿 fallback을 사용함", "게임 상태는 변경하지 않음"],
         )
+
+    def _infer_request_intent_fallback_action(
+        self, request: InterpreterHarnessRequest
+    ) -> tuple[str, str | None] | None:
+        request_intent = (request.requestIntent or "").strip().upper()
+        if request_intent not in self.FALLBACK_DIRECT_REQUEST_INTENTS:
+            return None
+
+        return (request_intent, self._resolve_fallback_target_id(request))
 
     def _infer_general_gm_fallback_action(
         self, request: InterpreterHarnessRequest

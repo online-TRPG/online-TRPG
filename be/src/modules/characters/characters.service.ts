@@ -2233,12 +2233,15 @@ export class CharactersService {
     const classKey = normalizeSpellcastingClassKey(className);
     const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
     if (["bard", "cleric", "druid", "sorcerer", "wizard"].includes(classKey)) {
+      if (normalizedLevel >= 11) return 6;
+      if (normalizedLevel >= 9) return 5;
       if (normalizedLevel >= 7) return 4;
       if (normalizedLevel >= 5) return 3;
       if (normalizedLevel >= 3) return 2;
       return 1;
     }
     if (classKey === "warlock") {
+      if (normalizedLevel >= 9) return 5;
       if (normalizedLevel >= 7) return 4;
       if (normalizedLevel >= 5) return 3;
       if (normalizedLevel >= 3) return 2;

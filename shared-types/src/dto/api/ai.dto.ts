@@ -452,3 +452,35 @@ export class AiTraceListResponseDto {
   @ApiProperty()
   size!: number;
 }
+
+export class AiTraceQualityMetricsResponseDto {
+  @ApiProperty()
+  totalTraces!: number;
+
+  @ApiProperty()
+  averageLatencyMs!: number;
+
+  @ApiProperty()
+  interpreterTimeoutRate!: number;
+
+  @ApiProperty()
+  narratorTimeoutRate!: number;
+
+  @ApiProperty()
+  fallbackRate!: number;
+
+  @ApiProperty()
+  interpreterTimeoutTargetMet!: boolean;
+
+  @ApiProperty()
+  narratorTimeoutTargetMet!: boolean;
+
+  @ApiProperty()
+  fallbackTargetMet!: boolean;
+
+  @ApiProperty({
+    type: [String],
+    description: "정답 라벨이 있는 별도 평가 데이터셋으로 확인해야 하는 품질 항목",
+  })
+  offlineEvaluationRequired!: string[];
+}

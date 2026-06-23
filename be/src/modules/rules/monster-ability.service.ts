@@ -142,8 +142,16 @@ export class MonsterAbilityService {
         tag.startsWith("trigger:on_turn_start") ||
         tag.startsWith("trigger:on_turn_end"),
     );
+    const isTaggedSpecial = entry.runtimeEffect.tags.some(
+      (tag) =>
+        tag.startsWith("multiattack:") ||
+        tag.startsWith("legendary_like:") ||
+        tag.startsWith("reaction:") ||
+        tag.startsWith("spell_list:") ||
+        tag.startsWith("teleport:"),
+    );
     const isSpecial =
-      !attackKind && (entry.cost.type !== "none" || isLifecyclePassive);
+      !attackKind && (entry.cost.type !== "none" || isLifecyclePassive || isTaggedSpecial);
 
     if (!monsterId || (!attackKind && !isSpecial) || (attackKind && attackBonus === null)) {
       return null;
@@ -229,8 +237,7 @@ export class MonsterAbilityService {
     if (
       entry.targeting.type === "area" &&
       entry.damage &&
-      entry.save &&
-      entry.runtimeEffect.tags.some((tag) => tag.startsWith("area:"))
+      entry.save
     ) {
       return "area_attack";
     }

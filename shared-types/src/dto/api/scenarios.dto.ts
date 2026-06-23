@@ -387,6 +387,13 @@ export class CreateScenarioDto {
 }
 
 export class UpdateScenarioDto {
+  @ApiPropertyOptional({
+    description: "마지막으로 읽은 draft의 updatedAt. 다른 편집자가 먼저 저장했으면 409를 반환합니다.",
+  })
+  @IsOptional()
+  @IsString()
+  expectedUpdatedAt?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -492,4 +499,94 @@ export class PublishScenarioDto {
   @IsOptional()
   @IsIn(["public", "link", "private"])
   visibility?: "public" | "link" | "private";
+}
+
+export class UpsertScenarioCollaboratorDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  userId!: string;
+
+  @ApiProperty({ enum: ["editor", "reviewer", "viewer"] })
+  @IsIn(["editor", "reviewer", "viewer"])
+  role!: "editor" | "reviewer" | "viewer";
+}
+
+export class ScenarioCollaboratorResponseDto {
+  @ApiProperty()
+  userId!: string;
+
+  @ApiProperty({ enum: ["owner", "editor", "reviewer", "viewer"] })
+  role!: "owner" | "editor" | "reviewer" | "viewer";
+}
+
+export class CreateScenarioReviewDto {
+  @ApiProperty({ enum: ["requested", "approved", "rejected", "changes_requested"] })
+  @IsIn(["requested", "approved", "rejected", "changes_requested"])
+  status!: "requested" | "approved" | "rejected" | "changes_requested";
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: "review 요청 시 지정할 reviewer 사용자 ID. 생략하면 첫 reviewer collaborator를 사용합니다.",
+  })
+  @IsOptional()
+  @IsString()
+  reviewerUserId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  comment?: string | null;
+}
+
+export class ScenarioReviewResponseDto {
+  @ApiProperty()
+  reviewId!: string;
+
+  @ApiProperty()
+  requestedByUserId!: string;
+
+  @ApiProperty()
+  reviewerUserId!: string;
+
+  @ApiProperty({ enum: ["none", "requested", "approved", "rejected", "changes_requested"] })
+  status!: "none" | "requested" | "approved" | "rejected" | "changes_requested";
+
+  @ApiPropertyOptional({ nullable: true })
+  comment!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  decidedAt!: string | null;
+}
+
+export class ScenarioCollaborationStateResponseDto {
+  @ApiProperty({ type: [ScenarioCollaboratorResponseDto] })
+  collaborators!: ScenarioCollaboratorResponseDto[];
+
+  @ApiProperty({ type: [ScenarioReviewResponseDto] })
+  reviews!: ScenarioReviewResponseDto[];
+}
+
+export class ReportScenarioDto {
+  @ApiProperty({ enum: ["private_data", "license", "unsafe_content", "other"] })
+  @IsIn(["private_data", "license", "unsafe_content", "other"])
+  reason!: "private_data" | "license" | "unsafe_content" | "other";
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  comment?: string | null;
+}
+
+export class ScenarioModerationReportResponseDto {
+  @ApiProperty()
+  reportId!: string;
+
+  @ApiProperty()
+  scenarioId!: string;
+
+  @ApiProperty()
+  status!: "received";
 }

@@ -24,6 +24,7 @@ import {
   ApplyHumanGmCombatConditionDto,
   AdjustHumanGmCombatHpDto,
   AcceptHumanGmAiAssistSuggestionDto,
+  ApplySessionEconomyActionDto,
   CreateSessionDto,
   CreateHumanGmAiAssistSuggestionDto,
   CreateVttMapPingDto,
@@ -531,6 +532,22 @@ export class SessionsController {
       "SESSION_200",
       "GM inventory item removed.",
       await this.sessionsService.removeHumanGmInventoryItem(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/gm/economy")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async applyHumanGmEconomyAction(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: ApplySessionEconomyActionDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "GM economy action applied.",
+      await this.sessionsService.applyHumanGmEconomyAction(userId, sessionId, dto),
     );
   }
 

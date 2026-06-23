@@ -159,8 +159,13 @@ export class SessionRevealService {
       turnLogId?: string | null;
       revealedBy?: string;
     },
+    client?: Prisma.TransactionClient,
   ): Promise<number> {
-    const revealedClues = await this.revealCurrentNodeCluesAfterActionWithDetails(runtime, params);
+    const revealedClues = await this.revealCurrentNodeCluesAfterActionWithDetails(
+      runtime,
+      params,
+      client,
+    );
     return revealedClues.length;
   }
 
@@ -175,8 +180,9 @@ export class SessionRevealService {
       turnLogId?: string | null;
       revealedBy?: string;
     },
+    client?: Prisma.TransactionClient,
   ): Promise<Array<{ id: string; title: string; text: string | null }>> {
-    return runtime.prisma.$transaction((tx) =>
+    const reveal = (tx: Prisma.TransactionClient) =>
       this.recordCurrentNodeCluesByPolicy(runtime, tx, {
         sessionScenarioId: params.sessionScenarioId,
         nodeId: params.nodeId,
@@ -185,8 +191,8 @@ export class SessionRevealService {
         policyModes: params.policyModes ?? ["PLAYER_ACTION", "CHECK_SUCCESS", "CHECK_PARTIAL"],
         turnLogId: params.turnLogId,
         revealedBy: params.revealedBy ?? "system",
-      }),
-    );
+      });
+    return client ? reveal(client) : runtime.prisma.$transaction(reveal);
   }
 
   mapPlayerScenarioNode(

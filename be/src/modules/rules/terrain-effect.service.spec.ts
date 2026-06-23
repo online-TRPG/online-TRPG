@@ -130,6 +130,8 @@ describe("TerrainEffectService", () => {
       "terrain.burning",
       "terrain.poison_cloud",
       "terrain.moonbeam",
+      "terrain.flaming_sphere",
+      "terrain.wall_of_fire",
     ]);
   });
 });

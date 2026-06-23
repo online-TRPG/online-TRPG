@@ -18,6 +18,7 @@ import type {
 } from 'react';
 import type {
   ActionOutcome,
+  ApplySessionEconomyActionDto,
   AiHumanGmAssistSuggestionRequestDto,
   ClassDefinitionResponseDto,
   CombatActionResultDto,
@@ -66,6 +67,7 @@ import {
   type StoryRpUtterance,
 } from '../features/sessionPlay/components/StoryNodeSurface';
 import { SessionBattleMap } from '../features/sessionPlay/components/SessionBattleMap';
+import { SessionEconomyPanel } from '../features/sessionPlay/components/SessionEconomyPanel';
 import {
   getCharacterClassLabel,
   getCharacterImage,
@@ -77,6 +79,7 @@ import {
   endCombatTurn,
   acceptCombatReaction,
   applyHumanGmCombatCondition,
+  applyHumanGmEconomyAction,
   adjustHumanGmCombatHp,
   resolveCombatActorAction,
   castCombatSpell,
@@ -1927,6 +1930,8 @@ export function PlayPage({
   const [isGmItemCatalogLoading, setGmItemCatalogLoading] = useState(false);
   const [gmItemCatalogError, setGmItemCatalogError] = useState<string | null>(null);
   const [isGmInventoryGrantPending, setGmInventoryGrantPending] = useState(false);
+  const [isEconomyPending, setEconomyPending] = useState(false);
+  const [economyFeedback, setEconomyFeedback] = useState<string | null>(null);
   const [isGmMessagePending, setGmMessagePending] = useState(false);
   const [gmAiAssistSuggestions, setGmAiAssistSuggestions] =
     useState<HumanGmAiAssistSuggestionDto[]>([]);
@@ -1992,6 +1997,11 @@ export function PlayPage({
   const canManageStartedSession = Boolean(
     !isRecruiting && (isHumanGmSession ? isGmUser : isHost)
   );
+  const economyState =
+    snapshot?.state.flags?.economy &&
+    typeof snapshot.state.flags.economy === "object"
+      ? snapshot.state.flags.economy
+      : null;
   const canUseHumanGmView = Boolean(!isRecruiting && isHumanGmSession && isGmUser);
   const canShowCharacterSelection = Boolean(session && isRecruiting && !isGmUser);
   const canStartSession = Boolean(
@@ -3681,6 +3691,21 @@ export function PlayPage({
     }
   }
 
+  async function handleEconomyAction(payload: ApplySessionEconomyActionDto) {
+    if (!session || !canManageStartedSession || isEconomyPending) return;
+    setEconomyPending(true);
+    setEconomyFeedback(null);
+    try {
+      await applyHumanGmEconomyAction(user, session.id, payload);
+      setEconomyFeedback(`${payload.actionType} 처리가 완료되었습니다.`);
+      onAction(`경제 처리: ${payload.actionType}`);
+    } catch (caught) {
+      setEconomyFeedback(caught instanceof Error ? caught.message : "경제 처리에 실패했습니다.");
+    } finally {
+      setEconomyPending(false);
+    }
+  }
+
   async function handleEquippedWeaponAttack(targetParticipantId: string) {
     if (!session || isCombatBusy) return;
     await runCombatRequest(() =>
@@ -5133,6 +5158,15 @@ export function PlayPage({
                   <h1>메인화면</h1>
                 </div>
               )}
+              {canManageStartedSession ? (
+                <SessionEconomyPanel
+                  economy={economyState}
+                  characters={sessionCharacters}
+                  isBusy={isEconomyPending}
+                  feedback={economyFeedback}
+                  onApply={handleEconomyAction}
+                />
+              ) : null}
               {pendingCombatReaction ? (
                 <section className="session-combat-reaction-banner" aria-label="전투 반응 대기">
                   <div>
