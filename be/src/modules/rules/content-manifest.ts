@@ -94,6 +94,11 @@ export const P2_EXECUTABLE_MONSTER_IDS = [
   "monster.young_red_dragon",
 ] as const;
 
+export const P3_BASELINE_MONSTER_IDS = [
+  ...P2_EXECUTABLE_MONSTER_IDS,
+  "monster.giant_rat",
+] as const;
+
 export type ExecutableContentManifest = {
   spellIds: string[];
   monsterIds: string[];
