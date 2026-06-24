@@ -13,6 +13,12 @@ export const P4_CONTENT_TARGETS = {
   executableItemsMinimum: 50,
 } as const;
 
+export const P5_CONTENT_TARGETS = {
+  executableSpells: 220,
+  executableMonsters: 180,
+  executableItemsMinimum: 50,
+} as const;
+
 export const P2_EXECUTABLE_SPELL_IDS = [
   "spell.chill_touch",
   "spell.fire_bolt",

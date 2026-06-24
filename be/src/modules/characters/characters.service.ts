@@ -68,7 +68,7 @@ const LOCKED_SESSION_STATUSES: ReadonlySet<PrismaSessionStatus> = new Set([
   PrismaSessionStatus.PAUSED,
 ]);
 
-const MVP_STARTING_SLOT_SPELL_SELECTION_COUNT = 4;
+const STARTING_SLOT_SPELL_SELECTION_COUNT = 4;
 
 @Injectable()
 export class CharactersService {
@@ -708,7 +708,7 @@ export class CharactersService {
       });
     }
 
-    const knownSpellPool = this.getMvpStartingSlotSpellPool(params.className, params.level);
+    const knownSpellPool = this.getExecutableSlotSpellPool(params.className, params.level);
     const cantripPool = this.getExecutableCantripIds();
     const currentCantrips = spells.cantrips
       .map((spell) => this.normalizeSpellId(spell))
@@ -748,7 +748,7 @@ export class CharactersService {
     if (unsupportedCantrip) {
       throw new BadRequestException({
         code: "LEVEL_UP_CANTRIP_NOT_AVAILABLE",
-        message: "현재 MVP 실행 캔트립 풀에 있는 주문만 습득할 수 있습니다.",
+        message: "현재 실행 주문 카탈로그에 있는 캔트립만 습득할 수 있습니다.",
         spellId: unsupportedCantrip,
       });
     }
@@ -756,7 +756,7 @@ export class CharactersService {
     if (unsupportedKnownSpell) {
       throw new BadRequestException({
         code: "LEVEL_UP_SPELL_NOT_AVAILABLE",
-        message: "현재 MVP 실행 주문 풀에 있는 슬롯 주문만 레벨업으로 습득할 수 있습니다.",
+        message: "현재 실행 주문 카탈로그에 있는 슬롯 주문만 레벨업으로 습득할 수 있습니다.",
         spellId: unsupportedKnownSpell,
       });
     }
@@ -1753,7 +1753,7 @@ export class CharactersService {
   }
 
   // ClassDefinition과 SRD spellcasting progression을 함께 사용해 시작 주문 수를 결정한다.
-  // 준비형 직업은 주문시전이 열린 레벨부터 현재 MVP 슬롯 주문 풀을 known 목록으로 사용한다.
+  // 준비형 직업은 주문시전이 열린 레벨부터 현재 실행 슬롯 주문 카탈로그를 known 목록으로 사용한다.
   // 반환값: spellsJson 에 저장할 문자열(또는 null = 마법 없는 클래스/legacy)
   private async resolveStartingSpells(
     className: string,
@@ -1777,22 +1777,22 @@ export class CharactersService {
       this.isPreparedSpellcaster(className) &&
       classKey !== "wizard" &&
       spellcastingProgression !== null;
-    const mvpSlotSpellSelectionCount = Math.min(
-      MVP_STARTING_SLOT_SPELL_SELECTION_COUNT,
-      this.getMvpStartingSlotSpellPool(className, level).size,
+    const slotSpellSelectionCount = Math.min(
+      STARTING_SLOT_SPELL_SELECTION_COUNT,
+      this.getExecutableSlotSpellPool(className, level).size,
     );
     const needSpells = usesDynamicPreparedPool
-      ? mvpSlotSpellSelectionCount
+      ? slotSpellSelectionCount
       : spellcastingProgression?.spellsKnown !== null &&
           spellcastingProgression?.spellsKnown !== undefined
         ? Math.min(
             spellcastingProgression.spellsKnown,
-            this.getMvpStartingSlotSpellPool(className, level).size,
+            this.getExecutableSlotSpellPool(className, level).size,
           )
         : classKey === "wizard"
           ? Math.min(
-              Math.max(klass.startingSpellCount, mvpSlotSpellSelectionCount),
-              this.getMvpStartingSlotSpellPool(className, level).size,
+              Math.max(klass.startingSpellCount, slotSpellSelectionCount),
+              this.getExecutableSlotSpellPool(className, level).size,
             )
           : klass.startingSpellCount;
 
@@ -1832,12 +1832,12 @@ export class CharactersService {
     }
     this.assertUniqueStartingSpellIds(cantrips, "캔트립");
     this.assertUniqueStartingSpellIds(spells, "주문");
-    this.assertMvpStartingSpellPool(
+    this.assertExecutableStartingSpellPool(
       cantrips,
       "캔트립",
       this.getExecutableCantripIds(),
     );
-    this.assertMvpStartingSpellPool(spells, "주문", this.getMvpStartingSlotSpellPool(className, level));
+    this.assertExecutableStartingSpellPool(spells, "주문", this.getExecutableSlotSpellPool(className, level));
     const knownSpellIds = new Set(spells.map((spell) => this.normalizeSpellId(spell)));
     const preparedSpells = startingSpells.preparedSpells
       ? Array.from(
@@ -2188,16 +2188,16 @@ export class CharactersService {
     }
   }
 
-  private assertMvpStartingSpellPool(spellIds: string[], label: string, allowedSpellIds: Set<string>): void {
+  private assertExecutableStartingSpellPool(spellIds: string[], label: string, allowedSpellIds: Set<string>): void {
     const unsupportedSpellId = spellIds
       .map((spellId) => this.normalizeSpellId(spellId))
       .find((spellId) => !allowedSpellIds.has(spellId));
     if (unsupportedSpellId) {
-      throw new BadRequestException(`시작 주문: ${label} ${unsupportedSpellId}은(는) 현재 MVP 실행 주문 풀이 아닙니다.`);
+      throw new BadRequestException(`시작 주문: ${label} ${unsupportedSpellId}은(는) 현재 실행 주문 카탈로그에 없습니다.`);
     }
   }
 
-  private getMvpStartingSlotSpellPool(className: string, level: number): Set<string> {
+  private getExecutableSlotSpellPool(className: string, level: number): Set<string> {
     const maxSpellLevel = this.getMaximumSlotSpellLevelForClassLevel(className, level);
     return new Set(
       this.ruleCatalogService
@@ -2233,6 +2233,8 @@ export class CharactersService {
     const classKey = normalizeSpellcastingClassKey(className);
     const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
     if (["bard", "cleric", "druid", "sorcerer", "wizard"].includes(classKey)) {
+      if (normalizedLevel >= 15) return 8;
+      if (normalizedLevel >= 13) return 7;
       if (normalizedLevel >= 11) return 6;
       if (normalizedLevel >= 9) return 5;
       if (normalizedLevel >= 7) return 4;
@@ -2241,6 +2243,9 @@ export class CharactersService {
       return 1;
     }
     if (classKey === "warlock") {
+      if (normalizedLevel >= 15) return 8;
+      if (normalizedLevel >= 13) return 7;
+      if (normalizedLevel >= 11) return 6;
       if (normalizedLevel >= 9) return 5;
       if (normalizedLevel >= 7) return 4;
       if (normalizedLevel >= 5) return 3;

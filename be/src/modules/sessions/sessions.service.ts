@@ -32,6 +32,7 @@ import {
   CombatStatus,
   ConnectionStatus,
   ActionOutcome,
+  ApplyCampaignCalendarActionDto,
   ApplySessionEconomyActionDto,
   CreateHumanGmAiAssistSuggestionDto,
   CreateSessionDto,
@@ -100,6 +101,7 @@ import { ConcentrationRuntimeService } from "../rules/concentration-runtime.serv
 import { ConditionRuntimeService } from "../rules/condition-runtime.service";
 import { EconomyRuntimeService, EconomyState } from "../rules/economy-runtime.service";
 import { EconomyStateRuntimeService } from "../rules/economy-state-runtime.service";
+import { CampaignCalendarRuntimeService } from "../rules/campaign-calendar-runtime.service";
 import { getExecutableItemDefinition } from "../rules/p3-item-manifest";
 import { ScenariosService } from "../scenarios/scenarios.service";
 import { UsersService } from "../users/users.service";
@@ -1703,6 +1705,53 @@ export class SessionsService {
     const snapshot = await this.buildSnapshot(session.id);
     this.realtimeEvents.emitSessionSnapshot(session.id, snapshot);
     return snapshot;
+  }
+
+  async applyCampaignCalendarAction(
+    userId: string,
+    sessionId: string,
+    dto: ApplyCampaignCalendarActionDto,
+  ): Promise<SessionSnapshotDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    await this.ensureMembership(userId, session.id);
+    if (!this.isPlayerCampaignCalendarAction(dto.actionType)) {
+      this.ensureGmRuntimeOperator(userId, session);
+      await this.ensureJoinedGmRuntimeParticipant(userId, session.id);
+    }
+    if (session.status === PrismaSessionStatus.RECRUITING) {
+      throw new ConflictException("Started sessions are required for campaign calendar actions.");
+    }
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(session.id);
+    const calendarRuntime = new CampaignCalendarRuntimeService(this.prisma);
+    const gameState = await this.prisma.gameState.findUnique({
+      where: { sessionScenarioId: activeScenario.id },
+      select: { flagsJson: true },
+    });
+    const baseState =
+      calendarRuntime.readCalendarStateFromFlags(gameState?.flagsJson) ??
+      calendarRuntime.createInitialState();
+    const resolution = calendarRuntime.resolveAction({
+      state: baseState,
+      dto,
+      actorUserId: userId,
+    });
+    const applied = await calendarRuntime.applyResolution({
+      sessionId: session.id,
+      sessionScenarioId: activeScenario.id,
+      resolution,
+      rawInput: `/campaign ${dto.actionType}`,
+      reason: `campaign_calendar:${dto.actionType}`,
+    });
+
+    this.realtimeEvents.emitTurnLogCreated(session.id, applied.turnLog);
+    this.realtimeEvents.emitStateDiffApplied(session.id, applied.stateDiff);
+    const snapshot = await this.buildSnapshot(session.id);
+    this.realtimeEvents.emitSessionSnapshot(session.id, snapshot);
+    return snapshot;
+  }
+
+  private isPlayerCampaignCalendarAction(actionType: ApplyCampaignCalendarActionDto["actionType"]): boolean {
+    return actionType === "propose_schedule" || actionType === "respond_schedule";
   }
 
   private ensureEconomyState(state: EconomyState | null): EconomyState {

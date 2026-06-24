@@ -18,6 +18,7 @@ import type {
 } from 'react';
 import type {
   ActionOutcome,
+  ApplyCampaignCalendarActionDto,
   ApplySessionEconomyActionDto,
   AiHumanGmAssistSuggestionRequestDto,
   ClassDefinitionResponseDto,
@@ -34,6 +35,7 @@ import type {
   RaceResponseDto,
   RestActionDto,
   ResolveMainCommandCheckDto,
+  RuleCatalogReferenceDto,
   SubmitMainCommandDto,
   VttMapInteractionDto,
   VttMapInteractionResponseDto,
@@ -67,6 +69,7 @@ import {
   type StoryRpUtterance,
 } from '../features/sessionPlay/components/StoryNodeSurface';
 import { SessionBattleMap } from '../features/sessionPlay/components/SessionBattleMap';
+import { SessionCampaignCalendarPanel } from '../features/sessionPlay/components/SessionCampaignCalendarPanel';
 import { SessionEconomyPanel } from '../features/sessionPlay/components/SessionEconomyPanel';
 import {
   getCharacterClassLabel,
@@ -75,6 +78,7 @@ import {
 import type { CharacterPayload } from '../hooks/useSession';
 import {
   acceptHumanGmAiAssistSuggestion,
+  applyCampaignCalendarAction,
   endCombat,
   endCombatTurn,
   acceptCombatReaction,
@@ -99,6 +103,7 @@ import {
   grantHumanGmInventoryItem,
   hideCombatAction,
   listItems,
+  listRuleCatalog,
   moveCombatParticipant,
   moveSessionToken,
   reportHumanGmAiAssistApplicationFailure,
@@ -1927,11 +1932,14 @@ export function PlayPage({
   const [isGmNodeMovePending, setGmNodeMovePending] = useState(false);
   const [gmNodeMoveOptions, setGmNodeMoveOptions] = useState<ExplorationNodeMoveOption[]>([]);
   const [gmItemCatalog, setGmItemCatalog] = useState<ItemResponseDto[]>([]);
+  const [ruleCatalog, setRuleCatalog] = useState<RuleCatalogReferenceDto[]>([]);
   const [isGmItemCatalogLoading, setGmItemCatalogLoading] = useState(false);
   const [gmItemCatalogError, setGmItemCatalogError] = useState<string | null>(null);
   const [isGmInventoryGrantPending, setGmInventoryGrantPending] = useState(false);
   const [isEconomyPending, setEconomyPending] = useState(false);
   const [economyFeedback, setEconomyFeedback] = useState<string | null>(null);
+  const [isCampaignCalendarPending, setCampaignCalendarPending] = useState(false);
+  const [campaignCalendarFeedback, setCampaignCalendarFeedback] = useState<string | null>(null);
   const [isGmMessagePending, setGmMessagePending] = useState(false);
   const [gmAiAssistSuggestions, setGmAiAssistSuggestions] =
     useState<HumanGmAiAssistSuggestionDto[]>([]);
@@ -1997,10 +2005,16 @@ export function PlayPage({
   const canManageStartedSession = Boolean(
     !isRecruiting && (isHumanGmSession ? isGmUser : isHost)
   );
+  const canUseCampaignCalendarPanel = Boolean(session && !isRecruiting && !isSessionCompleted);
   const economyState =
     snapshot?.state.flags?.economy &&
     typeof snapshot.state.flags.economy === "object"
       ? snapshot.state.flags.economy
+      : null;
+  const campaignCalendarState =
+    snapshot?.state.flags?.campaignCalendar &&
+    typeof snapshot.state.flags.campaignCalendar === "object"
+      ? snapshot.state.flags.campaignCalendar
       : null;
   const canUseHumanGmView = Boolean(!isRecruiting && isHumanGmSession && isGmUser);
   const canShowCharacterSelection = Boolean(session && isRecruiting && !isGmUser);
@@ -2097,6 +2111,20 @@ export function PlayPage({
     QUICK_CREATE_CLASS_PRESET_BY_KEY.get(selectedQuickCreateClass?.key ?? formState.classKey) ??
     null;
   const currentNode = playerScenario?.currentNode ?? null;
+  useEffect(() => {
+    let ignore = false;
+    listRuleCatalog()
+      .then((catalog) => {
+        if (!ignore) setRuleCatalog(catalog);
+      })
+      .catch(() => {
+        if (!ignore) setRuleCatalog([]);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
   useEffect(() => {
     if (!session?.id || !canUseHumanGmView || !currentNode?.id) {
       setGmNodeMoveOptions([]);
@@ -3706,6 +3734,31 @@ export function PlayPage({
     }
   }
 
+  async function handleCampaignCalendarAction(payload: ApplyCampaignCalendarActionDto) {
+    const isPlayerCalendarAction =
+      payload.actionType === "propose_schedule" || payload.actionType === "respond_schedule";
+    if (
+      !session ||
+      isCampaignCalendarPending ||
+      (!canManageStartedSession && !isPlayerCalendarAction)
+    ) {
+      return;
+    }
+    setCampaignCalendarPending(true);
+    setCampaignCalendarFeedback(null);
+    try {
+      await applyCampaignCalendarAction(user, session.id, payload);
+      setCampaignCalendarFeedback(`${payload.actionType} 처리가 완료되었습니다.`);
+      onAction(`캠페인 캘린더: ${payload.actionType}`);
+    } catch (caught) {
+      setCampaignCalendarFeedback(
+        caught instanceof Error ? caught.message : "캠페인 캘린더 처리에 실패했습니다."
+      );
+    } finally {
+      setCampaignCalendarPending(false);
+    }
+  }
+
   async function handleEquippedWeaponAttack(targetParticipantId: string) {
     if (!session || isCombatBusy) return;
     await runCombatRequest(() =>
@@ -5101,6 +5154,7 @@ export function PlayPage({
                   phase={snapshot?.state.phase}
                   characters={sessionCharacters}
                   classDefinitions={classDefinitions}
+                  ruleCatalog={ruleCatalog}
                   currentUserId={user.id}
                   isHost={isHost}
                   isGmView={canUseHumanGmView}
@@ -5159,13 +5213,23 @@ export function PlayPage({
                 </div>
               )}
               {canManageStartedSession ? (
-                <SessionEconomyPanel
-                  economy={economyState}
-                  characters={sessionCharacters}
-                  isBusy={isEconomyPending}
-                  feedback={economyFeedback}
-                  onApply={handleEconomyAction}
-                />
+                  <SessionEconomyPanel
+                    economy={economyState}
+                    characters={sessionCharacters}
+                    isBusy={isEconomyPending}
+                    feedback={economyFeedback}
+                    onApply={handleEconomyAction}
+                  />
+              ) : null}
+              {canUseCampaignCalendarPanel ? (
+                  <SessionCampaignCalendarPanel
+                    calendar={campaignCalendarState}
+                    characters={sessionCharacters}
+                    canManageCampaign={canManageStartedSession}
+                    isBusy={isCampaignCalendarPending}
+                    feedback={campaignCalendarFeedback}
+                    onApply={handleCampaignCalendarAction}
+                  />
               ) : null}
               {pendingCombatReaction ? (
                 <section className="session-combat-reaction-banner" aria-label="전투 반응 대기">

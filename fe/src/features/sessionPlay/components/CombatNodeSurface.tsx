@@ -8,6 +8,7 @@ import type {
   HumanGmAiAssistSuggestionDto,
   InventoryItemDto,
   PlayerScenarioNodeDto,
+  RuleCatalogReferenceDto,
   SessionCharacterResponseDto,
   VttMapStateDto,
 } from '@trpg/shared-types';
@@ -34,13 +35,28 @@ type CombatActionTab = 'basic' | 'ability' | 'spell';
 type CombatMovementMode = 'normal' | 'jump';
 type ForcedMovementMode = 'push' | 'pull' | 'slide';
 type CombatActorActionType = 'attack' | 'dash' | 'dodge' | 'hide';
-type SpellFilter = 'all' | 'cantrip' | 'level1' | 'level2' | 'level3' | 'level4';
+type SpellFilter =
+  | 'all'
+  | 'cantrip'
+  | 'level1'
+  | 'level2'
+  | 'level3'
+  | 'level4'
+  | 'level5'
+  | 'level6'
+  | 'level7'
+  | 'level8';
 type CombatResourceIconKind = 'action' | 'bonus' | 'reaction';
 type CombatParticipant = CombatResponseDto['participants'][number];
 type CombatMonsterAction = NonNullable<CombatParticipant['monsterActions']>[number];
 type CombatConditionOption = {
   id: string;
   label: string;
+};
+type CombatSpellAction = {
+  label: string;
+  spellId: string;
+  level?: number;
 };
 
 type CombatAbilityButton = {
@@ -78,6 +94,7 @@ interface CombatNodeSurfaceProps {
   phase?: string | null;
   characters: SessionCharacterResponseDto[];
   classDefinitions: ClassDefinitionResponseDto[];
+  ruleCatalog?: RuleCatalogReferenceDto[];
   currentUserId: string;
   isHost: boolean;
   isGmView?: boolean;
@@ -206,7 +223,7 @@ const baseActionTabs: Array<{ id: CombatActionTab; label: string; actions: strin
 type P3CombatSpellMetadata = {
   id: string;
   label: string;
-  level: 0 | 1 | 2 | 3 | 4;
+  level: number;
   rangeFt: number;
   targeting: 'self' | 'token' | 'point';
   targetDisposition?: 'ally' | 'enemy' | 'any';
@@ -445,7 +462,7 @@ const mvpSpellRangeFtById: Record<string, number> = {
   ...Object.fromEntries(p3CombatSpellMetadata.map((spell) => [spell.id, spell.rangeFt])),
 };
 
-const mvpSpellLevelById: Record<string, 0 | 1 | 2 | 3 | 4> = {
+const mvpSpellLevelById: Record<string, number> = {
   'spell.acid_splash': 0,
   'spell.guidance': 0,
   'spell.mage_hand': 0,
@@ -508,6 +525,10 @@ const spellFilterOptions: Array<{ id: SpellFilter; label: string }> = [
   { id: 'level2', label: '2레벨 마법' },
   { id: 'level3', label: '3레벨 마법' },
   { id: 'level4', label: '4레벨 마법' },
+  { id: 'level5', label: '5레벨 마법' },
+  { id: 'level6', label: '6레벨 마법' },
+  { id: 'level7', label: '7레벨 마법' },
+  { id: 'level8', label: '8레벨 마법' },
 ];
 
 const combatActionIconNames: Partial<Record<string, GameIconName>> = {
@@ -850,7 +871,29 @@ function normalizeSpellId(value: string) {
   return normalized.startsWith('spell.') ? normalized : `spell.${normalized}`;
 }
 
-function hasMvpSpell(character: SessionCharacterResponseDto | null, spellId: string) {
+function getRuleCatalogSpellLevel(entry: RuleCatalogReferenceDto): number | undefined {
+  if (typeof entry.spellLevel === 'number') return entry.spellLevel;
+  const tag = entry.runtimeTags?.find((item) => item.startsWith('spell_level:'));
+  if (!tag) return undefined;
+  const level = Number(tag.slice('spell_level:'.length));
+  return Number.isInteger(level) ? level : undefined;
+}
+
+function formatRuleCatalogSpellLabel(entry: RuleCatalogReferenceDto) {
+  if (entry.label) return entry.label;
+  const raw = entry.id.includes('.') ? entry.id.slice(entry.id.lastIndexOf('.') + 1) : entry.id;
+  return raw
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ') || entry.id;
+}
+
+function hasMvpSpell(
+  character: SessionCharacterResponseDto | null,
+  spellId: string,
+  spellLevelById: Record<string, number> = mvpSpellLevelById
+) {
   if (!character) return false;
   const cantrips = (character.spells?.cantrips ?? []).map(normalizeSpellId);
   if (cantrips.includes(spellId)) return true;
@@ -858,7 +901,7 @@ function hasMvpSpell(character: SessionCharacterResponseDto | null, spellId: str
   const learnedSpells = (character.spells?.spells ?? []).map(normalizeSpellId);
   if (!learnedSpells.includes(spellId)) return false;
 
-  const spellLevel = mvpSpellLevelById[spellId];
+  const spellLevel = spellLevelById[spellId];
   const preparedSpells = character.spells?.preparedSpells;
   if (
     spellLevel &&
@@ -871,16 +914,52 @@ function hasMvpSpell(character: SessionCharacterResponseDto | null, spellId: str
   return true;
 }
 
-function getKnownMvpSpellActions(character: SessionCharacterResponseDto | null) {
-  return mvpSpellLabels.filter((label) => {
-    const spellId = mvpSpellIdsByLabel[label];
-    return Boolean(spellId && hasMvpSpell(character, spellId));
-  });
-}
+function getKnownMvpSpellActions(
+  character: SessionCharacterResponseDto | null,
+  ruleCatalog: RuleCatalogReferenceDto[] = []
+): CombatSpellAction[] {
+  const catalogSpellEntries = ruleCatalog.filter(
+    (entry) => entry.kind === 'spell_definitions' && entry.executable
+  );
+  const catalogSpellById = new Map(catalogSpellEntries.map((entry) => [entry.id, entry] as const));
+  const spellLevelById: Record<string, number> = { ...mvpSpellLevelById };
+  for (const entry of catalogSpellEntries) {
+    const level = getRuleCatalogSpellLevel(entry);
+    if (typeof level === 'number') spellLevelById[entry.id] = level;
+  }
+  const actions: CombatSpellAction[] = [];
+  const seenSpellIds = new Set<string>();
 
-function getSpellLevel(label: string) {
-  const spellId = mvpSpellIdsByLabel[label];
-  return spellId ? mvpSpellLevelById[spellId] : undefined;
+  for (const label of mvpSpellLabels) {
+    const spellId = mvpSpellIdsByLabel[label];
+    if (spellId && hasMvpSpell(character, spellId, spellLevelById)) {
+      actions.push({ label, spellId, level: spellLevelById[spellId] });
+      seenSpellIds.add(spellId);
+    }
+  }
+
+  const knownSpellIds = [
+    ...(character?.spells?.cantrips ?? []),
+    ...(character?.spells?.spells ?? []),
+  ].map(normalizeSpellId);
+  for (const spellId of knownSpellIds) {
+    if (seenSpellIds.has(spellId) || !catalogSpellById.has(spellId)) continue;
+    if (!hasMvpSpell(character, spellId, spellLevelById)) continue;
+    const entry = catalogSpellById.get(spellId)!;
+    actions.push({
+      label: formatRuleCatalogSpellLabel(entry),
+      spellId,
+      level: spellLevelById[spellId],
+    });
+    seenSpellIds.add(spellId);
+  }
+
+  return actions.sort((left, right) => {
+    const leftLevel = left.level ?? 99;
+    const rightLevel = right.level ?? 99;
+    if (leftLevel !== rightLevel) return leftLevel - rightLevel;
+    return left.label.localeCompare(right.label);
+  });
 }
 
 function getSpellTargetingHint(spellId: string) {
@@ -1339,6 +1418,7 @@ export function CombatNodeSurface({
   scenarioTitle,
   phase,
   characters,
+  ruleCatalog = [],
   currentUserId,
   isHost,
   isGmView = false,
@@ -1402,29 +1482,51 @@ export function CombatNodeSurface({
   const [spellFilter, setSpellFilter] = useState<SpellFilter>('all');
   const sceneParagraphs = useMemo(() => splitSceneParagraphs(node?.sceneText), [node?.sceneText]);
   const myCharacter = characters.find((character) => character.userId === currentUserId) ?? null;
-  const knownMvpSpellActions = useMemo(() => getKnownMvpSpellActions(myCharacter), [myCharacter]);
+  const catalogSpellMetadataById = useMemo(() => {
+    const map = new Map<
+      string,
+      { level?: number; rangeFt?: number | null; targetingType?: string | null }
+    >();
+    for (const entry of ruleCatalog) {
+      if (entry.kind !== 'spell_definitions' || !entry.executable) continue;
+      map.set(entry.id, {
+        level: getRuleCatalogSpellLevel(entry),
+        rangeFt: entry.rangeFt,
+        targetingType: entry.targetingType,
+      });
+    }
+    return map;
+  }, [ruleCatalog]);
+  const knownSpellActions = useMemo(
+    () => getKnownMvpSpellActions(myCharacter, ruleCatalog),
+    [myCharacter, ruleCatalog]
+  );
   const visibleSpellActions = useMemo(
     () =>
-      knownMvpSpellActions.filter((label) => {
-        const spellLevel = getSpellLevel(label);
+      knownSpellActions.filter((action) => {
+        const spellLevel = action.level;
         if (spellFilter === 'cantrip') return spellLevel === 0;
         if (spellFilter === 'level1') return spellLevel === 1;
         if (spellFilter === 'level2') return spellLevel === 2;
         if (spellFilter === 'level3') return spellLevel === 3;
         if (spellFilter === 'level4') return spellLevel === 4;
+        if (spellFilter === 'level5') return spellLevel === 5;
+        if (spellFilter === 'level6') return spellLevel === 6;
+        if (spellFilter === 'level7') return spellLevel === 7;
+        if (spellFilter === 'level8') return spellLevel === 8;
         return true;
       }),
-    [knownMvpSpellActions, spellFilter]
+    [knownSpellActions, spellFilter]
   );
   const actionTabs = useMemo(() => {
-    if (!knownMvpSpellActions.length) {
+    if (!knownSpellActions.length) {
       return baseActionTabs;
     }
     return [
       ...baseActionTabs,
-      { id: 'spell' as const, label: '마법', actions: knownMvpSpellActions },
+      { id: 'spell' as const, label: '마법', actions: knownSpellActions.map((action) => action.label) },
     ];
-  }, [knownMvpSpellActions]);
+  }, [knownSpellActions]);
   const selectedTurnCharacter =
     characters.find((character) => character.id === selectedTurnCharacterId) ?? null;
   const myCombatParticipant =
@@ -1485,6 +1587,8 @@ export function CombatNodeSurface({
     const selected = spellSlotLevelBySpellId[spellId];
     return availableLevels.includes(selected) ? selected : availableLevels[0];
   };
+  const getSpellRangeFt = (spellId: string) =>
+    mvpSpellRangeFtById[spellId] ?? catalogSpellMetadataById.get(spellId)?.rangeFt ?? 0;
   const equippedWeapon =
     inventory.find((item) => isEquippedItem(item, myCharacter?.equippedWeaponId)) ?? null;
   const offhandWeapon =
@@ -1962,11 +2066,12 @@ export function CombatNodeSurface({
       return null;
     const tokenId = getParticipantTokenId(myCombatParticipant);
     const rangeFt = targetingSpellId
-      ? (mvpSpellRangeFtById[targetingSpellId] ?? attackRangeFt)
+      ? getSpellRangeFt(targetingSpellId)
       : attackRangeFt;
     return tokenId ? { tokenId, rangeFt } : null;
   }, [
     attackRangeFt,
+    catalogSpellMetadataById,
     isAttackTargeting,
     isSneakAttackTargeting,
     map?.tokens,
@@ -2043,7 +2148,7 @@ export function CombatNodeSurface({
     const sourceToken = getMapToken(getParticipantTokenId(myCombatParticipant));
     const targetToken = getMapToken(getParticipantTokenId(participant));
     if (!sourceToken || !targetToken) return false;
-    return getGridDistanceFt(map, sourceToken, targetToken) <= (mvpSpellRangeFtById[spellId] ?? 0);
+    return getGridDistanceFt(map, sourceToken, targetToken) <= getSpellRangeFt(spellId);
   }
 
   function isPointSpellTargetInRange(point: { x: number; y: number }, spellId: string) {
@@ -2051,7 +2156,7 @@ export function CombatNodeSurface({
     const sourceToken = getMapToken(getParticipantTokenId(myCombatParticipant));
     if (!sourceToken) return false;
     const pointToken = { ...sourceToken, x: point.x, y: point.y };
-    return getGridDistanceFt(map, sourceToken, pointToken) <= (mvpSpellRangeFtById[spellId] ?? 0);
+    return getGridDistanceFt(map, sourceToken, pointToken) <= getSpellRangeFt(spellId);
   }
 
   function getParticipantByTokenId(tokenId: string) {
@@ -2123,7 +2228,13 @@ export function CombatNodeSurface({
   function startSpellTargeting(spellId: string) {
     if (!spellId || spellId === 'spell.shield') return;
     const p3Spell = p3CombatSpellMetadataById.get(spellId);
-    if (spellId === 'spell.detect_magic' || p3Spell?.targeting === 'self') {
+    const catalogSpell = catalogSpellMetadataById.get(spellId);
+    if (
+      spellId === 'spell.detect_magic' ||
+      p3Spell?.targeting === 'self' ||
+      catalogSpell?.targetingType === 'self' ||
+      catalogSpell?.targetingType === 'none'
+    ) {
       setTargetingSpellId(null);
       void onCastSpell(spellId, buildSpellCastPayload(spellId));
       return;
@@ -2137,7 +2248,7 @@ export function CombatNodeSurface({
   }
 
   function buildSpellCastPayload(spellId: string) {
-    const spellLevel = mvpSpellLevelById[spellId];
+    const spellLevel = mvpSpellLevelById[spellId] ?? catalogSpellMetadataById.get(spellId)?.level;
     const slotLevel = getSelectedSlotLevelForSpell(spellId, spellLevel);
     return typeof slotLevel === 'number' && slotLevel > 0 && slotLevel !== spellLevel
       ? { slotLevel }
@@ -2272,6 +2383,31 @@ export function CombatNodeSurface({
       if (!point || !isPointSpellTargetInRange(point, spellId)) return;
       setTargetingSpellId(null);
       void onCastSpell(spellId, { point, ...buildSpellCastPayload(spellId) });
+      return;
+    }
+    const catalogSpell = catalogSpellMetadataById.get(spellId);
+    if (catalogSpell?.targetingType === 'creature') {
+      if (selection?.kind !== 'token') return;
+      const participant = getParticipantByTokenId(selection.token.id);
+      if (!participant || !participant.isAlive) return;
+      if (!isParticipantSpellTargetInRange(participant, spellId)) return;
+      setTargetingSpellId(null);
+      void onCastSpell(spellId, {
+        targetParticipantIds: [participant.sessionEntityId],
+        ...buildSpellCastPayload(spellId),
+      });
+      return;
+    }
+    if (catalogSpell?.targetingType === 'area') {
+      const point = selection?.point ?? null;
+      if (!point || !isPointSpellTargetInRange(point, spellId)) return;
+      setTargetingSpellId(null);
+      void onCastSpell(spellId, { point, ...buildSpellCastPayload(spellId) });
+      return;
+    }
+    if (catalogSpell) {
+      setTargetingSpellId(null);
+      void onCastSpell(spellId, buildSpellCastPayload(spellId));
       return;
     }
     if (spellId === 'spell.detect_magic') {
@@ -2725,8 +2861,9 @@ export function CombatNodeSurface({
                 <div className="combat-spell-button-list">
                   {visibleSpellActions.length ? (
                     visibleSpellActions.map((action) => {
-                      const spellId = mvpSpellIdsByLabel[action];
-                      const spellLevel = spellId ? mvpSpellLevelById[spellId] : undefined;
+                      const spellId = action.spellId;
+                      const spellLevel =
+                        action.level ?? mvpSpellLevelById[spellId] ?? catalogSpellMetadataById.get(spellId)?.level;
                       const isSlottedSpell = typeof spellLevel === 'number' && spellLevel > 0;
                       const availableSlotLevels = getAvailableSlotLevelsForSpell(spellLevel);
                       const selectedSlotLevel =
@@ -2755,28 +2892,28 @@ export function CombatNodeSurface({
                         usesReaction ||
                         (isSlottedSpell && spellSlotRemaining <= 0);
                       return (
-                        <div className="combat-spell-action-wrap" key={action}>
+                        <div className="combat-spell-action-wrap" key={spellId}>
                           <button
                             type="button"
                             className={`combat-action-button has-action-icon${targetingSpellId === spellId ? ' targeting' : ''}`}
                             disabled={disabled}
                             title={
                               usesReaction
-                                ? `${action}은(는) 조건이 충족될 때 반응 팝업으로 사용합니다.`
+                                ? `${action.label}은(는) 조건이 충족될 때 반응 팝업으로 사용합니다.`
                                 : isSlottedSpell && spellSlotRemaining <= 0
                                   ? `사용 가능한 ${spellLevel}레벨 주문 슬롯이 없습니다.`
                                   : targetingSpellId === spellId
-                                    ? `${action} 사거리 안의 유효한 대상 또는 지점을 선택하세요.`
-                                    : `${action} 타겟팅`
+                                    ? `${action.label} 사거리 안의 유효한 대상 또는 지점을 선택하세요.`
+                                    : `${action.label} 타겟팅`
                             }
                             onClick={() => spellId && startSpellTargeting(spellId)}
                           >
-                            <CombatActionButtonContent label={action} />
+                            <CombatActionButtonContent label={action.label} />
                           </button>
                           {spellId && isSlottedSpell && availableSlotLevels.length ? (
                             <label
                               className="combat-spell-slot-select"
-                              title={`${action}에 사용할 주문 슬롯`}
+                              title={`${action.label}에 사용할 주문 슬롯`}
                             >
                               <span>슬롯</span>
                               <select

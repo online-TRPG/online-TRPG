@@ -1,0 +1,541 @@
+import {
+  RuleCatalogEntry,
+  RuleCost,
+  RuleTargeting,
+} from "./rule-catalog.types";
+
+type P5SpellOptions = {
+  level: number;
+  cost?: RuleCost;
+  targeting: RuleTargeting;
+  damage?: RuleCatalogEntry["damage"];
+  duration?: RuleCatalogEntry["duration"];
+  concentration?: boolean;
+  save?: RuleCatalogEntry["save"];
+  tags: string[];
+  scaling?: RuleCatalogEntry["scaling"];
+};
+
+const ACTION: RuleCost = { type: "action" };
+const REACTION: RuleCost = { type: "reaction" };
+const SELF: RuleTargeting = { type: "self" };
+const NONE: RuleTargeting = { type: "none" };
+
+function p5Spell(id: string, options: P5SpellOptions): RuleCatalogEntry {
+  return {
+    id: `spell.${id}`,
+    kind: "spell_definitions",
+    source: "SRD5E",
+    levelRequirement: {},
+    trigger:
+      options.cost?.type === "bonus_action"
+        ? "bonus_action"
+        : options.cost?.type === "reaction"
+          ? "reaction"
+          : "action",
+    cost: options.cost ?? ACTION,
+    targeting: options.targeting,
+    save: options.save ?? null,
+    damage: options.damage ?? null,
+    duration: options.duration ?? null,
+    concentration: options.concentration ?? false,
+    scaling: options.scaling ?? null,
+    runtimeEffect: {
+      type: "spell",
+      tags: [`spell_level:${options.level}`, "p5_content", ...options.tags],
+      hookId: `hook.spell.cast_${id}`,
+    },
+  };
+}
+
+export const P5_SPELL_DEFINITIONS: RuleCatalogEntry[] = [
+  p5Spell("animal_messenger", {
+    level: 2,
+    targeting: { type: "creature", rangeFt: 30 },
+    duration: { unit: "hour", amount: 24 },
+    tags: ["ritual", "target:tiny_beast", "travel_message", "campaign_communication"],
+    scaling: { mode: "slot_level", table: { mode: "duration_step", perSlotAbove: 1, amount: "48h" } },
+  }),
+  p5Spell("barkskin", {
+    level: 2,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "hour", amount: 1 },
+    concentration: true,
+    tags: ["ac_floor:16", "skin:bark", "defense:armor_floor"],
+  }),
+  p5Spell("beast_sense", {
+    level: 2,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "hour", amount: 1 },
+    concentration: true,
+    tags: ["ritual", "target:willing_beast", "share_senses", "exploration_scouting"],
+  }),
+  p5Spell("calm_emotions", {
+    level: 2,
+    targeting: { type: "area", shape: "sphere", sizeFt: 20 },
+    save: { ability: "cha", dcSource: "spell_save_dc" },
+    duration: { unit: "minute", amount: 1 },
+    concentration: true,
+    tags: ["save:cha", "suppress:charmed", "suppress:frightened", "social_deescalation"],
+  }),
+  p5Spell("continual_flame", {
+    level: 2,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "permanent", amount: null },
+    tags: ["light:bright:20", "light:dim:20", "component:ruby_dust:50gp", "object_enchantment"],
+  }),
+  p5Spell("enthrall", {
+    level: 2,
+    targeting: { type: "area", shape: "sphere", sizeFt: 60 },
+    save: { ability: "wis", dcSource: "spell_save_dc" },
+    duration: { unit: "minute", amount: 1 },
+    tags: ["save:wis", "disadvantage:perception", "social_distraction"],
+  }),
+  p5Spell("gentle_repose", {
+    level: 2,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "day", amount: 10 },
+    tags: ["ritual", "preserve_corpse", "extend_resurrection_window", "block:undead_creation"],
+  }),
+  p5Spell("knock", {
+    level: 2,
+    targeting: { type: "creature", rangeFt: 60 },
+    duration: { unit: "instant", amount: null },
+    tags: ["unlock:object", "suppress:arcane_lock", "sound:audible_300ft", "exploration_utility"],
+  }),
+  p5Spell("magic_mouth", {
+    level: 2,
+    targeting: { type: "creature", rangeFt: 30 },
+    duration: { unit: "permanent", amount: null },
+    tags: ["ritual", "message_trigger", "object_ward", "component:jade_dust:10gp"],
+  }),
+  p5Spell("magic_weapon", {
+    level: 2,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "hour", amount: 1 },
+    concentration: true,
+    tags: ["weapon_bonus:+1", "weapon:magical", "damage_bonus:+1"],
+    scaling: { mode: "slot_level", table: { 4: "+2", 6: "+3" } },
+  }),
+  p5Spell("pass_without_trace", {
+    level: 2,
+    targeting: { type: "area", shape: "sphere", sizeFt: 30 },
+    duration: { unit: "hour", amount: 1 },
+    concentration: true,
+    tags: ["stealth_bonus:+10", "hide_tracks", "party_buff"],
+  }),
+  p5Spell("prayer_of_healing", {
+    level: 2,
+    targeting: { type: "area", shape: "sphere", sizeFt: 30 },
+    damage: { dice: "2d8", type: "healing", scaling: "slot_level" },
+    duration: { unit: "instant", amount: null },
+    tags: ["healing:up_to_6", "cast_time:10_minutes", "out_of_combat_healing"],
+    scaling: { mode: "slot_level", table: { mode: "damage_dice", dice: "1d8", perSlotAbove: 1 } },
+  }),
+  p5Spell("protection_from_poison", {
+    level: 2,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "hour", amount: 1 },
+    tags: ["remove:poisoned", "advantage:save:poison", "resistance:poison"],
+  }),
+  p5Spell("rope_trick", {
+    level: 2,
+    targeting: { type: "area", shape: "cube", sizeFt: 5 },
+    duration: { unit: "hour", amount: 1 },
+    tags: ["extradimensional_space", "capacity:8_medium", "short_rest_shelter"],
+  }),
+  p5Spell("see_invisibility", {
+    level: 2,
+    targeting: SELF,
+    duration: { unit: "hour", amount: 1 },
+    tags: ["sense:invisible", "sense:ethereal_plane", "self_buff"],
+  }),
+  p5Spell("silence", {
+    level: 2,
+    targeting: { type: "area", shape: "sphere", sizeFt: 20 },
+    duration: { unit: "minute", amount: 10 },
+    concentration: true,
+    tags: ["ritual", "terrain:silence", "block:verbal_components", "immunity:thunder"],
+  }),
+  p5Spell("warding_bond", {
+    level: 2,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "hour", amount: 1 },
+    tags: ["ac_bonus:+1", "save_bonus:+1", "resistance:all_damage", "damage_share:caster"],
+  }),
+  p5Spell("zone_of_truth", {
+    level: 2,
+    targeting: { type: "area", shape: "sphere", sizeFt: 15 },
+    save: { ability: "cha", dcSource: "spell_save_dc" },
+    duration: { unit: "minute", amount: 10 },
+    tags: ["save:cha", "truth_zone", "social_interrogation", "caster_knows_save_result"],
+  }),
+
+  p5Spell("bestow_curse", {
+    level: 3,
+    targeting: { type: "creature", rangeFt: 5 },
+    save: { ability: "wis", dcSource: "spell_save_dc" },
+    duration: { unit: "minute", amount: 1 },
+    concentration: true,
+    tags: ["save:wis", "curse:choice", "disadvantage:ability", "damage_bonus:necrotic:1d8"],
+    scaling: { mode: "slot_level", table: { 5: "8h_no_concentration", 7: "24h", 9: "permanent" } },
+  }),
+  p5Spell("clairvoyance", {
+    level: 3,
+    targeting: { type: "area", shape: "sphere", sizeFt: 10 },
+    duration: { unit: "minute", amount: 10 },
+    concentration: true,
+    tags: ["sensor:hearing_or_sight", "scouting", "component:focus:100gp"],
+  }),
+  p5Spell("daylight", {
+    level: 3,
+    targeting: { type: "area", shape: "sphere", sizeFt: 60 },
+    duration: { unit: "hour", amount: 1 },
+    tags: ["light:bright:60", "light:dim:60", "dispel:darkness:3_or_lower"],
+  }),
+  p5Spell("feign_death", {
+    level: 3,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "hour", amount: 1 },
+    tags: ["ritual", "condition:incapacitated", "appear_dead", "resistance:all_damage_except_psychic"],
+  }),
+  p5Spell("glyph_of_warding", {
+    level: 3,
+    targeting: { type: "area", shape: "cube", sizeFt: 10 },
+    save: { ability: "dex", dcSource: "spell_save_dc" },
+    damage: { dice: "5d8", type: "caster_choice", scaling: "slot_level" },
+    duration: { unit: "permanent", amount: null },
+    tags: ["ward:glyph", "trigger:condition", "spell_glyph", "explosive_runes"],
+    scaling: { mode: "slot_level", table: { mode: "damage_dice", dice: "1d8", perSlotAbove: 1 } },
+  }),
+  p5Spell("magic_circle", {
+    level: 3,
+    targeting: { type: "area", shape: "sphere", sizeFt: 10 },
+    duration: { unit: "hour", amount: 1 },
+    tags: ["ward:circle", "target:celestial_elemental_fey_fiend_undead", "block_entry", "advantage_against_charm_frighten_possess"],
+    scaling: { mode: "slot_level", table: { mode: "duration_step", perSlotAbove: 1, amount: "1h" } },
+  }),
+  p5Spell("nondetection", {
+    level: 3,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "hour", amount: 8 },
+    tags: ["block:divination", "block:scrying", "component:diamond_dust:25gp"],
+  }),
+  p5Spell("remove_curse", {
+    level: 3,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "instant", amount: null },
+    tags: ["remove:curse", "break:attunement_cursed_item", "condition_lifecycle:curse"],
+  }),
+  p5Spell("sending", {
+    level: 3,
+    targeting: { type: "creature", rangeFt: null },
+    duration: { unit: "round", amount: 1 },
+    tags: ["message:25_words", "range:any_distance", "cross_plane_failure:5_percent", "campaign_communication"],
+  }),
+  p5Spell("speak_with_dead", {
+    level: 3,
+    targeting: { type: "creature", rangeFt: 10 },
+    duration: { unit: "minute", amount: 10 },
+    tags: ["corpse_questions:5", "no_repeat:10_days", "investigation_utility"],
+  }),
+  p5Spell("tongues", {
+    level: 3,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "hour", amount: 1 },
+    tags: ["language:understand_all_spoken", "language:be_understood", "social_utility"],
+  }),
+  p5Spell("water_breathing", {
+    level: 3,
+    targeting: { type: "area", shape: "sphere", sizeFt: 30 },
+    duration: { unit: "hour", amount: 24 },
+    tags: ["ritual", "target_count:10", "grant:water_breathing", "travel:aquatic"],
+  }),
+
+  p5Spell("arcane_eye", {
+    level: 4,
+    targeting: { type: "area", shape: "sphere", sizeFt: 30 },
+    duration: { unit: "hour", amount: 1 },
+    concentration: true,
+    tags: ["sensor:invisible_eye", "movement:30ft_per_action", "scouting"],
+  }),
+  p5Spell("aura_of_life", {
+    level: 4,
+    targeting: { type: "area", shape: "sphere", sizeFt: 30 },
+    duration: { unit: "minute", amount: 10 },
+    concentration: true,
+    tags: ["aura", "resistance:necrotic", "hp_floor:1", "revive_at_turn_start:1hp"],
+  }),
+  p5Spell("aura_of_purity", {
+    level: 4,
+    targeting: { type: "area", shape: "sphere", sizeFt: 30 },
+    duration: { unit: "minute", amount: 10 },
+    concentration: true,
+    tags: ["aura", "immunity:disease", "resistance:poison", "advantage:save:conditions"],
+  }),
+  p5Spell("compulsion", {
+    level: 4,
+    targeting: { type: "area", shape: "sphere", sizeFt: 30 },
+    save: { ability: "wis", dcSource: "spell_save_dc" },
+    duration: { unit: "minute", amount: 1 },
+    concentration: true,
+    tags: ["save:wis", "forced_movement:direction", "condition:compelled"],
+  }),
+  p5Spell("divination", {
+    level: 4,
+    targeting: NONE,
+    duration: { unit: "instant", amount: null },
+    tags: ["ritual", "oracle:truthful_reply", "campaign_information", "repeat_failure_chance"],
+  }),
+  p5Spell("commune", {
+    level: 5,
+    targeting: NONE,
+    duration: { unit: "minute", amount: 1 },
+    tags: ["ritual", "deity_questions:3", "yes_no_answers", "campaign_information", "repeat_failure_chance"],
+  }),
+
+  p5Spell("delayed_blast_fireball", {
+    level: 7,
+    targeting: { type: "area", shape: "sphere", sizeFt: 20 },
+    save: { ability: "dex", dcSource: "spell_save_dc" },
+    damage: { dice: "12d6", type: "fire", scaling: "slot_level" },
+    duration: { unit: "minute", amount: 1 },
+    concentration: true,
+    tags: ["save:dex", "half_damage_on_success", "delayed_charge:+1d6_per_round", "detonate:on_end_or_contact"],
+    scaling: { mode: "slot_level", table: { mode: "damage_dice", dice: "1d6", perSlotAbove: 1 } },
+  }),
+  p5Spell("divine_word", {
+    level: 7,
+    targeting: { type: "area", shape: "sphere", sizeFt: 30 },
+    save: { ability: "cha", dcSource: "spell_save_dc" },
+    duration: { unit: "instant", amount: null },
+    tags: ["save:cha", "hp_threshold_effects", "condition:deafened_blinded_stunned", "banish:celestial_elemental_fey_fiend"],
+  }),
+  p5Spell("etherealness", {
+    level: 7,
+    targeting: SELF,
+    duration: { unit: "hour", amount: 8 },
+    tags: ["travel:ethereal_plane", "phase:ethereal", "movement:planar_overlap"],
+    scaling: { mode: "slot_level", table: { mode: "target_count", count: 1, perSlotAbove: 1 } },
+  }),
+  p5Spell("finger_of_death", {
+    level: 7,
+    targeting: { type: "creature", rangeFt: 60 },
+    save: { ability: "con", dcSource: "spell_save_dc" },
+    damage: { dice: "7d8+30", type: "necrotic" },
+    duration: { unit: "instant", amount: null },
+    tags: ["save:con", "half_damage_on_success", "raise_as_zombie:on_humanoid_kill"],
+  }),
+  p5Spell("fire_storm", {
+    level: 7,
+    targeting: { type: "area", shape: "cube", sizeFt: 10 },
+    save: { ability: "dex", dcSource: "spell_save_dc" },
+    damage: { dice: "7d10", type: "fire" },
+    duration: { unit: "instant", amount: null },
+    tags: ["save:dex", "half_damage_on_success", "area:ten_contiguous_cubes", "ignite_objects"],
+  }),
+  p5Spell("forcecage", {
+    level: 7,
+    targeting: { type: "area", shape: "cube", sizeFt: 20 },
+    duration: { unit: "hour", amount: 1 },
+    tags: ["barrier:force", "no_save_initial", "teleport_escape:cha_save", "component:ruby_dust:1500gp"],
+  }),
+  p5Spell("mirage_arcane", {
+    level: 7,
+    targeting: { type: "area", shape: "cube", sizeFt: 5280 },
+    duration: { unit: "day", amount: 10 },
+    tags: ["illusion:terrain", "map_overlay:large_scale", "travel_environment"],
+  }),
+  p5Spell("plane_shift", {
+    level: 7,
+    targeting: { type: "creature", rangeFt: 5 },
+    save: { ability: "cha", dcSource: "spell_save_dc" },
+    duration: { unit: "instant", amount: null },
+    tags: ["travel:plane", "banish:hostile_melee_spell_attack", "component:tuning_fork"],
+  }),
+  p5Spell("prismatic_spray", {
+    level: 7,
+    targeting: { type: "area", shape: "cone", sizeFt: 60 },
+    save: { ability: "dex", dcSource: "spell_save_dc" },
+    damage: { dice: "10d6", type: "random_prismatic" },
+    duration: { unit: "instant", amount: null },
+    tags: ["save:dex", "random_ray:8", "condition:blinded", "condition:restrained_petrified_sequence"],
+  }),
+  p5Spell("project_image", {
+    level: 7,
+    targeting: { type: "creature", rangeFt: 500 },
+    duration: { unit: "day", amount: 1 },
+    concentration: true,
+    tags: ["illusion:duplicate", "remote_senses", "remote_speech", "social_projection"],
+  }),
+  p5Spell("regenerate", {
+    level: 7,
+    targeting: { type: "creature", rangeFt: 5 },
+    damage: { dice: "4d8+15", type: "healing" },
+    duration: { unit: "hour", amount: 1 },
+    tags: ["healing:initial", "healing:1_per_turn", "restore:severed_body_parts"],
+  }),
+  p5Spell("resurrection", {
+    level: 7,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "instant", amount: null },
+    tags: ["revive:dead_up_to_100_years", "component:diamond:1000gp", "condition:resurrection_penalty", "restore_body_parts"],
+  }),
+  p5Spell("reverse_gravity", {
+    level: 7,
+    targeting: { type: "area", shape: "cube", sizeFt: 50 },
+    save: { ability: "dex", dcSource: "spell_save_dc" },
+    duration: { unit: "minute", amount: 1 },
+    concentration: true,
+    tags: ["save:dex:grab_fixed_object", "forced_movement:upward:100ft", "fall_on_end", "terrain:gravity_inversion"],
+  }),
+  p5Spell("sequester", {
+    level: 7,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "permanent", amount: null },
+    tags: ["condition:invisible", "condition:timeless_sleep", "block:divination", "component:gem_dust:5000gp"],
+  }),
+  p5Spell("simulacrum", {
+    level: 7,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "permanent", amount: null },
+    tags: ["duplicate:beast_or_humanoid", "half_hp", "no_slot_recovery", "component:snow_and_ruby:1500gp"],
+  }),
+  p5Spell("symbol", {
+    level: 7,
+    targeting: { type: "area", shape: "sphere", sizeFt: 60 },
+    save: { ability: "wis", dcSource: "spell_save_dc" },
+    duration: { unit: "permanent", amount: null },
+    tags: ["ward:symbol", "trigger:condition", "condition:death_discord_fear_pain_sleep_stunning", "component:mercury_phosphorus:1000gp"],
+  }),
+  p5Spell("teleport", {
+    level: 7,
+    targeting: { type: "area", shape: "sphere", sizeFt: 10 },
+    duration: { unit: "instant", amount: null },
+    tags: ["travel:teleport", "target_count:8", "mishap_table", "campaign_location_state"],
+  }),
+
+  p5Spell("antimagic_field", {
+    level: 8,
+    targeting: { type: "area", shape: "sphere", sizeFt: 10 },
+    duration: { unit: "hour", amount: 1 },
+    concentration: true,
+    tags: ["aura:antimagic", "suppress:spells", "suppress:magic_items", "block:teleport_planar"],
+  }),
+  p5Spell("antipathy_sympathy", {
+    level: 8,
+    targeting: { type: "area", shape: "cube", sizeFt: 200 },
+    save: { ability: "wis", dcSource: "spell_save_dc" },
+    duration: { unit: "day", amount: 10 },
+    tags: ["save:wis", "effect:repel_or_attract", "target:creature_kind", "campaign_site_enchantment"],
+  }),
+  p5Spell("clone", {
+    level: 8,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "permanent", amount: null },
+    tags: ["backup_body", "matures:120_days", "soul_transfer:on_death", "component:diamond:1000gp"],
+  }),
+  p5Spell("control_weather", {
+    level: 8,
+    targeting: { type: "area", shape: "sphere", sizeFt: 26400 },
+    duration: { unit: "hour", amount: 8 },
+    concentration: true,
+    tags: ["weather_control", "campaign_region_effect", "travel_modifier", "environment_state"],
+  }),
+  p5Spell("demiplane", {
+    level: 8,
+    targeting: { type: "area", shape: "cube", sizeFt: 30 },
+    duration: { unit: "hour", amount: 1 },
+    tags: ["create:demiplane_door", "storage:extraplanar", "campaign_location_state"],
+  }),
+  p5Spell("dominate_monster", {
+    level: 8,
+    targeting: { type: "creature", rangeFt: 60 },
+    save: { ability: "wis", dcSource: "spell_save_dc" },
+    duration: { unit: "hour", amount: 1 },
+    concentration: true,
+    tags: ["save:wis", "condition:charmed", "control:any_creature", "repeat_save:on_damage"],
+  }),
+  p5Spell("earthquake", {
+    level: 8,
+    targeting: { type: "area", shape: "sphere", sizeFt: 100 },
+    save: { ability: "dex", dcSource: "spell_save_dc" },
+    damage: { dice: "5d6", type: "bludgeoning" },
+    duration: { unit: "minute", amount: 1 },
+    concentration: true,
+    tags: ["terrain:difficult", "condition:prone", "structure_damage", "fissures"],
+  }),
+  p5Spell("feeblemind", {
+    level: 8,
+    targeting: { type: "creature", rangeFt: 150 },
+    save: { ability: "int", dcSource: "spell_save_dc" },
+    damage: { dice: "4d6", type: "psychic" },
+    duration: { unit: "permanent", amount: null },
+    tags: ["save:int", "set:int_cha:1", "block:spellcasting", "repeat_save:30_days"],
+  }),
+  p5Spell("glibness", {
+    level: 8,
+    targeting: SELF,
+    duration: { unit: "hour", amount: 1 },
+    tags: ["social:deception_floor:15", "bypass:truth_magic_detection", "charisma_check_floor"],
+  }),
+  p5Spell("holy_aura", {
+    level: 8,
+    targeting: { type: "area", shape: "sphere", sizeFt: 30 },
+    duration: { unit: "minute", amount: 1 },
+    concentration: true,
+    tags: ["aura", "advantage:saving_throws", "attack_disadvantage:against_allies", "blind:fiend_undead_on_hit"],
+  }),
+  p5Spell("incendiary_cloud", {
+    level: 8,
+    targeting: { type: "area", shape: "sphere", sizeFt: 20 },
+    save: { ability: "dex", dcSource: "spell_save_dc" },
+    damage: { dice: "10d8", type: "fire" },
+    duration: { unit: "minute", amount: 1 },
+    concentration: true,
+    tags: ["save:dex", "half_damage_on_success", "terrain:heavily_obscured", "moves_away:10ft"],
+  }),
+  p5Spell("maze", {
+    level: 8,
+    targeting: { type: "creature", rangeFt: 60 },
+    duration: { unit: "minute", amount: 10 },
+    concentration: true,
+    tags: ["banish:demiplane_maze", "escape:int_check_dc20", "no_initial_save"],
+  }),
+  p5Spell("mind_blank", {
+    level: 8,
+    targeting: { type: "creature", rangeFt: 5 },
+    duration: { unit: "hour", amount: 24 },
+    tags: ["immunity:psychic", "immunity:charmed", "block:divination", "block:mind_reading"],
+  }),
+  p5Spell("power_word_stun", {
+    level: 8,
+    targeting: { type: "creature", rangeFt: 60 },
+    save: { ability: "con", dcSource: "spell_save_dc" },
+    duration: { unit: "minute", amount: 1 },
+    tags: ["hp_threshold:150", "condition:stunned", "save:con:end_turn"],
+  }),
+  p5Spell("sunburst", {
+    level: 8,
+    targeting: { type: "area", shape: "sphere", sizeFt: 60 },
+    save: { ability: "con", dcSource: "spell_save_dc" },
+    damage: { dice: "12d6", type: "radiant" },
+    duration: { unit: "instant", amount: null },
+    tags: ["save:con", "half_damage_on_success", "condition:blinded", "dispel:magical_darkness"],
+  }),
+  p5Spell("telepathy", {
+    level: 8,
+    targeting: { type: "creature", rangeFt: null },
+    duration: { unit: "hour", amount: 24 },
+    tags: ["communication:any_distance_same_plane", "language_independent", "campaign_communication"],
+  }),
+  p5Spell("tsunami", {
+    level: 8,
+    targeting: { type: "area", shape: "line", sizeFt: 300 },
+    save: { ability: "str", dcSource: "spell_save_dc" },
+    damage: { dice: "6d10", type: "bludgeoning" },
+    duration: { unit: "round", amount: 6 },
+    concentration: true,
+    tags: ["save:str", "condition:grappled", "forced_movement:wave", "damage_reduces_each_round"],
+  }),
+];

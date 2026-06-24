@@ -22,7 +22,7 @@
 - 317개 몬스터.
 - SRD 공개 범위 안의 대표 서브클래스, 몬스터 특수 능력, 아이템/지형/시나리오 런타임.
 
-[`completed/future_plan_mvp.md`](completed/future_plan_mvp.md), [`completed/future_plan_p1.md`](completed/future_plan_p1.md), [`completed/future_plan_p2.md`](completed/future_plan_p2.md), [`completed/future_plan_p3.md`](completed/future_plan_p3.md), [`completed/future_plan_p4.md`](completed/future_plan_p4.md)는 이 장기 플랜을 대체하거나 줄이는 문서가 아니다. 완료 문서는 장기 범위로 가는 과정에서 닫은 실행 단계와 검증 기준을 기록한다. 따라서 이전 단계에서 제외된 항목도 이 문서의 장기 목표에서는 계속 유지된다. 다음 실행 계획은 [`future_plan_p5.md`](future_plan_p5.md)를 기준으로 한다.
+[`completed/future_plan_mvp.md`](completed/future_plan_mvp.md), [`completed/future_plan_p1.md`](completed/future_plan_p1.md), [`completed/future_plan_p2.md`](completed/future_plan_p2.md), [`completed/future_plan_p3.md`](completed/future_plan_p3.md), [`completed/future_plan_p4.md`](completed/future_plan_p4.md), [`completed/future_plan_p5.md`](completed/future_plan_p5.md)는 이 장기 플랜을 대체하거나 줄이는 문서가 아니다. 완료 문서는 장기 범위로 가는 과정에서 닫은 실행 단계와 검증 기준을 기록한다. 따라서 이전 단계에서 제외된 항목도 이 문서의 장기 목표에서는 계속 유지된다. 다음 실행 계획은 [`future_plan_p6.md`](future_plan_p6.md)를 기준으로 한다.
 
 ## 1. 룰 데이터 기반 확장 레이어
 

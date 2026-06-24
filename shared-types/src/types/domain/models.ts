@@ -102,6 +102,7 @@ export type CharacterModel = {
   avatarUrl?: string | null;
   avatarUpdatedAt?: string | null;
   activeSessionId?: string | null;
+  activeSessionConditions: string[];
   isSelectable: boolean;
   createdAt: string;
   updatedAt: string;

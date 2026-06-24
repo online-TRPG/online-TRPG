@@ -33,4 +33,14 @@ describe("SRD spellcasting progression", () => {
     expect(getKnownSpellsLimit("sorcerer", 11)).toBe(12);
     expect(getKnownSpellsLimit("warlock", 11)).toBe(11);
   });
+
+  it("exposes P5 13 through 16 high-level spellcasting progression", () => {
+    expect(getKnownSpellsLimit("bard", 13)).toBe(16);
+    expect(getKnownSpellsLimit("bard", 14)).toBe(18);
+    expect(getKnownSpellsLimit("sorcerer", 15)).toBe(14);
+    expect(getKnownSpellsLimit("warlock", 15)).toBe(13);
+    expect(getCantripsKnownLimit("wizard", 16)).toBe(5);
+    expect(getKnownSpellsLimit("paladin", 16)).toBeNull();
+    expect(getKnownSpellsLimit("ranger", 16)).toBe(9);
+  });
 });

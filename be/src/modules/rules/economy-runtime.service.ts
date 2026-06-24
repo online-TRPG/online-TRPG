@@ -36,6 +36,20 @@ export type EconomyState = {
   walletsBySessionCharacterId: Record<string, CurrencyWallet>;
   shopStatesById: Record<string, ShopState>;
   craftingProgressById: Record<string, CraftingProgress>;
+  downtimeCompletionsById?: Record<
+    string,
+    {
+      downtimeTaskId: string;
+      downtimeType: string;
+      sessionCharacterId: string;
+      title: string;
+      costGp: number;
+      completedAt: string;
+      economyEffects: Array<Record<string, unknown>>;
+      inventoryEffects: Array<Record<string, unknown>>;
+      characterResourceEffects: Array<Record<string, unknown>>;
+    }
+  >;
 };
 
 export type RewardTable = {
@@ -556,6 +570,19 @@ export class EconomyRuntimeService {
       craftingProgressById: Object.fromEntries(
         Object.entries(state.craftingProgressById).map(([key, progress]) => [key, { ...progress }]),
       ),
+      downtimeCompletionsById: state.downtimeCompletionsById
+        ? Object.fromEntries(
+            Object.entries(state.downtimeCompletionsById).map(([key, completion]) => [
+              key,
+              {
+                ...completion,
+                economyEffects: completion.economyEffects.map((effect) => ({ ...effect })),
+                inventoryEffects: completion.inventoryEffects.map((effect) => ({ ...effect })),
+                characterResourceEffects: completion.characterResourceEffects.map((effect) => ({ ...effect })),
+              },
+            ]),
+          )
+        : undefined,
     };
   }
 

@@ -19,12 +19,17 @@ import searchbarFrameImage from "../components/searchbar_gold_frame.webp";
 import sidePanelImage from "../components/Side_Panel.webp";
 import { Icon } from "../components/Icon";
 import {
+  appealScenarioModeration,
   createScenario,
   deleteScenario,
+  deleteScenarioRating,
+  forkScenario,
   getScenario,
   getScenarioCollaborationState,
+  listScenarios,
   listMyScenarios,
   createScenarioReview,
+  rateScenario,
   removeScenarioCollaborator,
   reportScenario,
   upsertScenarioCollaborator,
@@ -33,6 +38,7 @@ import {
 import type { Scenario, StoredUser } from "../types/session";
 import type {
   CreateScenarioDto,
+  ScenarioQueryDto,
   ScenarioCollaborationStateResponseDto,
   UpsertScenarioCollaboratorDto,
 } from "@trpg/shared-types";
@@ -47,6 +53,7 @@ interface ScenarioPageProps {
   error: string | null;
   onOpenCreate: () => void;
   onOpenEdit: (scenarioId: string) => void;
+  onOpenSessionCreate: (scenarioId: string) => void;
 }
 
 // 시나리오 복제 시 기존 ID와 충돌하지 않게 로컬 ID를 만듭니다.
@@ -85,6 +92,7 @@ function formatScenarioUpdatedAt(value: string | null | undefined): string {
 }
 
 function formatPublishStatus(scenario: Scenario): string {
+  if (scenario.sourceType === "SYSTEM") return "기본 제공 공개 시나리오";
   if (scenario.publishStatus === "public") return `공개 revision ${scenario.revisionNumber ?? ""}`.trim();
   if (scenario.publishStatus === "link") return `링크 공개 revision ${scenario.revisionNumber ?? ""}`.trim();
   if (scenario.publishStatus === "private") return `비공개 revision ${scenario.revisionNumber ?? ""}`.trim();
@@ -157,13 +165,21 @@ export function ScenarioPage({
   error,
   onOpenCreate,
   onOpenEdit,
+  onOpenSessionCreate,
 }: ScenarioPageProps) {
   // 목록/선택/검색/로딩 상태입니다.
+  const [activeLibrary, setActiveLibrary] = useState<"my" | "public">("my");
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [publicScenarios, setPublicScenarios] = useState<Scenario[]>([]);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
   const [localBusy, setLocalBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [publicSort, setPublicSort] = useState<NonNullable<ScenarioQueryDto["sort"]>>("recommended");
+  const [publicTag, setPublicTag] = useState("");
+  const [publicMinLevel, setPublicMinLevel] = useState("");
+  const [publicMaxLevel, setPublicMaxLevel] = useState("");
+  const [publicMinRating, setPublicMinRating] = useState("");
   const [collaborationState, setCollaborationState] =
     useState<ScenarioCollaborationStateResponseDto | null>(null);
   const [collaborationBusy, setCollaborationBusy] = useState(false);
@@ -175,6 +191,7 @@ export function ScenarioPage({
   const [reviewComment, setReviewComment] = useState("");
   const [reviewerUserId, setReviewerUserId] = useState("");
   const [moderationFeedback, setModerationFeedback] = useState<string | null>(null);
+  const [publicFeedback, setPublicFeedback] = useState<string | null>(null);
 
   // 검색어가 바뀌면 짧은 debounce 후 내 시나리오 목록을 다시 불러옵니다.
   useEffect(() => {
@@ -187,9 +204,11 @@ export function ScenarioPage({
       .then((next) => {
         if (ignore) return;
         setScenarios(next);
-        setSelectedScenarioId((current) =>
-          next.some((scenario) => scenario.id === current) ? current : next[0]?.id ?? null
-        );
+        if (activeLibrary === "my") {
+          setSelectedScenarioId((current) =>
+            next.some((scenario) => scenario.id === current) ? current : next[0]?.id ?? null
+          );
+        }
       })
       .catch((caught) => {
         if (!ignore) {
@@ -206,12 +225,63 @@ export function ScenarioPage({
       ignore = true;
       window.clearTimeout(timer);
     };
-  }, [accessToken, searchTerm, user]);
+  }, [accessToken, activeLibrary, searchTerm, user]);
+
+  useEffect(() => {
+    let ignore = false;
+    setLocalError(null);
+    setLocalBusy(true);
+
+    const timer = window.setTimeout(() => {
+      const query: ScenarioQueryDto = {
+        search: searchTerm.trim() || undefined,
+        sort: publicSort,
+        tag: publicTag.trim() || undefined,
+        minLevel: publicMinLevel ? Number(publicMinLevel) : undefined,
+        maxLevel: publicMaxLevel ? Number(publicMaxLevel) : undefined,
+        minRating: publicMinRating ? Number(publicMinRating) : undefined,
+        limit: 50,
+      };
+      listScenarios(query)
+        .then((next) => {
+          if (ignore) return;
+          setPublicScenarios(next);
+          if (activeLibrary === "public") {
+            setSelectedScenarioId((current) =>
+              next.some((scenario) => scenario.id === current) ? current : next[0]?.id ?? null,
+            );
+          }
+        })
+        .catch((caught) => {
+          if (!ignore) {
+            setLocalError(caught instanceof Error ? caught.message : "공개 시나리오 목록을 불러오지 못했습니다.");
+          }
+        })
+        .finally(() => {
+          if (!ignore) {
+            setLocalBusy(false);
+          }
+        });
+    }, 250);
+
+    return () => {
+      ignore = true;
+      window.clearTimeout(timer);
+    };
+  }, [activeLibrary, publicMaxLevel, publicMinLevel, publicMinRating, publicSort, publicTag, searchTerm]);
+
+  useEffect(() => {
+    const source = activeLibrary === "public" ? publicScenarios : scenarios;
+    setSelectedScenarioId((current) =>
+      source.some((scenario) => scenario.id === current) ? current : source[0]?.id ?? null,
+    );
+  }, [activeLibrary, publicScenarios, scenarios]);
 
   // 현재 카드 목록에서 선택된 시나리오입니다. 오른쪽 상세 패널에 표시됩니다.
+  const visibleScenarios = activeLibrary === "public" ? publicScenarios : scenarios;
   const selectedScenario = useMemo(
-    () => scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? null,
-    [scenarios, selectedScenarioId],
+    () => visibleScenarios.find((scenario) => scenario.id === selectedScenarioId) ?? null,
+    [selectedScenarioId, visibleScenarios],
   );
   const currentCollaborationRole =
     collaborationState?.collaborators.find((collaborator) => collaborator.userId === user.id)?.role ??
@@ -234,7 +304,7 @@ export function ScenarioPage({
     let ignore = false;
     setCollaborationState(null);
     setCollaborationError(null);
-    if (!selectedScenario || selectedScenario.baseScenarioId) {
+    if (activeLibrary !== "my" || !selectedScenario || selectedScenario.baseScenarioId) {
       return () => {
         ignore = true;
       };
@@ -263,7 +333,7 @@ export function ScenarioPage({
     return () => {
       ignore = true;
     };
-  }, [accessToken, selectedScenario, user]);
+  }, [accessToken, activeLibrary, selectedScenario, user]);
 
   // 선택한 시나리오 삭제 버튼 동작입니다.
   async function handleDeleteSelected() {
@@ -451,7 +521,7 @@ export function ScenarioPage({
   }
 
   async function handleReportSelected() {
-    if (!selectedScenario || !selectedIsRevision) return;
+    if (!selectedScenario || !selectedIsPublicEcosystemScenario) return;
     const reasonInput = window.prompt(
       "신고 사유를 입력하세요: private_data, license, unsafe_content, other",
       "other",
@@ -468,6 +538,11 @@ export function ScenarioPage({
     setModerationFeedback(null);
     try {
       await reportScenario(user, selectedScenario.id, { reason, comment: comment.trim() || null }, accessToken);
+      const nextPublic = await listScenarios({ search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 });
+      setPublicScenarios(nextPublic);
+      if (!nextPublic.some((scenario) => scenario.id === selectedScenario.id)) {
+        setSelectedScenarioId(nextPublic[0]?.id ?? null);
+      }
       setModerationFeedback("신고가 접수되었습니다.");
     } catch (caught) {
       setModerationFeedback(caught instanceof Error ? caught.message : "신고 접수에 실패했습니다.");
@@ -476,8 +551,104 @@ export function ScenarioPage({
     }
   }
 
+  async function handleAppealModerationSelected() {
+    if (!selectedScenario || !selectedIsPublicEcosystemScenario) return;
+    const message = window.prompt("이의 제기 내용을 입력하세요.", "") ?? "";
+    if (!message.trim()) return;
+    setLocalBusy(true);
+    setModerationFeedback(null);
+    try {
+      await appealScenarioModeration(
+        user,
+        selectedScenario.id,
+        { message: message.trim() },
+        accessToken,
+      );
+      setModerationFeedback("moderation 이의 제기가 접수되었습니다.");
+    } catch (caught) {
+      setModerationFeedback(caught instanceof Error ? caught.message : "이의 제기 접수에 실패했습니다.");
+    } finally {
+      setLocalBusy(false);
+    }
+  }
+
+  async function handleForkSelected() {
+    if (!selectedScenario || !selectedIsPublicEcosystemScenario) return;
+    const title = window.prompt("fork draft 제목을 입력하세요.", `${selectedScenario.title} Fork`) ?? "";
+    setLocalBusy(true);
+    setLocalError(null);
+    setPublicFeedback(null);
+    try {
+      const created = await forkScenario(
+        user,
+        selectedScenario.id,
+        { title: title.trim() || null },
+        accessToken,
+      );
+      const nextMine = await listMyScenarios(user, accessToken, "");
+      const nextPublic = await listScenarios({ search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 });
+      setScenarios(nextMine);
+      setPublicScenarios(nextPublic);
+      setActiveLibrary("my");
+      setSearchTerm("");
+      setSelectedScenarioId(nextMine.some((scenario) => scenario.id === created.id) ? created.id : nextMine[0]?.id ?? null);
+      setPublicFeedback("공개 revision을 독립 draft로 fork했습니다.");
+    } catch (caught) {
+      setLocalError(caught instanceof Error ? caught.message : "fork 생성에 실패했습니다.");
+    } finally {
+      setLocalBusy(false);
+    }
+  }
+
+  async function handleRateSelected() {
+    if (!selectedScenario || !selectedIsPublicEcosystemScenario) return;
+    const ratingInput = window.prompt("평점을 입력하세요. 1~5", "5");
+    if (!ratingInput) return;
+    const rating = Number(ratingInput);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      setPublicFeedback("평점은 1~5 사이의 정수여야 합니다.");
+      return;
+    }
+    const review = window.prompt("리뷰를 입력하세요. 비워도 됩니다.", "") ?? "";
+    setLocalBusy(true);
+    setPublicFeedback(null);
+    try {
+      await rateScenario(user, selectedScenario.id, { rating, review: review.trim() || null }, accessToken);
+      const nextPublic = await listScenarios({ search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 });
+      setPublicScenarios(nextPublic);
+      setSelectedScenarioId(selectedScenario.id);
+      setPublicFeedback("평점과 리뷰를 저장했습니다.");
+    } catch (caught) {
+      setPublicFeedback(caught instanceof Error ? caught.message : "평점 저장에 실패했습니다.");
+    } finally {
+      setLocalBusy(false);
+    }
+  }
+
+  async function handleDeleteRatingSelected() {
+    if (!selectedScenario || !selectedIsPublicEcosystemScenario) return;
+    if (!window.confirm("내 평점을 삭제할까요?")) return;
+    setLocalBusy(true);
+    setPublicFeedback(null);
+    try {
+      await deleteScenarioRating(user, selectedScenario.id, accessToken);
+      const nextPublic = await listScenarios({ search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 });
+      setPublicScenarios(nextPublic);
+      setSelectedScenarioId(selectedScenario.id);
+      setPublicFeedback("내 평점을 삭제했습니다.");
+    } catch (caught) {
+      setPublicFeedback(caught instanceof Error ? caught.message : "평점 삭제에 실패했습니다.");
+    } finally {
+      setLocalBusy(false);
+    }
+  }
+
   const disabled = busy || localBusy;
   const selectedIsRevision = Boolean(selectedScenario?.baseScenarioId);
+  const selectedIsPublicEcosystemScenario =
+    selectedScenario?.sourceType === "SYSTEM" ||
+    (selectedIsRevision &&
+      (selectedScenario?.publishStatus === "public" || selectedScenario?.publishStatus === "link"));
   const selectedCanUnpublish =
     selectedIsRevision &&
     selectedScenario?.publishStatus !== "unpublished";
@@ -511,7 +682,31 @@ export function ScenarioPage({
             <button
               type="button"
               className="scenario-rail-action"
-              disabled={!selectedScenario || selectedIsRevision || disabled}
+              disabled={!selectedIsPublicEcosystemScenario || disabled}
+              onClick={() => void handleForkSelected()}
+            >
+              공개 시나리오 fork
+            </button>
+            <button
+              type="button"
+              className="scenario-rail-action"
+              disabled={!selectedIsPublicEcosystemScenario || disabled}
+              onClick={() => void handleRateSelected()}
+            >
+              평점·리뷰 남기기
+            </button>
+            <button
+              type="button"
+              className="scenario-rail-action"
+              disabled={!selectedIsPublicEcosystemScenario || disabled}
+              onClick={() => void handleDeleteRatingSelected()}
+            >
+              내 평점 삭제
+            </button>
+            <button
+              type="button"
+              className="scenario-rail-action"
+              disabled={activeLibrary !== "my" || !selectedScenario || selectedIsRevision || disabled}
               onClick={() => selectedScenario && onOpenEdit(selectedScenario.id)}
             >
               시나리오 수정
@@ -519,7 +714,7 @@ export function ScenarioPage({
             <button
               type="button"
               className="scenario-rail-action"
-              disabled={!selectedCanUnpublish || disabled}
+              disabled={activeLibrary !== "my" || !selectedCanUnpublish || disabled}
               onClick={() => void handleUnpublishSelected()}
             >
               공개 취소
@@ -527,7 +722,7 @@ export function ScenarioPage({
             <button
               type="button"
               className="scenario-rail-action"
-              disabled={!selectedScenario || disabled}
+              disabled={activeLibrary !== "my" || !selectedScenario || disabled}
               onClick={() => void handleDeleteSelected()}
             >
               시나리오 삭제
@@ -535,10 +730,10 @@ export function ScenarioPage({
             <button
               type="button"
               className="scenario-rail-action"
-              disabled={!selectedIsRevision || disabled}
+              disabled={!selectedIsPublicEcosystemScenario || disabled}
               onClick={() => void handleReportSelected()}
             >
-              revision 신고
+              공개 시나리오 신고
             </button>
           </div>
         </aside>
@@ -548,7 +743,24 @@ export function ScenarioPage({
           <div className="scenario-library-board">
             <img className="scenario-library-quill" src={quillImage} alt="" aria-hidden="true" />
             <div className="scenario-library-heading">
-              <h1>내 시나리오</h1>
+              <span className="eyebrow">Scenario library</span>
+              <h1>{activeLibrary === "public" ? "공개 시나리오 탐색" : "내 시나리오"}</h1>
+              <div className="scenario-library-tabs">
+                <button
+                  type="button"
+                  className={activeLibrary === "my" ? "active" : ""}
+                  onClick={() => setActiveLibrary("my")}
+                >
+                  내 시나리오
+                </button>
+                <button
+                  type="button"
+                  className={activeLibrary === "public" ? "active" : ""}
+                  onClick={() => setActiveLibrary("public")}
+                >
+                  공개 탐색
+                </button>
+              </div>
             </div>
 
             <label className="scenario-library-search" htmlFor="scenario-title-search">
@@ -561,9 +773,47 @@ export function ScenarioPage({
                 placeholder="시나리오 제목 검색"
               />
             </label>
+            {activeLibrary === "public" ? (
+              <div className="scenario-public-filters" aria-label="공개 시나리오 필터">
+                <select value={publicSort} onChange={(event) => setPublicSort(event.target.value as typeof publicSort)}>
+                  <option value="recommended">추천순</option>
+                  <option value="rating">평점순</option>
+                  <option value="latest">최신순</option>
+                  <option value="level">레벨순</option>
+                </select>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={publicMinLevel}
+                  onChange={(event) => setPublicMinLevel(event.target.value)}
+                  placeholder="최소 레벨"
+                />
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={publicMaxLevel}
+                  onChange={(event) => setPublicMaxLevel(event.target.value)}
+                  placeholder="최대 레벨"
+                />
+                <input
+                  type="text"
+                  value={publicTag}
+                  onChange={(event) => setPublicTag(event.target.value)}
+                  placeholder="태그"
+                />
+                <select value={publicMinRating} onChange={(event) => setPublicMinRating(event.target.value)}>
+                  <option value="">평점 전체</option>
+                  <option value="3">3점 이상</option>
+                  <option value="4">4점 이상</option>
+                  <option value="5">5점</option>
+                </select>
+              </div>
+            ) : null}
 
             <div className="scenario-library-grid">
-              {scenarios.map((scenario) => (
+              {visibleScenarios.map((scenario) => (
                 <button
                   key={scenario.id}
                   type="button"
@@ -572,20 +822,27 @@ export function ScenarioPage({
                 >
                   <strong>{scenario.title}</strong>
                   <span>{formatPublishStatus(scenario)}</span>
+                  {activeLibrary === "public" ? (
+                    <span className="scenario-library-updated-at">
+                      ★ {scenario.averageRating?.toFixed(1) ?? "-"} · 리뷰 {scenario.reviewCount ?? 0} · fork {scenario.forkCount ?? 0}
+                    </span>
+                  ) : null}
                   <span className="scenario-library-updated-at">
                     마지막 업데이트 날짜 : {formatScenarioUpdatedAt(scenario.updatedAt)}
                   </span>
                 </button>
               ))}
 
-              <button
-                type="button"
-                className="scenario-library-card scenario-library-card-create"
-                onClick={onOpenCreate}
-              >
-                <img src={plusSignImage} alt="" aria-hidden="true" />
-                <strong>+ 새 시나리오 만들기</strong>
-              </button>
+              {activeLibrary === "my" ? (
+                <button
+                  type="button"
+                  className="scenario-library-card scenario-library-card-create"
+                  onClick={onOpenCreate}
+                >
+                  <img src={plusSignImage} alt="" aria-hidden="true" />
+                  <strong>+ 새 시나리오 만들기</strong>
+                </button>
+              ) : null}
             </div>
           </div>
         </section>
@@ -622,6 +879,34 @@ export function ScenarioPage({
                     <div>
                       <dt>발행 상태</dt>
                       <dd>{formatPublishStatus(selectedScenario)}</dd>
+                    </div>
+                    <div>
+                      <dt>평점</dt>
+                      <dd>
+                        {selectedScenario.averageRating
+                          ? `★ ${selectedScenario.averageRating.toFixed(1)} (${selectedScenario.ratingCount ?? 0}명)`
+                          : "-"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>리뷰 / fork</dt>
+                      <dd>{`${selectedScenario.reviewCount ?? 0}개 / ${selectedScenario.forkCount ?? 0}회`}</dd>
+                    </div>
+                    <div>
+                      <dt>예상 시간</dt>
+                      <dd>{selectedScenario.estimatedMinutes ? `${selectedScenario.estimatedMinutes}분` : "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>태그</dt>
+                      <dd>{selectedScenario.tags?.length ? selectedScenario.tags.join(", ") : "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>추천 근거</dt>
+                      <dd>{selectedScenario.recommendationReason ?? "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>moderation</dt>
+                      <dd>{selectedScenario.moderationStatus ?? "-"}</dd>
                     </div>
                     <div>
                       <dt>원본 draft</dt>
@@ -667,7 +952,41 @@ export function ScenarioPage({
                     </section>
                   ) : null}
                   {moderationFeedback ? <p>{moderationFeedback}</p> : null}
-                  {!selectedIsRevision ? (
+                  {publicFeedback ? <p>{publicFeedback}</p> : null}
+                  {selectedIsPublicEcosystemScenario ? (
+                    <section className="scenario-collaboration-panel">
+                      <div className="scenario-collaboration-heading">
+                        <span className="eyebrow">P5 public ecosystem</span>
+                        <h3>공개 revision 액션</h3>
+                      </div>
+                      <p>
+                        플레이 완료 후 평점/리뷰를 남길 수 있고, fork는 원본 attribution과 계보를 보존한 독립 draft를 만듭니다.
+                      </p>
+                      <div className="scenario-public-actions">
+                        <button type="button" className="small" disabled={disabled} onClick={() => void handleRateSelected()}>
+                          평점·리뷰
+                        </button>
+                        <button type="button" className="small" disabled={disabled} onClick={() => void handleDeleteRatingSelected()}>
+                          내 평점 삭제
+                        </button>
+                        <button type="button" className="small" disabled={disabled} onClick={() => void handleForkSelected()}>
+                          fork draft 생성
+                        </button>
+                        <button type="button" className="small" disabled={disabled} onClick={() => onOpenSessionCreate(selectedScenario.id)}>
+                          세션 생성
+                        </button>
+                        <button type="button" className="small" disabled={disabled} onClick={() => void handleReportSelected()}>
+                          신고
+                        </button>
+                        {selectedScenario.moderationStatus && selectedScenario.moderationStatus !== "visible" ? (
+                          <button type="button" className="small" disabled={disabled} onClick={() => void handleAppealModerationSelected()}>
+                            이의 제기
+                          </button>
+                        ) : null}
+                      </div>
+                    </section>
+                  ) : null}
+                  {!selectedIsRevision && activeLibrary === "my" ? (
                     <section className="scenario-collaboration-panel">
                       <div className="scenario-collaboration-heading">
                         <span className="eyebrow">P4 collaboration</span>

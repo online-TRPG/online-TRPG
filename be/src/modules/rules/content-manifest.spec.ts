@@ -5,20 +5,29 @@ import {
   P3_BASELINE_MONSTER_IDS,
   P3_CONTENT_TARGETS,
   P4_CONTENT_TARGETS,
+  P5_CONTENT_TARGETS,
 } from "./content-manifest";
 import { RuleCatalogService } from "./rule-catalog.service";
 import { P3_EXECUTABLE_MONSTER_IDS } from "./p3-monster-definitions";
 import { P4_EXECUTABLE_MONSTER_IDS } from "./p4-monster-definitions";
+import { P5_EXECUTABLE_MONSTER_IDS } from "./p5-monster-definitions";
+import { P5_SPELL_DEFINITIONS } from "./p5-spell-definitions";
 
 describe("executable content manifest", () => {
   const manifest = buildExecutableContentManifest(new RuleCatalogService());
 
-  it("keeps the P2/P3 baseline while enforcing the P4 executable spell target", () => {
-    expect(manifest.spellIds).toHaveLength(P4_CONTENT_TARGETS.executableSpells);
+  it("keeps the P2/P3/P4 baseline while enforcing the P5 executable spell target", () => {
+    expect(manifest.spellIds).toHaveLength(P5_CONTENT_TARGETS.executableSpells);
     expect(P2_EXECUTABLE_SPELL_IDS).toHaveLength(50);
     expect(new Set(P2_EXECUTABLE_SPELL_IDS).size).toBe(P2_EXECUTABLE_SPELL_IDS.length);
+    expect(P5_SPELL_DEFINITIONS).toHaveLength(
+      P5_CONTENT_TARGETS.executableSpells - P4_CONTENT_TARGETS.executableSpells,
+    );
     expect(manifest.spellIds).toEqual(
       expect.arrayContaining([...P2_EXECUTABLE_SPELL_IDS]),
+    );
+    expect(manifest.spellIds).toEqual(
+      expect.arrayContaining(P5_SPELL_DEFINITIONS.map((entry) => entry.id)),
     );
     expect(manifest.spellIds).toEqual(
       expect.arrayContaining([
@@ -32,6 +41,10 @@ describe("executable content manifest", () => {
         "spell.cone_of_cold",
         "spell.disintegrate",
         "spell.heal",
+        "spell.teleport",
+        "spell.antimagic_field",
+        "spell.dominate_monster",
+        "spell.sunburst",
       ]),
     );
     expect(manifest.monsterIds).toEqual(
@@ -40,12 +53,15 @@ describe("executable content manifest", () => {
     expect(manifest.monsterIds.length).toBeGreaterThanOrEqual(
       P2_EXECUTABLE_MONSTER_IDS.length,
     );
-    expect(manifest.monsterIds).toHaveLength(P4_CONTENT_TARGETS.executableMonsters);
+    expect(manifest.monsterIds).toHaveLength(P5_CONTENT_TARGETS.executableMonsters);
     expect(manifest.monsterIds).toEqual(
       expect.arrayContaining([...P3_EXECUTABLE_MONSTER_IDS]),
     );
     expect(manifest.monsterIds).toEqual(
       expect.arrayContaining([...P4_EXECUTABLE_MONSTER_IDS]),
+    );
+    expect(manifest.monsterIds).toEqual(
+      expect.arrayContaining([...P5_EXECUTABLE_MONSTER_IDS]),
     );
   });
 
@@ -88,6 +104,23 @@ describe("executable content manifest", () => {
     );
   });
 
+  it("declares the P5 executable content targets without weakening the P4 baseline", () => {
+    expect(P5_CONTENT_TARGETS).toEqual({
+      executableSpells: 220,
+      executableMonsters: 180,
+      executableItemsMinimum: 50,
+    });
+    expect(P5_CONTENT_TARGETS.executableSpells).toBeGreaterThan(
+      P4_CONTENT_TARGETS.executableSpells,
+    );
+    expect(P5_CONTENT_TARGETS.executableMonsters).toBeGreaterThan(
+      P4_CONTENT_TARGETS.executableMonsters,
+    );
+    expect(P5_CONTENT_TARGETS.executableItemsMinimum).toBeGreaterThanOrEqual(
+      P4_CONTENT_TARGETS.executableItemsMinimum,
+    );
+  });
+
   it("locks exactly 50 additional P4 executable monster ids", () => {
     expect(P4_EXECUTABLE_MONSTER_IDS).toHaveLength(
       P4_CONTENT_TARGETS.executableMonsters - P3_CONTENT_TARGETS.executableMonsters,
@@ -100,6 +133,24 @@ describe("executable content manifest", () => {
         "monster.young_black_dragon",
         "monster.purple_worm",
         "monster.archmage",
+      ]),
+    );
+  });
+
+  it("locks exactly 80 additional P5 executable monster ids", () => {
+    expect(P5_EXECUTABLE_MONSTER_IDS).toHaveLength(
+      P5_CONTENT_TARGETS.executableMonsters - P4_CONTENT_TARGETS.executableMonsters,
+    );
+    expect(new Set(P5_EXECUTABLE_MONSTER_IDS).size).toBe(P5_EXECUTABLE_MONSTER_IDS.length);
+    expect(P5_EXECUTABLE_MONSTER_IDS).toEqual(
+      expect.arrayContaining([
+        "monster.adult_red_dragon",
+        "monster.ancient_red_dragon",
+        "monster.kraken",
+        "monster.pit_fiend",
+        "monster.solar",
+        "monster.beholder",
+        "monster.tarrasque",
       ]),
     );
   });
