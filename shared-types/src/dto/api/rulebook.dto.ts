@@ -71,4 +71,19 @@ export class RuleCatalogReferenceDto {
 
   @ApiProperty()
   executable!: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  label?: string | null;
+
+  @ApiPropertyOptional({ type: [String] })
+  runtimeTags?: string[];
+
+  @ApiPropertyOptional({ nullable: true })
+  spellLevel?: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  targetingType?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  rangeFt?: number | null;
 }

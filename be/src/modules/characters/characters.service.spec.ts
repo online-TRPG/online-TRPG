@@ -324,7 +324,7 @@ describe("CharactersService level up", () => {
     expect(prisma.character.create).not.toHaveBeenCalled();
   });
 
-  it("rejects starting spell selections outside the executable MVP spell pool", async () => {
+  it("rejects starting spell selections outside the executable spell catalog", async () => {
     const { service, prisma, catalogService } = createService();
     catalogService.findClassByKey.mockResolvedValue({
       hitDie: "d6",
@@ -356,7 +356,7 @@ describe("CharactersService level up", () => {
           ],
         },
       }),
-    ).rejects.toThrow("MVP");
+    ).rejects.toThrow("실행 주문 카탈로그");
 
     expect(prisma.character.create).not.toHaveBeenCalled();
   });
@@ -445,7 +445,7 @@ describe("CharactersService level up", () => {
     expect(prisma.character.create).not.toHaveBeenCalled();
   });
 
-  it("accepts executable higher-level MVP spells for higher-level starting casters", async () => {
+  it("accepts executable higher-level catalog spells for higher-level starting casters", async () => {
     const { service, prisma, catalogService } = createService();
     catalogService.findClassByKey.mockResolvedValue({
       hitDie: "d6",
@@ -531,7 +531,101 @@ describe("CharactersService level up", () => {
     expect(result.spells?.preparedSpells).toEqual(["spell.fireball"]);
   });
 
-  it("accepts Cure Wounds as an executable MVP starting prepared spell", async () => {
+  it("accepts P5 level 7 and 8 catalog spells for level 16 starting casters", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d6",
+      koName: "위저드",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 3,
+      startingSpellCount: 3,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+    prisma.character.create.mockResolvedValue({
+      ...baseCharacter,
+      className: "wizard",
+      level: 16,
+      maxHp: 98,
+      proficiencyBonus: 5,
+      spellsJson: JSON.stringify({
+        cantrips: [
+          "spell.fire_bolt",
+          "spell.light",
+          "spell.chill_touch",
+          "spell.ray_of_frost",
+          "spell.acid_splash",
+        ],
+        spells: [
+          "spell.magic_missile",
+          "spell.fireball",
+          "spell.teleport",
+          "spell.sunburst",
+        ],
+        preparedSpells: ["spell.teleport", "spell.sunburst"],
+      }),
+      sessionCharacters: [],
+    });
+
+    const result = await service.createCharacter("user-1", {
+      name: "Astral Seal Wizard",
+      ancestry: "Unknown",
+      className: "wizard",
+      subclassName: "evocation",
+      level: 16,
+      abilities: { str: 8, dex: 14, con: 14, int: 18, wis: 10, cha: 10 },
+      proficientSkills: [],
+      startingEquipmentSelection: [],
+      startingSpells: {
+        cantrips: [
+          "spell.fire_bolt",
+          "spell.light",
+          "spell.chill_touch",
+          "spell.ray_of_frost",
+          "spell.acid_splash",
+        ],
+        spells: [
+          "spell.magic_missile",
+          "spell.fireball",
+          "spell.teleport",
+          "spell.sunburst",
+        ],
+        preparedSpells: ["spell.teleport", "spell.sunburst"],
+      },
+    });
+
+    expect(prisma.character.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          spellsJson: JSON.stringify({
+            cantrips: [
+              "spell.fire_bolt",
+              "spell.light",
+              "spell.chill_touch",
+              "spell.ray_of_frost",
+              "spell.acid_splash",
+            ],
+            spells: [
+              "spell.magic_missile",
+              "spell.fireball",
+              "spell.teleport",
+              "spell.sunburst",
+            ],
+            preparedSpells: ["spell.teleport", "spell.sunburst"],
+          }),
+        }),
+      }),
+    );
+    expect(result.spells?.spells).toEqual([
+      "spell.magic_missile",
+      "spell.fireball",
+      "spell.teleport",
+      "spell.sunburst",
+    ]);
+  });
+
+  it("accepts Cure Wounds as an executable starting prepared spell", async () => {
     const { service, prisma, catalogService } = createService();
     catalogService.findClassByKey.mockResolvedValue({
       hitDie: "d8",
@@ -796,6 +890,33 @@ describe("CharactersService level up", () => {
         code: "LEVEL_UP_ASI_REQUIRED",
         requiredPoints: 2,
         allocatedPoints: 1,
+      }),
+    });
+
+    expect(prisma.character.update).not.toHaveBeenCalled();
+  });
+
+  it("requires four ASI points when P5 level up crosses both level 14 and 16 ASI hooks", async () => {
+    const { service, prisma } = createService();
+    prisma.character.findUnique.mockResolvedValue({
+      ...baseCharacter,
+      level: 12,
+      subclassName: "champion",
+      maxHp: 100,
+      sessionCharacters: [],
+    });
+
+    await expect(
+      service.levelUpCharacter("user-1", "character-1", {
+        targetLevel: 16,
+        abilityScoreIncreases: { str: 2 },
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "LEVEL_UP_ASI_REQUIRED",
+        requiredPoints: 4,
+        allocatedPoints: 2,
+        levels: [14, 16],
       }),
     });
 

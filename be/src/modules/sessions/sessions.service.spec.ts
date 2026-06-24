@@ -1,10 +1,12 @@
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import {
+  ApplyCampaignCalendarActionDto,
   ApplyHumanGmCombatConditionDto,
   HumanGmMessageDto,
   RevealSessionContentDto,
   ScenarioNodeType,
+  SessionStatus,
 } from "@trpg/shared-types";
 import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
 import { SessionsService } from "./sessions.service";
@@ -2963,5 +2965,297 @@ describe("SessionsService P4 economy API", () => {
       expect.objectContaining({ nextVersion: 4 }),
     );
     expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalledWith("session-1", snapshot);
+  });
+});
+
+describe("SessionsService P5 campaign calendar API", () => {
+  function createCampaignCalendarService() {
+    const now = new Date("2026-06-24T00:00:00.000Z");
+    const session = {
+      id: "session-1",
+      publicId: "12345678",
+      status: "PLAYING",
+      hostUserId: "host-user",
+      gmUserId: null,
+      gmMode: "AI",
+    };
+    const prisma = {
+      session: {
+        findFirst: jest.fn().mockResolvedValue(session),
+      },
+      sessionParticipant: {
+        findUnique: jest.fn().mockImplementation(async ({ where }) => ({
+          role:
+            where.sessionId_userId.userId === "host-user"
+              ? "HOST"
+              : "PLAYER",
+          status: "JOINED",
+        })),
+      },
+      sessionScenario: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "session-scenario-1",
+          sessionId: "session-1",
+          status: "ACTIVE",
+          sequence: 1,
+          scenario: {},
+          gameState: {
+            id: "game-state-1",
+            sessionScenarioId: "session-scenario-1",
+            version: 1,
+            flagsJson: "{}",
+          },
+        }),
+      },
+      gameState: {
+        findUnique: jest.fn().mockResolvedValue({
+          flagsJson: "{}",
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      turnLog: {
+        findFirst: jest.fn().mockResolvedValue({ turnNumber: 1 }),
+        create: jest.fn().mockImplementation(async ({ data }) => ({
+          id: "turn-log-calendar-1",
+          turnNumber: data.turnNumber,
+          playerActionId: null,
+          actorUserId: data.actorUserId,
+          sessionCharacterId: data.sessionCharacterId,
+          rawInput: data.rawInput,
+          structuredActionJson: data.structuredActionJson,
+          diceResultJson: null,
+          stateDiffJson: data.stateDiffJson,
+          outcome: data.outcome,
+          narration: data.narration,
+          createdAt: now,
+        })),
+      },
+      stateDiff: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+      $transaction: jest.fn(),
+    };
+    prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => Promise<unknown>) =>
+      callback(prisma),
+    );
+    const realtimeEvents = {
+      emitTurnLogCreated: jest.fn(),
+      emitStateDiffApplied: jest.fn(),
+      emitSessionSnapshot: jest.fn(),
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    jest.spyOn(service, "buildSnapshot").mockResolvedValue({
+      session: { id: "session-1" },
+      sessionScenarios: [],
+      participants: [],
+      sessionCharacters: [],
+      state: {},
+      pendingRestApprovals: [],
+      humanGmAiAssistSuggestions: [],
+    } as never);
+
+    return { service, prisma, realtimeEvents };
+  }
+
+  it("allows a joined player to propose a campaign schedule with audit state", async () => {
+    const { service, prisma, realtimeEvents } = createCampaignCalendarService();
+    const payload: ApplyCampaignCalendarActionDto = {
+      actionType: "propose_schedule",
+      scheduleId: "schedule-1",
+      title: "P5 다음 회차",
+      startsAt: "2026-06-25T12:00:00.000Z",
+      durationMinutes: 180,
+      timeZone: "Asia/Seoul",
+      idempotencyKey: "schedule-propose-1",
+    };
+
+    const snapshot = await service.applyCampaignCalendarAction("player-1", "session-1", payload);
+
+    expect(prisma.gameState.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { sessionScenarioId: "session-scenario-1" },
+        data: expect.objectContaining({
+          flagsJson: expect.stringContaining("campaignCalendar"),
+        }),
+      }),
+    );
+    expect(prisma.turnLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorUserId: "player-1",
+          rawInput: "/campaign propose_schedule",
+        }),
+      }),
+    );
+    expect(realtimeEvents.emitSessionSnapshot).toHaveBeenCalledWith("session-1", snapshot);
+  });
+
+  it("rejects non-GM campaign time advancement from a regular player", async () => {
+    const { service, prisma } = createCampaignCalendarService();
+
+    await expect(
+      service.applyCampaignCalendarAction("player-1", "session-1", {
+        actionType: "advance_game_time",
+        inGameDate: "1492-07-16",
+        elapsedDays: 3,
+      }),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(prisma.gameState.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("SessionsService P5 long campaign list integrity", () => {
+  it("keeps public session discovery bounded without loading long TurnLog or StateDiff history", async () => {
+    const now = new Date("2026-06-24T00:00:00.000Z");
+    const host = {
+      id: "host-user",
+      publicId: "12345678",
+      email: "host@example.com",
+      displayName: "Host",
+      nickname: "Host",
+      bio: null,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const scenario = {
+      id: "scenario_p5_astral_seal_campaign",
+      title: "성좌 봉인의 마지막 원정",
+      description: "P5 validation campaign",
+      createdByUserId: null,
+      sourceType: "SYSTEM",
+      baseScenarioId: null,
+      thumbnailUrl: null,
+      ruleSetId: "dnd5e",
+      difficulty: "legendary",
+      startLevel: 16,
+      recommendedEndLevel: 16,
+      license: "ORIGINAL",
+      attribution: "P5 validation",
+      startNodeId: "node_p5_astral_briefing",
+      npcsJson: "[]",
+      createdAt: now,
+      updatedAt: now,
+    };
+    const prisma = {
+      session: {
+        count: jest.fn().mockResolvedValue(1),
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "session-1",
+            publicId: "87654321",
+            title: "Long P5 Campaign",
+            description: "Long-running campaign with many logs",
+            hostUserId: "host-user",
+            gmUserId: null,
+            inviteCode: "P5LONG",
+            status: "PLAYING",
+            visibility: "PUBLIC",
+            maxParticipants: 4,
+            ruleSetId: "dnd5e",
+            gmMode: "AI",
+            captainUserId: null,
+            nextSessionAt: now,
+            createdAt: now,
+            updatedAt: now,
+            host,
+            participants: [
+              {
+                id: "participant-1",
+                sessionId: "session-1",
+                userId: "host-user",
+                role: "HOST",
+                status: "JOINED",
+                connectionStatus: "ONLINE",
+                isReady: true,
+                readyAt: now,
+                joinedAt: now,
+                leftAt: null,
+              },
+            ],
+            sessionScenarios: [
+              {
+                id: "session-scenario-1",
+                sessionId: "session-1",
+                scenarioId: "scenario_p5_astral_seal_campaign",
+                sequence: 1,
+                status: "ACTIVE",
+                startedAt: now,
+                endedAt: null,
+                createdAt: now,
+                scenario,
+                gameState: {
+                  id: "game-state-1",
+                  sessionScenarioId: "session-scenario-1",
+                  currentNodeId: "node_p5_astral_briefing",
+                  phase: "EXPLORATION",
+                  version: 300,
+                  flagsJson: JSON.stringify({
+                    campaignCalendar: {
+                      schedules: [],
+                      timeline: [],
+                      downtimeTasks: [],
+                    },
+                  }),
+                  createdAt: now,
+                  updatedAt: now,
+                },
+              },
+            ],
+          },
+        ]),
+      },
+      $transaction: jest.fn(),
+    };
+    prisma.$transaction.mockImplementation(async (operations: Array<Promise<unknown>>) =>
+      Promise.all(operations),
+    );
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(
+      service.listAvailableSessions({
+        status: SessionStatus.PLAYING,
+        scenarioId: "scenario_p5_astral_seal_campaign",
+        size: 20,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        totalElements: 1,
+        items: [
+          expect.objectContaining({
+            session: expect.objectContaining({
+              id: "session-1",
+              scenarioId: "scenario_p5_astral_seal_campaign",
+            }),
+            scenario: expect.objectContaining({
+              id: "scenario_p5_astral_seal_campaign",
+              startLevel: 16,
+            }),
+            participantCount: 1,
+          }),
+        ],
+      }),
+    );
+
+    expect(prisma.session.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.not.objectContaining({
+          turnLogs: expect.anything(),
+          stateDiffs: expect.anything(),
+        }),
+        take: 20,
+      }),
+    );
   });
 });

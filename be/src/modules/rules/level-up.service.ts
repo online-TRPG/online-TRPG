@@ -63,7 +63,7 @@ const HIT_DIE_STATS: Record<HitDie, { max: number; average: number }> = {
   d12: { max: 12, average: 7 },
 };
 
-const ASI_OR_FEAT_LEVELS = new Set([4, 8, 12, 16, 19]);
+const ASI_OR_FEAT_LEVELS = new Set([4, 8, 12, 14, 16, 19]);
 
 @Injectable()
 export class LevelUpService {

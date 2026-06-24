@@ -24,6 +24,7 @@ import {
   ApplyHumanGmCombatConditionDto,
   AdjustHumanGmCombatHpDto,
   AcceptHumanGmAiAssistSuggestionDto,
+  ApplyCampaignCalendarActionDto,
   ApplySessionEconomyActionDto,
   CreateSessionDto,
   CreateHumanGmAiAssistSuggestionDto,
@@ -548,6 +549,38 @@ export class SessionsController {
       "SESSION_200",
       "GM economy action applied.",
       await this.sessionsService.applyHumanGmEconomyAction(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/gm/campaign-calendar")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async applyGmCampaignCalendarAction(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: ApplyCampaignCalendarActionDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_201",
+      "Campaign calendar action applied.",
+      await this.sessionsService.applyCampaignCalendarAction(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/campaign-calendar")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: SessionSnapshotDto })
+  async applyCampaignCalendarAction(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: ApplyCampaignCalendarActionDto,
+  ): Promise<ApiResponse<SessionSnapshotDto>> {
+    return apiResponse(
+      "SESSION_201",
+      "Campaign calendar action applied.",
+      await this.sessionsService.applyCampaignCalendarAction(userId, sessionId, dto),
     );
   }
 

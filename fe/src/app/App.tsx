@@ -177,6 +177,7 @@ export function App() {
   const previousPathnameRef = useRef<string | null>(null);
   const publicProfileState = location.state as { profilePreview?: User | null } | null;
   const sessionDiscoverState = location.state as { initialSection?: 'public' | 'my' } | null;
+  const sessionCreateState = location.state as { initialScenarioId?: string | null } | null;
   const characterPageState = location.state as CharacterPageState | null;
   const scenarioEditMatch = /^\/scenarios\/([^/]+)\/edit$/.exec(location.pathname);
   const scenarioEditId = scenarioEditMatch?.[1] ?? null;
@@ -632,6 +633,11 @@ export function App() {
             error={error}
             onOpenCreate={() => guardedNavigate('/scenarios/new')}
             onOpenEdit={(scenarioId) => guardedNavigate(`/scenarios/${scenarioId}/edit`)}
+            onOpenSessionCreate={(scenarioId) =>
+              guardedNavigate('/sessions/new', {
+                state: { initialScenarioId: scenarioId },
+              })
+            }
           />
         ) : null}
 
@@ -723,6 +729,7 @@ export function App() {
               accessToken={auth.accessToken}
               scenarios={scenarios}
               mySessionList={session.mySessionList}
+              initialScenarioId={sessionCreateState?.initialScenarioId ?? null}
             busy={busy}
             error={error}
             onCreateSession={handleCreateSession}

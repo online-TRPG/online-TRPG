@@ -167,6 +167,33 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
   return JSON.parse(value) as T;
 }
 
+function parseConditionSummary(value: string | null | undefined): string[] {
+  const parsed = parseJson<unknown[]>(value, []);
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      parsed
+        .flatMap((condition) => {
+          if (typeof condition === "string") {
+            return [condition];
+          }
+          if (!condition || typeof condition !== "object") {
+            return [];
+          }
+          const record = condition as Record<string, unknown>;
+          const conditionId = typeof record.conditionId === "string" ? record.conditionId : null;
+          const tags = Array.isArray(record.tags)
+            ? record.tags.filter((tag): tag is string => typeof tag === "string")
+            : [];
+          return conditionId ? [conditionId, ...tags] : tags;
+        })
+        .filter(Boolean),
+    ),
+  );
+}
+
 function parseScenarioNodeConfig(value: string): {
   checks: Record<string, unknown>[];
   vttMap: Record<string, unknown> | null;
@@ -345,6 +372,7 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
     avatarUrl: character.avatarUrl ?? null,
     avatarUpdatedAt: character.avatarUpdatedAt ? toIsoString(character.avatarUpdatedAt) : null,
     activeSessionId: activeAssignment?.sessionId ?? null,
+    activeSessionConditions: parseConditionSummary(activeAssignment?.conditionsJson),
     isSelectable: !activeAssignment,
     createdAt: toIsoString(character.createdAt),
     updatedAt: toIsoString(character.updatedAt),
@@ -398,7 +426,7 @@ export function mapSessionCharacter(
     avatarType: characterAvatarTypeMap[sessionCharacter.character.avatarType],
     avatarPresetId: sessionCharacter.character.avatarPresetId ?? null,
     avatarUrl: sessionCharacter.character.avatarUrl ?? null,
-    conditions: parseJson<string[]>(sessionCharacter.conditionsJson, []),
+    conditions: parseConditionSummary(sessionCharacter.conditionsJson),
     initiative: null,
     createdAt: toIsoString(sessionCharacter.createdAt),
     updatedAt: toIsoString(sessionCharacter.updatedAt),

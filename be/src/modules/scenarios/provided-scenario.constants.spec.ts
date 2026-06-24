@@ -17,11 +17,13 @@ describe("provided scenario constants", () => {
       "scenario_p2_storm_vault",
       "scenario_p3_skybreaker_archive",
       "scenario_p4_storm_crown_campaign",
+      "scenario_p5_astral_seal_campaign",
     ]);
     expect(isProvidedScenarioId("scenario_p1_ember_ruins")).toBe(true);
     expect(isProvidedScenarioId("scenario_p2_storm_vault")).toBe(true);
     expect(isProvidedScenarioId("scenario_p3_skybreaker_archive")).toBe(true);
     expect(isProvidedScenarioId("scenario_p4_storm_crown_campaign")).toBe(true);
+    expect(isProvidedScenarioId("scenario_p5_astral_seal_campaign")).toBe(true);
     expect(isProvidedScenarioId("scenario_rule_runtime_smoke")).toBe(true);
     expect(isProvidedScenarioId("scenario_user_private")).toBe(false);
   });
