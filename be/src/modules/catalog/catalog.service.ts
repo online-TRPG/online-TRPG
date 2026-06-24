@@ -23,7 +23,34 @@ export class CatalogService {
       executable:
         entry.runtimeEffect.type !== "resolver_pending" &&
         (entry.kind !== "monster_abilities" || entry.cost.type !== "none"),
+      label: this.formatRuleCatalogLabel(entry.id),
+      runtimeTags: [...entry.runtimeEffect.tags],
+      spellLevel:
+        entry.kind === "spell_definitions"
+          ? this.parseSpellLevel(entry.runtimeEffect.tags)
+          : null,
+      targetingType: "type" in entry.targeting ? entry.targeting.type : null,
+      rangeFt:
+        "rangeFt" in entry.targeting && typeof entry.targeting.rangeFt === "number"
+          ? entry.targeting.rangeFt
+          : null,
     }));
+  }
+
+  private parseSpellLevel(tags: string[]): number | null {
+    const levelTag = tags.find((tag) => tag.startsWith("spell_level:"));
+    if (!levelTag) return null;
+    const level = Number(levelTag.slice("spell_level:".length));
+    return Number.isInteger(level) ? level : null;
+  }
+
+  private formatRuleCatalogLabel(id: string): string {
+    const raw = id.includes(".") ? id.slice(id.lastIndexOf(".") + 1) : id;
+    return raw
+      .split("_")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
   }
 
   async listItems(): Promise<ItemResponseDto[]> {

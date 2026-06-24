@@ -14,6 +14,8 @@ export const P3_VALIDATION_SCENARIO_ID = "scenario_p3_skybreaker_archive";
 export const P3_VALIDATION_START_NODE_ID = "node_p3_archive_hook";
 export const P4_VALIDATION_SCENARIO_ID = "scenario_p4_storm_crown_campaign";
 export const P4_VALIDATION_START_NODE_ID = "node_p4_crown_hook";
+export const P5_VALIDATION_SCENARIO_ID = "scenario_p5_astral_seal_campaign";
+export const P5_VALIDATION_START_NODE_ID = "node_p5_astral_briefing";
 
 const TEAM_SCENARIO_TITLE = "ㅁㄴㅇㅇㄹ";
 const NODE_SCREEN_TEST_STORY_NODE_ID = "node_screen_test_story";
@@ -43,6 +45,17 @@ const P4_COMBAT_NODE_ID = "node_p4_crown_siege";
 const P4_DOWNTIME_NODE_ID = "node_p4_crown_downtime";
 const P4_BOSS_NODE_ID = "node_p4_crown_lich_gate";
 const P4_END_NODE_ID = "node_p4_crown_end";
+const P5_SCHEDULE_NODE_ID = "node_p5_astral_schedule";
+const P5_TRAVEL_NODE_ID = "node_p5_astral_travel";
+const P5_SECOND_TRAVEL_NODE_ID = "node_p5_astral_dimensional_crossing";
+const P5_RESEARCH_NODE_ID = "node_p5_astral_research";
+const P5_DOWNTIME_NODE_ID = "node_p5_astral_downtime";
+const P5_RIFT_NODE_ID = "node_p5_astral_rift";
+const P5_COMBAT_NODE_ID = "node_p5_astral_battlefield";
+const P5_BOSS_ONE_NODE_ID = "node_p5_astral_dragon_phase";
+const P5_BOSS_TWO_NODE_ID = "node_p5_astral_tarrasque_phase";
+const P5_PUBLIC_NODE_ID = "node_p5_astral_public_ecosystem";
+const P5_END_NODE_ID = "node_p5_astral_end";
 
 // 서버를 처음 실행했을 때 바로 세션을 만들고 흐름을 검증할 수 있도록
 // 가장 작은 형태의 기본 시나리오를 코드로 함께 넣어둔다.
@@ -148,6 +161,22 @@ const p4ValidationScenario = {
   startNodeId: P4_VALIDATION_START_NODE_ID,
   startLevel: 12,
   recommendedEndLevel: 12,
+};
+
+const p5ValidationScenario = {
+  id: P5_VALIDATION_SCENARIO_ID,
+  title: "성좌 봉인의 마지막 원정",
+  description:
+    "16레벨 캐릭터로 240~360분 동안 P5 13~16레벨 성장, 7~8레벨 주문, 고레벨 몬스터 180종 확장, 캠페인 일정·장기 downtime, 공개 시나리오 탐색·평점·리뷰·fork·신고 흐름을 함께 검증하는 오리지널 캠페인 챕터입니다.",
+  thumbnailUrl: null,
+  ruleSetId: "dnd5e",
+  difficulty: "legendary",
+  license: ScenarioLicense.ORIGINAL,
+  attribution:
+    '모두의 TRPG P5 검증 캠페인.\nP5_PUBLIC_META:{"tags":["p5","level-16","campaign","downtime","public-ecosystem"],"estimatedMinutes":300,"gmMode":"BOTH","contentWarnings":["high-level combat","cosmic horror"],"ratings":[],"forkCount":0,"moderationStatus":"visible","reports":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+  startNodeId: P5_VALIDATION_START_NODE_ID,
+  startLevel: 16,
+  recommendedEndLevel: 16,
 };
 
 // 화면 레이아웃 확인이 목적이라 DB 마이그레이션 없이 시드만으로 기본 맵을 주입한다.
@@ -1150,6 +1179,98 @@ function createP4ValidationMap(
         hiddenItemIds: ["magic_item.wand_of_fireballs", "magic_item.ring_of_protection"],
       },
     ],
+  };
+}
+
+function createP5ValidationMap(
+  nodeId: string,
+  phase: "travel" | "dimensional_crossing" | "research" | "downtime" | "rift" | "battlefield" | "dragon" | "tarrasque",
+) {
+  const monsterByPhase: Record<typeof phase, Array<{ id: string; nameEn: string; nameKo: string; x: number; y: number; size: number }>> = {
+    travel: [
+      { id: "monster.roc", nameEn: "Roc", nameKo: "로크", x: 768, y: 192, size: 192 },
+      { id: "monster.storm_giant", nameEn: "Storm Giant", nameKo: "스톰 자이언트", x: 960, y: 384, size: 128 },
+    ],
+    dimensional_crossing: [
+      { id: "monster.air_elemental", nameEn: "Air Elemental", nameKo: "공기 정령", x: 704, y: 192, size: 128 },
+      { id: "monster.invisible_stalker", nameEn: "Invisible Stalker", nameKo: "인비저블 스토커", x: 960, y: 384, size: 64 },
+    ],
+    research: [
+      { id: "monster.gynosphinx", nameEn: "Gynosphinx", nameKo: "진스핑크스", x: 768, y: 256, size: 128 },
+      { id: "monster.couatl", nameEn: "Couatl", nameKo: "코아틀", x: 960, y: 384, size: 64 },
+    ],
+    downtime: [
+      { id: "monster.deva", nameEn: "Deva", nameKo: "데바", x: 832, y: 320, size: 64 },
+      { id: "monster.shield_guardian", nameEn: "Shield Guardian", nameKo: "실드 가디언", x: 960, y: 448, size: 128 },
+    ],
+    rift: [
+      { id: "monster.aboleth", nameEn: "Aboleth", nameKo: "아볼레스", x: 704, y: 256, size: 192 },
+      { id: "monster.mind_flayer", nameEn: "Mind Flayer", nameKo: "마인드 플레이어", x: 960, y: 320, size: 64 },
+    ],
+    battlefield: [
+      { id: "monster.balor", nameEn: "Balor", nameKo: "발러", x: 768, y: 192, size: 128 },
+      { id: "monster.pit_fiend", nameEn: "Pit Fiend", nameKo: "핏 핀드", x: 960, y: 320, size: 128 },
+      { id: "monster.solar", nameEn: "Solar", nameKo: "솔라", x: 640, y: 448, size: 64 },
+    ],
+    dragon: [
+      { id: "monster.ancient_red_dragon", nameEn: "Ancient Red Dragon", nameKo: "고대 레드 드래곤", x: 768, y: 192, size: 192 },
+      { id: "monster.kraken", nameEn: "Kraken", nameKo: "크라켄", x: 512, y: 384, size: 192 },
+      { id: "monster.beholder", nameEn: "Beholder", nameKo: "비홀더", x: 960, y: 448, size: 128 },
+    ],
+    tarrasque: [
+      { id: "monster.tarrasque", nameEn: "Tarrasque", nameKo: "타라스크", x: 768, y: 256, size: 256 },
+      { id: "monster.demilich", nameEn: "Demilich", nameKo: "데미리치", x: 512, y: 192, size: 64 },
+      { id: "monster.night_hag", nameEn: "Night Hag", nameKo: "나이트 해그", x: 1024, y: 448, size: 64 },
+    ],
+  };
+
+  return {
+    id: `map_${nodeId}`,
+    scenarioNodeId: nodeId,
+    imageUrl: null,
+    gridType: "square",
+    gridSize: 64,
+    width: 1280,
+    height: 832,
+    fogRects: [],
+    startingPositions: [
+      { id: `start_${nodeId}_1`, label: "1", x: 128, y: 640 },
+      { id: `start_${nodeId}_2`, label: "2", x: 192, y: 640 },
+      { id: `start_${nodeId}_3`, label: "3", x: 256, y: 640 },
+      { id: `start_${nodeId}_4`, label: "4", x: 320, y: 640 },
+    ],
+    tokens: monsterByPhase[phase].map((monster) => ({
+      id: `token_${nodeId}_${monster.id.replace(/\./g, "_")}`,
+      name: monster.nameEn,
+      x: monster.x,
+      y: monster.y,
+      size: monster.size,
+      hidden: false,
+      isHostile: phase === "research" || phase === "downtime" ? false : true,
+      monster: { id: monster.id, nameEn: monster.nameEn, nameKo: monster.nameKo },
+    })),
+    terrainCells: [
+      { id: `terrain_${nodeId}_gravity`, x: 512, y: 256, width: 256, height: 192, terrainEffectId: "terrain.elevation" },
+      { id: `terrain_${nodeId}_cloud`, x: 768, y: 384, width: 256, height: 192, terrainEffectId: "terrain.obscurement" },
+      { id: `terrain_${nodeId}_fire`, x: 384, y: 384, width: 192, height: 128, terrainEffectId: "terrain.wall_of_fire" },
+    ],
+    objectCells: [
+      {
+        id: `object_${nodeId}_astral_anchor`,
+        name: "성좌 봉인 앵커",
+        description: "P5 주문, 장기 downtime, 공개 revision/fork snapshot 격리를 검증하는 핵심 오브젝트입니다.",
+        x: 384,
+        y: 256,
+        width: 128,
+        height: 128,
+        visibleToPlayers: true,
+        canBreak: phase === "dragon" || phase === "tarrasque",
+        broken: false,
+        breakCheckDc: 22,
+        hiddenClueIds: [`clue_${nodeId}_p5_validation`],
+      },
+    ],
+    updatedAt: "2026-06-24T00:00:00.000Z",
   };
 }
 
@@ -2536,6 +2657,238 @@ const scenarioNodes = [
       },
     }),
   },
+  {
+    id: P5_VALIDATION_START_NODE_ID,
+    scenarioId: P5_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "성좌 봉인 작전 회의",
+    sceneText:
+      "성좌 봉인의 균열이 세 차원에 동시에 열립니다. 파티는 12레벨 캐릭터를 16레벨까지 성장시키고, 7~8레벨 주문 슬롯과 대표 서브클래스 기능을 확인한 뒤 원정 일정을 확정해야 합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_SCHEDULE_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p5_level_16_checklist",
+        title: "P5 16레벨 검증 목록",
+        handoutText: "14/16레벨 ASI, 7~8레벨 슬롯, class resource, P5 주문 15개 이상, P5 몬스터 16종 이상을 확인합니다.",
+      },
+    ]),
+    fallbackNodeId: P5_SCHEDULE_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p5Scenario: {
+        gmModes: ["AI", "HUMAN"],
+        startLevel: 16,
+        expectedDurationMinutes: [240, 360],
+        validatesLevelUp: true,
+        spellIds: [
+          "spell.teleport",
+          "spell.plane_shift",
+          "spell.resurrection",
+          "spell.regenerate",
+          "spell.forcecage",
+          "spell.reverse_gravity",
+          "spell.fire_storm",
+          "spell.divine_word",
+          "spell.etherealness",
+          "spell.prismatic_spray",
+          "spell.antimagic_field",
+          "spell.dominate_monster",
+          "spell.earthquake",
+          "spell.holy_aura",
+          "spell.sunburst",
+        ],
+      },
+    }),
+  },
+  {
+    id: P5_SCHEDULE_NODE_ID,
+    scenarioId: P5_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "세션 일정과 성좌력 분리",
+    sceneText:
+      "원정대는 현실 세션 후보 시간을 제안하고 참석 여부를 표시합니다. GM은 현실 일정 확정과 게임 내 성좌력 3일 경과를 분리해 기록합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_TRAVEL_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p5_schedule_flow",
+        title: "캘린더 검증",
+        handoutText: "propose_schedule → respond_schedule → confirm_schedule → advance_game_time 순서로 서버 권위 로그를 확인합니다.",
+      },
+    ]),
+    fallbackNodeId: P5_TRAVEL_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p5Calendar: {
+        scheduleCandidateCount: 2,
+        timeZone: "Asia/Seoul",
+        inGameDate: "1492-07-16",
+        elapsedDays: 3,
+      },
+    }),
+  },
+  {
+    id: P5_TRAVEL_NODE_ID,
+    scenarioId: P5_VALIDATION_SCENARIO_ID,
+    nodeType: "travel",
+    title: "별바람 항로",
+    sceneText:
+      "로크와 스톰 자이언트가 별바람 항로를 가로막습니다. Teleport, Plane Shift, Etherealness, Control Weather류 이동·환경 주문과 비행 전투를 검증합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP5ValidationMap(P5_TRAVEL_NODE_ID, "travel") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_SECOND_TRAVEL_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p5_astral_route", title: "성좌 항로", text: "첫 번째 봉인은 북동쪽 유성문 뒤에 있습니다." }]),
+    fallbackNodeId: P5_SECOND_TRAVEL_NODE_ID,
+    nodeMetaJson: JSON.stringify({ p5Scenario: { nodeCategory: "travel", monsterIds: ["monster.roc", "monster.storm_giant"] } }),
+  },
+  {
+    id: P5_SECOND_TRAVEL_NODE_ID,
+    scenarioId: P5_VALIDATION_SCENARIO_ID,
+    nodeType: "travel",
+    title: "차원 교차로의 편차",
+    sceneText:
+      "원정대는 Plane Shift와 Teleport의 도착 편차를 비교하며 성좌 교차로를 통과합니다. 실패·편차·재시도 결과가 캠페인 위치와 timeline event에 남는지 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [{ id: "p5_travel_survival", type: "skill_check", skill: "survival", dc: 18 }], vttMap: createP5ValidationMap(P5_SECOND_TRAVEL_NODE_ID, "dimensional_crossing") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_RESEARCH_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p5_dimensional_crossing", title: "차원 교차 좌표", text: "Teleport 편차가 생기면 성좌력 하루가 추가로 경과합니다." }]),
+    fallbackNodeId: P5_RESEARCH_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p5Scenario: {
+        nodeCategory: "travel",
+        validatesCampaignLocation: true,
+        spellIds: ["spell.teleport", "spell.plane_shift", "spell.etherealness", "spell.control_weather"],
+        monsterIds: ["monster.air_elemental", "monster.invisible_stalker"],
+      },
+    }),
+  },
+  {
+    id: P5_RESEARCH_NODE_ID,
+    scenarioId: P5_VALIDATION_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "스핑크스의 별문서고",
+    sceneText:
+      "진스핑크스와 코아틀은 전투보다 연구와 예지를 요구합니다. Project Image, Telepathy, Mind Blank, Glibness로 정보·사회·예지 주문 흐름을 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [{ id: "p5_research_arcana", type: "skill_check", skill: "arcana", dc: 19 }], vttMap: createP5ValidationMap(P5_RESEARCH_NODE_ID, "research") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_DOWNTIME_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p5_fork_lineage", title: "Fork 계보 지시", text: "이 문서를 revision 1에 보존한 뒤 fork draft에서만 문구를 바꿉니다." }]),
+    fallbackNodeId: P5_DOWNTIME_NODE_ID,
+    nodeMetaJson: JSON.stringify({ p5Scenario: { nodeCategory: "exploration", validatesPublicForkLineage: true, monsterIds: ["monster.gynosphinx", "monster.couatl"] } }),
+  },
+  {
+    id: P5_DOWNTIME_NODE_ID,
+    scenarioId: P5_VALIDATION_SCENARIO_ID,
+    nodeType: "downtime",
+    title: "성좌 봉인 공방",
+    sceneText:
+      "세션 사이에 제작, 훈련, 연구, 회복, 감정, 수리, 상점 재입고 downtime을 시작·중단·재개·완료합니다. 비용과 도구 조건, 인벤토리와 경제 상태가 감사 로그에 남아야 합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP5ValidationMap(P5_DOWNTIME_NODE_ID, "downtime") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_RIFT_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p5_downtime_tasks", title: "Downtime 5종", text: "crafting/training/research/recovery/repair 이상을 완료합니다." }]),
+    fallbackNodeId: P5_RIFT_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p5Downtime: {
+        taskTypes: ["crafting", "training", "research", "recovery", "identify", "repair", "shop_restock"],
+        requiredTools: ["smith_tools", "arcana_lab"],
+        validatesPauseResume: true,
+      },
+    }),
+  },
+  {
+    id: P5_RIFT_NODE_ID,
+    scenarioId: P5_VALIDATION_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "심연 균열 조사",
+    sceneText:
+      "아볼레스와 마인드 플레이어의 정신 지배 흔적을 조사합니다. Dominate Monster, Feeblemind, Antimagic Field, Maze 같은 고레벨 상태와 차단 흐름을 검증합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [{ id: "p5_rift_insight", type: "skill_check", skill: "insight", dc: 20 }], vttMap: createP5ValidationMap(P5_RIFT_NODE_ID, "rift") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_COMBAT_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p5_mind_gate", title: "정신 관문", text: "두 번째 봉인은 antimagic 영역 안에서만 안정화됩니다." }]),
+    fallbackNodeId: P5_COMBAT_NODE_ID,
+    nodeMetaJson: JSON.stringify({ p5Scenario: { nodeCategory: "exploration", monsterIds: ["monster.aboleth", "monster.mind_flayer"] } }),
+  },
+  {
+    id: P5_COMBAT_NODE_ID,
+    scenarioId: P5_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "천상과 심연의 전장",
+    sceneText:
+      "발러, 핏 핀드, 솔라가 동시에 충돌합니다. Fire Storm, Divine Word, Holy Aura, Sunburst, Incendiary Cloud, Tsunami 같은 광역·보호 주문을 TurnLog/StateDiff로 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP5ValidationMap(P5_COMBAT_NODE_ID, "battlefield") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_BOSS_ONE_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P5_BOSS_ONE_NODE_ID,
+    nodeMetaJson: JSON.stringify({ p5Scenario: { nodeCategory: "combat", monsterIds: ["monster.balor", "monster.pit_fiend", "monster.solar"] } }),
+  },
+  {
+    id: P5_BOSS_ONE_NODE_ID,
+    scenarioId: P5_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "1단계 보스: 고대 용과 크라켄의 성좌",
+    sceneText:
+      "고대 레드 드래곤, 크라켄, 비홀더가 첫 번째 보스 페이즈를 구성합니다. Legendary-like 자원, recharge, lair terrain, Forcecage와 Reverse Gravity를 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP5ValidationMap(P5_BOSS_ONE_NODE_ID, "dragon") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_BOSS_TWO_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P5_BOSS_TWO_NODE_ID,
+    nodeMetaJson: JSON.stringify({ p5Scenario: { nodeCategory: "combat", bossPhase: 1, monsterIds: ["monster.ancient_red_dragon", "monster.kraken", "monster.beholder"] } }),
+  },
+  {
+    id: P5_BOSS_TWO_NODE_ID,
+    scenarioId: P5_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "2단계 보스: 타라스크 봉인",
+    sceneText:
+      "타라스크, 데미리치, 나이트 해그가 마지막 봉인을 찢습니다. 다단계 보스 전환, 부활·재생·석화·공포·추방 상태 lifecycle과 기존 세션 snapshot 보존을 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP5ValidationMap(P5_BOSS_TWO_NODE_ID, "tarrasque") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_PUBLIC_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P5_PUBLIC_NODE_ID,
+    nodeMetaJson: JSON.stringify({ p5Scenario: { nodeCategory: "combat", bossPhase: 2, monsterIds: ["monster.tarrasque", "monster.demilich", "monster.night_hag"] } }),
+  },
+  {
+    id: P5_PUBLIC_NODE_ID,
+    scenarioId: P5_VALIDATION_SCENARIO_ID,
+    nodeType: "downtime",
+    title: "공개 revision 생태계 검증",
+    sceneText:
+      "캠페인을 공개 revision으로 발행하고 레벨·태그·평점·최신순 검색을 확인합니다. 완료한 사용자만 평점/리뷰를 남기고, fork draft를 만든 뒤 신고 누적으로 검색 제외되는지 검증합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_END_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p5_public_flow", title: "공개 흐름", text: "publish → discovery → rate/review → fork → report → hidden 순서로 확인합니다." }]),
+    fallbackNodeId: P5_END_NODE_ID,
+    nodeMetaJson: JSON.stringify({ p5PublicEcosystem: { validatesSearch: true, validatesRating: true, validatesFork: true, validatesModeration: true } }),
+  },
+  {
+    id: P5_END_NODE_ID,
+    scenarioId: P5_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "성좌 봉인의 후일담",
+    sceneText:
+      "성좌 봉인이 안정됩니다. AI GM과 HUMAN GM으로 주요 경로를 각각 완주하고, 일정·downtime·경제·inventory·revision 1/2·fork draft snapshot이 서로 격리되었는지 최종 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: null,
+    nodeMetaJson: JSON.stringify({
+      isEndingNode: true,
+      endBehavior: "SESSION_COMPLETE",
+      p5Scenario: {
+        validatesAiGm: true,
+        validatesHumanGm: true,
+        validatesSnapshotIsolation: true,
+      },
+    }),
+  },
 ];
 
 const scenarios = [
@@ -2546,6 +2899,7 @@ const scenarios = [
   p2ValidationScenario,
   p3ValidationScenario,
   p4ValidationScenario,
+  p5ValidationScenario,
 ];
 
 type SourceScenarioNode = {

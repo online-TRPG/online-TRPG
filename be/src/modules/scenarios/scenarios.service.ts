@@ -29,7 +29,12 @@ import {
   ScenarioNodeImageUploadResponseDto,
   ScenarioSummaryResponseDto,
   PublishScenarioDto,
+  ForkScenarioDto,
+  AppealScenarioModerationDto,
+  RateScenarioDto,
   ReportScenarioDto,
+  ScenarioModerationAppealResponseDto,
+  ScenarioRatingResponseDto,
   ScenarioModerationReportResponseDto,
   CreateScenarioReviewDto,
   ScenarioCollaborationStateResponseDto,
@@ -56,11 +61,54 @@ import {
   ScenarioPublishVisibility,
 } from './scenario-collaboration-policy.service';
 
+type ScenarioPublicRatingRecord = {
+  userId: string;
+  rating: number;
+  review: string | null;
+  updatedAt: string;
+};
+
+type ScenarioPublicModerationReportRecord = {
+  reportId: string;
+  reportedByUserId: string;
+  reason: "private_data" | "license" | "unsafe_content" | "other";
+  comment: string | null;
+  createdAt: string;
+};
+
+type ScenarioPublicModerationAppealRecord = {
+  appealId: string;
+  appealedByUserId: string;
+  message: string;
+  createdAt: string;
+  status: "submitted";
+};
+
+type ScenarioPublicEcosystemMetadata = {
+  tags: string[];
+  estimatedMinutes: number | null;
+  gmMode: "AI" | "HUMAN" | "BOTH" | null;
+  contentWarnings: string[];
+  ratings: ScenarioPublicRatingRecord[];
+  forkCount: number;
+  moderationStatus: "visible" | "reported" | "hidden";
+  reports: ScenarioPublicModerationReportRecord[];
+  appeals: ScenarioPublicModerationAppealRecord[];
+  lineage: {
+    sourceScenarioId: string | null;
+    sourceRevisionId: string | null;
+    forkedFromScenarioId: string | null;
+    forkedAt: string | null;
+    forkedByUserId: string | null;
+  };
+};
+
 @Injectable()
 export class ScenariosService {
   private static readonly REVISION_METADATA_MARKER = "P3_REVISION_META:";
   private static readonly COLLABORATION_METADATA_MARKER = "P4_COLLAB_META:";
   private static readonly MODERATION_REPORT_MARKER = "P4_MODERATION_REPORT:";
+  private static readonly PUBLIC_ECOSYSTEM_METADATA_MARKER = "P5_PUBLIC_META:";
 
   constructor(
     private readonly prisma: PrismaService,
@@ -83,15 +131,26 @@ export class ScenariosService {
       orderBy: { createdAt: 'asc' },
     });
 
-    return scenarios
+    const discovered = scenarios
       .filter((scenario) => {
         if (isProvidedScenarioId(scenario.id)) {
-          return true;
+          return this.parseScenarioPublicEcosystemMetadata(scenario.attribution).moderationStatus !== "hidden";
         }
         const metadata = this.parseScenarioRevisionMetadata(scenario.attribution);
-        return scenario.sourceType === PrismaScenarioSourceType.CLONED && metadata.status === "public";
+        const publicMetadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+        return (
+          scenario.sourceType === PrismaScenarioSourceType.CLONED &&
+          metadata.status === "public" &&
+          publicMetadata.moderationStatus !== "hidden"
+        );
       })
-      .map(mapScenarioSummary);
+      .map((scenario) => this.enrichScenarioSummary(scenario, mapScenarioSummary(scenario)))
+      .filter((scenario) => this.matchesScenarioDiscoveryQuery(scenario, query));
+
+    const sorted = this.sortScenarioDiscovery(discovered, query?.sort ?? "recommended");
+    const offset = query?.offset ?? 0;
+    const limit = query?.limit ?? sorted.length;
+    return sorted.slice(offset, offset + limit);
   }
 
   async listMyScenarios(
@@ -123,12 +182,12 @@ export class ScenariosService {
           action: "view",
         }).allowed;
       })
-      .map(mapScenarioSummary);
+      .map((scenario) => this.enrichScenarioSummary(scenario, mapScenarioSummary(scenario)));
   }
 
   async getScenario(id: string, viewerUserId?: string | null): Promise<ScenarioResponseDto> {
     const scenario = await this.getScenarioEntityForViewer(id, viewerUserId);
-    return mapScenario(scenario);
+    return this.enrichScenarioSummary(scenario, mapScenario(scenario));
   }
 
   async getScenarioEntityForViewer(id: string, viewerUserId?: string | null) {
@@ -564,31 +623,242 @@ export class ScenariosService {
     );
   }
 
+  async rateScenario(
+    userId: string,
+    id: string,
+    dto: RateScenarioDto,
+  ): Promise<ScenarioRatingResponseDto> {
+    const scenario = await this.getScenarioEntityById(id);
+    this.ensurePublicScenarioEcosystemTarget(scenario, "평점은 공개 또는 링크 revision에만 남길 수 있습니다.");
+    if (scenario.createdByUserId === userId) {
+      throw new ForbiddenException("자신이 발행한 시나리오에는 평점을 남길 수 없습니다.");
+    }
+    const completedPlayCount = await this.prisma.sessionParticipant.count({
+      where: {
+        userId,
+        session: {
+          status: PrismaSessionStatus.COMPLETED,
+          sessionScenarios: {
+            some: { scenarioId: scenario.id },
+          },
+        },
+      },
+    });
+    if (completedPlayCount < 1) {
+      throw new ForbiddenException("플레이를 완료한 사용자만 평점과 리뷰를 남길 수 있습니다.");
+    }
+
+    const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    const now = new Date().toISOString();
+    const review = dto.review?.trim() || null;
+    const nextRatings = [
+      ...metadata.ratings.filter((rating) => rating.userId !== userId),
+      { userId, rating: dto.rating, review, updatedAt: now },
+    ];
+    const nextMetadata: ScenarioPublicEcosystemMetadata = {
+      ...metadata,
+      ratings: nextRatings,
+    };
+    await this.prisma.scenario.update({
+      where: { id: scenario.id },
+      data: {
+        attribution: this.appendScenarioPublicEcosystemMetadata(scenario.attribution, nextMetadata),
+      },
+    });
+    return {
+      scenarioId: scenario.id,
+      rating: dto.rating,
+      review,
+      averageRating: this.calculateAverageRating(nextRatings),
+      ratingCount: nextRatings.length,
+      reviewCount: nextRatings.filter((rating) => Boolean(rating.review)).length,
+    };
+  }
+
+  async deleteScenarioRating(userId: string, id: string): Promise<ScenarioRatingResponseDto> {
+    const scenario = await this.getScenarioEntityById(id);
+    this.ensurePublicScenarioEcosystemTarget(scenario, "평점은 공개 또는 링크 revision에서만 삭제할 수 있습니다.");
+    const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    const existing = metadata.ratings.find((rating) => rating.userId === userId);
+    if (!existing) {
+      throw new NotFoundException("삭제할 평점이 없습니다.");
+    }
+    const nextRatings = metadata.ratings.filter((rating) => rating.userId !== userId);
+    await this.prisma.scenario.update({
+      where: { id: scenario.id },
+      data: {
+        attribution: this.appendScenarioPublicEcosystemMetadata(scenario.attribution, {
+          ...metadata,
+          ratings: nextRatings,
+        }),
+      },
+    });
+    return {
+      scenarioId: scenario.id,
+      rating: existing.rating,
+      review: existing.review,
+      averageRating: this.calculateAverageRating(nextRatings),
+      ratingCount: nextRatings.length,
+      reviewCount: nextRatings.filter((rating) => Boolean(rating.review)).length,
+    };
+  }
+
+  async forkScenario(userId: string, id: string, dto: ForkScenarioDto = {}): Promise<ScenarioResponseDto> {
+    const scenario = await this.getScenarioEntityById(id);
+    this.ensurePublicScenarioEcosystemTarget(scenario, "공개 또는 링크 revision만 fork할 수 있습니다.");
+    const forkId = `scenario_fork_${randomUUID()}`;
+    const now = new Date().toISOString();
+    const sourceRevision = this.parseScenarioRevisionMetadata(scenario.attribution);
+    const sourceMetadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    const nodeIdMap = new Map(scenario.nodes.map((node) => [node.id, `${forkId}_${node.id}`]));
+    const attribution = this.appendScenarioPublicEcosystemMetadata(
+      this.stripScenarioMetadataMarkers(scenario.attribution),
+      {
+        ...this.getDefaultScenarioPublicEcosystemMetadata(),
+        lineage: {
+          sourceScenarioId: scenario.baseScenarioId ?? scenario.id,
+          sourceRevisionId: scenario.id,
+          forkedFromScenarioId: scenario.id,
+          forkedAt: now,
+          forkedByUserId: userId,
+        },
+      },
+    );
+    const fork = await this.prisma.scenario.create({
+      data: {
+        id: forkId,
+        title: dto.title?.trim() || `${scenario.title} Fork`,
+        description: scenario.description,
+        createdByUserId: userId,
+        sourceType: PrismaScenarioSourceType.USER,
+        baseScenarioId: scenario.id,
+        thumbnailUrl: scenario.thumbnailUrl,
+        ruleSetId: scenario.ruleSetId,
+        difficulty: scenario.difficulty,
+        startLevel: scenario.startLevel,
+        recommendedEndLevel: scenario.recommendedEndLevel,
+        license: scenario.license,
+        attribution,
+        startNodeId: scenario.startNodeId ? nodeIdMap.get(scenario.startNodeId) ?? scenario.startNodeId : null,
+        npcsJson: scenario.npcsJson,
+        nodes: {
+          create: scenario.nodes.map((node) => ({
+            id: nodeIdMap.get(node.id) ?? `${forkId}_${node.id}`,
+            nodeType: node.nodeType,
+            title: node.title,
+            sceneText: node.sceneText,
+            imageUrl: node.imageUrl,
+            checkOptionsJson: this.rewriteScenarioJsonNodeReferences(node.checkOptionsJson, nodeIdMap),
+            transitionsJson: this.rewriteScenarioNodeReferences(node.transitionsJson, nodeIdMap),
+            cluesJson: this.rewriteScenarioJsonNodeReferences(node.cluesJson, nodeIdMap),
+            nodeMetaJson: node.nodeMetaJson
+              ? this.rewriteScenarioJsonNodeReferences(node.nodeMetaJson, nodeIdMap)
+              : null,
+            fallbackNodeId: node.fallbackNodeId ? nodeIdMap.get(node.fallbackNodeId) ?? node.fallbackNodeId : null,
+          })),
+        },
+      },
+      include: {
+        nodes: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    await this.prisma.scenario.update({
+      where: { id: scenario.id },
+      data: {
+        attribution: this.appendScenarioPublicEcosystemMetadata(scenario.attribution, {
+          ...sourceMetadata,
+          forkCount: sourceMetadata.forkCount + 1,
+        }),
+      },
+    });
+
+    return {
+      ...this.enrichScenarioSummary(fork, mapScenario(fork)),
+      changelog: sourceRevision.changelog,
+    };
+  }
+
   async reportScenario(
     userId: string,
     id: string,
     dto: ReportScenarioDto,
   ): Promise<ScenarioModerationReportResponseDto> {
     const scenario = await this.getScenarioEntityById(id);
-    const revision = this.parseScenarioRevisionMetadata(scenario.attribution);
-    if (scenario.sourceType !== PrismaScenarioSourceType.CLONED || revision.status === "draft") {
-      throw new BadRequestException("발행된 scenario revision만 신고할 수 있습니다.");
-    }
+    this.ensurePublicScenarioEcosystemTarget(scenario, "발행된 scenario revision만 신고할 수 있습니다.");
     const reportId = `scenario-report:${randomUUID()}`;
-    const moderationEntry = JSON.stringify({
+    const report = {
       reportId,
       reportedByUserId: userId,
       reason: dto.reason,
       comment: dto.comment?.trim() || null,
       createdAt: new Date().toISOString(),
-    });
+    };
+    const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    const nextReports = [
+      ...metadata.reports.filter((entry) => entry.reportedByUserId !== userId),
+      report,
+    ];
+    const moderationStatus = nextReports.length >= 3 ? "hidden" : "reported";
+    const moderationEntry = JSON.stringify(report);
     await this.prisma.scenario.update({
       where: { id: scenario.id },
       data: {
-        attribution: `${scenario.attribution ?? ""}\nP4_MODERATION_REPORT:${moderationEntry}`.trim(),
+        attribution: this.appendScenarioPublicEcosystemMetadata(
+          `${scenario.attribution ?? ""}\nP4_MODERATION_REPORT:${moderationEntry}`.trim(),
+          {
+            ...metadata,
+            reports: nextReports,
+            moderationStatus,
+          },
+        ),
       },
     });
     return { reportId, scenarioId: scenario.id, status: "received" };
+  }
+
+  async appealScenarioModeration(
+    userId: string,
+    id: string,
+    dto: AppealScenarioModerationDto,
+  ): Promise<ScenarioModerationAppealResponseDto> {
+    const scenario = await this.getScenarioEntityById(id);
+    const revision = this.parseScenarioRevisionMetadata(scenario.attribution);
+    const isPublishedRevision =
+      scenario.sourceType === PrismaScenarioSourceType.CLONED &&
+      (revision.status === "public" || revision.status === "link");
+    if (!isPublishedRevision && !isProvidedScenarioId(scenario.id)) {
+      throw new BadRequestException("발행된 scenario revision에만 이의 제기를 남길 수 있습니다.");
+    }
+    if (!scenario.createdByUserId || scenario.createdByUserId !== userId) {
+      throw new ForbiddenException("시나리오 owner만 moderation 이의 제기를 남길 수 있습니다.");
+    }
+    const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    if (metadata.moderationStatus === "visible") {
+      throw new BadRequestException("신고 또는 비공개 상태가 아닌 시나리오에는 이의 제기가 필요하지 않습니다.");
+    }
+    const appeal: ScenarioPublicModerationAppealRecord = {
+      appealId: `scenario-appeal:${randomUUID()}`,
+      appealedByUserId: userId,
+      message: dto.message.trim(),
+      createdAt: new Date().toISOString(),
+      status: "submitted",
+    };
+    await this.prisma.scenario.update({
+      where: { id: scenario.id },
+      data: {
+        attribution: this.appendScenarioPublicEcosystemMetadata(scenario.attribution, {
+          ...metadata,
+          appeals: [
+            ...metadata.appeals.filter((entry) => entry.appealedByUserId !== userId),
+            appeal,
+          ],
+        }),
+      },
+    });
+    return { appealId: appeal.appealId, scenarioId: scenario.id, status: "submitted" };
   }
 
   async deleteScenario(userId: string, id: string): Promise<void> {
@@ -812,6 +1082,131 @@ export class ScenariosService {
     throw new NotFoundException(`Scenario ${scenario.id} was not found.`);
   }
 
+  private ensurePublicScenarioEcosystemTarget(
+    scenario: Awaited<ReturnType<ScenariosService['getScenarioEntityById']>>,
+    message: string,
+  ): void {
+    const revision = this.parseScenarioRevisionMetadata(scenario.attribution);
+    const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    const isProvidedPublicScenario = isProvidedScenarioId(scenario.id);
+    const isPublishedRevision =
+      scenario.sourceType === PrismaScenarioSourceType.CLONED &&
+      (revision.status === "public" || revision.status === "link");
+    if (
+      (!isProvidedPublicScenario && !isPublishedRevision) ||
+      metadata.moderationStatus === "hidden"
+    ) {
+      throw new BadRequestException(message);
+    }
+  }
+
+  private enrichScenarioSummary<T extends ScenarioSummaryResponseDto>(
+    scenario: { attribution: string | null; difficulty: string | null; startLevel: number; recommendedEndLevel: number | null; createdAt: Date; updatedAt: Date },
+    summary: T,
+  ): T {
+    const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    const averageRating = this.calculateAverageRating(metadata.ratings);
+    const reviewCount = metadata.ratings.filter((rating) => Boolean(rating.review)).length;
+    const tags = metadata.tags.length
+      ? metadata.tags
+      : [scenario.difficulty, summary.sourceType === "SYSTEM" ? "provided" : null]
+          .filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim()))
+          .map((tag) => tag.trim());
+    return {
+      ...summary,
+      tags,
+      estimatedMinutes: metadata.estimatedMinutes,
+      gmMode: metadata.gmMode,
+      contentWarnings: metadata.contentWarnings,
+      averageRating,
+      ratingCount: metadata.ratings.length,
+      reviewCount,
+      forkCount: metadata.forkCount,
+      moderationStatus: metadata.moderationStatus,
+      recommendationReason: this.buildRecommendationReason(summary, {
+        averageRating,
+        ratingCount: metadata.ratings.length,
+        forkCount: metadata.forkCount,
+        tags,
+      }),
+    };
+  }
+
+  private matchesScenarioDiscoveryQuery(
+    scenario: ScenarioSummaryResponseDto,
+    query?: ScenarioQueryDto,
+  ): boolean {
+    if (!query) {
+      return true;
+    }
+    const minLevel = query.minLevel;
+    const maxLevel = query.maxLevel;
+    if (typeof minLevel === "number" && (scenario.recommendedEndLevel ?? scenario.startLevel) < minLevel) {
+      return false;
+    }
+    if (typeof maxLevel === "number" && scenario.startLevel > maxLevel) {
+      return false;
+    }
+    if (query.tag?.trim()) {
+      const tag = query.tag.trim().toLowerCase();
+      if (!(scenario.tags ?? []).some((candidate) => candidate.toLowerCase() === tag)) {
+        return false;
+      }
+    }
+    if (query.gmMode && scenario.gmMode && scenario.gmMode !== "BOTH" && scenario.gmMode !== query.gmMode) {
+      return false;
+    }
+    if (typeof query.minRating === "number" && (scenario.averageRating ?? 0) < query.minRating) {
+      return false;
+    }
+    return true;
+  }
+
+  private sortScenarioDiscovery(
+    scenarios: ScenarioSummaryResponseDto[],
+    sort: "recommended" | "rating" | "latest" | "level",
+  ): ScenarioSummaryResponseDto[] {
+    const score = (scenario: ScenarioSummaryResponseDto) =>
+      (scenario.averageRating ?? 0) * 20 +
+      (scenario.ratingCount ?? 0) * 3 +
+      (scenario.forkCount ?? 0) * 2 +
+      (scenario.publishStatus === "public" ? 10 : 0);
+    return [...scenarios].sort((a, b) => {
+      if (sort === "rating") {
+        return (b.averageRating ?? 0) - (a.averageRating ?? 0) || (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
+      }
+      if (sort === "latest") {
+        return new Date(b.publishedAt ?? b.updatedAt).getTime() - new Date(a.publishedAt ?? a.updatedAt).getTime();
+      }
+      if (sort === "level") {
+        return a.startLevel - b.startLevel || (a.recommendedEndLevel ?? a.startLevel) - (b.recommendedEndLevel ?? b.startLevel);
+      }
+      return score(b) - score(a) || new Date(b.publishedAt ?? b.updatedAt).getTime() - new Date(a.publishedAt ?? a.updatedAt).getTime();
+    });
+  }
+
+  private calculateAverageRating(ratings: ScenarioPublicRatingRecord[]): number | null {
+    if (!ratings.length) {
+      return null;
+    }
+    const total = ratings.reduce((sum, rating) => sum + rating.rating, 0);
+    return Math.round((total / ratings.length) * 10) / 10;
+  }
+
+  private buildRecommendationReason(
+    scenario: ScenarioSummaryResponseDto,
+    evidence: { averageRating: number | null; ratingCount: number; forkCount: number; tags: string[] },
+  ): string | null {
+    const reasons = [
+      evidence.averageRating ? `평점 ${evidence.averageRating.toFixed(1)}` : null,
+      evidence.ratingCount ? `${evidence.ratingCount}명 평가` : null,
+      evidence.forkCount ? `${evidence.forkCount}회 fork` : null,
+      evidence.tags[0] ? `태그 ${evidence.tags[0]}` : null,
+      scenario.startLevel ? `${scenario.startLevel}레벨 시작` : null,
+    ].filter((reason): reason is string => Boolean(reason));
+    return reasons.length ? reasons.slice(0, 3).join(" · ") : null;
+  }
+
   private buildScenarioValidationReport(
     scenario: Awaited<ReturnType<ScenariosService['getEditableScenarioEntity']>>,
     visibility: ScenarioPublishVisibility = "private",
@@ -974,6 +1369,40 @@ export class ScenariosService {
         };
       }),
     );
+  }
+
+  private rewriteScenarioNodeReferences(transitionsJson: string, nodeIdMap: Map<string, string>): string {
+    const transitions = this.parseJson<Record<string, unknown>[]>(transitionsJson, []);
+    return JSON.stringify(
+      transitions.map((transition) => {
+        const nextNodeId = transition.nextNodeId;
+        return typeof nextNodeId === "string" && nodeIdMap.has(nextNodeId)
+          ? { ...transition, nextNodeId: nodeIdMap.get(nextNodeId) }
+          : transition;
+      }),
+    );
+  }
+
+  private rewriteScenarioJsonNodeReferences(json: string, nodeIdMap: Map<string, string>): string {
+    const parsed = this.parseJson<unknown>(json, null);
+    if (parsed === null) {
+      return json;
+    }
+    const rewrite = (value: unknown): unknown => {
+      if (typeof value === "string") {
+        return nodeIdMap.get(value) ?? value;
+      }
+      if (Array.isArray(value)) {
+        return value.map(rewrite);
+      }
+      if (value && typeof value === "object") {
+        return Object.fromEntries(
+          Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, rewrite(entry)]),
+        );
+      }
+      return value;
+    };
+    return JSON.stringify(rewrite(parsed));
   }
 
   private rewriteScenarioCheckOptionsNodeReferences(
@@ -1154,9 +1583,176 @@ export class ScenariosService {
       raw.indexOf(ScenariosService.REVISION_METADATA_MARKER),
       raw.indexOf(ScenariosService.COLLABORATION_METADATA_MARKER),
       raw.indexOf(ScenariosService.MODERATION_REPORT_MARKER),
+      raw.indexOf(ScenariosService.PUBLIC_ECOSYSTEM_METADATA_MARKER),
     ].filter((index) => index >= 0);
     const publicAttribution = markerIndexes.length ? raw.slice(0, Math.min(...markerIndexes)) : raw;
     return publicAttribution.trim() || null;
+  }
+
+  private appendScenarioPublicEcosystemMetadata(
+    attribution: string | null | undefined,
+    metadata: ScenarioPublicEcosystemMetadata,
+  ): string | null {
+    const raw = attribution ?? "";
+    const markerIndex = raw.indexOf(ScenariosService.PUBLIC_ECOSYSTEM_METADATA_MARKER);
+    const beforeMarker = markerIndex >= 0 ? raw.slice(0, markerIndex).trim() : raw.trim();
+    const encoded = JSON.stringify(metadata);
+    return [beforeMarker, `${ScenariosService.PUBLIC_ECOSYSTEM_METADATA_MARKER}${encoded}`]
+      .filter((part): part is string => Boolean(part))
+      .join("\n");
+  }
+
+  private parseScenarioPublicEcosystemMetadata(
+    attribution: string | null | undefined,
+  ): ScenarioPublicEcosystemMetadata {
+    const raw = attribution ?? "";
+    const markerIndex = raw.indexOf(ScenariosService.PUBLIC_ECOSYSTEM_METADATA_MARKER);
+    if (markerIndex < 0) {
+      const reports = this.parseLegacyModerationReports(raw);
+      return {
+        ...this.getDefaultScenarioPublicEcosystemMetadata(),
+        reports,
+        moderationStatus: reports.length >= 3 ? "hidden" : reports.length > 0 ? "reported" : "visible",
+      };
+    }
+    const afterMarker = raw.slice(markerIndex + ScenariosService.PUBLIC_ECOSYSTEM_METADATA_MARKER.length);
+    const nextMarkers = [
+      afterMarker.indexOf(ScenariosService.REVISION_METADATA_MARKER),
+      afterMarker.indexOf(ScenariosService.COLLABORATION_METADATA_MARKER),
+      afterMarker.indexOf(ScenariosService.MODERATION_REPORT_MARKER),
+    ].filter((index) => index >= 0);
+    const metadataText = afterMarker.slice(0, nextMarkers.length ? Math.min(...nextMarkers) : undefined).trim();
+    try {
+      const parsed = JSON.parse(metadataText) as Partial<ScenarioPublicEcosystemMetadata>;
+      const fallback = this.getDefaultScenarioPublicEcosystemMetadata();
+      const ratings = Array.isArray(parsed.ratings)
+        ? parsed.ratings.filter((rating): rating is ScenarioPublicRatingRecord =>
+            rating &&
+            typeof rating.userId === "string" &&
+            typeof rating.rating === "number" &&
+            rating.rating >= 1 &&
+            rating.rating <= 5 &&
+            typeof rating.updatedAt === "string",
+          )
+        : fallback.ratings;
+      const reports = Array.isArray(parsed.reports)
+        ? parsed.reports.filter((report): report is ScenarioPublicModerationReportRecord =>
+            report &&
+            typeof report.reportId === "string" &&
+            typeof report.reportedByUserId === "string" &&
+            (report.reason === "private_data" ||
+              report.reason === "license" ||
+              report.reason === "unsafe_content" ||
+              report.reason === "other") &&
+            typeof report.createdAt === "string",
+          )
+        : this.parseLegacyModerationReports(raw);
+      const appeals = Array.isArray(parsed.appeals)
+        ? parsed.appeals.filter((appeal): appeal is ScenarioPublicModerationAppealRecord =>
+            appeal &&
+            typeof appeal.appealId === "string" &&
+            typeof appeal.appealedByUserId === "string" &&
+            typeof appeal.message === "string" &&
+            typeof appeal.createdAt === "string" &&
+            appeal.status === "submitted",
+          )
+        : fallback.appeals;
+      return {
+        tags: Array.isArray(parsed.tags)
+          ? parsed.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())).map((tag) => tag.trim())
+          : fallback.tags,
+        estimatedMinutes:
+          typeof parsed.estimatedMinutes === "number" && parsed.estimatedMinutes > 0
+            ? Math.round(parsed.estimatedMinutes)
+            : fallback.estimatedMinutes,
+        gmMode:
+          parsed.gmMode === "AI" || parsed.gmMode === "HUMAN" || parsed.gmMode === "BOTH"
+            ? parsed.gmMode
+            : fallback.gmMode,
+        contentWarnings: Array.isArray(parsed.contentWarnings)
+          ? parsed.contentWarnings
+              .filter((warning): warning is string => typeof warning === "string" && Boolean(warning.trim()))
+              .map((warning) => warning.trim())
+          : fallback.contentWarnings,
+        ratings,
+        forkCount:
+          typeof parsed.forkCount === "number" && parsed.forkCount >= 0
+            ? Math.floor(parsed.forkCount)
+            : fallback.forkCount,
+        moderationStatus:
+          parsed.moderationStatus === "hidden" ||
+          parsed.moderationStatus === "reported" ||
+          parsed.moderationStatus === "visible"
+            ? parsed.moderationStatus
+            : reports.length >= 3
+              ? "hidden"
+              : reports.length > 0
+                ? "reported"
+                : "visible",
+        reports,
+        appeals,
+        lineage:
+          parsed.lineage && typeof parsed.lineage === "object" && !Array.isArray(parsed.lineage)
+            ? {
+                sourceScenarioId:
+                  typeof parsed.lineage.sourceScenarioId === "string" ? parsed.lineage.sourceScenarioId : null,
+                sourceRevisionId:
+                  typeof parsed.lineage.sourceRevisionId === "string" ? parsed.lineage.sourceRevisionId : null,
+                forkedFromScenarioId:
+                  typeof parsed.lineage.forkedFromScenarioId === "string" ? parsed.lineage.forkedFromScenarioId : null,
+                forkedAt: typeof parsed.lineage.forkedAt === "string" ? parsed.lineage.forkedAt : null,
+                forkedByUserId:
+                  typeof parsed.lineage.forkedByUserId === "string" ? parsed.lineage.forkedByUserId : null,
+              }
+            : fallback.lineage,
+      };
+    } catch {
+      return this.getDefaultScenarioPublicEcosystemMetadata();
+    }
+  }
+
+  private getDefaultScenarioPublicEcosystemMetadata(): ScenarioPublicEcosystemMetadata {
+    return {
+      tags: [],
+      estimatedMinutes: null,
+      gmMode: null,
+      contentWarnings: [],
+      ratings: [],
+      forkCount: 0,
+      moderationStatus: "visible",
+      reports: [],
+      appeals: [],
+      lineage: {
+        sourceScenarioId: null,
+        sourceRevisionId: null,
+        forkedFromScenarioId: null,
+        forkedAt: null,
+        forkedByUserId: null,
+      },
+    };
+  }
+
+  private parseLegacyModerationReports(raw: string): ScenarioPublicModerationReportRecord[] {
+    return raw
+      .split(ScenariosService.MODERATION_REPORT_MARKER)
+      .slice(1)
+      .map((chunk) => chunk.split(ScenariosService.REVISION_METADATA_MARKER, 1)[0])
+      .map((chunk) => chunk.split(ScenariosService.COLLABORATION_METADATA_MARKER, 1)[0])
+      .map((chunk) => chunk.split(ScenariosService.PUBLIC_ECOSYSTEM_METADATA_MARKER, 1)[0])
+      .map((chunk) => chunk.trim())
+      .map((chunk) => {
+        try {
+          return JSON.parse(chunk) as ScenarioPublicModerationReportRecord;
+        } catch {
+          return null;
+        }
+      })
+      .filter((report): report is ScenarioPublicModerationReportRecord =>
+        Boolean(report) &&
+        typeof report?.reportId === "string" &&
+        typeof report?.reportedByUserId === "string" &&
+        typeof report?.createdAt === "string",
+      );
   }
 
   private appendScenarioRevisionMetadata(
@@ -1204,6 +1800,7 @@ export class ScenariosService {
       .slice(markerIndex + ScenariosService.REVISION_METADATA_MARKER.length)
       .split(ScenariosService.MODERATION_REPORT_MARKER, 1)[0]
       .split(ScenariosService.COLLABORATION_METADATA_MARKER, 1)[0]
+      .split(ScenariosService.PUBLIC_ECOSYSTEM_METADATA_MARKER, 1)[0]
       .trim();
     try {
       const metadata = JSON.parse(metadataText) as Record<string, unknown>;

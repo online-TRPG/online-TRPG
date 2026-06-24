@@ -542,6 +542,158 @@ export class ApplySessionEconomyActionDto {
   requiresAttunement?: boolean;
 }
 
+export class ApplyCampaignCalendarActionDto {
+  @ApiProperty({
+    enum: [
+      "propose_schedule",
+      "respond_schedule",
+      "confirm_schedule",
+      "advance_game_time",
+      "start_downtime",
+      "pause_downtime",
+      "resume_downtime",
+      "complete_downtime",
+    ],
+  })
+  @IsIn([
+    "propose_schedule",
+    "respond_schedule",
+    "confirm_schedule",
+    "advance_game_time",
+    "start_downtime",
+    "pause_downtime",
+    "resume_downtime",
+    "complete_downtime",
+  ])
+  actionType!:
+    | "propose_schedule"
+    | "respond_schedule"
+    | "confirm_schedule"
+    | "advance_game_time"
+    | "start_downtime"
+    | "pause_downtime"
+    | "resume_downtime"
+    | "complete_downtime";
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  idempotencyKey?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  scheduleId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  responseId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  downtimeTaskId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  sessionCharacterId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsDateString()
+  startsAt?: string | null;
+
+  @ApiPropertyOptional({ minimum: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  durationMinutes?: number;
+
+  @ApiPropertyOptional({ enum: ["available", "unavailable", "tentative"] })
+  @IsOptional()
+  @IsIn(["available", "unavailable", "tentative"])
+  availability?: "available" | "unavailable" | "tentative";
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  timeZone?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  inGameDate?: string | null;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  elapsedDays?: number;
+
+  @ApiPropertyOptional({ enum: ["crafting", "training", "research", "recovery", "identify", "repair", "shop_restock"] })
+  @IsOptional()
+  @IsIn(["crafting", "training", "research", "recovery", "identify", "repair", "shop_restock"])
+  downtimeType?: "crafting" | "training" | "research" | "recovery" | "identify" | "repair" | "shop_restock";
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  costGp?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  workDaysRequired?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  workDaysDelta?: number;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  requiredTools?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  availableTools?: string[];
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  title?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  note?: string | null;
+}
+
 export class SessionScenarioResponseDto {
   @ApiProperty()
   id!: string;

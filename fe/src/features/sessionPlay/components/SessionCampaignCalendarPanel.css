@@ -1,0 +1,101 @@
+.session-campaign-calendar-panel {
+  position: absolute;
+  z-index: 41;
+  top: 58px;
+  right: 12px;
+  width: min(450px, calc(100% - 24px));
+  max-height: calc(100% - 70px);
+  overflow: auto;
+  border: 1px solid rgba(54, 85, 104, 0.48);
+  border-radius: 14px;
+  background: rgba(232, 243, 247, 0.97);
+  color: #1d3340;
+  box-shadow: 0 18px 38px rgba(12, 27, 34, 0.28);
+}
+
+.session-campaign-calendar-panel.collapsed {
+  width: auto;
+  overflow: visible;
+}
+
+.session-campaign-calendar-toggle {
+  width: 100%;
+  padding: 9px 13px;
+  border: 0;
+  background: #244a5c !important;
+  color: #ecfbff;
+  font-weight: 800;
+}
+
+.session-campaign-calendar-body {
+  display: grid;
+  gap: 12px;
+  padding: 13px;
+}
+
+.session-campaign-calendar-body header {
+  display: grid;
+  gap: 3px;
+}
+
+.session-campaign-calendar-body header span {
+  color: #4e6e7d;
+  font-size: 11px;
+}
+
+.session-campaign-calendar-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.session-campaign-calendar-summary > div {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-height: 64px;
+  padding: 8px;
+  border: 1px solid rgba(54, 85, 104, 0.2);
+  border-radius: 9px;
+  background: rgba(249, 254, 255, 0.72);
+}
+
+.session-campaign-calendar-summary span {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
+.session-campaign-calendar-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.session-campaign-calendar-form input,
+.session-campaign-calendar-form select,
+.session-campaign-calendar-form button {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(54, 85, 104, 0.28);
+  border-radius: 8px;
+}
+
+.session-campaign-calendar-form button {
+  background: #2e5f74 !important;
+  color: #f1fcff;
+  font-weight: 800;
+}
+
+.session-campaign-calendar-feedback {
+  margin: 0;
+  color: #234a5b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 700px) {
+  .session-campaign-calendar-summary,
+  .session-campaign-calendar-form {
+    grid-template-columns: 1fr;
+  }
+}
