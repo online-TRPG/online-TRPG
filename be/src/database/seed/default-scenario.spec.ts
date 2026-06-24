@@ -19,6 +19,8 @@ import {
   P2_VALIDATION_START_NODE_ID,
   P4_VALIDATION_SCENARIO_ID,
   P4_VALIDATION_START_NODE_ID,
+  P5_VALIDATION_SCENARIO_ID,
+  P5_VALIDATION_START_NODE_ID,
   RULE_RUNTIME_SMOKE_SCENARIO_ID,
   RULE_RUNTIME_SMOKE_START_NODE_ID,
   seedDefaultScenario,
@@ -996,6 +998,138 @@ describe("default scenario seed", () => {
         "crafting_started",
         "revision_snapshot",
         "collaboration_policy",
+      ]),
+    );
+  });
+
+  it("seeds the P5 level 16 validation campaign with calendar, downtime, public ecosystem, spells, and monsters", async () => {
+    const { scenarioUpserts, scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
+
+    expect(scenarioUpserts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          where: { id: P5_VALIDATION_SCENARIO_ID },
+          create: expect.objectContaining({
+            startNodeId: P5_VALIDATION_START_NODE_ID,
+            startLevel: 16,
+            recommendedEndLevel: 16,
+            attribution: expect.stringContaining("P5_PUBLIC_META:"),
+          }),
+        }),
+      ]),
+    );
+
+    const p5Nodes = scenarioNodeUpserts
+      .map((args) => args.create)
+      .filter((node): node is Record<string, unknown> => node?.scenarioId === P5_VALIDATION_SCENARIO_ID);
+    expect(p5Nodes.map((node) => node.id)).toEqual([
+      P5_VALIDATION_START_NODE_ID,
+      "node_p5_astral_schedule",
+      "node_p5_astral_travel",
+      "node_p5_astral_dimensional_crossing",
+      "node_p5_astral_research",
+      "node_p5_astral_downtime",
+      "node_p5_astral_rift",
+      "node_p5_astral_battlefield",
+      "node_p5_astral_dragon_phase",
+      "node_p5_astral_tarrasque_phase",
+      "node_p5_astral_public_ecosystem",
+      "node_p5_astral_end",
+    ]);
+
+    const nodeTypeCounts = new Map<string, number>();
+    const spellIds = new Set<string>();
+    const monsterIds = new Set<string>();
+    const downtimeTypes = new Set<string>();
+    const publicChecks = new Set<string>();
+    const bossPhases = new Set<number>();
+    const bossMonsterIdsByPhase = new Map<number, Set<string>>();
+    let calendarVerified = false;
+
+    for (const node of p5Nodes) {
+      const nodeType = String(node.nodeType ?? "unknown");
+      nodeTypeCounts.set(nodeType, (nodeTypeCounts.get(nodeType) ?? 0) + 1);
+      const options = JSON.parse(String(node.checkOptionsJson ?? "{}")) as {
+        vttMap?: { tokens?: Array<{ monster?: { id?: string } | null }> } | null;
+      };
+      const meta = JSON.parse(String(node.nodeMetaJson ?? "{}")) as {
+        p5Scenario?: {
+          spellIds?: string[];
+          monsterIds?: string[];
+          bossPhase?: number;
+          validatesAiGm?: boolean;
+          validatesHumanGm?: boolean;
+          validatesSnapshotIsolation?: boolean;
+        };
+        p5Calendar?: { scheduleCandidateCount?: number; elapsedDays?: number };
+        p5Downtime?: { taskTypes?: string[]; validatesPauseResume?: boolean };
+        p5PublicEcosystem?: Record<string, boolean>;
+      };
+      options.vttMap?.tokens?.forEach((token) => {
+        if (token.monster?.id) monsterIds.add(token.monster.id);
+      });
+      meta.p5Scenario?.spellIds?.forEach((spellId) => spellIds.add(spellId));
+      meta.p5Scenario?.monsterIds?.forEach((monsterId) => monsterIds.add(monsterId));
+      if (typeof meta.p5Scenario?.bossPhase === "number") {
+        bossPhases.add(meta.p5Scenario.bossPhase);
+        const phaseMonsterIds = bossMonsterIdsByPhase.get(meta.p5Scenario.bossPhase) ?? new Set<string>();
+        meta.p5Scenario.monsterIds?.forEach((monsterId) => phaseMonsterIds.add(monsterId));
+        bossMonsterIdsByPhase.set(meta.p5Scenario.bossPhase, phaseMonsterIds);
+      }
+      if (meta.p5Calendar?.scheduleCandidateCount && meta.p5Calendar.elapsedDays) calendarVerified = true;
+      meta.p5Downtime?.taskTypes?.forEach((taskType) => downtimeTypes.add(taskType));
+      Object.entries(meta.p5PublicEcosystem ?? {}).forEach(([key, value]) => {
+        if (value) publicChecks.add(key);
+      });
+      if (meta.p5Scenario?.validatesAiGm) publicChecks.add("ai_gm_complete");
+      if (meta.p5Scenario?.validatesHumanGm) publicChecks.add("human_gm_complete");
+      if (meta.p5Scenario?.validatesSnapshotIsolation) publicChecks.add("snapshot_isolation");
+    }
+
+    expect(nodeTypeCounts.get("story")).toBeGreaterThanOrEqual(3);
+    expect(nodeTypeCounts.get("exploration")).toBeGreaterThanOrEqual(2);
+    expect(nodeTypeCounts.get("combat")).toBeGreaterThanOrEqual(3);
+    expect(nodeTypeCounts.get("travel")).toBeGreaterThanOrEqual(2);
+    expect(nodeTypeCounts.get("downtime")).toBeGreaterThanOrEqual(2);
+    expect(calendarVerified).toBe(true);
+    expect(spellIds.size).toBeGreaterThanOrEqual(15);
+    expect([...spellIds]).toEqual(
+      expect.arrayContaining([
+        "spell.teleport",
+        "spell.plane_shift",
+        "spell.forcecage",
+        "spell.antimagic_field",
+        "spell.dominate_monster",
+      ]),
+    );
+    expect(monsterIds.size).toBeGreaterThanOrEqual(16);
+    expect([...monsterIds]).toEqual(
+      expect.arrayContaining([
+        "monster.ancient_red_dragon",
+        "monster.kraken",
+        "monster.beholder",
+        "monster.tarrasque",
+      ]),
+    );
+    expect(bossPhases).toEqual(new Set([1, 2]));
+    expect([...(bossMonsterIdsByPhase.get(1) ?? [])]).toEqual(
+      expect.arrayContaining(["monster.ancient_red_dragon"]),
+    );
+    expect([...(bossMonsterIdsByPhase.get(2) ?? [])]).toEqual(
+      expect.arrayContaining(["monster.tarrasque"]),
+    );
+    expect([...downtimeTypes]).toEqual(
+      expect.arrayContaining(["crafting", "training", "research", "recovery", "repair"]),
+    );
+    expect([...publicChecks]).toEqual(
+      expect.arrayContaining([
+        "validatesSearch",
+        "validatesRating",
+        "validatesFork",
+        "validatesModeration",
+        "ai_gm_complete",
+        "human_gm_complete",
+        "snapshot_isolation",
       ]),
     );
   });

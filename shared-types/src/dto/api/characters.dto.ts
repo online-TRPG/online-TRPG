@@ -528,7 +528,7 @@ export class LevelUpCharacterDto {
 
   @ApiPropertyOptional({
     type: LevelUpAbilityScoreIncreasesDto,
-    description: "4, 8, 12, 16, 19레벨 ASI에서 배분할 능력치 상승치입니다. ASI마다 총 2점을 배분합니다.",
+    description: "4, 8, 12, 14, 16, 19레벨 ASI에서 배분할 능력치 상승치입니다. ASI마다 총 2점을 배분합니다.",
   })
   @IsOptional()
   @IsObject()
@@ -547,7 +547,7 @@ export class LevelUpCharacterDto {
 
   @ApiPropertyOptional({
     type: [String],
-    description: "레벨업으로 새로 습득하거나 주문책에 추가할 MVP 슬롯 주문 목록입니다.",
+    description: "레벨업으로 새로 습득하거나 주문책에 추가할 실행 슬롯 주문 카탈로그 목록입니다.",
   })
   @IsOptional()
   @IsArray()
@@ -694,6 +694,12 @@ export class CharacterResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   activeSessionId!: string | null;
+
+  @ApiProperty({
+    type: [String],
+    description: "진행 중 세션에 배정된 경우, 레벨업 preview와 재접속 확인에 사용할 현재 조건/집중 요약입니다.",
+  })
+  activeSessionConditions!: string[];
 
   @ApiProperty()
   isSelectable!: boolean;

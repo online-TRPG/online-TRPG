@@ -22,6 +22,7 @@ interface SessionCreatePageProps {
   accessToken: string | null;
   scenarios: Scenario[];
   mySessionList: AvailableSessionListItem[];
+  initialScenarioId?: string | null;
   busy: boolean;
   error: string | null;
   onCreateSession: (
@@ -57,6 +58,7 @@ export function SessionCreatePage({
   accessToken,
   scenarios,
   mySessionList,
+  initialScenarioId = null,
   busy,
   error,
   onCreateSession,
@@ -86,10 +88,17 @@ export function SessionCreatePage({
     const selectedOptionExists = scenarioOptions.some(
       (scenarioOption) => scenarioOption.key === selectedScenarioKey
     );
+    const initialOption = initialScenarioId
+      ? scenarioOptions.find((scenarioOption) => scenarioOption.scenarioId === initialScenarioId)
+      : null;
+    if (!selectedScenarioKey && initialOption) {
+      setSelectedScenarioKey(initialOption.key);
+      return;
+    }
     if ((!selectedScenarioKey || !selectedOptionExists) && scenarioOptions.length) {
       setSelectedScenarioKey(scenarioOptions[0].key);
     }
-  }, [scenarioOptions, selectedScenarioKey]);
+  }, [initialScenarioId, scenarioOptions, selectedScenarioKey]);
 
   // 현재 선택된 시나리오 옵션입니다. 오른쪽 프리뷰 카드에 사용됩니다.
   const selectedScenario =

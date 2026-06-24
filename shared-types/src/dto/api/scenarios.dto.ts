@@ -117,6 +117,36 @@ export class ScenarioSummaryResponseDto {
   @ApiPropertyOptional({ enum: ["draft", "public", "link", "private", "unpublished"] })
   publishStatus?: "draft" | "public" | "link" | "private" | "unpublished";
 
+  @ApiPropertyOptional({ type: [String] })
+  tags?: string[];
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1 })
+  estimatedMinutes?: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  gmMode?: "AI" | "HUMAN" | "BOTH" | null;
+
+  @ApiPropertyOptional({ type: [String] })
+  contentWarnings?: string[];
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 5 })
+  averageRating?: number | null;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  ratingCount?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  reviewCount?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  forkCount?: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  recommendationReason?: string | null;
+
+  @ApiPropertyOptional({ enum: ["visible", "reported", "hidden"] })
+  moderationStatus?: "visible" | "reported" | "hidden";
+
   @ApiProperty()
   createdAt!: string;
 
@@ -297,6 +327,61 @@ export class ScenarioQueryDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  minLevel?: number;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  maxLevel?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  tag?: string;
+
+  @ApiPropertyOptional({ enum: ["recommended", "rating", "latest", "level"] })
+  @IsOptional()
+  @IsIn(["recommended", "rating", "latest", "level"])
+  sort?: "recommended" | "rating" | "latest" | "level";
+
+  @ApiPropertyOptional({ enum: ["AI", "HUMAN", "BOTH"] })
+  @IsOptional()
+  @IsIn(["AI", "HUMAN", "BOTH"])
+  gmMode?: "AI" | "HUMAN" | "BOTH";
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 5 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  minRating?: number;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 100 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
 }
 
 export class CreateScenarioDto {
@@ -580,6 +665,57 @@ export class ReportScenarioDto {
   comment?: string | null;
 }
 
+export class AppealScenarioModerationDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1000)
+  message!: string;
+}
+
+export class RateScenarioDto {
+  @ApiProperty({ minimum: 1, maximum: 5 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  rating!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  review?: string | null;
+}
+
+export class ScenarioRatingResponseDto {
+  @ApiProperty()
+  scenarioId!: string;
+
+  @ApiProperty({ minimum: 1, maximum: 5 })
+  rating!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  review!: string | null;
+
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 5 })
+  averageRating!: number | null;
+
+  @ApiProperty({ minimum: 0 })
+  ratingCount!: number;
+
+  @ApiProperty({ minimum: 0 })
+  reviewCount!: number;
+}
+
+export class ForkScenarioDto {
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  title?: string | null;
+}
+
 export class ScenarioModerationReportResponseDto {
   @ApiProperty()
   reportId!: string;
@@ -589,4 +725,15 @@ export class ScenarioModerationReportResponseDto {
 
   @ApiProperty()
   status!: "received";
+}
+
+export class ScenarioModerationAppealResponseDto {
+  @ApiProperty()
+  appealId!: string;
+
+  @ApiProperty()
+  scenarioId!: string;
+
+  @ApiProperty()
+  status!: "submitted";
 }

@@ -1,5 +1,6 @@
 import { MonsterAbilityService } from "./monster-ability.service";
 import { P4_EXECUTABLE_MONSTER_IDS } from "./p4-monster-definitions";
+import { P5_EXECUTABLE_MONSTER_IDS } from "./p5-monster-definitions";
 
 describe("MonsterAbilityService", () => {
   const service = new MonsterAbilityService();
@@ -285,6 +286,56 @@ describe("MonsterAbilityService", () => {
       attackKind: "special",
       damageDice: "8d6",
       damageType: "fire_lightning_force",
+    });
+  });
+
+  it("covers the P5 monster roster with executable common action projections", () => {
+    expect(P5_EXECUTABLE_MONSTER_IDS).toHaveLength(80);
+
+    for (const monsterId of P5_EXECUTABLE_MONSTER_IDS) {
+      const actions = service.listExecutableActions(monsterId);
+      expect(actions.length).toBeGreaterThan(0);
+      expect(service.chooseAction(monsterId)).toMatchObject({ monsterId });
+      expect(actions.every((action) => action.catalogEntryId.startsWith(`${monsterId}.ability.`))).toBe(true);
+    }
+  });
+
+  it("projects P5 legendary, phase, spellcaster, and campaign-scale metadata", () => {
+    expect(service.chooseAction("monster.ancient_red_dragon")).toMatchObject({
+      actionId: "monster.ancient_red_dragon.ability.fire_breath",
+      specialType: "area_attack",
+      recharge: "5-6",
+      save: { ability: "dex", dcSource: "fixed", fixedDc: 24 },
+      damageDice: "26d6",
+      damageType: "fire",
+      effectTags: expect.arrayContaining(["area_size:90"]),
+    });
+
+    expect(service.chooseAction("monster.kraken")).toMatchObject({
+      actionId: "monster.kraken.ability.lightning_storm",
+      specialType: "area_attack",
+      conditionRiders: ["condition.grappled"],
+      recharge: "5-6",
+    });
+
+    expect(service.chooseAction("monster.beholder")).toMatchObject({
+      actionId: "monster.beholder.ability.eye_rays",
+      attackKind: "special",
+      conditionRiders: expect.arrayContaining(["condition.petrified", "condition.paralyzed"]),
+    });
+
+    expect(service.chooseAction("monster.night_hag")).toMatchObject({
+      actionId: "monster.night_hag.ability.nightmare_haunting",
+      damageDice: "1d10",
+      damageType: "psychic",
+      effectTags: expect.arrayContaining(["campaign_downtime_threat"]),
+    });
+
+    expect(service.chooseAction("monster.tarrasque")).toMatchObject({
+      actionId: "monster.tarrasque.ability.frightful_presence",
+      specialType: "area_control",
+      conditionRiders: ["condition.frightened"],
+      effectTags: expect.arrayContaining(["area_size:120"]),
     });
   });
 

@@ -10,14 +10,19 @@ import {
 import {
   CreateScenarioDto,
   CreateScenarioReviewDto,
+  AppealScenarioModerationDto,
+  ForkScenarioDto,
   ScenarioAssetQueryDto,
   ScenarioAssetResponseDto,
   ScenarioCollaborationStateResponseDto,
   ScenarioQueryDto,
   ScenarioNodeImageUploadResponseDto,
   PublishScenarioDto,
+  RateScenarioDto,
   ReportScenarioDto,
   ScenarioModerationReportResponseDto,
+  ScenarioModerationAppealResponseDto,
+  ScenarioRatingResponseDto,
   ScenarioResponseDto,
   ScenarioSummaryResponseDto,
   UploadScenarioAssetDto,
@@ -164,6 +169,41 @@ export class ScenariosController {
     return this.scenariosService.createScenarioReview(userId, id, dto);
   }
 
+  @Post(":id/ratings")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: ScenarioRatingResponseDto })
+  rateScenario(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Body() dto: RateScenarioDto,
+  ): Promise<ScenarioRatingResponseDto> {
+    return this.scenariosService.rateScenario(userId, id, dto);
+  }
+
+  @Delete(":id/ratings/me")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: ScenarioRatingResponseDto })
+  deleteScenarioRating(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+  ): Promise<ScenarioRatingResponseDto> {
+    return this.scenariosService.deleteScenarioRating(userId, id);
+  }
+
+  @Post(":id/fork")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: ScenarioResponseDto })
+  forkScenario(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Body() dto: ForkScenarioDto,
+  ): Promise<ScenarioResponseDto> {
+    return this.scenariosService.forkScenario(userId, id, dto);
+  }
+
   @Post(":id/report")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
@@ -174,6 +214,18 @@ export class ScenariosController {
     @Body() dto: ReportScenarioDto,
   ): Promise<ScenarioModerationReportResponseDto> {
     return this.scenariosService.reportScenario(userId, id, dto);
+  }
+
+  @Post(":id/moderation-appeals")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: ScenarioModerationAppealResponseDto })
+  appealScenarioModeration(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Body() dto: AppealScenarioModerationDto,
+  ): Promise<ScenarioModerationAppealResponseDto> {
+    return this.scenariosService.appealScenarioModeration(userId, id, dto);
   }
 
   @Get(":id/assets")

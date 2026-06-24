@@ -4,6 +4,7 @@ import type {
   AdjustHumanGmCombatHpDto,
   AcceptHumanGmAiAssistSuggestionDto,
   AiHumanGmAssistSuggestionRequestDto,
+  ApplyCampaignCalendarActionDto,
   ApplySessionEconomyActionDto,
   ApplyCombatDamageDto,
   AutoMonsterTurnDto,
@@ -34,9 +35,12 @@ import type {
   MoveCombatParticipantDto,
   MoveSessionTokenDto,
   OAuthUrlResponseDto,
+  AppealScenarioModerationDto,
   ResolveCombatAttackDto,
   ResolveMainCommandCheckDto,
   RemoveHumanGmInventoryItemDto,
+  ForkScenarioDto,
+  RateScenarioDto,
   ReportHumanGmAiAssistApplicationFailureDto,
   ReportScenarioDto,
   RestActionDto,
@@ -52,6 +56,9 @@ import type {
   RuleCatalogReferenceDto,
   ScenarioResponseDto,
   ScenarioModerationReportResponseDto,
+  ScenarioModerationAppealResponseDto,
+  ScenarioQueryDto,
+  ScenarioRatingResponseDto,
   SessionDetailResponseDto,
   SessionSnapshotDto,
   SubmitMainCommandDto,
@@ -501,8 +508,19 @@ export function oauthLogin(
   });
 }
 
-export function listScenarios(): Promise<Scenario[]> {
-  return requestJson<Scenario[]>('/scenarios');
+export function listScenarios(query?: ScenarioQueryDto): Promise<Scenario[]> {
+  const params = new URLSearchParams();
+  if (query?.search?.trim()) params.set('search', query.search.trim());
+  if (query?.minLevel !== undefined) params.set('minLevel', String(query.minLevel));
+  if (query?.maxLevel !== undefined) params.set('maxLevel', String(query.maxLevel));
+  if (query?.tag?.trim()) params.set('tag', query.tag.trim());
+  if (query?.sort) params.set('sort', query.sort);
+  if (query?.gmMode) params.set('gmMode', query.gmMode);
+  if (query?.minRating !== undefined) params.set('minRating', String(query.minRating));
+  if (query?.limit !== undefined) params.set('limit', String(query.limit));
+  if (query?.offset !== undefined) params.set('offset', String(query.offset));
+  const search = params.toString();
+  return requestJson<Scenario[]>(`/scenarios${search ? `?${search}` : ''}`);
 }
 
 function isProvidedScenarioForSelection(scenario: Scenario): boolean {
@@ -707,6 +725,63 @@ export function reportScenario(
   accessToken?: string | null
 ): Promise<ScenarioModerationReportResponseDto> {
   return requestJson<ScenarioModerationReportResponseDto>(`/scenarios/${scenarioId}/report`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function appealScenarioModeration(
+  user: StoredUser,
+  scenarioId: string,
+  payload: AppealScenarioModerationDto,
+  accessToken?: string | null
+): Promise<ScenarioModerationAppealResponseDto> {
+  return requestJson<ScenarioModerationAppealResponseDto>(
+    `/scenarios/${scenarioId}/moderation-appeals`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+      body: payload,
+    }
+  );
+}
+
+export function rateScenario(
+  user: StoredUser,
+  scenarioId: string,
+  payload: RateScenarioDto,
+  accessToken?: string | null
+): Promise<ScenarioRatingResponseDto> {
+  return requestJson<ScenarioRatingResponseDto>(`/scenarios/${scenarioId}/ratings`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function deleteScenarioRating(
+  user: StoredUser,
+  scenarioId: string,
+  accessToken?: string | null
+): Promise<ScenarioRatingResponseDto> {
+  return requestJson<ScenarioRatingResponseDto>(`/scenarios/${scenarioId}/ratings/me`, {
+    method: 'DELETE',
+    user,
+    accessToken,
+  });
+}
+
+export function forkScenario(
+  user: StoredUser,
+  scenarioId: string,
+  payload: ForkScenarioDto = {},
+  accessToken?: string | null
+): Promise<ScenarioDetail> {
+  return requestJson<ScenarioResponseDto>(`/scenarios/${scenarioId}/fork`, {
     method: 'POST',
     user,
     accessToken,
@@ -1729,6 +1804,25 @@ export async function applyHumanGmEconomyAction(
 ): Promise<SessionSnapshot> {
   const snapshot = await requestJson<SessionSnapshotDto>(
     `/sessions/${sessionId}/gm/economy`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+      body: payload,
+    }
+  );
+
+  return normalizeSessionSnapshot(snapshot);
+}
+
+export async function applyCampaignCalendarAction(
+  user: StoredUser,
+  sessionId: string,
+  payload: ApplyCampaignCalendarActionDto,
+  accessToken?: string | null
+): Promise<SessionSnapshot> {
+  const snapshot = await requestJson<SessionSnapshotDto>(
+    `/sessions/${sessionId}/campaign-calendar`,
     {
       method: 'POST',
       user,
