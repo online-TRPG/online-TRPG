@@ -69,6 +69,8 @@ const LOCKED_SESSION_STATUSES: ReadonlySet<PrismaSessionStatus> = new Set([
 ]);
 
 const STARTING_SLOT_SPELL_SELECTION_COUNT = 4;
+const WIZARD_STARTING_SPELLBOOK_SPELL_COUNT = 6;
+const WIZARD_SPELLBOOK_SPELLS_PER_LEVEL = 2;
 
 @Injectable()
 export class CharactersService {
@@ -113,22 +115,6 @@ export class CharactersService {
       abilities,
       dto.startingSpells,
     );
-    const racialMaxHpBonus = race?.key === "hill-dwarf" ? level : 0;
-    const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
-      className,
-      level,
-      abilities,
-      dto.proficiencyBonus,
-      dto.maxHp,
-      racialMaxHpBonus,
-    );
-    const armorClass = this.resolveArmorClass(
-      className,
-      abilities,
-      inventory,
-      dto.armorClass,
-      offhandWeaponId,
-    );
     const subclassName = this.assertValidSubclassSelection({
       className,
       subclassName: dto.subclassName,
@@ -145,6 +131,22 @@ export class CharactersService {
       level,
       requestedFeatures: dto.features ?? [],
     });
+    const maxHpBonus = this.resolveMaxHpBonusFromFeatures(features, className, level);
+    const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
+      className,
+      level,
+      abilities,
+      dto.proficiencyBonus,
+      dto.maxHp,
+      maxHpBonus,
+    );
+    const armorClass = this.resolveArmorClass(
+      className,
+      abilities,
+      inventory,
+      dto.armorClass,
+      offhandWeaponId,
+    );
 
     const character = await this.prisma.character.create({
       data: {
@@ -267,18 +269,10 @@ export class CharactersService {
       dto.ancestry !== undefined ||
       dto.level !== undefined ||
       dto.className !== undefined ||
+      dto.subclassName !== undefined ||
+      dto.features !== undefined ||
       dto.maxHp !== undefined ||
       dto.proficiencyBonus !== undefined;
-    const resolvedStats = needsLevelStats
-      ? await this.resolveLevelStats(
-          finalClassName,
-          finalLevel,
-          finalAbilities,
-          dto.proficiencyBonus,
-          dto.maxHp,
-          finalRace?.key === "hill-dwarf" ? finalLevel : 0,
-        )
-      : null;
 
     const finalSubclassName =
       dto.subclassName === undefined ? existing.subclassName : dto.subclassName?.trim() ?? null;
@@ -297,6 +291,16 @@ export class CharactersService {
       level: finalLevel,
       requestedFeatures: dto.features ?? this.parseStringArrayJson(existing.featuresJson),
     });
+    const resolvedStats = needsLevelStats
+      ? await this.resolveLevelStats(
+          finalClassName,
+          finalLevel,
+          finalAbilities,
+          dto.proficiencyBonus,
+          dto.maxHp,
+          this.resolveMaxHpBonusFromFeatures(finalFeatures, finalClassName, finalLevel),
+        )
+      : null;
 
     const updated = await this.prisma.character.update({
       where: { id: characterId },
@@ -497,12 +501,20 @@ export class CharactersService {
           });
     const constitutionModifierDelta =
       this.getAbilityModifier(finalAbilities.con) - this.getAbilityModifier(abilities.con);
-    const racialLevelUpHpBonus =
-      race?.key === "hill-dwarf" ? resolution.toLevel - resolution.fromLevel : 0;
+    const previousMaxHpFeatureBonus = this.resolveMaxHpBonusFromFeatures(
+      this.parseStringArrayJson(existing.featuresJson),
+      existing.className,
+      resolution.fromLevel,
+    );
+    const finalMaxHpFeatureBonus = this.resolveMaxHpBonusFromFeatures(
+      finalFeatures,
+      existing.className,
+      resolution.toLevel,
+    );
     const finalMaxHp =
       resolution.maxHpAfter +
       constitutionModifierDelta * resolution.toLevel +
-      racialLevelUpHpBonus;
+      (finalMaxHpFeatureBonus - previousMaxHpFeatureBonus);
     const inventory = this.parseInventoryItemsJson(existing.inventoryJson);
     const previousCalculatedArmorClass = this.resolveArmorClass(
       existing.className,
@@ -1854,6 +1866,31 @@ export class CharactersService {
     return { proficiencyBonus: expectedProf, maxHp: expectedMaxHp };
   }
 
+  private resolveMaxHpBonusFromFeatures(
+    featureIds: string[],
+    className: string,
+    level: number,
+  ): number {
+    const normalizedClassName = className.trim().toLowerCase();
+    const normalizedLevel = Math.max(Math.floor(level), 0);
+    let bonus = 0;
+
+    for (const tag of this.ruleCatalogService.resolveRuntimeTags(featureIds)) {
+      const perLevelMatch = /^hp_bonus:per_level:\+(\d+)$/.exec(tag);
+      if (perLevelMatch) {
+        bonus += Number(perLevelMatch[1]) * normalizedLevel;
+        continue;
+      }
+
+      const perClassLevelMatch = /^hp_bonus:per_([a-z0-9_-]+)_level:\+(\d+)$/.exec(tag);
+      if (perClassLevelMatch && perClassLevelMatch[1] === normalizedClassName) {
+        bonus += Number(perClassLevelMatch[2]) * normalizedLevel;
+      }
+    }
+
+    return bonus;
+  }
+
   // ClassDefinition과 SRD spellcasting progression을 함께 사용해 시작 주문 수를 결정한다.
   // 준비형 직업은 주문시전이 열린 레벨부터 현재 실행 슬롯 주문 카탈로그를 known 목록으로 사용한다.
   // 반환값: spellsJson 에 저장할 문자열(또는 null = 마법 없는 클래스/legacy)
@@ -1879,9 +1916,10 @@ export class CharactersService {
       this.isPreparedSpellcaster(className) &&
       classKey !== "wizard" &&
       spellcastingProgression !== null;
+    const executableSlotSpellPoolSize = this.getExecutableSlotSpellPool(className, level).size;
     const slotSpellSelectionCount = Math.min(
       STARTING_SLOT_SPELL_SELECTION_COUNT,
-      this.getExecutableSlotSpellPool(className, level).size,
+      executableSlotSpellPoolSize,
     );
     const needSpells = usesDynamicPreparedPool
       ? slotSpellSelectionCount
@@ -1889,12 +1927,12 @@ export class CharactersService {
           spellcastingProgression?.spellsKnown !== undefined
         ? Math.min(
             spellcastingProgression.spellsKnown,
-            this.getExecutableSlotSpellPool(className, level).size,
+            executableSlotSpellPoolSize,
           )
         : classKey === "wizard"
           ? Math.min(
-              Math.max(klass.startingSpellCount, slotSpellSelectionCount),
-              this.getExecutableSlotSpellPool(className, level).size,
+              this.getWizardStartingSpellbookSpellCount(level),
+              executableSlotSpellPoolSize,
             )
           : klass.startingSpellCount;
 
@@ -2364,6 +2402,12 @@ export class CharactersService {
       if (normalizedLevel >= 2) return 1;
     }
     return 0;
+  }
+
+  private getWizardStartingSpellbookSpellCount(level: number): number {
+    const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
+    return WIZARD_STARTING_SPELLBOOK_SPELL_COUNT +
+      (normalizedLevel - 1) * WIZARD_SPELLBOOK_SPELLS_PER_LEVEL;
   }
 
   private async resolveCharacterFeatureSnapshot(params: {

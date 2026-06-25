@@ -35,6 +35,71 @@ const baseCharacter = {
   updatedAt: new Date("2026-06-01T00:00:00.000Z"),
 };
 
+const wizardLevel1StartingSpells = [
+  "spell.detect_magic",
+  "spell.magic_missile",
+  "spell.shield",
+  "spell.sleep",
+  "spell.burning_hands",
+  "spell.thunderwave",
+];
+
+const wizardLevel5StartingSpells = [
+  "spell.bless",
+  "spell.bane",
+  "spell.detect_magic",
+  "spell.magic_missile",
+  "spell.cure_wounds",
+  "spell.guiding_bolt",
+  "spell.inflict_wounds",
+  "spell.healing_word",
+  "spell.command",
+  "spell.shield",
+  "spell.sleep",
+  "spell.burning_hands",
+  "spell.thunderwave",
+  "spell.fireball",
+];
+
+const wizardLevel16StartingSpells = [
+  "spell.bless",
+  "spell.bane",
+  "spell.detect_magic",
+  "spell.magic_missile",
+  "spell.cure_wounds",
+  "spell.guiding_bolt",
+  "spell.inflict_wounds",
+  "spell.healing_word",
+  "spell.command",
+  "spell.shield",
+  "spell.sleep",
+  "spell.burning_hands",
+  "spell.thunderwave",
+  "spell.entangle",
+  "spell.charm_person",
+  "spell.faerie_fire",
+  "spell.feather_fall",
+  "spell.fog_cloud",
+  "spell.grease",
+  "spell.heroism",
+  "spell.hunters_mark",
+  "spell.longstrider",
+  "spell.hold_person",
+  "spell.web",
+  "spell.misty_step",
+  "spell.scorching_ray",
+  "spell.aid",
+  "spell.blindness_deafness",
+  "spell.darkness",
+  "spell.invisibility",
+  "spell.lesser_restoration",
+  "spell.moonbeam",
+  "spell.spiritual_weapon",
+  "spell.fireball",
+  "spell.dispel_magic",
+  "spell.counterspell",
+];
+
 describe("CharactersService level up", () => {
   const createService = () => {
     const actualRuleCatalogService = new RuleCatalogService();
@@ -103,24 +168,32 @@ describe("CharactersService level up", () => {
         };
         return choiceLevels[className.trim().toLowerCase()] ?? null;
       }),
-      getCharacterFeatureSnapshot: jest.fn().mockReturnValue({
-        featureIds: [
-          "class.fighter.feature.fighting_style",
-          "class.fighter.feature.second_wind",
-          "class.fighter.feature.action_surge",
-          "class.fighter.feature.martial_archetype",
-          "subclass.fighter.champion.feature.improved_critical",
-        ],
+      getCharacterFeatureSnapshot: jest.fn((params: Parameters<RuleCatalogService["getCharacterFeatureSnapshot"]>[0]) => {
+        try {
+          return actualRuleCatalogService.getCharacterFeatureSnapshot(params);
+        } catch {
+          return {
+            featureIds: [
+              "class.fighter.feature.fighting_style",
+              "class.fighter.feature.second_wind",
+              "class.fighter.feature.action_surge",
+              "class.fighter.feature.martial_archetype",
+              "subclass.fighter.champion.feature.improved_critical",
+            ],
+          };
+        }
       }),
-      listSubclassFeatures: jest.fn().mockReturnValue([
-        {
-          id: "subclass.fighter.champion.feature.improved_critical",
-          kind: "subclass_features",
-          levelRequirement: { minClassLevel: 3 },
-          runtimeEffect: { tags: ["critical_range:19_20"] },
-        },
-      ]),
-      listClassFeaturesForLevel: jest.fn().mockReturnValue([]),
+      resolveRuntimeTags: jest.fn((featureIds: Iterable<string>) =>
+        actualRuleCatalogService.resolveRuntimeTags(featureIds),
+      ),
+      listSubclassFeatures: jest.fn((
+        classKey: string,
+        subclassKey: string,
+        classLevel?: number,
+      ) => actualRuleCatalogService.listSubclassFeatures(classKey, subclassKey, classLevel)),
+      listClassFeaturesForLevel: jest.fn((classKey: string, classLevel?: number) =>
+        actualRuleCatalogService.listClassFeaturesForLevel(classKey, classLevel),
+      ),
       listEntries: jest.fn((kind?: Parameters<RuleCatalogService["listEntries"]>[0]) =>
         actualRuleCatalogService.listEntries(kind),
       ),
@@ -316,6 +389,8 @@ describe("CharactersService level up", () => {
             "spell.shield",
             "spell.sleep",
             "spell.cure_wounds",
+            "spell.detect_magic",
+            "spell.burning_hands",
           ],
         },
       }),
@@ -352,6 +427,8 @@ describe("CharactersService level up", () => {
             "spell.magic_missile",
             "spell.shield",
             "spell.detect_magic",
+            "spell.sleep",
+            "spell.burning_hands",
             "spell.wish",
           ],
         },
@@ -385,12 +462,7 @@ describe("CharactersService level up", () => {
         startingEquipmentSelection: [],
         startingSpells: {
           cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-          spells: [
-            "spell.magic_missile",
-            "spell.shield",
-            "spell.sleep",
-            "spell.cure_wounds",
-          ],
+          spells: wizardLevel1StartingSpells,
           preparedSpells: ["spell.magic_missile", "spell.shield", "spell.sleep"],
         },
       }),
@@ -470,12 +542,7 @@ describe("CharactersService level up", () => {
           "spell.chill_touch",
           "spell.ray_of_frost",
         ],
-        spells: [
-          "spell.magic_missile",
-          "spell.shield",
-          "spell.fireball",
-          "spell.cure_wounds",
-        ],
+        spells: wizardLevel5StartingSpells,
         preparedSpells: ["spell.fireball"],
       }),
       sessionCharacters: [],
@@ -497,12 +564,7 @@ describe("CharactersService level up", () => {
           "spell.chill_touch",
           "spell.ray_of_frost",
         ],
-        spells: [
-          "spell.magic_missile",
-          "spell.shield",
-          "spell.fireball",
-          "spell.cure_wounds",
-        ],
+        spells: wizardLevel5StartingSpells,
         preparedSpells: ["spell.fireball"],
       },
     });
@@ -517,12 +579,7 @@ describe("CharactersService level up", () => {
               "spell.chill_touch",
               "spell.ray_of_frost",
             ],
-            spells: [
-              "spell.magic_missile",
-              "spell.shield",
-              "spell.fireball",
-              "spell.cure_wounds",
-            ],
+            spells: wizardLevel5StartingSpells,
             preparedSpells: ["spell.fireball"],
           }),
         }),
@@ -531,7 +588,7 @@ describe("CharactersService level up", () => {
     expect(result.spells?.preparedSpells).toEqual(["spell.fireball"]);
   });
 
-  it("accepts P5 level 7 and 8 catalog spells for level 16 starting casters", async () => {
+  it("uses the official wizard spellbook count for level 16 starting casters", async () => {
     const { service, prisma, catalogService } = createService();
     catalogService.findClassByKey.mockResolvedValue({
       hitDie: "d6",
@@ -557,13 +614,8 @@ describe("CharactersService level up", () => {
           "spell.ray_of_frost",
           "spell.acid_splash",
         ],
-        spells: [
-          "spell.magic_missile",
-          "spell.fireball",
-          "spell.teleport",
-          "spell.sunburst",
-        ],
-        preparedSpells: ["spell.teleport", "spell.sunburst"],
+        spells: wizardLevel16StartingSpells,
+        preparedSpells: ["spell.fireball", "spell.counterspell"],
       }),
       sessionCharacters: [],
     });
@@ -585,13 +637,8 @@ describe("CharactersService level up", () => {
           "spell.ray_of_frost",
           "spell.acid_splash",
         ],
-        spells: [
-          "spell.magic_missile",
-          "spell.fireball",
-          "spell.teleport",
-          "spell.sunburst",
-        ],
-        preparedSpells: ["spell.teleport", "spell.sunburst"],
+        spells: wizardLevel16StartingSpells,
+        preparedSpells: ["spell.fireball", "spell.counterspell"],
       },
     });
 
@@ -606,23 +653,13 @@ describe("CharactersService level up", () => {
               "spell.ray_of_frost",
               "spell.acid_splash",
             ],
-            spells: [
-              "spell.magic_missile",
-              "spell.fireball",
-              "spell.teleport",
-              "spell.sunburst",
-            ],
-            preparedSpells: ["spell.teleport", "spell.sunburst"],
+            spells: wizardLevel16StartingSpells,
+            preparedSpells: ["spell.fireball", "spell.counterspell"],
           }),
         }),
       }),
     );
-    expect(result.spells?.spells).toEqual([
-      "spell.magic_missile",
-      "spell.fireball",
-      "spell.teleport",
-      "spell.sunburst",
-    ]);
+    expect(result.spells?.spells).toEqual(wizardLevel16StartingSpells);
   });
 
   it("accepts Cure Wounds as an executable starting prepared spell", async () => {
@@ -915,6 +952,53 @@ describe("CharactersService level up", () => {
     );
   });
 
+  it("applies Draconic Resilience HP bonus during sorcerer creation", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d6",
+      koName: "소서러",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+    prisma.character.create.mockResolvedValue({
+      ...baseCharacter,
+      className: "sorcerer",
+      subclassName: "draconic_bloodline",
+      level: 5,
+      abilitiesJson: JSON.stringify({ str: 8, dex: 14, con: 14, int: 10, wis: 10, cha: 15 }),
+      maxHp: 37,
+      proficiencyBonus: 3,
+      featuresJson: JSON.stringify([
+        "class.sorcerer.feature.spellcasting",
+        "subclass.sorcerer.draconic_bloodline.feature.draconic_resilience",
+      ]),
+      sessionCharacters: [],
+    });
+
+    await service.createCharacter("user-1", {
+      name: "Draconic Sorcerer",
+      ancestry: "Unknown",
+      className: "sorcerer",
+      subclassName: "draconic_bloodline",
+      level: 5,
+      abilities: { str: 8, dex: 14, con: 14, int: 10, wis: 10, cha: 15 },
+      proficientSkills: [],
+      startingEquipmentSelection: [],
+    });
+
+    expect(prisma.character.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          maxHp: 37,
+        }),
+      }),
+    );
+  });
+
   it("requires a subclass choice when level up reaches the class choice level", async () => {
     const { service, prisma } = createService();
     prisma.character.findUnique.mockResolvedValue({
@@ -1184,6 +1268,54 @@ describe("CharactersService level up", () => {
     expect(result.abilities).toMatchObject({ str: 24, con: 22 });
     expect(result.maxHp).toBe(265);
     expect(result.features).toContain("class.barbarian.feature.primal_champion");
+  });
+
+  it("adds only the newly gained Draconic Resilience HP bonus during level up", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d6",
+      koName: "소서러",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    const existing = {
+      ...baseCharacter,
+      className: "sorcerer",
+      subclassName: "draconic_bloodline",
+      level: 1,
+      abilitiesJson: JSON.stringify({ str: 8, dex: 14, con: 14, int: 10, wis: 10, cha: 15 }),
+      maxHp: 9,
+      featuresJson: JSON.stringify([
+        "class.sorcerer.feature.spellcasting",
+        "subclass.sorcerer.draconic_bloodline.feature.draconic_resilience",
+      ]),
+      sessionCharacters: [],
+    };
+    const updated = {
+      ...existing,
+      level: 2,
+      maxHp: 16,
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    };
+    prisma.character.findUnique.mockResolvedValue(existing);
+    prisma.character.update.mockResolvedValue(updated);
+
+    const result = await service.levelUpCharacter("user-1", "character-1", {
+      targetLevel: 2,
+      hpMode: "average",
+    });
+
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          maxHp: 16,
+        }),
+      }),
+    );
+    expect(result.maxHp).toBe(16);
   });
 
   it("updates prepared spells as part of level up when requested", async () => {

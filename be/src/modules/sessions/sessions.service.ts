@@ -1365,6 +1365,13 @@ export class SessionsService {
       throw new ConflictException("이미 다른 세션에서 플레이 중인 캐릭터입니다. 다른 세션에서 해당 캐릭터를 선택 해제한 후 다시 시도해주세요.");
     }
 
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
+    this.ensureCharacterMatchesScenarioLevel({
+      characterName: character.name,
+      characterLevel: character.level,
+      scenario: activeScenario.scenario,
+    });
+
     const sessionCharacter = await this.prisma.sessionCharacter.upsert({
       where: {
         sessionId_userId: {
@@ -1477,6 +1484,15 @@ export class SessionsService {
       throw new ConflictException("Select a character before marking yourself ready.");
     }
 
+    if (dto.isReady && participant.sessionCharacter) {
+      const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
+      this.ensureCharacterMatchesScenarioLevel({
+        characterName: participant.sessionCharacter.character.name,
+        characterLevel: participant.sessionCharacter.character.level,
+        scenario: activeScenario.scenario,
+      });
+    }
+
     const updatedParticipant = await this.prisma.sessionParticipant.update({
       where: { id: participant.id },
       data: {
@@ -1558,7 +1574,9 @@ export class SessionsService {
         status: PrismaParticipantStatus.JOINED,
       },
       include: {
-        sessionCharacter: true,
+        sessionCharacter: {
+          include: { character: true },
+        },
       },
       orderBy: { joinedAt: "asc" },
     });
@@ -1585,12 +1603,27 @@ export class SessionsService {
       throw new ConflictException("All players must select a character before the session starts.");
     }
 
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
+    const participantWithInvalidLevel = playerParticipants.find((participant) => {
+      const character = participant.sessionCharacter?.character;
+      return character ? !this.isCharacterLevelInScenarioRange(character.level, activeScenario.scenario) : false;
+    });
+    if (participantWithInvalidLevel?.sessionCharacter?.character) {
+      const character = participantWithInvalidLevel.sessionCharacter.character;
+      throw new ConflictException(
+        this.buildScenarioLevelMismatchMessage({
+          characterName: character.name,
+          characterLevel: character.level,
+          scenario: activeScenario.scenario,
+        }),
+      );
+    }
+
     const participantNotReady = playerParticipants.find((participant) => !participant.isReady);
     if (participantNotReady) {
       throw new ConflictException("All players must be ready before the session starts.");
     }
 
-    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(resolvedSessionId);
     const state = activeScenario.gameState;
     await this.ensureSessionScenarioNodeSnapshotForScenario(activeScenario.id, activeScenario.scenarioId);
     const currentNodeId = state?.currentNodeId ?? null;
@@ -3754,6 +3787,47 @@ export class SessionsService {
         `대상 캠페인 레벨 범위(${minLevel}-${maxLevel})에 맞는 캐릭터만 이관할 수 있습니다.`,
       );
     }
+  }
+
+  private ensureCharacterMatchesScenarioLevel(params: {
+    characterName?: string | null;
+    characterLevel: number;
+    scenario: { title?: string | null; startLevel?: number | null; recommendedEndLevel?: number | null };
+  }): void {
+    if (this.isCharacterLevelInScenarioRange(params.characterLevel, params.scenario)) {
+      return;
+    }
+
+    throw new ConflictException(this.buildScenarioLevelMismatchMessage(params));
+  }
+
+  private isCharacterLevelInScenarioRange(
+    characterLevel: number,
+    scenario: { startLevel?: number | null; recommendedEndLevel?: number | null },
+  ): boolean {
+    const { minLevel, maxLevel } = this.getScenarioLevelRange(scenario);
+    return characterLevel >= minLevel && characterLevel <= maxLevel;
+  }
+
+  private buildScenarioLevelMismatchMessage(params: {
+    characterName?: string | null;
+    characterLevel: number;
+    scenario: { title?: string | null; startLevel?: number | null; recommendedEndLevel?: number | null };
+  }): string {
+    const { minLevel, maxLevel } = this.getScenarioLevelRange(params.scenario);
+    const characterLabel = params.characterName?.trim() || "선택한 캐릭터";
+    const scenarioLabel = params.scenario.title?.trim() || "이 시나리오";
+    const levelLabel = minLevel === maxLevel ? `${minLevel}레벨` : `${minLevel}-${maxLevel}레벨`;
+    return `${scenarioLabel}에는 ${levelLabel} 캐릭터만 참여할 수 있습니다. ${characterLabel}의 현재 레벨은 ${params.characterLevel}입니다.`;
+  }
+
+  private getScenarioLevelRange(scenario: { startLevel?: number | null; recommendedEndLevel?: number | null }): {
+    minLevel: number;
+    maxLevel: number;
+  } {
+    const minLevel = Math.max(scenario.startLevel ?? 1, 1);
+    const maxLevel = Math.max(scenario.recommendedEndLevel ?? minLevel, minLevel);
+    return { minLevel, maxLevel };
   }
 
   private ensureP6CharacterTransferInventoryPolicy(inventoryJson: string | null | undefined): string {

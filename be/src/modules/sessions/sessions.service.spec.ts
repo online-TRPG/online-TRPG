@@ -65,6 +65,47 @@ describe("HumanGmMessageDto validation", () => {
   });
 });
 
+describe("SessionsService scenario level policy", () => {
+  function createService() {
+    return new SessionsService({} as never, {} as never, {} as never, {} as never) as never as {
+      ensureCharacterMatchesScenarioLevel: (params: {
+        characterName?: string | null;
+        characterLevel: number;
+        scenario: { title?: string | null; startLevel?: number | null; recommendedEndLevel?: number | null };
+      }) => void;
+      isCharacterLevelInScenarioRange: (
+        characterLevel: number,
+        scenario: { startLevel?: number | null; recommendedEndLevel?: number | null },
+      ) => boolean;
+    };
+  }
+
+  it("accepts only the scenario start level when no recommended end level is configured", () => {
+    const service = createService();
+    const scenario = { title: "고블린 동굴", startLevel: 1, recommendedEndLevel: null };
+
+    expect(service.isCharacterLevelInScenarioRange(1, scenario)).toBe(true);
+    expect(service.isCharacterLevelInScenarioRange(2, scenario)).toBe(false);
+    expect(() =>
+      service.ensureCharacterMatchesScenarioLevel({
+        characterName: "고레벨 영웅",
+        characterLevel: 2,
+        scenario,
+      }),
+    ).toThrow(ConflictException);
+  });
+
+  it("accepts characters within the configured scenario level range", () => {
+    const service = createService();
+    const scenario = { title: "폭풍 금고", startLevel: 17, recommendedEndLevel: 20 };
+
+    expect(service.isCharacterLevelInScenarioRange(17, scenario)).toBe(true);
+    expect(service.isCharacterLevelInScenarioRange(20, scenario)).toBe(true);
+    expect(service.isCharacterLevelInScenarioRange(16, scenario)).toBe(false);
+    expect(service.isCharacterLevelInScenarioRange(21, scenario)).toBe(false);
+  });
+});
+
 describe("RevealSessionContentDto validation", () => {
   it("rejects unsupported HUMAN GM reveal content kinds before audit logging", async () => {
     const dto = plainToInstance(RevealSessionContentDto, {
