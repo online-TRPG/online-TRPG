@@ -61,6 +61,8 @@ const POINT_BUY_COST: Readonly<Record<number, number>> = {
   14: 7,
   15: 9,
 };
+const WIZARD_STARTING_SPELLBOOK_SPELL_COUNT = 6;
+const WIZARD_SPELLBOOK_SPELLS_PER_LEVEL = 2;
 
 // shared-types/src/constants/skills.ts 와 동기화 유지 — BE seed (be/src/database/seed/classes.ts ALL_SKILLS) 가 정답.
 // 영문 코드/한국어 어느 쪽 입력도 한국어 정규형으로 normalize 한다.
@@ -521,14 +523,19 @@ function getMvpStartingSlotSpellCount(
   }
   const seededCount =
     classKey === 'wizard'
-      ? Math.max(
-          klass.startingSpellCount,
-          getImplementedSpellOptions(className, 'slot', 1, ruleCatalog).length
-        )
+      ? getWizardStartingSpellbookSpellCount(level)
       : klass.startingSpellCount;
   return Math.min(
     seededCount,
     getImplementedSpellOptions(className, 'slot', level, ruleCatalog).length
+  );
+}
+
+function getWizardStartingSpellbookSpellCount(level: number) {
+  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
+  return (
+    WIZARD_STARTING_SPELLBOOK_SPELL_COUNT +
+    (normalizedLevel - 1) * WIZARD_SPELLBOOK_SPELLS_PER_LEVEL
   );
 }
 
@@ -1414,8 +1421,52 @@ function getClassStartingEquipmentSlots(selectedClass: ClassDefinitionResponseDt
   }));
 }
 
+function normalizeRaceLookupValue(value: string) {
+  return value.trim().toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
+}
+
 function getRaceByValue(raceCatalog: RaceData[], value: string): RaceData | null {
-  return raceCatalog.find((option) => option.value === value) ?? null;
+  const normalizedValue = normalizeRaceLookupValue(value);
+  if (!normalizedValue) return null;
+  return (
+    raceCatalog.find((option) =>
+      [
+        option.value,
+        option.label,
+        option.id,
+        option.id.includes('.') ? option.id.slice(option.id.lastIndexOf('.') + 1) : option.id,
+      ].some((candidate) => normalizeRaceLookupValue(candidate) === normalizedValue)
+    ) ?? null
+  );
+}
+
+function buildRaceAbilityBonusesFromIncreases(
+  abilityIncreases: RaceResponseDto['abilityIncreases']
+): RaceAbilityBonus[] {
+  return (Object.entries(abilityIncreases) as Array<[AbilityKey, number]>)
+    .filter(([, amount]) => amount !== 0)
+    .map(([ability, amount]) => ({ ability, amount }));
+}
+
+function buildSelectedRaceInfo(
+  selectedRace: RaceResponseDto | null,
+  staticRaceInfo: RaceData | null
+): RaceData | null {
+  if (!selectedRace) return staticRaceInfo;
+  return {
+    id: selectedRace.id,
+    value: selectedRace.key,
+    label: selectedRace.koName,
+    size: selectedRace.size,
+    speed: selectedRace.baseSpeed,
+    speedRaw: `${selectedRace.baseSpeed} ft.`,
+    abilityScoreIncreaseRaw: buildRaceAbilityBonusesFromIncreases(selectedRace.abilityIncreases)
+      .map(formatAbilityBonus)
+      .join(', '),
+    abilityBonuses: buildRaceAbilityBonusesFromIncreases(selectedRace.abilityIncreases),
+    languages: selectedRace.languages,
+    traitSummaries: staticRaceInfo?.traitSummaries ?? [],
+  };
 }
 
 function getClassOptionByValue(classCatalog: ClassOption[], value: string): ClassOption | null {
@@ -1664,9 +1715,20 @@ export function CharacterPage({
     const con = formState.abilities?.con ?? 10;
     const conMod = Math.floor((con - 10) / 2);
     const proficiencyBonus = Math.floor((level - 1) / 4) + 2;
-    const maxHp = hd.max + conMod + (level - 1) * (hd.avg + conMod);
-    return { proficiencyBonus, maxHp };
-  }, [selectedClass, formState.level, formState.abilities?.con]);
+    const hpBonus =
+      (selectedRace?.key === 'hill-dwarf' ? level : 0) +
+      (selectedClass.key === 'sorcerer' && formState.subclassName === 'draconic_bloodline'
+        ? level
+        : 0);
+    const maxHp = hd.max + conMod + (level - 1) * Math.max(hd.avg + conMod, 1) + hpBonus;
+    return { proficiencyBonus, maxHp, hpBonus };
+  }, [
+    selectedClass,
+    selectedRace?.key,
+    formState.level,
+    formState.abilities?.con,
+    formState.subclassName,
+  ]);
 
   // derivedLevelStats 가 바뀌면 formState 의 prof/maxHp 동기화 (사용자가 못 바꾸는 값).
   useEffect(() => {
@@ -2060,10 +2122,10 @@ export function CharacterPage({
     () => new Map(ancestryOptions.map((option) => [option.value, option.label])),
     [ancestryOptions]
   );
-  const selectedRaceInfo = useMemo(
-    () => getRaceByValue(raceCatalog, formState.ancestry),
-    [formState.ancestry, raceCatalog]
-  );
+  const selectedRaceInfo = useMemo(() => {
+    const staticRaceInfo = getRaceByValue(raceCatalog, formState.ancestry);
+    return buildSelectedRaceInfo(selectedRace, staticRaceInfo);
+  }, [formState.ancestry, raceCatalog, selectedRace]);
   const selectedClassInfo = useMemo(
     () => getClassOptionByValue(classCatalog, formState.className),
     [classCatalog, formState.className]
@@ -3621,7 +3683,7 @@ export function CharacterPage({
                                         ? localizeAbilityText(selectedClassInfo.primaryAbilitiesRaw)
                                         : '정보 없음'}
                                     </p>
-                                    <p>히트다이: {selectedClassInfo?.hitDieRaw ?? '정보 없음'}</p>
+                                    <p>히트 다이스: {selectedClassInfo?.hitDieRaw ?? '정보 없음'}</p>
                                     <p>
                                       주문시전 능력치:{' '}
                                       {selectedClassInfo?.spellcastingAbility
@@ -4280,11 +4342,16 @@ export function CharacterPage({
                               const hdAvg =
                                 { d6: 4, d8: 5, d10: 6, d12: 7 }[selectedClass.hitDie] ?? 0;
                               const modText = conMod >= 0 ? `+${conMod}` : `${conMod}`;
+                              const levelGain = Math.max(hdAvg + conMod, 1);
+                              const bonusText =
+                                derivedLevelStats.hpBonus > 0
+                                  ? ` + 보정 ${derivedLevelStats.hpBonus}`
+                                  : '';
                               return (
                                 <span className="character-create-stat-card-help">
                                   {level === 1
-                                    ? `${selectedClass.hitDie}(max ${hdMax}) + Con(${modText})`
-                                    : `${selectedClass.hitDie}(max ${hdMax}) + ${level - 1}x(${hdAvg}+${modText})`}
+                                    ? `${selectedClass.hitDie}(max ${hdMax}) + Con(${modText})${bonusText}`
+                                    : `${selectedClass.hitDie}(max ${hdMax}) + ${level - 1}x(${levelGain})${bonusText}`}
                                 </span>
                               );
                             })()
@@ -4366,7 +4433,7 @@ export function CharacterPage({
                               ? localizeAbilityText(selectedClassInfo.primaryAbilitiesRaw)
                               : '정보 없음'}
                           </p>
-                          <p>히트다이: {selectedClassInfo?.hitDieRaw ?? '정보 없음'}</p>
+                          <p>히트 다이스: {selectedClassInfo?.hitDieRaw ?? '정보 없음'}</p>
                           <p>
                             주문시전 능력치:{' '}
                             {selectedClassInfo?.spellcastingAbility

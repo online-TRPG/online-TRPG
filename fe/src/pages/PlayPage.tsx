@@ -2002,6 +2002,30 @@ export function PlayPage({
   const isHost = session?.hostUserId === user.id;
   const isRecruiting = session?.status === 'recruiting';
   const isSessionCompleted = session?.status === 'completed';
+  const activeScenario =
+    snapshot?.sessionScenarios.find((item) => item.status === 'ACTIVE') ??
+    snapshot?.sessionScenarios[0];
+  const scenarioLevelRange = useMemo(() => {
+    const minLevel = Math.max(activeScenario?.scenario.startLevel ?? 1, 1);
+    const maxLevel = Math.max(activeScenario?.scenario.recommendedEndLevel ?? minLevel, minLevel);
+    return { minLevel, maxLevel };
+  }, [activeScenario?.scenario.recommendedEndLevel, activeScenario?.scenario.startLevel]);
+  const scenarioLevelLabel =
+    scenarioLevelRange.minLevel === scenarioLevelRange.maxLevel
+      ? `${scenarioLevelRange.minLevel}레벨`
+      : `${scenarioLevelRange.minLevel}-${scenarioLevelRange.maxLevel}레벨`;
+  const isCharacterLevelAllowedForScenario = useCallback(
+    (character: Pick<Character, 'level'> | Pick<PersistentCharacter, 'level'> | null | undefined) =>
+      Boolean(
+        character &&
+          character.level >= scenarioLevelRange.minLevel &&
+          character.level <= scenarioLevelRange.maxLevel
+      ),
+    [scenarioLevelRange.maxLevel, scenarioLevelRange.minLevel]
+  );
+  const selectedCharacterLevelAllowed = selectedCharacter
+    ? isCharacterLevelAllowedForScenario(selectedCharacter)
+    : true;
   const canManageStartedSession = Boolean(
     !isRecruiting && (isHumanGmSession ? isGmUser : isHost)
   );
@@ -2022,7 +2046,8 @@ export function PlayPage({
     (isHumanGmSession ? isGmUser : isHost) &&
       isRecruiting &&
       allPlayersReady &&
-      playerParticipants.length > 0
+      playerParticipants.length > 0 &&
+      sessionCharacters.every((character) => isCharacterLevelAllowedForScenario(character))
   );
 
   async function handleApproveRestRequest(actionId: string) {
@@ -2054,9 +2079,6 @@ export function PlayPage({
       return next;
     });
   }
-  const activeScenario =
-    snapshot?.sessionScenarios.find((item) => item.status === 'ACTIVE') ??
-    snapshot?.sessionScenarios[0];
   const scenarioDescriptionText = infoText || activeScenario?.scenario.description || '';
 
   useEffect(() => {
@@ -2877,13 +2899,22 @@ export function PlayPage({
 
   const joinableCharacters = useMemo(
     () =>
-      characters.map((character) => ({
-        ...character,
-        isSelected: character.id === selectedCharacterId,
-        isDisabled:
-          !character.isSelectable || (readyLocked && character.id !== selectedCharacterId),
-      })),
-    [characters, readyLocked, selectedCharacterId]
+      characters.map((character) => {
+        const isLevelAllowed = isCharacterLevelAllowedForScenario(character);
+        return {
+          ...character,
+          isSelected: character.id === selectedCharacterId,
+          isLevelAllowed,
+          levelRestrictionReason: isLevelAllowed
+            ? null
+            : `이 시나리오는 ${scenarioLevelLabel} 캐릭터만 참여할 수 있습니다.`,
+          isDisabled:
+            !character.isSelectable ||
+            !isLevelAllowed ||
+            (readyLocked && character.id !== selectedCharacterId),
+        };
+      }),
+    [characters, isCharacterLevelAllowedForScenario, readyLocked, scenarioLevelLabel, selectedCharacterId]
   );
 
   const wantedCarouselCharacters = useMemo(
@@ -4386,6 +4417,7 @@ export function PlayPage({
 
   function handleCharacterSelectionConfirm() {
     if (busy || readyLocked || !wantedCarouselCharacter) return;
+    if (wantedCarouselCharacter.isDisabled) return;
     if (wantedCarouselCharacter.id === selectedCharacterId) return;
 
     setLocalSelectedCharacterId(wantedCarouselCharacter.id);
@@ -4996,6 +5028,16 @@ export function PlayPage({
                         </div>
                       </div>
 
+                      {wantedCarouselCharacter?.levelRestrictionReason ? (
+                        <p className="session-ready-warning">
+                          {wantedCarouselCharacter.levelRestrictionReason} 현재 캐릭터는 {wantedCarouselCharacter.level}레벨입니다.
+                        </p>
+                      ) : activeScenario ? (
+                        <p className="recruiting-wanted-empty-copy">
+                          권장 레벨: {scenarioLevelLabel}
+                        </p>
+                      ) : null}
+
                       <div className="recruiting-wanted-abilities">
                         {wantedCarouselCharacter ? (
                           selectedCharacterAbilitySummary.map((ability) => (
@@ -5033,7 +5075,8 @@ export function PlayPage({
                       disabled={
                         busy ||
                         readyLocked ||
-                        (!selectedCharacterId && !wantedCarouselCharacter)
+                        (!selectedCharacterId && !wantedCarouselCharacter) ||
+                        (!selectedCharacterId && Boolean(wantedCarouselCharacter?.isDisabled))
                       }
                     >
                       {selectedCharacterId ? '선택 해제' : '캐릭터 선택'}
@@ -5042,7 +5085,7 @@ export function PlayPage({
                       type="button"
                       className={`ready-toggle-button recruiting-ready-button recruiting-wanted-ready${myParticipant?.isReady ? ' active' : ''
                         }`}
-                      disabled={busy || !selectedCharacter}
+                      disabled={busy || !selectedCharacter || !selectedCharacterLevelAllowed}
                       onClick={() => onSetReady(!myParticipant?.isReady)}
                     >
                       {myParticipant?.isReady ? '준비 해제' : '준비 완료'}
