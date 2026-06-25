@@ -19,7 +19,11 @@ const baseCharacter = {
   abilitiesJson: JSON.stringify({ str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 10 }),
   proficiencyBonus: 2,
   proficientSkillsJson: JSON.stringify([]),
-  featuresJson: JSON.stringify(["class.fighter.feature.fighting_style", "class.fighter.feature.second_wind"]),
+  featuresJson: JSON.stringify([
+    "class.fighter.feature.fighting_style",
+    "class.fighter.feature.second_wind",
+    "fighting_style:defense",
+  ]),
   maxHp: 12,
   armorClass: 16,
   speed: 30,
@@ -218,6 +222,53 @@ describe("CharactersService level up", () => {
     };
   };
 
+  it("accepts non-default provided scenarios during character creation", async () => {
+    const { service, prisma } = createService();
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+    prisma.scenario.findUnique.mockResolvedValue({
+      id: "scenario_p2_storm_vault",
+      createdByUserId: null,
+      sourceType: "SYSTEM",
+      startLevel: 5,
+    });
+    prisma.character.create.mockResolvedValue({
+      ...baseCharacter,
+      scenarioId: "scenario_p2_storm_vault",
+      level: 5,
+      subclassName: "champion",
+      sessionCharacters: [],
+    });
+
+    await service.createCharacter("user-1", {
+      name: "Storm Vault Fighter",
+      ancestry: "Human",
+      className: "fighter",
+      subclassName: "champion",
+      scenarioId: "scenario_p2_storm_vault",
+      level: 5,
+      abilities: {
+        str: 15,
+        dex: 12,
+        con: 14,
+        int: 10,
+        wis: 10,
+        cha: 10,
+      },
+      proficientSkills: [],
+      features: ["fighting_style:defense", "asi:str"],
+      startingEquipmentSelection: [],
+    });
+
+    expect(prisma.character.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          scenarioId: "scenario_p2_storm_vault",
+          level: 5,
+        }),
+      }),
+    );
+  });
+
   it("uses seeded race speed and hill dwarf HP bonus during creation", async () => {
     const { service, prisma, racesService } = createService();
     prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
@@ -269,6 +320,7 @@ describe("CharactersService level up", () => {
         cha: 8,
       },
       proficientSkills: [],
+      features: ["fighting_style:defense"],
       startingEquipmentSelection: [],
     });
 
@@ -276,6 +328,76 @@ describe("CharactersService level up", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           maxHp: 13,
+          speed: 25,
+        }),
+      }),
+    );
+  });
+
+  it("accepts starting-level ASI choices without adding them to Point Buy ability scores", async () => {
+    const { service, prisma, racesService } = createService();
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+    racesService.findByKey.mockResolvedValue({
+      id: "race-hill-dwarf",
+      key: "hill-dwarf",
+      koName: "언덕 드워프",
+      size: "Medium",
+      baseSpeed: 25,
+      abilityIncreasesJson: JSON.stringify({
+        str: 0,
+        dex: 0,
+        con: 2,
+        int: 0,
+        wis: 1,
+        cha: 0,
+      }),
+      languagesJson: JSON.stringify(["Common", "Dwarvish"]),
+      parentRaceId: "race-dwarf",
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+    });
+    prisma.character.create.mockResolvedValue({
+      ...baseCharacter,
+      ancestry: "hill-dwarf",
+      subclassName: "champion",
+      level: 4,
+      abilitiesJson: JSON.stringify({
+        str: 15,
+        dex: 14,
+        con: 15,
+        int: 12,
+        wis: 11,
+        cha: 8,
+      }),
+      maxHp: 40,
+      speed: 25,
+      sessionCharacters: [],
+    });
+
+    await service.createCharacter("user-1", {
+      name: "ASI Hill Dwarf Fighter",
+      ancestry: "hill-dwarf",
+      className: "fighter",
+      subclassName: "champion",
+      level: 4,
+      abilities: {
+        str: 15,
+        dex: 14,
+        con: 15,
+        int: 12,
+        wis: 11,
+        cha: 8,
+      },
+      proficientSkills: [],
+      features: ["fighting_style:defense", "asi:str"],
+      startingEquipmentSelection: [],
+    });
+
+    expect(prisma.character.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          level: 4,
+          maxHp: 40,
           speed: 25,
         }),
       }),
@@ -326,6 +448,129 @@ describe("CharactersService level up", () => {
         code: "CHARACTER_DRACONIC_ANCESTRY_REQUIRED",
       }),
     });
+  });
+
+  it("requires a fighting style selection for fighter creation", async () => {
+    const { service, prisma } = createService();
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+
+    await expect(
+      service.createCharacter("user-1", {
+        name: "Styleless Fighter",
+        ancestry: "Unknown",
+        className: "fighter",
+        level: 1,
+        abilities: { str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 10 },
+        proficientSkills: [],
+        startingEquipmentSelection: [],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "CHARACTER_FIGHTING_STYLE_REQUIRED",
+      }),
+    });
+
+    expect(prisma.character.create).not.toHaveBeenCalled();
+  });
+
+  it("requires two humanoid choices when ranger favored enemy is humanoid", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d10",
+      koName: "레인저",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+
+    await expect(
+      service.createCharacter("user-1", {
+        name: "Incomplete Ranger",
+        ancestry: "Unknown",
+        className: "ranger",
+        level: 1,
+        abilities: { str: 10, dex: 15, con: 14, int: 10, wis: 14, cha: 8 },
+        proficientSkills: [],
+        features: ["favored_enemy:humanoid"],
+        startingEquipmentSelection: [],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "CHARACTER_FAVORED_HUMANOID_REQUIRED",
+      }),
+    });
+
+    expect(prisma.character.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects feat selections before the first ASI level during character creation", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d12",
+      koName: "바바리안",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+
+    await expect(
+      service.createCharacter("user-1", {
+        name: "Early Alert Barbarian",
+        ancestry: "Unknown",
+        className: "barbarian",
+        level: 1,
+        abilities: { str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 8 },
+        proficientSkills: [],
+        features: ["feat.alert"],
+        startingEquipmentSelection: [],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "CHARACTER_FEAT_LEVEL_REQUIREMENT",
+      }),
+    });
+
+    expect(prisma.character.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplicate ASI ability choices during higher-level character creation", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d6",
+      koName: "위저드",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+
+    await expect(
+      service.createCharacter("user-1", {
+        name: "Duplicate ASI Wizard",
+        ancestry: "Unknown",
+        className: "wizard",
+        subclassName: "evocation",
+        level: 8,
+        abilities: { str: 8, dex: 14, con: 14, int: 19, wis: 10, cha: 10 },
+        proficientSkills: [],
+        features: ["asi:int", "asi:int"],
+        startingEquipmentSelection: [],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "CHARACTER_DUPLICATE_ASI_CHOICE",
+      }),
+    });
+
+    expect(prisma.character.create).not.toHaveBeenCalled();
   });
 
   it("rejects blank starting spell selections after trimming", async () => {
@@ -556,6 +801,7 @@ describe("CharactersService level up", () => {
       level: 5,
       abilities: { str: 8, dex: 14, con: 14, int: 15, wis: 10, cha: 10 },
       proficientSkills: [],
+      features: ["asi:int"],
       startingEquipmentSelection: [],
       startingSpells: {
         cantrips: [
@@ -628,6 +874,7 @@ describe("CharactersService level up", () => {
       level: 16,
       abilities: { str: 8, dex: 14, con: 14, int: 18, wis: 10, cha: 10 },
       proficientSkills: [],
+      features: ["asi:int", "asi:dex", "asi:con", "asi:wis"],
       startingEquipmentSelection: [],
       startingSpells: {
         cantrips: [
@@ -779,6 +1026,7 @@ describe("CharactersService level up", () => {
         "class.fighter.feature.action_surge",
         "class.fighter.feature.martial_archetype",
         "subclass.fighter.champion.feature.improved_critical",
+        "fighting_style:defense",
       ]),
       updatedAt: new Date("2026-06-02T00:00:00.000Z"),
       sessionCharacters: existing.sessionCharacters,
@@ -821,6 +1069,7 @@ describe("CharactersService level up", () => {
             "class.fighter.feature.action_surge",
             "class.fighter.feature.martial_archetype",
             "subclass.fighter.champion.feature.improved_critical",
+            "fighting_style:defense",
           ]),
         }),
       }),
@@ -988,6 +1237,7 @@ describe("CharactersService level up", () => {
       level: 5,
       abilities: { str: 8, dex: 14, con: 14, int: 10, wis: 10, cha: 15 },
       proficientSkills: [],
+      features: ["asi:cha"],
       startingEquipmentSelection: [],
       startingSpells: {
         cantrips: [

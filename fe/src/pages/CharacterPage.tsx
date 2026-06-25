@@ -28,6 +28,7 @@ import {
   loadSpellCatalog,
   normalizeClassValue,
   type ClassOption,
+  type ClassFeatureReference,
   type ClassOptionValue,
   type RaceAbilityBonus,
   type RaceData,
@@ -46,6 +47,10 @@ import type {
   UpdatePreparedSpellsDto,
 } from '@trpg/shared-types';
 import { InventoryItemInfo } from '../features/sessionPlay/components/InventoryItemInfo';
+import {
+  getCharacterFeatureDisplayInfo,
+  summarizeCharacterFeatures,
+} from '../features/characters/characterFeaturePresentation';
 import {
   SpellSelectionGrid,
   type SpellSelectionGridDetail,
@@ -130,9 +135,30 @@ interface CharacterPageProps {
 
 type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
 type ScalingAbilityKey = 'str' | 'dex' | 'int';
-type CharacterCreateStepKey = 'profile' | 'stats' | 'features' | 'equipment' | 'spells';
+type CharacterCreateStepKey =
+  | 'profile'
+  | 'stats'
+  | 'skills'
+  | 'features'
+  | 'equipment'
+  | 'spells'
+  | 'review';
 
 const ASI_LEVELS = [4, 8, 12, 14, 16, 19] as const;
+
+type CharacterFeaturePreviewSource = 'race' | 'class' | 'subclass' | 'choice' | 'asi';
+type CharacterFeaturePreviewItem = {
+  id: string;
+  label: string;
+  source: CharacterFeaturePreviewSource;
+  summary: string;
+  level?: number | null;
+  status: 'automatic' | 'required' | 'selected' | 'pending';
+};
+type CharacterFeatureTimelineGroup = {
+  level: number;
+  items: CharacterFeaturePreviewItem[];
+};
 
 function createEmptyAbilityScoreIncreases(): Record<AbilityKey, number> {
   return { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
@@ -143,10 +169,22 @@ function getCrossedAsiLevels(
   currentLevel: number,
   targetLevel: number
 ): number[] {
-  const classSpecificLevels = classKey === 'fighter' ? [6] : [];
-  return [...ASI_LEVELS, ...classSpecificLevels]
+  return getAsiLevelsForClass(classKey)
     .filter((level) => level > currentLevel && level <= targetLevel)
     .sort((left, right) => left - right);
+}
+
+function getAsiLevelsForClass(classKey: string): number[] {
+  const normalizedClassKey = normalizeClassValue(classKey).toLowerCase();
+  const classSpecificLevels =
+    normalizedClassKey === 'fighter' ? [6, 14] : normalizedClassKey === 'rogue' ? [10] : [];
+  return Array.from(new Set([...ASI_LEVELS, ...classSpecificLevels])).sort(
+    (left, right) => left - right
+  );
+}
+
+function getCreationAsiLevels(classKey: string, level: number): number[] {
+  return getAsiLevelsForClass(classKey).filter((asiLevel) => asiLevel <= normalizeLevel(level));
 }
 
 interface InventoryDraftItem {
@@ -176,9 +214,11 @@ const CHARACTER_CREATE_STEPS: ReadonlyArray<{
 }> = [
   { key: 'profile', label: '기본 정보', helper: '이름, 시나리오, 초상화를 정합니다.' },
   { key: 'stats', label: '코어 스탯', helper: '레벨과 능력치를 배분합니다.' },
-  { key: 'features', label: '기술과 특성', helper: '숙련 기술과 직업 기능을 고릅니다.' },
+  { key: 'skills', label: '기술', helper: '숙련 기술과 도구 숙련을 고릅니다.' },
+  { key: 'features', label: '특성', helper: '자동 획득과 선택 필요 특성을 확인합니다.' },
   { key: 'equipment', label: '장비', helper: '시작 장비와 인벤토리를 확인합니다.' },
   { key: 'spells', label: '주문', helper: '캔트립과 시작 주문을 고릅니다.' },
+  { key: 'review', label: '확인', helper: '완성된 캐릭터 구성을 검토합니다.' },
 ] as const;
 
 type ClassName = ClassOptionValue;
@@ -999,6 +1039,108 @@ const draconicAncestryOptions = [
   { value: 'white', label: 'White / 냉기' },
 ];
 
+type FeatureChoiceOption = {
+  value: string;
+  label: string;
+  summary?: string;
+};
+
+type FeatureChoiceContext = {
+  ancestryKey: string;
+  classKey: string;
+  level: number;
+  features: string[];
+  proficientSkills: string[];
+};
+
+type FeatureChoiceDefinition = {
+  id: string;
+  label: string;
+  helper: string;
+  featurePrefix: string;
+  removedPrefixes: string[];
+  mode: 'single' | 'multi';
+  requiredSelections: number;
+  applies: (context: FeatureChoiceContext) => boolean;
+  getOptions: (context: FeatureChoiceContext) => FeatureChoiceOption[];
+  getSelectedSummary?: (selectedValues: string[], context: FeatureChoiceContext) => string;
+};
+
+const featureChoiceDefinitions: FeatureChoiceDefinition[] = [
+  {
+    id: 'choice.dragonborn.draconic_ancestry',
+    label: 'Draconic Ancestry / 용 혈통',
+    helper: '선택한 혈통이 브레스 피해 유형과 피해 저항을 함께 결정합니다.',
+    featurePrefix: 'draconic_ancestry:',
+    removedPrefixes: ['draconic_ancestry:'],
+    mode: 'single',
+    requiredSelections: 1,
+    applies: (context) => context.ancestryKey === 'dragonborn',
+    getOptions: () => draconicAncestryOptions,
+  },
+  {
+    id: 'choice.class.fighting_style',
+    label: 'Fighting Style / 전투 유파',
+    helper: '직업의 전투 방식을 하나 선택해야 합니다.',
+    featurePrefix: 'fighting_style:',
+    removedPrefixes: ['fighting_style:'],
+    mode: 'single',
+    requiredSelections: 1,
+    applies: (context) =>
+      context.classKey === 'fighter' ||
+      ((context.classKey === 'paladin' || context.classKey === 'ranger') && context.level >= 2),
+    getOptions: () =>
+      fightingStyleOptions.map((option) => ({
+        value: option.value,
+        label: option.label,
+        summary: option.effect,
+      })),
+    getSelectedSummary: ([selected]) =>
+      fightingStyleOptions.find((option) => option.value === selected)?.effect ??
+      '선택한 전투 유파가 적용됩니다.',
+  },
+  {
+    id: 'choice.ranger.favored_enemy',
+    label: 'Favored Enemy / 주적',
+    helper: '레인저의 주적 유형을 선택해야 합니다.',
+    featurePrefix: 'favored_enemy:',
+    removedPrefixes: ['favored_enemy:', 'favored_enemy_humanoid:'],
+    mode: 'single',
+    requiredSelections: 1,
+    applies: (context) => context.classKey === 'ranger',
+    getOptions: () => favoredEnemyOptions,
+  },
+  {
+    id: 'choice.ranger.favored_enemy_humanoid',
+    label: 'Favored Enemy: Humanoid / 인간형 주적',
+    helper: '주적을 인간형으로 선택했다면 인간형 종족 2개를 골라야 합니다.',
+    featurePrefix: 'favored_enemy_humanoid:',
+    removedPrefixes: ['favored_enemy_humanoid:'],
+    mode: 'multi',
+    requiredSelections: 2,
+    applies: (context) =>
+      context.classKey === 'ranger' && getFeatureValue(context.features, 'favored_enemy:') === 'humanoid',
+    getOptions: () => favoredHumanoidOptions,
+  },
+  {
+    id: 'choice.rogue.expertise',
+    label: 'Expertise / 전문화',
+    helper: '숙련 기술 2개, 또는 숙련 기술 1개와 Thieves’ tools를 선택합니다.',
+    featurePrefix: 'expertise:',
+    removedPrefixes: ['expertise:'],
+    mode: 'multi',
+    requiredSelections: 2,
+    applies: (context) => context.classKey === 'rogue',
+    getOptions: (context) => [
+      ...context.proficientSkills.map((skill) => ({
+        value: skill,
+        label: getSkillLabel(skill),
+      })),
+      { value: 'thieves_tools', label: "Thieves' tools" },
+    ],
+  },
+];
+
 const startingEquipmentConcreteChoiceOptions = {
   simpleWeapon: {
     label: '단순 무기',
@@ -1081,6 +1223,356 @@ const classChoiceFeaturePrefixes = [
   'favored_enemy_humanoid:',
   'expertise:',
 ];
+
+const featureSourceLabels: Record<CharacterFeaturePreviewSource, string> = {
+  race: '종족',
+  class: '직업',
+  subclass: '서브클래스',
+  choice: '선택',
+  asi: 'ASI/Feat',
+};
+
+const featureStatusLabels: Record<CharacterFeaturePreviewItem['status'], string> = {
+  automatic: '자동 획득',
+  required: '선택 필요',
+  selected: '선택 완료',
+  pending: '대기',
+};
+
+const featureStatusSortOrder: Record<CharacterFeaturePreviewItem['status'], number> = {
+  required: 0,
+  selected: 1,
+  pending: 2,
+  automatic: 3,
+};
+
+const classFeatureIdAliasesByClassKey: Record<string, Record<string, string>> = {
+  barbarian: {
+    격노: 'class.barbarian.feature.rage',
+    비무장_방어: 'class.barbarian.feature.unarmored_defense',
+    무모한_공격: 'class.barbarian.feature.reckless_attack',
+    위험_감각: 'class.barbarian.feature.danger_sense',
+    원초적_길: 'class.barbarian.feature.primal_path',
+  },
+  bard: {
+    주문시전: 'class.bard.feature.spellcasting',
+    바드의_고양감: 'class.bard.feature.bardic_inspiration',
+    만물박사: 'class.bard.feature.jack_of_all_trades',
+    휴식의_노래: 'class.bard.feature.song_of_rest',
+  },
+  cleric: {
+    주문시전: 'class.cleric.feature.spellcasting',
+    신성한_영역: 'class.cleric.feature.divine_domain',
+    신성_변환: 'class.cleric.feature.channel_divinity',
+  },
+  druid: {
+    드루이드어: 'class.druid.feature.druidic',
+    주문시전: 'class.druid.feature.spellcasting',
+    야생_변신: 'class.druid.feature.wild_shape',
+    야생_변신_향상: 'class.druid.feature.wild_shape',
+    드루이드_서클: 'class.druid.feature.druid_circle',
+  },
+  fighter: {
+    전투_방식: 'class.fighter.feature.fighting_style',
+    재기의_바람: 'class.fighter.feature.second_wind',
+    행동_연쇄: 'class.fighter.feature.action_surge',
+    무술_원형: 'class.fighter.feature.martial_archetype',
+  },
+  monk: {
+    비무장_방어: 'class.monk.feature.unarmored_defense',
+    무술: 'class.monk.feature.martial_arts',
+    기: 'class.monk.feature.ki',
+    비무장_이동: 'class.monk.feature.unarmored_movement',
+    수도원_전통: 'class.monk.feature.monastic_tradition',
+    투사체_튕겨내기: 'class.monk.feature.deflect_missiles',
+  },
+  paladin: {
+    신성한_감각: 'class.paladin.feature.divine_sense',
+    안수치료: 'class.paladin.feature.lay_on_hands',
+    전투_방식: 'class.paladin.feature.fighting_style',
+    주문시전: 'class.paladin.feature.spellcasting',
+    신성한_강타: 'class.paladin.feature.divine_smite',
+    신성한_건강: 'class.paladin.feature.divine_health',
+    신성한_맹세: 'class.paladin.feature.sacred_oath',
+  },
+  ranger: {
+    숙적: 'class.ranger.feature.favored_enemy',
+    자연_탐험가: 'class.ranger.feature.natural_explorer',
+    전투_방식: 'class.ranger.feature.fighting_style',
+    주문시전: 'class.ranger.feature.spellcasting',
+    레인저_원형: 'class.ranger.feature.ranger_archetype',
+    원시적_감각: 'class.ranger.feature.primeval_awareness',
+  },
+  rogue: {
+    전문화: 'class.rogue.feature.expertise',
+    암습: 'class.rogue.feature.sneak_attack',
+    도둑의_은어: 'class.rogue.feature.thieves_cant',
+    교활한_행동: 'class.rogue.feature.cunning_action',
+    로그_원형: 'class.rogue.feature.roguish_archetype',
+  },
+  sorcerer: {
+    주문시전: 'class.sorcerer.feature.spellcasting',
+    소서러_기원: 'class.sorcerer.feature.sorcerous_origin',
+    마력의_샘: 'class.sorcerer.feature.font_of_magic',
+    메타매직: 'class.sorcerer.feature.metamagic',
+  },
+  warlock: {
+    다른_세계의_후원자: 'class.warlock.feature.otherworldly_patron',
+    계약_마법: 'class.warlock.feature.pact_magic',
+    섬뜩한_영창: 'class.warlock.feature.eldritch_invocations',
+    계약의_은혜: 'class.warlock.feature.pact_boon',
+  },
+  wizard: {
+    주문시전: 'class.wizard.feature.spellcasting',
+    비전_회복: 'class.wizard.feature.arcane_recovery',
+    비전_전통: 'class.wizard.feature.arcane_tradition',
+  },
+};
+
+const featOptions = [
+  {
+    id: 'feat.alert',
+    label: 'Alert / 경계',
+    summary: '기습에 대비하고 전투 시작 반응성이 뛰어난 캐릭터를 표현하는 Feat입니다.',
+    tags: ['선제권', '방어', '전투 시작'],
+  },
+] as const;
+
+const featOptionById: Map<string, (typeof featOptions)[number]> = new Map(
+  featOptions.map((feat) => [feat.id, feat] as const)
+);
+const ASI_CHOICE_PREFIX = 'asi:';
+
+function getAsiChoiceId(ability: AbilityKey) {
+  return `${ASI_CHOICE_PREFIX}${ability}`;
+}
+
+function getAbilityFromAsiChoiceId(choiceId: string): AbilityKey | null {
+  if (!choiceId.startsWith(ASI_CHOICE_PREFIX)) return null;
+  const ability = choiceId.slice(ASI_CHOICE_PREFIX.length);
+  return (Object.keys(abilityDisplayLabels) as AbilityKey[]).includes(ability as AbilityKey)
+    ? (ability as AbilityKey)
+    : null;
+}
+
+function buildAbilityScoreIncreasesFromAsiFeatChoices(choices: string[]) {
+  return choices.reduce((acc, choice) => {
+    const ability = getAbilityFromAsiChoiceId(choice);
+    if (ability) {
+      acc[ability] += 2;
+    }
+    return acc;
+  }, createEmptyAbilityScoreIncreases());
+}
+
+function getFeatSelectionsFromAsiFeatChoices(choices: string[]) {
+  return choices.filter((choice) => choice.startsWith('feat.'));
+}
+
+function getSelectedAsiFeatChoiceIds(features: string[] | undefined): string[] {
+  return (features ?? []).filter(
+    (feature) => feature.startsWith('feat.') || feature.startsWith(ASI_CHOICE_PREFIX)
+  );
+}
+
+function replaceSelectedAsiFeatChoiceIds(features: string[] | undefined, choiceIds: string[]) {
+  return Array.from(
+    new Set([
+      ...(features ?? []).filter(
+        (feature) => !feature.startsWith('feat.') && !feature.startsWith(ASI_CHOICE_PREFIX)
+      ),
+      ...choiceIds,
+    ])
+  );
+}
+
+function normalizeAsiFeatChoicesForClassLevel(
+  className: string,
+  level: number | undefined,
+  features: string[] | undefined
+) {
+  const allowedChoiceCount = getCreationAsiLevels(className, level ?? 1).length;
+  return getSelectedAsiFeatChoiceIds(features).slice(0, allowedChoiceCount);
+}
+
+function splitClassFeatureSummary(summary: string): string[] {
+  return summary
+    .split(/[,/]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function normalizeFeatureLookupLabel(label: string) {
+  return label
+    .trim()
+    .replace(/\s+d\d+$/i, '')
+    .replace(/\s+\d+회$/i, '')
+    .replace(/\s+\d+\/휴식$/i, '')
+    .replace(/\s+CR\s*[\d/]+$/i, '')
+    .replace(/\s+/g, ' ');
+}
+
+function normalizeFeatureAliasKey(label: string) {
+  return normalizeFeatureLookupLabel(label).replace(/\s+/g, '_');
+}
+
+function isAbilityScoreImprovementLabel(label: string) {
+  const normalizedLabel = normalizeFeatureLookupLabel(label).toLowerCase();
+  return (
+    normalizedLabel === '능력치 향상' ||
+    normalizedLabel === 'ability score improvement' ||
+    normalizedLabel === 'asi'
+  );
+}
+
+function inferClassFeatureDisplayId(classKey: string, label: string) {
+  if (isAbilityScoreImprovementLabel(label)) {
+    return `class.${classKey || 'unknown'}.feature.ability_score_improvement`;
+  }
+
+  const classAliases = classFeatureIdAliasesByClassKey[classKey] ?? {};
+  return classAliases[normalizeFeatureAliasKey(label)] ?? null;
+}
+
+function findClassFeatureReference(
+  classInfo: ClassOption | null | undefined,
+  label: string,
+  level: number
+): ClassFeatureReference | null {
+  if (!classInfo) return null;
+  const normalizedLabel = normalizeFeatureLookupLabel(label);
+  const references = classInfo.featureReferences ?? [];
+  const levelMatches = references.filter(
+    (reference) =>
+      reference.availableAtLevels.length === 0 || reference.availableAtLevels.includes(level)
+  );
+  const candidates = levelMatches.length ? levelMatches : references;
+  return (
+    candidates.find((reference) => normalizeFeatureLookupLabel(reference.nameKo) === normalizedLabel) ??
+    candidates.find((reference) => normalizedLabel.startsWith(normalizeFeatureLookupLabel(reference.nameKo))) ??
+    candidates.find((reference) => normalizeFeatureLookupLabel(reference.nameKo).startsWith(normalizedLabel)) ??
+    null
+  );
+}
+
+function buildSpellcastingFeatureDescription(classInfo: ClassOption | null | undefined) {
+  if (!classInfo?.spellcastingSummary.length) return null;
+  return classInfo.spellcastingSummary.join(' ');
+}
+
+function buildClassFeaturePreviewItem(params: {
+  classInfo: ClassOption | null | undefined;
+  classKey: string;
+  label: string;
+  level: number;
+  index: number;
+  idPrefix: string;
+  status: CharacterFeaturePreviewItem['status'];
+  summaryFallback: string;
+}): CharacterFeaturePreviewItem {
+  const reference = findClassFeatureReference(params.classInfo, params.label, params.level);
+  const isSpellcastingLabel =
+    params.label === '주문시전' || params.label === '계약 마법' || params.label === 'Pact Magic';
+  const inferredDisplayId = inferClassFeatureDisplayId(params.classKey, params.label);
+  const displayInfo = getCharacterFeatureDisplayInfo(reference?.id ?? inferredDisplayId ?? '');
+  const spellcastingDescription = isSpellcastingLabel
+    ? buildSpellcastingFeatureDescription(params.classInfo)
+    : null;
+
+  return {
+    id:
+      reference?.id ??
+      inferredDisplayId ??
+      `${params.idPrefix}.${params.classKey || 'unknown'}.${params.level}.${params.index}`,
+    label: reference?.nameKo ?? displayInfo?.label ?? params.label,
+    source: reference?.category === 'subclass' ? 'subclass' : 'class',
+    level: params.level,
+    summary:
+      reference?.summaryKo ||
+      spellcastingDescription ||
+      displayInfo?.description ||
+      params.summaryFallback,
+    status: params.status,
+  };
+}
+
+function groupFeaturePreviewItemsByLevel(
+  items: CharacterFeaturePreviewItem[]
+): CharacterFeatureTimelineGroup[] {
+  const groups = new Map<number, CharacterFeaturePreviewItem[]>();
+  for (const item of items) {
+    const level = item.level && item.level > 0 ? item.level : 1;
+    groups.set(level, [...(groups.get(level) ?? []), item]);
+  }
+  return Array.from(groups.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([level, groupedItems]) => ({
+      level,
+      items: [...groupedItems].sort((left, right) => {
+        const statusDiff = featureStatusSortOrder[left.status] - featureStatusSortOrder[right.status];
+        if (statusDiff !== 0) return statusDiff;
+        return left.label.localeCompare(right.label, 'ko');
+      }),
+    }));
+}
+
+function countFeaturePreviewStatuses(items: CharacterFeaturePreviewItem[]) {
+  return items.reduce(
+    (acc, item) => {
+      acc.total += 1;
+      acc[item.status] += 1;
+      return acc;
+    },
+    {
+      total: 0,
+      automatic: 0,
+      required: 0,
+      selected: 0,
+      pending: 0,
+    } as Record<CharacterFeaturePreviewItem['status'] | 'total', number>
+  );
+}
+
+function buildChoiceFeaturePreviewItems(params: {
+  ancestryKey: string;
+  classKey: string;
+  level: number;
+  features: string[];
+  proficientSkills: string[];
+  subclassRequired: boolean;
+  subclassName?: string | null;
+}): CharacterFeaturePreviewItem[] {
+  const context: FeatureChoiceContext = {
+    ancestryKey: params.ancestryKey,
+    classKey: params.classKey,
+    level: params.level,
+    features: params.features,
+    proficientSkills: params.proficientSkills,
+  };
+  const items: CharacterFeaturePreviewItem[] = getActiveFeatureChoiceDefinitions(context).map(
+    (definition) => ({
+      id: definition.id,
+      label: definition.label,
+      source: 'choice',
+      summary: getFeatureChoiceSummary(definition, context),
+      status: isFeatureChoiceComplete(definition, context) ? 'selected' : 'required',
+    })
+  );
+
+  if (params.subclassRequired) {
+    items.push({
+      id: `choice.${params.classKey}.subclass`,
+      label: 'Subclass / 서브클래스',
+      source: 'subclass',
+      summary: params.subclassName
+        ? `선택한 서브클래스: ${params.subclassName}`
+        : '현재 시작 레벨에서는 서브클래스를 선택해야 합니다.',
+      status: params.subclassName ? 'selected' : 'required',
+    });
+  }
+
+  return items;
+}
 
 // D&D식 능력치 보정치 계산 함수입니다. 예: 14 -> +2, 8 -> -1.
 function calcModifier(score: number) {
@@ -1373,6 +1865,64 @@ function getFeatureValues(features: string[] | undefined, prefix: string) {
     .map((feature) => feature.slice(prefix.length));
 }
 
+function getFeatureChoiceContext(params: {
+  ancestry: string;
+  className: string;
+  level?: number;
+  features?: string[];
+  proficientSkills?: string[];
+}): FeatureChoiceContext {
+  return {
+    ancestryKey: params.ancestry.trim().toLowerCase().replace(/_/g, '-'),
+    classKey: normalizeClassValue(params.className).toLowerCase(),
+    level: normalizeLevel(params.level ?? 1),
+    features: params.features ?? [],
+    proficientSkills: params.proficientSkills ?? [],
+  };
+}
+
+function getActiveFeatureChoiceDefinitions(context: FeatureChoiceContext) {
+  return featureChoiceDefinitions.filter((definition) => definition.applies(context));
+}
+
+function getFeatureChoiceSelectedValues(
+  definition: FeatureChoiceDefinition,
+  features: string[] | undefined
+) {
+  return definition.mode === 'single'
+    ? [getFeatureValue(features, definition.featurePrefix)].filter(Boolean)
+    : getFeatureValues(features, definition.featurePrefix);
+}
+
+function isFeatureChoiceComplete(
+  definition: FeatureChoiceDefinition,
+  context: FeatureChoiceContext
+) {
+  const selectedValues = getFeatureChoiceSelectedValues(definition, context.features);
+  if (definition.mode === 'single') {
+    return selectedValues.length >= definition.requiredSelections;
+  }
+  return (
+    selectedValues.length === definition.requiredSelections &&
+    new Set(selectedValues).size === definition.requiredSelections
+  );
+}
+
+function getFeatureChoiceSummary(
+  definition: FeatureChoiceDefinition,
+  context: FeatureChoiceContext
+) {
+  const selectedValues = getFeatureChoiceSelectedValues(definition, context.features);
+  if (!selectedValues.length) return definition.helper;
+  if (definition.getSelectedSummary) {
+    return definition.getSelectedSummary(selectedValues, context);
+  }
+  const options = definition.getOptions(context);
+  return `선택됨: ${selectedValues
+    .map((value) => options.find((option) => option.value === value)?.label ?? value)
+    .join(', ')}`;
+}
+
 function replaceFeatureTags(
   features: string[] | undefined,
   removedPrefixes: string[],
@@ -1398,32 +1948,42 @@ function buildClassFeaturesForSubmit(className: string, features: string[] | und
   return Array.from(new Set([...unmanagedFeatures, ...baseFeatures, ...choiceFeatures]));
 }
 
-function hasRequiredClassFeatureChoices(className: string, features: string[] | undefined) {
-  const classKey = normalizeClassValue(className).toLowerCase();
-  if (classKey === 'fighter') {
-    return Boolean(getFeatureValue(features, 'fighting_style:'));
-  }
-  if (classKey === 'ranger') {
-    const favoredEnemy = getFeatureValue(features, 'favored_enemy:');
-    if (!favoredEnemy) return false;
-    if (favoredEnemy !== 'humanoid') return true;
-    const humanoidRaces = getFeatureValues(features, 'favored_enemy_humanoid:');
-    return humanoidRaces.length === 2 && new Set(humanoidRaces).size === 2;
-  }
-  if (classKey === 'rogue') {
-    return getFeatureValues(features, 'expertise:').length === 2;
-  }
-  return true;
+function hasRequiredClassFeatureChoices(
+  className: string,
+  level: number | undefined,
+  features: string[] | undefined
+) {
+  const context = getFeatureChoiceContext({
+    ancestry: '',
+    className,
+    level,
+    features,
+    proficientSkills: [],
+  });
+  return getActiveFeatureChoiceDefinitions(context)
+    .filter(
+      (definition) =>
+        definition.id.startsWith(`choice.${context.classKey}.`) ||
+        definition.id === 'choice.class.fighting_style'
+    )
+    .every((definition) => isFeatureChoiceComplete(definition, context));
 }
 
 function hasRequiredRaceFeatureChoices(
   ancestry: string,
+  level: number | undefined,
   features: string[] | undefined
 ) {
-  if (ancestry.trim().toLowerCase().replace(/_/g, '-') === 'dragonborn') {
-    return Boolean(getFeatureValue(features, 'draconic_ancestry:'));
-  }
-  return true;
+  const context = getFeatureChoiceContext({
+    ancestry,
+    className: '',
+    level,
+    features,
+    proficientSkills: [],
+  });
+  return getActiveFeatureChoiceDefinitions(context)
+    .filter((definition) => definition.id.startsWith(`choice.${context.ancestryKey}.`))
+    .every((definition) => isFeatureChoiceComplete(definition, context));
 }
 
 function getStartingEquipmentItemSelectionKey(slotIndex: number, itemIndex: number) {
@@ -1603,6 +2163,8 @@ export function CharacterPage({
     forgottenSpells: string[];
     preparedSpells: string[];
     abilityScoreIncreases: Record<AbilityKey, number>;
+    featSelections: string[];
+    asiFeatChoices: string[];
   }>({
     targetLevel: 2,
     subclassName: '',
@@ -1612,9 +2174,9 @@ export function CharacterPage({
     forgottenSpells: [],
     preparedSpells: [],
     abilityScoreIncreases: createEmptyAbilityScoreIncreases(),
+    featSelections: [],
+    asiFeatChoices: [],
   });
-  // 인벤토리 편집 영역 DOM 참조입니다. 필요 시 스크롤/포커스 제어에 씁니다.
-  const inventoryEditorRef = useRef<HTMLDivElement | null>(null);
   const didAutoOpenCreateRef = useRef(false);
   const createToastTimeoutRef = useRef<number | null>(null);
 
@@ -1808,15 +2370,19 @@ export function CharacterPage({
       0
     );
     const hasInvalid = Object.values(costs).some((c) => c === null);
+    const remaining = POINT_BUY_TOTAL - totalCost;
     return {
       bases,
       costs,
       totalCost,
-      remaining: POINT_BUY_TOTAL - totalCost,
-      isValid: !hasInvalid && totalCost === POINT_BUY_TOTAL,
+      remaining,
+      isValid: !hasInvalid && remaining === 0,
       enforced: Boolean(selectedRace),
     };
-  }, [formState.abilities, selectedRace]);
+  }, [
+    formState.abilities,
+    selectedRace,
+  ]);
 
   // 레벨별 자동 계산: 시드된 클래스일 때 proficiencyBonus/maxHp 강제. BE와 동일 공식.
   const derivedLevelStats = useMemo(() => {
@@ -1867,6 +2433,8 @@ export function CharacterPage({
   }, [derivedLevelStats]);
 
   // base(8~15) 를 1 증가시키면 final = base+1+bonus 로 갱신. 비용 한도 + 상/하한 검증.
+  // 캐릭터 생성 단계의 ASI/Feat 선택은 특성 탭의 별도 선택값으로만 다루고,
+  // 코어 스탯 Point Buy 계산에는 섞지 않습니다.
   function adjustAbilityBase(ability: AbilityKey, delta: 1 | -1): void {
     setFormState((current) => {
       const currentFinal = current.abilities?.[ability] ?? 10;
@@ -1981,12 +2549,6 @@ export function CharacterPage({
     );
   }, [characters]);
 
-  useEffect(() => {
-    const node = inventoryEditorRef.current;
-    if (!node || !inventoryDraft.length) return;
-    node.scrollTop = node.scrollHeight;
-  }, [inventoryDraft.length]);
-
   // 선택된 캐릭터와 선택 폼에서 쓰는 종족/직업 정보를 메모이즈합니다.
   const selectedCharacter = useMemo(
     () => characters.find((character) => character.id === selectedCharacterId) ?? null,
@@ -1995,6 +2557,13 @@ export function CharacterPage({
   const selectedCharacterClassKey = normalizeClassValue(selectedCharacter?.className ?? '').toLowerCase();
   const selectedCharacterClassDefinition =
     classDefinitions.find((klass) => klass.key === selectedCharacterClassKey) ?? null;
+  const selectedCharacterClassInfo = useMemo(
+    () =>
+      selectedCharacter
+        ? getClassOptionByValue(classCatalog, selectedCharacter.className)
+        : undefined,
+    [classCatalog, selectedCharacter]
+  );
   const selectedSubclassOptions = selectedCharacter
     ? (implementedSubclassOptions[selectedCharacterClassKey] ?? [])
     : [];
@@ -2098,6 +2667,10 @@ export function CharacterPage({
   );
   const selectedPreviewContext = selectedCharacter?.levelUpPreviewContext ?? null;
   const selectedActiveSessionConditions = selectedCharacter?.activeSessionConditions ?? [];
+  const selectedCharacterFeatureSummary = useMemo(
+    () => summarizeCharacterFeatures(selectedCharacter?.features, 8),
+    [selectedCharacter?.features]
+  );
   const selectedHasActiveConcentration = selectedActiveSessionConditions.some((condition) =>
     condition.toLowerCase().includes('concentration') || condition.includes('집중')
   );
@@ -2118,17 +2691,22 @@ export function CharacterPage({
         levelUpDraft.targetLevel
       )
     : [];
-  const requiredAsiPoints = crossedAsiLevels.length * 2;
-  const allocatedAsiPoints = (Object.values(levelUpDraft.abilityScoreIncreases) as number[]).reduce(
-    (sum, value) => sum + value,
-    0
+  const normalizedLevelUpAsiFeatChoices = crossedAsiLevels.map(
+    (_, index) => levelUpDraft.asiFeatChoices[index] ?? ''
   );
-  const remainingAsiPoints = requiredAsiPoints - allocatedAsiPoints;
+  const selectedLevelUpFeatIds = getFeatSelectionsFromAsiFeatChoices(
+    normalizedLevelUpAsiFeatChoices
+  );
+  const derivedLevelUpAbilityScoreIncreases =
+    buildAbilityScoreIncreasesFromAsiFeatChoices(normalizedLevelUpAsiFeatChoices);
+  const missingAsiFeatChoiceCount = normalizedLevelUpAsiFeatChoices.filter(
+    (choice) => !choice
+  ).length;
   const levelUpAbilities = selectedCharacter
     ? (Object.fromEntries(
         (Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => [
           ability,
-          selectedCharacter.abilities[ability] + levelUpDraft.abilityScoreIncreases[ability],
+          selectedCharacter.abilities[ability] + derivedLevelUpAbilityScoreIncreases[ability],
         ])
       ) as Record<AbilityKey, number>)
     : null;
@@ -2145,6 +2723,87 @@ export function CharacterPage({
   const isLevelUpSpellReplacementIncomplete =
     levelUpDraft.knownSpells.length < levelUpDraft.forgottenSpells.length ||
     levelUpDraft.cantrips.length < levelUpDraft.forgottenCantrips.length;
+  const levelUpFeaturePreviewItems = useMemo<CharacterFeaturePreviewItem[]>(() => {
+    if (!selectedCharacter) return [];
+    const classItems: CharacterFeaturePreviewItem[] = (
+      selectedCharacterClassInfo?.levelFeatureSummary ?? []
+    )
+      .filter(
+        (feature) =>
+          feature.level > selectedCharacter.level && feature.level <= levelUpDraft.targetLevel
+      )
+      .flatMap((feature) =>
+        splitClassFeatureSummary(feature.features)
+          .filter((label) => !isAbilityScoreImprovementLabel(label))
+          .map((label, index) =>
+            buildClassFeaturePreviewItem({
+              classInfo: selectedCharacterClassInfo,
+              classKey: selectedCharacterClassKey,
+              label,
+              level: feature.level,
+              index,
+              idPrefix: 'level-up.class',
+              status: 'automatic',
+              summaryFallback: `${feature.level}레벨에 새로 획득하는 직업 특성입니다.`,
+            })
+          )
+      );
+    const subclassItem: CharacterFeaturePreviewItem[] =
+      isLevelUpSubclassRequired && !selectedCharacter.subclassName
+        ? [
+            {
+              id: `level-up.choice.${selectedCharacterClassKey}.subclass`,
+              label: 'Subclass / 서브클래스',
+              source: 'subclass',
+              level: selectedSubclassChoiceLevel ?? levelUpDraft.targetLevel,
+              summary: levelUpDraft.subclassName
+                ? `선택한 서브클래스: ${levelUpDraft.subclassName}`
+                : '이번 레벨업에서 서브클래스를 선택해야 합니다.',
+              status: levelUpDraft.subclassName ? 'selected' : 'required',
+            },
+          ]
+        : [];
+    const asiItems: CharacterFeaturePreviewItem[] = crossedAsiLevels.map((asiLevel, index) => {
+      const selectedChoiceId = normalizedLevelUpAsiFeatChoices[index] ?? '';
+      const selectedFeat = selectedChoiceId.startsWith('feat.')
+        ? featOptionById.get(selectedChoiceId)
+        : null;
+      const selectedAsiAbility = getAbilityFromAsiChoiceId(selectedChoiceId);
+      return {
+        id: `level-up.choice.${selectedCharacterClassKey || 'unknown'}.asi.${asiLevel}`,
+        label: selectedFeat
+          ? `${asiLevel}레벨 Feat: ${selectedFeat.label}`
+          : selectedAsiAbility
+            ? `${asiLevel}레벨 ASI: ${abilityDisplayLabels[selectedAsiAbility]} +2`
+            : `${asiLevel}레벨 Ability Score Improvement / Feat`,
+        source: 'asi',
+        level: asiLevel,
+        summary: selectedFeat
+          ? selectedFeat.summary
+          : selectedAsiAbility
+            ? `${abilityDisplayLabels[selectedAsiAbility]} 능력치를 2 상승시킵니다.`
+            : '능력치 하나를 +2 하거나 Alert / 경계 같은 Feat를 선택해야 합니다.',
+        status: selectedFeat || selectedAsiAbility ? 'selected' : 'required',
+      };
+    });
+
+    return [...classItems, ...subclassItem, ...asiItems];
+  }, [
+    crossedAsiLevels,
+    isLevelUpSubclassRequired,
+    levelUpDraft.subclassName,
+    levelUpDraft.targetLevel,
+    normalizedLevelUpAsiFeatChoices,
+    selectedCharacter,
+    selectedCharacterClassInfo,
+    selectedCharacterClassInfo?.levelFeatureSummary,
+    selectedCharacterClassKey,
+    selectedSubclassChoiceLevel,
+  ]);
+  const levelUpFeatureTimelineGroups = useMemo(
+    () => groupFeaturePreviewItemsByLevel(levelUpFeaturePreviewItems),
+    [levelUpFeaturePreviewItems]
+  );
   const levelUpPreviewRows = selectedCharacter
     ? [
         {
@@ -2217,6 +2876,8 @@ export function CharacterPage({
         forgottenSpells: [],
         preparedSpells: [],
         abilityScoreIncreases: createEmptyAbilityScoreIncreases(),
+        featSelections: [],
+        asiFeatChoices: [],
       });
       return;
     }
@@ -2230,6 +2891,8 @@ export function CharacterPage({
       forgottenSpells: [],
       preparedSpells: selectedPreparedSpells,
       abilityScoreIncreases: createEmptyAbilityScoreIncreases(),
+      featSelections: [],
+      asiFeatChoices: [],
     });
   }, [selectedCharacter, selectedPreparedSpells]);
 
@@ -2252,11 +2915,124 @@ export function CharacterPage({
   const currentCreateStep = CHARACTER_CREATE_STEPS[createStepIndex] ?? CHARACTER_CREATE_STEPS[0];
   const isProfileStep = currentCreateStep.key === 'profile';
   const isStatsStep = currentCreateStep.key === 'stats';
+  const isSkillsStep = currentCreateStep.key === 'skills';
   const isFeaturesStep = currentCreateStep.key === 'features';
   const isEquipmentStep = currentCreateStep.key === 'equipment';
   const isSpellsStep = currentCreateStep.key === 'spells';
+  const isReviewStep = currentCreateStep.key === 'review';
+  const hasCreateFormRightColumn =
+    isProfileStep || isStatsStep || isEquipmentStep || isSpellsStep;
   const isFinalCreateStep = createStepIndex === CHARACTER_CREATE_STEPS.length - 1;
   const currentStatSelectionLabel = `${selectedRaceInfo?.label ?? '종족 미선택'} (${selectedClassInfo?.label ?? '직업 미선택'})`;
+  const selectedCreateAncestryKey = formState.ancestry.trim().toLowerCase().replace(/_/g, '-');
+  const featurePreviewItems = useMemo<CharacterFeaturePreviewItem[]>(() => {
+    const classKey = normalizeClassValue(formState.className).toLowerCase();
+    const level = normalizeLevel(formState.level ?? 1);
+    const raceItems: CharacterFeaturePreviewItem[] = (selectedRaceInfo?.traitSummaries ?? []).map(
+      (trait) => ({
+        id: `race.${selectedCreateAncestryKey || 'unknown'}.trait.${trait.name}`,
+        label: trait.name,
+        source: 'race',
+        summary: trait.summary,
+        status: 'automatic',
+      })
+    );
+    const classItems: CharacterFeaturePreviewItem[] = (selectedClassInfo?.levelFeatureSummary ?? [])
+      .filter((feature) => feature.level > 0 && feature.level <= level)
+      .flatMap((feature) =>
+        splitClassFeatureSummary(feature.features)
+          .filter((label) => !isAbilityScoreImprovementLabel(label))
+          .map((label, index) =>
+            buildClassFeaturePreviewItem({
+              classInfo: selectedClassInfo,
+              classKey,
+              label,
+              level: feature.level,
+              index,
+              idPrefix: 'class',
+              status: 'automatic',
+              summaryFallback: `${feature.level}레벨에 획득하는 직업 특성입니다.`,
+            })
+          )
+      );
+    const choiceItems = buildChoiceFeaturePreviewItems({
+      ancestryKey: selectedCreateAncestryKey,
+      classKey,
+      level,
+      features: formState.features ?? [],
+      proficientSkills: formState.proficientSkills ?? [],
+      subclassRequired: isCreateSubclassRequired,
+      subclassName: formState.subclassName,
+    });
+    const selectedAsiFeatChoiceIds = getSelectedAsiFeatChoiceIds(formState.features);
+    const asiItems: CharacterFeaturePreviewItem[] = getCreationAsiLevels(classKey, level).map(
+      (asiLevel, index) => {
+        const selectedChoiceId = selectedAsiFeatChoiceIds[index];
+        const selectedFeat = selectedChoiceId?.startsWith('feat.')
+          ? featOptionById.get(selectedChoiceId)
+          : null;
+        const selectedAsiAbility = selectedChoiceId
+          ? getAbilityFromAsiChoiceId(selectedChoiceId)
+          : null;
+        return {
+        id: `choice.${classKey || 'unknown'}.asi.${asiLevel}`,
+        label: selectedFeat
+          ? `${asiLevel}레벨 Feat: ${selectedFeat.label}`
+          : selectedAsiAbility
+            ? `${asiLevel}레벨 ASI: ${abilityDisplayLabels[selectedAsiAbility]} +2`
+            : `${asiLevel}레벨 Ability Score Improvement / Feat`,
+        source: 'asi',
+        level: asiLevel,
+        summary: selectedFeat
+          ? selectedFeat.summary
+          : selectedAsiAbility
+            ? `${abilityDisplayLabels[selectedAsiAbility]} 능력치를 2 상승시킵니다.`
+            : '능력치 하나를 +2 하거나 Alert / 경계 같은 Feat를 선택해야 합니다.',
+        status: selectedFeat || selectedAsiAbility ? 'selected' : 'required',
+        };
+      }
+    );
+
+    return [...raceItems, ...classItems, ...choiceItems, ...asiItems];
+  }, [
+    formState.className,
+    formState.features,
+    formState.level,
+    formState.proficientSkills,
+    formState.subclassName,
+    isCreateSubclassRequired,
+    selectedClassInfo,
+    selectedClassInfo?.levelFeatureSummary,
+    selectedCreateAncestryKey,
+    selectedRaceInfo?.traitSummaries,
+  ]);
+  const requiredFeaturePreviewItems = featurePreviewItems.filter(
+    (feature) => feature.status === 'required'
+  );
+  const featureTimelineGroups = useMemo(
+    () => groupFeaturePreviewItemsByLevel(featurePreviewItems),
+    [featurePreviewItems]
+  );
+  const featureTimelineStats = useMemo(
+    () => countFeaturePreviewStatuses(featurePreviewItems),
+    [featurePreviewItems]
+  );
+  const activeFeatureChoiceDefinitions = useMemo(() => {
+    const context = getFeatureChoiceContext({
+      ancestry: formState.ancestry,
+      className: formState.className,
+      level: formState.level,
+      features: formState.features,
+      proficientSkills: formState.proficientSkills,
+    });
+    return getActiveFeatureChoiceDefinitions(context);
+  }, [
+    formState.ancestry,
+    formState.className,
+    formState.features,
+    formState.level,
+    formState.proficientSkills,
+  ]);
 
   const usedCharacterIds = useMemo(() => {
     const ids = new Set<string>();
@@ -2435,8 +3211,8 @@ export function CharacterPage({
     if (
       isFeaturesStep &&
       classDefinitions.length > 0 &&
-      (!hasRequiredClassFeatureChoices(formState.className, formState.features) ||
-        !hasRequiredRaceFeatureChoices(formState.ancestry, formState.features))
+      (!hasRequiredClassFeatureChoices(formState.className, formState.level, formState.features) ||
+        !hasRequiredRaceFeatureChoices(formState.ancestry, formState.level, formState.features))
     ) {
       setFormValidationError(
         '선택한 종족과 직업의 기능 선택을 완료해야 다음 장으로 넘어갈 수 있습니다.'
@@ -2448,17 +3224,15 @@ export function CharacterPage({
     setCreateStepIndex((current) => Math.min(CHARACTER_CREATE_STEPS.length - 1, current + 1));
   }
 
-  async function submitCreateCharacter(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  async function submitCreateCharacter() {
     if (classDefinitions.length === 0) {
       setFormValidationError('클래스 정의를 불러오는 중입니다. 잠시만 기다려 주세요.');
       return;
     }
 
     if (
-      !hasRequiredClassFeatureChoices(formState.className, formState.features) ||
-      !hasRequiredRaceFeatureChoices(formState.ancestry, formState.features)
+      !hasRequiredClassFeatureChoices(formState.className, formState.level, formState.features) ||
+      !hasRequiredRaceFeatureChoices(formState.ancestry, formState.level, formState.features)
     ) {
       setFormValidationError(
         '선택한 종족과 직업의 기능 선택을 완료해야 캐릭터를 생성할 수 있습니다.'
@@ -2573,8 +3347,11 @@ export function CharacterPage({
       hpMode: 'average',
       applyToActiveSessions: usedCharacterIds.has(selectedCharacter.id),
       ...(levelUpDraft.subclassName ? { subclassName: levelUpDraft.subclassName } : {}),
-      ...(requiredAsiPoints
-        ? { abilityScoreIncreases: levelUpDraft.abilityScoreIncreases }
+      ...(Object.values(derivedLevelUpAbilityScoreIncreases).some((value) => value > 0)
+        ? { abilityScoreIncreases: derivedLevelUpAbilityScoreIncreases }
+        : {}),
+      ...(selectedLevelUpFeatIds.length
+        ? { featSelections: selectedLevelUpFeatIds }
         : {}),
       ...(levelUpDraft.knownSpells.length ? { knownSpells: levelUpDraft.knownSpells } : {}),
       ...(levelUpDraft.cantrips.length ? { cantrips: levelUpDraft.cantrips } : {}),
@@ -2587,28 +3364,6 @@ export function CharacterPage({
       ...(isSelectedCharacterPreparedCaster
         ? { preparedSpells: levelUpDraft.preparedSpells.filter(Boolean) }
         : {}),
-    });
-  }
-
-  function adjustLevelUpAbilityScore(ability: AbilityKey, delta: -1 | 1) {
-    if (!selectedCharacter) return;
-    setLevelUpDraft((current) => {
-      const currentIncrease = current.abilityScoreIncreases[ability];
-      const currentTotal = Object.values(current.abilityScoreIncreases).reduce(
-        (sum, value) => sum + value,
-        0
-      );
-      const nextIncrease = currentIncrease + delta;
-      if (nextIncrease < 0) return current;
-      if (delta > 0 && currentTotal >= requiredAsiPoints) return current;
-      if (selectedCharacter.abilities[ability] + nextIncrease > 20) return current;
-      return {
-        ...current,
-        abilityScoreIncreases: {
-          ...current.abilityScoreIncreases,
-          [ability]: nextIncrease,
-        },
-      };
     });
   }
 
@@ -2781,35 +3536,6 @@ export function CharacterPage({
     }));
   }
 
-  // 인벤토리 편집 테이블에 빈 행을 추가합니다.
-  function addInventoryRow() {
-    setInventoryDraft((current) => [
-      ...current,
-      {
-        id: `item-${crypto.randomUUID()}`,
-        name: '',
-        quantity: 1,
-      },
-    ]);
-  }
-
-  function updateInventoryRow(id: string, field: 'name' | 'quantity', value: string | number) {
-    setInventoryDraft((current) =>
-      current.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              [field]: field === 'quantity' ? Math.max(1, Number(value) || 1) : value,
-            }
-          : item
-      )
-    );
-  }
-
-  function removeInventoryRow(id: string) {
-    setInventoryDraft((current) => current.filter((item) => item.id !== id));
-  }
-
   return (
     <main className="character-page fantasy-character-page">
       {/* 좌측 사이드바: 캐릭터 생성 버튼과 안내 영역입니다. */}
@@ -2972,6 +3698,27 @@ export function CharacterPage({
                     </dl>
 
                     <section className="fantasy-character-stats-section">
+                      <h3>보유 특성</h3>
+                      {selectedCharacterFeatureSummary.length ? (
+                        <div className="fantasy-character-feature-summary">
+                          {selectedCharacterFeatureSummary.map((feature) => (
+                            <article
+                              key={`${feature.sourceLabel}-${feature.label}`}
+                              className={`fantasy-character-feature-chip tone-${feature.tone}`}
+                              title={feature.description}
+                            >
+                              <span>{feature.sourceLabel}</span>
+                              <strong>{feature.label}</strong>
+                              <p>{feature.description}</p>
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="character-empty-note">등록된 특성이 없습니다.</p>
+                      )}
+                    </section>
+
+                    <section className="fantasy-character-stats-section">
                       <h3>성장</h3>
                       <div className="character-growth-panel">
                         <label htmlFor="character-level-up-target">목표 레벨</label>
@@ -2991,6 +3738,8 @@ export function CharacterPage({
                                 knownSpells: [],
                                 forgottenCantrips: [],
                                 forgottenSpells: [],
+                                featSelections: [],
+                                asiFeatChoices: [],
                               }))
                             }
                           />
@@ -3000,7 +3749,7 @@ export function CharacterPage({
                             disabled={
                               busy ||
                               selectedCharacter.level >= 20 ||
-                              remainingAsiPoints !== 0 ||
+                              missingAsiFeatChoiceCount > 0 ||
                               (isLevelUpSubclassRequired && !levelUpDraft.subclassName) ||
                               isLevelUpPreparedSpellLimitExceeded ||
                               isLevelUpSpellReplacementIncomplete
@@ -3019,50 +3768,125 @@ export function CharacterPage({
                             ))}
                           </dl>
                         ) : null}
-                        {requiredAsiPoints ? (
+                        {levelUpFeatureTimelineGroups.length ? (
                           <div className="character-asi-panel">
                             <div className="character-asi-heading">
-                              <strong>능력치 상승</strong>
+                              <strong>이번 성장 특성</strong>
+                              <span>{levelUpFeaturePreviewItems.length}개 항목</span>
+                            </div>
+                            <div className="character-feature-timeline compact">
+                              {levelUpFeatureTimelineGroups.map((group) => (
+                                <article
+                                  key={group.level}
+                                  className="character-feature-timeline-row"
+                                >
+                                  <div className="character-feature-timeline-level">
+                                    {group.level}레벨
+                                  </div>
+                                  <ul>
+                                    {group.items.map((item) => (
+                                      <li key={item.id}>
+                                        <span className={`status-dot status-${item.status}`} />
+                                        <div>
+                                          <strong>{item.label}</strong>
+                                          <p>
+                                            {featureSourceLabels[item.source]} ·{' '}
+                                            {featureStatusLabels[item.status]} · {item.summary}
+                                          </p>
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </article>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                        {crossedAsiLevels.length ? (
+                          <div className="character-asi-panel">
+                            <div className="character-asi-heading">
+                              <strong>ASI / Feat 선택</strong>
                               <span>
-                                남은 점수 {remainingAsiPoints} / {requiredAsiPoints}
+                                미선택 {missingAsiFeatChoiceCount} / {crossedAsiLevels.length}
                               </span>
                             </div>
-                            <div className="character-asi-grid">
-                              {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map((ability) => {
-                                const increase = levelUpDraft.abilityScoreIncreases[ability];
-                                const score = selectedCharacter.abilities[ability];
+                            <div className="character-feat-choice-list">
+                              {crossedAsiLevels.map((asiLevel, index) => {
+                                const selectedChoiceId =
+                                  normalizedLevelUpAsiFeatChoices[index] ?? '';
+                                const selectedAsiAbility =
+                                  getAbilityFromAsiChoiceId(selectedChoiceId);
+                                const selectedFeat = selectedChoiceId.startsWith('feat.')
+                                  ? featOptionById.get(selectedChoiceId)
+                                  : null;
                                 return (
-                                  <div key={ability} className="character-asi-control">
-                                    <span>{abilityDisplayLabels[ability]}</span>
-                                    <button
-                                      type="button"
-                                      aria-label={`${abilityDisplayLabels[ability]} 상승치 감소`}
-                                      disabled={busy || increase <= 0}
-                                      onClick={() => adjustLevelUpAbilityScore(ability, -1)}
+                                  <div key={asiLevel} className="character-feat-choice-card">
+                                    <label htmlFor={`character-level-up-feat-${asiLevel}`}>
+                                      {asiLevel}레벨
+                                    </label>
+                                    <select
+                                      id={`character-level-up-feat-${asiLevel}`}
+                                      value={selectedChoiceId}
+                                      disabled={busy}
+                                      onChange={(event) => {
+                                        const nextChoiceId = event.target.value;
+                                        setLevelUpDraft((current) => {
+                                          const nextChoices = [...current.asiFeatChoices];
+                                          nextChoices[index] = nextChoiceId;
+                                          return {
+                                            ...current,
+                                            asiFeatChoices: nextChoices,
+                                            featSelections:
+                                              getFeatSelectionsFromAsiFeatChoices(nextChoices),
+                                            abilityScoreIncreases:
+                                              buildAbilityScoreIncreasesFromAsiFeatChoices(
+                                                nextChoices
+                                              ),
+                                          };
+                                        });
+                                      }}
                                     >
-                                      -
-                                    </button>
-                                    <strong>
-                                      {score + increase}
-                                      {increase ? ` (+${increase})` : ''}
-                                    </strong>
-                                    <button
-                                      type="button"
-                                      aria-label={`${abilityDisplayLabels[ability]} 상승치 증가`}
-                                      disabled={
-                                        busy ||
-                                        remainingAsiPoints <= 0 ||
-                                        score + increase >= 20
-                                      }
-                                      onClick={() => adjustLevelUpAbilityScore(ability, 1)}
-                                    >
-                                      +
-                                    </button>
+                                      <option value="">선택 필요</option>
+                                      {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map(
+                                        (ability) => (
+                                          <option
+                                            key={ability}
+                                            value={getAsiChoiceId(ability)}
+                                            disabled={
+                                              selectedCharacter.abilities[ability] +
+                                                derivedLevelUpAbilityScoreIncreases[ability] >=
+                                                20 &&
+                                              selectedAsiAbility !== ability
+                                            }
+                                          >
+                                            ASI: {abilityDisplayLabels[ability]} +2
+                                          </option>
+                                        )
+                                      )}
+                                      {featOptions.map((feat) => (
+                                        <option
+                                          key={feat.id}
+                                          value={feat.id}
+                                          disabled={
+                                            selectedLevelUpFeatIds.includes(feat.id) &&
+                                            selectedChoiceId !== feat.id
+                                          }
+                                        >
+                                          {feat.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <p>
+                                      {selectedFeat
+                                        ? selectedFeat.summary
+                                        : selectedAsiAbility
+                                          ? `${abilityDisplayLabels[selectedAsiAbility]} 능력치가 2 상승합니다.`
+                                          : '능력치 하나를 +2 하거나 Feat 하나를 선택하세요.'}
+                                    </p>
                                   </div>
                                 );
                               })}
                             </div>
-                            <small>{crossedAsiLevels.join(', ')}레벨 성장 보너스</small>
                           </div>
                         ) : null}
                         {selectedSubclassOptions.length ? (
@@ -3353,7 +4177,7 @@ export function CharacterPage({
 
             <form
               className={`modal-form character-create-form character-create-form--${currentCreateStep.key}`}
-              onSubmit={submitCreateCharacter}
+              onSubmit={(event: FormEvent<HTMLFormElement>) => event.preventDefault()}
             >
               <div className="character-create-stepper" aria-label="캐릭터 생성 단계">
                 {CHARACTER_CREATE_STEPS.map((step, index) => {
@@ -3376,8 +4200,14 @@ export function CharacterPage({
               </div>
               <div
                 className={`character-create-form-body${
-                  isEquipmentStep || isSpellsStep ? ' character-create-form-body--scrollable' : ''
-                }${isSpellsStep ? ' character-create-form-body--single-column' : ''}`}
+                  isSkillsStep || isFeaturesStep || isEquipmentStep || isSpellsStep || isReviewStep
+                    ? ' character-create-form-body--scrollable'
+                    : ''
+                }${
+                  isSkillsStep || isFeaturesStep || isSpellsStep || isReviewStep
+                    ? ' character-create-form-body--single-column'
+                    : ''
+                }`}
               >
                 <div className="character-create-form-left">
                   {isProfileStep ? (
@@ -3418,7 +4248,7 @@ export function CharacterPage({
                                   nextLevel - currentLevel,
                                   nextLevel
                                 );
-                                const nextAbilities = applyLevelDeltaAbilities(
+                                const levelAdjustedAbilities = applyLevelDeltaAbilities(
                                   current,
                                   nextLevel - currentLevel
                                 );
@@ -3455,6 +4285,13 @@ export function CharacterPage({
                                       }
                                     : undefined;
 
+                                const nextAsiFeatChoices =
+                                  normalizeAsiFeatChoicesForClassLevel(
+                                    current.className,
+                                    nextLevel,
+                                    current.features
+                                  );
+
                                 return {
                                   ...current,
                                   scenarioId: nextScenarioId,
@@ -3467,7 +4304,11 @@ export function CharacterPage({
                                   maxHp: nextStats.maxHp,
                                   armorClass: nextStats.armorClass,
                                   proficiencyBonus: nextStats.proficiencyBonus,
-                                  abilities: nextAbilities,
+                                  abilities: levelAdjustedAbilities,
+                                  features: replaceSelectedAsiFeatChoiceIds(
+                                    current.features,
+                                    nextAsiFeatChoices
+                                  ),
                                   startingSpells,
                                 };
                               })
@@ -3824,7 +4665,7 @@ export function CharacterPage({
                     </section>
                   ) : null}
 
-                  {isFeaturesStep ? (
+                  {isSkillsStep ? (
                     <section className="character-form-section">
                       <div className="section-heading compact">
                         <div>
@@ -3925,270 +4766,307 @@ export function CharacterPage({
                     </section>
                   ) : null}
 
-                  {isFeaturesStep
-                    ? (() => {
-                        const classKey = normalizeClassValue(formState.className).toLowerCase();
-                        const ancestryKey = formState.ancestry
-                          .trim()
-                          .toLowerCase()
-                          .replace(/_/g, '-');
-                        const features = formState.features ?? [];
-                        const draconicAncestry = getFeatureValue(
-                          features,
-                          'draconic_ancestry:'
-                        );
-                        const fightingStyle = getFeatureValue(features, 'fighting_style:');
-                        const selectedFightingStyle = fightingStyleOptions.find(
-                          (option) => option.value === fightingStyle
-                        );
-                        const favoredEnemy = getFeatureValue(features, 'favored_enemy:');
-                        const humanoidRaces = getFeatureValues(features, 'favored_enemy_humanoid:');
-                        const expertiseSelections = getFeatureValues(features, 'expertise:');
-                        const expertiseChoices = [
-                          ...(formState.proficientSkills ?? []),
-                          'thieves_tools',
-                        ];
+                  {isFeaturesStep ? (
+                    <section className="character-form-section character-feature-timeline-section">
+                      <div className="section-heading compact">
+                        <div>
+                          <span className="eyebrow">성장 타임라인</span>
+                          <h2>1레벨부터 시작 레벨까지의 획득/선택 특성</h2>
+                        </div>
+                        {requiredFeaturePreviewItems.length ? (
+                          <span className="status-chip warning">
+                            선택 필요 {requiredFeaturePreviewItems.length}
+                          </span>
+                        ) : featurePreviewItems.length ? (
+                          <span className="status-chip">선택 완료</span>
+                        ) : null}
+                      </div>
+                      {featureTimelineGroups.length ? (
+                        <>
+                          <div className="character-feature-timeline-summary">
+                            <span>총 {featureTimelineStats.total}개</span>
+                            <span>자동 {featureTimelineStats.automatic}개</span>
+                            <span>완료 {featureTimelineStats.selected}개</span>
+                            {featureTimelineStats.required > 0 ? (
+                              <strong>선택 필요 {featureTimelineStats.required}개</strong>
+                            ) : (
+                              <strong className="complete">필수 선택 완료</strong>
+                            )}
+                          </div>
+                          <div className="character-feature-timeline">
+                            {featureTimelineGroups.map((group) => {
+                              const groupStats = countFeaturePreviewStatuses(group.items);
+                              return (
+                                <article
+                                  key={group.level}
+                                  className={`character-feature-timeline-row${
+                                    groupStats.required > 0 ? ' has-required' : ''
+                                  }`}
+                                >
+                                  <div className="character-feature-timeline-head">
+                                    <div className="character-feature-timeline-level">
+                                      {group.level}레벨
+                                    </div>
+                                    <div className="character-feature-timeline-counts">
+                                      {groupStats.required > 0 ? (
+                                        <span className="status-required">
+                                          선택 필요 {groupStats.required}
+                                        </span>
+                                      ) : null}
+                                      {groupStats.selected > 0 ? (
+                                        <span className="status-selected">
+                                          완료 {groupStats.selected}
+                                        </span>
+                                      ) : null}
+                                      {groupStats.automatic > 0 ? (
+                                        <span>자동 {groupStats.automatic}</span>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                  <ul>
+                                    {group.items.map((item) => (
+                                      <li key={item.id} className={`status-${item.status}`}>
+                                        <div className="character-feature-timeline-item-head">
+                                          <strong>{item.label}</strong>
+                                          <div className="character-feature-timeline-badges">
+                                            <span className={`status-${item.status}`}>
+                                              {featureStatusLabels[item.status]}
+                                            </span>
+                                            <span className={`source-${item.source}`}>
+                                              {featureSourceLabels[item.source]}
+                                            </span>
+                                          </div>
+                                        </div>
+                                        <p>{item.summary}</p>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        </>
+                      ) : (
+                        <p className="character-empty-note">
+                          종족과 직업을 선택하면 획득 특성이 여기에 표시됩니다.
+                        </p>
+                      )}
+                    </section>
+                  ) : null}
 
-                        if (
-                          ancestryKey !== 'dragonborn' &&
-                          !['fighter', 'ranger', 'rogue'].includes(classKey)
-                        ) {
-                          return null;
-                        }
-
-                        return (
-                          <section className="character-form-section">
-                            <div className="section-heading compact">
-                              <div>
-                                <span className="eyebrow">종족/직업 기능</span>
-                                <h2>1레벨 선택</h2>
-                              </div>
-                            </div>
-
-                            {ancestryKey === 'dragonborn' ? (
-                              <div>
-                                <label htmlFor="character-draconic-ancestry">
-                                  Draconic Ancestry
+                  {isFeaturesStep && getCreationAsiLevels(formState.className, formState.level ?? 1).length ? (
+                    <section className="character-form-section character-feat-selection-section">
+                      <div className="section-heading compact">
+                        <div>
+                          <span className="eyebrow">ASI / Feat</span>
+                          <h2>능력치 상승 또는 Feat 선택</h2>
+                        </div>
+                      </div>
+                      <p className="character-create-equipment-summary-help">
+                        각 ASI 지점마다 능력치 상승 선택 또는 Feat 하나를 선택합니다.
+                        생성 단계의 ASI 선택은 Feat처럼 특성 선택으로 기록되며, 코어 스탯의
+                        Point Buy 27포인트 계산에는 영향을 주지 않습니다.
+                      </p>
+                      <div className="character-feat-choice-list">
+                        {getCreationAsiLevels(formState.className, formState.level ?? 1).map(
+                          (asiLevel, index) => {
+                            const selectedChoiceIds = getSelectedAsiFeatChoiceIds(formState.features);
+                            const selectedChoiceId = selectedChoiceIds[index] ?? '';
+                            const selectedAsiAbility = getAbilityFromAsiChoiceId(selectedChoiceId);
+                            const selectedFeat = selectedChoiceId.startsWith('feat.')
+                              ? featOptionById.get(selectedChoiceId)
+                              : null;
+                            return (
+                              <div key={asiLevel} className="character-feat-choice-card">
+                                <label htmlFor={`character-feat-${asiLevel}`}>
+                                  {asiLevel}레벨 선택
                                 </label>
                                 <select
-                                  id="character-draconic-ancestry"
-                                  value={draconicAncestry}
-                                  required
-                                  onChange={(event) =>
-                                    setFormState((current) => ({
-                                      ...current,
-                                      features: replaceFeatureTags(
-                                        current.features,
-                                        ['draconic_ancestry:'],
-                                        event.target.value
-                                          ? [`draconic_ancestry:${event.target.value}`]
-                                          : []
-                                      ),
-                                    }))
-                                  }
-                                >
-                                  <option value="" disabled>
-                                    용 혈통 선택
-                                  </option>
-                                  {draconicAncestryOptions.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                                <p className="field-help">
-                                  선택한 혈통이 브레스 피해 유형과 피해 저항을 함께 결정합니다.
-                                </p>
-                              </div>
-                            ) : null}
-
-                            {classKey === 'fighter' ? (
-                              <div>
-                                <label htmlFor="character-fighting-style">Fighting Style</label>
-                                <select
-                                  id="character-fighting-style"
-                                  value={fightingStyle}
-                                  required
-                                  onChange={(event) =>
-                                    setFormState((current) => ({
-                                      ...current,
-                                      features: replaceFeatureTags(
-                                        current.features,
-                                        ['fighting_style:'],
-                                        event.target.value
-                                          ? [`fighting_style:${event.target.value}`]
-                                          : []
-                                      ),
-                                    }))
-                                  }
-                                >
-                                  <option value="" disabled>
-                                    전투 유파 선택
-                                  </option>
-                                  {fightingStyleOptions.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label} - {option.effect}
-                                    </option>
-                                  ))}
-                                </select>
-                                {selectedFightingStyle ? (
-                                  <p
-                                    style={{
-                                      margin: '8px 0 0 0',
-                                      fontSize: '0.9rem',
-                                      opacity: 0.85,
-                                    }}
-                                  >
-                                    <strong>{selectedFightingStyle.label}</strong>:{' '}
-                                    {selectedFightingStyle.effect}
-                                  </p>
-                                ) : null}
-                              </div>
-                            ) : null}
-
-                            {classKey === 'ranger' ? (
-                              <div>
-                                <label htmlFor="character-favored-enemy">Favored Enemy</label>
-                                <select
-                                  id="character-favored-enemy"
-                                  value={favoredEnemy}
-                                  required
-                                  onChange={(event) =>
-                                    setFormState((current) => ({
-                                      ...current,
-                                      features: replaceFeatureTags(
-                                        current.features,
-                                        ['favored_enemy:', 'favored_enemy_humanoid:'],
-                                        event.target.value
-                                          ? [`favored_enemy:${event.target.value}`]
-                                          : []
-                                      ),
-                                    }))
-                                  }
-                                >
-                                  <option value="" disabled>
-                                    주적 선택
-                                  </option>
-                                  {favoredEnemyOptions.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                                {favoredEnemy === 'humanoid' ? (
-                                  <div className="field-row" style={{ marginTop: 10 }}>
-                                    {[0, 1].map((index) => (
-                                      <div key={index}>
-                                        <label htmlFor={`character-favored-humanoid-${index}`}>
-                                          인간형 종족 {index + 1}
-                                        </label>
-                                        <select
-                                          id={`character-favored-humanoid-${index}`}
-                                          value={humanoidRaces[index] ?? ''}
-                                          required
-                                          onChange={(event) => {
-                                            const nextRaces = [...humanoidRaces];
-                                            nextRaces[index] = event.target.value;
-                                            setFormState((current) => ({
-                                              ...current,
-                                              features: replaceFeatureTags(
-                                                current.features,
-                                                ['favored_enemy:', 'favored_enemy_humanoid:'],
-                                                [
-                                                  'favored_enemy:humanoid',
-                                                  ...nextRaces
-                                                    .filter(Boolean)
-                                                    .map(
-                                                      (race) => `favored_enemy_humanoid:${race}`
-                                                    ),
-                                                ]
-                                              ),
-                                            }));
-                                          }}
-                                        >
-                                          <option value="" disabled>
-                                            인간형 종족 선택
-                                          </option>
-                                          {favoredHumanoidOptions.map((option) => (
-                                            <option
-                                              key={option.value}
-                                              value={option.value}
-                                              disabled={humanoidRaces.some(
-                                                (race, raceIndex) =>
-                                                  raceIndex !== index && race === option.value
-                                              )}
-                                            >
-                                              {option.label}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : null}
-
-                            {classKey === 'rogue' ? (
-                              <div>
-                                <p
-                                  style={{
-                                    margin: '0 0 12px 0',
-                                    fontSize: '0.9rem',
-                                    opacity: 0.85,
+                                  id={`character-feat-${asiLevel}`}
+                                  value={selectedChoiceId}
+                                  onChange={(event) => {
+                                    const nextChoiceId = event.target.value;
+                                    setFormState((current) => {
+                                      const currentChoiceIds = getSelectedAsiFeatChoiceIds(
+                                        current.features
+                                      );
+                                      const nextChoiceIds = [...currentChoiceIds];
+                                      nextChoiceIds[index] = nextChoiceId;
+                                      const filteredNextChoiceIds = nextChoiceIds.filter(Boolean);
+                                      return {
+                                        ...current,
+                                        features: replaceSelectedAsiFeatChoiceIds(
+                                          current.features,
+                                          filteredNextChoiceIds
+                                        ),
+                                      };
+                                    });
                                   }}
                                 >
-                                  숙련 기술 2개, 또는 숙련 기술 1개와 Thieves' tools를 선택합니다
-                                  (현재 {expertiseSelections.length}/2).
-                                </p>
-                                <div className="character-chip-row">
-                                  {expertiseChoices.map((choice) => {
-                                    const selected = expertiseSelections.includes(choice);
-                                    const disabled = !selected && expertiseSelections.length >= 2;
-                                    return (
-                                      <button
-                                        key={choice}
-                                        type="button"
-                                        className="character-skill-chip"
-                                        aria-pressed={selected}
-                                        disabled={disabled}
-                                        onClick={() =>
-                                          setFormState((current) => {
-                                            const currentSelections = getFeatureValues(
-                                              current.features,
-                                              'expertise:'
-                                            );
-                                            const nextSelections = currentSelections.includes(
-                                              choice
-                                            )
-                                              ? currentSelections.filter(
-                                                  (entry) => entry !== choice
-                                                )
-                                              : [...currentSelections, choice].slice(0, 2);
-                                            return {
-                                              ...current,
-                                              features: replaceFeatureTags(
-                                                current.features,
-                                                ['expertise:'],
-                                                nextSelections.map((entry) => `expertise:${entry}`)
-                                              ),
-                                            };
-                                          })
-                                        }
+                                  <option value="">선택 필요</option>
+                                  {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map(
+                                    (ability) => {
+                                      const choiceId = getAsiChoiceId(ability);
+                                      const isAlreadySelectedElsewhere =
+                                        selectedChoiceIds.includes(choiceId) &&
+                                        selectedChoiceId !== choiceId;
+                                      return (
+                                      <option
+                                        key={ability}
+                                        value={choiceId}
+                                        disabled={isAlreadySelectedElsewhere}
                                       >
-                                        {choice === 'thieves_tools'
-                                          ? "Thieves' tools"
-                                          : getSkillLabel(choice)}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
+                                        ASI: {abilityDisplayLabels[ability]} +2
+                                      </option>
+                                      );
+                                    }
+                                  )}
+                                  {featOptions.map((feat) => (
+                                    <option
+                                      key={feat.id}
+                                      value={feat.id}
+                                      disabled={
+                                        selectedChoiceIds.includes(feat.id) &&
+                                        selectedChoiceId !== feat.id
+                                      }
+                                    >
+                                      {feat.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <p>
+                                  {selectedFeat
+                                    ? selectedFeat.summary
+                                    : selectedAsiAbility
+                                      ? `${abilityDisplayLabels[selectedAsiAbility]} ASI 선택을 특성으로 기록합니다.`
+                                      : '능력치 하나를 +2 하거나 Feat 하나를 선택하세요.'}
+                                </p>
                               </div>
-                            ) : null}
-                          </section>
+                            );
+                          }
+                        )}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {isFeaturesStep && activeFeatureChoiceDefinitions.length ? (
+                    <section className="character-form-section">
+                      <div className="section-heading compact">
+                        <div>
+                          <span className="eyebrow">종족/직업 기능</span>
+                          <h2>선택형 특성</h2>
+                        </div>
+                      </div>
+
+                      {activeFeatureChoiceDefinitions.map((definition) => {
+                        const context = getFeatureChoiceContext({
+                          ancestry: formState.ancestry,
+                          className: formState.className,
+                          level: formState.level,
+                          features: formState.features,
+                          proficientSkills: formState.proficientSkills,
+                        });
+                        const options = definition.getOptions(context);
+                        const selectedValues = getFeatureChoiceSelectedValues(
+                          definition,
+                          formState.features
                         );
-                      })()
-                    : null}
+                        const isComplete = isFeatureChoiceComplete(definition, context);
+
+                        return (
+                          <div key={definition.id} className="character-feature-choice-block">
+                            <div className="character-feature-choice-heading">
+                              <label htmlFor={`character-feature-choice-${definition.id}`}>
+                                {definition.label}
+                              </label>
+                              <span className={isComplete ? 'status-chip' : 'status-chip warning'}>
+                                {isComplete ? '선택 완료' : `선택 필요 ${selectedValues.length}/${definition.requiredSelections}`}
+                              </span>
+                            </div>
+                            <p className="field-help">{getFeatureChoiceSummary(definition, context)}</p>
+
+                            {definition.mode === 'single' ? (
+                              <select
+                                id={`character-feature-choice-${definition.id}`}
+                                value={selectedValues[0] ?? ''}
+                                required
+                                onChange={(event) => {
+                                  const nextValue = event.target.value;
+                                  setFormState((current) => ({
+                                    ...current,
+                                    features: replaceFeatureTags(
+                                      current.features,
+                                      definition.removedPrefixes,
+                                      nextValue ? [`${definition.featurePrefix}${nextValue}`] : []
+                                    ),
+                                  }));
+                                }}
+                              >
+                                <option value="" disabled>
+                                  선택하세요
+                                </option>
+                                {options.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.summary
+                                      ? `${option.label} - ${option.summary}`
+                                      : option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <div className="character-chip-row">
+                                {options.map((option) => {
+                                  const selected = selectedValues.includes(option.value);
+                                  const disabled =
+                                    !selected &&
+                                    selectedValues.length >= definition.requiredSelections;
+                                  return (
+                                    <button
+                                      key={option.value}
+                                      type="button"
+                                      className="character-skill-chip"
+                                      aria-pressed={selected}
+                                      disabled={disabled}
+                                      onClick={() =>
+                                        setFormState((current) => {
+                                          const currentSelections = getFeatureChoiceSelectedValues(
+                                            definition,
+                                            current.features
+                                          );
+                                          const nextSelections = currentSelections.includes(
+                                            option.value
+                                          )
+                                            ? currentSelections.filter(
+                                                (entry) => entry !== option.value
+                                              )
+                                            : [
+                                                ...currentSelections,
+                                                option.value,
+                                              ].slice(0, definition.requiredSelections);
+                                          return {
+                                            ...current,
+                                            features: replaceFeatureTags(
+                                              current.features,
+                                              definition.removedPrefixes,
+                                              nextSelections.map(
+                                                (entry) => `${definition.featurePrefix}${entry}`
+                                              )
+                                            ),
+                                          };
+                                        })
+                                      }
+                                    >
+                                      {option.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </section>
+                  ) : null}
 
                   {isEquipmentStep && selectedClass ? (
                     <section className="character-form-section">
@@ -4305,63 +5183,107 @@ export function CharacterPage({
                     </section>
                   ) : null}
 
-                  {isEquipmentStep ? (
-                    <section className="character-form-section">
+                  {isReviewStep ? (
+                    <section className="character-form-section character-create-review-summary">
                       <div className="section-heading compact">
                         <div>
-                          <span className="eyebrow">인벤토리</span>
-                          <h2>
-                            아이템 {selectedClass ? '(시작 장비 자동 — 수동 입력 무시됨)' : ''}
-                          </h2>
+                          <span className="eyebrow">최종 확인</span>
+                          <h2>{formState.name || '이름 미입력'}</h2>
                         </div>
-                        <button
-                          type="button"
-                          onClick={addInventoryRow}
-                          disabled={Boolean(selectedClass)}
-                        >
-                          아이템 추가
-                        </button>
                       </div>
-
-                      <div
-                        ref={inventoryEditorRef}
-                        className="character-inventory-editor fantasy-scroll-hidden"
-                      >
-                        {inventoryDraft.length ? (
-                          inventoryDraft.map((item) => (
-                            <div key={item.id} className="character-inventory-row">
-                              <input
-                                value={item.name}
-                                onChange={(event) =>
-                                  updateInventoryRow(item.id, 'name', event.target.value)
-                                }
-                                placeholder="아이템 이름"
-                              />
-                              <input
-                                type="number"
-                                min={1}
-                                value={item.quantity}
-                                onChange={(event) =>
-                                  updateInventoryRow(item.id, 'quantity', event.target.value)
-                                }
-                                placeholder="수량"
-                              />
-                              <button
-                                type="button"
-                                className="ghost"
-                                onClick={() => removeInventoryRow(item.id)}
-                              >
-                                삭제
-                              </button>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="character-empty-note">아직 추가된 아이템이 없습니다.</p>
-                        )}
-                      </div>
+                      <dl className="fantasy-character-summary-list">
+                        <div>
+                          <dt>종족</dt>
+                          <dd>{selectedRaceInfo?.label ?? '미선택'}</dd>
+                        </div>
+                        <div>
+                          <dt>직업</dt>
+                          <dd>{selectedClassInfo?.label ?? (formState.className || '미선택')}</dd>
+                        </div>
+                        <div>
+                          <dt>서브클래스</dt>
+                          <dd>{formState.subclassName || '없음/미선택'}</dd>
+                        </div>
+                        <div>
+                          <dt>레벨</dt>
+                          <dd>{formState.level ?? 1}</dd>
+                        </div>
+                        <div>
+                          <dt>HP / AC</dt>
+                          <dd>
+                            {formState.maxHp ?? '-'} / {formState.armorClass ?? '-'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>숙련 기술</dt>
+                          <dd>
+                            {(formState.proficientSkills ?? []).map(getSkillLabel).join(', ') ||
+                              '미선택'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>특성</dt>
+                          <dd>
+                            자동/선택 특성 {featurePreviewItems.length}개
+                            {requiredFeaturePreviewItems.length
+                              ? `, 선택 필요 ${requiredFeaturePreviewItems.length}개`
+                              : ''}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>장비</dt>
+                          <dd>{resolvedStartingEquipmentSummary.length}개 항목</dd>
+                        </div>
+                        <div>
+                          <dt>주문</dt>
+                          <dd>
+                            캔트립{' '}
+                            {
+                              (formState.startingSpells?.cantrips ?? []).filter((spell) =>
+                                spell.trim()
+                              ).length
+                            }
+                            개 / 슬롯 주문{' '}
+                            {
+                              (formState.startingSpells?.spells ?? []).filter((spell) =>
+                                spell.trim()
+                              ).length
+                            }
+                            개
+                          </dd>
+                        </div>
+                      </dl>
+                      {featurePreviewItems.length ? (
+                        <div className="character-review-feature-list">
+                          <strong>특성 확인</strong>
+                          <ul>
+                            {featurePreviewItems.map((feature) => (
+                              <li key={feature.id} className={`status-${feature.status}`}>
+                                <span>{featureSourceLabels[feature.source]}</span>
+                                <div>
+                                  <strong>{feature.label}</strong>
+                                  <p>
+                                    {featureStatusLabels[feature.status]} · {feature.summary}
+                                  </p>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {requiredFeaturePreviewItems.length ? (
+                        <p className="character-review-warning">
+                          아직 선택하지 않은 특성이 있습니다. 특성 탭으로 돌아가 필수 선택을 완료하세요.
+                        </p>
+                      ) : (
+                        <p className="character-review-complete">
+                          필수 선택은 완료되었습니다. 생성 시 장비와 주문 검증을 한 번 더 확인합니다.
+                        </p>
+                      )}
                     </section>
                   ) : null}
                 </div>
+                {hasCreateFormRightColumn ? (
                 <div className="character-create-form-right">
                   {isEquipmentStep ? (
                     <section className="character-form-section character-create-equipment-summary">
@@ -4548,71 +5470,7 @@ export function CharacterPage({
                       </div>
                     </section>
                   ) : null}
-                  {!isEquipmentStep && !isSpellsStep && !isStatsStep ? (
-                    <div className="character-insight-box">
-                      <div className="fantasy-insight-content">
-                        <div className="fantasy-insight-section">
-                          <strong className="fantasy-insight-title">
-                            {selectedRaceInfo?.label ?? '종족 정보'}
-                          </strong>
-                          <p>
-                            능력치 보너스:{' '}
-                            {(selectedRaceInfo?.abilityBonuses ?? [])
-                              .map((bonus) => formatAbilityBonus(bonus))
-                              .join(', ') || '정보 없음'}
-                          </p>
-                          <p>
-                            이동속도:{' '}
-                            {selectedRaceInfo ? `${selectedRaceInfo.speed} ft.` : '정보 없음'}
-                          </p>
-                          <p>크기: {selectedRaceInfo?.size ?? '정보 없음'}</p>
-                          <ul className="fantasy-character-text-list">
-                            {(selectedRaceInfo?.traitSummaries ?? []).slice(0, 3).map((trait) => (
-                              <li key={`${selectedRaceInfo?.value}-${trait.name}`}>
-                                <strong>{trait.name}</strong>: {trait.summary}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-
-                        <hr className="fantasy-insight-divider" />
-
-                        <div className="fantasy-insight-section">
-                          <strong className="fantasy-insight-title">
-                            {selectedClassInfo?.label ?? '직업 정보'}
-                          </strong>
-                          <p>{selectedClassInfo?.summary ?? '직업 설명이 없습니다.'}</p>
-                          <p>
-                            주 능력치:{' '}
-                            {selectedClassInfo
-                              ? localizeAbilityText(selectedClassInfo.primaryAbilitiesRaw)
-                              : '정보 없음'}
-                          </p>
-                          <p>히트 다이스: {selectedClassInfo?.hitDieRaw ?? '정보 없음'}</p>
-                          <p>
-                            주문시전 능력치:{' '}
-                            {selectedClassInfo?.spellcastingAbility
-                              ? localizeSrdTermText(selectedClassInfo.spellcastingAbility)
-                              : '없음'}
-                          </p>
-                          <ul className="fantasy-character-text-list">
-                            {(selectedClassInfo?.levelFeatureSummary ?? [])
-                              .slice(0, 3)
-                              .map((feature) => (
-                                <li key={`${selectedClassInfo?.value}-${feature.level}`}>
-                                  <strong>{feature.level}레벨</strong>: {feature.features}
-                                </li>
-                              ))}
-                          </ul>
-                          <p>
-                            시작 장비:{' '}
-                            {(selectedClassInfo?.startingEquipment ?? []).slice(0, 2).join(' / ') ||
-                              '정보 없음'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : isSpellsStep && selectedClass ? (
+                  {isSpellsStep && selectedClass ? (
                     (() => {
                       const renderedCantripCount = selectedStartingCantripCount;
                       const renderedSpellCount = selectedStartingSlotSpellCount;
@@ -4736,6 +5594,7 @@ export function CharacterPage({
                     })()
                   ) : null}
                 </div>
+                ) : null}
                 {isStatsStep ? (
                   <section className="character-form-section character-create-point-buy-section">
                     <div className="section-heading compact">
@@ -4815,7 +5674,7 @@ export function CharacterPage({
                                 </button>
                                 <div className="character-create-point-buy-value">
                                   <div className="character-create-point-buy-main">
-                                    base {base} → {finalScore}
+                                    base {base} + 종족 {bonus} = {finalScore}
                                   </div>
                                   <div className="character-create-point-buy-cost">
                                     {canInc && nextStepCost !== null
@@ -4876,9 +5735,12 @@ export function CharacterPage({
                 </div>
                 {isFinalCreateStep ? (
                   <button
-                    type="submit"
+                    type="button"
                     className="primary"
                     disabled={busy || classDefinitions.length === 0}
+                    onClick={() => {
+                      void submitCreateCharacter();
+                    }}
                   >
                     {editingCharacterId ? '저장' : '생성'}
                   </button>

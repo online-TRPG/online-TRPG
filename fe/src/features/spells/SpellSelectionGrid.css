@@ -1,6 +1,8 @@
 .spell-selection-grid {
   display: grid;
   gap: 10px;
+  width: 100%;
+  min-width: 0;
 }
 
 .spell-selection-grid-head {
@@ -82,11 +84,15 @@
 
 .spell-selection-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
   gap: 8px;
+  width: 100%;
+  min-width: 0;
   max-height: 310px;
-  overflow-y: auto;
-  padding: 2px 4px 4px 2px;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  padding: 2px 4px 12px 2px;
+  scrollbar-gutter: stable;
 }
 
 .spell-selection-card {
@@ -96,6 +102,7 @@
   align-items: center;
   gap: 8px;
   min-height: 58px;
+  min-width: 0;
   padding: 8px 24px 8px 8px;
   border: 1px solid rgba(104, 70, 28, 0.18);
   border-radius: 14px;
@@ -188,11 +195,12 @@
   color: #fff;
 }
 
-.spell-selection-card-tooltip {
-  grid-column: 1 / -1;
-  display: none;
+.spell-selection-floating-tooltip {
+  position: fixed;
+  z-index: 10000;
+  display: grid;
   gap: 7px;
-  margin-top: 2px;
+  overflow-y: auto;
   padding: 10px;
   border: 1px solid rgba(82, 50, 16, 0.24);
   border-radius: 14px;
@@ -200,14 +208,11 @@
     linear-gradient(180deg, rgba(255, 252, 241, 0.98), rgba(245, 232, 202, 0.98)),
     #fff6df;
   color: #2f1b08;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.36);
+  box-shadow:
+    0 16px 28px rgba(56, 34, 10, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.36);
   pointer-events: none;
-}
-
-.spell-selection-card:hover:not(:disabled) .spell-selection-card-tooltip,
-.spell-selection-card:focus-visible .spell-selection-card-tooltip,
-.spell-selection-card:focus-within .spell-selection-card-tooltip {
-  display: grid;
+  animation: spell-selection-tooltip-in 120ms ease both;
 }
 
 .spell-selection-tooltip-title {
@@ -216,15 +221,13 @@
   font-weight: 900;
 }
 
-.spell-selection-tooltip-specs,
-.spell-selection-tooltip-tags {
+.spell-selection-tooltip-specs {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
 }
 
-.spell-selection-tooltip-specs span,
-.spell-selection-tooltip-tags span {
+.spell-selection-tooltip-specs span {
   padding: 3px 7px;
   border-radius: 999px;
   background: rgba(87, 54, 17, 0.1);
@@ -242,6 +245,17 @@
 
 .spell-selection-tooltip-note strong {
   color: #45290b;
+}
+
+@keyframes spell-selection-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .spell-selection-empty {

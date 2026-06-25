@@ -25,8 +25,6 @@ import {
   normalizeSkillToKo,
   normalizeSpellcastingClassKey,
   POINT_BUY_COST,
-  POINT_BUY_MAX_BASE,
-  POINT_BUY_MIN_BASE,
   POINT_BUY_TOTAL,
   RaceAbilityIncreaseDto,
   SessionCharacterResponseDto,
@@ -37,7 +35,7 @@ import {
   UpdatePreparedSpellsDto,
 } from "@trpg/shared-types";
 import { mapCharacter, mapSessionCharacter } from "../../common/mappers/domain.mapper";
-import { isDefaultProvidedScenarioId } from "../scenarios/provided-scenario.constants";
+import { isProvidedScenarioId } from "../scenarios/provided-scenario.constants";
 import { PrismaService } from "../../database/prisma.service";
 import { CatalogService } from "../catalog/catalog.service";
 import { RacesService } from "../races/races.service";
@@ -71,6 +69,57 @@ const LOCKED_SESSION_STATUSES: ReadonlySet<PrismaSessionStatus> = new Set([
 const STARTING_SLOT_SPELL_SELECTION_COUNT = 4;
 const WIZARD_STARTING_SPELLBOOK_SPELL_COUNT = 6;
 const WIZARD_SPELLBOOK_SPELLS_PER_LEVEL = 2;
+const ALLOWED_FEAT_IDS: ReadonlySet<string> = new Set(["feat.alert"]);
+const ALLOWED_FIGHTING_STYLE_IDS: ReadonlySet<string> = new Set([
+  "archery",
+  "defense",
+  "dueling",
+  "great_weapon_fighting",
+  "protection",
+  "two_weapon_fighting",
+]);
+const ALLOWED_FAVORED_ENEMY_IDS: ReadonlySet<string> = new Set([
+  "aberrations",
+  "beasts",
+  "celestials",
+  "constructs",
+  "dragons",
+  "elementals",
+  "fey",
+  "fiends",
+  "giants",
+  "monstrosities",
+  "oozes",
+  "plants",
+  "undead",
+  "humanoid",
+]);
+const ALLOWED_FAVORED_HUMANOID_IDS: ReadonlySet<string> = new Set([
+  "dwarves",
+  "elves",
+  "halflings",
+  "humans",
+  "dragonborn",
+  "gnomes",
+  "half-elves",
+  "half-orcs",
+  "tieflings",
+  "gnolls",
+  "goblins",
+  "hobgoblins",
+  "kobolds",
+  "lizardfolk",
+  "orcs",
+]);
+const ALLOWED_ASI_ABILITY_KEYS: ReadonlySet<string> = new Set([...ABILITY_KEYS]);
+
+function getAsiChoiceLevelsForClass(className: string): number[] {
+  const classKey = className.trim().toLowerCase();
+  const classSpecificLevels =
+    classKey === "fighter" ? [6, 14] : classKey === "rogue" ? [10] : [];
+  return Array.from(new Set([4, 8, 12, 16, 19, ...classSpecificLevels]))
+    .sort((left, right) => left - right);
+}
 
 @Injectable()
 export class CharactersService {
@@ -93,7 +142,6 @@ export class CharactersService {
     const abilities = dto.abilities ?? defaultAbilityScores;
     this.validateAbilitiesRange(abilities);
     const race = await this.findRaceForAncestry(ancestry);
-    await this.validatePointBuyForAncestry(ancestry, abilities, race);
     const className = dto.className.trim();
     const normalizedProficientSkills = dto.proficientSkills
       ? await this.validateProficientSkills(className, dto.proficientSkills)
@@ -130,7 +178,10 @@ export class CharactersService {
       subclassName,
       level,
       requestedFeatures: dto.features ?? [],
+      proficientSkills: normalizedProficientSkills,
+      requireMissingFeatureChoices: true,
     });
+    await this.validatePointBuyForAncestry(ancestry, abilities, race);
     const maxHpBonus = this.resolveMaxHpBonusFromFeatures(features, className, level);
     const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
       className,
@@ -247,7 +298,6 @@ export class CharactersService {
 
     if (dto.abilities !== undefined || dto.ancestry !== undefined) {
       this.validateAbilitiesRange(finalAbilities);
-      await this.validatePointBuyForAncestry(finalAncestry, finalAbilities, finalRace);
     }
     const normalizedUpdateProficientSkills =
       dto.proficientSkills !== undefined
@@ -283,14 +333,28 @@ export class CharactersService {
       requiredCode: "CHARACTER_SUBCLASS_REQUIRED",
       invalidCode: "CHARACTER_INVALID_SUBCLASS",
     });
+    const requestedFeatures = dto.features ?? this.parseStringArrayJson(existing.featuresJson);
     const finalFeatures = await this.resolveCharacterFeatureSnapshot({
       ancestry: finalAncestry,
       raceKey: finalRace?.key ?? null,
       className: finalClassName,
       subclassName: validatedSubclassName,
       level: finalLevel,
-      requestedFeatures: dto.features ?? this.parseStringArrayJson(existing.featuresJson),
+      requestedFeatures,
+      proficientSkills:
+        normalizedUpdateProficientSkills ?? this.parseStringArrayJson(existing.proficientSkillsJson),
+      requireMissingFeatureChoices:
+        dto.features !== undefined || dto.className !== undefined || dto.level !== undefined,
     });
+    if (
+      dto.abilities !== undefined ||
+      dto.ancestry !== undefined ||
+      dto.level !== undefined ||
+      dto.className !== undefined ||
+      dto.features !== undefined
+    ) {
+      await this.validatePointBuyForAncestry(finalAncestry, finalAbilities, finalRace);
+    }
     const resolvedStats = needsLevelStats
       ? await this.resolveLevelStats(
           finalClassName,
@@ -460,11 +524,18 @@ export class CharactersService {
       requiredCode: "LEVEL_UP_SUBCLASS_REQUIRED",
       invalidCode: "LEVEL_UP_INVALID_SUBCLASS",
     });
+    const existingFeatureIds = this.parseStringArrayJson(existing.featuresJson);
+    const selectedFeatIds = this.resolveLevelUpFeatSelections(
+      dto.featSelections,
+      resolution.asiOrFeatChoiceRequiredAtLevels,
+      existingFeatureIds,
+    );
 
     const asiAdjustedAbilities = this.resolveLevelUpAbilityScores(
       abilities,
       dto.abilityScoreIncreases,
       resolution.asiOrFeatChoiceRequiredAtLevels,
+      selectedFeatIds.length,
     );
     const finalFeatures = await this.resolveCharacterFeatureSnapshot({
       ancestry: existing.ancestry,
@@ -472,7 +543,12 @@ export class CharactersService {
       className: existing.className,
       subclassName: selectedSubclassName,
       level: resolution.toLevel,
-      requestedFeatures: this.parseStringArrayJson(existing.featuresJson),
+      requestedFeatures: [
+        ...existingFeatureIds,
+        ...selectedFeatIds,
+      ],
+      proficientSkills: this.parseStringArrayJson(existing.proficientSkillsJson),
+      requireMissingFeatureChoices: false,
     });
     const finalAbilities = this.applyP6CapstoneAbilityAdjustments({
       className: existing.className,
@@ -602,12 +678,63 @@ export class CharactersService {
     return mapCharacter(updated);
   }
 
+  private resolveLevelUpFeatSelections(
+    requested: LevelUpCharacterDto["featSelections"],
+    asiLevels: number[],
+    existingFeatureIds: string[],
+  ): string[] {
+    const featSelections = (requested ?? [])
+      .map((featId) => featId.trim().toLowerCase())
+      .filter(Boolean);
+    if (featSelections.length > asiLevels.length) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_TOO_MANY_FEATS",
+        message: "Feat 선택 수는 이번 레벨업에서 지나간 ASI 지점 수를 넘을 수 없습니다.",
+        levels: asiLevels,
+        featSelections,
+      });
+    }
+    const duplicateFeatIds = featSelections.filter(
+      (featId, index) => featSelections.indexOf(featId) !== index,
+    );
+    if (duplicateFeatIds.length) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_DUPLICATE_FEAT",
+        message: "같은 Feat는 중복 선택할 수 없습니다.",
+        featIds: Array.from(new Set(duplicateFeatIds)),
+      });
+    }
+    const invalidFeatId = featSelections.find((featId) => !ALLOWED_FEAT_IDS.has(featId));
+    if (invalidFeatId) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_INVALID_FEAT",
+        message: "현재 캐릭터 빌더에서 사용할 수 없는 Feat입니다.",
+        featId: invalidFeatId,
+      });
+    }
+    const existingFeatIds = new Set(
+      existingFeatureIds
+        .map((featureId) => featureId.trim().toLowerCase())
+        .filter((featureId) => featureId.startsWith("feat.")),
+    );
+    const alreadyOwnedFeatId = featSelections.find((featId) => existingFeatIds.has(featId));
+    if (alreadyOwnedFeatId) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_FEAT_ALREADY_OWNED",
+        message: "이미 보유한 Feat는 다시 선택할 수 없습니다.",
+        featId: alreadyOwnedFeatId,
+      });
+    }
+    return featSelections;
+  }
+
   private resolveLevelUpAbilityScores(
     current: AbilityScoresDto,
     requested: LevelUpCharacterDto["abilityScoreIncreases"],
     asiLevels: number[],
+    featSelectionCount = 0,
   ): AbilityScoresDto {
-    const requiredPoints = asiLevels.length * 2;
+    const requiredPoints = Math.max(0, asiLevels.length - featSelectionCount) * 2;
     const increases = requested ?? {};
     let allocatedPoints = 0;
     const next = { ...current };
@@ -1183,6 +1310,8 @@ export class CharactersService {
             subclassName: source.subclassName,
             level: source.level,
             requestedFeatures: this.parseStringArrayJson(source.featuresJson),
+            proficientSkills: this.parseStringArrayJson(source.proficientSkillsJson),
+            requireMissingFeatureChoices: false,
           }),
         ),
         proficientSkillsJson: source.proficientSkillsJson,
@@ -1378,9 +1507,9 @@ export class CharactersService {
       throw new NotFoundException(`Scenario ${scenarioId} was not found.`);
     }
 
-    const isDefaultProvidedScenario = isDefaultProvidedScenarioId(scenario.id);
+    const isProvidedScenario = isProvidedScenarioId(scenario.id);
     const isOwnScenario = scenario.createdByUserId === userId;
-    if (!isDefaultProvidedScenario && !isOwnScenario) {
+    if (!isProvidedScenario && !isOwnScenario) {
       // 다른 사용자가 만든 시나리오는 캐릭터 생성 선택지와 API 응답에서 모두 숨깁니다.
       throw new NotFoundException(`Scenario ${scenarioId} was not found.`);
     }
@@ -1416,17 +1545,10 @@ export class CharactersService {
       cha: abilities.cha,
     };
 
-    let totalCost = 0;
-    for (const key of ["str", "dex", "con", "int", "wis", "cha"] as const) {
-      const base = finalScores[key] - (increases[key] ?? 0);
-      if (!Number.isInteger(base) || base < POINT_BUY_MIN_BASE || base > POINT_BUY_MAX_BASE) {
-        throw new BadRequestException(
-          `Point Buy: ${key.toUpperCase()} 기본 능력치(${base})가 허용 범위(${POINT_BUY_MIN_BASE}~${POINT_BUY_MAX_BASE})를 벗어났습니다. (종족 보정 ${increases[key] ?? 0} 차감 후 값)`,
-        );
-      }
-      totalCost += POINT_BUY_COST[base] ?? 0;
-    }
-
+    const totalCost = (["str", "dex", "con", "int", "wis", "cha"] as const).reduce(
+      (sum, key) => sum + (POINT_BUY_COST[finalScores[key] - (increases[key] ?? 0)] ?? 0),
+      0,
+    );
     if (totalCost !== POINT_BUY_TOTAL) {
       throw new BadRequestException(
         `Point Buy: 총 비용 ${totalCost}점이 ${POINT_BUY_TOTAL}점과 일치하지 않습니다.`,
@@ -2417,9 +2539,24 @@ export class CharactersService {
     subclassName?: string | null;
     level: number;
     requestedFeatures: string[];
+    proficientSkills: string[];
+    requireMissingFeatureChoices: boolean;
   }): Promise<string[]> {
     const raceKey = params.raceKey ?? await this.resolveRaceTraitFeatureKey(params.ancestry);
     this.assertRaceFeatureSelections(raceKey, params.requestedFeatures);
+    this.assertClassFeatureSelections({
+      className: params.className,
+      level: params.level,
+      requestedFeatures: params.requestedFeatures,
+      proficientSkills: params.proficientSkills,
+      requireMissingSelections: params.requireMissingFeatureChoices,
+    });
+    this.assertAllowedFeatSelections({
+      className: params.className,
+      level: params.level,
+      requestedFeatures: params.requestedFeatures,
+      requireMissingSelections: params.requireMissingFeatureChoices,
+    });
     return this.ruleCatalogService.getCharacterFeatureSnapshot({
       raceKey,
       classKey: params.className,
@@ -2427,6 +2564,81 @@ export class CharactersService {
       classLevel: params.level,
       requestedFeatureIds: params.requestedFeatures,
     }).featureIds;
+  }
+
+  private assertAllowedFeatSelections(params: {
+    className: string;
+    level: number;
+    requestedFeatures: string[];
+    requireMissingSelections: boolean;
+  }): void {
+    const normalizedFeatures = params.requestedFeatures.map((feature) =>
+      feature.trim().toLowerCase(),
+    );
+    const requestedFeatIds = normalizedFeatures.filter((feature) => feature.startsWith("feat."));
+    const requestedAsiChoices = normalizedFeatures
+      .filter((feature) => feature.startsWith("asi:"))
+      .map((feature) => feature.slice("asi:".length));
+    const duplicateFeatIds = requestedFeatIds.filter(
+      (featId, index) => requestedFeatIds.indexOf(featId) !== index,
+    );
+    if (duplicateFeatIds.length) {
+      throw new BadRequestException({
+        code: "CHARACTER_DUPLICATE_FEAT",
+        message: "같은 Feat는 중복 선택할 수 없습니다.",
+        featIds: Array.from(new Set(duplicateFeatIds)),
+      });
+    }
+    const duplicateAsiChoices = requestedAsiChoices.filter(
+      (abilityKey, index) => requestedAsiChoices.indexOf(abilityKey) !== index,
+    );
+    if (duplicateAsiChoices.length) {
+      throw new BadRequestException({
+        code: "CHARACTER_DUPLICATE_ASI_CHOICE",
+        message: "생성/수정 단계에서는 같은 능력치 ASI를 중복 선택할 수 없습니다.",
+        abilityKeys: Array.from(new Set(duplicateAsiChoices)),
+      });
+    }
+    const invalidFeatId = requestedFeatIds.find((featId) => !ALLOWED_FEAT_IDS.has(featId));
+    if (invalidFeatId) {
+      throw new BadRequestException({
+        code: "CHARACTER_INVALID_FEAT",
+        message: "현재 캐릭터 빌더에서 사용할 수 없는 Feat입니다.",
+        featId: invalidFeatId,
+      });
+    }
+    const invalidAsiChoice = requestedAsiChoices.find(
+      (abilityKey) => !ALLOWED_ASI_ABILITY_KEYS.has(abilityKey),
+    );
+    if (invalidAsiChoice) {
+      throw new BadRequestException({
+        code: "CHARACTER_INVALID_ASI_CHOICE",
+        message: "ASI 선택값이 유효하지 않습니다.",
+        abilityKey: invalidAsiChoice,
+      });
+    }
+    const availableFeatChoiceCount = getAsiChoiceLevelsForClass(params.className)
+      .filter((level) => level <= params.level)
+      .length;
+    const requestedChoiceCount = requestedFeatIds.length + requestedAsiChoices.length;
+    if (requestedChoiceCount > availableFeatChoiceCount) {
+      throw new BadRequestException({
+        code: "CHARACTER_FEAT_LEVEL_REQUIREMENT",
+        message: "현재 레벨에서 선택할 수 있는 ASI/Feat 수를 초과했습니다.",
+        level: params.level,
+        availableFeatChoiceCount,
+        requestedChoiceCount,
+      });
+    }
+    if (params.requireMissingSelections && requestedChoiceCount !== availableFeatChoiceCount) {
+      throw new BadRequestException({
+        code: "CHARACTER_ASI_FEAT_CHOICE_REQUIRED",
+        message: "현재 레벨까지의 모든 ASI/Feat 지점을 선택해야 합니다.",
+        level: params.level,
+        requiredChoiceCount: availableFeatChoiceCount,
+        requestedChoiceCount,
+      });
+    }
   }
 
   private assertRaceFeatureSelections(
@@ -2468,6 +2680,156 @@ export class CharactersService {
       throw new BadRequestException({
         code: "CHARACTER_DRACONIC_ANCESTRY_REQUIRED",
         message: "드래곤본은 용 혈통을 선택해야 합니다.",
+      });
+    }
+  }
+
+  private assertClassFeatureSelections(params: {
+    className: string;
+    level: number;
+    requestedFeatures: string[];
+    proficientSkills: string[];
+    requireMissingSelections: boolean;
+  }): void {
+    const classKey = params.className.trim().toLowerCase();
+    const normalizedFeatures = params.requestedFeatures.map((feature) =>
+      feature.trim().toLowerCase(),
+    );
+    const fightingStyles = this.getFeatureSelectionValues(normalizedFeatures, "fighting_style:");
+    const favoredEnemies = this.getFeatureSelectionValues(normalizedFeatures, "favored_enemy:");
+    const favoredHumanoids = this.getFeatureSelectionValues(
+      normalizedFeatures,
+      "favored_enemy_humanoid:",
+    );
+    const expertiseSelections = this.getFeatureSelectionValues(normalizedFeatures, "expertise:");
+
+    const fightingStyleRequired =
+      classKey === "fighter" ||
+      ((classKey === "paladin" || classKey === "ranger") && params.level >= 2);
+    if (!fightingStyleRequired && fightingStyles.length) {
+      throw new BadRequestException({
+        code: "CHARACTER_INVALID_CLASS_FEATURE",
+        message: "현재 직업/레벨에서는 전투 유파를 선택할 수 없습니다.",
+      });
+    }
+    if (fightingStyleRequired && (params.requireMissingSelections || fightingStyles.length)) {
+      this.assertExactUniqueSelectionCount({
+        code: "CHARACTER_FIGHTING_STYLE_REQUIRED",
+        label: "전투 유파",
+        values: fightingStyles,
+        count: 1,
+      });
+      this.assertAllowedSelectionValues({
+        code: "CHARACTER_INVALID_FIGHTING_STYLE",
+        label: "전투 유파",
+        values: fightingStyles,
+        allowed: ALLOWED_FIGHTING_STYLE_IDS,
+      });
+    }
+
+    if (classKey !== "ranger" && (favoredEnemies.length || favoredHumanoids.length)) {
+      throw new BadRequestException({
+        code: "CHARACTER_INVALID_CLASS_FEATURE",
+        message: "레인저가 아닌 직업은 주적을 선택할 수 없습니다.",
+      });
+    }
+    if (classKey === "ranger" && (params.requireMissingSelections || favoredEnemies.length || favoredHumanoids.length)) {
+      this.assertExactUniqueSelectionCount({
+        code: "CHARACTER_FAVORED_ENEMY_REQUIRED",
+        label: "주적",
+        values: favoredEnemies,
+        count: 1,
+      });
+      this.assertAllowedSelectionValues({
+        code: "CHARACTER_INVALID_FAVORED_ENEMY",
+        label: "주적",
+        values: favoredEnemies,
+        allowed: ALLOWED_FAVORED_ENEMY_IDS,
+      });
+      const humanoidCount = favoredEnemies[0] === "humanoid" ? 2 : 0;
+      this.assertExactUniqueSelectionCount({
+        code: "CHARACTER_FAVORED_HUMANOID_REQUIRED",
+        label: "인간형 주적",
+        values: favoredHumanoids,
+        count: humanoidCount,
+      });
+      this.assertAllowedSelectionValues({
+        code: "CHARACTER_INVALID_FAVORED_HUMANOID",
+        label: "인간형 주적",
+        values: favoredHumanoids,
+        allowed: ALLOWED_FAVORED_HUMANOID_IDS,
+      });
+    }
+
+    if (classKey !== "rogue" && expertiseSelections.length) {
+      throw new BadRequestException({
+        code: "CHARACTER_INVALID_CLASS_FEATURE",
+        message: "로그가 아닌 직업은 현재 캐릭터 빌더에서 전문화를 선택할 수 없습니다.",
+      });
+    }
+    if (classKey === "rogue" && (params.requireMissingSelections || expertiseSelections.length)) {
+      this.assertExactUniqueSelectionCount({
+        code: "CHARACTER_EXPERTISE_REQUIRED",
+        label: "전문화",
+        values: expertiseSelections,
+        count: 2,
+      });
+      const normalizedSkillSet = new Set(
+        params.proficientSkills.map((skill) => skill.trim().toLowerCase()),
+      );
+      const invalidExpertise = expertiseSelections.find(
+        (selection) =>
+          selection !== "thieves_tools" &&
+          !normalizedSkillSet.has(selection.trim().toLowerCase()),
+      );
+      if (invalidExpertise) {
+        throw new BadRequestException({
+          code: "CHARACTER_INVALID_EXPERTISE",
+          message: "전문화는 숙련된 기술 또는 Thieves' tools 중에서 선택해야 합니다.",
+          selection: invalidExpertise,
+        });
+      }
+    }
+  }
+
+  private getFeatureSelectionValues(features: string[], prefix: string): string[] {
+    return features
+      .filter((feature) => feature.startsWith(prefix))
+      .map((feature) => feature.slice(prefix.length).trim())
+      .filter((value) => value.length > 0);
+  }
+
+  private assertExactUniqueSelectionCount(params: {
+    code: string;
+    label: string;
+    values: string[];
+    count: number;
+  }): void {
+    if (
+      params.values.length !== params.count ||
+      new Set(params.values).size !== params.values.length
+    ) {
+      throw new BadRequestException({
+        code: params.code,
+        message: `${params.label} 선택은 ${params.count}개여야 합니다.`,
+        requiredCount: params.count,
+        receivedCount: params.values.length,
+      });
+    }
+  }
+
+  private assertAllowedSelectionValues(params: {
+    code: string;
+    label: string;
+    values: string[];
+    allowed: ReadonlySet<string>;
+  }): void {
+    const invalidValue = params.values.find((value) => !params.allowed.has(value));
+    if (invalidValue) {
+      throw new BadRequestException({
+        code: params.code,
+        message: `${params.label} 선택값이 유효하지 않습니다.`,
+        value: invalidValue,
       });
     }
   }

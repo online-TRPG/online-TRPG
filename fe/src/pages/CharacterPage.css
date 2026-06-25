@@ -304,22 +304,6 @@
   z-index: 3;
 }
 
-.character-insight-box {
-  background: rgba(228, 208, 165, 0.15);
-  border: 1px solid rgba(228, 208, 165, 0.3);
-  border-radius: 18px;
-  padding: 24px;
-  box-shadow: inset 0 0 40px rgba(139, 69, 19, 0.03), 0 4px 12px rgba(24, 13, 4, 0.1);
-  display: flex;
-  flex-direction: column;
-}
-
-.character-insight-box .fantasy-insight-content {
-  max-width: 100%;
-  margin: 0;
-  padding: 0;
-}
-
 .fantasy-insight-divider {
   border: 0;
   height: 2px;
@@ -528,6 +512,48 @@
   font-size: 17px;
   line-height: 1.5;
   color: #2e1a0e;
+}
+
+.fantasy-character-feature-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.fantasy-character-feature-chip {
+  padding: 9px 10px;
+  display: grid;
+  gap: 3px;
+  border: 1px solid rgba(91, 59, 31, 0.28);
+  border-radius: 10px;
+  background: rgba(255, 250, 237, 0.66);
+}
+
+.fantasy-character-feature-chip span {
+  color: rgba(82, 53, 28, 0.72);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.fantasy-character-feature-chip strong {
+  color: #2b180c;
+  font-size: 16px;
+}
+
+.fantasy-character-feature-chip p {
+  font-size: 13px;
+  color: rgba(46, 26, 14, 0.78);
+}
+
+.fantasy-character-feature-chip.tone-feat {
+  border-color: rgba(113, 75, 168, 0.38);
+  background: rgba(243, 236, 255, 0.74);
+}
+
+.fantasy-character-feature-chip.tone-choice {
+  border-color: rgba(48, 128, 137, 0.32);
+  background: rgba(234, 249, 250, 0.76);
 }
 
 .character-growth-panel {
@@ -1282,7 +1308,7 @@
 
 .character-create-stepper {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 6px;
   align-items: stretch;
 }
@@ -1360,15 +1386,24 @@
   justify-content: center;
 }
 
+.character-create-form--features .character-create-form-left,
+.character-create-form--features .character-create-form-right,
+.character-create-form--skills .character-create-form-left,
+.character-create-form--skills .character-create-form-right,
 .character-create-form--equipment .character-create-form-left,
 .character-create-form--equipment .character-create-form-right,
+.character-create-form--review .character-create-form-left,
+.character-create-form--review .character-create-form-right,
 .character-create-form--spells .character-create-form-left,
 .character-create-form--spells .character-create-form-right {
   justify-content: flex-start;
   overflow: hidden;
 }
 
+.character-create-form--features .character-create-form-body,
+.character-create-form--skills .character-create-form-body,
 .character-create-form--equipment .character-create-form-body,
+.character-create-form--review .character-create-form-body,
 .character-create-form--spells .character-create-form-body {
   align-self: stretch;
   min-height: 0;
@@ -1382,8 +1417,14 @@
   overscroll-behavior: contain;
 }
 
+.character-create-form--features .character-create-form-left,
+.character-create-form--features .character-create-form-right,
+.character-create-form--skills .character-create-form-left,
+.character-create-form--skills .character-create-form-right,
 .character-create-form--equipment .character-create-form-left,
 .character-create-form--equipment .character-create-form-right,
+.character-create-form--review .character-create-form-left,
+.character-create-form--review .character-create-form-right,
 .character-create-form--spells .character-create-form-left,
 .character-create-form--spells .character-create-form-right {
   padding-bottom: 8px;
@@ -1627,7 +1668,394 @@
 }
 
 .character-create-loadout-spells {
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
+.character-create-form--spells .character-create-form-left,
+.character-create-form--spells .character-create-form-right,
+.character-create-form--spells .character-create-loadout-spells {
+  width: 100%;
+  min-width: 0;
+}
+
+.character-feature-choice-block {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(118, 84, 36, 0.14);
+  background: rgba(255, 248, 232, 0.36);
+}
+
+.character-feature-choice-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.character-feature-choice-heading label {
+  color: #3a2410;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.character-feature-timeline-section {
   align-self: start;
+}
+
+.character-feature-timeline-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.character-feature-timeline-summary span,
+.character-feature-timeline-summary strong {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(97, 63, 23, 0.14);
+  background: rgba(255, 248, 232, 0.56);
+  color: rgba(67, 42, 19, 0.78);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.character-feature-timeline-summary strong {
+  border-color: rgba(191, 87, 42, 0.34);
+  background: rgba(255, 229, 209, 0.68);
+  color: #8a421f;
+}
+
+.character-feature-timeline-summary strong.complete {
+  border-color: rgba(80, 140, 71, 0.28);
+  background: rgba(230, 246, 220, 0.68);
+  color: #3f7638;
+}
+
+.character-feature-timeline {
+  display: grid;
+  gap: 12px;
+}
+
+.character-feature-timeline.compact {
+  gap: 8px;
+}
+
+.character-feature-timeline-row {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(118, 84, 36, 0.16);
+  background: rgba(255, 248, 232, 0.46);
+  box-shadow: 0 10px 20px rgba(74, 45, 14, 0.07);
+}
+
+.character-feature-timeline-row.has-required {
+  border-color: rgba(191, 87, 42, 0.38);
+  background: linear-gradient(180deg, rgba(255, 239, 222, 0.78), rgba(255, 248, 232, 0.5));
+}
+
+.character-feature-timeline-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.character-feature-timeline-level {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(97, 63, 23, 0.9);
+  color: #fff6dd;
+  font-size: 13px;
+  font-weight: 900;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.character-feature-timeline-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.character-feature-timeline-counts span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(97, 63, 23, 0.09);
+  color: rgba(67, 42, 19, 0.78);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.character-feature-timeline-counts span.status-required {
+  background: rgba(191, 87, 42, 0.14);
+  color: #8a421f;
+}
+
+.character-feature-timeline-counts span.status-selected {
+  background: rgba(80, 140, 71, 0.14);
+  color: #3f7638;
+}
+
+.character-feature-timeline-row ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.character-feature-timeline-row li {
+  display: grid;
+  gap: 6px;
+  padding: 10px 11px;
+  border-radius: 13px;
+  border: 1px solid rgba(118, 84, 36, 0.12);
+  background: rgba(255, 252, 244, 0.62);
+}
+
+.character-feature-timeline-row li.status-required {
+  border-color: rgba(191, 87, 42, 0.32);
+  background: rgba(255, 234, 218, 0.7);
+}
+
+.character-feature-timeline-row li.status-selected {
+  border-color: rgba(80, 140, 71, 0.24);
+  background: rgba(237, 249, 230, 0.7);
+}
+
+.character-feature-timeline-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.character-feature-timeline-row strong {
+  color: #321f0c;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.character-feature-timeline-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.character-feature-timeline-badges span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(97, 63, 23, 0.09);
+  color: rgba(67, 42, 19, 0.76);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.character-feature-timeline-badges span.status-required {
+  background: rgba(191, 87, 42, 0.16);
+  color: #8a421f;
+}
+
+.character-feature-timeline-badges span.status-selected {
+  background: rgba(80, 140, 71, 0.16);
+  color: #3f7638;
+}
+
+.character-feature-timeline-badges span.status-automatic {
+  background: rgba(97, 63, 23, 0.1);
+}
+
+.character-feature-timeline-badges span.source-asi {
+  background: rgba(113, 75, 168, 0.15);
+  color: #5f3f8a;
+}
+
+.character-feature-timeline-badges span.source-choice,
+.character-feature-timeline-badges span.source-subclass {
+  background: rgba(48, 128, 137, 0.14);
+  color: #2f737a;
+}
+
+.character-feature-timeline-row p {
+  margin: 0;
+  max-height: 64px;
+  overflow-y: auto;
+  padding-right: 4px;
+  color: rgba(78, 54, 27, 0.72);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: rgba(97, 63, 23, 0.38);
+}
+
+.status-dot.status-required {
+  background: #bf572a;
+}
+
+.status-dot.status-selected {
+  background: #508c47;
+}
+
+.status-dot.status-pending {
+  background: #5f77aa;
+}
+
+.character-create-review-summary {
+  align-self: start;
+}
+
+.character-review-feature-list {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.character-review-feature-list > strong {
+  color: #2b180c;
+  font-size: 15px;
+}
+
+.character-review-feature-list ul {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  list-style: none;
+}
+
+.character-review-feature-list li {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid rgba(91, 59, 31, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 250, 237, 0.66);
+}
+
+.character-review-feature-list li.status-required {
+  border-color: rgba(166, 94, 40, 0.5);
+  background: rgba(255, 239, 220, 0.78);
+}
+
+.character-review-feature-list li.status-selected {
+  border-color: rgba(45, 125, 96, 0.32);
+  background: rgba(232, 249, 241, 0.78);
+}
+
+.character-review-feature-list li > span {
+  color: rgba(82, 53, 28, 0.7);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.character-review-feature-list li strong {
+  color: #2b180c;
+  font-size: 14px;
+}
+
+.character-review-feature-list li p {
+  margin: 2px 0 0;
+  max-height: 82px;
+  overflow-y: auto;
+  padding-right: 4px;
+  color: rgba(46, 26, 14, 0.76);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.character-feature-timeline-row p::-webkit-scrollbar,
+.character-review-feature-list li p::-webkit-scrollbar {
+  width: 5px;
+}
+
+.character-feature-timeline-row p::-webkit-scrollbar-thumb,
+.character-review-feature-list li p::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(107, 72, 32, 0.28);
+}
+
+.character-review-warning {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(166, 94, 40, 0.5);
+  border-radius: 10px;
+  background: rgba(255, 239, 220, 0.86);
+  color: #7a3f17;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.character-review-complete {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(80, 140, 71, 0.34);
+  border-radius: 10px;
+  background: rgba(230, 246, 220, 0.76);
+  color: #3f7638;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.character-feat-selection-section {
+  align-self: start;
+}
+
+.character-feat-choice-list {
+  display: grid;
+  gap: 8px;
+}
+
+.character-feat-choice-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(118, 84, 36, 0.14);
+  background: rgba(255, 248, 232, 0.38);
+}
+
+.character-feat-choice-card label {
+  font-size: 12px;
+  font-weight: 800;
+  color: #3a2410;
+}
+
+.character-feat-choice-card p {
+  margin: 0;
+  color: rgba(78, 54, 27, 0.74);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .character-create-equipment-summary {
@@ -1673,7 +2101,6 @@
   line-height: 1.5;
 }
 
-.character-create-modal .character-insight-box,
 .character-create-modal .character-create-review-box {
   height: 210px;
   min-height: 210px;
@@ -1687,7 +2114,6 @@
   box-shadow: 0 10px 18px rgba(72, 46, 14, 0.08);
 }
 
-.character-create-modal .character-insight-box .fantasy-insight-content,
 .character-create-modal .character-create-review-box .fantasy-insight-content {
   height: 100%;
   min-height: 0;
@@ -1788,20 +2214,6 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.character-inventory-editor {
-  display: grid;
-  gap: 10px;
-  max-height: none;
-  overflow-y: visible;
-  padding-right: 8px;
-}
-
-.character-inventory-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px auto;
-  gap: 10px;
 }
 
 .character-library-head {
@@ -2113,7 +2525,6 @@
   .character-ability-grid,
   .character-combat-grid,
   .field-row-4,
-  .character-inventory-row,
   .character-skill-picker {
     grid-template-columns: 1fr;
   }
