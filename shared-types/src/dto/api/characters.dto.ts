@@ -320,7 +320,11 @@ export class CreateCharacterDto {
   @IsString({ each: true })
   proficientSkills?: string[];
 
-  @ApiPropertyOptional({ type: [String] })
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      "선택형 특성 태그입니다. 예: fighting_style:defense, draconic_ancestry:red, expertise:Stealth, feat.alert, asi:str. 고레벨 생성 시 ASI 지점마다 feat.* 또는 asi:<ability> 중 하나를 포함해야 합니다.",
+  })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
@@ -436,7 +440,11 @@ export class UpdateCharacterDto {
   @IsString({ each: true })
   proficientSkills?: string[];
 
-  @ApiPropertyOptional({ type: [String] })
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      "선택형 특성 태그입니다. 예: fighting_style:defense, draconic_ancestry:red, expertise:Stealth, feat.alert, asi:str. level/className/features를 변경하면 현재 레벨까지 필요한 선택이 모두 검증됩니다.",
+  })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
@@ -535,6 +543,15 @@ export class LevelUpCharacterDto {
   @ValidateNested()
   @Type(() => LevelUpAbilityScoreIncreasesDto)
   abilityScoreIncreases?: LevelUpAbilityScoreIncreasesDto;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "ASI 지점에서 능력치 상승 대신 선택한 Feat id 목록입니다. 예: feat.alert",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  featSelections?: string[];
 
   @ApiPropertyOptional({
     type: [String],

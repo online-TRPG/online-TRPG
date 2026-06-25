@@ -75,6 +75,7 @@ import {
   getCharacterClassLabel,
   getCharacterImage,
 } from '../features/sessionPlay/utils/characterVisuals';
+import { summarizeCharacterFeatures } from '../features/characters/characterFeaturePresentation';
 import type { CharacterPayload } from '../hooks/useSession';
 import {
   acceptHumanGmAiAssistSuggestion,
@@ -1065,6 +1066,27 @@ const QUICK_CREATE_POINT_BUY_BY_CLASS_KEY: Readonly<
   warlock: { str: 8, dex: 14, con: 13, int: 10, wis: 12, cha: 15 },
   wizard: { str: 8, dex: 14, con: 13, int: 15, wis: 12, cha: 10 },
 };
+const QUICK_CREATE_STANDARD_ASI_LEVELS = [4, 8, 12, 16, 19] as const;
+const QUICK_CREATE_CLASS_ASI_LEVELS: Readonly<Record<string, readonly number[]>> = {
+  fighter: [6, 14],
+  rogue: [10],
+};
+const QUICK_CREATE_ASI_PRIORITY_BY_CLASS_KEY: Readonly<
+  Record<string, ReadonlyArray<keyof QuickCreateAbilities>>
+> = {
+  barbarian: ['str', 'con', 'dex', 'wis', 'cha', 'int'],
+  bard: ['cha', 'dex', 'con', 'wis', 'int', 'str'],
+  cleric: ['wis', 'con', 'str', 'dex', 'cha', 'int'],
+  druid: ['wis', 'con', 'dex', 'int', 'cha', 'str'],
+  fighter: ['str', 'con', 'dex', 'wis', 'cha', 'int'],
+  monk: ['dex', 'wis', 'con', 'str', 'cha', 'int'],
+  paladin: ['str', 'cha', 'con', 'wis', 'dex', 'int'],
+  ranger: ['dex', 'wis', 'con', 'str', 'int', 'cha'],
+  rogue: ['dex', 'con', 'int', 'wis', 'cha', 'str'],
+  sorcerer: ['cha', 'con', 'dex', 'wis', 'int', 'str'],
+  warlock: ['cha', 'con', 'dex', 'wis', 'int', 'str'],
+  wizard: ['int', 'con', 'dex', 'wis', 'cha', 'str'],
+};
 const QUICK_CREATE_CLASS_PRESET_BY_KEY = new Map<string, string>([
   ['wizard', 'preset_wizard'],
   ['ranger', 'preset_archer'],
@@ -1280,6 +1302,93 @@ function applyRaceBonuses(
     wis: base.wis + (increases?.wis ?? 0),
     cha: base.cha + (increases?.cha ?? 0),
   };
+}
+
+function getQuickCreateAsiLevels(classKey: string, level: number): number[] {
+  const normalizedClassKey = classKey.trim().toLowerCase();
+  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
+  return Array.from(
+    new Set([
+      ...QUICK_CREATE_STANDARD_ASI_LEVELS,
+      ...(QUICK_CREATE_CLASS_ASI_LEVELS[normalizedClassKey] ?? []),
+    ]),
+  )
+    .filter((asiLevel) => asiLevel <= normalizedLevel)
+    .sort((left, right) => left - right);
+}
+
+function buildQuickCreateAsiChoices(
+  classKey: string,
+  level: number,
+  abilities: QuickCreateAbilities,
+): Array<keyof QuickCreateAbilities> {
+  const priority =
+    QUICK_CREATE_ASI_PRIORITY_BY_CLASS_KEY[classKey.trim().toLowerCase()] ??
+    QUICK_CREATE_ASI_PRIORITY_BY_CLASS_KEY.wizard;
+  const working = { ...abilities };
+  const selected = new Set<keyof QuickCreateAbilities>();
+  const choices: Array<keyof QuickCreateAbilities> = [];
+  for (const _asiLevel of getQuickCreateAsiLevels(classKey, level)) {
+    const selectedAbility =
+      priority.find((ability) => !selected.has(ability) && working[ability] <= 18) ??
+      priority.find((ability) => !selected.has(ability));
+    if (!selectedAbility) break;
+    selected.add(selectedAbility);
+    working[selectedAbility] += 2;
+    choices.push(selectedAbility);
+  }
+  return choices;
+}
+
+function applyQuickCreateAsiChoices(
+  abilities: QuickCreateAbilities,
+  asiChoices: Array<keyof QuickCreateAbilities>,
+): QuickCreateAbilities {
+  const next = { ...abilities };
+  for (const ability of asiChoices) {
+    next[ability] += 2;
+  }
+  return next;
+}
+
+function getDefaultQuickCreateFeatureSelections(params: {
+  classKey: string;
+  raceKey: string | null | undefined;
+  level: number;
+  proficientSkills: string[];
+  asiChoices: Array<keyof QuickCreateAbilities>;
+}): string[] {
+  const classKey = params.classKey.trim().toLowerCase();
+  const features: string[] = [];
+
+  if ((params.raceKey ?? '').trim().toLowerCase() === 'dragonborn') {
+    features.push('draconic_ancestry:red');
+  }
+
+  if (classKey === 'fighter') {
+    features.push('fighting_style:defense');
+  } else if (classKey === 'paladin' && params.level >= 2) {
+    features.push('fighting_style:defense');
+  } else if (classKey === 'ranger') {
+    features.push('favored_enemy:beasts');
+    if (params.level >= 2) {
+      features.push('fighting_style:archery');
+    }
+  } else if (classKey === 'rogue') {
+    const expertiseTargets = [
+      ...params.proficientSkills.slice(0, 2),
+      "thieves_tools",
+    ].slice(0, 2);
+    features.push(...expertiseTargets.map((target) => `expertise:${target}`));
+  }
+
+  features.push(...params.asiChoices.map((ability) => `asi:${ability}`));
+  const requiredAsiOrFeatChoiceCount = getQuickCreateAsiLevels(params.classKey, params.level).length;
+  if (features.filter((feature) => feature.startsWith('asi:')).length < requiredAsiOrFeatChoiceCount) {
+    features.push('feat.alert');
+  }
+
+  return features;
 }
 
 function getProficiencyBonusForLevel(level: number): number {
@@ -2114,7 +2223,33 @@ export function PlayPage({
   const quickCreateBaseAbilities = getQuickCreatePointBuyBase(
     selectedQuickCreateClass?.key ?? formState.classKey,
   );
-  const quickCreateAbilities = applyRaceBonuses(quickCreateBaseAbilities, selectedQuickCreateRace);
+  const quickCreateAbilitiesBeforeAsi = applyRaceBonuses(
+    quickCreateBaseAbilities,
+    selectedQuickCreateRace,
+  );
+  const quickCreateAsiChoices = buildQuickCreateAsiChoices(
+    selectedQuickCreateClass?.key ?? formState.classKey,
+    quickCreateLevel,
+    quickCreateAbilitiesBeforeAsi,
+  );
+  const quickCreateAbilities = applyQuickCreateAsiChoices(
+    quickCreateAbilitiesBeforeAsi,
+    quickCreateAsiChoices,
+  );
+  const quickCreateProficientSkills =
+    selectedQuickCreateClass?.skillChoices.slice(
+      0,
+      selectedQuickCreateClass.skillChoiceCount,
+    ) ?? [];
+  const quickCreateFeatures = selectedQuickCreateClass
+    ? getDefaultQuickCreateFeatureSelections({
+        classKey: selectedQuickCreateClass.key,
+        raceKey: selectedQuickCreateRace?.key,
+        level: quickCreateLevel,
+        proficientSkills: quickCreateProficientSkills,
+        asiChoices: quickCreateAsiChoices,
+      })
+    : [];
   const quickCreateProficiencyBonus = getProficiencyBonusForLevel(quickCreateLevel);
   const quickCreateMaxHp = getExpectedMaxHp(
     selectedQuickCreateClass?.hitDie,
@@ -2934,6 +3069,11 @@ export function PlayPage({
     [wantedCarouselCharacter]
   );
 
+  const wantedCarouselFeatureSummary = useMemo(
+    () => summarizeCharacterFeatures(wantedCarouselCharacter?.features, 5),
+    [wantedCarouselCharacter?.features]
+  );
+
   useEffect(() => {
     setCharacterCarouselIndex((current) =>
       Math.min(current, Math.max(0, wantedCarouselCharacters.length - 1))
@@ -3288,10 +3428,8 @@ export function PlayPage({
       level: quickCreateLevel,
       abilities: quickCreateAbilities,
       proficiencyBonus: quickCreateProficiencyBonus,
-      proficientSkills: selectedQuickCreateClass.skillChoices.slice(
-        0,
-        selectedQuickCreateClass.skillChoiceCount,
-      ),
+      proficientSkills: quickCreateProficientSkills,
+      features: quickCreateFeatures,
       maxHp: quickCreateMaxHp,
       armorClass: quickCreateArmorClass,
       speed: quickCreateSpeed,
@@ -5049,6 +5187,27 @@ export function PlayPage({
                         ) : (
                           <p className="recruiting-wanted-empty-copy">
                             선택한 캐릭터의 능력치가 이곳에 표시됩니다.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="recruiting-wanted-feature-summary" aria-label="핵심 특성 요약">
+                        <span>핵심 특성</span>
+                        {wantedCarouselFeatureSummary.length ? (
+                          <div>
+                            {wantedCarouselFeatureSummary.map((feature) => (
+                              <abbr
+                                key={`${feature.sourceLabel}-${feature.label}`}
+                                className={`recruiting-wanted-feature-chip tone-${feature.tone}`}
+                                title={feature.description}
+                              >
+                                {feature.label}
+                              </abbr>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="recruiting-wanted-empty-copy">
+                            캐릭터를 선택하면 주요 특성이 표시됩니다.
                           </p>
                         )}
                       </div>
