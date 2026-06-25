@@ -618,6 +618,56 @@ export class CharacterInventoryResponseDto {
   offhandWeaponId!: string | null;
 }
 
+export class CharacterLevelUpPreviewContextDto {
+  @ApiPropertyOptional({ nullable: true })
+  activeSessionId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  activeSessionStatus!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  currentNodeId!: string | null;
+
+  @ApiProperty()
+  campaignArchiveAvailable!: boolean;
+
+  @ApiProperty()
+  campaignArchiveAllowsTransfer!: boolean;
+
+  @ApiProperty({ enum: ["not_archived", "transfer_allowed", "transfer_blocked"] })
+  transferEligibility!: "not_archived" | "transfer_allowed" | "transfer_blocked";
+
+  @ApiProperty()
+  activeDowntimeTaskCount!: number;
+
+  @ApiProperty()
+  completedDowntimeTaskCount!: number;
+
+  @ApiProperty()
+  hasEconomyState!: boolean;
+
+  @ApiProperty()
+  inventoryItemCount!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  equippedWeaponId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  offhandWeaponId!: string | null;
+
+  @ApiProperty()
+  knownSpellCount!: number;
+
+  @ApiProperty()
+  preparedSpellCount!: number;
+
+  @ApiProperty()
+  activeConditionCount!: number;
+
+  @ApiProperty()
+  hasActiveConcentration!: boolean;
+}
+
 export class CharacterResponseDto {
   @ApiProperty()
   id!: string;
@@ -700,6 +750,12 @@ export class CharacterResponseDto {
     description: "진행 중 세션에 배정된 경우, 레벨업 preview와 재접속 확인에 사용할 현재 조건/집중 요약입니다.",
   })
   activeSessionConditions!: string[];
+
+  @ApiProperty({
+    type: CharacterLevelUpPreviewContextDto,
+    description: "P6 17~20레벨 preview와 재접속 확인에서 사용할 active session, downtime, archive, 장비, 주문, 이관 가능성 요약입니다.",
+  })
+  levelUpPreviewContext!: CharacterLevelUpPreviewContextDto;
 
   @ApiProperty()
   isSelectable!: boolean;

@@ -11,6 +11,7 @@ export const PROVIDED_SCENARIO_IDS = [
   "scenario_p3_skybreaker_archive",
   "scenario_p4_storm_crown_campaign",
   "scenario_p5_astral_seal_campaign",
+  "scenario_p6_eternal_storm_citadel",
 ];
 
 export function isDefaultProvidedScenarioId(scenarioId: string | null | undefined): boolean {

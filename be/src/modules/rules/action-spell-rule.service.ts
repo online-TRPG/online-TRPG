@@ -22,6 +22,8 @@ const CURE_WOUNDS_SPELL_ID = "spell.cure_wounds";
 const SLEEP_SPELL_ID = "spell.sleep";
 const LIGHT_SPELL_ID = "spell.light";
 const DETECT_MAGIC_SPELL_ID = "spell.detect_magic";
+const MASS_HEAL_SPELL_ID = "spell.mass_heal";
+const TRUE_RESURRECTION_SPELL_ID = "spell.true_resurrection";
 
 export type ActionSpellRuleRuntime = {
   createActionUnavailableResolution: (...args: any[]) => any;
@@ -215,6 +217,20 @@ export class ActionSpellRuleService {
 
     const target = this.requireTarget(command.target, sessionCharacters);
     const targetArmorClass = target.character.armorClass;
+
+    if (
+      command.spellId === MASS_HEAL_SPELL_ID ||
+      command.spellId === TRUE_RESURRECTION_SPELL_ID
+    ) {
+      return this.resolveP6RestorativeSpell({
+        command,
+        target,
+        spellDefinition: spellDefinition!,
+        spellLevel,
+        slotLevel,
+        spellScaling,
+      });
+    }
 
     if (command.spellId === MAGIC_MISSILE_SPELL_ID) {
       return this.resolveMagicMissile({
@@ -1259,6 +1275,7 @@ export class ActionSpellRuleService {
           params.spellDefinition,
           params.spellLevel,
         ),
+        p6RuntimeAudit: this.createP6SpellRuntimeAudit(params.spellDefinition),
         amount,
         effect: isTemporaryHp ? "temporary_hp" : "healing",
       },
@@ -1273,6 +1290,58 @@ export class ActionSpellRuleService {
           ...(isTemporaryHp
             ? { tempHp: Math.max(effectiveTarget.tempHp, amount) }
             : { currentHp: nextHp, markDead: false }),
+        },
+      ],
+      runtimeEffects: this.spellRuntimeEffectsForDefinition(
+        params.slotLevel,
+        params.spellDefinition,
+      ),
+    };
+  }
+
+  private resolveP6RestorativeSpell(params: {
+    command: Extract<ParsedCommand, { type: "cast_spell" }>;
+    target: SessionCharacterForRules;
+    spellDefinition: RuleCatalogEntry;
+    spellLevel: number;
+    slotLevel: number;
+    spellScaling: SpellScalingResult | null;
+  }): ActionResolution {
+    const isTrueResurrection = params.command.spellId === TRUE_RESURRECTION_SPELL_ID;
+    const amount = isTrueResurrection
+      ? params.target.character.maxHp
+      : Math.max(params.target.character.maxHp - params.target.currentHp, 0);
+    const nextHp = isTrueResurrection
+      ? params.target.character.maxHp
+      : Math.min(params.target.character.maxHp, params.target.currentHp + amount);
+
+    return {
+      structuredAction: {
+        type: "cast_spell",
+        spellId: params.command.spellId,
+        slotLevel: params.slotLevel,
+        target: params.target.id,
+        targetDistanceFt: params.command.targetDistanceFt,
+        spellDefinition: this.toStructuredSpellDefinition(
+          params.spellDefinition,
+          params.spellLevel,
+        ),
+        spellScaling: params.spellScaling,
+        p6RuntimeAudit: this.createP6SpellRuntimeAudit(params.spellDefinition),
+        amount,
+        effect: isTrueResurrection ? "resurrection" : "mass_healing_pool",
+        materialCostConsumed: isTrueResurrection ? "diamond:25000gp" : null,
+      },
+      diceResult: null,
+      outcome: ActionOutcome.SUCCESS,
+      narration: isTrueResurrection
+        ? `${params.target.character.name}을(를) True Resurrection으로 완전히 되살렸습니다.`
+        : `${params.target.character.name}에게 Mass Heal 회복 풀 ${amount}을 적용했습니다.`,
+      stateChanges: [
+        {
+          sessionCharacterId: params.target.id,
+          currentHp: nextHp,
+          markDead: false,
         },
       ],
       runtimeEffects: this.spellRuntimeEffectsForDefinition(
@@ -1353,6 +1422,7 @@ export class ActionSpellRuleService {
           params.spellDefinition,
           params.spellLevel,
         ),
+        p6RuntimeAudit: this.createP6SpellRuntimeAudit(params.spellDefinition),
         spellScaling: params.spellScaling,
         effectTags: params.spellDefinition.runtimeEffect.tags,
         applied,
@@ -1434,6 +1504,7 @@ export class ActionSpellRuleService {
           params.spellDefinition,
           params.spellLevel,
         ),
+        p6RuntimeAudit: this.createP6SpellRuntimeAudit(params.spellDefinition),
         spellScaling: params.spellScaling,
         effectTags: params.spellDefinition.runtimeEffect.tags,
         targetResults: results.map((result) => ({
@@ -1614,8 +1685,34 @@ export class ActionSpellRuleService {
       spendCost,
       ...(slotLevel > 0
         ? [{ type: "SPEND_SPELL_SLOT", slotLevel } as const]
-        : []),
+      : []),
     ];
+  }
+
+  private createP6SpellRuntimeAudit(
+    spellDefinition: RuleCatalogEntry,
+  ): Record<string, unknown> | null {
+    const tags = spellDefinition.runtimeEffect.tags;
+    if (!tags.includes("p6_content")) {
+      return null;
+    }
+    return {
+      spellId: spellDefinition.id,
+      hookId: spellDefinition.runtimeEffect.hookId ?? null,
+      audit: tags.includes("audit:turn_log_state_diff"),
+      highImpact9thLevel: tags.includes("p6_final_spell_smoke_candidate"),
+      gmApprovalRequired:
+        tags.includes("gm_approval_required:non_replication_wish") ||
+        tags.includes("audit:gm_override_required_for_broad_effect"),
+      materialCosts: tags.filter((tag) => tag.startsWith("material_cost:")),
+      campaignStateEffects: tags.filter((tag) => tag.startsWith("campaign_state:")),
+      campaignLocationEffects: tags.filter((tag) => tag.startsWith("campaign_location:")),
+      timelineEffects: tags.filter((tag) => tag.startsWith("timeline:")),
+      formReplacement: tags.includes("form_replacement:stat_block"),
+      concentrationLifecycle: tags.filter((tag) => tag.startsWith("concentration_lifecycle:")),
+      wishMvpOption:
+        tags.find((tag) => tag.startsWith("wish:mvp_option:")) ?? null,
+    };
   }
 
   private resolveElementalAffinityDamageBonus(

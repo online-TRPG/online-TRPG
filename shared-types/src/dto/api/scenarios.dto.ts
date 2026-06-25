@@ -147,6 +147,12 @@ export class ScenarioSummaryResponseDto {
   @ApiPropertyOptional({ enum: ["visible", "reported", "hidden"] })
   moderationStatus?: "visible" | "reported" | "hidden";
 
+  @ApiPropertyOptional({ enum: ["queued", "reviewing", "actioned", "rejected", "restored", "escalated"] })
+  moderationProcessingStatus?: "queued" | "reviewing" | "actioned" | "rejected" | "restored" | "escalated";
+
+  @ApiPropertyOptional({ enum: ["none", "creator_notified", "creator_action_required"] })
+  creatorNoticeStatus?: "none" | "creator_notified" | "creator_action_required";
+
   @ApiProperty()
   createdAt!: string;
 
@@ -736,4 +742,98 @@ export class ScenarioModerationAppealResponseDto {
 
   @ApiProperty()
   status!: "submitted";
+}
+
+export class ApplyScenarioModerationActionDto {
+  @ApiProperty({
+    enum: ["hidden", "restored", "warning", "creator_note_required", "rating_removed", "review_removed", "escalated"],
+  })
+  @IsIn(["hidden", "restored", "warning", "creator_note_required", "rating_removed", "review_removed", "escalated"])
+  action!:
+    | "hidden"
+    | "restored"
+    | "warning"
+    | "creator_note_required"
+    | "rating_removed"
+    | "review_removed"
+    | "escalated";
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  targetUserId?: string | null;
+}
+
+export class ScenarioModerationActionResponseDto {
+  @ApiProperty()
+  actionId!: string;
+
+  @ApiProperty()
+  scenarioId!: string;
+
+  @ApiProperty({
+    enum: ["hidden", "restored", "warning", "creator_note_required", "rating_removed", "review_removed", "escalated"],
+  })
+  action!:
+    | "hidden"
+    | "restored"
+    | "warning"
+    | "creator_note_required"
+    | "rating_removed"
+    | "review_removed"
+    | "escalated";
+
+  @ApiProperty({ enum: ["visible", "reported", "hidden"] })
+  moderationStatus!: "visible" | "reported" | "hidden";
+
+  @ApiProperty({ enum: ["queued", "reviewing", "actioned", "rejected", "restored", "escalated"] })
+  processingStatus!: "queued" | "reviewing" | "actioned" | "rejected" | "restored" | "escalated";
+
+  @ApiProperty({ enum: ["none", "creator_notified", "creator_action_required"] })
+  creatorNoticeStatus!: "none" | "creator_notified" | "creator_action_required";
+}
+
+export class ScenarioModerationQueueItemDto {
+  @ApiProperty()
+  scenarioId!: string;
+
+  @ApiProperty()
+  title!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  createdByUserId!: string | null;
+
+  @ApiProperty({ enum: ["visible", "reported", "hidden"] })
+  moderationStatus!: "visible" | "reported" | "hidden";
+
+  @ApiProperty({ enum: ["queued", "reviewing", "actioned", "rejected", "restored", "escalated"] })
+  processingStatus!: "queued" | "reviewing" | "actioned" | "rejected" | "restored" | "escalated";
+
+  @ApiProperty({ enum: ["none", "creator_notified", "creator_action_required"] })
+  creatorNoticeStatus!: "none" | "creator_notified" | "creator_action_required";
+
+  @ApiProperty({ minimum: 0 })
+  reportCount!: number;
+
+  @ApiProperty({ minimum: 0 })
+  appealCount!: number;
+
+  @ApiProperty({ minimum: 0 })
+  actionCount!: number;
+
+  @ApiProperty({ type: [Object] })
+  reports!: Record<string, unknown>[];
+
+  @ApiProperty({ type: [Object] })
+  appeals!: Record<string, unknown>[];
+
+  @ApiProperty({ type: [Object] })
+  actions!: Record<string, unknown>[];
 }

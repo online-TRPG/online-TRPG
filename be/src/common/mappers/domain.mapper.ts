@@ -27,6 +27,7 @@ import {
   AbilityScoresDto,
   AuthProvider,
   CharacterAvatarType,
+  CharacterLevelUpPreviewContextDto,
   CharacterResponseDto,
   ConnectionStatus,
   GamePhase,
@@ -64,7 +65,13 @@ type ParticipantWithUserAndCharacter = SessionParticipant & {
 };
 
 type CharacterWithAssignments = Character & {
-  sessionCharacters?: Array<SessionCharacter & { session: Session }>;
+  sessionCharacters?: Array<
+    SessionCharacter & {
+      session: Session & {
+        sessionScenarios?: Array<SessionScenario & { gameState?: GameState | null }>;
+      };
+    }
+  >;
 };
 
 type SessionCharacterWithBase = SessionCharacter & {
@@ -192,6 +199,98 @@ function parseConditionSummary(value: string | null | undefined): string[] {
         .filter(Boolean),
     ),
   );
+}
+
+function parseSpellSummary(value: string | null | undefined): { knownSpellCount: number; preparedSpellCount: number } {
+  const parsed = parseJson<Record<string, unknown> | null>(value, null);
+  if (!parsed || typeof parsed !== "object") {
+    return { knownSpellCount: 0, preparedSpellCount: 0 };
+  }
+  const spells = Array.isArray(parsed.spells)
+    ? parsed.spells.filter((spell): spell is string => typeof spell === "string")
+    : [];
+  const cantrips = Array.isArray(parsed.cantrips)
+    ? parsed.cantrips.filter((spell): spell is string => typeof spell === "string")
+    : [];
+  const preparedSpells = Array.isArray(parsed.preparedSpells)
+    ? parsed.preparedSpells.filter((spell): spell is string => typeof spell === "string")
+    : [];
+  return {
+    knownSpellCount: new Set([...spells, ...cantrips]).size,
+    preparedSpellCount: new Set(preparedSpells).size,
+  };
+}
+
+type CharacterAssignmentWithSession = NonNullable<CharacterWithAssignments["sessionCharacters"]>[number];
+
+function getAssignmentActiveScenario(
+  assignment: CharacterAssignmentWithSession | null,
+): (SessionScenario & { gameState?: GameState | null }) | null {
+  return (
+    assignment?.session.sessionScenarios?.find((candidate) => candidate.status === "ACTIVE") ??
+    assignment?.session.sessionScenarios?.[0] ??
+    null
+  );
+}
+
+function getAssignmentGameFlags(assignment: CharacterAssignmentWithSession | null): Record<string, unknown> {
+  const activeScenario =
+    getAssignmentActiveScenario(assignment);
+  return parseJson<Record<string, unknown>>(activeScenario?.gameState?.flagsJson, {});
+}
+
+function buildCharacterLevelUpPreviewContext(
+  character: CharacterWithAssignments,
+  activeAssignment: CharacterAssignmentWithSession | null,
+): CharacterLevelUpPreviewContextDto {
+  const activeFlags = getAssignmentGameFlags(activeAssignment);
+  const activeScenario = getAssignmentActiveScenario(activeAssignment);
+  const archiveAssignment =
+    character.sessionCharacters?.find((assignment) => {
+      if (assignment.session.status !== PrismaSessionStatus.COMPLETED) {
+        return false;
+      }
+      const flags = getAssignmentGameFlags(assignment);
+      return Boolean(flags.p6CampaignArchive && typeof flags.p6CampaignArchive === "object");
+    }) ?? null;
+  const archiveFlags = getAssignmentGameFlags(archiveAssignment);
+  const archive = archiveFlags.p6CampaignArchive && typeof archiveFlags.p6CampaignArchive === "object"
+    ? (archiveFlags.p6CampaignArchive as Record<string, unknown>)
+    : null;
+  const calendar = activeFlags.campaignCalendar && typeof activeFlags.campaignCalendar === "object"
+    ? (activeFlags.campaignCalendar as Record<string, unknown>)
+    : null;
+  const downtimeTasks = Array.isArray(calendar?.downtimeTasks)
+    ? calendar.downtimeTasks.filter((task): task is Record<string, unknown> => Boolean(task) && typeof task === "object")
+    : [];
+  const activeConditions = parseConditionSummary(activeAssignment?.conditionsJson);
+  const inventory = parseJson<InventoryItemDto[]>(character.inventoryJson, []);
+  const spellSummary = parseSpellSummary(character.spellsJson);
+  const campaignArchiveAvailable = Boolean(archive);
+  const campaignArchiveAllowsTransfer = archive?.allowCharacterTransfer !== false && campaignArchiveAvailable;
+
+  return {
+    activeSessionId: activeAssignment?.sessionId ?? null,
+    activeSessionStatus: activeAssignment?.session.status ? sessionStatusMap[activeAssignment.session.status] : null,
+    currentNodeId: activeScenario?.gameState?.currentNodeId ?? null,
+    campaignArchiveAvailable,
+    campaignArchiveAllowsTransfer,
+    transferEligibility: campaignArchiveAvailable
+      ? campaignArchiveAllowsTransfer
+        ? "transfer_allowed"
+        : "transfer_blocked"
+      : "not_archived",
+    activeDowntimeTaskCount: downtimeTasks.filter((task) => task.status === "active" || task.status === "paused").length,
+    completedDowntimeTaskCount: downtimeTasks.filter((task) => task.status === "completed").length,
+    hasEconomyState: Boolean(activeFlags.economy && typeof activeFlags.economy === "object"),
+    inventoryItemCount: inventory.reduce((sum, item) => sum + Math.max(0, item.quantity ?? 0), 0),
+    equippedWeaponId: character.equippedWeaponId ?? null,
+    offhandWeaponId: character.offhandWeaponId ?? null,
+    knownSpellCount: spellSummary.knownSpellCount,
+    preparedSpellCount: spellSummary.preparedSpellCount,
+    activeConditionCount: activeConditions.length,
+    hasActiveConcentration: activeConditions.some((condition) => condition.toLowerCase().includes("concentration")),
+  };
 }
 
 function parseScenarioNodeConfig(value: string): {
@@ -373,6 +472,7 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
     avatarUpdatedAt: character.avatarUpdatedAt ? toIsoString(character.avatarUpdatedAt) : null,
     activeSessionId: activeAssignment?.sessionId ?? null,
     activeSessionConditions: parseConditionSummary(activeAssignment?.conditionsJson),
+    levelUpPreviewContext: buildCharacterLevelUpPreviewContext(character, activeAssignment),
     isSelectable: !activeAssignment,
     createdAt: toIsoString(character.createdAt),
     updatedAt: toIsoString(character.updatedAt),

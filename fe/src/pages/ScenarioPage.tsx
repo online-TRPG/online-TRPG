@@ -20,6 +20,7 @@ import sidePanelImage from "../components/Side_Panel.webp";
 import { Icon } from "../components/Icon";
 import {
   appealScenarioModeration,
+  applyScenarioModerationAction,
   createScenario,
   deleteScenario,
   deleteScenarioRating,
@@ -27,6 +28,7 @@ import {
   getScenario,
   getScenarioCollaborationState,
   listScenarios,
+  listScenarioModerationQueue,
   listMyScenarios,
   createScenarioReview,
   rateScenario,
@@ -40,6 +42,7 @@ import type {
   CreateScenarioDto,
   ScenarioQueryDto,
   ScenarioCollaborationStateResponseDto,
+  ScenarioModerationQueueItemDto,
   UpsertScenarioCollaboratorDto,
 } from "@trpg/shared-types";
 import "./CharacterPage.css";
@@ -120,6 +123,15 @@ function formatValidationReport(scenario: Scenario): string {
   return `${statusLabel}${issueLabel}${checkedLabel}`;
 }
 
+function isScenarioModerationOperator(userId: string): boolean {
+  const normalized = userId.trim().toLowerCase();
+  return (
+    normalized.startsWith("operator-") ||
+    normalized.startsWith("admin-") ||
+    normalized.startsWith("moderator-")
+  );
+}
+
 function getRevisionDiff(scenario: Scenario): {
   addedNodeIds: string[];
   removedNodeIds: string[];
@@ -191,6 +203,9 @@ export function ScenarioPage({
   const [reviewComment, setReviewComment] = useState("");
   const [reviewerUserId, setReviewerUserId] = useState("");
   const [moderationFeedback, setModerationFeedback] = useState<string | null>(null);
+  const [moderationQueue, setModerationQueue] = useState<ScenarioModerationQueueItemDto[]>([]);
+  const [moderationQueueBusy, setModerationQueueBusy] = useState(false);
+  const [moderationQueueError, setModerationQueueError] = useState<string | null>(null);
   const [publicFeedback, setPublicFeedback] = useState<string | null>(null);
 
   // 검색어가 바뀌면 짧은 debounce 후 내 시나리오 목록을 다시 불러옵니다.
@@ -572,6 +587,71 @@ export function ScenarioPage({
     }
   }
 
+  async function handleLoadModerationQueue() {
+    setModerationQueueBusy(true);
+    setModerationQueueError(null);
+    setModerationFeedback(null);
+    try {
+      const queue = await listScenarioModerationQueue(user, accessToken);
+      setModerationQueue(queue);
+      setModerationFeedback(`운영자 큐 ${queue.length}건을 불러왔습니다.`);
+    } catch (caught) {
+      setModerationQueueError(caught instanceof Error ? caught.message : "운영자 moderation 큐를 불러오지 못했습니다.");
+    } finally {
+      setModerationQueueBusy(false);
+    }
+  }
+
+  async function handleApplyModerationAction(item: ScenarioModerationQueueItemDto) {
+    const actionInput = window.prompt(
+      "처리 액션을 입력하세요: hidden, restored, warning, creator_note_required, rating_removed, review_removed, escalated",
+      item.moderationStatus === "hidden" ? "restored" : "hidden",
+    );
+    if (
+      actionInput !== "hidden" &&
+      actionInput !== "restored" &&
+      actionInput !== "warning" &&
+      actionInput !== "creator_note_required" &&
+      actionInput !== "rating_removed" &&
+      actionInput !== "review_removed" &&
+      actionInput !== "escalated"
+    ) {
+      return;
+    }
+    const reason = window.prompt("처리 사유를 입력하세요.", "") ?? "";
+    if (!reason.trim()) return;
+    const targetUserId =
+      actionInput === "rating_removed" || actionInput === "review_removed"
+        ? window.prompt("대상 userId를 입력하세요. 비우면 전체 대상입니다.", "") ?? ""
+        : "";
+
+    setModerationQueueBusy(true);
+    setModerationQueueError(null);
+    try {
+      const result = await applyScenarioModerationAction(
+        user,
+        item.scenarioId,
+        {
+          action: actionInput,
+          reason: reason.trim(),
+          targetUserId: targetUserId.trim() || null,
+        },
+        accessToken,
+      );
+      const queue = await listScenarioModerationQueue(user, accessToken);
+      setModerationQueue(queue);
+      setModerationFeedback(
+        `${result.scenarioId} 처리 완료: ${result.action} → ${result.moderationStatus}/${result.processingStatus}`,
+      );
+      const nextPublic = await listScenarios({ search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 });
+      setPublicScenarios(nextPublic);
+    } catch (caught) {
+      setModerationQueueError(caught instanceof Error ? caught.message : "moderation 처리에 실패했습니다.");
+    } finally {
+      setModerationQueueBusy(false);
+    }
+  }
+
   async function handleForkSelected() {
     if (!selectedScenario || !selectedIsPublicEcosystemScenario) return;
     const title = window.prompt("fork draft 제목을 입력하세요.", `${selectedScenario.title} Fork`) ?? "";
@@ -652,6 +732,7 @@ export function ScenarioPage({
   const selectedCanUnpublish =
     selectedIsRevision &&
     selectedScenario?.publishStatus !== "unpublished";
+  const canUseModerationQueue = isScenarioModerationOperator(user.id);
 
   return (
     <main
@@ -906,7 +987,15 @@ export function ScenarioPage({
                     </div>
                     <div>
                       <dt>moderation</dt>
-                      <dd>{selectedScenario.moderationStatus ?? "-"}</dd>
+                      <dd>
+                        {selectedScenario.moderationStatus ?? "-"}
+                        {selectedScenario.moderationProcessingStatus
+                          ? ` / ${selectedScenario.moderationProcessingStatus}`
+                          : ""}
+                        {selectedScenario.creatorNoticeStatus && selectedScenario.creatorNoticeStatus !== "none"
+                          ? ` · ${selectedScenario.creatorNoticeStatus}`
+                          : ""}
+                      </dd>
                     </div>
                     <div>
                       <dt>원본 draft</dt>
@@ -984,6 +1073,50 @@ export function ScenarioPage({
                           </button>
                         ) : null}
                       </div>
+                    </section>
+                  ) : null}
+                  {canUseModerationQueue ? (
+                    <section className="scenario-collaboration-panel">
+                      <div className="scenario-collaboration-heading">
+                        <span className="eyebrow">P6 operator moderation</span>
+                        <h3>신고·이의 제기 운영자 큐</h3>
+                      </div>
+                      <p>
+                        신고된 공개 시나리오와 리뷰를 큐에서 확인하고 hidden/restored/warning/creator_note_required/rating_removed/review_removed/escalated
+                        조치를 남깁니다.
+                      </p>
+                      <div className="scenario-public-actions">
+                        <button
+                          type="button"
+                          className="small"
+                          disabled={disabled || moderationQueueBusy}
+                          onClick={() => void handleLoadModerationQueue()}
+                        >
+                          {moderationQueueBusy ? "불러오는 중" : "운영자 큐 새로고침"}
+                        </button>
+                      </div>
+                      {moderationQueueError ? <p className="scenario-collaboration-error">{moderationQueueError}</p> : null}
+                      {moderationQueue.length ? (
+                        <div className="scenario-collaboration-list">
+                          {moderationQueue.slice(0, 8).map((item) => (
+                            <span className="scenario-collaborator-row" key={item.scenarioId}>
+                              <span>
+                                {item.title} · {item.moderationStatus}/{item.processingStatus} · {item.creatorNoticeStatus} · 신고 {item.reportCount} · 이의 {item.appealCount} · 조치 {item.actionCount}
+                              </span>
+                              <button
+                                type="button"
+                                className="small"
+                                disabled={disabled || moderationQueueBusy}
+                                onClick={() => void handleApplyModerationAction(item)}
+                              >
+                                처리
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p>불러온 moderation 항목이 없습니다.</p>
+                      )}
                     </section>
                   ) : null}
                   {!selectedIsRevision && activeLibrary === "my" ? (

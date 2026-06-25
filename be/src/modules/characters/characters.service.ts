@@ -174,7 +174,16 @@ export class CharactersService {
       },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -189,7 +198,16 @@ export class CharactersService {
       where: { ownerUserId: userId },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
       orderBy: { createdAt: "asc" },
@@ -326,7 +344,16 @@ export class CharactersService {
       },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -430,7 +457,7 @@ export class CharactersService {
       invalidCode: "LEVEL_UP_INVALID_SUBCLASS",
     });
 
-    const finalAbilities = this.resolveLevelUpAbilityScores(
+    const asiAdjustedAbilities = this.resolveLevelUpAbilityScores(
       abilities,
       dto.abilityScoreIncreases,
       resolution.asiOrFeatChoiceRequiredAtLevels,
@@ -442,6 +469,13 @@ export class CharactersService {
       subclassName: selectedSubclassName,
       level: resolution.toLevel,
       requestedFeatures: this.parseStringArrayJson(existing.featuresJson),
+    });
+    const finalAbilities = this.applyP6CapstoneAbilityAdjustments({
+      className: existing.className,
+      fromLevel: resolution.fromLevel,
+      toLevel: resolution.toLevel,
+      abilities: asiAdjustedAbilities,
+      featureIds: finalFeatures,
     });
     const nextSpellsJson =
       dto.knownSpells === undefined &&
@@ -509,7 +543,16 @@ export class CharactersService {
       },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -597,6 +640,29 @@ export class CharactersService {
     return next;
   }
 
+  private applyP6CapstoneAbilityAdjustments(params: {
+    className: string;
+    fromLevel: number;
+    toLevel: number;
+    abilities: AbilityScoresDto;
+    featureIds: string[];
+  }): AbilityScoresDto {
+    const classKey = params.className.trim().toLowerCase();
+    if (
+      params.fromLevel < 20 &&
+      params.toLevel >= 20 &&
+      classKey === "barbarian" &&
+      params.featureIds.includes("class.barbarian.feature.primal_champion")
+    ) {
+      return {
+        ...params.abilities,
+        str: Math.min(params.abilities.str + 4, 24),
+        con: Math.min(params.abilities.con + 4, 24),
+      };
+    }
+    return params.abilities;
+  }
+
   async updatePreparedSpells(
     userId: string,
     characterId: string,
@@ -616,7 +682,16 @@ export class CharactersService {
       },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -1114,7 +1189,16 @@ export class CharactersService {
       },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -1179,7 +1263,16 @@ export class CharactersService {
       },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -1222,7 +1315,16 @@ export class CharactersService {
       where: { id: characterId },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -2233,6 +2335,7 @@ export class CharactersService {
     const classKey = normalizeSpellcastingClassKey(className);
     const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
     if (["bard", "cleric", "druid", "sorcerer", "wizard"].includes(classKey)) {
+      if (normalizedLevel >= 17) return 9;
       if (normalizedLevel >= 15) return 8;
       if (normalizedLevel >= 13) return 7;
       if (normalizedLevel >= 11) return 6;
@@ -2243,6 +2346,7 @@ export class CharactersService {
       return 1;
     }
     if (classKey === "warlock") {
+      if (normalizedLevel >= 17) return 9;
       if (normalizedLevel >= 15) return 8;
       if (normalizedLevel >= 13) return 7;
       if (normalizedLevel >= 11) return 6;
@@ -2253,6 +2357,8 @@ export class CharactersService {
       return 1;
     }
     if (classKey === "paladin" || classKey === "ranger") {
+      if (normalizedLevel >= 17) return 5;
+      if (normalizedLevel >= 13) return 4;
       if (normalizedLevel >= 9) return 3;
       if (normalizedLevel >= 5) return 2;
       if (normalizedLevel >= 2) return 1;

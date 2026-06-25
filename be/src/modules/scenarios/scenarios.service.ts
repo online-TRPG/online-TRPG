@@ -12,6 +12,7 @@ import {
   ConnectionStatus as PrismaConnectionStatus,
   ParticipantStatus as PrismaParticipantStatus,
   ScenarioAssetKind as PrismaScenarioAssetKind,
+  ActionOutcome as PrismaActionOutcome,
   ScenarioLicense as PrismaScenarioLicense,
   ScenarioNode,
   ScenarioSourceType as PrismaScenarioSourceType,
@@ -23,6 +24,7 @@ import {
   ScenarioAssetKind,
   ScenarioAssetQueryDto,
   ScenarioAssetResponseDto,
+  ApplyScenarioModerationActionDto,
   ScenarioQueryDto,
   ScenarioResponseDto,
   ScenarioNodeInputDto,
@@ -33,7 +35,9 @@ import {
   AppealScenarioModerationDto,
   RateScenarioDto,
   ReportScenarioDto,
+  ScenarioModerationActionResponseDto,
   ScenarioModerationAppealResponseDto,
+  ScenarioModerationQueueItemDto,
   ScenarioRatingResponseDto,
   ScenarioModerationReportResponseDto,
   CreateScenarioReviewDto,
@@ -81,8 +85,35 @@ type ScenarioPublicModerationAppealRecord = {
   appealedByUserId: string;
   message: string;
   createdAt: string;
-  status: "submitted";
+  status: "submitted" | "under_review" | "accepted" | "rejected";
 };
+
+type ScenarioPublicModerationActionRecord = {
+  actionId: string;
+  operatorUserId: string;
+  action: ApplyScenarioModerationActionDto["action"];
+  reason: string;
+  targetUserId: string | null;
+  createdAt: string;
+  previousStatus: "visible" | "reported" | "hidden";
+  nextStatus: "visible" | "reported" | "hidden";
+  processingStatus?: ScenarioModerationProcessingStatus;
+  creatorNoticeStatus?: ScenarioCreatorNoticeStatus;
+  auditRecordType?: "scenario_moderation_action";
+};
+
+type ScenarioModerationProcessingStatus =
+  | "queued"
+  | "reviewing"
+  | "actioned"
+  | "rejected"
+  | "restored"
+  | "escalated";
+
+type ScenarioCreatorNoticeStatus =
+  | "none"
+  | "creator_notified"
+  | "creator_action_required";
 
 type ScenarioPublicEcosystemMetadata = {
   tags: string[];
@@ -94,6 +125,7 @@ type ScenarioPublicEcosystemMetadata = {
   moderationStatus: "visible" | "reported" | "hidden";
   reports: ScenarioPublicModerationReportRecord[];
   appeals: ScenarioPublicModerationAppealRecord[];
+  moderationActions: ScenarioPublicModerationActionRecord[];
   lineage: {
     sourceScenarioId: string | null;
     sourceRevisionId: string | null;
@@ -109,6 +141,10 @@ export class ScenariosService {
   private static readonly COLLABORATION_METADATA_MARKER = "P4_COLLAB_META:";
   private static readonly MODERATION_REPORT_MARKER = "P4_MODERATION_REPORT:";
   private static readonly PUBLIC_ECOSYSTEM_METADATA_MARKER = "P5_PUBLIC_META:";
+  private static readonly PUBLIC_DISCOVERY_SCAN_LIMIT = 500;
+  private static readonly PUBLIC_DISCOVERY_MAX_RESULTS = 100;
+  private static readonly MODERATION_QUEUE_SCAN_LIMIT = 500;
+  private static readonly MODERATION_QUEUE_MAX_RESULTS = 100;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -129,6 +165,7 @@ export class ScenariosService {
           : undefined,
       },
       orderBy: { createdAt: 'asc' },
+      take: ScenariosService.PUBLIC_DISCOVERY_SCAN_LIMIT,
     });
 
     const discovered = scenarios
@@ -149,7 +186,7 @@ export class ScenariosService {
 
     const sorted = this.sortScenarioDiscovery(discovered, query?.sort ?? "recommended");
     const offset = query?.offset ?? 0;
-    const limit = query?.limit ?? sorted.length;
+    const limit = Math.min(query?.limit ?? ScenariosService.PUBLIC_DISCOVERY_MAX_RESULTS, ScenariosService.PUBLIC_DISCOVERY_MAX_RESULTS);
     return sorted.slice(offset, offset + limit);
   }
 
@@ -861,6 +898,175 @@ export class ScenariosService {
     return { appealId: appeal.appealId, scenarioId: scenario.id, status: "submitted" };
   }
 
+  async listScenarioModerationQueue(
+    operatorUserId: string,
+  ): Promise<ScenarioModerationQueueItemDto[]> {
+    this.ensureScenarioModerationOperator(operatorUserId);
+    const scenarios = await this.prisma.scenario.findMany({
+      where: {
+        OR: [
+          { sourceType: PrismaScenarioSourceType.CLONED },
+          { id: { in: PROVIDED_SCENARIO_IDS } },
+        ],
+      },
+      orderBy: { updatedAt: "desc" },
+      take: ScenariosService.MODERATION_QUEUE_SCAN_LIMIT,
+    });
+
+    return scenarios
+      .map((scenario) => this.mapScenarioModerationQueueItem(scenario))
+      .filter(
+        (item) =>
+          item.reportCount > 0 ||
+          item.appealCount > 0 ||
+          item.moderationStatus !== "visible",
+      )
+      .slice(0, ScenariosService.MODERATION_QUEUE_MAX_RESULTS);
+  }
+
+  async applyScenarioModerationAction(
+    operatorUserId: string,
+    id: string,
+    dto: ApplyScenarioModerationActionDto,
+  ): Promise<ScenarioModerationActionResponseDto> {
+    this.ensureScenarioModerationOperator(operatorUserId);
+    const scenario = await this.getScenarioEntityById(id);
+    this.ensurePublicScenarioEcosystemTarget(
+      scenario,
+      "공개 생태계 대상만 moderation 처리할 수 있습니다.",
+      { allowHidden: true },
+    );
+    const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    const previousStatus = metadata.moderationStatus;
+    const now = new Date().toISOString();
+    const actionId = `scenario-moderation-action:${randomUUID()}`;
+    const action = dto.action;
+    const reason = dto.reason.trim();
+    const targetUserId = dto.targetUserId?.trim() || null;
+    const duplicateAction = this.resolveDuplicateScenarioModerationAction(metadata, {
+      operatorUserId,
+      action,
+      reason,
+      targetUserId,
+    });
+    if (duplicateAction) {
+      return {
+        actionId: duplicateAction.actionId,
+        scenarioId: scenario.id,
+        action: duplicateAction.action,
+        moderationStatus: duplicateAction.nextStatus,
+        processingStatus:
+          duplicateAction.processingStatus ??
+          this.resolveScenarioModerationProcessingStatus(metadata),
+        creatorNoticeStatus:
+          duplicateAction.creatorNoticeStatus ??
+          this.resolveScenarioCreatorNoticeStatus(metadata),
+      };
+    }
+    const nextRatings = this.applyScenarioModerationRatingAction(metadata.ratings, action, targetUserId);
+    const nextStatus = this.resolveScenarioModerationStatusAfterAction(action, previousStatus);
+    const nextAppeals = metadata.appeals.map((appeal) => {
+      if (
+        action === "restored" &&
+        (appeal.status === "submitted" || appeal.status === "under_review")
+      ) {
+        return { ...appeal, status: "accepted" as const };
+      }
+      if (
+        action === "hidden" &&
+        (appeal.status === "submitted" || appeal.status === "under_review")
+      ) {
+        return { ...appeal, status: "rejected" as const };
+      }
+      if (action === "escalated" && appeal.status === "submitted") {
+        return { ...appeal, status: "under_review" as const };
+      }
+      return appeal;
+    });
+    const nextMetadataForStatus = {
+      ...metadata,
+      ratings: nextRatings,
+      appeals: nextAppeals,
+      moderationStatus: nextStatus,
+    };
+    const moderationAction: ScenarioPublicModerationActionRecord = {
+      actionId,
+      operatorUserId,
+      action,
+      reason,
+      targetUserId,
+      createdAt: now,
+      previousStatus,
+      nextStatus,
+      processingStatus: this.resolveScenarioModerationProcessingStatus({
+        ...nextMetadataForStatus,
+        moderationActions: [
+          ...metadata.moderationActions,
+          {
+            actionId,
+            operatorUserId,
+            action,
+            reason,
+            targetUserId,
+            createdAt: now,
+            previousStatus,
+            nextStatus,
+          },
+        ],
+      }),
+      creatorNoticeStatus: this.resolveScenarioCreatorNoticeStatus({
+        ...nextMetadataForStatus,
+        moderationActions: [
+          ...metadata.moderationActions,
+          {
+            actionId,
+            operatorUserId,
+            action,
+            reason,
+            targetUserId,
+            createdAt: now,
+            previousStatus,
+            nextStatus,
+          },
+        ],
+      }),
+      auditRecordType: "scenario_moderation_action",
+    };
+
+    await this.prisma.scenario.update({
+      where: { id: scenario.id },
+      data: {
+        attribution: this.appendScenarioPublicEcosystemMetadata(scenario.attribution, {
+          ...metadata,
+          ratings: nextRatings,
+          appeals: nextAppeals,
+          moderationStatus: nextStatus,
+          moderationActions: [...metadata.moderationActions, moderationAction],
+        }),
+      },
+    });
+    await this.createScenarioModerationTurnLogsForLinkedSessions(scenario.id, moderationAction);
+
+    return {
+      actionId,
+      scenarioId: scenario.id,
+      action,
+      moderationStatus: nextStatus,
+      processingStatus: this.resolveScenarioModerationProcessingStatus({
+        ...metadata,
+        appeals: nextAppeals,
+        moderationStatus: nextStatus,
+        moderationActions: [...metadata.moderationActions, moderationAction],
+      }),
+      creatorNoticeStatus: this.resolveScenarioCreatorNoticeStatus({
+        ...metadata,
+        appeals: nextAppeals,
+        moderationStatus: nextStatus,
+        moderationActions: [...metadata.moderationActions, moderationAction],
+      }),
+    };
+  }
+
   async deleteScenario(userId: string, id: string): Promise<void> {
     await this.getEditableScenarioEntity(userId, id);
 
@@ -1085,6 +1291,7 @@ export class ScenariosService {
   private ensurePublicScenarioEcosystemTarget(
     scenario: Awaited<ReturnType<ScenariosService['getScenarioEntityById']>>,
     message: string,
+    options: { allowHidden?: boolean } = {},
   ): void {
     const revision = this.parseScenarioRevisionMetadata(scenario.attribution);
     const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
@@ -1094,7 +1301,7 @@ export class ScenariosService {
       (revision.status === "public" || revision.status === "link");
     if (
       (!isProvidedPublicScenario && !isPublishedRevision) ||
-      metadata.moderationStatus === "hidden"
+      (!options.allowHidden && metadata.moderationStatus === "hidden")
     ) {
       throw new BadRequestException(message);
     }
@@ -1123,6 +1330,8 @@ export class ScenariosService {
       reviewCount,
       forkCount: metadata.forkCount,
       moderationStatus: metadata.moderationStatus,
+      moderationProcessingStatus: this.resolveScenarioModerationProcessingStatus(metadata),
+      creatorNoticeStatus: this.resolveScenarioCreatorNoticeStatus(metadata),
       recommendationReason: this.buildRecommendationReason(summary, {
         averageRating,
         ratingCount: metadata.ratings.length,
@@ -1654,9 +1863,57 @@ export class ScenariosService {
             typeof appeal.appealedByUserId === "string" &&
             typeof appeal.message === "string" &&
             typeof appeal.createdAt === "string" &&
-            appeal.status === "submitted",
+            (appeal.status === "submitted" ||
+              appeal.status === "under_review" ||
+              appeal.status === "accepted" ||
+              appeal.status === "rejected"),
           )
         : fallback.appeals;
+      const moderationActions = Array.isArray(parsed.moderationActions)
+        ? parsed.moderationActions.filter((action): action is ScenarioPublicModerationActionRecord =>
+            action &&
+            typeof action.actionId === "string" &&
+            typeof action.operatorUserId === "string" &&
+            (action.action === "hidden" ||
+              action.action === "restored" ||
+              action.action === "warning" ||
+              action.action === "creator_note_required" ||
+              action.action === "rating_removed" ||
+              action.action === "review_removed" ||
+              action.action === "escalated") &&
+            typeof action.reason === "string" &&
+            typeof action.createdAt === "string" &&
+            (action.previousStatus === "visible" ||
+              action.previousStatus === "reported" ||
+              action.previousStatus === "hidden") &&
+            (action.nextStatus === "visible" ||
+              action.nextStatus === "reported" ||
+              action.nextStatus === "hidden"),
+          )
+          .map((action) => ({
+            ...action,
+            targetUserId: typeof action.targetUserId === "string" ? action.targetUserId : null,
+            processingStatus:
+              action.processingStatus === "queued" ||
+              action.processingStatus === "reviewing" ||
+              action.processingStatus === "actioned" ||
+              action.processingStatus === "rejected" ||
+              action.processingStatus === "restored" ||
+              action.processingStatus === "escalated"
+                ? action.processingStatus
+                : undefined,
+            creatorNoticeStatus:
+              action.creatorNoticeStatus === "none" ||
+              action.creatorNoticeStatus === "creator_notified" ||
+              action.creatorNoticeStatus === "creator_action_required"
+                ? action.creatorNoticeStatus
+                : undefined,
+            auditRecordType:
+              action.auditRecordType === "scenario_moderation_action"
+                ? action.auditRecordType
+                : undefined,
+          }))
+        : fallback.moderationActions;
       return {
         tags: Array.isArray(parsed.tags)
           ? parsed.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())).map((tag) => tag.trim())
@@ -1691,6 +1948,7 @@ export class ScenariosService {
                 : "visible",
         reports,
         appeals,
+        moderationActions,
         lineage:
           parsed.lineage && typeof parsed.lineage === "object" && !Array.isArray(parsed.lineage)
             ? {
@@ -1722,6 +1980,7 @@ export class ScenariosService {
       moderationStatus: "visible",
       reports: [],
       appeals: [],
+      moderationActions: [],
       lineage: {
         sourceScenarioId: null,
         sourceRevisionId: null,
@@ -1730,6 +1989,204 @@ export class ScenariosService {
         forkedByUserId: null,
       },
     };
+  }
+
+  private ensureScenarioModerationOperator(userId: string): void {
+    const normalized = userId.trim().toLowerCase();
+    if (
+      normalized.startsWith("operator-") ||
+      normalized.startsWith("admin-") ||
+      normalized.startsWith("moderator-")
+    ) {
+      return;
+    }
+    throw new ForbiddenException("운영자 moderation 권한이 필요합니다.");
+  }
+
+  private mapScenarioModerationQueueItem(scenario: {
+    id: string;
+    title: string;
+    createdByUserId: string | null;
+    attribution?: string | null;
+  }): ScenarioModerationQueueItemDto {
+    const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    return {
+      scenarioId: scenario.id,
+      title: scenario.title,
+      createdByUserId: scenario.createdByUserId,
+      moderationStatus: metadata.moderationStatus,
+      processingStatus: this.resolveScenarioModerationProcessingStatus(metadata),
+      creatorNoticeStatus: this.resolveScenarioCreatorNoticeStatus(metadata),
+      reportCount: metadata.reports.length,
+      appealCount: metadata.appeals.filter((appeal) =>
+        appeal.status === "submitted" || appeal.status === "under_review",
+      ).length,
+      actionCount: metadata.moderationActions.length,
+      reports: metadata.reports.map((report) => ({ ...report })),
+      appeals: metadata.appeals.map((appeal) => ({ ...appeal })),
+      actions: metadata.moderationActions.map((action) => ({ ...action })),
+    };
+  }
+
+  private resolveScenarioModerationStatusAfterAction(
+    action: ApplyScenarioModerationActionDto["action"],
+    previousStatus: ScenarioPublicEcosystemMetadata["moderationStatus"],
+  ): ScenarioPublicEcosystemMetadata["moderationStatus"] {
+    if (action === "hidden") {
+      return "hidden";
+    }
+    if (action === "restored") {
+      return "visible";
+    }
+    if (action === "warning" || action === "creator_note_required") {
+      return previousStatus === "hidden" ? "hidden" : "reported";
+    }
+    if (action === "escalated") {
+      return previousStatus === "hidden" ? "hidden" : "reported";
+    }
+    return previousStatus;
+  }
+
+  private resolveDuplicateScenarioModerationAction(
+    metadata: ScenarioPublicEcosystemMetadata,
+    params: {
+      operatorUserId: string;
+      action: ApplyScenarioModerationActionDto["action"];
+      reason: string;
+      targetUserId: string | null;
+    },
+  ): ScenarioPublicModerationActionRecord | null {
+    const latestAction = metadata.moderationActions[metadata.moderationActions.length - 1];
+    if (
+      latestAction &&
+      latestAction.operatorUserId === params.operatorUserId &&
+      latestAction.action === params.action &&
+      latestAction.reason === params.reason &&
+      latestAction.targetUserId === params.targetUserId
+    ) {
+      return latestAction;
+    }
+    return null;
+  }
+
+  private async createScenarioModerationTurnLogsForLinkedSessions(
+    scenarioId: string,
+    action: ScenarioPublicModerationActionRecord,
+  ): Promise<void> {
+    const sessionScenarios = await this.prisma.sessionScenario.findMany({
+      where: {
+        scenarioId,
+        session: {
+          status: {
+            notIn: [PrismaSessionStatus.COMPLETED, PrismaSessionStatus.DISBANDED],
+          },
+        },
+      },
+      select: {
+        id: true,
+        sessionId: true,
+      },
+      take: ScenariosService.PUBLIC_DISCOVERY_MAX_RESULTS,
+    });
+
+    for (const sessionScenario of sessionScenarios) {
+      const latest = await this.prisma.turnLog.findFirst({
+        where: { sessionId: sessionScenario.sessionId },
+        orderBy: { turnNumber: "desc" },
+        select: { turnNumber: true },
+      });
+      await this.prisma.turnLog.create({
+        data: {
+          sessionId: sessionScenario.sessionId,
+          sessionScenarioId: sessionScenario.id,
+          actorUserId: action.operatorUserId,
+          turnNumber: (latest?.turnNumber ?? 0) + 1,
+          rawInput: `/scenario moderation ${action.action}`,
+          structuredActionJson: JSON.stringify({
+            type: "p6_scenario_moderation_action",
+            auditRecordType: action.auditRecordType,
+            actionId: action.actionId,
+            scenarioId,
+            action: action.action,
+            targetUserId: action.targetUserId,
+            previousStatus: action.previousStatus,
+            nextStatus: action.nextStatus,
+            processingStatus: action.processingStatus,
+            creatorNoticeStatus: action.creatorNoticeStatus,
+          }),
+          stateDiffJson: JSON.stringify({
+            reason: "p6_scenario_moderation_action",
+            diff: {
+              scenarioId,
+              action: action.action,
+              previousStatus: action.previousStatus,
+              nextStatus: action.nextStatus,
+              existingSessionSnapshotPreserved: true,
+            },
+          }),
+          outcome: PrismaActionOutcome.SUCCESS,
+          narration: `운영자 moderation 조치(${action.action})가 기록되었습니다. 기존 세션 snapshot은 유지됩니다.`,
+        },
+      });
+    }
+  }
+
+  private resolveScenarioModerationProcessingStatus(
+    metadata: ScenarioPublicEcosystemMetadata,
+  ): ScenarioModerationProcessingStatus {
+    const latestAction = metadata.moderationActions[metadata.moderationActions.length - 1];
+    if (latestAction?.action === "escalated") {
+      return "escalated";
+    }
+    if (latestAction?.action === "restored") {
+      return "restored";
+    }
+    if (
+      latestAction?.action === "hidden" &&
+      metadata.appeals.some((appeal) => appeal.status === "rejected")
+    ) {
+      return "rejected";
+    }
+    if (latestAction) {
+      return "actioned";
+    }
+    if (metadata.appeals.some((appeal) => appeal.status === "under_review")) {
+      return "reviewing";
+    }
+    return "queued";
+  }
+
+  private resolveScenarioCreatorNoticeStatus(
+    metadata: ScenarioPublicEcosystemMetadata,
+  ): ScenarioCreatorNoticeStatus {
+    const latestAction = metadata.moderationActions[metadata.moderationActions.length - 1];
+    if (!latestAction) {
+      return "none";
+    }
+    if (latestAction.action === "creator_note_required") {
+      return "creator_action_required";
+    }
+    return "creator_notified";
+  }
+
+  private applyScenarioModerationRatingAction(
+    ratings: ScenarioPublicRatingRecord[],
+    action: ApplyScenarioModerationActionDto["action"],
+    targetUserId: string | null,
+  ): ScenarioPublicRatingRecord[] {
+    if (action === "rating_removed") {
+      return targetUserId
+        ? ratings.filter((rating) => rating.userId !== targetUserId)
+        : [];
+    }
+    if (action === "review_removed") {
+      return ratings.map((rating) =>
+        !targetUserId || rating.userId === targetUserId
+          ? { ...rating, review: null }
+          : rating,
+      );
+    }
+    return ratings;
   }
 
   private parseLegacyModerationReports(raw: string): ScenarioPublicModerationReportRecord[] {
