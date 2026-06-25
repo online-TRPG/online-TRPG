@@ -1,0 +1,270 @@
+.spell-selection-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.spell-selection-grid-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.spell-selection-grid-head h3 {
+  margin: 0;
+  color: #3b2108;
+  font-size: 15px;
+}
+
+.spell-selection-grid-head p {
+  margin: 3px 0 0;
+  color: rgba(74, 49, 18, 0.72);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.spell-selection-count {
+  min-width: 58px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(119, 78, 25, 0.18);
+  background: rgba(96, 55, 12, 0.1);
+  color: #6c3510;
+  font-size: 12px;
+  text-align: center;
+}
+
+.spell-selection-count.is-complete {
+  border-color: rgba(31, 112, 76, 0.35);
+  background: rgba(38, 131, 86, 0.14);
+  color: #1f704c;
+}
+
+.spell-selection-toolbar {
+  display: grid;
+  gap: 8px;
+}
+
+.spell-selection-toolbar input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(111, 76, 31, 0.22);
+  background: rgba(255, 248, 232, 0.64);
+  color: #35200d;
+}
+
+.spell-selection-filter-list {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.spell-selection-filter-list button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(111, 76, 31, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 248, 232, 0.42);
+  color: rgba(58, 38, 14, 0.82);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.spell-selection-filter-list button.active {
+  border-color: rgba(96, 55, 12, 0.36);
+  background: rgba(96, 55, 12, 0.16);
+  color: #3d2108;
+  font-weight: 800;
+}
+
+.spell-selection-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+  gap: 8px;
+  max-height: 310px;
+  overflow-y: auto;
+  padding: 2px 4px 4px 2px;
+}
+
+.spell-selection-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 58px;
+  padding: 8px 24px 8px 8px;
+  border: 1px solid rgba(104, 70, 28, 0.18);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(255, 251, 239, 0.78), rgba(236, 216, 172, 0.34)),
+    var(--spell-tone-bg, rgba(255, 248, 232, 0.62));
+  color: #2f1b08;
+  box-shadow: 0 8px 14px rgba(72, 46, 14, 0.07);
+  text-align: left;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.spell-selection-card:hover:not(:disabled),
+.spell-selection-card:focus-visible {
+  z-index: 3;
+  transform: translateY(-1px);
+  border-color: rgba(93, 55, 13, 0.42);
+}
+
+.spell-selection-card.is-selected {
+  border-color: rgba(31, 112, 76, 0.62);
+  background:
+    linear-gradient(135deg, rgba(242, 255, 244, 0.86), rgba(158, 214, 171, 0.34)),
+    var(--spell-tone-bg, rgba(229, 248, 235, 0.66));
+}
+
+.spell-selection-card.is-disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.spell-selection-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: rgba(77, 43, 10, 0.11);
+  color: var(--spell-tone-fg, #704016);
+}
+
+.spell-selection-card-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.spell-selection-card-title {
+  overflow: hidden;
+  color: #321c07;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spell-selection-card-subtitle {
+  overflow: hidden;
+  color: rgba(69, 45, 15, 0.68);
+  font-size: 10px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spell-selection-card-level,
+.spell-selection-card-check {
+  position: absolute;
+  right: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.spell-selection-card-level {
+  top: 7px;
+  background: rgba(69, 45, 15, 0.12);
+  color: rgba(69, 45, 15, 0.78);
+}
+
+.spell-selection-card-check {
+  bottom: 7px;
+  background: rgba(31, 112, 76, 0.92);
+  color: #fff;
+}
+
+.spell-selection-card-tooltip {
+  grid-column: 1 / -1;
+  display: none;
+  gap: 7px;
+  margin-top: 2px;
+  padding: 10px;
+  border: 1px solid rgba(82, 50, 16, 0.24);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 252, 241, 0.98), rgba(245, 232, 202, 0.98)),
+    #fff6df;
+  color: #2f1b08;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.36);
+  pointer-events: none;
+}
+
+.spell-selection-card:hover:not(:disabled) .spell-selection-card-tooltip,
+.spell-selection-card:focus-visible .spell-selection-card-tooltip,
+.spell-selection-card:focus-within .spell-selection-card-tooltip {
+  display: grid;
+}
+
+.spell-selection-tooltip-title {
+  color: #2d1705;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.spell-selection-tooltip-specs,
+.spell-selection-tooltip-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.spell-selection-tooltip-specs span,
+.spell-selection-tooltip-tags span {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(87, 54, 17, 0.1);
+  color: rgba(52, 31, 9, 0.82);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.spell-selection-tooltip-summary,
+.spell-selection-tooltip-note {
+  color: rgba(45, 27, 8, 0.84);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.spell-selection-tooltip-note strong {
+  color: #45290b;
+}
+
+.spell-selection-empty {
+  margin: 0;
+  color: rgba(69, 45, 15, 0.68);
+  font-size: 12px;
+}
+
+.spell-selection-card.tone-fire { --spell-tone-bg: rgba(243, 113, 36, 0.12); --spell-tone-fg: #a94114; }
+.spell-selection-card.tone-cold { --spell-tone-bg: rgba(91, 169, 214, 0.14); --spell-tone-fg: #216a92; }
+.spell-selection-card.tone-lightning { --spell-tone-bg: rgba(236, 203, 48, 0.16); --spell-tone-fg: #8a6d04; }
+.spell-selection-card.tone-thunder { --spell-tone-bg: rgba(115, 100, 179, 0.14); --spell-tone-fg: #4f438f; }
+.spell-selection-card.tone-acid { --spell-tone-bg: rgba(123, 176, 49, 0.14); --spell-tone-fg: #557d1f; }
+.spell-selection-card.tone-poison { --spell-tone-bg: rgba(98, 150, 53, 0.14); --spell-tone-fg: #466b26; }
+.spell-selection-card.tone-necrotic { --spell-tone-bg: rgba(74, 54, 92, 0.14); --spell-tone-fg: #49355c; }
+.spell-selection-card.tone-radiant,
+.spell-selection-card.tone-divine { --spell-tone-bg: rgba(230, 188, 59, 0.16); --spell-tone-fg: #8a650d; }
+.spell-selection-card.tone-healing { --spell-tone-bg: rgba(48, 153, 92, 0.14); --spell-tone-fg: #1f704c; }
+.spell-selection-card.tone-defense { --spell-tone-bg: rgba(64, 119, 168, 0.14); --spell-tone-fg: #2c628f; }
+.spell-selection-card.tone-control { --spell-tone-bg: rgba(130, 78, 165, 0.14); --spell-tone-fg: #70409a; }
+.spell-selection-card.tone-utility { --spell-tone-bg: rgba(118, 84, 36, 0.12); --spell-tone-fg: #704016; }
+.spell-selection-card.tone-mobility { --spell-tone-bg: rgba(44, 149, 151, 0.14); --spell-tone-fg: #247577; }
+.spell-selection-card.tone-illusion,
+.spell-selection-card.tone-psychic { --spell-tone-bg: rgba(188, 92, 158, 0.14); --spell-tone-fg: #97447c; }
+.spell-selection-card.tone-nature { --spell-tone-bg: rgba(68, 145, 61, 0.14); --spell-tone-fg: #3c7c36; }
+.spell-selection-card.tone-arcane { --spell-tone-bg: rgba(92, 95, 188, 0.14); --spell-tone-fg: #5254a7; }

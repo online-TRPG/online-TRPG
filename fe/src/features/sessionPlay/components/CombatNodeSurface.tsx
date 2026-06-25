@@ -27,6 +27,7 @@ import { NodeHeaderScroll } from './NodeHeaderScroll';
 import { getCharacterImage } from '../utils/characterVisuals';
 import { describeCombatParticipantObservation } from '../utils/combatParticipantObservation';
 import { isDirectlyUsableP3Item } from '../utils/executableItems';
+import { getSpellIconName } from '../../spells/spellPresentation';
 import { MONSTER_TOKEN_COLOR, NPC_TOKEN_COLOR } from '../../../utils/sessionTokenColors';
 import type { SessionTokenColor } from '../../../utils/sessionTokenColors';
 import './CombatNodeSurface.css';
@@ -587,8 +588,8 @@ function getCombatActionIconName(label: string): GameIconName | undefined {
   return combatActionIconNames[label];
 }
 
-function CombatActionButtonContent({ label }: { label: string }) {
-  const iconName = getCombatActionIconName(label);
+function CombatActionButtonContent({ label, spellId }: { label: string; spellId?: string | null }) {
+  const iconName = spellId ? getSpellIconName(spellId, label) : getCombatActionIconName(label);
 
   if (!iconName) return <span className="combat-action-button-label">{label}</span>;
 
@@ -2923,7 +2924,7 @@ export function CombatNodeSurface({
                             }
                             onClick={() => spellId && startSpellTargeting(spellId)}
                           >
-                            <CombatActionButtonContent label={action.label} />
+                            <CombatActionButtonContent label={action.label} spellId={spellId} />
                           </button>
                           {spellId && isSlottedSpell && availableSlotLevels.length ? (
                             <label

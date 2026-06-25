@@ -25,11 +25,13 @@ import {
   localizeSrdTermText,
   loadClassOptions,
   loadRaceData,
+  loadSpellCatalog,
   normalizeClassValue,
   type ClassOption,
   type ClassOptionValue,
   type RaceAbilityBonus,
   type RaceData,
+  type StaticSpellCatalogEntry,
 } from '../services/staticSrd';
 import { getPreferredScenario, splitScenariosBySource } from '../data/sessionVisuals';
 import type { CharacterPayload } from '../hooks/useSession';
@@ -44,6 +46,11 @@ import type {
   UpdatePreparedSpellsDto,
 } from '@trpg/shared-types';
 import { InventoryItemInfo } from '../features/sessionPlay/components/InventoryItemInfo';
+import {
+  SpellSelectionGrid,
+  type SpellSelectionGridDetail,
+  type SpellSelectionGridOption,
+} from '../features/spells/SpellSelectionGrid';
 import { listItems, listRuleCatalog } from '../services/api';
 import './CharacterPage.css';
 
@@ -123,7 +130,7 @@ interface CharacterPageProps {
 
 type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
 type ScalingAbilityKey = 'str' | 'dex' | 'int';
-type CharacterCreateStepKey = 'profile' | 'stats' | 'features' | 'loadout';
+type CharacterCreateStepKey = 'profile' | 'stats' | 'features' | 'equipment' | 'spells';
 
 const ASI_LEVELS = [4, 8, 12, 14, 16, 19] as const;
 
@@ -170,7 +177,8 @@ const CHARACTER_CREATE_STEPS: ReadonlyArray<{
   { key: 'profile', label: '기본 정보', helper: '이름, 시나리오, 초상화를 정합니다.' },
   { key: 'stats', label: '코어 스탯', helper: '레벨과 능력치를 배분합니다.' },
   { key: 'features', label: '기술과 특성', helper: '숙련 기술과 직업 기능을 고릅니다.' },
-  { key: 'loadout', label: '장비와 주문', helper: '시작 장비를 확정하고 생성합니다.' },
+  { key: 'equipment', label: '장비', helper: '시작 장비와 인벤토리를 확인합니다.' },
+  { key: 'spells', label: '주문', helper: '캔트립과 시작 주문을 고릅니다.' },
 ] as const;
 
 type ClassName = ClassOptionValue;
@@ -339,7 +347,7 @@ function getImplementedSpellOptions(
   kind: 'cantrip' | 'slot',
   level = 1,
   ruleCatalog: RuleCatalogReferenceDto[] = []
-) {
+): ImplementedSpellOption[] {
   const classKey = normalizeClassValue(className ?? '').toLowerCase();
   if (!implementedSpellClasses.has(classKey)) return [];
   const maxSpellLevel = getMaximumImplementedSpellLevel(classKey, level);
@@ -531,6 +539,81 @@ function getMvpStartingSlotSpellCount(
   );
 }
 
+function buildSpellSelectionDetail(
+  option: ImplementedSpellOption,
+  ruleCatalog: RuleCatalogReferenceDto[],
+  spellCatalogById: Map<string, StaticSpellCatalogEntry>
+): SpellSelectionGridDetail {
+  const srdSpell = spellCatalogById.get(option.id);
+  const catalogEntry = ruleCatalog.find((entry) => entry.id === option.id);
+  const specs = [
+    formatSpellLevelLabel(srdSpell?.level ?? option.level ?? catalogEntry?.spellLevel ?? null),
+    srdSpell?.schoolKo ?? null,
+    srdSpell?.castingTime?.raw ? `시전 ${srdSpell.castingTime.raw}` : null,
+    srdSpell?.range?.raw
+      ? `거리 ${srdSpell.range.raw}`
+      : typeof catalogEntry?.rangeFt === 'number'
+        ? `거리 ${catalogEntry.rangeFt}ft`
+        : null,
+    catalogEntry?.targetingType ? formatTargetingType(catalogEntry.targetingType) : null,
+    srdSpell?.duration?.raw ? `지속 ${srdSpell.duration.raw}` : null,
+    srdSpell?.components?.raw ? `구성 ${srdSpell.components.raw}` : null,
+    srdSpell?.concentration ? '집중' : null,
+    srdSpell?.ritual ? '의식' : null,
+  ].filter((spec): spec is string => Boolean(spec));
+
+  return {
+    specs,
+    summary: srdSpell?.playReference ?? buildRuntimeTagSummary(catalogEntry?.runtimeTags ?? []),
+    higherLevel: srdSpell?.higherLevel ?? null,
+    scaling: srdSpell?.scaling ?? null,
+    tags: normalizeRuntimeTagsForDisplay(catalogEntry?.runtimeTags ?? []),
+  };
+}
+
+function attachSpellDetails(
+  options: ImplementedSpellOption[],
+  ruleCatalog: RuleCatalogReferenceDto[],
+  spellCatalogById: Map<string, StaticSpellCatalogEntry>
+): SpellSelectionGridOption[] {
+  return options.map((option) => ({
+    ...option,
+    detail: buildSpellSelectionDetail(option, ruleCatalog, spellCatalogById),
+  }));
+}
+
+function formatSpellLevelLabel(level: number | null | undefined) {
+  if (level === 0) return '캔트립';
+  if (typeof level === 'number') return `${level}레벨`;
+  return null;
+}
+
+function formatTargetingType(targetingType: string) {
+  const labels: Record<string, string> = {
+    self: '대상 자신',
+    creature: '대상 크리처',
+    area: '범위 효과',
+    point: '지점 지정',
+    none: '대상 없음',
+  };
+  return labels[targetingType] ?? `대상 ${targetingType}`;
+}
+
+function normalizeRuntimeTagsForDisplay(tags: string[]) {
+  return tags
+    .filter((tag) => !tag.startsWith('spell_level:'))
+    .map((tag) => tag.replace(/_/g, ' '))
+    .slice(0, 8);
+}
+
+function buildRuntimeTagSummary(tags: string[]) {
+  const usefulTags = normalizeRuntimeTagsForDisplay(tags).slice(0, 5);
+  if (!usefulTags.length) {
+    return '상세 설명이 준비되지 않은 주문입니다. 카드의 레벨, 거리, 태그를 기준으로 선택하세요.';
+  }
+  return `주요 효과: ${usefulTags.join(', ')}`;
+}
+
 function getWizardStartingSpellbookSpellCount(level: number) {
   const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
   return (
@@ -550,16 +633,6 @@ function getMvpStartingCantripCount(
   return Math.min(
     progression?.cantripsKnown ?? klass.startingCantripCount,
     getImplementedSpellOptions(className, 'cantrip', level, ruleCatalog).length
-  );
-}
-
-function isSpellAlreadySelected(
-  selectedIds: string[] | undefined,
-  spellId: string,
-  currentIndex: number
-) {
-  return (selectedIds ?? []).some(
-    (selectedId, index) => index !== currentIndex && selectedId === spellId
   );
 }
 
@@ -1520,6 +1593,7 @@ export function CharacterPage({
   const [isStatsReferenceOpen, setStatsReferenceOpen] = useState(false);
   const [itemCatalog, setItemCatalog] = useState<ItemResponseDto[]>([]);
   const [ruleCatalog, setRuleCatalog] = useState<RuleCatalogReferenceDto[]>([]);
+  const [spellCatalog, setSpellCatalog] = useState<StaticSpellCatalogEntry[]>([]);
   const [levelUpDraft, setLevelUpDraft] = useState<{
     targetLevel: number;
     subclassName: string;
@@ -1602,6 +1676,38 @@ export function CharacterPage({
     if (!className) return null;
     return classDefinitions.find((c) => c.key === className) ?? null;
   }, [formState.className, classDefinitions]);
+  const resolvedStartingEquipmentSummary = useMemo(() => {
+    if (!selectedClass) return [];
+
+    return getClassStartingEquipmentSlots(selectedClass).flatMap((slot, slotIndex) => {
+      const selectedOptionIndex = formState.startingEquipmentSelection?.[slotIndex] ?? 0;
+      const selectedOption = slot.options[selectedOptionIndex] ?? slot.options[0];
+      if (!selectedOption) return [];
+
+      return selectedOption.items.map((item, itemIndex) => {
+        const concreteChoice = getStartingEquipmentConcreteChoice(item.itemKey);
+        const selectionKey = getStartingEquipmentItemSelectionKey(slotIndex, itemIndex);
+        const selectedConcreteKey = formState.startingEquipmentItemSelections?.[selectionKey];
+        const concreteLabel = concreteChoice
+          ? (concreteChoice.options.find((option) => option.value === selectedConcreteKey)?.label ??
+            `${concreteChoice.label} 미선택`)
+          : null;
+        const label = concreteLabel ?? itemKoNameByKey.get(item.itemKey) ?? item.itemKey;
+
+        return {
+          key: `${slotIndex}:${itemIndex}:${item.itemKey}`,
+          label,
+          quantity: item.quantity,
+          pending: Boolean(concreteChoice && !selectedConcreteKey),
+        };
+      });
+    });
+  }, [
+    formState.startingEquipmentItemSelections,
+    formState.startingEquipmentSelection,
+    itemKoNameByKey,
+    selectedClass,
+  ]);
   const selectedCreateClassKey = normalizeClassValue(formState.className ?? '').toLowerCase();
   const selectedCreateSubclassOptions =
     implementedSubclassOptions[selectedCreateClassKey] ?? [];
@@ -1610,9 +1716,17 @@ export function CharacterPage({
   const isCreateSubclassRequired =
     selectedCreateSubclassChoiceLevel !== null &&
     (formState.level ?? 1) >= selectedCreateSubclassChoiceLevel;
+  const spellCatalogById = useMemo(
+    () => new Map(spellCatalog.map((spell) => [spell.id, spell] as const)),
+    [spellCatalog]
+  );
   const cantripOptions = useMemo(
     () => getImplementedSpellOptions(formState.className, 'cantrip', formState.level ?? 1, ruleCatalog),
     [formState.className, formState.level, ruleCatalog]
+  );
+  const detailedCantripOptions = useMemo(
+    () => attachSpellDetails(cantripOptions, ruleCatalog, spellCatalogById),
+    [cantripOptions, ruleCatalog, spellCatalogById]
   );
   const selectedStartingCantripCount = getMvpStartingCantripCount(
     selectedClass,
@@ -1623,6 +1737,10 @@ export function CharacterPage({
   const slotSpellOptions = useMemo(
     () => getImplementedSpellOptions(formState.className, 'slot', formState.level ?? 1, ruleCatalog),
     [formState.className, formState.level, ruleCatalog]
+  );
+  const detailedSlotSpellOptions = useMemo(
+    () => attachSpellDetails(slotSpellOptions, ruleCatalog, spellCatalogById),
+    [slotSpellOptions, ruleCatalog, spellCatalogById]
   );
   const selectedStartingSlotSpellCount = getMvpStartingSlotSpellCount(
     selectedClass,
@@ -1806,20 +1924,21 @@ export function CharacterPage({
     let ignore = false;
     setCatalogError(null);
 
-    Promise.all([loadClassOptions(), loadRaceData()])
-      .then(([loadedClasses, loadedRaces]) => {
+    Promise.all([loadClassOptions(), loadRaceData(), loadSpellCatalog()])
+      .then(([loadedClasses, loadedRaces, loadedSpells]) => {
         if (ignore) {
           return;
         }
         setClassCatalog(loadedClasses);
         setRaceCatalog(loadedRaces);
+        setSpellCatalog(loadedSpells);
       })
       .catch((caught) => {
         if (!ignore) {
           setCatalogError(
             caught instanceof Error
               ? caught.message
-              : '정적 SRD 직업/종족 데이터를 불러오지 못했습니다.'
+              : '정적 SRD 직업/종족/주문 데이터를 불러오지 못했습니다.'
           );
         }
       });
@@ -2134,7 +2253,9 @@ export function CharacterPage({
   const isProfileStep = currentCreateStep.key === 'profile';
   const isStatsStep = currentCreateStep.key === 'stats';
   const isFeaturesStep = currentCreateStep.key === 'features';
-  const isLoadoutStep = currentCreateStep.key === 'loadout';
+  const isEquipmentStep = currentCreateStep.key === 'equipment';
+  const isSpellsStep = currentCreateStep.key === 'spells';
+  const isFinalCreateStep = createStepIndex === CHARACTER_CREATE_STEPS.length - 1;
   const currentStatSelectionLabel = `${selectedRaceInfo?.label ?? '종족 미선택'} (${selectedClassInfo?.label ?? '직업 미선택'})`;
 
   const usedCharacterIds = useMemo(() => {
@@ -3255,8 +3376,8 @@ export function CharacterPage({
               </div>
               <div
                 className={`character-create-form-body${
-                  isLoadoutStep ? ' character-create-form-body--scrollable' : ''
-                }`}
+                  isEquipmentStep || isSpellsStep ? ' character-create-form-body--scrollable' : ''
+                }${isSpellsStep ? ' character-create-form-body--single-column' : ''}`}
               >
                 <div className="character-create-form-left">
                   {isProfileStep ? (
@@ -4069,7 +4190,7 @@ export function CharacterPage({
                       })()
                     : null}
 
-                  {isLoadoutStep && selectedClass ? (
+                  {isEquipmentStep && selectedClass ? (
                     <section className="character-form-section">
                       <div className="section-heading compact">
                         <div>
@@ -4184,7 +4305,7 @@ export function CharacterPage({
                     </section>
                   ) : null}
 
-                  {isLoadoutStep ? (
+                  {isEquipmentStep ? (
                     <section className="character-form-section">
                       <div className="section-heading compact">
                         <div>
@@ -4242,6 +4363,37 @@ export function CharacterPage({
                   ) : null}
                 </div>
                 <div className="character-create-form-right">
+                  {isEquipmentStep ? (
+                    <section className="character-form-section character-create-equipment-summary">
+                      <div className="section-heading compact">
+                        <div>
+                          <span className="eyebrow">장비 요약</span>
+                          <h2>생성 시 지급될 장비</h2>
+                        </div>
+                      </div>
+                      {resolvedStartingEquipmentSummary.length ? (
+                        <ul className="character-create-equipment-summary-list">
+                          {resolvedStartingEquipmentSummary.map((item) => (
+                            <li
+                              key={item.key}
+                              className={item.pending ? 'pending' : undefined}
+                            >
+                              <span>{item.label}</span>
+                              {item.quantity > 1 ? <strong>×{item.quantity}</strong> : null}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="character-empty-note">
+                          직업을 선택하면 시작 장비 목록이 여기에 표시됩니다.
+                        </p>
+                      )}
+                      <p className="character-create-equipment-summary-help">
+                        왼쪽에서 선택지를 바꾸면 이 목록이 즉시 갱신됩니다. “미선택” 항목은
+                        생성 전에 구체 장비를 골라야 합니다.
+                      </p>
+                    </section>
+                  ) : null}
                   {isProfileStep ? (
                     <section className="character-form-section">
                       <div className="character-avatar-picker">
@@ -4396,7 +4548,7 @@ export function CharacterPage({
                       </div>
                     </section>
                   ) : null}
-                  {!isLoadoutStep && !isStatsStep ? (
+                  {!isEquipmentStep && !isSpellsStep && !isStatsStep ? (
                     <div className="character-insight-box">
                       <div className="fantasy-insight-content">
                         <div className="fantasy-insight-section">
@@ -4460,179 +4612,124 @@ export function CharacterPage({
                         </div>
                       </div>
                     </div>
-                  ) : isLoadoutStep &&
-                    selectedClass &&
-                    (selectedStartingCantripCount > 0 ||
-                      selectedStartingSlotSpellCount > 0) ? (
+                  ) : isSpellsStep && selectedClass ? (
                     (() => {
                       const renderedCantripCount = selectedStartingCantripCount;
                       const renderedSpellCount = selectedStartingSlotSpellCount;
+                      const hasStartingSpells = renderedCantripCount > 0 || renderedSpellCount > 0;
                       return (
                         <section className="character-form-section character-create-loadout-spells">
                           <div className="section-heading compact">
                             <div>
                               <span className="eyebrow">시작 주문</span>
                               <h2>
-                                캔트립 {renderedCantripCount}개 + 주문 {renderedSpellCount}개
+                                {hasStartingSpells
+                                  ? `캔트립 ${renderedCantripCount}개 + 주문 ${renderedSpellCount}개`
+                                  : '선택할 시작 주문 없음'}
                               </h2>
                             </div>
                           </div>
+                          {!hasStartingSpells ? (
+                            <p className="character-empty-note">
+                              현재 선택한 직업과 레벨에서는 캐릭터 생성 시 고를 시작 주문이
+                              없습니다. 장비 탭까지 확인했다면 바로 생성할 수 있습니다.
+                            </p>
+                          ) : null}
                           {renderedCantripCount > 0 && (
-                            <div style={{ marginBottom: 12 }}>
-                              <label style={{ display: 'block', marginBottom: 6 }}>캔트립</label>
-                              {Array.from({ length: renderedCantripCount }).map((_, idx) => (
-                                <select
-                                  key={`cantrip-${idx}`}
-                                  value={formState.startingSpells?.cantrips[idx] ?? ''}
-                                  onChange={(event) => {
-                                    const v = event.target.value;
-                                    setFormValidationError(null);
-                                    setFormState((current) => {
-                                      const base: StartingSpellsDto = current.startingSpells ?? {
-                                        cantrips: new Array(selectedStartingCantripCount).fill(''),
-                                        spells: new Array(selectedStartingSlotSpellCount).fill(
-                                          ''
-                                        ),
-                                      };
-                                      const cantrips = [...base.cantrips];
-                                      cantrips[idx] = v;
-                                      return { ...current, startingSpells: { ...base, cantrips } };
-                                    });
-                                  }}
-                                  style={{ marginRight: 6, marginBottom: 4 }}
-                                >
-                                  <option value="">캔트립 {idx + 1} 선택</option>
-                                  {cantripOptions.map((spell) => (
-                                    <option
-                                      key={spell.id}
-                                      value={spell.id}
-                                      disabled={isSpellAlreadySelected(
-                                        formState.startingSpells?.cantrips,
-                                        spell.id,
-                                        idx
-                                      )}
-                                    >
-                                      {spell.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              ))}
-                            </div>
+                            <SpellSelectionGrid
+                              title="캔트립"
+                              helper="항상 사용할 수 있는 소마법을 고릅니다."
+                              options={detailedCantripOptions}
+                              selectedIds={(formState.startingSpells?.cantrips ?? [])
+                                .map((spell) => spell.trim())
+                                .filter(Boolean)}
+                              maxSelected={renderedCantripCount}
+                              onChange={(cantrips) => {
+                                setFormValidationError(null);
+                                setFormState((current) => {
+                                  const base: StartingSpellsDto = current.startingSpells ?? {
+                                    cantrips: [],
+                                    spells: new Array(selectedStartingSlotSpellCount).fill(''),
+                                  };
+                                  return {
+                                    ...current,
+                                    startingSpells: { ...base, cantrips },
+                                  };
+                                });
+                              }}
+                            />
                           )}
                           {renderedSpellCount > 0 && (
-                            <div>
-                              <label style={{ display: 'block', marginBottom: 6 }}>
-                                슬롯 주문
-                              </label>
-                              {Array.from({ length: renderedSpellCount }).map((_, idx) => (
-                                <select
-                                  key={`spell-${idx}`}
-                                  value={formState.startingSpells?.spells[idx] ?? ''}
-                                  onChange={(event) => {
-                                    const v = event.target.value;
-                                    setFormValidationError(null);
-                                    setFormState((current) => {
-                                      const base: StartingSpellsDto = current.startingSpells ?? {
-                                        cantrips: new Array(selectedStartingCantripCount).fill(''),
-                                        spells: new Array(selectedStartingSlotSpellCount).fill(
-                                          ''
-                                        ),
-                                      };
-                                      const spells = [...base.spells];
-                                      spells[idx] = v;
-                                      const preparedSpells = (base.preparedSpells ?? []).filter(
-                                        (spellId) => spells.includes(spellId)
-                                      );
-                                      return {
-                                        ...current,
-                                        startingSpells: {
-                                          ...base,
-                                          spells,
-                                          ...(getPreparedSpellAbilityKey(current.className)
-                                            ? { preparedSpells }
-                                            : {}),
-                                        },
-                                      };
-                                    });
-                                  }}
-                                  style={{ marginRight: 6, marginBottom: 4 }}
-                                >
-                                  <option value="">슬롯 주문 {idx + 1} 선택</option>
-                                  {slotSpellOptions.map((spell) => (
-                                    <option
-                                      key={spell.id}
-                                      value={spell.id}
-                                      disabled={isSpellAlreadySelected(
-                                        formState.startingSpells?.spells,
-                                        spell.id,
-                                        idx
-                                      )}
-                                    >
-                                      {spell.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              ))}
-                            </div>
+                            <SpellSelectionGrid
+                              title="슬롯 주문"
+                              helper="주문책/습득 주문에 넣을 시작 주문을 고릅니다."
+                              options={detailedSlotSpellOptions}
+                              selectedIds={(formState.startingSpells?.spells ?? [])
+                                .map((spell) => spell.trim())
+                                .filter(Boolean)}
+                              maxSelected={renderedSpellCount}
+                              onChange={(spells) => {
+                                setFormValidationError(null);
+                                setFormState((current) => {
+                                  const base: StartingSpellsDto = current.startingSpells ?? {
+                                    cantrips: new Array(selectedStartingCantripCount).fill(''),
+                                    spells: [],
+                                  };
+                                  const preparedSpells = (base.preparedSpells ?? []).filter(
+                                    (spellId) => spells.includes(spellId)
+                                  );
+                                  return {
+                                    ...current,
+                                    startingSpells: {
+                                      ...base,
+                                      spells,
+                                      ...(getPreparedSpellAbilityKey(current.className)
+                                        ? { preparedSpells }
+                                        : {}),
+                                    },
+                                  };
+                                });
+                              }}
+                            />
                           )}
                           {startingPreparedSpellLimit !== null &&
                             selectedStartingSlotSpells.length > 0 && (
-                              <div style={{ marginTop: 12 }}>
-                                <label style={{ display: 'block', marginBottom: 6 }}>
-                                  준비 주문 최대 {startingPreparedSpellLimit}개
-                                </label>
-                                <div className="character-prepared-spell-list">
-                                  {selectedStartingSlotSpells.map((spellId) => {
-                                    const checked = selectedStartingPreparedSpells.includes(spellId);
-                                    const disabled =
-                                      !checked &&
-                                      selectedStartingPreparedSpells.length >=
-                                        startingPreparedSpellLimit;
-                                    return (
-                                      <label
-                                        key={spellId}
-                                        className="character-prepared-spell-option"
-                                      >
-                                        <input
-                                          type="checkbox"
-                                          checked={checked}
-                                          disabled={disabled}
-                                          onChange={() => {
-                                            setFormValidationError(null);
-                                            setFormState((current) => {
-                                              const base: StartingSpellsDto = current.startingSpells ?? {
-                                                cantrips: new Array(
-                                                  selectedStartingCantripCount
-                                                ).fill(''),
-                                                spells: new Array(
-                                                  selectedStartingSlotSpellCount
-                                                ).fill(''),
-                                              };
-                                              const currentPrepared = base.preparedSpells ?? [];
-                                              const preparedSpells = currentPrepared.includes(
-                                                spellId
-                                              )
-                                                ? currentPrepared.filter((id) => id !== spellId)
-                                                : [...currentPrepared, spellId].slice(
-                                                    0,
-                                                    startingPreparedSpellLimit
-                                                  );
-                                              return {
-                                                ...current,
-                                                startingSpells: {
-                                                  ...base,
-                                                  preparedSpells,
-                                                },
-                                              };
-                                            });
-                                          }}
-                                        />
-                                        <span>{getImplementedSpellLabel(spellId, ruleCatalog)}</span>
-                                      </label>
-                                    );
-                                  })}
-                                </div>
-                              </div>
+                              <SpellSelectionGrid
+                                title="준비 주문"
+                                helper="선택한 슬롯 주문 중 오늘 바로 사용할 주문을 고릅니다."
+                                options={selectedStartingSlotSpells.map((spellId) => ({
+                                  id: spellId,
+                                  label: getImplementedSpellLabel(spellId, ruleCatalog),
+                                  level: slotSpellOptions.find((spell) => spell.id === spellId)?.level,
+                                  detail: buildSpellSelectionDetail(
+                                    slotSpellOptions.find((spell) => spell.id === spellId) ?? {
+                                      id: spellId,
+                                      label: getImplementedSpellLabel(spellId, ruleCatalog),
+                                      level: null,
+                                    },
+                                    ruleCatalog,
+                                    spellCatalogById
+                                  ),
+                                }))}
+                                selectedIds={selectedStartingPreparedSpells}
+                                maxSelected={startingPreparedSpellLimit}
+                                onChange={(preparedSpells) => {
+                                  setFormValidationError(null);
+                                  setFormState((current) => {
+                                    const base: StartingSpellsDto = current.startingSpells ?? {
+                                      cantrips: new Array(selectedStartingCantripCount).fill(''),
+                                      spells: new Array(selectedStartingSlotSpellCount).fill(''),
+                                    };
+                                    return {
+                                      ...current,
+                                      startingSpells: {
+                                        ...base,
+                                        preparedSpells,
+                                      },
+                                    };
+                                  });
+                                }}
+                              />
                             )}
                         </section>
                       );
@@ -4777,7 +4874,7 @@ export function CharacterPage({
                   </strong>
                   <span>{currentCreateStep.label}</span>
                 </div>
-                {isLoadoutStep ? (
+                {isFinalCreateStep ? (
                   <button
                     type="submit"
                     className="primary"
