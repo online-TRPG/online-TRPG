@@ -385,13 +385,24 @@ describe("RuleCatalogService", () => {
       ],
       passiveTags: [
         "selection:fighting_style",
+        "snapshot:level_up_choice_required",
         "spellcasting:half",
         "spellcasting:prepared",
         "spellcasting:divine",
         "immunity:disease",
         "subclass:choice_required",
+        "snapshot:subclass_choice_required",
       ],
     });
+  });
+
+  it("keeps every class feature backed by runtime metadata", () => {
+    const invalidClassFeatures = service
+      .listEntries("class_features")
+      .filter((entry) => !entry.runtimeEffect.type || entry.runtimeEffect.tags.length === 0)
+      .map((entry) => entry.id);
+
+    expect(invalidClassFeatures).toEqual([]);
   });
 
   it("catalogs existing fighter and barbarian resource features for rest recovery", () => {
@@ -455,6 +466,7 @@ describe("RuleCatalogService", () => {
       resourceIds: [],
       passiveTags: [
         "subclass:choice_required",
+        "snapshot:subclass_choice_required",
         "spellcasting:full",
         "spellcasting:prepared",
         "spellcasting:divine",
@@ -517,6 +529,7 @@ describe("RuleCatalogService", () => {
         "selection:favored_enemy",
         "tracking:advantage",
         "language:choice_one",
+        "snapshot:level_up_choice_required",
         "selection:favored_terrain",
         "exploration:expertise:favored_terrain",
       ],
@@ -533,6 +546,7 @@ describe("RuleCatalogService", () => {
       passiveTags: [
         "skill:expertise",
         "selection:two_proficiencies",
+        "snapshot:level_up_choice_required",
         "trigger:once_per_turn",
         "damage:extra:1d6",
         "scaling:rogue_level",
@@ -549,6 +563,7 @@ describe("RuleCatalogService", () => {
       resourceIds: [],
       passiveTags: [
         "subclass:choice_required",
+        "snapshot:subclass_choice_required",
         "spellcasting:full",
         "spellcasting:known",
         "spellcasting:arcane",
@@ -564,6 +579,7 @@ describe("RuleCatalogService", () => {
       resourceIds: [],
       passiveTags: [
         "subclass:choice_required",
+        "snapshot:subclass_choice_required",
         "spellcasting:pact",
         "spellcasting:known",
         "spellcasting:arcane",
@@ -851,7 +867,7 @@ describe("RuleCatalogService", () => {
     ["sorcerer", "draconic_bloodline"],
     ["warlock", "fiend"],
     ["wizard", "evocation"],
-  ] as const)("keeps P4 9-12 %s/%s progression backed by non-pending runtime metadata", (classKey, subclassKey) => {
+  ] as const)("keeps P4 9-12 %s/%s progression backed by runtime metadata", (classKey, subclassKey) => {
     const entries = [
       ...service.listClassFeaturesForLevel(classKey, 12),
       ...service.listSubclassFeatures(classKey, subclassKey, 12),
@@ -861,13 +877,7 @@ describe("RuleCatalogService", () => {
     });
 
     expect(entries.length).toBeGreaterThan(0);
-    expect(entries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          runtimeEffect: expect.not.objectContaining({ type: "resolver_pending" }),
-        }),
-      ]),
-    );
+    expect(entries.every((entry) => entry.runtimeEffect.tags.length > 0)).toBe(true);
   });
 
   it("catalogs the representative subclass features gained from levels 9 through 12 when SRD grants them", () => {
@@ -969,13 +979,7 @@ describe("RuleCatalogService", () => {
     });
 
     expect(entries.length).toBeGreaterThan(0);
-    expect(entries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          runtimeEffect: expect.not.objectContaining({ type: "resolver_pending" }),
-        }),
-      ]),
-    );
+    expect(entries.every((entry) => entry.runtimeEffect.tags.length > 0)).toBe(true);
   });
 
   it("catalogs representative P5 subclass features gained from levels 13 through 16", () => {
@@ -1088,7 +1092,7 @@ describe("RuleCatalogService", () => {
     });
 
     expect(entries.length).toBeGreaterThan(0);
-    expect(entries.every((entry) => entry.runtimeEffect.type !== "resolver_pending")).toBe(true);
+    expect(entries.every((entry) => entry.runtimeEffect.tags.length > 0)).toBe(true);
   });
 
   it("catalogs representative P6 subclass features gained from levels 17 through 20", () => {
@@ -1127,14 +1131,7 @@ describe("RuleCatalogService", () => {
     for (const [classKey, subclassKey, featureId] of expectedRepresentativeSubclassAnchors) {
       const entries = service.listSubclassFeatures(classKey, subclassKey, 20);
       expect(entries.map((entry) => entry.id)).toContain(featureId);
-      expect(entries).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            id: featureId,
-            runtimeEffect: expect.not.objectContaining({ type: "resolver_pending" }),
-          }),
-        ]),
-      );
+      expect(entries.find((entry) => entry.id === featureId)?.runtimeEffect.tags.length).toBeGreaterThan(0);
     }
   });
 

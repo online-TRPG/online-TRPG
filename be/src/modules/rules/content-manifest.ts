@@ -125,18 +125,13 @@ export function buildExecutableContentManifest(
 ): ExecutableContentManifest {
   const spellIds = catalog
     .listEntries("spell_definitions")
-    .filter((entry) => entry.runtimeEffect.type !== "resolver_pending")
     .map((entry) => entry.id)
     .sort();
   const monsterIds = Array.from(
     new Set(
       catalog
         .listEntries("monster_abilities")
-        .filter(
-          (entry) =>
-            entry.runtimeEffect.type !== "resolver_pending" &&
-            entry.levelRequirement.monsterId,
-        )
+        .filter((entry) => entry.levelRequirement.monsterId)
         .map((entry) => entry.levelRequirement.monsterId as string),
     ),
   ).sort();

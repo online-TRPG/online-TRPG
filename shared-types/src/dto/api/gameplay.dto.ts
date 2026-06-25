@@ -327,6 +327,15 @@ export class ResolveMainCommandCheckDto {
   @IsOptional()
   @IsString()
   actorId?: string;
+
+  @ApiPropertyOptional({
+    type: Object,
+    description:
+      "클라이언트 판정 오버레이에서 굴린 d20 결과입니다. 서버는 이를 감사 로그/메인 로그 요약에만 사용합니다.",
+  })
+  @IsOptional()
+  @IsObject()
+  diceResult?: Record<string, unknown>;
 }
 
 export class DiceRollRequestDto {
