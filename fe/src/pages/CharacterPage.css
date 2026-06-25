@@ -1282,7 +1282,7 @@
 
 .character-create-stepper {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
   align-items: stretch;
 }
@@ -1360,13 +1360,16 @@
   justify-content: center;
 }
 
-.character-create-form--loadout .character-create-form-left,
-.character-create-form--loadout .character-create-form-right {
+.character-create-form--equipment .character-create-form-left,
+.character-create-form--equipment .character-create-form-right,
+.character-create-form--spells .character-create-form-left,
+.character-create-form--spells .character-create-form-right {
   justify-content: flex-start;
   overflow: hidden;
 }
 
-.character-create-form--loadout .character-create-form-body {
+.character-create-form--equipment .character-create-form-body,
+.character-create-form--spells .character-create-form-body {
   align-self: stretch;
   min-height: 0;
   height: 100%;
@@ -1379,9 +1382,15 @@
   overscroll-behavior: contain;
 }
 
-.character-create-form--loadout .character-create-form-left,
-.character-create-form--loadout .character-create-form-right {
+.character-create-form--equipment .character-create-form-left,
+.character-create-form--equipment .character-create-form-right,
+.character-create-form--spells .character-create-form-left,
+.character-create-form--spells .character-create-form-right {
   padding-bottom: 8px;
+}
+
+.character-create-form-body--single-column {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .character-create-form--stats .character-create-form-left,
@@ -1619,6 +1628,49 @@
 
 .character-create-loadout-spells {
   align-self: start;
+}
+
+.character-create-equipment-summary {
+  align-self: start;
+}
+
+.character-create-equipment-summary-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.character-create-equipment-summary-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(118, 84, 36, 0.12);
+  background: rgba(255, 248, 232, 0.42);
+  color: rgba(50, 31, 12, 0.9);
+  font-size: 12px;
+}
+
+.character-create-equipment-summary-list li.pending {
+  border-color: rgba(184, 111, 23, 0.32);
+  background: rgba(255, 231, 183, 0.5);
+  color: #8a4b10;
+}
+
+.character-create-equipment-summary-list strong {
+  color: rgba(74, 48, 21, 0.78);
+  font-size: 11px;
+}
+
+.character-create-equipment-summary-help {
+  margin: 0;
+  color: rgba(78, 54, 27, 0.72);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .character-create-modal .character-insight-box,

@@ -107,6 +107,19 @@ export interface StaticSpellCatalogEntry {
   level: number;
   schoolKo: string;
   ritual: boolean;
+  castingTime?: {
+    raw?: string | null;
+  } | null;
+  range?: {
+    raw?: string | null;
+  } | null;
+  components?: {
+    raw?: string | null;
+  } | null;
+  duration?: {
+    raw?: string | null;
+  } | null;
+  concentration?: boolean | null;
   playReference: string;
   higherLevel?: string | null;
   scaling?: string | null;
