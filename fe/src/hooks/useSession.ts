@@ -425,17 +425,6 @@ function isMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
   );
 }
 
-function isCheckRequiredMainCommandTurnLog(turnLog: TurnLogResponseDto): boolean {
-  const structuredAction = turnLog.structuredAction;
-
-  return Boolean(
-    structuredAction &&
-      typeof structuredAction === 'object' &&
-      structuredAction.type === 'main_command' &&
-      (structuredAction as Record<string, unknown>).status === 'CHECK_REQUIRED'
-  );
-}
-
 function getMainCommandCheckEffect(response: MainCommandResponseDto): Record<string, unknown> | null {
   const data = response.data;
   if (!data || typeof data !== 'object') return null;
@@ -626,9 +615,8 @@ function buildDiceRollOverlayData(
   };
 }
 
-// CHECK_REQUIRED 시 클라이언트 로컬 d20 굴림으로 임시 오버레이 생성.
-// 한계 — BE 를 거치지 않아 다른 플레이어에겐 안 보임 (단일 클라이언트 가시).
-// 캐릭터 보정값은 v1 에서 0 고정. 서버 권위 굴림 + 브로드캐스트는 BE 합의 후 후속 작업으로 교체.
+// CHECK_REQUIRED 시 대상 클라이언트에만 d20 오버레이를 띄운다.
+// 결과는 check-result API 를 통해 서버 TurnLog 로 브로드캐스트한다.
 function buildCheckRequiredOverlay(
   checkOption: { ability?: string; skill?: string; dc?: number; reason: string },
   actorUserId: string,
@@ -671,6 +659,21 @@ function buildCheckRequiredOverlay(
     expression: '1d20',
     advantage: 'NORMAL',
     outcome: total >= dc ? 'SUCCESS' : 'FAILURE',
+  };
+}
+
+function buildCheckRequiredDiceResult(
+  overlay: DiceRollOverlayData,
+): ResolveMainCommandCheckDto['diceResult'] {
+  return {
+    expression: overlay.expression,
+    rolls: overlay.rolls,
+    modifier: overlay.modifier,
+    total: overlay.total,
+    advantageState: overlay.advantage,
+    naturalRoll: overlay.naturalRoll,
+    dc: overlay.targetValue,
+    outcome: overlay.outcome,
   };
 }
 
@@ -941,9 +944,6 @@ export function useSession(
           removePendingMainCommandLog(matchedPending);
         }
       }
-      if (isCheckRequiredMainCommandTurnLog(turnLog)) {
-        return;
-      }
       appendLog(
         'action',
         '세션 로그',
@@ -978,11 +978,6 @@ export function useSession(
           removePendingMainCommandLog(matchedPending);
         }
       }
-      if (isCheckRequiredMainCommandTurnLog(turnLog)) {
-        appendPlayerRawInputLog(turnLog, appendOlderLog);
-        return;
-      }
-
       // 과거 로그는 배열 앞쪽에 넣어 화면에서 현재 로그보다 위에 보이게 합니다.
       appendOlderLog(
         'action',
@@ -1920,6 +1915,7 @@ export function useSession(
                     ? ('SUCCESS' as ResolveMainCommandCheckDto['outcome'])
                     : ('FAILURE' as ResolveMainCommandCheckDto['outcome']),
                 effect: checkEffect,
+                diceResult: buildCheckRequiredDiceResult(diceOverlay),
               },
               accessToken,
             );
