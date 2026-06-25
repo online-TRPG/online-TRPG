@@ -26,6 +26,10 @@ import {
   AcceptHumanGmAiAssistSuggestionDto,
   ApplyCampaignCalendarActionDto,
   ApplySessionEconomyActionDto,
+  CampaignArchiveResponseDto,
+  CharacterTransferResponseDto,
+  CharacterVaultItemDto,
+  CompleteCampaignDto,
   CreateSessionDto,
   CreateHumanGmAiAssistSuggestionDto,
   CreateVttMapPingDto,
@@ -39,6 +43,7 @@ import {
   MoveSessionTokenDto,
   ParticipantStatusResponseDto,
   PlayerScenarioViewDto,
+  RequestCharacterTransferDto,
   ReportHumanGmAiAssistApplicationFailureDto,
   RevealSessionContentDto,
   RemoveHumanGmInventoryItemDto,
@@ -147,6 +152,19 @@ export class SessionsController {
     );
   }
 
+  @Get("characters/vault")
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: [CharacterVaultItemDto] })
+  async listCharacterVault(
+    @CurrentUserId() userId: string,
+  ): Promise<ApiResponse<CharacterVaultItemDto[]>> {
+    return apiResponse(
+      "SESSION_200",
+      "Character vault fetched.",
+      await this.sessionsService.listCharacterVault(userId),
+    );
+  }
+
   @Get(":id")
   @ApiSecurity("x-user-id")
   @ApiParam({ name: "id" })
@@ -175,6 +193,89 @@ export class SessionsController {
       "SESSION_200",
       "Session updated.",
       await this.sessionsService.updateSession(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/complete-campaign")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: CampaignArchiveResponseDto })
+  async completeLongCampaign(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: CompleteCampaignDto,
+  ): Promise<ApiResponse<CampaignArchiveResponseDto>> {
+    return apiResponse(
+      "SESSION_201",
+      "Campaign archived.",
+      await this.sessionsService.completeLongCampaign(userId, sessionId, dto),
+    );
+  }
+
+  @Get(":id/campaign-archive")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiOkResponse({ type: CampaignArchiveResponseDto })
+  async getCampaignArchive(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+  ): Promise<ApiResponse<CampaignArchiveResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Campaign archive fetched.",
+      await this.sessionsService.getCampaignArchive(userId, sessionId),
+    );
+  }
+
+  @Post(":id/character-transfers")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: CharacterTransferResponseDto })
+  async requestCharacterTransfer(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Body() dto: RequestCharacterTransferDto,
+  ): Promise<ApiResponse<CharacterTransferResponseDto>> {
+    return apiResponse(
+      "SESSION_201",
+      "Character transfer requested.",
+      await this.sessionsService.requestCharacterTransfer(userId, sessionId, dto),
+    );
+  }
+
+  @Post(":id/character-transfers/:requestId/approve")
+  @HttpCode(200)
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiParam({ name: "requestId" })
+  @ApiOkResponse({ type: CharacterTransferResponseDto })
+  async approveCharacterTransfer(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Param("requestId") requestId: string,
+  ): Promise<ApiResponse<CharacterTransferResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Character transfer approved.",
+      await this.sessionsService.approveCharacterTransfer(userId, sessionId, requestId),
+    );
+  }
+
+  @Post(":id/character-transfers/:requestId/reject")
+  @HttpCode(200)
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiParam({ name: "requestId" })
+  @ApiOkResponse({ type: CharacterTransferResponseDto })
+  async rejectCharacterTransfer(
+    @CurrentUserId() userId: string,
+    @Param("id") sessionId: string,
+    @Param("requestId") requestId: string,
+  ): Promise<ApiResponse<CharacterTransferResponseDto>> {
+    return apiResponse(
+      "SESSION_200",
+      "Character transfer rejected.",
+      await this.sessionsService.rejectCharacterTransfer(userId, sessionId, requestId),
     );
   }
 

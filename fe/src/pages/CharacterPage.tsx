@@ -363,6 +363,7 @@ function getImplementedSpellOptions(
 function getMaximumImplementedSpellLevel(classKey: string, level: number) {
   const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
   if (['bard', 'cleric', 'druid', 'sorcerer', 'wizard'].includes(classKey)) {
+    if (normalizedLevel >= 17) return 9;
     if (normalizedLevel >= 15) return 8;
     if (normalizedLevel >= 13) return 7;
     if (normalizedLevel >= 11) return 6;
@@ -373,6 +374,7 @@ function getMaximumImplementedSpellLevel(classKey: string, level: number) {
     return 1;
   }
   if (classKey === 'warlock') {
+    if (normalizedLevel >= 17) return 9;
     if (normalizedLevel >= 15) return 8;
     if (normalizedLevel >= 13) return 7;
     if (normalizedLevel >= 11) return 6;
@@ -383,6 +385,8 @@ function getMaximumImplementedSpellLevel(classKey: string, level: number) {
     return 1;
   }
   if (classKey === 'paladin' || classKey === 'ranger') {
+    if (normalizedLevel >= 17) return 5;
+    if (normalizedLevel >= 13) return 4;
     if (normalizedLevel >= 9) return 3;
     if (normalizedLevel >= 5) return 2;
     if (normalizedLevel >= 2) return 1;
@@ -1911,6 +1915,7 @@ export function CharacterPage({
     () => selectedCharacter?.spells?.preparedSpells ?? [],
     [selectedCharacter]
   );
+  const selectedPreviewContext = selectedCharacter?.levelUpPreviewContext ?? null;
   const selectedActiveSessionConditions = selectedCharacter?.activeSessionConditions ?? [];
   const selectedHasActiveConcentration = selectedActiveSessionConditions.some((condition) =>
     condition.toLowerCase().includes('concentration') || condition.includes('집중')
@@ -1963,35 +1968,59 @@ export function CharacterPage({
     ? [
         {
           label: '진행 중 세션',
-          value: selectedCharacter.activeSessionId
-            ? `세션 ${selectedCharacter.activeSessionId}에 배정됨 — 성장 후 재접속 snapshot에서 유지 확인`
+          value: selectedPreviewContext?.activeSessionId
+            ? `세션 ${selectedPreviewContext.activeSessionId} · ${selectedPreviewContext.activeSessionStatus ?? '상태 미확인'} · 현재 노드 ${
+                selectedPreviewContext.currentNodeId ?? '없음'
+              }`
             : '진행 중 세션 없음',
         },
         {
           label: '조건/집중',
-          value: selectedActiveSessionConditions.length
-            ? `${selectedActiveSessionConditions.slice(0, 4).join(', ')}${
-                selectedActiveSessionConditions.length > 4 ? ' 외' : ''
-              }${selectedHasActiveConcentration ? ' · 집중 유지/종료 영향 확인 필요' : ''}`
+          value: selectedPreviewContext
+            ? `조건 ${selectedPreviewContext.activeConditionCount}개${
+                selectedPreviewContext.hasActiveConcentration ? ' · 집중 효과 있음' : ''
+              }`
+            : selectedActiveSessionConditions.length
+              ? `${selectedActiveSessionConditions.slice(0, 4).join(', ')}${
+                  selectedActiveSessionConditions.length > 4 ? ' 외' : ''
+                }${selectedHasActiveConcentration ? ' · 집중 유지/종료 영향 확인 필요' : ''}`
             : '활성 조건 없음',
         },
         {
           label: '장비',
-          value: `주무기 ${selectedEquippedWeapon?.name ?? selectedCharacter.equippedWeaponId ?? '없음'} · 보조 ${
-            selectedOffhandWeapon?.name ?? selectedCharacter.offhandWeaponId ?? '없음'
+          value: `소지품 ${selectedPreviewContext?.inventoryItemCount ?? selectedCharacter.inventory.length}개 · 주무기 ${
+            selectedEquippedWeapon?.name ?? selectedPreviewContext?.equippedWeaponId ?? selectedCharacter.equippedWeaponId ?? '없음'
+          } · 보조 ${
+            selectedOffhandWeapon?.name ?? selectedPreviewContext?.offhandWeaponId ?? selectedCharacter.offhandWeaponId ?? '없음'
           }`,
         },
         {
           label: '준비 주문',
           value: selectedCharacter.spells
-            ? `${levelUpDraft.preparedSpells.length}/${selectedLevelUpPreparedSpellLimit ?? '제한 없음'}개 준비 예정`
+            ? `알고 있는 주문 ${selectedPreviewContext?.knownSpellCount ?? selectedKnownSlotSpells.length + selectedCurrentCantrips.length}개 · 준비 ${
+                levelUpDraft.preparedSpells.length
+              }/${selectedLevelUpPreparedSpellLimit ?? '제한 없음'}개 예정`
             : '주문 없음',
         },
         {
           label: 'Downtime',
-          value: selectedCharacter.activeSessionId
-            ? '세션 캘린더의 진행 중 downtime 작업은 성장 후 세션 snapshot에서 복원 확인'
+          value: selectedPreviewContext
+            ? `진행/일시정지 ${selectedPreviewContext.activeDowntimeTaskCount}개 · 완료 ${selectedPreviewContext.completedDowntimeTaskCount}개 · 경제 상태 ${
+                selectedPreviewContext.hasEconomyState ? '있음' : '없음'
+              }`
             : '세션 배정 후 downtime 영향 확인 가능',
+        },
+        {
+          label: 'Archive / 이관',
+          value: selectedPreviewContext
+            ? `archive ${selectedPreviewContext.campaignArchiveAvailable ? '있음' : '없음'} · 이관 ${
+                selectedPreviewContext.transferEligibility === 'transfer_allowed'
+                  ? '허용'
+                  : selectedPreviewContext.transferEligibility === 'transfer_blocked'
+                    ? '차단'
+                    : '미보관'
+              }`
+            : '완료 캠페인 archive 없음',
         },
       ]
     : [];

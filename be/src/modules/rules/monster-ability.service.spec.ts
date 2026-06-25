@@ -1,6 +1,7 @@
 import { MonsterAbilityService } from "./monster-ability.service";
 import { P4_EXECUTABLE_MONSTER_IDS } from "./p4-monster-definitions";
 import { P5_EXECUTABLE_MONSTER_IDS } from "./p5-monster-definitions";
+import { P6_EXECUTABLE_MONSTER_IDS } from "./p6-monster-definitions";
 
 describe("MonsterAbilityService", () => {
   const service = new MonsterAbilityService();
@@ -336,6 +337,63 @@ describe("MonsterAbilityService", () => {
       specialType: "area_control",
       conditionRiders: ["condition.frightened"],
       effectTags: expect.arrayContaining(["area_size:120"]),
+    });
+  });
+
+  it("covers the P6 final SRD monster roster with executable common action projections", () => {
+    expect(P6_EXECUTABLE_MONSTER_IDS).toHaveLength(163);
+
+    for (const monsterId of P6_EXECUTABLE_MONSTER_IDS) {
+      const actions = service.listExecutableActions(monsterId);
+      expect(actions.length).toBeGreaterThan(0);
+      expect(service.chooseAction(monsterId)).toMatchObject({ monsterId });
+      expect(actions.every((action) => action.catalogEntryId.startsWith(`${monsterId}.ability.`))).toBe(true);
+    }
+  });
+
+  it("projects P6 dragon, swarm, and standard monster actions for AI and HUMAN GM selection", () => {
+    expect(service.chooseAction("monster.ancient_gold_dragon")).toMatchObject({
+      actionId: "action.breath_or_bite",
+      catalogEntryId: "monster.ancient_gold_dragon.ability.breath_or_bite",
+      attackKind: "special",
+      specialType: "area_attack",
+      save: { ability: "dex", dcSource: "fixed", fixedDc: 21 },
+      damageDice: "18d6",
+      damageType: "elemental",
+      effectTags: expect.arrayContaining([
+        "area_size:90",
+        "half_damage_on_success",
+        "legendary_or_lair_candidate",
+        "legendary_like:tail_attack",
+        "lair:regional_terrain",
+        "phase:ancient_dragon_boss",
+      ]),
+    });
+
+    expect(service.chooseAction("monster.swarm_of_bats")).toMatchObject({
+      actionId: "action.swarm_bites",
+      catalogEntryId: "monster.swarm_of_bats.ability.swarm_bites",
+      attackKind: "special",
+      specialType: "area_attack",
+      save: { ability: "dex", dcSource: "fixed", fixedDc: 12 },
+      damageDice: "4d6",
+      effectTags: expect.arrayContaining(["area_size:10", "half_damage_on_success"]),
+    });
+
+    expect(service.chooseAction("monster.mummy_lord")).toMatchObject({
+      actionId: "action.signature_action",
+      attackKind: "melee_weapon",
+      attackBonus: 3,
+      damageDice: "1d6",
+      damageType: "physical",
+      reachFt: 5,
+      specialType: null,
+      effectTags: expect.arrayContaining([
+        "legendary_or_lair_candidate",
+        "legendary_like:dreadful_glare",
+        "lair:necrotic_temple",
+        "phase:curse_lord_boss",
+      ]),
     });
   });
 

@@ -5,6 +5,7 @@ import type {
   AcceptHumanGmAiAssistSuggestionDto,
   AiHumanGmAssistSuggestionRequestDto,
   ApplyCampaignCalendarActionDto,
+  ApplyScenarioModerationActionDto,
   ApplySessionEconomyActionDto,
   ApplyCombatDamageDto,
   AutoMonsterTurnDto,
@@ -15,12 +16,16 @@ import type {
   CombatActionResultDto,
   CombatMoveResultDto,
   CastCombatSpellDto,
+  CampaignArchiveResponseDto,
+  CharacterTransferResponseDto,
+  CharacterVaultItemDto,
   CombatReactionResponseDto,
   CombatResponseDto,
   CreateHumanGmAiAssistSuggestionDto,
   CreateScenarioReviewDto,
   CreateScenarioDto,
   CreateVttMapPingDto,
+  CompleteCampaignDto,
   EquippedWeaponAttackDto,
   EndTurnDto,
   ForceMoveCombatParticipantDto,
@@ -39,6 +44,7 @@ import type {
   ResolveCombatAttackDto,
   ResolveMainCommandCheckDto,
   RemoveHumanGmInventoryItemDto,
+  RequestCharacterTransferDto,
   ForkScenarioDto,
   RateScenarioDto,
   ReportHumanGmAiAssistApplicationFailureDto,
@@ -55,6 +61,8 @@ import type {
   RaceResponseDto,
   RuleCatalogReferenceDto,
   ScenarioResponseDto,
+  ScenarioModerationActionResponseDto,
+  ScenarioModerationQueueItemDto,
   ScenarioModerationReportResponseDto,
   ScenarioModerationAppealResponseDto,
   ScenarioQueryDto,
@@ -749,6 +757,30 @@ export function appealScenarioModeration(
   );
 }
 
+export function listScenarioModerationQueue(
+  user: StoredUser,
+  accessToken?: string | null
+): Promise<ScenarioModerationQueueItemDto[]> {
+  return requestJson<ScenarioModerationQueueItemDto[]>('/scenarios/moderation/queue', {
+    user,
+    accessToken,
+  });
+}
+
+export function applyScenarioModerationAction(
+  user: StoredUser,
+  scenarioId: string,
+  payload: ApplyScenarioModerationActionDto,
+  accessToken?: string | null
+): Promise<ScenarioModerationActionResponseDto> {
+  return requestJson<ScenarioModerationActionResponseDto>(`/scenarios/${scenarioId}/moderation/actions`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
 export function rateScenario(
   user: StoredUser,
   scenarioId: string,
@@ -1010,6 +1042,87 @@ export function getSessionDetail(
     user,
     accessToken,
   }).then(normalizeSessionDetail);
+}
+
+export function completeLongCampaign(
+  user: StoredUser,
+  sessionId: string,
+  payload: CompleteCampaignDto,
+  accessToken?: string | null
+): Promise<CampaignArchiveResponseDto> {
+  return requestJson<CampaignArchiveResponseDto>(`/sessions/${sessionId}/complete-campaign`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function getCampaignArchive(
+  user: StoredUser,
+  sessionId: string,
+  accessToken?: string | null
+): Promise<CampaignArchiveResponseDto> {
+  return requestJson<CampaignArchiveResponseDto>(`/sessions/${sessionId}/campaign-archive`, {
+    user,
+    accessToken,
+  });
+}
+
+export function listCharacterVault(
+  user: StoredUser,
+  accessToken?: string | null
+): Promise<CharacterVaultItemDto[]> {
+  return requestJson<CharacterVaultItemDto[]>('/sessions/characters/vault', {
+    user,
+    accessToken,
+  });
+}
+
+export function requestCharacterTransfer(
+  user: StoredUser,
+  targetSessionId: string,
+  payload: RequestCharacterTransferDto,
+  accessToken?: string | null
+): Promise<CharacterTransferResponseDto> {
+  return requestJson<CharacterTransferResponseDto>(`/sessions/${targetSessionId}/character-transfers`, {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function approveCharacterTransfer(
+  user: StoredUser,
+  targetSessionId: string,
+  requestId: string,
+  accessToken?: string | null
+): Promise<CharacterTransferResponseDto> {
+  return requestJson<CharacterTransferResponseDto>(
+    `/sessions/${targetSessionId}/character-transfers/${encodeURIComponent(requestId)}/approve`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+    }
+  );
+}
+
+export function rejectCharacterTransfer(
+  user: StoredUser,
+  targetSessionId: string,
+  requestId: string,
+  accessToken?: string | null
+): Promise<CharacterTransferResponseDto> {
+  return requestJson<CharacterTransferResponseDto>(
+    `/sessions/${targetSessionId}/character-transfers/${encodeURIComponent(requestId)}/reject`,
+    {
+      method: 'POST',
+      user,
+      accessToken,
+    }
+  );
 }
 
 export function getSessionState(user: StoredUser, sessionId: string) {

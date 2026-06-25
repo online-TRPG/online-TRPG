@@ -23,6 +23,7 @@
     "test:p3-regression": "npm run test:p3-regression -w @trpg/be",
     "test:p4-regression": "npm run test:p4-regression -w @trpg/be",
     "test:p5-regression": "npm run test:p5-regression -w @trpg/be",
+    "test:p6-regression": "npm run test:p6-regression -w @trpg/be",
     "prisma:generate": "npm run prisma:generate -w @trpg/be",
     "prisma:push": "npm run prisma:push -w @trpg/be",
     "seed": "npm run seed -w @trpg/be"

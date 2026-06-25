@@ -103,6 +103,24 @@ export type CharacterModel = {
   avatarUpdatedAt?: string | null;
   activeSessionId?: string | null;
   activeSessionConditions: string[];
+  levelUpPreviewContext: {
+    activeSessionId: string | null;
+    activeSessionStatus: string | null;
+    currentNodeId: string | null;
+    campaignArchiveAvailable: boolean;
+    campaignArchiveAllowsTransfer: boolean;
+    transferEligibility: "not_archived" | "transfer_allowed" | "transfer_blocked";
+    activeDowntimeTaskCount: number;
+    completedDowntimeTaskCount: number;
+    hasEconomyState: boolean;
+    inventoryItemCount: number;
+    equippedWeaponId: string | null;
+    offhandWeaponId: string | null;
+    knownSpellCount: number;
+    preparedSpellCount: number;
+    activeConditionCount: number;
+    hasActiveConcentration: boolean;
+  };
   isSelectable: boolean;
   createdAt: string;
   updatedAt: string;

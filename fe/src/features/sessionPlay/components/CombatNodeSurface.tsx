@@ -45,7 +45,8 @@ type SpellFilter =
   | 'level5'
   | 'level6'
   | 'level7'
-  | 'level8';
+  | 'level8'
+  | 'level9';
 type CombatResourceIconKind = 'action' | 'bonus' | 'reaction';
 type CombatParticipant = CombatResponseDto['participants'][number];
 type CombatMonsterAction = NonNullable<CombatParticipant['monsterActions']>[number];
@@ -529,6 +530,7 @@ const spellFilterOptions: Array<{ id: SpellFilter; label: string }> = [
   { id: 'level6', label: '6레벨 마법' },
   { id: 'level7', label: '7레벨 마법' },
   { id: 'level8', label: '8레벨 마법' },
+  { id: 'level9', label: '9레벨 마법' },
 ];
 
 const combatActionIconNames: Partial<Record<string, GameIconName>> = {
@@ -635,6 +637,18 @@ function getMonsterActionSummaryLabels(action: CombatMonsterAction) {
   if (action.conditionRiders?.length) {
     labels.push(action.conditionRiders.join(', '));
   }
+  if (action.effectTags?.includes('legendary_or_lair_candidate')) {
+    labels.push('Legendary/Lair candidate');
+  }
+  action.effectTags
+    ?.filter(
+      (tag) =>
+        tag.startsWith('legendary_like:') ||
+        tag.startsWith('lair:') ||
+        tag.startsWith('phase:') ||
+        tag.startsWith('terrain:')
+    )
+    .forEach((tag) => labels.push(tag.replace(/_/g, ' ')));
   if (action.recharge) labels.push(`Recharge ${action.recharge}`);
   if (action.usage) labels.push(action.usage);
   return labels;
@@ -1514,6 +1528,7 @@ export function CombatNodeSurface({
         if (spellFilter === 'level6') return spellLevel === 6;
         if (spellFilter === 'level7') return spellLevel === 7;
         if (spellFilter === 'level8') return spellLevel === 8;
+        if (spellFilter === 'level9') return spellLevel === 9;
         return true;
       }),
     [knownSpellActions, spellFilter]

@@ -1201,6 +1201,269 @@ export class SessionSnapshotDto {
   pendingRestApprovals?: PendingRestApprovalDto[];
 }
 
+export class CompleteCampaignDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  epilogue!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  finalNodeId?: string | null;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  finalRewardIds?: string[];
+
+  @ApiPropertyOptional({ enum: ["private", "party", "public_summary"], default: "party" })
+  @IsOptional()
+  @IsIn(["private", "party", "public_summary"])
+  shareScope?: "private" | "party" | "public_summary";
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  allowCharacterTransfer?: boolean;
+}
+
+export class CampaignArchiveCharacterDto {
+  @ApiProperty()
+  sessionCharacterId!: string;
+
+  @ApiProperty()
+  characterId!: string;
+
+  @ApiProperty()
+  userId!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty()
+  className!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  subclassName!: string | null;
+
+  @ApiProperty()
+  level!: number;
+
+  @ApiProperty()
+  status!: string;
+}
+
+export class CampaignArchiveAnalyticsDto {
+  @ApiProperty()
+  turnLogCount!: number;
+
+  @ApiProperty()
+  combatCount!: number;
+
+  @ApiProperty()
+  completedDowntimeTaskCount!: number;
+
+  @ApiProperty()
+  nodeVisitCount!: number;
+
+  @ApiProperty()
+  sessionCharacterCount!: number;
+}
+
+export class CampaignArchiveSnapshotDto {
+  @ApiProperty()
+  stateVersion!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  currentNodeId!: string | null;
+
+  @ApiProperty({ type: Object })
+  downtime!: {
+    activeTaskCount: number;
+    pausedTaskCount: number;
+    completedTaskCount: number;
+    taskIds: string[];
+  };
+
+  @ApiProperty({ type: Object })
+  economy!: {
+    hasEconomyState: boolean;
+    partyStashItemCount: number;
+    walletCount: number;
+    shopCount: number;
+    craftingProgressCount: number;
+    downtimeCompletionCount: number;
+  };
+
+  @ApiProperty({ type: Object })
+  inventory!: {
+    totalItemCount: number;
+    characterInventoryCounts: Record<string, number>;
+  };
+
+  @ApiProperty({ type: Object })
+  combat!: {
+    combatCount: number;
+    turnLogCount: number;
+    nodeVisitCount: number;
+  };
+
+  @ApiPropertyOptional({ type: Object, nullable: true })
+  publicRevisionLineage!: Record<string, unknown> | null;
+}
+
+export class CampaignArchiveResponseDto {
+  @ApiProperty()
+  archiveId!: string;
+
+  @ApiProperty()
+  sessionId!: string;
+
+  @ApiProperty()
+  sessionTitle!: string;
+
+  @ApiProperty()
+  scenarioId!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  scenarioTitle!: string | null;
+
+  @ApiProperty()
+  completedAt!: string;
+
+  @ApiProperty()
+  completedByUserId!: string;
+
+  @ApiProperty()
+  epilogue!: string;
+
+  @ApiProperty({ enum: ["private", "party", "public_summary"] })
+  shareScope!: "private" | "party" | "public_summary";
+
+  @ApiProperty()
+  allowCharacterTransfer!: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  finalNodeId!: string | null;
+
+  @ApiProperty({ type: [String] })
+  finalRewardIds!: string[];
+
+  @ApiProperty({ type: [CampaignArchiveCharacterDto] })
+  characters!: CampaignArchiveCharacterDto[];
+
+  @ApiProperty({ type: CampaignArchiveAnalyticsDto })
+  analytics!: CampaignArchiveAnalyticsDto;
+
+  @ApiProperty({ type: CampaignArchiveSnapshotDto })
+  snapshot!: CampaignArchiveSnapshotDto;
+}
+
+export class CharacterVaultItemDto {
+  @ApiProperty()
+  sourceSessionCharacterId!: string;
+
+  @ApiProperty()
+  sourceSessionId!: string;
+
+  @ApiProperty()
+  sourceSessionTitle!: string;
+
+  @ApiProperty()
+  archiveId!: string;
+
+  @ApiProperty()
+  archivedAt!: string;
+
+  @ApiProperty()
+  characterId!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty()
+  className!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  subclassName!: string | null;
+
+  @ApiProperty()
+  level!: number;
+
+  @ApiProperty()
+  status!: string;
+
+  @ApiProperty()
+  transferable!: boolean;
+}
+
+export class RequestCharacterTransferDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  sourceSessionId!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  sourceSessionCharacterId!: string;
+
+  @ApiPropertyOptional({ enum: ["clone", "transfer"], default: "clone" })
+  @IsOptional()
+  @IsIn(["clone", "transfer"])
+  mode?: "clone" | "transfer";
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}
+
+export class CharacterTransferResponseDto {
+  @ApiProperty()
+  requestId!: string;
+
+  @ApiProperty()
+  targetSessionId!: string;
+
+  @ApiProperty()
+  sourceSessionId!: string;
+
+  @ApiProperty()
+  sourceSessionCharacterId!: string;
+
+  @ApiProperty()
+  requestedByUserId!: string;
+
+  @ApiProperty({ enum: ["requested", "approved", "rejected"] })
+  status!: "requested" | "approved" | "rejected";
+
+  @ApiProperty({ enum: ["clone", "transfer"] })
+  mode!: "clone" | "transfer";
+
+  @ApiPropertyOptional({ nullable: true })
+  targetSessionCharacterId!: string | null;
+
+  @ApiPropertyOptional({ enum: ["copied", "retired_after_transfer"], nullable: true })
+  sourceDisposition!: "copied" | "retired_after_transfer" | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  note!: string | null;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  resolvedAt!: string | null;
+}
+
 export class SessionListItemResponseDto {
   @ApiProperty({ type: SessionResponseDto })
   session!: SessionResponseDto;

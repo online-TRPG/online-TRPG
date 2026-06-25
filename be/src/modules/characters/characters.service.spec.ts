@@ -814,6 +814,107 @@ describe("CharactersService level up", () => {
     expect(result.maxHp).toBe(28);
   });
 
+  it("exposes P6 level-up preview context for active downtime, archive transfer, equipment, spells, and concentration", async () => {
+    const { service, prisma } = createService();
+    prisma.character.findUnique.mockResolvedValue({
+      ...baseCharacter,
+      level: 20,
+      equippedWeaponId: "item.staff_of_power",
+      offhandWeaponId: "item.shield",
+      inventoryJson: JSON.stringify([
+        { id: "item-1", name: "Staff of Power", quantity: 1 },
+        { id: "item-2", name: "Potion", quantity: 3 },
+      ]),
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.ray_of_frost"],
+        spells: ["spell.wish", "spell.meteor_swarm"],
+        preparedSpells: ["spell.wish"],
+      }),
+      sessionCharacters: [
+        {
+          id: "session-character-active",
+          sessionId: "session-active",
+          userId: "user-1",
+          conditionsJson: JSON.stringify([
+            { conditionId: "condition.concentration", tags: ["concentration:spell:spell.wish"] },
+          ]),
+          session: {
+            id: "session-active",
+            status: PrismaSessionStatus.PLAYING,
+            sessionScenarios: [
+              {
+                id: "session-scenario-active",
+                status: "ACTIVE",
+                sequence: 1,
+                gameState: {
+                  currentNodeId: "node-p6-boss",
+                  flagsJson: JSON.stringify({
+                    economy: { partyStash: [], walletsBySessionCharacterId: {} },
+                    campaignCalendar: {
+                      downtimeTasks: [
+                        { id: "dt-1", status: "active" },
+                        { id: "dt-2", status: "completed" },
+                      ],
+                    },
+                  }),
+                },
+              },
+            ],
+          },
+        },
+        {
+          id: "session-character-archived",
+          sessionId: "session-completed",
+          userId: "user-1",
+          conditionsJson: "[]",
+          session: {
+            id: "session-completed",
+            status: PrismaSessionStatus.COMPLETED,
+            sessionScenarios: [
+              {
+                id: "session-scenario-archive",
+                status: "ACTIVE",
+                sequence: 1,
+                gameState: {
+                  currentNodeId: "node-p6-archive",
+                  flagsJson: JSON.stringify({
+                    p6CampaignArchive: {
+                      archiveId: "campaign-archive:1",
+                      allowCharacterTransfer: true,
+                    },
+                  }),
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const result = await service.getCharacter("user-1", "character-1");
+
+    expect(result.levelUpPreviewContext).toEqual(
+        expect.objectContaining({
+          activeSessionId: "session-active",
+        activeSessionStatus: "playing",
+        currentNodeId: "node-p6-boss",
+        campaignArchiveAvailable: true,
+        campaignArchiveAllowsTransfer: true,
+        transferEligibility: "transfer_allowed",
+        activeDowntimeTaskCount: 1,
+        completedDowntimeTaskCount: 1,
+        hasEconomyState: true,
+        inventoryItemCount: 4,
+        equippedWeaponId: "item.staff_of_power",
+        offhandWeaponId: "item.shield",
+        knownSpellCount: 3,
+        preparedSpellCount: 1,
+        activeConditionCount: 2,
+        hasActiveConcentration: true,
+      }),
+    );
+  });
+
   it("requires a subclass choice when level up reaches the class choice level", async () => {
     const { service, prisma } = createService();
     prisma.character.findUnique.mockResolvedValue({
@@ -1004,6 +1105,87 @@ describe("CharactersService level up", () => {
     expect(result.armorClass).toBe(12);
   });
 
+  it("applies the P6 barbarian Primal Champion capstone to STR, CON, and max HP", async () => {
+    const { service, prisma, catalogService, ruleCatalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d12",
+      koName: "바바리안",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    ruleCatalogService.getCharacterFeatureSnapshot.mockReturnValue({
+      featureIds: [
+        "class.barbarian.feature.rage",
+        "class.barbarian.feature.unarmored_defense",
+        "class.barbarian.feature.primal_champion",
+      ],
+    });
+    const existing = {
+      ...baseCharacter,
+      className: "barbarian",
+      subclassName: "berserker",
+      level: 19,
+      abilitiesJson: JSON.stringify({ str: 20, dex: 12, con: 18, int: 10, wis: 10, cha: 10 }),
+      maxHp: 214,
+      armorClass: 15,
+      featuresJson: JSON.stringify([
+        "class.barbarian.feature.rage",
+        "class.barbarian.feature.unarmored_defense",
+      ]),
+      sessionCharacters: [],
+    };
+    const updated = {
+      ...existing,
+      level: 20,
+      abilitiesJson: JSON.stringify({ str: 24, dex: 12, con: 22, int: 10, wis: 10, cha: 10 }),
+      maxHp: 265,
+      armorClass: 17,
+      featuresJson: JSON.stringify([
+        "class.barbarian.feature.rage",
+        "class.barbarian.feature.unarmored_defense",
+        "class.barbarian.feature.primal_champion",
+      ]),
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    };
+
+    prisma.character.findUnique.mockResolvedValue(existing);
+    prisma.character.update.mockResolvedValue(updated);
+
+    const result = await service.levelUpCharacter("user-1", "character-1", {
+      targetLevel: 20,
+      hpMode: "average",
+    });
+
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          level: 20,
+          abilitiesJson: JSON.stringify({
+            str: 24,
+            dex: 12,
+            con: 22,
+            int: 10,
+            wis: 10,
+            cha: 10,
+          }),
+          maxHp: 265,
+          armorClass: 17,
+          featuresJson: JSON.stringify([
+            "class.barbarian.feature.rage",
+            "class.barbarian.feature.unarmored_defense",
+            "class.barbarian.feature.primal_champion",
+          ]),
+        }),
+      }),
+    );
+    expect(result.abilities).toMatchObject({ str: 24, con: 22 });
+    expect(result.maxHp).toBe(265);
+    expect(result.features).toContain("class.barbarian.feature.primal_champion");
+  });
+
   it("updates prepared spells as part of level up when requested", async () => {
     const { service, prisma } = createService();
     const existing = {
@@ -1106,6 +1288,129 @@ describe("CharactersService level up", () => {
     );
     expect(result.spells?.spells).toContain("spell.fireball");
     expect(result.spells?.preparedSpells).toEqual(["spell.fireball"]);
+  });
+
+  it("allows P6 full casters to learn and prepare 9th-level spells at level 17", async () => {
+    const { service, prisma } = createService();
+    const existing = {
+      ...baseCharacter,
+      className: "wizard",
+      subclassName: "evocation",
+      level: 16,
+      maxHp: 92,
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.fire_bolt", "spell.light", "spell.ray_of_frost", "spell.mage_hand"],
+        spells: ["spell.magic_missile", "spell.shield", "spell.fireball"],
+        preparedSpells: ["spell.shield"],
+      }),
+      sessionCharacters: [],
+    };
+    const updated = {
+      ...existing,
+      level: 17,
+      maxHp: 98,
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.fire_bolt", "spell.light", "spell.ray_of_frost", "spell.mage_hand"],
+        spells: [
+          "spell.magic_missile",
+          "spell.shield",
+          "spell.fireball",
+          "spell.wish",
+          "spell.meteor_swarm",
+        ],
+        preparedSpells: ["spell.wish", "spell.meteor_swarm"],
+      }),
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    };
+
+    prisma.character.findUnique.mockResolvedValue(existing);
+    prisma.character.update.mockResolvedValue(updated);
+
+    const result = await service.levelUpCharacter("user-1", "character-1", {
+      targetLevel: 17,
+      hpMode: "average",
+      knownSpells: ["spell.wish", "spell.meteor_swarm"],
+      preparedSpells: ["spell.wish", "spell.meteor_swarm"],
+    });
+
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          spellsJson: JSON.stringify({
+            cantrips: ["spell.fire_bolt", "spell.light", "spell.ray_of_frost", "spell.mage_hand"],
+            spells: [
+              "spell.magic_missile",
+              "spell.shield",
+              "spell.fireball",
+              "spell.wish",
+              "spell.meteor_swarm",
+            ],
+            preparedSpells: ["spell.wish", "spell.meteor_swarm"],
+          }),
+        }),
+      }),
+    );
+    expect(result.spells?.spells).toEqual(expect.arrayContaining(["spell.wish", "spell.meteor_swarm"]));
+  });
+
+  it("allows P6 half casters to learn 5th-level spells at level 17", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d10",
+      koName: "팔라딘",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    const existing = {
+      ...baseCharacter,
+      className: "paladin",
+      subclassName: "devotion",
+      level: 16,
+      maxHp: 132,
+      spellsJson: JSON.stringify({
+        cantrips: [],
+        spells: ["spell.cure_wounds", "spell.lesser_restoration"],
+        preparedSpells: ["spell.cure_wounds"],
+      }),
+      sessionCharacters: [],
+    };
+    const updated = {
+      ...existing,
+      level: 17,
+      maxHp: 140,
+      spellsJson: JSON.stringify({
+        cantrips: [],
+        spells: ["spell.cure_wounds", "spell.lesser_restoration", "spell.flame_strike"],
+        preparedSpells: ["spell.flame_strike"],
+      }),
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    };
+
+    prisma.character.findUnique.mockResolvedValue(existing);
+    prisma.character.update.mockResolvedValue(updated);
+
+    const result = await service.levelUpCharacter("user-1", "character-1", {
+      targetLevel: 17,
+      hpMode: "average",
+      knownSpells: ["spell.flame_strike"],
+      preparedSpells: ["spell.flame_strike"],
+    });
+
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          spellsJson: JSON.stringify({
+            cantrips: [],
+            spells: ["spell.cure_wounds", "spell.lesser_restoration", "spell.flame_strike"],
+            preparedSpells: ["spell.flame_strike"],
+          }),
+        }),
+      }),
+    );
+    expect(result.spells?.spells).toContain("spell.flame_strike");
   });
 
   it("initializes spell state when a level-up grants ranger spellcasting", async () => {

@@ -16,9 +16,10 @@ import boxBulletinImage from "../components/Box_Bulletin_Rectangle.webp";
 import profileBorderCharacter from "../components/Profile_Border_Character.webp";
 import type { AuthMode } from "../types/auth";
 import { useCurrentProfile } from "../hooks/useCurrentProfile";
-import { listMyCharacters, listMySessions } from "../services/api";
+import { listCharacterVault, listMyCharacters, listMySessions, requestCharacterTransfer } from "../services/api";
 import { getClassLabel } from "../services/staticSrd";
 import type { AvailableSessionListItem, PersistentCharacter, StoredUser, User } from "../types/session";
+import type { CharacterVaultItemDto } from "@trpg/shared-types";
 import { buildPublicProfilePath } from "../utils/routes";
 import "./ProfilePage.css";
 
@@ -59,9 +60,11 @@ export function ProfilePage({
   const [editError, setEditError] = useState<string | null>(null);
   const [myCharacters, setMyCharacters] = useState<PersistentCharacter[]>([]);
   const [mySessions, setMySessions] = useState<AvailableSessionListItem[]>([]);
+  const [characterVault, setCharacterVault] = useState<CharacterVaultItemDto[]>([]);
   const [totalSessionCount, setTotalSessionCount] = useState(0);
   const [loadingActivity, setLoadingActivity] = useState(false);
   const [activityError, setActivityError] = useState<string | null>(null);
+  const [vaultFeedback, setVaultFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     if (!editing) {
@@ -73,6 +76,7 @@ export function ProfilePage({
     if (!accessToken || authMode !== "member") {
       setMyCharacters([]);
       setMySessions([]);
+      setCharacterVault([]);
       setTotalSessionCount(0);
       setActivityError(null);
       return;
@@ -82,11 +86,12 @@ export function ProfilePage({
     setLoadingActivity(true);
     setActivityError(null);
 
-    void Promise.all([listMyCharacters(user, accessToken), listMySessions(user, accessToken)])
-      .then(([characters, sessions]) => {
+    void Promise.all([listMyCharacters(user, accessToken), listMySessions(user, accessToken), listCharacterVault(user, accessToken)])
+      .then(([characters, sessions, vault]) => {
         if (cancelled) return;
         setMyCharacters(characters);
         setMySessions(sessions.content);
+        setCharacterVault(vault);
         setTotalSessionCount(sessions.totalElements);
       })
       .catch((caught) => {
@@ -163,8 +168,40 @@ export function ProfilePage({
   const statRows = [
     { label: "보유 캐릭터", value: `${myCharacters.length}개` },
     { label: "참여 세션", value: `${totalSessionCount}회` },
+    { label: "보관 캐릭터", value: `${characterVault.length}개` },
     { label: "마지막 활동", value: lastActivityAt ? formatCompactDate(lastActivityAt) : "-" },
   ];
+
+  async function handleRequestTransfer(item: CharacterVaultItemDto) {
+    const targetSessionId = window.prompt("이관할 대상 세션 id 또는 공개 id를 입력하세요.", "");
+    if (!targetSessionId?.trim()) return;
+    const modeInput = window.prompt(
+      "이관 방식을 입력하세요: clone=원본 보관 유지, transfer=원본 완료 캐릭터를 이관 완료 처리",
+      "clone",
+    );
+    const mode: "clone" | "transfer" = modeInput?.trim().toLowerCase() === "transfer" ? "transfer" : "clone";
+    setVaultFeedback(null);
+    try {
+      const result = await requestCharacterTransfer(
+        user,
+        targetSessionId.trim(),
+        {
+          sourceSessionId: item.sourceSessionId,
+          sourceSessionCharacterId: item.sourceSessionCharacterId,
+          mode,
+          note: `${item.sourceSessionTitle} archive ${item.archiveId}에서 ${mode} 이관 요청`,
+        },
+        accessToken,
+      );
+      setVaultFeedback(
+        `이관 요청이 접수되었습니다: ${result.requestId} · 방식 ${result.mode} · 원본 처리 ${
+          result.sourceDisposition ?? "승인 대기"
+        }`,
+      );
+    } catch (caught) {
+      setVaultFeedback(caught instanceof Error ? caught.message : "캐릭터 이관 요청에 실패했습니다.");
+    }
+  }
 
   return (
     <main
@@ -308,6 +345,44 @@ export function ProfilePage({
             </div>
           </div>
         </article>
+      </section>
+
+      <section className="profile-card profile-framed-card">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">P6 Character Vault</span>
+            <h2>완료 캠페인 캐릭터 보관소</h2>
+          </div>
+        </div>
+        {loadingActivity ? (
+          <p className="profile-muted-text">보관소를 불러오는 중입니다.</p>
+        ) : characterVault.length > 0 ? (
+          <div className="profile-session-items">
+            {characterVault.slice(0, 6).map((item) => (
+              <div key={item.sourceSessionCharacterId} className="profile-session-item">
+                <strong>{item.name}</strong>
+                <span>
+                  LV {item.level} {getClassLabel(item.className)}
+                  {item.subclassName ? ` / ${item.subclassName}` : ""} · {item.sourceSessionTitle}
+                </span>
+                <span>
+                  archive {item.archiveId} · {item.transferable ? "이관 가능" : "이관 불가"} · {formatCompactDate(item.archivedAt)}
+                </span>
+                {item.transferable ? (
+                  <span>clone은 원본 보관을 유지하고, transfer는 승인 후 원본 완료 캐릭터를 이관 완료 처리합니다.</span>
+                ) : null}
+                {item.transferable ? (
+                  <button type="button" className="ghost" onClick={() => void handleRequestTransfer(item)}>
+                    새 세션으로 clone/transfer 요청
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="profile-muted-text">완료된 캠페인의 보관 캐릭터가 아직 없습니다.</p>
+        )}
+        {vaultFeedback ? <p className="profile-muted-text">{vaultFeedback}</p> : null}
       </section>
 
       {profileError || activityError || error ? <p className="panel-error">{profileError ?? activityError ?? error}</p> : null}

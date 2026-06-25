@@ -9,6 +9,8 @@ import { AoeDamageService } from "../../modules/rules/aoe-damage.service";
 import { CommandParserService } from "../../modules/rules/command-parser.service";
 import { DiceService } from "../../modules/rules/dice.service";
 import { getExecutableItemDefinition } from "../../modules/rules/p3-item-manifest";
+import { P6_EXECUTABLE_MONSTER_IDS } from "../../modules/rules/p6-monster-definitions";
+import { P6_EXECUTABLE_SPELL_IDS } from "../../modules/rules/p6-spell-definitions";
 import { MapPositionService } from "../../modules/rules/map-position.service";
 import { RuleEngineService } from "../../modules/rules/rule-engine.service";
 import {
@@ -21,6 +23,8 @@ import {
   P4_VALIDATION_START_NODE_ID,
   P5_VALIDATION_SCENARIO_ID,
   P5_VALIDATION_START_NODE_ID,
+  P6_VALIDATION_SCENARIO_ID,
+  P6_VALIDATION_START_NODE_ID,
   RULE_RUNTIME_SMOKE_SCENARIO_ID,
   RULE_RUNTIME_SMOKE_START_NODE_ID,
   seedDefaultScenario,
@@ -1130,6 +1134,181 @@ describe("default scenario seed", () => {
         "ai_gm_complete",
         "human_gm_complete",
         "snapshot_isolation",
+      ]),
+    );
+  });
+
+  it("seeds the P6 level 20 final validation campaign with full content, moderation, archive, vault, and transfer coverage", async () => {
+    const { scenarioUpserts, scenarioNodeUpserts } = await seedDefaultScenarioIntoMock();
+
+    expect(scenarioUpserts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          where: { id: P6_VALIDATION_SCENARIO_ID },
+          create: expect.objectContaining({
+            startNodeId: P6_VALIDATION_START_NODE_ID,
+            startLevel: 17,
+            recommendedEndLevel: 20,
+            attribution: expect.stringContaining("P5_PUBLIC_META:"),
+          }),
+        }),
+      ]),
+    );
+
+    const p6Nodes = scenarioNodeUpserts
+      .map((args) => args.create)
+      .filter((node): node is Record<string, unknown> => node?.scenarioId === P6_VALIDATION_SCENARIO_ID);
+    expect(p6Nodes.map((node) => node.id)).toEqual([
+      P6_VALIDATION_START_NODE_ID,
+      "node_p6_level_20_ascension",
+      "node_p6_planar_convergence",
+      "node_p6_astral_projection_gate",
+      "node_p6_wish_archive",
+      "node_p6_shapechange_labyrinth",
+      "node_p6_epic_downtime",
+      "node_p6_public_moderation_trial",
+      "node_p6_dragon_parliament",
+      "node_p6_naga_mummy_gauntlet",
+      "node_p6_boss_gold_dragon_lair",
+      "node_p6_boss_silver_storm_swarm",
+      "node_p6_campaign_epilogue",
+      "node_p6_character_vault_transfer",
+      "node_p6_final_legacy",
+    ]);
+
+    const nodeTypeCounts = new Map<string, number>();
+    const spellIds = new Set<string>();
+    const ninthLevelSpellIds = new Set<string>();
+    const monsterIds = new Set<string>();
+    const bossPhases = new Set<number>();
+    const legendaryOrLairMonsterIds = new Set<string>();
+    const checks = new Set<string>();
+    const p6ExecutableSpellIds = new Set<string>(P6_EXECUTABLE_SPELL_IDS);
+    const p6ExecutableMonsterIds = new Set<string>(P6_EXECUTABLE_MONSTER_IDS);
+    const p6NineLevelSpells = new Set([
+      "spell.astral_projection",
+      "spell.foresight",
+      "spell.gate",
+      "spell.imprisonment",
+      "spell.mass_heal",
+      "spell.meteor_swarm",
+      "spell.power_word_kill",
+      "spell.prismatic_wall",
+      "spell.shapechange",
+      "spell.storm_of_vengeance",
+      "spell.time_stop",
+      "spell.true_polymorph",
+      "spell.true_resurrection",
+      "spell.weird",
+      "spell.wish",
+    ]);
+
+    for (const node of p6Nodes) {
+      const nodeType = String(node.nodeType ?? "unknown");
+      nodeTypeCounts.set(nodeType, (nodeTypeCounts.get(nodeType) ?? 0) + 1);
+      const options = JSON.parse(String(node.checkOptionsJson ?? "{}")) as {
+        vttMap?: { tokens?: Array<{ monster?: { id?: string } | null }> } | null;
+      };
+      const meta = JSON.parse(String(node.nodeMetaJson ?? "{}")) as {
+        p6Scenario?: {
+          spellIds?: string[];
+          monsterIds?: string[];
+          bossPhase?: number;
+          validatesAiGm?: boolean;
+          validatesHumanGm?: boolean;
+          validatesFinalManifest?: boolean;
+          validatesLevelUp?: boolean;
+          validatesCapstones?: boolean;
+          validatesNinthLevelSlots?: boolean;
+          legendaryOrLair?: boolean;
+        };
+        p6Moderation?: Record<string, unknown>;
+        p6Archive?: Record<string, boolean>;
+        p6Downtime?: Record<string, unknown>;
+      };
+      options.vttMap?.tokens?.forEach((token) => {
+        if (token.monster?.id) monsterIds.add(token.monster.id);
+      });
+      meta.p6Scenario?.spellIds?.forEach((spellId) => {
+        spellIds.add(spellId);
+        if (p6NineLevelSpells.has(spellId)) ninthLevelSpellIds.add(spellId);
+      });
+      meta.p6Scenario?.monsterIds?.forEach((monsterId) => monsterIds.add(monsterId));
+      if (typeof meta.p6Scenario?.bossPhase === "number") {
+        bossPhases.add(meta.p6Scenario.bossPhase);
+        if (meta.p6Scenario.legendaryOrLair) {
+          meta.p6Scenario.monsterIds?.forEach((monsterId) => legendaryOrLairMonsterIds.add(monsterId));
+        }
+      }
+      Object.entries(meta.p6Scenario ?? {}).forEach(([key, value]) => {
+        if (value === true) checks.add(key);
+      });
+      Object.entries(meta.p6Moderation ?? {}).forEach(([key, value]) => {
+        if (value === true || Array.isArray(value)) checks.add(`moderation:${key}`);
+      });
+      Object.entries(meta.p6Archive ?? {}).forEach(([key, value]) => {
+        if (value) checks.add(`archive:${key}`);
+      });
+      if (meta.p6Downtime?.validatesArchiveAnalytics) checks.add("downtime:archiveAnalytics");
+    }
+
+    expect(nodeTypeCounts.get("story")).toBeGreaterThanOrEqual(3);
+    expect(nodeTypeCounts.get("exploration")).toBeGreaterThanOrEqual(2);
+    expect(nodeTypeCounts.get("combat")).toBeGreaterThanOrEqual(4);
+    expect(nodeTypeCounts.get("travel")).toBeGreaterThanOrEqual(2);
+    expect(nodeTypeCounts.get("downtime")).toBeGreaterThanOrEqual(2);
+    expect(nodeTypeCounts.get("archive")).toBeGreaterThanOrEqual(2);
+    expect(spellIds.size).toBeGreaterThanOrEqual(20);
+    expect([...spellIds].every((spellId) => p6ExecutableSpellIds.has(spellId))).toBe(true);
+    expect(ninthLevelSpellIds.size).toBeGreaterThanOrEqual(8);
+    expect([...spellIds]).toEqual(
+      expect.arrayContaining([
+        "spell.wish",
+        "spell.true_resurrection",
+        "spell.meteor_swarm",
+        "spell.power_word_kill",
+        "spell.shapechange",
+        "spell.time_stop",
+        "spell.gate",
+        "spell.astral_projection",
+      ]),
+    );
+    expect(monsterIds.size).toBeGreaterThanOrEqual(24);
+    expect([...monsterIds].every((monsterId) => p6ExecutableMonsterIds.has(monsterId))).toBe(true);
+    expect([...monsterIds]).toEqual(
+      expect.arrayContaining([
+        "monster.ancient_gold_dragon",
+        "monster.ancient_silver_dragon",
+        "monster.mummy_lord",
+        "monster.swarm_of_poisonous_snakes",
+      ]),
+    );
+    expect(bossPhases).toEqual(new Set([1, 2, 3]));
+    expect(legendaryOrLairMonsterIds.size).toBeGreaterThanOrEqual(3);
+    expect([...legendaryOrLairMonsterIds]).toEqual(
+      expect.arrayContaining([
+        "monster.ancient_brass_dragon",
+        "monster.ancient_gold_dragon",
+        "monster.ancient_silver_dragon",
+      ]),
+    );
+    expect([...checks]).toEqual(
+      expect.arrayContaining([
+        "validatesLevelUp",
+        "validatesCapstones",
+        "validatesNinthLevelSlots",
+        "validatesAiGm",
+        "validatesHumanGm",
+        "validatesFinalManifest",
+        "moderation:validatesQueue",
+        "moderation:validatesActions",
+        "moderation:validatesAppeals",
+        "archive:validatesCompleteCampaignApi",
+        "archive:validatesImmutableArchive",
+        "archive:validatesCharacterVault",
+        "archive:validatesTransferApproval",
+        "archive:validatesIndependentSnapshot",
+        "downtime:archiveAnalytics",
       ]),
     );
   });

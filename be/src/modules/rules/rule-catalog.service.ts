@@ -13,6 +13,8 @@ import { P4_SPELL_DEFINITIONS } from "./p4-spell-definitions";
 import { P4_MONSTER_ABILITY_DEFINITIONS } from "./p4-monster-definitions";
 import { P5_MONSTER_ABILITY_DEFINITIONS } from "./p5-monster-definitions";
 import { P5_SPELL_DEFINITIONS } from "./p5-spell-definitions";
+import { P6_MONSTER_ABILITY_DEFINITIONS } from "./p6-monster-definitions";
+import { P6_SPELL_DEFINITIONS } from "./p6-spell-definitions";
 
 type ClassFeatureSeed = {
   id: string;
@@ -429,6 +431,19 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
     tags: ["rest:short_or_long", "selection:damage_resistance:one_type", "excludes:silvered_magical_weapons"],
     hookId: "hook.subclass.fiend.fiendish_resilience",
   }),
+  subclassFeature("warlock", "fiend", 14, "hurl_through_hell", {
+    type: "subclass_feature",
+    tags: [
+      "p5_level:14",
+      "trigger:attack_hit",
+      "banish:lower_planes_until_end_next_turn",
+      "damage:psychic:10d10",
+      "rest:long",
+      "audit:turn_log_state_diff",
+    ],
+    resourceId: "resource.warlock.hurl_through_hell",
+    hookId: "hook.subclass.fiend.hurl_through_hell",
+  }),
   subclassFeature("wizard", "evocation", 2, "evocation_savant", {
     type: "subclass_feature",
     tags: ["spellbook:copy_cost_half", "school:evocation"],
@@ -446,6 +461,18 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
     type: "subclass_feature",
     tags: ["trigger:evocation_spell_damage", "damage_bonus:int_mod:once_per_spell"],
     hookId: "hook.subclass.evocation.empowered_evocation",
+  }),
+  subclassFeature("wizard", "evocation", 14, "overchannel", {
+    type: "subclass_feature",
+    tags: [
+      "p5_level:14",
+      "trigger:wizard_spell_damage_level_1_to_5",
+      "damage:maximize",
+      "first_use:no_damage",
+      "repeat_use:necrotic_self_damage",
+      "audit:turn_log_state_diff",
+    ],
+    hookId: "hook.subclass.evocation.overchannel",
   }),
   subclassFeature("barbarian", "berserker", 14, "retaliation", {
     type: "subclass_feature",
@@ -498,6 +525,37 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
     tags: ["movement:fly:current_speed", "manifest_wings:bonus_or_passive"],
     hookId: "hook.subclass.draconic.dragon_wings",
   }),
+  subclassFeature("cleric", "life", 17, "supreme_healing", {
+    type: "subclass_feature",
+    tags: ["p6_level:17", "healing:maximize_dice", "spell_level:healing", "audit:state_diff"],
+    hookId: "hook.subclass.life.supreme_healing",
+  }),
+  subclassFeature("fighter", "champion", 18, "survivor", {
+    type: "subclass_feature",
+    tags: ["p6_level:18", "turn_start:regain_hp", "condition:below_half_hp", "audit:turn_log"],
+    hookId: "hook.subclass.champion.survivor",
+  }),
+  subclassFeature("monk", "open_hand", 17, "quivering_palm", {
+    type: "subclass_feature",
+    tags: ["p6_level:17", "resource:ki:3", "save:con", "damage:10d10_or_reduce_to_0"],
+    hookId: "hook.subclass.open_hand.quivering_palm",
+  }, { type: "resource", resourceId: "resource.monk.ki", amount: 3 }, { type: "creature", rangeFt: 5 }),
+  subclassFeature("paladin", "devotion", 20, "holy_nimbus", {
+    type: "subclass_feature",
+    tags: ["p6_level:20", "aura:30", "damage:radiant", "advantage:save:fiend_undead_spells"],
+    hookId: "hook.subclass.devotion.holy_nimbus",
+  }, { type: "action" }, SELF_TARGETING),
+  subclassFeature("rogue", "thief", 17, "thiefs_reflexes", {
+    type: "subclass_feature",
+    tags: ["p6_level:17", "turn:first_round_extra_turn", "initiative:-10", "audit:turn_order"],
+    hookId: "hook.subclass.thief.thiefs_reflexes",
+  }),
+  subclassFeature("sorcerer", "draconic_bloodline", 18, "draconic_presence", {
+    type: "subclass_feature",
+    tags: ["p6_level:18", "resource:sorcery_points:5", "aura:60", "condition:charmed_or_frightened"],
+    resourceId: "resource.sorcerer.sorcery_points",
+    hookId: "hook.subclass.draconic.draconic_presence",
+  }, { type: "resource", resourceId: "resource.sorcerer.sorcery_points", amount: 5 }, SELF_TARGETING),
 ];
 
 const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
@@ -1218,6 +1276,192 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
   classFeature("wizard", 15, "eighth_level_spells", {
     type: "spellcasting",
     tags: ["spellcasting:full", "spell_level:8", "slot_unlock:8"],
+  }),
+
+  ...[
+    "barbarian",
+    "bard",
+    "cleric",
+    "druid",
+    "fighter",
+    "monk",
+    "paladin",
+    "ranger",
+    "rogue",
+    "sorcerer",
+    "warlock",
+    "wizard",
+  ].map((classKey) =>
+    classFeature(classKey, 19, "ability_score_improvement_19", {
+      type: "modify_stat",
+      tags: [
+        "selection:ability_score_improvement",
+        "ability_points:2",
+        "feature:ability_score_improvement",
+        "p6_level:19",
+        "feat_selection_hook:p6",
+        "snapshot:level_up_choice_required",
+      ],
+      hookId: "hook.class.ability_score_improvement_19",
+    }),
+  ),
+
+  classFeature("barbarian", 17, "brutal_critical_3", {
+    type: "grant_passive",
+    tags: ["p6_level:17", "critical:extra_weapon_damage_die:3"],
+    hookId: "hook.class.barbarian.brutal_critical",
+  }),
+  classFeature("barbarian", 20, "primal_champion", {
+    type: "modify_stat",
+    tags: ["p6_capstone", "ability:str:+4", "ability:con:+4", "ability_max:str:24", "ability_max:con:24"],
+    hookId: "hook.class.barbarian.primal_champion",
+  }),
+  classFeature("bard", 17, "song_of_rest_d12", {
+    type: "modify_stat",
+    tags: ["p6_level:17", "song_of_rest:die:1d12"],
+  }),
+  classFeature("bard", 18, "magical_secrets_18", {
+    type: "spellcasting",
+    tags: ["p6_level:18", "spellcasting:magical_secrets", "spell_selection:any_class:2", "spell_level:max:9", "snapshot:spell_selection_choice_required"],
+    hookId: "hook.class.bard.magical_secrets_18",
+  }),
+  classFeature("bard", 20, "superior_inspiration", {
+    type: "grant_passive",
+    tags: ["p6_capstone", "initiative:if_bardic_inspiration_empty:restore_1"],
+    resourceId: "resource.bard.bardic_inspiration",
+    hookId: "hook.class.bard.superior_inspiration",
+  }),
+  classFeature("cleric", 17, "destroy_undead_cr_4", {
+    type: "grant_passive",
+    tags: ["p6_level:17", "channel_divinity:turn_undead", "destroy_undead:cr:4"],
+  }),
+  classFeature("cleric", 20, "divine_intervention_improvement", {
+    type: "grant_passive",
+    tags: ["p6_capstone", "divine_intervention:auto_success"],
+    resourceId: "resource.cleric.divine_intervention",
+    hookId: "hook.class.cleric.divine_intervention",
+  }),
+  classFeature("druid", 17, "ninth_level_spells", {
+    type: "spellcasting",
+    tags: ["p6_level:17", "spellcasting:full", "spell_level:9", "slot_unlock:9"],
+  }),
+  classFeature("druid", 18, "timeless_body", {
+    type: "grant_passive",
+    tags: ["p6_level:18", "aging:slowed"],
+  }),
+  classFeature("druid", 18, "beast_spells", {
+    type: "grant_passive",
+    tags: ["p6_level:18", "wild_shape:can_cast_druid_spells"],
+    hookId: "hook.class.druid.beast_spells",
+  }),
+  classFeature("druid", 20, "archdruid", {
+    type: "grant_passive",
+    tags: ["p6_capstone", "wild_shape:unlimited", "ignore_components:verbal_somatic_material_no_cost"],
+    resourceId: "resource.druid.wild_shape",
+    hookId: "hook.class.druid.archdruid",
+  }),
+  classFeature("fighter", 17, "action_surge_2", {
+    type: "modify_stat",
+    tags: ["p6_level:17", "resource:action_surge:max:2", "rest:short"],
+    resourceId: "resource.fighter.action_surge",
+  }),
+  classFeature("fighter", 17, "indomitable_3", {
+    type: "modify_stat",
+    tags: ["p6_level:17", "resource:indomitable:max:3", "rest:long"],
+    resourceId: "resource.fighter.indomitable",
+  }),
+  classFeature("fighter", 20, "extra_attack_3", {
+    type: "grant_passive",
+    tags: ["p6_capstone", "attack_action:attacks:4"],
+    hookId: "hook.class.fighter.extra_attack_3",
+  }),
+  classFeature("monk", 17, "martial_arts_d10", {
+    type: "modify_stat",
+    tags: ["p6_level:17", "unarmed:martial_arts_die:1d10"],
+  }),
+  classFeature("monk", 18, "empty_body", {
+    type: "grant_action",
+    tags: ["p6_level:18", "resource:ki:4", "condition:invisible", "resistance:all_except_force"],
+    resourceId: "resource.monk.ki",
+    hookId: "hook.class.monk.empty_body",
+  }, { type: "resource", resourceId: "resource.monk.ki", amount: 4 }, SELF_TARGETING),
+  classFeature("monk", 20, "perfect_self", {
+    type: "grant_passive",
+    tags: ["p6_capstone", "initiative:if_ki_empty:restore_4"],
+    resourceId: "resource.monk.ki",
+    hookId: "hook.class.monk.perfect_self",
+  }),
+  classFeature("paladin", 18, "aura_improvements", {
+    type: "modify_stat",
+    tags: ["p6_level:18", "aura:range:30"],
+  }),
+  classFeature("paladin", 20, "sacred_oath_capstone", {
+    type: "grant_action",
+    tags: ["p6_capstone", "subclass:capstone", "resource:oath_capstone", "duration:1_minute", "snapshot:oath_capstone_choice_required"],
+    resourceId: "resource.paladin.oath_capstone",
+    hookId: "hook.class.paladin.sacred_oath_capstone",
+  }),
+  classFeature("ranger", 18, "feral_senses", {
+    type: "grant_passive",
+    tags: ["p6_level:18", "sense:invisible_within_30_if_not_hidden"],
+    hookId: "hook.class.ranger.feral_senses",
+  }),
+  classFeature("ranger", 20, "foe_slayer", {
+    type: "grant_action",
+    tags: ["p6_capstone", "trigger:attack_or_damage_roll", "bonus:wis_mod", "favored_enemy_only"],
+    hookId: "hook.class.ranger.foe_slayer",
+  }, NO_COST, { type: "creature", rangeFt: 5 }, "on_hit"),
+  classFeature("rogue", 18, "elusive", {
+    type: "grant_passive",
+    tags: ["p6_level:18", "incoming_attack:no_advantage_unless_incapacitated"],
+    hookId: "hook.class.rogue.elusive",
+  }),
+  classFeature("rogue", 20, "stroke_of_luck", {
+    type: "grant_action",
+    tags: ["p6_capstone", "trigger:miss_or_failed_ability_check", "convert_to_hit_or_d20_20", "rest:short"],
+    resourceId: "resource.rogue.stroke_of_luck",
+    hookId: "hook.class.rogue.stroke_of_luck",
+  }, { type: "reaction" }, SELF_TARGETING, "reaction"),
+  classFeature("sorcerer", 17, "metamagic_improvement_17", {
+    type: "grant_passive",
+    tags: ["p6_level:17", "selection:metamagic:additional", "snapshot:metamagic_choice_required"],
+    hookId: "hook.class.sorcerer.metamagic_improvement_17",
+  }),
+  classFeature("sorcerer", 17, "ninth_level_spells", {
+    type: "spellcasting",
+    tags: ["p6_level:17", "spellcasting:full", "spell_level:9", "slot_unlock:9"],
+  }),
+  classFeature("sorcerer", 20, "sorcerous_restoration", {
+    type: "grant_passive",
+    tags: ["p6_capstone", "short_rest:restore_sorcery_points:4"],
+    resourceId: "resource.sorcerer.sorcery_points",
+    hookId: "hook.class.sorcerer.sorcerous_restoration",
+  }),
+  classFeature("warlock", 17, "mystic_arcanum_9", {
+    type: "spellcasting",
+    tags: ["p6_level:17", "spellcasting:mystic_arcanum", "spell_level:9", "uses:1", "rest:long"],
+    resourceId: "resource.warlock.mystic_arcanum_9",
+  }),
+  classFeature("warlock", 20, "eldritch_master", {
+    type: "grant_action",
+    tags: ["p6_capstone", "downtime:1_minute", "restore:pact_magic_slots", "rest:long"],
+    resourceId: "resource.warlock.pact_magic",
+    hookId: "hook.class.warlock.eldritch_master",
+  }, { type: "action" }, SELF_TARGETING),
+  classFeature("wizard", 17, "ninth_level_spells", {
+    type: "spellcasting",
+    tags: ["p6_level:17", "spellcasting:full", "spell_level:9", "slot_unlock:9"],
+  }),
+  classFeature("wizard", 18, "spell_mastery", {
+    type: "spellcasting",
+    tags: ["p6_level:18", "selection:spell_mastery", "spell_level:1_and_2_at_will", "at_will:spell_level_1_and_2", "snapshot:spell_mastery_choice_required"],
+    hookId: "hook.class.wizard.spell_mastery",
+  }),
+  classFeature("wizard", 20, "signature_spells", {
+    type: "spellcasting",
+    tags: ["p6_capstone", "selection:signature_spells", "spell_level:3", "uses:1_each_short_rest", "snapshot:signature_spells_choice_required"],
+    resourceId: "resource.wizard.signature_spells",
+    hookId: "hook.class.wizard.signature_spells",
   }),
 ];
 
@@ -2341,10 +2585,12 @@ export class RuleCatalogService {
       ...P3_SPELL_DEFINITIONS,
       ...P4_SPELL_DEFINITIONS,
       ...P5_SPELL_DEFINITIONS,
+      ...P6_SPELL_DEFINITIONS,
       ...MONSTER_ABILITY_DEFINITIONS,
       ...P3_MONSTER_ABILITY_DEFINITIONS,
       ...P4_MONSTER_ABILITY_DEFINITIONS,
       ...P5_MONSTER_ABILITY_DEFINITIONS,
+      ...P6_MONSTER_ABILITY_DEFINITIONS,
     ]) {
       if (this.entries.has(entry.id)) {
         throw new Error(`Duplicate rule catalog id: ${entry.id}`);

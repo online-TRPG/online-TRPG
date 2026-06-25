@@ -34,6 +34,11 @@ import {
   ActionOutcome,
   ApplyCampaignCalendarActionDto,
   ApplySessionEconomyActionDto,
+  CampaignArchiveResponseDto,
+  CampaignArchiveSnapshotDto,
+  CharacterTransferResponseDto,
+  CharacterVaultItemDto,
+  CompleteCampaignDto,
   CreateHumanGmAiAssistSuggestionDto,
   CreateSessionDto,
   CreateVttMapPingDto,
@@ -61,6 +66,7 @@ import {
   PlayerScenarioNodeDto,
   PlayerVisibleTargetDto,
   PlayerScenarioViewDto,
+  RequestCharacterTransferDto,
   RevealSessionContentDto,
   SelectSessionCharacterDto,
   SessionDetailResponseDto,
@@ -162,6 +168,13 @@ type HumanGmOverrideLogResult = {
   stateDiff: StateDiffResponseDto | null;
 };
 
+type P6CampaignArchiveFlag = CampaignArchiveResponseDto;
+
+type P6CharacterTransferRequestFlag = CharacterTransferResponseDto & {
+  note: string | null;
+  approvedByUserId?: string | null;
+};
+
 function isSessionListItem(item: SessionListItemResponseDto | null): item is SessionListItemResponseDto {
   return item !== null;
 }
@@ -173,6 +186,7 @@ export class SessionsService {
   private readonly conditionRuntime = new ConditionRuntimeService();
   private readonly concentrationRuntime = new ConcentrationRuntimeService();
   private readonly economyRuntime = new EconomyRuntimeService();
+  private static readonly CHARACTER_VAULT_MAX_RESULTS = 100;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -2301,6 +2315,461 @@ export class SessionsService {
     return snapshot;
   }
 
+  async completeLongCampaign(
+    userId: string,
+    sessionId: string,
+    dto: CompleteCampaignDto,
+  ): Promise<CampaignArchiveResponseDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    this.ensureHost(userId, session.hostUserId);
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(session.id);
+    const state = activeScenario.gameState;
+    if (!state) {
+      throw new NotFoundException(`Game state for session ${session.id} was not found.`);
+    }
+    const flags = this.parseJson<Record<string, unknown>>(state.flagsJson, {});
+    const existingArchive = this.parseP6CampaignArchive(flags);
+    if (existingArchive) {
+      return existingArchive;
+    }
+
+    const [sessionCharacters, turnLogCount, combatCount, nodeVisitCount] = await Promise.all([
+      this.prisma.sessionCharacter.findMany({
+        where: { sessionId: session.id },
+        include: { character: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      this.prisma.turnLog.count({ where: { sessionId: session.id } }),
+      this.prisma.combat.count({ where: { sessionId: session.id } }),
+      this.prisma.sessionNodeVisit.count({ where: { sessionScenarioId: activeScenario.id } }),
+    ]);
+
+    const completedAt = new Date().toISOString();
+    const archive: CampaignArchiveResponseDto = {
+      archiveId: `campaign-archive:${randomUUID()}`,
+      sessionId: session.id,
+      sessionTitle: session.title,
+      scenarioId: activeScenario.scenarioId,
+      scenarioTitle: activeScenario.scenario?.title ?? null,
+      completedAt,
+      completedByUserId: userId,
+      epilogue: dto.epilogue.trim(),
+      shareScope: dto.shareScope ?? "party",
+      allowCharacterTransfer: dto.allowCharacterTransfer ?? true,
+      finalNodeId: dto.finalNodeId?.trim() || state.currentNodeId || null,
+      finalRewardIds: Array.from(new Set((dto.finalRewardIds ?? []).map((id) => id.trim()).filter(Boolean))).slice(0, 20),
+      characters: sessionCharacters.map((entry) => ({
+        sessionCharacterId: entry.id,
+        characterId: entry.characterId,
+        userId: entry.userId,
+        name: entry.character.name,
+        className: entry.character.className,
+        subclassName: entry.character.subclassName ?? null,
+        level: entry.character.level,
+        status: entry.status,
+      })),
+      analytics: {
+        turnLogCount,
+        combatCount,
+        completedDowntimeTaskCount: this.countCompletedDowntimeTasks(flags),
+        nodeVisitCount,
+        sessionCharacterCount: sessionCharacters.length,
+      },
+      snapshot: this.buildP6CampaignArchiveSnapshot({
+        flags,
+        stateVersion: state.version,
+        currentNodeId: state.currentNodeId ?? null,
+        sessionCharacters,
+        turnLogCount,
+        combatCount,
+        nodeVisitCount,
+        scenarioAttribution: activeScenario.scenario?.attribution ?? null,
+      }),
+    };
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockSessionRuntime(tx, session.id);
+      await tx.session.update({
+        where: { id: session.id },
+        data: { status: PrismaSessionStatus.COMPLETED },
+      });
+      await tx.sessionScenario.update({
+        where: { id: activeScenario.id },
+        data: {
+          status: PrismaSessionScenarioStatus.COMPLETED,
+          endedAt: new Date(completedAt),
+        },
+      });
+      await tx.gameState.update({
+        where: { sessionScenarioId: activeScenario.id },
+        data: {
+          version: { increment: 1 },
+          flagsJson: JSON.stringify({
+            ...flags,
+            sessionCompletedAt: completedAt,
+            completedNodeId: archive.finalNodeId,
+            completionReason: "p6_long_campaign_archive",
+            p6CampaignArchive: archive,
+          }),
+        },
+      });
+      await this.createCampaignArchiveAuditLog(tx, {
+        sessionId: session.id,
+        sessionScenarioId: activeScenario.id,
+        actorUserId: userId,
+        archive,
+        baseVersion: state.version,
+        nextVersion: state.version + 1,
+      });
+    });
+
+    const snapshot = await this.buildSnapshot(session.id);
+    this.realtimeEvents.emitSessionStatusUpdated(session.id, snapshot.session);
+    this.realtimeEvents.emitSessionSnapshot(session.id, snapshot);
+    return archive;
+  }
+
+  async getCampaignArchive(userId: string, sessionId: string): Promise<CampaignArchiveResponseDto> {
+    const session = await this.getSessionEntityOrThrow(sessionId);
+    await this.ensureMembership(userId, session.id);
+    const activeScenario = await this.getActiveSessionScenarioEntityOrThrow(session.id);
+    const flags = this.parseJson<Record<string, unknown>>(activeScenario.gameState?.flagsJson, {});
+    const archive = this.parseP6CampaignArchive(flags);
+    if (!archive) {
+      throw new NotFoundException(`Campaign archive for session ${session.id} was not found.`);
+    }
+    return archive;
+  }
+
+  async listCharacterVault(userId: string): Promise<CharacterVaultItemDto[]> {
+    const assignments = await this.prisma.sessionCharacter.findMany({
+      where: {
+        userId,
+        session: { status: PrismaSessionStatus.COMPLETED },
+      },
+      include: {
+        character: true,
+        session: {
+          include: {
+            sessionScenarios: {
+              include: { gameState: true },
+              orderBy: { sequence: "asc" },
+            },
+          },
+        },
+      },
+      orderBy: { updatedAt: "desc" },
+      take: SessionsService.CHARACTER_VAULT_MAX_RESULTS,
+    });
+
+    return assignments.flatMap((assignment) => {
+      const scenario = this.getActiveSessionScenario(assignment.session.sessionScenarios);
+      const archive = this.parseP6CampaignArchive(
+        this.parseJson<Record<string, unknown>>(scenario?.gameState?.flagsJson, {}),
+      );
+      if (!archive) {
+        return [];
+      }
+      return [{
+        sourceSessionCharacterId: assignment.id,
+        sourceSessionId: assignment.sessionId,
+        sourceSessionTitle: assignment.session.title,
+        archiveId: archive.archiveId,
+        archivedAt: archive.completedAt,
+        characterId: assignment.characterId,
+        name: assignment.character.name,
+        className: assignment.character.className,
+        subclassName: assignment.character.subclassName ?? null,
+        level: assignment.character.level,
+        status: assignment.status,
+        transferable: archive.allowCharacterTransfer,
+      }];
+    });
+  }
+
+  async requestCharacterTransfer(
+    userId: string,
+    targetSessionId: string,
+    dto: RequestCharacterTransferDto,
+  ): Promise<CharacterTransferResponseDto> {
+    const targetSession = await this.getSessionEntityOrThrow(targetSessionId);
+    await this.ensureMembership(userId, targetSession.id);
+    const targetScenario = await this.getActiveSessionScenarioEntityOrThrow(targetSession.id);
+    const targetState = targetScenario.gameState;
+    if (!targetState) {
+      throw new NotFoundException(`Game state for session ${targetSession.id} was not found.`);
+    }
+    const sourceAssignment = await this.prisma.sessionCharacter.findUnique({
+      where: { id: dto.sourceSessionCharacterId },
+      include: {
+        character: true,
+        session: {
+          include: {
+            sessionScenarios: {
+              include: { gameState: true },
+              orderBy: { sequence: "asc" },
+            },
+          },
+        },
+      },
+    });
+    if (!sourceAssignment || sourceAssignment.userId !== userId || sourceAssignment.sessionId !== dto.sourceSessionId) {
+      throw new NotFoundException(`Vault character ${dto.sourceSessionCharacterId} was not found.`);
+    }
+    if (sourceAssignment.session.status !== PrismaSessionStatus.COMPLETED) {
+      throw new ConflictException("완료된 캠페인의 캐릭터만 이관할 수 있습니다.");
+    }
+    const sourceScenario = this.getActiveSessionScenario(sourceAssignment.session.sessionScenarios);
+    const sourceArchive = this.parseP6CampaignArchive(
+      this.parseJson<Record<string, unknown>>(sourceScenario?.gameState?.flagsJson, {}),
+    );
+    if (!sourceArchive?.allowCharacterTransfer) {
+      throw new ConflictException("이 캠페인은 캐릭터 이관을 허용하지 않습니다.");
+    }
+    this.ensureP6CharacterTransferPolicy({
+      targetSession,
+      targetScenario: targetScenario.scenario,
+      sourceSession: sourceAssignment.session,
+      sourceCharacter: sourceAssignment.character,
+    });
+    this.ensureP6CharacterTransferInventoryPolicy(
+      sourceAssignment.inventorySnapshotJson ?? sourceAssignment.character.inventoryJson,
+    );
+
+    const flags = this.parseJson<Record<string, unknown>>(targetState.flagsJson, {});
+    const requests = this.parseP6CharacterTransferRequests(flags);
+    const duplicate = requests.find(
+      (request) =>
+        request.status === "requested" &&
+        request.requestedByUserId === userId &&
+        request.sourceSessionCharacterId === sourceAssignment.id,
+    );
+    if (duplicate) {
+      return this.toCharacterTransferResponse(duplicate);
+    }
+
+    const request: P6CharacterTransferRequestFlag = {
+      requestId: `character-transfer:${randomUUID()}`,
+      targetSessionId: targetSession.id,
+      sourceSessionId: sourceAssignment.sessionId,
+      sourceSessionCharacterId: sourceAssignment.id,
+      requestedByUserId: userId,
+      status: "requested",
+      mode: dto.mode ?? "clone",
+      targetSessionCharacterId: null,
+      sourceDisposition: null,
+      createdAt: new Date().toISOString(),
+      resolvedAt: null,
+      note: dto.note?.trim() || null,
+      approvedByUserId: null,
+    };
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: targetScenario.id },
+      data: {
+        version: { increment: 1 },
+        flagsJson: JSON.stringify({
+          ...flags,
+          p6CharacterTransferRequests: [...requests, request],
+        }),
+      },
+    });
+
+    this.realtimeEvents.emitSessionSnapshot(targetSession.id, await this.buildSnapshot(targetSession.id));
+    return this.toCharacterTransferResponse(request);
+  }
+
+  async approveCharacterTransfer(
+    userId: string,
+    targetSessionId: string,
+    requestId: string,
+  ): Promise<CharacterTransferResponseDto> {
+    const targetSession = await this.getSessionEntityOrThrow(targetSessionId);
+    this.ensureHost(userId, targetSession.hostUserId);
+    const targetScenario = await this.getActiveSessionScenarioEntityOrThrow(targetSession.id);
+    const targetState = targetScenario.gameState;
+    if (!targetState) {
+      throw new NotFoundException(`Game state for session ${targetSession.id} was not found.`);
+    }
+    const flags = this.parseJson<Record<string, unknown>>(targetState.flagsJson, {});
+    const requests = this.parseP6CharacterTransferRequests(flags);
+    const requestIndex = requests.findIndex((request) => request.requestId === requestId);
+    if (requestIndex < 0) {
+      throw new NotFoundException(`Character transfer request ${requestId} was not found.`);
+    }
+    const request = requests[requestIndex];
+    if (request.status === "approved") {
+      return this.toCharacterTransferResponse(request);
+    }
+    if (request.status !== "requested") {
+      throw new ConflictException("승인 가능한 캐릭터 이관 요청이 아닙니다.");
+    }
+
+    const participant = await this.prisma.sessionParticipant.findUnique({
+      where: {
+        sessionId_userId: {
+          sessionId: targetSession.id,
+          userId: request.requestedByUserId,
+        },
+      },
+    });
+    if (!participant || participant.status !== PrismaParticipantStatus.JOINED) {
+      throw new ConflictException("대상 세션에 참가 중인 플레이어만 캐릭터를 이관할 수 있습니다.");
+    }
+    const existingAssignment = await this.prisma.sessionCharacter.findUnique({
+      where: {
+        sessionId_userId: {
+          sessionId: targetSession.id,
+          userId: request.requestedByUserId,
+        },
+      },
+    });
+    if (existingAssignment) {
+      throw new ConflictException("대상 세션에 이미 선택된 캐릭터가 있습니다.");
+    }
+    const sourceAssignment = await this.prisma.sessionCharacter.findUnique({
+      where: { id: request.sourceSessionCharacterId },
+      include: { character: true, session: true },
+    });
+    if (!sourceAssignment) {
+      throw new NotFoundException(`Vault character ${request.sourceSessionCharacterId} was not found.`);
+    }
+    this.ensureP6CharacterTransferPolicy({
+      targetSession,
+      targetScenario: targetScenario.scenario,
+      sourceSession: sourceAssignment.session,
+      sourceCharacter: sourceAssignment.character,
+    });
+    const transferableInventoryJson = this.ensureP6CharacterTransferInventoryPolicy(
+      sourceAssignment.inventorySnapshotJson ?? sourceAssignment.character.inventoryJson,
+    );
+
+    const resolvedAt = new Date().toISOString();
+    const created = await this.prisma.$transaction(async (tx) => {
+      await this.lockSessionRuntime(tx, targetSession.id);
+      const clonedCharacter = await tx.character.create({
+        data: {
+          id: `character-transfer-${randomUUID()}`,
+          ownerUserId: request.requestedByUserId,
+          scenarioId: targetScenario.scenarioId,
+          name: sourceAssignment.character.name,
+          ancestry: sourceAssignment.character.ancestry,
+          className: sourceAssignment.character.className,
+          subclassName: sourceAssignment.character.subclassName,
+          level: sourceAssignment.character.level,
+          bio: sourceAssignment.character.bio,
+          abilitiesJson: sourceAssignment.character.abilitiesJson,
+          proficiencyBonus: sourceAssignment.character.proficiencyBonus,
+          featuresJson: sourceAssignment.character.featuresJson,
+          proficientSkillsJson: sourceAssignment.character.proficientSkillsJson,
+          maxHp: sourceAssignment.character.maxHp,
+          armorClass: sourceAssignment.character.armorClass,
+          speed: sourceAssignment.character.speed,
+          inventoryJson: transferableInventoryJson,
+          spellsJson: sourceAssignment.character.spellsJson,
+          equippedWeaponId: sourceAssignment.character.equippedWeaponId,
+          offhandWeaponId: sourceAssignment.character.offhandWeaponId,
+          avatarType: sourceAssignment.character.avatarType,
+          avatarPresetId: sourceAssignment.character.avatarPresetId,
+          avatarUrl: sourceAssignment.character.avatarUrl,
+          avatarUpdatedAt: sourceAssignment.character.avatarUpdatedAt,
+        },
+      });
+      const sessionCharacter = await tx.sessionCharacter.create({
+        data: {
+          sessionId: targetSession.id,
+          userId: request.requestedByUserId,
+          characterId: clonedCharacter.id,
+          status: PrismaSessionCharacterStatus.ACTIVE,
+          currentHp: clonedCharacter.maxHp,
+          tempHp: 0,
+          conditionsJson: "[]",
+          inventorySnapshotJson: clonedCharacter.inventoryJson,
+        },
+      });
+      if (request.mode === "transfer") {
+        await tx.sessionCharacter.update({
+          where: { id: sourceAssignment.id },
+          data: { status: PrismaSessionCharacterStatus.RETIRED },
+        });
+      }
+      const nextRequest: P6CharacterTransferRequestFlag = {
+        ...request,
+        status: "approved",
+        targetSessionCharacterId: sessionCharacter.id,
+        sourceDisposition: request.mode === "transfer" ? "retired_after_transfer" : "copied",
+        resolvedAt,
+        approvedByUserId: userId,
+      };
+      const nextRequests = [...requests];
+      nextRequests[requestIndex] = nextRequest;
+      await tx.gameState.update({
+        where: { sessionScenarioId: targetScenario.id },
+        data: {
+          version: { increment: 1 },
+          flagsJson: JSON.stringify({
+            ...flags,
+            p6CharacterTransferRequests: nextRequests,
+          }),
+        },
+      });
+      return nextRequest;
+    });
+
+    this.realtimeEvents.emitSessionSnapshot(targetSession.id, await this.buildSnapshot(targetSession.id));
+    return this.toCharacterTransferResponse(created);
+  }
+
+  async rejectCharacterTransfer(
+    userId: string,
+    targetSessionId: string,
+    requestId: string,
+  ): Promise<CharacterTransferResponseDto> {
+    const targetSession = await this.getSessionEntityOrThrow(targetSessionId);
+    this.ensureHost(userId, targetSession.hostUserId);
+    const targetScenario = await this.getActiveSessionScenarioEntityOrThrow(targetSession.id);
+    const targetState = targetScenario.gameState;
+    if (!targetState) {
+      throw new NotFoundException(`Game state for session ${targetSession.id} was not found.`);
+    }
+    const flags = this.parseJson<Record<string, unknown>>(targetState.flagsJson, {});
+    const requests = this.parseP6CharacterTransferRequests(flags);
+    const requestIndex = requests.findIndex((request) => request.requestId === requestId);
+    if (requestIndex < 0) {
+      throw new NotFoundException(`Character transfer request ${requestId} was not found.`);
+    }
+    const request = requests[requestIndex];
+    if (request.status === "rejected") {
+      return this.toCharacterTransferResponse(request);
+    }
+    if (request.status !== "requested") {
+      throw new ConflictException("거절 가능한 캐릭터 이관 요청이 아닙니다.");
+    }
+
+    const nextRequest: P6CharacterTransferRequestFlag = {
+      ...request,
+      status: "rejected",
+      resolvedAt: new Date().toISOString(),
+      approvedByUserId: userId,
+    };
+    const nextRequests = [...requests];
+    nextRequests[requestIndex] = nextRequest;
+
+    await this.prisma.gameState.update({
+      where: { sessionScenarioId: targetScenario.id },
+      data: {
+        version: { increment: 1 },
+        flagsJson: JSON.stringify({
+          ...flags,
+          p6CharacterTransferRequests: nextRequests,
+        }),
+      },
+    });
+
+    this.realtimeEvents.emitSessionSnapshot(targetSession.id, await this.buildSnapshot(targetSession.id));
+    return this.toCharacterTransferResponse(nextRequest);
+  }
+
   async revealCurrentNodeCluesAfterAction(params: {
     sessionScenarioId: string;
     nodeId: string;
@@ -2977,6 +3446,494 @@ export class SessionsService {
       typeof candidate.gmUserId === "string" &&
       typeof candidate.createdAt === "string"
     );
+  }
+
+  private parseP6CampaignArchive(flags: Record<string, unknown>): CampaignArchiveResponseDto | null {
+    const archive = flags.p6CampaignArchive;
+    if (!archive || typeof archive !== "object") {
+      return null;
+    }
+    const candidate = archive as Record<string, unknown>;
+    if (
+      typeof candidate.archiveId !== "string" ||
+      typeof candidate.sessionId !== "string" ||
+      typeof candidate.sessionTitle !== "string" ||
+      typeof candidate.scenarioId !== "string" ||
+      typeof candidate.completedAt !== "string" ||
+      typeof candidate.completedByUserId !== "string" ||
+      typeof candidate.epilogue !== "string"
+    ) {
+      return null;
+    }
+
+    return {
+      archiveId: candidate.archiveId,
+      sessionId: candidate.sessionId,
+      sessionTitle: candidate.sessionTitle,
+      scenarioId: candidate.scenarioId,
+      scenarioTitle: typeof candidate.scenarioTitle === "string" ? candidate.scenarioTitle : null,
+      completedAt: candidate.completedAt,
+      completedByUserId: candidate.completedByUserId,
+      epilogue: candidate.epilogue,
+      shareScope:
+        candidate.shareScope === "private" || candidate.shareScope === "public_summary"
+          ? candidate.shareScope
+          : "party",
+      allowCharacterTransfer: candidate.allowCharacterTransfer !== false,
+      finalNodeId: typeof candidate.finalNodeId === "string" ? candidate.finalNodeId : null,
+      finalRewardIds: Array.isArray(candidate.finalRewardIds)
+        ? candidate.finalRewardIds.filter((id): id is string => typeof id === "string").slice(0, 20)
+        : [],
+      characters: Array.isArray(candidate.characters)
+        ? candidate.characters
+            .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+            .map((entry) => ({
+              sessionCharacterId: typeof entry.sessionCharacterId === "string" ? entry.sessionCharacterId : "",
+              characterId: typeof entry.characterId === "string" ? entry.characterId : "",
+              userId: typeof entry.userId === "string" ? entry.userId : "",
+              name: typeof entry.name === "string" ? entry.name : "Unknown",
+              className: typeof entry.className === "string" ? entry.className : "unknown",
+              subclassName: typeof entry.subclassName === "string" ? entry.subclassName : null,
+              level: typeof entry.level === "number" ? entry.level : 1,
+              status: typeof entry.status === "string" ? entry.status : "ACTIVE",
+            }))
+            .filter((entry) => entry.sessionCharacterId && entry.characterId && entry.userId)
+        : [],
+      analytics: {
+        turnLogCount: this.getNumberProperty(candidate.analytics, "turnLogCount"),
+        combatCount: this.getNumberProperty(candidate.analytics, "combatCount"),
+        completedDowntimeTaskCount: this.getNumberProperty(candidate.analytics, "completedDowntimeTaskCount"),
+        nodeVisitCount: this.getNumberProperty(candidate.analytics, "nodeVisitCount"),
+        sessionCharacterCount: this.getNumberProperty(candidate.analytics, "sessionCharacterCount"),
+      },
+      snapshot: this.parseP6CampaignArchiveSnapshot(candidate.snapshot, {
+        turnLogCount: this.getNumberProperty(candidate.analytics, "turnLogCount"),
+        combatCount: this.getNumberProperty(candidate.analytics, "combatCount"),
+        nodeVisitCount: this.getNumberProperty(candidate.analytics, "nodeVisitCount"),
+      }),
+    };
+  }
+
+  private buildP6CampaignArchiveSnapshot(params: {
+    flags: Record<string, unknown>;
+    stateVersion: number;
+    currentNodeId: string | null;
+    sessionCharacters: Array<{
+      id: string;
+      inventorySnapshotJson?: string | null;
+      character: { inventoryJson?: string | null };
+    }>;
+    turnLogCount: number;
+    combatCount: number;
+    nodeVisitCount: number;
+    scenarioAttribution: string | null;
+  }): CampaignArchiveSnapshotDto {
+    const calendar = params.flags.campaignCalendar && typeof params.flags.campaignCalendar === "object"
+      ? (params.flags.campaignCalendar as Record<string, unknown>)
+      : {};
+    const downtimeTasks = Array.isArray(calendar.downtimeTasks)
+      ? calendar.downtimeTasks.filter((task): task is Record<string, unknown> => Boolean(task) && typeof task === "object")
+      : [];
+    const economy = params.flags.economy && typeof params.flags.economy === "object"
+      ? (params.flags.economy as Record<string, unknown>)
+      : null;
+    const partyStash = Array.isArray(economy?.partyStash) ? economy.partyStash : [];
+    const wallets = economy?.walletsBySessionCharacterId && typeof economy.walletsBySessionCharacterId === "object"
+      ? (economy.walletsBySessionCharacterId as Record<string, unknown>)
+      : {};
+    const shops = economy?.shopStatesById && typeof economy.shopStatesById === "object"
+      ? (economy.shopStatesById as Record<string, unknown>)
+      : {};
+    const crafting = economy?.craftingProgressById && typeof economy.craftingProgressById === "object"
+      ? (economy.craftingProgressById as Record<string, unknown>)
+      : {};
+    const downtimeCompletions = economy?.downtimeCompletionsById && typeof economy.downtimeCompletionsById === "object"
+      ? (economy.downtimeCompletionsById as Record<string, unknown>)
+      : {};
+    const characterInventoryCounts = Object.fromEntries(
+      params.sessionCharacters.map((entry) => [
+        entry.id,
+        this.countP6ArchiveInventoryItems(entry.inventorySnapshotJson ?? entry.character.inventoryJson),
+      ]),
+    );
+
+    return {
+      stateVersion: params.stateVersion,
+      currentNodeId: params.currentNodeId,
+      downtime: {
+        activeTaskCount: downtimeTasks.filter((task) => task.status === "active").length,
+        pausedTaskCount: downtimeTasks.filter((task) => task.status === "paused").length,
+        completedTaskCount: downtimeTasks.filter((task) => task.status === "completed").length,
+        taskIds: downtimeTasks
+          .map((task) => task.id)
+          .filter((id): id is string => typeof id === "string")
+          .slice(0, 50),
+      },
+      economy: {
+        hasEconomyState: Boolean(economy),
+        partyStashItemCount: partyStash.length,
+        walletCount: Object.keys(wallets).length,
+        shopCount: Object.keys(shops).length,
+        craftingProgressCount: Object.keys(crafting).length,
+        downtimeCompletionCount: Object.keys(downtimeCompletions).length,
+      },
+      inventory: {
+        totalItemCount: Object.values(characterInventoryCounts).reduce((sum, count) => sum + count, 0),
+        characterInventoryCounts,
+      },
+      combat: {
+        combatCount: params.combatCount,
+        turnLogCount: params.turnLogCount,
+        nodeVisitCount: params.nodeVisitCount,
+      },
+      publicRevisionLineage: this.extractP6PublicRevisionLineage(params.scenarioAttribution),
+    };
+  }
+
+  private parseP6CampaignArchiveSnapshot(
+    value: unknown,
+    fallbackCombat: { turnLogCount: number; combatCount: number; nodeVisitCount: number },
+  ): CampaignArchiveSnapshotDto {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return {
+        stateVersion: 0,
+        currentNodeId: null,
+        downtime: { activeTaskCount: 0, pausedTaskCount: 0, completedTaskCount: 0, taskIds: [] },
+        economy: {
+          hasEconomyState: false,
+          partyStashItemCount: 0,
+          walletCount: 0,
+          shopCount: 0,
+          craftingProgressCount: 0,
+          downtimeCompletionCount: 0,
+        },
+        inventory: { totalItemCount: 0, characterInventoryCounts: {} },
+        combat: fallbackCombat,
+        publicRevisionLineage: null,
+      };
+    }
+    const candidate = value as Record<string, unknown>;
+    const downtime = candidate.downtime && typeof candidate.downtime === "object"
+      ? (candidate.downtime as Record<string, unknown>)
+      : {};
+    const economy = candidate.economy && typeof candidate.economy === "object"
+      ? (candidate.economy as Record<string, unknown>)
+      : {};
+    const inventory = candidate.inventory && typeof candidate.inventory === "object"
+      ? (candidate.inventory as Record<string, unknown>)
+      : {};
+    const combat = candidate.combat && typeof candidate.combat === "object"
+      ? (candidate.combat as Record<string, unknown>)
+      : {};
+    const inventoryCounts = inventory.characterInventoryCounts && typeof inventory.characterInventoryCounts === "object"
+      ? Object.fromEntries(
+          Object.entries(inventory.characterInventoryCounts as Record<string, unknown>)
+            .filter(([key, count]) => key && typeof count === "number" && Number.isFinite(count)),
+        ) as Record<string, number>
+      : {};
+
+    return {
+      stateVersion: this.getNumberProperty(candidate, "stateVersion"),
+      currentNodeId: typeof candidate.currentNodeId === "string" ? candidate.currentNodeId : null,
+      downtime: {
+        activeTaskCount: this.getNumberProperty(downtime, "activeTaskCount"),
+        pausedTaskCount: this.getNumberProperty(downtime, "pausedTaskCount"),
+        completedTaskCount: this.getNumberProperty(downtime, "completedTaskCount"),
+        taskIds: Array.isArray(downtime.taskIds)
+          ? downtime.taskIds.filter((id): id is string => typeof id === "string").slice(0, 50)
+          : [],
+      },
+      economy: {
+        hasEconomyState: economy.hasEconomyState === true,
+        partyStashItemCount: this.getNumberProperty(economy, "partyStashItemCount"),
+        walletCount: this.getNumberProperty(economy, "walletCount"),
+        shopCount: this.getNumberProperty(economy, "shopCount"),
+        craftingProgressCount: this.getNumberProperty(economy, "craftingProgressCount"),
+        downtimeCompletionCount: this.getNumberProperty(economy, "downtimeCompletionCount"),
+      },
+      inventory: {
+        totalItemCount: this.getNumberProperty(inventory, "totalItemCount"),
+        characterInventoryCounts: inventoryCounts,
+      },
+      combat: {
+        combatCount: this.getNumberProperty(combat, "combatCount") || fallbackCombat.combatCount,
+        turnLogCount: this.getNumberProperty(combat, "turnLogCount") || fallbackCombat.turnLogCount,
+        nodeVisitCount: this.getNumberProperty(combat, "nodeVisitCount") || fallbackCombat.nodeVisitCount,
+      },
+      publicRevisionLineage:
+        candidate.publicRevisionLineage && typeof candidate.publicRevisionLineage === "object" && !Array.isArray(candidate.publicRevisionLineage)
+          ? (candidate.publicRevisionLineage as Record<string, unknown>)
+          : null,
+    };
+  }
+
+  private countP6ArchiveInventoryItems(inventoryJson: string | null | undefined): number {
+    const items = this.parseJson<unknown[]>(inventoryJson, []);
+    if (!Array.isArray(items)) {
+      return 0;
+    }
+    return items.reduce<number>((sum, item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        return sum;
+      }
+      const quantity = (item as Record<string, unknown>).quantity;
+      return sum + (typeof quantity === "number" && Number.isFinite(quantity) ? Math.max(0, Math.trunc(quantity)) : 1);
+    }, 0);
+  }
+
+  private extractP6PublicRevisionLineage(attribution: string | null): Record<string, unknown> | null {
+    if (!attribution) {
+      return null;
+    }
+    const marker = "P5_PUBLIC_META:";
+    const markerIndex = attribution.indexOf(marker);
+    if (markerIndex < 0) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(attribution.slice(markerIndex + marker.length).trim()) as Record<string, unknown>;
+      return parsed.lineage && typeof parsed.lineage === "object" && !Array.isArray(parsed.lineage)
+        ? (parsed.lineage as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private parseP6CharacterTransferRequests(flags: Record<string, unknown>): P6CharacterTransferRequestFlag[] {
+    const requests = Array.isArray(flags.p6CharacterTransferRequests) ? flags.p6CharacterTransferRequests : [];
+    return requests
+      .filter((request): request is Record<string, unknown> => Boolean(request) && typeof request === "object")
+      .filter((request) =>
+        typeof request.requestId === "string" &&
+        typeof request.targetSessionId === "string" &&
+        typeof request.sourceSessionId === "string" &&
+        typeof request.sourceSessionCharacterId === "string" &&
+        typeof request.requestedByUserId === "string" &&
+        (request.status === "requested" || request.status === "approved" || request.status === "rejected") &&
+        (request.mode === "clone" || request.mode === "transfer") &&
+        typeof request.createdAt === "string",
+      )
+      .map((request) => ({
+        requestId: request.requestId as string,
+        targetSessionId: request.targetSessionId as string,
+        sourceSessionId: request.sourceSessionId as string,
+        sourceSessionCharacterId: request.sourceSessionCharacterId as string,
+        requestedByUserId: request.requestedByUserId as string,
+        status: request.status as "requested" | "approved" | "rejected",
+        mode: request.mode as "clone" | "transfer",
+        targetSessionCharacterId:
+          typeof request.targetSessionCharacterId === "string" ? request.targetSessionCharacterId : null,
+        sourceDisposition:
+          request.sourceDisposition === "copied" || request.sourceDisposition === "retired_after_transfer"
+            ? request.sourceDisposition
+            : null,
+        createdAt: request.createdAt as string,
+        resolvedAt: typeof request.resolvedAt === "string" ? request.resolvedAt : null,
+        note: typeof request.note === "string" ? request.note : null,
+        approvedByUserId: typeof request.approvedByUserId === "string" ? request.approvedByUserId : null,
+      }));
+  }
+
+  private ensureP6CharacterTransferPolicy(params: {
+    targetSession: { ruleSetId?: string | null };
+    targetScenario: { startLevel?: number | null; recommendedEndLevel?: number | null; ruleSetId?: string | null };
+    sourceSession: { ruleSetId?: string | null };
+    sourceCharacter: { level: number };
+  }): void {
+    const targetRuleSetId = params.targetSession.ruleSetId ?? params.targetScenario.ruleSetId ?? null;
+    const sourceRuleSetId = params.sourceSession.ruleSetId ?? null;
+    if (targetRuleSetId && sourceRuleSetId && targetRuleSetId !== sourceRuleSetId) {
+      throw new ConflictException("같은 rule set의 캠페인으로만 캐릭터를 이관할 수 있습니다.");
+    }
+
+    const minLevel = Math.max(params.targetScenario.startLevel ?? 1, 1);
+    const maxLevel = Math.max(params.targetScenario.recommendedEndLevel ?? 20, minLevel);
+    if (params.sourceCharacter.level < minLevel || params.sourceCharacter.level > maxLevel) {
+      throw new ConflictException(
+        `대상 캠페인 레벨 범위(${minLevel}-${maxLevel})에 맞는 캐릭터만 이관할 수 있습니다.`,
+      );
+    }
+  }
+
+  private ensureP6CharacterTransferInventoryPolicy(inventoryJson: string | null | undefined): string {
+    if (!inventoryJson) {
+      return "[]";
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(inventoryJson) as unknown;
+    } catch {
+      throw new ConflictException("이관 가능한 캐릭터 inventory 형식이 아닙니다.");
+    }
+    if (!Array.isArray(parsed)) {
+      throw new ConflictException("이관 가능한 캐릭터 inventory 형식이 아닙니다.");
+    }
+    if (parsed.length > 100) {
+      throw new ConflictException("캐릭터 이관 inventory는 100개 이하의 개인 소지품만 허용됩니다.");
+    }
+    const inventory = parsed.map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new ConflictException("이관 가능한 캐릭터 inventory 형식이 아닙니다.");
+      }
+      return item as Record<string, unknown>;
+    });
+
+    for (const item of inventory) {
+      if (this.isP6CampaignBoundTransferItem(item)) {
+        throw new ConflictException("캠페인 귀속/파티 공유/경제 장부 아이템은 캐릭터 이관에 포함할 수 없습니다.");
+      }
+    }
+
+    return JSON.stringify(inventory);
+  }
+
+  private isP6CampaignBoundTransferItem(item: Record<string, unknown>): boolean {
+    const stringFlags = [
+      item.ownerScope,
+      item.scope,
+      item.sourceScope,
+      item.itemScope,
+      item.transferScope,
+      item.itemType,
+      item.useEffect,
+    ]
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.toLowerCase());
+    const tags = [...(Array.isArray(item.tags) ? item.tags : []), ...(Array.isArray(item.properties) ? item.properties : [])]
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.toLowerCase());
+    const blockedMarkers = [
+      "campaign",
+      "campaign_bound",
+      "session",
+      "session_bound",
+      "party",
+      "party_stash",
+      "economy",
+      "currency",
+      "wallet",
+    ];
+
+    return (
+      item.transferable === false ||
+      item.campaignBound === true ||
+      item.sessionBound === true ||
+      item.partyStash === true ||
+      item.isPartyStash === true ||
+      typeof item.boundToSessionId === "string" ||
+      typeof item.boundSessionId === "string" ||
+      typeof item.sourceSessionId === "string" ||
+      typeof item.campaignArchiveId === "string" ||
+      typeof item.attunedBySessionCharacterId === "string" ||
+      item.currency !== undefined ||
+      item.wallet !== undefined ||
+      item.economy !== undefined ||
+      item.economyState !== undefined ||
+      stringFlags.some((value) => blockedMarkers.includes(value)) ||
+      tags.some((value) => blockedMarkers.includes(value))
+    );
+  }
+
+  private toCharacterTransferResponse(request: P6CharacterTransferRequestFlag): CharacterTransferResponseDto {
+    return {
+      requestId: request.requestId,
+      targetSessionId: request.targetSessionId,
+      sourceSessionId: request.sourceSessionId,
+      sourceSessionCharacterId: request.sourceSessionCharacterId,
+      requestedByUserId: request.requestedByUserId,
+      status: request.status,
+      mode: request.mode,
+      targetSessionCharacterId: request.targetSessionCharacterId,
+      sourceDisposition: request.sourceDisposition ?? null,
+      note: request.note,
+      createdAt: request.createdAt,
+      resolvedAt: request.resolvedAt,
+    };
+  }
+
+  private countCompletedDowntimeTasks(flags: Record<string, unknown>): number {
+    const calendar = flags.campaignCalendar;
+    if (!calendar || typeof calendar !== "object") {
+      return 0;
+    }
+    const tasks = (calendar as Record<string, unknown>).downtimeTasks;
+    if (!Array.isArray(tasks)) {
+      return 0;
+    }
+    return tasks.filter((task) => Boolean(task) && typeof task === "object" && (task as Record<string, unknown>).status === "completed").length;
+  }
+
+  private getNumberProperty(source: unknown, property: string): number {
+    if (!source || typeof source !== "object") {
+      return 0;
+    }
+    const value = (source as Record<string, unknown>)[property];
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  }
+
+  private async createCampaignArchiveAuditLog(
+    tx: Prisma.TransactionClient,
+    params: {
+      sessionId: string;
+      sessionScenarioId: string;
+      actorUserId: string;
+      archive: CampaignArchiveResponseDto;
+      baseVersion: number;
+      nextVersion: number;
+    },
+  ): Promise<void> {
+    const latest = await tx.turnLog.findFirst({
+      where: { sessionId: params.sessionId },
+      orderBy: { turnNumber: "desc" },
+      select: { turnNumber: true },
+    });
+    const created = await tx.turnLog.create({
+      data: {
+        sessionId: params.sessionId,
+        sessionScenarioId: params.sessionScenarioId,
+        actorUserId: params.actorUserId,
+        turnNumber: (latest?.turnNumber ?? 0) + 1,
+        rawInput: "/campaign complete",
+        structuredActionJson: JSON.stringify({
+          type: "p6_campaign_archive",
+          archiveId: params.archive.archiveId,
+          shareScope: params.archive.shareScope,
+          allowCharacterTransfer: params.archive.allowCharacterTransfer,
+        }),
+        stateDiffJson: JSON.stringify({
+          baseVersion: params.baseVersion,
+          nextVersion: params.nextVersion,
+          reason: "p6_campaign_archive",
+          diff: {
+            sessionCompletedAt: params.archive.completedAt,
+            p6CampaignArchive: {
+              archiveId: params.archive.archiveId,
+              characterCount: params.archive.characters.length,
+              analytics: params.archive.analytics,
+            },
+          },
+        }),
+        outcome: PrismaActionOutcome.SUCCESS,
+        narration: params.archive.epilogue,
+      },
+    });
+    await tx.stateDiff.create({
+      data: {
+        sessionScenarioId: params.sessionScenarioId,
+        turnLogId: created.id,
+        baseVersion: params.baseVersion,
+        nextVersion: params.nextVersion,
+        reason: "p6_campaign_archive",
+        diffJson: JSON.stringify({
+          p6CampaignArchive: {
+            archiveId: params.archive.archiveId,
+            completedAt: params.archive.completedAt,
+            characterCount: params.archive.characters.length,
+          },
+        }),
+      },
+    });
   }
 
   private appendHumanGmAiAssistSuggestion(
