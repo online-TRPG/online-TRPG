@@ -3200,11 +3200,14 @@ export function CharacterPage({
           onClick={dismissCreateModal}
         >
           <div
-            className="modal-card modal-card-wide character-create-modal"
-            role="dialog"
-            aria-modal="true"
+            className="character-create-visual-shell"
             onClick={(event) => event.stopPropagation()}
           >
+            <div
+              className="modal-card modal-card-wide character-create-modal"
+              role="dialog"
+              aria-modal="true"
+            >
             {createToast ? (
               <div
                 key={createToast.id}
@@ -4794,6 +4797,7 @@ export function CharacterPage({
                 )}
               </div>
             </form>
+            </div>
           </div>
         </div>
       ) : null}

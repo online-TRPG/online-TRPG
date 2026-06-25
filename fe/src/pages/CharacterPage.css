@@ -1129,21 +1129,25 @@
   justify-items: center;
 }
 
-.character-create-backdrop::before {
-  content: "";
+.character-create-visual-shell {
   position: fixed;
   top: 50%;
   left: 50%;
+  z-index: 1;
   width: min(1496px, calc((100vw - 24px) * 0.85));
   height: min(1180px, calc(100vh - 12px));
   transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  padding-top: clamp(54px, 7vh, 92px);
   background-image: url("../components/scroll.webp");
   background-position: center;
   background-repeat: no-repeat;
   background-size: 100% 100%;
   opacity: 0.98;
-  pointer-events: none;
-  z-index: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  overflow-y: auto;
 }
 
 .modal-card.modal-card-wide.character-create-modal {
@@ -1157,7 +1161,7 @@
   border-radius: 0 !important;
   padding: 0;
   max-height: none;
-  margin-top: 10px;
+  margin-top: 0;
   background: transparent !important;
   box-shadow: none;
   overflow: visible;
@@ -1964,9 +1968,10 @@
     padding: 20px 16px;
   }
 
-  .character-create-backdrop::before {
+  .character-create-visual-shell {
     width: min(1200px, calc(100vw - 8px));
     height: min(980px, calc(100vh - 8px));
+    padding-top: clamp(36px, 6vh, 64px);
   }
 
   .modal-card.modal-card-wide.character-create-modal {
@@ -2012,6 +2017,12 @@
 @media (max-height: 920px) {
   .character-create-backdrop {
     padding: 20px 18px;
+  }
+
+  .character-create-visual-shell {
+    width: min(1200px, calc(100vw - 8px));
+    height: min(980px, calc(100vh - 8px));
+    padding-top: clamp(32px, 5vh, 56px);
   }
 
   .modal-card.modal-card-wide.character-create-modal {

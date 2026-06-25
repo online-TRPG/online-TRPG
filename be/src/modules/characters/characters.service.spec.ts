@@ -189,9 +189,9 @@ describe("CharactersService level up", () => {
       listSubclassFeatures: jest.fn((
         classKey: string,
         subclassKey: string,
-        classLevel?: number,
+        classLevel: number,
       ) => actualRuleCatalogService.listSubclassFeatures(classKey, subclassKey, classLevel)),
-      listClassFeaturesForLevel: jest.fn((classKey: string, classLevel?: number) =>
+      listClassFeaturesForLevel: jest.fn((classKey: string, classLevel: number) =>
         actualRuleCatalogService.listClassFeaturesForLevel(classKey, classLevel),
       ),
       listEntries: jest.fn((kind?: Parameters<RuleCatalogService["listEntries"]>[0]) =>
@@ -815,6 +815,7 @@ describe("CharactersService level up", () => {
           armorClass: 16,
           proficiencyBonus: 2,
           featuresJson: JSON.stringify([
+            "race.human.trait.ability_score_increase",
             "class.fighter.feature.fighting_style",
             "class.fighter.feature.second_wind",
             "class.fighter.feature.action_surge",
@@ -988,6 +989,23 @@ describe("CharactersService level up", () => {
       abilities: { str: 8, dex: 14, con: 14, int: 10, wis: 10, cha: 15 },
       proficientSkills: [],
       startingEquipmentSelection: [],
+      startingSpells: {
+        cantrips: [
+          "spell.fire_bolt",
+          "spell.light",
+          "spell.chill_touch",
+          "spell.ray_of_frost",
+          "spell.acid_splash",
+        ],
+        spells: [
+          "spell.magic_missile",
+          "spell.shield",
+          "spell.sleep",
+          "spell.burning_hands",
+          "spell.thunderwave",
+          "spell.fireball",
+        ],
+      },
     });
 
     expect(prisma.character.create).toHaveBeenCalledWith(
