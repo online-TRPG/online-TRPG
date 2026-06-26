@@ -35,7 +35,7 @@ const MONSTER_ACTION_PREFERENCES: Record<string, string[]> = {
   "monster.skeleton": ["action.shortbow", "action.shortsword"],
   "monster.zombie": ["action.slam"],
   "monster.brown_bear": ["monster.brown_bear.ability.multiattack", "action.claws", "action.bite"],
-  "monster.dragon_whelp": ["action.fire_breath", "action.bite"],
+  "monster.red_dragon_wyrmling": ["action.fire_breath", "action.bite"],
   "monster.cultist": ["action.scimitar"],
   "monster.ogre": ["action.greatclub", "action.javelin"],
   "monster.kobold": ["action.dagger", "action.sling"],

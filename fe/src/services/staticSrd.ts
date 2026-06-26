@@ -35,6 +35,18 @@ export interface ClassFeatureReference {
   sourceHeading?: string | null;
 }
 
+export interface CanonicalClassFeatureEntry {
+  id: string;
+  classKey: string;
+  level: number;
+  nameKo: string;
+  category: 'class' | 'subclass' | 'asi' | 'choice' | string;
+  summaryKo: string;
+  source: 'srd' | 'runtime' | 'derived' | string;
+  aliases: string[];
+  availableAtLevels: number[];
+}
+
 export interface RaceOption {
   value: string;
   label: string;
@@ -493,6 +505,10 @@ function normalizeRaceData(entries: RawRaceEntry[]): RaceData[] {
 export async function loadClassOptions(): Promise<ClassOption[]> {
   const payload = await fetchStaticAsset<RawClassEntry[]>('srd/classes.json');
   return normalizeClassOptions(payload);
+}
+
+export async function loadClassFeatureManifest(): Promise<CanonicalClassFeatureEntry[]> {
+  return fetchStaticAsset<CanonicalClassFeatureEntry[]>('srd/class-features.json');
 }
 
 export async function loadRaceData(): Promise<RaceData[]> {

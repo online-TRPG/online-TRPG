@@ -2,7 +2,18 @@
   "name": "@trpg/srd-data",
   "version": "0.1.0",
   "private": true,
-  "files": ["generated"],
+  "type": "module",
+  "main": "./index.mjs",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.mjs"
+    },
+    "./generated/srd/*": "./generated/srd/*",
+    "./generated/srd-engine/*": "./generated/srd-engine/*"
+  },
+  "files": ["generated", "index.mjs", "index.d.ts"],
   "scripts": {
     "build": "node scripts/verify-generated.mjs"
   }

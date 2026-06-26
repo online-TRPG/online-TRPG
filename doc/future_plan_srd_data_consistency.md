@@ -409,6 +409,216 @@ AI 런타임은 이미 `srd-data/generated/srd/`를 읽는다. 여기서는 FE/B
 8. AI catalog manifest hash 검증 추가
 9. 문서화
 
+## 진행 기록
+
+### 2026-06-26 1차 정합성 관문 추가
+
+완료:
+
+- 루트 명령 `npm run verify:rule-data-sync` 추가.
+- `scripts/verify-rule-data-sync.mjs` 추가.
+- `@trpg/srd-data`에 Node 환경용 typed catalog loader export 추가.
+  - `srd-data/index.mjs`
+  - `srd-data/index.d.ts`
+  - `srd-data/package.json` exports
+
+현재 `verify:rule-data-sync`가 검증하는 항목:
+
+- `fe/public/srd/*.json`이 `srd-data/generated/srd/*.jsonl`에서 생성된 결과와 동일한지 확인한다.
+- 캐릭터 빌더의 레벨별 class feature 라벨이 SRD `featureReferences` 또는 FE alias를 통해 canonical id로 해석되는지 확인한다.
+- alias로 해석된 feature id가 FE presentation에 연결되어 fallback 설명으로 떨어지지 않는지 확인한다.
+- BE `RuleCatalogService`의 class feature id가 canonical class feature set에 포함되는지 확인한다.
+- AI/런타임이 참조하는 `srd-data/generated/srd/source_manifest.json`과 `srd-data/generated/srd-engine/manifest.json` 및 핵심 catalog 파일이 존재하는지 확인한다.
+
+검증된 현재 상태:
+
+```text
+npm run verify:rule-data-sync
+→ Verified SRD data sync. canonicalClassFeatures=339 beClassFeatures=235 fePresentationEntries=130
+
+npm run build -w @trpg/srd-data
+→ Verified generated SRD assets.
+
+node import('@trpg/srd-data')
+→ listSrdClasses() returns 12 classes.
+```
+
+주의:
+
+- 현재 canonical class feature set은 검증 스크립트 내부에서 SRD `classes.jsonl`, FE alias, BE runtime id를 합성해 만든 임시 manifest다.
+- 다음 단계에서는 이 임시 manifest를 `@trpg/srd-data`의 명시적 generated artifact 또는 exported helper로 승격해야 한다.
+- FE 캐릭터 빌더는 아직 `classFeatureIdAliasesByClassKey`를 사용한다. 이번 단계는 drift를 막는 관문을 추가한 것이며, alias 제거는 다음 단계 작업이다.
+
+### 2026-06-26 2차 canonical helper 승격 및 실행 콘텐츠 drift guard 확장
+
+완료:
+
+- `scripts/verify-rule-data-sync.mjs` 내부에 있던 canonical class feature 합성 로직을 `@trpg/srd-data` export로 승격했다.
+- `@trpg/srd-data`에 다음 helper를 추가했다.
+  - `buildCanonicalClassFeatureManifest`
+  - `listCanonicalClassFeatures`
+  - `normalizeSrdClassKey`
+  - `normalizeSrdFeatureLookupLabel`
+  - `normalizeSrdFeatureAliasKey`
+  - `splitSrdClassFeatureSummary`
+  - `findSrdClassFeatureReference`
+  - `isIgnoredSrdClassFeatureLabel`
+  - `resolveCanonicalSrdId`
+- `verify:rule-data-sync`가 이제 `@trpg/srd-data` helper를 직접 사용한다.
+- 실행 가능 콘텐츠 id 검증을 추가했다.
+  - BE 실행 주문 id가 `srd-data/generated/srd/spells.jsonl`에 존재하는지 확인한다.
+  - BE 실행 몬스터 id가 `srd-data/generated/srd/monsters.jsonl`에 존재하는지 확인한다.
+  - BE 실행 아이템 id가 `equipment_items.jsonl` 또는 `magic_items.jsonl`에 존재하는지 확인한다.
+- 레거시 id alias를 `@trpg/srd-data`에 명시했다.
+  - `monster.dragon_whelp` → `monster.red_dragon_wyrmling`
+
+검증된 현재 상태:
+
+```text
+npm run verify:rule-data-sync
+→ Verified SRD data sync. canonicalClassFeatures=339 beClassFeatures=235 fePresentationEntries=130 executableSpells=50 executableMonsters=189 executableItems=50 legacyContentAliases=1
+
+npm run build -w @trpg/srd-data
+→ Verified generated SRD assets.
+
+node import('@trpg/srd-data')
+→ listCanonicalClassFeatures(...) and resolveCanonicalSrdId(...) work.
+```
+
+주의:
+
+- `legacyContentAliases=1`은 아직 BE/시나리오에 `monster.dragon_whelp` 레거시 id가 남아 있음을 의미한다.
+- 다음 단계에서는 이 alias를 유지하되, 실제 BE runtime/scenario seed/test fixture를 canonical monster id로 점진 마이그레이션할지 결정해야 한다.
+- FE 캐릭터 빌더는 아직 canonical helper를 직접 사용하지 않는다. 다음 핵심 작업은 FE의 `classFeatureIdAliasesByClassKey`를 제거하거나 generated manifest 기반으로 축소하는 것이다.
+
+### 2026-06-26 3차 FE class feature canonical manifest 연동
+
+완료:
+
+- `@trpg/srd-data`에 class feature alias source를 export했다.
+  - `SRD_CLASS_FEATURE_ID_ALIASES`
+- `scripts/sync-fe-static-srd.mjs`가 `fe/public/srd/class-features.json`을 생성하도록 확장했다.
+- `fe/src/services/staticSrd.ts`에 canonical class feature manifest loader를 추가했다.
+  - `CanonicalClassFeatureEntry`
+  - `loadClassFeatureManifest`
+- `fe/src/pages/CharacterPage.tsx`의 캐릭터 생성/레벨업 특성 프리뷰가 `class-features.json`을 먼저 참조하도록 전환했다.
+  - canonical manifest id/name/summary/category를 우선 사용한다.
+- FE 내부 수동 `classFeatureIdAliasesByClassKey`를 제거했다.
+- `verify:rule-data-sync`가 FE 내부 alias 파싱 대신 `@trpg/srd-data` export를 기준으로 canonical manifest를 검증하게 바뀌었다.
+- `verify:rule-data-sync`가 `fe/public/srd/class-features.json` 동기화 여부도 확인한다.
+
+검증된 현재 상태:
+
+```text
+npm run sync:fe:srd
+→ Synced generated SRD assets into fe/public.
+
+npm run verify:rule-data-sync
+→ Verified SRD data sync. canonicalClassFeatures=339 beClassFeatures=235 fePresentationEntries=130 executableSpells=50 executableMonsters=189 executableItems=50 legacyContentAliases=1
+
+npm run build -w @trpg/srd-data
+→ Verified generated SRD assets.
+
+npm run build -w @trpg/fe
+→ tsc -b && vite build 통과.
+```
+
+주의:
+
+- `characterFeaturePresentation.ts`의 id 기반 표시 override도 아직 유지된다. 이것은 아이콘/UX tone 같은 FE-only override와 canonical summary 보강을 분리하는 단계에서 더 줄일 수 있다.
+
+### 2026-06-27 4차 AI catalog fingerprint 및 seed/scenario drift guard 보강
+
+완료:
+
+- `@trpg/srd-data`에 catalog fingerprint helper를 추가했다.
+  - `getSrdCatalogFingerprint`
+  - `SrdCatalogFingerprint`
+- `verify:rule-data-sync`가 AI/SRD manifest를 더 강하게 검증하게 했다.
+  - `srd-data/generated/srd/source_manifest.json`의 expected count와 실제 JSONL 행 수를 비교한다.
+  - `srd-data/generated/srd-engine/manifest.json`의 file count와 실제 engine JSONL 행 수를 비교한다.
+  - FE/BE/AI가 참조해야 할 SRD catalog 묶음의 fingerprint prefix를 출력한다.
+- `verify:rule-data-sync`가 BE seed와 scenario seed drift도 확인하게 했다.
+  - BE class seed key가 SRD class catalog에 존재하는지 확인한다.
+  - BE race/subrace seed key가 SRD race/subrace catalog에 존재하는지 확인한다.
+  - BE item seed의 실제 장비 alias가 `srd-engine/equipment.jsonl`에 존재하는지 확인한다.
+  - 기본 시나리오 seed의 monster/item id가 generated SRD catalog에 존재하는지 확인한다.
+- SRD catalog에 없는 P5 시나리오 몬스터 id를 canonical SRD 몬스터로 치환했다.
+  - `monster.mind_flayer` → `monster.rakshasa`
+  - `monster.beholder` → `monster.medusa`
+  - `monster.demilich` → `monster.lich`
+- 레거시 시나리오 item shorthand를 명시 alias로 추가했다.
+  - `equipment.rope` → `equipment.rope_hempen_50_feet`
+
+검증된 현재 상태:
+
+```text
+npm run verify:rule-data-sync
+→ Verified SRD data sync. canonicalClassFeatures=339 beClassFeatures=235 fePresentationEntries=130 executableSpells=50 executableMonsters=189 executableItems=50 scenarioMonsters=82 scenarioItems=11 seedRaces=13 seedItems=35 legacyContentAliases=3 catalogFingerprint=c8a72df59cf1
+
+npm run build -w @trpg/srd-data
+→ Verified generated SRD assets.
+
+npm run build -w @trpg/be
+→ nest build 통과.
+```
+
+주의:
+
+- `legacyContentAliases=3`은 아직 canonical id로 완전히 치환되지 않은 호환 id가 있음을 의미한다.
+  - `monster.dragon_whelp`
+  - `equipment.rope`
+  - 시나리오/manifest 양쪽에서 중복 집계되는 alias가 포함될 수 있다.
+- 다음 단계에서는 남은 legacy alias를 실제 seed/runtime id에서 canonical id로 치환하거나, 명시적으로 장기 호환 계층으로 남길지 결정해야 한다.
+
+### 2026-06-27 5차 legacy content id 사용처 canonical 치환
+
+완료:
+
+- 실제 seed/runtime에서 사용 중이던 레거시 몬스터 id를 canonical SRD id로 치환했다.
+  - `monster.dragon_whelp` → `monster.red_dragon_wyrmling`
+  - 대상:
+    - P1 시나리오 seed monster token/meta
+    - `P2_EXECUTABLE_MONSTER_IDS`
+    - `RuleCatalogService` monster ability 정의
+    - `MonsterAbilityService` action preference
+    - `SrdEngineLoaderService` action preference
+    - 관련 spec fixture
+- 시나리오 seed의 rope item id를 FE/P3 item manifest가 사용하는 canonical 표시 catalog id로 정렬했다.
+  - `equipment.rope` → `equipment.rope__hempen__50_feet`
+- `equipment.rope` 호환 alias는 남겼지만, 현재 seed/runtime 검증 집계에서는 더 이상 사용되지 않는다.
+- `verify:rule-data-sync`가 FE executable item id도 generated SRD item catalog와 대조하게 했다.
+- `verify:rule-data-sync`가 class feature 프리뷰 fallback 재발도 감지하게 했다.
+  - 레벨별 feature 라벨이 canonical feature id로 해석되어야 한다.
+  - 해당 canonical feature에 summary가 없으면 FE id 기반 presentation override가 반드시 있어야 한다.
+- `ai/scripts/evaluate_p0_ai_quality.py`의 report와 콘솔 출력에 SRD catalog fingerprint를 추가했다.
+  - AI 품질 평가 결과에서 어떤 `srd-data/generated` 묶음으로 평가했는지 확인할 수 있다.
+  - Python 계산값과 `@trpg/srd-data`의 `getSrdCatalogFingerprint()` 계산값이 같은 prefix를 반환하는 것을 확인했다.
+
+검증된 현재 상태:
+
+```text
+npm run verify:rule-data-sync
+→ Verified SRD data sync. canonicalClassFeatures=339 beClassFeatures=235 fePresentationEntries=130 executableSpells=50 executableMonsters=188 executableItems=50 feExecutableItems=36 scenarioMonsters=82 scenarioItems=11 seedRaces=13 seedItems=35 legacyContentAliases=0 catalogFingerprint=c8a72df59cf1
+
+npm run build -w @trpg/srd-data
+→ Verified generated SRD assets.
+
+npm run build -w @trpg/be
+→ nest build 통과.
+
+python -m py_compile ai/scripts/evaluate_p0_ai_quality.py
+→ 통과.
+
+python load_srd_catalog_fingerprint / node getSrdCatalogFingerprint
+→ 둘 다 c8a72df59cf1 prefix 반환.
+```
+
+주의:
+
+- `SRD_LEGACY_ID_ALIASES`에는 과거 저장 데이터/명령 fixture 호환을 위한 alias가 남아 있지만, current seed/runtime/content manifest에서는 `legacyContentAliases=0`이다.
+- 일부 단위 테스트 fixture에는 의도적으로 `/item pickup ... equipment.rope ...` 같은 과거 사용자 입력 형태가 남아 있다. 이것은 parser/action 호환성 검증용이며, canonical content source로 쓰이지 않는다.
+
 ## 검증 계획
 
 직접 테스트 명령은 작업자가 실행하지 않고 사용자에게 안내한다.

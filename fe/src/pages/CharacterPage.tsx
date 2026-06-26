@@ -24,9 +24,11 @@ import {
   localizeAbilityText,
   localizeSrdTermText,
   loadClassOptions,
+  loadClassFeatureManifest,
   loadRaceData,
   loadSpellCatalog,
   normalizeClassValue,
+  type CanonicalClassFeatureEntry,
   type ClassOption,
   type ClassFeatureReference,
   type ClassOptionValue,
@@ -1280,161 +1282,6 @@ const featureStatusSortOrder: Record<CharacterFeaturePreviewItem['status'], numb
   automatic: 3,
 };
 
-const classFeatureIdAliasesByClassKey: Record<string, Record<string, string>> = {
-  barbarian: {
-    격노: 'class.barbarian.feature.rage',
-    비무장_방어: 'class.barbarian.feature.unarmored_defense',
-    무모한_공격: 'class.barbarian.feature.reckless_attack',
-    위험_감각: 'class.barbarian.feature.danger_sense',
-    원초적_길: 'class.barbarian.feature.primal_path',
-    추가_공격: 'class.barbarian.feature.extra_attack',
-    빠른_이동: 'class.barbarian.feature.fast_movement',
-    야성적_본능: 'class.barbarian.feature.feral_instinct',
-    잔혹한_치명타_1주사위: 'class.barbarian.feature.brutal_critical',
-    끈질긴_격노: 'class.barbarian.feature.relentless_rage',
-    지속되는_격노: 'class.barbarian.feature.persistent_rage',
-    굴하지_않는_힘: 'class.barbarian.feature.indomitable_might',
-    원초적_투사: 'class.barbarian.feature.primal_champion',
-  },
-  bard: {
-    주문시전: 'class.bard.feature.spellcasting',
-    바드의_고양감: 'class.bard.feature.bardic_inspiration',
-    만물박사: 'class.bard.feature.jack_of_all_trades',
-    휴식의_노래: 'class.bard.feature.song_of_rest',
-    바드_대학: 'class.bard.feature.bard_college',
-    전문화: 'class.bard.feature.expertise',
-    고양감의_원천: 'class.bard.feature.font_of_inspiration',
-    반대매혹: 'class.bard.feature.countercharm',
-    바드_대학_기능: 'class.bard.feature.bard_college_feature',
-    마법의_비밀: 'class.bard.feature.magical_secrets',
-    뛰어난_고양감: 'class.bard.feature.superior_inspiration',
-  },
-  cleric: {
-    주문시전: 'class.cleric.feature.spellcasting',
-    신성_권역: 'class.cleric.feature.divine_domain',
-    신성한_영역: 'class.cleric.feature.divine_domain',
-    신성_변환: 'class.cleric.feature.channel_divinity',
-    신성_권역_기능: 'class.cleric.feature.divine_domain_feature',
-    언데드_파괴: 'class.cleric.feature.destroy_undead',
-    신성한_개입: 'class.cleric.feature.divine_intervention',
-    신성한_개입_향상: 'class.cleric.feature.divine_intervention_improvement',
-  },
-  druid: {
-    드루이드어: 'class.druid.feature.druidic',
-    주문시전: 'class.druid.feature.spellcasting',
-    야생_변신: 'class.druid.feature.wild_shape',
-    야생_변신_향상: 'class.druid.feature.wild_shape',
-    드루이드_서클: 'class.druid.feature.druid_circle',
-    영원한_육체: 'class.druid.feature.timeless_body',
-    야수_주문: 'class.druid.feature.beast_spells',
-    대드루이드: 'class.druid.feature.archdruid',
-  },
-  fighter: {
-    전투_방식: 'class.fighter.feature.fighting_style',
-    재기의_바람: 'class.fighter.feature.second_wind',
-    재기의_숨결: 'class.fighter.feature.second_wind',
-    행동_연쇄: 'class.fighter.feature.action_surge',
-    무술_원형: 'class.fighter.feature.martial_archetype',
-    무예_아키타입: 'class.fighter.feature.martial_archetype',
-    추가_공격: 'class.fighter.feature.extra_attack',
-    불굴: 'class.fighter.feature.indomitable',
-  },
-  monk: {
-    비무장_방어: 'class.monk.feature.unarmored_defense',
-    무술: 'class.monk.feature.martial_arts',
-    기: 'class.monk.feature.ki',
-    비무장_이동: 'class.monk.feature.unarmored_movement',
-    수도_전통: 'class.monk.feature.monastic_tradition',
-    수도원_전통: 'class.monk.feature.monastic_tradition',
-    투사체_쳐내기: 'class.monk.feature.deflect_missiles',
-    투사체_튕겨내기: 'class.monk.feature.deflect_missiles',
-    느린_낙하: 'class.monk.feature.slow_fall',
-    추가_공격: 'class.monk.feature.extra_attack',
-    충격의_일격: 'class.monk.feature.stunning_strike',
-    기_강화_일격: 'class.monk.feature.ki_empowered_strikes',
-    수도_전통_기능: 'class.monk.feature.monastic_tradition_feature',
-    회피: 'class.monk.feature.evasion',
-    고요한_정신: 'class.monk.feature.stillness_of_mind',
-    순수한_육체: 'class.monk.feature.purity_of_body',
-    다이아몬드_영혼: 'class.monk.feature.diamond_soul',
-    빈_몸: 'class.monk.feature.empty_body',
-    완전한_자아: 'class.monk.feature.perfect_self',
-  },
-  paladin: {
-    신성한_감각: 'class.paladin.feature.divine_sense',
-    안수치료: 'class.paladin.feature.lay_on_hands',
-    전투_방식: 'class.paladin.feature.fighting_style',
-    주문시전: 'class.paladin.feature.spellcasting',
-    신성한_강타: 'class.paladin.feature.divine_smite',
-    신성한_건강: 'class.paladin.feature.divine_health',
-    신성한_맹세: 'class.paladin.feature.sacred_oath',
-    추가_공격: 'class.paladin.feature.extra_attack',
-    보호의_오라: 'class.paladin.feature.aura_of_protection',
-    용기의_오라: 'class.paladin.feature.aura_of_courage',
-    향상된_신성한_강타: 'class.paladin.feature.improved_divine_smite',
-    정화의_손길: 'class.paladin.feature.cleansing_touch',
-  },
-  ranger: {
-    숙적: 'class.ranger.feature.favored_enemy',
-    숙적_향상: 'class.ranger.feature.favored_enemy',
-    자연_탐험가: 'class.ranger.feature.natural_explorer',
-    자연_탐험가_향상: 'class.ranger.feature.natural_explorer',
-    전투_방식: 'class.ranger.feature.fighting_style',
-    주문시전: 'class.ranger.feature.spellcasting',
-    레인저_원형: 'class.ranger.feature.ranger_archetype',
-    레인저_아키타입: 'class.ranger.feature.ranger_archetype',
-    원시적_감각: 'class.ranger.feature.primeval_awareness',
-    원초적_감지: 'class.ranger.feature.primeval_awareness',
-    추가_공격: 'class.ranger.feature.extra_attack',
-    대지의_발걸음: 'class.ranger.feature.lands_stride',
-    눈앞의_은신: 'class.ranger.feature.hide_in_plain_sight',
-    사라지기: 'class.ranger.feature.vanish',
-    야성_감각: 'class.ranger.feature.feral_senses',
-    숙적_처단자: 'class.ranger.feature.foe_slayer',
-  },
-  rogue: {
-    전문화: 'class.rogue.feature.expertise',
-    암습: 'class.rogue.feature.sneak_attack',
-    도둑의_은어: 'class.rogue.feature.thieves_cant',
-    교활한_행동: 'class.rogue.feature.cunning_action',
-    로그_원형: 'class.rogue.feature.roguish_archetype',
-    로그_아키타입: 'class.rogue.feature.roguish_archetype',
-    불가사의한_회피: 'class.rogue.feature.uncanny_dodge',
-    회피: 'class.rogue.feature.evasion',
-    믿음직한_재능: 'class.rogue.feature.reliable_talent',
-    맹시_감각: 'class.rogue.feature.blindsense',
-    미끄러운_정신: 'class.rogue.feature.slippery_mind',
-    포착_불가: 'class.rogue.feature.elusive',
-    행운의_일격: 'class.rogue.feature.stroke_of_luck',
-  },
-  sorcerer: {
-    주문시전: 'class.sorcerer.feature.spellcasting',
-    소서러_기원: 'class.sorcerer.feature.sorcerous_origin',
-    마력의_샘: 'class.sorcerer.feature.font_of_magic',
-    메타매직: 'class.sorcerer.feature.metamagic',
-    메타매직_추가: 'class.sorcerer.feature.metamagic_improvement',
-    소서러적_회복: 'class.sorcerer.feature.sorcerous_restoration',
-  },
-  warlock: {
-    다른_세계의_후원자: 'class.warlock.feature.otherworldly_patron',
-    계약_마법: 'class.warlock.feature.pact_magic',
-    섬뜩한_영창: 'class.warlock.feature.eldritch_invocations',
-    계약의_은혜: 'class.warlock.feature.pact_boon',
-    신비의_비밀_6레벨: 'class.warlock.feature.mystic_arcanum_6',
-    신비의_비밀_7레벨: 'class.warlock.feature.mystic_arcanum_7',
-    신비의_비밀_8레벨: 'class.warlock.feature.mystic_arcanum_8',
-    신비의_비밀_9레벨: 'class.warlock.feature.mystic_arcanum_9',
-    섬뜩한_주인: 'class.warlock.feature.eldritch_master',
-  },
-  wizard: {
-    주문시전: 'class.wizard.feature.spellcasting',
-    비전_회복: 'class.wizard.feature.arcane_recovery',
-    비전_전통: 'class.wizard.feature.arcane_tradition',
-    주문_숙련: 'class.wizard.feature.spell_mastery',
-    대표_주문: 'class.wizard.feature.signature_spells',
-  },
-};
-
 const featOptions = [
   {
     id: 'feat.alert',
@@ -1531,13 +1378,48 @@ function isAbilityScoreImprovementLabel(label: string) {
   );
 }
 
-function inferClassFeatureDisplayId(classKey: string, label: string) {
+function findCanonicalClassFeature(
+  classFeatureManifest: CanonicalClassFeatureEntry[],
+  classKey: string,
+  label: string,
+  level: number
+): CanonicalClassFeatureEntry | null {
+  const normalizedLabel = normalizeFeatureLookupLabel(label);
+  const aliasKey = normalizeFeatureAliasKey(label);
+  const levelCandidates = classFeatureManifest.filter(
+    (feature) =>
+      feature.classKey === classKey &&
+      (feature.level === level ||
+        feature.availableAtLevels.includes(level) ||
+        feature.availableAtLevels.length === 0)
+  );
+  const candidates = levelCandidates.length
+    ? levelCandidates
+    : classFeatureManifest.filter((feature) => feature.classKey === classKey);
+
+  return (
+    candidates.find((feature) => feature.aliases.includes(aliasKey)) ??
+    candidates.find((feature) => normalizeFeatureLookupLabel(feature.nameKo) === normalizedLabel) ??
+    candidates.find((feature) => normalizedLabel.startsWith(normalizeFeatureLookupLabel(feature.nameKo))) ??
+    candidates.find((feature) => normalizeFeatureLookupLabel(feature.nameKo).startsWith(normalizedLabel)) ??
+    null
+  );
+}
+
+function inferClassFeatureDisplayId(
+  classKey: string,
+  label: string,
+  level: number,
+  classFeatureManifest: CanonicalClassFeatureEntry[]
+) {
   if (isAbilityScoreImprovementLabel(label)) {
     return `class.${classKey || 'unknown'}.feature.ability_score_improvement`;
   }
 
-  const classAliases = classFeatureIdAliasesByClassKey[classKey] ?? {};
-  return classAliases[normalizeFeatureAliasKey(label)] ?? null;
+  const canonicalFeature = findCanonicalClassFeature(classFeatureManifest, classKey, label, level);
+  if (canonicalFeature) return canonicalFeature.id;
+
+  return null;
 }
 
 function findClassFeatureReference(
@@ -1575,25 +1457,44 @@ function buildClassFeaturePreviewItem(params: {
   idPrefix: string;
   status: CharacterFeaturePreviewItem['status'];
   summaryFallback: string;
+  classFeatureManifest: CanonicalClassFeatureEntry[];
 }): CharacterFeaturePreviewItem {
+  const canonicalFeature = findCanonicalClassFeature(
+    params.classFeatureManifest,
+    params.classKey,
+    params.label,
+    params.level
+  );
   const reference = findClassFeatureReference(params.classInfo, params.label, params.level);
   const isSpellcastingLabel =
     params.label === '주문시전' || params.label === '계약 마법' || params.label === 'Pact Magic';
-  const inferredDisplayId = inferClassFeatureDisplayId(params.classKey, params.label);
-  const displayInfo = getCharacterFeatureDisplayInfo(reference?.id ?? inferredDisplayId ?? '');
+  const inferredDisplayId = inferClassFeatureDisplayId(
+    params.classKey,
+    params.label,
+    params.level,
+    params.classFeatureManifest
+  );
+  const displayInfo = getCharacterFeatureDisplayInfo(
+    canonicalFeature?.id ?? reference?.id ?? inferredDisplayId ?? ''
+  );
   const spellcastingDescription = isSpellcastingLabel
     ? buildSpellcastingFeatureDescription(params.classInfo)
     : null;
 
   return {
     id:
+      canonicalFeature?.id ??
       reference?.id ??
       inferredDisplayId ??
       `${params.idPrefix}.${params.classKey || 'unknown'}.${params.level}.${params.index}`,
-    label: reference?.nameKo ?? displayInfo?.label ?? params.label,
-    source: reference?.category === 'subclass' ? 'subclass' : 'class',
+    label: canonicalFeature?.nameKo ?? reference?.nameKo ?? displayInfo?.label ?? params.label,
+    source:
+      canonicalFeature?.category === 'subclass' || reference?.category === 'subclass'
+        ? 'subclass'
+        : 'class',
     level: params.level,
     summary:
+      canonicalFeature?.summaryKo ||
       reference?.summaryKo ||
       spellcastingDescription ||
       displayInfo?.description ||
@@ -2265,6 +2166,7 @@ export function CharacterPage({
 }: CharacterPageProps) {
   // 모달/선택/폼 상태입니다. 생성과 수정 모달이 같은 formState를 공유합니다.
   const [classCatalog, setClassCatalog] = useState<ClassOption[]>([]);
+  const [classFeatureManifest, setClassFeatureManifest] = useState<CanonicalClassFeatureEntry[]>([]);
   const [raceCatalog, setRaceCatalog] = useState<RaceData[]>([]);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
@@ -2790,12 +2692,13 @@ export function CharacterPage({
     let ignore = false;
     setCatalogError(null);
 
-    Promise.all([loadClassOptions(), loadRaceData(), loadSpellCatalog()])
-      .then(([loadedClasses, loadedRaces, loadedSpells]) => {
+    Promise.all([loadClassOptions(), loadClassFeatureManifest(), loadRaceData(), loadSpellCatalog()])
+      .then(([loadedClasses, loadedClassFeatures, loadedRaces, loadedSpells]) => {
         if (ignore) {
           return;
         }
         setClassCatalog(loadedClasses);
+        setClassFeatureManifest(loadedClassFeatures);
         setRaceCatalog(loadedRaces);
         setSpellCatalog(loadedSpells);
       })
@@ -3043,6 +2946,7 @@ export function CharacterPage({
               idPrefix: 'level-up.class',
               status: 'automatic',
               summaryFallback: `${feature.level}레벨에 새로 획득하는 직업 특성입니다.`,
+              classFeatureManifest,
             })
           )
       );
@@ -3088,6 +2992,7 @@ export function CharacterPage({
     return [...classItems, ...subclassItem, ...asiItems];
   }, [
     crossedAsiLevels,
+    classFeatureManifest,
     isLevelUpSubclassRequired,
     levelUpDraft.subclassName,
     levelUpDraft.targetLevel,
@@ -3260,6 +3165,7 @@ export function CharacterPage({
               idPrefix: 'class',
               status: 'automatic',
               summaryFallback: `${feature.level}레벨에 획득하는 직업 특성입니다.`,
+              classFeatureManifest,
             })
           )
       );
@@ -3308,6 +3214,7 @@ export function CharacterPage({
     formState.level,
     formState.proficientSkills,
     formState.subclassName,
+    classFeatureManifest,
     isCreateSubclassRequired,
     selectedClassInfo,
     selectedClassInfo?.levelFeatureSummary,
