@@ -1,4 +1,4 @@
-import {
+﻿import {
   CharacterAvatarType as PrismaCharacterAvatarType,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
@@ -64,6 +64,7 @@ const wizardLevel5StartingSpells = [
   "spell.thunderwave",
   "spell.fireball",
 ];
+const wizardLevel5PreparedSpells = wizardLevel5StartingSpells.slice(0, 7);
 
 const wizardLevel16StartingSpells = [
   "spell.bless",
@@ -103,6 +104,29 @@ const wizardLevel16StartingSpells = [
   "spell.dispel_magic",
   "spell.counterspell",
 ];
+const wizardLevel16PreparedSpells = wizardLevel16StartingSpells.slice(0, 20);
+
+function executableSlotSpellPoolForSpec(level: number): string[] {
+  const maxSpellLevel =
+    level >= 17 ? 9 :
+    level >= 15 ? 8 :
+    level >= 13 ? 7 :
+    level >= 11 ? 6 :
+    level >= 9 ? 5 :
+    level >= 7 ? 4 :
+    level >= 5 ? 3 :
+    level >= 3 ? 2 :
+    1;
+  return new RuleCatalogService()
+    .listEntries("spell_definitions")
+    .filter((entry) => {
+      const tag = entry.runtimeEffect.tags.find((value) => value.startsWith("spell_level:"));
+      const spellLevel = Number(tag?.slice("spell_level:".length));
+      return Number.isInteger(spellLevel) && spellLevel > 0 && spellLevel <= maxSpellLevel;
+    })
+    .map((entry) => entry.id)
+    .sort();
+}
 
 describe("CharactersService level up", () => {
   const createService = () => {
@@ -788,7 +812,7 @@ describe("CharactersService level up", () => {
           "spell.ray_of_frost",
         ],
         spells: wizardLevel5StartingSpells,
-        preparedSpells: ["spell.fireball"],
+        preparedSpells: wizardLevel5PreparedSpells,
       }),
       sessionCharacters: [],
     });
@@ -811,7 +835,7 @@ describe("CharactersService level up", () => {
           "spell.ray_of_frost",
         ],
         spells: wizardLevel5StartingSpells,
-        preparedSpells: ["spell.fireball"],
+        preparedSpells: wizardLevel5PreparedSpells,
       },
     });
 
@@ -826,12 +850,12 @@ describe("CharactersService level up", () => {
               "spell.ray_of_frost",
             ],
             spells: wizardLevel5StartingSpells,
-            preparedSpells: ["spell.fireball"],
+            preparedSpells: wizardLevel5PreparedSpells,
           }),
         }),
       }),
     );
-    expect(result.spells?.preparedSpells).toEqual(["spell.fireball"]);
+    expect(result.spells?.preparedSpells).toEqual(wizardLevel5PreparedSpells);
   });
 
   it("uses the official wizard spellbook count for level 16 starting casters", async () => {
@@ -861,7 +885,7 @@ describe("CharactersService level up", () => {
           "spell.acid_splash",
         ],
         spells: wizardLevel16StartingSpells,
-        preparedSpells: ["spell.fireball", "spell.counterspell"],
+        preparedSpells: wizardLevel16PreparedSpells,
       }),
       sessionCharacters: [],
     });
@@ -885,7 +909,7 @@ describe("CharactersService level up", () => {
           "spell.acid_splash",
         ],
         spells: wizardLevel16StartingSpells,
-        preparedSpells: ["spell.fireball", "spell.counterspell"],
+        preparedSpells: wizardLevel16PreparedSpells,
       },
     });
 
@@ -901,7 +925,7 @@ describe("CharactersService level up", () => {
               "spell.acid_splash",
             ],
             spells: wizardLevel16StartingSpells,
-            preparedSpells: ["spell.fireball", "spell.counterspell"],
+            preparedSpells: wizardLevel16PreparedSpells,
           }),
         }),
       }),
@@ -911,6 +935,13 @@ describe("CharactersService level up", () => {
 
   it("accepts Cure Wounds as an executable starting prepared spell", async () => {
     const { service, prisma, catalogService } = createService();
+    const clericLevel1KnownPool = executableSlotSpellPoolForSpec(1);
+    const clericLevel1PreparedSpells = [
+      "spell.magic_missile",
+      "spell.cure_wounds",
+      "spell.shield",
+      "spell.sleep",
+    ];
     catalogService.findClassByKey.mockResolvedValue({
       hitDie: "d8",
       koName: "클레릭",
@@ -926,13 +957,8 @@ describe("CharactersService level up", () => {
       className: "cleric",
       spellsJson: JSON.stringify({
         cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-        spells: [
-          "spell.magic_missile",
-          "spell.cure_wounds",
-          "spell.shield",
-          "spell.sleep",
-        ],
-        preparedSpells: ["spell.cure_wounds"],
+        spells: clericLevel1KnownPool,
+        preparedSpells: clericLevel1PreparedSpells,
       }),
       sessionCharacters: [],
     });
@@ -948,13 +974,8 @@ describe("CharactersService level up", () => {
       startingEquipmentSelection: [],
       startingSpells: {
         cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-        spells: [
-          "spell.magic_missile",
-          "spell.cure_wounds",
-          "spell.shield",
-          "spell.sleep",
-        ],
-        preparedSpells: ["spell.cure_wounds"],
+        spells: [],
+        preparedSpells: clericLevel1PreparedSpells,
       },
     });
 
@@ -963,18 +984,13 @@ describe("CharactersService level up", () => {
         data: expect.objectContaining({
           spellsJson: JSON.stringify({
             cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-            spells: [
-              "spell.magic_missile",
-              "spell.cure_wounds",
-              "spell.shield",
-              "spell.sleep",
-            ],
-            preparedSpells: ["spell.cure_wounds"],
+            spells: clericLevel1KnownPool,
+            preparedSpells: clericLevel1PreparedSpells,
           }),
         }),
       }),
     );
-    expect(result.spells?.preparedSpells).toEqual(["spell.cure_wounds"]);
+    expect(result.spells?.preparedSpells).toEqual(clericLevel1PreparedSpells);
   });
 
   it("requires a subclass when character creation starts at or above the class choice level", async () => {
@@ -2142,7 +2158,7 @@ describe("CharactersService level up", () => {
 
     await expect(
       service.updatePreparedSpells("user-1", "character-1", {
-        preparedSpells: ["spell.fireball"],
+        preparedSpells: wizardLevel5PreparedSpells,
       }),
     ).rejects.toMatchObject({
       response: expect.objectContaining({
@@ -2206,3 +2222,4 @@ describe("CharactersService level up", () => {
     expect(prisma.character.update).not.toHaveBeenCalled();
   });
 });
+

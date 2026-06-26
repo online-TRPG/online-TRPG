@@ -1,18 +1,23 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from "@nestjs/common";
+import { createHash, createHmac, randomUUID } from "crypto";
 import {
   CharacterAvatarType as PrismaCharacterAvatarType,
+  Prisma,
   Race,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
 import {
   AbilityScoresDto,
+  CharacterAvatarAssetResponseDto,
   CharacterAvatarType,
   CharacterInventoryResponseDto,
   CharacterResponseDto,
@@ -30,6 +35,7 @@ import {
   SessionCharacterResponseDto,
   StartingEquipmentDto,
   StartingSpellsDto,
+  UploadCharacterAvatarDto,
   UpdateCharacterDto,
   UpdateCharacterEquipmentDto,
   UpdatePreparedSpellsDto,
@@ -54,6 +60,26 @@ const defaultAbilityScores = {
   cha: 10,
 };
 
+type CharacterAvatarAssetRow = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  storageKey: string;
+  publicUrl: string;
+  width: number | null;
+  height: number | null;
+  fileSizeBytes: number;
+  uploadedByUserId: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type CharacterAvatarAssetDelegate = {
+  findMany: (args: unknown) => Promise<CharacterAvatarAssetRow[]>;
+  create: (args: unknown) => Promise<CharacterAvatarAssetRow>;
+  findFirst: (args: unknown) => Promise<CharacterAvatarAssetRow | null>;
+};
+
 // 능력치 범위: D&D 5e 공식 상한 20 + 매직 아이템/주문 보정 여유로 30. Point Buy(8~15)는 별도로 검사.
 const ABILITY_SCORE_MIN = 1;
 const ABILITY_SCORE_MAX = 30;
@@ -66,7 +92,6 @@ const LOCKED_SESSION_STATUSES: ReadonlySet<PrismaSessionStatus> = new Set([
   PrismaSessionStatus.PAUSED,
 ]);
 
-const STARTING_SLOT_SPELL_SELECTION_COUNT = 4;
 const WIZARD_STARTING_SPELLBOOK_SPELL_COUNT = 6;
 const WIZARD_SPELLBOOK_SPELLS_PER_LEVEL = 2;
 const ALLOWED_FEAT_IDS: ReadonlySet<string> = new Set(["feat.alert"]);
@@ -132,6 +157,12 @@ export class CharactersService {
     private readonly ruleCatalogService: RuleCatalogService,
     private readonly levelUpService: LevelUpService,
   ) {}
+
+  private get characterAvatarAssetDelegate(): CharacterAvatarAssetDelegate {
+    return (this.prisma as unknown as {
+      characterAvatarAsset: CharacterAvatarAssetDelegate;
+    }).characterAvatarAsset;
+  }
 
   async createCharacter(userId: string, dto: CreateCharacterDto): Promise<CharacterResponseDto> {
     await this.ensureUserExists(userId);
@@ -267,6 +298,111 @@ export class CharactersService {
     });
 
     return characters.map(mapCharacter);
+  }
+
+  async listMyAvatarAssets(userId: string): Promise<CharacterAvatarAssetResponseDto[]> {
+    await this.ensureUserExists(userId);
+
+    let assets;
+    try {
+      assets = await this.characterAvatarAssetDelegate.findMany({
+        where: { uploadedByUserId: userId },
+        orderBy: { createdAt: "desc" },
+      });
+    } catch (error) {
+      this.rethrowCharacterAvatarAssetStorageError(error);
+    }
+
+    return assets.map((asset) => this.mapCharacterAvatarAsset(asset));
+  }
+
+  async uploadMyAvatarAsset(
+    userId: string,
+    dto: UploadCharacterAvatarDto,
+  ): Promise<CharacterAvatarAssetResponseDto> {
+    await this.ensureUserExists(userId);
+
+    const allowedContentTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
+    if (!allowedContentTypes.has(dto.contentType)) {
+      throw new BadRequestException("초상화는 PNG, JPEG, WebP 이미지만 업로드할 수 있습니다.");
+    }
+
+    const body = Buffer.from(dto.dataBase64, "base64");
+    const maxBytes = Number(process.env.R2_MAX_AVATAR_IMAGE_BYTES ?? 5 * 1024 * 1024);
+    if (body.byteLength <= 0) {
+      throw new BadRequestException("초상화 이미지가 비어 있습니다.");
+    }
+    if (body.byteLength > maxBytes) {
+      throw new BadRequestException("초상화 이미지 파일이 너무 큽니다.");
+    }
+
+    const { storageKey, publicUrl } = await this.putR2Object({
+      body,
+      contentType: dto.contentType,
+      fileName: dto.fileName,
+      keyPrefix: `users/${userId}/avatars`,
+    });
+
+    let asset;
+    try {
+      asset = await this.characterAvatarAssetDelegate.create({
+        data: {
+          fileName: dto.fileName.trim(),
+          contentType: dto.contentType,
+          storageKey,
+          publicUrl,
+          width: null,
+          height: null,
+          fileSizeBytes: body.byteLength,
+          uploadedByUserId: userId,
+        },
+      });
+    } catch (error) {
+      this.rethrowCharacterAvatarAssetStorageError(error);
+    }
+
+    return this.mapCharacterAvatarAsset(asset);
+  }
+
+  async deleteMyAvatarAsset(userId: string, assetId: string): Promise<void> {
+    await this.ensureUserExists(userId);
+
+    let asset;
+    try {
+      asset = await this.characterAvatarAssetDelegate.findFirst({
+        where: { id: assetId, uploadedByUserId: userId },
+      });
+    } catch (error) {
+      this.rethrowCharacterAvatarAssetStorageError(error);
+    }
+
+    if (!asset) {
+      throw new NotFoundException("초상화 이미지를 찾을 수 없습니다.");
+    }
+
+    await this.deleteR2Object(asset.storageKey);
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.character.updateMany({
+          where: {
+            ownerUserId: userId,
+            avatarUrl: asset.publicUrl,
+          },
+          data: {
+            avatarType: PrismaCharacterAvatarType.DEFAULT,
+            avatarPresetId: null,
+            avatarUrl: null,
+            avatarUpdatedAt: new Date(),
+          },
+        });
+        await (tx as unknown as { characterAvatarAsset: { delete: (args: unknown) => Promise<unknown> } })
+          .characterAvatarAsset
+          .delete({ where: { id: asset.id } });
+      });
+    } catch (error) {
+      this.rethrowCharacterAvatarAssetStorageError(error);
+    }
   }
 
   async getCharacter(userId: string, characterId: string): Promise<CharacterResponseDto> {
@@ -2034,17 +2170,15 @@ export class CharactersService {
         );
     const classKey = normalizeSpellcastingClassKey(className);
     const spellcastingProgression = getSpellcastingProgression(className, level);
+    const executableSlotSpellPool = this.getExecutableSlotSpellPool(className, level);
+    const executableSlotSpellPoolSize = executableSlotSpellPool.size;
     const usesDynamicPreparedPool =
       this.isPreparedSpellcaster(className) &&
       classKey !== "wizard" &&
-      spellcastingProgression !== null;
-    const executableSlotSpellPoolSize = this.getExecutableSlotSpellPool(className, level).size;
-    const slotSpellSelectionCount = Math.min(
-      STARTING_SLOT_SPELL_SELECTION_COUNT,
-      executableSlotSpellPoolSize,
-    );
+      spellcastingProgression !== null &&
+      executableSlotSpellPoolSize > 0;
     const needSpells = usesDynamicPreparedPool
-      ? slotSpellSelectionCount
+      ? 0
       : spellcastingProgression?.spellsKnown !== null &&
           spellcastingProgression?.spellsKnown !== undefined
         ? Math.min(
@@ -2058,7 +2192,7 @@ export class CharactersService {
             )
           : klass.startingSpellCount;
 
-    if (needCantrips === 0 && needSpells === 0) {
+    if (needCantrips === 0 && needSpells === 0 && !usesDynamicPreparedPool) {
       return null;
     }
 
@@ -2081,13 +2215,15 @@ export class CharactersService {
     }
 
     const cantrips = startingSpells.cantrips.map((s) => s.trim()).filter((s) => s.length > 0);
-    const spells = startingSpells.spells.map((s) => s.trim()).filter((s) => s.length > 0);
+    const spells = usesDynamicPreparedPool
+      ? Array.from(executableSlotSpellPool).sort()
+      : startingSpells.spells.map((s) => s.trim()).filter((s) => s.length > 0);
     if (cantrips.length !== needCantrips) {
       throw new BadRequestException(
         `시작 주문: 비어 있지 않은 캔트립 ${cantrips.length}개가 ${klass.koName} 요구치 ${needCantrips}개와 일치하지 않습니다.`,
       );
     }
-    if (spells.length !== needSpells) {
+    if (!usesDynamicPreparedPool && spells.length !== needSpells) {
       throw new BadRequestException(
         `시작 주문: 비어 있지 않은 주문 ${spells.length}개가 ${klass.koName} 요구치 ${needSpells}개와 일치하지 않습니다.`,
       );
@@ -2099,7 +2235,7 @@ export class CharactersService {
       "캔트립",
       this.getExecutableCantripIds(),
     );
-    this.assertExecutableStartingSpellPool(spells, "주문", this.getExecutableSlotSpellPool(className, level));
+    this.assertExecutableStartingSpellPool(spells, "주문", executableSlotSpellPool);
     const knownSpellIds = new Set(spells.map((spell) => this.normalizeSpellId(spell)));
     const preparedSpells = startingSpells.preparedSpells
       ? Array.from(
@@ -2110,6 +2246,14 @@ export class CharactersService {
           ),
         )
       : undefined;
+    const preparedSpellLimit = this.resolvePreparedSpellLimit({ className, level, abilities });
+    if (preparedSpellLimit !== null && !preparedSpells) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELLS_REQUIRED",
+        message: "이 직업은 생성 시 준비 주문을 선택해야 합니다.",
+        preparedLimit: preparedSpellLimit,
+      });
+    }
     const unknownPreparedSpell = preparedSpells?.find((spell) => !knownSpellIds.has(spell));
     if (unknownPreparedSpell) {
       throw new BadRequestException({
@@ -2120,6 +2264,14 @@ export class CharactersService {
     }
     if (preparedSpells) {
       this.assertPreparedSpellLimit({ className, level, abilities }, preparedSpells);
+      if (preparedSpellLimit !== null && preparedSpells.length !== preparedSpellLimit) {
+        throw new BadRequestException({
+          code: "PREPARED_SPELL_COUNT_MISMATCH",
+          message: "준비 주문 수가 직업/레벨/능력치 기준과 일치하지 않습니다.",
+          preparedCount: preparedSpells.length,
+          preparedLimit: preparedSpellLimit,
+        });
+      }
     }
 
     return JSON.stringify({
@@ -2888,6 +3040,232 @@ export class CharactersService {
     if (byKey) return byKey;
 
     return this.prisma.race.findFirst({ where: { koName: trimmed } });
+  }
+
+  private mapCharacterAvatarAsset(asset: {
+    id: string;
+    fileName: string;
+    contentType: string;
+    storageKey: string;
+    publicUrl: string;
+    width: number | null;
+    height: number | null;
+    fileSizeBytes: number;
+    uploadedByUserId: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }): CharacterAvatarAssetResponseDto {
+    return {
+      id: asset.id,
+      fileName: asset.fileName,
+      contentType: asset.contentType,
+      storageKey: asset.storageKey,
+      publicUrl: asset.publicUrl,
+      width: asset.width,
+      height: asset.height,
+      fileSizeBytes: asset.fileSizeBytes,
+      uploadedByUserId: asset.uploadedByUserId,
+      createdAt: asset.createdAt.toISOString(),
+      updatedAt: asset.updatedAt.toISOString(),
+    };
+  }
+
+  private rethrowCharacterAvatarAssetStorageError(error: unknown): never {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      (error.code === "P2021" || error.code === "P2022")
+    ) {
+      throw new ServiceUnavailableException(
+        "Character avatar asset storage schema is missing. Run `npm run prisma:push -w @trpg/be` and restart the backend.",
+      );
+    }
+
+    throw error;
+  }
+
+  private async putR2Object({
+    body,
+    contentType,
+    fileName,
+    keyPrefix,
+  }: {
+    body: Buffer;
+    contentType: string;
+    fileName: string;
+    keyPrefix: string;
+  }): Promise<{ storageKey: string; publicUrl: string }> {
+    const accountId = process.env.R2_ACCOUNT_ID;
+    const bucket = process.env.R2_BUCKET_NAME;
+    const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+    const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL?.replace(/\/$/, "");
+
+    if (!accountId || !bucket || !accessKeyId || !secretAccessKey || !publicBaseUrl) {
+      throw new BadRequestException("R2 업로드 환경변수가 설정되지 않았습니다.");
+    }
+
+    const extension = this.getSafeAvatarFileExtension(fileName, contentType);
+    const key = `${keyPrefix}/${randomUUID()}${extension}`;
+    const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+    const url = new URL(`${endpoint}/${bucket}/${key}`);
+    const now = new Date();
+    const amzDate = this.formatAmzDate(now);
+    const dateStamp = amzDate.slice(0, 8);
+    const payloadHash = createHash("sha256").update(body).digest("hex");
+    const encodedPath = `/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
+    const canonicalHeaders =
+      `host:${url.host}\n` + `x-amz-content-sha256:${payloadHash}\n` + `x-amz-date:${amzDate}\n`;
+    const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+    const canonicalRequest = [
+      "PUT",
+      encodedPath,
+      "",
+      canonicalHeaders,
+      signedHeaders,
+      payloadHash,
+    ].join("\n");
+    const credentialScope = `${dateStamp}/auto/s3/aws4_request`;
+    const stringToSign = [
+      "AWS4-HMAC-SHA256",
+      amzDate,
+      credentialScope,
+      createHash("sha256").update(canonicalRequest).digest("hex"),
+    ].join("\n");
+    const signingKey = this.getSignatureKey(secretAccessKey, dateStamp, "auto", "s3");
+    const signature = createHmac("sha256", signingKey).update(stringToSign).digest("hex");
+    const authorization =
+      `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, ` +
+      `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "PUT",
+        headers: {
+          Authorization: authorization,
+          "Content-Type": contentType,
+          "x-amz-content-sha256": payloadHash,
+          "x-amz-date": amzDate,
+        },
+        body,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "unknown network error";
+      throw new BadGatewayException(
+        `R2 avatar upload request failed before a response was received. ${detail}`,
+      );
+    }
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new BadRequestException(`R2 업로드에 실패했습니다. (${response.status}) ${message}`);
+    }
+
+    return {
+      storageKey: key,
+      publicUrl: `${publicBaseUrl}/${key}`,
+    };
+  }
+
+  private async deleteR2Object(storageKey: string): Promise<void> {
+    const accountId = process.env.R2_ACCOUNT_ID;
+    const bucket = process.env.R2_BUCKET_NAME;
+    const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+
+    if (!accountId || !bucket || !accessKeyId || !secretAccessKey) {
+      throw new BadRequestException("R2 삭제 환경변수가 설정되지 않았습니다.");
+    }
+
+    const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+    const url = new URL(`${endpoint}/${bucket}/${storageKey}`);
+    const now = new Date();
+    const amzDate = this.formatAmzDate(now);
+    const dateStamp = amzDate.slice(0, 8);
+    const payloadHash = createHash("sha256").update("").digest("hex");
+    const encodedPath = `/${bucket}/${storageKey.split("/").map(encodeURIComponent).join("/")}`;
+    const canonicalHeaders =
+      `host:${url.host}\n` + `x-amz-content-sha256:${payloadHash}\n` + `x-amz-date:${amzDate}\n`;
+    const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+    const canonicalRequest = [
+      "DELETE",
+      encodedPath,
+      "",
+      canonicalHeaders,
+      signedHeaders,
+      payloadHash,
+    ].join("\n");
+    const credentialScope = `${dateStamp}/auto/s3/aws4_request`;
+    const stringToSign = [
+      "AWS4-HMAC-SHA256",
+      amzDate,
+      credentialScope,
+      createHash("sha256").update(canonicalRequest).digest("hex"),
+    ].join("\n");
+    const signingKey = this.getSignatureKey(secretAccessKey, dateStamp, "auto", "s3");
+    const signature = createHmac("sha256", signingKey).update(stringToSign).digest("hex");
+    const authorization =
+      `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, ` +
+      `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "DELETE",
+        headers: {
+          Authorization: authorization,
+          "x-amz-content-sha256": payloadHash,
+          "x-amz-date": amzDate,
+        },
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "unknown network error";
+      throw new BadGatewayException(
+        `R2 avatar delete request failed before a response was received. ${detail}`,
+      );
+    }
+
+    if (response.ok || response.status === 404) {
+      return;
+    }
+
+    const message = await response.text();
+    throw new BadRequestException(`R2 삭제에 실패했습니다. (${response.status}) ${message}`);
+  }
+
+  private formatAmzDate(date: Date): string {
+    return date.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  }
+
+  private getSignatureKey(
+    secret: string,
+    dateStamp: string,
+    region: string,
+    service: string,
+  ): Buffer {
+    const kDate = createHmac("sha256", `AWS4${secret}`).update(dateStamp).digest();
+    const kRegion = createHmac("sha256", kDate).update(region).digest();
+    const kService = createHmac("sha256", kRegion).update(service).digest();
+    return createHmac("sha256", kService).update("aws4_request").digest();
+  }
+
+  private getSafeAvatarFileExtension(fileName: string, contentType: string): string {
+    const lowered = fileName.toLowerCase();
+    const match = lowered.match(/\.(png|jpe?g|webp)$/);
+    if (match) {
+      return match[0] === ".jpeg" ? ".jpg" : match[0];
+    }
+
+    switch (contentType) {
+      case "image/png":
+        return ".png";
+      case "image/jpeg":
+        return ".jpg";
+      case "image/webp":
+        return ".webp";
+      default:
+        return ".img";
+    }
   }
 
   private toAvatarType(value?: CharacterAvatarType): PrismaCharacterAvatarType {

@@ -149,7 +149,20 @@ export interface StaticItemCatalog {
 }
 
 const RAW_ASSET_CACHE = new Map<string, Promise<unknown>>();
-const SUPPORTED_CLASS_ORDER = ['Wizard', 'Ranger', 'Rogue', 'Fighter'] as const;
+const SUPPORTED_CLASS_ORDER = [
+  'Barbarian',
+  'Bard',
+  'Cleric',
+  'Druid',
+  'Fighter',
+  'Monk',
+  'Paladin',
+  'Ranger',
+  'Rogue',
+  'Sorcerer',
+  'Warlock',
+  'Wizard',
+] as const;
 const CLASS_LABEL_MAP = new Map<string, string>([
   ['Barbarian', '바바리안'],
   ['Bard', '바드'],

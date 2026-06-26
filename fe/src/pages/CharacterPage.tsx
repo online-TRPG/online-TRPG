@@ -39,6 +39,7 @@ import type { CharacterPayload } from '../hooks/useSession';
 import type { PersistentCharacter, Scenario, SessionSnapshot, StoredUser } from '../types/session';
 import type {
   ClassDefinitionResponseDto,
+  CharacterAvatarAssetResponseDto,
   ItemResponseDto,
   LevelUpCharacterDto,
   RaceResponseDto,
@@ -56,7 +57,13 @@ import {
   type SpellSelectionGridDetail,
   type SpellSelectionGridOption,
 } from '../features/spells/SpellSelectionGrid';
-import { listItems, listRuleCatalog } from '../services/api';
+import {
+  deleteCharacterAvatarAsset,
+  listCharacterAvatarAssets,
+  listItems,
+  listRuleCatalog,
+  uploadCharacterAvatarAsset,
+} from '../services/api';
 import './CharacterPage.css';
 
 // shared-types(CJS) value import 가 rollup 추적 실패 케이스라(메모) inline 동일값.
@@ -107,6 +114,18 @@ function normalizeSkillToKo(input: string): string | null {
   if (!trimmed) return null;
   if (SKILL_KO_SET_INLINE.has(trimmed)) return trimmed;
   return SKILL_KO_BY_CODE_INLINE.get(trimmed.toLowerCase()) ?? null;
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      resolve(result.split(',')[1] ?? '');
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('파일을 읽지 못했습니다.'));
+    reader.readAsDataURL(file);
+  });
 }
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
@@ -519,6 +538,21 @@ function getPreparedSpellAbilityKey(className: string | null | undefined): Abili
   return null;
 }
 
+function usesDynamicPreparedSpellPool(
+  className: string | null | undefined,
+  level: number,
+  klass: ClassDefinitionResponseDto | null | undefined,
+  ruleCatalog: RuleCatalogReferenceDto[] = []
+) {
+  const classKey = normalizeClassValue(className ?? '').toLowerCase();
+  return (
+    Boolean(getPreparedSpellAbilityKey(className)) &&
+    classKey !== 'wizard' &&
+    Boolean(getSpellcastingProgressionEntry(klass, level)) &&
+    getImplementedSpellOptions(className, 'slot', level, ruleCatalog).length > 0
+  );
+}
+
 function getAbilityModifier(score: number | null | undefined) {
   return Math.floor(((score ?? 10) - 10) / 2);
 }
@@ -557,11 +591,9 @@ function getMvpStartingSlotSpellCount(
   const classKey = normalizeClassValue(className ?? '').toLowerCase();
   const progression = getSpellcastingProgressionEntry(klass, level);
   if (
-    getPreparedSpellAbilityKey(className) &&
-    classKey !== 'wizard' &&
-    progression
+    usesDynamicPreparedSpellPool(className, level, klass, ruleCatalog)
   ) {
-    return getImplementedSpellOptions(className, 'slot', level, ruleCatalog).length;
+    return 0;
   }
   if (typeof progression?.spellsKnown === 'number') {
     return Math.min(
@@ -952,18 +984,20 @@ const abilityDisplayLabels: Record<AbilityKey, string> = {
 // 클래스 시드의 skillChoices 가 한국어이므로 표시·전송 모두 한국어를 정규형으로 사용한다.
 const allSkillsKo: readonly string[] = DND5E_SKILLS_INLINE.map((entry) => entry.ko);
 const presetIdByClassName: Map<string, string> = new Map([
+  ['Barbarian', 'preset_warrior'],
+  ['Bard', 'preset_wizard'],
+  ['Cleric', 'preset_warrior'],
+  ['Druid', 'preset_archer'],
   ['Wizard', 'preset_wizard'],
+  ['Monk', 'preset_rogue'],
+  ['Paladin', 'preset_warrior'],
   ['Ranger', 'preset_archer'],
   ['Rogue', 'preset_rogue'],
+  ['Sorcerer', 'preset_wizard'],
+  ['Warlock', 'preset_wizard'],
   ['Fighter', 'preset_warrior'],
   ['Archer', 'preset_archer'],
   ['Warrior', 'preset_warrior'],
-]);
-const classNameByPresetId: Map<string, string> = new Map([
-  ['preset_wizard', 'Wizard'],
-  ['preset_archer', 'Ranger'],
-  ['preset_rogue', 'Rogue'],
-  ['preset_warrior', 'Fighter'],
 ]);
 
 const fightingStyleOptions = [
@@ -1253,17 +1287,37 @@ const classFeatureIdAliasesByClassKey: Record<string, Record<string, string>> = 
     무모한_공격: 'class.barbarian.feature.reckless_attack',
     위험_감각: 'class.barbarian.feature.danger_sense',
     원초적_길: 'class.barbarian.feature.primal_path',
+    추가_공격: 'class.barbarian.feature.extra_attack',
+    빠른_이동: 'class.barbarian.feature.fast_movement',
+    야성적_본능: 'class.barbarian.feature.feral_instinct',
+    잔혹한_치명타_1주사위: 'class.barbarian.feature.brutal_critical',
+    끈질긴_격노: 'class.barbarian.feature.relentless_rage',
+    지속되는_격노: 'class.barbarian.feature.persistent_rage',
+    굴하지_않는_힘: 'class.barbarian.feature.indomitable_might',
+    원초적_투사: 'class.barbarian.feature.primal_champion',
   },
   bard: {
     주문시전: 'class.bard.feature.spellcasting',
     바드의_고양감: 'class.bard.feature.bardic_inspiration',
     만물박사: 'class.bard.feature.jack_of_all_trades',
     휴식의_노래: 'class.bard.feature.song_of_rest',
+    바드_대학: 'class.bard.feature.bard_college',
+    전문화: 'class.bard.feature.expertise',
+    고양감의_원천: 'class.bard.feature.font_of_inspiration',
+    반대매혹: 'class.bard.feature.countercharm',
+    바드_대학_기능: 'class.bard.feature.bard_college_feature',
+    마법의_비밀: 'class.bard.feature.magical_secrets',
+    뛰어난_고양감: 'class.bard.feature.superior_inspiration',
   },
   cleric: {
     주문시전: 'class.cleric.feature.spellcasting',
+    신성_권역: 'class.cleric.feature.divine_domain',
     신성한_영역: 'class.cleric.feature.divine_domain',
     신성_변환: 'class.cleric.feature.channel_divinity',
+    신성_권역_기능: 'class.cleric.feature.divine_domain_feature',
+    언데드_파괴: 'class.cleric.feature.destroy_undead',
+    신성한_개입: 'class.cleric.feature.divine_intervention',
+    신성한_개입_향상: 'class.cleric.feature.divine_intervention_improvement',
   },
   druid: {
     드루이드어: 'class.druid.feature.druidic',
@@ -1271,20 +1325,40 @@ const classFeatureIdAliasesByClassKey: Record<string, Record<string, string>> = 
     야생_변신: 'class.druid.feature.wild_shape',
     야생_변신_향상: 'class.druid.feature.wild_shape',
     드루이드_서클: 'class.druid.feature.druid_circle',
+    영원한_육체: 'class.druid.feature.timeless_body',
+    야수_주문: 'class.druid.feature.beast_spells',
+    대드루이드: 'class.druid.feature.archdruid',
   },
   fighter: {
     전투_방식: 'class.fighter.feature.fighting_style',
     재기의_바람: 'class.fighter.feature.second_wind',
+    재기의_숨결: 'class.fighter.feature.second_wind',
     행동_연쇄: 'class.fighter.feature.action_surge',
     무술_원형: 'class.fighter.feature.martial_archetype',
+    무예_아키타입: 'class.fighter.feature.martial_archetype',
+    추가_공격: 'class.fighter.feature.extra_attack',
+    불굴: 'class.fighter.feature.indomitable',
   },
   monk: {
     비무장_방어: 'class.monk.feature.unarmored_defense',
     무술: 'class.monk.feature.martial_arts',
     기: 'class.monk.feature.ki',
     비무장_이동: 'class.monk.feature.unarmored_movement',
+    수도_전통: 'class.monk.feature.monastic_tradition',
     수도원_전통: 'class.monk.feature.monastic_tradition',
+    투사체_쳐내기: 'class.monk.feature.deflect_missiles',
     투사체_튕겨내기: 'class.monk.feature.deflect_missiles',
+    느린_낙하: 'class.monk.feature.slow_fall',
+    추가_공격: 'class.monk.feature.extra_attack',
+    충격의_일격: 'class.monk.feature.stunning_strike',
+    기_강화_일격: 'class.monk.feature.ki_empowered_strikes',
+    수도_전통_기능: 'class.monk.feature.monastic_tradition_feature',
+    회피: 'class.monk.feature.evasion',
+    고요한_정신: 'class.monk.feature.stillness_of_mind',
+    순수한_육체: 'class.monk.feature.purity_of_body',
+    다이아몬드_영혼: 'class.monk.feature.diamond_soul',
+    빈_몸: 'class.monk.feature.empty_body',
+    완전한_자아: 'class.monk.feature.perfect_self',
   },
   paladin: {
     신성한_감각: 'class.paladin.feature.divine_sense',
@@ -1294,14 +1368,29 @@ const classFeatureIdAliasesByClassKey: Record<string, Record<string, string>> = 
     신성한_강타: 'class.paladin.feature.divine_smite',
     신성한_건강: 'class.paladin.feature.divine_health',
     신성한_맹세: 'class.paladin.feature.sacred_oath',
+    추가_공격: 'class.paladin.feature.extra_attack',
+    보호의_오라: 'class.paladin.feature.aura_of_protection',
+    용기의_오라: 'class.paladin.feature.aura_of_courage',
+    향상된_신성한_강타: 'class.paladin.feature.improved_divine_smite',
+    정화의_손길: 'class.paladin.feature.cleansing_touch',
   },
   ranger: {
     숙적: 'class.ranger.feature.favored_enemy',
+    숙적_향상: 'class.ranger.feature.favored_enemy',
     자연_탐험가: 'class.ranger.feature.natural_explorer',
+    자연_탐험가_향상: 'class.ranger.feature.natural_explorer',
     전투_방식: 'class.ranger.feature.fighting_style',
     주문시전: 'class.ranger.feature.spellcasting',
     레인저_원형: 'class.ranger.feature.ranger_archetype',
+    레인저_아키타입: 'class.ranger.feature.ranger_archetype',
     원시적_감각: 'class.ranger.feature.primeval_awareness',
+    원초적_감지: 'class.ranger.feature.primeval_awareness',
+    추가_공격: 'class.ranger.feature.extra_attack',
+    대지의_발걸음: 'class.ranger.feature.lands_stride',
+    눈앞의_은신: 'class.ranger.feature.hide_in_plain_sight',
+    사라지기: 'class.ranger.feature.vanish',
+    야성_감각: 'class.ranger.feature.feral_senses',
+    숙적_처단자: 'class.ranger.feature.foe_slayer',
   },
   rogue: {
     전문화: 'class.rogue.feature.expertise',
@@ -1309,23 +1398,40 @@ const classFeatureIdAliasesByClassKey: Record<string, Record<string, string>> = 
     도둑의_은어: 'class.rogue.feature.thieves_cant',
     교활한_행동: 'class.rogue.feature.cunning_action',
     로그_원형: 'class.rogue.feature.roguish_archetype',
+    로그_아키타입: 'class.rogue.feature.roguish_archetype',
+    불가사의한_회피: 'class.rogue.feature.uncanny_dodge',
+    회피: 'class.rogue.feature.evasion',
+    믿음직한_재능: 'class.rogue.feature.reliable_talent',
+    맹시_감각: 'class.rogue.feature.blindsense',
+    미끄러운_정신: 'class.rogue.feature.slippery_mind',
+    포착_불가: 'class.rogue.feature.elusive',
+    행운의_일격: 'class.rogue.feature.stroke_of_luck',
   },
   sorcerer: {
     주문시전: 'class.sorcerer.feature.spellcasting',
     소서러_기원: 'class.sorcerer.feature.sorcerous_origin',
     마력의_샘: 'class.sorcerer.feature.font_of_magic',
     메타매직: 'class.sorcerer.feature.metamagic',
+    메타매직_추가: 'class.sorcerer.feature.metamagic_improvement',
+    소서러적_회복: 'class.sorcerer.feature.sorcerous_restoration',
   },
   warlock: {
     다른_세계의_후원자: 'class.warlock.feature.otherworldly_patron',
     계약_마법: 'class.warlock.feature.pact_magic',
     섬뜩한_영창: 'class.warlock.feature.eldritch_invocations',
     계약의_은혜: 'class.warlock.feature.pact_boon',
+    신비의_비밀_6레벨: 'class.warlock.feature.mystic_arcanum_6',
+    신비의_비밀_7레벨: 'class.warlock.feature.mystic_arcanum_7',
+    신비의_비밀_8레벨: 'class.warlock.feature.mystic_arcanum_8',
+    신비의_비밀_9레벨: 'class.warlock.feature.mystic_arcanum_9',
+    섬뜩한_주인: 'class.warlock.feature.eldritch_master',
   },
   wizard: {
     주문시전: 'class.wizard.feature.spellcasting',
     비전_회복: 'class.wizard.feature.arcane_recovery',
     비전_전통: 'class.wizard.feature.arcane_tradition',
+    주문_숙련: 'class.wizard.feature.spell_mastery',
+    대표_주문: 'class.wizard.feature.signature_spells',
   },
 };
 
@@ -1397,7 +1503,7 @@ function normalizeAsiFeatChoicesForClassLevel(
 
 function splitClassFeatureSummary(summary: string): string[] {
   return summary
-    .split(/[,/]/)
+    .split(',')
     .map((part) => part.trim())
     .filter(Boolean);
 }
@@ -1794,13 +1900,16 @@ function getCharacterArt(className: string) {
   if (
     normalized.includes('wizard') ||
     normalized.includes('mage') ||
-    normalized.includes('sorcer')
+    normalized.includes('sorcer') ||
+    normalized.includes('warlock') ||
+    normalized.includes('bard')
   ) {
     return defaultWizardImage;
   }
   if (
     normalized.includes('archer') ||
     normalized.includes('ranger') ||
+    normalized.includes('druid') ||
     normalized.includes('bow')
   ) {
     return defaultArcherImage;
@@ -1808,12 +1917,16 @@ function getCharacterArt(className: string) {
   if (
     normalized.includes('rogue') ||
     normalized.includes('rouge') ||
-    normalized.includes('thief')
+    normalized.includes('thief') ||
+    normalized.includes('monk')
   ) {
     return defaultRogueImage;
   }
   if (
+    normalized.includes('barbarian') ||
+    normalized.includes('cleric') ||
     normalized.includes('fighter') ||
+    normalized.includes('paladin') ||
     normalized.includes('warrior') ||
     normalized.includes('knight')
   ) {
@@ -1826,7 +1939,8 @@ function getAvatarPresetImage(avatarPresetId?: string | null) {
   return avatarPresets.find((preset) => preset.id === avatarPresetId)?.image ?? null;
 }
 
-function getCharacterImage(character: Pick<PersistentCharacter, 'avatarPresetId' | 'className'>) {
+function getCharacterImage(character: Pick<PersistentCharacter, 'avatarUrl' | 'avatarPresetId' | 'className'>) {
+  if (character.avatarUrl) return character.avatarUrl;
   return getAvatarPresetImage(character.avatarPresetId) ?? getCharacterArt(character.className);
 }
 
@@ -1849,10 +1963,6 @@ function getSkillLabel(skill: string) {
 
 function getPresetIdForClassName(className: string) {
   return presetIdByClassName.get(className) ?? 'preset_wizard';
-}
-
-function getClassNameForPresetId(presetId: string) {
-  return classNameByPresetId.get(presetId) ?? 'Wizard';
 }
 
 function getFeatureValue(features: string[] | undefined, prefix: string) {
@@ -2058,6 +2168,23 @@ function normalizeRaceLookupValue(value: string) {
   return value.trim().toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
 }
 
+function createZeroRaceAbilityIncreases(): RaceResponseDto['abilityIncreases'] {
+  return {
+    str: 0,
+    dex: 0,
+    con: 0,
+    int: 0,
+    wis: 0,
+    cha: 0,
+  };
+}
+
+function findRaceByAncestryValue(races: RaceResponseDto[], ancestry: string | null | undefined) {
+  const normalized = (ancestry ?? '').trim().toLowerCase();
+  if (!normalized) return null;
+  return races.find((race) => race.key === normalized) ?? races.find((race) => race.koName === ancestry) ?? null;
+}
+
 function getRaceByValue(raceCatalog: RaceData[], value: string): RaceData | null {
   const normalizedValue = normalizeRaceLookupValue(value);
   if (!normalizedValue) return null;
@@ -2118,6 +2245,7 @@ function formatAbilityBonus(abilityBonus: RaceAbilityBonus) {
 
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
 export function CharacterPage({
+  user,
   characters,
   scenarios,
   races,
@@ -2149,6 +2277,10 @@ export function CharacterPage({
   const [formState, setFormState] = useState<CharacterPayload>(() => createDefaultCharacter());
   const [formValidationError, setFormValidationError] = useState<string | null>(null);
   const [createToast, setCreateToast] = useState<{ id: number; message: string } | null>(null);
+  const [avatarAssets, setAvatarAssets] = useState<CharacterAvatarAssetResponseDto[]>([]);
+  const [avatarAssetError, setAvatarAssetError] = useState<string | null>(null);
+  const [avatarUploadBusy, setAvatarUploadBusy] = useState(false);
+  const [deletingAvatarAssetId, setDeletingAvatarAssetId] = useState<string | null>(null);
   const [createStepIndex, setCreateStepIndex] = useState(0);
   const [isStatsReferenceOpen, setStatsReferenceOpen] = useState(false);
   const [itemCatalog, setItemCatalog] = useState<ItemResponseDto[]>([]);
@@ -2197,6 +2329,77 @@ export function CharacterPage({
     }, 3000);
   }
 
+  function applyUploadedAvatar(asset: CharacterAvatarAssetResponseDto) {
+    setFormState((current) => ({
+      ...current,
+      avatarType: 'UPLOAD',
+      avatarPresetId: null,
+      avatarUrl: asset.publicUrl,
+    }));
+  }
+
+  async function handleAvatarUpload(file: File | null) {
+    if (!file) return;
+    const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
+    if (!allowedTypes.has(file.type)) {
+      const message = '초상화는 PNG, JPEG, WebP 이미지만 업로드할 수 있습니다.';
+      setAvatarAssetError(message);
+      showCreateToast(message);
+      return;
+    }
+
+    setAvatarUploadBusy(true);
+    setAvatarAssetError(null);
+    try {
+      const dataBase64 = await fileToBase64(file);
+      const asset = await uploadCharacterAvatarAsset(user, {
+        fileName: file.name,
+        contentType: file.type,
+        dataBase64,
+      });
+      setAvatarAssets((current) => [asset, ...current.filter((item) => item.id !== asset.id)]);
+      applyUploadedAvatar(asset);
+      showCreateToast('업로드한 이미지를 초상화로 선택했습니다.');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '초상화 업로드에 실패했습니다.';
+      setAvatarAssetError(message);
+      showCreateToast(message);
+    } finally {
+      setAvatarUploadBusy(false);
+    }
+  }
+
+  async function handleAvatarAssetDelete(asset: CharacterAvatarAssetResponseDto) {
+    const ok = window.confirm(
+      `"${asset.fileName}" 초상화를 삭제할까요?\n이 이미지를 사용 중인 내 캐릭터는 기본 초상화로 되돌아갑니다.`
+    );
+    if (!ok) return;
+
+    setDeletingAvatarAssetId(asset.id);
+    setAvatarAssetError(null);
+    try {
+      await deleteCharacterAvatarAsset(user, asset.id);
+      setAvatarAssets((current) => current.filter((item) => item.id !== asset.id));
+      setFormState((current) =>
+        current.avatarUrl === asset.publicUrl
+          ? {
+              ...current,
+              avatarType: 'DEFAULT',
+              avatarPresetId: null,
+              avatarUrl: null,
+            }
+          : current
+      );
+      showCreateToast('초상화를 삭제했습니다.');
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '초상화 삭제에 실패했습니다.';
+      setAvatarAssetError(message);
+      showCreateToast(message);
+    } finally {
+      setDeletingAvatarAssetId(null);
+    }
+  }
+
   useEffect(() => {
     listItems()
       .then(setItemCatalog)
@@ -2205,6 +2408,27 @@ export function CharacterPage({
       .then(setRuleCatalog)
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    let ignore = false;
+    listCharacterAvatarAssets(user)
+      .then((assets) => {
+        if (!ignore) {
+          setAvatarAssets(assets);
+          setAvatarAssetError(null);
+        }
+      })
+      .catch((caught) => {
+        if (!ignore) {
+          setAvatarAssetError(
+            caught instanceof Error ? caught.message : '초상화 라이브러리를 불러오지 못했습니다.'
+          );
+        }
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!isCreateModalOpen) {
@@ -2322,14 +2546,95 @@ export function CharacterPage({
     [formState.startingSpells?.spells]
   );
   const selectedStartingPreparedSpells = formState.startingSpells?.preparedSpells ?? [];
+  const isStartingDynamicPreparedCaster = usesDynamicPreparedSpellPool(
+    formState.className,
+    formState.level ?? 1,
+    selectedClass,
+    ruleCatalog
+  );
+  const startingPreparedSpellOptions = useMemo(() => {
+    if (isStartingDynamicPreparedCaster) {
+      return detailedSlotSpellOptions;
+    }
+
+    return selectedStartingSlotSpells.map((spellId) => ({
+      id: spellId,
+      label: getImplementedSpellLabel(spellId, ruleCatalog),
+      level: slotSpellOptions.find((spell) => spell.id === spellId)?.level,
+      detail: buildSpellSelectionDetail(
+        slotSpellOptions.find((spell) => spell.id === spellId) ?? {
+          id: spellId,
+          label: getImplementedSpellLabel(spellId, ruleCatalog),
+          level: null,
+        },
+        ruleCatalog,
+        spellCatalogById
+      ),
+    }));
+  }, [
+    detailedSlotSpellOptions,
+    isStartingDynamicPreparedCaster,
+    ruleCatalog,
+    selectedStartingSlotSpells,
+    slotSpellOptions,
+    spellCatalogById,
+  ]);
 
   // ancestry → race(시드)룩업. ancestry 가 race.key 또는 race.koName 와 매칭되면 보정 적용.
   const selectedRace = useMemo<RaceResponseDto | null>(() => {
-    const ancestry = (formState.ancestry ?? '').trim();
-    if (!ancestry) return null;
-    const lower = ancestry.toLowerCase();
-    return races.find((r) => r.key === lower) ?? races.find((r) => r.koName === ancestry) ?? null;
+    return findRaceByAncestryValue(races, formState.ancestry);
   }, [formState.ancestry, races]);
+  const baseRaceOptions = useMemo(() => races.filter((race) => !race.parentRaceId), [races]);
+  const selectedCreateBaseRace = useMemo<RaceResponseDto | null>(() => {
+    if (!selectedRace) return null;
+    if (!selectedRace.parentRaceId) return selectedRace;
+    return races.find((race) => race.id === selectedRace.parentRaceId) ?? null;
+  }, [races, selectedRace]);
+  const selectedCreateSubraceOptions = useMemo(
+    () =>
+      selectedCreateBaseRace
+        ? races.filter((race) => race.parentRaceId === selectedCreateBaseRace.id)
+        : [],
+    [races, selectedCreateBaseRace]
+  );
+  const selectedCreateSubraceKey =
+    selectedRace && selectedRace.parentRaceId === selectedCreateBaseRace?.id ? selectedRace.key : '';
+  const isCreateSubraceRequired = selectedCreateSubraceOptions.length > 0;
+
+  function applyCreateAncestryChange(nextAncestry: string) {
+    const nextRace = findRaceByAncestryValue(races, nextAncestry);
+    setFormState((current) => {
+      const currentRace = findRaceByAncestryValue(races, current.ancestry);
+      const currentFinals = current.abilities ?? {
+        str: 10,
+        dex: 10,
+        con: 10,
+        int: 10,
+        wis: 10,
+        cha: 10,
+      };
+      const currentBonus = currentRace?.abilityIncreases ?? createZeroRaceAbilityIncreases();
+      const nextBonus = nextRace?.abilityIncreases ?? createZeroRaceAbilityIncreases();
+      const nextAbilities = {
+        str: currentFinals.str - currentBonus.str + nextBonus.str,
+        dex: currentFinals.dex - currentBonus.dex + nextBonus.dex,
+        con: currentFinals.con - currentBonus.con + nextBonus.con,
+        int: currentFinals.int - currentBonus.int + nextBonus.int,
+        wis: currentFinals.wis - currentBonus.wis + nextBonus.wis,
+        cha: currentFinals.cha - currentBonus.cha + nextBonus.cha,
+      };
+
+      return {
+        ...current,
+        ancestry: nextAncestry,
+        features:
+          nextAncestry.toLowerCase() === 'dragonborn'
+            ? current.features
+            : replaceFeatureTags(current.features, ['draconic_ancestry:'], []),
+        abilities: clampAbilitiesToPointBuyRange(nextAbilities, nextBonus),
+      };
+    });
+  }
 
   // Point Buy 계산 결과(base/cost/총비용/남은 포인트). selectedRace 없으면 검증 비활성화.
   const pointBuyState = useMemo(() => {
@@ -2341,14 +2646,7 @@ export function CharacterPage({
       wis: 10,
       cha: 10,
     };
-    const increases = selectedRace?.abilityIncreases ?? {
-      str: 0,
-      dex: 0,
-      con: 0,
-      int: 0,
-      wis: 0,
-      cha: 0,
-    };
+    const increases = selectedRace?.abilityIncreases ?? createZeroRaceAbilityIncreases();
     const bases = {
       str: finals.str - increases.str,
       dex: finals.dex - increases.dex,
@@ -2901,13 +3199,23 @@ export function CharacterPage({
     [raceCatalog]
   );
   const ancestryLabelMap = useMemo(
-    () => new Map(ancestryOptions.map((option) => [option.value, option.label])),
-    [ancestryOptions]
+    () => {
+      const map = new Map(ancestryOptions.map((option) => [option.value, option.label]));
+      for (const race of races) {
+        map.set(race.key, race.koName);
+      }
+      return map;
+    },
+    [ancestryOptions, races]
   );
   const selectedRaceInfo = useMemo(() => {
-    const staticRaceInfo = getRaceByValue(raceCatalog, formState.ancestry);
+    const staticRaceInfo =
+      getRaceByValue(raceCatalog, formState.ancestry) ??
+      (selectedRace?.parentRaceId && selectedCreateBaseRace
+        ? getRaceByValue(raceCatalog, selectedCreateBaseRace.key)
+        : null);
     return buildSelectedRaceInfo(selectedRace, staticRaceInfo);
-  }, [formState.ancestry, raceCatalog, selectedRace]);
+  }, [formState.ancestry, raceCatalog, selectedCreateBaseRace, selectedRace]);
   const selectedClassInfo = useMemo(
     () => getClassOptionByValue(classCatalog, formState.className),
     [classCatalog, formState.className]
@@ -3195,6 +3503,10 @@ export function CharacterPage({
         );
         return;
       }
+      if (isCreateSubraceRequired && !selectedCreateSubraceKey) {
+        setFormValidationError('선택한 종족의 하위종족을 선택해야 다음 장으로 넘어갈 수 있습니다.');
+        return;
+      }
       if (isCreateSubclassRequired && !formState.subclassName) {
         setFormValidationError('현재 시작 레벨에서는 서브클래스를 선택해야 합니다.');
         return;
@@ -3245,6 +3557,11 @@ export function CharacterPage({
       return;
     }
 
+    if (isCreateSubraceRequired && !selectedCreateSubraceKey) {
+      setFormValidationError('선택한 종족의 하위종족을 선택해야 캐릭터를 생성할 수 있습니다.');
+      return;
+    }
+
     if (!hasRequiredStartingEquipmentItemSelections(selectedClass, formState)) {
       setFormValidationError(
         '시작 장비의 자유 선택 항목에서 실제 아이템을 선택해야 캐릭터를 생성할 수 있습니다.'
@@ -3252,7 +3569,13 @@ export function CharacterPage({
       return;
     }
 
-    if (selectedClass && (selectedStartingCantripCount > 0 || selectedStartingSlotSpellCount > 0)) {
+    const shouldValidateStartingSpells =
+      selectedClass &&
+      (selectedStartingCantripCount > 0 ||
+        selectedStartingSlotSpellCount > 0 ||
+        (startingPreparedSpellLimit !== null && startingPreparedSpellOptions.length > 0));
+
+    if (shouldValidateStartingSpells) {
       const requiredCantripCount = selectedStartingCantripCount;
       const requiredSpellCount = selectedStartingSlotSpellCount;
       const cantrips = formState.startingSpells?.cantrips ?? [];
@@ -3292,19 +3615,26 @@ export function CharacterPage({
             .filter(Boolean)
         )
       );
+      const preparedSpellPool = isStartingDynamicPreparedCaster
+        ? slotSpellOptions.map((spell) => spell.id)
+        : selectedSpells;
       const unknownPreparedSpell = preparedSpells.find(
-        (spellId) => !selectedSpells.includes(spellId)
+        (spellId) => !preparedSpellPool.includes(spellId)
       );
       if (unknownPreparedSpell) {
-        setFormValidationError('준비 주문은 선택한 슬롯 주문 중에서만 고를 수 있습니다.');
+        setFormValidationError(
+          isStartingDynamicPreparedCaster
+            ? '준비 주문은 현재 시전 가능한 직업 주문 목록 중에서만 고를 수 있습니다.'
+            : '준비 주문은 선택한 슬롯 주문 중에서만 고를 수 있습니다.'
+        );
         return;
       }
       if (
         startingPreparedSpellLimit !== null &&
-        preparedSpells.length > startingPreparedSpellLimit
+        preparedSpells.length !== startingPreparedSpellLimit
       ) {
         setFormValidationError(
-          `준비 주문은 최대 ${startingPreparedSpellLimit}개까지 선택할 수 있습니다.`
+          `준비 주문은 ${startingPreparedSpellLimit}개를 선택해야 합니다.`
         );
         return;
       }
@@ -4357,90 +4687,44 @@ export function CharacterPage({
                           <label htmlFor="character-ancestry-create">종족</label>
                           <select
                             id="character-ancestry-create"
-                            value={formState.ancestry}
+                            value={selectedCreateBaseRace?.key ?? ''}
                             onChange={(event) => {
-                              const nextAncestry = event.target.value;
-                              const nextRace = races.find(
-                                (r) =>
-                                  r.key === nextAncestry.toLowerCase() || r.koName === nextAncestry
-                              );
-                              const currentRace = races.find(
-                                (r) =>
-                                  r.key === (formState.ancestry ?? '').toLowerCase() ||
-                                  r.koName === formState.ancestry
-                              );
-                              setFormState((current) => {
-                                const currentFinals = current.abilities ?? {
-                                  str: 10,
-                                  dex: 10,
-                                  con: 10,
-                                  int: 10,
-                                  wis: 10,
-                                  cha: 10,
-                                };
-                                const currentBonus = currentRace?.abilityIncreases ?? {
-                                  str: 0,
-                                  dex: 0,
-                                  con: 0,
-                                  int: 0,
-                                  wis: 0,
-                                  cha: 0,
-                                };
-                                const nextBonus = nextRace?.abilityIncreases ?? {
-                                  str: 0,
-                                  dex: 0,
-                                  con: 0,
-                                  int: 0,
-                                  wis: 0,
-                                  cha: 0,
-                                };
-                                const nextAbilities = {
-                                  str: currentFinals.str - currentBonus.str + nextBonus.str,
-                                  dex: currentFinals.dex - currentBonus.dex + nextBonus.dex,
-                                  con: currentFinals.con - currentBonus.con + nextBonus.con,
-                                  int: currentFinals.int - currentBonus.int + nextBonus.int,
-                                  wis: currentFinals.wis - currentBonus.wis + nextBonus.wis,
-                                  cha: currentFinals.cha - currentBonus.cha + nextBonus.cha,
-                                };
-                                return {
-                                  ...current,
-                                  ancestry: nextAncestry,
-                                  features:
-                                    nextAncestry.toLowerCase() === 'dragonborn'
-                                      ? current.features
-                                      : replaceFeatureTags(
-                                          current.features,
-                                          ['draconic_ancestry:'],
-                                          []
-                                        ),
-                                  abilities: clampAbilitiesToPointBuyRange(
-                                    nextAbilities,
-                                    nextBonus
-                                  ),
-                                };
-                              });
+                              applyCreateAncestryChange(event.target.value);
                             }}
                             required
                           >
                             <option value="" disabled>
                               {races.length === 0 ? '종족 로딩 중…' : '종족을 선택하세요'}
                             </option>
-                            {races
-                              .filter((r) => !r.parentRaceId)
-                              .map((race) => (
+                            {baseRaceOptions.map((race) => (
+                              <option key={race.id} value={race.key}>
+                                {race.koName}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {isCreateSubraceRequired ? (
+                          <div>
+                            <label htmlFor="character-subrace-create">하위종족</label>
+                            <select
+                              id="character-subrace-create"
+                              value={selectedCreateSubraceKey}
+                              onChange={(event) => applyCreateAncestryChange(event.target.value)}
+                              required
+                            >
+                              <option value="">
+                                {selectedCreateSubraceOptions.length === 0
+                                  ? '하위종족 없음'
+                                  : '하위종족을 선택하세요'}
+                              </option>
+                              {selectedCreateSubraceOptions.map((race) => (
                                 <option key={race.id} value={race.key}>
                                   {race.koName}
                                 </option>
                               ))}
-                            {races
-                              .filter((r) => r.parentRaceId)
-                              .map((race) => (
-                                <option key={race.id} value={race.key}>
-                                  └ {race.koName}
-                                </option>
-                              ))}
-                          </select>
-                        </div>
+                            </select>
+                          </div>
+                        ) : null}
                         <div>
                           <label htmlFor="character-class-create">직업</label>
                           <select
@@ -5243,11 +5527,15 @@ export function CharacterPage({
                                 spell.trim()
                               ).length
                             }
-                            개 / 슬롯 주문{' '}
+                            개 / {isStartingDynamicPreparedCaster ? '준비 주문' : '슬롯 주문'}{' '}
                             {
-                              (formState.startingSpells?.spells ?? []).filter((spell) =>
-                                spell.trim()
-                              ).length
+                              isStartingDynamicPreparedCaster
+                                ? (formState.startingSpells?.preparedSpells ?? []).filter((spell) =>
+                                    spell.trim()
+                                  ).length
+                                : (formState.startingSpells?.spells ?? []).filter((spell) =>
+                                    spell.trim()
+                                  ).length
                             }
                             개
                           </dd>
@@ -5320,6 +5608,28 @@ export function CharacterPage({
                     <section className="character-form-section">
                       <div className="character-avatar-picker">
                         <label>초상화</label>
+                        <div className="character-avatar-current-preview">
+                          <img
+                            src={
+                              formState.avatarUrl ||
+                              getAvatarPresetImage(formState.avatarPresetId) ||
+                              getCharacterArt(formState.className ?? 'Wizard')
+                            }
+                            alt="선택된 캐릭터 초상화"
+                          />
+                          <div>
+                            <strong>
+                              {formState.avatarType === 'UPLOAD'
+                                ? '업로드 초상화'
+                                : '기본 프리셋'}
+                            </strong>
+                            <span>
+                              {formState.avatarType === 'UPLOAD'
+                                ? '세션 토큰과 프로필에 이 이미지가 우선 표시됩니다.'
+                                : '프리셋을 선택하거나 직접 이미지를 업로드할 수 있습니다.'}
+                            </span>
+                          </div>
+                        </div>
                         <div
                           className="character-avatar-grid"
                           role="radiogroup"
@@ -5333,58 +5643,12 @@ export function CharacterPage({
                                 type="button"
                                 className={`character-avatar-option${isSelected ? ' selected' : ''}`}
                                 onClick={() =>
-                                  setFormState((current) => {
-                                    const className = getClassNameForPresetId(preset.id);
-                                    const recommendedStats = getRecommendedStats(
-                                      className,
-                                      current.level ?? 1
-                                    );
-                                    const recommendedAbilities = getRecommendedAbilities(
-                                      className,
-                                      current.level ?? 1,
-                                      current.abilities
-                                    );
-                                    const raceBonus = selectedRace?.abilityIncreases ?? {
-                                      str: 0,
-                                      dex: 0,
-                                      con: 0,
-                                      int: 0,
-                                      wis: 0,
-                                      cha: 0,
-                                    };
-                                    const recommendedAbilitiesWithRace = {
-                                      ...recommendedAbilities,
-                                      str: recommendedAbilities.str + raceBonus.str,
-                                      dex: recommendedAbilities.dex + raceBonus.dex,
-                                      int: recommendedAbilities.int + raceBonus.int,
-                                    };
-                                    const nextClass = classDefinitions.find(
-                                      (c) => c.key === className.toLowerCase()
-                                    );
-                                    const nextSelection = nextClass
-                                      ? new Array(nextClass.startingEquipment.slots.length).fill(0)
-                                      : undefined;
-
-                                    return {
-                                      ...current,
-                                      className,
-                                      avatarType: 'PRESET',
-                                      avatarPresetId: preset.id,
-                                      avatarUrl: null,
-                                      maxHp: recommendedStats.maxHp,
-                                      armorClass: recommendedStats.armorClass,
-                                      speed: recommendedStats.speed,
-                                      proficiencyBonus: recommendedStats.proficiencyBonus,
-                                      abilities: clampAbilitiesToPointBuyRange(
-                                        recommendedAbilitiesWithRace,
-                                        raceBonus
-                                      ),
-                                      features: [],
-                                      proficientSkills: [],
-                                      startingEquipmentSelection: nextSelection,
-                                      startingEquipmentItemSelections: {},
-                                    };
-                                  })
+                                  setFormState((current) => ({
+                                    ...current,
+                                    avatarType: 'PRESET',
+                                    avatarPresetId: preset.id,
+                                    avatarUrl: null,
+                                  }))
                                 }
                                 aria-pressed={isSelected}
                               >
@@ -5397,6 +5661,92 @@ export function CharacterPage({
                               </button>
                             );
                           })}
+                        </div>
+                        <div className="character-avatar-upload-row">
+                          <label
+                            className={`character-avatar-upload-button${
+                              avatarUploadBusy ? ' disabled' : ''
+                            }`}
+                          >
+                            <span>{avatarUploadBusy ? '업로드 중...' : '이미지 업로드'}</span>
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              disabled={avatarUploadBusy}
+                              onChange={(event) => {
+                                const file = event.target.files?.[0] ?? null;
+                                event.currentTarget.value = '';
+                                void handleAvatarUpload(file);
+                              }}
+                            />
+                          </label>
+                          <p>
+                            PNG/JPEG/WebP 이미지를 R2에 업로드해 초상화로 사용할 수 있습니다.
+                            공개 URL로 표시되므로 민감한 사진은 피해주세요.
+                          </p>
+                        </div>
+                        {avatarAssetError ? (
+                          <p className="character-avatar-library-error">{avatarAssetError}</p>
+                        ) : null}
+                        <div className="character-avatar-library">
+                          <div className="character-avatar-library-heading">
+                            <strong>내 업로드 초상화</strong>
+                            <span>{avatarAssets.length}개</span>
+                          </div>
+                          {avatarAssets.length ? (
+                            <div className="character-avatar-library-grid">
+                              {avatarAssets.map((asset) => {
+                                const isSelected = formState.avatarUrl === asset.publicUrl;
+                                const isDeleting = deletingAvatarAssetId === asset.id;
+                                return (
+                                  <article
+                                    key={asset.id}
+                                    className={`character-avatar-asset-card${
+                                      isSelected ? ' selected' : ''
+                                    }`}
+                                  >
+                                    <button
+                                      type="button"
+                                      className="character-avatar-asset-preview"
+                                      onClick={() => applyUploadedAvatar(asset)}
+                                      aria-pressed={isSelected}
+                                    >
+                                      <img src={asset.publicUrl} alt={asset.fileName} />
+                                    </button>
+                                    <div className="character-avatar-asset-meta">
+                                      <span>{asset.fileName}</span>
+                                      <small>
+                                        {Math.max(1, Math.round(asset.fileSizeBytes / 1024))} KB
+                                      </small>
+                                    </div>
+                                    <div className="character-avatar-asset-actions">
+                                      <button
+                                        type="button"
+                                        className="ghost small"
+                                        onClick={() => applyUploadedAvatar(asset)}
+                                        disabled={isDeleting}
+                                      >
+                                        사용
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="ghost small danger"
+                                        onClick={() => void handleAvatarAssetDelete(asset)}
+                                        disabled={isDeleting}
+                                      >
+                                        {isDeleting ? '삭제 중' : '삭제'}
+                                      </button>
+                                    </div>
+                                  </article>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="character-empty-note">
+                              아직 업로드한 초상화가 없습니다. 이미지를 업로드하면 여기에서 다시
+                              선택할 수 있습니다.
+                            </p>
+                          )}
                         </div>
                       </div>
                     </section>
@@ -5474,7 +5824,14 @@ export function CharacterPage({
                     (() => {
                       const renderedCantripCount = selectedStartingCantripCount;
                       const renderedSpellCount = selectedStartingSlotSpellCount;
-                      const hasStartingSpells = renderedCantripCount > 0 || renderedSpellCount > 0;
+                      const renderedPreparedSpellCount =
+                        startingPreparedSpellLimit !== null && startingPreparedSpellOptions.length > 0
+                          ? startingPreparedSpellLimit
+                          : 0;
+                      const hasStartingSpells =
+                        renderedCantripCount > 0 ||
+                        renderedSpellCount > 0 ||
+                        renderedPreparedSpellCount > 0;
                       return (
                         <section className="character-form-section character-create-loadout-spells">
                           <div className="section-heading compact">
@@ -5482,7 +5839,17 @@ export function CharacterPage({
                               <span className="eyebrow">시작 주문</span>
                               <h2>
                                 {hasStartingSpells
-                                  ? `캔트립 ${renderedCantripCount}개 + 주문 ${renderedSpellCount}개`
+                                  ? [
+                                      renderedCantripCount > 0 ? `캔트립 ${renderedCantripCount}개` : null,
+                                      renderedSpellCount > 0
+                                        ? `${normalizeClassValue(formState.className).toLowerCase() === 'wizard' ? '주문책 주문' : '습득 주문'} ${renderedSpellCount}개`
+                                        : null,
+                                      renderedPreparedSpellCount > 0
+                                        ? `준비 주문 ${renderedPreparedSpellCount}개`
+                                        : null,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(' + ')
                                   : '선택할 시작 주문 없음'}
                               </h2>
                             </div>
@@ -5519,8 +5886,16 @@ export function CharacterPage({
                           )}
                           {renderedSpellCount > 0 && (
                             <SpellSelectionGrid
-                              title="슬롯 주문"
-                              helper="주문책/습득 주문에 넣을 시작 주문을 고릅니다."
+                              title={
+                                normalizeClassValue(formState.className).toLowerCase() === 'wizard'
+                                  ? '주문책 주문'
+                                  : '습득 주문'
+                              }
+                              helper={
+                                normalizeClassValue(formState.className).toLowerCase() === 'wizard'
+                                  ? '주문책에 기록되어 이후 준비할 수 있는 주문을 고릅니다.'
+                                  : '이 캐릭터가 알고 있는 슬롯 주문을 고릅니다.'
+                              }
                               options={detailedSlotSpellOptions}
                               selectedIds={(formState.startingSpells?.spells ?? [])
                                 .map((spell) => spell.trim())
@@ -5551,24 +5926,15 @@ export function CharacterPage({
                             />
                           )}
                           {startingPreparedSpellLimit !== null &&
-                            selectedStartingSlotSpells.length > 0 && (
+                            startingPreparedSpellOptions.length > 0 && (
                               <SpellSelectionGrid
                                 title="준비 주문"
-                                helper="선택한 슬롯 주문 중 오늘 바로 사용할 주문을 고릅니다."
-                                options={selectedStartingSlotSpells.map((spellId) => ({
-                                  id: spellId,
-                                  label: getImplementedSpellLabel(spellId, ruleCatalog),
-                                  level: slotSpellOptions.find((spell) => spell.id === spellId)?.level,
-                                  detail: buildSpellSelectionDetail(
-                                    slotSpellOptions.find((spell) => spell.id === spellId) ?? {
-                                      id: spellId,
-                                      label: getImplementedSpellLabel(spellId, ruleCatalog),
-                                      level: null,
-                                    },
-                                    ruleCatalog,
-                                    spellCatalogById
-                                  ),
-                                }))}
+                                helper={
+                                  isStartingDynamicPreparedCaster
+                                    ? '현재 시전 가능한 직업 주문 목록에서 오늘 준비할 주문을 고릅니다.'
+                                    : '주문책에 있는 주문 중 오늘 바로 사용할 주문을 고릅니다.'
+                                }
+                                options={startingPreparedSpellOptions}
                                 selectedIds={selectedStartingPreparedSpells}
                                 maxSelected={startingPreparedSpellLimit}
                                 onChange={(preparedSpells) => {

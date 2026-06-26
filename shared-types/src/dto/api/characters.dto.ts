@@ -3,6 +3,7 @@ import { Type } from "class-transformer";
 import {
   ArrayMaxSize,
   IsArray,
+  IsBase64,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -129,6 +130,58 @@ export class StartingSpellsDto {
   @IsString({ each: true })
   preparedSpells?: string[];
 
+}
+
+export class UploadCharacterAvatarDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  fileName!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  contentType!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsBase64()
+  dataBase64!: string;
+}
+
+export class CharacterAvatarAssetResponseDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  fileName!: string;
+
+  @ApiProperty()
+  contentType!: string;
+
+  @ApiProperty()
+  storageKey!: string;
+
+  @ApiProperty()
+  publicUrl!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  width!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  height!: number | null;
+
+  @ApiProperty()
+  fileSizeBytes!: number;
+
+  @ApiProperty()
+  uploadedByUserId!: string;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  @ApiProperty()
+  updatedAt!: string;
 }
 
 export class InventoryItemDto {
