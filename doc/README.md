@@ -9,13 +9,13 @@
 | `README.md` | 문서 지도 |
 | `PENDING_WORK_ITEMS.md` | 완료 보관 문서에서 남긴 후속 작업 목록 |
 | `future_plan.md` | SRD 5e 룰/콘텐츠 확장 로드맵 |
-| `future_plan_p6.md` | 현재 P6 최종 레벨·전체 콘텐츠·장기 캠페인 완결 계획 |
 | `completed/future_plan_mvp.md` | 완료된 End-to-End Playable MVP 로드맵 기록 |
 | `completed/future_plan_p1.md` | 완료된 P1 플레이 가능 룰 범위 확대 기록 |
 | `completed/future_plan_p2.md` | 완료된 P2 5레벨 플레이 확장 기록 |
 | `completed/future_plan_p3.md` | 완료된 P3 8레벨 캠페인·콘텐츠 배포 확장 기록 |
 | `completed/future_plan_p4.md` | 완료된 P4 12레벨 캠페인 운영·콘텐츠 확장 기록 |
 | `completed/future_plan_p5.md` | 완료된 P5 16레벨 고레벨 캠페인·공개 생태계 확장 기록 |
+| `completed/future_plan_p6.md` | 완료된 P6 최종 레벨·전체 콘텐츠·장기 캠페인 완결 기록 |
 | `completed/p2_validation_guide.md` | P2 사용자 검증 절차와 완료 기록 |
 
 ## 구조 문서
@@ -65,6 +65,7 @@
 | `examples/trpg_main_command_usage_examples.md` | 메인 커맨드 사용 예시 |
 | `examples/DEMO_SCENARIO_EXAMPLES.md` | 데모 시나리오 테스트/구현/운영 예시 |
 | `examples/P5_VALIDATION_RUNBOOK.md` | P5 자동·수동 검증 절차 |
+| `examples/P6_VALIDATION_RUNBOOK.md` | P6 최종 레벨·전체 콘텐츠·장기 캠페인 완결 검증 절차 |
 
 ## 기록용 문서
 

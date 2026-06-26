@@ -2,7 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { seedClasses } from "./classes";
 
 describe("class seed", () => {
-  it("keeps starting spell requirements within the executable MVP spell picker pool", async () => {
+  it("seeds SRD-compatible starting spell requirements", async () => {
     const classUpserts: Array<{
       where: { key: string };
       create: { startingCantripCount: number; startingSpellCount: number };
@@ -27,6 +27,11 @@ describe("class seed", () => {
       Array.from(spellcastingClasses).sort(),
     );
     expect(seededSpellcasters.every((upsert) => upsert.create.startingCantripCount <= 3)).toBe(true);
-    expect(seededSpellcasters.every((upsert) => upsert.create.startingSpellCount <= 3)).toBe(true);
+    expect(
+      seededSpellcasters
+        .filter((upsert) => upsert.where.key !== "wizard")
+        .every((upsert) => upsert.create.startingSpellCount <= 3),
+    ).toBe(true);
+    expect(classUpserts.find((upsert) => upsert.where.key === "wizard")?.create.startingSpellCount).toBe(6);
   });
 });

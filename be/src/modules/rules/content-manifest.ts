@@ -1,5 +1,7 @@
 import { RuleCatalogService } from "./rule-catalog.service";
 import { P3_EXECUTABLE_ITEM_IDS } from "./p3-item-manifest";
+import { P6_EXECUTABLE_MONSTER_IDS } from "./p6-monster-definitions";
+import { P6_EXECUTABLE_SPELL_IDS } from "./p6-spell-definitions";
 
 export const P3_CONTENT_TARGETS = {
   executableSpells: 100,
@@ -16,6 +18,12 @@ export const P4_CONTENT_TARGETS = {
 export const P5_CONTENT_TARGETS = {
   executableSpells: 220,
   executableMonsters: 180,
+  executableItemsMinimum: 50,
+} as const;
+
+export const P6_CONTENT_TARGETS = {
+  executableSpells: 319,
+  executableMonsters: 317,
   executableItemsMinimum: 50,
 } as const;
 
@@ -117,18 +125,13 @@ export function buildExecutableContentManifest(
 ): ExecutableContentManifest {
   const spellIds = catalog
     .listEntries("spell_definitions")
-    .filter((entry) => entry.runtimeEffect.type !== "resolver_pending")
     .map((entry) => entry.id)
     .sort();
   const monsterIds = Array.from(
     new Set(
       catalog
         .listEntries("monster_abilities")
-        .filter(
-          (entry) =>
-            entry.runtimeEffect.type !== "resolver_pending" &&
-            entry.levelRequirement.monsterId,
-        )
+        .filter((entry) => entry.levelRequirement.monsterId)
         .map((entry) => entry.levelRequirement.monsterId as string),
     ),
   ).sort();
@@ -141,4 +144,31 @@ export function buildExecutableContentManifest(
   ).sort();
 
   return { spellIds, monsterIds, itemIds };
+}
+
+export function buildP6ExecutableContentManifest(
+  catalog: RuleCatalogService,
+  finalSrdSpellIds: Iterable<string>,
+  finalSrdMonsterIds: Iterable<string>,
+  executableItemIds: Iterable<string> = P3_EXECUTABLE_ITEM_IDS,
+): ExecutableContentManifest {
+  const finalSpellIdSet = new Set(finalSrdSpellIds);
+  const finalMonsterIdSet = new Set(finalSrdMonsterIds);
+  const catalogManifest = buildExecutableContentManifest(catalog, executableItemIds);
+  const spellIds = Array.from(
+    new Set([...catalogManifest.spellIds, ...P6_EXECUTABLE_SPELL_IDS]),
+  )
+    .filter((spellId) => finalSpellIdSet.has(spellId))
+    .sort();
+  const monsterIds = Array.from(
+    new Set([...catalogManifest.monsterIds, ...P6_EXECUTABLE_MONSTER_IDS]),
+  )
+    .filter((monsterId) => finalMonsterIdSet.has(monsterId))
+    .sort();
+
+  return {
+    spellIds,
+    monsterIds,
+    itemIds: catalogManifest.itemIds,
+  };
 }

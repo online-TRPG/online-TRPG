@@ -11,10 +11,13 @@ import {
   CreateScenarioDto,
   CreateScenarioReviewDto,
   AppealScenarioModerationDto,
+  ApplyScenarioModerationActionDto,
   ForkScenarioDto,
   ScenarioAssetQueryDto,
   ScenarioAssetResponseDto,
   ScenarioCollaborationStateResponseDto,
+  ScenarioModerationActionResponseDto,
+  ScenarioModerationQueueItemDto,
   ScenarioQueryDto,
   ScenarioNodeImageUploadResponseDto,
   PublishScenarioDto,
@@ -74,6 +77,15 @@ export class ScenariosController {
     @Body() dto: CreateScenarioDto,
   ): Promise<ScenarioResponseDto> {
     return this.scenariosService.createScenario(userId, dto);
+  }
+
+  @Get("moderation/queue")
+  @ApiSecurity("x-user-id")
+  @ApiOkResponse({ type: [ScenarioModerationQueueItemDto] })
+  listScenarioModerationQueue(
+    @CurrentUserId() userId: string,
+  ): Promise<ScenarioModerationQueueItemDto[]> {
+    return this.scenariosService.listScenarioModerationQueue(userId);
   }
 
   @Get(":id")
@@ -226,6 +238,18 @@ export class ScenariosController {
     @Body() dto: AppealScenarioModerationDto,
   ): Promise<ScenarioModerationAppealResponseDto> {
     return this.scenariosService.appealScenarioModeration(userId, id, dto);
+  }
+
+  @Post(":id/moderation/actions")
+  @ApiSecurity("x-user-id")
+  @ApiParam({ name: "id" })
+  @ApiCreatedResponse({ type: ScenarioModerationActionResponseDto })
+  applyScenarioModerationAction(
+    @CurrentUserId() userId: string,
+    @Param("id") id: string,
+    @Body() dto: ApplyScenarioModerationActionDto,
+  ): Promise<ScenarioModerationActionResponseDto> {
+    return this.scenariosService.applyScenarioModerationAction(userId, id, dto);
   }
 
   @Get(":id/assets")

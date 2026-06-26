@@ -13,6 +13,8 @@ import { P4_SPELL_DEFINITIONS } from "./p4-spell-definitions";
 import { P4_MONSTER_ABILITY_DEFINITIONS } from "./p4-monster-definitions";
 import { P5_MONSTER_ABILITY_DEFINITIONS } from "./p5-monster-definitions";
 import { P5_SPELL_DEFINITIONS } from "./p5-spell-definitions";
+import { P6_MONSTER_ABILITY_DEFINITIONS } from "./p6-monster-definitions";
+import { P6_SPELL_DEFINITIONS } from "./p6-spell-definitions";
 
 type ClassFeatureSeed = {
   id: string;
@@ -27,6 +29,36 @@ type ClassFeatureSeed = {
 const NO_COST: RuleCost = { type: "none" };
 const NO_TARGETING: RuleTargeting = { type: "none" };
 const SELF_TARGETING: RuleTargeting = { type: "self" };
+
+function subclassChoiceRuntime(classKey: string): RuleRuntimeEffect {
+  return {
+    type: "subclass_feature",
+    tags: ["subclass:choice_required", "snapshot:subclass_choice_required"],
+    hookId: `hook.class.${classKey}.subclass_choice`,
+  };
+}
+
+function selectionRuntime(tags: string[], hookId: string): RuleRuntimeEffect {
+  return {
+    type: "grant_passive",
+    tags: [...tags, "snapshot:level_up_choice_required"],
+    hookId,
+  };
+}
+
+function abilityScoreImprovementRuntime(level: number): RuleRuntimeEffect {
+  return {
+    type: "modify_stat",
+    tags: [
+      "selection:ability_score_improvement",
+      "ability_points:2",
+      "feature:ability_score_improvement",
+      "snapshot:level_up_choice_required",
+      `class_level:${level}`,
+    ],
+    hookId: `hook.class.ability_score_improvement_${level}`,
+  };
+}
 
 const RACE_PARENT_KEYS: Record<string, string> = {
   "high-elf": "elf",
@@ -429,6 +461,19 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
     tags: ["rest:short_or_long", "selection:damage_resistance:one_type", "excludes:silvered_magical_weapons"],
     hookId: "hook.subclass.fiend.fiendish_resilience",
   }),
+  subclassFeature("warlock", "fiend", 14, "hurl_through_hell", {
+    type: "subclass_feature",
+    tags: [
+      "p5_level:14",
+      "trigger:attack_hit",
+      "banish:lower_planes_until_end_next_turn",
+      "damage:psychic:10d10",
+      "rest:long",
+      "audit:turn_log_state_diff",
+    ],
+    resourceId: "resource.warlock.hurl_through_hell",
+    hookId: "hook.subclass.fiend.hurl_through_hell",
+  }),
   subclassFeature("wizard", "evocation", 2, "evocation_savant", {
     type: "subclass_feature",
     tags: ["spellbook:copy_cost_half", "school:evocation"],
@@ -446,6 +491,18 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
     type: "subclass_feature",
     tags: ["trigger:evocation_spell_damage", "damage_bonus:int_mod:once_per_spell"],
     hookId: "hook.subclass.evocation.empowered_evocation",
+  }),
+  subclassFeature("wizard", "evocation", 14, "overchannel", {
+    type: "subclass_feature",
+    tags: [
+      "p5_level:14",
+      "trigger:wizard_spell_damage_level_1_to_5",
+      "damage:maximize",
+      "first_use:no_damage",
+      "repeat_use:necrotic_self_damage",
+      "audit:turn_log_state_diff",
+    ],
+    hookId: "hook.subclass.evocation.overchannel",
   }),
   subclassFeature("barbarian", "berserker", 14, "retaliation", {
     type: "subclass_feature",
@@ -498,9 +555,40 @@ const SUBCLASS_FEATURE_DEFINITIONS: RuleCatalogEntry[] = [
     tags: ["movement:fly:current_speed", "manifest_wings:bonus_or_passive"],
     hookId: "hook.subclass.draconic.dragon_wings",
   }),
+  subclassFeature("cleric", "life", 17, "supreme_healing", {
+    type: "subclass_feature",
+    tags: ["p6_level:17", "healing:maximize_dice", "spell_level:healing", "audit:state_diff"],
+    hookId: "hook.subclass.life.supreme_healing",
+  }),
+  subclassFeature("fighter", "champion", 18, "survivor", {
+    type: "subclass_feature",
+    tags: ["p6_level:18", "turn_start:regain_hp", "condition:below_half_hp", "audit:turn_log"],
+    hookId: "hook.subclass.champion.survivor",
+  }),
+  subclassFeature("monk", "open_hand", 17, "quivering_palm", {
+    type: "subclass_feature",
+    tags: ["p6_level:17", "resource:ki:3", "save:con", "damage:10d10_or_reduce_to_0"],
+    hookId: "hook.subclass.open_hand.quivering_palm",
+  }, { type: "resource", resourceId: "resource.monk.ki", amount: 3 }, { type: "creature", rangeFt: 5 }),
+  subclassFeature("paladin", "devotion", 20, "holy_nimbus", {
+    type: "subclass_feature",
+    tags: ["p6_level:20", "aura:30", "damage:radiant", "advantage:save:fiend_undead_spells"],
+    hookId: "hook.subclass.devotion.holy_nimbus",
+  }, { type: "action" }, SELF_TARGETING),
+  subclassFeature("rogue", "thief", 17, "thiefs_reflexes", {
+    type: "subclass_feature",
+    tags: ["p6_level:17", "turn:first_round_extra_turn", "initiative:-10", "audit:turn_order"],
+    hookId: "hook.subclass.thief.thiefs_reflexes",
+  }),
+  subclassFeature("sorcerer", "draconic_bloodline", 18, "draconic_presence", {
+    type: "subclass_feature",
+    tags: ["p6_level:18", "resource:sorcery_points:5", "aura:60", "condition:charmed_or_frightened"],
+    resourceId: "resource.sorcerer.sorcery_points",
+    hookId: "hook.subclass.draconic.draconic_presence",
+  }, { type: "resource", resourceId: "resource.sorcerer.sorcery_points", amount: 5 }, SELF_TARGETING),
 ];
 
-const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
+const CLASS_FEATURE_DEFINITIONS: ClassFeatureSeed[] = [
   classFeature("barbarian", 1, "rage", {
     type: "grant_resource",
     tags: ["action:bonus", "resource:rage", "rest:long"],
@@ -518,10 +606,7 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     type: "grant_passive",
     tags: ["advantage:dex_save_visible_danger"],
   }),
-  classFeature("barbarian", 3, "primal_path", {
-    type: "resolver_pending",
-    tags: ["subclass:choice_required"],
-  }),
+  classFeature("barbarian", 3, "primal_path", subclassChoiceRuntime("barbarian")),
 
   classFeature("bard", 1, "spellcasting", {
     type: "spellcasting",
@@ -540,23 +625,17 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     type: "grant_passive",
     tags: ["rest:short", "healing_bonus:1d6"],
   }),
-  classFeature("bard", 3, "expertise", {
-    type: "resolver_pending",
-    tags: ["skill:expertise", "selection:two_skills"],
-  }),
-  classFeature("bard", 3, "bard_college", {
-    type: "resolver_pending",
-    tags: ["subclass:choice_required"],
-  }),
+  classFeature("bard", 3, "expertise", selectionRuntime(
+    ["skill:expertise", "selection:two_skills"],
+    "hook.class.bard.expertise",
+  )),
+  classFeature("bard", 3, "bard_college", subclassChoiceRuntime("bard")),
 
   classFeature("cleric", 1, "spellcasting", {
     type: "spellcasting",
     tags: ["spellcasting:full", "spellcasting:prepared", "spellcasting:divine"],
   }),
-  classFeature("cleric", 1, "divine_domain", {
-    type: "resolver_pending",
-    tags: ["subclass:choice_required"],
-  }),
+  classFeature("cleric", 1, "divine_domain", subclassChoiceRuntime("cleric")),
   classFeature("cleric", 2, "channel_divinity", {
     type: "grant_resource",
     tags: ["action:standard", "resource:channel_divinity"],
@@ -576,15 +655,12 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     tags: ["action:standard", "resource:wild_shape"],
     resourceId: "resource.druid.wild_shape",
   }, { type: "action" }, SELF_TARGETING),
-  classFeature("druid", 2, "druid_circle", {
-    type: "resolver_pending",
-    tags: ["subclass:choice_required"],
-  }),
+  classFeature("druid", 2, "druid_circle", subclassChoiceRuntime("druid")),
 
-  classFeature("fighter", 1, "fighting_style", {
-    type: "resolver_pending",
-    tags: ["selection:fighting_style"],
-  }),
+  classFeature("fighter", 1, "fighting_style", selectionRuntime(
+    ["selection:fighting_style"],
+    "hook.class.fighter.fighting_style",
+  )),
   classFeature("fighter", 1, "second_wind", {
     type: "grant_resource",
     tags: ["action:bonus", "resource:second_wind", "rest:short"],
@@ -595,10 +671,7 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     tags: ["action:free", "resource:action_surge", "rest:short"],
     resourceId: "resource.fighter.action_surge",
   }),
-  classFeature("fighter", 3, "martial_archetype", {
-    type: "resolver_pending",
-    tags: ["subclass:choice_required"],
-  }),
+  classFeature("fighter", 3, "martial_archetype", subclassChoiceRuntime("fighter")),
 
   classFeature("monk", 1, "unarmored_defense", {
     type: "modify_stat",
@@ -617,10 +690,7 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     type: "modify_stat",
     tags: ["speed_bonus:unarmored"],
   }),
-  classFeature("monk", 3, "monastic_tradition", {
-    type: "resolver_pending",
-    tags: ["subclass:choice_required"],
-  }),
+  classFeature("monk", 3, "monastic_tradition", subclassChoiceRuntime("monk")),
   classFeature("monk", 3, "deflect_missiles", {
     type: "grant_action",
     tags: ["action:reaction", "damage_reduction:ranged_weapon"],
@@ -636,10 +706,10 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     tags: ["action:standard", "resource:lay_on_hands"],
     resourceId: "resource.paladin.lay_on_hands",
   }, { type: "action" }, { type: "creature", rangeFt: 5 }),
-  classFeature("paladin", 2, "fighting_style", {
-    type: "resolver_pending",
-    tags: ["selection:fighting_style"],
-  }),
+  classFeature("paladin", 2, "fighting_style", selectionRuntime(
+    ["selection:fighting_style"],
+    "hook.class.paladin.fighting_style",
+  )),
   classFeature("paladin", 2, "spellcasting", {
     type: "spellcasting",
     tags: ["spellcasting:half", "spellcasting:prepared", "spellcasting:divine"],
@@ -652,40 +722,34 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     type: "grant_passive",
     tags: ["immunity:disease"],
   }),
-  classFeature("paladin", 3, "sacred_oath", {
-    type: "resolver_pending",
-    tags: ["subclass:choice_required"],
-  }),
+  classFeature("paladin", 3, "sacred_oath", subclassChoiceRuntime("paladin")),
 
-  classFeature("ranger", 1, "favored_enemy", {
-    type: "resolver_pending",
-    tags: ["selection:favored_enemy", "tracking:advantage", "language:choice_one"],
-  }),
-  classFeature("ranger", 1, "natural_explorer", {
-    type: "resolver_pending",
-    tags: ["selection:favored_terrain", "exploration:expertise:favored_terrain"],
-  }),
-  classFeature("ranger", 2, "fighting_style", {
-    type: "resolver_pending",
-    tags: ["selection:fighting_style"],
-  }),
+  classFeature("ranger", 1, "favored_enemy", selectionRuntime(
+    ["selection:favored_enemy", "tracking:advantage", "language:choice_one"],
+    "hook.class.ranger.favored_enemy",
+  )),
+  classFeature("ranger", 1, "natural_explorer", selectionRuntime(
+    ["selection:favored_terrain", "exploration:expertise:favored_terrain"],
+    "hook.class.ranger.natural_explorer",
+  )),
+  classFeature("ranger", 2, "fighting_style", selectionRuntime(
+    ["selection:fighting_style"],
+    "hook.class.ranger.fighting_style",
+  )),
   classFeature("ranger", 2, "spellcasting", {
     type: "spellcasting",
     tags: ["spellcasting:half", "spellcasting:known", "spellcasting:primal"],
   }),
-  classFeature("ranger", 3, "ranger_archetype", {
-    type: "resolver_pending",
-    tags: ["subclass:choice_required"],
-  }),
+  classFeature("ranger", 3, "ranger_archetype", subclassChoiceRuntime("ranger")),
   classFeature("ranger", 3, "primeval_awareness", {
     type: "grant_action",
     tags: ["action:standard", "resource:spell_slot", "detect:creature_types"],
   }, { type: "resource", resourceId: "resource.spell_slot", amount: 1 }, SELF_TARGETING),
 
-  classFeature("rogue", 1, "expertise", {
-    type: "resolver_pending",
-    tags: ["skill:expertise", "selection:two_proficiencies"],
-  }),
+  classFeature("rogue", 1, "expertise", selectionRuntime(
+    ["skill:expertise", "selection:two_proficiencies"],
+    "hook.class.rogue.expertise",
+  )),
   classFeature("rogue", 1, "sneak_attack", {
     type: "grant_action",
     tags: ["trigger:once_per_turn", "damage:extra:1d6", "scaling:rogue_level"],
@@ -698,45 +762,36 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     type: "grant_action",
     tags: ["action:bonus", "action:dash", "action:disengage", "action:hide"],
   }, { type: "bonus_action" }, SELF_TARGETING),
-  classFeature("rogue", 3, "roguish_archetype", {
-    type: "resolver_pending",
-    tags: ["subclass:choice_required"],
-  }),
+  classFeature("rogue", 3, "roguish_archetype", subclassChoiceRuntime("rogue")),
 
   classFeature("sorcerer", 1, "spellcasting", {
     type: "spellcasting",
     tags: ["spellcasting:full", "spellcasting:known", "spellcasting:arcane"],
   }),
-  classFeature("sorcerer", 1, "sorcerous_origin", {
-    type: "resolver_pending",
-    tags: ["subclass:choice_required"],
-  }),
+  classFeature("sorcerer", 1, "sorcerous_origin", subclassChoiceRuntime("sorcerer")),
   classFeature("sorcerer", 2, "font_of_magic", {
     type: "grant_resource",
     tags: ["resource:sorcery_points"],
     resourceId: "resource.sorcerer.sorcery_points",
   }),
-  classFeature("sorcerer", 3, "metamagic", {
-    type: "resolver_pending",
-    tags: ["selection:metamagic"],
-  }),
+  classFeature("sorcerer", 3, "metamagic", selectionRuntime(
+    ["selection:metamagic"],
+    "hook.class.sorcerer.metamagic",
+  )),
 
-  classFeature("warlock", 1, "otherworldly_patron", {
-    type: "resolver_pending",
-    tags: ["subclass:choice_required"],
-  }),
+  classFeature("warlock", 1, "otherworldly_patron", subclassChoiceRuntime("warlock")),
   classFeature("warlock", 1, "pact_magic", {
     type: "spellcasting",
     tags: ["spellcasting:pact", "spellcasting:known", "spellcasting:arcane"],
   }),
-  classFeature("warlock", 2, "eldritch_invocations", {
-    type: "resolver_pending",
-    tags: ["selection:eldritch_invocations"],
-  }),
-  classFeature("warlock", 3, "pact_boon", {
-    type: "resolver_pending",
-    tags: ["selection:pact_boon"],
-  }),
+  classFeature("warlock", 2, "eldritch_invocations", selectionRuntime(
+    ["selection:eldritch_invocations"],
+    "hook.class.warlock.eldritch_invocations",
+  )),
+  classFeature("warlock", 3, "pact_boon", selectionRuntime(
+    ["selection:pact_boon"],
+    "hook.class.warlock.pact_boon",
+  )),
 
   classFeature("wizard", 1, "spellcasting", {
     type: "spellcasting",
@@ -747,10 +802,7 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     tags: ["rest:short", "resource:arcane_recovery"],
     resourceId: "resource.wizard.arcane_recovery",
   }),
-  classFeature("wizard", 2, "arcane_tradition", {
-    type: "resolver_pending",
-    tags: ["subclass:choice_required"],
-  }),
+  classFeature("wizard", 2, "arcane_tradition", subclassChoiceRuntime("wizard")),
 
   ...[
     "barbarian",
@@ -766,10 +818,7 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     "warlock",
     "wizard",
   ].map((classKey) =>
-    classFeature(classKey, 4, "ability_score_improvement", {
-      type: "resolver_pending",
-      tags: ["selection:ability_score_improvement", "ability_points:2"],
-    }),
+    classFeature(classKey, 4, "ability_score_improvement", abilityScoreImprovementRuntime(4)),
   ),
 
   ...[
@@ -786,14 +835,7 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     "warlock",
     "wizard",
   ].map((classKey) =>
-    classFeature(classKey, 8, "ability_score_improvement_8", {
-      type: "resolver_pending",
-      tags: [
-        "selection:ability_score_improvement",
-        "ability_points:2",
-        "feature:ability_score_improvement",
-      ],
-    }),
+    classFeature(classKey, 8, "ability_score_improvement_8", abilityScoreImprovementRuntime(8)),
   ),
 
   ...[
@@ -810,24 +852,10 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     "warlock",
     "wizard",
   ].map((classKey) =>
-    classFeature(classKey, 12, "ability_score_improvement_12", {
-      type: "resolver_pending",
-      tags: [
-        "selection:ability_score_improvement",
-        "ability_points:2",
-        "feature:ability_score_improvement",
-      ],
-    }),
+    classFeature(classKey, 12, "ability_score_improvement_12", abilityScoreImprovementRuntime(12)),
   ),
 
-  classFeature("fighter", 6, "ability_score_improvement_6", {
-    type: "resolver_pending",
-    tags: [
-      "selection:ability_score_improvement",
-      "ability_points:2",
-      "feature:ability_score_improvement",
-    ],
-  }),
+  classFeature("fighter", 6, "ability_score_improvement_6", abilityScoreImprovementRuntime(6)),
 
   classFeature("barbarian", 5, "extra_attack", {
     type: "grant_passive",
@@ -943,10 +971,10 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     ],
     hookId: "hook.class.ranger.lands_stride",
   }),
-  classFeature("rogue", 6, "expertise_improvement", {
-    type: "resolver_pending",
-    tags: ["skill:expertise", "selection:two_proficiencies"],
-  }),
+  classFeature("rogue", 6, "expertise_improvement", selectionRuntime(
+    ["skill:expertise", "selection:two_proficiencies"],
+    "hook.class.rogue.expertise_improvement",
+  )),
   classFeature("rogue", 7, "evasion", {
     type: "grant_passive",
     tags: ["save:dex:success_no_damage", "save:dex:failure_half_damage"],
@@ -974,13 +1002,18 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     type: "modify_stat",
     tags: ["bardic_inspiration:die:1d10"],
   }),
-  classFeature("bard", 10, "expertise_10", {
-    type: "resolver_pending",
-    tags: ["skill:expertise", "selection:two_proficiencies"],
-  }),
+  classFeature("bard", 10, "expertise_10", selectionRuntime(
+    ["skill:expertise", "selection:two_proficiencies"],
+    "hook.class.bard.expertise_10",
+  )),
   classFeature("bard", 10, "magical_secrets", {
-    type: "resolver_pending",
-    tags: ["spellcasting:magical_secrets", "spell_selection:any_class:2"],
+    type: "spellcasting",
+    tags: [
+      "spellcasting:magical_secrets",
+      "spell_selection:any_class:2",
+      "snapshot:spell_selection_choice_required",
+    ],
+    hookId: "hook.class.bard.magical_secrets",
   }),
   classFeature("cleric", 10, "divine_intervention", {
     type: "grant_action",
@@ -1041,10 +1074,10 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     tags: ["ability_check:proficient:min_d20:10"],
     hookId: "hook.class.rogue.reliable_talent",
   }),
-  classFeature("sorcerer", 10, "metamagic_improvement", {
-    type: "resolver_pending",
-    tags: ["selection:metamagic:additional"],
-  }),
+  classFeature("sorcerer", 10, "metamagic_improvement", selectionRuntime(
+    ["selection:metamagic:additional"],
+    "hook.class.sorcerer.metamagic_improvement",
+  )),
   classFeature("sorcerer", 10, "sorcery_points_10", {
     type: "modify_stat",
     tags: ["resource:sorcery_points:max:10", "rest:long"],
@@ -1056,8 +1089,9 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     resourceId: "resource.warlock.mystic_arcanum_6",
   }),
   classFeature("wizard", 10, "arcane_tradition_feature_10", {
-    type: "resolver_pending",
-    tags: ["subclass:feature_level_10"],
+    type: "subclass_feature",
+    tags: ["subclass:feature_level_10", "snapshot:subclass_feature_projection"],
+    hookId: "hook.class.wizard.arcane_tradition_feature_10",
   }),
 
   ...[
@@ -1075,11 +1109,12 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     "wizard",
   ].map((classKey) =>
     classFeature(classKey, 14, "ability_score_improvement_14", {
-      type: "resolver_pending",
+      ...abilityScoreImprovementRuntime(14),
       tags: [
         "selection:ability_score_improvement",
         "ability_points:2",
         "feature:ability_score_improvement",
+        "snapshot:level_up_choice_required",
         "feat_selection_hook:p5",
         "p5_level:14",
       ],
@@ -1101,11 +1136,12 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     "wizard",
   ].map((classKey) =>
     classFeature(classKey, 16, "ability_score_improvement_16", {
-      type: "resolver_pending",
+      ...abilityScoreImprovementRuntime(16),
       tags: [
         "selection:ability_score_improvement",
         "ability_points:2",
         "feature:ability_score_improvement",
+        "snapshot:level_up_choice_required",
         "p5_level_cap:16",
       ],
     }),
@@ -1126,8 +1162,14 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
     tags: ["song_of_rest:die:1d10"],
   }),
   classFeature("bard", 14, "magical_secrets_14", {
-    type: "resolver_pending",
-    tags: ["spellcasting:magical_secrets", "spell_selection:any_class:2", "p5_spell_level:7"],
+    type: "spellcasting",
+    tags: [
+      "spellcasting:magical_secrets",
+      "spell_selection:any_class:2",
+      "p5_spell_level:7",
+      "snapshot:spell_selection_choice_required",
+    ],
+    hookId: "hook.class.bard.magical_secrets_14",
   }),
   classFeature("bard", 15, "bardic_inspiration_d12", {
     type: "modify_stat",
@@ -1218,6 +1260,192 @@ const PENDING_CLASS_FEATURES: ClassFeatureSeed[] = [
   classFeature("wizard", 15, "eighth_level_spells", {
     type: "spellcasting",
     tags: ["spellcasting:full", "spell_level:8", "slot_unlock:8"],
+  }),
+
+  ...[
+    "barbarian",
+    "bard",
+    "cleric",
+    "druid",
+    "fighter",
+    "monk",
+    "paladin",
+    "ranger",
+    "rogue",
+    "sorcerer",
+    "warlock",
+    "wizard",
+  ].map((classKey) =>
+    classFeature(classKey, 19, "ability_score_improvement_19", {
+      type: "modify_stat",
+      tags: [
+        "selection:ability_score_improvement",
+        "ability_points:2",
+        "feature:ability_score_improvement",
+        "p6_level:19",
+        "feat_selection_hook:p6",
+        "snapshot:level_up_choice_required",
+      ],
+      hookId: "hook.class.ability_score_improvement_19",
+    }),
+  ),
+
+  classFeature("barbarian", 17, "brutal_critical_3", {
+    type: "grant_passive",
+    tags: ["p6_level:17", "critical:extra_weapon_damage_die:3"],
+    hookId: "hook.class.barbarian.brutal_critical",
+  }),
+  classFeature("barbarian", 20, "primal_champion", {
+    type: "modify_stat",
+    tags: ["p6_capstone", "ability:str:+4", "ability:con:+4", "ability_max:str:24", "ability_max:con:24"],
+    hookId: "hook.class.barbarian.primal_champion",
+  }),
+  classFeature("bard", 17, "song_of_rest_d12", {
+    type: "modify_stat",
+    tags: ["p6_level:17", "song_of_rest:die:1d12"],
+  }),
+  classFeature("bard", 18, "magical_secrets_18", {
+    type: "spellcasting",
+    tags: ["p6_level:18", "spellcasting:magical_secrets", "spell_selection:any_class:2", "spell_level:max:9", "snapshot:spell_selection_choice_required"],
+    hookId: "hook.class.bard.magical_secrets_18",
+  }),
+  classFeature("bard", 20, "superior_inspiration", {
+    type: "grant_passive",
+    tags: ["p6_capstone", "initiative:if_bardic_inspiration_empty:restore_1"],
+    resourceId: "resource.bard.bardic_inspiration",
+    hookId: "hook.class.bard.superior_inspiration",
+  }),
+  classFeature("cleric", 17, "destroy_undead_cr_4", {
+    type: "grant_passive",
+    tags: ["p6_level:17", "channel_divinity:turn_undead", "destroy_undead:cr:4"],
+  }),
+  classFeature("cleric", 20, "divine_intervention_improvement", {
+    type: "grant_passive",
+    tags: ["p6_capstone", "divine_intervention:auto_success"],
+    resourceId: "resource.cleric.divine_intervention",
+    hookId: "hook.class.cleric.divine_intervention",
+  }),
+  classFeature("druid", 17, "ninth_level_spells", {
+    type: "spellcasting",
+    tags: ["p6_level:17", "spellcasting:full", "spell_level:9", "slot_unlock:9"],
+  }),
+  classFeature("druid", 18, "timeless_body", {
+    type: "grant_passive",
+    tags: ["p6_level:18", "aging:slowed"],
+  }),
+  classFeature("druid", 18, "beast_spells", {
+    type: "grant_passive",
+    tags: ["p6_level:18", "wild_shape:can_cast_druid_spells"],
+    hookId: "hook.class.druid.beast_spells",
+  }),
+  classFeature("druid", 20, "archdruid", {
+    type: "grant_passive",
+    tags: ["p6_capstone", "wild_shape:unlimited", "ignore_components:verbal_somatic_material_no_cost"],
+    resourceId: "resource.druid.wild_shape",
+    hookId: "hook.class.druid.archdruid",
+  }),
+  classFeature("fighter", 17, "action_surge_2", {
+    type: "modify_stat",
+    tags: ["p6_level:17", "resource:action_surge:max:2", "rest:short"],
+    resourceId: "resource.fighter.action_surge",
+  }),
+  classFeature("fighter", 17, "indomitable_3", {
+    type: "modify_stat",
+    tags: ["p6_level:17", "resource:indomitable:max:3", "rest:long"],
+    resourceId: "resource.fighter.indomitable",
+  }),
+  classFeature("fighter", 20, "extra_attack_3", {
+    type: "grant_passive",
+    tags: ["p6_capstone", "attack_action:attacks:4"],
+    hookId: "hook.class.fighter.extra_attack_3",
+  }),
+  classFeature("monk", 17, "martial_arts_d10", {
+    type: "modify_stat",
+    tags: ["p6_level:17", "unarmed:martial_arts_die:1d10"],
+  }),
+  classFeature("monk", 18, "empty_body", {
+    type: "grant_action",
+    tags: ["p6_level:18", "resource:ki:4", "condition:invisible", "resistance:all_except_force"],
+    resourceId: "resource.monk.ki",
+    hookId: "hook.class.monk.empty_body",
+  }, { type: "resource", resourceId: "resource.monk.ki", amount: 4 }, SELF_TARGETING),
+  classFeature("monk", 20, "perfect_self", {
+    type: "grant_passive",
+    tags: ["p6_capstone", "initiative:if_ki_empty:restore_4"],
+    resourceId: "resource.monk.ki",
+    hookId: "hook.class.monk.perfect_self",
+  }),
+  classFeature("paladin", 18, "aura_improvements", {
+    type: "modify_stat",
+    tags: ["p6_level:18", "aura:range:30"],
+  }),
+  classFeature("paladin", 20, "sacred_oath_capstone", {
+    type: "grant_action",
+    tags: ["p6_capstone", "subclass:capstone", "resource:oath_capstone", "duration:1_minute", "snapshot:oath_capstone_choice_required"],
+    resourceId: "resource.paladin.oath_capstone",
+    hookId: "hook.class.paladin.sacred_oath_capstone",
+  }),
+  classFeature("ranger", 18, "feral_senses", {
+    type: "grant_passive",
+    tags: ["p6_level:18", "sense:invisible_within_30_if_not_hidden"],
+    hookId: "hook.class.ranger.feral_senses",
+  }),
+  classFeature("ranger", 20, "foe_slayer", {
+    type: "grant_action",
+    tags: ["p6_capstone", "trigger:attack_or_damage_roll", "bonus:wis_mod", "favored_enemy_only"],
+    hookId: "hook.class.ranger.foe_slayer",
+  }, NO_COST, { type: "creature", rangeFt: 5 }, "on_hit"),
+  classFeature("rogue", 18, "elusive", {
+    type: "grant_passive",
+    tags: ["p6_level:18", "incoming_attack:no_advantage_unless_incapacitated"],
+    hookId: "hook.class.rogue.elusive",
+  }),
+  classFeature("rogue", 20, "stroke_of_luck", {
+    type: "grant_action",
+    tags: ["p6_capstone", "trigger:miss_or_failed_ability_check", "convert_to_hit_or_d20_20", "rest:short"],
+    resourceId: "resource.rogue.stroke_of_luck",
+    hookId: "hook.class.rogue.stroke_of_luck",
+  }, { type: "reaction" }, SELF_TARGETING, "reaction"),
+  classFeature("sorcerer", 17, "metamagic_improvement_17", {
+    type: "grant_passive",
+    tags: ["p6_level:17", "selection:metamagic:additional", "snapshot:metamagic_choice_required"],
+    hookId: "hook.class.sorcerer.metamagic_improvement_17",
+  }),
+  classFeature("sorcerer", 17, "ninth_level_spells", {
+    type: "spellcasting",
+    tags: ["p6_level:17", "spellcasting:full", "spell_level:9", "slot_unlock:9"],
+  }),
+  classFeature("sorcerer", 20, "sorcerous_restoration", {
+    type: "grant_passive",
+    tags: ["p6_capstone", "short_rest:restore_sorcery_points:4"],
+    resourceId: "resource.sorcerer.sorcery_points",
+    hookId: "hook.class.sorcerer.sorcerous_restoration",
+  }),
+  classFeature("warlock", 17, "mystic_arcanum_9", {
+    type: "spellcasting",
+    tags: ["p6_level:17", "spellcasting:mystic_arcanum", "spell_level:9", "uses:1", "rest:long"],
+    resourceId: "resource.warlock.mystic_arcanum_9",
+  }),
+  classFeature("warlock", 20, "eldritch_master", {
+    type: "grant_action",
+    tags: ["p6_capstone", "downtime:1_minute", "restore:pact_magic_slots", "rest:long"],
+    resourceId: "resource.warlock.pact_magic",
+    hookId: "hook.class.warlock.eldritch_master",
+  }, { type: "action" }, SELF_TARGETING),
+  classFeature("wizard", 17, "ninth_level_spells", {
+    type: "spellcasting",
+    tags: ["p6_level:17", "spellcasting:full", "spell_level:9", "slot_unlock:9"],
+  }),
+  classFeature("wizard", 18, "spell_mastery", {
+    type: "spellcasting",
+    tags: ["p6_level:18", "selection:spell_mastery", "spell_level:1_and_2_at_will", "at_will:spell_level_1_and_2", "snapshot:spell_mastery_choice_required"],
+    hookId: "hook.class.wizard.spell_mastery",
+  }),
+  classFeature("wizard", 20, "signature_spells", {
+    type: "spellcasting",
+    tags: ["p6_capstone", "selection:signature_spells", "spell_level:3", "uses:1_each_short_rest", "snapshot:signature_spells_choice_required"],
+    resourceId: "resource.wizard.signature_spells",
+    hookId: "hook.class.wizard.signature_spells",
   }),
 ];
 
@@ -2334,17 +2562,19 @@ export class RuleCatalogService {
     for (const entry of [
       ...RACE_TRAIT_DEFINITIONS,
       ...SUBCLASS_FEATURE_DEFINITIONS,
-      ...PENDING_CLASS_FEATURES.map(toClassFeatureEntry),
+      ...CLASS_FEATURE_DEFINITIONS.map(toClassFeatureEntry),
       ...CONDITION_DEFINITIONS,
       ...TERRAIN_EFFECT_DEFINITIONS,
       ...SPELL_DEFINITIONS,
       ...P3_SPELL_DEFINITIONS,
       ...P4_SPELL_DEFINITIONS,
       ...P5_SPELL_DEFINITIONS,
+      ...P6_SPELL_DEFINITIONS,
       ...MONSTER_ABILITY_DEFINITIONS,
       ...P3_MONSTER_ABILITY_DEFINITIONS,
       ...P4_MONSTER_ABILITY_DEFINITIONS,
       ...P5_MONSTER_ABILITY_DEFINITIONS,
+      ...P6_MONSTER_ABILITY_DEFINITIONS,
     ]) {
       if (this.entries.has(entry.id)) {
         throw new Error(`Duplicate rule catalog id: ${entry.id}`);

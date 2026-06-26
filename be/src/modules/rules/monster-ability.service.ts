@@ -255,7 +255,12 @@ export class MonsterAbilityService {
         (tag) =>
           tag.startsWith("area:") ||
           tag === "half_damage_on_success" ||
+          tag === "legendary_or_lair_candidate" ||
           tag.startsWith("aura:") ||
+          tag.startsWith("legendary_like:") ||
+          tag.startsWith("lair:") ||
+          tag.startsWith("phase:") ||
+          tag.startsWith("terrain:") ||
           tag.startsWith("trigger:"),
       ),
       ...entry.runtimeEffect.tags.filter((tag) => tag.startsWith("multiattack:")),

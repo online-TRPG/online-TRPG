@@ -65,6 +65,47 @@ describe("HumanGmMessageDto validation", () => {
   });
 });
 
+describe("SessionsService scenario level policy", () => {
+  function createService() {
+    return new SessionsService({} as never, {} as never, {} as never, {} as never) as never as {
+      ensureCharacterMatchesScenarioLevel: (params: {
+        characterName?: string | null;
+        characterLevel: number;
+        scenario: { title?: string | null; startLevel?: number | null; recommendedEndLevel?: number | null };
+      }) => void;
+      isCharacterLevelInScenarioRange: (
+        characterLevel: number,
+        scenario: { startLevel?: number | null; recommendedEndLevel?: number | null },
+      ) => boolean;
+    };
+  }
+
+  it("accepts only the scenario start level when no recommended end level is configured", () => {
+    const service = createService();
+    const scenario = { title: "고블린 동굴", startLevel: 1, recommendedEndLevel: null };
+
+    expect(service.isCharacterLevelInScenarioRange(1, scenario)).toBe(true);
+    expect(service.isCharacterLevelInScenarioRange(2, scenario)).toBe(false);
+    expect(() =>
+      service.ensureCharacterMatchesScenarioLevel({
+        characterName: "고레벨 영웅",
+        characterLevel: 2,
+        scenario,
+      }),
+    ).toThrow(ConflictException);
+  });
+
+  it("accepts characters within the configured scenario level range", () => {
+    const service = createService();
+    const scenario = { title: "폭풍 금고", startLevel: 17, recommendedEndLevel: 20 };
+
+    expect(service.isCharacterLevelInScenarioRange(17, scenario)).toBe(true);
+    expect(service.isCharacterLevelInScenarioRange(20, scenario)).toBe(true);
+    expect(service.isCharacterLevelInScenarioRange(16, scenario)).toBe(false);
+    expect(service.isCharacterLevelInScenarioRange(21, scenario)).toBe(false);
+  });
+});
+
 describe("RevealSessionContentDto validation", () => {
   it("rejects unsupported HUMAN GM reveal content kinds before audit logging", async () => {
     const dto = plainToInstance(RevealSessionContentDto, {
@@ -3255,6 +3296,990 @@ describe("SessionsService P5 long campaign list integrity", () => {
           stateDiffs: expect.anything(),
         }),
         take: 20,
+      }),
+    );
+  });
+});
+
+describe("SessionsService P6 campaign archive, vault, and transfer", () => {
+  function createP6CampaignService() {
+    const now = new Date("2026-06-25T00:00:00.000Z");
+    const session = {
+      id: "session-1",
+      publicId: "12345678",
+      title: "P6 Final Campaign",
+      description: "Final arc",
+      hostUserId: "host-user",
+      gmUserId: null,
+      inviteCode: "P6FINAL",
+      status: "PLAYING",
+      visibility: "PUBLIC",
+      maxParticipants: 4,
+      ruleSetId: "dnd5e",
+      gmMode: "AI",
+      captainUserId: null,
+      nextSessionAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const scenario = {
+      id: "scenario-p6",
+      title: "P6 Final Scenario",
+      description: "Final validation",
+      createdByUserId: null,
+      sourceType: "SYSTEM",
+      baseScenarioId: null,
+      thumbnailUrl: null,
+      ruleSetId: "dnd5e",
+      difficulty: "legendary",
+      startLevel: 17,
+      recommendedEndLevel: 20,
+      license: "ORIGINAL",
+      attribution: "P6",
+      startNodeId: "node-final",
+      npcsJson: "[]",
+      createdAt: now,
+      updatedAt: now,
+    };
+    const gameState = {
+      sessionScenarioId: "session-scenario-1",
+      currentNodeId: "node-final",
+      phase: "EXPLORATION",
+      version: 7,
+      flagsJson: JSON.stringify({
+        campaignCalendar: {
+          downtimeTasks: [{ id: "dt-complete", status: "completed" }, { id: "dt-active", status: "active" }],
+        },
+        economy: {
+          partyStash: [{ itemDefinitionId: "magic_item.staff_of_power", quantity: 1 }],
+          walletsBySessionCharacterId: { "session-character-1": { gp: 250 } },
+          shopStatesById: { "shop-final": { shopId: "shop-final", inventory: [] } },
+          craftingProgressById: { "craft-legacy": { status: "completed" } },
+          downtimeCompletionsById: { "dt-complete": { downtimeTaskId: "dt-complete" } },
+        },
+      }),
+      updatedAt: now,
+    };
+    const activeScenario = {
+      id: "session-scenario-1",
+      sessionId: "session-1",
+      scenarioId: "scenario-p6",
+      sequence: 1,
+      status: "ACTIVE",
+      startedAt: now,
+      endedAt: null,
+      createdAt: now,
+      scenario,
+      gameState,
+    };
+    const character = {
+      id: "character-1",
+      ownerUserId: "player-1",
+      scenarioId: "scenario-p6",
+      name: "Storm Hero",
+      ancestry: "human",
+      className: "wizard",
+      subclassName: "evocation",
+      level: 20,
+      bio: null,
+      abilitiesJson: "{}",
+      proficiencyBonus: 6,
+      featuresJson: "[]",
+      proficientSkillsJson: "[]",
+      maxHp: 120,
+      armorClass: 17,
+      speed: 30,
+      inventoryJson: JSON.stringify([{ id: "item-1", name: "Final Relic", quantity: 2 }]),
+      spellsJson: null,
+      equippedWeaponId: null,
+      offhandWeaponId: null,
+      avatarType: "DEFAULT",
+      avatarPresetId: null,
+      avatarUrl: null,
+      avatarUpdatedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const sessionCharacter = {
+      id: "session-character-1",
+      sessionId: "session-1",
+      userId: "player-1",
+      characterId: "character-1",
+      status: "ACTIVE",
+      currentHp: 118,
+      tempHp: 0,
+      conditionsJson: "[]",
+      inventorySnapshotJson: JSON.stringify([{ id: "item-1", name: "Final Relic", quantity: 2 }]),
+      createdAt: now,
+      updatedAt: now,
+      character,
+    };
+    const prisma = {
+      session: {
+        findFirst: jest.fn().mockResolvedValue(session),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      sessionScenario: {
+        findFirst: jest.fn().mockResolvedValue(activeScenario),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      gameState: {
+        update: jest.fn().mockResolvedValue({}),
+      },
+      sessionCharacter: {
+        findMany: jest.fn().mockResolvedValue([sessionCharacter]),
+        findUnique: jest.fn().mockResolvedValue(sessionCharacter),
+        update: jest.fn().mockResolvedValue({}),
+        create: jest.fn().mockImplementation(async ({ data }) => ({
+          id: "target-session-character-1",
+          ...data,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      },
+      sessionParticipant: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "participant-1",
+          sessionId: "session-1",
+          userId: "player-1",
+          role: "PLAYER",
+          status: "JOINED",
+        }),
+      },
+      character: {
+        create: jest.fn().mockImplementation(async ({ data }) => ({
+          ...data,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      },
+      turnLog: {
+        count: jest.fn().mockResolvedValue(12),
+        findFirst: jest.fn().mockResolvedValue({ turnNumber: 12 }),
+        create: jest.fn().mockImplementation(async ({ data }) => ({
+          id: "turn-log-archive-1",
+          ...data,
+          playerActionId: null,
+          sessionCharacterId: null,
+          diceResultJson: null,
+          createdAt: now,
+        })),
+      },
+      combat: {
+        count: jest.fn().mockResolvedValue(3),
+      },
+      sessionNodeVisit: {
+        count: jest.fn().mockResolvedValue(8),
+      },
+      stateDiff: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+      $transaction: jest.fn(),
+    };
+    prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => Promise<unknown>) =>
+      callback(prisma),
+    );
+    const realtimeEvents = {
+      emitSessionStatusUpdated: jest.fn(),
+      emitSessionSnapshot: jest.fn(),
+    };
+    const service = new SessionsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      realtimeEvents as never,
+    );
+    jest.spyOn(service, "buildSnapshot").mockResolvedValue({
+      session: { id: "session-1" },
+      sessionScenarios: [],
+      participants: [],
+      sessionCharacters: [],
+      state: {},
+      pendingRestApprovals: [],
+    } as never);
+
+    return { service, prisma, realtimeEvents, session, activeScenario, character, sessionCharacter };
+  }
+
+  it("completes a long campaign into an auditable P6 archive snapshot", async () => {
+    const { service, prisma, realtimeEvents } = createP6CampaignService();
+
+    const archive = await service.completeLongCampaign("host-user", "session-1", {
+      epilogue: "The party seals the storm forever.",
+      finalRewardIds: ["reward.p6_crown"],
+      shareScope: "party",
+      allowCharacterTransfer: true,
+    });
+
+    expect(archive).toEqual(
+      expect.objectContaining({
+        sessionId: "session-1",
+        scenarioId: "scenario-p6",
+        epilogue: "The party seals the storm forever.",
+        allowCharacterTransfer: true,
+        analytics: expect.objectContaining({
+          turnLogCount: 12,
+          combatCount: 3,
+          completedDowntimeTaskCount: 1,
+          nodeVisitCount: 8,
+          sessionCharacterCount: 1,
+        }),
+        snapshot: expect.objectContaining({
+          stateVersion: 7,
+          currentNodeId: "node-final",
+          downtime: expect.objectContaining({
+            activeTaskCount: 1,
+            completedTaskCount: 1,
+            taskIds: expect.arrayContaining(["dt-complete", "dt-active"]),
+          }),
+          economy: expect.objectContaining({
+            hasEconomyState: true,
+            partyStashItemCount: 1,
+            walletCount: 1,
+            shopCount: 1,
+            craftingProgressCount: 1,
+            downtimeCompletionCount: 1,
+          }),
+          inventory: expect.objectContaining({
+            totalItemCount: 2,
+            characterInventoryCounts: { "session-character-1": 2 },
+          }),
+          combat: expect.objectContaining({
+            turnLogCount: 12,
+            combatCount: 3,
+            nodeVisitCount: 8,
+          }),
+        }),
+      }),
+    );
+    expect(prisma.session.update).toHaveBeenCalledWith({
+      where: { id: "session-1" },
+      data: { status: "COMPLETED" },
+    });
+    expect(prisma.gameState.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { sessionScenarioId: "session-scenario-1" },
+        data: expect.objectContaining({
+          flagsJson: expect.stringContaining("p6CampaignArchive"),
+        }),
+      }),
+    );
+    expect(prisma.turnLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          rawInput: "/campaign complete",
+          structuredActionJson: expect.stringContaining("p6_campaign_archive"),
+        }),
+      }),
+    );
+    expect(prisma.stateDiff.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          reason: "p6_campaign_archive",
+        }),
+      }),
+    );
+    expect(realtimeEvents.emitSessionStatusUpdated).toHaveBeenCalled();
+  });
+
+  it("returns the existing P6 archive without writing again when campaign completion is repeated", async () => {
+    const { service, prisma, activeScenario } = createP6CampaignService();
+    const existingArchive = {
+      archiveId: "campaign-archive:existing",
+      sessionId: "session-1",
+      sessionTitle: "P6 Final Campaign",
+      scenarioId: "scenario-p6",
+      scenarioTitle: "P6 Final Scenario",
+      completedAt: "2026-06-25T00:00:00.000Z",
+      completedByUserId: "host-user",
+      epilogue: "Already complete",
+      shareScope: "party",
+      allowCharacterTransfer: true,
+      finalNodeId: "node-final",
+      finalRewardIds: ["reward.p6_crown"],
+      characters: [],
+      analytics: {
+        turnLogCount: 12,
+        combatCount: 3,
+        completedDowntimeTaskCount: 1,
+        nodeVisitCount: 8,
+        sessionCharacterCount: 1,
+      },
+    };
+    prisma.sessionScenario.findFirst.mockResolvedValueOnce({
+      ...activeScenario,
+      gameState: {
+        ...activeScenario.gameState,
+        flagsJson: JSON.stringify({ p6CampaignArchive: existingArchive }),
+      },
+    });
+
+    await expect(
+      service.completeLongCampaign("host-user", "session-1", {
+        epilogue: "Second click should not rewrite the archive.",
+        shareScope: "public_summary",
+        allowCharacterTransfer: false,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        ...existingArchive,
+        snapshot: expect.objectContaining({
+          combat: expect.objectContaining({
+            turnLogCount: 12,
+            combatCount: 3,
+            nodeVisitCount: 8,
+          }),
+        }),
+      }),
+    );
+
+    expect(prisma.session.update).not.toHaveBeenCalled();
+    expect(prisma.gameState.update).not.toHaveBeenCalled();
+    expect(prisma.turnLog.create).not.toHaveBeenCalled();
+    expect(prisma.stateDiff.create).not.toHaveBeenCalled();
+  });
+
+  it("projects completed campaign characters into the P6 character vault", async () => {
+    const { service, prisma, session, activeScenario } = createP6CampaignService();
+    const archive = {
+      archiveId: "campaign-archive:1",
+      sessionId: "session-1",
+      sessionTitle: "P6 Final Campaign",
+      scenarioId: "scenario-p6",
+      scenarioTitle: "P6 Final Scenario",
+      completedAt: "2026-06-25T00:00:00.000Z",
+      completedByUserId: "host-user",
+      epilogue: "Done",
+      shareScope: "party",
+      allowCharacterTransfer: true,
+      finalNodeId: "node-final",
+      finalRewardIds: [],
+      characters: [],
+      analytics: {
+        turnLogCount: 1,
+        combatCount: 1,
+        completedDowntimeTaskCount: 0,
+        nodeVisitCount: 1,
+        sessionCharacterCount: 1,
+      },
+    };
+    prisma.sessionCharacter.findMany.mockResolvedValueOnce([
+      {
+        id: "session-character-1",
+        sessionId: "session-1",
+        userId: "player-1",
+        characterId: "character-1",
+        status: "ACTIVE",
+        character: {
+          id: "character-1",
+          name: "Storm Hero",
+          className: "wizard",
+          subclassName: "evocation",
+          level: 20,
+        },
+        session: {
+          ...session,
+          status: "COMPLETED",
+          sessionScenarios: [
+            {
+              ...activeScenario,
+              gameState: {
+                ...activeScenario.gameState,
+                flagsJson: JSON.stringify({ p6CampaignArchive: archive }),
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    await expect(service.listCharacterVault("player-1")).resolves.toEqual([
+      expect.objectContaining({
+        sourceSessionCharacterId: "session-character-1",
+        archiveId: "campaign-archive:1",
+        level: 20,
+        transferable: true,
+      }),
+    ]);
+  });
+
+  it("caps the P6 character vault query for large completed campaign archives", async () => {
+    const { service, prisma } = createP6CampaignService();
+
+    prisma.sessionCharacter.findMany.mockResolvedValueOnce([]);
+
+    await expect(service.listCharacterVault("player-1")).resolves.toEqual([]);
+    expect(prisma.sessionCharacter.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 100,
+      }),
+    );
+  });
+
+  it("requests and approves a P6 character transfer as an independent clone", async () => {
+    const { service, prisma, activeScenario, sessionCharacter } = createP6CampaignService();
+    const sourceArchive = {
+      archiveId: "campaign-archive:1",
+      sessionId: "source-session",
+      sessionTitle: "Source Campaign",
+      scenarioId: "scenario-source",
+      scenarioTitle: "Source",
+      completedAt: "2026-06-25T00:00:00.000Z",
+      completedByUserId: "host-user",
+      epilogue: "Done",
+      shareScope: "party",
+      allowCharacterTransfer: true,
+      finalNodeId: "node-final",
+      finalRewardIds: [],
+      characters: [],
+      analytics: {
+        turnLogCount: 1,
+        combatCount: 1,
+        completedDowntimeTaskCount: 0,
+        nodeVisitCount: 1,
+        sessionCharacterCount: 1,
+      },
+    };
+    prisma.sessionCharacter.findUnique
+      .mockResolvedValueOnce({
+        ...sessionCharacter,
+        sessionId: "source-session",
+        session: {
+          id: "source-session",
+          ruleSetId: "dnd5e",
+          status: "COMPLETED",
+          sessionScenarios: [
+            {
+              ...activeScenario,
+              sessionId: "source-session",
+              gameState: {
+                ...activeScenario.gameState,
+                flagsJson: JSON.stringify({ p6CampaignArchive: sourceArchive }),
+              },
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        ...sessionCharacter,
+        sessionId: "source-session",
+        session: {
+          id: "source-session",
+          ruleSetId: "dnd5e",
+        },
+      });
+
+    const requested = await service.requestCharacterTransfer("player-1", "session-1", {
+      sourceSessionId: "source-session",
+      sourceSessionCharacterId: "session-character-1",
+      mode: "clone",
+    });
+
+    expect(requested).toEqual(
+      expect.objectContaining({
+        sourceSessionId: "source-session",
+        status: "requested",
+        targetSessionCharacterId: null,
+      }),
+    );
+    const transferFlags = JSON.parse(prisma.gameState.update.mock.calls[0][0].data.flagsJson);
+    prisma.sessionScenario.findFirst.mockResolvedValueOnce({
+      ...activeScenario,
+      gameState: {
+        ...activeScenario.gameState,
+        flagsJson: JSON.stringify({ p6CharacterTransferRequests: transferFlags.p6CharacterTransferRequests }),
+      },
+    });
+
+    const approved = await service.approveCharacterTransfer("host-user", "session-1", requested.requestId);
+
+    expect(approved).toEqual(
+      expect.objectContaining({
+        status: "approved",
+        targetSessionCharacterId: "target-session-character-1",
+      }),
+    );
+    expect(prisma.character.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          ownerUserId: "player-1",
+          scenarioId: "scenario-p6",
+          level: 20,
+        }),
+      }),
+    );
+    expect(prisma.sessionCharacter.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sessionId: "session-1",
+          userId: "player-1",
+          characterId: expect.stringMatching(/^character-transfer-/),
+          inventorySnapshotJson: sessionCharacter.inventorySnapshotJson,
+        }),
+      }),
+    );
+    const gameStateUpdates = prisma.gameState.update.mock.calls.map((call) => call[0]);
+    expect(gameStateUpdates).toHaveLength(2);
+    expect(gameStateUpdates.every((update) => update.where.sessionScenarioId === "session-scenario-1")).toBe(true);
+    expect(gameStateUpdates.every((update) => !update.data.flagsJson.includes("p6CampaignArchive"))).toBe(true);
+    expect(prisma.sessionCharacter.update).not.toHaveBeenCalled();
+  });
+
+  it("approves a P6 transfer request by retiring the archived source assignment after cloning", async () => {
+    const { service, prisma, activeScenario, sessionCharacter } = createP6CampaignService();
+    const sourceArchive = {
+      archiveId: "campaign-archive:1",
+      sessionId: "source-session",
+      sessionTitle: "Source Campaign",
+      scenarioId: "scenario-source",
+      scenarioTitle: "Source",
+      completedAt: "2026-06-25T00:00:00.000Z",
+      completedByUserId: "host-user",
+      epilogue: "Done",
+      shareScope: "party",
+      allowCharacterTransfer: true,
+      finalNodeId: "node-final",
+      finalRewardIds: [],
+      characters: [],
+      analytics: {
+        turnLogCount: 1,
+        combatCount: 1,
+        completedDowntimeTaskCount: 0,
+        nodeVisitCount: 1,
+        sessionCharacterCount: 1,
+      },
+    };
+    prisma.sessionCharacter.findUnique
+      .mockResolvedValueOnce({
+        ...sessionCharacter,
+        sessionId: "source-session",
+        session: {
+          id: "source-session",
+          ruleSetId: "dnd5e",
+          status: "COMPLETED",
+          sessionScenarios: [
+            {
+              ...activeScenario,
+              sessionId: "source-session",
+              gameState: {
+                ...activeScenario.gameState,
+                flagsJson: JSON.stringify({ p6CampaignArchive: sourceArchive }),
+              },
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        ...sessionCharacter,
+        sessionId: "source-session",
+        session: {
+          id: "source-session",
+          ruleSetId: "dnd5e",
+        },
+      });
+
+    const requested = await service.requestCharacterTransfer("player-1", "session-1", {
+      sourceSessionId: "source-session",
+      sourceSessionCharacterId: "session-character-1",
+      mode: "transfer",
+    });
+
+    const transferFlags = JSON.parse(prisma.gameState.update.mock.calls[0][0].data.flagsJson);
+    prisma.sessionScenario.findFirst.mockResolvedValueOnce({
+      ...activeScenario,
+      gameState: {
+        ...activeScenario.gameState,
+        flagsJson: JSON.stringify({ p6CharacterTransferRequests: transferFlags.p6CharacterTransferRequests }),
+      },
+    });
+
+    const approved = await service.approveCharacterTransfer("host-user", "session-1", requested.requestId);
+
+    expect(approved).toEqual(
+      expect.objectContaining({
+        mode: "transfer",
+        status: "approved",
+        sourceDisposition: "retired_after_transfer",
+        targetSessionCharacterId: "target-session-character-1",
+      }),
+    );
+    expect(prisma.sessionCharacter.update).toHaveBeenCalledWith({
+      where: { id: "session-character-1" },
+      data: { status: "RETIRED" },
+    });
+    const gameStateUpdates = prisma.gameState.update.mock.calls.map((call) => call[0]);
+    expect(gameStateUpdates).toHaveLength(2);
+    expect(gameStateUpdates.every((update) => update.where.sessionScenarioId === "session-scenario-1")).toBe(true);
+    expect(gameStateUpdates.every((update) => !update.data.flagsJson.includes("p6CampaignArchive"))).toBe(true);
+  });
+
+  it("returns an existing pending P6 character transfer request without appending duplicates", async () => {
+    const { service, prisma, activeScenario, sessionCharacter } = createP6CampaignService();
+    const sourceArchive = {
+      archiveId: "campaign-archive:1",
+      sessionId: "source-session",
+      sessionTitle: "Source Campaign",
+      scenarioId: "scenario-source",
+      scenarioTitle: "Source",
+      completedAt: "2026-06-25T00:00:00.000Z",
+      completedByUserId: "host-user",
+      epilogue: "Done",
+      shareScope: "party",
+      allowCharacterTransfer: true,
+      finalNodeId: "node-final",
+      finalRewardIds: [],
+      characters: [],
+      analytics: {
+        turnLogCount: 1,
+        combatCount: 1,
+        completedDowntimeTaskCount: 0,
+        nodeVisitCount: 1,
+        sessionCharacterCount: 1,
+      },
+    };
+    const existingRequest = {
+      requestId: "character-transfer:existing",
+      targetSessionId: "session-1",
+      sourceSessionId: "source-session",
+      sourceSessionCharacterId: "session-character-1",
+      requestedByUserId: "player-1",
+      status: "requested",
+      mode: "clone",
+      targetSessionCharacterId: null,
+      createdAt: "2026-06-25T00:00:00.000Z",
+      resolvedAt: null,
+      note: "already pending",
+      approvedByUserId: null,
+    };
+    prisma.sessionScenario.findFirst.mockResolvedValueOnce({
+      ...activeScenario,
+      gameState: {
+        ...activeScenario.gameState,
+        flagsJson: JSON.stringify({ p6CharacterTransferRequests: [existingRequest] }),
+      },
+    });
+    prisma.sessionCharacter.findUnique.mockResolvedValueOnce({
+      ...sessionCharacter,
+      sessionId: "source-session",
+      session: {
+        id: "source-session",
+        ruleSetId: "dnd5e",
+        status: "COMPLETED",
+        sessionScenarios: [
+          {
+            ...activeScenario,
+            sessionId: "source-session",
+            gameState: {
+              ...activeScenario.gameState,
+              flagsJson: JSON.stringify({ p6CampaignArchive: sourceArchive }),
+            },
+          },
+        ],
+      },
+    });
+
+    await expect(
+      service.requestCharacterTransfer("player-1", "session-1", {
+        sourceSessionId: "source-session",
+        sourceSessionCharacterId: "session-character-1",
+        mode: "clone",
+        note: "duplicate click",
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        requestId: "character-transfer:existing",
+        status: "requested",
+        note: "already pending",
+      }),
+    );
+
+    expect(prisma.gameState.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a P6 character transfer request when the target rule set differs", async () => {
+    const { service, prisma, activeScenario, sessionCharacter } = createP6CampaignService();
+    const sourceArchive = {
+      archiveId: "campaign-archive:1",
+      sessionId: "source-session",
+      sessionTitle: "Source Campaign",
+      scenarioId: "scenario-source",
+      scenarioTitle: "Source",
+      completedAt: "2026-06-25T00:00:00.000Z",
+      completedByUserId: "host-user",
+      epilogue: "Done",
+      shareScope: "party",
+      allowCharacterTransfer: true,
+      finalNodeId: "node-final",
+      finalRewardIds: [],
+      characters: [],
+      analytics: {
+        turnLogCount: 1,
+        combatCount: 1,
+        completedDowntimeTaskCount: 0,
+        nodeVisitCount: 1,
+        sessionCharacterCount: 1,
+      },
+    };
+    prisma.sessionCharacter.findUnique.mockResolvedValueOnce({
+      ...sessionCharacter,
+      sessionId: "source-session",
+      session: {
+        id: "source-session",
+        ruleSetId: "other-rules",
+        status: "COMPLETED",
+        sessionScenarios: [
+          {
+            ...activeScenario,
+            sessionId: "source-session",
+            gameState: {
+              ...activeScenario.gameState,
+              flagsJson: JSON.stringify({ p6CampaignArchive: sourceArchive }),
+            },
+          },
+        ],
+      },
+    });
+
+    await expect(
+      service.requestCharacterTransfer("player-1", "session-1", {
+        sourceSessionId: "source-session",
+        sourceSessionCharacterId: "session-character-1",
+        mode: "clone",
+      }),
+    ).rejects.toThrow("같은 rule set");
+    expect(prisma.gameState.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a P6 character transfer request outside the target campaign level range", async () => {
+    const { service, prisma, activeScenario, sessionCharacter } = createP6CampaignService();
+    const sourceArchive = {
+      archiveId: "campaign-archive:1",
+      sessionId: "source-session",
+      sessionTitle: "Source Campaign",
+      scenarioId: "scenario-source",
+      scenarioTitle: "Source",
+      completedAt: "2026-06-25T00:00:00.000Z",
+      completedByUserId: "host-user",
+      epilogue: "Done",
+      shareScope: "party",
+      allowCharacterTransfer: true,
+      finalNodeId: "node-final",
+      finalRewardIds: [],
+      characters: [],
+      analytics: {
+        turnLogCount: 1,
+        combatCount: 1,
+        completedDowntimeTaskCount: 0,
+        nodeVisitCount: 1,
+        sessionCharacterCount: 1,
+      },
+    };
+    prisma.sessionCharacter.findUnique.mockResolvedValueOnce({
+      ...sessionCharacter,
+      sessionId: "source-session",
+      character: {
+        ...sessionCharacter.character,
+        level: 8,
+      },
+      session: {
+        id: "source-session",
+        ruleSetId: "dnd5e",
+        status: "COMPLETED",
+        sessionScenarios: [
+          {
+            ...activeScenario,
+            sessionId: "source-session",
+            gameState: {
+              ...activeScenario.gameState,
+              flagsJson: JSON.stringify({ p6CampaignArchive: sourceArchive }),
+            },
+          },
+        ],
+      },
+    });
+
+    await expect(
+      service.requestCharacterTransfer("player-1", "session-1", {
+        sourceSessionId: "source-session",
+        sourceSessionCharacterId: "session-character-1",
+        mode: "clone",
+      }),
+    ).rejects.toThrow("대상 캠페인 레벨 범위");
+    expect(prisma.gameState.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a P6 character transfer request with campaign-bound inventory", async () => {
+    const { service, prisma, activeScenario, sessionCharacter } = createP6CampaignService();
+    const sourceArchive = {
+      archiveId: "campaign-archive:1",
+      sessionId: "source-session",
+      sessionTitle: "Source Campaign",
+      scenarioId: "scenario-source",
+      scenarioTitle: "Source",
+      completedAt: "2026-06-25T00:00:00.000Z",
+      completedByUserId: "host-user",
+      epilogue: "Done",
+      shareScope: "party",
+      allowCharacterTransfer: true,
+      finalNodeId: "node-final",
+      finalRewardIds: [],
+      characters: [],
+      analytics: {
+        turnLogCount: 1,
+        combatCount: 1,
+        completedDowntimeTaskCount: 0,
+        nodeVisitCount: 1,
+        sessionCharacterCount: 1,
+      },
+    };
+    prisma.sessionCharacter.findUnique.mockResolvedValueOnce({
+      ...sessionCharacter,
+      sessionId: "source-session",
+      inventorySnapshotJson: JSON.stringify([
+        {
+          id: "artifact-1",
+          name: "Storm Citadel Keystone",
+          quantity: 1,
+          campaignBound: true,
+        },
+      ]),
+      session: {
+        id: "source-session",
+        ruleSetId: "dnd5e",
+        status: "COMPLETED",
+        sessionScenarios: [
+          {
+            ...activeScenario,
+            sessionId: "source-session",
+            gameState: {
+              ...activeScenario.gameState,
+              flagsJson: JSON.stringify({ p6CampaignArchive: sourceArchive }),
+            },
+          },
+        ],
+      },
+    });
+
+    await expect(
+      service.requestCharacterTransfer("player-1", "session-1", {
+        sourceSessionId: "source-session",
+        sourceSessionCharacterId: "session-character-1",
+      }),
+    ).rejects.toThrow("캠페인 귀속");
+    expect(prisma.gameState.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a P6 character transfer request with embedded economy wallet state", async () => {
+    const { service, prisma, activeScenario, sessionCharacter } = createP6CampaignService();
+    const sourceArchive = {
+      archiveId: "campaign-archive:1",
+      sessionId: "source-session",
+      sessionTitle: "Source Campaign",
+      scenarioId: "scenario-source",
+      scenarioTitle: "Source",
+      completedAt: "2026-06-25T00:00:00.000Z",
+      completedByUserId: "host-user",
+      epilogue: "Done",
+      shareScope: "party",
+      allowCharacterTransfer: true,
+      finalNodeId: "node-final",
+      finalRewardIds: [],
+      characters: [],
+      analytics: {
+        turnLogCount: 1,
+        combatCount: 1,
+        completedDowntimeTaskCount: 0,
+        nodeVisitCount: 1,
+        sessionCharacterCount: 1,
+      },
+    };
+    prisma.sessionCharacter.findUnique.mockResolvedValueOnce({
+      ...sessionCharacter,
+      sessionId: "source-session",
+      inventorySnapshotJson: JSON.stringify([
+        {
+          id: "wallet-1",
+          name: "Archived Wallet",
+          quantity: 1,
+          wallet: { gp: 1000 },
+        },
+      ]),
+      session: {
+        id: "source-session",
+        ruleSetId: "dnd5e",
+        status: "COMPLETED",
+        sessionScenarios: [
+          {
+            ...activeScenario,
+            sessionId: "source-session",
+            gameState: {
+              ...activeScenario.gameState,
+              flagsJson: JSON.stringify({ p6CampaignArchive: sourceArchive }),
+            },
+          },
+        ],
+      },
+    });
+
+    await expect(
+      service.requestCharacterTransfer("player-1", "session-1", {
+        sourceSessionId: "source-session",
+        sourceSessionCharacterId: "session-character-1",
+      }),
+    ).rejects.toThrow("경제 장부");
+    expect(prisma.gameState.update).not.toHaveBeenCalled();
+  });
+
+  it("lets the target host reject a P6 character transfer without cloning the character", async () => {
+    const { service, prisma, activeScenario } = createP6CampaignService();
+    const requestedAt = "2026-06-25T00:00:00.000Z";
+    prisma.sessionScenario.findFirst.mockResolvedValueOnce({
+      ...activeScenario,
+      gameState: {
+        ...activeScenario.gameState,
+        flagsJson: JSON.stringify({
+          p6CharacterTransferRequests: [
+            {
+              requestId: "character-transfer:reject-me",
+              targetSessionId: "session-1",
+              sourceSessionId: "source-session",
+              sourceSessionCharacterId: "session-character-1",
+              requestedByUserId: "player-1",
+              status: "requested",
+              mode: "clone",
+              targetSessionCharacterId: null,
+              createdAt: requestedAt,
+              resolvedAt: null,
+              note: null,
+              approvedByUserId: null,
+            },
+          ],
+        }),
+      },
+    });
+
+    const rejected = await service.rejectCharacterTransfer(
+      "host-user",
+      "session-1",
+      "character-transfer:reject-me",
+    );
+
+    expect(rejected).toEqual(
+      expect.objectContaining({
+        requestId: "character-transfer:reject-me",
+        status: "rejected",
+        targetSessionCharacterId: null,
+      }),
+    );
+    expect(prisma.character.create).not.toHaveBeenCalled();
+    expect(prisma.sessionCharacter.create).not.toHaveBeenCalled();
+    expect(prisma.gameState.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          flagsJson: expect.stringContaining('"status":"rejected"'),
+        }),
       }),
     );
   });

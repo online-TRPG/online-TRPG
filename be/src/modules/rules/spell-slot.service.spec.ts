@@ -18,4 +18,20 @@ describe("SpellSlotService", () => {
     expect(service.resolveMaximumForCharacter({ className: "warlock", level: 3 }, 2)).toBe(2);
     expect(service.resolveMaximumForCharacter({ className: "warlock", level: 11 }, 5)).toBe(3);
   });
+
+  it("resolves P6 level 17 through 20 full caster 9th-level spell slots", () => {
+    expect(service.resolveMaximumForCharacter({ className: "wizard", level: 16 }, 9)).toBe(0);
+    expect(service.resolveMaximumForCharacter({ className: "wizard", level: 17 }, 9)).toBe(1);
+    expect(service.resolveMaximumForCharacter({ className: "cleric", level: 20 }, 9)).toBe(1);
+    expect(service.resolveMaximumForCharacter({ className: "bard", level: 20 }, 7)).toBe(2);
+    expect(service.resolveMaximumForCharacter({ className: "druid", level: 20 }, 8)).toBe(1);
+  });
+
+  it("keeps P6 half caster and pact magic slot ceilings distinct from Mystic Arcanum", () => {
+    expect(service.resolveMaximumForCharacter({ className: "paladin", level: 20 }, 5)).toBe(2);
+    expect(service.resolveMaximumForCharacter({ className: "ranger", level: 20 }, 5)).toBe(2);
+    expect(service.resolveMaximumForCharacter({ className: "warlock", level: 16 }, 5)).toBe(3);
+    expect(service.resolveMaximumForCharacter({ className: "warlock", level: 17 }, 5)).toBe(4);
+    expect(service.resolveMaximumForCharacter({ className: "warlock", level: 20 }, 9)).toBe(0);
+  });
 });

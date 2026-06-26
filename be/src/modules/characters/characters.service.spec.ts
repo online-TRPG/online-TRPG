@@ -1,4 +1,4 @@
-import {
+﻿import {
   CharacterAvatarType as PrismaCharacterAvatarType,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
@@ -19,7 +19,11 @@ const baseCharacter = {
   abilitiesJson: JSON.stringify({ str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 10 }),
   proficiencyBonus: 2,
   proficientSkillsJson: JSON.stringify([]),
-  featuresJson: JSON.stringify(["class.fighter.feature.fighting_style", "class.fighter.feature.second_wind"]),
+  featuresJson: JSON.stringify([
+    "class.fighter.feature.fighting_style",
+    "class.fighter.feature.second_wind",
+    "fighting_style:defense",
+  ]),
   maxHp: 12,
   armorClass: 16,
   speed: 30,
@@ -34,6 +38,95 @@ const baseCharacter = {
   createdAt: new Date("2026-06-01T00:00:00.000Z"),
   updatedAt: new Date("2026-06-01T00:00:00.000Z"),
 };
+
+const wizardLevel1StartingSpells = [
+  "spell.detect_magic",
+  "spell.magic_missile",
+  "spell.shield",
+  "spell.sleep",
+  "spell.burning_hands",
+  "spell.thunderwave",
+];
+
+const wizardLevel5StartingSpells = [
+  "spell.bless",
+  "spell.bane",
+  "spell.detect_magic",
+  "spell.magic_missile",
+  "spell.cure_wounds",
+  "spell.guiding_bolt",
+  "spell.inflict_wounds",
+  "spell.healing_word",
+  "spell.command",
+  "spell.shield",
+  "spell.sleep",
+  "spell.burning_hands",
+  "spell.thunderwave",
+  "spell.fireball",
+];
+const wizardLevel5PreparedSpells = wizardLevel5StartingSpells.slice(0, 7);
+
+const wizardLevel16StartingSpells = [
+  "spell.bless",
+  "spell.bane",
+  "spell.detect_magic",
+  "spell.magic_missile",
+  "spell.cure_wounds",
+  "spell.guiding_bolt",
+  "spell.inflict_wounds",
+  "spell.healing_word",
+  "spell.command",
+  "spell.shield",
+  "spell.sleep",
+  "spell.burning_hands",
+  "spell.thunderwave",
+  "spell.entangle",
+  "spell.charm_person",
+  "spell.faerie_fire",
+  "spell.feather_fall",
+  "spell.fog_cloud",
+  "spell.grease",
+  "spell.heroism",
+  "spell.hunters_mark",
+  "spell.longstrider",
+  "spell.hold_person",
+  "spell.web",
+  "spell.misty_step",
+  "spell.scorching_ray",
+  "spell.aid",
+  "spell.blindness_deafness",
+  "spell.darkness",
+  "spell.invisibility",
+  "spell.lesser_restoration",
+  "spell.moonbeam",
+  "spell.spiritual_weapon",
+  "spell.fireball",
+  "spell.dispel_magic",
+  "spell.counterspell",
+];
+const wizardLevel16PreparedSpells = wizardLevel16StartingSpells.slice(0, 20);
+
+function executableSlotSpellPoolForSpec(level: number): string[] {
+  const maxSpellLevel =
+    level >= 17 ? 9 :
+    level >= 15 ? 8 :
+    level >= 13 ? 7 :
+    level >= 11 ? 6 :
+    level >= 9 ? 5 :
+    level >= 7 ? 4 :
+    level >= 5 ? 3 :
+    level >= 3 ? 2 :
+    1;
+  return new RuleCatalogService()
+    .listEntries("spell_definitions")
+    .filter((entry) => {
+      const tag = entry.runtimeEffect.tags.find((value) => value.startsWith("spell_level:"));
+      const spellLevel = Number(tag?.slice("spell_level:".length));
+      return Number.isInteger(spellLevel) && spellLevel > 0 && spellLevel <= maxSpellLevel;
+    })
+    .map((entry) => entry.id)
+    .sort();
+}
 
 describe("CharactersService level up", () => {
   const createService = () => {
@@ -103,24 +196,32 @@ describe("CharactersService level up", () => {
         };
         return choiceLevels[className.trim().toLowerCase()] ?? null;
       }),
-      getCharacterFeatureSnapshot: jest.fn().mockReturnValue({
-        featureIds: [
-          "class.fighter.feature.fighting_style",
-          "class.fighter.feature.second_wind",
-          "class.fighter.feature.action_surge",
-          "class.fighter.feature.martial_archetype",
-          "subclass.fighter.champion.feature.improved_critical",
-        ],
+      getCharacterFeatureSnapshot: jest.fn((params: Parameters<RuleCatalogService["getCharacterFeatureSnapshot"]>[0]) => {
+        try {
+          return actualRuleCatalogService.getCharacterFeatureSnapshot(params);
+        } catch {
+          return {
+            featureIds: [
+              "class.fighter.feature.fighting_style",
+              "class.fighter.feature.second_wind",
+              "class.fighter.feature.action_surge",
+              "class.fighter.feature.martial_archetype",
+              "subclass.fighter.champion.feature.improved_critical",
+            ],
+          };
+        }
       }),
-      listSubclassFeatures: jest.fn().mockReturnValue([
-        {
-          id: "subclass.fighter.champion.feature.improved_critical",
-          kind: "subclass_features",
-          levelRequirement: { minClassLevel: 3 },
-          runtimeEffect: { tags: ["critical_range:19_20"] },
-        },
-      ]),
-      listClassFeaturesForLevel: jest.fn().mockReturnValue([]),
+      resolveRuntimeTags: jest.fn((featureIds: Iterable<string>) =>
+        actualRuleCatalogService.resolveRuntimeTags(featureIds),
+      ),
+      listSubclassFeatures: jest.fn((
+        classKey: string,
+        subclassKey: string,
+        classLevel: number,
+      ) => actualRuleCatalogService.listSubclassFeatures(classKey, subclassKey, classLevel)),
+      listClassFeaturesForLevel: jest.fn((classKey: string, classLevel: number) =>
+        actualRuleCatalogService.listClassFeaturesForLevel(classKey, classLevel),
+      ),
       listEntries: jest.fn((kind?: Parameters<RuleCatalogService["listEntries"]>[0]) =>
         actualRuleCatalogService.listEntries(kind),
       ),
@@ -144,6 +245,53 @@ describe("CharactersService level up", () => {
       ruleCatalogService,
     };
   };
+
+  it("accepts non-default provided scenarios during character creation", async () => {
+    const { service, prisma } = createService();
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+    prisma.scenario.findUnique.mockResolvedValue({
+      id: "scenario_p2_storm_vault",
+      createdByUserId: null,
+      sourceType: "SYSTEM",
+      startLevel: 5,
+    });
+    prisma.character.create.mockResolvedValue({
+      ...baseCharacter,
+      scenarioId: "scenario_p2_storm_vault",
+      level: 5,
+      subclassName: "champion",
+      sessionCharacters: [],
+    });
+
+    await service.createCharacter("user-1", {
+      name: "Storm Vault Fighter",
+      ancestry: "Human",
+      className: "fighter",
+      subclassName: "champion",
+      scenarioId: "scenario_p2_storm_vault",
+      level: 5,
+      abilities: {
+        str: 15,
+        dex: 12,
+        con: 14,
+        int: 10,
+        wis: 10,
+        cha: 10,
+      },
+      proficientSkills: [],
+      features: ["fighting_style:defense", "asi:str"],
+      startingEquipmentSelection: [],
+    });
+
+    expect(prisma.character.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          scenarioId: "scenario_p2_storm_vault",
+          level: 5,
+        }),
+      }),
+    );
+  });
 
   it("uses seeded race speed and hill dwarf HP bonus during creation", async () => {
     const { service, prisma, racesService } = createService();
@@ -196,6 +344,7 @@ describe("CharactersService level up", () => {
         cha: 8,
       },
       proficientSkills: [],
+      features: ["fighting_style:defense"],
       startingEquipmentSelection: [],
     });
 
@@ -203,6 +352,76 @@ describe("CharactersService level up", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           maxHp: 13,
+          speed: 25,
+        }),
+      }),
+    );
+  });
+
+  it("accepts starting-level ASI choices without adding them to Point Buy ability scores", async () => {
+    const { service, prisma, racesService } = createService();
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+    racesService.findByKey.mockResolvedValue({
+      id: "race-hill-dwarf",
+      key: "hill-dwarf",
+      koName: "언덕 드워프",
+      size: "Medium",
+      baseSpeed: 25,
+      abilityIncreasesJson: JSON.stringify({
+        str: 0,
+        dex: 0,
+        con: 2,
+        int: 0,
+        wis: 1,
+        cha: 0,
+      }),
+      languagesJson: JSON.stringify(["Common", "Dwarvish"]),
+      parentRaceId: "race-dwarf",
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+    });
+    prisma.character.create.mockResolvedValue({
+      ...baseCharacter,
+      ancestry: "hill-dwarf",
+      subclassName: "champion",
+      level: 4,
+      abilitiesJson: JSON.stringify({
+        str: 15,
+        dex: 14,
+        con: 15,
+        int: 12,
+        wis: 11,
+        cha: 8,
+      }),
+      maxHp: 40,
+      speed: 25,
+      sessionCharacters: [],
+    });
+
+    await service.createCharacter("user-1", {
+      name: "ASI Hill Dwarf Fighter",
+      ancestry: "hill-dwarf",
+      className: "fighter",
+      subclassName: "champion",
+      level: 4,
+      abilities: {
+        str: 15,
+        dex: 14,
+        con: 15,
+        int: 12,
+        wis: 11,
+        cha: 8,
+      },
+      proficientSkills: [],
+      features: ["fighting_style:defense", "asi:str"],
+      startingEquipmentSelection: [],
+    });
+
+    expect(prisma.character.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          level: 4,
+          maxHp: 40,
           speed: 25,
         }),
       }),
@@ -253,6 +472,129 @@ describe("CharactersService level up", () => {
         code: "CHARACTER_DRACONIC_ANCESTRY_REQUIRED",
       }),
     });
+  });
+
+  it("requires a fighting style selection for fighter creation", async () => {
+    const { service, prisma } = createService();
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+
+    await expect(
+      service.createCharacter("user-1", {
+        name: "Styleless Fighter",
+        ancestry: "Unknown",
+        className: "fighter",
+        level: 1,
+        abilities: { str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 10 },
+        proficientSkills: [],
+        startingEquipmentSelection: [],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "CHARACTER_FIGHTING_STYLE_REQUIRED",
+      }),
+    });
+
+    expect(prisma.character.create).not.toHaveBeenCalled();
+  });
+
+  it("requires two humanoid choices when ranger favored enemy is humanoid", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d10",
+      koName: "레인저",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+
+    await expect(
+      service.createCharacter("user-1", {
+        name: "Incomplete Ranger",
+        ancestry: "Unknown",
+        className: "ranger",
+        level: 1,
+        abilities: { str: 10, dex: 15, con: 14, int: 10, wis: 14, cha: 8 },
+        proficientSkills: [],
+        features: ["favored_enemy:humanoid"],
+        startingEquipmentSelection: [],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "CHARACTER_FAVORED_HUMANOID_REQUIRED",
+      }),
+    });
+
+    expect(prisma.character.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects feat selections before the first ASI level during character creation", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d12",
+      koName: "바바리안",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+
+    await expect(
+      service.createCharacter("user-1", {
+        name: "Early Alert Barbarian",
+        ancestry: "Unknown",
+        className: "barbarian",
+        level: 1,
+        abilities: { str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 8 },
+        proficientSkills: [],
+        features: ["feat.alert"],
+        startingEquipmentSelection: [],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "CHARACTER_FEAT_LEVEL_REQUIREMENT",
+      }),
+    });
+
+    expect(prisma.character.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplicate ASI ability choices during higher-level character creation", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d6",
+      koName: "위저드",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+
+    await expect(
+      service.createCharacter("user-1", {
+        name: "Duplicate ASI Wizard",
+        ancestry: "Unknown",
+        className: "wizard",
+        subclassName: "evocation",
+        level: 8,
+        abilities: { str: 8, dex: 14, con: 14, int: 19, wis: 10, cha: 10 },
+        proficientSkills: [],
+        features: ["asi:int", "asi:int"],
+        startingEquipmentSelection: [],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: "CHARACTER_DUPLICATE_ASI_CHOICE",
+      }),
+    });
+
+    expect(prisma.character.create).not.toHaveBeenCalled();
   });
 
   it("rejects blank starting spell selections after trimming", async () => {
@@ -316,6 +658,8 @@ describe("CharactersService level up", () => {
             "spell.shield",
             "spell.sleep",
             "spell.cure_wounds",
+            "spell.detect_magic",
+            "spell.burning_hands",
           ],
         },
       }),
@@ -352,6 +696,8 @@ describe("CharactersService level up", () => {
             "spell.magic_missile",
             "spell.shield",
             "spell.detect_magic",
+            "spell.sleep",
+            "spell.burning_hands",
             "spell.wish",
           ],
         },
@@ -385,12 +731,7 @@ describe("CharactersService level up", () => {
         startingEquipmentSelection: [],
         startingSpells: {
           cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-          spells: [
-            "spell.magic_missile",
-            "spell.shield",
-            "spell.sleep",
-            "spell.cure_wounds",
-          ],
+          spells: wizardLevel1StartingSpells,
           preparedSpells: ["spell.magic_missile", "spell.shield", "spell.sleep"],
         },
       }),
@@ -470,13 +811,8 @@ describe("CharactersService level up", () => {
           "spell.chill_touch",
           "spell.ray_of_frost",
         ],
-        spells: [
-          "spell.magic_missile",
-          "spell.shield",
-          "spell.fireball",
-          "spell.cure_wounds",
-        ],
-        preparedSpells: ["spell.fireball"],
+        spells: wizardLevel5StartingSpells,
+        preparedSpells: wizardLevel5PreparedSpells,
       }),
       sessionCharacters: [],
     });
@@ -489,6 +825,7 @@ describe("CharactersService level up", () => {
       level: 5,
       abilities: { str: 8, dex: 14, con: 14, int: 15, wis: 10, cha: 10 },
       proficientSkills: [],
+      features: ["asi:int"],
       startingEquipmentSelection: [],
       startingSpells: {
         cantrips: [
@@ -497,13 +834,8 @@ describe("CharactersService level up", () => {
           "spell.chill_touch",
           "spell.ray_of_frost",
         ],
-        spells: [
-          "spell.magic_missile",
-          "spell.shield",
-          "spell.fireball",
-          "spell.cure_wounds",
-        ],
-        preparedSpells: ["spell.fireball"],
+        spells: wizardLevel5StartingSpells,
+        preparedSpells: wizardLevel5PreparedSpells,
       },
     });
 
@@ -517,21 +849,16 @@ describe("CharactersService level up", () => {
               "spell.chill_touch",
               "spell.ray_of_frost",
             ],
-            spells: [
-              "spell.magic_missile",
-              "spell.shield",
-              "spell.fireball",
-              "spell.cure_wounds",
-            ],
-            preparedSpells: ["spell.fireball"],
+            spells: wizardLevel5StartingSpells,
+            preparedSpells: wizardLevel5PreparedSpells,
           }),
         }),
       }),
     );
-    expect(result.spells?.preparedSpells).toEqual(["spell.fireball"]);
+    expect(result.spells?.preparedSpells).toEqual(wizardLevel5PreparedSpells);
   });
 
-  it("accepts P5 level 7 and 8 catalog spells for level 16 starting casters", async () => {
+  it("uses the official wizard spellbook count for level 16 starting casters", async () => {
     const { service, prisma, catalogService } = createService();
     catalogService.findClassByKey.mockResolvedValue({
       hitDie: "d6",
@@ -557,13 +884,8 @@ describe("CharactersService level up", () => {
           "spell.ray_of_frost",
           "spell.acid_splash",
         ],
-        spells: [
-          "spell.magic_missile",
-          "spell.fireball",
-          "spell.teleport",
-          "spell.sunburst",
-        ],
-        preparedSpells: ["spell.teleport", "spell.sunburst"],
+        spells: wizardLevel16StartingSpells,
+        preparedSpells: wizardLevel16PreparedSpells,
       }),
       sessionCharacters: [],
     });
@@ -576,6 +898,7 @@ describe("CharactersService level up", () => {
       level: 16,
       abilities: { str: 8, dex: 14, con: 14, int: 18, wis: 10, cha: 10 },
       proficientSkills: [],
+      features: ["asi:int", "asi:dex", "asi:con", "asi:wis"],
       startingEquipmentSelection: [],
       startingSpells: {
         cantrips: [
@@ -585,13 +908,8 @@ describe("CharactersService level up", () => {
           "spell.ray_of_frost",
           "spell.acid_splash",
         ],
-        spells: [
-          "spell.magic_missile",
-          "spell.fireball",
-          "spell.teleport",
-          "spell.sunburst",
-        ],
-        preparedSpells: ["spell.teleport", "spell.sunburst"],
+        spells: wizardLevel16StartingSpells,
+        preparedSpells: wizardLevel16PreparedSpells,
       },
     });
 
@@ -606,27 +924,24 @@ describe("CharactersService level up", () => {
               "spell.ray_of_frost",
               "spell.acid_splash",
             ],
-            spells: [
-              "spell.magic_missile",
-              "spell.fireball",
-              "spell.teleport",
-              "spell.sunburst",
-            ],
-            preparedSpells: ["spell.teleport", "spell.sunburst"],
+            spells: wizardLevel16StartingSpells,
+            preparedSpells: wizardLevel16PreparedSpells,
           }),
         }),
       }),
     );
-    expect(result.spells?.spells).toEqual([
-      "spell.magic_missile",
-      "spell.fireball",
-      "spell.teleport",
-      "spell.sunburst",
-    ]);
+    expect(result.spells?.spells).toEqual(wizardLevel16StartingSpells);
   });
 
   it("accepts Cure Wounds as an executable starting prepared spell", async () => {
     const { service, prisma, catalogService } = createService();
+    const clericLevel1KnownPool = executableSlotSpellPoolForSpec(1);
+    const clericLevel1PreparedSpells = [
+      "spell.magic_missile",
+      "spell.cure_wounds",
+      "spell.shield",
+      "spell.sleep",
+    ];
     catalogService.findClassByKey.mockResolvedValue({
       hitDie: "d8",
       koName: "클레릭",
@@ -642,13 +957,8 @@ describe("CharactersService level up", () => {
       className: "cleric",
       spellsJson: JSON.stringify({
         cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-        spells: [
-          "spell.magic_missile",
-          "spell.cure_wounds",
-          "spell.shield",
-          "spell.sleep",
-        ],
-        preparedSpells: ["spell.cure_wounds"],
+        spells: clericLevel1KnownPool,
+        preparedSpells: clericLevel1PreparedSpells,
       }),
       sessionCharacters: [],
     });
@@ -664,13 +974,8 @@ describe("CharactersService level up", () => {
       startingEquipmentSelection: [],
       startingSpells: {
         cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-        spells: [
-          "spell.magic_missile",
-          "spell.cure_wounds",
-          "spell.shield",
-          "spell.sleep",
-        ],
-        preparedSpells: ["spell.cure_wounds"],
+        spells: [],
+        preparedSpells: clericLevel1PreparedSpells,
       },
     });
 
@@ -679,18 +984,13 @@ describe("CharactersService level up", () => {
         data: expect.objectContaining({
           spellsJson: JSON.stringify({
             cantrips: ["spell.fire_bolt", "spell.light", "spell.chill_touch"],
-            spells: [
-              "spell.magic_missile",
-              "spell.cure_wounds",
-              "spell.shield",
-              "spell.sleep",
-            ],
-            preparedSpells: ["spell.cure_wounds"],
+            spells: clericLevel1KnownPool,
+            preparedSpells: clericLevel1PreparedSpells,
           }),
         }),
       }),
     );
-    expect(result.spells?.preparedSpells).toEqual(["spell.cure_wounds"]);
+    expect(result.spells?.preparedSpells).toEqual(clericLevel1PreparedSpells);
   });
 
   it("requires a subclass when character creation starts at or above the class choice level", async () => {
@@ -742,6 +1042,7 @@ describe("CharactersService level up", () => {
         "class.fighter.feature.action_surge",
         "class.fighter.feature.martial_archetype",
         "subclass.fighter.champion.feature.improved_critical",
+        "fighting_style:defense",
       ]),
       updatedAt: new Date("2026-06-02T00:00:00.000Z"),
       sessionCharacters: existing.sessionCharacters,
@@ -778,11 +1079,13 @@ describe("CharactersService level up", () => {
           armorClass: 16,
           proficiencyBonus: 2,
           featuresJson: JSON.stringify([
+            "race.human.trait.ability_score_increase",
             "class.fighter.feature.fighting_style",
             "class.fighter.feature.second_wind",
             "class.fighter.feature.action_surge",
             "class.fighter.feature.martial_archetype",
             "subclass.fighter.champion.feature.improved_critical",
+            "fighting_style:defense",
           ]),
         }),
       }),
@@ -812,6 +1115,172 @@ describe("CharactersService level up", () => {
     expect(result.level).toBe(3);
     expect(result.subclassName).toBe("champion");
     expect(result.maxHp).toBe(28);
+  });
+
+  it("exposes P6 level-up preview context for active downtime, archive transfer, equipment, spells, and concentration", async () => {
+    const { service, prisma } = createService();
+    prisma.character.findUnique.mockResolvedValue({
+      ...baseCharacter,
+      level: 20,
+      equippedWeaponId: "item.staff_of_power",
+      offhandWeaponId: "item.shield",
+      inventoryJson: JSON.stringify([
+        { id: "item-1", name: "Staff of Power", quantity: 1 },
+        { id: "item-2", name: "Potion", quantity: 3 },
+      ]),
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.ray_of_frost"],
+        spells: ["spell.wish", "spell.meteor_swarm"],
+        preparedSpells: ["spell.wish"],
+      }),
+      sessionCharacters: [
+        {
+          id: "session-character-active",
+          sessionId: "session-active",
+          userId: "user-1",
+          conditionsJson: JSON.stringify([
+            { conditionId: "condition.concentration", tags: ["concentration:spell:spell.wish"] },
+          ]),
+          session: {
+            id: "session-active",
+            status: PrismaSessionStatus.PLAYING,
+            sessionScenarios: [
+              {
+                id: "session-scenario-active",
+                status: "ACTIVE",
+                sequence: 1,
+                gameState: {
+                  currentNodeId: "node-p6-boss",
+                  flagsJson: JSON.stringify({
+                    economy: { partyStash: [], walletsBySessionCharacterId: {} },
+                    campaignCalendar: {
+                      downtimeTasks: [
+                        { id: "dt-1", status: "active" },
+                        { id: "dt-2", status: "completed" },
+                      ],
+                    },
+                  }),
+                },
+              },
+            ],
+          },
+        },
+        {
+          id: "session-character-archived",
+          sessionId: "session-completed",
+          userId: "user-1",
+          conditionsJson: "[]",
+          session: {
+            id: "session-completed",
+            status: PrismaSessionStatus.COMPLETED,
+            sessionScenarios: [
+              {
+                id: "session-scenario-archive",
+                status: "ACTIVE",
+                sequence: 1,
+                gameState: {
+                  currentNodeId: "node-p6-archive",
+                  flagsJson: JSON.stringify({
+                    p6CampaignArchive: {
+                      archiveId: "campaign-archive:1",
+                      allowCharacterTransfer: true,
+                    },
+                  }),
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const result = await service.getCharacter("user-1", "character-1");
+
+    expect(result.levelUpPreviewContext).toEqual(
+        expect.objectContaining({
+          activeSessionId: "session-active",
+        activeSessionStatus: "playing",
+        currentNodeId: "node-p6-boss",
+        campaignArchiveAvailable: true,
+        campaignArchiveAllowsTransfer: true,
+        transferEligibility: "transfer_allowed",
+        activeDowntimeTaskCount: 1,
+        completedDowntimeTaskCount: 1,
+        hasEconomyState: true,
+        inventoryItemCount: 4,
+        equippedWeaponId: "item.staff_of_power",
+        offhandWeaponId: "item.shield",
+        knownSpellCount: 3,
+        preparedSpellCount: 1,
+        activeConditionCount: 2,
+        hasActiveConcentration: true,
+      }),
+    );
+  });
+
+  it("applies Draconic Resilience HP bonus during sorcerer creation", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d6",
+      koName: "소서러",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ id: "user-1" });
+    prisma.character.create.mockResolvedValue({
+      ...baseCharacter,
+      className: "sorcerer",
+      subclassName: "draconic_bloodline",
+      level: 5,
+      abilitiesJson: JSON.stringify({ str: 8, dex: 14, con: 14, int: 10, wis: 10, cha: 15 }),
+      maxHp: 37,
+      proficiencyBonus: 3,
+      featuresJson: JSON.stringify([
+        "class.sorcerer.feature.spellcasting",
+        "subclass.sorcerer.draconic_bloodline.feature.draconic_resilience",
+      ]),
+      sessionCharacters: [],
+    });
+
+    await service.createCharacter("user-1", {
+      name: "Draconic Sorcerer",
+      ancestry: "Unknown",
+      className: "sorcerer",
+      subclassName: "draconic_bloodline",
+      level: 5,
+      abilities: { str: 8, dex: 14, con: 14, int: 10, wis: 10, cha: 15 },
+      proficientSkills: [],
+      features: ["asi:cha"],
+      startingEquipmentSelection: [],
+      startingSpells: {
+        cantrips: [
+          "spell.fire_bolt",
+          "spell.light",
+          "spell.chill_touch",
+          "spell.ray_of_frost",
+          "spell.acid_splash",
+        ],
+        spells: [
+          "spell.magic_missile",
+          "spell.shield",
+          "spell.sleep",
+          "spell.burning_hands",
+          "spell.thunderwave",
+          "spell.fireball",
+        ],
+      },
+    });
+
+    expect(prisma.character.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          maxHp: 37,
+        }),
+      }),
+    );
   });
 
   it("requires a subclass choice when level up reaches the class choice level", async () => {
@@ -1004,6 +1473,135 @@ describe("CharactersService level up", () => {
     expect(result.armorClass).toBe(12);
   });
 
+  it("applies the P6 barbarian Primal Champion capstone to STR, CON, and max HP", async () => {
+    const { service, prisma, catalogService, ruleCatalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d12",
+      koName: "바바리안",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    ruleCatalogService.getCharacterFeatureSnapshot.mockReturnValue({
+      featureIds: [
+        "class.barbarian.feature.rage",
+        "class.barbarian.feature.unarmored_defense",
+        "class.barbarian.feature.primal_champion",
+      ],
+    });
+    const existing = {
+      ...baseCharacter,
+      className: "barbarian",
+      subclassName: "berserker",
+      level: 19,
+      abilitiesJson: JSON.stringify({ str: 20, dex: 12, con: 18, int: 10, wis: 10, cha: 10 }),
+      maxHp: 214,
+      armorClass: 15,
+      featuresJson: JSON.stringify([
+        "class.barbarian.feature.rage",
+        "class.barbarian.feature.unarmored_defense",
+      ]),
+      sessionCharacters: [],
+    };
+    const updated = {
+      ...existing,
+      level: 20,
+      abilitiesJson: JSON.stringify({ str: 24, dex: 12, con: 22, int: 10, wis: 10, cha: 10 }),
+      maxHp: 265,
+      armorClass: 17,
+      featuresJson: JSON.stringify([
+        "class.barbarian.feature.rage",
+        "class.barbarian.feature.unarmored_defense",
+        "class.barbarian.feature.primal_champion",
+      ]),
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    };
+
+    prisma.character.findUnique.mockResolvedValue(existing);
+    prisma.character.update.mockResolvedValue(updated);
+
+    const result = await service.levelUpCharacter("user-1", "character-1", {
+      targetLevel: 20,
+      hpMode: "average",
+    });
+
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          level: 20,
+          abilitiesJson: JSON.stringify({
+            str: 24,
+            dex: 12,
+            con: 22,
+            int: 10,
+            wis: 10,
+            cha: 10,
+          }),
+          maxHp: 265,
+          armorClass: 17,
+          featuresJson: JSON.stringify([
+            "class.barbarian.feature.rage",
+            "class.barbarian.feature.unarmored_defense",
+            "class.barbarian.feature.primal_champion",
+          ]),
+        }),
+      }),
+    );
+    expect(result.abilities).toMatchObject({ str: 24, con: 22 });
+    expect(result.maxHp).toBe(265);
+    expect(result.features).toContain("class.barbarian.feature.primal_champion");
+  });
+
+  it("adds only the newly gained Draconic Resilience HP bonus during level up", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d6",
+      koName: "소서러",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    const existing = {
+      ...baseCharacter,
+      className: "sorcerer",
+      subclassName: "draconic_bloodline",
+      level: 1,
+      abilitiesJson: JSON.stringify({ str: 8, dex: 14, con: 14, int: 10, wis: 10, cha: 15 }),
+      maxHp: 9,
+      featuresJson: JSON.stringify([
+        "class.sorcerer.feature.spellcasting",
+        "subclass.sorcerer.draconic_bloodline.feature.draconic_resilience",
+      ]),
+      sessionCharacters: [],
+    };
+    const updated = {
+      ...existing,
+      level: 2,
+      maxHp: 16,
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    };
+    prisma.character.findUnique.mockResolvedValue(existing);
+    prisma.character.update.mockResolvedValue(updated);
+
+    const result = await service.levelUpCharacter("user-1", "character-1", {
+      targetLevel: 2,
+      hpMode: "average",
+    });
+
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          maxHp: 16,
+        }),
+      }),
+    );
+    expect(result.maxHp).toBe(16);
+  });
+
   it("updates prepared spells as part of level up when requested", async () => {
     const { service, prisma } = createService();
     const existing = {
@@ -1106,6 +1704,129 @@ describe("CharactersService level up", () => {
     );
     expect(result.spells?.spells).toContain("spell.fireball");
     expect(result.spells?.preparedSpells).toEqual(["spell.fireball"]);
+  });
+
+  it("allows P6 full casters to learn and prepare 9th-level spells at level 17", async () => {
+    const { service, prisma } = createService();
+    const existing = {
+      ...baseCharacter,
+      className: "wizard",
+      subclassName: "evocation",
+      level: 16,
+      maxHp: 92,
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.fire_bolt", "spell.light", "spell.ray_of_frost", "spell.mage_hand"],
+        spells: ["spell.magic_missile", "spell.shield", "spell.fireball"],
+        preparedSpells: ["spell.shield"],
+      }),
+      sessionCharacters: [],
+    };
+    const updated = {
+      ...existing,
+      level: 17,
+      maxHp: 98,
+      spellsJson: JSON.stringify({
+        cantrips: ["spell.fire_bolt", "spell.light", "spell.ray_of_frost", "spell.mage_hand"],
+        spells: [
+          "spell.magic_missile",
+          "spell.shield",
+          "spell.fireball",
+          "spell.wish",
+          "spell.meteor_swarm",
+        ],
+        preparedSpells: ["spell.wish", "spell.meteor_swarm"],
+      }),
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    };
+
+    prisma.character.findUnique.mockResolvedValue(existing);
+    prisma.character.update.mockResolvedValue(updated);
+
+    const result = await service.levelUpCharacter("user-1", "character-1", {
+      targetLevel: 17,
+      hpMode: "average",
+      knownSpells: ["spell.wish", "spell.meteor_swarm"],
+      preparedSpells: ["spell.wish", "spell.meteor_swarm"],
+    });
+
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          spellsJson: JSON.stringify({
+            cantrips: ["spell.fire_bolt", "spell.light", "spell.ray_of_frost", "spell.mage_hand"],
+            spells: [
+              "spell.magic_missile",
+              "spell.shield",
+              "spell.fireball",
+              "spell.wish",
+              "spell.meteor_swarm",
+            ],
+            preparedSpells: ["spell.wish", "spell.meteor_swarm"],
+          }),
+        }),
+      }),
+    );
+    expect(result.spells?.spells).toEqual(expect.arrayContaining(["spell.wish", "spell.meteor_swarm"]));
+  });
+
+  it("allows P6 half casters to learn 5th-level spells at level 17", async () => {
+    const { service, prisma, catalogService } = createService();
+    catalogService.findClassByKey.mockResolvedValue({
+      hitDie: "d10",
+      koName: "팔라딘",
+      startingEquipmentJson: JSON.stringify({ slots: [] }),
+      startingCantripCount: 0,
+      startingSpellCount: 0,
+      skillChoicesJson: JSON.stringify([]),
+      skillChoiceCount: 0,
+    });
+    const existing = {
+      ...baseCharacter,
+      className: "paladin",
+      subclassName: "devotion",
+      level: 16,
+      maxHp: 132,
+      spellsJson: JSON.stringify({
+        cantrips: [],
+        spells: ["spell.cure_wounds", "spell.lesser_restoration"],
+        preparedSpells: ["spell.cure_wounds"],
+      }),
+      sessionCharacters: [],
+    };
+    const updated = {
+      ...existing,
+      level: 17,
+      maxHp: 140,
+      spellsJson: JSON.stringify({
+        cantrips: [],
+        spells: ["spell.cure_wounds", "spell.lesser_restoration", "spell.flame_strike"],
+        preparedSpells: ["spell.flame_strike"],
+      }),
+      updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+    };
+
+    prisma.character.findUnique.mockResolvedValue(existing);
+    prisma.character.update.mockResolvedValue(updated);
+
+    const result = await service.levelUpCharacter("user-1", "character-1", {
+      targetLevel: 17,
+      hpMode: "average",
+      knownSpells: ["spell.flame_strike"],
+      preparedSpells: ["spell.flame_strike"],
+    });
+
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          spellsJson: JSON.stringify({
+            cantrips: [],
+            spells: ["spell.cure_wounds", "spell.lesser_restoration", "spell.flame_strike"],
+            preparedSpells: ["spell.flame_strike"],
+          }),
+        }),
+      }),
+    );
+    expect(result.spells?.spells).toContain("spell.flame_strike");
   });
 
   it("initializes spell state when a level-up grants ranger spellcasting", async () => {
@@ -1437,7 +2158,7 @@ describe("CharactersService level up", () => {
 
     await expect(
       service.updatePreparedSpells("user-1", "character-1", {
-        preparedSpells: ["spell.fireball"],
+        preparedSpells: wizardLevel5PreparedSpells,
       }),
     ).rejects.toMatchObject({
       response: expect.objectContaining({
@@ -1501,3 +2222,4 @@ describe("CharactersService level up", () => {
     expect(prisma.character.update).not.toHaveBeenCalled();
   });
 });
+

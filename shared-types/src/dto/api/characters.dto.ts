@@ -3,6 +3,7 @@ import { Type } from "class-transformer";
 import {
   ArrayMaxSize,
   IsArray,
+  IsBase64,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -129,6 +130,58 @@ export class StartingSpellsDto {
   @IsString({ each: true })
   preparedSpells?: string[];
 
+}
+
+export class UploadCharacterAvatarDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  fileName!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  contentType!: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsBase64()
+  dataBase64!: string;
+}
+
+export class CharacterAvatarAssetResponseDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  fileName!: string;
+
+  @ApiProperty()
+  contentType!: string;
+
+  @ApiProperty()
+  storageKey!: string;
+
+  @ApiProperty()
+  publicUrl!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  width!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  height!: number | null;
+
+  @ApiProperty()
+  fileSizeBytes!: number;
+
+  @ApiProperty()
+  uploadedByUserId!: string;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  @ApiProperty()
+  updatedAt!: string;
 }
 
 export class InventoryItemDto {
@@ -320,7 +373,11 @@ export class CreateCharacterDto {
   @IsString({ each: true })
   proficientSkills?: string[];
 
-  @ApiPropertyOptional({ type: [String] })
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      "선택형 특성 태그입니다. 예: fighting_style:defense, draconic_ancestry:red, expertise:Stealth, feat.alert, asi:str. 고레벨 생성 시 ASI 지점마다 feat.* 또는 asi:<ability> 중 하나를 포함해야 합니다.",
+  })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
@@ -436,7 +493,11 @@ export class UpdateCharacterDto {
   @IsString({ each: true })
   proficientSkills?: string[];
 
-  @ApiPropertyOptional({ type: [String] })
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      "선택형 특성 태그입니다. 예: fighting_style:defense, draconic_ancestry:red, expertise:Stealth, feat.alert, asi:str. level/className/features를 변경하면 현재 레벨까지 필요한 선택이 모두 검증됩니다.",
+  })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
@@ -538,6 +599,15 @@ export class LevelUpCharacterDto {
 
   @ApiPropertyOptional({
     type: [String],
+    description: "ASI 지점에서 능력치 상승 대신 선택한 Feat id 목록입니다. 예: feat.alert",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  featSelections?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
     description: "레벨업과 함께 갱신할 준비 주문 목록입니다. 알고 있는 슬롯 주문만 허용됩니다.",
   })
   @IsOptional()
@@ -616,6 +686,56 @@ export class CharacterInventoryResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   offhandWeaponId!: string | null;
+}
+
+export class CharacterLevelUpPreviewContextDto {
+  @ApiPropertyOptional({ nullable: true })
+  activeSessionId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  activeSessionStatus!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  currentNodeId!: string | null;
+
+  @ApiProperty()
+  campaignArchiveAvailable!: boolean;
+
+  @ApiProperty()
+  campaignArchiveAllowsTransfer!: boolean;
+
+  @ApiProperty({ enum: ["not_archived", "transfer_allowed", "transfer_blocked"] })
+  transferEligibility!: "not_archived" | "transfer_allowed" | "transfer_blocked";
+
+  @ApiProperty()
+  activeDowntimeTaskCount!: number;
+
+  @ApiProperty()
+  completedDowntimeTaskCount!: number;
+
+  @ApiProperty()
+  hasEconomyState!: boolean;
+
+  @ApiProperty()
+  inventoryItemCount!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  equippedWeaponId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  offhandWeaponId!: string | null;
+
+  @ApiProperty()
+  knownSpellCount!: number;
+
+  @ApiProperty()
+  preparedSpellCount!: number;
+
+  @ApiProperty()
+  activeConditionCount!: number;
+
+  @ApiProperty()
+  hasActiveConcentration!: boolean;
 }
 
 export class CharacterResponseDto {
@@ -700,6 +820,12 @@ export class CharacterResponseDto {
     description: "진행 중 세션에 배정된 경우, 레벨업 preview와 재접속 확인에 사용할 현재 조건/집중 요약입니다.",
   })
   activeSessionConditions!: string[];
+
+  @ApiProperty({
+    type: CharacterLevelUpPreviewContextDto,
+    description: "P6 17~20레벨 preview와 재접속 확인에서 사용할 active session, downtime, archive, 장비, 주문, 이관 가능성 요약입니다.",
+  })
+  levelUpPreviewContext!: CharacterLevelUpPreviewContextDto;
 
   @ApiProperty()
   isSelectable!: boolean;

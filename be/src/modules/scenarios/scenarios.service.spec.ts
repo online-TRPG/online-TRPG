@@ -87,6 +87,13 @@ function createService() {
     sessionParticipant: {
       count: jest.fn(),
     },
+    sessionScenario: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    turnLog: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      create: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
   prisma.$transaction.mockImplementation(async (input: unknown) => {
@@ -546,6 +553,27 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     ]);
   });
 
+  it("caps public discovery results for P6 large public catalog browsing", async () => {
+    const { service, prisma } = createService();
+    const revisions = Array.from({ length: 120 }, (_, index) =>
+      buildPublicRevision({
+        id: `public-revision-${index + 1}`,
+        title: `Public Adventure ${index + 1}`,
+        attribution:
+          'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":["p6"],"estimatedMinutes":450,"gmMode":"BOTH","contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"visible","reports":[],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+      }),
+    );
+    prisma.scenario.findMany.mockResolvedValue(revisions);
+
+    await expect(service.listScenarios({ sort: "latest" })).resolves.toHaveLength(100);
+    await expect(service.listScenarios({ sort: "latest", limit: 5 })).resolves.toHaveLength(5);
+    expect(prisma.scenario.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 500,
+      }),
+    );
+  });
+
   it("allows only completed players to create or update one rating per revision", async () => {
     const { service, prisma } = createService();
     const revision = buildPublicRevision();
@@ -730,5 +758,271 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     ]);
 
     await expect(service.listScenarios({ tag: "p5" })).resolves.toEqual([]);
+  });
+
+  it("requires an operator identity before exposing the P6 moderation queue", async () => {
+    const { service, prisma } = createService();
+
+    await expect(service.listScenarioModerationQueue("player-1")).rejects.toThrow(
+      "운영자 moderation 권한이 필요합니다.",
+    );
+    expect(prisma.scenario.findMany).not.toHaveBeenCalled();
+  });
+
+  it("lists reported, appealed, and actioned scenarios in the P6 moderation queue", async () => {
+    const { service, prisma } = createService();
+    const clean = buildPublicRevision({
+      id: "clean-revision",
+      attribution:
+        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"visible","reports":[],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+    });
+    const reported = buildPublicRevision({
+      id: "reported-revision",
+      title: "Reported Adventure",
+      attribution:
+        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"reported","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"unsafe_content","comment":"too much","createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[{"appealId":"a1","appealedByUserId":"creator-1","message":"fixed","createdAt":"2026-06-23T01:00:00.000Z","status":"submitted"}],"moderationActions":[{"actionId":"m1","operatorUserId":"operator-1","action":"warning","reason":"needs edit","targetUserId":null,"createdAt":"2026-06-23T02:00:00.000Z","previousStatus":"reported","nextStatus":"reported"}],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+    });
+    prisma.scenario.findMany.mockResolvedValue([clean, reported]);
+
+    await expect(service.listScenarioModerationQueue("operator-1")).resolves.toEqual([
+      expect.objectContaining({
+        scenarioId: "reported-revision",
+        title: "Reported Adventure",
+        moderationStatus: "reported",
+        processingStatus: "actioned",
+        creatorNoticeStatus: "creator_notified",
+        reportCount: 1,
+        appealCount: 1,
+        actionCount: 1,
+      }),
+    ]);
+  });
+
+  it("caps the P6 moderation queue for large report/review workloads", async () => {
+    const { service, prisma } = createService();
+    const reported = Array.from({ length: 120 }, (_, index) =>
+      buildPublicRevision({
+        id: `reported-revision-${index + 1}`,
+        title: `Reported Adventure ${index + 1}`,
+        attribution:
+          'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"reported","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"unsafe_content","comment":null,"createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+      }),
+    );
+    prisma.scenario.findMany.mockResolvedValue(reported);
+
+    await expect(service.listScenarioModerationQueue("operator-1")).resolves.toHaveLength(100);
+    expect(prisma.scenario.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 500,
+      }),
+    );
+  });
+
+  it("applies a P6 hidden moderation action with audit history and appeal rejection", async () => {
+    const { service, prisma } = createService();
+    const revision = buildPublicRevision({
+      attribution:
+        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"reported","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"unsafe_content","comment":null,"createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[{"appealId":"a1","appealedByUserId":"creator-1","message":"please restore","createdAt":"2026-06-23T01:00:00.000Z","status":"submitted"}],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+    });
+    prisma.scenario.findUnique.mockResolvedValue(revision);
+    prisma.scenario.update.mockResolvedValue(revision);
+    prisma.sessionScenario.findMany.mockResolvedValue([
+      { id: "session-scenario-1", sessionId: "session-1" },
+    ]);
+    prisma.turnLog.findFirst.mockResolvedValue({ turnNumber: 7 });
+
+    await expect(
+      service.applyScenarioModerationAction("operator-1", "public-revision", {
+        action: "hidden",
+        reason: "unsafe content remains",
+      }),
+    ).resolves.toMatchObject({
+      scenarioId: "public-revision",
+      action: "hidden",
+      moderationStatus: "hidden",
+      processingStatus: "rejected",
+      creatorNoticeStatus: "creator_notified",
+    });
+
+    const updatedAttribution = prisma.scenario.update.mock.calls[0][0].data.attribution as string;
+    expect(updatedAttribution).toContain('"moderationStatus":"hidden"');
+    expect(updatedAttribution).toContain('"action":"hidden"');
+    expect(updatedAttribution).toContain('"operatorUserId":"operator-1"');
+    expect(updatedAttribution).toContain('"status":"rejected"');
+    expect(updatedAttribution).toContain('"processingStatus":"rejected"');
+    expect(updatedAttribution).toContain('"creatorNoticeStatus":"creator_notified"');
+    expect(updatedAttribution).toContain('"auditRecordType":"scenario_moderation_action"');
+    expect(prisma.turnLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sessionId: "session-1",
+          sessionScenarioId: "session-scenario-1",
+          actorUserId: "operator-1",
+          turnNumber: 8,
+          rawInput: "/scenario moderation hidden",
+          structuredActionJson: expect.stringContaining("p6_scenario_moderation_action"),
+          stateDiffJson: expect.stringContaining("existingSessionSnapshotPreserved"),
+        }),
+      }),
+    );
+  });
+
+  it("returns the existing P6 moderation action without duplicating audit or TurnLog for repeated requests", async () => {
+    const { service, prisma } = createService();
+    const revision = buildPublicRevision({
+      attribution:
+        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"hidden","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"unsafe_content","comment":null,"createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[{"appealId":"a1","appealedByUserId":"creator-1","message":"please restore","createdAt":"2026-06-23T01:00:00.000Z","status":"rejected"}],"moderationActions":[{"actionId":"scenario-moderation-action:existing","operatorUserId":"operator-1","action":"hidden","reason":"unsafe content remains","targetUserId":null,"createdAt":"2026-06-23T02:00:00.000Z","previousStatus":"reported","nextStatus":"hidden","processingStatus":"rejected","creatorNoticeStatus":"creator_notified","auditRecordType":"scenario_moderation_action"}],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+    });
+    prisma.scenario.findUnique.mockResolvedValue(revision);
+
+    await expect(
+      service.applyScenarioModerationAction("operator-1", "public-revision", {
+        action: "hidden",
+        reason: "unsafe content remains",
+      }),
+    ).resolves.toEqual({
+      actionId: "scenario-moderation-action:existing",
+      scenarioId: "public-revision",
+      action: "hidden",
+      moderationStatus: "hidden",
+      processingStatus: "rejected",
+      creatorNoticeStatus: "creator_notified",
+    });
+
+    expect(prisma.scenario.update).not.toHaveBeenCalled();
+    expect(prisma.sessionScenario.findMany).not.toHaveBeenCalled();
+    expect(prisma.turnLog.create).not.toHaveBeenCalled();
+  });
+
+  it("removes an abusive review without deleting the rating score", async () => {
+    const { service, prisma } = createService();
+    const revision = buildPublicRevision({
+      attribution:
+        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[{"userId":"player-1","rating":5,"review":"great","updatedAt":"2026-06-23T00:00:00.000Z"},{"userId":"player-2","rating":1,"review":"abusive text","updatedAt":"2026-06-23T00:00:00.000Z"}],"forkCount":0,"moderationStatus":"reported","reports":[],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+    });
+    prisma.scenario.findUnique.mockResolvedValue(revision);
+    prisma.scenario.update.mockResolvedValue(revision);
+
+    await expect(
+      service.applyScenarioModerationAction("moderator-1", "public-revision", {
+        action: "review_removed",
+        reason: "abusive review",
+        targetUserId: "player-2",
+      }),
+    ).resolves.toMatchObject({
+      action: "review_removed",
+      moderationStatus: "reported",
+      processingStatus: "actioned",
+      creatorNoticeStatus: "creator_notified",
+    });
+
+    const updatedAttribution = prisma.scenario.update.mock.calls[0][0].data.attribution as string;
+    expect(updatedAttribution).toContain('"userId":"player-2","rating":1,"review":null');
+    expect(updatedAttribution).toContain('"userId":"player-1","rating":5,"review":"great"');
+    expect(updatedAttribution).toContain('"targetUserId":"player-2"');
+    expect(updatedAttribution).toContain('"processingStatus":"actioned"');
+  });
+
+  it("marks an appealed P6 moderation item as escalated and under review without changing public visibility", async () => {
+    const { service, prisma } = createService();
+    const revision = buildPublicRevision({
+      attribution:
+        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"reported","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"other","comment":"needs senior review","createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[{"appealId":"a1","appealedByUserId":"creator-1","message":"please review manually","createdAt":"2026-06-23T01:00:00.000Z","status":"submitted"}],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+    });
+    prisma.scenario.findUnique.mockResolvedValue(revision);
+    prisma.scenario.update.mockResolvedValue(revision);
+
+    await expect(
+      service.applyScenarioModerationAction("admin-1", "public-revision", {
+        action: "escalated",
+        reason: "needs policy lead review",
+      }),
+    ).resolves.toMatchObject({
+      action: "escalated",
+      moderationStatus: "reported",
+      processingStatus: "escalated",
+      creatorNoticeStatus: "creator_notified",
+    });
+
+    const updatedAttribution = prisma.scenario.update.mock.calls[0][0].data.attribution as string;
+    expect(updatedAttribution).toContain('"action":"escalated"');
+    expect(updatedAttribution).toContain('"status":"under_review"');
+    expect(updatedAttribution).toContain('"processingStatus":"escalated"');
+  });
+
+  it("accepts an under-review appeal when a P6 moderation item is restored", async () => {
+    const { service, prisma } = createService();
+    const revision = buildPublicRevision({
+      attribution:
+        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"hidden","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"other","comment":"restored after senior review","createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[{"appealId":"a1","appealedByUserId":"creator-1","message":"manual review completed","createdAt":"2026-06-23T01:00:00.000Z","status":"under_review"}],"moderationActions":[{"actionId":"m1","operatorUserId":"admin-1","action":"escalated","reason":"needs policy lead review","targetUserId":null,"createdAt":"2026-06-23T02:00:00.000Z","previousStatus":"hidden","nextStatus":"hidden","processingStatus":"escalated","creatorNoticeStatus":"creator_notified","auditRecordType":"scenario_moderation_action"}],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+    });
+    prisma.scenario.findUnique.mockResolvedValue(revision);
+    prisma.scenario.update.mockResolvedValue(revision);
+
+    await expect(
+      service.applyScenarioModerationAction("admin-1", "public-revision", {
+        action: "restored",
+        reason: "appeal accepted after senior review",
+      }),
+    ).resolves.toMatchObject({
+      action: "restored",
+      moderationStatus: "visible",
+      processingStatus: "restored",
+      creatorNoticeStatus: "creator_notified",
+    });
+
+    const updatedAttribution = prisma.scenario.update.mock.calls[0][0].data.attribution as string;
+    expect(updatedAttribution).toContain('"action":"restored"');
+    expect(updatedAttribution).toContain('"status":"accepted"');
+    expect(updatedAttribution).toContain('"processingStatus":"restored"');
+  });
+
+  it("rejects an under-review appeal when a P6 moderation item is upheld as hidden", async () => {
+    const { service, prisma } = createService();
+    const revision = buildPublicRevision({
+      attribution:
+        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"hidden","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"unsafe_content","comment":"upheld after review","createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[{"appealId":"a1","appealedByUserId":"creator-1","message":"manual review requested","createdAt":"2026-06-23T01:00:00.000Z","status":"under_review"}],"moderationActions":[{"actionId":"m1","operatorUserId":"admin-1","action":"escalated","reason":"needs policy lead review","targetUserId":null,"createdAt":"2026-06-23T02:00:00.000Z","previousStatus":"hidden","nextStatus":"hidden","processingStatus":"escalated","creatorNoticeStatus":"creator_notified","auditRecordType":"scenario_moderation_action"}],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+    });
+    prisma.scenario.findUnique.mockResolvedValue(revision);
+    prisma.scenario.update.mockResolvedValue(revision);
+
+    await expect(
+      service.applyScenarioModerationAction("admin-1", "public-revision", {
+        action: "hidden",
+        reason: "appeal rejected after senior review",
+      }),
+    ).resolves.toMatchObject({
+      action: "hidden",
+      moderationStatus: "hidden",
+      processingStatus: "rejected",
+      creatorNoticeStatus: "creator_notified",
+    });
+
+    const updatedAttribution = prisma.scenario.update.mock.calls[0][0].data.attribution as string;
+    expect(updatedAttribution).toContain('"action":"hidden"');
+    expect(updatedAttribution).toContain('"status":"rejected"');
+    expect(updatedAttribution).toContain('"processingStatus":"rejected"');
+  });
+
+  it("marks creator note moderation actions as requiring creator follow-up", async () => {
+    const { service, prisma } = createService();
+    const revision = buildPublicRevision({
+      attribution:
+        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"reported","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"license","comment":"missing source","createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+    });
+    prisma.scenario.findUnique.mockResolvedValue(revision);
+    prisma.scenario.update.mockResolvedValue(revision);
+
+    await expect(
+      service.applyScenarioModerationAction("operator-1", "public-revision", {
+        action: "creator_note_required",
+        reason: "creator must add source notes",
+      }),
+    ).resolves.toMatchObject({
+      action: "creator_note_required",
+      moderationStatus: "reported",
+      processingStatus: "actioned",
+      creatorNoticeStatus: "creator_action_required",
+    });
   });
 });

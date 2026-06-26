@@ -78,8 +78,7 @@ export type RuleRuntimeEffect = {
     | "spellcasting"
     | "subclass_feature"
     | "condition"
-    | "terrain_effect"
-    | "resolver_pending";
+    | "terrain_effect";
   tags: string[];
   hookId?: string;
   resourceId?: string;
