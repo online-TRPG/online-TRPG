@@ -1044,6 +1044,8 @@ type QuickCreateAbilities = NonNullable<CharacterPayload['abilities']>;
 
 const DEFAULT_QUICK_CREATE_ANCESTRY_KEY = 'human';
 const DEFAULT_QUICK_CREATE_CLASS_KEY = 'wizard';
+const WIZARD_STARTING_SPELLBOOK_SPELL_COUNT = 6;
+const WIZARD_SPELLBOOK_SPELLS_PER_LEVEL = 2;
 const HIT_DIE_AVERAGE_BY_KEY: Readonly<Record<string, number>> = {
   d6: 4,
   d8: 5,
@@ -1088,10 +1090,18 @@ const QUICK_CREATE_ASI_PRIORITY_BY_CLASS_KEY: Readonly<
   wizard: ['int', 'con', 'dex', 'wis', 'cha', 'str'],
 };
 const QUICK_CREATE_CLASS_PRESET_BY_KEY = new Map<string, string>([
-  ['wizard', 'preset_wizard'],
+  ['barbarian', 'preset_warrior'],
+  ['bard', 'preset_wizard'],
+  ['cleric', 'preset_warrior'],
+  ['druid', 'preset_archer'],
+  ['fighter', 'preset_warrior'],
+  ['monk', 'preset_rogue'],
+  ['paladin', 'preset_warrior'],
   ['ranger', 'preset_archer'],
   ['rogue', 'preset_rogue'],
-  ['fighter', 'preset_warrior'],
+  ['sorcerer', 'preset_wizard'],
+  ['warlock', 'preset_wizard'],
+  ['wizard', 'preset_wizard'],
 ]);
 const QUICK_CREATE_SUBCLASS_BY_CLASS_KEY: Readonly<
   Record<string, { choiceLevel: number; subclassName: string }>
@@ -1143,6 +1153,100 @@ const QUICK_CREATE_P3_LEVEL7_SLOT_SPELLS_BY_CLASS: Readonly<Record<string, strin
   wizard: ['spell.dimension_door', 'spell.ice_storm'],
 };
 
+function getQuickCreateCatalogSpellLevel(entry: RuleCatalogReferenceDto): number | null {
+  if (typeof entry.spellLevel === 'number') return entry.spellLevel;
+  const tag = entry.runtimeTags?.find((item) => item.startsWith('spell_level:'));
+  if (!tag) return null;
+  const level = Number(tag.slice('spell_level:'.length));
+  return Number.isInteger(level) && level >= 0 ? level : null;
+}
+
+function getQuickCreateMaximumSlotSpellLevel(classKey: string, level: number) {
+  const normalizedClassKey = classKey.trim().toLowerCase();
+  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
+  if (['bard', 'cleric', 'druid', 'sorcerer', 'wizard'].includes(normalizedClassKey)) {
+    if (normalizedLevel >= 17) return 9;
+    if (normalizedLevel >= 15) return 8;
+    if (normalizedLevel >= 13) return 7;
+    if (normalizedLevel >= 11) return 6;
+    if (normalizedLevel >= 9) return 5;
+    if (normalizedLevel >= 7) return 4;
+    if (normalizedLevel >= 5) return 3;
+    if (normalizedLevel >= 3) return 2;
+    return 1;
+  }
+  if (normalizedClassKey === 'warlock') {
+    if (normalizedLevel >= 17) return 9;
+    if (normalizedLevel >= 15) return 8;
+    if (normalizedLevel >= 13) return 7;
+    if (normalizedLevel >= 11) return 6;
+    if (normalizedLevel >= 9) return 5;
+    if (normalizedLevel >= 7) return 4;
+    if (normalizedLevel >= 5) return 3;
+    if (normalizedLevel >= 3) return 2;
+    return 1;
+  }
+  if (normalizedClassKey === 'paladin' || normalizedClassKey === 'ranger') {
+    if (normalizedLevel >= 17) return 5;
+    if (normalizedLevel >= 13) return 4;
+    if (normalizedLevel >= 9) return 3;
+    if (normalizedLevel >= 5) return 2;
+    if (normalizedLevel >= 2) return 1;
+  }
+  return 0;
+}
+
+function getQuickCreateCatalogSpellIds(
+  ruleCatalog: RuleCatalogReferenceDto[],
+  kind: 'cantrip' | 'slot',
+  maxSpellLevel: number,
+) {
+  if (!ruleCatalog.length) return [];
+  const normalizedMaxSpellLevel = Math.max(0, Math.min(9, Math.floor(maxSpellLevel)));
+  return ruleCatalog
+    .filter((entry) => entry.kind === 'spell_definitions' && entry.executable)
+    .map((entry) => ({ id: entry.id, level: getQuickCreateCatalogSpellLevel(entry) }))
+    .filter((spell) =>
+      kind === 'cantrip'
+        ? spell.level === 0
+        : typeof spell.level === 'number' &&
+          spell.level >= 1 &&
+          spell.level <= normalizedMaxSpellLevel
+    )
+    .sort((left, right) => {
+      const leftLevel = left.level ?? 99;
+      const rightLevel = right.level ?? 99;
+      if (leftLevel !== rightLevel) return leftLevel - rightLevel;
+      return left.id.localeCompare(right.id);
+    })
+    .map((spell) => spell.id);
+}
+
+function getQuickCreateFallbackSlotSpellIds(classKey: string, level: number) {
+  if (getQuickCreateMaximumSlotSpellLevel(classKey, level) <= 0) {
+    return [];
+  }
+  const level5Spells = level >= 5
+    ? (QUICK_CREATE_MVP_LEVEL5_SLOT_SPELLS_BY_CLASS[classKey] ?? [])
+    : [];
+  const level7Spells = level >= 7
+    ? (QUICK_CREATE_P3_LEVEL7_SLOT_SPELLS_BY_CLASS[classKey] ?? [])
+    : [];
+  return Array.from(
+    new Set([
+      ...level7Spells,
+      ...level5Spells,
+      ...QUICK_CREATE_MVP_LEVEL1_SPELLS,
+    ]),
+  );
+}
+
+function getQuickCreateWizardSpellbookCount(level: number) {
+  const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
+  return WIZARD_STARTING_SPELLBOOK_SPELL_COUNT +
+    (normalizedLevel - 1) * WIZARD_SPELLBOOK_SPELLS_PER_LEVEL;
+}
+
 function getQuickCreateAbilityModifier(score: number | null | undefined) {
   return Math.floor(((score ?? 10) - 10) / 2);
 }
@@ -1166,6 +1270,19 @@ function getQuickCreatePreparedSpellLimit(
   const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
   const levelBase = normalizedClassKey === 'paladin' ? Math.floor(normalizedLevel / 2) : normalizedLevel;
   return Math.max(1, levelBase + getQuickCreateAbilityModifier(abilities[abilityKey]));
+}
+
+function usesQuickCreateDynamicPreparedSpellPool(
+  classKey: string,
+  progression: NonNullable<ClassDefinitionResponseDto['spellcastingProgression']>[number] | null,
+  slotSpellPool: string[],
+) {
+  const normalizedClassKey = classKey.trim().toLowerCase();
+  return (
+    ['cleric', 'druid', 'paladin'].includes(normalizedClassKey) &&
+    Boolean(progression) &&
+    slotSpellPool.length > 0
+  );
 }
 
 // 캐릭터 생성 모달을 처음 열 때 쓰는 기본 입력값입니다.
@@ -1228,51 +1345,66 @@ function getDefaultQuickCreateStartingSpells(
   klass: ClassDefinitionResponseDto,
   level: number,
   abilities: QuickCreateAbilities,
+  ruleCatalog: RuleCatalogReferenceDto[],
 ) {
+  const classKey = klass.key.trim().toLowerCase();
   const progression =
     klass.spellcastingProgression?.find((entry) => entry.classLevel === level) ?? null;
-  const level5Spells = level >= 5
-    ? (QUICK_CREATE_MVP_LEVEL5_SLOT_SPELLS_BY_CLASS[klass.key] ?? [])
-    : [];
-  const level7Spells = level >= 7
-    ? (QUICK_CREATE_P3_LEVEL7_SLOT_SPELLS_BY_CLASS[klass.key] ?? [])
-    : [];
-  const milestoneSpells = [...level7Spells, ...level5Spells];
-  const slotSpells = Array.from(
-    new Set([
-      ...milestoneSpells,
-      ...QUICK_CREATE_MVP_LEVEL1_SPELLS.slice(
-        0,
-        Math.max(0, klass.startingSpellCount - milestoneSpells.length),
-      ),
-      ...QUICK_CREATE_MVP_LEVEL1_SPELLS,
-    ]),
+  const maxSlotSpellLevel = getQuickCreateMaximumSlotSpellLevel(classKey, level);
+  const catalogCantrips = getQuickCreateCatalogSpellIds(ruleCatalog, 'cantrip', 0);
+  const catalogSlotSpells = getQuickCreateCatalogSpellIds(ruleCatalog, 'slot', maxSlotSpellLevel);
+  const cantripPool = catalogCantrips.length ? catalogCantrips : QUICK_CREATE_MVP_CANTRIPS;
+  const slotSpellPool = catalogSlotSpells.length
+    ? catalogSlotSpells
+    : getQuickCreateFallbackSlotSpellIds(classKey, level);
+  const preparedSpellLimit = maxSlotSpellLevel > 0
+    ? getQuickCreatePreparedSpellLimit(classKey, level, abilities)
+    : null;
+  const usesDynamicPreparedPool = usesQuickCreateDynamicPreparedSpellPool(
+    classKey,
+    progression,
+    slotSpellPool,
   );
-  const preparedSpellLimit = getQuickCreatePreparedSpellLimit(klass.key, level, abilities);
   const cantripCount = Math.min(
     progression?.cantripsKnown ?? klass.startingCantripCount,
-    QUICK_CREATE_MVP_CANTRIPS.length,
+    classKey === 'paladin' || classKey === 'ranger' ? 0 : cantripPool.length,
   );
-  const slotSpellCount = Math.min(
-    preparedSpellLimit !== null && klass.key !== 'wizard' && progression
-      ? slotSpells.length
-      : (progression?.spellsKnown ??
-          (klass.key === 'wizard'
-            ? Math.max(klass.startingSpellCount, QUICK_CREATE_MVP_LEVEL1_SPELLS.length)
-            : klass.startingSpellCount)),
-    slotSpells.length,
-  );
-  if (cantripCount <= 0 && slotSpellCount <= 0) {
+  const requiredKnownSpellCount = usesDynamicPreparedPool
+    ? 0
+    : (progression?.spellsKnown ??
+        (classKey === 'wizard'
+          ? getQuickCreateWizardSpellbookCount(level)
+          : klass.startingSpellCount));
+  const slotSpellCount = Math.min(requiredKnownSpellCount, slotSpellPool.length);
+  const preparedSpellCount = preparedSpellLimit === null
+    ? 0
+    : Math.min(preparedSpellLimit, slotSpellPool.length);
+
+  if (
+    cantripCount <= 0 &&
+    slotSpellCount <= 0 &&
+    preparedSpellCount <= 0 &&
+    !usesDynamicPreparedPool
+  ) {
     return undefined;
   }
-  const selectedSlotSpells = slotSpells.slice(0, slotSpellCount);
+
+  const selectedSlotSpells = usesDynamicPreparedPool
+    ? []
+    : slotSpellPool.slice(0, slotSpellCount);
+  const preparedSpellPool = usesDynamicPreparedPool ? slotSpellPool : selectedSlotSpells;
+  const selectedPreparedSpells = preparedSpellLimit !== null
+    ? preparedSpellPool.slice(0, preparedSpellCount)
+    : undefined;
+
+  if (preparedSpellLimit !== null && selectedPreparedSpells?.length !== preparedSpellLimit) {
+    return undefined;
+  }
 
   return {
-    cantrips: QUICK_CREATE_MVP_CANTRIPS.slice(0, cantripCount),
+    cantrips: cantripPool.slice(0, cantripCount),
     spells: selectedSlotSpells,
-    ...(preparedSpellLimit !== null
-      ? { preparedSpells: selectedSlotSpells.slice(0, preparedSpellLimit) }
-      : {}),
+    ...(selectedPreparedSpells ? { preparedSpells: selectedPreparedSpells } : {}),
   };
 }
 
@@ -3442,6 +3574,7 @@ export function PlayPage({
         selectedQuickCreateClass,
         quickCreateLevel,
         quickCreateAbilities,
+        ruleCatalog,
       ),
       assignToSession: true,
     };

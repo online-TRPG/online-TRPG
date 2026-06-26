@@ -8,11 +8,13 @@ import {
   ApiTags,
 } from "@nestjs/swagger";
 import {
+  CharacterAvatarAssetResponseDto,
   CharacterInventoryResponseDto,
   CharacterResponseDto,
   CreateCharacterDto,
   LevelUpCharacterDto,
   SessionCharacterResponseDto,
+  UploadCharacterAvatarDto,
   UpdateCharacterDto,
   UpdateCharacterEquipmentDto,
   UpdatePreparedSpellsDto,
@@ -39,6 +41,34 @@ export class CharactersController {
   @ApiOkResponse({ type: [CharacterResponseDto] })
   listMyCharacters(@CurrentUserId() userId: string): Promise<CharacterResponseDto[]> {
     return this.charactersService.listMyCharacters(userId);
+  }
+
+  @Get("characters/avatar-assets")
+  @ApiOkResponse({ type: [CharacterAvatarAssetResponseDto] })
+  listMyAvatarAssets(
+    @CurrentUserId() userId: string,
+  ): Promise<CharacterAvatarAssetResponseDto[]> {
+    return this.charactersService.listMyAvatarAssets(userId);
+  }
+
+  @Post("characters/avatar-assets")
+  @ApiCreatedResponse({ type: CharacterAvatarAssetResponseDto })
+  uploadMyAvatarAsset(
+    @CurrentUserId() userId: string,
+    @Body() dto: UploadCharacterAvatarDto,
+  ): Promise<CharacterAvatarAssetResponseDto> {
+    return this.charactersService.uploadMyAvatarAsset(userId, dto);
+  }
+
+  @Delete("characters/avatar-assets/:assetId")
+  @ApiParam({ name: "assetId" })
+  @ApiNoContentResponse()
+  @HttpCode(204)
+  async deleteMyAvatarAsset(
+    @CurrentUserId() userId: string,
+    @Param("assetId") assetId: string,
+  ): Promise<void> {
+    await this.charactersService.deleteMyAvatarAsset(userId, assetId);
   }
 
   @Get("characters/:id")

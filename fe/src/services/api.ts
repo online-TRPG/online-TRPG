@@ -12,6 +12,7 @@ import type {
   AuthTokenResponseDto,
   CombatActorActionDto,
   CombatBasicActionDto,
+  CharacterAvatarAssetResponseDto,
   CharacterResponseDto,
   CombatActionResultDto,
   CombatMoveResultDto,
@@ -82,6 +83,7 @@ import type {
   UpdateVttMapDto,
   UseInventoryItemDto,
   UseInventoryItemResponseDto,
+  UploadCharacterAvatarDto,
   UploadScenarioAssetDto,
   UploadScenarioNodeImageDto,
   UpsertScenarioCollaboratorDto,
@@ -1694,6 +1696,41 @@ export function listMyCharacters(
   accessToken?: string | null
 ): Promise<CharacterResponseDto[]> {
   return requestJson<CharacterResponseDto[]>('/users/me/characters', {
+    user,
+    accessToken,
+  });
+}
+
+export function listCharacterAvatarAssets(
+  user: StoredUser,
+  accessToken?: string | null
+): Promise<CharacterAvatarAssetResponseDto[]> {
+  return requestJson<CharacterAvatarAssetResponseDto[]>('/characters/avatar-assets', {
+    user,
+    accessToken,
+  });
+}
+
+export function uploadCharacterAvatarAsset(
+  user: StoredUser,
+  payload: UploadCharacterAvatarDto,
+  accessToken?: string | null
+): Promise<CharacterAvatarAssetResponseDto> {
+  return requestJson<CharacterAvatarAssetResponseDto>('/characters/avatar-assets', {
+    method: 'POST',
+    user,
+    accessToken,
+    body: payload,
+  });
+}
+
+export function deleteCharacterAvatarAsset(
+  user: StoredUser,
+  assetId: string,
+  accessToken?: string | null
+): Promise<void> {
+  return requestJson<void>(`/characters/avatar-assets/${assetId}`, {
+    method: 'DELETE',
     user,
     accessToken,
   });

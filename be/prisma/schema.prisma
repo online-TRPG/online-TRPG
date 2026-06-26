@@ -178,6 +178,7 @@ model User {
   socialAccounts       SocialAccount[]
   createdScenarios     Scenario[]           @relation("ScenarioCreator")
   uploadedScenarioAssets ScenarioAsset[]    @relation("ScenarioAssetUploader")
+  uploadedCharacterAvatarAssets CharacterAvatarAsset[] @relation("CharacterAvatarAssetUploader")
   controlledCharacters SessionCharacter[]
   aiTraces             AiTrace[]
 }
@@ -333,6 +334,23 @@ model Character {
   scenario               Scenario?           @relation("ScenarioCharacters", fields: [scenarioId], references: [id], onDelete: SetNull)
   sessionCharacters      SessionCharacter[]
   representativeProfiles UserProfile[]       @relation("RepresentativeCharacter")
+}
+
+model CharacterAvatarAsset {
+  id               String   @id @default(cuid())
+  fileName         String
+  contentType      String
+  storageKey       String   @unique
+  publicUrl        String
+  width            Int?
+  height           Int?
+  fileSizeBytes    Int
+  uploadedByUserId String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  uploadedBy       User     @relation("CharacterAvatarAssetUploader", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([uploadedByUserId, createdAt])
 }
 
 model SessionCharacter {
