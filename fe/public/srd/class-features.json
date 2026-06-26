@@ -1,0 +1,2608 @@
+[
+  {
+    "id": "class.barbarian.feature.격노",
+    "classKey": "barbarian",
+    "level": 1,
+    "nameKo": "격노",
+    "category": "class",
+    "summaryKo": "자기 턴에 추가 행동(Bonus Action)으로 격노에 들어갈 수 있다. 중갑을 입지 않은 동안 다음 이익을 얻는다. 근력 판정과 근력 내성 굴림에 유리함을 얻는다. 근력을 사용하는 근접 무기 공격 피해에 바바리안 표의 격노 피해 보너스를 더한다. 타격, 관통, 참격 피해에 저항을 가진다. 주문을 시전할 수 있다면, 격노 중에는 주문을 시전하거나 집중할 수 없다. 격노는 1분 동안 지속된다. 의식을 잃거나, 마지막 턴 이후 적대적 크리처를 공격하지도 않고 피…",
+    "source": "srd",
+    "aliases": [
+      "격노"
+    ],
+    "availableAtLevels": [
+      1,
+      11,
+      15
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.무모한_공격",
+    "classKey": "barbarian",
+    "level": 2,
+    "nameKo": "무모한 공격",
+    "category": "class",
+    "summaryKo": "2레벨부터 자기 턴의 첫 공격을 할 때 무모하게 공격할 수 있다. 그 턴 동안 근력을 사용하는 근접 무기 공격 굴림에 유리함을 얻지만, 다음 자기 턴까지 자신을 향한 공격 굴림도 유리함을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "무모한_공격"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.비무장_방어",
+    "classKey": "barbarian",
+    "level": 1,
+    "nameKo": "비무장 방어",
+    "category": "class",
+    "summaryKo": "방어구를 입지 않은 동안 AC는 `10 + 민첩 수정치 + 건강 수정치`다. 방패를 사용해도 이 이익을 받을 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "비무장_방어"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.위험_감지",
+    "classKey": "barbarian",
+    "level": 2,
+    "nameKo": "위험 감지",
+    "category": "class",
+    "summaryKo": "2레벨부터 볼 수 있는 함정이나 주문 같은 효과에 대한 민첩 내성 굴림에 유리함을 얻는다. 눈멀음, 귀먹음, 무력화 상태라면 이 이익을 받을 수 없다.",
+    "source": "srd",
+    "aliases": [
+      "위험_감지"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.brutal_critical",
+    "classKey": "barbarian",
+    "level": 9,
+    "nameKo": "잔혹한 치명타 1주사위",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "잔혹한_치명타_1주사위"
+    ],
+    "availableAtLevels": [
+      9
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.extra_attack",
+    "classKey": "barbarian",
+    "level": 5,
+    "nameKo": "추가 공격",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "추가_공격"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.fast_movement",
+    "classKey": "barbarian",
+    "level": 5,
+    "nameKo": "빠른 이동",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "빠른_이동"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.feral_instinct",
+    "classKey": "barbarian",
+    "level": 7,
+    "nameKo": "야성적 본능",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "야성적_본능"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.indomitable_might",
+    "classKey": "barbarian",
+    "level": 18,
+    "nameKo": "굴하지 않는 힘",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "굴하지_않는_힘"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.persistent_rage",
+    "classKey": "barbarian",
+    "level": 15,
+    "nameKo": "지속되는 격노",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "지속되는_격노"
+    ],
+    "availableAtLevels": [
+      15
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.primal_champion",
+    "classKey": "barbarian",
+    "level": 20,
+    "nameKo": "원초적 투사",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "원초적_투사"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.primal_path",
+    "classKey": "barbarian",
+    "level": 3,
+    "nameKo": "원초적 길",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "원초적_길"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.barbarian.feature.relentless_rage",
+    "classKey": "barbarian",
+    "level": 11,
+    "nameKo": "끈질긴 격노",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "끈질긴_격노"
+    ],
+    "availableAtLevels": [
+      11
+    ]
+  },
+  {
+    "id": "class.barbarian.subclass_feature.광분",
+    "classKey": "barbarian",
+    "level": 3,
+    "nameKo": "광분",
+    "category": "subclass",
+    "summaryKo": "격노할 때 광분하면 이후 각 턴에 추가 행동으로 근접 무기 공격 1회를 할 수 있다. 격노가 끝나면 탈진 1단계를 받는다.",
+    "source": "srd",
+    "aliases": [
+      "광분"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.barbarian.subclass_feature.무심한_격노",
+    "classKey": "barbarian",
+    "level": 6,
+    "nameKo": "무심한 격노",
+    "category": "subclass",
+    "summaryKo": "격노 중 매혹되거나 공포에 질리지 않는다. 이미 해당 상태라면 격노 동안 효과가 정지된다.",
+    "source": "srd",
+    "aliases": [
+      "무심한_격노"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.barbarian.subclass_feature.보복",
+    "classKey": "barbarian",
+    "level": 14,
+    "nameKo": "보복",
+    "category": "subclass",
+    "summaryKo": "5피트 이내의 크리처에게 피해를 받으면 반응으로 그 크리처에게 근접 무기 공격을 할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "보복"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.barbarian.subclass_feature.위협적인_존재감",
+    "classKey": "barbarian",
+    "level": 10,
+    "nameKo": "위협적인 존재감",
+    "category": "subclass",
+    "summaryKo": "행동으로 30피트 이내의 크리처 하나를 공포에 질리게 만들 수 있다. DC는 8 + 숙련 보너스 + 매력 수정치.",
+    "source": "srd",
+    "aliases": [
+      "위협적인_존재감"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.bard.feature.만물박사",
+    "classKey": "bard",
+    "level": 2,
+    "nameKo": "만물박사",
+    "category": "class",
+    "summaryKo": "2레벨부터 숙련 보너스를 더하지 않는 능력 판정에 숙련 보너스의 절반(내림)을 더할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "만물박사"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.bard.feature.바드의_고양감",
+    "classKey": "bard",
+    "level": 1,
+    "nameKo": "바드의 고양감",
+    "category": "class",
+    "summaryKo": "자기 턴에 추가 행동으로 60피트 이내에서 자신을 들을 수 있는 자신 이외의 크리처 하나를 선택한다. 대상은 바드의 고양감 주사위 d6을 얻는다. 10분 안에 한 번, 능력 판정/공격 굴림/내성 굴림에 주사위를 굴려 더할 수 있다. d20을 굴린 뒤 사용할지 정할 수 있지만, GM이 성공/실패를 말하기 전이어야 한다. 동시에 하나의 바드 고양감 주사위만 가질 수 있다. 사용 횟수는 매력 수정치만큼, 최소 1회다. 긴 휴식 후 회복한다. 5레벨부터는 짧은 휴식…",
+    "source": "srd",
+    "aliases": [
+      "바드의_고양감"
+    ],
+    "availableAtLevels": [
+      1,
+      5,
+      10,
+      15
+    ]
+  },
+  {
+    "id": "class.bard.feature.휴식의_노래",
+    "classKey": "bard",
+    "level": 2,
+    "nameKo": "휴식의 노래",
+    "category": "class",
+    "summaryKo": "2레벨부터 짧은 휴식 끝에 자신 또는 공연을 들을 수 있는 우호적 크리처가 히트 다이스로 HP를 회복하면 추가 HP를 회복한다. 추가 회복량은 2레벨 d6, 9레벨 d8, 13레벨 d10, 17레벨 d12다.",
+    "source": "srd",
+    "aliases": [
+      "휴식의_노래"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.bard.feature.bard_college",
+    "classKey": "bard",
+    "level": 3,
+    "nameKo": "바드 대학",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "바드_대학"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.bard.feature.bard_college_feature",
+    "classKey": "bard",
+    "level": 6,
+    "nameKo": "바드 대학 기능",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "바드_대학_기능"
+    ],
+    "availableAtLevels": [
+      6,
+      14
+    ]
+  },
+  {
+    "id": "class.bard.feature.countercharm",
+    "classKey": "bard",
+    "level": 6,
+    "nameKo": "반대매혹",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "반대매혹"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.bard.feature.expertise",
+    "classKey": "bard",
+    "level": 3,
+    "nameKo": "전문화",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "전문화"
+    ],
+    "availableAtLevels": [
+      3,
+      10
+    ]
+  },
+  {
+    "id": "class.bard.feature.font_of_inspiration",
+    "classKey": "bard",
+    "level": 5,
+    "nameKo": "고양감의 원천",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "고양감의_원천"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.bard.feature.magical_secrets",
+    "classKey": "bard",
+    "level": 10,
+    "nameKo": "마법의 비밀",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "마법의_비밀"
+    ],
+    "availableAtLevels": [
+      10,
+      14
+    ]
+  },
+  {
+    "id": "class.bard.feature.spellcasting",
+    "classKey": "bard",
+    "level": 1,
+    "nameKo": "주문시전",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "주문시전"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.bard.feature.superior_inspiration",
+    "classKey": "bard",
+    "level": 20,
+    "nameKo": "뛰어난 고양감",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "뛰어난_고양감"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.bard.subclass_feature.날카로운_말",
+    "classKey": "bard",
+    "level": 3,
+    "nameKo": "날카로운 말",
+    "category": "subclass",
+    "summaryKo": "반응으로 바드의 고양감을 소비해 60피트 이내 크리처의 공격 굴림, 능력 판정, 피해 굴림에서 고양감 주사위 값을 뺀다.",
+    "source": "srd",
+    "aliases": [
+      "날카로운_말"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.bard.subclass_feature.비할_데_없는_기술",
+    "classKey": "bard",
+    "level": 14,
+    "nameKo": "비할 데 없는 기술",
+    "category": "subclass",
+    "summaryKo": "능력 판정에 바드의 고양감을 소비해 값을 더할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "비할_데_없는_기술"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.bard.subclass_feature.추가_마법의_비밀",
+    "classKey": "bard",
+    "level": 6,
+    "nameKo": "추가 마법의 비밀",
+    "category": "subclass",
+    "summaryKo": "어떤 직업 주문 목록에서든 주문 2개를 배운다. 바드 주문으로 취급하되 알고 있는 주문 수에 포함하지 않는다.",
+    "source": "srd",
+    "aliases": [
+      "추가_마법의_비밀"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.bard.subclass_feature.추가_숙련",
+    "classKey": "bard",
+    "level": 3,
+    "nameKo": "추가 숙련",
+    "category": "subclass",
+    "summaryKo": "원하는 기술 3개에 숙련된다.",
+    "source": "srd",
+    "aliases": [
+      "추가_숙련"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.cleric.feature.신성_변환",
+    "classKey": "cleric",
+    "level": 2,
+    "nameKo": "신성 변환",
+    "category": "class",
+    "summaryKo": "2레벨부터 성표를 내보이며 신성한 힘을 불러낸다. 사용 가능한 효과는 권역에 따라 달라지고, 기본적으로 언데드 퇴치(Turn Undead)를 사용할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "신성_변환"
+    ],
+    "availableAtLevels": [
+      2,
+      6,
+      18
+    ]
+  },
+  {
+    "id": "class.cleric.feature.신성한_개입",
+    "classKey": "cleric",
+    "level": 10,
+    "nameKo": "신성한 개입",
+    "category": "class",
+    "summaryKo": "10레벨부터 신에게 도움을 요청할 수 있다. d100을 굴려 클레릭 레벨 이하가 나오면 개입이 성공한다. 성공 후에는 7일 동안 다시 사용할 수 없고, 실패하면 긴 휴식 후 다시 사용할 수 있다. 20레벨부터는 자동 성공한다.",
+    "source": "srd",
+    "aliases": [
+      "신성한_개입"
+    ],
+    "availableAtLevels": [
+      10,
+      20
+    ]
+  },
+  {
+    "id": "class.cleric.feature.언데드_퇴치",
+    "classKey": "cleric",
+    "level": 0,
+    "nameKo": "언데드 퇴치",
+    "category": "class",
+    "summaryKo": "행동으로 성표를 들고 언데드를 꾸짖는 기도를 한다. 30피트 이내에서 자신을 보거나 들을 수 있는 각 언데드는 지혜 내성 굴림을 해야 한다. 실패하면 1분 동안 또는 피해를 받을 때까지 퇴치된다. 퇴치된 크리처는 가능한 멀리 이동하려 해야 하며, 자발적으로 30피트 이내로 접근할 수 없고 반응을 사용할 수 없다. 행동은 질주 또는 이동 방해 효과에서 벗어나려는 시도만 가능하다. 이동할 곳이 없으면 회피 행동을 할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "언데드_퇴치"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.cleric.feature.destroy_undead",
+    "classKey": "cleric",
+    "level": 5,
+    "nameKo": "언데드 파괴",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "언데드_파괴"
+    ],
+    "availableAtLevels": [
+      5,
+      8,
+      17
+    ]
+  },
+  {
+    "id": "class.cleric.feature.divine_domain",
+    "classKey": "cleric",
+    "level": 1,
+    "nameKo": "신성 권역",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "신성_권역"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.cleric.feature.divine_domain_feature",
+    "classKey": "cleric",
+    "level": 2,
+    "nameKo": "신성 권역 기능",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "신성_권역_기능"
+    ],
+    "availableAtLevels": [
+      2,
+      6,
+      8,
+      17
+    ]
+  },
+  {
+    "id": "class.cleric.feature.spellcasting",
+    "classKey": "cleric",
+    "level": 1,
+    "nameKo": "주문시전",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "주문시전"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.권역_주문",
+    "classKey": "cleric",
+    "level": 1,
+    "nameKo": "권역 주문",
+    "category": "subclass",
+    "summaryKo": "권역 주문을 항상 준비한 것으로 간주한다.",
+    "source": "srd",
+    "aliases": [
+      "권역_주문"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.생명_보존",
+    "classKey": "cleric",
+    "level": 2,
+    "nameKo": "생명 보존",
+    "category": "subclass",
+    "summaryKo": "신성 변환으로 30피트 이내 크리처들의 HP를 총 클레릭 레벨 x 5만큼 나누어 회복시킨다. 최대 HP 절반 초과로는 회복시킬 수 없다.",
+    "source": "srd",
+    "aliases": [
+      "생명_보존"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.생명의_사도",
+    "classKey": "cleric",
+    "level": 1,
+    "nameKo": "생명의 사도",
+    "category": "subclass",
+    "summaryKo": "1레벨 이상 주문으로 HP를 회복시킬 때 2 + 주문 레벨만큼 추가 회복한다.",
+    "source": "srd",
+    "aliases": [
+      "생명의_사도"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.신성한_일격",
+    "classKey": "cleric",
+    "level": 8,
+    "nameKo": "신성한 일격",
+    "category": "subclass",
+    "summaryKo": "턴마다 한 번 무기 공격 명중 시 추가 광휘 피해 1d8, 14레벨부터 2d8.",
+    "source": "srd",
+    "aliases": [
+      "신성한_일격"
+    ],
+    "availableAtLevels": [
+      8
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.최고_치유",
+    "classKey": "cleric",
+    "level": 17,
+    "nameKo": "최고 치유",
+    "category": "subclass",
+    "summaryKo": "회복 주문의 주사위가 최대값으로 나온 것으로 취급한다.",
+    "source": "srd",
+    "aliases": [
+      "최고_치유"
+    ],
+    "availableAtLevels": [
+      17
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.추가_숙련",
+    "classKey": "cleric",
+    "level": 1,
+    "nameKo": "추가 숙련",
+    "category": "subclass",
+    "summaryKo": "중장 숙련을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "추가_숙련"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.cleric.subclass_feature.축복받은_치유자",
+    "classKey": "cleric",
+    "level": 6,
+    "nameKo": "축복받은 치유자",
+    "category": "subclass",
+    "summaryKo": "다른 크리처를 회복시키는 1레벨 이상 주문을 시전하면 자신도 2 + 주문 레벨만큼 회복한다.",
+    "source": "srd",
+    "aliases": [
+      "축복받은_치유자"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.druid.feature.드루이드어",
+    "classKey": "druid",
+    "level": 1,
+    "nameKo": "드루이드어",
+    "category": "class",
+    "summaryKo": "드루이드의 비밀 언어를 안다. 이 언어로 말하고, 비밀 메시지를 남길 수 있다. 드루이드어를 아는 사람은 자동으로 알아차리며, 다른 사람은 DC 15 지혜(감지) 판정으로 메시지 존재를 알아차리고, 마법 없이는 해독할 수 없다.",
+    "source": "srd",
+    "aliases": [
+      "드루이드어"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.druid.feature.야생_변신",
+    "classKey": "druid",
+    "level": 2,
+    "nameKo": "야생 변신",
+    "category": "class",
+    "summaryKo": "2레벨부터 행동으로 이전에 본 적 있는 야수 형태로 변신할 수 있다. 짧은 휴식 또는 긴 휴식마다 두 번 사용할 수 있다. 2레벨: 최대 CR 1/4, 비행/수영 속도 없음 4레벨: 최대 CR 1/2, 비행 속도 없음 8레벨: 최대 CR 1 변신은 드루이드 레벨 절반 시간 동안 지속된다. 변신 중에는 야수의 게임 수치를 사용하지만, 정신 능력치와 숙련 일부는 유지한다.",
+    "source": "srd",
+    "aliases": [
+      "야생_변신"
+    ],
+    "availableAtLevels": [
+      2,
+      4,
+      8
+    ]
+  },
+  {
+    "id": "class.druid.feature.archdruid",
+    "classKey": "druid",
+    "level": 20,
+    "nameKo": "대드루이드",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "대드루이드"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.druid.feature.beast_spells",
+    "classKey": "druid",
+    "level": 18,
+    "nameKo": "야수 주문",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "야수_주문"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.druid.feature.druid_circle",
+    "classKey": "druid",
+    "level": 2,
+    "nameKo": "드루이드 서클",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "드루이드_서클"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.druid.feature.spellcasting",
+    "classKey": "druid",
+    "level": 1,
+    "nameKo": "주문시전",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "주문시전"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.druid.feature.timeless_body",
+    "classKey": "druid",
+    "level": 18,
+    "nameKo": "영원한 육체",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "영원한_육체"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.druid.subclass_feature.대지의_발걸음",
+    "classKey": "druid",
+    "level": 6,
+    "nameKo": "대지의 발걸음",
+    "category": "subclass",
+    "summaryKo": "비마법적 어려운 지형과 식물 이동 방해를 쉽게 통과한다.",
+    "source": "srd",
+    "aliases": [
+      "대지의_발걸음"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.druid.subclass_feature.서클_주문",
+    "classKey": "druid",
+    "level": 3,
+    "nameKo": "서클 주문",
+    "category": "subclass",
+    "summaryKo": "선택한 대지 유형에 따라 항상 준비되는 주문을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "서클_주문"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.druid.subclass_feature.자연_회복",
+    "classKey": "druid",
+    "level": 2,
+    "nameKo": "자연 회복",
+    "category": "subclass",
+    "summaryKo": "짧은 휴식 중 일부 사용한 주문 슬롯을 회복한다. 총 슬롯 레벨은 드루이드 레벨 절반(올림) 이하이며 6레벨 이상 슬롯은 회복할 수 없다.",
+    "source": "srd",
+    "aliases": [
+      "자연_회복"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.druid.subclass_feature.자연의_성역",
+    "classKey": "druid",
+    "level": 14,
+    "nameKo": "자연의 성역",
+    "category": "subclass",
+    "summaryKo": "야수나 식물이 공격할 때 지혜 내성 실패 시 다른 대상을 골라야 한다.",
+    "source": "srd",
+    "aliases": [
+      "자연의_성역"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.druid.subclass_feature.자연의_수호",
+    "classKey": "druid",
+    "level": 10,
+    "nameKo": "자연의 수호",
+    "category": "subclass",
+    "summaryKo": "정령과 페이에게 매혹/공포 면역, 독과 질병 면역.",
+    "source": "srd",
+    "aliases": [
+      "자연의_수호"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.druid.subclass_feature.추가_캔트립",
+    "classKey": "druid",
+    "level": 2,
+    "nameKo": "추가 캔트립",
+    "category": "subclass",
+    "summaryKo": "드루이드 캔트립 하나를 추가로 배운다.",
+    "source": "srd",
+    "aliases": [
+      "추가_캔트립"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.fighter.feature.불굴",
+    "classKey": "fighter",
+    "level": 9,
+    "nameKo": "불굴",
+    "category": "class",
+    "summaryKo": "9레벨부터 실패한 내성 굴림을 다시 굴릴 수 있다. 새 결과를 반드시 사용한다.",
+    "source": "srd",
+    "aliases": [
+      "불굴"
+    ],
+    "availableAtLevels": [
+      9,
+      17
+    ]
+  },
+  {
+    "id": "class.fighter.feature.재기의_숨결",
+    "classKey": "fighter",
+    "level": 1,
+    "nameKo": "재기의 숨결",
+    "category": "class",
+    "summaryKo": "자기 턴에 추가 행동으로 `1d10 + 파이터 레벨`만큼 HP를 회복한다. 사용 후 짧은 휴식 또는 긴 휴식을 마쳐야 다시 사용할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "재기의_숨결"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.fighter.feature.전투_방식",
+    "classKey": "fighter",
+    "level": 1,
+    "nameKo": "전투 방식",
+    "category": "class",
+    "summaryKo": "1레벨에 전투 방식을 하나 선택한다. 나중에 다시 전투 방식을 얻더라도 같은 선택지를 중복 선택할 수 없다. 표 정보 포함.",
+    "source": "srd",
+    "aliases": [
+      "전투_방식"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.fighter.feature.행동_연쇄",
+    "classKey": "fighter",
+    "level": 2,
+    "nameKo": "행동 연쇄",
+    "category": "class",
+    "summaryKo": "2레벨부터 자기 턴에 추가 행동 하나를 얻을 수 있다. 사용 후 짧은 휴식 또는 긴 휴식을 마쳐야 다시 사용할 수 있다. 17레벨부터 휴식 사이 두 번 사용할 수 있지만 한 턴에는 한 번만 사용할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "행동_연쇄"
+    ],
+    "availableAtLevels": [
+      2,
+      17
+    ]
+  },
+  {
+    "id": "class.fighter.feature.extra_attack",
+    "classKey": "fighter",
+    "level": 5,
+    "nameKo": "추가 공격",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "추가_공격"
+    ],
+    "availableAtLevels": [
+      5,
+      11,
+      20
+    ]
+  },
+  {
+    "id": "class.fighter.feature.martial_archetype",
+    "classKey": "fighter",
+    "level": 3,
+    "nameKo": "무예 아키타입",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "무예_아키타입"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.fighter.subclass_feature.뛰어난_운동능력",
+    "classKey": "fighter",
+    "level": 7,
+    "nameKo": "뛰어난 운동능력",
+    "category": "subclass",
+    "summaryKo": "숙련 보너스를 더하지 않는 근력, 민첩, 건강 판정에 숙련 보너스 절반을 더한다. 달리기 도움닫기 멀리뛰기 거리도 근력 수정치만큼 증가한다.",
+    "source": "srd",
+    "aliases": [
+      "뛰어난_운동능력"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.fighter.subclass_feature.생존자",
+    "classKey": "fighter",
+    "level": 18,
+    "nameKo": "생존자",
+    "category": "subclass",
+    "summaryKo": "턴 시작 시 HP가 절반 이하이고 0보다 크면 5 + 건강 수정치만큼 HP를 회복한다.",
+    "source": "srd",
+    "aliases": [
+      "생존자"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.fighter.subclass_feature.우월한_치명타",
+    "classKey": "fighter",
+    "level": 15,
+    "nameKo": "우월한 치명타",
+    "category": "subclass",
+    "summaryKo": "무기 공격 d20 결과가 18-20이면 치명타.",
+    "source": "srd",
+    "aliases": [
+      "우월한_치명타"
+    ],
+    "availableAtLevels": [
+      15
+    ]
+  },
+  {
+    "id": "class.fighter.subclass_feature.추가_전투_방식",
+    "classKey": "fighter",
+    "level": 10,
+    "nameKo": "추가 전투 방식",
+    "category": "subclass",
+    "summaryKo": "전투 방식 하나를 추가로 선택한다.",
+    "source": "srd",
+    "aliases": [
+      "추가_전투_방식"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.fighter.subclass_feature.향상된_치명타",
+    "classKey": "fighter",
+    "level": 3,
+    "nameKo": "향상된 치명타",
+    "category": "subclass",
+    "summaryKo": "무기 공격 d20 결과가 19-20이면 치명타.",
+    "source": "srd",
+    "aliases": [
+      "향상된_치명타"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.monk.feature.기",
+    "classKey": "monk",
+    "level": 2,
+    "nameKo": "기",
+    "category": "class",
+    "summaryKo": "2레벨부터 기 점수를 사용해 질풍격, 인내 방어, 바람걸음을 사용할 수 있다. 기 점수는 짧은 휴식 또는 긴 휴식 후 회복된다. 기 내성 DC는 `8 + 숙련 보너스 + 지혜 수정치`다.",
+    "source": "srd",
+    "aliases": [
+      "기"
+    ],
+    "availableAtLevels": [
+      2,
+      3,
+      6
+    ]
+  },
+  {
+    "id": "class.monk.feature.무술",
+    "classKey": "monk",
+    "level": 1,
+    "nameKo": "무술",
+    "category": "class",
+    "summaryKo": "비무장 상태이거나 몽크 무기만 사용하고 방어구와 방패를 쓰지 않을 때 다음 이익을 얻는다. 비무장 공격과 몽크 무기의 공격/피해 굴림에 근력 대신 민첩을 사용할 수 있다. 비무장 공격 또는 몽크 무기의 일반 피해 대신 몽크 표의 무술 주사위를 사용할 수 있다. 자기 턴에 비무장 공격 또는 몽크 무기로 공격 행동을 하면 추가 행동으로 비무장 공격 1회를 할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "무술"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.monk.feature.비무장_방어",
+    "classKey": "monk",
+    "level": 1,
+    "nameKo": "비무장 방어",
+    "category": "class",
+    "summaryKo": "방어구를 입지 않고 방패를 들지 않은 동안 AC는 `10 + 민첩 수정치 + 지혜 수정치`다.",
+    "source": "srd",
+    "aliases": [
+      "비무장_방어"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.monk.feature.충격의_일격",
+    "classKey": "monk",
+    "level": 5,
+    "nameKo": "충격의 일격",
+    "category": "class",
+    "summaryKo": "5레벨부터 근접 무기 공격으로 명중했을 때 기 1점을 소비해 대상을 기절시키려 할 수 있다. 대상은 건강 내성 굴림에 실패하면 다음 자기 턴 끝까지 기절한다.",
+    "source": "srd",
+    "aliases": [
+      "충격의_일격"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.monk.feature.deflect_missiles",
+    "classKey": "monk",
+    "level": 3,
+    "nameKo": "투사체 쳐내기",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "투사체_쳐내기"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.monk.feature.diamond_soul",
+    "classKey": "monk",
+    "level": 14,
+    "nameKo": "다이아몬드 영혼",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "다이아몬드_영혼"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.monk.feature.empty_body",
+    "classKey": "monk",
+    "level": 18,
+    "nameKo": "빈 몸",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "빈_몸"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.monk.feature.evasion",
+    "classKey": "monk",
+    "level": 7,
+    "nameKo": "회피",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "회피"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.monk.feature.extra_attack",
+    "classKey": "monk",
+    "level": 5,
+    "nameKo": "추가 공격",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "추가_공격"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.monk.feature.monastic_tradition",
+    "classKey": "monk",
+    "level": 3,
+    "nameKo": "수도 전통",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "수도_전통"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.monk.feature.monastic_tradition_feature",
+    "classKey": "monk",
+    "level": 6,
+    "nameKo": "수도 전통 기능",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "수도_전통_기능"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.monk.feature.perfect_self",
+    "classKey": "monk",
+    "level": 20,
+    "nameKo": "완전한 자아",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "완전한_자아"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.monk.feature.purity_of_body",
+    "classKey": "monk",
+    "level": 10,
+    "nameKo": "순수한 육체",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "순수한_육체"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.monk.feature.slow_fall",
+    "classKey": "monk",
+    "level": 4,
+    "nameKo": "느린 낙하",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "느린_낙하"
+    ],
+    "availableAtLevels": [
+      4
+    ]
+  },
+  {
+    "id": "class.monk.feature.stillness_of_mind",
+    "classKey": "monk",
+    "level": 7,
+    "nameKo": "고요한 정신",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "고요한_정신"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.monk.feature.unarmored_movement",
+    "classKey": "monk",
+    "level": 2,
+    "nameKo": "비무장 이동",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "비무장_이동"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.monk.subclass_feature.떨리는_손바닥",
+    "classKey": "monk",
+    "level": 17,
+    "nameKo": "떨리는 손바닥",
+    "category": "subclass",
+    "summaryKo": "기 3점을 써서 대상 몸에 진동을 심고, 나중에 행동으로 발동해 건강 내성 실패 시 HP 0, 성공 시 10d10 사령 피해.",
+    "source": "srd",
+    "aliases": [
+      "떨리는_손바닥"
+    ],
+    "availableAtLevels": [
+      17
+    ]
+  },
+  {
+    "id": "class.monk.subclass_feature.열린_손_기술",
+    "classKey": "monk",
+    "level": 3,
+    "nameKo": "열린 손 기술",
+    "category": "subclass",
+    "summaryKo": "질풍격으로 명중하면 대상에게 넘어짐, 밀쳐내기, 반응 봉쇄 중 하나를 적용할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "열린_손_기술"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.monk.subclass_feature.육체의_온전함",
+    "classKey": "monk",
+    "level": 6,
+    "nameKo": "육체의 온전함",
+    "category": "subclass",
+    "summaryKo": "행동으로 몽크 레벨 x 3만큼 HP를 회복한다. 긴 휴식 후 재사용.",
+    "source": "srd",
+    "aliases": [
+      "육체의_온전함"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.monk.subclass_feature.평온",
+    "classKey": "monk",
+    "level": 11,
+    "nameKo": "평온",
+    "category": "subclass",
+    "summaryKo": "긴 휴식 후 sanctuary 주문 효과를 얻는다. 공격하거나 피해 주문을 시전하면 끝난다.",
+    "source": "srd",
+    "aliases": [
+      "평온"
+    ],
+    "availableAtLevels": [
+      11
+    ]
+  },
+  {
+    "id": "class.paladin.feature.보호의_오라",
+    "classKey": "paladin",
+    "level": 6,
+    "nameKo": "보호의 오라",
+    "category": "class",
+    "summaryKo": "6레벨부터 자신 또는 10피트 이내 우호적 크리처가 내성 굴림을 할 때, 자신이 의식이 있다면 매력 수정치를 보너스로 더한다. 18레벨부터 범위가 30피트가 된다.",
+    "source": "srd",
+    "aliases": [
+      "보호의_오라"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.paladin.feature.신성한_감각",
+    "classKey": "paladin",
+    "level": 1,
+    "nameKo": "신성한 감각",
+    "category": "class",
+    "summaryKo": "행동으로 다음 자기 턴 끝까지 60피트 이내 천상체, 악마, 언데드의 위치를 감지한다. 완전 엄폐 뒤의 존재는 감지하지 못한다. 사용 횟수는 `1 + 매력 수정치`이며 긴 휴식 후 회복한다.",
+    "source": "srd",
+    "aliases": [
+      "신성한_감각"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.paladin.feature.신성한_강타",
+    "classKey": "paladin",
+    "level": 2,
+    "nameKo": "신성한 강타",
+    "category": "class",
+    "summaryKo": "근접 무기 공격으로 명중했을 때 주문 슬롯을 소비해 추가 광휘 피해를 줄 수 있다. 기본 피해는 1레벨 슬롯 2d8이며, 슬롯 레벨이 1 높아질 때마다 1d8 증가한다. 최대 추가 피해는 5d8이다. 대상이 악마나 언데드라면 1d8을 추가로 주며, 이 경우 최대 6d8까지 증가할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "신성한_강타"
+    ],
+    "availableAtLevels": [
+      2,
+      11
+    ]
+  },
+  {
+    "id": "class.paladin.feature.안수치료",
+    "classKey": "paladin",
+    "level": 1,
+    "nameKo": "안수치료",
+    "category": "class",
+    "summaryKo": "긴 휴식마다 `팔라딘 레벨 x 5`점의 치유 풀을 가진다. 행동으로 크리처를 만져 원하는 만큼 HP를 회복시키거나, 5점을 소비해 질병 하나 또는 독 하나를 치료할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "안수치료"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.paladin.feature.aura_of_courage",
+    "classKey": "paladin",
+    "level": 10,
+    "nameKo": "용기의 오라",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "용기의_오라"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.paladin.feature.cleansing_touch",
+    "classKey": "paladin",
+    "level": 14,
+    "nameKo": "정화의 손길",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "정화의_손길"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.paladin.feature.divine_health",
+    "classKey": "paladin",
+    "level": 3,
+    "nameKo": "신성한 건강",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "신성한_건강"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.paladin.feature.extra_attack",
+    "classKey": "paladin",
+    "level": 5,
+    "nameKo": "추가 공격",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "추가_공격"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.paladin.feature.fighting_style",
+    "classKey": "paladin",
+    "level": 2,
+    "nameKo": "전투 방식",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "전투_방식"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.paladin.feature.improved_divine_smite",
+    "classKey": "paladin",
+    "level": 11,
+    "nameKo": "향상된 신성한 강타",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "향상된_신성한_강타"
+    ],
+    "availableAtLevels": [
+      11
+    ]
+  },
+  {
+    "id": "class.paladin.feature.sacred_oath",
+    "classKey": "paladin",
+    "level": 3,
+    "nameKo": "신성한 맹세",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "신성한_맹세"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.paladin.feature.spellcasting",
+    "classKey": "paladin",
+    "level": 2,
+    "nameKo": "주문시전",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "주문시전"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.paladin.subclass_feature.맹세_주문",
+    "classKey": "paladin",
+    "level": 3,
+    "nameKo": "맹세 주문",
+    "category": "subclass",
+    "summaryKo": "지정된 팔라딘 레벨에 맹세 주문을 얻고 항상 준비한 것으로 간주한다.",
+    "source": "srd",
+    "aliases": [
+      "맹세_주문"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.paladin.subclass_feature.부정한_존재_퇴치",
+    "classKey": "paladin",
+    "level": 3,
+    "nameKo": "부정한 존재 퇴치",
+    "category": "subclass",
+    "summaryKo": "악마와 언데드를 퇴치한다.",
+    "source": "srd",
+    "aliases": [
+      "부정한_존재_퇴치"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.paladin.subclass_feature.성스러운_광휘",
+    "classKey": "paladin",
+    "level": 20,
+    "nameKo": "성스러운 광휘",
+    "category": "subclass",
+    "summaryKo": "1분 동안 햇빛 오라를 발산해 적에게 광휘 피해를 주고, 악마/언데드 주문에 대한 내성 굴림에 유리함을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "성스러운_광휘"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.paladin.subclass_feature.성스러운_무기",
+    "classKey": "paladin",
+    "level": 3,
+    "nameKo": "성스러운 무기",
+    "category": "subclass",
+    "summaryKo": "신성 변환으로 무기 공격 굴림에 매력 수정치를 더하고, 무기를 마법 무기로 만든다.",
+    "source": "srd",
+    "aliases": [
+      "성스러운_무기"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.paladin.subclass_feature.영혼의_순수함",
+    "classKey": "paladin",
+    "level": 15,
+    "nameKo": "영혼의 순수함",
+    "category": "subclass",
+    "summaryKo": "항상 protection from evil and good 효과를 받는다.",
+    "source": "srd",
+    "aliases": [
+      "영혼의_순수함"
+    ],
+    "availableAtLevels": [
+      15
+    ]
+  },
+  {
+    "id": "class.paladin.subclass_feature.헌신의_오라",
+    "classKey": "paladin",
+    "level": 7,
+    "nameKo": "헌신의 오라",
+    "category": "subclass",
+    "summaryKo": "자신과 10피트 이내 우호적 크리처는 매혹되지 않는다. 18레벨부터 30피트.",
+    "source": "srd",
+    "aliases": [
+      "헌신의_오라"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.ranger.feature.숙적",
+    "classKey": "ranger",
+    "level": 1,
+    "nameKo": "숙적",
+    "category": "class",
+    "summaryKo": "1레벨에 숙적 유형 하나를 선택한다. 선택지는 괴이체, 야수, 천상체, 구조체, 드래곤, 정령, 페이, 악마, 거인, 괴물, 점액체, 식물, 언데드 또는 인간형 종족 둘이다. 숙적 추적을 위한 지혜(생존) 판정에 유리함을 얻는다. 숙적에 대한 정보를 떠올리는 지능 판정에 유리함을 얻는다. 숙적이 사용하는 언어 하나를 배울 수 있다. 6레벨과 14레벨에 숙적과 관련 언어를 추가 선택한다.",
+    "source": "srd",
+    "aliases": [
+      "숙적"
+    ],
+    "availableAtLevels": [
+      1,
+      14,
+      20
+    ]
+  },
+  {
+    "id": "class.ranger.feature.자연_탐험가",
+    "classKey": "ranger",
+    "level": 1,
+    "nameKo": "자연 탐험가",
+    "category": "class",
+    "summaryKo": "선호 지형 하나를 선택한다. 해당 지형과 관련된 지능 또는 지혜 판정에서 숙련 기술을 사용한다면 숙련 보너스가 두 배가 된다. 해당 지형에서 1시간 이상 여행할 때 그룹 이동 둔화, 길 잃기, 채집, 추적 등에 이익을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "자연_탐험가"
+    ],
+    "availableAtLevels": [
+      1,
+      10
+    ]
+  },
+  {
+    "id": "class.ranger.feature.extra_attack",
+    "classKey": "ranger",
+    "level": 5,
+    "nameKo": "추가 공격",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "추가_공격"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.ranger.feature.feral_senses",
+    "classKey": "ranger",
+    "level": 18,
+    "nameKo": "야성 감각",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "야성_감각"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.ranger.feature.fighting_style",
+    "classKey": "ranger",
+    "level": 2,
+    "nameKo": "전투 방식",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "전투_방식"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.ranger.feature.hide_in_plain_sight",
+    "classKey": "ranger",
+    "level": 10,
+    "nameKo": "눈앞의 은신",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "눈앞의_은신"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.ranger.feature.lands_stride",
+    "classKey": "ranger",
+    "level": 8,
+    "nameKo": "대지의 발걸음",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "대지의_발걸음"
+    ],
+    "availableAtLevels": [
+      8
+    ]
+  },
+  {
+    "id": "class.ranger.feature.primeval_awareness",
+    "classKey": "ranger",
+    "level": 3,
+    "nameKo": "원초적 감지",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "원초적_감지"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.ranger.feature.ranger_archetype",
+    "classKey": "ranger",
+    "level": 3,
+    "nameKo": "레인저 아키타입",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "레인저_아키타입"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.ranger.feature.spellcasting",
+    "classKey": "ranger",
+    "level": 2,
+    "nameKo": "주문시전",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "주문시전"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.ranger.feature.vanish",
+    "classKey": "ranger",
+    "level": 14,
+    "nameKo": "사라지기",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "사라지기"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.ranger.subclass_feature.다중공격",
+    "classKey": "ranger",
+    "level": 11,
+    "nameKo": "다중공격",
+    "category": "subclass",
+    "summaryKo": "일제 사격 또는 회오리 공격 중 하나 선택.",
+    "source": "srd",
+    "aliases": [
+      "다중공격"
+    ],
+    "availableAtLevels": [
+      11
+    ]
+  },
+  {
+    "id": "class.ranger.subclass_feature.방어_전술",
+    "classKey": "ranger",
+    "level": 7,
+    "nameKo": "방어 전술",
+    "category": "subclass",
+    "summaryKo": "무리 탈출, 다중공격 방어, 강철 의지 중 하나 선택.",
+    "source": "srd",
+    "aliases": [
+      "방어_전술"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.ranger.subclass_feature.사냥꾼의_먹잇감",
+    "classKey": "ranger",
+    "level": 3,
+    "nameKo": "사냥꾼의 먹잇감",
+    "category": "subclass",
+    "summaryKo": "거상 살해자, 거인 살해자, 무리 파괴자 중 하나 선택.",
+    "source": "srd",
+    "aliases": [
+      "사냥꾼의_먹잇감"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.ranger.subclass_feature.우월한_사냥꾼_방어",
+    "classKey": "ranger",
+    "level": 15,
+    "nameKo": "우월한 사냥꾼 방어",
+    "category": "subclass",
+    "summaryKo": "회피, 물결에 맞서기, 불가사의한 회피 중 하나 선택.",
+    "source": "srd",
+    "aliases": [
+      "우월한_사냥꾼_방어"
+    ],
+    "availableAtLevels": [
+      15
+    ]
+  },
+  {
+    "id": "class.rogue.feature.교활한_행동",
+    "classKey": "rogue",
+    "level": 2,
+    "nameKo": "교활한 행동",
+    "category": "class",
+    "summaryKo": "2레벨부터 자기 턴에 추가 행동으로 질주, 이탈, 숨기 행동을 할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "교활한_행동"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.rogue.feature.암습",
+    "classKey": "rogue",
+    "level": 1,
+    "nameKo": "암습",
+    "category": "class",
+    "summaryKo": "턴마다 한 번, 기교 또는 원거리 무기로 명중하고 공격 굴림에 유리함이 있으면 추가 피해를 준다. 대상 5피트 이내에 대상의 적이 있고 그 적이 무력화 상태가 아니며 자신에게 불리함이 없다면 유리함 없이도 암습을 적용할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "암습"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.rogue.feature.전문화",
+    "classKey": "rogue",
+    "level": 1,
+    "nameKo": "전문화",
+    "category": "class",
+    "summaryKo": "1레벨에 기술 숙련 2개 또는 기술 숙련 1개와 도둑 도구 숙련을 선택한다. 해당 판정에는 숙련 보너스를 두 배로 더한다. 6레벨에 두 숙련을 추가 선택한다.",
+    "source": "srd",
+    "aliases": [
+      "전문화"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.rogue.feature.blindsense",
+    "classKey": "rogue",
+    "level": 14,
+    "nameKo": "맹시 감각",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "맹시_감각"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.rogue.feature.elusive",
+    "classKey": "rogue",
+    "level": 18,
+    "nameKo": "포착 불가",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "포착_불가"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.rogue.feature.evasion",
+    "classKey": "rogue",
+    "level": 7,
+    "nameKo": "회피",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "회피"
+    ],
+    "availableAtLevels": [
+      7
+    ]
+  },
+  {
+    "id": "class.rogue.feature.reliable_talent",
+    "classKey": "rogue",
+    "level": 11,
+    "nameKo": "믿음직한 재능",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "믿음직한_재능"
+    ],
+    "availableAtLevels": [
+      11
+    ]
+  },
+  {
+    "id": "class.rogue.feature.roguish_archetype",
+    "classKey": "rogue",
+    "level": 3,
+    "nameKo": "로그 아키타입",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "로그_아키타입"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.rogue.feature.slippery_mind",
+    "classKey": "rogue",
+    "level": 15,
+    "nameKo": "미끄러운 정신",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "미끄러운_정신"
+    ],
+    "availableAtLevels": [
+      15
+    ]
+  },
+  {
+    "id": "class.rogue.feature.stroke_of_luck",
+    "classKey": "rogue",
+    "level": 20,
+    "nameKo": "행운의 일격",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "행운의_일격"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.rogue.feature.thieves_cant",
+    "classKey": "rogue",
+    "level": 1,
+    "nameKo": "도둑의 은어",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "도둑의_은어"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.rogue.feature.uncanny_dodge",
+    "classKey": "rogue",
+    "level": 5,
+    "nameKo": "불가사의한 회피",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "불가사의한_회피"
+    ],
+    "availableAtLevels": [
+      5
+    ]
+  },
+  {
+    "id": "class.rogue.subclass_feature.2층_작업",
+    "classKey": "rogue",
+    "level": 3,
+    "nameKo": "2층 작업",
+    "category": "subclass",
+    "summaryKo": "등반 속도가 느려지지 않고, 달리기 도움닫기 점프 거리가 민첩 수정치만큼 증가한다.",
+    "source": "srd",
+    "aliases": [
+      "2층_작업"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.rogue.subclass_feature.도둑의_반사신경",
+    "classKey": "rogue",
+    "level": 17,
+    "nameKo": "도둑의 반사신경",
+    "category": "subclass",
+    "summaryKo": "전투 첫 라운드에 두 턴을 가진다. 두 번째 턴은 우선권 -10 시점에 온다.",
+    "source": "srd",
+    "aliases": [
+      "도둑의_반사신경"
+    ],
+    "availableAtLevels": [
+      17
+    ]
+  },
+  {
+    "id": "class.rogue.subclass_feature.뛰어난_은신",
+    "classKey": "rogue",
+    "level": 9,
+    "nameKo": "뛰어난 은신",
+    "category": "subclass",
+    "summaryKo": "해당 턴에 절반 이하 속도로 이동하면 민첩(은신) 판정에 유리함을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "뛰어난_은신"
+    ],
+    "availableAtLevels": [
+      9
+    ]
+  },
+  {
+    "id": "class.rogue.subclass_feature.마법_장치_사용",
+    "classKey": "rogue",
+    "level": 13,
+    "nameKo": "마법 장치 사용",
+    "category": "subclass",
+    "summaryKo": "마법 아이템 사용 시 직업, 종족, 레벨 요구사항을 무시한다.",
+    "source": "srd",
+    "aliases": [
+      "마법_장치_사용"
+    ],
+    "availableAtLevels": [
+      13
+    ]
+  },
+  {
+    "id": "class.rogue.subclass_feature.빠른_손놀림",
+    "classKey": "rogue",
+    "level": 3,
+    "nameKo": "빠른 손놀림",
+    "category": "subclass",
+    "summaryKo": "교활한 행동으로 민첩(손재주) 판정, 도둑 도구로 함정 해제/자물쇠 열기, 물체 사용 행동을 할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "빠른_손놀림"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.sorcerer.feature.마력의_샘",
+    "classKey": "sorcerer",
+    "level": 2,
+    "nameKo": "마력의 샘",
+    "category": "class",
+    "summaryKo": "2레벨부터 소서리 포인트를 얻는다. 소서리 포인트는 주문 슬롯을 만들거나, 주문 슬롯을 소서리 포인트로 바꾸는 데 사용할 수 있다. 사용한 소서리 포인트는 긴 휴식 후 회복된다.",
+    "source": "srd",
+    "aliases": [
+      "마력의_샘"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.sorcerer.feature.메타매직",
+    "classKey": "sorcerer",
+    "level": 3,
+    "nameKo": "메타매직",
+    "category": "class",
+    "summaryKo": "3레벨부터 주문을 변형하는 메타매직 선택지 2개를 배운다. 10레벨과 17레벨에 하나씩 추가로 배운다. 표 정보 포함.",
+    "source": "srd",
+    "aliases": [
+      "메타매직"
+    ],
+    "availableAtLevels": [
+      3,
+      10
+    ]
+  },
+  {
+    "id": "class.sorcerer.feature.소서러적_회복",
+    "classKey": "sorcerer",
+    "level": 20,
+    "nameKo": "소서러적 회복",
+    "category": "class",
+    "summaryKo": "20레벨부터 짧은 휴식을 마치면 소서리 포인트 4점을 회복한다.",
+    "source": "srd",
+    "aliases": [
+      "소서러적_회복"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.sorcerer.feature.유연한_주문시전",
+    "classKey": "sorcerer",
+    "level": 0,
+    "nameKo": "유연한 주문시전",
+    "category": "class",
+    "summaryKo": "소서리 포인트로 추가 주문 슬롯을 만들 수 있고, 추가 행동으로 주문 슬롯 하나를 소서리 포인트로 바꿀 수 있다. 주문 슬롯을 소서리 포인트로 바꾸면 슬롯 레벨과 같은 수의 소서리 포인트를 얻는다. 표 정보 포함.",
+    "source": "srd",
+    "aliases": [
+      "유연한_주문시전"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.sorcerer.feature.sorcerous_origin",
+    "classKey": "sorcerer",
+    "level": 1,
+    "nameKo": "소서러 기원",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "소서러_기원"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.sorcerer.feature.spellcasting",
+    "classKey": "sorcerer",
+    "level": 1,
+    "nameKo": "주문시전",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "주문시전"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.sorcerer.subclass_feature.드래곤_날개",
+    "classKey": "sorcerer",
+    "level": 14,
+    "nameKo": "드래곤 날개",
+    "category": "subclass",
+    "summaryKo": "추가 행동으로 날개를 펼쳐 현재 이동속도와 같은 비행 속도를 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "드래곤_날개"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.sorcerer.subclass_feature.드래곤_조상",
+    "classKey": "sorcerer",
+    "level": 1,
+    "nameKo": "드래곤 조상",
+    "category": "subclass",
+    "summaryKo": "드래곤 유형 하나를 선택하고 관련 언어를 배운다. 해당 드래곤과 상호작용할 때 매력 판정에 숙련 보너스를 두 배로 더할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "드래곤_조상"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.sorcerer.subclass_feature.드래곤의_존재감",
+    "classKey": "sorcerer",
+    "level": 18,
+    "nameKo": "드래곤의 존재감",
+    "category": "subclass",
+    "summaryKo": "소서리 포인트 5점을 써서 60피트 오라를 만들고, 매혹 또는 공포 효과를 줄 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "드래곤의_존재감"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.sorcerer.subclass_feature.드래곤의_회복력",
+    "classKey": "sorcerer",
+    "level": 1,
+    "nameKo": "드래곤의 회복력",
+    "category": "subclass",
+    "summaryKo": "최대 HP가 1 증가하고, 소서러 레벨이 오를 때마다 추가로 1 증가한다. 방어구를 입지 않으면 AC는 13 + 민첩 수정치.",
+    "source": "srd",
+    "aliases": [
+      "드래곤의_회복력"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.sorcerer.subclass_feature.원소_친화",
+    "classKey": "sorcerer",
+    "level": 6,
+    "nameKo": "원소 친화",
+    "category": "subclass",
+    "summaryKo": "선택한 드래곤의 피해 유형 주문 피해에 매력 수정치를 더할 수 있다. 소서리 포인트 1점으로 해당 피해 유형 저항을 얻을 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "원소_친화"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.warlock.feature.계약의_은혜",
+    "classKey": "warlock",
+    "level": 3,
+    "nameKo": "계약의 은혜",
+    "category": "class",
+    "summaryKo": "3레벨에 후원자가 주는 선물을 선택한다. 사슬의 계약(Pact of the Chain): 특별한 패밀리어를 얻는다. 칼날의 계약(Pact of the Blade): 계약 무기를 만들 수 있다. 책의 계약(Pact of the Tome): 그림자의 책과 추가 캔트립을 얻는다.",
+    "source": "srd",
+    "aliases": [
+      "계약의_은혜"
+    ],
+    "availableAtLevels": [
+      3
+    ]
+  },
+  {
+    "id": "class.warlock.feature.섬뜩한_영창",
+    "classKey": "warlock",
+    "level": 2,
+    "nameKo": "섬뜩한 영창",
+    "category": "class",
+    "summaryKo": "2레벨부터 금지된 지식의 조각인 섬뜩한 영창(Eldritch Invocations)을 얻는다. 일부 영창은 특정 레벨, 주문, 계약의 은혜 조건을 요구한다. 표 정보 포함.",
+    "source": "srd",
+    "aliases": [
+      "섬뜩한_영창"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.warlock.feature.신비의_비밀",
+    "classKey": "warlock",
+    "level": 11,
+    "nameKo": "신비의 비밀",
+    "category": "class",
+    "summaryKo": "11레벨부터 6레벨 이상의 주문을 각각 한 번씩 시전할 수 있는 신비의 비밀을 얻는다. 사용 후 긴 휴식으로 회복한다.",
+    "source": "srd",
+    "aliases": [
+      "신비의_비밀"
+    ],
+    "availableAtLevels": [
+      11,
+      13,
+      15,
+      17
+    ]
+  },
+  {
+    "id": "class.warlock.feature.eldritch_master",
+    "classKey": "warlock",
+    "level": 20,
+    "nameKo": "섬뜩한 주인",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "섬뜩한_주인"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.warlock.feature.otherworldly_patron",
+    "classKey": "warlock",
+    "level": 1,
+    "nameKo": "다른 세계의 후원자",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "다른_세계의_후원자"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.warlock.feature.pact_magic",
+    "classKey": "warlock",
+    "level": 1,
+    "nameKo": "계약 마법",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "계약_마법"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.warlock.subclass_feature.악마적_회복력",
+    "classKey": "warlock",
+    "level": 10,
+    "nameKo": "악마적 회복력",
+    "category": "subclass",
+    "summaryKo": "짧은 휴식 또는 긴 휴식 후 피해 유형 하나를 선택해 저항을 얻는다. 마법 무기나 은제 무기 피해에는 적용되지 않을 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "악마적_회복력"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.warlock.subclass_feature.어둠의_운",
+    "classKey": "warlock",
+    "level": 6,
+    "nameKo": "어둠의 운",
+    "category": "subclass",
+    "summaryKo": "능력 판정 또는 내성 굴림에 d10을 더할 수 있다. 짧은 휴식 또는 긴 휴식 후 재사용.",
+    "source": "srd",
+    "aliases": [
+      "어둠의_운"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.warlock.subclass_feature.어둠의_축복",
+    "classKey": "warlock",
+    "level": 1,
+    "nameKo": "어둠의 축복",
+    "category": "subclass",
+    "summaryKo": "적대적 크리처의 HP를 0으로 만들면 임시 HP를 얻는다. 양은 매력 수정치 + 워락 레벨.",
+    "source": "srd",
+    "aliases": [
+      "어둠의_축복"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.warlock.subclass_feature.지옥으로_던지기",
+    "classKey": "warlock",
+    "level": 14,
+    "nameKo": "지옥으로 던지기",
+    "category": "subclass",
+    "summaryKo": "공격 명중 시 대상을 순간적으로 하위 차원으로 보낸 뒤 돌아오게 하며 정신 피해를 준다. 긴 휴식 후 재사용.",
+    "source": "srd",
+    "aliases": [
+      "지옥으로_던지기"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.wizard.feature.대표_주문",
+    "classKey": "wizard",
+    "level": 20,
+    "nameKo": "대표 주문",
+    "category": "class",
+    "summaryKo": "20레벨부터 주문책에 있는 3레벨 위저드 주문 2개를 대표 주문으로 선택한다. 항상 준비한 것으로 간주하며 각각 한 번씩 3레벨로 슬롯 없이 시전할 수 있다. 짧은 휴식 또는 긴 휴식 후 회복한다.",
+    "source": "srd",
+    "aliases": [
+      "대표_주문"
+    ],
+    "availableAtLevels": [
+      20
+    ]
+  },
+  {
+    "id": "class.wizard.feature.비전_회복",
+    "classKey": "wizard",
+    "level": 1,
+    "nameKo": "비전 회복",
+    "category": "class",
+    "summaryKo": "하루 한 번 짧은 휴식을 마쳤을 때 사용한 주문 슬롯 일부를 회복할 수 있다. 회복하는 슬롯 레벨 총합은 위저드 레벨 절반(올림) 이하이며, 6레벨 이상 슬롯은 회복할 수 없다.",
+    "source": "srd",
+    "aliases": [
+      "비전_회복"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.wizard.feature.주문_숙련",
+    "classKey": "wizard",
+    "level": 18,
+    "nameKo": "주문 숙련",
+    "category": "class",
+    "summaryKo": "18레벨부터 주문책에 있는 1레벨 위저드 주문 하나와 2레벨 위저드 주문 하나를 선택한다. 이 주문들을 준비하지 않아도 최저 레벨로 시전할 수 있고, 주문 슬롯을 소비하지 않는다.",
+    "source": "srd",
+    "aliases": [
+      "주문_숙련"
+    ],
+    "availableAtLevels": [
+      18
+    ]
+  },
+  {
+    "id": "class.wizard.feature.주문책",
+    "classKey": "wizard",
+    "level": 0,
+    "nameKo": "주문책",
+    "category": "class",
+    "summaryKo": "위저드는 주문책에 주문을 기록한다. 레벨이 오르면 위저드 주문 2개를 주문책에 추가한다. 발견한 주문도 시간과 비용을 들여 주문책에 복사할 수 있다.",
+    "source": "srd",
+    "aliases": [
+      "주문책"
+    ],
+    "availableAtLevels": []
+  },
+  {
+    "id": "class.wizard.feature.arcane_tradition",
+    "classKey": "wizard",
+    "level": 2,
+    "nameKo": "비전 전통",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "비전_전통"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.wizard.feature.spellcasting",
+    "classKey": "wizard",
+    "level": 1,
+    "nameKo": "주문시전",
+    "category": "class",
+    "summaryKo": "",
+    "source": "derived",
+    "aliases": [
+      "주문시전"
+    ],
+    "availableAtLevels": [
+      1
+    ]
+  },
+  {
+    "id": "class.wizard.subclass_feature.강력한_캔트립",
+    "classKey": "wizard",
+    "level": 6,
+    "nameKo": "강력한 캔트립",
+    "category": "subclass",
+    "summaryKo": "내성 굴림을 요구하는 캔트립에서 대상이 성공해도 피해를 전혀 안 받는 대신 절반 피해를 받는다.",
+    "source": "srd",
+    "aliases": [
+      "강력한_캔트립"
+    ],
+    "availableAtLevels": [
+      6
+    ]
+  },
+  {
+    "id": "class.wizard.subclass_feature.강화된_방출",
+    "classKey": "wizard",
+    "level": 10,
+    "nameKo": "강화된 방출",
+    "category": "subclass",
+    "summaryKo": "위저드 방출 주문의 피해 굴림 하나에 지능 수정치를 더한다.",
+    "source": "srd",
+    "aliases": [
+      "강화된_방출"
+    ],
+    "availableAtLevels": [
+      10
+    ]
+  },
+  {
+    "id": "class.wizard.subclass_feature.과충전",
+    "classKey": "wizard",
+    "level": 14,
+    "nameKo": "과충전",
+    "category": "subclass",
+    "summaryKo": "1-5레벨 위저드 주문 피해를 최대화할 수 있다. 반복 사용 시 사령 피해를 받는다.",
+    "source": "srd",
+    "aliases": [
+      "과충전"
+    ],
+    "availableAtLevels": [
+      14
+    ]
+  },
+  {
+    "id": "class.wizard.subclass_feature.방출학파_전문가",
+    "classKey": "wizard",
+    "level": 2,
+    "nameKo": "방출학파 전문가",
+    "category": "subclass",
+    "summaryKo": "방출 주문을 주문책에 복사하는 비용과 시간이 절반이 된다.",
+    "source": "srd",
+    "aliases": [
+      "방출학파_전문가"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  },
+  {
+    "id": "class.wizard.subclass_feature.주문_조형",
+    "classKey": "wizard",
+    "level": 2,
+    "nameKo": "주문 조형",
+    "category": "subclass",
+    "summaryKo": "방출 주문으로 보이는 크리처에게 영향을 줄 때 일부 크리처를 보호할 수 있다. 선택 수는 1 + 주문 레벨.",
+    "source": "srd",
+    "aliases": [
+      "주문_조형"
+    ],
+    "availableAtLevels": [
+      2
+    ]
+  }
+]

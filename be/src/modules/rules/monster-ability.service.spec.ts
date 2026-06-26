@@ -134,7 +134,7 @@ describe("MonsterAbilityService", () => {
       "monster.zombie",
       "monster.giant_spider",
       "monster.brown_bear",
-      "monster.dragon_whelp",
+      "monster.red_dragon_wyrmling",
       "monster.cultist",
       "monster.ogre",
     ];
@@ -398,7 +398,7 @@ describe("MonsterAbilityService", () => {
   });
 
   it("projects P1 recharge, save rider, and ranged/melee thrown metadata", () => {
-    expect(service.chooseAction("monster.dragon_whelp")).toMatchObject({
+    expect(service.chooseAction("monster.red_dragon_wyrmling")).toMatchObject({
       actionId: "action.fire_breath",
       costType: "action",
       specialType: "area_attack",
@@ -407,10 +407,10 @@ describe("MonsterAbilityService", () => {
       damageDice: "4d6",
       damageType: "fire",
     });
-    expect(service.listExecutableActions("monster.dragon_whelp")).toEqual(
+    expect(service.listExecutableActions("monster.red_dragon_wyrmling")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          actionId: "monster.dragon_whelp.ability.dark_blessing",
+          actionId: "monster.red_dragon_wyrmling.ability.dark_blessing",
           costType: "none",
           specialType: "aura",
           usage: "1/day",

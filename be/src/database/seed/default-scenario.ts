@@ -328,13 +328,13 @@ function createRuleRuntimeSmokeMap(nodeId: string) {
       {
         id: `object_${nodeId}_rope`,
         name: "Smoke Rope",
-        description: "equipment.rope x1",
+        description: "equipment.rope__hempen__50_feet x1",
         x: 192,
         y: 256,
         width: 64,
         height: 64,
         visibleToPlayers: true,
-        hiddenItemIds: ["equipment.rope"],
+        hiddenItemIds: ["equipment.rope__hempen__50_feet"],
       },
     ],
     terrainCells: [
@@ -442,7 +442,7 @@ function createP1OneshotMap(
           width: 64,
           height: 64,
           visibleToPlayers: true,
-          hiddenItemIds: ["equipment.rope"],
+          hiddenItemIds: ["equipment.rope__hempen__50_feet"],
         },
       ],
       terrainCells: [
@@ -482,7 +482,7 @@ function createP1OneshotMap(
         size: 64,
         hidden: false,
         isHostile: true,
-        monster: { id: "monster.dragon_whelp", nameEn: "Dragon Whelp", nameKo: "드래곤 웰프" },
+        monster: { id: "monster.red_dragon_wyrmling", nameEn: "Red Dragon Wyrmling", nameKo: "적색 드래곤 새끼" },
       },
       {
         id: `token_${nodeId}_cultist`,
@@ -692,7 +692,7 @@ function createP2ValidationMap(nodeId: string, phase: "approach" | "gallery" | "
         width: 64,
         height: 64,
         visibleToPlayers: true,
-        hiddenItemIds: ["equipment.rope"],
+        hiddenItemIds: ["equipment.rope__hempen__50_feet"],
       },
       {
         id: `object_${nodeId}_pillar`,
@@ -1237,7 +1237,7 @@ function createP5ValidationMap(
     ],
     rift: [
       { id: "monster.aboleth", nameEn: "Aboleth", nameKo: "아볼레스", x: 704, y: 256, size: 192 },
-      { id: "monster.mind_flayer", nameEn: "Mind Flayer", nameKo: "마인드 플레이어", x: 960, y: 320, size: 64 },
+      { id: "monster.rakshasa", nameEn: "Rakshasa", nameKo: "락샤사", x: 960, y: 320, size: 64 },
     ],
     battlefield: [
       { id: "monster.balor", nameEn: "Balor", nameKo: "발러", x: 768, y: 192, size: 128 },
@@ -1247,11 +1247,11 @@ function createP5ValidationMap(
     dragon: [
       { id: "monster.ancient_red_dragon", nameEn: "Ancient Red Dragon", nameKo: "고대 레드 드래곤", x: 768, y: 192, size: 192 },
       { id: "monster.kraken", nameEn: "Kraken", nameKo: "크라켄", x: 512, y: 384, size: 192 },
-      { id: "monster.beholder", nameEn: "Beholder", nameKo: "비홀더", x: 960, y: 448, size: 128 },
+      { id: "monster.medusa", nameEn: "Medusa", nameKo: "메두사", x: 960, y: 448, size: 64 },
     ],
     tarrasque: [
       { id: "monster.tarrasque", nameEn: "Tarrasque", nameKo: "타라스크", x: 768, y: 256, size: 256 },
-      { id: "monster.demilich", nameEn: "Demilich", nameKo: "데미리치", x: 512, y: 192, size: 64 },
+      { id: "monster.lich", nameEn: "Lich", nameKo: "리치", x: 512, y: 192, size: 64 },
       { id: "monster.night_hag", nameEn: "Night Hag", nameKo: "나이트 해그", x: 1024, y: 448, size: 64 },
     ],
   };
@@ -1689,7 +1689,7 @@ const scenarioNodes = [
           "/condition add token_node_rule_smoke_condition_goblin stunned",
           "/cast ray_of_frost token_node_rule_smoke_condition_goblin 60",
           "/cast detect_magic",
-          "/item pickup object_node_rule_smoke_condition_rope equipment.rope 1 3 4",
+          "/item pickup object_node_rule_smoke_condition_rope equipment.rope__hempen__50_feet 1 3 4",
           "/item drop entry-smoke-dagger 1 3 4",
           "/item throw entry-smoke-dagger 1 4 4",
         ],
@@ -2202,16 +2202,16 @@ const scenarioNodes = [
       {
         id: "clue_p1_bell_weakness",
         title: "종의 약점",
-        text: "종을 침묵시키면 드래곤 웰프의 불꽃 숨결 재충전이 불안정해집니다. HUMAN GM은 이 단서를 이용해 난이도를 낮출 수 있습니다.",
+        text: "종을 침묵시키면 적색 드래곤 새끼의 불꽃 숨결 재충전이 불안정해집니다. HUMAN GM은 이 단서를 이용해 난이도를 낮출 수 있습니다.",
         handoutText: "종 약점: 의식 방해 성공 시 보스전 압박 완화.",
-        gmNotes: "HUMAN GM이라면 성공 판정 후 드래곤 웰프의 fire_breath 사용을 한 라운드 미루거나 cultist를 후퇴시켜도 됩니다.",
+        gmNotes: "HUMAN GM이라면 성공 판정 후 적색 드래곤 새끼의 fire_breath 사용을 한 라운드 미루거나 cultist를 후퇴시켜도 됩니다.",
         revealPolicy: { mode: "PLAYER_ACTION" },
       },
     ]),
     fallbackNodeId: P1_ONESHOT_END_NODE_ID,
     nodeMetaJson: JSON.stringify({
       p1Scenario: {
-        monsters: ["monster.dragon_whelp", "monster.cultist", "monster.giant_spider"],
+        monsters: ["monster.red_dragon_wyrmling", "monster.cultist", "monster.giant_spider"],
         usefulSpells: ["spell.web", "spell.hold_person", "spell.scorching_ray", "spell.dispel_magic", "spell.misty_step"],
         verifies: ["recharge", "web-restrained", "spell-control", "human-gm-override", "ai-gm-fallback"],
       },
@@ -2952,13 +2952,13 @@ const scenarioNodes = [
     nodeType: "exploration",
     title: "심연 균열 조사",
     sceneText:
-      "아볼레스와 마인드 플레이어의 정신 지배 흔적을 조사합니다. Dominate Monster, Feeblemind, Antimagic Field, Maze 같은 고레벨 상태와 차단 흐름을 검증합니다.",
+      "아볼레스와 락샤사의 정신 지배 흔적을 조사합니다. Dominate Monster, Feeblemind, Antimagic Field, Maze 같은 고레벨 상태와 차단 흐름을 검증합니다.",
     imageUrl: null,
     checkOptionsJson: JSON.stringify({ checks: [{ id: "p5_rift_insight", type: "skill_check", skill: "insight", dc: 20 }], vttMap: createP5ValidationMap(P5_RIFT_NODE_ID, "rift") }),
     transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_COMBAT_NODE_ID }]),
     cluesJson: JSON.stringify([{ id: "clue_p5_mind_gate", title: "정신 관문", text: "두 번째 봉인은 antimagic 영역 안에서만 안정화됩니다." }]),
     fallbackNodeId: P5_COMBAT_NODE_ID,
-    nodeMetaJson: JSON.stringify({ p5Scenario: { nodeCategory: "exploration", monsterIds: ["monster.aboleth", "monster.mind_flayer"] } }),
+    nodeMetaJson: JSON.stringify({ p5Scenario: { nodeCategory: "exploration", monsterIds: ["monster.aboleth", "monster.rakshasa"] } }),
   },
   {
     id: P5_COMBAT_NODE_ID,
@@ -2980,13 +2980,13 @@ const scenarioNodes = [
     nodeType: "combat",
     title: "1단계 보스: 고대 용과 크라켄의 성좌",
     sceneText:
-      "고대 레드 드래곤, 크라켄, 비홀더가 첫 번째 보스 페이즈를 구성합니다. Legendary-like 자원, recharge, lair terrain, Forcecage와 Reverse Gravity를 확인합니다.",
+      "고대 레드 드래곤, 크라켄, 메두사가 첫 번째 보스 페이즈를 구성합니다. Legendary-like 자원, recharge, lair terrain, Forcecage와 Reverse Gravity를 확인합니다.",
     imageUrl: null,
     checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP5ValidationMap(P5_BOSS_ONE_NODE_ID, "dragon") }),
     transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_BOSS_TWO_NODE_ID }]),
     cluesJson: JSON.stringify([]),
     fallbackNodeId: P5_BOSS_TWO_NODE_ID,
-    nodeMetaJson: JSON.stringify({ p5Scenario: { nodeCategory: "combat", bossPhase: 1, monsterIds: ["monster.ancient_red_dragon", "monster.kraken", "monster.beholder"] } }),
+    nodeMetaJson: JSON.stringify({ p5Scenario: { nodeCategory: "combat", bossPhase: 1, monsterIds: ["monster.ancient_red_dragon", "monster.kraken", "monster.medusa"] } }),
   },
   {
     id: P5_BOSS_TWO_NODE_ID,
@@ -2994,13 +2994,13 @@ const scenarioNodes = [
     nodeType: "combat",
     title: "2단계 보스: 타라스크 봉인",
     sceneText:
-      "타라스크, 데미리치, 나이트 해그가 마지막 봉인을 찢습니다. 다단계 보스 전환, 부활·재생·석화·공포·추방 상태 lifecycle과 기존 세션 snapshot 보존을 확인합니다.",
+      "타라스크, 리치, 나이트 해그가 마지막 봉인을 찢습니다. 다단계 보스 전환, 부활·재생·석화·공포·추방 상태 lifecycle과 기존 세션 snapshot 보존을 확인합니다.",
     imageUrl: null,
     checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP5ValidationMap(P5_BOSS_TWO_NODE_ID, "tarrasque") }),
     transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_PUBLIC_NODE_ID }]),
     cluesJson: JSON.stringify([]),
     fallbackNodeId: P5_PUBLIC_NODE_ID,
-    nodeMetaJson: JSON.stringify({ p5Scenario: { nodeCategory: "combat", bossPhase: 2, monsterIds: ["monster.tarrasque", "monster.demilich", "monster.night_hag"] } }),
+    nodeMetaJson: JSON.stringify({ p5Scenario: { nodeCategory: "combat", bossPhase: 2, monsterIds: ["monster.tarrasque", "monster.lich", "monster.night_hag"] } }),
   },
   {
     id: P5_PUBLIC_NODE_ID,
