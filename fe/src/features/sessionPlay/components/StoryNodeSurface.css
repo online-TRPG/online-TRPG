@@ -1335,12 +1335,41 @@
 
 .story-character-feature-item {
   position: relative;
-  display: inline-flex;
+  display: inline-grid;
+  gap: 2px;
   max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #c4d3df;
+  border-radius: 8px;
+  background: #f7fbfd;
   color: #203040;
   font-weight: 800;
   cursor: help;
   outline: none;
+}
+
+.story-character-feature-item small {
+  color: #6a7d8f;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.story-character-feature-item strong {
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.story-character-feature-item.tone-feat {
+  border-color: #c6b5df;
+  background: #f4efff;
+  color: #3f2d61;
+}
+
+.story-character-feature-item.tone-choice {
+  border-color: #abcfd4;
+  background: #eefbfc;
+  color: #235c63;
 }
 
 .story-character-feature-tooltip {

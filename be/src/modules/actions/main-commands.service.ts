@@ -594,6 +594,8 @@ export class MainCommandsService {
     const effect = this.parseVttDoorCheckEffect(dto.effect);
     const hazardEffect = this.parseVttHazardCheckEffect(dto.effect);
     const objectEffect = this.parseVttObjectCheckEffect(dto.effect);
+    const checkDiceResult = this.sanitizeMainCommandCheckDiceResult(dto.diceResult);
+    const checkRollSummary = this.formatMainCommandCheckRollSummary(checkDiceResult, dto.outcome);
 
     if (effect) {
       if (state.currentNodeId && effect.nodeId !== state.currentNodeId) {
@@ -629,16 +631,17 @@ export class MainCommandsService {
           requestId: dto.requestId ?? null,
           outcome: dto.outcome,
           effect,
+          diceResult: checkDiceResult,
         },
         outcome: dto.outcome,
-        narration: result.message,
+        narration: this.withCheckRollSummary(result.message, checkRollSummary),
       });
       this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
 
       return {
         requestId: dto.requestId ?? randomUUID(),
         status: result.status,
-        message: result.message,
+        message: this.withCheckRollSummary(result.message, checkRollSummary),
         data: { effect },
       };
     }
@@ -676,16 +679,17 @@ export class MainCommandsService {
           requestId: dto.requestId ?? null,
           outcome: dto.outcome,
           effect: hazardEffect,
+          diceResult: checkDiceResult,
         },
         outcome: dto.outcome,
-        narration: result.message,
+        narration: this.withCheckRollSummary(result.message, checkRollSummary),
       });
       this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
 
       return {
         requestId: dto.requestId ?? randomUUID(),
         status: result.status,
-        message: result.message,
+        message: this.withCheckRollSummary(result.message, checkRollSummary),
         data: { effect: hazardEffect },
       };
     }
@@ -723,16 +727,17 @@ export class MainCommandsService {
           requestId: dto.requestId ?? null,
           outcome: dto.outcome,
           effect: objectEffect,
+          diceResult: checkDiceResult,
         },
         outcome: dto.outcome,
-        narration: result.message,
+        narration: this.withCheckRollSummary(result.message, checkRollSummary),
       });
       this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
 
       return {
         requestId: dto.requestId ?? randomUUID(),
         status: result.status,
-        message: result.message,
+        message: this.withCheckRollSummary(result.message, checkRollSummary),
         data: { effect: objectEffect },
       };
     }
@@ -868,9 +873,10 @@ export class MainCommandsService {
         requestId: dto.requestId ?? null,
         outcome: dto.outcome,
         effect: mainCommandEffect,
+        diceResult: checkDiceResult,
       },
       outcome: turnLogOutcome,
-      narration: result.message,
+      narration: this.withCheckRollSummary(result.message, checkRollSummary),
     });
     this.realtimeEvents.emitTurnLogCreated(session.id, turnLog);
 
@@ -884,9 +890,86 @@ export class MainCommandsService {
     return {
       requestId: dto.requestId ?? randomUUID(),
       status: result.status,
-      message: result.message,
+      message: this.withCheckRollSummary(result.message, checkRollSummary),
       data: { effect: mainCommandEffect },
     };
+  }
+
+  private sanitizeMainCommandCheckDiceResult(value: Record<string, unknown> | undefined): Record<string, unknown> | null {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const rawRolls = value.rolls;
+    const rolls = Array.isArray(rawRolls)
+      ? rawRolls.filter((roll): roll is number => Number.isInteger(roll) && roll >= 1 && roll <= 20)
+      : [];
+    const total = this.readFiniteNumber(value.total);
+    const modifier = this.readFiniteNumber(value.modifier) ?? 0;
+    const dc = this.readFiniteNumber(value.dc);
+    const naturalRoll = this.readFiniteNumber(value.naturalRoll) ?? rolls[0] ?? null;
+    const expression = typeof value.expression === "string" && value.expression.trim() ? value.expression.trim() : "1d20";
+    const advantageState =
+      value.advantageState === "ADVANTAGE" || value.advantageState === "DISADVANTAGE"
+        ? value.advantageState
+        : "NORMAL";
+    const outcome =
+      value.outcome === ActionOutcome.SUCCESS || value.outcome === ActionOutcome.FAILURE || value.outcome === ActionOutcome.IMPOSSIBLE
+        ? value.outcome
+        : ActionOutcome.NO_ROLL;
+
+    if (total === null || naturalRoll === null || !rolls.length) {
+      return null;
+    }
+
+    return {
+      expression,
+      rolls,
+      modifier,
+      total,
+      advantageState,
+      naturalRoll,
+      dc,
+      outcome,
+    };
+  }
+
+  private formatMainCommandCheckRollSummary(diceResult: Record<string, unknown> | null, outcome: ActionOutcome): string | null {
+    if (!diceResult) {
+      return null;
+    }
+
+    const expression = typeof diceResult.expression === "string" ? diceResult.expression : "1d20";
+    const rolls = Array.isArray(diceResult.rolls) ? diceResult.rolls.filter((roll): roll is number => typeof roll === "number") : [];
+    const total = this.readFiniteNumber(diceResult.total);
+    const modifier = this.readFiniteNumber(diceResult.modifier) ?? 0;
+    const dc = this.readFiniteNumber(diceResult.dc);
+    if (total === null || !rolls.length) {
+      return null;
+    }
+
+    const outcomeLabel =
+      outcome === ActionOutcome.SUCCESS
+        ? "성공"
+        : outcome === ActionOutcome.FAILURE
+          ? "실패"
+          : outcome === ActionOutcome.IMPOSSIBLE
+            ? "불가"
+            : "결과 없음";
+    const modifierText = modifier ? `, 수정치 ${modifier >= 0 ? "+" : ""}${modifier}` : "";
+    const dcText = dc !== null ? ` / DC ${dc}` : "";
+    return `판정 결과: ${expression} = ${total} (굴림 ${rolls.join(", ")}${modifierText})${dcText} — ${outcomeLabel}`;
+  }
+
+  private withCheckRollSummary(message: string, summary: string | null): string {
+    if (!summary) {
+      return message;
+    }
+    return `${summary}\n${message}`;
+  }
+
+  private readFiniteNumber(value: unknown): number | null {
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
   }
 
   private async loadContext(userId: string, sessionId: string, dto: SubmitMainCommandDto): Promise<LoadedContext> {

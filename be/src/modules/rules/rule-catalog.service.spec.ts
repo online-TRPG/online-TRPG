@@ -235,10 +235,12 @@ describe("RuleCatalogService", () => {
       "subclass.warlock.fiend.feature.dark_ones_blessing",
       "subclass.warlock.fiend.feature.dark_ones_own_luck",
       "subclass.warlock.fiend.feature.fiendish_resilience",
+      "subclass.warlock.fiend.feature.hurl_through_hell",
       "subclass.wizard.evocation.feature.evocation_savant",
       "subclass.wizard.evocation.feature.sculpt_spells",
       "subclass.wizard.evocation.feature.potent_cantrip",
       "subclass.wizard.evocation.feature.empowered_evocation",
+      "subclass.wizard.evocation.feature.overchannel",
       "subclass.barbarian.berserker.feature.retaliation",
       "subclass.bard.lore.feature.peerless_skill",
       "subclass.cleric.life.feature.divine_strike_2d8",
@@ -248,6 +250,12 @@ describe("RuleCatalogService", () => {
       "subclass.ranger.hunter.feature.superior_hunters_defense",
       "subclass.rogue.thief.feature.use_magic_device",
       "subclass.sorcerer.draconic_bloodline.feature.dragon_wings",
+      "subclass.cleric.life.feature.supreme_healing",
+      "subclass.fighter.champion.feature.survivor",
+      "subclass.monk.open_hand.feature.quivering_palm",
+      "subclass.paladin.devotion.feature.holy_nimbus",
+      "subclass.rogue.thief.feature.thiefs_reflexes",
+      "subclass.sorcerer.draconic_bloodline.feature.draconic_presence",
     ]);
 
     expect(service.getEntry("subclass.fighter.champion.feature.improved_critical")).toMatchObject({
@@ -377,13 +385,24 @@ describe("RuleCatalogService", () => {
       ],
       passiveTags: [
         "selection:fighting_style",
+        "snapshot:level_up_choice_required",
         "spellcasting:half",
         "spellcasting:prepared",
         "spellcasting:divine",
         "immunity:disease",
         "subclass:choice_required",
+        "snapshot:subclass_choice_required",
       ],
     });
+  });
+
+  it("keeps every class feature backed by runtime metadata", () => {
+    const invalidClassFeatures = service
+      .listEntries("class_features")
+      .filter((entry) => !entry.runtimeEffect.type || entry.runtimeEffect.tags.length === 0)
+      .map((entry) => entry.id);
+
+    expect(invalidClassFeatures).toEqual([]);
   });
 
   it("catalogs existing fighter and barbarian resource features for rest recovery", () => {
@@ -447,6 +466,7 @@ describe("RuleCatalogService", () => {
       resourceIds: [],
       passiveTags: [
         "subclass:choice_required",
+        "snapshot:subclass_choice_required",
         "spellcasting:full",
         "spellcasting:prepared",
         "spellcasting:divine",
@@ -509,6 +529,7 @@ describe("RuleCatalogService", () => {
         "selection:favored_enemy",
         "tracking:advantage",
         "language:choice_one",
+        "snapshot:level_up_choice_required",
         "selection:favored_terrain",
         "exploration:expertise:favored_terrain",
       ],
@@ -525,6 +546,7 @@ describe("RuleCatalogService", () => {
       passiveTags: [
         "skill:expertise",
         "selection:two_proficiencies",
+        "snapshot:level_up_choice_required",
         "trigger:once_per_turn",
         "damage:extra:1d6",
         "scaling:rogue_level",
@@ -541,6 +563,7 @@ describe("RuleCatalogService", () => {
       resourceIds: [],
       passiveTags: [
         "subclass:choice_required",
+        "snapshot:subclass_choice_required",
         "spellcasting:full",
         "spellcasting:known",
         "spellcasting:arcane",
@@ -556,6 +579,7 @@ describe("RuleCatalogService", () => {
       resourceIds: [],
       passiveTags: [
         "subclass:choice_required",
+        "snapshot:subclass_choice_required",
         "spellcasting:pact",
         "spellcasting:known",
         "spellcasting:arcane",
@@ -843,7 +867,7 @@ describe("RuleCatalogService", () => {
     ["sorcerer", "draconic_bloodline"],
     ["warlock", "fiend"],
     ["wizard", "evocation"],
-  ] as const)("keeps P4 9-12 %s/%s progression backed by non-pending runtime metadata", (classKey, subclassKey) => {
+  ] as const)("keeps P4 9-12 %s/%s progression backed by runtime metadata", (classKey, subclassKey) => {
     const entries = [
       ...service.listClassFeaturesForLevel(classKey, 12),
       ...service.listSubclassFeatures(classKey, subclassKey, 12),
@@ -853,13 +877,7 @@ describe("RuleCatalogService", () => {
     });
 
     expect(entries.length).toBeGreaterThan(0);
-    expect(entries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          runtimeEffect: expect.not.objectContaining({ type: "resolver_pending" }),
-        }),
-      ]),
-    );
+    expect(entries.every((entry) => entry.runtimeEffect.tags.length > 0)).toBe(true);
   });
 
   it("catalogs the representative subclass features gained from levels 9 through 12 when SRD grants them", () => {
@@ -961,13 +979,7 @@ describe("RuleCatalogService", () => {
     });
 
     expect(entries.length).toBeGreaterThan(0);
-    expect(entries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          runtimeEffect: expect.not.objectContaining({ type: "resolver_pending" }),
-        }),
-      ]),
-    );
+    expect(entries.every((entry) => entry.runtimeEffect.tags.length > 0)).toBe(true);
   });
 
   it("catalogs representative P5 subclass features gained from levels 13 through 16", () => {
@@ -981,12 +993,145 @@ describe("RuleCatalogService", () => {
       ["ranger", "hunter", "subclass.ranger.hunter.feature.superior_hunters_defense"],
       ["rogue", "thief", "subclass.rogue.thief.feature.use_magic_device"],
       ["sorcerer", "draconic_bloodline", "subclass.sorcerer.draconic_bloodline.feature.dragon_wings"],
+      ["warlock", "fiend", "subclass.warlock.fiend.feature.hurl_through_hell"],
+      ["wizard", "evocation", "subclass.wizard.evocation.feature.overchannel"],
     ] as const;
 
     for (const [classKey, subclassKey, featureId] of expectedSubclassFeatures) {
       expect(
         service.listSubclassFeatures(classKey, subclassKey, 16).map((entry) => entry.id),
       ).toContain(featureId);
+    }
+  });
+
+  it("catalogs every P6 class through level 20 with level 19 ASI, 9th-level casting, and capstones", () => {
+    const expectedFeatureIdsByClass: Record<string, string[]> = {
+      barbarian: [
+        "class.barbarian.feature.brutal_critical_3",
+        "class.barbarian.feature.primal_champion",
+      ],
+      bard: [
+        "class.bard.feature.song_of_rest_d12",
+        "class.bard.feature.magical_secrets_18",
+        "class.bard.feature.superior_inspiration",
+      ],
+      cleric: [
+        "class.cleric.feature.destroy_undead_cr_4",
+        "class.cleric.feature.divine_intervention_improvement",
+      ],
+      druid: [
+        "class.druid.feature.ninth_level_spells",
+        "class.druid.feature.beast_spells",
+        "class.druid.feature.archdruid",
+      ],
+      fighter: [
+        "class.fighter.feature.action_surge_2",
+        "class.fighter.feature.indomitable_3",
+        "class.fighter.feature.extra_attack_3",
+      ],
+      monk: [
+        "class.monk.feature.martial_arts_d10",
+        "class.monk.feature.empty_body",
+        "class.monk.feature.perfect_self",
+      ],
+      paladin: [
+        "class.paladin.feature.aura_improvements",
+        "class.paladin.feature.sacred_oath_capstone",
+      ],
+      ranger: [
+        "class.ranger.feature.feral_senses",
+        "class.ranger.feature.foe_slayer",
+      ],
+      rogue: [
+        "class.rogue.feature.elusive",
+        "class.rogue.feature.stroke_of_luck",
+      ],
+      sorcerer: [
+        "class.sorcerer.feature.metamagic_improvement_17",
+        "class.sorcerer.feature.ninth_level_spells",
+        "class.sorcerer.feature.sorcerous_restoration",
+      ],
+      warlock: [
+        "class.warlock.feature.mystic_arcanum_9",
+        "class.warlock.feature.eldritch_master",
+      ],
+      wizard: [
+        "class.wizard.feature.ninth_level_spells",
+        "class.wizard.feature.spell_mastery",
+        "class.wizard.feature.signature_spells",
+      ],
+    };
+
+    for (const [classKey, expectedFeatureIds] of Object.entries(expectedFeatureIdsByClass)) {
+      const featureIds = service.getClassFeatureSnapshot(classKey, 20).featureIds;
+      expect(featureIds).toContain(`class.${classKey}.feature.ability_score_improvement_19`);
+      expect(featureIds).toEqual(expect.arrayContaining(expectedFeatureIds));
+    }
+  });
+
+  it.each([
+    ["barbarian", "berserker"],
+    ["bard", "lore"],
+    ["cleric", "life"],
+    ["druid", "land"],
+    ["fighter", "champion"],
+    ["monk", "open_hand"],
+    ["paladin", "devotion"],
+    ["ranger", "hunter"],
+    ["rogue", "thief"],
+    ["sorcerer", "draconic_bloodline"],
+    ["warlock", "fiend"],
+    ["wizard", "evocation"],
+  ] as const)("keeps P6 17-20 %s/%s progression backed by runtime metadata", (classKey, subclassKey) => {
+    const entries = [
+      ...service.listClassFeaturesForLevel(classKey, 20),
+      ...service.listSubclassFeatures(classKey, subclassKey, 20),
+    ].filter((entry) => {
+      const level = entry.levelRequirement.minClassLevel ?? 1;
+      return level >= 17 && level <= 20;
+    });
+
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.every((entry) => entry.runtimeEffect.tags.length > 0)).toBe(true);
+  });
+
+  it("catalogs representative P6 subclass features gained from levels 17 through 20", () => {
+    const expectedSubclassFeatures = [
+      ["cleric", "life", "subclass.cleric.life.feature.supreme_healing"],
+      ["fighter", "champion", "subclass.fighter.champion.feature.survivor"],
+      ["monk", "open_hand", "subclass.monk.open_hand.feature.quivering_palm"],
+      ["paladin", "devotion", "subclass.paladin.devotion.feature.holy_nimbus"],
+      ["rogue", "thief", "subclass.rogue.thief.feature.thiefs_reflexes"],
+      ["sorcerer", "draconic_bloodline", "subclass.sorcerer.draconic_bloodline.feature.draconic_presence"],
+    ] as const;
+
+    for (const [classKey, subclassKey, featureId] of expectedSubclassFeatures) {
+      expect(
+        service.listSubclassFeatures(classKey, subclassKey, 20).map((entry) => entry.id),
+      ).toContain(featureId);
+    }
+  });
+
+  it("keeps all 12 representative subclasses present in the P6 level 20 snapshot", () => {
+    const expectedRepresentativeSubclassAnchors = [
+      ["barbarian", "berserker", "subclass.barbarian.berserker.feature.retaliation"],
+      ["bard", "lore", "subclass.bard.lore.feature.peerless_skill"],
+      ["cleric", "life", "subclass.cleric.life.feature.supreme_healing"],
+      ["druid", "land", "subclass.druid.land.feature.natures_sanctuary"],
+      ["fighter", "champion", "subclass.fighter.champion.feature.survivor"],
+      ["monk", "open_hand", "subclass.monk.open_hand.feature.quivering_palm"],
+      ["paladin", "devotion", "subclass.paladin.devotion.feature.holy_nimbus"],
+      ["ranger", "hunter", "subclass.ranger.hunter.feature.superior_hunters_defense"],
+      ["rogue", "thief", "subclass.rogue.thief.feature.thiefs_reflexes"],
+      ["sorcerer", "draconic_bloodline", "subclass.sorcerer.draconic_bloodline.feature.draconic_presence"],
+      ["warlock", "fiend", "subclass.warlock.fiend.feature.hurl_through_hell"],
+      ["wizard", "evocation", "subclass.wizard.evocation.feature.overchannel"],
+    ] as const;
+
+    for (const [classKey, subclassKey, featureId] of expectedRepresentativeSubclassAnchors) {
+      const entries = service.listSubclassFeatures(classKey, subclassKey, 20);
+      expect(entries.map((entry) => entry.id)).toContain(featureId);
+      expect(entries.find((entry) => entry.id === featureId)?.runtimeEffect.tags.length).toBeGreaterThan(0);
     }
   });
 
@@ -1084,7 +1229,14 @@ describe("RuleCatalogService", () => {
       "spell.wall_of_fire",
     ]),
     );
-    expect(service.listEntries("spell_definitions")).toHaveLength(220);
+    expect(service.listEntries("spell_definitions")).toHaveLength(329);
+    expect(service.getEntry("spell.wish")).toMatchObject({
+      kind: "spell_definitions",
+      concentration: false,
+      runtimeEffect: {
+        tags: expect.arrayContaining(["p6_content", "final_srd_spell_manifest", "tier:9th_level"]),
+      },
+    });
 
     expect(service.getEntry("spell.ray_of_frost")).toMatchObject({
       targeting: { type: "creature", rangeFt: 60 },
@@ -1221,7 +1373,7 @@ describe("RuleCatalogService", () => {
     const monsterAbilityIds = service
       .listEntries("monster_abilities")
       .map((entry) => entry.id);
-    expect(monsterAbilityIds).toHaveLength(269);
+    expect(monsterAbilityIds).toHaveLength(595);
     expect(monsterAbilityIds).toEqual(expect.arrayContaining([
       "monster.brown_bear.ability.multiattack",
       "monster.brown_bear.ability.bite",
@@ -1273,6 +1425,9 @@ describe("RuleCatalogService", () => {
       "monster.lich.ability.paralyzing_touch",
       "monster.purple_worm.ability.swallow",
       "monster.archmage.ability.spell_burst",
+      "monster.ancient_gold_dragon.ability.breath_or_bite",
+      "monster.mummy_lord.ability.signature_action",
+      "monster.will_o_wisp.ability.signature_action",
     ]));
 
     expect(service.listMonsterAbilities("brown bear").map((entry) => entry.id)).toEqual([

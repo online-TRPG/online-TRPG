@@ -1,18 +1,23 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from "@nestjs/common";
+import { createHash, createHmac, randomUUID } from "crypto";
 import {
   CharacterAvatarType as PrismaCharacterAvatarType,
+  Prisma,
   Race,
   SessionCharacterStatus as PrismaSessionCharacterStatus,
   SessionStatus as PrismaSessionStatus,
 } from "@prisma/client";
 import {
   AbilityScoresDto,
+  CharacterAvatarAssetResponseDto,
   CharacterAvatarType,
   CharacterInventoryResponseDto,
   CharacterResponseDto,
@@ -25,19 +30,18 @@ import {
   normalizeSkillToKo,
   normalizeSpellcastingClassKey,
   POINT_BUY_COST,
-  POINT_BUY_MAX_BASE,
-  POINT_BUY_MIN_BASE,
   POINT_BUY_TOTAL,
   RaceAbilityIncreaseDto,
   SessionCharacterResponseDto,
   StartingEquipmentDto,
   StartingSpellsDto,
+  UploadCharacterAvatarDto,
   UpdateCharacterDto,
   UpdateCharacterEquipmentDto,
   UpdatePreparedSpellsDto,
 } from "@trpg/shared-types";
 import { mapCharacter, mapSessionCharacter } from "../../common/mappers/domain.mapper";
-import { isDefaultProvidedScenarioId } from "../scenarios/provided-scenario.constants";
+import { isProvidedScenarioId } from "../scenarios/provided-scenario.constants";
 import { PrismaService } from "../../database/prisma.service";
 import { CatalogService } from "../catalog/catalog.service";
 import { RacesService } from "../races/races.service";
@@ -56,6 +60,26 @@ const defaultAbilityScores = {
   cha: 10,
 };
 
+type CharacterAvatarAssetRow = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  storageKey: string;
+  publicUrl: string;
+  width: number | null;
+  height: number | null;
+  fileSizeBytes: number;
+  uploadedByUserId: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type CharacterAvatarAssetDelegate = {
+  findMany: (args: unknown) => Promise<CharacterAvatarAssetRow[]>;
+  create: (args: unknown) => Promise<CharacterAvatarAssetRow>;
+  findFirst: (args: unknown) => Promise<CharacterAvatarAssetRow | null>;
+};
+
 // 능력치 범위: D&D 5e 공식 상한 20 + 매직 아이템/주문 보정 여유로 30. Point Buy(8~15)는 별도로 검사.
 const ABILITY_SCORE_MIN = 1;
 const ABILITY_SCORE_MAX = 30;
@@ -68,7 +92,59 @@ const LOCKED_SESSION_STATUSES: ReadonlySet<PrismaSessionStatus> = new Set([
   PrismaSessionStatus.PAUSED,
 ]);
 
-const STARTING_SLOT_SPELL_SELECTION_COUNT = 4;
+const WIZARD_STARTING_SPELLBOOK_SPELL_COUNT = 6;
+const WIZARD_SPELLBOOK_SPELLS_PER_LEVEL = 2;
+const ALLOWED_FEAT_IDS: ReadonlySet<string> = new Set(["feat.alert"]);
+const ALLOWED_FIGHTING_STYLE_IDS: ReadonlySet<string> = new Set([
+  "archery",
+  "defense",
+  "dueling",
+  "great_weapon_fighting",
+  "protection",
+  "two_weapon_fighting",
+]);
+const ALLOWED_FAVORED_ENEMY_IDS: ReadonlySet<string> = new Set([
+  "aberrations",
+  "beasts",
+  "celestials",
+  "constructs",
+  "dragons",
+  "elementals",
+  "fey",
+  "fiends",
+  "giants",
+  "monstrosities",
+  "oozes",
+  "plants",
+  "undead",
+  "humanoid",
+]);
+const ALLOWED_FAVORED_HUMANOID_IDS: ReadonlySet<string> = new Set([
+  "dwarves",
+  "elves",
+  "halflings",
+  "humans",
+  "dragonborn",
+  "gnomes",
+  "half-elves",
+  "half-orcs",
+  "tieflings",
+  "gnolls",
+  "goblins",
+  "hobgoblins",
+  "kobolds",
+  "lizardfolk",
+  "orcs",
+]);
+const ALLOWED_ASI_ABILITY_KEYS: ReadonlySet<string> = new Set([...ABILITY_KEYS]);
+
+function getAsiChoiceLevelsForClass(className: string): number[] {
+  const classKey = className.trim().toLowerCase();
+  const classSpecificLevels =
+    classKey === "fighter" ? [6, 14] : classKey === "rogue" ? [10] : [];
+  return Array.from(new Set([4, 8, 12, 16, 19, ...classSpecificLevels]))
+    .sort((left, right) => left - right);
+}
 
 @Injectable()
 export class CharactersService {
@@ -82,6 +158,12 @@ export class CharactersService {
     private readonly levelUpService: LevelUpService,
   ) {}
 
+  private get characterAvatarAssetDelegate(): CharacterAvatarAssetDelegate {
+    return (this.prisma as unknown as {
+      characterAvatarAsset: CharacterAvatarAssetDelegate;
+    }).characterAvatarAsset;
+  }
+
   async createCharacter(userId: string, dto: CreateCharacterDto): Promise<CharacterResponseDto> {
     await this.ensureUserExists(userId);
 
@@ -91,7 +173,6 @@ export class CharactersService {
     const abilities = dto.abilities ?? defaultAbilityScores;
     this.validateAbilitiesRange(abilities);
     const race = await this.findRaceForAncestry(ancestry);
-    await this.validatePointBuyForAncestry(ancestry, abilities, race);
     const className = dto.className.trim();
     const normalizedProficientSkills = dto.proficientSkills
       ? await this.validateProficientSkills(className, dto.proficientSkills)
@@ -113,22 +194,6 @@ export class CharactersService {
       abilities,
       dto.startingSpells,
     );
-    const racialMaxHpBonus = race?.key === "hill-dwarf" ? level : 0;
-    const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
-      className,
-      level,
-      abilities,
-      dto.proficiencyBonus,
-      dto.maxHp,
-      racialMaxHpBonus,
-    );
-    const armorClass = this.resolveArmorClass(
-      className,
-      abilities,
-      inventory,
-      dto.armorClass,
-      offhandWeaponId,
-    );
     const subclassName = this.assertValidSubclassSelection({
       className,
       subclassName: dto.subclassName,
@@ -144,7 +209,26 @@ export class CharactersService {
       subclassName,
       level,
       requestedFeatures: dto.features ?? [],
+      proficientSkills: normalizedProficientSkills,
+      requireMissingFeatureChoices: true,
     });
+    await this.validatePointBuyForAncestry(ancestry, abilities, race);
+    const maxHpBonus = this.resolveMaxHpBonusFromFeatures(features, className, level);
+    const { proficiencyBonus, maxHp } = await this.resolveLevelStats(
+      className,
+      level,
+      abilities,
+      dto.proficiencyBonus,
+      dto.maxHp,
+      maxHpBonus,
+    );
+    const armorClass = this.resolveArmorClass(
+      className,
+      abilities,
+      inventory,
+      dto.armorClass,
+      offhandWeaponId,
+    );
 
     const character = await this.prisma.character.create({
       data: {
@@ -174,7 +258,16 @@ export class CharactersService {
       },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -189,13 +282,127 @@ export class CharactersService {
       where: { ownerUserId: userId },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
       orderBy: { createdAt: "asc" },
     });
 
     return characters.map(mapCharacter);
+  }
+
+  async listMyAvatarAssets(userId: string): Promise<CharacterAvatarAssetResponseDto[]> {
+    await this.ensureUserExists(userId);
+
+    let assets;
+    try {
+      assets = await this.characterAvatarAssetDelegate.findMany({
+        where: { uploadedByUserId: userId },
+        orderBy: { createdAt: "desc" },
+      });
+    } catch (error) {
+      this.rethrowCharacterAvatarAssetStorageError(error);
+    }
+
+    return assets.map((asset) => this.mapCharacterAvatarAsset(asset));
+  }
+
+  async uploadMyAvatarAsset(
+    userId: string,
+    dto: UploadCharacterAvatarDto,
+  ): Promise<CharacterAvatarAssetResponseDto> {
+    await this.ensureUserExists(userId);
+
+    const allowedContentTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
+    if (!allowedContentTypes.has(dto.contentType)) {
+      throw new BadRequestException("초상화는 PNG, JPEG, WebP 이미지만 업로드할 수 있습니다.");
+    }
+
+    const body = Buffer.from(dto.dataBase64, "base64");
+    const maxBytes = Number(process.env.R2_MAX_AVATAR_IMAGE_BYTES ?? 5 * 1024 * 1024);
+    if (body.byteLength <= 0) {
+      throw new BadRequestException("초상화 이미지가 비어 있습니다.");
+    }
+    if (body.byteLength > maxBytes) {
+      throw new BadRequestException("초상화 이미지 파일이 너무 큽니다.");
+    }
+
+    const { storageKey, publicUrl } = await this.putR2Object({
+      body,
+      contentType: dto.contentType,
+      fileName: dto.fileName,
+      keyPrefix: `users/${userId}/avatars`,
+    });
+
+    let asset;
+    try {
+      asset = await this.characterAvatarAssetDelegate.create({
+        data: {
+          fileName: dto.fileName.trim(),
+          contentType: dto.contentType,
+          storageKey,
+          publicUrl,
+          width: null,
+          height: null,
+          fileSizeBytes: body.byteLength,
+          uploadedByUserId: userId,
+        },
+      });
+    } catch (error) {
+      this.rethrowCharacterAvatarAssetStorageError(error);
+    }
+
+    return this.mapCharacterAvatarAsset(asset);
+  }
+
+  async deleteMyAvatarAsset(userId: string, assetId: string): Promise<void> {
+    await this.ensureUserExists(userId);
+
+    let asset;
+    try {
+      asset = await this.characterAvatarAssetDelegate.findFirst({
+        where: { id: assetId, uploadedByUserId: userId },
+      });
+    } catch (error) {
+      this.rethrowCharacterAvatarAssetStorageError(error);
+    }
+
+    if (!asset) {
+      throw new NotFoundException("초상화 이미지를 찾을 수 없습니다.");
+    }
+
+    await this.deleteR2Object(asset.storageKey);
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.character.updateMany({
+          where: {
+            ownerUserId: userId,
+            avatarUrl: asset.publicUrl,
+          },
+          data: {
+            avatarType: PrismaCharacterAvatarType.DEFAULT,
+            avatarPresetId: null,
+            avatarUrl: null,
+            avatarUpdatedAt: new Date(),
+          },
+        });
+        await (tx as unknown as { characterAvatarAsset: { delete: (args: unknown) => Promise<unknown> } })
+          .characterAvatarAsset
+          .delete({ where: { id: asset.id } });
+      });
+    } catch (error) {
+      this.rethrowCharacterAvatarAssetStorageError(error);
+    }
   }
 
   async getCharacter(userId: string, characterId: string): Promise<CharacterResponseDto> {
@@ -227,7 +434,6 @@ export class CharactersService {
 
     if (dto.abilities !== undefined || dto.ancestry !== undefined) {
       this.validateAbilitiesRange(finalAbilities);
-      await this.validatePointBuyForAncestry(finalAncestry, finalAbilities, finalRace);
     }
     const normalizedUpdateProficientSkills =
       dto.proficientSkills !== undefined
@@ -249,18 +455,10 @@ export class CharactersService {
       dto.ancestry !== undefined ||
       dto.level !== undefined ||
       dto.className !== undefined ||
+      dto.subclassName !== undefined ||
+      dto.features !== undefined ||
       dto.maxHp !== undefined ||
       dto.proficiencyBonus !== undefined;
-    const resolvedStats = needsLevelStats
-      ? await this.resolveLevelStats(
-          finalClassName,
-          finalLevel,
-          finalAbilities,
-          dto.proficiencyBonus,
-          dto.maxHp,
-          finalRace?.key === "hill-dwarf" ? finalLevel : 0,
-        )
-      : null;
 
     const finalSubclassName =
       dto.subclassName === undefined ? existing.subclassName : dto.subclassName?.trim() ?? null;
@@ -271,14 +469,38 @@ export class CharactersService {
       requiredCode: "CHARACTER_SUBCLASS_REQUIRED",
       invalidCode: "CHARACTER_INVALID_SUBCLASS",
     });
+    const requestedFeatures = dto.features ?? this.parseStringArrayJson(existing.featuresJson);
     const finalFeatures = await this.resolveCharacterFeatureSnapshot({
       ancestry: finalAncestry,
       raceKey: finalRace?.key ?? null,
       className: finalClassName,
       subclassName: validatedSubclassName,
       level: finalLevel,
-      requestedFeatures: dto.features ?? this.parseStringArrayJson(existing.featuresJson),
+      requestedFeatures,
+      proficientSkills:
+        normalizedUpdateProficientSkills ?? this.parseStringArrayJson(existing.proficientSkillsJson),
+      requireMissingFeatureChoices:
+        dto.features !== undefined || dto.className !== undefined || dto.level !== undefined,
     });
+    if (
+      dto.abilities !== undefined ||
+      dto.ancestry !== undefined ||
+      dto.level !== undefined ||
+      dto.className !== undefined ||
+      dto.features !== undefined
+    ) {
+      await this.validatePointBuyForAncestry(finalAncestry, finalAbilities, finalRace);
+    }
+    const resolvedStats = needsLevelStats
+      ? await this.resolveLevelStats(
+          finalClassName,
+          finalLevel,
+          finalAbilities,
+          dto.proficiencyBonus,
+          dto.maxHp,
+          this.resolveMaxHpBonusFromFeatures(finalFeatures, finalClassName, finalLevel),
+        )
+      : null;
 
     const updated = await this.prisma.character.update({
       where: { id: characterId },
@@ -326,7 +548,16 @@ export class CharactersService {
       },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -429,11 +660,18 @@ export class CharactersService {
       requiredCode: "LEVEL_UP_SUBCLASS_REQUIRED",
       invalidCode: "LEVEL_UP_INVALID_SUBCLASS",
     });
+    const existingFeatureIds = this.parseStringArrayJson(existing.featuresJson);
+    const selectedFeatIds = this.resolveLevelUpFeatSelections(
+      dto.featSelections,
+      resolution.asiOrFeatChoiceRequiredAtLevels,
+      existingFeatureIds,
+    );
 
-    const finalAbilities = this.resolveLevelUpAbilityScores(
+    const asiAdjustedAbilities = this.resolveLevelUpAbilityScores(
       abilities,
       dto.abilityScoreIncreases,
       resolution.asiOrFeatChoiceRequiredAtLevels,
+      selectedFeatIds.length,
     );
     const finalFeatures = await this.resolveCharacterFeatureSnapshot({
       ancestry: existing.ancestry,
@@ -441,7 +679,19 @@ export class CharactersService {
       className: existing.className,
       subclassName: selectedSubclassName,
       level: resolution.toLevel,
-      requestedFeatures: this.parseStringArrayJson(existing.featuresJson),
+      requestedFeatures: [
+        ...existingFeatureIds,
+        ...selectedFeatIds,
+      ],
+      proficientSkills: this.parseStringArrayJson(existing.proficientSkillsJson),
+      requireMissingFeatureChoices: false,
+    });
+    const finalAbilities = this.applyP6CapstoneAbilityAdjustments({
+      className: existing.className,
+      fromLevel: resolution.fromLevel,
+      toLevel: resolution.toLevel,
+      abilities: asiAdjustedAbilities,
+      featureIds: finalFeatures,
     });
     const nextSpellsJson =
       dto.knownSpells === undefined &&
@@ -463,12 +713,20 @@ export class CharactersService {
           });
     const constitutionModifierDelta =
       this.getAbilityModifier(finalAbilities.con) - this.getAbilityModifier(abilities.con);
-    const racialLevelUpHpBonus =
-      race?.key === "hill-dwarf" ? resolution.toLevel - resolution.fromLevel : 0;
+    const previousMaxHpFeatureBonus = this.resolveMaxHpBonusFromFeatures(
+      this.parseStringArrayJson(existing.featuresJson),
+      existing.className,
+      resolution.fromLevel,
+    );
+    const finalMaxHpFeatureBonus = this.resolveMaxHpBonusFromFeatures(
+      finalFeatures,
+      existing.className,
+      resolution.toLevel,
+    );
     const finalMaxHp =
       resolution.maxHpAfter +
       constitutionModifierDelta * resolution.toLevel +
-      racialLevelUpHpBonus;
+      (finalMaxHpFeatureBonus - previousMaxHpFeatureBonus);
     const inventory = this.parseInventoryItemsJson(existing.inventoryJson);
     const previousCalculatedArmorClass = this.resolveArmorClass(
       existing.className,
@@ -509,7 +767,16 @@ export class CharactersService {
       },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -547,12 +814,63 @@ export class CharactersService {
     return mapCharacter(updated);
   }
 
+  private resolveLevelUpFeatSelections(
+    requested: LevelUpCharacterDto["featSelections"],
+    asiLevels: number[],
+    existingFeatureIds: string[],
+  ): string[] {
+    const featSelections = (requested ?? [])
+      .map((featId) => featId.trim().toLowerCase())
+      .filter(Boolean);
+    if (featSelections.length > asiLevels.length) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_TOO_MANY_FEATS",
+        message: "Feat 선택 수는 이번 레벨업에서 지나간 ASI 지점 수를 넘을 수 없습니다.",
+        levels: asiLevels,
+        featSelections,
+      });
+    }
+    const duplicateFeatIds = featSelections.filter(
+      (featId, index) => featSelections.indexOf(featId) !== index,
+    );
+    if (duplicateFeatIds.length) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_DUPLICATE_FEAT",
+        message: "같은 Feat는 중복 선택할 수 없습니다.",
+        featIds: Array.from(new Set(duplicateFeatIds)),
+      });
+    }
+    const invalidFeatId = featSelections.find((featId) => !ALLOWED_FEAT_IDS.has(featId));
+    if (invalidFeatId) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_INVALID_FEAT",
+        message: "현재 캐릭터 빌더에서 사용할 수 없는 Feat입니다.",
+        featId: invalidFeatId,
+      });
+    }
+    const existingFeatIds = new Set(
+      existingFeatureIds
+        .map((featureId) => featureId.trim().toLowerCase())
+        .filter((featureId) => featureId.startsWith("feat.")),
+    );
+    const alreadyOwnedFeatId = featSelections.find((featId) => existingFeatIds.has(featId));
+    if (alreadyOwnedFeatId) {
+      throw new BadRequestException({
+        code: "LEVEL_UP_FEAT_ALREADY_OWNED",
+        message: "이미 보유한 Feat는 다시 선택할 수 없습니다.",
+        featId: alreadyOwnedFeatId,
+      });
+    }
+    return featSelections;
+  }
+
   private resolveLevelUpAbilityScores(
     current: AbilityScoresDto,
     requested: LevelUpCharacterDto["abilityScoreIncreases"],
     asiLevels: number[],
+    featSelectionCount = 0,
   ): AbilityScoresDto {
-    const requiredPoints = asiLevels.length * 2;
+    const requiredPoints = Math.max(0, asiLevels.length - featSelectionCount) * 2;
     const increases = requested ?? {};
     let allocatedPoints = 0;
     const next = { ...current };
@@ -597,6 +915,29 @@ export class CharactersService {
     return next;
   }
 
+  private applyP6CapstoneAbilityAdjustments(params: {
+    className: string;
+    fromLevel: number;
+    toLevel: number;
+    abilities: AbilityScoresDto;
+    featureIds: string[];
+  }): AbilityScoresDto {
+    const classKey = params.className.trim().toLowerCase();
+    if (
+      params.fromLevel < 20 &&
+      params.toLevel >= 20 &&
+      classKey === "barbarian" &&
+      params.featureIds.includes("class.barbarian.feature.primal_champion")
+    ) {
+      return {
+        ...params.abilities,
+        str: Math.min(params.abilities.str + 4, 24),
+        con: Math.min(params.abilities.con + 4, 24),
+      };
+    }
+    return params.abilities;
+  }
+
   async updatePreparedSpells(
     userId: string,
     characterId: string,
@@ -616,7 +957,16 @@ export class CharactersService {
       },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -1096,6 +1446,8 @@ export class CharactersService {
             subclassName: source.subclassName,
             level: source.level,
             requestedFeatures: this.parseStringArrayJson(source.featuresJson),
+            proficientSkills: this.parseStringArrayJson(source.proficientSkillsJson),
+            requireMissingFeatureChoices: false,
           }),
         ),
         proficientSkillsJson: source.proficientSkillsJson,
@@ -1114,7 +1466,16 @@ export class CharactersService {
       },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -1179,7 +1540,16 @@ export class CharactersService {
       },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -1222,7 +1592,16 @@ export class CharactersService {
       where: { id: characterId },
       include: {
         sessionCharacters: {
-          include: { session: true },
+          include: {
+            session: {
+              include: {
+                sessionScenarios: {
+                  include: { gameState: true },
+                  orderBy: { sequence: "asc" },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -1264,9 +1643,9 @@ export class CharactersService {
       throw new NotFoundException(`Scenario ${scenarioId} was not found.`);
     }
 
-    const isDefaultProvidedScenario = isDefaultProvidedScenarioId(scenario.id);
+    const isProvidedScenario = isProvidedScenarioId(scenario.id);
     const isOwnScenario = scenario.createdByUserId === userId;
-    if (!isDefaultProvidedScenario && !isOwnScenario) {
+    if (!isProvidedScenario && !isOwnScenario) {
       // 다른 사용자가 만든 시나리오는 캐릭터 생성 선택지와 API 응답에서 모두 숨깁니다.
       throw new NotFoundException(`Scenario ${scenarioId} was not found.`);
     }
@@ -1302,17 +1681,10 @@ export class CharactersService {
       cha: abilities.cha,
     };
 
-    let totalCost = 0;
-    for (const key of ["str", "dex", "con", "int", "wis", "cha"] as const) {
-      const base = finalScores[key] - (increases[key] ?? 0);
-      if (!Number.isInteger(base) || base < POINT_BUY_MIN_BASE || base > POINT_BUY_MAX_BASE) {
-        throw new BadRequestException(
-          `Point Buy: ${key.toUpperCase()} 기본 능력치(${base})가 허용 범위(${POINT_BUY_MIN_BASE}~${POINT_BUY_MAX_BASE})를 벗어났습니다. (종족 보정 ${increases[key] ?? 0} 차감 후 값)`,
-        );
-      }
-      totalCost += POINT_BUY_COST[base] ?? 0;
-    }
-
+    const totalCost = (["str", "dex", "con", "int", "wis", "cha"] as const).reduce(
+      (sum, key) => sum + (POINT_BUY_COST[finalScores[key] - (increases[key] ?? 0)] ?? 0),
+      0,
+    );
     if (totalCost !== POINT_BUY_TOTAL) {
       throw new BadRequestException(
         `Point Buy: 총 비용 ${totalCost}점이 ${POINT_BUY_TOTAL}점과 일치하지 않습니다.`,
@@ -1752,6 +2124,31 @@ export class CharactersService {
     return { proficiencyBonus: expectedProf, maxHp: expectedMaxHp };
   }
 
+  private resolveMaxHpBonusFromFeatures(
+    featureIds: string[],
+    className: string,
+    level: number,
+  ): number {
+    const normalizedClassName = className.trim().toLowerCase();
+    const normalizedLevel = Math.max(Math.floor(level), 0);
+    let bonus = 0;
+
+    for (const tag of this.ruleCatalogService.resolveRuntimeTags(featureIds)) {
+      const perLevelMatch = /^hp_bonus:per_level:\+(\d+)$/.exec(tag);
+      if (perLevelMatch) {
+        bonus += Number(perLevelMatch[1]) * normalizedLevel;
+        continue;
+      }
+
+      const perClassLevelMatch = /^hp_bonus:per_([a-z0-9_-]+)_level:\+(\d+)$/.exec(tag);
+      if (perClassLevelMatch && perClassLevelMatch[1] === normalizedClassName) {
+        bonus += Number(perClassLevelMatch[2]) * normalizedLevel;
+      }
+    }
+
+    return bonus;
+  }
+
   // ClassDefinition과 SRD spellcasting progression을 함께 사용해 시작 주문 수를 결정한다.
   // 준비형 직업은 주문시전이 열린 레벨부터 현재 실행 슬롯 주문 카탈로그를 known 목록으로 사용한다.
   // 반환값: spellsJson 에 저장할 문자열(또는 null = 마법 없는 클래스/legacy)
@@ -1773,30 +2170,29 @@ export class CharactersService {
         );
     const classKey = normalizeSpellcastingClassKey(className);
     const spellcastingProgression = getSpellcastingProgression(className, level);
+    const executableSlotSpellPool = this.getExecutableSlotSpellPool(className, level);
+    const executableSlotSpellPoolSize = executableSlotSpellPool.size;
     const usesDynamicPreparedPool =
       this.isPreparedSpellcaster(className) &&
       classKey !== "wizard" &&
-      spellcastingProgression !== null;
-    const slotSpellSelectionCount = Math.min(
-      STARTING_SLOT_SPELL_SELECTION_COUNT,
-      this.getExecutableSlotSpellPool(className, level).size,
-    );
+      spellcastingProgression !== null &&
+      executableSlotSpellPoolSize > 0;
     const needSpells = usesDynamicPreparedPool
-      ? slotSpellSelectionCount
+      ? 0
       : spellcastingProgression?.spellsKnown !== null &&
           spellcastingProgression?.spellsKnown !== undefined
         ? Math.min(
             spellcastingProgression.spellsKnown,
-            this.getExecutableSlotSpellPool(className, level).size,
+            executableSlotSpellPoolSize,
           )
         : classKey === "wizard"
           ? Math.min(
-              Math.max(klass.startingSpellCount, slotSpellSelectionCount),
-              this.getExecutableSlotSpellPool(className, level).size,
+              this.getWizardStartingSpellbookSpellCount(level),
+              executableSlotSpellPoolSize,
             )
           : klass.startingSpellCount;
 
-    if (needCantrips === 0 && needSpells === 0) {
+    if (needCantrips === 0 && needSpells === 0 && !usesDynamicPreparedPool) {
       return null;
     }
 
@@ -1819,13 +2215,15 @@ export class CharactersService {
     }
 
     const cantrips = startingSpells.cantrips.map((s) => s.trim()).filter((s) => s.length > 0);
-    const spells = startingSpells.spells.map((s) => s.trim()).filter((s) => s.length > 0);
+    const spells = usesDynamicPreparedPool
+      ? Array.from(executableSlotSpellPool).sort()
+      : startingSpells.spells.map((s) => s.trim()).filter((s) => s.length > 0);
     if (cantrips.length !== needCantrips) {
       throw new BadRequestException(
         `시작 주문: 비어 있지 않은 캔트립 ${cantrips.length}개가 ${klass.koName} 요구치 ${needCantrips}개와 일치하지 않습니다.`,
       );
     }
-    if (spells.length !== needSpells) {
+    if (!usesDynamicPreparedPool && spells.length !== needSpells) {
       throw new BadRequestException(
         `시작 주문: 비어 있지 않은 주문 ${spells.length}개가 ${klass.koName} 요구치 ${needSpells}개와 일치하지 않습니다.`,
       );
@@ -1837,7 +2235,7 @@ export class CharactersService {
       "캔트립",
       this.getExecutableCantripIds(),
     );
-    this.assertExecutableStartingSpellPool(spells, "주문", this.getExecutableSlotSpellPool(className, level));
+    this.assertExecutableStartingSpellPool(spells, "주문", executableSlotSpellPool);
     const knownSpellIds = new Set(spells.map((spell) => this.normalizeSpellId(spell)));
     const preparedSpells = startingSpells.preparedSpells
       ? Array.from(
@@ -1848,6 +2246,14 @@ export class CharactersService {
           ),
         )
       : undefined;
+    const preparedSpellLimit = this.resolvePreparedSpellLimit({ className, level, abilities });
+    if (preparedSpellLimit !== null && !preparedSpells) {
+      throw new BadRequestException({
+        code: "PREPARED_SPELLS_REQUIRED",
+        message: "이 직업은 생성 시 준비 주문을 선택해야 합니다.",
+        preparedLimit: preparedSpellLimit,
+      });
+    }
     const unknownPreparedSpell = preparedSpells?.find((spell) => !knownSpellIds.has(spell));
     if (unknownPreparedSpell) {
       throw new BadRequestException({
@@ -1858,6 +2264,14 @@ export class CharactersService {
     }
     if (preparedSpells) {
       this.assertPreparedSpellLimit({ className, level, abilities }, preparedSpells);
+      if (preparedSpellLimit !== null && preparedSpells.length !== preparedSpellLimit) {
+        throw new BadRequestException({
+          code: "PREPARED_SPELL_COUNT_MISMATCH",
+          message: "준비 주문 수가 직업/레벨/능력치 기준과 일치하지 않습니다.",
+          preparedCount: preparedSpells.length,
+          preparedLimit: preparedSpellLimit,
+        });
+      }
     }
 
     return JSON.stringify({
@@ -2233,6 +2647,7 @@ export class CharactersService {
     const classKey = normalizeSpellcastingClassKey(className);
     const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
     if (["bard", "cleric", "druid", "sorcerer", "wizard"].includes(classKey)) {
+      if (normalizedLevel >= 17) return 9;
       if (normalizedLevel >= 15) return 8;
       if (normalizedLevel >= 13) return 7;
       if (normalizedLevel >= 11) return 6;
@@ -2243,6 +2658,7 @@ export class CharactersService {
       return 1;
     }
     if (classKey === "warlock") {
+      if (normalizedLevel >= 17) return 9;
       if (normalizedLevel >= 15) return 8;
       if (normalizedLevel >= 13) return 7;
       if (normalizedLevel >= 11) return 6;
@@ -2253,11 +2669,19 @@ export class CharactersService {
       return 1;
     }
     if (classKey === "paladin" || classKey === "ranger") {
+      if (normalizedLevel >= 17) return 5;
+      if (normalizedLevel >= 13) return 4;
       if (normalizedLevel >= 9) return 3;
       if (normalizedLevel >= 5) return 2;
       if (normalizedLevel >= 2) return 1;
     }
     return 0;
+  }
+
+  private getWizardStartingSpellbookSpellCount(level: number): number {
+    const normalizedLevel = Math.max(1, Math.min(20, Math.floor(level)));
+    return WIZARD_STARTING_SPELLBOOK_SPELL_COUNT +
+      (normalizedLevel - 1) * WIZARD_SPELLBOOK_SPELLS_PER_LEVEL;
   }
 
   private async resolveCharacterFeatureSnapshot(params: {
@@ -2267,9 +2691,24 @@ export class CharactersService {
     subclassName?: string | null;
     level: number;
     requestedFeatures: string[];
+    proficientSkills: string[];
+    requireMissingFeatureChoices: boolean;
   }): Promise<string[]> {
     const raceKey = params.raceKey ?? await this.resolveRaceTraitFeatureKey(params.ancestry);
     this.assertRaceFeatureSelections(raceKey, params.requestedFeatures);
+    this.assertClassFeatureSelections({
+      className: params.className,
+      level: params.level,
+      requestedFeatures: params.requestedFeatures,
+      proficientSkills: params.proficientSkills,
+      requireMissingSelections: params.requireMissingFeatureChoices,
+    });
+    this.assertAllowedFeatSelections({
+      className: params.className,
+      level: params.level,
+      requestedFeatures: params.requestedFeatures,
+      requireMissingSelections: params.requireMissingFeatureChoices,
+    });
     return this.ruleCatalogService.getCharacterFeatureSnapshot({
       raceKey,
       classKey: params.className,
@@ -2277,6 +2716,81 @@ export class CharactersService {
       classLevel: params.level,
       requestedFeatureIds: params.requestedFeatures,
     }).featureIds;
+  }
+
+  private assertAllowedFeatSelections(params: {
+    className: string;
+    level: number;
+    requestedFeatures: string[];
+    requireMissingSelections: boolean;
+  }): void {
+    const normalizedFeatures = params.requestedFeatures.map((feature) =>
+      feature.trim().toLowerCase(),
+    );
+    const requestedFeatIds = normalizedFeatures.filter((feature) => feature.startsWith("feat."));
+    const requestedAsiChoices = normalizedFeatures
+      .filter((feature) => feature.startsWith("asi:"))
+      .map((feature) => feature.slice("asi:".length));
+    const duplicateFeatIds = requestedFeatIds.filter(
+      (featId, index) => requestedFeatIds.indexOf(featId) !== index,
+    );
+    if (duplicateFeatIds.length) {
+      throw new BadRequestException({
+        code: "CHARACTER_DUPLICATE_FEAT",
+        message: "같은 Feat는 중복 선택할 수 없습니다.",
+        featIds: Array.from(new Set(duplicateFeatIds)),
+      });
+    }
+    const duplicateAsiChoices = requestedAsiChoices.filter(
+      (abilityKey, index) => requestedAsiChoices.indexOf(abilityKey) !== index,
+    );
+    if (duplicateAsiChoices.length) {
+      throw new BadRequestException({
+        code: "CHARACTER_DUPLICATE_ASI_CHOICE",
+        message: "생성/수정 단계에서는 같은 능력치 ASI를 중복 선택할 수 없습니다.",
+        abilityKeys: Array.from(new Set(duplicateAsiChoices)),
+      });
+    }
+    const invalidFeatId = requestedFeatIds.find((featId) => !ALLOWED_FEAT_IDS.has(featId));
+    if (invalidFeatId) {
+      throw new BadRequestException({
+        code: "CHARACTER_INVALID_FEAT",
+        message: "현재 캐릭터 빌더에서 사용할 수 없는 Feat입니다.",
+        featId: invalidFeatId,
+      });
+    }
+    const invalidAsiChoice = requestedAsiChoices.find(
+      (abilityKey) => !ALLOWED_ASI_ABILITY_KEYS.has(abilityKey),
+    );
+    if (invalidAsiChoice) {
+      throw new BadRequestException({
+        code: "CHARACTER_INVALID_ASI_CHOICE",
+        message: "ASI 선택값이 유효하지 않습니다.",
+        abilityKey: invalidAsiChoice,
+      });
+    }
+    const availableFeatChoiceCount = getAsiChoiceLevelsForClass(params.className)
+      .filter((level) => level <= params.level)
+      .length;
+    const requestedChoiceCount = requestedFeatIds.length + requestedAsiChoices.length;
+    if (requestedChoiceCount > availableFeatChoiceCount) {
+      throw new BadRequestException({
+        code: "CHARACTER_FEAT_LEVEL_REQUIREMENT",
+        message: "현재 레벨에서 선택할 수 있는 ASI/Feat 수를 초과했습니다.",
+        level: params.level,
+        availableFeatChoiceCount,
+        requestedChoiceCount,
+      });
+    }
+    if (params.requireMissingSelections && requestedChoiceCount !== availableFeatChoiceCount) {
+      throw new BadRequestException({
+        code: "CHARACTER_ASI_FEAT_CHOICE_REQUIRED",
+        message: "현재 레벨까지의 모든 ASI/Feat 지점을 선택해야 합니다.",
+        level: params.level,
+        requiredChoiceCount: availableFeatChoiceCount,
+        requestedChoiceCount,
+      });
+    }
   }
 
   private assertRaceFeatureSelections(
@@ -2318,6 +2832,156 @@ export class CharactersService {
       throw new BadRequestException({
         code: "CHARACTER_DRACONIC_ANCESTRY_REQUIRED",
         message: "드래곤본은 용 혈통을 선택해야 합니다.",
+      });
+    }
+  }
+
+  private assertClassFeatureSelections(params: {
+    className: string;
+    level: number;
+    requestedFeatures: string[];
+    proficientSkills: string[];
+    requireMissingSelections: boolean;
+  }): void {
+    const classKey = params.className.trim().toLowerCase();
+    const normalizedFeatures = params.requestedFeatures.map((feature) =>
+      feature.trim().toLowerCase(),
+    );
+    const fightingStyles = this.getFeatureSelectionValues(normalizedFeatures, "fighting_style:");
+    const favoredEnemies = this.getFeatureSelectionValues(normalizedFeatures, "favored_enemy:");
+    const favoredHumanoids = this.getFeatureSelectionValues(
+      normalizedFeatures,
+      "favored_enemy_humanoid:",
+    );
+    const expertiseSelections = this.getFeatureSelectionValues(normalizedFeatures, "expertise:");
+
+    const fightingStyleRequired =
+      classKey === "fighter" ||
+      ((classKey === "paladin" || classKey === "ranger") && params.level >= 2);
+    if (!fightingStyleRequired && fightingStyles.length) {
+      throw new BadRequestException({
+        code: "CHARACTER_INVALID_CLASS_FEATURE",
+        message: "현재 직업/레벨에서는 전투 유파를 선택할 수 없습니다.",
+      });
+    }
+    if (fightingStyleRequired && (params.requireMissingSelections || fightingStyles.length)) {
+      this.assertExactUniqueSelectionCount({
+        code: "CHARACTER_FIGHTING_STYLE_REQUIRED",
+        label: "전투 유파",
+        values: fightingStyles,
+        count: 1,
+      });
+      this.assertAllowedSelectionValues({
+        code: "CHARACTER_INVALID_FIGHTING_STYLE",
+        label: "전투 유파",
+        values: fightingStyles,
+        allowed: ALLOWED_FIGHTING_STYLE_IDS,
+      });
+    }
+
+    if (classKey !== "ranger" && (favoredEnemies.length || favoredHumanoids.length)) {
+      throw new BadRequestException({
+        code: "CHARACTER_INVALID_CLASS_FEATURE",
+        message: "레인저가 아닌 직업은 주적을 선택할 수 없습니다.",
+      });
+    }
+    if (classKey === "ranger" && (params.requireMissingSelections || favoredEnemies.length || favoredHumanoids.length)) {
+      this.assertExactUniqueSelectionCount({
+        code: "CHARACTER_FAVORED_ENEMY_REQUIRED",
+        label: "주적",
+        values: favoredEnemies,
+        count: 1,
+      });
+      this.assertAllowedSelectionValues({
+        code: "CHARACTER_INVALID_FAVORED_ENEMY",
+        label: "주적",
+        values: favoredEnemies,
+        allowed: ALLOWED_FAVORED_ENEMY_IDS,
+      });
+      const humanoidCount = favoredEnemies[0] === "humanoid" ? 2 : 0;
+      this.assertExactUniqueSelectionCount({
+        code: "CHARACTER_FAVORED_HUMANOID_REQUIRED",
+        label: "인간형 주적",
+        values: favoredHumanoids,
+        count: humanoidCount,
+      });
+      this.assertAllowedSelectionValues({
+        code: "CHARACTER_INVALID_FAVORED_HUMANOID",
+        label: "인간형 주적",
+        values: favoredHumanoids,
+        allowed: ALLOWED_FAVORED_HUMANOID_IDS,
+      });
+    }
+
+    if (classKey !== "rogue" && expertiseSelections.length) {
+      throw new BadRequestException({
+        code: "CHARACTER_INVALID_CLASS_FEATURE",
+        message: "로그가 아닌 직업은 현재 캐릭터 빌더에서 전문화를 선택할 수 없습니다.",
+      });
+    }
+    if (classKey === "rogue" && (params.requireMissingSelections || expertiseSelections.length)) {
+      this.assertExactUniqueSelectionCount({
+        code: "CHARACTER_EXPERTISE_REQUIRED",
+        label: "전문화",
+        values: expertiseSelections,
+        count: 2,
+      });
+      const normalizedSkillSet = new Set(
+        params.proficientSkills.map((skill) => skill.trim().toLowerCase()),
+      );
+      const invalidExpertise = expertiseSelections.find(
+        (selection) =>
+          selection !== "thieves_tools" &&
+          !normalizedSkillSet.has(selection.trim().toLowerCase()),
+      );
+      if (invalidExpertise) {
+        throw new BadRequestException({
+          code: "CHARACTER_INVALID_EXPERTISE",
+          message: "전문화는 숙련된 기술 또는 Thieves' tools 중에서 선택해야 합니다.",
+          selection: invalidExpertise,
+        });
+      }
+    }
+  }
+
+  private getFeatureSelectionValues(features: string[], prefix: string): string[] {
+    return features
+      .filter((feature) => feature.startsWith(prefix))
+      .map((feature) => feature.slice(prefix.length).trim())
+      .filter((value) => value.length > 0);
+  }
+
+  private assertExactUniqueSelectionCount(params: {
+    code: string;
+    label: string;
+    values: string[];
+    count: number;
+  }): void {
+    if (
+      params.values.length !== params.count ||
+      new Set(params.values).size !== params.values.length
+    ) {
+      throw new BadRequestException({
+        code: params.code,
+        message: `${params.label} 선택은 ${params.count}개여야 합니다.`,
+        requiredCount: params.count,
+        receivedCount: params.values.length,
+      });
+    }
+  }
+
+  private assertAllowedSelectionValues(params: {
+    code: string;
+    label: string;
+    values: string[];
+    allowed: ReadonlySet<string>;
+  }): void {
+    const invalidValue = params.values.find((value) => !params.allowed.has(value));
+    if (invalidValue) {
+      throw new BadRequestException({
+        code: params.code,
+        message: `${params.label} 선택값이 유효하지 않습니다.`,
+        value: invalidValue,
       });
     }
   }
@@ -2376,6 +3040,232 @@ export class CharactersService {
     if (byKey) return byKey;
 
     return this.prisma.race.findFirst({ where: { koName: trimmed } });
+  }
+
+  private mapCharacterAvatarAsset(asset: {
+    id: string;
+    fileName: string;
+    contentType: string;
+    storageKey: string;
+    publicUrl: string;
+    width: number | null;
+    height: number | null;
+    fileSizeBytes: number;
+    uploadedByUserId: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }): CharacterAvatarAssetResponseDto {
+    return {
+      id: asset.id,
+      fileName: asset.fileName,
+      contentType: asset.contentType,
+      storageKey: asset.storageKey,
+      publicUrl: asset.publicUrl,
+      width: asset.width,
+      height: asset.height,
+      fileSizeBytes: asset.fileSizeBytes,
+      uploadedByUserId: asset.uploadedByUserId,
+      createdAt: asset.createdAt.toISOString(),
+      updatedAt: asset.updatedAt.toISOString(),
+    };
+  }
+
+  private rethrowCharacterAvatarAssetStorageError(error: unknown): never {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      (error.code === "P2021" || error.code === "P2022")
+    ) {
+      throw new ServiceUnavailableException(
+        "Character avatar asset storage schema is missing. Run `npm run prisma:push -w @trpg/be` and restart the backend.",
+      );
+    }
+
+    throw error;
+  }
+
+  private async putR2Object({
+    body,
+    contentType,
+    fileName,
+    keyPrefix,
+  }: {
+    body: Buffer;
+    contentType: string;
+    fileName: string;
+    keyPrefix: string;
+  }): Promise<{ storageKey: string; publicUrl: string }> {
+    const accountId = process.env.R2_ACCOUNT_ID;
+    const bucket = process.env.R2_BUCKET_NAME;
+    const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+    const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL?.replace(/\/$/, "");
+
+    if (!accountId || !bucket || !accessKeyId || !secretAccessKey || !publicBaseUrl) {
+      throw new BadRequestException("R2 업로드 환경변수가 설정되지 않았습니다.");
+    }
+
+    const extension = this.getSafeAvatarFileExtension(fileName, contentType);
+    const key = `${keyPrefix}/${randomUUID()}${extension}`;
+    const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+    const url = new URL(`${endpoint}/${bucket}/${key}`);
+    const now = new Date();
+    const amzDate = this.formatAmzDate(now);
+    const dateStamp = amzDate.slice(0, 8);
+    const payloadHash = createHash("sha256").update(body).digest("hex");
+    const encodedPath = `/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
+    const canonicalHeaders =
+      `host:${url.host}\n` + `x-amz-content-sha256:${payloadHash}\n` + `x-amz-date:${amzDate}\n`;
+    const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+    const canonicalRequest = [
+      "PUT",
+      encodedPath,
+      "",
+      canonicalHeaders,
+      signedHeaders,
+      payloadHash,
+    ].join("\n");
+    const credentialScope = `${dateStamp}/auto/s3/aws4_request`;
+    const stringToSign = [
+      "AWS4-HMAC-SHA256",
+      amzDate,
+      credentialScope,
+      createHash("sha256").update(canonicalRequest).digest("hex"),
+    ].join("\n");
+    const signingKey = this.getSignatureKey(secretAccessKey, dateStamp, "auto", "s3");
+    const signature = createHmac("sha256", signingKey).update(stringToSign).digest("hex");
+    const authorization =
+      `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, ` +
+      `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "PUT",
+        headers: {
+          Authorization: authorization,
+          "Content-Type": contentType,
+          "x-amz-content-sha256": payloadHash,
+          "x-amz-date": amzDate,
+        },
+        body,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "unknown network error";
+      throw new BadGatewayException(
+        `R2 avatar upload request failed before a response was received. ${detail}`,
+      );
+    }
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new BadRequestException(`R2 업로드에 실패했습니다. (${response.status}) ${message}`);
+    }
+
+    return {
+      storageKey: key,
+      publicUrl: `${publicBaseUrl}/${key}`,
+    };
+  }
+
+  private async deleteR2Object(storageKey: string): Promise<void> {
+    const accountId = process.env.R2_ACCOUNT_ID;
+    const bucket = process.env.R2_BUCKET_NAME;
+    const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+
+    if (!accountId || !bucket || !accessKeyId || !secretAccessKey) {
+      throw new BadRequestException("R2 삭제 환경변수가 설정되지 않았습니다.");
+    }
+
+    const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+    const url = new URL(`${endpoint}/${bucket}/${storageKey}`);
+    const now = new Date();
+    const amzDate = this.formatAmzDate(now);
+    const dateStamp = amzDate.slice(0, 8);
+    const payloadHash = createHash("sha256").update("").digest("hex");
+    const encodedPath = `/${bucket}/${storageKey.split("/").map(encodeURIComponent).join("/")}`;
+    const canonicalHeaders =
+      `host:${url.host}\n` + `x-amz-content-sha256:${payloadHash}\n` + `x-amz-date:${amzDate}\n`;
+    const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+    const canonicalRequest = [
+      "DELETE",
+      encodedPath,
+      "",
+      canonicalHeaders,
+      signedHeaders,
+      payloadHash,
+    ].join("\n");
+    const credentialScope = `${dateStamp}/auto/s3/aws4_request`;
+    const stringToSign = [
+      "AWS4-HMAC-SHA256",
+      amzDate,
+      credentialScope,
+      createHash("sha256").update(canonicalRequest).digest("hex"),
+    ].join("\n");
+    const signingKey = this.getSignatureKey(secretAccessKey, dateStamp, "auto", "s3");
+    const signature = createHmac("sha256", signingKey).update(stringToSign).digest("hex");
+    const authorization =
+      `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, ` +
+      `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "DELETE",
+        headers: {
+          Authorization: authorization,
+          "x-amz-content-sha256": payloadHash,
+          "x-amz-date": amzDate,
+        },
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "unknown network error";
+      throw new BadGatewayException(
+        `R2 avatar delete request failed before a response was received. ${detail}`,
+      );
+    }
+
+    if (response.ok || response.status === 404) {
+      return;
+    }
+
+    const message = await response.text();
+    throw new BadRequestException(`R2 삭제에 실패했습니다. (${response.status}) ${message}`);
+  }
+
+  private formatAmzDate(date: Date): string {
+    return date.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  }
+
+  private getSignatureKey(
+    secret: string,
+    dateStamp: string,
+    region: string,
+    service: string,
+  ): Buffer {
+    const kDate = createHmac("sha256", `AWS4${secret}`).update(dateStamp).digest();
+    const kRegion = createHmac("sha256", kDate).update(region).digest();
+    const kService = createHmac("sha256", kRegion).update(service).digest();
+    return createHmac("sha256", kService).update("aws4_request").digest();
+  }
+
+  private getSafeAvatarFileExtension(fileName: string, contentType: string): string {
+    const lowered = fileName.toLowerCase();
+    const match = lowered.match(/\.(png|jpe?g|webp)$/);
+    if (match) {
+      return match[0] === ".jpeg" ? ".jpg" : match[0];
+    }
+
+    switch (contentType) {
+      case "image/png":
+        return ".png";
+      case "image/jpeg":
+        return ".jpg";
+      case "image/webp":
+        return ".webp";
+      default:
+        return ".img";
+    }
   }
 
   private toAvatarType(value?: CharacterAvatarType): PrismaCharacterAvatarType {

@@ -16,6 +16,8 @@ export const P4_VALIDATION_SCENARIO_ID = "scenario_p4_storm_crown_campaign";
 export const P4_VALIDATION_START_NODE_ID = "node_p4_crown_hook";
 export const P5_VALIDATION_SCENARIO_ID = "scenario_p5_astral_seal_campaign";
 export const P5_VALIDATION_START_NODE_ID = "node_p5_astral_briefing";
+export const P6_VALIDATION_SCENARIO_ID = "scenario_p6_eternal_storm_citadel";
+export const P6_VALIDATION_START_NODE_ID = "node_p6_citadel_council";
 
 const TEAM_SCENARIO_TITLE = "ㅁㄴㅇㅇㄹ";
 const NODE_SCREEN_TEST_STORY_NODE_ID = "node_screen_test_story";
@@ -56,6 +58,20 @@ const P5_BOSS_ONE_NODE_ID = "node_p5_astral_dragon_phase";
 const P5_BOSS_TWO_NODE_ID = "node_p5_astral_tarrasque_phase";
 const P5_PUBLIC_NODE_ID = "node_p5_astral_public_ecosystem";
 const P5_END_NODE_ID = "node_p5_astral_end";
+const P6_LEVEL_NODE_ID = "node_p6_level_20_ascension";
+const P6_TRAVEL_ONE_NODE_ID = "node_p6_planar_convergence";
+const P6_TRAVEL_TWO_NODE_ID = "node_p6_astral_projection_gate";
+const P6_EXPLORATION_ONE_NODE_ID = "node_p6_wish_archive";
+const P6_EXPLORATION_TWO_NODE_ID = "node_p6_shapechange_labyrinth";
+const P6_DOWNTIME_ONE_NODE_ID = "node_p6_epic_downtime";
+const P6_DOWNTIME_TWO_NODE_ID = "node_p6_public_moderation_trial";
+const P6_COMBAT_ONE_NODE_ID = "node_p6_dragon_parliament";
+const P6_COMBAT_TWO_NODE_ID = "node_p6_naga_mummy_gauntlet";
+const P6_BOSS_ONE_NODE_ID = "node_p6_boss_gold_dragon_lair";
+const P6_BOSS_TWO_NODE_ID = "node_p6_boss_silver_storm_swarm";
+const P6_ARCHIVE_ONE_NODE_ID = "node_p6_campaign_epilogue";
+const P6_ARCHIVE_TWO_NODE_ID = "node_p6_character_vault_transfer";
+const P6_END_NODE_ID = "node_p6_final_legacy";
 
 // 서버를 처음 실행했을 때 바로 세션을 만들고 흐름을 검증할 수 있도록
 // 가장 작은 형태의 기본 시나리오를 코드로 함께 넣어둔다.
@@ -177,6 +193,22 @@ const p5ValidationScenario = {
   startNodeId: P5_VALIDATION_START_NODE_ID,
   startLevel: 16,
   recommendedEndLevel: 16,
+};
+
+const p6ValidationScenario = {
+  id: P6_VALIDATION_SCENARIO_ID,
+  title: "영원폭풍 성채의 마지막 유산",
+  description:
+    "17~20레벨 캐릭터로 360~540분 동안 P6 최종 범위인 20레벨 성장, 9레벨 주문, SRD 주문 319개/몬스터 317종 manifest, 운영자 moderation, 캠페인 완결·후일담·캐릭터 보관소·새 캠페인 이관을 끝까지 검증하는 오리지널 최종 캠페인 챕터입니다.",
+  thumbnailUrl: null,
+  ruleSetId: "dnd5e",
+  difficulty: "mythic",
+  license: ScenarioLicense.ORIGINAL,
+  attribution:
+    '모두의 TRPG P6 최종 검증 캠페인.\nP5_PUBLIC_META:{"tags":["p6","level-20","final-campaign","archive","moderation","character-vault"],"estimatedMinutes":450,"gmMode":"BOTH","contentWarnings":["mythic combat","planar catastrophe"],"ratings":[],"forkCount":0,"moderationStatus":"visible","reports":[],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+  startNodeId: P6_VALIDATION_START_NODE_ID,
+  startLevel: 17,
+  recommendedEndLevel: 20,
 };
 
 // 화면 레이아웃 확인이 목적이라 DB 마이그레이션 없이 시드만으로 기본 맵을 주입한다.
@@ -1271,6 +1303,123 @@ function createP5ValidationMap(
       },
     ],
     updatedAt: "2026-06-24T00:00:00.000Z",
+  };
+}
+
+function createP6ValidationMap(
+  nodeId: string,
+  phase:
+    | "planar_convergence"
+    | "astral_projection"
+    | "wish_archive"
+    | "shapechange_labyrinth"
+    | "epic_downtime"
+    | "moderation_trial"
+    | "dragon_parliament"
+    | "naga_mummy_gauntlet"
+    | "gold_dragon_lair"
+    | "silver_storm_swarm",
+) {
+  const monsterByPhase: Record<typeof phase, Array<{ id: string; nameEn: string; nameKo: string; x: number; y: number; size: number }>> = {
+    planar_convergence: [
+      { id: "monster.adult_brass_dragon", nameEn: "Adult Brass Dragon", nameKo: "성체 브라스 드래곤", x: 768, y: 192, size: 192 },
+      { id: "monster.adult_bronze_dragon", nameEn: "Adult Bronze Dragon", nameKo: "성체 브론즈 드래곤", x: 960, y: 384, size: 192 },
+      { id: "monster.behir", nameEn: "Behir", nameKo: "비히어", x: 512, y: 384, size: 192 },
+    ],
+    astral_projection: [
+      { id: "monster.adult_copper_dragon", nameEn: "Adult Copper Dragon", nameKo: "성체 코퍼 드래곤", x: 704, y: 192, size: 192 },
+      { id: "monster.adult_gold_dragon", nameEn: "Adult Gold Dragon", nameKo: "성체 골드 드래곤", x: 960, y: 320, size: 192 },
+      { id: "monster.adult_silver_dragon", nameEn: "Adult Silver Dragon", nameKo: "성체 실버 드래곤", x: 512, y: 448, size: 192 },
+    ],
+    wish_archive: [
+      { id: "monster.guardian_naga", nameEn: "Guardian Naga", nameKo: "가디언 나가", x: 704, y: 256, size: 128 },
+      { id: "monster.spirit_naga", nameEn: "Spirit Naga", nameKo: "스피릿 나가", x: 960, y: 384, size: 128 },
+      { id: "monster.oni", nameEn: "Oni", nameKo: "오니", x: 512, y: 384, size: 64 },
+    ],
+    shapechange_labyrinth: [
+      { id: "monster.gorgon", nameEn: "Gorgon", nameKo: "고르곤", x: 704, y: 256, size: 128 },
+      { id: "monster.shambling_mound", nameEn: "Shambling Mound", nameKo: "섐블링 마운드", x: 960, y: 384, size: 128 },
+      { id: "monster.winter_wolf", nameEn: "Winter Wolf", nameKo: "윈터 울프", x: 512, y: 448, size: 128 },
+    ],
+    epic_downtime: [
+      { id: "monster.awakened_tree", nameEn: "Awakened Tree", nameKo: "각성한 나무", x: 704, y: 256, size: 192 },
+      { id: "monster.druid", nameEn: "Druid", nameKo: "드루이드", x: 960, y: 384, size: 64 },
+      { id: "monster.dryad", nameEn: "Dryad", nameKo: "드라이어드", x: 512, y: 448, size: 64 },
+    ],
+    moderation_trial: [
+      { id: "monster.doppelganger", nameEn: "Doppelganger", nameKo: "도플갱어", x: 704, y: 256, size: 64 },
+      { id: "monster.succubus_incubus", nameEn: "Succubus/Incubus", nameKo: "서큐버스/인큐버스", x: 960, y: 384, size: 64 },
+      { id: "monster.noble", nameEn: "Noble", nameKo: "귀족", x: 512, y: 448, size: 64 },
+    ],
+    dragon_parliament: [
+      { id: "monster.ancient_brass_dragon", nameEn: "Ancient Brass Dragon", nameKo: "고대 브라스 드래곤", x: 704, y: 192, size: 256 },
+      { id: "monster.ancient_bronze_dragon", nameEn: "Ancient Bronze Dragon", nameKo: "고대 브론즈 드래곤", x: 960, y: 320, size: 256 },
+      { id: "monster.ancient_copper_dragon", nameEn: "Ancient Copper Dragon", nameKo: "고대 코퍼 드래곤", x: 448, y: 384, size: 256 },
+    ],
+    naga_mummy_gauntlet: [
+      { id: "monster.mummy_lord", nameEn: "Mummy Lord", nameKo: "미라 군주", x: 704, y: 192, size: 128 },
+      { id: "monster.glabrezu", nameEn: "Glabrezu", nameKo: "글라브레주", x: 960, y: 320, size: 128 },
+      { id: "monster.chuul", nameEn: "Chuul", nameKo: "추울", x: 512, y: 448, size: 128 },
+    ],
+    gold_dragon_lair: [
+      { id: "monster.ancient_gold_dragon", nameEn: "Ancient Gold Dragon", nameKo: "고대 골드 드래곤", x: 768, y: 192, size: 256 },
+      { id: "monster.young_gold_dragon", nameEn: "Young Gold Dragon", nameKo: "어린 골드 드래곤", x: 512, y: 448, size: 192 },
+      { id: "monster.gold_dragon_wyrmling", nameEn: "Gold Dragon Wyrmling", nameKo: "골드 드래곤 웜링", x: 1024, y: 448, size: 64 },
+    ],
+    silver_storm_swarm: [
+      { id: "monster.ancient_silver_dragon", nameEn: "Ancient Silver Dragon", nameKo: "고대 실버 드래곤", x: 768, y: 192, size: 256 },
+      { id: "monster.swarm_of_poisonous_snakes", nameEn: "Swarm of Poisonous Snakes", nameKo: "독사 떼", x: 512, y: 448, size: 128 },
+      { id: "monster.swarm_of_quippers", nameEn: "Swarm of Quippers", nameKo: "퀴퍼 떼", x: 1024, y: 448, size: 128 },
+    ],
+  };
+
+  return {
+    id: `map_${nodeId}`,
+    scenarioNodeId: nodeId,
+    imageUrl: null,
+    gridType: "square",
+    gridSize: 64,
+    width: 1408,
+    height: 896,
+    fogRects: [],
+    startingPositions: [
+      { id: `start_${nodeId}_1`, label: "1", x: 128, y: 704 },
+      { id: `start_${nodeId}_2`, label: "2", x: 192, y: 704 },
+      { id: `start_${nodeId}_3`, label: "3", x: 256, y: 704 },
+      { id: `start_${nodeId}_4`, label: "4", x: 320, y: 704 },
+    ],
+    tokens: monsterByPhase[phase].map((monster) => ({
+      id: `token_${nodeId}_${monster.id.replace(/\./g, "_")}`,
+      name: monster.nameEn,
+      x: monster.x,
+      y: monster.y,
+      size: monster.size,
+      hidden: false,
+      isHostile: phase === "wish_archive" || phase === "epic_downtime" || phase === "moderation_trial" ? false : true,
+      monster: { id: monster.id, nameEn: monster.nameEn, nameKo: monster.nameKo },
+    })),
+    terrainCells: [
+      { id: `terrain_${nodeId}_prismatic_wall`, x: 448, y: 256, width: 320, height: 128, terrainEffectId: "terrain.wall_of_fire" },
+      { id: `terrain_${nodeId}_astral_elevation`, x: 832, y: 256, width: 256, height: 192, terrainEffectId: "terrain.elevation" },
+      { id: `terrain_${nodeId}_venom_cloud`, x: 640, y: 448, width: 256, height: 192, terrainEffectId: "terrain.poison_cloud" },
+    ],
+    objectCells: [
+      {
+        id: `object_${nodeId}_p6_archive_core`,
+        name: "P6 최종 검증 코어",
+        description: "20레벨 성장, 9레벨 주문, 최종 manifest, moderation, archive, character vault 이관을 한 번에 추적하는 오브젝트입니다.",
+        x: 384,
+        y: 256,
+        width: 128,
+        height: 128,
+        visibleToPlayers: true,
+        canBreak: phase === "gold_dragon_lair" || phase === "silver_storm_swarm",
+        broken: false,
+        breakCheckDc: 24,
+        hiddenClueIds: [`clue_${nodeId}_p6_validation`],
+      },
+    ],
+    updatedAt: "2026-06-25T00:00:00.000Z",
   };
 }
 
@@ -2889,6 +3038,342 @@ const scenarioNodes = [
       },
     }),
   },
+  {
+    id: P6_VALIDATION_START_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "영원폭풍 성채 작전 회의",
+    sceneText:
+      "영원폭풍 성채가 모든 차원 위에 떠오릅니다. 파티는 17레벨에서 20레벨까지 성장하며 19레벨 ASI, 20레벨 capstone, 9레벨 주문 슬롯과 Mystic Arcanum 9를 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_LEVEL_NODE_ID }]),
+    cluesJson: JSON.stringify([
+      {
+        id: "clue_p6_final_checklist",
+        title: "P6 최종 검증 목록",
+        handoutText: "20레벨 성장, 9레벨 주문 8개 이상, P6 주문 20개 이상, P6 몬스터 24종 이상, 운영자 moderation, archive/vault/transfer를 모두 확인합니다.",
+      },
+    ]),
+    fallbackNodeId: P6_LEVEL_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Scenario: {
+        gmModes: ["AI", "HUMAN"],
+        startLevel: 17,
+        endLevel: 20,
+        expectedDurationMinutes: [360, 540],
+        validatesLevelUp: true,
+        validatesCapstones: true,
+        validatesNinthLevelSlots: true,
+      },
+    }),
+  },
+  {
+    id: P6_LEVEL_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "20레벨 승천과 마지막 준비",
+    sceneText:
+      "각 직업의 20레벨 기능과 대표 서브클래스 고레벨 기능을 확인합니다. Wizard Signature Spells, Druid Archdruid, Fighter Extra Attack(3), Rogue Stroke of Luck처럼 실제 resolver 또는 snapshot에 남는 기능을 점검합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_TRAVEL_ONE_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p6_level_20", title: "20레벨 기능", text: "19레벨 ASI와 20레벨 capstone이 character snapshot과 session reconnect 상태에 남아야 합니다." }]),
+    fallbackNodeId: P6_TRAVEL_ONE_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Scenario: {
+        nodeCategory: "story",
+        validatesLevelUp: true,
+        classFeatureIds: [
+          "class.barbarian.feature.primal_champion",
+          "class.bard.feature.superior_inspiration",
+          "class.druid.feature.archdruid",
+          "class.fighter.feature.extra_attack_3",
+          "class.rogue.feature.stroke_of_luck",
+          "class.wizard.feature.signature_spells",
+        ],
+      },
+    }),
+  },
+  {
+    id: P6_TRAVEL_ONE_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "travel",
+    title: "차원 수렴 항로",
+    sceneText:
+      "Gate, Wind Walk, Transport via Plants, Telepathic Bond로 파티를 여러 차원에 분산·재집결시킵니다. 실패·편차·위치 상태가 campaign timeline에 남아야 합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [{ id: "p6_planar_navigation", type: "skill_check", skill: "arcana", dc: 21 }], vttMap: createP6ValidationMap(P6_TRAVEL_ONE_NODE_ID, "planar_convergence") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_TRAVEL_TWO_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p6_planar_route", title: "차원 수렴 좌표", text: "Gate 실패는 성채 위치를 한 단계 불안정하게 만듭니다." }]),
+    fallbackNodeId: P6_TRAVEL_TWO_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Scenario: {
+        nodeCategory: "travel",
+        spellIds: ["spell.gate", "spell.wind_walk", "spell.transport_via_plants", "spell.telepathic_bond"],
+        monsterIds: ["monster.adult_brass_dragon", "monster.adult_bronze_dragon", "monster.behir"],
+      },
+    }),
+  },
+  {
+    id: P6_TRAVEL_TWO_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "travel",
+    title: "Astral Projection 관문",
+    sceneText:
+      "Astral Projection과 Plane Shift 계열 이동을 비교하고, Foresight로 위험을 예견합니다. 성체 금속룡 의회가 파티의 통행권을 시험합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [{ id: "p6_astral_survival", type: "skill_check", skill: "survival", dc: 21 }], vttMap: createP6ValidationMap(P6_TRAVEL_TWO_NODE_ID, "astral_projection") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_EXPLORATION_ONE_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p6_astral_projection", title: "은끈의 진동", text: "Astral Projection 해제 시 원본 육체 snapshot이 손상되지 않아야 합니다." }]),
+    fallbackNodeId: P6_EXPLORATION_ONE_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Scenario: {
+        nodeCategory: "travel",
+        spellIds: ["spell.astral_projection", "spell.foresight", "spell.magnificent_mansion", "spell.private_sanctum"],
+        monsterIds: ["monster.adult_copper_dragon", "monster.adult_gold_dragon", "monster.adult_silver_dragon"],
+      },
+    }),
+  },
+  {
+    id: P6_EXPLORATION_ONE_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "Wish 기록고",
+    sceneText:
+      "Wish, Legend Lore, Contact Other Plane, Commune with Nature가 같은 진실을 서로 다른 비용과 위험으로 드러냅니다. Wish는 안전한 MVP 선택지와 GM 승인 override로 분리되어야 합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [{ id: "p6_wish_arcana", type: "skill_check", skill: "arcana", dc: 22 }], vttMap: createP6ValidationMap(P6_EXPLORATION_ONE_NODE_ID, "wish_archive") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_EXPLORATION_TWO_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p6_wish_limit", title: "Wish 안전 장치", text: "광범위 소원은 GM override audit 없이 자동 확정되지 않습니다." }]),
+    fallbackNodeId: P6_EXPLORATION_TWO_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Scenario: {
+        nodeCategory: "exploration",
+        validatesWishApproval: true,
+        spellIds: ["spell.wish", "spell.legend_lore", "spell.contact_other_plane", "spell.commune_with_nature"],
+        monsterIds: ["monster.guardian_naga", "monster.spirit_naga", "monster.oni"],
+      },
+    }),
+  },
+  {
+    id: P6_EXPLORATION_TWO_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "exploration",
+    title: "Shapechange 미궁",
+    sceneText:
+      "Shapechange, True Polymorph, Animal Shapes, Reincarnate가 token owner와 stat replacement, 집중 종료 lifecycle을 바꿉니다. 변신 종료 후 원본 캐릭터 snapshot이 유지되는지 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [{ id: "p6_shapechange_nature", type: "skill_check", skill: "nature", dc: 21 }], vttMap: createP6ValidationMap(P6_EXPLORATION_TWO_NODE_ID, "shapechange_labyrinth") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_DOWNTIME_ONE_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p6_shapechange", title: "원본 형상", text: "집중이 깨지면 Shapechange token override가 제거되어야 합니다." }]),
+    fallbackNodeId: P6_DOWNTIME_ONE_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Scenario: {
+        nodeCategory: "exploration",
+        spellIds: ["spell.shapechange", "spell.true_polymorph", "spell.animal_shapes", "spell.reincarnate"],
+        monsterIds: ["monster.gorgon", "monster.shambling_mound", "monster.winter_wolf"],
+      },
+    }),
+  },
+  {
+    id: P6_DOWNTIME_ONE_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "downtime",
+    title: "에픽 downtime과 부활 비용",
+    sceneText:
+      "True Resurrection, Mass Heal, Hallow, Forbiddance, Guards and Wards로 성채를 안정화합니다. 비용·재료·장기 효과가 economy와 campaign archive에 남는지 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP6ValidationMap(P6_DOWNTIME_ONE_NODE_ID, "epic_downtime") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_DOWNTIME_TWO_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p6_true_resurrection_cost", title: "진정한 부활의 비용", text: "True Resurrection 비용과 사망/부활 이력이 archive analytics에 남아야 합니다." }]),
+    fallbackNodeId: P6_DOWNTIME_TWO_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Downtime: {
+        taskTypes: ["resurrection", "warding", "research", "crafting", "public_summary"],
+        validatesArchiveAnalytics: true,
+      },
+      p6Scenario: {
+        nodeCategory: "downtime",
+        spellIds: ["spell.true_resurrection", "spell.mass_heal", "spell.hallow", "spell.forbiddance", "spell.guards_and_wards"],
+        monsterIds: ["monster.awakened_tree", "monster.druid", "monster.dryad"],
+      },
+    }),
+  },
+  {
+    id: P6_DOWNTIME_TWO_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "downtime",
+    title: "공개 콘텐츠 운영자 재판",
+    sceneText:
+      "공개 revision을 신고하고 운영자 큐에서 hidden, warning, review_removed, restored를 처리합니다. Creator는 이의 제기를 제출하고 복구 여부를 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP6ValidationMap(P6_DOWNTIME_TWO_NODE_ID, "moderation_trial") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_COMBAT_ONE_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p6_moderation_flow", title: "운영자 moderation 흐름", text: "report → queue → action → appeal → restored/rejected → review_removed를 검증합니다." }]),
+    fallbackNodeId: P6_COMBAT_ONE_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Moderation: {
+        validatesQueue: true,
+        validatesActions: ["hidden", "restored", "warning", "creator_note_required", "rating_removed", "review_removed"],
+        validatesAppeals: ["submitted", "accepted", "rejected"],
+      },
+      p6Scenario: {
+        nodeCategory: "downtime",
+        monsterIds: ["monster.doppelganger", "monster.succubus_incubus", "monster.noble"],
+      },
+    }),
+  },
+  {
+    id: P6_COMBAT_ONE_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "고대 금속룡 의회",
+    sceneText:
+      "고대 금속룡 셋이 각기 다른 breath_or_bite area save를 사용합니다. Meteor Swarm, Prismatic Wall, Storm of Vengeance로 대규모 광역 피해와 부분 성공을 검증합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP6ValidationMap(P6_COMBAT_ONE_NODE_ID, "dragon_parliament") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_COMBAT_TWO_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P6_COMBAT_TWO_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Scenario: {
+        nodeCategory: "combat",
+        bossPhase: 3,
+        legendaryOrLair: true,
+        spellIds: ["spell.meteor_swarm", "spell.prismatic_wall", "spell.storm_of_vengeance"],
+        monsterIds: ["monster.ancient_brass_dragon", "monster.ancient_bronze_dragon", "monster.ancient_copper_dragon"],
+      },
+    }),
+  },
+  {
+    id: P6_COMBAT_TWO_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "나가와 미라 군주의 관문",
+    sceneText:
+      "Mummy Lord, Glabrezu, Chuul이 lair-like 압박과 grappling, fear, curse를 겹칩니다. Power Word Kill, Imprisonment, Weird의 면역·실패·부분 성공 기록을 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP6ValidationMap(P6_COMBAT_TWO_NODE_ID, "naga_mummy_gauntlet") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_BOSS_ONE_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P6_BOSS_ONE_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Scenario: {
+        nodeCategory: "combat",
+        spellIds: ["spell.power_word_kill", "spell.imprisonment", "spell.weird"],
+        monsterIds: ["monster.mummy_lord", "monster.glabrezu", "monster.chuul"],
+      },
+    }),
+  },
+  {
+    id: P6_BOSS_ONE_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "1단계 보스: 고대 골드 드래곤의 성채 심장",
+    sceneText:
+      "고대 골드 드래곤이 lair phase를 열고, 하위 골드 드래곤들이 recharge breath를 이어갑니다. Time Stop, Gate, Foresight로 선제 준비와 차원 증원을 검증합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP6ValidationMap(P6_BOSS_ONE_NODE_ID, "gold_dragon_lair") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_BOSS_TWO_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P6_BOSS_TWO_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Scenario: {
+        nodeCategory: "combat",
+        bossPhase: 1,
+        legendaryOrLair: true,
+        spellIds: ["spell.time_stop", "spell.gate", "spell.foresight"],
+        monsterIds: ["monster.ancient_gold_dragon", "monster.young_gold_dragon", "monster.gold_dragon_wyrmling"],
+      },
+    }),
+  },
+  {
+    id: P6_BOSS_TWO_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "combat",
+    title: "2단계 보스: 고대 실버 드래곤과 독사의 폭풍",
+    sceneText:
+      "고대 실버 드래곤이 은빛 폭풍을 열고 독사 떼와 퀴퍼 떼가 영역 피해를 누적합니다. Swarm area save, half damage, concentration 종료를 검증합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP6ValidationMap(P6_BOSS_TWO_NODE_ID, "silver_storm_swarm") }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_ARCHIVE_ONE_NODE_ID }]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: P6_ARCHIVE_ONE_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Scenario: {
+        nodeCategory: "combat",
+        bossPhase: 2,
+        legendaryOrLair: true,
+        monsterIds: ["monster.ancient_silver_dragon", "monster.swarm_of_poisonous_snakes", "monster.swarm_of_quippers"],
+      },
+    }),
+  },
+  {
+    id: P6_ARCHIVE_ONE_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "archive",
+    title: "후일담과 campaign archive",
+    sceneText:
+      "GM은 complete-campaign API로 후일담, 최종 보상, 공개 요약 범위, 캐릭터 이관 허용 여부를 기록합니다. 완료 후 archive snapshot은 불변이어야 합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_ARCHIVE_TWO_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p6_archive_snapshot", title: "Archive snapshot", text: "일정, downtime, 경제, inventory, 전투, 공개 revision lineage가 archive에 요약됩니다." }]),
+    fallbackNodeId: P6_ARCHIVE_TWO_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Archive: {
+        validatesCompleteCampaignApi: true,
+        validatesEpilogue: true,
+        validatesImmutableArchive: true,
+        validatesAnalytics: true,
+      },
+    }),
+  },
+  {
+    id: P6_ARCHIVE_TWO_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "archive",
+    title: "캐릭터 보관소와 새 캠페인 이관",
+    sceneText:
+      "플레이어는 보관소에서 20레벨 캐릭터를 확인하고, 새 캠페인으로 clone 이관을 요청합니다. GM 승인 뒤 새 SessionCharacter가 독립 snapshot으로 생성되는지 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_END_NODE_ID }]),
+    cluesJson: JSON.stringify([{ id: "clue_p6_character_transfer", title: "캐릭터 이관", text: "원본 archive는 변경되지 않고, 대상 세션에 clone 캐릭터만 생성되어야 합니다." }]),
+    fallbackNodeId: P6_END_NODE_ID,
+    nodeMetaJson: JSON.stringify({
+      p6Archive: {
+        validatesCharacterVault: true,
+        validatesTransferRequest: true,
+        validatesTransferApproval: true,
+        validatesIndependentSnapshot: true,
+      },
+    }),
+  },
+  {
+    id: P6_END_NODE_ID,
+    scenarioId: P6_VALIDATION_SCENARIO_ID,
+    nodeType: "story",
+    title: "영원폭풍 이후의 세계",
+    sceneText:
+      "영원폭풍은 꺼지고 성채는 다음 캠페인의 전설이 됩니다. AI GM과 HUMAN GM으로 주요 경로를 각각 완주하고, 공개 탐색부터 moderation, archive, vault, transfer까지 이어지는 최종 사용자 흐름을 확인합니다.",
+    imageUrl: null,
+    checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
+    transitionsJson: JSON.stringify([]),
+    cluesJson: JSON.stringify([]),
+    fallbackNodeId: null,
+    nodeMetaJson: JSON.stringify({
+      isEndingNode: true,
+      endBehavior: "SESSION_COMPLETE",
+      p6Scenario: {
+        validatesAiGm: true,
+        validatesHumanGm: true,
+        validatesFinalManifest: true,
+        validatesPublicDiscoveryToRating: true,
+      },
+    }),
+  },
 ];
 
 const scenarios = [
@@ -2900,6 +3385,7 @@ const scenarios = [
   p3ValidationScenario,
   p4ValidationScenario,
   p5ValidationScenario,
+  p6ValidationScenario,
 ];
 
 type SourceScenarioNode = {

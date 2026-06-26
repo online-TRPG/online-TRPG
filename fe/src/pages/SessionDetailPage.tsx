@@ -10,8 +10,26 @@
  */
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { getSessionDetail } from "../services/api";
+import {
+  approveCharacterTransfer,
+  completeLongCampaign,
+  getCampaignArchive,
+  getSessionDetail,
+  rejectCharacterTransfer,
+} from "../services/api";
 import type { SessionDetail, SessionSnapshot, StoredUser, User } from "../types/session";
+import type { CampaignArchiveResponseDto } from "@trpg/shared-types";
+
+type P6CharacterTransferRequestView = {
+  requestId: string;
+  requestedByUserId: string;
+  sourceSessionId: string;
+  sourceSessionCharacterId: string;
+  status: "requested" | "approved" | "rejected";
+  mode: "clone" | "transfer";
+  targetSessionCharacterId: string | null;
+  createdAt: string;
+};
 import { buildSessionPath } from "../utils/routes";
 
 // 부모 컴포넌트가 이 페이지에 주입하는 데이터와 이벤트 콜백입니다.
@@ -57,8 +75,12 @@ export function SessionDetailPage({
   const navigate = useNavigate();
   // 상세 API 응답, 로딩, 에러 상태입니다.
   const [detail, setDetail] = useState<SessionDetail | null>(null);
+  const [archive, setArchive] = useState<CampaignArchiveResponseDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [p6ActionFeedback, setP6ActionFeedback] = useState<string | null>(null);
+  const [p6ActionBusy, setP6ActionBusy] = useState(false);
 
   // sessionPublicId가 바뀔 때마다 세션 상세 정보를 다시 불러옵니다.
   useEffect(() => {
@@ -84,6 +106,31 @@ export function SessionDetailPage({
     };
   }, [accessToken, sessionPublicId, user]);
 
+  useEffect(() => {
+    if (!detail || detail.session.status !== "completed") {
+      setArchive(null);
+      setArchiveError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setArchiveError(null);
+    void getCampaignArchive(user, detail.session.publicId || detail.session.id, accessToken)
+      .then((next) => {
+        if (cancelled) return;
+        setArchive(next);
+      })
+      .catch((caught) => {
+        if (cancelled) return;
+        setArchive(null);
+        setArchiveError(caught instanceof Error ? caught.message : "캠페인 archive를 불러오지 못했습니다.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, detail, user]);
+
   // 현재 접속 중인 세션인지, 이미 참여한 세션인지 판단해 버튼 문구/동작을 결정합니다.
   const isCurrentSession = detail?.session.id === snapshot?.session.id;
   const isKnownMember = isCurrentSession || (detail ? snapshot?.session.id === detail.session.id : false);
@@ -91,6 +138,9 @@ export function SessionDetailPage({
     detail?.sessionScenarios.find((item) => item.status === "ACTIVE")?.scenario ?? detail?.scenario ?? null;
   const participantCount = detail?.participants.filter((item) => item.status === "JOINED").length ?? 0;
   const canonicalPath = detail ? buildSessionPath(detail.session) : null;
+  const isHost = detail?.session.hostUserId === user.id;
+  const transferRequests = parseP6CharacterTransferRequests(detail?.state.flags?.p6CharacterTransferRequests);
+  const pendingTransferRequests = transferRequests.filter((request) => request.status === "requested");
 
   useEffect(() => {
     if (!canonicalPath) return;
@@ -109,6 +159,85 @@ export function SessionDetailPage({
     const nextSnapshot = await onJoinSessionById(detail.session.publicId);
     if (nextSnapshot) {
       onOpenPlay();
+    }
+  }
+
+  async function handleCompleteCampaignArchive() {
+    if (!detail || !isHost) return;
+    const epilogue = window.prompt("캠페인 후일담을 입력하세요.", "파티는 마지막 위협을 봉인하고 다음 전설을 남겼습니다.") ?? "";
+    if (!epilogue.trim()) return;
+    const shareScopeInput = window.prompt("공유 범위를 입력하세요: private, party, public_summary", "party") ?? "party";
+    const shareScope =
+      shareScopeInput === "private" || shareScopeInput === "public_summary" ? shareScopeInput : "party";
+    const allowCharacterTransfer = window.confirm("완료 캐릭터의 새 캠페인 이관을 허용할까요?");
+
+    setP6ActionBusy(true);
+    setP6ActionFeedback(null);
+    try {
+      const nextArchive = await completeLongCampaign(
+        user,
+        detail.session.publicId || detail.session.id,
+        {
+          epilogue: epilogue.trim(),
+          finalNodeId: detail.state.currentNodeId,
+          finalRewardIds: [],
+          shareScope,
+          allowCharacterTransfer,
+        },
+        accessToken,
+      );
+      setArchive(nextArchive);
+      setP6ActionFeedback(`캠페인 archive가 생성되었습니다: ${nextArchive.archiveId}`);
+      const refreshed = await getSessionDetail(user, detail.session.publicId || detail.session.id, accessToken);
+      setDetail(refreshed);
+    } catch (caught) {
+      setP6ActionFeedback(caught instanceof Error ? caught.message : "캠페인 완결 처리에 실패했습니다.");
+    } finally {
+      setP6ActionBusy(false);
+    }
+  }
+
+  async function handleApproveTransfer(request: P6CharacterTransferRequestView) {
+    if (!detail || !isHost) return;
+    if (!window.confirm(`${request.requestedByUserId}의 캐릭터 이관 요청을 승인할까요?`)) return;
+    setP6ActionBusy(true);
+    setP6ActionFeedback(null);
+    try {
+      const result = await approveCharacterTransfer(
+        user,
+        detail.session.publicId || detail.session.id,
+        request.requestId,
+        accessToken,
+      );
+      setP6ActionFeedback(`이관 승인 완료: ${result.targetSessionCharacterId ?? result.requestId}`);
+      const refreshed = await getSessionDetail(user, detail.session.publicId || detail.session.id, accessToken);
+      setDetail(refreshed);
+    } catch (caught) {
+      setP6ActionFeedback(caught instanceof Error ? caught.message : "캐릭터 이관 승인에 실패했습니다.");
+    } finally {
+      setP6ActionBusy(false);
+    }
+  }
+
+  async function handleRejectTransfer(request: P6CharacterTransferRequestView) {
+    if (!detail || !isHost) return;
+    if (!window.confirm(`${request.requestedByUserId}의 캐릭터 이관 요청을 거절할까요?`)) return;
+    setP6ActionBusy(true);
+    setP6ActionFeedback(null);
+    try {
+      const result = await rejectCharacterTransfer(
+        user,
+        detail.session.publicId || detail.session.id,
+        request.requestId,
+        accessToken,
+      );
+      setP6ActionFeedback(`이관 요청을 거절했습니다: ${result.requestId}`);
+      const refreshed = await getSessionDetail(user, detail.session.publicId || detail.session.id, accessToken);
+      setDetail(refreshed);
+    } catch (caught) {
+      setP6ActionFeedback(caught instanceof Error ? caught.message : "캐릭터 이관 거절에 실패했습니다.");
+    } finally {
+      setP6ActionBusy(false);
     }
   }
 
@@ -149,11 +278,22 @@ export function SessionDetailPage({
           <button type="button" className="ghost" onClick={() => onOpenHostProfile(detail.host)}>
             호스트 프로필 보기
           </button>
+          {isHost && detail.session.status !== "completed" ? (
+            <button
+              type="button"
+              className="ghost"
+              disabled={busy || p6ActionBusy}
+              onClick={() => void handleCompleteCampaignArchive()}
+            >
+              P6 캠페인 완결·보관
+            </button>
+          ) : null}
           <button type="button" className="primary small" disabled={busy} onClick={() => void handleEnter()}>
             {enterLabel}
           </button>
         </div>
       </section>
+      {p6ActionFeedback ? <p className="panel-error">{p6ActionFeedback}</p> : null}
 
       {/* 세션 메타 정보와 호스트 프로필 정보를 나란히 보여줍니다. */}
       <section className="profile-grid">
@@ -211,7 +351,127 @@ export function SessionDetailPage({
           </div>
         </article>
       </section>
+
+      {detail.session.status === "completed" ? (
+        <section className="profile-card">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">P6 Campaign Archive</span>
+              <h2>완결 기록과 후일담</h2>
+            </div>
+          </div>
+          {archive ? (
+            <div className="profile-session-items">
+              <div className="profile-session-item">
+                <strong>{archive.epilogue}</strong>
+                <span>
+                  완료 {formatCompactDate(archive.completedAt)} · 공유 범위 {archive.shareScope} · 이관 {archive.allowCharacterTransfer ? "허용" : "불가"}
+                </span>
+                <span>
+                  전투 {archive.analytics.combatCount}회 · 로그 {archive.analytics.turnLogCount}개 · 방문 노드 {archive.analytics.nodeVisitCount}개 · 보관 캐릭터 {archive.analytics.sessionCharacterCount}명
+                </span>
+                <span>
+                  Snapshot v{archive.snapshot.stateVersion} · 최종 노드 {archive.snapshot.currentNodeId ?? "없음"} · downtime 완료 {archive.snapshot.downtime.completedTaskCount}개 · 진행 {archive.snapshot.downtime.activeTaskCount}개
+                </span>
+                <span>
+                  경제 {archive.snapshot.economy.hasEconomyState ? "보존" : "없음"} · party stash {archive.snapshot.economy.partyStashItemCount}개 · 지갑 {archive.snapshot.economy.walletCount}개 · inventory {archive.snapshot.inventory.totalItemCount}개
+                </span>
+                <span>
+                  공개 lineage {archive.snapshot.publicRevisionLineage ? "보존됨" : "없음"} · combat snapshot {archive.snapshot.combat.combatCount}회
+                </span>
+              </div>
+              {archive.characters.slice(0, 6).map((character) => (
+                <div key={character.sessionCharacterId} className="profile-session-item">
+                  <strong>{character.name}</strong>
+                  <span>
+                    LV {character.level} {character.className}
+                    {character.subclassName ? ` / ${character.subclassName}` : ""} · {character.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="panel-error">{archiveError ?? "완료된 세션이지만 아직 P6 archive가 없습니다."}</p>
+          )}
+        </section>
+      ) : null}
+
+      {isHost && pendingTransferRequests.length > 0 ? (
+        <section className="profile-card">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">P6 Character Transfer</span>
+              <h2>캐릭터 이관 승인 대기</h2>
+            </div>
+          </div>
+          <div className="profile-session-items">
+            {pendingTransferRequests.map((request) => (
+              <div key={request.requestId} className="profile-session-item">
+                <strong>{request.requestedByUserId}</strong>
+                <span>
+                  {request.mode} · source {request.sourceSessionId} / {request.sourceSessionCharacterId}
+                </span>
+                <span>요청일 {formatCompactDate(request.createdAt)}</span>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={busy || p6ActionBusy}
+                  onClick={() => void handleApproveTransfer(request)}
+                >
+                  이관 승인
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={busy || p6ActionBusy}
+                  onClick={() => void handleRejectTransfer(request)}
+                >
+                  이관 거절
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </main>
   );
+}
+
+function parseP6CharacterTransferRequests(value: unknown): P6CharacterTransferRequestView[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+    .filter(
+      (entry) =>
+        typeof entry.requestId === "string" &&
+        typeof entry.requestedByUserId === "string" &&
+        typeof entry.sourceSessionId === "string" &&
+        typeof entry.sourceSessionCharacterId === "string" &&
+        (entry.status === "requested" || entry.status === "approved" || entry.status === "rejected") &&
+        (entry.mode === "clone" || entry.mode === "transfer") &&
+        typeof entry.createdAt === "string",
+    )
+    .map((entry) => ({
+      requestId: entry.requestId as string,
+      requestedByUserId: entry.requestedByUserId as string,
+      sourceSessionId: entry.sourceSessionId as string,
+      sourceSessionCharacterId: entry.sourceSessionCharacterId as string,
+      status: entry.status as P6CharacterTransferRequestView["status"],
+      mode: entry.mode as P6CharacterTransferRequestView["mode"],
+      targetSessionCharacterId:
+        typeof entry.targetSessionCharacterId === "string" ? entry.targetSessionCharacterId : null,
+      createdAt: entry.createdAt as string,
+    }));
+}
+
+function formatCompactDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 }
 

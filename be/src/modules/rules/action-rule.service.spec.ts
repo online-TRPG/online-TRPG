@@ -2560,6 +2560,104 @@ describe("ActionRuleService", () => {
     });
   });
 
+  it("records P6 Wish MVP and GM approval audit metadata in the action log payload", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "wizard",
+        level: 17,
+        proficiencyBonus: 6,
+        spellsJson: JSON.stringify({
+          spells: ["spell.wish"],
+          preparedSpells: ["spell.wish"],
+        }),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      character: { id: "target-character", name: "Target", armorClass: 10 },
+    });
+
+    const result = service.resolveAction("/cast wish target 120 9", actor, [actor, target]);
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.structuredAction).toEqual(
+      expect.objectContaining({
+        type: "cast_spell",
+        spellId: "spell.wish",
+        p6RuntimeAudit: expect.objectContaining({
+          spellId: "spell.wish",
+          highImpact9thLevel: true,
+          gmApprovalRequired: true,
+          wishMvpOption: "wish:mvp_option:replicate_spell_level_8_or_lower",
+        }),
+      }),
+    );
+    expect(result.runtimeEffects).toEqual([
+      { type: "SPEND_ACTION" },
+      { type: "SPEND_SPELL_SLOT", slotLevel: 9 },
+    ]);
+  });
+
+  it("resolves P6 True Resurrection as a restorative state change with material cost audit", () => {
+    const service = createService([]);
+    const actor = createCharacter({
+      id: "actor",
+      characterId: "actor-character",
+      character: {
+        className: "cleric",
+        level: 17,
+        proficiencyBonus: 6,
+        spellsJson: JSON.stringify({
+          spells: ["spell.true_resurrection"],
+          preparedSpells: ["spell.true_resurrection"],
+        }),
+      },
+    });
+    const target = createCharacter({
+      id: "target",
+      characterId: "target-character",
+      currentHp: 0,
+      conditionsJson: JSON.stringify(["condition.dead"]),
+      character: {
+        id: "target-character",
+        name: "Fallen Hero",
+        maxHp: 144,
+        armorClass: 10,
+      },
+    });
+
+    const result = service.resolveAction(
+      "/cast true_resurrection target 60 9",
+      actor,
+      [actor, target],
+    );
+
+    expect(result.outcome).toBe(ActionOutcome.SUCCESS);
+    expect(result.structuredAction).toEqual(
+      expect.objectContaining({
+        type: "cast_spell",
+        spellId: "spell.true_resurrection",
+        effect: "resurrection",
+        materialCostConsumed: "diamond:25000gp",
+        p6RuntimeAudit: expect.objectContaining({
+          materialCosts: ["material_cost:diamond:25000gp:consumed"],
+          campaignStateEffects: ["campaign_state:death_resurrection_history"],
+        }),
+      }),
+    );
+    expect(result.stateChanges).toEqual([
+      {
+        sessionCharacterId: "target",
+        currentHp: 144,
+        markDead: false,
+      },
+    ]);
+  });
+
   it("rejects chill touch before rolling when the target is out of range", () => {
     const service = createService([]);
     const actor = createCharacter({

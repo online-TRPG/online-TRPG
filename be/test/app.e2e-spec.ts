@@ -7,6 +7,7 @@ import { HttpExceptionFilter } from "../src/common/filters/http-exception.filter
 import { PrismaService } from "../src/database/prisma.service";
 import {
   DEFAULT_SCENARIO_ID,
+  P6_VALIDATION_SCENARIO_ID,
   RULE_RUNTIME_SMOKE_SCENARIO_ID,
   seedDefaultScenario,
 } from "../src/database/seed/default-scenario";
@@ -711,6 +712,334 @@ describe("Session service e2e", () => {
       .expect(200)
       .expect((response) => {
         expect(response.body.data.currentNodeId).toBe("node_rule_smoke_human_gm");
+      });
+  });
+
+  it("archives a P6 long campaign and transfers a vault character into a new campaign", async () => {
+    const sourcePlayer = await createGuest("P6 Vault Hero");
+    const targetHost = await createGuest("P6 Transfer Host");
+    const sourceCharacter = await createCharacter(sourcePlayer.id, {
+      name: "Astra Level 20",
+      ancestry: "Human",
+      className: "Wizard",
+      level: 20,
+      abilities: {
+        str: 8,
+        dex: 14,
+        con: 14,
+        int: 20,
+        wis: 12,
+        cha: 10,
+      },
+      inventory: [
+        {
+          id: "p6-transferable-arcane-focus",
+          name: "Transferable Arcane Focus",
+          quantity: 1,
+        },
+      ],
+    });
+
+    const sourceSession = await request(baseUrl)
+      .post("/api/v1/sessions")
+      .set("x-user-id", sourcePlayer.id)
+      .send({
+        title: "P6 Eternal Storm Source",
+        scenarioId: P6_VALIDATION_SCENARIO_ID,
+        ruleSetId: "dnd5e",
+        gmMode: "AI",
+        maxParticipants: 1,
+        visibility: "PRIVATE",
+      })
+      .expect(201);
+
+    const sourceSessionId = sourceSession.body.data.session.sessionId as string;
+
+    await request(baseUrl)
+      .post(`/api/v1/sessions/${sourceSessionId}/character-selection`)
+      .set("x-user-id", sourcePlayer.id)
+      .send({ characterId: sourceCharacter.id })
+      .expect(200);
+    await request(baseUrl)
+      .patch(`/api/v1/sessions/${sourceSessionId}/participants/me/ready`)
+      .set("x-user-id", sourcePlayer.id)
+      .send({ isReady: true })
+      .expect(200);
+    const startedSource = await request(baseUrl)
+      .post(`/api/v1/sessions/${sourceSessionId}/start`)
+      .set("x-user-id", sourcePlayer.id)
+      .expect(201);
+
+    const sourceSessionCharacterId = startedSource.body.data.sessionCharacters[0].id as string;
+
+    const archived = await request(baseUrl)
+      .post(`/api/v1/sessions/${sourceSessionId}/complete-campaign`)
+      .set("x-user-id", sourcePlayer.id)
+      .send({
+        epilogue: "영원폭풍 성채의 마지막 유산을 봉인하고 다음 캠페인으로 전설을 넘긴다.",
+        finalNodeId: "node_p6_archive_epilogue",
+        finalRewardIds: ["reward.p6.final_legacy"],
+        shareScope: "public_summary",
+        allowCharacterTransfer: true,
+      })
+      .expect(201);
+
+    expect(archived.body.data).toEqual(
+      expect.objectContaining({
+        sessionId: sourceSessionId,
+        scenarioId: P6_VALIDATION_SCENARIO_ID,
+        allowCharacterTransfer: true,
+        finalNodeId: "node_p6_archive_epilogue",
+      }),
+    );
+    expect(archived.body.data.snapshot).toEqual(
+      expect.objectContaining({
+        currentNodeId: expect.any(String),
+        inventory: expect.objectContaining({
+          totalItemCount: expect.any(Number),
+        }),
+        combat: expect.objectContaining({
+          turnLogCount: expect.any(Number),
+        }),
+      }),
+    );
+
+    await request(baseUrl)
+      .get(`/api/v1/sessions/${sourceSessionId}/campaign-archive`)
+      .set("x-user-id", sourcePlayer.id)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.data.archiveId).toBe(archived.body.data.archiveId);
+      });
+
+    const vault = await request(baseUrl)
+      .get("/api/v1/sessions/characters/vault")
+      .set("x-user-id", sourcePlayer.id)
+      .expect(200);
+    expect(vault.body.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceSessionId,
+          sourceSessionCharacterId,
+          level: 20,
+          transferable: true,
+        }),
+      ]),
+    );
+
+    const targetSession = await request(baseUrl)
+      .post("/api/v1/sessions")
+      .set("x-user-id", targetHost.id)
+      .send({
+        title: "P6 Eternal Storm Next Campaign",
+        scenarioId: P6_VALIDATION_SCENARIO_ID,
+        ruleSetId: "dnd5e",
+        gmMode: "HUMAN",
+        maxParticipants: 2,
+        visibility: "PRIVATE",
+      })
+      .expect(201);
+
+    const targetSessionId = targetSession.body.data.session.sessionId as string;
+    const inviteCode = targetSession.body.data.session.inviteCode as string;
+
+    await request(baseUrl)
+      .post("/api/v1/sessions/join-by-invite")
+      .set("x-user-id", sourcePlayer.id)
+      .send({ inviteCode })
+      .expect(201);
+
+    const transferRequested = await request(baseUrl)
+      .post(`/api/v1/sessions/${targetSessionId}/character-transfers`)
+      .set("x-user-id", sourcePlayer.id)
+      .send({
+        sourceSessionId,
+        sourceSessionCharacterId,
+        mode: "transfer",
+        note: "P6 archive vault transfer smoke.",
+      })
+      .expect(201);
+
+    expect(transferRequested.body.data).toEqual(
+      expect.objectContaining({
+        targetSessionId,
+        sourceSessionId,
+        sourceSessionCharacterId,
+        status: "requested",
+        mode: "transfer",
+      }),
+    );
+
+    const transferApproved = await request(baseUrl)
+      .post(
+        `/api/v1/sessions/${targetSessionId}/character-transfers/${encodeURIComponent(
+          transferRequested.body.data.requestId,
+        )}/approve`,
+      )
+      .set("x-user-id", targetHost.id)
+      .expect(200);
+
+    expect(transferApproved.body.data).toEqual(
+      expect.objectContaining({
+        status: "approved",
+        sourceDisposition: "retired_after_transfer",
+        targetSessionCharacterId: expect.any(String),
+      }),
+    );
+
+    await expect(
+      prisma.sessionCharacter.findUniqueOrThrow({
+        where: { id: sourceSessionCharacterId },
+        select: { status: true },
+      }),
+    ).resolves.toEqual({ status: "RETIRED" });
+  });
+
+  it("runs the public scenario moderation queue, appeal, escalation, and restore flow", async () => {
+    const creator = await createGuest("P6 Scenario Creator");
+    const reviewer = await createGuest("P6 Scenario Reviewer");
+    const reporter = await createGuest("P6 Scenario Reporter");
+    const operator = { id: "operator-p6-e2e" };
+
+    const draft = await request(baseUrl)
+      .post("/api/v1/scenarios")
+      .set("x-user-id", creator.id)
+      .send({
+        title: "P6 Moderation Flow Scenario",
+        description: "Public revision moderation e2e scenario.",
+        ruleSetId: "dnd5e",
+        startLevel: 17,
+        recommendedEndLevel: 20,
+        nodes: [
+          {
+            nodeType: "story",
+            title: "검토 가능한 시작",
+            sceneText: "공개 발행과 운영자 moderation 흐름을 검증하는 장면.",
+            transitions: [],
+            checkOptions: [],
+            clues: [],
+          },
+        ],
+      })
+      .expect(201);
+
+    const draftScenarioId = draft.body.id as string;
+
+    await request(baseUrl)
+      .put(`/api/v1/scenarios/${draftScenarioId}/collaborators`)
+      .set("x-user-id", creator.id)
+      .send({ userId: reviewer.id, role: "reviewer" })
+      .expect(200);
+    await request(baseUrl)
+      .post(`/api/v1/scenarios/${draftScenarioId}/reviews`)
+      .set("x-user-id", creator.id)
+      .send({
+        status: "requested",
+        reviewerUserId: reviewer.id,
+        comment: "P6 공개 발행 전 검토 요청",
+      })
+      .expect(201);
+    await request(baseUrl)
+      .post(`/api/v1/scenarios/${draftScenarioId}/reviews`)
+      .set("x-user-id", reviewer.id)
+      .send({
+        status: "approved",
+        comment: "운영자 moderation e2e 발행 승인",
+      })
+      .expect(201);
+
+    const published = await request(baseUrl)
+      .post(`/api/v1/scenarios/${draftScenarioId}/publish`)
+      .set("x-user-id", creator.id)
+      .send({ visibility: "public", changelog: "P6 moderation e2e" })
+      .expect(201);
+
+    const publishedScenarioId = published.body.id as string;
+
+    await request(baseUrl)
+      .post(`/api/v1/scenarios/${publishedScenarioId}/report`)
+      .set("x-user-id", reporter.id)
+      .send({
+        reason: "unsafe_content",
+        comment: "운영자 큐 노출 검증용 신고",
+      })
+      .expect(201);
+
+    await request(baseUrl)
+      .get("/api/v1/scenarios/moderation/queue")
+      .set("x-user-id", reporter.id)
+      .expect(403);
+
+    const queued = await request(baseUrl)
+      .get("/api/v1/scenarios/moderation/queue")
+      .set("x-user-id", operator.id)
+      .expect(200);
+    expect(queued.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scenarioId: publishedScenarioId,
+          moderationStatus: "reported",
+          processingStatus: "queued",
+          reportCount: 1,
+        }),
+      ]),
+    );
+
+    const noteRequired = await request(baseUrl)
+      .post(`/api/v1/scenarios/${publishedScenarioId}/moderation/actions`)
+      .set("x-user-id", operator.id)
+      .send({
+        action: "creator_note_required",
+        reason: "제작자 소명 필요",
+      })
+      .expect(201);
+    expect(noteRequired.body).toEqual(
+      expect.objectContaining({
+        moderationStatus: "reported",
+        processingStatus: "actioned",
+        creatorNoticeStatus: "creator_action_required",
+      }),
+    );
+
+    await request(baseUrl)
+      .post(`/api/v1/scenarios/${publishedScenarioId}/moderation-appeals`)
+      .set("x-user-id", creator.id)
+      .send({ message: "문제가 되는 표현을 정리했고 복구 검토를 요청합니다." })
+      .expect(201);
+
+    const escalated = await request(baseUrl)
+      .post(`/api/v1/scenarios/${publishedScenarioId}/moderation/actions`)
+      .set("x-user-id", operator.id)
+      .send({
+        action: "escalated",
+        reason: "상위 운영자 검토로 이관",
+      })
+      .expect(201);
+    expect(escalated.body.processingStatus).toBe("escalated");
+
+    const restored = await request(baseUrl)
+      .post(`/api/v1/scenarios/${publishedScenarioId}/moderation/actions`)
+      .set("x-user-id", operator.id)
+      .send({
+        action: "restored",
+        reason: "소명 수용 및 공개 복구",
+      })
+      .expect(201);
+    expect(restored.body).toEqual(
+      expect.objectContaining({
+        moderationStatus: "visible",
+        processingStatus: "restored",
+        creatorNoticeStatus: "creator_notified",
+      }),
+    );
+
+    await request(baseUrl)
+      .get("/api/v1/scenarios")
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((scenario: { id: string }) => scenario.id)).toContain(
+          publishedScenarioId,
+        );
       });
   });
 

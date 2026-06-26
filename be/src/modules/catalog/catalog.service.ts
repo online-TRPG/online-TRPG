@@ -20,9 +20,7 @@ export class CatalogService {
     return this.ruleCatalog.listEntries().map((entry) => ({
       id: entry.id,
       kind: entry.kind,
-      executable:
-        entry.runtimeEffect.type !== "resolver_pending" &&
-        (entry.kind !== "monster_abilities" || entry.cost.type !== "none"),
+      executable: entry.kind !== "monster_abilities" || entry.cost.type !== "none",
       label: this.formatRuleCatalogLabel(entry.id),
       runtimeTags: [...entry.runtimeEffect.tags],
       spellLevel:

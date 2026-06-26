@@ -266,6 +266,90 @@ describe("LevelUpService", () => {
     expect(result.grantedFeatures.some((feature) => feature.level >= 13 && feature.level <= 16)).toBe(true);
   });
 
+  it("resolves P6 level 16 to 20 progression with level 19 ASI and capstone grants", () => {
+    const result = service.resolveLevelUp({
+      classKey: "wizard",
+      currentLevel: 16,
+      targetLevel: 20,
+      hitDie: "d6",
+      constitutionScore: 14,
+      currentMaxHp: 98,
+      classFeatures: catalog.listClassFeaturesForLevel("wizard", 20),
+      subclassFeatures: catalog.listSubclassFeatures("wizard", "evocation", 20),
+    });
+
+    expect(result).toMatchObject({
+      classKey: "wizard",
+      fromLevel: 16,
+      toLevel: 20,
+      proficiencyBonusBefore: 5,
+      proficiencyBonusAfter: 6,
+      asiOrFeatChoiceRequiredAtLevels: [19],
+      hpGains: [
+        { level: 17, baseGain: 4, constitutionModifier: 2, totalGain: 6 },
+        { level: 18, baseGain: 4, constitutionModifier: 2, totalGain: 6 },
+        { level: 19, baseGain: 4, constitutionModifier: 2, totalGain: 6 },
+        { level: 20, baseGain: 4, constitutionModifier: 2, totalGain: 6 },
+      ],
+      maxHpAfter: 122,
+    });
+    expect(result.grantedFeatures.map((feature) => feature.featureId)).toEqual(
+      expect.arrayContaining([
+        "class.wizard.feature.ninth_level_spells",
+        "class.wizard.feature.spell_mastery",
+        "class.wizard.feature.ability_score_improvement_19",
+        "class.wizard.feature.signature_spells",
+      ]),
+    );
+  });
+
+  it.each([
+    ["barbarian", "d12", "berserker", "class.barbarian.feature.primal_champion"],
+    ["bard", "d8", "lore", "class.bard.feature.superior_inspiration"],
+    ["cleric", "d8", "life", "class.cleric.feature.divine_intervention_improvement"],
+    ["druid", "d8", "land", "class.druid.feature.archdruid"],
+    ["fighter", "d10", "champion", "class.fighter.feature.extra_attack_3"],
+    ["monk", "d8", "open_hand", "class.monk.feature.perfect_self"],
+    ["paladin", "d10", "devotion", "class.paladin.feature.sacred_oath_capstone"],
+    ["ranger", "d10", "hunter", "class.ranger.feature.foe_slayer"],
+    ["rogue", "d8", "thief", "class.rogue.feature.stroke_of_luck"],
+    ["sorcerer", "d6", "draconic_bloodline", "class.sorcerer.feature.sorcerous_restoration"],
+    ["warlock", "d8", "fiend", "class.warlock.feature.eldritch_master"],
+    ["wizard", "d6", "evocation", "class.wizard.feature.signature_spells"],
+  ] as const)("resolves P6 16 to 20 progression for %s", (classKey, hitDie, subclassKey, capstoneFeatureId) => {
+    const result = service.resolveLevelUp({
+      classKey,
+      currentLevel: 16,
+      targetLevel: 20,
+      hitDie,
+      constitutionScore: 14,
+      classFeatures: catalog.listClassFeaturesForLevel(classKey, 20),
+      subclassFeatures: catalog.listSubclassFeatures(classKey, subclassKey, 20),
+    });
+
+    expect(result).toMatchObject({
+      classKey,
+      fromLevel: 16,
+      toLevel: 20,
+      proficiencyBonusBefore: 5,
+      proficiencyBonusAfter: 6,
+      asiOrFeatChoiceRequiredAtLevels: [19],
+    });
+    expect(result.hpGains.map((gain) => gain.level)).toEqual([17, 18, 19, 20]);
+    expect(result.grantedFeatures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          featureId: `class.${classKey}.feature.ability_score_improvement_19`,
+          level: 19,
+        }),
+        expect.objectContaining({
+          featureId: capstoneFeatureId,
+          level: 20,
+        }),
+      ]),
+    );
+  });
+
   it("rejects non-increasing level changes", () => {
     expect(() =>
       service.resolveLevelUp({

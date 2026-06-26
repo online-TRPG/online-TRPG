@@ -20,10 +20,20 @@ export interface ClassOption {
     level: number;
     features: string;
   }>;
+  featureReferences: ClassFeatureReference[];
   summary: string;
 }
 
 export type ClassOptionValue = ClassOption['value'];
+
+export interface ClassFeatureReference {
+  id: string;
+  nameKo: string;
+  category: 'class' | 'subclass' | string;
+  availableAtLevels: number[];
+  summaryKo: string;
+  sourceHeading?: string | null;
+}
 
 export interface RaceOption {
   value: string;
@@ -74,6 +84,14 @@ interface RawClassEntry {
     level: string;
     features: string;
   }>;
+  featureReferences?: Array<{
+    id: string;
+    nameKo: string;
+    category: 'class' | 'subclass' | string;
+    availableAtLevels?: Array<string | number>;
+    summaryKo?: string | null;
+    sourceHeading?: string | null;
+  }>;
   summaryKo?: string;
 }
 
@@ -107,6 +125,19 @@ export interface StaticSpellCatalogEntry {
   level: number;
   schoolKo: string;
   ritual: boolean;
+  castingTime?: {
+    raw?: string | null;
+  } | null;
+  range?: {
+    raw?: string | null;
+  } | null;
+  components?: {
+    raw?: string | null;
+  } | null;
+  duration?: {
+    raw?: string | null;
+  } | null;
+  concentration?: boolean | null;
   playReference: string;
   higherLevel?: string | null;
   scaling?: string | null;
@@ -118,7 +149,20 @@ export interface StaticItemCatalog {
 }
 
 const RAW_ASSET_CACHE = new Map<string, Promise<unknown>>();
-const SUPPORTED_CLASS_ORDER = ['Wizard', 'Ranger', 'Rogue', 'Fighter'] as const;
+const SUPPORTED_CLASS_ORDER = [
+  'Barbarian',
+  'Bard',
+  'Cleric',
+  'Druid',
+  'Fighter',
+  'Monk',
+  'Paladin',
+  'Ranger',
+  'Rogue',
+  'Sorcerer',
+  'Warlock',
+  'Wizard',
+] as const;
 const CLASS_LABEL_MAP = new Map<string, string>([
   ['Barbarian', '바바리안'],
   ['Bard', '바드'],
@@ -248,6 +292,14 @@ function buildClassSummary(entry: RawClassEntry) {
   return parts.filter(Boolean).join(' ');
 }
 
+function normalizeSrdSummary(name: string, summary: string) {
+  const trimmed = summary.trim();
+  if (name === '숨결 무기' && trimmed.endsWith('짧은 휴식 또는 긴 휴식을 마칠 때…')) {
+    return `${trimmed.slice(0, -1)}까지 다시 사용할 수 없다.`;
+  }
+  return trimmed;
+}
+
 function normalizeClassOptions(entries: RawClassEntry[]): ClassOption[] {
   const indexed = new Map(entries.map((entry) => [entry.nameEn, entry]));
 
@@ -275,6 +327,16 @@ function normalizeClassOptions(entries: RawClassEntry[]): ClassOption[] {
       levelFeatureSummary: (entry.levelFeatures ?? []).map((feature) => ({
         level: Number.parseInt(feature.level, 10) || 0,
         features: feature.features,
+      })),
+      featureReferences: (entry.featureReferences ?? []).map((feature) => ({
+        id: feature.id,
+        nameKo: feature.nameKo,
+        category: feature.category,
+        availableAtLevels: (feature.availableAtLevels ?? [])
+          .map((level) => Number.parseInt(String(level), 10))
+          .filter((level) => Number.isFinite(level)),
+        summaryKo: normalizeSrdSummary(feature.nameKo, feature.summaryKo ?? ''),
+        sourceHeading: feature.sourceHeading ?? null,
       })),
       summary: buildClassSummary(entry),
     }));
@@ -351,9 +413,10 @@ function extractBaseTraits(traits: RawRaceTraitEntry[]) {
   const seenNames = new Set<string>();
 
   for (const trait of traits) {
-    const markerIndex = trait.summaryKo.indexOf('## ');
+    const normalizedSummary = normalizeSrdSummary(trait.nameKo, trait.summaryKo);
+    const markerIndex = normalizedSummary.indexOf('## ');
     const summary =
-      markerIndex >= 0 ? trait.summaryKo.slice(0, markerIndex).trim() : trait.summaryKo.trim();
+      markerIndex >= 0 ? normalizedSummary.slice(0, markerIndex).trim() : normalizedSummary.trim();
     if (!summary) {
       break;
     }

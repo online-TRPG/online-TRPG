@@ -45,10 +45,9 @@ const skillSelections: Record<string, { choices: string[]; count: number }> = {
 };
 
 // 1레벨 시점 시작 캔트립/주문 수.
-// 현재 캐릭터 생성은 실행 가능한 MVP 주문 풀만 선택지로 노출하므로,
-// 공식 개수가 MVP 풀보다 큰 직업은 MVP에서 고를 수 있는 개수로 제한한다.
+// 위저드는 공식 주문책 규칙에 따라 1레벨 주문 6개로 시작하고, 레벨당 2개씩 추가된다.
 // druid/cleric/paladin은 준비 주문이 매일 동적이라 startingSpellCount=0으로 저장한다.
-// 캐릭터 생성 runtime은 spellcasting progression이 열린 레벨에서 MVP 슬롯 주문 풀을 known 목록으로 확장한다.
+// 캐릭터 생성 runtime은 실행 주문 카탈로그 범위 안에서 직업별 공식 known/spellbook 규칙을 적용한다.
 const spellCounts: Record<string, { cantrips: number; spells: number }> = {
   barbarian: { cantrips: 0, spells: 0 },
   bard: { cantrips: 2, spells: 3 },
@@ -61,7 +60,7 @@ const spellCounts: Record<string, { cantrips: number; spells: number }> = {
   rogue: { cantrips: 0, spells: 0 },
   sorcerer: { cantrips: 3, spells: 2 },
   warlock: { cantrips: 2, spells: 2 },
-  wizard: { cantrips: 3, spells: 3 },
+  wizard: { cantrips: 3, spells: 6 },
 };
 
 const classSeeds: ClassDefinitionSeed[] = [

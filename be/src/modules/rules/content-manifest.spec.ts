@@ -16,8 +16,8 @@ import { P5_SPELL_DEFINITIONS } from "./p5-spell-definitions";
 describe("executable content manifest", () => {
   const manifest = buildExecutableContentManifest(new RuleCatalogService());
 
-  it("keeps the P2/P3/P4 baseline while enforcing the P5 executable spell target", () => {
-    expect(manifest.spellIds).toHaveLength(P5_CONTENT_TARGETS.executableSpells);
+  it("keeps the P2/P3/P4/P5 baseline while allowing the P6 executable catalog superset", () => {
+    expect(manifest.spellIds.length).toBeGreaterThanOrEqual(P5_CONTENT_TARGETS.executableSpells);
     expect(P2_EXECUTABLE_SPELL_IDS).toHaveLength(50);
     expect(new Set(P2_EXECUTABLE_SPELL_IDS).size).toBe(P2_EXECUTABLE_SPELL_IDS.length);
     expect(P5_SPELL_DEFINITIONS).toHaveLength(
@@ -53,7 +53,7 @@ describe("executable content manifest", () => {
     expect(manifest.monsterIds.length).toBeGreaterThanOrEqual(
       P2_EXECUTABLE_MONSTER_IDS.length,
     );
-    expect(manifest.monsterIds).toHaveLength(P5_CONTENT_TARGETS.executableMonsters);
+    expect(manifest.monsterIds.length).toBeGreaterThanOrEqual(P5_CONTENT_TARGETS.executableMonsters);
     expect(manifest.monsterIds).toEqual(
       expect.arrayContaining([...P3_EXECUTABLE_MONSTER_IDS]),
     );

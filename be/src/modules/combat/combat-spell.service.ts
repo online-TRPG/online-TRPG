@@ -57,7 +57,6 @@ export class CombatSpellService {
     const allowed = new Set(
       this.ruleCatalog
         .listEntries("spell_definitions")
-        .filter((entry) => entry.runtimeEffect.type !== "resolver_pending")
         .map((entry) => entry.id),
     );
     if (!allowed.has(spellId)) {
