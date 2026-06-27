@@ -34,6 +34,7 @@ import {
   GameStateResponseDto,
   GmMode,
   InventoryItemDto,
+  normalizeInventoryItemsDisplay,
   ParticipantRole,
   ScenarioLicense,
   ScenarioNodeResponseDto,
@@ -460,7 +461,7 @@ export function mapCharacter(character: CharacterWithAssignments): CharacterResp
     maxHp: character.maxHp,
     armorClass: character.armorClass,
     speed: character.speed,
-    inventory: parseJson<InventoryItemDto[]>(character.inventoryJson, []),
+    inventory: normalizeInventoryItemsDisplay(parseJson<InventoryItemDto[]>(character.inventoryJson, [])),
     spells: character.spellsJson
       ? parseJson<StartingSpellsDto | null>(character.spellsJson, null)
       : null,
@@ -537,34 +538,38 @@ function mapSessionCharacterInventory(
   sessionCharacter: SessionCharacterWithBase,
 ): InventoryItemDto[] {
   if (sessionCharacter.inventoryEntries?.length) {
-    return sessionCharacter.inventoryEntries.map((entry) => ({
-      id: entry.id,
-      name: entry.itemDefinition.name,
-      quantity: entry.quantity,
-      itemDefinitionId: entry.itemDefinitionId,
-      itemType: entry.itemDefinition.itemType,
-      description: entry.itemDefinition.description ?? undefined,
-      weightLb: entry.itemDefinition.weightLb ?? undefined,
-      volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
-      damageDice: entry.itemDefinition.damageDice ?? undefined,
-      damageType: entry.itemDefinition.damageType ?? undefined,
-      armorClassBase: entry.itemDefinition.armorClassBase ?? undefined,
-      armorClassBonus: entry.itemDefinition.armorClassBonus ?? undefined,
-      armorStrengthRequirement: entry.itemDefinition.armorStrengthRequirement ?? undefined,
-      armorStealthDisadvantage: entry.itemDefinition.armorStealthDisadvantage ?? undefined,
-      useEffect: entry.itemDefinition.useEffect ?? undefined,
-      packContents: parseJson<InventoryItemDto["packContents"]>(
-        entry.itemDefinition.packContentsJson,
-        undefined,
-      ),
-      properties: parseJson<string[] | undefined>(entry.itemDefinition.propertiesJson, undefined),
-      containerId: entry.containerEntryId ?? undefined,
-    }));
+    return normalizeInventoryItemsDisplay(
+      sessionCharacter.inventoryEntries.map((entry) => ({
+        id: entry.id,
+        name: entry.itemDefinition.name,
+        quantity: entry.quantity,
+        itemDefinitionId: entry.itemDefinitionId,
+        itemType: entry.itemDefinition.itemType,
+        description: entry.itemDefinition.description ?? undefined,
+        weightLb: entry.itemDefinition.weightLb ?? undefined,
+        volumeCuFt: entry.itemDefinition.volumeCuFt ?? undefined,
+        damageDice: entry.itemDefinition.damageDice ?? undefined,
+        damageType: entry.itemDefinition.damageType ?? undefined,
+        armorClassBase: entry.itemDefinition.armorClassBase ?? undefined,
+        armorClassBonus: entry.itemDefinition.armorClassBonus ?? undefined,
+        armorStrengthRequirement: entry.itemDefinition.armorStrengthRequirement ?? undefined,
+        armorStealthDisadvantage: entry.itemDefinition.armorStealthDisadvantage ?? undefined,
+        useEffect: entry.itemDefinition.useEffect ?? undefined,
+        packContents: parseJson<InventoryItemDto["packContents"]>(
+          entry.itemDefinition.packContentsJson,
+          undefined,
+        ),
+        properties: parseJson<string[] | undefined>(entry.itemDefinition.propertiesJson, undefined),
+        containerId: entry.containerEntryId ?? undefined,
+      })),
+    );
   }
 
-  return parseJson<InventoryItemDto[]>(
-    sessionCharacter.inventorySnapshotJson ?? sessionCharacter.character.inventoryJson,
-    [],
+  return normalizeInventoryItemsDisplay(
+    parseJson<InventoryItemDto[]>(
+      sessionCharacter.inventorySnapshotJson ?? sessionCharacter.character.inventoryJson,
+      [],
+    ),
   );
 }
 
@@ -589,11 +594,33 @@ export function mapGameState(
   };
 }
 
-export function mapScenarioSummary(scenario: Scenario): ScenarioSummaryResponseDto {
+type ScenarioUserDisplaySource = {
+  displayName?: string | null;
+  profile?: {
+    nickname?: string | null;
+  } | null;
+};
+
+type ScenarioSummarySource = Scenario & {
+  creator?: ScenarioUserDisplaySource | null;
+};
+
+function mapUserDisplayName(user?: ScenarioUserDisplaySource | null): string | null {
+  return user?.profile?.nickname?.trim() || user?.displayName?.trim() || null;
+}
+
+export function mapScenarioSummary(scenario: ScenarioSummarySource): ScenarioSummaryResponseDto {
   const revision = parseScenarioRevisionMetadata(scenario.attribution);
+  const creatorDisplayName = mapUserDisplayName(scenario.creator);
+  const publishedByDisplayName =
+    revision.publishedByUserId && revision.publishedByUserId === scenario.createdByUserId
+      ? creatorDisplayName
+      : null;
   return {
     id: scenario.id,
     title: scenario.title,
+    createdByUserId: scenario.createdByUserId ?? null,
+    createdByDisplayName: creatorDisplayName,
     description: scenario.description ?? null,
     thumbnailUrl: scenario.thumbnailUrl ?? null,
     ruleSetId: scenario.ruleSetId ?? null,
@@ -610,6 +637,7 @@ export function mapScenarioSummary(scenario: Scenario): ScenarioSummaryResponseD
     validationReport: revision.validationReport,
     publishedAt: revision.publishedAt,
     publishedByUserId: revision.publishedByUserId,
+    publishedByDisplayName,
     publishStatus: revision.publishStatus,
     createdAt: toIsoString(scenario.createdAt),
     updatedAt: toIsoString(scenario.updatedAt),

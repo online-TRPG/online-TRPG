@@ -5,7 +5,7 @@ import {
   ItemDefinition,
   Prisma,
 } from "@prisma/client";
-import { InventoryItemDto } from "@trpg/shared-types";
+import { InventoryItemDto, normalizeInventoryItemDisplay } from "@trpg/shared-types";
 import { badRequest, notFound } from "../../common/exceptions/domain-error";
 import { PrismaService } from "../../database/prisma.service";
 import { RuleEngineService } from "./rule-engine.service";
@@ -447,7 +447,7 @@ export class InventoryRuntimeService {
   }
 
   private mapEntryToInventoryItem(entry: EntryWithDefinition): InventoryItemDto {
-    return {
+    return normalizeInventoryItemDisplay({
       id: entry.id,
       name: entry.itemDefinition.name,
       quantity: entry.quantity,
@@ -466,7 +466,7 @@ export class InventoryRuntimeService {
       packContents: this.parsePackContentsJson(entry.itemDefinition.packContentsJson),
       properties: this.parseStringArrayJson(entry.itemDefinition.propertiesJson),
       containerId: entry.containerEntryId ?? undefined,
-    };
+    });
   }
 
   private parsePackContentsJson(value: string | null | undefined): InventoryItemDto["packContents"] {

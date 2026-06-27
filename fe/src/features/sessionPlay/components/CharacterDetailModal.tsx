@@ -4,6 +4,7 @@ import {
   getCharacterClassLabel,
   getCharacterImage,
 } from '../utils/characterVisuals';
+import { getUserFacingItemName } from '../utils/displayNames';
 import { getCharacterFeatureDisplayInfo } from '../../characters/characterFeaturePresentation';
 import { InventoryItemInfo, getInventoryMetaLabel } from './InventoryItemInfo';
 import './StoryNodeSurface.css';
@@ -285,15 +286,15 @@ export function CharacterDetailModal({
             <dl className="story-character-equipment-slots" aria-label="장착 부위">
               <div>
                 <dt>오른손</dt>
-                <dd>{equippedWeapon ? <strong>{equippedWeapon.name}</strong> : '비어 있음'}</dd>
+                <dd>{equippedWeapon ? <strong>{getUserFacingItemName(equippedWeapon)}</strong> : '비어 있음'}</dd>
               </div>
               <div>
                 <dt>왼손</dt>
-                <dd>{offhandWeapon ? <strong>{offhandWeapon.name}</strong> : '비어 있음'}</dd>
+                <dd>{offhandWeapon ? <strong>{getUserFacingItemName(offhandWeapon)}</strong> : '비어 있음'}</dd>
               </div>
               <div>
                 <dt>몸통</dt>
-                <dd>{equippedArmor ? <strong>{equippedArmor.name}</strong> : '비어 있음'}</dd>
+                <dd>{equippedArmor ? <strong>{getUserFacingItemName(equippedArmor)}</strong> : '비어 있음'}</dd>
               </div>
             </dl>
             {character.inventory.length ? (
@@ -341,6 +342,7 @@ export function CharacterDetailModal({
                     ...item,
                     __equipmentDisplayState: equipmentDisplayState,
                   } as SessionCharacterResponseDto['inventory'][number];
+                  const itemDisplayName = getUserFacingItemName(item);
                   return (
                     <article
                       key={`${item.id}-${equipmentDisplayState}`}
@@ -361,8 +363,8 @@ export function CharacterDetailModal({
                             isArmor
                               ? '몸통 방어구는 현재 캐릭터 AC에 반영되어 있습니다.'
                               : isEquipped
-                                ? `${item.name} 착용 해제`
-                                : `${item.name} 착용`
+                                ? `${itemDisplayName} 착용 해제`
+                                : `${itemDisplayName} 착용`
                           }
                           onClick={() => onEquipInventoryItem?.(equipmentActionItem)}
                         >

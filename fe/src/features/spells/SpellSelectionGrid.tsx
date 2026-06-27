@@ -24,9 +24,12 @@ type SpellSelectionGridProps = {
   helper?: string;
   options: SpellSelectionGridOption[];
   selectedIds: string[];
-  maxSelected: number;
+  maxSelected?: number;
   disabled?: boolean;
-  onChange: (selectedIds: string[]) => void;
+  readOnly?: boolean;
+  showHeader?: boolean;
+  showToolbar?: boolean;
+  onChange?: (selectedIds: string[]) => void;
 };
 
 const FILTERS = [
@@ -118,6 +121,9 @@ export function SpellSelectionGrid({
   selectedIds,
   maxSelected,
   disabled = false,
+  readOnly = false,
+  showHeader = true,
+  showToolbar = true,
   onChange,
 }: SpellSelectionGridProps) {
   const [query, setQuery] = useState('');
@@ -126,7 +132,8 @@ export function SpellSelectionGrid({
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const normalizedQuery = query.trim().toLowerCase();
   const selectedCount = selectedIds.length;
-  const isComplete = selectedCount === maxSelected;
+  const selectionLimit = maxSelected ?? options.length;
+  const isComplete = selectedCount === selectionLimit;
 
   const visibleOptions = useMemo(
     () =>
@@ -146,12 +153,12 @@ export function SpellSelectionGrid({
   );
 
   function toggleSpell(spellId: string) {
-    if (disabled) return;
+    if (disabled || readOnly || !onChange) return;
     if (selectedSet.has(spellId)) {
       onChange(selectedIds.filter((id) => id !== spellId));
       return;
     }
-    if (selectedIds.length >= maxSelected) return;
+    if (selectedIds.length >= selectionLimit) return;
     onChange([...selectedIds, spellId]);
   }
 
@@ -167,47 +174,56 @@ export function SpellSelectionGrid({
 
   return (
     <>
-      <section className="spell-selection-grid" aria-label={title}>
-        <div className="spell-selection-grid-head">
-          <div>
-            <h3>{title}</h3>
-            {helper ? <p>{helper}</p> : null}
-          </div>
-          <strong
-            className={`spell-selection-count${isComplete ? ' is-complete' : ''}`}
-            aria-live="polite"
-          >
-            {selectedCount} / {maxSelected}
-          </strong>
-        </div>
-
-        <div className="spell-selection-toolbar">
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="주문 검색"
-            aria-label={`${title} 검색`}
-          />
-          <div className="spell-selection-filter-list" aria-label={`${title} 필터`}>
-            {FILTERS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={filter === item.id ? 'active' : ''}
-                onClick={() => setFilter(item.id)}
+      <section
+        className={`spell-selection-grid${readOnly ? ' read-only' : ''}`}
+        aria-label={title}
+      >
+        {showHeader ? (
+          <div className="spell-selection-grid-head">
+            <div>
+              <h3>{title}</h3>
+              {helper ? <p>{helper}</p> : null}
+            </div>
+            {!readOnly ? (
+              <strong
+                className={`spell-selection-count${isComplete ? ' is-complete' : ''}`}
+                aria-live="polite"
               >
-                {item.label}
-              </button>
-            ))}
+                {selectedCount} / {selectionLimit}
+              </strong>
+            ) : null}
           </div>
-        </div>
+        ) : null}
+
+        {!readOnly && showToolbar ? (
+          <div className="spell-selection-toolbar">
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="주문 검색"
+              aria-label={`${title} 검색`}
+            />
+            <div className="spell-selection-filter-list" aria-label={`${title} 필터`}>
+              {FILTERS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={filter === item.id ? 'active' : ''}
+                  onClick={() => setFilter(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="spell-selection-card-grid" onScroll={() => setActiveTooltip(null)}>
           {visibleOptions.map((option) => {
             const presentation = getSpellPresentation(option.id, option.label);
-            const selected = selectedSet.has(option.id);
-            const locked = !selected && selectedCount >= maxSelected;
+            const selected = !readOnly && selectedSet.has(option.id);
+            const locked = !readOnly && !selected && selectedCount >= selectionLimit;
             const tooltipId = `${title.replace(/\s+/g, '-')}-${option.id.replace(/[^a-z0-9_-]/gi, '-')}-tooltip`;
             const detailSpecs = option.detail?.specs?.filter(Boolean) ?? [];
             const hasDetail = Boolean(
@@ -234,9 +250,10 @@ export function SpellSelectionGrid({
                   'spell-selection-card',
                   `tone-${presentation.tone}`,
                   selected ? 'is-selected' : '',
+                  readOnly ? 'is-read-only' : '',
                   locked ? 'is-disabled' : '',
                 ].filter(Boolean).join(' ')}
-                aria-pressed={selected}
+                aria-pressed={readOnly ? undefined : selected}
                 aria-describedby={hasDetail ? tooltipId : undefined}
                 disabled={disabled || locked}
                 onBlur={() => setActiveTooltip(null)}
@@ -261,7 +278,7 @@ export function SpellSelectionGrid({
                     {option.level === 0 ? 'C' : option.level}
                   </span>
                 ) : null}
-                {selected ? <span className="spell-selection-card-check">✓</span> : null}
+                {!readOnly && selected ? <span className="spell-selection-card-check">✓</span> : null}
               </button>
             );
           })}

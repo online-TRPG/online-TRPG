@@ -13,6 +13,7 @@
     "dev:be": "npm run build -w @trpg/shared-types && npm run build -w @trpg/srd-data && npm run start:dev -w @trpg/be",
     "dev:fe": "npm run sync:fe:srd && npm run dev -w @trpg/fe",
     "sync:fe:srd": "node scripts/sync-fe-static-srd.mjs",
+    "verify:rule-data-sync": "node scripts/verify-rule-data-sync.mjs",
     "verify:spell-presentation": "node scripts/verify-spell-presentation.mjs",
     "test": "npm run --silent test:quiet -w @trpg/be",
     "test:log": "npm run --silent test:log -w @trpg/be",

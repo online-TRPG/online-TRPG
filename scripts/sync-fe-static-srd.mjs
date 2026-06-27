@@ -1,6 +1,10 @@
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  buildCanonicalClassFeatureManifest,
+  SRD_CLASS_FEATURE_ID_ALIASES,
+} from '@trpg/srd-data';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
@@ -36,7 +40,14 @@ await copyFile(
   path.join(publicRulebookDir, 'dnd5e.json'),
 );
 
-await writeJson(path.join(publicSrdDir, 'classes.json'), await readJsonLines('classes.jsonl'));
+const classes = await readJsonLines('classes.jsonl');
+await writeJson(path.join(publicSrdDir, 'classes.json'), classes);
+await writeJson(
+  path.join(publicSrdDir, 'class-features.json'),
+  buildCanonicalClassFeatureManifest(classes, {
+    aliasesByClass: SRD_CLASS_FEATURE_ID_ALIASES,
+  }),
+);
 await writeJson(path.join(publicSrdDir, 'races.json'), await readJsonLines('races.jsonl'));
 await writeJson(path.join(publicSrdDir, 'monsters.json'), await readJsonLines('monsters.jsonl'));
 await writeJson(path.join(publicSrdDir, 'spells.json'), await readJsonLines('spells.jsonl'));

@@ -88,7 +88,7 @@ export const P2_EXECUTABLE_MONSTER_IDS = [
   "monster.zombie",
   "monster.giant_spider",
   "monster.brown_bear",
-  "monster.dragon_whelp",
+  "monster.red_dragon_wyrmling",
   "monster.cultist",
   "monster.ogre",
   "monster.kobold",

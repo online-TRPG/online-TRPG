@@ -308,7 +308,7 @@ describe("default scenario seed", () => {
         "monster.orc",
         "monster.skeleton",
         "monster.wolf",
-        "monster.dragon_whelp",
+        "monster.red_dragon_wyrmling",
         "monster.cultist",
         "monster.giant_spider",
       ]),
@@ -439,7 +439,7 @@ describe("default scenario seed", () => {
 
     expect(commands).toEqual(
       expect.arrayContaining([
-        "/item pickup object_node_rule_smoke_condition_rope equipment.rope 1 3 4",
+        "/item pickup object_node_rule_smoke_condition_rope equipment.rope__hempen__50_feet 1 3 4",
         "/item drop entry-smoke-dagger 1 3 4",
         "/item throw entry-smoke-dagger 1 4 4",
       ]),
@@ -1128,7 +1128,6 @@ describe("default scenario seed", () => {
     expect([...publicChecks]).toEqual(
       expect.arrayContaining([
         "validatesSearch",
-        "validatesRating",
         "validatesFork",
         "validatesModeration",
         "ai_gm_complete",

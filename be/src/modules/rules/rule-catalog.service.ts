@@ -2145,16 +2145,16 @@ const MONSTER_ABILITY_DEFINITIONS: RuleCatalogEntry[] = [
     ],
     hookId: "hook.monster.attack",
   }),
-  monsterAbility("monster.dragon_whelp.ability.bite", {
-    monsterId: "monster.dragon_whelp",
+  monsterAbility("monster.red_dragon_wyrmling.ability.bite", {
+    monsterId: "monster.red_dragon_wyrmling",
     cost: { type: "action" },
     targeting: { type: "creature", rangeFt: 5 },
     damage: { dice: "1d10+3", type: "piercing" },
     tags: ["attack:melee_weapon", "attack_bonus:+5", "srd_action_id:action.bite"],
     hookId: "hook.monster.attack",
   }),
-  monsterAbility("monster.dragon_whelp.ability.fire_breath", {
-    monsterId: "monster.dragon_whelp",
+  monsterAbility("monster.red_dragon_wyrmling.ability.fire_breath", {
+    monsterId: "monster.red_dragon_wyrmling",
     cost: { type: "action" },
     targeting: { type: "area", shape: "cone", sizeFt: 15 },
     save: { ability: "dex", dcSource: "fixed", fixedDc: 13 },
@@ -2162,8 +2162,8 @@ const MONSTER_ABILITY_DEFINITIONS: RuleCatalogEntry[] = [
     tags: ["recharge:5-6", "area:cone", "save:dex", "half_damage_on_success", "srd_action_id:action.fire_breath"],
     hookId: "hook.monster.area_attack",
   }),
-  monsterAbility("monster.dragon_whelp.ability.dark_blessing", {
-    monsterId: "monster.dragon_whelp",
+  monsterAbility("monster.red_dragon_wyrmling.ability.dark_blessing", {
+    monsterId: "monster.red_dragon_wyrmling",
     cost: { type: "none" },
     targeting: SELF_TARGETING,
     tags: [

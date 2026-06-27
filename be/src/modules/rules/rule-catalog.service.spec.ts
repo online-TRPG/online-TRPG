@@ -1391,9 +1391,9 @@ describe("RuleCatalogService", () => {
       "monster.giant_rat.ability.bite",
       "monster.giant_spider.ability.web",
       "monster.giant_spider.ability.bite",
-      "monster.dragon_whelp.ability.bite",
-      "monster.dragon_whelp.ability.fire_breath",
-      "monster.dragon_whelp.ability.dark_blessing",
+      "monster.red_dragon_wyrmling.ability.bite",
+      "monster.red_dragon_wyrmling.ability.fire_breath",
+      "monster.red_dragon_wyrmling.ability.dark_blessing",
       "monster.cultist.ability.scimitar",
       "monster.cultist.ability.dark_devotion",
       "monster.ogre.ability.greatclub",
@@ -1443,9 +1443,9 @@ describe("RuleCatalogService", () => {
     ]);
 
     expect(service.listMonsterAbilities("dragon whelp").map((entry) => entry.id)).toEqual([
-      "monster.dragon_whelp.ability.bite",
-      "monster.dragon_whelp.ability.dark_blessing",
-      "monster.dragon_whelp.ability.fire_breath",
+      "monster.red_dragon_wyrmling.ability.bite",
+      "monster.red_dragon_wyrmling.ability.dark_blessing",
+      "monster.red_dragon_wyrmling.ability.fire_breath",
     ]);
 
     expect(service.listMonsterAbilities("giant spider").map((entry) => entry.id)).toEqual([
@@ -1462,7 +1462,7 @@ describe("RuleCatalogService", () => {
         "monster.zombie",
         "monster.giant_spider",
         "monster.brown_bear",
-        "monster.dragon_whelp",
+        "monster.red_dragon_wyrmling",
         "monster.cultist",
         "monster.ogre",
       ].every((monsterId) => service.listMonsterAbilities(monsterId).length > 0),

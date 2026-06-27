@@ -35,6 +35,18 @@ export interface ClassFeatureReference {
   sourceHeading?: string | null;
 }
 
+export interface CanonicalClassFeatureEntry {
+  id: string;
+  classKey: string;
+  level: number;
+  nameKo: string;
+  category: 'class' | 'subclass' | 'asi' | 'choice' | string;
+  summaryKo: string;
+  source: 'srd' | 'runtime' | 'derived' | string;
+  aliases: string[];
+  availableAtLevels: number[];
+}
+
 export interface RaceOption {
   value: string;
   label: string;
@@ -43,6 +55,14 @@ export interface RaceOption {
 export interface RaceTraitSummary {
   name: string;
   summary: string;
+  aliases?: string[];
+}
+
+export interface RaceSubraceTraitSummary {
+  key: string;
+  label: string;
+  aliases: string[];
+  traits: RaceTraitSummary[];
 }
 
 export interface RaceAbilityBonus {
@@ -53,6 +73,7 @@ export interface RaceAbilityBonus {
 
 export interface RaceData extends RaceOption {
   id: string;
+  ancestryAliases: string[];
   size: string;
   speed: number;
   speedRaw: string;
@@ -60,6 +81,7 @@ export interface RaceData extends RaceOption {
   abilityBonuses: RaceAbilityBonus[];
   languages: string[];
   traitSummaries: RaceTraitSummary[];
+  subraceTraitSummaries: RaceSubraceTraitSummary[];
 }
 
 interface RawClassEntry {
@@ -436,6 +458,39 @@ function extractBaseTraits(traits: RawRaceTraitEntry[]) {
   return baseTraits;
 }
 
+function normalizeSubraceKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^subrace\./, '')
+    .replace(/_/g, '-')
+    .replace(/\s+/g, '-');
+}
+
+function extractSubraceTraits(traits: RawRaceTraitEntry[]) {
+  const seenNames = new Set<string>();
+
+  for (let index = 0; index < traits.length; index += 1) {
+    const trait = traits[index];
+    const normalizedSummary = normalizeSrdSummary(trait.nameKo, trait.summaryKo);
+    if (!normalizedSummary.trim()) {
+      return traits.slice(index + 1);
+    }
+
+    if (seenNames.has(trait.nameKo)) {
+      return traits.slice(index);
+    }
+
+    seenNames.add(trait.nameKo);
+
+    if (normalizedSummary.includes('## ')) {
+      return traits.slice(index + 1);
+    }
+  }
+
+  return [];
+}
+
 function buildRaceTraitSummaries(entry: RawRaceEntry): RaceTraitSummary[] {
   const traits = extractBaseTraits(entry.traits ?? []);
   const summaries: RaceTraitSummary[] = [];
@@ -473,12 +528,65 @@ function buildRaceTraitSummaries(entry: RawRaceEntry): RaceTraitSummary[] {
   return summaries.slice(0, 4);
 }
 
+function buildSubraceTraitSummaries(entry: RawRaceEntry): RaceSubraceTraitSummary[] {
+  const subraces = entry.subraces ?? [];
+  if (!subraces.length) return [];
+
+  const subraceTraits = extractSubraceTraits(entry.traits ?? []);
+  if (!subraceTraits.length) return [];
+
+  return subraces.map((subrace) => {
+    const key = normalizeSubraceKey(subrace.id);
+    const aliases = [
+      key,
+      subrace.id,
+      subrace.id.includes('.') ? subrace.id.slice(subrace.id.lastIndexOf('.') + 1) : subrace.id,
+      subrace.nameKo,
+      'subrace_traits',
+      'subrace traits',
+    ];
+    const traits = subraceTraits
+      .map((trait) => ({
+        name: trait.nameKo,
+        summary: normalizeSrdSummary(trait.nameKo, trait.summaryKo),
+      }))
+      .filter((trait) => trait.summary.length > 0);
+
+    return {
+      key,
+      label: `${subrace.nameKo} 특성`,
+      aliases,
+      traits: [
+        {
+          name: `${subrace.nameKo} 특성`,
+          aliases,
+          summary: traits.map((trait) => `${trait.name}: ${trait.summary}`).join(' · '),
+        },
+        ...traits,
+      ],
+    };
+  });
+}
+
 function normalizeRaceData(entries: RawRaceEntry[]): RaceData[] {
   return entries.map((entry) => {
+    const ancestryAliases = [
+      entry.id,
+      entry.id.includes('.') ? entry.id.slice(entry.id.lastIndexOf('.') + 1) : entry.id,
+      entry.nameEn,
+      entry.nameKo,
+      ...(entry.subraces ?? []).flatMap((subrace) => [
+        subrace.id,
+        subrace.id.includes('.') ? subrace.id.slice(subrace.id.lastIndexOf('.') + 1) : subrace.id,
+        subrace.nameKo,
+      ]),
+    ];
+
     return {
       id: entry.id,
       value: entry.nameEn,
       label: entry.nameKo,
+      ancestryAliases,
       size: entry.sizeRaw,
       speed: parseSpeedValue(entry.speedRaw),
       speedRaw: entry.speedRaw,
@@ -486,6 +594,7 @@ function normalizeRaceData(entries: RawRaceEntry[]): RaceData[] {
       abilityBonuses: parseAbilityBonuses(entry.abilityScoreIncreaseRaw),
       languages: splitLanguages(entry.languagesRaw),
       traitSummaries: buildRaceTraitSummaries(entry),
+      subraceTraitSummaries: buildSubraceTraitSummaries(entry),
     };
   });
 }
@@ -493,6 +602,10 @@ function normalizeRaceData(entries: RawRaceEntry[]): RaceData[] {
 export async function loadClassOptions(): Promise<ClassOption[]> {
   const payload = await fetchStaticAsset<RawClassEntry[]>('srd/classes.json');
   return normalizeClassOptions(payload);
+}
+
+export async function loadClassFeatureManifest(): Promise<CanonicalClassFeatureEntry[]> {
+  return fetchStaticAsset<CanonicalClassFeatureEntry[]>('srd/class-features.json');
 }
 
 export async function loadRaceData(): Promise<RaceData[]> {

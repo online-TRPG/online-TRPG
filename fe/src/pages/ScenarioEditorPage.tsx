@@ -46,6 +46,7 @@ interface ScenarioEditorPageProps {
   user: StoredUser;
   accessToken: string | null;
   scenarioId?: string | null;
+  autoStartPublish?: boolean;
   onDone: () => void;
   onCancel: () => void;
   onUnsavedChangesChange?: (hasUnsavedChanges: boolean) => void;
@@ -1209,6 +1210,7 @@ export function ScenarioEditorPage({
   user,
   accessToken,
   scenarioId,
+  autoStartPublish = false,
   onDone,
   onCancel,
   onUnsavedChangesChange,
@@ -1242,6 +1244,7 @@ export function ScenarioEditorPage({
   const [autoSaveStatus, setAutoSaveStatus] = useState('자동 저장 준비 중');
   const [publishStatus, setPublishStatus] = useState<string | null>(null);
   const autoSaveBusyRef = useRef(false);
+  const autoStartPublishRef = useRef(false);
   const lastSavedSnapshotRef = useRef<string | null>(null);
   const draftScenarioIdRef = useRef<string | null>(scenarioId ?? null);
   const draftUpdatedAtRef = useRef<string | null>(null);
@@ -1979,10 +1982,49 @@ export function ScenarioEditorPage({
         visibilityInput === 'link' || visibilityInput === 'private'
           ? visibilityInput
           : 'public';
+      const isSharedPublication = visibility === 'public' || visibility === 'link';
+      let rightsConfirmed = false;
+      let rightsBasis: string | null = null;
+      let forkAllowed = false;
+      if (isSharedPublication) {
+        rightsConfirmed = window.confirm(
+          [
+            '이 시나리오를 공개/링크 발행하려면 아래 내용을 확인해야 합니다.',
+            '',
+            '1. 직접 창작했거나 공개·재배포 권한이 있습니다.',
+            '2. 공식/유료 시나리오, 타인의 이미지·지도·텍스트를 무단 포함하지 않았습니다.',
+            '3. 저작권 신고가 접수되면 비공개 처리되거나 삭제될 수 있습니다.',
+            '',
+            '위 내용을 확인하고 발행할까요?',
+          ].join('\n'),
+        );
+        if (!rightsConfirmed) {
+          setPublishStatus('권리 확인을 완료해야 공개/링크 발행할 수 있습니다.');
+          return;
+        }
+        rightsBasis =
+          window.prompt(
+            '공개 가능 근거/출처를 입력하세요. 예: 직접 창작, CC BY 4.0 출처 URL, 사용 허가 내역',
+            form.license === 'original' ? '직접 창작' : form.attribution,
+          ) ?? '';
+        if (form.license !== 'original' && !rightsBasis.trim()) {
+          setPublishStatus('외부 라이선스 또는 허가 기반 공개 시나리오는 출처/권리 근거가 필요합니다.');
+          return;
+        }
+        forkAllowed = window.confirm(
+          '다른 사용자가 이 공개 revision을 fork해서 독립 draft로 복제하는 것을 허용할까요?\n\n저작권/라이선스상 2차 복제 권한이 확실할 때만 허용하세요.',
+        );
+      }
       const published = await publishScenario(
         user,
         savedScenario.id,
-        { changelog: changelog.trim() || null, visibility },
+        {
+          changelog: changelog.trim() || null,
+          visibility,
+          rightsConfirmed,
+          rightsBasis: rightsBasis?.trim() || null,
+          forkAllowed,
+        },
         accessToken,
       );
       setPublishStatus(`발행 완료: ${published.title} (${published.publishStatus ?? visibility})`);
@@ -1993,6 +2035,26 @@ export function ScenarioEditorPage({
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    autoStartPublishRef.current = false;
+  }, [autoStartPublish, scenarioId]);
+
+  useEffect(() => {
+    if (
+      !autoStartPublish ||
+      autoStartPublishRef.current ||
+      !scenarioId ||
+      busy ||
+      lastSavedSnapshotRef.current === null
+    ) {
+      return;
+    }
+
+    autoStartPublishRef.current = true;
+    setPublishStatus('공개 등록 요청을 시작합니다. 시나리오 검증 후 발행 절차가 열립니다.');
+    void handlePublishScenario();
+  }, [autoStartPublish, busy, form, scenarioId]);
 
   return (
     <main className="session-page">

@@ -27,6 +27,7 @@ import {
   getSpellcastingProgression,
   InventoryItemDto,
   LevelUpCharacterDto,
+  normalizeInventoryItemsDisplay,
   normalizeSkillToKo,
   normalizeSpellcastingClassKey,
   POINT_BUY_COST,
@@ -1491,7 +1492,9 @@ export class CharactersService {
 
     return {
       characterId: character.id,
-      inventory: JSON.parse(character.inventoryJson) as CharacterInventoryResponseDto["inventory"],
+      inventory: normalizeInventoryItemsDisplay(
+        JSON.parse(character.inventoryJson) as CharacterInventoryResponseDto["inventory"],
+      ),
       spells: character.spellsJson
         ? (JSON.parse(character.spellsJson) as CharacterInventoryResponseDto["spells"])
         : null,
