@@ -42,8 +42,6 @@ export type ScenarioPolicyDraft = {
 export type ScenarioPolicyIssue = {
   code:
     | "FORBIDDEN_ROLE"
-    | "REVIEW_APPROVAL_REQUIRED"
-    | "REVIEW_REJECTED"
     | "PRIVATE_DATA_EXPOSED"
     | "ATTRIBUTION_REQUIRED"
     | "BROKEN_NODE_REFERENCE";
@@ -133,23 +131,6 @@ export class ScenarioCollaborationPolicyService {
       });
     }
 
-    const latestReview = this.resolveLatestReview(params.draft.reviews);
-    if (params.visibility !== "private") {
-      if (!latestReview || latestReview.status === "none" || latestReview.status === "requested") {
-        issues.push({
-          code: "REVIEW_APPROVAL_REQUIRED",
-          severity: "blocker",
-          message: "public/link 발행 전 reviewer 승인이 필요합니다.",
-        });
-      } else if (latestReview.status === "rejected" || latestReview.status === "changes_requested") {
-        issues.push({
-          code: "REVIEW_REJECTED",
-          severity: "blocker",
-          message: "반려되었거나 수정 요청 상태인 draft는 발행할 수 없습니다.",
-        });
-      }
-    }
-
     issues.push(...this.validatePrivateDataExposure(params.draft));
     issues.push(...this.validateAttribution(params.draft));
     issues.push(...this.validateNodeReferences(params.draft));
@@ -209,10 +190,6 @@ export class ScenarioCollaborationPolicyService {
   private resolveRole(draft: ScenarioPolicyDraft, userId: string): ScenarioCollaboratorRole | null {
     if (draft.ownerUserId === userId) return "owner";
     return draft.collaborators.find((collaborator) => collaborator.userId === userId)?.role ?? null;
-  }
-
-  private resolveLatestReview(reviews: ScenarioReviewRecord[]): ScenarioReviewRecord | null {
-    return reviews.at(-1) ?? null;
   }
 
   private validatePrivateDataExposure(draft: ScenarioPolicyDraft): ScenarioPolicyIssue[] {

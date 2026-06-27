@@ -181,6 +181,7 @@ export function App() {
   const characterPageState = location.state as CharacterPageState | null;
   const scenarioEditMatch = /^\/scenarios\/([^/]+)\/edit$/.exec(location.pathname);
   const scenarioEditId = scenarioEditMatch?.[1] ?? null;
+  const scenarioEditAutoStartPublish = new URLSearchParams(location.search).get('publish') === '1';
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
 
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
@@ -633,11 +634,7 @@ export function App() {
             error={error}
             onOpenCreate={() => guardedNavigate('/scenarios/new')}
             onOpenEdit={(scenarioId) => guardedNavigate(`/scenarios/${scenarioId}/edit`)}
-            onOpenSessionCreate={(scenarioId) =>
-              guardedNavigate('/sessions/new', {
-                state: { initialScenarioId: scenarioId },
-              })
-            }
+            onOpenPublish={(scenarioId) => guardedNavigate(`/scenarios/${scenarioId}/edit?publish=1`)}
           />
         ) : null}
 
@@ -660,6 +657,7 @@ export function App() {
             user={currentUser}
             accessToken={auth.accessToken}
             scenarioId={scenarioEditId}
+            autoStartPublish={scenarioEditAutoStartPublish}
             onUnsavedChangesChange={setHasUnsavedScenarioChanges}
             onDone={() => {
               void reloadScenarios();

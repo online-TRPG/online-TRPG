@@ -114,7 +114,7 @@ npm run build
 7. 운영자가 `restored` 처리하면 appeal이 accepted 흐름으로 바뀌고 공개 탐색에 복구되는지 확인한다.
 8. 운영자가 `escalated` 처리하면 appeal이 under_review 흐름으로 바뀌는지 확인한다.
 9. 운영자가 `creator_note_required` 처리하면 creator notice가 `creator_action_required`로 보이는지 확인한다.
-10. `review_removed`와 `rating_removed`가 각각 리뷰 텍스트/평점 score를 의도대로 처리하는지 확인한다.
+10. 운영자가 `removed` 처리하면 공개 탐색과 일반 링크 접근에서 제외되고, 기존 세션 snapshot은 유지되는지 확인한다.
 
 ## 6. 장기 캠페인 완결·archive·vault·transfer 검증
 

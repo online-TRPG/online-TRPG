@@ -4,6 +4,7 @@ import {
   AUTH_TOKEN_REISSUED_EVENT,
   createGuest,
   deleteMe as apiDeleteMe,
+  getMe,
   login,
   logout,
   oauthLogin,
@@ -82,6 +83,15 @@ export function useAuth(
     setAuthMode(mode);
   }
 
+  function toStoredUser(nextUser: User): StoredUser {
+    return {
+      id: nextUser.id,
+      publicId: nextUser.publicId,
+      displayName: nextUser.displayName,
+      createdAt: nextUser.createdAt,
+    };
+  }
+
   const expireSession = useCallback(
     (message = TOKEN_EXPIRED_MESSAGE) => {
       const currentAuth = currentAuthRef.current;
@@ -125,6 +135,27 @@ export function useAuth(
     const timeoutId = window.setTimeout(() => void refreshAccessToken(), refreshDelayMs);
     return () => window.clearTimeout(timeoutId);
   }, [accessToken, authMode, refreshAccessToken]);
+
+  useEffect(() => {
+    if (!accessToken || authMode !== "member") return undefined;
+
+    let cancelled = false;
+    void getMe(accessToken)
+      .then((profile) => {
+        if (cancelled) return;
+        const nextStored = toStoredUser(profile);
+        saveStoredUser(nextStored);
+        setUser(nextStored);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        expireSession(TOKEN_EXPIRED_MESSAGE);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, authMode, expireSession]);
 
   useEffect(() => {
     function handleAuthExpired(event: Event) {

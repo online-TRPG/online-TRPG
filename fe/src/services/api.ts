@@ -47,7 +47,6 @@ import type {
   RemoveHumanGmInventoryItemDto,
   RequestCharacterTransferDto,
   ForkScenarioDto,
-  RateScenarioDto,
   ReportHumanGmAiAssistApplicationFailureDto,
   ReportScenarioDto,
   RestActionDto,
@@ -67,7 +66,6 @@ import type {
   ScenarioModerationReportResponseDto,
   ScenarioModerationAppealResponseDto,
   ScenarioQueryDto,
-  ScenarioRatingResponseDto,
   SessionDetailResponseDto,
   SessionSnapshotDto,
   SubmitMainCommandDto,
@@ -148,7 +146,7 @@ if (import.meta.env.DEV && typeof console !== 'undefined') {
 export const AUTH_EXPIRED_EVENT = 'trpg:auth-expired';
 export const AUTH_TOKEN_REISSUED_EVENT = 'trpg:auth-token-reissued';
 
-export const DEFAULT_SCENARIO_ID = 'scenario_77758fa0-3b35-4f95-bb2d-0ffe11c989ac';
+export const DEFAULT_SCENARIO_ID = 'scenario_goblin_cave';
 const DEFAULT_RULE_SET_ID = 'dnd5e';
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -518,7 +516,11 @@ export function oauthLogin(
   });
 }
 
-export function listScenarios(query?: ScenarioQueryDto): Promise<Scenario[]> {
+export function listScenarios(
+  query?: ScenarioQueryDto,
+  user?: StoredUser | null,
+  accessToken?: string | null,
+): Promise<Scenario[]> {
   const params = new URLSearchParams();
   if (query?.search?.trim()) params.set('search', query.search.trim());
   if (query?.minLevel !== undefined) params.set('minLevel', String(query.minLevel));
@@ -526,11 +528,13 @@ export function listScenarios(query?: ScenarioQueryDto): Promise<Scenario[]> {
   if (query?.tag?.trim()) params.set('tag', query.tag.trim());
   if (query?.sort) params.set('sort', query.sort);
   if (query?.gmMode) params.set('gmMode', query.gmMode);
-  if (query?.minRating !== undefined) params.set('minRating', String(query.minRating));
   if (query?.limit !== undefined) params.set('limit', String(query.limit));
   if (query?.offset !== undefined) params.set('offset', String(query.offset));
   const search = params.toString();
-  return requestJson<Scenario[]>(`/scenarios${search ? `?${search}` : ''}`);
+  return requestJson<Scenario[]>(`/scenarios${search ? `?${search}` : ''}`, {
+    user,
+    accessToken,
+  });
 }
 
 function isProvidedScenarioForSelection(scenario: Scenario): boolean {
@@ -538,7 +542,10 @@ function isProvidedScenarioForSelection(scenario: Scenario): boolean {
 }
 
 function isPublicScenarioRevisionForSelection(scenario: Scenario): boolean {
-  return Boolean(scenario.baseScenarioId) && scenario.publishStatus === 'public';
+  return (
+    scenario.sourceType === 'CLONED' &&
+    (scenario.publishStatus === 'public' || scenario.publishStatus === 'link')
+  );
 }
 
 export async function listAvailableScenarios(
@@ -546,7 +553,7 @@ export async function listAvailableScenarios(
   accessToken?: string | null
 ): Promise<Scenario[]> {
   const [allScenarios, myScenarios] = await Promise.all([
-    listScenarios(),
+    listScenarios(undefined, user, accessToken),
     listMyScenarios(user, accessToken),
   ]);
   const publicPlayableScenarios = allScenarios.filter(
@@ -780,32 +787,6 @@ export function applyScenarioModerationAction(
     user,
     accessToken,
     body: payload,
-  });
-}
-
-export function rateScenario(
-  user: StoredUser,
-  scenarioId: string,
-  payload: RateScenarioDto,
-  accessToken?: string | null
-): Promise<ScenarioRatingResponseDto> {
-  return requestJson<ScenarioRatingResponseDto>(`/scenarios/${scenarioId}/ratings`, {
-    method: 'POST',
-    user,
-    accessToken,
-    body: payload,
-  });
-}
-
-export function deleteScenarioRating(
-  user: StoredUser,
-  scenarioId: string,
-  accessToken?: string | null
-): Promise<ScenarioRatingResponseDto> {
-  return requestJson<ScenarioRatingResponseDto>(`/scenarios/${scenarioId}/ratings/me`, {
-    method: 'DELETE',
-    user,
-    accessToken,
   });
 }
 

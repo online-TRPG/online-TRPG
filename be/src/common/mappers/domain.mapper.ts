@@ -594,11 +594,33 @@ export function mapGameState(
   };
 }
 
-export function mapScenarioSummary(scenario: Scenario): ScenarioSummaryResponseDto {
+type ScenarioUserDisplaySource = {
+  displayName?: string | null;
+  profile?: {
+    nickname?: string | null;
+  } | null;
+};
+
+type ScenarioSummarySource = Scenario & {
+  creator?: ScenarioUserDisplaySource | null;
+};
+
+function mapUserDisplayName(user?: ScenarioUserDisplaySource | null): string | null {
+  return user?.profile?.nickname?.trim() || user?.displayName?.trim() || null;
+}
+
+export function mapScenarioSummary(scenario: ScenarioSummarySource): ScenarioSummaryResponseDto {
   const revision = parseScenarioRevisionMetadata(scenario.attribution);
+  const creatorDisplayName = mapUserDisplayName(scenario.creator);
+  const publishedByDisplayName =
+    revision.publishedByUserId && revision.publishedByUserId === scenario.createdByUserId
+      ? creatorDisplayName
+      : null;
   return {
     id: scenario.id,
     title: scenario.title,
+    createdByUserId: scenario.createdByUserId ?? null,
+    createdByDisplayName: creatorDisplayName,
     description: scenario.description ?? null,
     thumbnailUrl: scenario.thumbnailUrl ?? null,
     ruleSetId: scenario.ruleSetId ?? null,
@@ -615,6 +637,7 @@ export function mapScenarioSummary(scenario: Scenario): ScenarioSummaryResponseD
     validationReport: revision.validationReport,
     publishedAt: revision.publishedAt,
     publishedByUserId: revision.publishedByUserId,
+    publishedByDisplayName,
     publishStatus: revision.publishStatus,
     createdAt: toIsoString(scenario.createdAt),
     updatedAt: toIsoString(scenario.updatedAt),
