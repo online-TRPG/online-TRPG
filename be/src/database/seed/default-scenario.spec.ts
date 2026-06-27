@@ -1128,7 +1128,6 @@ describe("default scenario seed", () => {
     expect([...publicChecks]).toEqual(
       expect.arrayContaining([
         "validatesSearch",
-        "validatesRating",
         "validatesFork",
         "validatesModeration",
         "ai_gm_complete",

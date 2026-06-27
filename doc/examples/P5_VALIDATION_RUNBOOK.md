@@ -47,23 +47,18 @@ npm run build
 1. `/scenarios`로 이동한다.
 2. `공개 탐색` 탭을 연다.
 3. 태그 `p5` 또는 레벨 `16` 필터로 `성좌 봉인의 마지막 원정`을 찾는다.
-4. 추천순, 평점순, 최신순, 레벨순 정렬이 동작하는지 확인한다.
+4. 추천순, 최신순, 레벨순 정렬이 동작하는지 확인한다.
 5. 상세 패널에서 다음 값이 보이는지 확인한다.
-   - 평균 평점
-   - 리뷰 수
    - fork 수
    - 예상 시간
    - 태그
    - 추천 근거
    - moderation 상태
 6. `세션 생성` 버튼으로 `/sessions/new`에 진입했을 때 해당 시나리오가 자동 선택되는지 확인한다.
-7. 플레이 완료 사용자로 평점·리뷰를 남긴다.
-8. 같은 사용자가 다시 평점을 남기면 중복 생성이 아니라 기존 평점이 갱신되는지 확인한다.
-9. 내 평점을 삭제한다.
-10. 공개 revision을 fork하고, `내 시나리오` 탭에 독립 draft가 생성되는지 확인한다.
-11. 원본 revision을 수정하거나 새 revision을 발행해도 fork draft가 바뀌지 않는지 확인한다.
-12. 신고가 누적된 revision이 공개 탐색에서 제외되는지 확인한다.
-13. 기존 세션 snapshot은 신고·비공개 전환 후에도 유지되는지 확인한다.
+7. 공개 revision을 fork하고, `내 시나리오` 탭에 독립 draft가 생성되는지 확인한다.
+8. 원본 revision을 수정하거나 새 revision을 발행해도 fork draft가 바뀌지 않는지 확인한다.
+9. 신고가 누적된 revision이 공개 탐색에서 제외되는지 확인한다.
+10. 기존 세션 snapshot은 신고·비공개 전환 후에도 유지되는지 확인한다.
 
 ## 완료 기록 양식
 
@@ -75,6 +70,6 @@ AI GM P5 campaign: PASS/FAIL
 HUMAN GM P5 campaign: PASS/FAIL
 calendar schedule flow: PASS/FAIL
 downtime lifecycle: PASS/FAIL
-public discovery/rating/fork/moderation: PASS/FAIL
+public discovery/fork/moderation: PASS/FAIL
 notes:
 ```

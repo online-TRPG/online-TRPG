@@ -183,7 +183,7 @@ const p5ValidationScenario = {
   id: P5_VALIDATION_SCENARIO_ID,
   title: "성좌 봉인의 마지막 원정",
   description:
-    "16레벨 캐릭터로 240~360분 동안 P5 13~16레벨 성장, 7~8레벨 주문, 고레벨 몬스터 180종 확장, 캠페인 일정·장기 downtime, 공개 시나리오 탐색·평점·리뷰·fork·신고 흐름을 함께 검증하는 오리지널 캠페인 챕터입니다.",
+    "16레벨 캐릭터로 240~360분 동안 P5 13~16레벨 성장, 7~8레벨 주문, 고레벨 몬스터 180종 확장, 캠페인 일정·장기 downtime, 공개 시나리오 탐색·fork·신고 흐름을 함께 검증하는 오리지널 캠페인 챕터입니다.",
   thumbnailUrl: null,
   ruleSetId: "dnd5e",
   difficulty: "legendary",
@@ -3008,13 +3008,13 @@ const scenarioNodes = [
     nodeType: "downtime",
     title: "공개 revision 생태계 검증",
     sceneText:
-      "캠페인을 공개 revision으로 발행하고 레벨·태그·평점·최신순 검색을 확인합니다. 완료한 사용자만 평점/리뷰를 남기고, fork draft를 만든 뒤 신고 누적으로 검색 제외되는지 검증합니다.",
+      "캠페인을 공개 revision으로 발행하고 레벨·태그·최신순 검색을 확인합니다. fork draft를 만든 뒤 신고 누적으로 검색 제외되는지 검증합니다.",
     imageUrl: null,
     checkOptionsJson: JSON.stringify({ checks: [], vttMap: null }),
     transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P5_END_NODE_ID }]),
-    cluesJson: JSON.stringify([{ id: "clue_p5_public_flow", title: "공개 흐름", text: "publish → discovery → rate/review → fork → report → hidden 순서로 확인합니다." }]),
+    cluesJson: JSON.stringify([{ id: "clue_p5_public_flow", title: "공개 흐름", text: "publish → discovery → fork → report → hidden 순서로 확인합니다." }]),
     fallbackNodeId: P5_END_NODE_ID,
-    nodeMetaJson: JSON.stringify({ p5PublicEcosystem: { validatesSearch: true, validatesRating: true, validatesFork: true, validatesModeration: true } }),
+    nodeMetaJson: JSON.stringify({ p5PublicEcosystem: { validatesSearch: true, validatesFork: true, validatesModeration: true } }),
   },
   {
     id: P5_END_NODE_ID,
@@ -3206,16 +3206,16 @@ const scenarioNodes = [
     nodeType: "downtime",
     title: "공개 콘텐츠 운영자 재판",
     sceneText:
-      "공개 revision을 신고하고 운영자 큐에서 hidden, warning, review_removed, restored를 처리합니다. Creator는 이의 제기를 제출하고 복구 여부를 확인합니다.",
+      "공개 revision을 신고하고 운영자 큐에서 hidden, warning, creator_note_required, restored, removed를 처리합니다. Creator는 이의 제기를 제출하고 복구 여부를 확인합니다.",
     imageUrl: null,
     checkOptionsJson: JSON.stringify({ checks: [], vttMap: createP6ValidationMap(P6_DOWNTIME_TWO_NODE_ID, "moderation_trial") }),
     transitionsJson: JSON.stringify([{ condition: "default", nextNodeId: P6_COMBAT_ONE_NODE_ID }]),
-    cluesJson: JSON.stringify([{ id: "clue_p6_moderation_flow", title: "운영자 moderation 흐름", text: "report → queue → action → appeal → restored/rejected → review_removed를 검증합니다." }]),
+    cluesJson: JSON.stringify([{ id: "clue_p6_moderation_flow", title: "운영자 moderation 흐름", text: "report → queue → action → appeal → restored/rejected를 검증합니다." }]),
     fallbackNodeId: P6_COMBAT_ONE_NODE_ID,
     nodeMetaJson: JSON.stringify({
       p6Moderation: {
         validatesQueue: true,
-        validatesActions: ["hidden", "restored", "warning", "creator_note_required", "rating_removed", "review_removed"],
+        validatesActions: ["hidden", "restored", "warning", "creator_note_required", "removed"],
         validatesAppeals: ["submitted", "accepted", "rejected"],
       },
       p6Scenario: {

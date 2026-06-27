@@ -171,17 +171,31 @@ describe("ScenariosService P3 revision publishing", () => {
         p4Policy: expect.objectContaining({
           status: "valid",
           blockerCount: 0,
-          reviewGate: "enforced_by_policy_service",
+          reviewGate: "optional_collaboration_review",
         }),
       }),
     });
   });
 
-  it("rejects public publishing until a P4 review approval is recorded", async () => {
+  it("publishes public revisions without requiring a P4 reviewer approval", async () => {
     const { service, prisma } = createService();
     prisma.scenario.findUnique.mockResolvedValue(
       buildScenario({
         attribution: "Original attribution",
+      }),
+    );
+    prisma.scenario.count.mockResolvedValue(0);
+    prisma.scenario.create.mockImplementation(({ data }) =>
+      Promise.resolve({
+        ...data,
+        createdAt: date,
+        updatedAt: date,
+        nodes: data.nodes.create.map((node: Record<string, unknown>) => ({
+          ...node,
+          scenarioId: data.id,
+          createdAt: date,
+          updatedAt: date,
+        })),
       }),
     );
 
@@ -190,8 +204,16 @@ describe("ScenariosService P3 revision publishing", () => {
         changelog: null,
         visibility: "public",
       }),
-    ).rejects.toThrow("public/link 발행 전 reviewer 승인이 필요합니다.");
-    expect(prisma.scenario.create).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({
+      publishStatus: "public",
+      validationReport: expect.objectContaining({
+        status: "valid",
+        p4Policy: expect.objectContaining({
+          reviewGate: "optional_collaboration_review",
+        }),
+      }),
+    });
+    expect(prisma.scenario.create).toHaveBeenCalled();
   });
 
   it("rejects publishing when a fallback node points outside the draft", async () => {
@@ -360,6 +382,24 @@ describe("ScenariosService P3 revision publishing", () => {
     });
   });
 
+  it("blocks creator unpublish while a public revision is under moderation hidden state", async () => {
+    const { service, prisma } = createService();
+    const revision = buildScenario({
+      id: "revision-hidden",
+      createdByUserId: "creator-1",
+      sourceType: PrismaScenarioSourceType.CLONED,
+      baseScenarioId: "scenario_draft",
+      attribution:
+        'Original attribution\nP3_REVISION_META:{"revisionNumber":1,"changelog":"Initial","publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"hidden","reports":[],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+    });
+    prisma.scenario.findUnique.mockResolvedValue(revision);
+
+    await expect(service.unpublishScenarioRevision("creator-1", "revision-hidden")).rejects.toThrow(
+      "운영자 검토 중이거나 삭제 처리된 공개 시나리오는 작성자가 공개 취소할 수 없습니다.",
+    );
+    expect(prisma.scenario.update).not.toHaveBeenCalled();
+  });
+
   it("lets an editor collaborator update a draft but keeps viewer collaborators read-only", async () => {
     const { service, prisma } = createService();
     const collaborativeDraft = buildScenario({
@@ -486,7 +526,15 @@ describe("ScenariosService P3 revision publishing", () => {
       createdByUserId: "creator-2",
       attribution: "Original attribution",
     });
-    prisma.scenario.findMany.mockResolvedValue([ownDraft, sharedDraft, unrelatedDraft]);
+    const ownPublishedRevision = buildScenario({
+      id: "own-published-revision",
+      createdByUserId: "editor-1",
+      sourceType: PrismaScenarioSourceType.CLONED,
+      baseScenarioId: "own-draft",
+      attribution:
+        'Original attribution\nP3_REVISION_META:{"revisionNumber":1,"changelog":"Initial","publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"editor-1","status":"public"}',
+    });
+    prisma.scenario.findMany.mockResolvedValue([ownDraft, sharedDraft, unrelatedDraft, ownPublishedRevision]);
 
     await expect(service.listMyScenarios("editor-1")).resolves.toEqual(
       expect.arrayContaining([
@@ -496,6 +544,7 @@ describe("ScenariosService P3 revision publishing", () => {
     );
     const listed = await service.listMyScenarios("editor-1");
     expect(listed.map((scenario) => scenario.id)).not.toContain("unrelated-draft");
+    expect(listed.map((scenario) => scenario.id)).not.toContain("own-published-revision");
   });
 });
 
@@ -512,7 +561,7 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     });
   }
 
-  it("filters public discovery by level, tag, rating and hides moderated revisions", async () => {
+  it("filters public discovery by level and tag while hiding moderated revisions", async () => {
     const { service, prisma } = createService();
     const recommended = buildPublicRevision({
       id: "recommended-revision",
@@ -534,7 +583,6 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
       minLevel: 12,
       maxLevel: 16,
       tag: "high-level",
-      minRating: 4,
       sort: "recommended",
     });
 
@@ -542,13 +590,10 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
       expect.objectContaining({
         id: "recommended-revision",
         tags: expect.arrayContaining(["high-level"]),
-        averageRating: 4.5,
-        ratingCount: 2,
-        reviewCount: 1,
         forkCount: 2,
         estimatedMinutes: 300,
         moderationStatus: "visible",
-        recommendationReason: expect.stringContaining("평점 4.5"),
+        recommendationReason: expect.stringContaining("2회 fork"),
       }),
     ]);
   });
@@ -570,35 +615,6 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     expect(prisma.scenario.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         take: 500,
-      }),
-    );
-  });
-
-  it("allows only completed players to create or update one rating per revision", async () => {
-    const { service, prisma } = createService();
-    const revision = buildPublicRevision();
-    prisma.scenario.findUnique.mockResolvedValue(revision);
-    prisma.sessionParticipant.count.mockResolvedValueOnce(0);
-
-    await expect(
-      service.rateScenario("player-1", "public-revision", { rating: 5, review: "Loved it." }),
-    ).rejects.toThrow("플레이를 완료한 사용자만 평점과 리뷰를 남길 수 있습니다.");
-
-    prisma.sessionParticipant.count.mockResolvedValueOnce(1);
-    prisma.scenario.update.mockResolvedValue(revision);
-    await expect(
-      service.rateScenario("player-1", "public-revision", { rating: 5, review: "Loved it." }),
-    ).resolves.toMatchObject({
-      scenarioId: "public-revision",
-      averageRating: 5,
-      ratingCount: 1,
-      reviewCount: 1,
-    });
-    expect(prisma.scenario.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: {
-          attribution: expect.stringContaining("P5_PUBLIC_META:"),
-        },
       }),
     );
   });
@@ -694,7 +710,7 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     ).rejects.toThrow("시나리오 owner만 moderation 이의 제기를 남길 수 있습니다.");
   });
 
-  it("treats provided P5 scenarios as public ecosystem targets for rating and fork validation", async () => {
+  it("treats provided P5 scenarios as public ecosystem targets for fork validation", async () => {
     const { service, prisma } = createService();
     const providedP5 = buildScenario({
       id: "scenario_p5_astral_seal_campaign",
@@ -707,19 +723,7 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
         'P5_PUBLIC_META:{"tags":["p5","level-16"],"estimatedMinutes":300,"gmMode":"BOTH","contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"visible","reports":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
     });
     prisma.scenario.findUnique.mockResolvedValue(providedP5);
-    prisma.sessionParticipant.count.mockResolvedValueOnce(1);
     prisma.scenario.update.mockResolvedValue(providedP5);
-
-    await expect(
-      service.rateScenario("player-1", "scenario_p5_astral_seal_campaign", {
-        rating: 5,
-        review: "P5 검증 캠페인 완료",
-      }),
-    ).resolves.toMatchObject({
-      scenarioId: "scenario_p5_astral_seal_campaign",
-      averageRating: 5,
-      ratingCount: 1,
-    });
 
     prisma.scenario.create.mockImplementation(({ data }) =>
       Promise.resolve({
@@ -798,7 +802,7 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     ]);
   });
 
-  it("caps the P6 moderation queue for large report/review workloads", async () => {
+  it("caps the P6 moderation queue for large report workloads", async () => {
     const { service, prisma } = createService();
     const reported = Array.from({ length: 120 }, (_, index) =>
       buildPublicRevision({
@@ -894,33 +898,32 @@ describe("ScenariosService P5 public discovery ecosystem", () => {
     expect(prisma.turnLog.create).not.toHaveBeenCalled();
   });
 
-  it("removes an abusive review without deleting the rating score", async () => {
+  it("lets an operator remove a hidden public revision while preserving the immutable audit snapshot", async () => {
     const { service, prisma } = createService();
     const revision = buildPublicRevision({
       attribution:
-        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[{"userId":"player-1","rating":5,"review":"great","updatedAt":"2026-06-23T00:00:00.000Z"},{"userId":"player-2","rating":1,"review":"abusive text","updatedAt":"2026-06-23T00:00:00.000Z"}],"forkCount":0,"moderationStatus":"reported","reports":[],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
+        'P3_REVISION_META:{"revisionNumber":1,"publishedAt":"2026-06-22T00:00:00.000Z","publishedByUserId":"creator-1","status":"public"}\nP5_PUBLIC_META:{"tags":[],"estimatedMinutes":null,"gmMode":null,"contentWarnings":[],"ratings":[],"forkCount":0,"moderationStatus":"hidden","reports":[{"reportId":"r1","reportedByUserId":"player-1","reason":"license","comment":"copyright issue","createdAt":"2026-06-23T00:00:00.000Z"}],"appeals":[],"moderationActions":[],"lineage":{"sourceScenarioId":null,"sourceRevisionId":null,"forkedFromScenarioId":null,"forkedAt":null,"forkedByUserId":null}}',
     });
     prisma.scenario.findUnique.mockResolvedValue(revision);
     prisma.scenario.update.mockResolvedValue(revision);
 
     await expect(
-      service.applyScenarioModerationAction("moderator-1", "public-revision", {
-        action: "review_removed",
-        reason: "abusive review",
-        targetUserId: "player-2",
+      service.applyScenarioModerationAction("operator-1", "public-revision", {
+        action: "removed",
+        reason: "copyright violation confirmed",
       }),
     ).resolves.toMatchObject({
-      action: "review_removed",
-      moderationStatus: "reported",
-      processingStatus: "actioned",
+      action: "removed",
+      moderationStatus: "removed",
+      processingStatus: "removed",
       creatorNoticeStatus: "creator_notified",
     });
 
     const updatedAttribution = prisma.scenario.update.mock.calls[0][0].data.attribution as string;
-    expect(updatedAttribution).toContain('"userId":"player-2","rating":1,"review":null');
-    expect(updatedAttribution).toContain('"userId":"player-1","rating":5,"review":"great"');
-    expect(updatedAttribution).toContain('"targetUserId":"player-2"');
-    expect(updatedAttribution).toContain('"processingStatus":"actioned"');
+    expect(updatedAttribution).toContain('"moderationStatus":"removed"');
+    expect(updatedAttribution).toContain('"action":"removed"');
+    expect(updatedAttribution).toContain('"auditRecordType":"scenario_moderation_action"');
+    expect(prisma.scenario.delete).not.toHaveBeenCalled();
   });
 
   it("marks an appealed P6 moderation item as escalated and under review without changing public visibility", async () => {

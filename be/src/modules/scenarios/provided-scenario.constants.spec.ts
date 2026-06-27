@@ -6,11 +6,10 @@ import {
 } from "./provided-scenario.constants";
 
 describe("provided scenario constants", () => {
-  it("keeps the legacy default id and exposes seeded smoke scenarios as provided", () => {
+  it("uses the seeded system scenario as default and exposes provided scenarios", () => {
     expect(isDefaultProvidedScenarioId(DEFAULT_PROVIDED_SCENARIO_ID)).toBe(true);
     expect(PROVIDED_SCENARIO_IDS).toEqual([
       DEFAULT_PROVIDED_SCENARIO_ID,
-      "scenario_goblin_cave",
       "scenario_node_screen_test",
       "scenario_rule_runtime_smoke",
       "scenario_p1_ember_ruins",

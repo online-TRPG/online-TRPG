@@ -21,11 +21,9 @@ import {
   ScenarioQueryDto,
   ScenarioNodeImageUploadResponseDto,
   PublishScenarioDto,
-  RateScenarioDto,
   ReportScenarioDto,
   ScenarioModerationReportResponseDto,
   ScenarioModerationAppealResponseDto,
-  ScenarioRatingResponseDto,
   ScenarioResponseDto,
   ScenarioSummaryResponseDto,
   UploadScenarioAssetDto,
@@ -55,8 +53,9 @@ export class ScenariosController {
   @ApiOkResponse({ type: [ScenarioSummaryResponseDto] })
   listScenarios(
     @Query() query: ScenarioQueryDto,
+    @Req() request: AuthenticatedRequest,
   ): Promise<ScenarioSummaryResponseDto[]> {
-    return this.scenariosService.listScenarios(query);
+    return this.scenariosService.listScenarios(query, this.getOptionalUserId(request));
   }
 
   @Get("mine")
@@ -179,29 +178,6 @@ export class ScenariosController {
     @Body() dto: CreateScenarioReviewDto,
   ): Promise<ScenarioCollaborationStateResponseDto> {
     return this.scenariosService.createScenarioReview(userId, id, dto);
-  }
-
-  @Post(":id/ratings")
-  @ApiSecurity("x-user-id")
-  @ApiParam({ name: "id" })
-  @ApiCreatedResponse({ type: ScenarioRatingResponseDto })
-  rateScenario(
-    @CurrentUserId() userId: string,
-    @Param("id") id: string,
-    @Body() dto: RateScenarioDto,
-  ): Promise<ScenarioRatingResponseDto> {
-    return this.scenariosService.rateScenario(userId, id, dto);
-  }
-
-  @Delete(":id/ratings/me")
-  @ApiSecurity("x-user-id")
-  @ApiParam({ name: "id" })
-  @ApiOkResponse({ type: ScenarioRatingResponseDto })
-  deleteScenarioRating(
-    @CurrentUserId() userId: string,
-    @Param("id") id: string,
-  ): Promise<ScenarioRatingResponseDto> {
-    return this.scenariosService.deleteScenarioRating(userId, id);
   }
 
   @Post(":id/fork")
