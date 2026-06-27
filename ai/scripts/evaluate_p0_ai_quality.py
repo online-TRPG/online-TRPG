@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import urllib.error
@@ -10,6 +11,56 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = ROOT.parent
+
+
+def hash_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load_srd_catalog_fingerprint() -> dict[str, Any]:
+    srd_root = REPO_ROOT / "srd-data" / "generated" / "srd"
+    engine_root = REPO_ROOT / "srd-data" / "generated" / "srd-engine"
+    srd_files = [
+        "classes.jsonl",
+        "races.jsonl",
+        "spells.jsonl",
+        "monsters.jsonl",
+        "equipment_items.jsonl",
+        "magic_items.jsonl",
+        "source_manifest.json",
+    ]
+    engine_files = [
+        "classes.jsonl",
+        "spells.jsonl",
+        "equipment.jsonl",
+        "monsters.jsonl",
+        "spellcasting_rules.json",
+        "manifest.json",
+    ]
+    files: list[dict[str, str]] = []
+    for file_name in srd_files:
+        files.append(
+            {
+                "scope": "srd",
+                "path": file_name,
+                "sha256": hash_file(srd_root / file_name),
+            }
+        )
+    for file_name in engine_files:
+        files.append(
+            {
+                "scope": "srd-engine",
+                "path": file_name,
+                "sha256": hash_file(engine_root / file_name),
+            }
+        )
+    payload = json.dumps(files, ensure_ascii=False, separators=(",", ":"))
+    return {
+        "schemaVersion": "srd-catalog-fingerprint-v1",
+        "sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+        "files": files,
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -203,9 +254,11 @@ def main() -> int:
         "narratorNoNewFactsPassed": narrator_metrics["noNewFactsViolationRate"]
         <= thresholds["narratorNoNewFactsViolationRate"],
     }
+    srd_catalog = load_srd_catalog_fingerprint()
     report = {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "baseUrl": args.base_url,
+        "srdCatalog": srd_catalog,
         "thresholds": thresholds,
         "metrics": {
             "interpreter": interpreter_metrics,
@@ -226,6 +279,7 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report["metrics"], ensure_ascii=False, indent=2))
+    print(f"srdCatalogFingerprint={srd_catalog['sha256'][:12]}")
     print(f"report={output}")
     print(f"passed={report['passed']}")
     return 0 if report["passed"] else 1

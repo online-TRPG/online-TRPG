@@ -47,7 +47,7 @@ export class CreateSessionDto {
   @MaxLength(500)
   description?: string;
 
-  @ApiPropertyOptional({ example: "scenario_77758fa0-3b35-4f95-bb2d-0ffe11c989ac" })
+  @ApiPropertyOptional({ example: "scenario_goblin_cave" })
   @IsOptional()
   @IsString()
   @IsNotEmpty()

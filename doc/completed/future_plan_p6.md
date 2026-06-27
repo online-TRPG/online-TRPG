@@ -4,7 +4,7 @@
 
 ## 1. 문서 목적
 
-P5는 16레벨 고레벨 캠페인, 주문 220개, 몬스터 180종, 캠페인 캘린더·downtime MVP, 공개 시나리오 탐색·평점·fork 생태계를 완료했다. 완료 기록은 [`future_plan_p5.md`](future_plan_p5.md)에 보관한다.
+P5는 16레벨 고레벨 캠페인, 주문 220개, 몬스터 180종, 캠페인 캘린더·downtime MVP, 공개 시나리오 탐색·fork 생태계를 완료했다. 완료 기록은 [`future_plan_p5.md`](future_plan_p5.md)에 보관한다.
 
 P6는 [`../future_plan.md`](../future_plan.md)의 장기 목표 중 아직 남은 최종 구간을 실제 사용자 흐름으로 닫는 단계다. 목표는 17~20레벨 플레이, 9레벨 주문, SRD 주문 319개 전체 실행화, 몬스터 317종 전체 실행화, 운영자급 공개 콘텐츠 관리, 장기 캠페인 완결·보관·이관을 하나의 완성된 캠페인 운영 루프로 연결하는 것이다.
 
@@ -136,7 +136,7 @@ P5의 180종 실행 가능 몬스터 흐름을 유지하되, 그중 26종은 최
 - 운영자 role/permission과 moderation API.
 - 신고 큐: 시나리오, revision, 리뷰, 프로필성 텍스트.
 - 처리 상태: queued, reviewing, actioned, rejected, restored, escalated.
-- 처리 액션: hidden, restored, warning, creator_note_required, rating_removed, review_removed.
+- 처리 액션: hidden, restored, warning, creator_note_required, removed.
 - 이의 제기 처리: submitted, under_review, accepted, rejected.
 - 추천/검색에서 moderation 상태 반영.
 - 모든 moderation 조작의 TurnLog와 별도 audit record.
@@ -189,7 +189,7 @@ P5의 180종 실행 가능 몬스터 흐름을 유지하되, 그중 26종은 최
 - 16레벨 캐릭터의 20레벨 성장과 9레벨 주문 사용을 확인한다.
 - 317종 몬스터 manifest 중 대표 고CR/legendary/lair 행동이 실제 전투에서 검증된다.
 - campaign archive, epilogue, character vault, transfer snapshot이 서로 격리된다.
-- 공개 탐색부터 운영자 moderation, 복구, 캠페인 완료 후 평점까지 사용자 흐름이 이어진다.
+- 공개 탐색부터 운영자 moderation, 복구, fork까지 사용자 흐름이 이어진다.
 
 ## 10. 실행 순서
 
@@ -243,7 +243,7 @@ npm run build
 - 운영자 moderation 큐, 처리, 복구, 이의 제기.
 - 캠페인 완결, 후일담, archive snapshot.
 - 캐릭터 보관소와 새 캠페인 이관.
-- 공개 검색·추천·평점·리뷰·fork·신고·복구 후 기존 세션 보존.
+- 공개 검색·추천·fork·신고·복구 후 기존 세션 보존.
 
 ## 13. P6 이후
 

@@ -1,4 +1,5 @@
 import type { GameIconName } from '../../components/GameIcon';
+import { cleanUserFacingSpellLabel, hasKoreanSpellText } from './spellDisplay';
 
 export type SpellPresentationTone =
   | 'acid'
@@ -384,7 +385,13 @@ function spell(
 
 export function getSpellPresentation(spellId: string, label?: string): SpellPresentation {
   const normalizedId = normalizeSpellId(spellId);
-  return spellPresentationOverrides[normalizedId] ?? buildFallbackSpellPresentation(normalizedId, label);
+  const override = spellPresentationOverrides[normalizedId];
+  if (!override) return buildFallbackSpellPresentation(normalizedId, label);
+
+  const displayLabel = cleanUserFacingSpellLabel(label);
+  return displayLabel && hasKoreanSpellText(displayLabel)
+    ? { ...override, shortLabel: displayLabel }
+    : override;
 }
 
 export function getSpellIconName(spellId: string, label?: string): GameIconName {

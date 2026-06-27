@@ -2,7 +2,7 @@ import type { Scenario } from "../types/session";
 import goblinThumbnail from "../assets/images/Thumbnail_Goblin_Cave.webp";
 
 export const DEFAULT_PROVIDED_SCENARIO_TITLE = "검은 우물의 쥐떼";
-export const DEFAULT_PROVIDED_SCENARIO_ID = "scenario_77758fa0-3b35-4f95-bb2d-0ffe11c989ac";
+export const DEFAULT_PROVIDED_SCENARIO_ID = "scenario_goblin_cave";
 
 export interface SessionVisualPreset {
   key: string;

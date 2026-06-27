@@ -23,7 +23,6 @@ import {
   applyScenarioModerationAction,
   createScenario,
   deleteScenario,
-  deleteScenarioRating,
   forkScenario,
   getScenario,
   getScenarioCollaborationState,
@@ -31,7 +30,6 @@ import {
   listScenarioModerationQueue,
   listMyScenarios,
   createScenarioReview,
-  rateScenario,
   removeScenarioCollaborator,
   reportScenario,
   upsertScenarioCollaborator,
@@ -39,6 +37,7 @@ import {
 } from "../services/api";
 import type { Scenario, StoredUser } from "../types/session";
 import type {
+  ApplyScenarioModerationActionDto,
   CreateScenarioDto,
   ScenarioQueryDto,
   ScenarioCollaborationStateResponseDto,
@@ -56,7 +55,7 @@ interface ScenarioPageProps {
   error: string | null;
   onOpenCreate: () => void;
   onOpenEdit: (scenarioId: string) => void;
-  onOpenSessionCreate: (scenarioId: string) => void;
+  onOpenPublish: (scenarioId: string) => void;
 }
 
 // 시나리오 복제 시 기존 ID와 충돌하지 않게 로컬 ID를 만듭니다.
@@ -177,7 +176,7 @@ export function ScenarioPage({
   error,
   onOpenCreate,
   onOpenEdit,
-  onOpenSessionCreate,
+  onOpenPublish,
 }: ScenarioPageProps) {
   // 목록/선택/검색/로딩 상태입니다.
   const [activeLibrary, setActiveLibrary] = useState<"my" | "public">("my");
@@ -191,7 +190,6 @@ export function ScenarioPage({
   const [publicTag, setPublicTag] = useState("");
   const [publicMinLevel, setPublicMinLevel] = useState("");
   const [publicMaxLevel, setPublicMaxLevel] = useState("");
-  const [publicMinRating, setPublicMinRating] = useState("");
   const [collaborationState, setCollaborationState] =
     useState<ScenarioCollaborationStateResponseDto | null>(null);
   const [collaborationBusy, setCollaborationBusy] = useState(false);
@@ -254,10 +252,9 @@ export function ScenarioPage({
         tag: publicTag.trim() || undefined,
         minLevel: publicMinLevel ? Number(publicMinLevel) : undefined,
         maxLevel: publicMaxLevel ? Number(publicMaxLevel) : undefined,
-        minRating: publicMinRating ? Number(publicMinRating) : undefined,
         limit: 50,
       };
-      listScenarios(query)
+      listScenarios(query, user, accessToken)
         .then((next) => {
           if (ignore) return;
           setPublicScenarios(next);
@@ -283,7 +280,7 @@ export function ScenarioPage({
       ignore = true;
       window.clearTimeout(timer);
     };
-  }, [activeLibrary, publicMaxLevel, publicMinLevel, publicMinRating, publicSort, publicTag, searchTerm]);
+  }, [accessToken, activeLibrary, publicMaxLevel, publicMinLevel, publicSort, publicTag, searchTerm, user]);
 
   useEffect(() => {
     const source = activeLibrary === "public" ? publicScenarios : scenarios;
@@ -452,8 +449,19 @@ export function ScenarioPage({
     try {
       await unpublishScenarioRevision(user, selectedScenario.id, accessToken);
       const next = await listMyScenarios(user, accessToken, searchTerm);
+      const nextPublic = await listScenarios(
+        { search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 },
+        user,
+        accessToken,
+      );
       setScenarios(next);
-      setSelectedScenarioId(next.some((scenario) => scenario.id === selectedScenario.id) ? selectedScenario.id : next[0]?.id ?? null);
+      setPublicScenarios(nextPublic);
+      const nextVisible = activeLibrary === "public" ? nextPublic : next;
+      setSelectedScenarioId(
+        nextVisible.some((scenario) => scenario.id === selectedScenario.id)
+          ? selectedScenario.id
+          : nextVisible[0]?.id ?? null,
+      );
     } catch (caught) {
       setLocalError(caught instanceof Error ? caught.message : "시나리오 공개 취소에 실패했습니다.");
     } finally {
@@ -536,13 +544,14 @@ export function ScenarioPage({
   }
 
   async function handleReportSelected() {
-    if (!selectedScenario || !selectedIsPublicEcosystemScenario) return;
+    if (!selectedScenario || !selectedCanReport) return;
     const reasonInput = window.prompt(
-      "신고 사유를 입력하세요: private_data, license, unsafe_content, other",
-      "other",
+      "신고 사유를 입력하세요: copyright, private_data, license, unsafe_content, other",
+      "copyright",
     );
     if (!reasonInput) return;
     const reason =
+      reasonInput === "copyright" ||
       reasonInput === "private_data" ||
       reasonInput === "license" ||
       reasonInput === "unsafe_content"
@@ -553,7 +562,11 @@ export function ScenarioPage({
     setModerationFeedback(null);
     try {
       await reportScenario(user, selectedScenario.id, { reason, comment: comment.trim() || null }, accessToken);
-      const nextPublic = await listScenarios({ search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 });
+      const nextPublic = await listScenarios(
+        { search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 },
+        user,
+        accessToken,
+      );
       setPublicScenarios(nextPublic);
       if (!nextPublic.some((scenario) => scenario.id === selectedScenario.id)) {
         setSelectedScenarioId(nextPublic[0]?.id ?? null);
@@ -567,7 +580,7 @@ export function ScenarioPage({
   }
 
   async function handleAppealModerationSelected() {
-    if (!selectedScenario || !selectedIsPublicEcosystemScenario) return;
+    if (!selectedScenario || !selectedCanAppealModeration) return;
     const message = window.prompt("이의 제기 내용을 입력하세요.", "") ?? "";
     if (!message.trim()) return;
     setLocalBusy(true);
@@ -604,7 +617,7 @@ export function ScenarioPage({
 
   async function handleApplyModerationAction(item: ScenarioModerationQueueItemDto) {
     const actionInput = window.prompt(
-      "처리 액션을 입력하세요: hidden, restored, warning, creator_note_required, rating_removed, review_removed, escalated",
+      "처리 액션을 입력하세요: hidden, restored, warning, creator_note_required, escalated, removed",
       item.moderationStatus === "hidden" ? "restored" : "hidden",
     );
     if (
@@ -612,18 +625,13 @@ export function ScenarioPage({
       actionInput !== "restored" &&
       actionInput !== "warning" &&
       actionInput !== "creator_note_required" &&
-      actionInput !== "rating_removed" &&
-      actionInput !== "review_removed" &&
-      actionInput !== "escalated"
+      actionInput !== "escalated" &&
+      actionInput !== "removed"
     ) {
       return;
     }
     const reason = window.prompt("처리 사유를 입력하세요.", "") ?? "";
     if (!reason.trim()) return;
-    const targetUserId =
-      actionInput === "rating_removed" || actionInput === "review_removed"
-        ? window.prompt("대상 userId를 입력하세요. 비우면 전체 대상입니다.", "") ?? ""
-        : "";
 
     setModerationQueueBusy(true);
     setModerationQueueError(null);
@@ -632,9 +640,9 @@ export function ScenarioPage({
         user,
         item.scenarioId,
         {
-          action: actionInput,
+          action: actionInput as ApplyScenarioModerationActionDto["action"],
           reason: reason.trim(),
-          targetUserId: targetUserId.trim() || null,
+          targetUserId: null,
         },
         accessToken,
       );
@@ -643,7 +651,11 @@ export function ScenarioPage({
       setModerationFeedback(
         `${result.scenarioId} 처리 완료: ${result.action} → ${result.moderationStatus}/${result.processingStatus}`,
       );
-      const nextPublic = await listScenarios({ search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 });
+      const nextPublic = await listScenarios(
+        { search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 },
+        user,
+        accessToken,
+      );
       setPublicScenarios(nextPublic);
     } catch (caught) {
       setModerationQueueError(caught instanceof Error ? caught.message : "moderation 처리에 실패했습니다.");
@@ -653,7 +665,10 @@ export function ScenarioPage({
   }
 
   async function handleForkSelected() {
-    if (!selectedScenario || !selectedIsPublicEcosystemScenario) return;
+    if (!selectedScenario || !selectedCanFork) {
+      setPublicFeedback("작성자가 이 공개 시나리오의 fork를 허용하지 않았습니다.");
+      return;
+    }
     const title = window.prompt("fork draft 제목을 입력하세요.", `${selectedScenario.title} Fork`) ?? "";
     setLocalBusy(true);
     setLocalError(null);
@@ -666,7 +681,11 @@ export function ScenarioPage({
         accessToken,
       );
       const nextMine = await listMyScenarios(user, accessToken, "");
-      const nextPublic = await listScenarios({ search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 });
+      const nextPublic = await listScenarios(
+        { search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 },
+        user,
+        accessToken,
+      );
       setScenarios(nextMine);
       setPublicScenarios(nextPublic);
       setActiveLibrary("my");
@@ -680,58 +699,19 @@ export function ScenarioPage({
     }
   }
 
-  async function handleRateSelected() {
-    if (!selectedScenario || !selectedIsPublicEcosystemScenario) return;
-    const ratingInput = window.prompt("평점을 입력하세요. 1~5", "5");
-    if (!ratingInput) return;
-    const rating = Number(ratingInput);
-    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-      setPublicFeedback("평점은 1~5 사이의 정수여야 합니다.");
-      return;
-    }
-    const review = window.prompt("리뷰를 입력하세요. 비워도 됩니다.", "") ?? "";
-    setLocalBusy(true);
-    setPublicFeedback(null);
-    try {
-      await rateScenario(user, selectedScenario.id, { rating, review: review.trim() || null }, accessToken);
-      const nextPublic = await listScenarios({ search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 });
-      setPublicScenarios(nextPublic);
-      setSelectedScenarioId(selectedScenario.id);
-      setPublicFeedback("평점과 리뷰를 저장했습니다.");
-    } catch (caught) {
-      setPublicFeedback(caught instanceof Error ? caught.message : "평점 저장에 실패했습니다.");
-    } finally {
-      setLocalBusy(false);
-    }
-  }
-
-  async function handleDeleteRatingSelected() {
-    if (!selectedScenario || !selectedIsPublicEcosystemScenario) return;
-    if (!window.confirm("내 평점을 삭제할까요?")) return;
-    setLocalBusy(true);
-    setPublicFeedback(null);
-    try {
-      await deleteScenarioRating(user, selectedScenario.id, accessToken);
-      const nextPublic = await listScenarios({ search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 });
-      setPublicScenarios(nextPublic);
-      setSelectedScenarioId(selectedScenario.id);
-      setPublicFeedback("내 평점을 삭제했습니다.");
-    } catch (caught) {
-      setPublicFeedback(caught instanceof Error ? caught.message : "평점 삭제에 실패했습니다.");
-    } finally {
-      setLocalBusy(false);
-    }
-  }
-
   const disabled = busy || localBusy;
-  const selectedIsRevision = Boolean(selectedScenario?.baseScenarioId);
+  const selectedIsPublishedRevision =
+    selectedScenario?.sourceType === "CLONED" &&
+    (selectedScenario?.publishStatus === "public" || selectedScenario?.publishStatus === "link");
+  const selectedIsRevision = selectedScenario?.sourceType === "CLONED" || Boolean(selectedScenario?.baseScenarioId);
   const selectedIsPublicEcosystemScenario =
     selectedScenario?.sourceType === "SYSTEM" ||
-    (selectedIsRevision &&
-      (selectedScenario?.publishStatus === "public" || selectedScenario?.publishStatus === "link"));
-  const selectedCanUnpublish =
-    selectedIsRevision &&
-    selectedScenario?.publishStatus !== "unpublished";
+    selectedIsPublishedRevision;
+  const selectedCanUnpublish = selectedScenario?.viewerCapabilities?.canUnpublish === true;
+  const selectedCanFork = selectedScenario?.viewerCapabilities?.canFork === true;
+  const selectedCanReport = selectedScenario?.viewerCapabilities?.canReport === true;
+  const selectedCanAppealModeration = selectedScenario?.viewerCapabilities?.canAppealModeration === true;
+  const selectedIsOwnPublishedRevision = selectedCanUnpublish;
   const canUseModerationQueue = isScenarioModerationOperator(user.id);
 
   return (
@@ -749,73 +729,77 @@ export function ScenarioPage({
       <section className="scenario-management-layout">
         <aside className="scenario-action-rail">
           <div className="scenario-action-rail-shell">
-            <button type="button" className="scenario-rail-action" onClick={onOpenCreate}>
-              새 시나리오 생성
-            </button>
-            <button
-              type="button"
-              className="scenario-rail-action"
-              disabled={!selectedScenario || disabled}
-              onClick={() => void handleCloneSelected()}
-            >
-              시나리오 복제
-            </button>
-            <button
-              type="button"
-              className="scenario-rail-action"
-              disabled={!selectedIsPublicEcosystemScenario || disabled}
-              onClick={() => void handleForkSelected()}
-            >
-              공개 시나리오 fork
-            </button>
-            <button
-              type="button"
-              className="scenario-rail-action"
-              disabled={!selectedIsPublicEcosystemScenario || disabled}
-              onClick={() => void handleRateSelected()}
-            >
-              평점·리뷰 남기기
-            </button>
-            <button
-              type="button"
-              className="scenario-rail-action"
-              disabled={!selectedIsPublicEcosystemScenario || disabled}
-              onClick={() => void handleDeleteRatingSelected()}
-            >
-              내 평점 삭제
-            </button>
-            <button
-              type="button"
-              className="scenario-rail-action"
-              disabled={activeLibrary !== "my" || !selectedScenario || selectedIsRevision || disabled}
-              onClick={() => selectedScenario && onOpenEdit(selectedScenario.id)}
-            >
-              시나리오 수정
-            </button>
-            <button
-              type="button"
-              className="scenario-rail-action"
-              disabled={activeLibrary !== "my" || !selectedCanUnpublish || disabled}
-              onClick={() => void handleUnpublishSelected()}
-            >
-              공개 취소
-            </button>
-            <button
-              type="button"
-              className="scenario-rail-action"
-              disabled={activeLibrary !== "my" || !selectedScenario || disabled}
-              onClick={() => void handleDeleteSelected()}
-            >
-              시나리오 삭제
-            </button>
-            <button
-              type="button"
-              className="scenario-rail-action"
-              disabled={!selectedIsPublicEcosystemScenario || disabled}
-              onClick={() => void handleReportSelected()}
-            >
-              공개 시나리오 신고
-            </button>
+            {activeLibrary === "my" ? (
+              <>
+                <button type="button" className="scenario-rail-action" onClick={onOpenCreate}>
+                  새 시나리오 생성
+                </button>
+                <button
+                  type="button"
+                  className="scenario-rail-action"
+                  disabled={!selectedScenario || disabled}
+                  onClick={() => void handleCloneSelected()}
+                >
+                  시나리오 복제
+                </button>
+                <button
+                  type="button"
+                  className="scenario-rail-action"
+                  disabled={!selectedScenario || selectedIsRevision || disabled}
+                  onClick={() => selectedScenario && onOpenEdit(selectedScenario.id)}
+                >
+                  시나리오 수정
+                </button>
+                <button
+                  type="button"
+                  className="scenario-rail-action"
+                  disabled={!selectedScenario || selectedIsRevision || disabled}
+                  onClick={() => selectedScenario && onOpenPublish(selectedScenario.id)}
+                >
+                  공개 등록
+                </button>
+                <button
+                  type="button"
+                  className="scenario-rail-action"
+                  disabled={!selectedScenario || disabled}
+                  onClick={() => void handleDeleteSelected()}
+                >
+                  시나리오 삭제
+                </button>
+              </>
+            ) : (
+              <>
+                {selectedIsOwnPublishedRevision ? (
+                  <button
+                    type="button"
+                    className="scenario-rail-action"
+                    disabled={!selectedCanUnpublish || disabled}
+                    onClick={() => void handleUnpublishSelected()}
+                  >
+                    공개 취소
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="scenario-rail-action"
+                      disabled={!selectedCanFork || disabled}
+                      onClick={() => void handleForkSelected()}
+                    >
+                      Fork해서 가져오기
+                    </button>
+                    <button
+                      type="button"
+                      className="scenario-rail-action"
+                      disabled={!selectedCanReport || disabled}
+                      onClick={() => void handleReportSelected()}
+                    >
+                      신고
+                    </button>
+                  </>
+                )}
+              </>
+            )}
           </div>
         </aside>
 
@@ -858,7 +842,6 @@ export function ScenarioPage({
               <div className="scenario-public-filters" aria-label="공개 시나리오 필터">
                 <select value={publicSort} onChange={(event) => setPublicSort(event.target.value as typeof publicSort)}>
                   <option value="recommended">추천순</option>
-                  <option value="rating">평점순</option>
                   <option value="latest">최신순</option>
                   <option value="level">레벨순</option>
                 </select>
@@ -884,12 +867,6 @@ export function ScenarioPage({
                   onChange={(event) => setPublicTag(event.target.value)}
                   placeholder="태그"
                 />
-                <select value={publicMinRating} onChange={(event) => setPublicMinRating(event.target.value)}>
-                  <option value="">평점 전체</option>
-                  <option value="3">3점 이상</option>
-                  <option value="4">4점 이상</option>
-                  <option value="5">5점</option>
-                </select>
               </div>
             ) : null}
 
@@ -905,7 +882,7 @@ export function ScenarioPage({
                   <span>{formatPublishStatus(scenario)}</span>
                   {activeLibrary === "public" ? (
                     <span className="scenario-library-updated-at">
-                      ★ {scenario.averageRating?.toFixed(1) ?? "-"} · 리뷰 {scenario.reviewCount ?? 0} · fork {scenario.forkCount ?? 0}
+                      fork {scenario.forkCount ?? 0}
                     </span>
                   ) : null}
                   <span className="scenario-library-updated-at">
@@ -962,16 +939,34 @@ export function ScenarioPage({
                       <dd>{formatPublishStatus(selectedScenario)}</dd>
                     </div>
                     <div>
-                      <dt>평점</dt>
+                      <dt>공개한 유저</dt>
                       <dd>
-                        {selectedScenario.averageRating
-                          ? `★ ${selectedScenario.averageRating.toFixed(1)} (${selectedScenario.ratingCount ?? 0}명)`
-                          : "-"}
+                        {(
+                          selectedScenario as Scenario & {
+                            publishedByUserId?: string | null;
+                            publishedByDisplayName?: string | null;
+                            createdByUserId?: string | null;
+                            createdByDisplayName?: string | null;
+                          }
+                        ).publishedByDisplayName ??
+                          (
+                            selectedScenario as Scenario & {
+                              publishedByUserId?: string | null;
+                              publishedByDisplayName?: string | null;
+                              createdByUserId?: string | null;
+                              createdByDisplayName?: string | null;
+                            }
+                          ).createdByDisplayName ??
+                          "알 수 없는 사용자"}
                       </dd>
                     </div>
                     <div>
-                      <dt>리뷰 / fork</dt>
-                      <dd>{`${selectedScenario.reviewCount ?? 0}개 / ${selectedScenario.forkCount ?? 0}회`}</dd>
+                      <dt>fork</dt>
+                      <dd>{`${selectedScenario.forkCount ?? 0}회`}</dd>
+                    </div>
+                    <div>
+                      <dt>fork 허용</dt>
+                      <dd>{selectedScenario.forkAllowed === false ? "불가" : "허용"}</dd>
                     </div>
                     <div>
                       <dt>예상 시간</dt>
@@ -996,10 +991,6 @@ export function ScenarioPage({
                           ? ` · ${selectedScenario.creatorNoticeStatus}`
                           : ""}
                       </dd>
-                    </div>
-                    <div>
-                      <dt>원본 draft</dt>
-                      <dd>{selectedScenario.baseScenarioId ?? "-"}</dd>
                     </div>
                     <div>
                       <dt>발행일</dt>
@@ -1049,26 +1040,35 @@ export function ScenarioPage({
                         <h3>공개 revision 액션</h3>
                       </div>
                       <p>
-                        플레이 완료 후 평점/리뷰를 남길 수 있고, fork는 원본 attribution과 계보를 보존한 독립 draft를 만듭니다.
+                        내가 공개한 시나리오는 공개 취소할 수 있고, 다른 공개 시나리오는 fork하거나 신고할 수 있습니다.
                       </p>
                       <div className="scenario-public-actions">
-                        <button type="button" className="small" disabled={disabled} onClick={() => void handleRateSelected()}>
-                          평점·리뷰
-                        </button>
-                        <button type="button" className="small" disabled={disabled} onClick={() => void handleDeleteRatingSelected()}>
-                          내 평점 삭제
-                        </button>
-                        <button type="button" className="small" disabled={disabled} onClick={() => void handleForkSelected()}>
-                          fork draft 생성
-                        </button>
-                        <button type="button" className="small" disabled={disabled} onClick={() => onOpenSessionCreate(selectedScenario.id)}>
-                          세션 생성
-                        </button>
-                        <button type="button" className="small" disabled={disabled} onClick={() => void handleReportSelected()}>
-                          신고
-                        </button>
+                        {selectedIsOwnPublishedRevision ? (
+                          <button
+                            type="button"
+                            className="small"
+                            disabled={!selectedCanUnpublish || disabled}
+                            onClick={() => void handleUnpublishSelected()}
+                          >
+                            공개 취소
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className="small"
+                              disabled={disabled || !selectedCanFork}
+                              onClick={() => void handleForkSelected()}
+                            >
+                              Fork해서 가져오기
+                            </button>
+                            <button type="button" className="small" disabled={disabled || !selectedCanReport} onClick={() => void handleReportSelected()}>
+                              신고
+                            </button>
+                          </>
+                        )}
                         {selectedScenario.moderationStatus && selectedScenario.moderationStatus !== "visible" ? (
-                          <button type="button" className="small" disabled={disabled} onClick={() => void handleAppealModerationSelected()}>
+                          <button type="button" className="small" disabled={disabled || !selectedCanAppealModeration} onClick={() => void handleAppealModerationSelected()}>
                             이의 제기
                           </button>
                         ) : null}
@@ -1082,7 +1082,7 @@ export function ScenarioPage({
                         <h3>신고·이의 제기 운영자 큐</h3>
                       </div>
                       <p>
-                        신고된 공개 시나리오와 리뷰를 큐에서 확인하고 hidden/restored/warning/creator_note_required/rating_removed/review_removed/escalated
+                        신고된 공개 시나리오를 큐에서 확인하고 hidden/restored/warning/creator_note_required/escalated/removed
                         조치를 남깁니다.
                       </p>
                       <div className="scenario-public-actions">

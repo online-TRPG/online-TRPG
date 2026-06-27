@@ -1,9 +1,8 @@
 export const DEFAULT_PROVIDED_SCENARIO_ID =
-  "scenario_77758fa0-3b35-4f95-bb2d-0ffe11c989ac";
+  "scenario_goblin_cave";
 
 export const PROVIDED_SCENARIO_IDS = [
   DEFAULT_PROVIDED_SCENARIO_ID,
-  "scenario_goblin_cave",
   "scenario_node_screen_test",
   "scenario_rule_runtime_smoke",
   "scenario_p1_ember_ruins",

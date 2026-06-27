@@ -90,7 +90,7 @@ describe("ScenarioCollaborationPolicyService P4 collaboration/review/publish pol
     });
   });
 
-  it("allows owner public publish only after approval and includes revision diff", () => {
+  it("allows owner public publish without mandatory reviewer approval and includes revision diff", () => {
     const result = service.evaluatePublishPolicy({
       draft: createDraft({
         nodes: [
@@ -133,7 +133,7 @@ describe("ScenarioCollaborationPolicyService P4 collaboration/review/publish pol
     );
   });
 
-  it("blocks public/link publish without approval or after rejection", () => {
+  it("keeps collaboration reviews optional for public/link publish", () => {
     expect(
       service.evaluatePublishPolicy({
         draft: createDraft({ reviews: [] }),
@@ -142,10 +142,8 @@ describe("ScenarioCollaborationPolicyService P4 collaboration/review/publish pol
       }),
     ).toEqual(
       expect.objectContaining({
-        allowed: false,
-        issues: expect.arrayContaining([
-          expect.objectContaining({ code: "REVIEW_APPROVAL_REQUIRED", severity: "blocker" }),
-        ]),
+        allowed: true,
+        issues: [],
       }),
     );
 
@@ -166,10 +164,8 @@ describe("ScenarioCollaborationPolicyService P4 collaboration/review/publish pol
       }),
     ).toEqual(
       expect.objectContaining({
-        allowed: false,
-        issues: expect.arrayContaining([
-          expect.objectContaining({ code: "REVIEW_REJECTED", severity: "blocker" }),
-        ]),
+        allowed: true,
+        issues: [],
       }),
     );
   });

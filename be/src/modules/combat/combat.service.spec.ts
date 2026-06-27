@@ -549,11 +549,11 @@ describe("CombatService lifecycle", () => {
       sessionCharacterId: null,
       tokenId: "token-monster",
       entityType: PrismaCombatEntityType.MONSTER,
-      nameSnapshot: "Dragon Whelp",
+      nameSnapshot: "Red Dragon Wyrmling",
       isHostile: true,
       turnOrder: 2,
     });
-    const actionId = "monster.dragon_whelp.ability.fire_breath";
+    const actionId = "monster.red_dragon_wyrmling.ability.fire_breath";
     const combat = {
       id: "combat-1",
       sessionId: "session-1",
@@ -6886,7 +6886,7 @@ describe("CombatService lifecycle", () => {
       sessionCharacterId: null,
       tokenId: "token-monster",
       entityType: PrismaCombatEntityType.MONSTER,
-      nameSnapshot: "Dragon Whelp",
+      nameSnapshot: "Red Dragon Wyrmling",
       isHostile: true,
       turnOrder: 1,
     });
@@ -6911,7 +6911,7 @@ describe("CombatService lifecycle", () => {
         flagsJson: JSON.stringify({
           monsterRechargeExpended: {
             [monster.id]: {
-              "monster.dragon_whelp.ability.fire_breath": {
+              "monster.red_dragon_wyrmling.ability.fire_breath": {
                 recharge: "5-6",
                 roundNo: 1,
                 turnNo: 1,
@@ -6920,7 +6920,7 @@ describe("CombatService lifecycle", () => {
           },
           monsterLimitedUseExpended: {
             [monster.id]: {
-              "monster.dragon_whelp.ability.dark_blessing": {
+              "monster.red_dragon_wyrmling.ability.dark_blessing": {
                 usage: "1/day",
                 used: 1,
                 limit: 1,
@@ -6940,7 +6940,7 @@ describe("CombatService lifecycle", () => {
       width: 200,
       height: 200,
       tokens: [
-        { id: "token-monster", x: 0, y: 0, size: 50, hidden: false, monster: { id: "monster.dragon_whelp" } },
+        { id: "token-monster", x: 0, y: 0, size: 50, hidden: false, monster: { id: "monster.red_dragon_wyrmling" } },
       ],
       fogRects: [],
       updatedAt: "2026-05-25T00:00:00.000Z",
@@ -6948,8 +6948,8 @@ describe("CombatService lifecycle", () => {
     prisma.combat.findFirst.mockResolvedValue(combat);
     (monsterAbilities.listExecutableActions as jest.Mock).mockReturnValue([
       {
-        monsterId: "monster.dragon_whelp",
-        actionId: "monster.dragon_whelp.ability.fire_breath",
+        monsterId: "monster.red_dragon_wyrmling",
+        actionId: "monster.red_dragon_wyrmling.ability.fire_breath",
         label: "Fire Breath",
         attackKind: "ranged",
         attackBonus: 7,
@@ -6966,8 +6966,8 @@ describe("CombatService lifecycle", () => {
         effectTags: [],
       },
       {
-        monsterId: "monster.dragon_whelp",
-        actionId: "monster.dragon_whelp.ability.dark_blessing",
+        monsterId: "monster.red_dragon_wyrmling",
+        actionId: "monster.red_dragon_wyrmling.ability.dark_blessing",
         label: "Dark Blessing",
         attackKind: "ranged",
         attackBonus: 6,
@@ -6990,12 +6990,12 @@ describe("CombatService lifecycle", () => {
 
     expect(actions).toEqual([
       expect.objectContaining({
-        actionId: "monster.dragon_whelp.ability.fire_breath",
+        actionId: "monster.red_dragon_wyrmling.ability.fire_breath",
         available: false,
         unavailableReason: "MONSTER_RECHARGE_ACTION_EXPENDED",
       }),
       expect.objectContaining({
-        actionId: "monster.dragon_whelp.ability.dark_blessing",
+        actionId: "monster.red_dragon_wyrmling.ability.dark_blessing",
         available: false,
         unavailableReason: "MONSTER_LIMITED_USE_ACTION_EXPENDED",
       }),
@@ -7350,7 +7350,7 @@ describe("CombatService lifecycle", () => {
       sessionCharacterId: null,
       tokenId: "token-monster",
       entityType: PrismaCombatEntityType.MONSTER,
-      nameSnapshot: "Dragon Whelp",
+      nameSnapshot: "Red Dragon Wyrmling",
       isHostile: true,
       speedFt: 30,
     });
@@ -7376,8 +7376,8 @@ describe("CombatService lifecycle", () => {
       participants: [monster, target],
     };
     const selectedAction = {
-      monsterId: "monster.dragon_whelp",
-      actionId: "monster.dragon_whelp.ability.fire_breath",
+      monsterId: "monster.red_dragon_wyrmling",
+      actionId: "monster.red_dragon_wyrmling.ability.fire_breath",
       label: "Fire Breath",
       attackKind: "ranged",
       attackBonus: 7,
@@ -7406,7 +7406,7 @@ describe("CombatService lifecycle", () => {
       width: 500,
       height: 500,
       tokens: [
-        { id: "token-monster", x: 0, y: 0, size: 50, hidden: false, monster: { id: "monster.dragon_whelp" } },
+        { id: "token-monster", x: 0, y: 0, size: 50, hidden: false, monster: { id: "monster.red_dragon_wyrmling" } },
         { id: "token-target", x: 100, y: 0, size: 50, hidden: false },
       ],
       fogRects: [],
@@ -7462,7 +7462,7 @@ describe("CombatService lifecycle", () => {
           metadata: expect.objectContaining({
             source: "monster_action",
             monsterAction: expect.objectContaining({
-              monsterId: "monster.dragon_whelp",
+              monsterId: "monster.red_dragon_wyrmling",
               actionId: selectedAction.actionId,
               label: "Fire Breath",
               recharge: "5-6",
@@ -7490,7 +7490,7 @@ describe("CombatService lifecycle", () => {
       sessionCharacterId: null,
       tokenId: "token-monster",
       entityType: PrismaCombatEntityType.MONSTER,
-      nameSnapshot: "Dragon Whelp",
+      nameSnapshot: "Red Dragon Wyrmling",
       isHostile: true,
       speedFt: 30,
     });
@@ -7516,8 +7516,8 @@ describe("CombatService lifecycle", () => {
       participants: [monster, target],
     };
     const selectedAction = {
-      monsterId: "monster.dragon_whelp",
-      actionId: "monster.dragon_whelp.ability.fire_breath",
+      monsterId: "monster.red_dragon_wyrmling",
+      actionId: "monster.red_dragon_wyrmling.ability.fire_breath",
       label: "Fire Breath",
       attackKind: "ranged",
       attackBonus: 7,
@@ -7559,7 +7559,7 @@ describe("CombatService lifecycle", () => {
       width: 500,
       height: 500,
       tokens: [
-        { id: "token-monster", x: 0, y: 0, size: 50, hidden: false, monster: { id: "monster.dragon_whelp" } },
+        { id: "token-monster", x: 0, y: 0, size: 50, hidden: false, monster: { id: "monster.red_dragon_wyrmling" } },
         { id: "token-target", x: 100, y: 0, size: 50, hidden: false },
       ],
       fogRects: [],
