@@ -5,6 +5,19 @@ type CharacterFeatureDisplayInfo = {
   tone: 'race' | 'class' | 'subclass' | 'choice' | 'feat' | 'unknown';
 };
 
+type CanonicalClassFeatureEntry = {
+  id: string;
+  nameKo: string;
+  category: 'class' | 'subclass' | 'asi' | 'choice' | string;
+  summaryKo: string;
+};
+
+type RaceTraitDisplayEntry = {
+  name: string;
+  summary: string;
+  aliases?: string[];
+};
+
 const skillLabelMap: Map<string, string> = new Map([
   ['Acrobatics', '곡예'],
   ['Arcana', '비전학'],
@@ -780,10 +793,19 @@ function humanizeFeatureId(featureId: string) {
     .join(' ');
 }
 
+function normalizeLooseToken(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/['’]/g, '')
+    .replace(/[^a-z0-9가-힣]+/g, ' ')
+    .trim();
+}
+
 function getFeatureTone(featureId: string): CharacterFeatureDisplayInfo['tone'] {
   if (featureId.startsWith('feat.')) return 'feat';
   if (featureId.startsWith('asi:')) return 'feat';
-  if (featureId.startsWith('race.')) return 'race';
+  if (featureId.startsWith('race.') || /^race\s+.+\s+trait\s+/i.test(featureId)) return 'race';
   if (featureId.startsWith('subclass.')) return 'subclass';
   if (featureId.includes(':')) return 'choice';
   if (featureId.startsWith('class.') || featureId.startsWith('feature.')) return 'class';
@@ -800,8 +822,127 @@ function getFeatureSourceLabel(featureId: string) {
   return '특성';
 }
 
-export function getCharacterFeatureDisplayInfo(feature: string): CharacterFeatureDisplayInfo {
+function getCanonicalClassFeatureDisplayInfo(
+  featureId: string,
+  canonicalClassFeatures: CanonicalClassFeatureEntry[] | undefined
+): CharacterFeatureDisplayInfo | null {
+  if (!canonicalClassFeatures?.length || !featureId.startsWith('class.')) {
+    return null;
+  }
+
+  const canonicalFeature = canonicalClassFeatures.find((feature) => feature.id === featureId);
+  if (!canonicalFeature) {
+    return null;
+  }
+
+  const staticInfo = featureInfoMap[featureId];
+  const tone = canonicalFeature.category === 'subclass' ? 'subclass' : getFeatureTone(featureId);
+  return {
+    label: canonicalFeature.nameKo || staticInfo?.label || humanizeFeatureId(featureId),
+    sourceLabel:
+      canonicalFeature.category === 'subclass'
+        ? '서브클래스 특성'
+        : staticInfo?.sourceLabel ?? getFeatureSourceLabel(featureId),
+    tone,
+    description:
+      canonicalFeature.summaryKo ||
+      staticInfo?.description ||
+      'SRD class feature manifest에 등록된 캐릭터 특성입니다.',
+  };
+}
+
+function extractRaceTraitName(featureId: string) {
+  const dotTrait = featureId.split('.trait.').at(-1);
+  if (dotTrait && dotTrait !== featureId) return dotTrait;
+
+  const legacyTrait = /^race\s+.+?\s+trait\s+(.+)$/i.exec(featureId);
+  if (legacyTrait?.[1]) return legacyTrait[1];
+
+  return null;
+}
+
+function findRaceTraitSummary(
+  raceTraitName: string,
+  raceTraitSummaries: RaceTraitDisplayEntry[] | undefined
+) {
+  if (!raceTraitSummaries?.length) return null;
+
+  const normalizedTraitName = normalizeLooseToken(raceTraitName);
+  return (
+    raceTraitSummaries.find((trait) => normalizeLooseToken(trait.name) === normalizedTraitName) ??
+    raceTraitSummaries.find((trait) =>
+      (trait.aliases ?? []).some((alias) => normalizeLooseToken(alias) === normalizedTraitName)
+    ) ??
+    raceTraitSummaries.find((trait) => {
+      const normalizedNames = [trait.name, ...(trait.aliases ?? [])].map(normalizeLooseToken);
+      return normalizedNames.some(
+        (normalizedName) =>
+          normalizedTraitName.includes(normalizedName) || normalizedName.includes(normalizedTraitName)
+      );
+    }) ??
+    null
+  );
+}
+
+function getRaceTraitDisplayInfo(
+  featureId: string,
+  raceTraitSummaries: RaceTraitDisplayEntry[] | undefined
+): CharacterFeatureDisplayInfo | null {
+  const traitName = extractRaceTraitName(featureId);
+  if (!traitName) return null;
+
+  const label = humanizeFeatureId(traitName);
+  const matchedTrait = findRaceTraitSummary(label, raceTraitSummaries);
+  if (matchedTrait) {
+    return {
+      label: matchedTrait.name,
+      sourceLabel: '종족 특성',
+      tone: 'race',
+      description: matchedTrait.summary,
+    };
+  }
+
+  const normalizedTraitName = normalizeLooseToken(label);
+  if (normalizedTraitName === 'base traits') {
+    const summary = raceTraitSummaries?.length
+      ? raceTraitSummaries
+          .slice(0, 4)
+          .map((trait) => `${trait.name}: ${trait.summary}`)
+          .join(' · ')
+      : '선택한 종족에서 자동으로 얻는 기본 특성입니다.';
+
+    return {
+      label: '종족 기본 특성',
+      sourceLabel: '종족 특성',
+      tone: 'race',
+      description: summary,
+    };
+  }
+
+  return {
+    label,
+    sourceLabel: '종족 특성',
+    tone: 'race',
+    description: '선택한 종족에서 자동으로 얻거나 선택한 종족 특성입니다.',
+  };
+}
+
+export function getCharacterFeatureDisplayInfo(
+  feature: string,
+  canonicalClassFeatures?: CanonicalClassFeatureEntry[],
+  raceTraitSummaries?: RaceTraitDisplayEntry[]
+): CharacterFeatureDisplayInfo {
   const normalized = feature.trim();
+  const canonicalInfo = getCanonicalClassFeatureDisplayInfo(normalized, canonicalClassFeatures);
+  if (canonicalInfo) {
+    return canonicalInfo;
+  }
+
+  const raceInfo = getRaceTraitDisplayInfo(normalized, raceTraitSummaries);
+  if (raceInfo) {
+    return raceInfo;
+  }
+
   const staticInfo = featureInfoMap[normalized];
   if (staticInfo) {
     return {
@@ -880,9 +1021,16 @@ export function getCharacterFeatureDisplayInfo(feature: string): CharacterFeatur
   };
 }
 
-export function summarizeCharacterFeatures(features: string[] | null | undefined, limit = 4) {
+export function summarizeCharacterFeatures(
+  features: string[] | null | undefined,
+  limit = 4,
+  canonicalClassFeatures?: CanonicalClassFeatureEntry[],
+  raceTraitSummaries?: RaceTraitDisplayEntry[]
+) {
   return (features ?? [])
     .filter((feature) => feature.trim().length > 0)
-    .map(getCharacterFeatureDisplayInfo)
+    .map((feature) =>
+      getCharacterFeatureDisplayInfo(feature, canonicalClassFeatures, raceTraitSummaries)
+    )
     .slice(0, Math.max(0, limit));
 }

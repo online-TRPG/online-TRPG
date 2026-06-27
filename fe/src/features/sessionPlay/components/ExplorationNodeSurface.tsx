@@ -20,6 +20,7 @@ import { GameIcon } from '../../../components/GameIcon';
 import type { GameIconName } from '../../../components/GameIcon';
 import explorationNodeBadge from '../../../components/node_badge_exploration.webp';
 import { getCharacterClassLabel } from '../utils/characterVisuals';
+import { getUserFacingItemName, getUserFacingItemTypeLabel } from '../utils/displayNames';
 import { isDirectlyUsableP3Item } from '../utils/executableItems';
 import { CharacterDetailModal } from './CharacterDetailModal';
 import { InventoryEquipmentStatus } from './InventoryEquipmentStatus';
@@ -501,7 +502,6 @@ function getGmSelectionDetails(selection: BattleMapSelection | null) {
         `좌표 ${Math.round(token.x)}, ${Math.round(token.y)} / 크기 ${token.size}`,
         character ? `HP ${character.currentHp}/${character.maxHp} / AC ${character.armorClass}` : null,
         token.monster ? getMonsterSummary(token) : null,
-        token.npcId ? `NPC ID: ${token.npcId}` : null,
       ].filter(Boolean) as string[],
     };
   }
@@ -1857,6 +1857,7 @@ export function ExplorationNodeSurface({
                     ...item,
                     __equipmentDisplayState: equipmentDisplayState,
                   } as InventoryItemDto;
+                  const itemDisplayName = getUserFacingItemName(item);
                   return (
                     <article
                       className={`exploration-inventory-item${isSelected ? ' selected' : ''}`}
@@ -1891,8 +1892,8 @@ export function ExplorationNodeSurface({
                                 : isArmor
                                   ? '몸통 방어구는 현재 캐릭터 AC에 반영되어 있습니다.'
                                   : isEquipped
-                                    ? `${item.name} 착용 해제`
-                                    : `${item.name} 착용`
+                                    ? `${itemDisplayName} 착용 해제`
+                                    : `${itemDisplayName} 착용`
                             }
                             onClick={(event) => {
                               event.stopPropagation();
@@ -1916,7 +1917,7 @@ export function ExplorationNodeSurface({
                                 ? '착용 중인 아이템은 해제 후 내려놓을 수 있습니다.'
                                 : !selectedMapGridPoint
                                   ? '내려놓을 맵 타일을 먼저 선택하세요.'
-                                  : `${item.name} 내려놓기`
+                                  : `${itemDisplayName} 내려놓기`
                             }
                             onClick={(event) => {
                               event.stopPropagation();
@@ -1938,7 +1939,7 @@ export function ExplorationNodeSurface({
                               !canUseDisplayedInventory
                                 ? 'GM 화면에서는 선택 캐릭터의 인벤토리를 조회만 합니다.'
                                 : canUse
-                                  ? `${item.name} 사용`
+                                  ? `${itemDisplayName} 사용`
                                   : '현재 바로 사용할 수 없는 아이템입니다.'
                             }
                             onClick={(event) => {
@@ -1960,7 +1961,7 @@ export function ExplorationNodeSurface({
                             title={
                               !selectedMapGridPoint
                                 ? '내려놓을 맵 타일을 먼저 선택하세요.'
-                                : `${item.name} 내려놓기`
+                                : `${itemDisplayName} 내려놓기`
                             }
                             onClick={(event) => {
                               event.stopPropagation();
@@ -2040,7 +2041,7 @@ export function ExplorationNodeSurface({
                     onClick={() => setSelectedGmCatalogItemId(item.id)}
                   >
                     <strong>{item.koName}</strong>
-                    <span>{item.category}</span>
+                    <span>{getUserFacingItemTypeLabel(item.category)}</span>
                   </button>
                 ))
               ) : (

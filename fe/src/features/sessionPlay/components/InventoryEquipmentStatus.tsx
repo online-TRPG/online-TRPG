@@ -1,6 +1,7 @@
 import type { InventoryItemDto } from '@trpg/shared-types';
 import { GameIcon } from '../../../components/GameIcon';
 import type { GameIconName } from '../../../components/GameIcon';
+import { getUserFacingItemName } from '../utils/displayNames';
 import './InventoryEquipmentStatus.css';
 
 interface InventoryEquipmentStatusProps {
@@ -78,7 +79,9 @@ export function InventoryEquipmentStatus({
   const bodyItem = inventory.find((item) => isArmorItem(item)) ?? null;
   const leftHandLabel = isTwoHandedItem(rightHandItem)
     ? '양손 점유'
-    : leftHandItem?.name ?? '비어 있음';
+    : leftHandItem
+      ? getUserFacingItemName(leftHandItem)
+      : '비어 있음';
 
   return (
     <section className="inventory-equipment-status" aria-label="장착 상태">
@@ -88,7 +91,7 @@ export function InventoryEquipmentStatus({
       <dl className="inventory-equipment-status-grid">
         <EquipmentSlot
           label="오른손"
-          value={rightHandItem?.name ?? '비어 있음'}
+          value={rightHandItem ? getUserFacingItemName(rightHandItem) : '비어 있음'}
           iconName="game-icons:mailed-fist"
         />
         <EquipmentSlot
@@ -99,7 +102,7 @@ export function InventoryEquipmentStatus({
         />
         <EquipmentSlot
           label="몸통"
-          value={bodyItem?.name ?? '비어 있음'}
+          value={bodyItem ? getUserFacingItemName(bodyItem) : '비어 있음'}
           iconName="game-icons:armor-vest"
         />
       </dl>

@@ -12,6 +12,11 @@ import {
   getCharacterClassLabel,
   getCharacterImage,
 } from '../utils/characterVisuals';
+import {
+  getUserFacingDamageTypeLabel,
+  getUserFacingItemPropertyLabel,
+  getUserFacingItemTypeLabel,
+} from '../utils/displayNames';
 import quillImage from '../../../components/quill.webp';
 import storyNodeBadge from '../../../components/node_badge_story.webp';
 import { CharacterDetailModal } from './CharacterDetailModal';
@@ -146,13 +151,17 @@ function getConditionLabel(character: SessionCharacterResponseDto) {
 
 function getInventoryMetaLabel(item: SessionCharacterResponseDto['inventory'][number]) {
   const parts = [
-    item.itemType,
+    item.displayTypeLabel?.trim() || getUserFacingItemTypeLabel(item.itemType),
     item.damageDice
-      ? `${item.damageDice}${item.damageType ? ` ${item.damageType}` : ''}`
+      ? `${item.damageDice}${item.damageType ? ` ${getUserFacingDamageTypeLabel(item.damageType)}` : ''}`
       : null,
     item.weightLb !== undefined ? `${formatStat(item.weightLb)} lb` : null,
     item.volumeCuFt !== undefined ? `${formatStat(item.volumeCuFt)} cu ft` : null,
-    item.properties?.length ? item.properties.join(', ') : null,
+    item.displayPropertyLabels?.length
+      ? item.displayPropertyLabels.join(', ')
+      : item.properties?.length
+        ? item.properties.map(getUserFacingItemPropertyLabel).join(', ')
+        : null,
   ].filter(Boolean);
 
   return parts.length ? parts.join(' · ') : '추가 속성 없음';

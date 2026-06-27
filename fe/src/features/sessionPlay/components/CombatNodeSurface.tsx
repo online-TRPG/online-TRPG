@@ -26,6 +26,7 @@ import { MapPartyOverlay } from './MapPartyOverlay';
 import { NodeHeaderScroll } from './NodeHeaderScroll';
 import { getCharacterImage } from '../utils/characterVisuals';
 import { describeCombatParticipantObservation } from '../utils/combatParticipantObservation';
+import { formatInternalIdAsReadableName, getUserFacingItemName } from '../utils/displayNames';
 import { isDirectlyUsableP3Item } from '../utils/executableItems';
 import { getSpellIconName } from '../../spells/spellPresentation';
 import { MONSTER_TOKEN_COLOR, NPC_TOKEN_COLOR } from '../../../utils/sessionTokenColors';
@@ -1665,9 +1666,11 @@ export function CombatNodeSurface({
       !isInventoryBusy &&
       !isCombatBusy
   );
-  const attackName = equippedWeapon?.name ?? '기본 공격';
+  const attackName = equippedWeapon ? getUserFacingItemName(equippedWeapon) : '기본 공격';
   const attackRangeFt = equippedWeapon ? getWeaponFallbackRangeFt(equippedWeapon) : 5;
-  const offhandAttackName = offhandWeapon ? `보조 공격(${offhandWeapon.name})` : '보조 공격';
+  const offhandAttackName = offhandWeapon
+    ? `보조 공격(${getUserFacingItemName(offhandWeapon)})`
+    : '보조 공격';
   const offhandAttackRangeFt = offhandWeapon ? getWeaponFallbackRangeFt(offhandWeapon) : 5;
   const offhandWeaponIsLightMelee = isLightMeleeWeaponItem(offhandWeapon);
   const isSelectedTargetInRange = useMemo(() => {
@@ -3489,9 +3492,12 @@ export function CombatNodeSurface({
                   title={
                     isGmView
                       ? 'GM 화면에서는 맵 오브젝트를 조회만 합니다.'
-                      : !canUsePlayerCharacterActions
+                    : !canUsePlayerCharacterActions
                         ? '자기 턴에 선택한 맵 오브젝트를 주울 수 있습니다.'
-                        : `${selectedObjectItemPayload.itemDefinitionId} 줍기`
+                        : `${formatInternalIdAsReadableName(
+                            selectedObjectItemPayload.itemDefinitionId,
+                            '아이템'
+                          )} 줍기`
                   }
                   onClick={() => {
                     if (canPickupSelectedObject && selectedObjectItemPayload) {
@@ -3578,6 +3584,10 @@ export function CombatNodeSurface({
                       ...item,
                       __equipmentDisplayState: equipmentDisplayState,
                     } as InventoryItemDto;
+                    const itemDisplayName = formatInternalIdAsReadableName(
+                      item.name,
+                      formatInternalIdAsReadableName(item.itemDefinitionId, '아이템')
+                    );
                     return (
                       <article
                         className="combat-inventory-item"
@@ -3601,8 +3611,8 @@ export function CombatNodeSurface({
                                 isArmor
                                   ? '몸통 방어구는 현재 캐릭터 AC에 반영되어 있습니다.'
                                   : isEquipped
-                                    ? `${item.name} 착용 해제`
-                                    : `${item.name} 착용`
+                                    ? `${itemDisplayName} 착용 해제`
+                                    : `${itemDisplayName} 착용`
                               }
                               onClick={() => onEquipInventoryItem(equipmentActionItem)}
                             >
@@ -3618,7 +3628,7 @@ export function CombatNodeSurface({
                                     ? '던질 적 토큰을 먼저 선택하세요.'
                                     : !myActionResources?.actionAvailable
                                       ? '사용 가능한 action이 없습니다.'
-                                      : `${item.name} 던지기`
+                                      : `${itemDisplayName} 던지기`
                               }
                               onClick={() => {
                                 if (
@@ -3639,7 +3649,7 @@ export function CombatNodeSurface({
                               disabled={!canUse || isInventoryBusy}
                               title={
                                 canUse
-                                  ? `${item.name} 사용`
+                                  ? `${itemDisplayName} 사용`
                                   : '현재 바로 사용할 수 없는 아이템입니다.'
                               }
                               onClick={() =>
@@ -3661,7 +3671,7 @@ export function CombatNodeSurface({
                                   ? '던질 적 토큰을 먼저 선택하세요.'
                                   : !myActionResources?.actionAvailable
                                     ? '사용 가능한 action이 없습니다.'
-                                    : `${item.name} 던지기`
+                                    : `${itemDisplayName} 던지기`
                               }
                               onClick={() => {
                                 if (

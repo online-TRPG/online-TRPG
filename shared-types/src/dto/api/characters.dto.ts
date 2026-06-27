@@ -38,6 +38,11 @@ export class InventoryPackContentDto {
   @IsInt()
   @Min(1)
   quantity!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  displayName?: string;
 }
 
 export class AbilityScoresDto {
@@ -282,6 +287,39 @@ export class InventoryItemDto {
   @IsOptional()
   @IsString()
   containerId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  displayName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  displayTypeLabel?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  displayDescription?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  displayUseEffect?: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  displayPropertyLabels?: string[];
+
+  @ApiPropertyOptional({ type: [InventoryPackContentDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InventoryPackContentDto)
+  displayPackContents?: InventoryPackContentDto[];
 }
 
 export class CreateCharacterDto {

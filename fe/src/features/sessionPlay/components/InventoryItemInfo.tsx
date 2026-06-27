@@ -2,6 +2,12 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import type { InventoryItemDto } from '@trpg/shared-types';
+import {
+  getUserFacingDamageTypeLabel,
+  getUserFacingItemName,
+  getUserFacingItemPropertyLabel,
+  getUserFacingItemTypeLabel,
+} from '../utils/displayNames';
 import './InventoryItemInfo.css';
 
 type InventoryItemInfoProps = {
@@ -19,42 +25,38 @@ function formatNumber(value: number) {
 }
 
 function getItemTypeLabel(itemType: string | undefined) {
-  const normalized = itemType?.trim().toLowerCase();
-  if (!normalized) return '미분류';
-  if (normalized === 'weapon') return '무기';
-  if (normalized === 'armor') return '방어구';
-  if (normalized === 'shield') return '방패';
-  if (normalized === 'pack') return '꾸러미';
-  if (normalized === 'consumable') return '소모품';
-  if (normalized === 'tool') return '도구';
-  if (normalized === 'currency') return '화폐';
-  return itemType ?? '미분류';
+  return getUserFacingItemTypeLabel(itemType);
 }
 
 function getPropertyLabel(property: string) {
-  const normalized = property.trim().toLowerCase();
-  const propertyLabels: Record<string, string> = {
-    ammunition: '탄약',
-    finesse: '기교',
-    heavy: '중량',
-    light: '경량',
-    loading: '장전',
-    melee: '근접',
-    range: '원거리',
-    ranged: '원거리',
-    reach: '간격',
-    special: '특수',
-    thrown: '투척',
-    'two-handed': '양손',
-    versatile: '다용도',
-  };
-  return propertyLabels[normalized] ?? property;
+  return getUserFacingItemPropertyLabel(property);
+}
+
+function formatUserFacingInventoryText(text: string | null | undefined) {
+  const raw = text?.trim() ?? '';
+  if (!raw) return '';
+  return raw
+    .split(/\r?\n/)
+    .map((line) => {
+      const categoryMatch = line.match(/^(분류|category)\s*:\s*(.+)$/i);
+      if (categoryMatch) return `분류: ${getItemTypeLabel(categoryMatch[2])}`;
+      if (/^[a-z0-9_\-\s,/|·]+$/i.test(line.trim())) {
+        return getItemTypeLabel(line);
+      }
+      return line;
+    })
+    .join('\n');
 }
 
 function getDisplayProperties(item: InventoryItemDto) {
-  return (item.properties ?? []).filter(
-    (property) => !internalPropertyIds.has(property.trim().toLowerCase())
-  );
+  if (item.displayPropertyLabels?.length) {
+    return item.displayPropertyLabels.filter((label) => Boolean(label.trim()));
+  }
+
+  return (item.properties ?? [])
+    .filter((property) => !internalPropertyIds.has(property.trim().toLowerCase()))
+    .map(getPropertyLabel)
+    .filter((label) => Boolean(label.trim()));
 }
 
 function getInventoryItemKey(item: InventoryItemDto) {
@@ -65,12 +67,17 @@ function getInventoryItemKey(item: InventoryItemDto) {
 }
 
 function getItemDescription(item: InventoryItemDto) {
-  if (item.description?.trim()) {
-    return item.description.trim();
+  if (item.displayDescription?.trim()) {
+    return item.displayDescription.trim();
+  }
+
+  const description = formatUserFacingInventoryText(item.description);
+  if (description) {
+    return description;
   }
 
   const key = getInventoryItemKey(item);
-  const propertyLabels = getDisplayProperties(item).map(getPropertyLabel);
+  const propertyLabels = getDisplayProperties(item);
 
   if (key.includes('potion') || key.includes('healing') || key.includes('포션')) {
     return '마시거나 사용해서 회복 또는 특수 효과를 얻는 소모품입니다.';
@@ -78,7 +85,7 @@ function getItemDescription(item: InventoryItemDto) {
 
   if (item.itemType === 'weapon' || item.damageDice) {
     const damage = item.damageDice
-      ? `${item.damageDice}${item.damageType ? ` ${item.damageType}` : ''} 피해`
+      ? `${item.damageDice}${item.damageType ? ` ${getUserFacingDamageTypeLabel(item.damageType)}` : ''} 피해`
       : '무기 피해';
     const properties = propertyLabels.length ? ` ${propertyLabels.join(', ')} 속성을 가집니다.` : '';
     return `공격에 사용하는 무기입니다. 명중 시 ${damage}를 줍니다.${properties}`;
@@ -118,10 +125,12 @@ function getItemDescription(item: InventoryItemDto) {
 export function getInventoryMetaLabel(item: InventoryItemDto) {
   const displayProperties = getDisplayProperties(item);
   const labels = [
-    getItemTypeLabel(item.itemType),
-    item.damageDice ? `${item.damageDice}${item.damageType ? ` ${item.damageType}` : ''}` : null,
+    item.displayTypeLabel?.trim() || getItemTypeLabel(item.itemType),
+    item.damageDice
+      ? `${item.damageDice}${item.damageType ? ` ${getUserFacingDamageTypeLabel(item.damageType)}` : ''}`
+      : null,
     item.weightLb !== undefined ? `${formatNumber(item.weightLb)} lb` : null,
-    displayProperties.length ? displayProperties.map(getPropertyLabel).join(', ') : null,
+    displayProperties.length ? displayProperties.join(', ') : null,
   ].filter(Boolean);
 
   return labels.length ? labels.join(' / ') : '상세 정보 없음';
@@ -129,14 +138,16 @@ export function getInventoryMetaLabel(item: InventoryItemDto) {
 
 function getInventoryInfoRows(item: InventoryItemDto) {
   const displayProperties = getDisplayProperties(item);
+  const displayUseEffect =
+    item.displayUseEffect?.trim() || formatUserFacingInventoryText(item.useEffect);
   return [
     { label: '설명', value: getItemDescription(item) },
-    { label: '분류', value: getItemTypeLabel(item.itemType) },
+    { label: '분류', value: item.displayTypeLabel?.trim() || getItemTypeLabel(item.itemType) },
     { label: '수량', value: `x${item.quantity}` },
     item.damageDice
       ? {
           label: '피해',
-          value: `${item.damageDice}${item.damageType ? ` ${item.damageType}` : ''}`,
+          value: `${item.damageDice}${item.damageType ? ` ${getUserFacingDamageTypeLabel(item.damageType)}` : ''}`,
         }
       : null,
     item.armorClassBase !== undefined || item.armorClassBonus !== undefined
@@ -158,12 +169,12 @@ function getInventoryInfoRows(item: InventoryItemDto) {
     item.armorStealthDisadvantage !== undefined
       ? { label: '은신', value: item.armorStealthDisadvantage ? '불리점' : '불리점 없음' }
       : null,
-    item.useEffect ? { label: '사용 효과', value: item.useEffect } : null,
-    item.packContents?.length
+    displayUseEffect ? { label: '사용 효과', value: displayUseEffect } : null,
+    (item.displayPackContents?.length || item.packContents?.length)
       ? {
           label: '내용물',
-          value: item.packContents
-            .map((content) => `${content.name} x${content.quantity}`)
+          value: (item.displayPackContents ?? item.packContents ?? [])
+            .map((content) => `${content.displayName?.trim() || content.name} x${content.quantity}`)
             .join(', '),
         }
       : null,
@@ -172,7 +183,7 @@ function getInventoryInfoRows(item: InventoryItemDto) {
       ? { label: '부피', value: `${formatNumber(item.volumeCuFt)} cu ft` }
       : null,
     displayProperties.length
-      ? { label: '속성', value: displayProperties.map(getPropertyLabel).join(', ') }
+      ? { label: '속성', value: displayProperties.join(', ') }
       : null,
   ].filter((row): row is { label: string; value: string } => Boolean(row));
 }
@@ -183,6 +194,7 @@ export function InventoryItemInfo({
   triggerMode = 'hover',
 }: InventoryItemInfoProps) {
   const rows = getInventoryInfoRows(item);
+  const displayName = item.displayName?.trim() || getUserFacingItemName(item);
   const triggerRef = useRef<HTMLSpanElement | null>(null);
   const tooltipRef = useRef<HTMLSpanElement | null>(null);
   const [isTooltipVisible, setTooltipVisible] = useState(false);
@@ -290,12 +302,12 @@ export function InventoryItemInfo({
       onFocus={triggerMode === 'hover' ? showTooltip : undefined}
       onBlur={triggerMode === 'hover' ? hideTooltip : undefined}
     >
-      <span className="inventory-item-info-name">{item.name}</span>
+      <span className="inventory-item-info-name">{displayName}</span>
       {triggerMode === 'button' ? (
         <button
           type="button"
           className="inventory-item-info-trigger"
-          aria-label={`${item.name} 상세 정보`}
+          aria-label={`${displayName} 상세 정보`}
           aria-expanded={isTooltipVisible}
           onClick={(event) => {
             event.stopPropagation();
@@ -314,7 +326,7 @@ export function InventoryItemInfo({
               role="tooltip"
               style={tooltipStyle}
             >
-              <b>{item.name}</b>
+              <b>{displayName}</b>
               <dl>
                 {rows.map((row) => (
                   <div key={row.label}>
