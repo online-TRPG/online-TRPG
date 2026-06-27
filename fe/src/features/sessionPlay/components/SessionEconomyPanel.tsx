@@ -3,6 +3,7 @@ import type {
   ApplySessionEconomyActionDto,
   SessionCharacterResponseDto,
 } from "@trpg/shared-types";
+import { formatInternalIdAsReadableName } from "../utils/displayNames";
 import "./SessionEconomyPanel.css";
 
 type EconomyStateView = {
@@ -184,7 +185,7 @@ export function SessionEconomyPanel({
               {(economy?.partyStash ?? []).length ? (
                 economy?.partyStash?.map((item) => (
                   <span key={`${item.itemDefinitionId}:${item.attunedBySessionCharacterId ?? ""}`}>
-                    {item.itemDefinitionId} ×{item.quantity}
+                    {formatInternalIdAsReadableName(item.itemDefinitionId, "아이템")} ×{item.quantity}
                     {item.identified === false ? " · 미감정" : ""}
                     {item.damaged ? " · 손상" : ""}
                     {item.chargesRemaining != null ? ` · ${item.chargesRemaining} charge` : ""}
@@ -198,7 +199,9 @@ export function SessionEconomyPanel({
               <b>상점</b>
               {shops.length
                 ? shops.map((shop) => (
-                    <span key={shop.shopId}>{shop.shopId}: 재고 {shop.inventory.length}종</span>
+                    <span key={shop.shopId}>
+                      {formatInternalIdAsReadableName(shop.shopId, "상점")}: 재고 {shop.inventory.length}종
+                    </span>
                   ))
                 : <span>등록된 상점 없음</span>}
             </div>
@@ -207,7 +210,7 @@ export function SessionEconomyPanel({
               {craftingEntries.length
                 ? craftingEntries.map((entry) => (
                     <span key={entry.craftingId}>
-                      {entry.craftingId}: {entry.completedHours}/{entry.requiredHours}h · {entry.status}
+                      {formatInternalIdAsReadableName(entry.craftingId, "제작")}: {entry.completedHours}/{entry.requiredHours}h · {entry.status}
                     </span>
                   ))
                 : <span>진행 중인 제작 없음</span>}
@@ -228,17 +231,20 @@ export function SessionEconomyPanel({
             </select>
             <select value={shopId} onChange={(event) => setShopId(event.target.value)}>
               <option value="">상점 선택</option>
-              {shops.map((shop) => <option value={shop.shopId} key={shop.shopId}>{shop.shopId}</option>)}
+              {shops.map((shop) => (
+                <option value={shop.shopId} key={shop.shopId}>
+                  {formatInternalIdAsReadableName(shop.shopId, "상점")}
+                </option>
+              ))}
             </select>
-            <input
-              list="session-economy-items"
-              value={itemDefinitionId}
-              onChange={(event) => setItemDefinitionId(event.target.value)}
-              placeholder="item definition ID"
-            />
-            <datalist id="session-economy-items">
-              {availableItemIds.map((id) => <option value={id} key={id} />)}
-            </datalist>
+            <select value={itemDefinitionId} onChange={(event) => setItemDefinitionId(event.target.value)}>
+              <option value="">아이템 선택</option>
+              {availableItemIds.map((id) => (
+                <option value={id} key={id}>
+                  {formatInternalIdAsReadableName(id, "아이템")}
+                </option>
+              ))}
+            </select>
             <input type="number" min={1} value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value) || 1))} placeholder="수량" />
             {(actionType === "sell") ? (
               <input type="number" min={0} value={priceGp} onChange={(event) => setPriceGp(Math.max(0, Number(event.target.value) || 0))} placeholder="기준 가격 gp" />
@@ -251,16 +257,20 @@ export function SessionEconomyPanel({
             ) : null}
             {actionType === "start_crafting" ? (
               <>
-                <input value={craftingId} onChange={(event) => setCraftingId(event.target.value)} placeholder="crafting ID (선택)" />
-                <input value={recipeId} onChange={(event) => setRecipeId(event.target.value)} placeholder="recipe ID" />
-                <input value={outputItemDefinitionId} onChange={(event) => setOutputItemDefinitionId(event.target.value)} placeholder="결과 item ID" />
+                <input value={craftingId} onChange={(event) => setCraftingId(event.target.value)} placeholder="제작 이름 (선택)" />
+                <input value={recipeId} onChange={(event) => setRecipeId(event.target.value)} placeholder="레시피 이름" />
+                <input value={outputItemDefinitionId} onChange={(event) => setOutputItemDefinitionId(event.target.value)} placeholder="결과 아이템" />
                 <input value={toolProficiencies} onChange={(event) => setToolProficiencies(event.target.value)} placeholder="도구 숙련, 쉼표 구분" />
               </>
             ) : null}
             {actionType === "progress_crafting" ? (
               <select value={craftingId} onChange={(event) => setCraftingId(event.target.value)}>
                 <option value="">제작 선택</option>
-                {craftingEntries.map((entry) => <option value={entry.craftingId} key={entry.craftingId}>{entry.craftingId}</option>)}
+                {craftingEntries.map((entry) => (
+                  <option value={entry.craftingId} key={entry.craftingId}>
+                    {formatInternalIdAsReadableName(entry.craftingId, "제작")}
+                  </option>
+                ))}
               </select>
             ) : null}
             {["start_crafting", "progress_crafting"].includes(actionType) ? (

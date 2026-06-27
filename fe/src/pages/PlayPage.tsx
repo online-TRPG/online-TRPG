@@ -75,6 +75,7 @@ import {
   getCharacterClassLabel,
   getCharacterImage,
 } from '../features/sessionPlay/utils/characterVisuals';
+import { getUserFacingItemName } from '../features/sessionPlay/utils/displayNames';
 import { summarizeCharacterFeatures } from '../features/characters/characterFeaturePresentation';
 import type { CharacterPayload } from '../hooks/useSession';
 import {
@@ -3727,7 +3728,7 @@ export function PlayPage({
         return;
       }
       if (requiresSpell && !selectedMainSpellId.trim()) {
-        setMainCommandError('이 명령은 사용할 주문 ID 또는 이름을 함께 적어야 합니다.');
+        setMainCommandError('이 명령은 사용할 주문 이름을 함께 적어야 합니다.');
         return;
       }
       if (requiresMapPoint && !mapPoint) {
@@ -3983,10 +3984,11 @@ export function PlayPage({
         equippedWeaponId: nextEquippedWeaponId,
         offhandWeaponId: nextOffhandWeaponId,
       });
+      const itemDisplayName = getUserFacingItemName(item);
       setInventoryUseFeedback(
         shouldUnequip
-          ? `${item.name} 착용을 해제했습니다.`
-          : `${item.name}을(를) 착용했습니다.`
+          ? `${itemDisplayName} 착용을 해제했습니다.`
+          : `${itemDisplayName}을(를) 착용했습니다.`
       );
     } catch (caught) {
       setInventoryUseFeedback(caught instanceof Error ? caught.message : '장비 변경에 실패했습니다.');
@@ -6329,7 +6331,7 @@ export function PlayPage({
                               <option value="">선택하세요</option>
                               {selectedCharacterInventory.map((item) => (
                                 <option key={item.id} value={item.id}>
-                                  {item.name}
+                                  {getUserFacingItemName(item)}
                                 </option>
                               ))}
                             </select>
@@ -6342,7 +6344,7 @@ export function PlayPage({
                             <input
                               value={selectedMainSpellId}
                               onChange={(event) => setSelectedMainSpellId(event.target.value)}
-                              placeholder="주문 ID 또는 이름"
+                              placeholder="주문 이름"
                             />
                           </label>
                         ) : null}

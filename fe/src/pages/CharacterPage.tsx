@@ -50,6 +50,7 @@ import type {
   UpdatePreparedSpellsDto,
 } from '@trpg/shared-types';
 import { InventoryItemInfo } from '../features/sessionPlay/components/InventoryItemInfo';
+import { getUserFacingItemName } from '../features/sessionPlay/utils/displayNames';
 import {
   getCharacterFeatureDisplayInfo,
   summarizeCharacterFeatures,
@@ -59,6 +60,8 @@ import {
   type SpellSelectionGridDetail,
   type SpellSelectionGridOption,
 } from '../features/spells/SpellSelectionGrid';
+import { getSpellDisplayLabel } from '../features/spells/spellDisplay';
+import { getSpellPresentation } from '../features/spells/spellPresentation';
 import {
   deleteCharacterAvatarAsset,
   listCharacterAvatarAssets,
@@ -407,12 +410,13 @@ function getImplementedSpellOptions(
   className: string | null | undefined,
   kind: 'cantrip' | 'slot',
   level = 1,
-  ruleCatalog: RuleCatalogReferenceDto[] = []
+  ruleCatalog: RuleCatalogReferenceDto[] = [],
+  spellCatalogById?: Map<string, StaticSpellCatalogEntry>
 ): ImplementedSpellOption[] {
   const classKey = normalizeClassValue(className ?? '').toLowerCase();
   if (!implementedSpellClasses.has(classKey)) return [];
   const maxSpellLevel = getMaximumImplementedSpellLevel(classKey, level);
-  const catalogOptions = getCatalogSpellOptions(ruleCatalog, kind, maxSpellLevel);
+  const catalogOptions = getCatalogSpellOptions(ruleCatalog, kind, maxSpellLevel, spellCatalogById);
   if (catalogOptions.length) {
     return classKey === 'paladin' || classKey === 'ranger'
       ? kind === 'cantrip'
@@ -468,7 +472,8 @@ function getMaximumImplementedSpellLevel(classKey: string, level: number) {
 function getCatalogSpellOptions(
   ruleCatalog: RuleCatalogReferenceDto[],
   kind: 'cantrip' | 'slot',
-  maxSpellLevel: number
+  maxSpellLevel: number,
+  spellCatalogById?: Map<string, StaticSpellCatalogEntry>
 ): ImplementedSpellOption[] {
   if (!ruleCatalog.length) return [];
   const normalizedMaxSpellLevel =
@@ -477,7 +482,11 @@ function getCatalogSpellOptions(
     .filter((entry) => entry.kind === 'spell_definitions' && entry.executable)
     .map((entry) => ({
       id: entry.id,
-      label: entry.label ? `${entry.label} / ${entry.id}` : formatSpellIdLabel(entry.id),
+      label: getSpellDisplayLabel({
+        spellId: entry.id,
+        label: entry.label,
+        catalogEntry: spellCatalogById?.get(entry.id),
+      }),
       level: getCatalogSpellLevel(entry),
     }))
     .filter((spell) =>
@@ -503,33 +512,25 @@ function getCatalogSpellLevel(entry: RuleCatalogReferenceDto): number | null {
   return Number.isInteger(level) ? level : null;
 }
 
-function formatSpellIdLabel(spellId: string) {
-  const raw = spellId.includes('.') ? spellId.slice(spellId.lastIndexOf('.') + 1) : spellId;
-  const label = raw
-    .split('_')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-  return `${label || spellId} / ${spellId}`;
-}
-
 function getImplementedSpellLabel(
   spellId: string,
-  ruleCatalog: RuleCatalogReferenceDto[] = []
+  ruleCatalog: RuleCatalogReferenceDto[] = [],
+  spellCatalogById?: Map<string, StaticSpellCatalogEntry>
 ) {
   const catalogEntry = ruleCatalog.find((entry) => entry.id === spellId);
-  if (catalogEntry) {
-    return catalogEntry.label ? `${catalogEntry.label} / ${spellId}` : formatSpellIdLabel(spellId);
-  }
-  return (
+  const implementedLabel =
     [
       ...implementedCantrips,
       ...implementedLevel1Spells,
       ...implementedLevel2Spells,
       ...implementedLevel3Spells,
       ...implementedLevel4Spells,
-    ].find((spell) => spell.id === spellId)?.label ?? spellId
-  );
+    ].find((spell) => spell.id === spellId)?.label ?? null;
+  return getSpellDisplayLabel({
+    spellId,
+    label: catalogEntry?.label ?? implementedLabel,
+    catalogEntry: spellCatalogById?.get(spellId),
+  });
 }
 
 function getPreparedSpellAbilityKey(className: string | null | undefined): AbilityKey | null {
@@ -654,6 +655,27 @@ function attachSpellDetails(
     ...option,
     detail: buildSpellSelectionDetail(option, ruleCatalog, spellCatalogById),
   }));
+}
+
+function buildSpellDisplayOptions(
+  spellIds: string[],
+  ruleCatalog: RuleCatalogReferenceDto[],
+  spellCatalogById: Map<string, StaticSpellCatalogEntry>
+): SpellSelectionGridOption[] {
+  const uniqueSpellIds = Array.from(new Set(spellIds.map((spellId) => spellId.trim()).filter(Boolean)));
+  return attachSpellDetails(
+    uniqueSpellIds.map((spellId) => {
+      const srdSpell = spellCatalogById.get(spellId);
+      const catalogEntry = ruleCatalog.find((entry) => entry.id === spellId);
+      return {
+        id: spellId,
+        label: getImplementedSpellLabel(spellId, ruleCatalog, spellCatalogById),
+        level: srdSpell?.level ?? catalogEntry?.spellLevel ?? null,
+      };
+    }),
+    ruleCatalog,
+    spellCatalogById
+  );
 }
 
 function formatSpellLevelLabel(level: number | null | undefined) {
@@ -2096,9 +2118,33 @@ function getRaceByValue(raceCatalog: RaceData[], value: string): RaceData | null
         option.label,
         option.id,
         option.id.includes('.') ? option.id.slice(option.id.lastIndexOf('.') + 1) : option.id,
+        ...option.ancestryAliases,
       ].some((candidate) => normalizeRaceLookupValue(candidate) === normalizedValue)
     ) ?? null
   );
+}
+
+function getRaceLookupValueFromFeature(feature: string) {
+  const normalized = feature.trim();
+  const dotRaceMatch = /^race\.([^.]+)\.trait\./i.exec(normalized);
+  if (dotRaceMatch?.[1]) return dotRaceMatch[1];
+
+  const legacyRaceMatch = /^race\s+(.+?)\s+trait\s+/i.exec(normalized);
+  if (legacyRaceMatch?.[1]) return legacyRaceMatch[1];
+
+  return null;
+}
+
+function getRaceByCharacterFeature(raceCatalog: RaceData[], features: string[] | undefined) {
+  for (const feature of features ?? []) {
+    const raceLookupValue = getRaceLookupValueFromFeature(feature);
+    if (!raceLookupValue) continue;
+
+    const race = getRaceByValue(raceCatalog, raceLookupValue);
+    if (race) return race;
+  }
+
+  return null;
 }
 
 function buildRaceAbilityBonusesFromIncreases(
@@ -2118,6 +2164,14 @@ function buildSelectedRaceInfo(
     id: selectedRace.id,
     value: selectedRace.key,
     label: selectedRace.koName,
+    ancestryAliases: [
+      selectedRace.key,
+      selectedRace.koName,
+      staticRaceInfo?.id,
+      staticRaceInfo?.value,
+      staticRaceInfo?.label,
+      ...(staticRaceInfo?.ancestryAliases ?? []),
+    ].filter((alias): alias is string => Boolean(alias)),
     size: selectedRace.size,
     speed: selectedRace.baseSpeed,
     speedRaw: `${selectedRace.baseSpeed} ft.`,
@@ -2127,7 +2181,27 @@ function buildSelectedRaceInfo(
     abilityBonuses: buildRaceAbilityBonusesFromIncreases(selectedRace.abilityIncreases),
     languages: selectedRace.languages,
     traitSummaries: staticRaceInfo?.traitSummaries ?? [],
+    subraceTraitSummaries: staticRaceInfo?.subraceTraitSummaries ?? [],
   };
+}
+
+function getRaceTraitSummariesForCharacter(raceInfo: RaceData | null, character: PersistentCharacter | null) {
+  if (!raceInfo) return [];
+
+  const lookupValues = [
+    character?.ancestry,
+    ...(character?.features ?? []).map(getRaceLookupValueFromFeature),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .map(normalizeRaceLookupValue);
+
+  const matchingSubraceSummaries = raceInfo.subraceTraitSummaries
+    .filter((subrace) =>
+      subrace.aliases.some((alias) => lookupValues.includes(normalizeRaceLookupValue(alias)))
+    )
+    .flatMap((subrace) => subrace.traits);
+
+  return [...raceInfo.traitSummaries, ...matchingSubraceSummaries];
 }
 
 function getClassOptionByValue(classCatalog: ClassOption[], value: string): ClassOption | null {
@@ -2185,6 +2259,7 @@ export function CharacterPage({
   const [deletingAvatarAssetId, setDeletingAvatarAssetId] = useState<string | null>(null);
   const [createStepIndex, setCreateStepIndex] = useState(0);
   const [isStatsReferenceOpen, setStatsReferenceOpen] = useState(false);
+  const [isLevelUpModalOpen, setLevelUpModalOpen] = useState(false);
   const [itemCatalog, setItemCatalog] = useState<ItemResponseDto[]>([]);
   const [ruleCatalog, setRuleCatalog] = useState<RuleCatalogReferenceDto[]>([]);
   const [spellCatalog, setSpellCatalog] = useState<StaticSpellCatalogEntry[]>([]);
@@ -2409,8 +2484,15 @@ export function CharacterPage({
     [spellCatalog]
   );
   const cantripOptions = useMemo(
-    () => getImplementedSpellOptions(formState.className, 'cantrip', formState.level ?? 1, ruleCatalog),
-    [formState.className, formState.level, ruleCatalog]
+    () =>
+      getImplementedSpellOptions(
+        formState.className,
+        'cantrip',
+        formState.level ?? 1,
+        ruleCatalog,
+        spellCatalogById
+      ),
+    [formState.className, formState.level, ruleCatalog, spellCatalogById]
   );
   const detailedCantripOptions = useMemo(
     () => attachSpellDetails(cantripOptions, ruleCatalog, spellCatalogById),
@@ -2423,8 +2505,15 @@ export function CharacterPage({
     ruleCatalog
   );
   const slotSpellOptions = useMemo(
-    () => getImplementedSpellOptions(formState.className, 'slot', formState.level ?? 1, ruleCatalog),
-    [formState.className, formState.level, ruleCatalog]
+    () =>
+      getImplementedSpellOptions(
+        formState.className,
+        'slot',
+        formState.level ?? 1,
+        ruleCatalog,
+        spellCatalogById
+      ),
+    [formState.className, formState.level, ruleCatalog, spellCatalogById]
   );
   const detailedSlotSpellOptions = useMemo(
     () => attachSpellDetails(slotSpellOptions, ruleCatalog, spellCatalogById),
@@ -2461,12 +2550,12 @@ export function CharacterPage({
 
     return selectedStartingSlotSpells.map((spellId) => ({
       id: spellId,
-      label: getImplementedSpellLabel(spellId, ruleCatalog),
+      label: getImplementedSpellLabel(spellId, ruleCatalog, spellCatalogById),
       level: slotSpellOptions.find((spell) => spell.id === spellId)?.level,
       detail: buildSpellSelectionDetail(
         slotSpellOptions.find((spell) => spell.id === spellId) ?? {
           id: spellId,
-          label: getImplementedSpellLabel(spellId, ruleCatalog),
+          label: getImplementedSpellLabel(spellId, ruleCatalog, spellCatalogById),
           level: null,
         },
         ruleCatalog,
@@ -2821,7 +2910,8 @@ export function CharacterPage({
       selectedCharacter.className,
       'slot',
       levelUpDraft.targetLevel,
-      ruleCatalog
+      ruleCatalog,
+      spellCatalogById
     ).filter((spell) => !known.has(spell.id));
   }, [
     canSelectKnownSpellGrowth,
@@ -2829,7 +2919,16 @@ export function CharacterPage({
     ruleCatalog,
     selectedCharacter,
     selectedKnownSlotSpells,
+    spellCatalogById,
   ]);
+  const selectedLevelUpLearnableSlotSpellOptions = useMemo(
+    () => attachSpellDetails(selectedLevelUpLearnableSlotSpells, ruleCatalog, spellCatalogById),
+    [ruleCatalog, selectedLevelUpLearnableSlotSpells, spellCatalogById]
+  );
+  const selectedLevelUpForgottenSlotSpellOptions = useMemo(
+    () => buildSpellDisplayOptions(selectedKnownSlotSpells, ruleCatalog, spellCatalogById),
+    [ruleCatalog, selectedKnownSlotSpells, spellCatalogById]
+  );
   const selectedLevelUpLearnableCantrips = useMemo(() => {
     if (
       !selectedCharacter ||
@@ -2840,7 +2939,8 @@ export function CharacterPage({
       selectedCharacter.className,
       'cantrip',
       levelUpDraft.targetLevel,
-      ruleCatalog
+      ruleCatalog,
+      spellCatalogById
     ).filter(
       (spell) => !known.has(spell.id)
     );
@@ -2849,8 +2949,17 @@ export function CharacterPage({
     ruleCatalog,
     selectedCharacter,
     selectedCurrentCantrips,
+    spellCatalogById,
     targetSpellcastingProgression?.cantripsKnown,
   ]);
+  const selectedLevelUpLearnableCantripOptions = useMemo(
+    () => attachSpellDetails(selectedLevelUpLearnableCantrips, ruleCatalog, spellCatalogById),
+    [ruleCatalog, selectedLevelUpLearnableCantrips, spellCatalogById]
+  );
+  const selectedLevelUpForgottenCantripOptions = useMemo(
+    () => buildSpellDisplayOptions(selectedCurrentCantrips, ruleCatalog, spellCatalogById),
+    [ruleCatalog, selectedCurrentCantrips, spellCatalogById]
+  );
   const selectedPreparedCandidateSlotSpells = useMemo(
     () =>
       isSelectedCharacterPreparedCaster
@@ -2862,15 +2971,65 @@ export function CharacterPage({
       selectedKnownSlotSpells,
     ]
   );
+  const selectedLevelUpPreparedSpellOptions = useMemo(
+    () => buildSpellDisplayOptions(selectedPreparedCandidateSlotSpells, ruleCatalog, spellCatalogById),
+    [ruleCatalog, selectedPreparedCandidateSlotSpells, spellCatalogById]
+  );
   const selectedPreparedSpells = useMemo(
     () => selectedCharacter?.spells?.preparedSpells ?? [],
     [selectedCharacter]
   );
+  const selectedDisplayCantrips = useMemo(
+    () => selectedCurrentCantrips.filter((spellId) => spellId.trim().length > 0),
+    [selectedCurrentCantrips]
+  );
+  const selectedDisplayKnownSpells = useMemo(
+    () => selectedKnownSlotSpells.filter((spellId) => spellId.trim().length > 0),
+    [selectedKnownSlotSpells]
+  );
+  const selectedDisplayPreparedSpells = useMemo(
+    () => selectedPreparedSpells.filter((spellId) => spellId.trim().length > 0),
+    [selectedPreparedSpells]
+  );
+  const selectedDisplayCantripOptions = useMemo(
+    () => buildSpellDisplayOptions(selectedDisplayCantrips, ruleCatalog, spellCatalogById),
+    [ruleCatalog, selectedDisplayCantrips, spellCatalogById]
+  );
+  const selectedDisplayKnownSpellOptions = useMemo(
+    () => buildSpellDisplayOptions(selectedDisplayKnownSpells, ruleCatalog, spellCatalogById),
+    [ruleCatalog, selectedDisplayKnownSpells, spellCatalogById]
+  );
+  const selectedDisplayPreparedSpellOptions = useMemo(
+    () => buildSpellDisplayOptions(selectedDisplayPreparedSpells, ruleCatalog, spellCatalogById),
+    [ruleCatalog, selectedDisplayPreparedSpells, spellCatalogById]
+  );
+  const selectedHasAnySpells =
+    selectedDisplayCantrips.length > 0 ||
+    selectedDisplayKnownSpells.length > 0 ||
+    selectedDisplayPreparedSpells.length > 0;
   const selectedPreviewContext = selectedCharacter?.levelUpPreviewContext ?? null;
   const selectedActiveSessionConditions = selectedCharacter?.activeSessionConditions ?? [];
+  const selectedCharacterRaceInfo = useMemo(
+    () =>
+      selectedCharacter
+        ? getRaceByValue(raceCatalog, selectedCharacter.ancestry) ??
+          getRaceByCharacterFeature(raceCatalog, selectedCharacter.features)
+        : null,
+    [raceCatalog, selectedCharacter]
+  );
+  const selectedCharacterRaceTraitSummaries = useMemo(
+    () => getRaceTraitSummariesForCharacter(selectedCharacterRaceInfo, selectedCharacter ?? null),
+    [selectedCharacter, selectedCharacterRaceInfo]
+  );
   const selectedCharacterFeatureSummary = useMemo(
-    () => summarizeCharacterFeatures(selectedCharacter?.features, 8),
-    [selectedCharacter?.features]
+    () =>
+      summarizeCharacterFeatures(
+        selectedCharacter?.features,
+        8,
+        classFeatureManifest,
+        selectedCharacterRaceTraitSummaries
+      ),
+    [classFeatureManifest, selectedCharacter?.features, selectedCharacterRaceTraitSummaries]
   );
   const selectedHasActiveConcentration = selectedActiveSessionConditions.some((condition) =>
     condition.toLowerCase().includes('concentration') || condition.includes('집중')
@@ -3032,9 +3191,13 @@ export function CharacterPage({
         {
           label: '장비',
           value: `소지품 ${selectedPreviewContext?.inventoryItemCount ?? selectedCharacter.inventory.length}개 · 주무기 ${
-            selectedEquippedWeapon?.name ?? selectedPreviewContext?.equippedWeaponId ?? selectedCharacter.equippedWeaponId ?? '없음'
+            selectedEquippedWeapon
+              ? getUserFacingItemName(selectedEquippedWeapon)
+              : '없음'
           } · 보조 ${
-            selectedOffhandWeapon?.name ?? selectedPreviewContext?.offhandWeaponId ?? selectedCharacter.offhandWeaponId ?? '없음'
+            selectedOffhandWeapon
+              ? getUserFacingItemName(selectedOffhandWeapon)
+              : '없음'
           }`,
         },
         {
@@ -3579,7 +3742,7 @@ export function CharacterPage({
   async function handleLevelUpSelectedCharacter() {
     if (!selectedCharacter || selectedCharacter.level >= 20) return;
     const targetLevel = Math.min(20, Math.max(selectedCharacter.level + 1, levelUpDraft.targetLevel));
-    await onLevelUpCharacter(selectedCharacter.id, {
+    const leveledUp = await onLevelUpCharacter(selectedCharacter.id, {
       targetLevel,
       hpMode: 'average',
       applyToActiveSessions: usedCharacterIds.has(selectedCharacter.id),
@@ -3602,6 +3765,9 @@ export function CharacterPage({
         ? { preparedSpells: levelUpDraft.preparedSpells.filter(Boolean) }
         : {}),
     });
+    if (leveledUp) {
+      setLevelUpModalOpen(false);
+    }
   }
 
   async function handleSavePreparedSpells() {
@@ -3710,6 +3876,82 @@ export function CharacterPage({
         cantrips: current.cantrips.slice(0, baseAllowance + forgottenCantrips.length),
       };
     });
+  }
+
+  function setLevelUpKnownSpells(nextSpellIds: string[]) {
+    setLevelUpDraft((current) => {
+      const knownSpells = nextSpellIds.slice(0, knownSpellLearnAllowance);
+      const knownSpellSet = new Set(knownSpells);
+      const removedLearnedSpells = new Set(
+        current.knownSpells.filter((spellId) => !knownSpellSet.has(spellId))
+      );
+      return {
+        ...current,
+        knownSpells,
+        preparedSpells: current.preparedSpells.filter(
+          (spellId) => !removedLearnedSpells.has(spellId)
+        ),
+      };
+    });
+  }
+
+  function setLevelUpCantrips(nextCantripIds: string[]) {
+    setLevelUpDraft((current) => ({
+      ...current,
+      cantrips: nextCantripIds.slice(0, cantripLearnAllowance),
+    }));
+  }
+
+  function setForgottenSpells(nextSpellIds: string[]) {
+    setLevelUpDraft((current) => {
+      const forgottenSpells = nextSpellIds.slice(0, levelUpLevelDelta);
+      const previousForgotten = new Set(current.forgottenSpells);
+      const newlyForgotten = new Set(
+        forgottenSpells.filter((spellId) => !previousForgotten.has(spellId))
+      );
+      const baseAllowance = isSelectedCharacterWizard
+        ? levelUpLevelDelta * 2
+        : Math.max(
+            0,
+            (targetSpellcastingProgression?.spellsKnown ?? 0) -
+              (currentSpellcastingProgression?.spellsKnown ?? 0)
+          );
+
+      return {
+        ...current,
+        forgottenSpells,
+        knownSpells: current.knownSpells.slice(0, baseAllowance + forgottenSpells.length),
+        preparedSpells: current.preparedSpells.filter(
+          (spellId) => !newlyForgotten.has(spellId)
+        ),
+      };
+    });
+  }
+
+  function setForgottenCantrips(nextCantripIds: string[]) {
+    setLevelUpDraft((current) => {
+      const forgottenCantrips = nextCantripIds.slice(0, levelUpLevelDelta);
+      const baseAllowance = Math.max(
+        0,
+        (targetSpellcastingProgression?.cantripsKnown ?? 0) -
+          (currentSpellcastingProgression?.cantripsKnown ?? 0)
+      );
+      return {
+        ...current,
+        forgottenCantrips,
+        cantrips: current.cantrips.slice(0, baseAllowance + forgottenCantrips.length),
+      };
+    });
+  }
+
+  function setPreparedSpells(nextSpellIds: string[]) {
+    setLevelUpDraft((current) => ({
+      ...current,
+      preparedSpells: nextSpellIds.slice(
+        0,
+        selectedLevelUpPreparedSpellLimit ?? nextSpellIds.length
+      ),
+    }));
   }
 
   async function handleDeleteSelectedCharacter() {
@@ -3876,21 +4118,6 @@ export function CharacterPage({
           {selectedCharacter ? (
             <>
               <article
-                className="fantasy-character-profile-frame"
-                style={{ ['--frame-image' as string]: `url(${profileBorderCharacter})` }}
-              >
-                <img
-                  src={getCharacterImage(selectedCharacter)}
-                  alt={selectedCharacter.name}
-                  className="fantasy-character-profile-art"
-                />
-                <div className="fantasy-character-profile-name">{selectedCharacter.name}</div>
-                <div className="fantasy-character-profile-class">
-                  {getCharacterClassLabel(selectedCharacter.className)}
-                </div>
-              </article>
-
-              <article
                 className="fantasy-character-stats-frame"
                 style={{ ['--frame-image' as string]: `url(${profileBorderStats})` }}
               >
@@ -3956,343 +4183,79 @@ export function CharacterPage({
                     </section>
 
                     <section className="fantasy-character-stats-section">
-                      <h3>성장</h3>
-                      <div className="character-growth-panel">
-                        <label htmlFor="character-level-up-target">목표 레벨</label>
-                        <div className="character-growth-row">
-                          <input
-                            id="character-level-up-target"
-                            type="number"
-                            min={selectedCharacter.level + 1}
-                            max={20}
-                            value={levelUpDraft.targetLevel}
-                            disabled={busy || selectedCharacter.level >= 20}
-                            onChange={(event) =>
-                              setLevelUpDraft((current) => ({
-                                ...current,
-                                targetLevel: Number(event.target.value),
-                                cantrips: [],
-                                knownSpells: [],
-                                forgottenCantrips: [],
-                                forgottenSpells: [],
-                                featSelections: [],
-                                asiFeatChoices: [],
-                              }))
-                            }
-                          />
-                          <button
-                            type="button"
-                            onClick={() => void handleLevelUpSelectedCharacter()}
-                            disabled={
-                              busy ||
-                              selectedCharacter.level >= 20 ||
-                              missingAsiFeatChoiceCount > 0 ||
-                              (isLevelUpSubclassRequired && !levelUpDraft.subclassName) ||
-                              isLevelUpPreparedSpellLimitExceeded ||
-                              isLevelUpSpellReplacementIncomplete
-                            }
-                          >
-                            레벨업
-                          </button>
-                        </div>
-                        {levelUpPreviewRows.length ? (
-                          <dl className="fantasy-character-summary-list">
-                            {levelUpPreviewRows.map((row) => (
-                              <div key={row.label}>
-                                <dt>{row.label}</dt>
-                                <dd>{row.value}</dd>
+                      <h3>주문</h3>
+                      {selectedHasAnySpells ? (
+                        <div className="fantasy-character-spell-summary">
+                          {selectedDisplayCantrips.length ? (
+                            <article className="fantasy-character-spell-group">
+                              <div className="fantasy-character-spell-group-heading">
+                                <strong>캔트립</strong>
+                                <span>{selectedDisplayCantrips.length}개</span>
                               </div>
-                            ))}
-                          </dl>
-                        ) : null}
-                        {levelUpFeatureTimelineGroups.length ? (
-                          <div className="character-asi-panel">
-                            <div className="character-asi-heading">
-                              <strong>이번 성장 특성</strong>
-                              <span>{levelUpFeaturePreviewItems.length}개 항목</span>
-                            </div>
-                            <div className="character-feature-timeline compact">
-                              {levelUpFeatureTimelineGroups.map((group) => (
-                                <article
-                                  key={group.level}
-                                  className="character-feature-timeline-row"
-                                >
-                                  <div className="character-feature-timeline-level">
-                                    {group.level}레벨
-                                  </div>
-                                  <ul>
-                                    {group.items.map((item) => (
-                                      <li key={item.id}>
-                                        <span className={`status-dot status-${item.status}`} />
-                                        <div>
-                                          <strong>{item.label}</strong>
-                                          <p>
-                                            {featureSourceLabels[item.source]} ·{' '}
-                                            {featureStatusLabels[item.status]} · {item.summary}
-                                          </p>
-                                        </div>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </article>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                        {crossedAsiLevels.length ? (
-                          <div className="character-asi-panel">
-                            <div className="character-asi-heading">
-                              <strong>ASI / Feat 선택</strong>
-                              <span>
-                                미선택 {missingAsiFeatChoiceCount} / {crossedAsiLevels.length}
-                              </span>
-                            </div>
-                            <div className="character-feat-choice-list">
-                              {crossedAsiLevels.map((asiLevel, index) => {
-                                const selectedChoiceId =
-                                  normalizedLevelUpAsiFeatChoices[index] ?? '';
-                                const selectedAsiAbility =
-                                  getAbilityFromAsiChoiceId(selectedChoiceId);
-                                const selectedFeat = selectedChoiceId.startsWith('feat.')
-                                  ? featOptionById.get(selectedChoiceId)
-                                  : null;
-                                return (
-                                  <div key={asiLevel} className="character-feat-choice-card">
-                                    <label htmlFor={`character-level-up-feat-${asiLevel}`}>
-                                      {asiLevel}레벨
-                                    </label>
-                                    <select
-                                      id={`character-level-up-feat-${asiLevel}`}
-                                      value={selectedChoiceId}
-                                      disabled={busy}
-                                      onChange={(event) => {
-                                        const nextChoiceId = event.target.value;
-                                        setLevelUpDraft((current) => {
-                                          const nextChoices = [...current.asiFeatChoices];
-                                          nextChoices[index] = nextChoiceId;
-                                          return {
-                                            ...current,
-                                            asiFeatChoices: nextChoices,
-                                            featSelections:
-                                              getFeatSelectionsFromAsiFeatChoices(nextChoices),
-                                            abilityScoreIncreases:
-                                              buildAbilityScoreIncreasesFromAsiFeatChoices(
-                                                nextChoices
-                                              ),
-                                          };
-                                        });
-                                      }}
-                                    >
-                                      <option value="">선택 필요</option>
-                                      {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map(
-                                        (ability) => (
-                                          <option
-                                            key={ability}
-                                            value={getAsiChoiceId(ability)}
-                                            disabled={
-                                              selectedCharacter.abilities[ability] +
-                                                derivedLevelUpAbilityScoreIncreases[ability] >=
-                                                20 &&
-                                              selectedAsiAbility !== ability
-                                            }
-                                          >
-                                            ASI: {abilityDisplayLabels[ability]} +2
-                                          </option>
-                                        )
-                                      )}
-                                      {featOptions.map((feat) => (
-                                        <option
-                                          key={feat.id}
-                                          value={feat.id}
-                                          disabled={
-                                            selectedLevelUpFeatIds.includes(feat.id) &&
-                                            selectedChoiceId !== feat.id
-                                          }
-                                        >
-                                          {feat.label}
-                                        </option>
-                                      ))}
-                                    </select>
-                                    <p>
-                                      {selectedFeat
-                                        ? selectedFeat.summary
-                                        : selectedAsiAbility
-                                          ? `${abilityDisplayLabels[selectedAsiAbility]} 능력치가 2 상승합니다.`
-                                          : '능력치 하나를 +2 하거나 Feat 하나를 선택하세요.'}
-                                    </p>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ) : null}
-                        {selectedSubclassOptions.length ? (
-                          <div>
-                            <label htmlFor="character-level-up-subclass">서브클래스</label>
-                            <select
-                              id="character-level-up-subclass"
-                              value={levelUpDraft.subclassName}
-                              disabled={busy || Boolean(selectedCharacter.subclassName)}
-                              onChange={(event) =>
-                                setLevelUpDraft((current) => ({
-                                  ...current,
-                                  subclassName: event.target.value,
-                                }))
-                              }
-                            >
-                              <option value="">
-                                {isLevelUpSubclassRequired ? '필수 선택' : '필요 시 선택'}
-                              </option>
-                              {selectedSubclassOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        ) : null}
-                        {selectedLevelUpLearnableSlotSpells.length ? (
-                          <div>
-                            <label>
-                              새 주문 습득 {levelUpDraft.knownSpells.length}/{knownSpellLearnAllowance}
-                            </label>
-                            <div className="character-prepared-spell-list">
-                              {selectedLevelUpLearnableSlotSpells.map((spell) => (
-                                <label key={spell.id} className="character-prepared-spell-option">
-                                  <input
-                                    type="checkbox"
-                                    checked={levelUpDraft.knownSpells.includes(spell.id)}
-                                    disabled={
-                                      busy ||
-                                      (!levelUpDraft.knownSpells.includes(spell.id) &&
-                                        levelUpDraft.knownSpells.length >=
-                                          knownSpellLearnAllowance)
-                                    }
-                                    onChange={() => toggleLevelUpKnownSpell(spell.id)}
-                                  />
-                                  <span>{spell.label}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                        {!isSelectedCharacterPreparedCaster &&
-                        selectedKnownSlotSpells.length &&
-                        levelUpLevelDelta ? (
-                          <div>
-                            <label>
-                              교체할 주문 {levelUpDraft.forgottenSpells.length}/{levelUpLevelDelta}
-                            </label>
-                            <div className="character-prepared-spell-list">
-                              {selectedKnownSlotSpells.map((spellId) => (
-                                <label key={spellId} className="character-prepared-spell-option">
-                                  <input
-                                    type="checkbox"
-                                    checked={levelUpDraft.forgottenSpells.includes(spellId)}
-                                    disabled={
-                                      busy ||
-                                      (!levelUpDraft.forgottenSpells.includes(spellId) &&
-                                        levelUpDraft.forgottenSpells.length >= levelUpLevelDelta)
-                                    }
-                                    onChange={() => toggleForgottenSpell(spellId)}
-                                  />
-                                  <span>{getImplementedSpellLabel(spellId, ruleCatalog)}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                        {selectedLevelUpLearnableCantrips.length &&
-                        cantripLearnAllowance > 0 ? (
-                          <div>
-                            <label>
-                              새 캔트립 {levelUpDraft.cantrips.length}/{cantripLearnAllowance}
-                            </label>
-                            <div className="character-prepared-spell-list">
-                              {selectedLevelUpLearnableCantrips.map((spell) => (
-                                <label key={spell.id} className="character-prepared-spell-option">
-                                  <input
-                                    type="checkbox"
-                                    checked={levelUpDraft.cantrips.includes(spell.id)}
-                                    disabled={
-                                      busy ||
-                                      (!levelUpDraft.cantrips.includes(spell.id) &&
-                                        levelUpDraft.cantrips.length >= cantripLearnAllowance)
-                                    }
-                                    onChange={() => toggleLevelUpCantrip(spell.id)}
-                                  />
-                                  <span>{spell.label}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                        {selectedCurrentCantrips.length && levelUpLevelDelta ? (
-                          <div>
-                            <label>
-                              교체할 캔트립 {levelUpDraft.forgottenCantrips.length}/
-                              {levelUpLevelDelta}
-                            </label>
-                            <div className="character-prepared-spell-list">
-                              {selectedCurrentCantrips.map((spellId) => (
-                                <label key={spellId} className="character-prepared-spell-option">
-                                  <input
-                                    type="checkbox"
-                                    checked={levelUpDraft.forgottenCantrips.includes(spellId)}
-                                    disabled={
-                                      busy ||
-                                      (!levelUpDraft.forgottenCantrips.includes(spellId) &&
-                                        levelUpDraft.forgottenCantrips.length >=
-                                          levelUpLevelDelta)
-                                    }
-                                    onChange={() => toggleForgottenCantrip(spellId)}
-                                  />
-                                  <span>{getImplementedSpellLabel(spellId, ruleCatalog)}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
+                              <SpellSelectionGrid
+                                title="캔트립"
+                                options={selectedDisplayCantripOptions}
+                                selectedIds={[]}
+                                readOnly
+                                showHeader={false}
+                                showToolbar={false}
+                              />
+                            </article>
+                          ) : null}
+                          {selectedDisplayKnownSpells.length ? (
+                            <article className="fantasy-character-spell-group">
+                              <div className="fantasy-character-spell-group-heading">
+                                <strong>
+                                  {isSelectedCharacterWizard ? '주문책 / 저장 주문' : '알고 있는 주문'}
+                                </strong>
+                                <span>{selectedDisplayKnownSpells.length}개</span>
+                              </div>
+                              <SpellSelectionGrid
+                                title={isSelectedCharacterWizard ? '주문책 / 저장 주문' : '알고 있는 주문'}
+                                options={selectedDisplayKnownSpellOptions}
+                                selectedIds={[]}
+                                readOnly
+                                showHeader={false}
+                                showToolbar={false}
+                              />
+                            </article>
+                          ) : null}
+                          {selectedDisplayPreparedSpells.length ? (
+                            <article className="fantasy-character-spell-group prepared">
+                              <div className="fantasy-character-spell-group-heading">
+                                <strong>준비 주문</strong>
+                                <span>{selectedDisplayPreparedSpells.length}개</span>
+                              </div>
+                              <SpellSelectionGrid
+                                title="준비 주문"
+                                options={selectedDisplayPreparedSpellOptions}
+                                selectedIds={[]}
+                                readOnly
+                                showHeader={false}
+                                showToolbar={false}
+                              />
+                            </article>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <p className="character-empty-note">
+                          이 캐릭터는 현재 배우거나 준비한 주문이 없습니다.
+                        </p>
+                      )}
                     </section>
 
-                    {isSelectedCharacterPreparedCaster &&
-                    selectedPreparedCandidateSlotSpells.length ? (
-                      <section className="fantasy-character-stats-section">
-                        <h3>
-                          준비 주문
-                          {selectedLevelUpPreparedSpellLimit !== null
-                            ? ` ${levelUpDraft.preparedSpells.length}/${selectedLevelUpPreparedSpellLimit}`
-                            : ''}
-                        </h3>
-                        <div className="character-prepared-spell-list">
-                          {selectedPreparedCandidateSlotSpells.map((spellId) => (
-                            <label key={spellId} className="character-prepared-spell-option">
-                              <input
-                                type="checkbox"
-                                checked={levelUpDraft.preparedSpells.includes(spellId)}
-                                disabled={
-                                  busy ||
-                                  (!levelUpDraft.preparedSpells.includes(spellId) &&
-                                    selectedLevelUpPreparedSpellLimit !== null &&
-                                    levelUpDraft.preparedSpells.length >=
-                                      selectedLevelUpPreparedSpellLimit)
-                                }
-                                onChange={() => togglePreparedSpell(spellId)}
-                              />
-                              <span>{getImplementedSpellLabel(spellId, ruleCatalog)}</span>
-                            </label>
-                          ))}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleSavePreparedSpells()}
-                          disabled={busy || levelUpDraft.knownSpells.length > 0}
-                        >
-                          준비 주문 저장
-                        </button>
-                      </section>
-                    ) : null}
+                    <section className="fantasy-character-stats-section">
+                      <h3>성장</h3>
+                      <p>현재 시트와 레벨업 예정치를 분리해 보기 위해 성장 과정은 별도 창에서 진행합니다.</p>
+                      <button
+                        type="button"
+                        className="primary character-level-up-open"
+                        onClick={() => setLevelUpModalOpen(true)}
+                        disabled={busy || selectedCharacter.level >= 20}
+                      >
+                        {selectedCharacter.level >= 20 ? '최대 레벨' : '레벨업 열기'}
+                      </button>
+                    </section>
 
                     <section className="fantasy-character-stats-section">
                       <h3>능력치</h3>
@@ -6029,6 +5992,325 @@ export function CharacterPage({
                 )}
               </div>
             </form>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isLevelUpModalOpen && selectedCharacter ? (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => setLevelUpModalOpen(false)}
+        >
+          <div
+            className="modal-card modal-card-wide character-level-up-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="character-level-up-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <span className="eyebrow">성장 관리</span>
+                <h2 id="character-level-up-title">{selectedCharacter.name} 레벨업</h2>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                aria-label="레벨업 창 닫기"
+                onClick={() => setLevelUpModalOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="character-level-up-current-summary">
+              <dl className="fantasy-character-summary-list">
+                <div>
+                  <dt>현재 레벨</dt>
+                  <dd>{selectedCharacter.level}</dd>
+                </div>
+                <div>
+                  <dt>직업</dt>
+                  <dd>{getCharacterClassLabel(selectedCharacter.className)}</dd>
+                </div>
+                <div>
+                  <dt>현재 HP</dt>
+                  <dd>{formatStat(selectedCharacter.maxHp)}</dd>
+                </div>
+                <div>
+                  <dt>숙련도</dt>
+                  <dd>{formatStat(selectedCharacter.proficiencyBonus)}</dd>
+                </div>
+              </dl>
+            </div>
+
+            <div className="character-level-up-modal-scroll">
+              <section className="fantasy-character-stats-section">
+                <h3>레벨업 설정</h3>
+                <div className="character-growth-panel">
+                  <label htmlFor="character-level-up-target">목표 레벨</label>
+                  <div className="character-growth-row">
+                    <input
+                      id="character-level-up-target"
+                      type="number"
+                      min={selectedCharacter.level + 1}
+                      max={20}
+                      value={levelUpDraft.targetLevel}
+                      disabled={busy || selectedCharacter.level >= 20}
+                      onChange={(event) =>
+                        setLevelUpDraft((current) => ({
+                          ...current,
+                          targetLevel: Number(event.target.value),
+                          cantrips: [],
+                          knownSpells: [],
+                          forgottenCantrips: [],
+                          forgottenSpells: [],
+                          featSelections: [],
+                          asiFeatChoices: [],
+                        }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() => void handleLevelUpSelectedCharacter()}
+                      disabled={
+                        busy ||
+                        selectedCharacter.level >= 20 ||
+                        missingAsiFeatChoiceCount > 0 ||
+                        (isLevelUpSubclassRequired && !levelUpDraft.subclassName) ||
+                        isLevelUpPreparedSpellLimitExceeded ||
+                        isLevelUpSpellReplacementIncomplete
+                      }
+                    >
+                      레벨업 확정
+                    </button>
+                  </div>
+                  {levelUpPreviewRows.length ? (
+                    <dl className="fantasy-character-summary-list">
+                      {levelUpPreviewRows.map((row) => (
+                        <div key={row.label}>
+                          <dt>{row.label}</dt>
+                          <dd>{row.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : null}
+                  {levelUpFeatureTimelineGroups.length ? (
+                    <div className="character-asi-panel">
+                      <div className="character-asi-heading">
+                        <strong>이번 성장 특성</strong>
+                        <span>{levelUpFeaturePreviewItems.length}개 항목</span>
+                      </div>
+                      <div className="character-feature-timeline compact">
+                        {levelUpFeatureTimelineGroups.map((group) => (
+                          <article key={group.level} className="character-feature-timeline-row">
+                            <div className="character-feature-timeline-level">{group.level}레벨</div>
+                            <ul>
+                              {group.items.map((item) => (
+                                <li key={item.id}>
+                                  <span className={`status-dot status-${item.status}`} />
+                                  <div>
+                                    <strong>{item.label}</strong>
+                                    <p>
+                                      {featureSourceLabels[item.source]} ·{' '}
+                                      {featureStatusLabels[item.status]} · {item.summary}
+                                    </p>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {crossedAsiLevels.length ? (
+                    <div className="character-asi-panel">
+                      <div className="character-asi-heading">
+                        <strong>ASI / Feat 선택</strong>
+                        <span>
+                          미선택 {missingAsiFeatChoiceCount} / {crossedAsiLevels.length}
+                        </span>
+                      </div>
+                      <div className="character-feat-choice-list">
+                        {crossedAsiLevels.map((asiLevel, index) => {
+                          const selectedChoiceId = normalizedLevelUpAsiFeatChoices[index] ?? '';
+                          const selectedAsiAbility = getAbilityFromAsiChoiceId(selectedChoiceId);
+                          const selectedFeat = selectedChoiceId.startsWith('feat.')
+                            ? featOptionById.get(selectedChoiceId)
+                            : null;
+                          return (
+                            <div key={asiLevel} className="character-feat-choice-card">
+                              <label htmlFor={`character-level-up-feat-${asiLevel}`}>
+                                {asiLevel}레벨
+                              </label>
+                              <select
+                                id={`character-level-up-feat-${asiLevel}`}
+                                value={selectedChoiceId}
+                                disabled={busy}
+                                onChange={(event) => {
+                                  const nextChoiceId = event.target.value;
+                                  setLevelUpDraft((current) => {
+                                    const nextChoices = [...current.asiFeatChoices];
+                                    nextChoices[index] = nextChoiceId;
+                                    return {
+                                      ...current,
+                                      asiFeatChoices: nextChoices,
+                                      featSelections:
+                                        getFeatSelectionsFromAsiFeatChoices(nextChoices),
+                                      abilityScoreIncreases:
+                                        buildAbilityScoreIncreasesFromAsiFeatChoices(nextChoices),
+                                    };
+                                  });
+                                }}
+                              >
+                                <option value="">선택 필요</option>
+                                {(Object.keys(abilityDisplayLabels) as AbilityKey[]).map(
+                                  (ability) => (
+                                    <option
+                                      key={ability}
+                                      value={getAsiChoiceId(ability)}
+                                      disabled={
+                                        selectedCharacter.abilities[ability] +
+                                          derivedLevelUpAbilityScoreIncreases[ability] >=
+                                          20 &&
+                                        selectedAsiAbility !== ability
+                                      }
+                                    >
+                                      ASI: {abilityDisplayLabels[ability]} +2
+                                    </option>
+                                  )
+                                )}
+                                {featOptions.map((feat) => (
+                                  <option
+                                    key={feat.id}
+                                    value={feat.id}
+                                    disabled={
+                                      selectedLevelUpFeatIds.includes(feat.id) &&
+                                      selectedChoiceId !== feat.id
+                                    }
+                                  >
+                                    {feat.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <p>
+                                {selectedFeat
+                                  ? selectedFeat.summary
+                                  : selectedAsiAbility
+                                    ? `${abilityDisplayLabels[selectedAsiAbility]} 능력치가 2 상승합니다.`
+                                    : '능력치 하나를 +2 하거나 Feat 하나를 선택하세요.'}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                  {selectedSubclassOptions.length ? (
+                    <div>
+                      <label htmlFor="character-level-up-subclass">서브클래스</label>
+                      <select
+                        id="character-level-up-subclass"
+                        value={levelUpDraft.subclassName}
+                        disabled={busy || Boolean(selectedCharacter.subclassName)}
+                        onChange={(event) =>
+                          setLevelUpDraft((current) => ({
+                            ...current,
+                            subclassName: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">
+                          {isLevelUpSubclassRequired ? '필수 선택' : '필요 시 선택'}
+                        </option>
+                        {selectedSubclassOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                  {!isSelectedCharacterPreparedCaster &&
+                  selectedKnownSlotSpells.length &&
+                  levelUpLevelDelta ? (
+                    <SpellSelectionGrid
+                      title="교체할 주문"
+                      helper="이번 레벨업에서 잊고 다른 주문으로 바꿀 기존 주문을 고릅니다."
+                      options={selectedLevelUpForgottenSlotSpellOptions}
+                      selectedIds={levelUpDraft.forgottenSpells}
+                      maxSelected={levelUpLevelDelta}
+                      disabled={busy}
+                      onChange={setForgottenSpells}
+                    />
+                  ) : null}
+                  {selectedLevelUpLearnableSlotSpellOptions.length && knownSpellLearnAllowance > 0 ? (
+                    <SpellSelectionGrid
+                      title="새 주문 습득"
+                      helper="이번 레벨업으로 새로 배우거나 주문책에 추가할 주문을 고릅니다."
+                      options={selectedLevelUpLearnableSlotSpellOptions}
+                      selectedIds={levelUpDraft.knownSpells}
+                      maxSelected={knownSpellLearnAllowance}
+                      disabled={busy}
+                      onChange={setLevelUpKnownSpells}
+                    />
+                  ) : null}
+                  {selectedCurrentCantrips.length && levelUpLevelDelta ? (
+                    <SpellSelectionGrid
+                      title="교체할 캔트립"
+                      helper="이번 레벨업에서 잊고 다른 캔트립으로 바꿀 기존 캔트립을 고릅니다."
+                      options={selectedLevelUpForgottenCantripOptions}
+                      selectedIds={levelUpDraft.forgottenCantrips}
+                      maxSelected={levelUpLevelDelta}
+                      disabled={busy}
+                      onChange={setForgottenCantrips}
+                    />
+                  ) : null}
+                  {selectedLevelUpLearnableCantripOptions.length && cantripLearnAllowance > 0 ? (
+                    <SpellSelectionGrid
+                      title="새 캔트립"
+                      helper="이번 레벨업으로 새로 배울 캔트립을 고릅니다."
+                      options={selectedLevelUpLearnableCantripOptions}
+                      selectedIds={levelUpDraft.cantrips}
+                      maxSelected={cantripLearnAllowance}
+                      disabled={busy}
+                      onChange={setLevelUpCantrips}
+                    />
+                  ) : null}
+                </div>
+              </section>
+
+              {isSelectedCharacterPreparedCaster && selectedPreparedCandidateSlotSpells.length ? (
+                <section className="fantasy-character-stats-section">
+                  <h3>
+                    준비 주문
+                    {selectedLevelUpPreparedSpellLimit !== null
+                      ? ` ${levelUpDraft.preparedSpells.length}/${selectedLevelUpPreparedSpellLimit}`
+                      : ''}
+                  </h3>
+                  <SpellSelectionGrid
+                    title="준비 주문"
+                    helper="오늘 준비해 바로 사용할 주문을 고릅니다."
+                    options={selectedLevelUpPreparedSpellOptions}
+                    selectedIds={levelUpDraft.preparedSpells}
+                    maxSelected={selectedLevelUpPreparedSpellLimit ?? undefined}
+                    disabled={busy}
+                    showHeader={false}
+                    onChange={setPreparedSpells}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleSavePreparedSpells()}
+                    disabled={busy || levelUpDraft.knownSpells.length > 0}
+                  >
+                    준비 주문 저장
+                  </button>
+                </section>
+              ) : null}
             </div>
           </div>
         </div>

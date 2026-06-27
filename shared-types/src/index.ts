@@ -13,3 +13,4 @@ export * from "./dto/api/users.dto";
 export * from "./dto/ws/session-events.dto";
 export * from "./types/common/ability-scores";
 export * from "./types/domain/models";
+export * from "./utils/inventory-display";

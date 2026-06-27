@@ -134,6 +134,15 @@
   cursor: not-allowed;
 }
 
+.spell-selection-card.is-read-only {
+  cursor: help;
+}
+
+.spell-selection-card.is-read-only:hover,
+.spell-selection-card.is-read-only:focus-visible {
+  border-color: rgba(93, 55, 13, 0.42);
+}
+
 .spell-selection-card-icon {
   display: inline-flex;
   align-items: center;
