@@ -87,6 +87,12 @@ export enum AuthProvider {
   GUEST = "GUEST",
 }
 
+export enum UserRole {
+  USER = "USER",
+  MODERATOR = "MODERATOR",
+  ADMIN = "ADMIN",
+}
+
 export enum GmMode {
   AI = "AI",
   HUMAN = "HUMAN",

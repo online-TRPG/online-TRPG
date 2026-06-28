@@ -48,6 +48,7 @@ const localUser = {
   passwordHash: "$2b$12$O49rl9EK5V8VD.6j4QZWCeRfKKBte.MCGSpgVppMlYkIBz2KYrcDO",
   displayName: "test-user",
   authProvider: "LOCAL",
+  role: "USER",
   deletedAt: null,
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-01T00:00:00.000Z"),

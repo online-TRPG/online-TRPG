@@ -211,6 +211,51 @@
   font-weight: 700;
 }
 
+.scenario-status-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 760px;
+  margin: -6px auto 18px;
+}
+
+.scenario-status-filter-chips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid rgba(125, 87, 45, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 252, 242, 0.84);
+  color: var(--scenario-ink-soft);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.1;
+  box-shadow: none;
+}
+
+.scenario-status-filter-chips button span {
+  min-width: 18px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(74, 45, 14, 0.12);
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+  text-align: center;
+}
+
+.scenario-status-filter-chips button.active {
+  border-color: rgba(74, 45, 14, 0.5);
+  background: #4a2d0e;
+  color: #fff3cf;
+}
+
+.scenario-status-filter-chips button.active span {
+  background: rgba(255, 243, 207, 0.22);
+}
+
 .scenario-library-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -219,10 +264,18 @@
   margin: 0 auto;
 }
 
+.scenario-library-empty {
+  grid-column: 1 / -1;
+  margin: 18px 0;
+  color: var(--scenario-ink-soft);
+  font-weight: 800;
+  text-align: center;
+}
+
 .scenario-library-card {
   position: relative;
-  height: 178px;
-  padding: 28px 22px 24px;
+  height: 206px;
+  padding: 42px 22px 24px;
   border: 0;
   background: transparent;
   background-image: var(--scenario-card-frame-image);
@@ -235,11 +288,114 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 18px;
+  gap: 10px;
   overflow: hidden;
   outline: none;
   box-shadow: none;
   transition: transform 180ms ease, filter 180ms ease;
+}
+
+.scenario-library-card::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  right: 28px;
+  left: 28px;
+  height: 8px;
+  border-radius: 999px;
+  background: #8c673d;
+  opacity: 1;
+  box-shadow: 0 2px 8px rgba(74, 45, 14, 0.16);
+}
+
+.scenario-card-status-badge {
+  position: absolute;
+  top: 31px;
+  right: 28px;
+  max-width: calc(100% - 56px);
+  padding: 3px 8px;
+  border: 1px solid rgba(75, 49, 20, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 250, 237, 0.92);
+  color: var(--scenario-ink);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scenario-card-status-description {
+  display: block;
+  max-width: 88%;
+  color: #70522c;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scenario-library-card-provided::before,
+.scenario-library-card-provided .scenario-card-status-badge {
+  background-color: #c8e6ff;
+  color: #1d5278;
+}
+
+.scenario-library-card-public::before,
+.scenario-library-card-public .scenario-card-status-badge {
+  background-color: #cbeec2;
+  color: #316331;
+}
+
+.scenario-library-card-mine::before,
+.scenario-library-card-mine .scenario-card-status-badge {
+  background-color: #bfece6;
+  color: #255d59;
+}
+
+.scenario-library-card-reported::before,
+.scenario-library-card-reported .scenario-card-status-badge {
+  background-color: #ffbd45;
+  color: #7a4a05;
+}
+
+.scenario-library-card-hidden::before,
+.scenario-library-card-hidden .scenario-card-status-badge,
+.scenario-library-card-inactive::before,
+.scenario-library-card-inactive .scenario-card-status-badge {
+  background-color: #cbc6bd;
+  color: #5e574e;
+}
+
+.scenario-library-card-removed::before,
+.scenario-library-card-removed .scenario-card-status-badge {
+  background-color: #ff7e70;
+  color: #7b2520;
+}
+
+.scenario-library-card-reported {
+  background-color: rgba(255, 236, 190, 0.32);
+}
+
+.scenario-library-card-hidden,
+.scenario-library-card-inactive {
+  background-color: rgba(219, 215, 206, 0.32);
+}
+
+.scenario-library-card-removed {
+  background-color: rgba(255, 205, 199, 0.34);
+}
+
+.scenario-library-card-hidden,
+.scenario-library-card-inactive {
+  filter: saturate(0.7) contrast(0.96);
+}
+
+.scenario-library-card-removed {
+  filter: saturate(0.95) contrast(1.02);
 }
 
 .scenario-library-card:hover {
@@ -268,6 +424,15 @@
 .scenario-library-card.selected {
   transform: translateY(-6px);
   filter: drop-shadow(0 14px 20px rgba(74, 45, 14, 0.26));
+}
+
+.scenario-library-card-hidden.selected,
+.scenario-library-card-inactive.selected {
+  filter: saturate(0.7) contrast(0.96) drop-shadow(0 14px 20px rgba(74, 45, 14, 0.26));
+}
+
+.scenario-library-card-removed.selected {
+  filter: saturate(0.95) contrast(1.02) drop-shadow(0 14px 20px rgba(125, 37, 26, 0.28));
 }
 
 .scenario-library-card strong {
@@ -306,6 +471,15 @@
     filter 0.18s ease;
 }
 
+.scenario-library-card-create::before {
+  display: none;
+}
+
+.scenario-library-card-create .scenario-card-status-badge,
+.scenario-library-card-create .scenario-card-status-description {
+  display: none;
+}
+
 .scenario-library-card-create:hover {
   transform: translateY(-8px) scale(1.03);
   filter: brightness(1.04) drop-shadow(0 14px 22px rgba(76, 46, 14, 0.2));
@@ -338,6 +512,15 @@
 .scenario-library-card-create strong {
   font-size: 16px;
 }
+
+.scenario-operator-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(246, 222, 170, 0.34);
+}
+
 .scenario-detail-empty h3 {
   margin: 0 0 10px;
   color: var(--scenario-ink);

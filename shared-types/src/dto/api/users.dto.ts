@@ -1,6 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
-import { AuthProvider } from "../../constants/enums";
+import { AuthProvider, UserRole } from "../../constants/enums";
 
 export class CreateGuestUserDto {
   @ApiProperty({ example: "Alice" })
@@ -31,6 +31,8 @@ export class RegisterUserDto {
   @MaxLength(10)
   name!: string;
 }
+
+export class ConvertGuestToLocalUserDto extends RegisterUserDto {}
 
 export class LoginUserDto {
   @ApiProperty({ example: "user@example.com" })
@@ -121,6 +123,9 @@ export class UserResponseDto {
 
   @ApiProperty({ enum: AuthProvider })
   authProvider!: AuthProvider;
+
+  @ApiProperty({ enum: UserRole })
+  role!: UserRole;
 
   @ApiProperty()
   displayName!: string;
