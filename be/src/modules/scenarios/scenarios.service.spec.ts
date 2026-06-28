@@ -79,6 +79,17 @@ function createService() {
       create: jest.fn(),
       update: jest.fn(),
     },
+    user: {
+      findUnique: jest.fn(({ where }: { where: { id: string } }) => {
+        if (where.id === "admin-1") {
+          return Promise.resolve({ role: "ADMIN", deletedAt: null });
+        }
+        if (where.id === "operator-1") {
+          return Promise.resolve({ role: "MODERATOR", deletedAt: null });
+        }
+        return Promise.resolve({ role: "USER", deletedAt: null });
+      }),
+    },
     scenarioNode: {
       deleteMany: jest.fn(),
       createMany: jest.fn(),

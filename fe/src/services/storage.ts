@@ -20,7 +20,13 @@ export function loadStoredUser(): StoredUser | null {
       localStorage.removeItem(USER_KEY);
       return null;
     }
-    return parsed as StoredUser;
+    return {
+      id: parsed.id,
+      publicId: parsed.publicId,
+      displayName: parsed.displayName,
+      role: parsed.role === "ADMIN" || parsed.role === "MODERATOR" ? parsed.role : "USER",
+      createdAt: parsed.createdAt,
+    };
   } catch {
     localStorage.removeItem(USER_KEY);
     return null;

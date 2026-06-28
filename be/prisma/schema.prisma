@@ -60,6 +60,12 @@ enum AuthProvider {
   GUEST
 }
 
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+}
+
 enum ProfileVisibility {
   PUBLIC
   PRIVATE
@@ -166,6 +172,7 @@ model User {
   email                String?              @unique
   passwordHash         String?
   authProvider         AuthProvider         @default(GUEST)
+  role                 UserRole             @default(USER)
   deletedAt            DateTime?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @default(now()) @updatedAt

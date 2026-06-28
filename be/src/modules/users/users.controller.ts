@@ -16,6 +16,7 @@ import { Request, Response } from "express";
 import { ApiCreatedResponse, ApiOkResponse, ApiSecurity, ApiTags } from "@nestjs/swagger";
 import {
   AuthTokenResponseDto,
+  ConvertGuestToLocalUserDto,
   CreateGuestUserDto,
   DeleteMeDto,
   EmailCheckResponseDto,
@@ -55,6 +56,20 @@ export class UsersController {
   async register(@Body() dto: RegisterUserDto): Promise<ApiResponse<UserResponseDto>> {
     const user = await this.usersService.register(dto);
     return apiResponse("USER_201", "회원가입이 완료되었습니다.", user);
+  }
+
+  @Post("guest/convert-local")
+  @HttpCode(200)
+  @ApiOkResponse({ type: LoginResponseDto })
+  async convertGuestToLocal(
+    @CurrentUserId() userId: string,
+    @Body() dto: ConvertGuestToLocalUserDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<ApiResponse<LoginResponseDto>> {
+    const result = await this.usersService.convertGuestToLocal(userId, dto);
+    this.setRefreshCookie(response, result.refreshToken, this.resolveRefreshCookieSameSite(request));
+    return apiResponse("USER_200", "게스트 계정을 회원 계정으로 저장했습니다.", result.body);
   }
 
   @Get("email-check")

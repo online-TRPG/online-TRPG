@@ -52,6 +52,7 @@ import {
   SessionStatus,
   SessionVisibility,
   StartingSpellsDto,
+  UserRole,
   UserResponseDto,
 } from "@trpg/shared-types";
 
@@ -141,6 +142,12 @@ const authProviderMap = {
   KAKAO: AuthProvider.KAKAO,
   DISCORD: AuthProvider.DISCORD,
   GUEST: AuthProvider.GUEST,
+} as const;
+
+const userRoleMap = {
+  USER: UserRole.USER,
+  MODERATOR: UserRole.MODERATOR,
+  ADMIN: UserRole.ADMIN,
 } as const;
 
 const scenarioLicenseMap: Record<PrismaScenarioLicense, ScenarioLicense> = {
@@ -346,6 +353,7 @@ function getActiveSessionScenario(session: SessionWithRelations): SessionScenari
 }
 
 export function mapUser(user: User): UserResponseDto {
+  const userWithRole = user as User & { role?: keyof typeof userRoleMap };
   const displayName = user.displayName || user.email || user.id;
   return {
     id: user.id,
@@ -355,6 +363,7 @@ export function mapUser(user: User): UserResponseDto {
     name: displayName,
     nickname: displayName,
     authProvider: authProviderMap[user.authProvider],
+    role: userRoleMap[userWithRole.role ?? "USER"],
     displayName,
     createdAt: toIsoString(user.createdAt),
   };

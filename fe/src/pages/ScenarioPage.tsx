@@ -19,20 +19,14 @@ import searchbarFrameImage from "../components/searchbar_gold_frame.webp";
 import sidePanelImage from "../components/Side_Panel.webp";
 import { Icon } from "../components/Icon";
 import {
-  appealScenarioModeration,
   applyScenarioModerationAction,
   createScenario,
   deleteScenario,
   forkScenario,
   getScenario,
-  getScenarioCollaborationState,
   listScenarios,
-  listScenarioModerationQueue,
   listMyScenarios,
-  createScenarioReview,
-  removeScenarioCollaborator,
   reportScenario,
-  upsertScenarioCollaborator,
   unpublishScenarioRevision,
 } from "../services/api";
 import type { Scenario, StoredUser } from "../types/session";
@@ -40,9 +34,6 @@ import type {
   ApplyScenarioModerationActionDto,
   CreateScenarioDto,
   ScenarioQueryDto,
-  ScenarioCollaborationStateResponseDto,
-  ScenarioModerationQueueItemDto,
-  UpsertScenarioCollaboratorDto,
 } from "@trpg/shared-types";
 import "./CharacterPage.css";
 import "./ScenarioPage.css";
@@ -102,70 +93,75 @@ function formatPublishStatus(scenario: Scenario): string {
   return "draft";
 }
 
-function formatValidationReport(scenario: Scenario): string {
-  const report = scenario.validationReport;
-  if (!report || typeof report !== "object") {
-    return scenario.baseScenarioId ? "검증 기록 없음" : "-";
+function isScenarioModerationOperator(role: string | undefined): boolean {
+  return role === "ADMIN" || role === "MODERATOR";
+}
+
+type ScenarioCardTone = "provided" | "public" | "mine" | "reported" | "hidden" | "inactive" | "removed";
+type ScenarioStatusFilter = "all" | ScenarioCardTone;
+
+function getScenarioCardState(
+  scenario: Scenario,
+  viewer: StoredUser,
+): { label: string; tone: ScenarioCardTone; description: string } {
+  if (scenario.moderationStatus === "removed") {
+    return { label: "삭제 대기", tone: "removed", description: "운영자에 의해 제거 처리된 공개 시나리오" };
   }
-
-  const status = typeof report.status === "string" ? report.status : "unknown";
-  const issueCount =
-    typeof report.issueCount === "number" && Number.isFinite(report.issueCount)
-      ? report.issueCount
-      : null;
-  const checkedAt =
-    typeof report.checkedAt === "string" ? formatScenarioUpdatedAt(report.checkedAt) : null;
-
-  const statusLabel = status === "valid" ? "통과" : status === "invalid" ? "오류" : status;
-  const issueLabel = issueCount === null ? "" : ` · 이슈 ${issueCount}개`;
-  const checkedLabel = checkedAt ? ` · ${checkedAt}` : "";
-  return `${statusLabel}${issueLabel}${checkedLabel}`;
+  if (scenario.moderationStatus === "hidden") {
+    return { label: "숨김", tone: "hidden", description: "신고 또는 운영자 조치로 공개 목록에서 숨겨진 시나리오" };
+  }
+  if (scenario.publishStatus === "unpublished") {
+    return { label: "비활성", tone: "inactive", description: "공개자가 공개 취소한 공개 복사본" };
+  }
+  if (scenario.moderationStatus === "reported") {
+    return { label: "신고됨", tone: "reported", description: "신고가 접수된 공개 시나리오" };
+  }
+  if (scenario.sourceType === "SYSTEM") {
+    return { label: "기본 제공", tone: "provided", description: "시스템에서 기본 제공하는 공개 시나리오" };
+  }
+  if (scenario.publishedByUserId === viewer.id || scenario.createdByUserId === viewer.id) {
+    return { label: "내 공개", tone: "mine", description: "내가 공개한 시나리오" };
+  }
+  return { label: "공개", tone: "public", description: "활성 상태의 공개 시나리오" };
 }
 
-function isScenarioModerationOperator(userId: string): boolean {
-  const normalized = userId.trim().toLowerCase();
-  return (
-    normalized.startsWith("operator-") ||
-    normalized.startsWith("admin-") ||
-    normalized.startsWith("moderator-")
-  );
-}
-
-function getRevisionDiff(scenario: Scenario): {
-  addedNodeIds: string[];
-  removedNodeIds: string[];
-  changedNodeIds: string[];
-  changedSections: Record<string, string[]>;
-} | null {
-  const report = scenario.validationReport;
-  if (!report || typeof report !== "object") return null;
-  const diff = report.revisionDiff;
-  if (!diff || typeof diff !== "object" || Array.isArray(diff)) return null;
-  const candidate = diff as Record<string, unknown>;
+function buildPublicScenarioQuery(
+  searchTerm: string,
+  publicSort: NonNullable<ScenarioQueryDto["sort"]>,
+  publicTag: string,
+  publicMinLevel: string,
+  publicMaxLevel: string,
+): ScenarioQueryDto {
   return {
-    addedNodeIds: Array.isArray(candidate.addedNodeIds)
-      ? candidate.addedNodeIds.filter((value): value is string => typeof value === "string")
-      : [],
-    removedNodeIds: Array.isArray(candidate.removedNodeIds)
-      ? candidate.removedNodeIds.filter((value): value is string => typeof value === "string")
-      : [],
-    changedNodeIds: Array.isArray(candidate.changedNodeIds)
-      ? candidate.changedNodeIds.filter((value): value is string => typeof value === "string")
-      : [],
-    changedSections:
-      candidate.changedSections &&
-      typeof candidate.changedSections === "object" &&
-      !Array.isArray(candidate.changedSections)
-        ? Object.fromEntries(
-            Object.entries(candidate.changedSections).map(([nodeId, sections]) => [
-              nodeId,
-              Array.isArray(sections)
-                ? sections.filter((value): value is string => typeof value === "string")
-                : [],
-            ]),
-          )
-        : {},
+    search: searchTerm.trim() || undefined,
+    sort: publicSort,
+    tag: publicTag.trim() || undefined,
+    minLevel: publicMinLevel ? Number(publicMinLevel) : undefined,
+    maxLevel: publicMaxLevel ? Number(publicMaxLevel) : undefined,
+    limit: 50,
   };
+}
+
+function getScenarioStatusFilterOptions(
+  canModeratePublicScenarios: boolean,
+): Array<{ value: ScenarioStatusFilter; label: string }> {
+  return canModeratePublicScenarios
+    ? [
+        { value: "all", label: "전체" },
+        { value: "provided", label: "기본 제공" },
+        { value: "public", label: "정상 공개" },
+        { value: "mine", label: "내 공개" },
+        { value: "reported", label: "신고됨" },
+        { value: "hidden", label: "숨김" },
+        { value: "inactive", label: "비활성" },
+        { value: "removed", label: "삭제 대기" },
+      ]
+    : [
+        { value: "all", label: "전체" },
+        { value: "provided", label: "기본 제공" },
+        { value: "public", label: "공개" },
+        { value: "mine", label: "내 공개" },
+      ];
 }
 
 // 페이지 컴포넌트 본체입니다. 위에서 상태/이벤트를 만들고 아래 JSX에서 화면을 그립니다.
@@ -190,20 +186,10 @@ export function ScenarioPage({
   const [publicTag, setPublicTag] = useState("");
   const [publicMinLevel, setPublicMinLevel] = useState("");
   const [publicMaxLevel, setPublicMaxLevel] = useState("");
-  const [collaborationState, setCollaborationState] =
-    useState<ScenarioCollaborationStateResponseDto | null>(null);
-  const [collaborationBusy, setCollaborationBusy] = useState(false);
-  const [collaborationError, setCollaborationError] = useState<string | null>(null);
-  const [collaboratorUserId, setCollaboratorUserId] = useState("");
-  const [collaboratorRole, setCollaboratorRole] =
-    useState<UpsertScenarioCollaboratorDto["role"]>("editor");
-  const [reviewStatus, setReviewStatus] = useState<"requested" | "approved" | "rejected" | "changes_requested">("approved");
-  const [reviewComment, setReviewComment] = useState("");
-  const [reviewerUserId, setReviewerUserId] = useState("");
+  const [publicStatusFilter, setPublicStatusFilter] = useState<ScenarioStatusFilter>("all");
   const [moderationFeedback, setModerationFeedback] = useState<string | null>(null);
-  const [moderationQueue, setModerationQueue] = useState<ScenarioModerationQueueItemDto[]>([]);
-  const [moderationQueueBusy, setModerationQueueBusy] = useState(false);
-  const [moderationQueueError, setModerationQueueError] = useState<string | null>(null);
+  const [operatorActionBusy, setOperatorActionBusy] = useState(false);
+  const [operatorActionError, setOperatorActionError] = useState<string | null>(null);
   const [publicFeedback, setPublicFeedback] = useState<string | null>(null);
 
   // 검색어가 바뀌면 짧은 debounce 후 내 시나리오 목록을 다시 불러옵니다.
@@ -246,14 +232,7 @@ export function ScenarioPage({
     setLocalBusy(true);
 
     const timer = window.setTimeout(() => {
-      const query: ScenarioQueryDto = {
-        search: searchTerm.trim() || undefined,
-        sort: publicSort,
-        tag: publicTag.trim() || undefined,
-        minLevel: publicMinLevel ? Number(publicMinLevel) : undefined,
-        maxLevel: publicMaxLevel ? Number(publicMaxLevel) : undefined,
-        limit: 50,
-      };
+      const query = buildPublicScenarioQuery(searchTerm, publicSort, publicTag, publicMinLevel, publicMaxLevel);
       listScenarios(query, user, accessToken)
         .then((next) => {
           if (ignore) return;
@@ -283,70 +262,46 @@ export function ScenarioPage({
   }, [accessToken, activeLibrary, publicMaxLevel, publicMinLevel, publicSort, publicTag, searchTerm, user]);
 
   useEffect(() => {
-    const source = activeLibrary === "public" ? publicScenarios : scenarios;
+    const source =
+      activeLibrary === "public" && publicStatusFilter !== "all"
+        ? publicScenarios.filter((scenario) => getScenarioCardState(scenario, user).tone === publicStatusFilter)
+        : activeLibrary === "public"
+          ? publicScenarios
+          : scenarios;
     setSelectedScenarioId((current) =>
       source.some((scenario) => scenario.id === current) ? current : source[0]?.id ?? null,
     );
-  }, [activeLibrary, publicScenarios, scenarios]);
+  }, [activeLibrary, publicScenarios, publicStatusFilter, scenarios, user]);
 
   // 현재 카드 목록에서 선택된 시나리오입니다. 오른쪽 상세 패널에 표시됩니다.
-  const visibleScenarios = activeLibrary === "public" ? publicScenarios : scenarios;
+  const canModeratePublicScenarios = isScenarioModerationOperator(user.role);
+  const statusFilterOptions = getScenarioStatusFilterOptions(canModeratePublicScenarios);
+  const publicStatusCounts = useMemo(() => {
+    const counts: Record<ScenarioStatusFilter, number> = {
+      all: publicScenarios.length,
+      provided: 0,
+      public: 0,
+      mine: 0,
+      reported: 0,
+      hidden: 0,
+      inactive: 0,
+      removed: 0,
+    };
+    for (const scenario of publicScenarios) {
+      counts[getScenarioCardState(scenario, user).tone] += 1;
+    }
+    return counts;
+  }, [publicScenarios, user]);
+  const visibleScenarios = useMemo(() => {
+    if (activeLibrary !== "public" || publicStatusFilter === "all") {
+      return activeLibrary === "public" ? publicScenarios : scenarios;
+    }
+    return publicScenarios.filter((scenario) => getScenarioCardState(scenario, user).tone === publicStatusFilter);
+  }, [activeLibrary, publicScenarios, publicStatusFilter, scenarios, user]);
   const selectedScenario = useMemo(
     () => visibleScenarios.find((scenario) => scenario.id === selectedScenarioId) ?? null,
     [selectedScenarioId, visibleScenarios],
   );
-  const currentCollaborationRole =
-    collaborationState?.collaborators.find((collaborator) => collaborator.userId === user.id)?.role ??
-    null;
-  const reviewerCollaborators =
-    collaborationState?.collaborators.filter((collaborator) => collaborator.role === "reviewer") ?? [];
-  const revisionDiff = selectedScenario ? getRevisionDiff(selectedScenario) : null;
-
-  useEffect(() => {
-    if (currentCollaborationRole === "reviewer") {
-      setReviewStatus("approved");
-      return;
-    }
-    if (currentCollaborationRole === "owner" || currentCollaborationRole === "editor") {
-      setReviewStatus("requested");
-    }
-  }, [currentCollaborationRole]);
-
-  useEffect(() => {
-    let ignore = false;
-    setCollaborationState(null);
-    setCollaborationError(null);
-    if (activeLibrary !== "my" || !selectedScenario || selectedScenario.baseScenarioId) {
-      return () => {
-        ignore = true;
-      };
-    }
-
-    setCollaborationBusy(true);
-    getScenarioCollaborationState(user, selectedScenario.id, accessToken)
-      .then((next) => {
-        if (!ignore) {
-          setCollaborationState(next);
-        }
-      })
-      .catch((caught) => {
-        if (!ignore) {
-          setCollaborationError(
-            caught instanceof Error ? caught.message : "협업 정보를 불러오지 못했습니다.",
-          );
-        }
-      })
-      .finally(() => {
-        if (!ignore) {
-          setCollaborationBusy(false);
-        }
-      });
-
-    return () => {
-      ignore = true;
-    };
-  }, [accessToken, activeLibrary, selectedScenario, user]);
-
   // 선택한 시나리오 삭제 버튼 동작입니다.
   async function handleDeleteSelected() {
     if (!selectedScenario) return;
@@ -450,7 +405,7 @@ export function ScenarioPage({
       await unpublishScenarioRevision(user, selectedScenario.id, accessToken);
       const next = await listMyScenarios(user, accessToken, searchTerm);
       const nextPublic = await listScenarios(
-        { search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 },
+        buildPublicScenarioQuery(searchTerm, publicSort, publicTag, publicMinLevel, publicMaxLevel),
         user,
         accessToken,
       );
@@ -466,80 +421,6 @@ export function ScenarioPage({
       setLocalError(caught instanceof Error ? caught.message : "시나리오 공개 취소에 실패했습니다.");
     } finally {
       setLocalBusy(false);
-    }
-  }
-
-  async function handleAddCollaborator() {
-    if (!selectedScenario || selectedScenario.baseScenarioId) return;
-    const trimmedUserId = collaboratorUserId.trim();
-    if (!trimmedUserId) {
-      setCollaborationError("추가할 사용자 ID를 입력해 주세요.");
-      return;
-    }
-
-    setCollaborationBusy(true);
-    setCollaborationError(null);
-    try {
-      const next = await upsertScenarioCollaborator(
-        user,
-        selectedScenario.id,
-        {
-          userId: trimmedUserId,
-          role: collaboratorRole,
-        },
-        accessToken,
-      );
-      setCollaborationState(next);
-      setCollaboratorUserId("");
-    } catch (caught) {
-      setCollaborationError(caught instanceof Error ? caught.message : "collaborator 추가에 실패했습니다.");
-    } finally {
-      setCollaborationBusy(false);
-    }
-  }
-
-  async function handleRemoveCollaborator(collaboratorUserId: string) {
-    if (!selectedScenario || selectedScenario.baseScenarioId) return;
-    if (!window.confirm(`${collaboratorUserId} 사용자를 협업 목록에서 제거할까요?`)) return;
-    setCollaborationBusy(true);
-    setCollaborationError(null);
-    try {
-      const next = await removeScenarioCollaborator(
-        user,
-        selectedScenario.id,
-        collaboratorUserId,
-        accessToken,
-      );
-      setCollaborationState(next);
-    } catch (caught) {
-      setCollaborationError(caught instanceof Error ? caught.message : "collaborator 제거에 실패했습니다.");
-    } finally {
-      setCollaborationBusy(false);
-    }
-  }
-
-  async function handleCreateReview() {
-    if (!selectedScenario || selectedScenario.baseScenarioId) return;
-
-    setCollaborationBusy(true);
-    setCollaborationError(null);
-    try {
-      const next = await createScenarioReview(
-        user,
-        selectedScenario.id,
-        {
-          status: reviewStatus,
-          reviewerUserId: reviewStatus === "requested" ? reviewerUserId || null : null,
-          comment: reviewComment.trim() || null,
-        },
-        accessToken,
-      );
-      setCollaborationState(next);
-      setReviewComment("");
-    } catch (caught) {
-      setCollaborationError(caught instanceof Error ? caught.message : "review 기록에 실패했습니다.");
-    } finally {
-      setCollaborationBusy(false);
     }
   }
 
@@ -563,7 +444,7 @@ export function ScenarioPage({
     try {
       await reportScenario(user, selectedScenario.id, { reason, comment: comment.trim() || null }, accessToken);
       const nextPublic = await listScenarios(
-        { search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 },
+        buildPublicScenarioQuery(searchTerm, publicSort, publicTag, publicMinLevel, publicMaxLevel),
         user,
         accessToken,
       );
@@ -579,88 +460,37 @@ export function ScenarioPage({
     }
   }
 
-  async function handleAppealModerationSelected() {
-    if (!selectedScenario || !selectedCanAppealModeration) return;
-    const message = window.prompt("이의 제기 내용을 입력하세요.", "") ?? "";
-    if (!message.trim()) return;
-    setLocalBusy(true);
-    setModerationFeedback(null);
-    try {
-      await appealScenarioModeration(
-        user,
-        selectedScenario.id,
-        { message: message.trim() },
-        accessToken,
-      );
-      setModerationFeedback("moderation 이의 제기가 접수되었습니다.");
-    } catch (caught) {
-      setModerationFeedback(caught instanceof Error ? caught.message : "이의 제기 접수에 실패했습니다.");
-    } finally {
-      setLocalBusy(false);
-    }
-  }
-
-  async function handleLoadModerationQueue() {
-    setModerationQueueBusy(true);
-    setModerationQueueError(null);
-    setModerationFeedback(null);
-    try {
-      const queue = await listScenarioModerationQueue(user, accessToken);
-      setModerationQueue(queue);
-      setModerationFeedback(`운영자 큐 ${queue.length}건을 불러왔습니다.`);
-    } catch (caught) {
-      setModerationQueueError(caught instanceof Error ? caught.message : "운영자 moderation 큐를 불러오지 못했습니다.");
-    } finally {
-      setModerationQueueBusy(false);
-    }
-  }
-
-  async function handleApplyModerationAction(item: ScenarioModerationQueueItemDto) {
-    const actionInput = window.prompt(
-      "처리 액션을 입력하세요: hidden, restored, warning, creator_note_required, escalated, removed",
-      item.moderationStatus === "hidden" ? "restored" : "hidden",
-    );
-    if (
-      actionInput !== "hidden" &&
-      actionInput !== "restored" &&
-      actionInput !== "warning" &&
-      actionInput !== "creator_note_required" &&
-      actionInput !== "escalated" &&
-      actionInput !== "removed"
-    ) {
-      return;
-    }
+  async function handleApplySelectedModerationAction(action: ApplyScenarioModerationActionDto["action"]) {
+    if (!selectedScenario) return;
     const reason = window.prompt("처리 사유를 입력하세요.", "") ?? "";
     if (!reason.trim()) return;
 
-    setModerationQueueBusy(true);
-    setModerationQueueError(null);
+    setOperatorActionBusy(true);
+    setOperatorActionError(null);
     try {
       const result = await applyScenarioModerationAction(
         user,
-        item.scenarioId,
+        selectedScenario.id,
         {
-          action: actionInput as ApplyScenarioModerationActionDto["action"],
+          action,
           reason: reason.trim(),
           targetUserId: null,
         },
         accessToken,
       );
-      const queue = await listScenarioModerationQueue(user, accessToken);
-      setModerationQueue(queue);
       setModerationFeedback(
         `${result.scenarioId} 처리 완료: ${result.action} → ${result.moderationStatus}/${result.processingStatus}`,
       );
       const nextPublic = await listScenarios(
-        { search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 },
+        buildPublicScenarioQuery(searchTerm, publicSort, publicTag, publicMinLevel, publicMaxLevel),
         user,
         accessToken,
       );
       setPublicScenarios(nextPublic);
     } catch (caught) {
-      setModerationQueueError(caught instanceof Error ? caught.message : "moderation 처리에 실패했습니다.");
+      setOperatorActionError(caught instanceof Error ? caught.message : "moderation 처리에 실패했습니다.");
     } finally {
-      setModerationQueueBusy(false);
+      setOperatorActionBusy(false);
     }
   }
 
@@ -682,7 +512,7 @@ export function ScenarioPage({
       );
       const nextMine = await listMyScenarios(user, accessToken, "");
       const nextPublic = await listScenarios(
-        { search: searchTerm.trim() || undefined, sort: publicSort, limit: 50 },
+        buildPublicScenarioQuery(searchTerm, publicSort, publicTag, publicMinLevel, publicMaxLevel),
         user,
         accessToken,
       );
@@ -700,19 +530,11 @@ export function ScenarioPage({
   }
 
   const disabled = busy || localBusy;
-  const selectedIsPublishedRevision =
-    selectedScenario?.sourceType === "CLONED" &&
-    (selectedScenario?.publishStatus === "public" || selectedScenario?.publishStatus === "link");
   const selectedIsRevision = selectedScenario?.sourceType === "CLONED" || Boolean(selectedScenario?.baseScenarioId);
-  const selectedIsPublicEcosystemScenario =
-    selectedScenario?.sourceType === "SYSTEM" ||
-    selectedIsPublishedRevision;
   const selectedCanUnpublish = selectedScenario?.viewerCapabilities?.canUnpublish === true;
   const selectedCanFork = selectedScenario?.viewerCapabilities?.canFork === true;
   const selectedCanReport = selectedScenario?.viewerCapabilities?.canReport === true;
-  const selectedCanAppealModeration = selectedScenario?.viewerCapabilities?.canAppealModeration === true;
   const selectedIsOwnPublishedRevision = selectedCanUnpublish;
-  const canUseModerationQueue = isScenarioModerationOperator(user.id);
 
   return (
     <main
@@ -798,6 +620,39 @@ export function ScenarioPage({
                     </button>
                   </>
                 )}
+                {canModeratePublicScenarios && selectedScenario ? (
+                  <div className="scenario-operator-actions" aria-label="운영자 공개 시나리오 처리">
+                    <button
+                      type="button"
+                      className="scenario-rail-action"
+                      disabled={disabled || operatorActionBusy || selectedScenario.moderationStatus === "hidden"}
+                      onClick={() => void handleApplySelectedModerationAction("hidden")}
+                    >
+                      숨김 처리
+                    </button>
+                    <button
+                      type="button"
+                      className="scenario-rail-action"
+                      disabled={
+                        disabled ||
+                        operatorActionBusy ||
+                        (selectedScenario.moderationStatus === "visible" &&
+                          selectedScenario.publishStatus !== "unpublished")
+                      }
+                      onClick={() => void handleApplySelectedModerationAction("restored")}
+                    >
+                      다시 활성화
+                    </button>
+                    <button
+                      type="button"
+                      className="scenario-rail-action"
+                      disabled={disabled || operatorActionBusy || selectedScenario.moderationStatus === "removed"}
+                      onClick={() => void handleApplySelectedModerationAction("removed")}
+                    >
+                      삭제 대기
+                    </button>
+                  </div>
+                ) : null}
               </>
             )}
           </div>
@@ -839,57 +694,81 @@ export function ScenarioPage({
               />
             </label>
             {activeLibrary === "public" ? (
-              <div className="scenario-public-filters" aria-label="공개 시나리오 필터">
-                <select value={publicSort} onChange={(event) => setPublicSort(event.target.value as typeof publicSort)}>
-                  <option value="recommended">추천순</option>
-                  <option value="latest">최신순</option>
-                  <option value="level">레벨순</option>
-                </select>
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={publicMinLevel}
-                  onChange={(event) => setPublicMinLevel(event.target.value)}
-                  placeholder="최소 레벨"
-                />
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={publicMaxLevel}
-                  onChange={(event) => setPublicMaxLevel(event.target.value)}
-                  placeholder="최대 레벨"
-                />
-                <input
-                  type="text"
-                  value={publicTag}
-                  onChange={(event) => setPublicTag(event.target.value)}
-                  placeholder="태그"
-                />
-              </div>
+              <>
+                <div className="scenario-public-filters" aria-label="공개 시나리오 필터">
+                  <select value={publicSort} onChange={(event) => setPublicSort(event.target.value as typeof publicSort)}>
+                    <option value="recommended">추천순</option>
+                    <option value="latest">최신순</option>
+                    <option value="level">레벨순</option>
+                  </select>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={publicMinLevel}
+                    onChange={(event) => setPublicMinLevel(event.target.value)}
+                    placeholder="최소 레벨"
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={publicMaxLevel}
+                    onChange={(event) => setPublicMaxLevel(event.target.value)}
+                    placeholder="최대 레벨"
+                  />
+                  <input
+                    type="text"
+                    value={publicTag}
+                    onChange={(event) => setPublicTag(event.target.value)}
+                    placeholder="태그"
+                  />
+                </div>
+                <div className="scenario-status-filter-chips" aria-label="공개 시나리오 상태 필터">
+                  {statusFilterOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={publicStatusFilter === option.value ? "active" : ""}
+                      onClick={() => setPublicStatusFilter(option.value)}
+                    >
+                      {option.label}
+                      <span>{publicStatusCounts[option.value]}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
             ) : null}
 
             <div className="scenario-library-grid">
-              {visibleScenarios.map((scenario) => (
-                <button
-                  key={scenario.id}
-                  type="button"
-                  className={`scenario-library-card${scenario.id === selectedScenarioId ? " selected" : ""}`}
-                  onClick={() => setSelectedScenarioId(scenario.id)}
-                >
-                  <strong>{scenario.title}</strong>
-                  <span>{formatPublishStatus(scenario)}</span>
-                  {activeLibrary === "public" ? (
+              {visibleScenarios.length === 0 ? (
+                <p className="scenario-library-empty">조건에 맞는 시나리오가 없습니다.</p>
+              ) : null}
+              {visibleScenarios.map((scenario) => {
+                const cardState = getScenarioCardState(scenario, user);
+                return (
+                  <button
+                    key={scenario.id}
+                    type="button"
+                    className={`scenario-library-card scenario-library-card-${cardState.tone}${scenario.id === selectedScenarioId ? " selected" : ""}`}
+                    onClick={() => setSelectedScenarioId(scenario.id)}
+                    title={cardState.description}
+                  >
+                    <span className="scenario-card-status-badge">{cardState.label}</span>
+                    <strong>{scenario.title}</strong>
+                    <span className="scenario-card-status-description">{cardState.description}</span>
+                    <span>{formatPublishStatus(scenario)}</span>
+                    {activeLibrary === "public" ? (
+                      <span className="scenario-library-updated-at">
+                        fork {scenario.forkCount ?? 0}
+                      </span>
+                    ) : null}
                     <span className="scenario-library-updated-at">
-                      fork {scenario.forkCount ?? 0}
+                      마지막 업데이트 날짜 : {formatScenarioUpdatedAt(scenario.updatedAt)}
                     </span>
-                  ) : null}
-                  <span className="scenario-library-updated-at">
-                    마지막 업데이트 날짜 : {formatScenarioUpdatedAt(scenario.updatedAt)}
-                  </span>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
 
               {activeLibrary === "my" ? (
                 <button
@@ -923,335 +802,46 @@ export function ScenarioPage({
                   <p>{selectedScenario.description || "시나리오 소개가 비어 있습니다."}</p>
                   <dl className="scenario-detail-meta">
                     <div>
-                      <dt>레벨 권장</dt>
-                      <dd>{formatScenarioLevel(selectedScenario)}</dd>
-                    </div>
-                    <div>
-                      <dt>룰셋</dt>
-                      <dd>{selectedScenario.ruleSetId ?? "-"}</dd>
-                    </div>
-                    <div>
-                      <dt>라이선스</dt>
-                      <dd>{selectedScenario.license}</dd>
-                    </div>
-                    <div>
-                      <dt>발행 상태</dt>
-                      <dd>{formatPublishStatus(selectedScenario)}</dd>
-                    </div>
-                    <div>
-                      <dt>공개한 유저</dt>
+                      <dt>레벨 / 예상 시간</dt>
                       <dd>
-                        {(
-                          selectedScenario as Scenario & {
-                            publishedByUserId?: string | null;
-                            publishedByDisplayName?: string | null;
-                            createdByUserId?: string | null;
-                            createdByDisplayName?: string | null;
-                          }
-                        ).publishedByDisplayName ??
-                          (
-                            selectedScenario as Scenario & {
-                              publishedByUserId?: string | null;
-                              publishedByDisplayName?: string | null;
-                              createdByUserId?: string | null;
-                              createdByDisplayName?: string | null;
-                            }
-                          ).createdByDisplayName ??
-                          "알 수 없는 사용자"}
+                        {formatScenarioLevel(selectedScenario)}
+                        {selectedScenario.estimatedMinutes ? ` · ${selectedScenario.estimatedMinutes}분` : ""}
                       </dd>
                     </div>
                     <div>
-                      <dt>fork</dt>
-                      <dd>{`${selectedScenario.forkCount ?? 0}회`}</dd>
-                    </div>
-                    <div>
-                      <dt>fork 허용</dt>
-                      <dd>{selectedScenario.forkAllowed === false ? "불가" : "허용"}</dd>
-                    </div>
-                    <div>
-                      <dt>예상 시간</dt>
-                      <dd>{selectedScenario.estimatedMinutes ? `${selectedScenario.estimatedMinutes}분` : "-"}</dd>
-                    </div>
-                    <div>
-                      <dt>태그</dt>
+                      <dt>장르 / 태그</dt>
                       <dd>{selectedScenario.tags?.length ? selectedScenario.tags.join(", ") : "-"}</dd>
                     </div>
                     <div>
-                      <dt>추천 근거</dt>
-                      <dd>{selectedScenario.recommendationReason ?? "-"}</dd>
-                    </div>
-                    <div>
-                      <dt>moderation</dt>
+                      <dt>작성자 / 공개자</dt>
                       <dd>
-                        {selectedScenario.moderationStatus ?? "-"}
-                        {selectedScenario.moderationProcessingStatus
-                          ? ` / ${selectedScenario.moderationProcessingStatus}`
-                          : ""}
-                        {selectedScenario.creatorNoticeStatus && selectedScenario.creatorNoticeStatus !== "none"
-                          ? ` · ${selectedScenario.creatorNoticeStatus}`
-                          : ""}
+                        {(selectedScenario.createdByDisplayName ?? "알 수 없는 사용자")}
+                        {" / "}
+                        {(selectedScenario.publishedByDisplayName ?? "-")}
                       </dd>
                     </div>
                     <div>
-                      <dt>발행일</dt>
-                      <dd>{selectedScenario.publishedAt ? formatScenarioUpdatedAt(selectedScenario.publishedAt) : "-"}</dd>
-                    </div>
-                    <div>
-                      <dt>변경 내역</dt>
-                      <dd>{selectedScenario.changelog ?? "-"}</dd>
-                    </div>
-                    <div>
-                      <dt>검증 리포트</dt>
-                      <dd>{formatValidationReport(selectedScenario)}</dd>
-                    </div>
-                    <div>
-                      <dt>revision diff</dt>
-                      <dd>
-                        {revisionDiff
-                          ? `추가 ${revisionDiff.addedNodeIds.length} · 삭제 ${revisionDiff.removedNodeIds.length} · 변경 ${revisionDiff.changedNodeIds.length}`
-                          : "-"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>출처</dt>
-                      <dd>{selectedScenario.attribution ?? "-"}</dd>
+                      <dt>공개 상태</dt>
+                      <dd>{formatPublishStatus(selectedScenario)}</dd>
                     </div>
                   </dl>
-                  {revisionDiff ? (
-                    <section className="scenario-revision-diff">
-                      <strong>변경된 section</strong>
-                      {revisionDiff.addedNodeIds.length ? (
-                        <span>추가: {revisionDiff.addedNodeIds.join(", ")}</span>
-                      ) : null}
-                      {revisionDiff.removedNodeIds.length ? (
-                        <span>삭제: {revisionDiff.removedNodeIds.join(", ")}</span>
-                      ) : null}
-                      {Object.entries(revisionDiff.changedSections).map(([nodeId, sections]) => (
-                        <span key={nodeId}>{nodeId}: {sections.join(", ")}</span>
-                      ))}
-                    </section>
-                  ) : null}
-                  {moderationFeedback ? <p>{moderationFeedback}</p> : null}
-                  {publicFeedback ? <p>{publicFeedback}</p> : null}
-                  {selectedIsPublicEcosystemScenario ? (
-                    <section className="scenario-collaboration-panel">
-                      <div className="scenario-collaboration-heading">
-                        <span className="eyebrow">P5 public ecosystem</span>
-                        <h3>공개 revision 액션</h3>
-                      </div>
-                      <p>
-                        내가 공개한 시나리오는 공개 취소할 수 있고, 다른 공개 시나리오는 fork하거나 신고할 수 있습니다.
-                      </p>
-                      <div className="scenario-public-actions">
-                        {selectedIsOwnPublishedRevision ? (
-                          <button
-                            type="button"
-                            className="small"
-                            disabled={!selectedCanUnpublish || disabled}
-                            onClick={() => void handleUnpublishSelected()}
-                          >
-                            공개 취소
-                          </button>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              className="small"
-                              disabled={disabled || !selectedCanFork}
-                              onClick={() => void handleForkSelected()}
-                            >
-                              Fork해서 가져오기
-                            </button>
-                            <button type="button" className="small" disabled={disabled || !selectedCanReport} onClick={() => void handleReportSelected()}>
-                              신고
-                            </button>
-                          </>
-                        )}
-                        {selectedScenario.moderationStatus && selectedScenario.moderationStatus !== "visible" ? (
-                          <button type="button" className="small" disabled={disabled || !selectedCanAppealModeration} onClick={() => void handleAppealModerationSelected()}>
-                            이의 제기
-                          </button>
-                        ) : null}
-                      </div>
-                    </section>
-                  ) : null}
-                  {canUseModerationQueue ? (
-                    <section className="scenario-collaboration-panel">
-                      <div className="scenario-collaboration-heading">
-                        <span className="eyebrow">P6 operator moderation</span>
-                        <h3>신고·이의 제기 운영자 큐</h3>
-                      </div>
-                      <p>
-                        신고된 공개 시나리오를 큐에서 확인하고 hidden/restored/warning/creator_note_required/escalated/removed
-                        조치를 남깁니다.
-                      </p>
-                      <div className="scenario-public-actions">
-                        <button
-                          type="button"
-                          className="small"
-                          disabled={disabled || moderationQueueBusy}
-                          onClick={() => void handleLoadModerationQueue()}
-                        >
-                          {moderationQueueBusy ? "불러오는 중" : "운영자 큐 새로고침"}
-                        </button>
-                      </div>
-                      {moderationQueueError ? <p className="scenario-collaboration-error">{moderationQueueError}</p> : null}
-                      {moderationQueue.length ? (
-                        <div className="scenario-collaboration-list">
-                          {moderationQueue.slice(0, 8).map((item) => (
-                            <span className="scenario-collaborator-row" key={item.scenarioId}>
-                              <span>
-                                {item.title} · {item.moderationStatus}/{item.processingStatus} · {item.creatorNoticeStatus} · 신고 {item.reportCount} · 이의 {item.appealCount} · 조치 {item.actionCount}
-                              </span>
-                              <button
-                                type="button"
-                                className="small"
-                                disabled={disabled || moderationQueueBusy}
-                                onClick={() => void handleApplyModerationAction(item)}
-                              >
-                                처리
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <p>불러온 moderation 항목이 없습니다.</p>
-                      )}
-                    </section>
-                  ) : null}
-                  {!selectedIsRevision && activeLibrary === "my" ? (
-                    <section className="scenario-collaboration-panel">
-                      <div className="scenario-collaboration-heading">
-                        <span className="eyebrow">P4 collaboration</span>
-                        <h3>협업·리뷰 상태</h3>
-                      </div>
-                      {collaborationBusy ? <p>협업 정보를 확인하는 중입니다...</p> : null}
-                      {collaborationError ? <p className="scenario-collaboration-error">{collaborationError}</p> : null}
-                      {collaborationState ? (
-                        <>
-                          <div className="scenario-collaboration-list">
-                            <strong>권한</strong>
-                            {collaborationState.collaborators.map((collaborator) => (
-                              <span className="scenario-collaborator-row" key={`${collaborator.userId}:${collaborator.role}`}>
-                                <span>{collaborator.userId} · {collaborator.role}</span>
-                                {currentCollaborationRole === "owner" && collaborator.role !== "owner" ? (
-                                  <button
-                                    type="button"
-                                    className="small"
-                                    disabled={disabled || collaborationBusy}
-                                    onClick={() => void handleRemoveCollaborator(collaborator.userId)}
-                                  >
-                                    제거
-                                  </button>
-                                ) : null}
-                              </span>
-                            ))}
-                          </div>
-                          <div className="scenario-collaboration-list">
-                            <strong>리뷰</strong>
-                            {collaborationState.reviews.length ? (
-                              collaborationState.reviews.map((review) => (
-                                <span key={review.reviewId}>
-                                  {review.status} · {review.reviewerUserId}
-                                  {review.comment ? ` · ${review.comment}` : ""}
-                                </span>
-                              ))
-                            ) : (
-                              <span>아직 리뷰 기록이 없습니다.</span>
-                            )}
-                          </div>
-                        </>
-                      ) : null}
-                      <div className="scenario-collaboration-form">
-                        <input
-                          type="text"
-                          value={collaboratorUserId}
-                          onChange={(event) => setCollaboratorUserId(event.target.value)}
-                          placeholder="사용자 ID"
-                          disabled={disabled || collaborationBusy || currentCollaborationRole !== "owner"}
-                        />
-                        <select
-                          value={collaboratorRole}
-                          onChange={(event) =>
-                            setCollaboratorRole(event.target.value as UpsertScenarioCollaboratorDto["role"])
-                          }
-                          disabled={disabled || collaborationBusy || currentCollaborationRole !== "owner"}
-                        >
-                          <option value="editor">editor</option>
-                          <option value="reviewer">reviewer</option>
-                          <option value="viewer">viewer</option>
-                        </select>
-                        <button type="button" className="small" onClick={() => void handleAddCollaborator()} disabled={disabled || collaborationBusy || currentCollaborationRole !== "owner"}>
-                          추가
-                        </button>
-                      </div>
-                      <div className="scenario-collaboration-form scenario-collaboration-form-review">
-                        <select
-                          value={reviewStatus}
-                          onChange={(event) => setReviewStatus(event.target.value as typeof reviewStatus)}
-                          disabled={disabled || collaborationBusy}
-                        >
-                          {currentCollaborationRole === "owner" || currentCollaborationRole === "editor" ? (
-                            <option value="requested">review 요청</option>
-                          ) : null}
-                          {currentCollaborationRole === "reviewer" ? (
-                            <>
-                              <option value="approved">승인</option>
-                              <option value="rejected">반려</option>
-                              <option value="changes_requested">수정 요청</option>
-                            </>
-                          ) : null}
-                        </select>
-                        {reviewStatus === "requested" ? (
-                          <select
-                            value={reviewerUserId}
-                            onChange={(event) => setReviewerUserId(event.target.value)}
-                            disabled={disabled || collaborationBusy}
-                          >
-                            <option value="">reviewer 선택</option>
-                            {reviewerCollaborators.map((collaborator) => (
-                              <option value={collaborator.userId} key={collaborator.userId}>
-                                {collaborator.userId}
-                              </option>
-                            ))}
-                          </select>
-                        ) : null}
-                        <input
-                          type="text"
-                          value={reviewComment}
-                          onChange={(event) => setReviewComment(event.target.value)}
-                          placeholder="리뷰 코멘트"
-                          disabled={disabled || collaborationBusy}
-                        />
-                        <button
-                          type="button"
-                          className="small"
-                          onClick={() => void handleCreateReview()}
-                          disabled={
-                            disabled ||
-                            collaborationBusy ||
-                            !currentCollaborationRole ||
-                            currentCollaborationRole === "viewer" ||
-                            (reviewStatus === "requested" && !reviewerUserId)
-                          }
-                        >
-                          리뷰 기록
-                        </button>
-                      </div>
-                    </section>
-                  ) : null}
                 </>
               ) : (
-                <article className="scenario-detail-empty">
-                  <h3>선택된 시나리오가 없습니다.</h3>
-                  <p>중앙 보드에서 시나리오 카드를 선택하거나 새 시나리오를 생성해 주세요.</p>
-                </article>
+                <>
+                  <article className="scenario-detail-empty">
+                    <h3>선택된 시나리오가 없습니다.</h3>
+                    <p>중앙 보드에서 시나리오 카드를 선택하거나 새 시나리오를 생성해 주세요.</p>
+                  </article>
+                </>
               )}
             </div>
           </section>
         </aside>
       </section>
 
+      {moderationFeedback ? <p className="scenario-collaboration-error">{moderationFeedback}</p> : null}
+      {operatorActionError ? <p className="scenario-collaboration-error">{operatorActionError}</p> : null}
+      {publicFeedback ? <p className="scenario-library-updated-at">{publicFeedback}</p> : null}
       {localError || error ? <p className="panel-error">{localError ?? error}</p> : null}
     </main>
   );
