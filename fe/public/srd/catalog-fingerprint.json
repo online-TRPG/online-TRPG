@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "srd-catalog-fingerprint-v1",
+  "sha256": "fcc890ed3d0720c0cc08e55c262ce2b8818696acedf5ca6d14f155a7b9fd4182",
+  "files": [
+    {
+      "scope": "srd",
+      "path": "classes.jsonl",
+      "sha256": "773b7d7ea374df543eb6c998992d96529430f339514f27ba7e78d30d54282b6e"
+    },
+    {
+      "scope": "srd",
+      "path": "races.jsonl",
+      "sha256": "5b4c7f205c99ca5078a42176facbe41395a677f7372834b967c77e01c017f3e7"
+    },
+    {
+      "scope": "srd",
+      "path": "spells.jsonl",
+      "sha256": "1e732bad51a89a88b0f23ed926293cef4a8466a1184cf245ebeaaacd4f8a00ff"
+    },
+    {
+      "scope": "srd",
+      "path": "monsters.jsonl",
+      "sha256": "17f34a1c96ee1f02746c1226e58eb83cd280e94fe625f8cd30cbdde344865917"
+    },
+    {
+      "scope": "srd",
+      "path": "equipment_items.jsonl",
+      "sha256": "79babac8e6ab15bf5928849520fad8019ac0b6cf5c797bfa31ae070c4ddfe1e5"
+    },
+    {
+      "scope": "srd",
+      "path": "magic_items.jsonl",
+      "sha256": "e87326ab7872afb64e6c8293d30cef7f2413084b40ff84d8550e2dd0a5617f6f"
+    },
+    {
+      "scope": "srd",
+      "path": "class-features.json",
+      "sha256": "7233c4adf8c7bf53bb4d913f32d90a82e2adf053fa33475b217931b02b24facf"
+    },
+    {
+      "scope": "srd",
+      "path": "spell-class-lists.json",
+      "sha256": "340084a2c0179b18fc54235687f26288808e28a2fd3ce947fb9e186cde353a31"
+    },
+    {
+      "scope": "srd",
+      "path": "fe-spell-pools.json",
+      "sha256": "94113dbd559e6a5bfa02de67083388b2e726ab33837df3f72202a84e859e22b9"
+    },
+    {
+      "scope": "srd",
+      "path": "fe-usable-items.json",
+      "sha256": "10682df99baa87c9dd9af49054dce665e53539d390bb9988b2f9b1ce78d35572"
+    },
+    {
+      "scope": "srd",
+      "path": "item-labels.json",
+      "sha256": "685b6dfd77dba745d9dd1f2af93df551d82a1ed5d652f10cbb9c60412cb0baee"
+    },
+    {
+      "scope": "srd",
+      "path": "source_manifest.json",
+      "sha256": "2d8c1e94dce4a35065904b050822dcf277aa7145391311145a641f477cfbb5ad"
+    },
+    {
+      "scope": "srd-engine",
+      "path": "classes.jsonl",
+      "sha256": "d64845fc11d14344cb19e638276d8d8639e7bb2e68f33254f5850742ba4e4cc5"
+    },
+    {
+      "scope": "srd-engine",
+      "path": "spells.jsonl",
+      "sha256": "63a0f803a32f0932bf338e40d786facdd64a249e638ca4d0d555f079db0088a7"
+    },
+    {
+      "scope": "srd-engine",
+      "path": "equipment.jsonl",
+      "sha256": "df40aba611e1d0abee910f953bdf37198dcbf7faf878c134902a9a4c52689332"
+    },
+    {
+      "scope": "srd-engine",
+      "path": "monsters.jsonl",
+      "sha256": "41cdc8dc2884cb4887319277780a64f610e32b82df89e756b2208c57382b8889"
+    },
+    {
+      "scope": "srd-engine",
+      "path": "spellcasting_rules.json",
+      "sha256": "81a9a715326a74ad71a6d209c0c1285485f226eed04f562ce4acb80c46720469"
+    },
+    {
+      "scope": "srd-engine",
+      "path": "manifest.json",
+      "sha256": "335f8e5a00a7ae3a0fe8878d9053f48bd0c2e118fe5995321303101e61f56e66"
+    }
+  ]
+}

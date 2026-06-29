@@ -25,6 +25,7 @@ import {
   localizeSrdTermText,
   loadClassOptions,
   loadClassFeatureManifest,
+  loadFeSpellPools,
   loadRaceData,
   loadSpellCatalog,
   normalizeClassValue,
@@ -34,6 +35,7 @@ import {
   type ClassOptionValue,
   type RaceAbilityBonus,
   type RaceData,
+  type StaticFeSpellPools,
   type StaticSpellCatalogEntry,
 } from '../services/staticSrd';
 import { getPreferredScenario, splitScenariosBySource } from '../data/sessionVisuals';
@@ -250,121 +252,6 @@ type ImplementedSpellOption = { id: string; label: string; level?: number | null
 
 const defaultAncestry = 'Human';
 
-const implementedCantrips = [
-  { id: 'spell.chill_touch', label: 'Chill Touch / 냉기의 손길' },
-  { id: 'spell.fire_bolt', label: 'Fire Bolt / 화염 화살' },
-  { id: 'spell.light', label: 'Light / 빛' },
-  { id: 'spell.ray_of_frost', label: 'Ray of Frost / 서리 광선' },
-  { id: 'spell.sacred_flame', label: 'Sacred Flame / 신성한 불꽃' },
-  { id: 'spell.acid_splash', label: 'Acid Splash / 산성 물보라' },
-  { id: 'spell.guidance', label: 'Guidance / 인도' },
-  { id: 'spell.mage_hand', label: 'Mage Hand / 마법사의 손' },
-  { id: 'spell.minor_illusion', label: 'Minor Illusion / 하급 환영' },
-  { id: 'spell.shocking_grasp', label: 'Shocking Grasp / 전격의 손길' },
-  { id: 'spell.blade_ward', label: 'Blade Ward / 칼날 방호' },
-  { id: 'spell.dancing_lights', label: 'Dancing Lights / 춤추는 빛' },
-  { id: 'spell.eldritch_blast', label: 'Eldritch Blast / 섬뜩한 방출' },
-  { id: 'spell.friends', label: 'Friends / 친구' },
-  { id: 'spell.mending', label: 'Mending / 수선' },
-  { id: 'spell.message', label: 'Message / 전언' },
-  { id: 'spell.poison_spray', label: 'Poison Spray / 독 분사' },
-  { id: 'spell.produce_flame', label: 'Produce Flame / 불꽃 생성' },
-  { id: 'spell.resistance', label: 'Resistance / 저항' },
-  { id: 'spell.spare_the_dying', label: 'Spare the Dying / 빈사 안정화' },
-];
-
-const implementedLevel1Spells = [
-  { id: 'spell.bane', label: 'Bane / 파멸' },
-  { id: 'spell.bless', label: 'Bless / 축복' },
-  { id: 'spell.burning_hands', label: 'Burning Hands / 타오르는 손길' },
-  { id: 'spell.command', label: 'Command / 명령' },
-  { id: 'spell.cure_wounds', label: 'Cure Wounds / 상처 치료' },
-  { id: 'spell.detect_magic', label: 'Detect Magic / 마법 탐지' },
-  { id: 'spell.entangle', label: 'Entangle / 휘감기' },
-  { id: 'spell.guiding_bolt', label: 'Guiding Bolt / 인도하는 화살' },
-  { id: 'spell.healing_word', label: 'Healing Word / 치유의 언어' },
-  { id: 'spell.inflict_wounds', label: 'Inflict Wounds / 상처 가하기' },
-  { id: 'spell.magic_missile', label: 'Magic Missile / 마법 화살' },
-  { id: 'spell.shield', label: 'Shield / 방패' },
-  { id: 'spell.sleep', label: 'Sleep / 수면' },
-  { id: 'spell.thunderwave', label: 'Thunderwave / 천둥파' },
-  { id: 'spell.charm_person', label: 'Charm Person / 인간형 매혹' },
-  { id: 'spell.faerie_fire', label: 'Faerie Fire / 요정의 불꽃' },
-  { id: 'spell.feather_fall', label: 'Feather Fall / 깃털 낙하' },
-  { id: 'spell.fog_cloud', label: 'Fog Cloud / 안개 구름' },
-  { id: 'spell.grease', label: 'Grease / 기름칠' },
-  { id: 'spell.heroism', label: 'Heroism / 영웅심' },
-  { id: 'spell.hunters_mark', label: "Hunter's Mark / 사냥꾼의 표식" },
-  { id: 'spell.longstrider', label: 'Longstrider / 활보' },
-  { id: 'spell.alarm', label: 'Alarm / 경보' },
-  { id: 'spell.animal_friendship', label: 'Animal Friendship / 동물 친화' },
-  { id: 'spell.armor_of_agathys', label: 'Armor of Agathys / 아가티스의 갑옷' },
-  { id: 'spell.color_spray', label: 'Color Spray / 색채 분사' },
-  { id: 'spell.comprehend_languages', label: 'Comprehend Languages / 언어 이해' },
-  { id: 'spell.create_or_destroy_water', label: 'Create or Destroy Water / 물 생성·파괴' },
-  { id: 'spell.expeditious_retreat', label: 'Expeditious Retreat / 신속 후퇴' },
-  { id: 'spell.false_life', label: 'False Life / 거짓 생명' },
-  { id: 'spell.find_familiar', label: 'Find Familiar / 사역마 찾기' },
-  { id: 'spell.goodberry', label: 'Goodberry / 굿베리' },
-  { id: 'spell.jump', label: 'Jump / 도약' },
-  { id: 'spell.mage_armor', label: 'Mage Armor / 마법 갑옷' },
-];
-
-const implementedLevel2Spells = [
-  { id: 'spell.hold_person', label: 'Hold Person / 인간형 포박' },
-  { id: 'spell.misty_step', label: 'Misty Step / 안개 걸음' },
-  { id: 'spell.scorching_ray', label: 'Scorching Ray / 작열 광선' },
-  { id: 'spell.web', label: 'Web / 거미줄' },
-  { id: 'spell.aid', label: 'Aid / 원조' },
-  { id: 'spell.blindness_deafness', label: 'Blindness/Deafness / 실명·청각상실' },
-  { id: 'spell.darkness', label: 'Darkness / 어둠' },
-  { id: 'spell.invisibility', label: 'Invisibility / 투명화' },
-  { id: 'spell.lesser_restoration', label: 'Lesser Restoration / 하급 회복' },
-  { id: 'spell.moonbeam', label: 'Moonbeam / 달빛 광선' },
-  { id: 'spell.spiritual_weapon', label: 'Spiritual Weapon / 영체 무기' },
-  { id: 'spell.alter_self', label: 'Alter Self / 자기 변형' },
-  { id: 'spell.blur', label: 'Blur / 흐릿함' },
-  { id: 'spell.darkvision', label: 'Darkvision / 암시야' },
-  { id: 'spell.enhance_ability', label: 'Enhance Ability / 능력 강화' },
-  { id: 'spell.enlarge_reduce', label: 'Enlarge/Reduce / 확대·축소' },
-  { id: 'spell.flaming_sphere', label: 'Flaming Sphere / 화염 구체' },
-  { id: 'spell.gust_of_wind', label: 'Gust of Wind / 돌풍' },
-  { id: 'spell.heat_metal', label: 'Heat Metal / 금속 가열' },
-  { id: 'spell.levitate', label: 'Levitate / 공중 부양' },
-  { id: 'spell.locate_object', label: 'Locate Object / 물체 탐지' },
-  { id: 'spell.mirror_image', label: 'Mirror Image / 거울상' },
-  { id: 'spell.spider_climb', label: 'Spider Climb / 거미 등반' },
-];
-
-const implementedLevel3Spells = [
-  { id: 'spell.dispel_magic', label: 'Dispel Magic / 마법 해제' },
-  { id: 'spell.fireball', label: 'Fireball / 화염구' },
-  { id: 'spell.counterspell', label: 'Counterspell / 주문 무효화' },
-  { id: 'spell.fly', label: 'Fly / 비행' },
-  { id: 'spell.haste', label: 'Haste / 가속' },
-  { id: 'spell.lightning_bolt', label: 'Lightning Bolt / 번개 화살' },
-  { id: 'spell.revivify', label: 'Revivify / 소생' },
-  { id: 'spell.call_lightning', label: 'Call Lightning / 번개 소환' },
-  { id: 'spell.fear', label: 'Fear / 공포' },
-  { id: 'spell.gaseous_form', label: 'Gaseous Form / 기체 형태' },
-  { id: 'spell.plant_growth', label: 'Plant Growth / 식물 성장' },
-  { id: 'spell.protection_from_energy', label: 'Protection from Energy / 에너지 보호' },
-  { id: 'spell.sleet_storm', label: 'Sleet Storm / 진눈깨비 폭풍' },
-  { id: 'spell.slow', label: 'Slow / 둔화' },
-  { id: 'spell.water_walk', label: 'Water Walk / 수면 보행' },
-];
-
-const implementedLevel4Spells = [
-  { id: 'spell.blight', label: 'Blight / 황폐화' },
-  { id: 'spell.death_ward', label: 'Death Ward / 죽음 방호' },
-  { id: 'spell.dimension_door', label: 'Dimension Door / 차원문' },
-  { id: 'spell.freedom_of_movement', label: 'Freedom of Movement / 이동의 자유' },
-  { id: 'spell.ice_storm', label: 'Ice Storm / 얼음 폭풍' },
-  { id: 'spell.locate_creature', label: 'Locate Creature / 생물 탐지' },
-  { id: 'spell.phantasmal_killer', label: 'Phantasmal Killer / 환영 살인자' },
-  { id: 'spell.wall_of_fire', label: 'Wall of Fire / 화염 장벽' },
-];
-
 const implementedSpellClasses = new Set([
   'bard',
   'cleric',
@@ -411,7 +298,8 @@ function getImplementedSpellOptions(
   kind: 'cantrip' | 'slot',
   level = 1,
   ruleCatalog: RuleCatalogReferenceDto[] = [],
-  spellCatalogById?: Map<string, StaticSpellCatalogEntry>
+  spellCatalogById?: Map<string, StaticSpellCatalogEntry>,
+  spellPools?: StaticFeSpellPools | null
 ): ImplementedSpellOption[] {
   const classKey = normalizeClassValue(className ?? '').toLowerCase();
   if (!implementedSpellClasses.has(classKey)) return [];
@@ -422,17 +310,38 @@ function getImplementedSpellOptions(
       ? kind === 'cantrip'
         ? []
         : catalogOptions
-      : catalogOptions;
+    : catalogOptions;
   }
   if (kind === 'cantrip') {
-    return classKey === 'paladin' || classKey === 'ranger' ? [] : implementedCantrips;
+    return classKey === 'paladin' || classKey === 'ranger'
+      ? []
+      : toFallbackSpellOptions(spellPools?.characterBuilder.cantrips ?? [], spellCatalogById, 0);
   }
+  const slotSpellsByLevel = spellPools?.characterBuilder.slotSpellsByLevel ?? {};
   return [
-    ...implementedLevel1Spells,
-    ...(maxSpellLevel >= 2 ? implementedLevel2Spells : []),
-    ...(maxSpellLevel >= 3 ? implementedLevel3Spells : []),
-    ...(maxSpellLevel >= 4 ? implementedLevel4Spells : []),
+    ...toFallbackSpellOptions(slotSpellsByLevel['1'] ?? [], spellCatalogById, 1),
+    ...(maxSpellLevel >= 2 ? toFallbackSpellOptions(slotSpellsByLevel['2'] ?? [], spellCatalogById, 2) : []),
+    ...(maxSpellLevel >= 3 ? toFallbackSpellOptions(slotSpellsByLevel['3'] ?? [], spellCatalogById, 3) : []),
+    ...(maxSpellLevel >= 4 ? toFallbackSpellOptions(slotSpellsByLevel['4'] ?? [], spellCatalogById, 4) : []),
   ];
+}
+
+function toFallbackSpellOptions(
+  spellIds: string[],
+  spellCatalogById: Map<string, StaticSpellCatalogEntry> | undefined,
+  fallbackLevel: number
+): ImplementedSpellOption[] {
+  return spellIds.map((spellId) => {
+    const catalogEntry = spellCatalogById?.get(spellId);
+    return {
+      id: spellId,
+      label: getSpellDisplayLabel({
+        spellId,
+        catalogEntry,
+      }),
+      level: catalogEntry?.level ?? fallbackLevel,
+    };
+  });
 }
 
 function getMaximumImplementedSpellLevel(classKey: string, level: number) {
@@ -518,17 +427,9 @@ function getImplementedSpellLabel(
   spellCatalogById?: Map<string, StaticSpellCatalogEntry>
 ) {
   const catalogEntry = ruleCatalog.find((entry) => entry.id === spellId);
-  const implementedLabel =
-    [
-      ...implementedCantrips,
-      ...implementedLevel1Spells,
-      ...implementedLevel2Spells,
-      ...implementedLevel3Spells,
-      ...implementedLevel4Spells,
-    ].find((spell) => spell.id === spellId)?.label ?? null;
   return getSpellDisplayLabel({
     spellId,
-    label: catalogEntry?.label ?? implementedLabel,
+    label: catalogEntry?.label,
     catalogEntry: spellCatalogById?.get(spellId),
   });
 }
@@ -545,14 +446,15 @@ function usesDynamicPreparedSpellPool(
   className: string | null | undefined,
   level: number,
   klass: ClassDefinitionResponseDto | null | undefined,
-  ruleCatalog: RuleCatalogReferenceDto[] = []
+  ruleCatalog: RuleCatalogReferenceDto[] = [],
+  spellPools?: StaticFeSpellPools | null
 ) {
   const classKey = normalizeClassValue(className ?? '').toLowerCase();
   return (
     Boolean(getPreparedSpellAbilityKey(className)) &&
     classKey !== 'wizard' &&
     Boolean(getSpellcastingProgressionEntry(klass, level)) &&
-    getImplementedSpellOptions(className, 'slot', level, ruleCatalog).length > 0
+    getImplementedSpellOptions(className, 'slot', level, ruleCatalog, undefined, spellPools).length > 0
   );
 }
 
@@ -588,20 +490,21 @@ function getMvpStartingSlotSpellCount(
   klass: ClassDefinitionResponseDto | null | undefined,
   className: string | null | undefined,
   level: number,
-  ruleCatalog: RuleCatalogReferenceDto[] = []
+  ruleCatalog: RuleCatalogReferenceDto[] = [],
+  spellPools?: StaticFeSpellPools | null
 ) {
   if (!klass) return 0;
   const classKey = normalizeClassValue(className ?? '').toLowerCase();
   const progression = getSpellcastingProgressionEntry(klass, level);
   if (
-    usesDynamicPreparedSpellPool(className, level, klass, ruleCatalog)
+    usesDynamicPreparedSpellPool(className, level, klass, ruleCatalog, spellPools)
   ) {
     return 0;
   }
   if (typeof progression?.spellsKnown === 'number') {
     return Math.min(
       progression.spellsKnown,
-      getImplementedSpellOptions(className, 'slot', level, ruleCatalog).length
+      getImplementedSpellOptions(className, 'slot', level, ruleCatalog, undefined, spellPools).length
     );
   }
   const seededCount =
@@ -610,7 +513,7 @@ function getMvpStartingSlotSpellCount(
       : klass.startingSpellCount;
   return Math.min(
     seededCount,
-    getImplementedSpellOptions(className, 'slot', level, ruleCatalog).length
+    getImplementedSpellOptions(className, 'slot', level, ruleCatalog, undefined, spellPools).length
   );
 }
 
@@ -1388,7 +1291,10 @@ function normalizeFeatureLookupLabel(label: string) {
 }
 
 function normalizeFeatureAliasKey(label: string) {
-  return normalizeFeatureLookupLabel(label).replace(/\s+/g, '_');
+  return normalizeFeatureLookupLabel(label)
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣]+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
 function isAbilityScoreImprovementLabel(label: string) {
@@ -2263,6 +2169,7 @@ export function CharacterPage({
   const [itemCatalog, setItemCatalog] = useState<ItemResponseDto[]>([]);
   const [ruleCatalog, setRuleCatalog] = useState<RuleCatalogReferenceDto[]>([]);
   const [spellCatalog, setSpellCatalog] = useState<StaticSpellCatalogEntry[]>([]);
+  const [spellPools, setSpellPools] = useState<StaticFeSpellPools | null>(null);
   const [levelUpDraft, setLevelUpDraft] = useState<{
     targetLevel: number;
     subclassName: string;
@@ -2490,9 +2397,10 @@ export function CharacterPage({
         'cantrip',
         formState.level ?? 1,
         ruleCatalog,
-        spellCatalogById
+        spellCatalogById,
+        spellPools
       ),
-    [formState.className, formState.level, ruleCatalog, spellCatalogById]
+    [formState.className, formState.level, ruleCatalog, spellCatalogById, spellPools]
   );
   const detailedCantripOptions = useMemo(
     () => attachSpellDetails(cantripOptions, ruleCatalog, spellCatalogById),
@@ -2511,9 +2419,10 @@ export function CharacterPage({
         'slot',
         formState.level ?? 1,
         ruleCatalog,
-        spellCatalogById
+        spellCatalogById,
+        spellPools
       ),
-    [formState.className, formState.level, ruleCatalog, spellCatalogById]
+    [formState.className, formState.level, ruleCatalog, spellCatalogById, spellPools]
   );
   const detailedSlotSpellOptions = useMemo(
     () => attachSpellDetails(slotSpellOptions, ruleCatalog, spellCatalogById),
@@ -2523,7 +2432,8 @@ export function CharacterPage({
     selectedClass,
     formState.className,
     formState.level ?? 1,
-    ruleCatalog
+    ruleCatalog,
+    spellPools
   );
   const startingPreparedSpellLimit = useMemo(
     () => getPreparedSpellLimit(formState.className, formState.level, formState.abilities),
@@ -2541,7 +2451,8 @@ export function CharacterPage({
     formState.className,
     formState.level ?? 1,
     selectedClass,
-    ruleCatalog
+    ruleCatalog,
+    spellPools
   );
   const startingPreparedSpellOptions = useMemo(() => {
     if (isStartingDynamicPreparedCaster) {
@@ -2781,8 +2692,14 @@ export function CharacterPage({
     let ignore = false;
     setCatalogError(null);
 
-    Promise.all([loadClassOptions(), loadClassFeatureManifest(), loadRaceData(), loadSpellCatalog()])
-      .then(([loadedClasses, loadedClassFeatures, loadedRaces, loadedSpells]) => {
+    Promise.all([
+      loadClassOptions(),
+      loadClassFeatureManifest(),
+      loadRaceData(),
+      loadSpellCatalog(),
+      loadFeSpellPools(),
+    ])
+      .then(([loadedClasses, loadedClassFeatures, loadedRaces, loadedSpells, loadedSpellPools]) => {
         if (ignore) {
           return;
         }
@@ -2790,6 +2707,7 @@ export function CharacterPage({
         setClassFeatureManifest(loadedClassFeatures);
         setRaceCatalog(loadedRaces);
         setSpellCatalog(loadedSpells);
+        setSpellPools(loadedSpellPools);
       })
       .catch((caught) => {
         if (!ignore) {
@@ -2911,7 +2829,8 @@ export function CharacterPage({
       'slot',
       levelUpDraft.targetLevel,
       ruleCatalog,
-      spellCatalogById
+      spellCatalogById,
+      spellPools
     ).filter((spell) => !known.has(spell.id));
   }, [
     canSelectKnownSpellGrowth,
@@ -2920,6 +2839,7 @@ export function CharacterPage({
     selectedCharacter,
     selectedKnownSlotSpells,
     spellCatalogById,
+    spellPools,
   ]);
   const selectedLevelUpLearnableSlotSpellOptions = useMemo(
     () => attachSpellDetails(selectedLevelUpLearnableSlotSpells, ruleCatalog, spellCatalogById),
@@ -2940,7 +2860,8 @@ export function CharacterPage({
       'cantrip',
       levelUpDraft.targetLevel,
       ruleCatalog,
-      spellCatalogById
+      spellCatalogById,
+      spellPools
     ).filter(
       (spell) => !known.has(spell.id)
     );
@@ -2950,6 +2871,7 @@ export function CharacterPage({
     selectedCharacter,
     selectedCurrentCantrips,
     spellCatalogById,
+    spellPools,
     targetSpellcastingProgression?.cantripsKnown,
   ]);
   const selectedLevelUpLearnableCantripOptions = useMemo(
@@ -3458,7 +3380,8 @@ export function CharacterPage({
       defaultClass,
       defaultClass?.key,
       defaultScenario?.startLevel ?? defaults.level ?? 1,
-      ruleCatalog
+      ruleCatalog,
+      spellPools
     );
     const defaultStartingCantripCount = getMvpStartingCantripCount(
       defaultClass,
@@ -4464,7 +4387,8 @@ export function CharacterPage({
                                   currentClass,
                                   current.className,
                                   nextLevel,
-                                  ruleCatalog
+                                  ruleCatalog,
+                                  spellPools
                                 );
                                 const startingCantripCount = getMvpStartingCantripCount(
                                   currentClass,
@@ -4647,7 +4571,8 @@ export function CharacterPage({
                                       nextClass,
                                       className,
                                       current.level ?? 1,
-                                      ruleCatalog
+                                      ruleCatalog,
+                                      spellPools
                                     ) > 0)
                                     ? {
                                         cantrips: new Array(
@@ -4663,7 +4588,8 @@ export function CharacterPage({
                                             nextClass,
                                             className,
                                             current.level ?? 1,
-                                            ruleCatalog
+                                            ruleCatalog,
+                                            spellPools
                                           )
                                         ).fill(''),
                                         ...(getPreparedSpellAbilityKey(className)

@@ -85,10 +85,14 @@ export type RuleRuntimeEffect = {
   value?: unknown;
 };
 
+export type RuleRuntimeStatus = "presentation_only" | "passive" | "executable";
+
 export type RuleCatalogEntry = {
   id: string;
   kind: RuleCatalogKind;
   source: "SRD5E";
+  displayNameKo?: string;
+  descriptionKo?: string;
   levelRequirement: RuleLevelRequirement;
   trigger: RuleTrigger;
   cost: RuleCost;
@@ -98,6 +102,7 @@ export type RuleCatalogEntry = {
   duration: RuleDuration;
   concentration: boolean;
   scaling: RuleScaling;
+  runtimeStatus?: RuleRuntimeStatus;
   runtimeEffect: RuleRuntimeEffect;
 };
 

@@ -284,29 +284,84 @@ function normalizeAliasLookup(aliasesByClass, classKey, aliasKey) {
 
 export function buildCanonicalClassFeatureManifest(
   classes,
-  { runtimeFeatureIds = [], aliasesByClass = null } = {},
+  { runtimeFeatureIds = [], aliasesByClass = null, displayOverridesById = null } = {},
 ) {
   const runtimeIds = new Set(runtimeFeatureIds);
   const byId = new Map();
 
+  function getDisplayOverride(id) {
+    if (!displayOverridesById) return null;
+    if (displayOverridesById instanceof Map) {
+      return displayOverridesById.get(id) ?? null;
+    }
+    return displayOverridesById[id] ?? null;
+  }
+
+  function listDisplayOverrides() {
+    if (!displayOverridesById) return [];
+    if (displayOverridesById instanceof Map) {
+      return Array.from(displayOverridesById.entries());
+    }
+    return Object.entries(displayOverridesById);
+  }
+
+  function applyDisplayOverride(feature) {
+    const displayOverride = getDisplayOverride(feature.id);
+    if (!displayOverride) return feature;
+
+    return {
+      ...feature,
+      nameKo: displayOverride.nameKo || feature.nameKo,
+      summaryKo: displayOverride.summaryKo || feature.summaryKo,
+    };
+  }
+
+  function parseRuntimeFeatureId(id) {
+    const classFeature = /^class\.([^.]+)\.feature\.(.+)$/.exec(id);
+    if (classFeature) {
+      const [, classKey, featureKey] = classFeature;
+      return {
+        classKey,
+        featureKey,
+        category: featureKey.startsWith('ability_score_improvement') ? 'asi' : 'class',
+      };
+    }
+
+    const legacySubclassFeature = /^class\.([^.]+)\.subclass_feature\.(.+)$/.exec(id);
+    if (legacySubclassFeature) {
+      const [, classKey, featureKey] = legacySubclassFeature;
+      return { classKey, featureKey, category: 'subclass' };
+    }
+
+    const subclassFeature = /^subclass\.([^.]+)\.[^.]+\.feature\.(.+)$/.exec(id);
+    if (subclassFeature) {
+      const [, classKey, featureKey] = subclassFeature;
+      return { classKey, featureKey, category: 'subclass' };
+    }
+
+    return null;
+  }
+
   function upsert(feature) {
+    const normalizedFeature = applyDisplayOverride(feature);
     const existing = byId.get(feature.id);
     if (existing) {
-      existing.aliases = Array.from(new Set([...existing.aliases, ...(feature.aliases ?? [])]));
+      existing.aliases = Array.from(new Set([...existing.aliases, ...(normalizedFeature.aliases ?? [])]));
       existing.availableAtLevels = Array.from(
-        new Set([...(existing.availableAtLevels ?? []), ...(feature.availableAtLevels ?? [])]),
+        new Set([...(existing.availableAtLevels ?? []), ...(normalizedFeature.availableAtLevels ?? [])]),
       ).sort((left, right) => left - right);
-      if (!existing.summaryKo && feature.summaryKo) existing.summaryKo = feature.summaryKo;
-      if (existing.source !== 'runtime' && feature.source === 'runtime') existing.source = 'runtime';
+      if (!existing.nameKo && normalizedFeature.nameKo) existing.nameKo = normalizedFeature.nameKo;
+      if (!existing.summaryKo && normalizedFeature.summaryKo) existing.summaryKo = normalizedFeature.summaryKo;
+      if (existing.source !== 'runtime' && normalizedFeature.source === 'runtime') existing.source = 'runtime';
       return existing;
     }
 
-    byId.set(feature.id, {
-      ...feature,
-      aliases: feature.aliases ?? [],
-      availableAtLevels: feature.availableAtLevels ?? [feature.level],
+    byId.set(normalizedFeature.id, {
+      ...normalizedFeature,
+      aliases: normalizedFeature.aliases ?? [],
+      availableAtLevels: normalizedFeature.availableAtLevels ?? [normalizedFeature.level],
     });
-    return feature;
+    return normalizedFeature;
   }
 
   for (const classOption of classes ?? []) {
@@ -338,11 +393,29 @@ export function buildCanonicalClassFeatureManifest(
       for (const label of splitSrdClassFeatureSummary(levelFeature.features)) {
         if (isIgnoredSrdClassFeatureLabel(label)) continue;
 
-        const reference = findSrdClassFeatureReference(classOption, label, level);
-        if (reference) continue;
-
         const aliasKey = normalizeSrdFeatureAliasKey(label);
         const aliasId = normalizeAliasLookup(aliasesByClass, classKey, aliasKey);
+        const reference = findSrdClassFeatureReference(classOption, label, level);
+        if (reference) {
+          if (aliasId && aliasId !== reference.id) {
+            const referenceLevels = (reference.availableAtLevels ?? [])
+              .map((referenceLevel) => Number.parseInt(String(referenceLevel), 10))
+              .filter((referenceLevel) => Number.isFinite(referenceLevel));
+            upsert({
+              id: aliasId,
+              classKey,
+              level,
+              nameKo: reference.nameKo ?? normalizeSrdFeatureLookupLabel(label),
+              category: reference.category ?? (aliasId.includes('.subclass') ? 'subclass' : 'class'),
+              summaryKo: reference.summaryKo ?? '',
+              source: runtimeIds.has(aliasId) ? 'runtime' : 'derived',
+              aliases: [aliasKey, reference.id],
+              availableAtLevels: referenceLevels.length ? referenceLevels : [level],
+            });
+          }
+          continue;
+        }
+
         if (!aliasId) continue;
 
         upsert({
@@ -361,19 +434,37 @@ export function buildCanonicalClassFeatureManifest(
   }
 
   for (const id of runtimeIds) {
-    const matched = /^class\.([^.]+)\.feature\.(.+)$/.exec(id);
-    if (!matched) continue;
-    const [, classKey, featureKey] = matched;
-    const isAsi = featureKey.startsWith('ability_score_improvement');
+    const parsed = parseRuntimeFeatureId(id);
+    if (!parsed) continue;
+    const { classKey, featureKey, category } = parsed;
+    const isAsi = category === 'asi';
     upsert({
       id,
       classKey,
       level: isAsi ? Number(featureKey.split('_').at(-1)) || 4 : 0,
       nameKo: isAsi ? '능력치 향상' : featureKey,
-      category: isAsi ? 'asi' : 'class',
+      category,
       summaryKo: isAsi ? '능력치 하나를 2점 올리거나 Feat를 선택하는 성장 특성입니다.' : '',
       source: 'runtime',
       aliases: [featureKey],
+      availableAtLevels: [],
+    });
+  }
+
+  for (const [id, displayOverride] of listDisplayOverrides()) {
+    if (byId.has(id)) continue;
+    const parsed = parseRuntimeFeatureId(id);
+    if (!parsed) continue;
+    const { classKey, featureKey, category } = parsed;
+    upsert({
+      id,
+      classKey,
+      level: 0,
+      nameKo: displayOverride.nameKo || featureKey,
+      category,
+      summaryKo: displayOverride.summaryKo ?? '',
+      source: runtimeIds.has(id) ? 'runtime' : 'derived',
+      aliases: [featureKey, normalizeSrdFeatureAliasKey(displayOverride.nameKo || featureKey)],
       availableAtLevels: [],
     });
   }
@@ -423,6 +514,12 @@ export function getSrdSourceManifest() {
   return cached('srd/source_manifest', () => readJson(path.join(generatedSrdDir, 'source_manifest.json')));
 }
 
+export function getSrdSpellClassLists() {
+  return cached('srd/spell-class-lists', () =>
+    readJson(path.join(generatedSrdDir, 'spell-class-lists.json')),
+  );
+}
+
 export function listSrdEngineClasses() {
   return cached('srd-engine/classes', () =>
     readJsonLines(path.join(generatedEngineDir, 'classes.jsonl')),
@@ -451,39 +548,37 @@ export function getSrdEngineManifest() {
   );
 }
 
+export const SRD_CATALOG_FINGERPRINT_FILES = [
+  { scope: 'srd', path: 'classes.jsonl' },
+  { scope: 'srd', path: 'races.jsonl' },
+  { scope: 'srd', path: 'spells.jsonl' },
+  { scope: 'srd', path: 'monsters.jsonl' },
+  { scope: 'srd', path: 'equipment_items.jsonl' },
+  { scope: 'srd', path: 'magic_items.jsonl' },
+  { scope: 'srd', path: 'class-features.json' },
+  { scope: 'srd', path: 'spell-class-lists.json' },
+  { scope: 'srd', path: 'fe-spell-pools.json' },
+  { scope: 'srd', path: 'fe-usable-items.json' },
+  { scope: 'srd', path: 'item-labels.json' },
+  { scope: 'srd', path: 'source_manifest.json' },
+  { scope: 'srd-engine', path: 'classes.jsonl' },
+  { scope: 'srd-engine', path: 'spells.jsonl' },
+  { scope: 'srd-engine', path: 'equipment.jsonl' },
+  { scope: 'srd-engine', path: 'monsters.jsonl' },
+  { scope: 'srd-engine', path: 'spellcasting_rules.json' },
+  { scope: 'srd-engine', path: 'manifest.json' },
+];
+
 export function getSrdCatalogFingerprint() {
   return cached('srd/catalog-fingerprint', async () => {
-    const srdFiles = [
-      'classes.jsonl',
-      'races.jsonl',
-      'spells.jsonl',
-      'monsters.jsonl',
-      'equipment_items.jsonl',
-      'magic_items.jsonl',
-      'source_manifest.json',
-    ];
-    const engineFiles = [
-      'classes.jsonl',
-      'spells.jsonl',
-      'equipment.jsonl',
-      'monsters.jsonl',
-      'spellcasting_rules.json',
-      'manifest.json',
-    ];
     const files = [];
 
-    for (const fileName of srdFiles) {
+    for (const { scope, path: fileName } of SRD_CATALOG_FINGERPRINT_FILES) {
+      const baseDir = scope === 'srd' ? generatedSrdDir : generatedEngineDir;
       files.push({
-        scope: 'srd',
+        scope,
         path: fileName,
-        sha256: await hashFile(path.join(generatedSrdDir, fileName)),
-      });
-    }
-    for (const fileName of engineFiles) {
-      files.push({
-        scope: 'srd-engine',
-        path: fileName,
-        sha256: await hashFile(path.join(generatedEngineDir, fileName)),
+        sha256: await hashFile(path.join(baseDir, fileName)),
       });
     }
 

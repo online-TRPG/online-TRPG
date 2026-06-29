@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@iconify/react": "^6.0.2",
+    "@trpg/srd-data": "file:../srd-data",
     "@trpg/shared-types": "file:../shared-types",
     "konva": "^9.3.18",
     "react": "^18.3.1",
