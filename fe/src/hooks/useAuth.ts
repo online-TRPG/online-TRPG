@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AUTH_EXPIRED_EVENT,
   AUTH_TOKEN_REISSUED_EVENT,
+  convertGuestToLocal,
   createGuest,
   deleteMe as apiDeleteMe,
   getMe,
@@ -44,6 +45,7 @@ export interface UseAuthReturn {
   loginAsGuest: (displayName: string) => Promise<void>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
   registerMember: (email: string, password: string, name: string) => Promise<void>;
+  convertGuestAccount: (email: string, password: string, name: string) => Promise<boolean>;
   handleOAuthCallback: (provider: "kakao" | "discord", code: string) => Promise<void>;
   deleteAccount: (password: string) => Promise<boolean>;
   updateDisplayName: (displayName: string) => Promise<User>;
@@ -88,6 +90,7 @@ export function useAuth(
       id: nextUser.id,
       publicId: nextUser.publicId,
       displayName: nextUser.displayName,
+      role: nextUser.role,
       createdAt: nextUser.createdAt,
     };
   }
@@ -199,6 +202,7 @@ export function useAuth(
           id: nextUser.id,
           publicId: nextUser.publicId,
           displayName: nextUser.displayName,
+          role: nextUser.role,
           createdAt: nextUser.createdAt,
         },
         null,
@@ -233,6 +237,7 @@ export function useAuth(
           id: response.user.id,
           publicId: response.user.publicId,
           displayName: response.user.displayName,
+          role: response.user.role,
           createdAt: response.user.createdAt,
         },
         response.accessToken,
@@ -274,6 +279,37 @@ export function useAuth(
     }
   }
 
+  async function convertGuestAccount(email: string, password: string, name: string): Promise<boolean> {
+    const currentAuth = currentAuthRef.current;
+    if (!currentAuth.user || currentAuth.authMode !== "guest") {
+      setError("게스트 계정만 회원 계정으로 저장할 수 있습니다.");
+      setNotice(null);
+      return false;
+    }
+
+    if (!email.trim() || !password || !name.trim()) {
+      setError("이메일, 비밀번호, 이름을 모두 입력해주세요.");
+      setNotice(null);
+      return false;
+    }
+
+    setError(null);
+    setNotice(null);
+    setBusy(true);
+    try {
+      const response = await convertGuestToLocal(currentAuth.user, email, password, name);
+      persist(toStoredUser(response.user), response.accessToken, "member");
+      setNotice({ kind: "success", message: "게스트 계정을 회원 계정으로 저장했습니다." });
+      appendLog("system", "계정 저장", "게스트 계정을 회원 계정으로 저장했습니다.");
+      return true;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "게스트 계정 저장에 실패했습니다.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleOAuthCallback(provider: "kakao" | "discord", code: string) {
     const redirectUri = `${window.location.origin}/oauth/callback`;
     setError(null);
@@ -286,6 +322,7 @@ export function useAuth(
           id: response.user.id,
           publicId: response.user.publicId,
           displayName: response.user.displayName,
+          role: response.user.role,
           createdAt: response.user.createdAt,
         },
         response.accessToken,
@@ -352,6 +389,7 @@ export function useAuth(
         id: updated.id,
         publicId: updated.publicId,
         displayName: updated.displayName,
+        role: updated.role,
         createdAt: updated.createdAt,
       };
       saveStoredUser(nextStored);
@@ -402,6 +440,7 @@ export function useAuth(
     loginAsGuest,
     loginWithEmail,
     registerMember,
+    convertGuestAccount,
     handleOAuthCallback,
     deleteAccount,
     updateDisplayName,

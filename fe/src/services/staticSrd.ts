@@ -170,6 +170,19 @@ export interface StaticItemCatalog {
   magicItems: Array<Record<string, unknown>>;
 }
 
+export interface StaticFeSpellPools {
+  characterBuilder: {
+    cantrips: string[];
+    slotSpellsByLevel: Record<string, string[]>;
+  };
+  quickCreate: {
+    cantrips: string[];
+    level1SlotSpells: string[];
+    level5SlotSpellsByClass: Record<string, string[]>;
+    level7SlotSpellsByClass: Record<string, string[]>;
+  };
+}
+
 const RAW_ASSET_CACHE = new Map<string, Promise<unknown>>();
 const SUPPORTED_CLASS_ORDER = [
   'Barbarian',
@@ -619,6 +632,10 @@ export async function loadMonsterCatalog(): Promise<SrdMonsterReferenceDto[]> {
 
 export async function loadSpellCatalog(): Promise<StaticSpellCatalogEntry[]> {
   return fetchStaticAsset<StaticSpellCatalogEntry[]>('srd/spells.json');
+}
+
+export async function loadFeSpellPools(): Promise<StaticFeSpellPools> {
+  return fetchStaticAsset<StaticFeSpellPools>('srd/fe-spell-pools.json');
 }
 
 export async function loadItemCatalog(): Promise<StaticItemCatalog> {

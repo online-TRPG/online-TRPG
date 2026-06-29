@@ -158,6 +158,7 @@ export class ScenariosService {
   ) {}
 
   async listScenarios(query?: ScenarioQueryDto, viewerUserId?: string | null): Promise<ScenarioSummaryResponseDto[]> {
+    const viewerCanModerate = await this.isScenarioModerationOperator(viewerUserId);
     const scenarios = await this.prisma.scenario.findMany({
       where: {
         OR: [
@@ -183,15 +184,21 @@ export class ScenariosService {
       .filter((scenario) => {
         if (isProvidedScenarioId(scenario.id)) {
           const publicMetadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
-          return publicMetadata.moderationStatus !== "hidden" && publicMetadata.moderationStatus !== "removed";
+          return (
+            viewerCanModerate ||
+            (publicMetadata.moderationStatus !== "hidden" && publicMetadata.moderationStatus !== "removed")
+          );
         }
         const metadata = this.parseScenarioRevisionMetadata(scenario.attribution);
         const publicMetadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+        const isDiscoverableStatus =
+          metadata.status === "public" ||
+          (viewerCanModerate && (metadata.status === "link" || metadata.status === "unpublished"));
         return (
           scenario.sourceType === PrismaScenarioSourceType.CLONED &&
-          metadata.status === "public" &&
-          publicMetadata.moderationStatus !== "hidden" &&
-          publicMetadata.moderationStatus !== "removed"
+          isDiscoverableStatus &&
+          (viewerCanModerate ||
+            (publicMetadata.moderationStatus !== "hidden" && publicMetadata.moderationStatus !== "removed"))
         );
       })
       .map((scenario) => this.enrichScenarioSummary(scenario, mapScenarioSummary(scenario), viewerUserId))
@@ -877,7 +884,7 @@ export class ScenariosService {
   async listScenarioModerationQueue(
     operatorUserId: string,
   ): Promise<ScenarioModerationQueueItemDto[]> {
-    this.ensureScenarioModerationOperator(operatorUserId);
+    await this.ensureScenarioModerationOperator(operatorUserId);
     const scenarios = await this.prisma.scenario.findMany({
       where: {
         OR: [
@@ -905,14 +912,15 @@ export class ScenariosService {
     id: string,
     dto: ApplyScenarioModerationActionDto,
   ): Promise<ScenarioModerationActionResponseDto> {
-    this.ensureScenarioModerationOperator(operatorUserId);
+    await this.ensureScenarioModerationOperator(operatorUserId);
     const scenario = await this.getScenarioEntityById(id);
     this.ensurePublicScenarioEcosystemTarget(
       scenario,
       "공개 생태계 대상만 moderation 처리할 수 있습니다.",
-      { allowHidden: true },
+      { allowHidden: true, allowRemoved: true, allowUnpublished: true },
     );
     const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
+    const revision = this.parseScenarioRevisionMetadata(scenario.attribution);
     const previousStatus = metadata.moderationStatus;
     const now = new Date().toISOString();
     const actionId = `scenario-moderation-action:${randomUUID()}`;
@@ -1013,15 +1021,33 @@ export class ScenariosService {
       auditRecordType: "scenario_moderation_action",
     };
 
+    let nextAttribution = scenario.attribution;
+    if (
+      action === "restored" &&
+      scenario.sourceType === PrismaScenarioSourceType.CLONED &&
+      revision.status === "unpublished" &&
+      revision.publishedByUserId
+    ) {
+      nextAttribution = this.appendScenarioRevisionMetadata(nextAttribution, {
+        revisionNumber: revision.revisionNumber,
+        changelog: revision.changelog,
+        publishedAt: revision.publishedAt ?? now,
+        publishedByUserId: revision.publishedByUserId,
+        status: "public",
+        validationReport: revision.validationReport,
+      });
+    }
+    nextAttribution = this.appendScenarioPublicEcosystemMetadata(nextAttribution, {
+      ...metadata,
+      appeals: nextAppeals,
+      moderationStatus: nextStatus,
+      moderationActions: [...metadata.moderationActions, moderationAction],
+    });
+
     await this.prisma.scenario.update({
       where: { id: scenario.id },
       data: {
-        attribution: this.appendScenarioPublicEcosystemMetadata(scenario.attribution, {
-          ...metadata,
-          appeals: nextAppeals,
-          moderationStatus: nextStatus,
-          moderationActions: [...metadata.moderationActions, moderationAction],
-        }),
+        attribution: nextAttribution,
       },
     });
     await this.createScenarioModerationTurnLogsForLinkedSessions(scenario.id, moderationAction);
@@ -1270,17 +1296,19 @@ export class ScenariosService {
   private ensurePublicScenarioEcosystemTarget(
     scenario: Awaited<ReturnType<ScenariosService['getScenarioEntityById']>>,
     message: string,
-    options: { allowHidden?: boolean } = {},
+    options: { allowHidden?: boolean; allowRemoved?: boolean; allowUnpublished?: boolean } = {},
   ): void {
     const revision = this.parseScenarioRevisionMetadata(scenario.attribution);
     const metadata = this.parseScenarioPublicEcosystemMetadata(scenario.attribution);
     const isProvidedPublicScenario = isProvidedScenarioId(scenario.id);
     const isPublishedRevision =
       scenario.sourceType === PrismaScenarioSourceType.CLONED &&
-      (revision.status === "public" || revision.status === "link");
+      (revision.status === "public" ||
+        revision.status === "link" ||
+        (options.allowUnpublished && revision.status === "unpublished"));
     if (
       (!isProvidedPublicScenario && !isPublishedRevision) ||
-      metadata.moderationStatus === "removed" ||
+      (!options.allowRemoved && metadata.moderationStatus === "removed") ||
       (!options.allowHidden && metadata.moderationStatus === "hidden")
     ) {
       throw new BadRequestException(message);
@@ -2008,13 +2036,25 @@ export class ScenariosService {
     };
   }
 
-  private ensureScenarioModerationOperator(userId: string): void {
-    const normalized = userId.trim().toLowerCase();
-    if (
-      normalized.startsWith("operator-") ||
-      normalized.startsWith("admin-") ||
-      normalized.startsWith("moderator-")
-    ) {
+  private async isScenarioModerationOperator(userId?: string | null): Promise<boolean> {
+    if (!userId) {
+      return false;
+    }
+    const users = this.prisma.user as unknown as {
+      findUnique(args: {
+        where: { id: string };
+        select: { role: true; deletedAt: true };
+      }): Promise<{ role: "USER" | "MODERATOR" | "ADMIN"; deletedAt: Date | null } | null>;
+    };
+    const user = await users.findUnique({
+      where: { id: userId },
+      select: { role: true, deletedAt: true },
+    });
+    return Boolean(user && !user.deletedAt && (user.role === "ADMIN" || user.role === "MODERATOR"));
+  }
+
+  private async ensureScenarioModerationOperator(userId: string): Promise<void> {
+    if (await this.isScenarioModerationOperator(userId)) {
       return;
     }
     throw new ForbiddenException("운영자 moderation 권한이 필요합니다.");

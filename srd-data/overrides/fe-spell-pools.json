@@ -1,0 +1,159 @@
+{
+  "characterBuilder": {
+    "cantrips": [
+      "spell.chill_touch",
+      "spell.fire_bolt",
+      "spell.light",
+      "spell.ray_of_frost",
+      "spell.sacred_flame",
+      "spell.acid_splash",
+      "spell.guidance",
+      "spell.mage_hand",
+      "spell.minor_illusion",
+      "spell.shocking_grasp",
+      "spell.dancing_lights",
+      "spell.eldritch_blast",
+      "spell.mending",
+      "spell.message",
+      "spell.poison_spray",
+      "spell.produce_flame",
+      "spell.resistance",
+      "spell.spare_the_dying"
+    ],
+    "slotSpellsByLevel": {
+      "1": [
+        "spell.bane",
+        "spell.bless",
+        "spell.burning_hands",
+        "spell.command",
+        "spell.cure_wounds",
+        "spell.detect_magic",
+        "spell.entangle",
+        "spell.guiding_bolt",
+        "spell.healing_word",
+        "spell.inflict_wounds",
+        "spell.magic_missile",
+        "spell.shield",
+        "spell.sleep",
+        "spell.thunderwave",
+        "spell.charm_person",
+        "spell.faerie_fire",
+        "spell.feather_fall",
+        "spell.fog_cloud",
+        "spell.grease",
+        "spell.heroism",
+        "spell.hunters_mark",
+        "spell.longstrider",
+        "spell.alarm",
+        "spell.animal_friendship",
+        "spell.color_spray",
+        "spell.comprehend_languages",
+        "spell.create_or_destroy_water",
+        "spell.expeditious_retreat",
+        "spell.false_life",
+        "spell.find_familiar",
+        "spell.goodberry",
+        "spell.jump",
+        "spell.mage_armor"
+      ],
+      "2": [
+        "spell.hold_person",
+        "spell.misty_step",
+        "spell.scorching_ray",
+        "spell.web",
+        "spell.aid",
+        "spell.blindness_deafness",
+        "spell.darkness",
+        "spell.invisibility",
+        "spell.lesser_restoration",
+        "spell.moonbeam",
+        "spell.spiritual_weapon",
+        "spell.alter_self",
+        "spell.blur",
+        "spell.darkvision",
+        "spell.enhance_ability",
+        "spell.enlarge_reduce",
+        "spell.flaming_sphere",
+        "spell.gust_of_wind",
+        "spell.heat_metal",
+        "spell.levitate",
+        "spell.locate_object",
+        "spell.mirror_image",
+        "spell.spider_climb"
+      ],
+      "3": [
+        "spell.dispel_magic",
+        "spell.fireball",
+        "spell.counterspell",
+        "spell.fly",
+        "spell.haste",
+        "spell.lightning_bolt",
+        "spell.revivify",
+        "spell.call_lightning",
+        "spell.fear",
+        "spell.gaseous_form",
+        "spell.plant_growth",
+        "spell.protection_from_energy",
+        "spell.sleet_storm",
+        "spell.slow",
+        "spell.water_walk"
+      ],
+      "4": [
+        "spell.blight",
+        "spell.death_ward",
+        "spell.dimension_door",
+        "spell.freedom_of_movement",
+        "spell.ice_storm",
+        "spell.locate_creature",
+        "spell.phantasmal_killer",
+        "spell.wall_of_fire"
+      ]
+    }
+  },
+  "quickCreate": {
+    "cantrips": [
+      "spell.chill_touch",
+      "spell.fire_bolt",
+      "spell.light",
+      "spell.ray_of_frost"
+    ],
+    "level1SlotSpells": [
+      "spell.magic_missile",
+      "spell.burning_hands",
+      "spell.cure_wounds",
+      "spell.shield",
+      "spell.sleep"
+    ],
+    "level5SlotSpellsByClass": {
+      "sorcerer": [
+        "spell.fireball"
+      ],
+      "wizard": [
+        "spell.fireball"
+      ]
+    },
+    "level7SlotSpellsByClass": {
+      "bard": [
+        "spell.dimension_door"
+      ],
+      "cleric": [
+        "spell.death_ward"
+      ],
+      "druid": [
+        "spell.blight"
+      ],
+      "sorcerer": [
+        "spell.blight",
+        "spell.dimension_door"
+      ],
+      "warlock": [
+        "spell.blight",
+        "spell.dimension_door"
+      ],
+      "wizard": [
+        "spell.dimension_door",
+        "spell.ice_storm"
+      ]
+    }
+  }
+}

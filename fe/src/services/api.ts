@@ -448,6 +448,20 @@ export function register(email: string, password: string, name: string): Promise
   });
 }
 
+export function convertGuestToLocal(
+  user: StoredUser,
+  email: string,
+  password: string,
+  name: string
+): Promise<LoginResponseDto> {
+  return requestJson<LoginResponseDto>('/users/guest/convert-local', {
+    method: 'POST',
+    user,
+    body: { email, password, name },
+    withCredentials: true,
+  });
+}
+
 export function login(email: string, password: string): Promise<LoginResponseDto> {
   return requestJson<LoginResponseDto>('/users/login', {
     method: 'POST',

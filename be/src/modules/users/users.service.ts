@@ -20,6 +20,7 @@ import bcrypt from "bcryptjs";
 import { createHash } from "crypto";
 import {
   AuthTokenResponseDto,
+  ConvertGuestToLocalUserDto,
   CreateGuestUserDto,
   DeleteMeDto,
   EmailCheckResponseDto,
@@ -129,6 +130,53 @@ export class UsersService {
     }
 
     return mapUser(user);
+  }
+
+  async convertGuestToLocal(
+    userId: string,
+    dto: ConvertGuestToLocalUserDto,
+  ): Promise<{ body: LoginResponseDto; refreshToken: string }> {
+    const email = dto.email.trim().toLowerCase();
+    this.assertValidEmail(email);
+
+    const guest = await this.getUserEntityOrThrow(userId);
+    if (guest.authProvider !== PrismaAuthProvider.GUEST || guest.deletedAt) {
+      throw new ForbiddenException("게스트 계정만 회원 계정으로 전환할 수 있습니다.");
+    }
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing && existing.id !== userId) {
+      this.throwDuplicateEmail();
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    try {
+      const user = await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          email,
+          passwordHash,
+          displayName: dto.name.trim(),
+          authProvider: PrismaAuthProvider.LOCAL,
+        },
+      });
+      const ensuredUser = await this.ensureUserPublicId(user);
+      const refreshToken = await this.issueRefreshToken(ensuredUser.id, ensuredUser.email);
+      return {
+        body: {
+          accessToken: createAccessToken(ensuredUser.id, ensuredUser.email),
+          tokenType: "Bearer",
+          expiresIn: getAccessTokenExpiresIn(),
+          user: mapUser(ensuredUser),
+        },
+        refreshToken,
+      };
+    } catch (error) {
+      if (this.isEmailUniqueConstraintError(error)) {
+        this.throwDuplicateEmail();
+      }
+      this.throwRegisterFailed();
+    }
   }
 
   async checkEmail(email: string): Promise<EmailCheckResponseDto> {

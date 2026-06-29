@@ -53,7 +53,7 @@ export interface AvailableSessionListItem {
   role?: string;
 }
 
-export type StoredUser = Pick<User, "id" | "publicId" | "displayName" | "createdAt">;
+export type StoredUser = Pick<User, "id" | "publicId" | "displayName" | "createdAt" | "role">;
 
 function normalizeUserPublicId(user: User): User {
   return {

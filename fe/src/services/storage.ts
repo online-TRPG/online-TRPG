@@ -1,3 +1,4 @@
+import type { UserRole } from "@trpg/shared-types";
 import type { AuthMode } from "../types/auth";
 import { normalizeSessionSnapshot, type SessionSnapshot, type StoredUser } from "../types/session";
 
@@ -5,6 +6,11 @@ const USER_KEY = "trpg.currentUser";
 const SNAPSHOT_KEY = "trpg.currentSnapshot";
 const TOKEN_KEY = "trpg.accessToken";
 const AUTH_MODE_KEY = "trpg.authMode";
+const STORED_USER_ROLE = {
+  USER: "USER" as UserRole,
+  MODERATOR: "MODERATOR" as UserRole,
+  ADMIN: "ADMIN" as UserRole,
+};
 
 export function loadStoredUser(): StoredUser | null {
   const raw = localStorage.getItem(USER_KEY);
@@ -20,7 +26,16 @@ export function loadStoredUser(): StoredUser | null {
       localStorage.removeItem(USER_KEY);
       return null;
     }
-    return parsed as StoredUser;
+    return {
+      id: parsed.id,
+      publicId: parsed.publicId,
+      displayName: parsed.displayName,
+      role:
+        parsed.role === STORED_USER_ROLE.ADMIN || parsed.role === STORED_USER_ROLE.MODERATOR
+          ? parsed.role
+          : STORED_USER_ROLE.USER,
+      createdAt: parsed.createdAt,
+    };
   } catch {
     localStorage.removeItem(USER_KEY);
     return null;

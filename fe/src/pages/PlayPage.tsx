@@ -77,6 +77,12 @@ import {
 } from '../features/sessionPlay/utils/characterVisuals';
 import { getUserFacingItemName } from '../features/sessionPlay/utils/displayNames';
 import { summarizeCharacterFeatures } from '../features/characters/characterFeaturePresentation';
+import {
+  loadClassFeatureManifest,
+  loadFeSpellPools,
+  type CanonicalClassFeatureEntry,
+  type StaticFeSpellPools,
+} from '../services/staticSrd';
 import type { CharacterPayload } from '../hooks/useSession';
 import {
   acceptHumanGmAiAssistSuggestion,
@@ -1128,32 +1134,6 @@ const QUICK_CREATE_CLASS_COMBAT_DEFAULTS: Readonly<
   rogue: { armorClass: 14, speed: 36 },
   wizard: { armorClass: 12, speed: 30 },
 };
-const QUICK_CREATE_MVP_CANTRIPS = [
-  'spell.chill_touch',
-  'spell.fire_bolt',
-  'spell.light',
-  'spell.ray_of_frost',
-];
-const QUICK_CREATE_MVP_LEVEL1_SPELLS = [
-  'spell.magic_missile',
-  'spell.burning_hands',
-  'spell.cure_wounds',
-  'spell.shield',
-  'spell.sleep',
-];
-const QUICK_CREATE_MVP_LEVEL5_SLOT_SPELLS_BY_CLASS: Readonly<Record<string, string[]>> = {
-  sorcerer: ['spell.fireball'],
-  wizard: ['spell.fireball'],
-};
-const QUICK_CREATE_P3_LEVEL7_SLOT_SPELLS_BY_CLASS: Readonly<Record<string, string[]>> = {
-  bard: ['spell.dimension_door'],
-  cleric: ['spell.death_ward'],
-  druid: ['spell.blight'],
-  sorcerer: ['spell.blight', 'spell.dimension_door'],
-  warlock: ['spell.blight', 'spell.dimension_door'],
-  wizard: ['spell.dimension_door', 'spell.ice_storm'],
-};
-
 function getQuickCreateCatalogSpellLevel(entry: RuleCatalogReferenceDto): number | null {
   if (typeof entry.spellLevel === 'number') return entry.spellLevel;
   const tag = entry.runtimeTags?.find((item) => item.startsWith('spell_level:'));
@@ -1223,21 +1203,26 @@ function getQuickCreateCatalogSpellIds(
     .map((spell) => spell.id);
 }
 
-function getQuickCreateFallbackSlotSpellIds(classKey: string, level: number) {
+function getQuickCreateFallbackSlotSpellIds(
+  classKey: string,
+  level: number,
+  spellPools: StaticFeSpellPools | null,
+) {
   if (getQuickCreateMaximumSlotSpellLevel(classKey, level) <= 0) {
     return [];
   }
+  const quickCreatePools = spellPools?.quickCreate;
   const level5Spells = level >= 5
-    ? (QUICK_CREATE_MVP_LEVEL5_SLOT_SPELLS_BY_CLASS[classKey] ?? [])
+    ? (quickCreatePools?.level5SlotSpellsByClass[classKey] ?? [])
     : [];
   const level7Spells = level >= 7
-    ? (QUICK_CREATE_P3_LEVEL7_SLOT_SPELLS_BY_CLASS[classKey] ?? [])
+    ? (quickCreatePools?.level7SlotSpellsByClass[classKey] ?? [])
     : [];
   return Array.from(
     new Set([
       ...level7Spells,
       ...level5Spells,
-      ...QUICK_CREATE_MVP_LEVEL1_SPELLS,
+      ...(quickCreatePools?.level1SlotSpells ?? []),
     ]),
   );
 }
@@ -1347,6 +1332,7 @@ function getDefaultQuickCreateStartingSpells(
   level: number,
   abilities: QuickCreateAbilities,
   ruleCatalog: RuleCatalogReferenceDto[],
+  spellPools: StaticFeSpellPools | null,
 ) {
   const classKey = klass.key.trim().toLowerCase();
   const progression =
@@ -1354,10 +1340,12 @@ function getDefaultQuickCreateStartingSpells(
   const maxSlotSpellLevel = getQuickCreateMaximumSlotSpellLevel(classKey, level);
   const catalogCantrips = getQuickCreateCatalogSpellIds(ruleCatalog, 'cantrip', 0);
   const catalogSlotSpells = getQuickCreateCatalogSpellIds(ruleCatalog, 'slot', maxSlotSpellLevel);
-  const cantripPool = catalogCantrips.length ? catalogCantrips : QUICK_CREATE_MVP_CANTRIPS;
+  const cantripPool = catalogCantrips.length
+    ? catalogCantrips
+    : (spellPools?.quickCreate.cantrips ?? []);
   const slotSpellPool = catalogSlotSpells.length
     ? catalogSlotSpells
-    : getQuickCreateFallbackSlotSpellIds(classKey, level);
+    : getQuickCreateFallbackSlotSpellIds(classKey, level, spellPools);
   const preparedSpellLimit = maxSlotSpellLevel > 0
     ? getQuickCreatePreparedSpellLimit(classKey, level, abilities)
     : null;
@@ -2161,6 +2149,8 @@ export function PlayPage({
   const [isGameStarting, setIsGameStarting] = useState(false);
   const [isStartTransitionPending, setIsStartTransitionPending] = useState(false);
   const [characterCarouselIndex, setCharacterCarouselIndex] = useState(0);
+  const [classFeatureManifest, setClassFeatureManifest] = useState<CanonicalClassFeatureEntry[]>([]);
+  const [spellPools, setSpellPools] = useState<StaticFeSpellPools | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   // 현재 세션의 플레이어용 시나리오 노드와 VTT 맵 로딩 상태입니다.
@@ -2214,6 +2204,27 @@ export function PlayPage({
   const knownPublicClueNodeIdRef = useRef<string | null>(null);
   const knownMessageLogIdsRef = useRef<Set<string>>(new Set());
   const knownMessageLogSessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([loadClassFeatureManifest(), loadFeSpellPools()])
+      .then(([manifest, loadedSpellPools]) => {
+        if (!cancelled) {
+          setClassFeatureManifest(manifest);
+          setSpellPools(loadedSpellPools);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setClassFeatureManifest([]);
+          setSpellPools(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 서버 스냅샷에서 현재 세션/참가자/선택 캐릭터/권한 상태를 계산합니다.
   const session = snapshot?.session ?? null;
@@ -3203,8 +3214,8 @@ export function PlayPage({
   );
 
   const wantedCarouselFeatureSummary = useMemo(
-    () => summarizeCharacterFeatures(wantedCarouselCharacter?.features, 5),
-    [wantedCarouselCharacter?.features]
+    () => summarizeCharacterFeatures(wantedCarouselCharacter?.features, 5, classFeatureManifest),
+    [classFeatureManifest, wantedCarouselCharacter?.features]
   );
 
   useEffect(() => {
@@ -3576,6 +3587,7 @@ export function PlayPage({
         quickCreateLevel,
         quickCreateAbilities,
         ruleCatalog,
+        spellPools,
       ),
       assignToSession: true,
     };

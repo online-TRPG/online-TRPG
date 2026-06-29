@@ -1,4 +1,4 @@
-/*
+﻿/*
  * ProfilePage
  * 역할: 내가 보는 프로필 페이지입니다. 공개 프로필에 가까운 기본 정보와 계정 관리 진입점을 보여줍니다.
  * 읽는 순서:
@@ -210,104 +210,113 @@ export function ProfilePage({
     >
       {/* 프로필 대표 정보와 계정 관리/로그아웃 버튼 영역입니다. */}
       <section className="profile-hero profile-framed-card">
-        <div className="profile-hero-main">
-          <span className="eyebrow">Profile</span>
-          <div className="profile-hero-header">
-            <div className="avatar avatar-xl">{nickname.slice(0, 1)}</div>
-            <div className="profile-hero-copy">
-              {editing ? (
-                <form className="profile-hero-edit-form" onSubmit={submitEdit}>
-                  <input
-                    type="text"
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    minLength={2}
-                    maxLength={10}
-                    autoFocus
-                    disabled={saving}
-                    aria-label="닉네임 입력"
-                  />
-                  <button type="submit" className="primary" disabled={saving}>
-                    {saving ? "저장 중" : "저장"}
-                  </button>
-                  <button type="button" className="ghost" onClick={cancelEditing} disabled={saving}>
-                    취소
-                  </button>
-                </form>
-              ) : (
-                <div className="profile-hero-title-row">
-                  <h1>{nickname}</h1>
-                  {canEditNickname ? (
-                    <button type="button" className="ghost profile-hero-nickname-button" onClick={startEditing}>
-                      변경
+        <div className="profile-frame-content">
+          <div className="profile-frame-surface profile-hero-surface">
+          <div className="profile-hero-main">
+            <span className="eyebrow">Profile</span>
+            <div className="profile-hero-header">
+              <div className="avatar avatar-xl">{nickname.slice(0, 1)}</div>
+              <div className="profile-hero-copy">
+                {editing ? (
+                  <form className="profile-hero-edit-form" onSubmit={submitEdit}>
+                    <input
+                      type="text"
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      minLength={2}
+                      maxLength={10}
+                      autoFocus
+                      disabled={saving}
+                      aria-label="닉네임 입력"
+                    />
+                    <button type="submit" className="primary" disabled={saving}>
+                      {saving ? "저장 중" : "저장"}
                     </button>
-                  ) : null}
+                    <button type="button" className="ghost" onClick={cancelEditing} disabled={saving}>
+                      취소
+                    </button>
+                  </form>
+                ) : (
+                  <div className="profile-hero-title-row">
+                    <h1>{nickname}</h1>
+                    {canEditNickname ? (
+                      <button type="button" className="ghost profile-hero-nickname-button" onClick={startEditing}>
+                        변경
+                      </button>
+                    ) : null}
+                  </div>
+                )}
+                <p>{authMode === "guest" ? "게스트 세션" : "공개 프로필"}</p>
+                <div className="profile-hero-meta">
+                  <span>{authMode === "guest" ? "게스트 프로필" : "회원 프로필"}</span>
+                  <span>가입일 {formatCompactDate(effectiveProfile.createdAt)}</span>
+                  <span>{buildPublicProfilePath(effectiveProfile)}</span>
                 </div>
-              )}
-              <p>{authMode === "guest" ? "게스트 세션" : "공개 프로필"}</p>
-              <div className="profile-hero-meta">
-                <span>{authMode === "guest" ? "게스트 프로필" : "회원 프로필"}</span>
-                <span>가입일 {formatCompactDate(effectiveProfile.createdAt)}</span>
-                <span>{buildPublicProfilePath(effectiveProfile)}</span>
+                {editError ? <p className="panel-error profile-hero-edit-error">{editError}</p> : null}
               </div>
-              {editError ? <p className="panel-error profile-hero-edit-error">{editError}</p> : null}
             </div>
           </div>
-        </div>
 
-        <div className="profile-hero-actions profile-hero-actions-stack">
-          <button type="button" className="ghost" onClick={onOpenAccount}>
-            계정 관리
-          </button>
-          <button type="button" className="ghost" onClick={onLogout} disabled={busy}>
-            로그아웃
-          </button>
+          <div className="profile-hero-actions profile-hero-actions-stack">
+            <button type="button" className="ghost" onClick={onOpenAccount}>
+              계정 관리
+            </button>
+            <button type="button" className="ghost" onClick={onLogout} disabled={busy}>
+              로그아웃
+            </button>
+          </div>
+          </div>
         </div>
       </section>
 
       <section className="profile-showcase-grid">
         <article className="profile-card profile-framed-card profile-characters-card">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">Characters</span>
-              <h2>최근 사용 캐릭터</h2>
+          <div className="profile-frame-content">
+            <div className="profile-frame-surface">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Characters</span>
+                <h2>최근 사용 캐릭터</h2>
+              </div>
+            </div>
+
+            {loadingActivity ? (
+              <p className="profile-empty">최근 캐릭터 정보를 불러오는 중입니다.</p>
+            ) : recentCharacters.length > 0 ? (
+              <div className="profile-character-grid">
+                {recentCharacters.map((character) => (
+                  <article key={character.id} className="profile-character-card profile-character-card-framed">
+                    <div
+                      className="profile-character-avatar"
+                      style={{ ["--profile-character-frame-image" as string]: `url(${profileBorderCharacter})` }}
+                    >
+                      {getProfileCharacterImage(character) ? (
+                        <img src={getProfileCharacterImage(character)!} alt={`${character.name} avatar`} />
+                      ) : (
+                        <span className="profile-character-avatar-fallback">{character.name.slice(0, 1)}</span>
+                      )}
+                      <span className="profile-character-nameplate">{character.name}</span>
+                    </div>
+                    <div className="profile-character-copy">
+                      <span>
+                        {character.ancestry} / {getClassLabel(character.className)}
+                      </span>
+                      <span>레벨 {character.level}</span>
+                      <span>최근 플레이 {formatCompactDate(character.updatedAt)}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="profile-empty">아직 최근 사용 캐릭터가 없습니다.</p>
+            )}
             </div>
           </div>
-
-          {loadingActivity ? (
-            <p className="profile-empty">최근 캐릭터 정보를 불러오는 중입니다.</p>
-          ) : recentCharacters.length > 0 ? (
-            <div className="profile-character-grid">
-              {recentCharacters.map((character) => (
-                <article key={character.id} className="profile-character-card profile-character-card-framed">
-                  <div
-                    className="profile-character-avatar"
-                    style={{ ["--profile-character-frame-image" as string]: `url(${profileBorderCharacter})` }}
-                  >
-                    {getProfileCharacterImage(character) ? (
-                      <img src={getProfileCharacterImage(character)!} alt={`${character.name} avatar`} />
-                    ) : (
-                      <span className="profile-character-avatar-fallback">{character.name.slice(0, 1)}</span>
-                    )}
-                    <span className="profile-character-nameplate">{character.name}</span>
-                  </div>
-                  <div className="profile-character-copy">
-                    <span>
-                      {character.ancestry} / {getClassLabel(character.className)}
-                    </span>
-                    <span>레벨 {character.level}</span>
-                    <span>최근 플레이 {formatCompactDate(character.updatedAt)}</span>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <p className="profile-empty">아직 최근 사용 캐릭터가 없습니다.</p>
-          )}
         </article>
 
         <article className="profile-card profile-framed-card profile-activity-card">
-          <div className="profile-activity-stage">
+          <div className="profile-frame-content">
+            <div className="profile-frame-surface profile-activity-stage">
             <div className="section-heading profile-activity-heading">
               <div>
                 <span className="eyebrow">Activity</span>
@@ -343,46 +352,51 @@ export function ProfilePage({
                 <p className="profile-muted-text">아직 참여한 세션이 없습니다.</p>
               )}
             </div>
+            </div>
           </div>
         </article>
       </section>
 
       <section className="profile-card profile-framed-card">
-        <div className="section-heading">
-          <div>
-            <span className="eyebrow">P6 Character Vault</span>
-            <h2>완료 캠페인 캐릭터 보관소</h2>
+        <div className="profile-frame-content">
+          <div className="profile-frame-surface">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">P6 Character Vault</span>
+              <h2>완료 캠페인 캐릭터 보관소</h2>
+            </div>
+          </div>
+          {loadingActivity ? (
+            <p className="profile-muted-text">보관소를 불러오는 중입니다.</p>
+          ) : characterVault.length > 0 ? (
+            <div className="profile-session-items">
+              {characterVault.slice(0, 6).map((item) => (
+                <div key={item.sourceSessionCharacterId} className="profile-session-item">
+                  <strong>{item.name}</strong>
+                  <span>
+                    LV {item.level} {getClassLabel(item.className)}
+                    {item.subclassName ? ` / ${item.subclassName}` : ""} · {item.sourceSessionTitle}
+                  </span>
+                  <span>
+                    archive {item.archiveId} · {item.transferable ? "이관 가능" : "이관 불가"} · {formatCompactDate(item.archivedAt)}
+                  </span>
+                  {item.transferable ? (
+                    <span>clone은 원본 보관을 유지하고, transfer는 승인 후 원본 완료 캐릭터를 이관 완료 처리합니다.</span>
+                  ) : null}
+                  {item.transferable ? (
+                    <button type="button" className="ghost" onClick={() => void handleRequestTransfer(item)}>
+                      새 세션으로 clone/transfer 요청
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="profile-muted-text">완료된 캠페인의 보관 캐릭터가 아직 없습니다.</p>
+          )}
+          {vaultFeedback ? <p className="profile-muted-text">{vaultFeedback}</p> : null}
           </div>
         </div>
-        {loadingActivity ? (
-          <p className="profile-muted-text">보관소를 불러오는 중입니다.</p>
-        ) : characterVault.length > 0 ? (
-          <div className="profile-session-items">
-            {characterVault.slice(0, 6).map((item) => (
-              <div key={item.sourceSessionCharacterId} className="profile-session-item">
-                <strong>{item.name}</strong>
-                <span>
-                  LV {item.level} {getClassLabel(item.className)}
-                  {item.subclassName ? ` / ${item.subclassName}` : ""} · {item.sourceSessionTitle}
-                </span>
-                <span>
-                  archive {item.archiveId} · {item.transferable ? "이관 가능" : "이관 불가"} · {formatCompactDate(item.archivedAt)}
-                </span>
-                {item.transferable ? (
-                  <span>clone은 원본 보관을 유지하고, transfer는 승인 후 원본 완료 캐릭터를 이관 완료 처리합니다.</span>
-                ) : null}
-                {item.transferable ? (
-                  <button type="button" className="ghost" onClick={() => void handleRequestTransfer(item)}>
-                    새 세션으로 clone/transfer 요청
-                  </button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="profile-muted-text">완료된 캠페인의 보관 캐릭터가 아직 없습니다.</p>
-        )}
-        {vaultFeedback ? <p className="profile-muted-text">{vaultFeedback}</p> : null}
       </section>
 
       {profileError || activityError || error ? <p className="panel-error">{profileError ?? activityError ?? error}</p> : null}

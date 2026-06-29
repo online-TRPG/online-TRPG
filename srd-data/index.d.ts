@@ -67,13 +67,37 @@ export interface SrdCatalogFingerprint {
   }>;
 }
 
+export interface SrdSpellClassLists {
+  schemaVersion: 'srd-spell-class-lists-v1';
+  source?: {
+    kind?: string;
+    name?: string;
+    url?: string;
+    externalUpdatedAtMax?: string;
+    localSpellCount?: number;
+    externalSpellCount?: number;
+  };
+  classes: Record<
+    string,
+    {
+      cantrips?: string[];
+      spellsByLevel?: Record<string, string[]>;
+    }
+  >;
+}
+
 export type CanonicalClassFeatureAliasMap =
   | Map<string, Map<string, string> | Record<string, string>>
   | Record<string, Record<string, string>>;
 
+export type CanonicalClassFeatureDisplayOverrideMap =
+  | Map<string, { nameKo?: string | null; summaryKo?: string | null }>
+  | Record<string, { nameKo?: string | null; summaryKo?: string | null }>;
+
 export interface BuildCanonicalClassFeatureManifestOptions {
   runtimeFeatureIds?: Iterable<string>;
   aliasesByClass?: CanonicalClassFeatureAliasMap | null;
+  displayOverridesById?: CanonicalClassFeatureDisplayOverrideMap | null;
 }
 
 export const SRD_LEGACY_ID_ALIASES: Readonly<{
@@ -83,6 +107,10 @@ export const SRD_LEGACY_ID_ALIASES: Readonly<{
   race: Readonly<Record<string, string>>;
 }>;
 export const SRD_CLASS_FEATURE_ID_ALIASES: Readonly<Record<string, Readonly<Record<string, string>>>>;
+export const SRD_CATALOG_FINGERPRINT_FILES: ReadonlyArray<{
+  scope: 'srd' | 'srd-engine';
+  path: string;
+}>;
 
 export function getGeneratedSrdDir(): string;
 export function getGeneratedSrdEngineDir(): string;
@@ -113,6 +141,7 @@ export function listSrdMonsters(): Promise<SrdMonsterOption[]>;
 export function listSrdEquipmentItems(): Promise<SrdItemOption[]>;
 export function listSrdMagicItems(): Promise<SrdItemOption[]>;
 export function getSrdSourceManifest(): Promise<SrdJsonRecord>;
+export function getSrdSpellClassLists(): Promise<SrdSpellClassLists>;
 
 export function listSrdEngineClasses(): Promise<SrdJsonRecord[]>;
 export function listSrdEngineSpells(): Promise<SrdJsonRecord[]>;

@@ -22,6 +22,7 @@ interface AccountPageProps {
   error: string | null;
   onLogout: () => void;
   onOpenProfile: () => void;
+  onConvertGuestAccount: (email: string, password: string, name: string) => Promise<boolean>;
   onDeleteAccount: (password: string) => Promise<boolean>;
 }
 
@@ -34,6 +35,7 @@ export function AccountPage({
   error,
   onLogout,
   onOpenProfile,
+  onConvertGuestAccount,
   onDeleteAccount,
 }: AccountPageProps) {
   // 게스트/회원 여부에 맞춰 서버 프로필과 로컬 사용자 정보를 합친 표시용 프로필입니다.
@@ -45,6 +47,11 @@ export function AccountPage({
 
   const canDeleteAccount = authMode === "member" && Boolean(accessToken);
 
+  const [convertEmail, setConvertEmail] = useState("");
+  const [convertName, setConvertName] = useState(user.displayName);
+  const [convertPassword, setConvertPassword] = useState("");
+  const [convertConfirmPassword, setConvertConfirmPassword] = useState("");
+  const [convertFormError, setConvertFormError] = useState<string | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteFormError, setDeleteFormError] = useState<string | null>(null);
@@ -75,6 +82,38 @@ export function AccountPage({
     }
 
     closeDeleteModal();
+  }
+
+  async function submitConvertGuest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!convertName.trim() || convertName.trim().length < 2 || convertName.trim().length > 10) {
+      setConvertFormError("이름은 2자 이상 10자 이하여야 합니다.");
+      return;
+    }
+    if (!convertEmail.trim()) {
+      setConvertFormError("이메일을 입력해주세요.");
+      return;
+    }
+    if (convertPassword.length < 8) {
+      setConvertFormError("비밀번호는 8자 이상이어야 합니다.");
+      return;
+    }
+    if (convertPassword !== convertConfirmPassword) {
+      setConvertFormError("비밀번호 확인이 일치하지 않습니다.");
+      return;
+    }
+
+    const converted = await onConvertGuestAccount(
+      convertEmail,
+      convertPassword,
+      convertName,
+    );
+    if (converted) {
+      setConvertPassword("");
+      setConvertConfirmPassword("");
+      setConvertFormError(null);
+    }
   }
 
   // 계정 정보 카드의 <dl> 항목을 배열로 만들어 JSX를 짧게 유지합니다.
@@ -133,6 +172,75 @@ export function AccountPage({
             ))}
           </dl>
         </article>
+
+        {authMode === "guest" ? (
+          <article className="profile-card">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Save</span>
+                <h2>게스트 계정 저장</h2>
+              </div>
+            </div>
+
+            <form className="modal-form" onSubmit={submitConvertGuest}>
+              <p className="profile-muted-text">
+                게스트 데이터는 7일 뒤 정리됩니다. 캐릭터와 진행 기록을 보존하려면 이메일 계정으로 저장하세요.
+              </p>
+              <label htmlFor="guest-convert-name">이름</label>
+              <input
+                id="guest-convert-name"
+                value={convertName}
+                onChange={(event) => {
+                  setConvertName(event.target.value);
+                  setConvertFormError(null);
+                }}
+                minLength={2}
+                maxLength={10}
+                disabled={busy}
+              />
+              <label htmlFor="guest-convert-email">Email</label>
+              <input
+                id="guest-convert-email"
+                type="email"
+                value={convertEmail}
+                onChange={(event) => {
+                  setConvertEmail(event.target.value);
+                  setConvertFormError(null);
+                }}
+                autoComplete="email"
+                disabled={busy}
+              />
+              <label htmlFor="guest-convert-password">Password</label>
+              <input
+                id="guest-convert-password"
+                type="password"
+                value={convertPassword}
+                onChange={(event) => {
+                  setConvertPassword(event.target.value);
+                  setConvertFormError(null);
+                }}
+                autoComplete="new-password"
+                disabled={busy}
+              />
+              <label htmlFor="guest-convert-confirm-password">Password Confirm</label>
+              <input
+                id="guest-convert-confirm-password"
+                type="password"
+                value={convertConfirmPassword}
+                onChange={(event) => {
+                  setConvertConfirmPassword(event.target.value);
+                  setConvertFormError(null);
+                }}
+                autoComplete="new-password"
+                disabled={busy}
+              />
+              {convertFormError ? <p className="profile-inline-error">{convertFormError}</p> : null}
+              <button type="submit" disabled={busy}>
+                회원 계정으로 저장
+              </button>
+            </form>
+          </article>
+        ) : null}
 
         {/* 현재 로그인 방식과 동기화 상태를 설명하는 카드입니다. */}
         <article className="profile-card">
