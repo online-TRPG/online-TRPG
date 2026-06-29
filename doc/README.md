@@ -9,7 +9,8 @@
 | `README.md` | 문서 지도 |
 | `PENDING_WORK_ITEMS.md` | 완료 보관 문서에서 남긴 후속 작업 목록 |
 | `future_plan.md` | SRD 5e 룰/콘텐츠 확장 로드맵 |
-| `future_plan_srd_data_consistency.md` | SRD 데이터 단일 원천화 및 FE/BE/AI 정합성 보장 계획. SRD generated artifact, override, class spell list importer, sync/verify 경로의 최신 작업 기록 |
+| `future_plan_srd_character_rules_single_source.md` | 캐릭터 생성/레벨업/주문 진행 규칙을 `srd-data` 기준으로 단일 원천화하는 후속 계획 |
+| `completed/future_plan_srd_data_consistency.md` | 완료된 SRD 데이터 단일 원천화 및 FE/BE/AI 정합성 보장 계획 기록 |
 | `completed/future_plan_mvp.md` | 완료된 End-to-End Playable MVP 로드맵 기록 |
 | `completed/future_plan_p1.md` | 완료된 P1 플레이 가능 룰 범위 확대 기록 |
 | `completed/future_plan_p2.md` | 완료된 P2 5레벨 플레이 확장 기록 |
